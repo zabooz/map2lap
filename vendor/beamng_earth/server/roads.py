@@ -4086,6 +4086,37 @@ def _deck_key(xy):
     return (len(xy), *np.round(xy[[0, -1]], 2).ravel().tolist())
 
 
+# (ac-export patch P7) The deck parts of single and twin bridges (_simple_chain), by their ends' lat / lon: a chain is
+# solved in its ChainStore's frame (geotiles.CHAIN_Z) and an anchor sees it through a ChainView, so no frame's
+# coordinates are a key. Process-wide: a chain another store adopts or a store evicted keeps its entry.
+SIMPLE_END_DEG = 5e-7       # deg (~5 cm): ends this near are the same part's
+_simple_ends = []           # (vertices, lat0, lon0, lat1, lon1) per simple deck part
+_simple_lock = threading.Lock()
+
+
+def _ends_of(frame, xy):
+    xy = np.asarray(xy, np.float64)[:, :2]
+    la, lo, _ = frame.enu_to_geodetic(xy[[0, -1], 0], xy[[0, -1], 1], 0.0)
+    return (len(xy), float(la[0]), float(lo[0]), float(la[1]), float(lo[1]))
+
+
+def _simple_add(frame, lines):
+    """(ac-export patch P7) Note the parts lines (this frame) as a simple chain's."""
+    rows = [_ends_of(frame, ln) for ln in lines]
+    with _simple_lock:
+        _simple_ends.extend(rows)
+
+
+def _is_simple(frame, xy):
+    """(ac-export patch P7) Is deck part xy (this frame) a simple chain's (_simple_add, in whichever frame)?"""
+    with _simple_lock:
+        if not _simple_ends:
+            return False
+        a = np.array(_simple_ends, np.float64)
+    q = np.array(_ends_of(frame, xy), np.float64)
+    return bool(((a[:, 0] == q[0]) & (np.abs(a[:, 1:] - q[1:]).max(1) < SIMPLE_END_DEG)).any())
+
+
 SIMPLE_OPPOSITE_COS = -0.85     # (ac-export patch P7/P8) two parts running opposite ways: a twin bridge
 
 
@@ -4628,7 +4659,7 @@ class BridgeProfiles:
                       MIN_BRIDGE_HEADROOM_M, [(comp[i], round(h, 2)) for i, h in deficits[:3]])
         simple = _simple_chain(lines)           # (ac-export patch P7/P8: a single deck or a twin bridge only)
         if simple:
-            self.__dict__.setdefault("simple", set()).update(_deck_key(ln) for ln in lines)
+            _simple_add(self.frame, lines)
         if head is not None and TANGENT_ON and simple:  # (ac-export patch P8) on lidar: meeting its approaches' grades
             zs = self._tangent(lines, zs)
         elif ons and not over:          # (ac-export patch P8: final is the solve before _tangent)
@@ -4807,7 +4838,7 @@ class BridgeProfiles:
         if key in cache:
             return cache[key]
         b = None
-        if key not in self.__dict__.get("simple", ()):     # (a junction's bridge: level across, as BeamNG.Earth has it)
+        if not _is_simple(self.frame, xy):          # (a junction's bridge: level across, as BeamNG.Earth has it)
             cache[key] = None
             return None
         import railways
@@ -5635,6 +5666,7 @@ class ChainView:
         self.specs_of, self.parts_of = cs.cls.specs_of, cs.cls.parts_of
 
     mapper = staticmethod(lambda src, dst: _Mapper(src, dst))
+    deck_bank = BridgeProfiles.deck_bank        # (ac-export patch P7: in this frame, its _ground and parts)
 
     def __getattr__(self, name):        # wet, infra_fn, raw, ends: the stores' settings (setup)
         if name in ("wet", "infra_fn", "raw", "ends"):

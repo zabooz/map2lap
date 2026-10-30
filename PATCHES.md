@@ -16,7 +16,9 @@ physics names, kn5) are described in docs/DEVELOPMENT.md, not here.
   and otherwise removed again.
 - The Rust module's patch announces itself as `earthfast.AC_EXPORT_YIELD` (tools/update_beamng_earth.py checks it).
 
-**Based on:** BeamNG.Earth 1.7.1-beta.
+**Based on:** BeamNG.Earth 1.7.2-beta. With the patches, A2, Stausee and Graz measure the same as on 1.7.1 (2026-10-30;
+A2's strongest bridge transition 1.68 instead of 1.66 G). Without them, 1.7.2 measured far worse (A2: 415 m over
+0.5 G in the lanes instead of 51) and drove badly.
 
 | ID | What | Files | Off with | Proven |
 |---|---|---|---|---|
@@ -43,8 +45,10 @@ where BeamNG.Earth's rules assume a coarser elevation model.
 
 1. Read their `CHANGELOG.md`: does the new version change a place from the sections below ("Code")? Does it fix one of
    the problems itself ("Problem")?
-2. `.venv\Scripts\python.exe tools\update_beamng_earth.py` (not during a build): new version onto `upstream`, merge, rebuild
-   earthfast with P1. Conflicts at marked places: take their new code, put our rule back in.
+2. `.venv\Scripts\python.exe tools\update_beamng_earth.py <release zip>` (not during a build; the release's zip from
+   GitHub, their main branch may be ahead of it): new version onto `upstream`, merge, rebuild earthfast with P1.
+   Conflicts at marked places: take their new code, put our rule back in. A running Map2Lap server keeps
+   `earthfast.pyd` locked: stop it first (or rename the old file aside).
 3. Tests (from the test folder, else `test_roads` is missing):
    `cd vendor\beamng_earth\server\tests` → `..\..\..\..\.venv\Scripts\python.exe -m unittest test_grading test_roadmesh test_roads test_gradesep test_otto_bridge`.
    Expected failures are listed below ("Known test failures"); every other failure is new.
@@ -104,7 +108,8 @@ where BeamNG.Earth's rules assume a coarser elevation model.
   the approaches.
 - **Rule:** Where the elevation model is fine (not `railways._coarse_here`), `deck_road_clear(depth, headroom)` uses
   `LIDAR_HEADROOM_M` 4 m instead of `MIN_BRIDGE_HEADROOM_M` 6 m.
-- **Code:** `roads.py`: `LIDAR_HEADROOM_M`, `deck_road_clear`, `BridgeProfiles._solve` (`head`).
+- **Code:** `roads.py`: `LIDAR_HEADROOM_M`, `deck_road_clear`, `BridgeProfiles._solve` (`head`; since 1.7.2 also in
+  its inner `solve()`, which their deck-end-on-deck rule calls a second time).
 - **Proven:** A2: bridge at 4.3 km hump 1.14 → 0.57 m; at 3.3 and 7.8 km the step at the approach 13 → 2 cm,
   3 → 0.45 G.
 - **Tests:** `test_roadmesh.BridgeProfilesTest.test_lidar_headroom` (on lidar ≥ 0.5 m lower than with 6 m, still above
@@ -176,8 +181,14 @@ where BeamNG.Earth's rules assume a coarser elevation model.
   bridge (`roads.tilt_rows_on_decks`).
 - **Code:** `grading.py`: `BANK_LIDAR_*`, `_lidar_banks`, `_bank_lidar`, `_plan(…, lidar_bank)`, `plan_roads` (plans
   at the end with one height call). `roads.py`: `BridgeProfiles.deck_bank`, `DECK_BANK_*`, `_deck_tilt`,
-  `tilt_rows_on_decks`, `_deck_chunks(…, banks)`. `roadmesh.py`: `_row_bank`, `_tilt_since`, `build`, `deck`.
-  `blockworker.py`: the call of `tilt_rows_on_decks`.
+  `tilt_rows_on_decks`, `_deck_chunks(…, banks)`, `_simple_add`, `_is_simple`, `ChainView.deck_bank`. `roadmesh.py`:
+  `_row_bank`, `_tilt_since`, `build`, `deck`. `blockworker.py`: the call of `tilt_rows_on_decks`.
+- **Since 1.7.2:** BeamNG.Earth solves each bridge chain once in a `ChainStore` (in the frame of its
+  `geotiles.CHAIN_Z` region, ~7 km) and a tile sees it through a `ChainView`. The view had no `deck_bank`, and the
+  simple chains were noted by their coordinates in the solving frame, so every deck stayed level without an error
+  (A2: 144 m over 0.5 G in the lanes instead of 51, the 4.3 km bridge's start 2.65 G at the edge of the lane). Now the
+  simple chains are noted by their ends' lat / lon (process-wide, `_simple_add`), and the view has `deck_bank`
+  (`BridgeProfiles.deck_bank` in its frame). Measured: A2 back to 1.7.1's values (26 / 51 m, 3.19 G).
 - **Proven:** computed for the A2 at 6760 m: graded follows the lidar across both carriageways to ~5 cm, the step at
   the middle is gone. Driven on the A2: the first measurement across (two points) hit the embankment at the end of the
   4.3 km bridge and tipped the road by 8 % (a crash at a hard edge); since then it measures 5 points across and drops
@@ -189,7 +200,8 @@ where BeamNG.Earth's rules assume a coarser elevation model.
 - **Limits:** other road classes stay flat across. Piers and poles on bridges are not tilted. At the joint of two
   bridge parts with different slopes a small offset may remain at the edge.
 - **Check on update:** `grading.bank`, `BANK_*`, `_plan`, `plan_roads`; `roadmesh.deck`/`build` (ribbons),
-  `roads._deck_chunks`, `guardrails.forest_rows`.
+  `roads._deck_chunks`, `guardrails.forest_rows`; `ChainView`, `ChainStore`, `BridgeProfiles._adopt` (who solves a
+  chain, in which frame). A deck that measures level again where the approach is banked means P7 no longer reaches it.
 
 ## P8 A bridge deck meets its approaches with their gradient
 
@@ -202,7 +214,9 @@ where BeamNG.Earth's rules assume a coarser elevation model.
   over a road), only the ends are matched over `TANGENT_END_M` 15 m. Single bridges and twin bridges only
   (`_simple_chain`, like P7).
 - **Code:** `roads.py`: `TANGENT_*`, `tangent_profile`, `tangent_ends`, `_simple_chain`, `_deck_key`,
-  `BridgeProfiles._tangent`, the call at the end of `BridgeProfiles._solve`.
+  `BridgeProfiles._tangent`, the call at the end of `BridgeProfiles._solve` (since 1.7.2 before their `_observed`
+  measured heights; their shortcut `return final` holds the solve from before the tangent, so it only runs without
+  P8).
 - **Proven:** A2 measured (with P9 and P10): 3.7 km bridge, approach 1.6 → 1.0 G, exit 0.56 → 0.32 G at 100 km/h;
   driven afterwards. Without P10, P8 hardly works (the ground under the bridge end held the deck flat).
 - **Tests:** `test_roads.TangentProfileTest`.
