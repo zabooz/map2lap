@@ -4,7 +4,7 @@ Manager); "My tracks" on the generator page uses it to show which tracks were bu
 Bump it whenever a change alters how built tracks look or drive (not for the page or the tools). Tracks built before
 versions existed have none and count as old. Small changes go in the third place (0.3.1), bigger ones in the second.
 """
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"
 # (the User-Agent for OSRM and Nominatim: their usage policies ask for an app name and a way to reach its maker)
@@ -13,6 +13,7 @@ USER_AGENT = f"Map2Lap/{VERSION} (+{REPO_URL}; {CONTACT})"
 # 0.3    point-to-point routes with start and finish lines (timing), run-off behind the finish
 # 0.3.1  start and finish made visible (checkered band, gantry with banner, gates.py)
 # 0.3.2  darker, greener larches
+# 0.3.3  BeamNG.Earth 1.7.2 (paved junctions on bridges, roundabout islands, piped rivers stay underground)
 
 
 def key(v):
