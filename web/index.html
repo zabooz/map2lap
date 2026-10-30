@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Map2Lap</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CclipPath id='r'%3E%3Crect width='32' height='32' rx='7'/%3E%3C/clipPath%3E%3Cpattern id='c' width='16' height='16' patternUnits='userSpaceOnUse'%3E%3Crect width='16' height='16' fill='%23fff'/%3E%3Crect width='8' height='8' fill='%2314171c'/%3E%3Crect x='8' y='8' width='8' height='8' fill='%2314171c'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='32' height='32' fill='url(%23c)' clip-path='url(%23r)'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='6' fill='none' stroke='%2314171c' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #eef0f3; --panel: #ffffff; --raised: #f6f7f9; --text: #14171c; --muted: #687080; --line: #e2e5ea;
+    --accent: #e0243a; --accent-ink: #ffffff; --accent-soft: #fde9ec; --ok: #168a4a; --ok-soft: #e4f5ec;
+    --warn: #b45309; --warn-soft: #fdf1e3; --scroll: #c9ced6; --shadow: 0 10px 30px rgba(20, 23, 28, .16);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1014; --panel: #171a20; --raised: #1e222a; --text: #e8eaee; --muted: #9aa2b1; --line: #2b303a;
+      --accent: #ff4a5c; --accent-ink: #ffffff; --accent-soft: #3a1c22; --ok: #3ecf7e; --ok-soft: #173326;
+      --warn: #f59e0b; --warn-soft: #3a2a14; --scroll: #3a404c; --shadow: 0 10px 30px rgba(0, 0, 0, .5);
+    }
+  }
+  /* Scrollbars: thin and round, in the page's colours (Firefox: width and colour only) */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 99px; border: 3px solid transparent;
+                              background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
+  @supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; } }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg);
+         color: var(--text); display: grid; grid-template-columns: 360px 1fr; }
+  button, input, select { font: inherit; color: inherit; }
+
+  /* Sidebar: fixed sections, only the log grows */
+  aside { position: relative; background: var(--panel); border-right: 1px solid var(--line); height: 100vh;
+          display: flex; flex-direction: column; gap: 14px; padding: 18px; min-width: 0; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; flex: none;
+          background: repeating-conic-gradient(var(--text) 0 25%, var(--panel) 0 50%) 0 0 / 10px 10px;
+          box-shadow: inset 0 0 0 2px var(--text); }
+  .brand { flex: 1; min-width: 0; }
+  .brand b { display: block; font-size: 18px; letter-spacing: -.01em; }
+  .brand span { color: var(--muted); font-size: 12px; }
+
+  /* Tabs: New / My tracks (same height: the list lies over the space of "New") / Settings (instead of the card,
+     button and log) */
+  .tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); margin-bottom: -2px; }
+  .tabs button { border: 0; background: none; padding: 0 0 9px; margin-bottom: -1px; cursor: pointer; font-weight: 600;
+                 color: var(--muted); border-bottom: 2px solid transparent; display: flex; gap: 6px; align-items: center; }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  .tabs button.warn::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+  .count { font-size: 11px; font-weight: 700; min-width: 18px; padding: 1px 6px; border-radius: 99px;
+           background: var(--raised); border: 1px solid var(--line); color: var(--muted); }
+  .count:empty { display: none; }
+  .count.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+  .panes { position: relative; flex: 1 0 auto; }      /* (gets a quarter of the free space, the log three) */
+  #pane-new { display: flex; flex-direction: column; gap: 14px; }
+  #pane-new.off { visibility: hidden; }
+  #pane-mine { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px;
+               padding-right: 2px; }
+  .trk { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); padding: 8px 11px;
+         cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; flex: none; }
+  .trk:hover { border-color: var(--muted); }
+  .trk.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .trk b, .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .trk small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .trk .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .trk .old { color: var(--warn); font-weight: 600; }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 240px; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; background: var(--raised);
+         border: 1px solid var(--line); border-radius: 10px; }
+  .seg button { border: 0; background: none; padding: 7px 8px; border-radius: 7px; cursor: pointer; color: var(--muted);
+                font-weight: 600; }
+  .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .label-row { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; font-size: 13px; }
+  .label-row .val { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
+  input[type=text] { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px;
+                     background: var(--raised); }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
+  .slot { min-height: 62px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12.5px; margin: 0; }
+
+  /* Status card: always the same height */
+  .card { height: 164px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); padding: 12px 14px;
+          display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .card-top { display: flex; justify-content: space-between; align-items: center; }
+  .badge { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px;
+           border-radius: 99px; background: var(--line); color: var(--muted); }
+  .badge.run { background: var(--accent-soft); color: var(--accent); }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.bad { background: var(--accent-soft); color: var(--accent); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  #card-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .big { font-size: 22px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .phase { display: flex; justify-content: space-between; font-weight: 600; }
+  .phase span { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; position: relative; }
+  .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--accent); transition: width .4s; }
+  .bar.indet i { width: 30%; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { left: -30%; } to { left: 100%; } }
+  #card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .stats { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 6px 8px; }
+  .stats div { display: flex; flex-direction: column; }
+  .stats small { color: var(--muted); font-size: 11.5px; }
+  .stats b { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .play { flex: none; height: 34px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--ok); color: #fff;
+          font-weight: 700; cursor: pointer; }
+  .play:disabled { opacity: .6; cursor: default; }
+  .err { color: var(--accent); font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4;
+         -webkit-box-orient: vertical; }
+
+  .actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+  .actions button { height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised);
+                    cursor: pointer; font-weight: 600; }
+  .actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .actions button.danger { background: var(--panel); border-color: var(--accent); color: var(--accent); }
+  .actions button:disabled { opacity: .45; cursor: default; }
+  .actions.mine { grid-template-columns: 42px 1fr 1fr; }
+  .actions button.icon { display: grid; place-items: center; color: var(--muted); }
+  .actions button.icon:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+
+  .log-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-weight: 600;
+              margin-bottom: -8px; }
+  #log { flex: 3 1 0; min-height: 0; margin: 0; padding: 10px; background: var(--raised); border: 1px solid var(--line);
+         border-radius: 10px; font: 11.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap;
+         overflow: auto; color: var(--muted); }
+
+  /* Settings: groups as cards */
+  #settings { overflow: auto; gap: 12px; }
+  .group { border: 1px solid var(--line); border-radius: 12px; background: var(--raised); padding: 12px 14px;
+           display: flex; flex-direction: column; gap: 8px; flex: none; }
+  .group h3 { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+              color: var(--muted); }
+  .group input[type=text], .group select, .group .path-row button { background: var(--panel); }
+  .path-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+  .path-row button { padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised);
+                     cursor: pointer; }
+  .path-row button:disabled { opacity: .45; cursor: default; }
+  select { height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised); }
+  select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #ac-status.ok { color: var(--ok); }
+  #ac-status.bad { color: var(--accent); font-weight: 600; }
+  .check { display: flex; gap: 9px; align-items: center; cursor: pointer; }
+  .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+  /* Map with a floating hint */
+  main { position: relative; min-width: 0; }
+  #map { position: absolute; inset: 0; }
+  #hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 500; max-width: min(560px, 90%);
+          background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 99px;
+          padding: 8px 16px; box-shadow: var(--shadow); font-size: 13px; text-align: center; pointer-events: none; }
+  .handle { background: #fff; border: 2px solid var(--accent); border-radius: 3px; cursor: move; }
+
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; }
+    main { grid-row: 1; height: 50vh; }
+    aside { grid-row: 2; height: auto; border-right: 0; }
+    #log { min-height: 160px; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <div class="head">
+    <div class="mark"></div>
+    <div class="brand"><b>Map2Lap</b><span>Real roads for Assetto Corsa<span id="ver"></span></span></div>
+  </div>
+
+  <nav class="tabs">
+    <button id="t-new" class="on">New track</button>
+    <button id="t-mine">My tracks <span id="mine-n" class="count"></span></button>
+    <button id="t-set">Settings</button>
+  </nav>
+
+  <section id="settings" class="view" hidden>
+    <div class="group">
+      <h3>Assetto Corsa</h3>
+      <div class="path-row"><input id="ac" type="text" spellcheck="false"><button id="browse">Browse …</button></div>
+      <p id="ac-status" class="small"></p>
+    </div>
+    <div class="group">
+      <h3>Play</h3>
+      <div class="label-row"><span>Car</span></div>
+      <select id="car"><option value="">Last driven</option></select>
+      <p class="small muted">“Play” starts a practice session on your track with this car.</p>
+    </div>
+    <div class="group">
+      <h3>Build speed</h3>
+      <div class="label-row"><span>CPU usage</span><span class="val" id="cores-val"></span></div>
+      <input id="cores" type="range" min="5" max="100" step="5" value="50">
+      <p class="small muted" id="cores-info"></p>
+    </div>
+    <div class="group">
+      <h3>Storage</h3>
+      <div class="label-row"><span>Map data</span><span class="val" id="cache-val"></span></div>
+      <div class="path-row">
+        <select id="cache-cap">
+          <option value="5">Keep up to 5 GB</option><option value="10">Keep up to 10 GB</option>
+          <option value="20">Keep up to 20 GB</option><option value="50">Keep up to 50 GB</option>
+          <option value="100">Keep up to 100 GB</option><option value="0">No limit</option>
+        </select>
+        <button id="cache-clear">Clear now</button>
+      </div>
+      <p class="small muted">Downloaded maps are kept, so the same area builds faster next time. Above the limit the
+        oldest goes first.</p>
+      <label class="check"><input id="keep" type="checkbox"> Keep build files
+        <span class="muted">(troubleshooting, several GB)</span></label>
+    </div>
+  </section>
+
+  <div id="work" class="view">
+  <div class="panes">
+    <div id="pane-new">
+      <div class="seg"><button id="m-route" class="on">Route</button><button id="m-area">Area</button></div>
+
+      <div class="field">
+        <div class="label-row"><span>Track name</span></div>
+        <input id="title" type="text" value="My Route" spellcheck="false">
+      </div>
+
+      <div class="slot">
+        <div id="width-row" class="field">
+          <div class="label-row"><span>Corridor each side</span><span class="val" id="width-val"></span></div>
+          <input id="width" type="range" min="30" max="400" step="10" value="100">
+        </div>
+        <div id="area-row" class="field" hidden>
+          <div class="label-row"><span>Area</span></div>
+          <p class="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
+            middle.</p>
+        </div>
+      </div>
+    </div>
+    <div id="pane-mine" hidden></div>
+  </div>
+
+  <div class="card">
+    <div class="card-top"><span id="card-badge" class="badge">Ready</span><span id="card-time"></span></div>
+    <div id="card-body"></div>
+  </div>
+
+  <div id="actions" class="actions">
+    <button id="clear">Clear</button>
+    <button id="del" class="icon" hidden title="Delete track" aria-label="Delete track">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+    </button>
+    <button id="copy" hidden>Build as copy</button>
+    <button id="go" class="primary" disabled>Build track</button>
+  </div>
+
+  <div class="log-head"><span>Build log</span></div>
+  <pre id="log"></pre>
+  </div>
+</aside>
+
+<main>
+  <div id="map"></div>
+  <div id="hint"></div>
+</main>
+
+<script>
+const map = L.map('map').setView([46.6624, 14.6345], 14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const MAX_KM = 500, TILE_M = 256, markers = [];
+const HINTS = {
+  route: 'Click to set start, finish and waypoints · drag to move · right-click to remove',
+  area: 'Press and drag to draw the area · drag a corner to resize · "Clear" removes it',
+  mine: 'Pick one of your tracks to see it on the map', set: ''};
+const PHASES = {route: 'Calculating route', tiles: 'Building road tiles', scenery: 'Terrain, trees & buildings',
+                distant: 'Distant terrain', kn5: 'Writing track file', clean: 'Cleaning up'};
+const ORDER = Object.keys(PHASES);
+const ROUTE_COLOR = '#e0243a';
+let mode = 'route', routeLine = null, corridor = null, rect = null, routeCoords = null, area = null, timer = null;
+let status = {state: 'idle'}, sel = null, selNewer = false;
+let tab = 'new', tracks = [], pick = null, clearing = false, VERSION = '', car = null;
+const mineLayer = L.layerGroup().addTo(map);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const busy = () => status.state === 'running' || status.state === 'stopping';
+
+function slug(s) { return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'route'; }
+function fmtTime(s) { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+function fmtBytes(b) { const mb = b / 1e6; return mb >= 1000 ? (mb / 1000).toFixed(2) + ' GB' : mb.toFixed(0) + ' MB'; }
+function fmtDate(t) {
+  return t ? new Date(t * 1000).toLocaleString('en-GB', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : '';
+}
+function fmtSize(t) {
+  return t.area_m ? `${(t.area_m[0] / 1000).toFixed(1)} × ${(t.area_m[1] / 1000).toFixed(1)} km`
+                  : `${(t.length_m / 1000).toFixed(2)} km`;
+}
+
+// --- play: AC with this track (Practice, the car driven last; the server starts Steam if needed) ---
+function playButton(name) {
+  const what = car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
+  return `<button class="play" data-play="${esc(name)}" title="${esc(what)}">▶ Play</button>`;
+}
+$('card-body').addEventListener('click', async e => {
+  const b = e.target.closest('[data-play]');
+  if (!b) return;
+  b.disabled = true;
+  b.textContent = 'Starting …';
+  const r = await fetch('/api/play', {method: 'POST', body: JSON.stringify({name: b.dataset.play})}).then(r => r.json())
+    .catch(e => ({error: String(e)}));
+  if (r.error) alert(r.error);
+  setTimeout(render, r.error ? 0 : 5000);
+});
+
+// --- the status card: one place, fixed height (selection, progress, result, error) ---
+function setSel(s) { sel = s; selNewer = true; render(); }
+
+function render() {
+  const st = status.state, run = busy(), mine = tab === 'mine';
+  const go = $('go'), t = mine && tracks.find(x => x.name === pick);
+  go.textContent = run ? (st === 'stopping' ? 'Stopping …' : 'Stop build') : (mine ? 'Rebuild' : 'Build track');
+  go.className = run ? 'danger' : 'primary';
+  go.disabled = st === 'stopping' || (!run && !(mine ? t : sel && sel.ok));
+  $('actions').classList.toggle('mine', mine);
+  $('clear').hidden = mine;
+  $('clear').disabled = run;
+  go.title = mine && !run ? 'Build it again with this version and replace it' : '';
+  $('copy').title = 'Keep this track and build a new one next to it';
+  $('del').hidden = $('copy').hidden = !mine;
+  $('del').disabled = $('copy').disabled = run || !t;
+  $('cache-clear').disabled = run || clearing;
+  let badge = ['Ready', ''], time = '', body;
+  const result = ['done', 'error', 'stopped'].includes(st) && !selNewer;
+  if (run) {
+    const p = status.progress || {phase: 'route', done: 0, total: 0};
+    const k = ORDER.indexOf(p.phase) + 1, steps = ORDER.length;
+    const frac = p.total ? p.done / p.total : null;
+    badge = [st === 'stopping' ? 'Stopping' : 'Building', 'run'];
+    time = fmtTime(status.elapsed);
+    const what = p.phase === 'tiles' ? 'tiles' : 'parts';
+    const note = p.phase === 'tiles' && !p.done ? 'Downloading map data for new areas …' :
+      (p.total ? `${p.done} / ${p.total} ${what}` : '');
+    body = `<div class="phase">${esc(PHASES[p.phase] || p.phase)}<span>step ${Math.max(1, k)} of ${steps}</span></div>
+      <div class="bar${frac === null ? ' indet' : ''}"><i style="width:${frac === null ? 30 : (100 * frac).toFixed(1)}%"></i></div>
+      <p class="small muted">${esc(note) || '&nbsp;'}</p>`;
+  } else if (result && st === 'done' && status.result) {
+    const r = status.result;
+    badge = ['Done', 'ok']; time = fmtTime(r.seconds);
+    body = `<div class="stats">
+        <div><small>Track file</small><b>${fmtBytes(r.kn5_bytes)}</b></div>
+        <div><small>${r.area_m ? 'Area' : 'Length'}</small><b>${fmtSize(r)}</b></div>
+        <div><small>Build time</small><b>${fmtTime(r.seconds)}</b></div>
+        <div><small>Tiles</small><b>${r.tiles}</b></div></div>
+      <div class="foot"><p class="small muted">Installed in Assetto Corsa.</p>${playButton(r.name)}</div>`;
+  } else if (result && st === 'error') {
+    badge = ['Error', 'bad']; time = fmtTime(status.elapsed);
+    body = `<p class="err">${esc(status.error || 'The build failed')}</p><p class="small muted">Details in the log below.</p>`;
+  } else if (result && st === 'stopped') {
+    badge = ['Stopped', 'bad']; time = fmtTime(status.elapsed);
+    body = `<div class="big">Build stopped</div><p class="small muted">Nothing half-built was left in Assetto Corsa.</p>`;
+  } else if (t) {
+    badge = !t.kn5_bytes ? ['No track file', 'bad'] : t.outdated ? ['Old version', 'warn'] : [t.area ? 'Area' : 'Route', 'ok'];
+    time = fmtDate(t.built);
+    const was = t.version ? 'Map2Lap ' + esc(t.version) : 'an earlier Map2Lap';
+    const built = t.outdated ? `Built with ${was}, now ${esc(VERSION)}.` :
+      t.current_copy ? `Built with ${was}; “${esc(t.current_copy)}” is the current build.` :
+      `Built with the current Map2Lap ${esc(VERSION)}.`;
+    body = `<div class="big ell">${esc(t.title)}</div>
+      <p class="small muted">${fmtSize(t)}${t.area ? '' : ` · corridor ±${Math.round(t.width)} m`} · ${t.tiles} tiles${
+        t.kn5_bytes ? ' · ' + fmtBytes(t.kn5_bytes) : ''}</p>
+      <div class="foot"><p class="small muted">${built}</p>${t.kn5_bytes ? playButton(t.name) : ''}</div>`;
+  } else if (mine) {
+    body = `<div class="big">${tracks.length ? 'Pick a track' : 'No tracks yet'}</div>
+      <p class="small muted">${tracks.length ? 'Choose one from the list to rebuild it.' :
+        'Tracks you build show up here.'}</p>`;
+  } else if (sel && sel.kind === 'route') {
+    badge = sel.ok ? ['Route', 'ok'] : ['Too long', 'bad'];
+    body = `<div class="big">${sel.km.toFixed(2)} km</div>
+      <p class="small muted">${sel.ok ? `Corridor ±${$('width').value} m on each side of the route`
+                                      : `At most ${MAX_KM} km per track`}</p>`;
+  } else if (sel && sel.kind === 'area') {
+    badge = ['Area', 'ok'];
+    body = `<div class="big">${(sel.w / 1000).toFixed(2)} × ${(sel.h / 1000).toFixed(2)} km</div>
+      <p class="small muted">${(sel.w * sel.h / 1e6).toFixed(1)} km² · ${sel.tiles} tiles</p>`;
+  } else if (sel && sel.kind === 'msg') {
+    badge = sel.bad ? ['Error', 'bad'] : ['Route', ''];
+    body = `<p class="${sel.bad ? 'err' : 'muted'}">${esc(sel.text)}</p>`;
+  } else {
+    body = `<div class="big">${mode === 'area' ? 'Draw an area' : 'Set a route'}</div>
+      <p class="small muted">${mode === 'area' ? 'Press and drag on the map.' :
+        'Click the map for the start, then the finish.'}</p>`;
+  }
+  $('card-badge').textContent = badge[0];
+  $('card-badge').className = 'badge ' + badge[1];
+  $('card-time').textContent = time;
+  $('card-body').innerHTML = body;
+}
+
+// --- track name from the places (OpenStreetMap) until the user types one; emptying the field turns it back on ---
+let titleAuto = true, nameAsk = 0;
+$('title').addEventListener('input', () => { titleAuto = !$('title').value.trim(); });
+async function autoTitle(body) {
+  if (!titleAuto) return;
+  const k = ++nameAsk;
+  const r = await fetch('/api/name', {method: 'POST', body: JSON.stringify(body)}).then(r => r.json()).catch(() => ({}));
+  if (k === nameAsk && titleAuto && r.title) $('title').value = r.title;
+}
+
+// --- tabs: a new track, the tracks built before (rebuild, copy, delete), settings ---
+function setTab(t) {
+  if (t === tab) return;
+  tab = t;
+  const isNew = t === 'new';
+  for (const [id, k] of [['t-new', 'new'], ['t-mine', 'mine'], ['t-set', 'set']]) $(id).classList.toggle('on', t === k);
+  $('work').hidden = t === 'set';
+  $('settings').hidden = t !== 'set';
+  $('pane-new').classList.toggle('off', !isNew);     // (keeps its height: nothing below moves)
+  $('pane-mine').hidden = t !== 'mine';
+  for (const l of [routeLine, corridor, rect, ...markers, ...(area ? handles : [])]) {
+    if (l) { if (isNew) l.addTo(map); else map.removeLayer(l); }
+  }
+  if (!isNew) map.dragging.enable(); else if (mode === 'area' && !area) map.dragging.disable();
+  $('hint').textContent = HINTS[isNew ? mode : t];
+  $('hint').hidden = !$('hint').textContent;
+  drawPick(false);
+  render();
+  if (t === 'mine') loadTracks();
+  if (t === 'set') { showCache(); loadCars(); }
+}
+
+let carChoice = '', carsLoaded = false;
+async function loadCars() {       // (once: every installed car's ui_car.json)
+  if (carsLoaded) return;
+  const r = await fetch('/api/cars').then(r => r.json()).catch(() => null);
+  if (!r) return;
+  carsLoaded = true;
+  const sel = $('car');
+  sel.innerHTML = '';
+  sel.add(new Option(r.last ? `Last driven (${r.last})` : 'Last driven', ''));
+  for (const c of r.cars) sel.add(new Option(c.name, c.id));
+  sel.value = carChoice;
+}
+$('car').addEventListener('change', async () => { await saveSettings({car: $('car').value}); loadTracks(); });
+$('t-new').onclick = () => setTab('new');
+$('t-mine').onclick = () => setTab('mine');
+$('t-set').onclick = () => setTab('set');
+
+async function loadTracks() {
+  const r = await fetch('/api/tracks').then(r => r.json()).catch(() => null);
+  if (!r || !r.tracks) return;
+  tracks = r.tracks;
+  car = r.car;
+  if (pick && !tracks.some(t => t.name === pick)) pick = null;
+  showTracks();
+  render();
+}
+
+function verTag(t) { return t.version ? 'v' + esc(t.version) : 'before v0.1'; }
+
+function showTracks() {
+  $('mine-n').textContent = tracks.length || '';
+  $('mine-n').classList.toggle('warn', tracks.some(t => t.outdated));
+  $('mine-n').title = tracks.some(t => t.outdated) ? 'Some tracks were built with an older version' : '';
+  $('pane-mine').innerHTML = tracks.length ? tracks.map(t => `<button class="trk${t.name === pick ? ' on' : ''}"
+      data-name="${esc(t.name)}"><b>${esc(t.title)}</b><span class="when">${esc(fmtDate(t.built))}</span>
+      <small>${t.area ? 'Area' : 'Route'} ${fmtSize(t)} · ${t.outdated ? `<span class="old">${verTag(t)} – old</span>`
+        : verTag(t)}</small>
+      </button>`).join('')
+    : '<p class="empty">No tracks yet. Build one under “New track”.</p>';
+}
+$('pane-mine').onclick = e => {
+  const b = e.target.closest('.trk');
+  if (!b) return;
+  pick = b.dataset.name;
+  selNewer = true;
+  showTracks();
+  drawPick(true);
+  render();
+};
+
+function drawPick(fit) {      // the picked track on the map (only on its tab)
+  mineLayer.clearLayers();
+  const t = tab === 'mine' && tracks.find(x => x.name === pick);
+  if (!t) return;
+  const shape = t.area
+    ? L.rectangle([[t.area[0], t.area[1]], [t.area[2], t.area[3]]], {color: ROUTE_COLOR, weight: 2, fillOpacity: .1,
+                                                                       interactive: false})
+    : L.polyline(t.line || t.points, {color: ROUTE_COLOR, weight: 4, interactive: false});
+  shape.addTo(mineLayer);
+  if (fit) map.fitBounds(shape.getBounds(), {padding: [40, 40], maxZoom: 16});
+}
+
+// --- modes ---
+function setMode(m) {
+  mode = m;
+  $('m-route').classList.toggle('on', m === 'route');
+  $('m-area').classList.toggle('on', m === 'area');
+  $('hint').textContent = HINTS[m];
+  $('width-row').hidden = m !== 'route';
+  $('area-row').hidden = m !== 'area';
+  clearPoints();
+}
+$('m-route').onclick = () => setMode('route');
+$('m-area').onclick = () => setMode('area');
+
+// --- route ---
+function addPoint(latlng) {
+  if (mode === 'area' || tab !== 'new') return;
+  const m = L.marker(latlng, {draggable: true}).addTo(map);
+  m.on('dragend', updateRoute);
+  m.on('contextmenu', () => { map.removeLayer(m); markers.splice(markers.indexOf(m), 1); updateRoute(); });
+  markers.push(m);
+  updateRoute();
+}
+map.on('click', e => addPoint(e.latlng));
+
+async function updateRoute() {
+  markers.forEach((m, i) => m.bindTooltip(i === 0 ? 'Start' : (i === markers.length - 1 ? 'Finish' : String(i))));
+  clearShapes();
+  if (markers.length < 2) {
+    setSel(markers.length ? {kind: 'msg', text: 'Now click the finish.', ok: false} : null);
+    return;
+  }
+  setSel({kind: 'msg', text: 'Calculating route …', ok: false});
+  const points = markers.map(m => [m.getLatLng().lat, m.getLatLng().lng]);
+  const r = await fetch('/api/route', {method: 'POST', body: JSON.stringify({points})}).then(r => r.json())
+    .catch(e => ({error: String(e)}));
+  if (r.error) { setSel({kind: 'msg', text: 'Route: ' + r.error, ok: false, bad: true}); return; }
+  routeCoords = r.coords;
+  corridor = L.polyline(r.coords, {color: ROUTE_COLOR, weight: 1, opacity: .22}).addTo(map);
+  setCorridorWidth();
+  routeLine = L.polyline(r.coords, {color: ROUTE_COLOR, weight: 4}).addTo(map);
+  const km = r.length_m / 1000;
+  setSel({kind: 'route', km, ok: km <= MAX_KM});
+  autoTitle({points});
+}
+
+function setCorridorWidth() {   // corridor drawn as a wide line: pixel width from metres at the current zoom
+  const width = +$('width').value;
+  $('width-val').textContent = `±${width} m`;
+  if (!corridor) return;
+  const mpp = 40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / (256 * 2 ** map.getZoom());
+  corridor.setStyle({weight: Math.max(2, 2 * width / mpp)});
+}
+map.on('zoomend', setCorridorWidth);
+$('width').addEventListener('input', () => { setCorridorWidth(); if (sel && sel.kind === 'route') render(); });
+
+// --- area: press and drag; while there is none, dragging draws instead of moving the map ---
+let drawFrom = null, drawTo = null;
+map.on('mousedown', e => {
+  if (tab !== 'new' || mode !== 'area' || area) return;
+  e.originalEvent.preventDefault();       // (no text selection while drawing)
+  drawFrom = drawTo = e.latlng;
+});
+map.on('mousemove', e => { if (drawFrom) { drawTo = e.latlng; showArea(drawFrom, drawTo, false); } });
+document.addEventListener('mouseup', () => {
+  if (drawFrom) { const a = drawFrom; drawFrom = null; showArea(a, drawTo, true); }
+});
+
+// its corners: drag one to resize (the opposite one stays); corner k: bit 0 north, bit 1 east
+function corner(k) { const [s, w, n, e] = area; return L.latLng(k & 1 ? n : s, k & 2 ? e : w); }
+const handles = [0, 1, 2, 3].map(k => {
+  const h = L.marker([0, 0], {draggable: true, icon: L.divIcon({className: 'handle', iconSize: [14, 14]})});
+  let fixed = null;
+  h.on('dragstart', () => { fixed = corner(3 - k); });
+  h.on('drag', e => showArea(fixed, e.latlng, false));
+  h.on('dragend', () => showArea(fixed, h.getLatLng(), true));
+  return h;
+});
+
+function showArea(a, b, done) {
+  if (rect) map.removeLayer(rect);
+  const s = Math.min(a.lat, b.lat), n = Math.max(a.lat, b.lat), w = Math.min(a.lng, b.lng), e = Math.max(a.lng, b.lng);
+  rect = L.rectangle([[s, w], [n, e]], {color: ROUTE_COLOR, weight: 2, fillOpacity: .1, interactive: false}).addTo(map);
+  const wm = map.distance([(s + n) / 2, w], [(s + n) / 2, e]), hm = map.distance([s, (w + e) / 2], [n, (w + e) / 2]);
+  const tiles = 4 * Math.ceil(wm / (2 * TILE_M)) * Math.ceil(hm / (2 * TILE_M));     // (tiles counted from the middle)
+  setSel({kind: 'area', w: wm, h: hm, tiles, ok: false});
+  if (!done) return;
+  if (wm < 1 || hm < 1) { clearShapes(); armArea(); return; }       // (a click without dragging)
+  area = [s, w, n, e];
+  handles.forEach((h, k) => h.setLatLng(corner(k)).addTo(map));
+  map.dragging.enable();
+  setSel({kind: 'area', w: wm, h: hm, tiles, ok: true});
+  autoTitle({area});
+}
+
+function armArea() { map.dragging.disable(); setSel(null); }
+
+function clearShapes() {
+  for (const l of [routeLine, corridor, rect, ...handles]) if (l) map.removeLayer(l);
+  routeLine = corridor = rect = routeCoords = area = null;
+}
+
+function clearPoints() {
+  markers.forEach(m => map.removeLayer(m));
+  markers.length = 0;
+  if (mode === 'area') { clearShapes(); armArea(); }
+  else { map.dragging.enable(); updateRoute(); }
+}
+$('clear').onclick = clearPoints;
+
+// --- build / rebuild / stop (one button in one place) ---
+$('go').onclick = async () => {
+  if (busy()) {
+    $('go').disabled = true;
+    await fetch('/api/stop', {method: 'POST'});
+    return poll();
+  }
+  if (tab === 'mine') return pick && start('/api/rebuild', {name: pick});
+  const title = $('title').value.trim() || 'Route';
+  const body = {name: slug(title), title};
+  if (mode === 'area') body.area = area;
+  else Object.assign(body, {points: markers.map(m => [m.getLatLng().lat, m.getLatLng().lng]), width: +$('width').value});
+  start('/api/build', body);
+};
+
+$('copy').onclick = () => pick && start('/api/rebuild', {name: pick, copy: true});   // (keeps the old one)
+$('del').onclick = async () => {
+  const t = tracks.find(x => x.name === pick);
+  if (!t || !confirm(`Delete “${t.title}”?\n\nIt is removed from Assetto Corsa. This cannot be undone.`)) return;
+  const r = await fetch('/api/delete', {method: 'POST', body: JSON.stringify({name: t.name})}).then(r => r.json())
+    .catch(e => ({error: String(e)}));
+  if (r.error) { alert(r.error); return; }
+  pick = null;
+  drawPick(false);
+  loadTracks();
+};
+
+async function start(url, body) {
+  const r = await fetch(url, {method: 'POST', body: JSON.stringify(body)}).then(r => r.json())
+    .catch(e => ({error: String(e)}));
+  if (r.error) {
+    status = {state: 'error', error: r.error};
+    selNewer = false;
+    render();
+    if (/Settings/.test(r.error)) setTab('set');
+    return;
+  }
+  selNewer = false;
+  follow = true;
+  status = {state: 'running', progress: null, elapsed: 0};
+  render();
+  poll();
+}
+
+let follow = true;    // the log shows its newest line, until the reader scrolls up (back at the bottom: again)
+$('log').addEventListener('scroll', () => {
+  const l = $('log');
+  follow = l.scrollTop + l.clientHeight >= l.scrollHeight - 30;
+});
+
+async function poll() {
+  clearTimeout(timer);
+  const s = await fetch('/api/status').then(r => r.json()).catch(() => null);
+  if (!s) { timer = setTimeout(poll, 2000); return; }
+  const wasBusy = busy();
+  status = s;
+  if (busy() || wasBusy) selNewer = false;      // (a build's progress and its result win over the selection)
+  const log = $('log'), text = s.log.join('\n');
+  if (log.textContent !== text) {
+    if (!text) follow = true;                   // (a new build)
+    log.textContent = text;
+    if (follow) log.scrollTop = log.scrollHeight;
+  }
+  render();
+  if (busy()) timer = setTimeout(poll, 1000);
+  else if (wasBusy) loadTracks();               // (a new track, or a rebuilt one's date)
+}
+
+// --- settings tab (saved by the server in settings.json): where AC is, CPU share, map data, build files ---
+let threads = 2;
+function showCores() {     // as parallel.workers: the share of the threads, at most all but one (fewer if RAM is short)
+  const pct = +$('cores').value, n = Math.max(1, Math.min(threads - 1, Math.round(threads * pct / 100)));
+  $('cores-val').textContent = `${pct} %`;
+  $('cores-info').textContent = `Up to ${n} of ${threads} threads at once (fewer if memory is short). Applies to the next build.`;
+}
+$('cores').addEventListener('input', showCores);
+$('cores').addEventListener('change', () => saveSettings({cores: +$('cores').value}));
+
+function showSettings(s) {
+  $('ac').value = s.ac_path;
+  VERSION = s.version;
+  $('ver').textContent = ` · v${s.version}`;
+  $('keep').checked = !s.clean;
+  carChoice = s.car || '';
+  if (carsLoaded) $('car').value = carChoice;
+  const cap = String(+s.cache_gb);
+  if (![...$('cache-cap').options].some(o => o.value === cap)) $('cache-cap').add(new Option(`Keep up to ${cap} GB`, cap));
+  $('cache-cap').value = cap;
+  $('cores').value = s.cores;
+  threads = s.threads;
+  showCores();
+  $('ac-status').textContent = s.ac_ok ? '✓ Assetto Corsa found – tracks are installed here' :
+    '✗ No Assetto Corsa folder there';
+  $('ac-status').className = 'small ' + (s.ac_ok ? 'ok' : 'bad');
+  $('t-set').classList.toggle('warn', !s.ac_ok);
+}
+async function saveSettings(values) {
+  const r = await fetch('/api/settings', {method: 'POST', body: JSON.stringify(values)}).then(r => r.json());
+  if (r.error) { $('ac-status').textContent = '✗ ' + r.error; $('ac-status').className = 'small bad'; return; }
+  showSettings(r);
+  render();
+}
+$('ac').addEventListener('change', () => saveSettings({ac_path: $('ac').value}));
+$('keep').addEventListener('change', () => saveSettings({clean: !$('keep').checked}));
+$('cache-cap').addEventListener('change', () => saveSettings({cache_gb: +$('cache-cap').value}));
+
+let cacheAsk = 0;
+async function showCache() {      // (the server counts every file: a moment)
+  const k = ++cacheAsk;
+  $('cache-val').textContent = 'counting …';
+  const r = await fetch('/api/cache').then(r => r.json()).catch(() => null);
+  if (k === cacheAsk) $('cache-val').textContent = r ? fmtBytes(r.bytes) : '';
+}
+$('cache-clear').onclick = async () => {
+  if (!confirm('Delete all downloaded map data? Builds download what they need again.')) return;
+  const k = ++cacheAsk;
+  clearing = true;
+  render();
+  $('cache-val').textContent = 'clearing …';
+  const r = await fetch('/api/cache/clear', {method: 'POST'}).then(r => r.json()).catch(e => ({error: String(e)}));
+  clearing = false;
+  render();
+  if (k === cacheAsk) $('cache-val').textContent = r.error ? '✗ ' + r.error : fmtBytes(r.bytes);
+};
+$('browse').onclick = async () => {
+  const r = await fetch('/api/browse', {method: 'POST'}).then(r => r.json());
+  if (r.path) saveSettings({ac_path: r.path});
+};
+fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); if (!s.ac_ok) setTab('set'); });
+
+setCorridorWidth();
+setMode('route');
+poll();
+loadTracks();         // (the count on the tab)
+</script>
+</body>
+</html>

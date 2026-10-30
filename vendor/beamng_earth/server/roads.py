@@ -3599,9 +3599,91 @@ def deck_split(depth):
     return slab, float(depth) - slab
 
 
-def deck_road_clear(depth=None):
+# (ac-export patch P8) BeamNG.Earth lets a deck leave its abutment up to CHORD_KINK (2 %) off its approach's grade, more
+# where its curve needs it: the A2 near Voelkermarkt met its decks at 2-3 % (1662 m: -0.5 % onto +1.5 %; 3668 m: +2.6 %
+# onto +5.5 %), 4-10 G at the 250 km/h the user drives in Assetto Corsa, the car thrown into the median barrier. Where
+# the elevation is lidar the deck's ends are the real road's: a deck between two approaches is a cubic between its
+# ends' heights meeting each approach at its grade (read TANGENT_AT_M past the end).
+TANGENT_ON = os.environ.get("BNE_DECK_TANGENT", "on") != "off"
+TANGENT_AT_M = np.array([4.0, 8.0, 12.0, 16.0])
+TANGENT_MIN_M = 6.0         # m: a shorter deck is left as solved
+TANGENT_DROP_M = 0.3        # m it may sink under the solved deck at most (more: a clearance it needs; kept as solved)
+TANGENT_TOL_M = 0.03        # m the ground under it may come nearer than DECK_CLEAR
+TANGENT_END_M = 15.0        # m: a deck that must keep its solved middle (a span over a road) is eased in this far only
+
+
+def tangent_profile(s, z0, zL, g0, gL):
+    """(ac-export patch P8) Heights at arcs s (0..L) of the cubic from z0 (grade g0 leaving it) to zL (grade gL arriving
+    there). Pure."""
+    s = np.asarray(s, np.float64)
+    L = max(float(s[-1]), 1e-9)
+    t = s / L
+    return ((2 * t ** 3 - 3 * t ** 2 + 1) * z0 + (t ** 3 - 2 * t ** 2 + t) * L * g0 + (-2 * t ** 3 + 3 * t ** 2) * zL
+            + (t ** 3 - t ** 2) * L * gL)
+
+
+def _deck_key(xy):
+    """(ac-export patch P7/P8) A deck part's key: its number of vertices and its ends (cm)."""
+    xy = np.asarray(xy, np.float64)[:, :2]
+    return (len(xy), *np.round(xy[[0, -1]], 2).ravel().tolist())
+
+
+SIMPLE_OPPOSITE_COS = -0.85     # (ac-export patch P7/P8) two parts running opposite ways: a twin bridge
+
+
+def _simple_chain(lines):
+    """(ac-export patch P7/P8) Is a bridge chain a single deck or a twin bridge (two parts running opposite ways, no end
+    shared), not a junction's bridge (ramps leaving or joining on it, parts meeting at their ends)? Our deck tilt and
+    tangent ends are for these; a junction's chain keeps BeamNG.Earth's one merged surface (tilted and eased part by part,
+    the Graz bridge over the Weblinger Guertel fell into edges, the user 2026-10-29). Pure."""
+    xs = [np.asarray(ln, np.float64)[:, :2] for ln in lines]
+    if len(xs) == 1:
+        return True
+    if len(xs) != 2 or min(len(x) for x in xs) < 2:
+        return False
+    ends = [x[e] for x in xs for e in (0, -1)]
+    if min(float(np.hypot(*(a - b))) for a in ends[:2] for b in ends[2:]) < 0.75:
+        return False
+    da, db = xs[0][-1] - xs[0][0], xs[1][-1] - xs[1][0]
+    return float(da @ db) / max(float(np.hypot(*da) * np.hypot(*db)), 1e-9) < SIMPLE_OPPOSITE_COS
+
+
+def tangent_ends(s, z, g0, gL):
+    """(ac-export patch P8) The solved deck z (at arcs s) with each end's first TANGENT_END_M (a third of it at most)
+    replaced by the cubic from the end (leaving at the approach's grade g0 / meeting it at gL) to the solved deck's
+    height and grade there. Pure."""
+    s, z = np.asarray(s, np.float64), np.asarray(z, np.float64)
+    L = float(s[-1])
+    m = min(TANGENT_END_M, L / 3)
+    if m < 2.0:
+        return z
+    g = np.arange(0.0, L + 1e-9, 1.0)
+    zg = np.interp(g, s, z)
+    dz = np.gradient(zg, g)
+    out = z.copy()
+    a = s <= m                      # the start: from (0, z0, g0) to (m, z(m), z'(m))
+    out[a] = np.interp(m, s, z) + tangent_profile(np.r_[s[a], m], float(z[0]) - np.interp(m, s, z), 0.0, g0,
+                                                  float(np.interp(m, g, dz)))[:-1]
+    b = s >= L - m                  # the end: from (L - m, z(L - m), z'(L - m)) to (L, zL, gL)
+    sb = s[b] - (L - m)
+    zm = float(np.interp(L - m, s, z))
+    out[b] = zm + tangent_profile(np.r_[sb, m], 0.0, float(z[-1]) - zm, float(np.interp(L - m, g, dz)), gL)[:-1]
+    return out
+
+
+def deck_road_clear(depth=None, headroom=None):
     """m a deck's road stands over a road under it: the headroom, its margin and the deck's depth. Pure."""
-    return MIN_BRIDGE_HEADROOM_M + BRIDGE_HEADROOM_MARGIN_M + (DECK_FULL_DEPTH if depth is None else float(depth))
+    head = MIN_BRIDGE_HEADROOM_M if headroom is None else float(headroom)
+    return head + BRIDGE_HEADROOM_MARGIN_M + (DECK_FULL_DEPTH if depth is None else float(depth))
+
+
+# (ac-export patch P3) Where the elevation is lidar (not dem.coarse_at: railways.COARSE_AT), the ground at a bridge's
+# ends and under it is the real one: the deck already stands at its real height over the road or railway below, which
+# real bridges give 4-5 m (Austrian motorway overpasses). Raised for 6 m there, every A2 bridge near Voelkermarkt
+# humped up to 1.2 m over its 30-70 m and started 0.2-0.3 m over the motorway leading onto it (motorways are never
+# raised to their decks): 3-7 G at 100 km/h in AC. A deck is raised only where it leaves less than this under it; the
+# road under a deck whose ground is filled is dug to its own line instead (grading.UNDER_HUMP_*).
+LIDAR_HEADROOM_M = float(os.environ.get("BNE_LIDAR_HEADROOM", "4.0")) or None
 
 
 def geom_span(lines):
@@ -3985,6 +4067,13 @@ class BridgeProfiles:
             nav = 0.0
         required = [(c[0], c[1], z) for c, z in zip(cr, road_z)]
         depth = self._depth(lines) if bridge_profile_mode() == "curve" else None
+        head = None             # (ac-export patch P3: LIDAR_HEADROOM_M on fine elevation)
+        if LIDAR_HEADROOM_M is not None:
+            import railways
+            allxy = np.concatenate([np.asarray(ln, np.float64)[:, :2] for ln in lines])
+            box = (*allxy.min(0), *allxy.max(0))
+            if not railways._coarse_here(self.frame, box):
+                head = LIDAR_HEADROOM_M
         dd = self.__dict__.setdefault("depth", {})
         for k in comp:
             dd[k] = DECK_FULL_DEPTH if depth is None else depth
@@ -3995,8 +4084,8 @@ class BridgeProfiles:
         water = self._water(lines, nav, depth, channel)
         if not water and nav > 0 and bridge_profile_mode() == "curve":
             water = self._gap(lines, nav, depth)
-        rails = [(c[0], c[1], z, deck_road_clear(depth)) for c, z in zip(rcr, rail_z)]
-        zs = deck_profile(lines, self._ground, required + rails + water, clear=deck_road_clear(depth),
+        rails = [(c[0], c[1], z, deck_road_clear(depth, head)) for c, z in zip(rcr, rail_z)]  # (ac-export patch P3: head)
+        zs = deck_profile(lines, self._ground, required + rails + water, clear=deck_road_clear(depth, head),
                           levels=[pool[k][3] for k in comp], widths=[pool[k][0].width for k in comp],
                           pins=_ground_pins(lines, gl))
         deficits = _clearance_deficits(lines, zs, required + [r[:3] for r in rails], depth)
@@ -4005,7 +4094,51 @@ class BridgeProfiles:
             # filled players' consoles, GitHub #391, TGForever Discord 2026-10-28)
             log.debug("bridge clearance below %.1f m target: %s; abutment/grade or map constraints prevent full headroom",
                       MIN_BRIDGE_HEADROOM_M, [(comp[i], round(h, 2)) for i, h in deficits[:3]])
+        simple = _simple_chain(lines)           # (ac-export patch P7/P8: a single deck or a twin bridge only)
+        if simple:
+            self.__dict__.setdefault("simple", set()).update(_deck_key(ln) for ln in lines)
+        if head is not None and TANGENT_ON and simple:  # (ac-export patch P8) on lidar: meeting its approaches' grades
+            zs = self._tangent(lines, zs)
         return zs
+
+    def _tangent(self, lines, zs):
+        """(ac-export patch P8) zs with each part whose both ends are abutments (no other part ends there, the graded
+        ground at the end within DECK_BANK_ON_M of it) laid as tangent_profile between its ends: their heights kept,
+        the grade of the road leading onto each end (TANGENT_AT_M past it) taken; kept as solved where that would sink
+        it more than TANGENT_DROP_M anywhere (a clearance it needs) or under the ground beneath it."""
+        ends = np.array([np.asarray(ln, np.float64)[e, :2] for ln in lines for e in (0, -1)]).reshape(-1, 2)
+        out = []
+        for ln, z in zip(lines, zs):
+            xy = np.asarray(ln, np.float64)[:, :2]
+            z = np.asarray(z, np.float64)
+            out.append(z)
+            if len(xy) < 2 or not np.isfinite(z).all():
+                continue
+            s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+            if s[-1] < TANGENT_MIN_M:
+                continue
+            grades = []
+            for e in (0, -1):
+                if (np.hypot(*(ends - xy[e]).T) < 0.75).sum() > 1:     # (a joint with another part)
+                    break
+                f = xy[1] - xy[0] if e == 0 else xy[-1] - xy[-2]
+                f = f / max(float(np.hypot(*f)), 1e-9)
+                outw = -f if e == 0 else f
+                c = xy[e] + outw[None] * TANGENT_AT_M[:, None]
+                g = self._ground(np.r_[xy[e][None], c])
+                if abs(float(g[0]) - float(z[e])) > DECK_BANK_ON_M:
+                    break
+                slope = float(np.polyfit(TANGENT_AT_M, g[1:], 1)[0])     # (m per m outward)
+                grades.append(-slope if e == 0 else slope)
+            if len(grades) < 2:
+                continue
+            under = self._ground(xy) + DECK_CLEAR - TANGENT_TOL_M
+            for zt in (tangent_profile(s, float(z[0]), float(z[-1]), grades[0], grades[1]),
+                       tangent_ends(s, z, grades[0], grades[1])):
+                if not ((zt < z - TANGENT_DROP_M).any() or (zt[1:-1] < under[1:-1]).any()):
+                    out[-1] = zt
+                    break
+        return out
 
     def _depth(self, lines):
         """m of slab and girders of a chain: deck_depth of the inventory's main span where a record matches, else of
@@ -4024,6 +4157,53 @@ class BridgeProfiles:
         """m of slab and girders under part fid's road (DECK_FULL_DEPTH when not solved here)."""
         ds = [d for k, d in list(self.__dict__.get("depth", {}).items()) if self._part_id(k) == fid]
         return max(ds) if ds else DECK_FULL_DEPTH
+
+    def deck_bank(self, xy, z, width):
+        """(ac-export patch P7) A deck part's cross slope at each vertex (m per m toward its left, grading.bank's
+        sense), or None (level): where the elevation is fine, each end's from the graded ground of the road leading
+        onto it (DECK_BANK_AT_M past the end, grading.BANK_LIDAR_SIDE of its half width either side: the approach's
+        own cross slope, grading.BANK_LIDAR_*), run linearly between the ends; an end not on the ground (a joint over
+        the valley) takes the other's."""
+        import grading
+        if not grading.BANK_LIDAR_ON:
+            return None
+        xy = np.asarray(xy, np.float64)[:, :2]
+        z = np.asarray(z, np.float64)
+        if len(xy) < 2 or not np.isfinite(z).all():
+            return None
+        key = _deck_key(xy)
+        cache = self.__dict__.setdefault("banks", {})
+        if key in cache:
+            return cache[key]
+        b = None
+        if key not in self.__dict__.get("simple", ()):     # (a junction's bridge: level across, as BeamNG.Earth has it)
+            cache[key] = None
+            return None
+        import railways
+        if not railways._coarse_here(self.frame, (*xy.min(0), *xy.max(0))):
+            o = grading.BANK_LIDAR_SIDE * max(float(width or 0.0), 2.0) / 2
+            ends = []
+            for e in (0, -1):
+                f = xy[1] - xy[0] if e == 0 else xy[-1] - xy[-2]
+                f = f / max(float(np.hypot(*f)), 1e-9)
+                out = -f if e == 0 else f
+                left = np.array([-f[1], f[0]]) * o
+                c = xy[e] + out[None] * DECK_BANK_AT_M[:, None]
+                g = self._ground(np.concatenate([c, c + left, c - left]))
+                n = len(c)
+                gc, gl, gr = g[:n], g[n:2 * n], g[2 * n:]
+                ok = abs(float(np.median(gc)) - float(z[e])) <= DECK_BANK_ON_M
+                ends.append(float(np.clip(np.median((gl - gr) / (2 * o)), -grading.BANK_E_MAX, grading.BANK_E_MAX))
+                            if ok else None)
+            if ends[0] is None:
+                ends[0] = ends[1]
+            if ends[1] is None:
+                ends[1] = ends[0]
+            if ends[0] is not None and max(abs(ends[0]), abs(ends[1])) > 1e-3:
+                s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+                b = ends[0] + (ends[1] - ends[0]) * s / max(float(s[-1]), 1e-9)
+        cache[key] = b
+        return b
 
     def _gap(self, lines, nav, depth=None):
         """Clearance requirements where the sea's depth knows no water but the inventory gives the bridge a
@@ -5429,7 +5609,9 @@ def _bridge_chunks(frame, bseen, elev, exact, bridges=None, cells=None):
         got = [(fid, spec, np.c_[xy, z], lon) for fid, spec, xy, z, lon in bridges.parts(cells, exact)
                if np.isfinite(z).all()]
         dd = getattr(bridges, "depth_of", None)
-        return _deck_chunks(got, exact, bridges._ground, {d[0]: dd(d[0]) for d in got} if dd else None)
+        bb = getattr(bridges, "deck_bank", None)         # (ac-export patch P7)
+        return _deck_chunks(got, exact, bridges._ground, {d[0]: dd(d[0]) for d in got} if dd else None,
+                            [bb(p[:, :2], p[:, 2], spec.width) if bb else None for _f, spec, p, _l in got])
     if not bseen:
         return []
     parts = []                                  # (fid, spec, xy (k, 2), lon)
@@ -5510,7 +5692,55 @@ def _abutments(pts, ground_fn):
         return []
 
 
-def _deck_chunks(decks, exact, ground_fn=None, depths=None):
+# (ac-export patch P7) a deck end's cross slope: the graded ground of the road leading onto it at these m past it, and
+# only where that ground is within DECK_BANK_ON_M of the deck's end (else an end over the valley: a joint)
+DECK_BANK_AT_M = np.array([2.0, 4.0, 6.0, 8.0])
+DECK_BANK_ON_M = 0.3
+
+
+def _deck_tilt(center, bank, q):
+    """(ac-export patch P7) Per point q (m, 2) the cross slope of the deck centre line center (k, 2) with its bank
+    (k,) at q's nearest point on it, and q's signed offset to its left (m). Pure."""
+    a, d = center[:-1], np.diff(center, axis=0)
+    L2 = np.maximum((d * d).sum(1), 1e-12)
+    t = np.clip(((q[:, None, :] - a[None]) * d[None]).sum(2) / L2[None], 0.0, 1.0)
+    p = a[None] + t[..., None] * d[None]
+    j = np.argmin(np.hypot(*(q[:, None, :] - p).transpose(2, 0, 1)), 1)
+    i = np.arange(len(q))
+    tj = t[i, j]
+    b = bank[j] + tj * (bank[j + 1] - bank[j])
+    dj = d[j] / np.sqrt(L2[j])[:, None]
+    off = (q - p[i, j])[:, 1] * dj[:, 0] - (q - p[i, j])[:, 0] * dj[:, 1]
+    return b, off
+
+
+def tilt_rows_on_decks(rows, parts, bridges):
+    """(ac-export patch P7) The guard rail rows (guardrails.forest_rows: [group, x, y, z, ...]) that stand on a tilted
+    deck (deck_bank) raised or lowered with it at their offset from its centre line. parts: bridges.parts()'."""
+    bb = getattr(bridges, "deck_bank", None)
+    if not rows or not parts or bb is None:
+        return rows
+    out = [list(r) for r in rows]
+    q = np.array([[r[1], r[2]] for r in out], np.float64)
+    zr = np.array([r[3] for r in out], np.float64)
+    for _fid, spec, xy, z, _lon in parts:
+        b = bb(xy, z, spec.width)
+        if b is None:
+            continue
+        xy = np.asarray(xy, np.float64)[:, :2]
+        lo, hi = xy.min(0) - spec.width, xy.max(0) + spec.width
+        near = np.flatnonzero(((q >= lo) & (q <= hi)).all(1))
+        if not len(near):
+            continue
+        bq, off = _deck_tilt(xy, np.asarray(b, np.float64), q[near])
+        _zq, zoff = _deck_tilt(xy, np.asarray(z, np.float64), q[near])
+        on = (np.abs(off) <= spec.width / 2 + 1.5) & (np.abs(zr[near] - _zq) < 1.5)
+        for n, bn, of in zip(near[on], bq[on], off[on]):
+            out[n][3] = float(out[n][3]) + float(bn) * float(of)
+    return out
+
+
+def _deck_chunks(decks, exact, ground_fn=None, depths=None, banks=None):
     """Deck + line chunks of bridge parts [(fid, spec, pts (k, 3), lon)] clipped to the box `exact`, and their decks
     within DECK_CONTEXT_M of it as "ctx" chunks (not drawn: build_tile's caller hands them to roadmesh.deck).
     ground_fn(xy) -> heights: a part's ends on the ground are its abutments (each deck chunk's "abut" points: the
@@ -5530,16 +5760,28 @@ def _deck_chunks(decks, exact, ground_fn=None, depths=None):
                 abut[fid].append((float(q[0]), float(q[1])))
     x0, y0, x1, y1 = exact
     wide = (x0 - DECK_CONTEXT_M, y0 - DECK_CONTEXT_M, x1 + DECK_CONTEXT_M, y1 + DECK_CONTEXT_M)
-    for fid, spec, pts, lon in decks:
+    def tilt(ch, i, pts, deck):     # (ac-export patch P7) the deck's cross slope: its own per point, a line's in its z
+        b = banks[i] if banks else None
+        if b is None:
+            return
+        n = np.asarray(ch["n"], np.float64)
+        bq, off = _deck_tilt(np.asarray(pts, np.float64)[:, :2], np.asarray(b, np.float64), n[:, :2])
+        if deck:
+            ch["bank"] = np.round(bq, 4).tolist()
+        else:
+            n[:, 2] += bq * off
+            ch["n"] = n.tolist()
+    for i, (fid, spec, pts, lon) in enumerate(decks):
         for piece in clip_polyline(pts, *wide):
             for c in split(densify(simplify(piece, ztol=SIMPLIFY_Z_M))):
                 if len(c) >= 2:
                     ch = _chunk({**_deck_look(spec), "deck": True}, spec.width, c)
+                    tilt(ch, i, pts, True)
                     ch.update(fixed=True, deck=True, fid=fid, ctx=True)
                     if depths and fid in depths:
                         ch["dd"] = round(float(depths[fid]), 3)
                     out.append(ch)
-    for fid, spec, pts, lon in decks:
+    for i, (fid, spec, pts, lon) in enumerate(decks):
         lines = [({**_deck_look(spec), "deck": True}, spec.width, pts)]
         for look, w, line in extras(spec, pts, lon):
             if look["m"] not in (SIDEWALK["m"], GUTTER["m"], EDGE_DECAL["m"]):     # (no ground beside a deck)
@@ -5549,6 +5791,7 @@ def _deck_chunks(decks, exact, ground_fn=None, depths=None):
                 for c in split(densify(simplify(piece, ztol=SIMPLIFY_Z_M))):
                     if len(c) >= 2:
                         ch = _chunk(look, w, c)
+                        tilt(ch, i, pts, bool(look.get("deck")))       # (ac-export patch P7)
                         ch["fixed"] = True
                         if look.get("deck"):
                             ch["deck"] = True

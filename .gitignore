@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Build output (tiles, OBJ, kn5 parts, previews, logs) and release zips
+out/
+dist/
+
+# Settings of the generator page (the AC folder differs per machine)
+settings.json
+
+# Map data cache (elevation, map data, vegetation; several GB, downloaded again any time)
+cache/
+
+# CC0 textures from ambientCG (tools/get_textures.py downloads them)
+assets/textures/
+
+# Single preview images in the project folder
+*_preview.png

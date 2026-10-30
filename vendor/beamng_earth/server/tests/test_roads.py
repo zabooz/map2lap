@@ -1206,6 +1206,17 @@ class RingWidthTest(unittest.TestCase):
         self.assertTrue(sp[2].urban)                    # a street beside it as before
 
 
+class TangentProfileTest(unittest.TestCase):
+    def test_meets_its_ends_at_their_grades(self):
+        """(ac-export patch P8) The cubic keeps the ends' heights and leaves / meets them at the approaches' grades."""
+        s = np.linspace(0.0, 32.0, 65)
+        z = roads.tangent_profile(s, 485.22, 486.35, 0.026, 0.020)
+        self.assertAlmostEqual(float(z[0]), 485.22)
+        self.assertAlmostEqual(float(z[-1]), 486.35)
+        self.assertAlmostEqual(float((z[1] - z[0]) / (s[1] - s[0])), 0.026, delta=0.001)     # (0.5 m steps)
+        self.assertAlmostEqual(float((z[-1] - z[-2]) / (s[-1] - s[-2])), 0.020, delta=0.001)
+
+
 if __name__ == "__main__":
     unittest.main()
 

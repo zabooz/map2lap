@@ -1,0 +1,91 @@
+{
+ "a2_test": {
+  "title": "A2 Test",
+  "points": [
+   [
+    46.653892,
+    14.564421
+   ],
+   [
+    46.69,
+    14.7
+   ]
+  ],
+  "width": 60.0,
+  "tests": "Motorway on lidar: single and twin bridges, cross slope, bridge ends, opposite carriageway (P3, P5-P10), bridge over a short tunnel (P11)",
+  "spots": {
+   "580": "bridge (formerly 3.25 km)",
+   "1660-1730": "4.3 km bridge, there used to be a crash here (P7, P8)",
+   "3670-3695": "3.7 km bridge over a short tunnel, used to launch the driver (P8-P11)",
+   "4100-4120": "6.8 km bridge on a map cell border (randomly dropped into the valley)",
+   "12550": "country road shortly before the finish, 3.2 G"
+  },
+  "reference": {
+   "length_m": 12681,
+   "over_05g_m": 26,
+   "lanes_over_05g_m": 51,
+   "max_g": 3.19,
+   "max_g_at_m": 12551.0,
+   "edges_m": 0,
+   "transitions": 20,
+   "max_g_transition": 1.66
+  }
+ },
+ "stausee_171": {
+  "title": "Stausee 1.7.1",
+  "points": [
+   [
+    46.66,
+    14.63
+   ],
+   [
+    46.647,
+    14.623
+   ]
+  ],
+  "width": 120.0,
+  "tests": "Junctions on a country road (P1); crosses no bridge deck",
+  "spots": {
+   "18-26": "bump at the start (known)",
+   "320-400": "junctions, formerly S-waves up to 1.6 G (P1)"
+  },
+  "reference": {
+   "length_m": 1879,
+   "over_05g_m": 38,
+   "lanes_over_05g_m": 119,
+   "max_g": 15.22,
+   "max_g_at_m": 23.0,
+   "edges_m": 9,
+   "transitions": 0,
+   "max_g_transition": 0.0
+  }
+ },
+ "graz_171": {
+  "title": "Graz 1.7.1",
+  "points": [
+   [
+    47.02112485904364,
+    15.437507629394533
+   ],
+   [
+    47.044729731299874,
+    15.429675579071047
+   ]
+  ],
+  "width": 100.0,
+  "tests": "City, junction bridge with ramps, underpass as a short tunnel (P2, P11)",
+  "spots": {
+   "940-985": "Triester Straße over the Weblinger Gürtel (P11)"
+  },
+  "reference": {
+   "length_m": 2959,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.24,
+   "max_g_at_m": 933.0,
+   "edges_m": 0,
+   "transitions": 0,
+   "max_g_transition": 0.0
+  }
+ }
+}
