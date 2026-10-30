@@ -3,7 +3,7 @@
 Uses blockworker._roads_tile without the game and without the earthd server. Output: per 256 m tile a
 roads_<aid>_<tx>_<ty>.json plus the .cdae meshes in OUT_DIR.
 
-    python build_tiles.py --lat 46.6624 --lon 14.6345 --radius 256
+    python -m track.build_tiles --lat 46.6624 --lon 14.6345 --radius 256
 """
 import argparse
 import json
@@ -11,11 +11,10 @@ import os
 import sys
 import time
 
-SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "beamng_earth", "server")   # (BeamNG.Earth, vendored)
-HERE = os.path.dirname(os.path.abspath(__file__))
+from app.paths import ROOT, SERVER, SRC
 sys.path.insert(0, SERVER)
-if HERE not in sys.path:        # (after the chdir Python would no longer find our modules through "")
-    sys.path.insert(1, HERE)
+if SRC not in sys.path:         # (after the chdir Python would no longer find our packages through "")
+    sys.path.insert(1, SRC)
 os.chdir(SERVER)                # (earthfast.pyd and the server's relative paths)
 # BeamNG.Earth's underpass rule (grading._lower_underpasses) is on (since 1.7.1: bridge thickness from the span, the
 # wall on Triester Straße in Graz is gone). Under 1.7.0 it was off (BNE_UNDERPASS=off): where the lidar is filled in
@@ -37,8 +36,8 @@ def main():
     ap.add_argument("--lat", type=float, required=True)
     ap.add_argument("--lon", type=float, required=True)
     ap.add_argument("--radius", type=float, default=256.0, help="m around the centre (square)")
-    ap.add_argument("--out", default=os.path.join(HERE, "out", "tiles"))
-    ap.add_argument("--cache", default=os.path.join(HERE, "cache"))
+    ap.add_argument("--out", default=os.path.join(ROOT, "out", "tiles"))
+    ap.add_argument("--cache", default=os.path.join(ROOT, "cache"))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 

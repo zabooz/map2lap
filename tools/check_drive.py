@@ -12,12 +12,14 @@ import json
 import os
 from collections import defaultdict
 
+import sys
+
 import numpy as np
 
-import obj_to_kn5
-import parallel
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
+sys.path.insert(0, os.path.join(HERE, "src"))
+from track import obj_to_kn5, parallel  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 STEP = 2.0                              # m between route points
 OFFSETS = (-6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0)   # m across the route (the OSRM line is sometimes > 3 m off)
 TILE = 256.0

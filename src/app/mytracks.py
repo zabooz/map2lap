@@ -11,9 +11,9 @@ have the file: while their work folder is still there (out/tracks/<name>/tiles/a
 import json
 import os
 
-import version
+from app import version
+from app.paths import ROOT
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 FILE = os.path.join("data", "map2lap.json")
 AUTHORS = ("Map2Lap", "ac-export")      # (ui_track.json; ac-export: the project's earlier name)
 LINE_MAX = 2000                         # points of the route shown on the map, at most
@@ -54,7 +54,7 @@ def load(track_dir):
 def _from_work(track_dir):
     name = os.path.basename(track_dir)
     try:
-        with open(os.path.join(HERE, "out", "tracks", name, "tiles", "anchor.json"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, "out", "tracks", name, "tiles", "anchor.json"), encoding="utf-8") as f:
             anc = json.load(f)
         with open(os.path.join(track_dir, "ui", "ui_track.json"), encoding="utf-8") as f:
             ui = json.load(f)
@@ -84,7 +84,7 @@ def copy_name(ac_path, name, title):
     """Name and title for "Build as copy": name_2, "Title (2)" (the next free number, no work folder either)."""
     k = 2
     while (os.path.exists(os.path.join(ac_path, "content", "tracks", f"{name}_{k}")) or
-           os.path.exists(os.path.join(HERE, "out", "tracks", f"{name}_{k}"))):
+           os.path.exists(os.path.join(ROOT, "out", "tracks", f"{name}_{k}"))):
         k += 1
     return f"{name}_{k}", f"{title} ({k})"
 
@@ -105,7 +105,7 @@ def listing(ac_path):
     for name in os.listdir(tracks) if os.path.isdir(tracks) else []:
         d = os.path.join(tracks, name)
         if not (os.path.exists(os.path.join(d, FILE)) or
-                os.path.exists(os.path.join(HERE, "out", "tracks", name, "tiles", "anchor.json"))):
+                os.path.exists(os.path.join(ROOT, "out", "tracks", name, "tiles", "anchor.json"))):
             continue
         info = load(d)
         if info is None:

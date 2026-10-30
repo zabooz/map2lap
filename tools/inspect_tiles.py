@@ -9,7 +9,7 @@ SERVER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SERVER)
 import cdae  # noqa: E402
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "tiles")
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "out", "tiles")
 mats = collections.defaultdict(collections.Counter)
 for js in sorted(glob.glob(os.path.join(OUT, "roads_*.json"))):
     with open(js, encoding="utf-8") as f:

@@ -24,9 +24,9 @@ from concurrent.futures import as_completed
 import numpy as np
 from PIL import Image
 
-import make_obj             # (sets the path to the BeamNG.Earth server)
-import groundcover
-import parallel
+from app.paths import ROOT
+from track import make_obj, parallel      # (make_obj first: sets the path to the BeamNG.Earth server)
+from scenery import groundcover
 
 import dem as demmod        # noqa: E402
 import farfield             # noqa: E402
@@ -35,7 +35,6 @@ import heightmap            # noqa: E402
 import mapdata              # noqa: E402
 import netfetch             # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 RADIUS_M = 40000.0          # m around the detail tiles (Grossglockner from Heiligenblut: ~9 km; Carinthian peaks: 30-40 km)
 GROUP_LEVEL = 3             # finer tiles per 2 km square in one object (fewer draw calls), one texture each
 # BeamNG.Earth refines only around the player, here along the whole corridor edge: half as far (Heiligenblut,
@@ -239,7 +238,7 @@ def build(tiles_dir, obj_dir, log=print, progress=None):
     n = parallel.workers(len(tiles))
     log(f"Distant terrain: {len(tiles)} tiles up to {RADIUS_M / 1000:.0f} km, {len(textured)} coloured squares, "
         f"{n} processes ...")
-    with parallel.pool(n, _init, (os.path.join(HERE, "cache"), tex_dir, sorted(core))) as ex:
+    with parallel.pool(n, _init, (os.path.join(ROOT, "cache"), tex_dir, sorted(core))) as ex:
         futs = [ex.submit(_tile, anc["lat"], anc["lon"], t.level, t.i, t.j, anc["dem_zoom"]) for t in tiles]
         texs = [ex.submit(_texture, anc["lat"], anc["lon"], i, j, os.path.join(tex_dir, f"ground_far_{i}_{j}.jpg"))
                 for _, i, j in textured]

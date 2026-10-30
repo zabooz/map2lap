@@ -19,13 +19,16 @@ import glob
 import json
 import os
 
+import sys
+
 import numpy as np
 
-import obj_to_kn5
-import settings
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
+sys.path.insert(0, os.path.join(HERE, "src"))
+from app import settings  # noqa: E402
+from track import obj_to_kn5  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-TEST_TRACKS = os.path.join(HERE, "test_tracks.json")
+TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
 ROUTE_FILES = ("map2lap_route.txt", "ac_export_route.txt")     # (data/ of the track; the second: older builds)
 CELL_M = 20.0           # m: grid the triangles are sorted into for the lookup
 ACROSS_M = (-2, -1, 0, 1, 2)   # m across the route: the two lanes around the line (wider would hit kerbs)

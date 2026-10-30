@@ -21,12 +21,9 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import generator
-import mapcache
-import mytracks
-import settings
-import version
+from app import mapcache, mytracks, settings, version
+from app.paths import ROOT, SRC
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
        "progress": None, "started": None, "ended": None}              # progress: generator.PHASES {phase, done, total}
@@ -34,7 +31,7 @@ running = {"proc": None, "clearing": False}     # clearing: the map data cache i
 lock, dialog_lock = threading.Lock(), threading.Lock()
 # The running build {name, clean, started, pid}: if the file is still there when the server starts, the server ended
 # in the middle of a build (console window closed), and tidy_interrupted tidies up
-MARK = os.path.join(HERE, "out", "build_running.json")
+MARK = os.path.join(ROOT, "out", "build_running.json")
 
 
 def log(msg):
@@ -45,7 +42,7 @@ def log(msg):
 def run_build(args, name, clean, started):
     code, result = None, None
     try:
-        p = subprocess.Popen([sys.executable, "-u", os.path.join(HERE, "generator.py"), "--result", *args], cwd=HERE,
+        p = subprocess.Popen([sys.executable, "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                              errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         running["proc"] = p
@@ -99,7 +96,7 @@ def tidy(name, clean, started, say=log):
     half-built track in AC. Half-built: its kn5 is missing or from this build, and its settings (data/map2lap.json,
     written last by the build) are not (AC won't load such a track). An old track the build hadn't touched yet
     (Rebuild before "Writing track folder") stays."""
-    work = os.path.join(HERE, "out", "tracks", name)
+    work = os.path.join(ROOT, "out", "tracks", name)
     if clean and os.path.isdir(work):
         generator.clean_up(work, say)
     root = os.path.join(settings.ac_path(), "content", "tracks", name)
@@ -200,7 +197,7 @@ def delete_track(name):
     except OSError:
         return 409, {"error": "Could not delete it: close Assetto Corsa (or Content Manager's preview) and try again"}
     shutil.rmtree(gone, ignore_errors=True)
-    shutil.rmtree(os.path.join(HERE, "out", "tracks", name), ignore_errors=True)
+    shutil.rmtree(os.path.join(ROOT, "out", "tracks", name), ignore_errors=True)
     return 200, {"ok": True}
 
 
@@ -377,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
-            with open(os.path.join(HERE, "web", "index.html"), "rb") as f:
+            with open(os.path.join(SRC, "web", "index.html"), "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
         elif self.path == "/api/status":
             with lock:

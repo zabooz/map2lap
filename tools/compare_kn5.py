@@ -7,9 +7,9 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # (kn5.py in the project)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))   # (kn5.py)
 
-import kn5
+from track import kn5
 
 
 def meshes(k):

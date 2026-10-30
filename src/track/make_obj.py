@@ -3,7 +3,7 @@
 Object names follow the AC convention: the name decides the driving surface (1ROAD_, 1KERB_, 1GRASS_, 1WALL_), objects
 without a digit at the start have no collision (markings, wires). Coordinates: Y up (x, z, -y).
 
-    python make_obj.py
+    python -m track.make_obj          (in src/)
 """
 import glob
 import json
@@ -15,30 +15,23 @@ from concurrent.futures import as_completed
 
 import numpy as np
 
-SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", "beamng_earth", "server")
-HERE = os.path.dirname(os.path.abspath(__file__))
+from app.paths import ROOT, SERVER, SRC
 sys.path.insert(0, SERVER)
+if SRC not in sys.path:         # (after the chdir Python would no longer find our packages through "")
+    sys.path.insert(1, SRC)
 os.chdir(SERVER)
 
 import blockworker          # noqa: E402
 import cdae                 # noqa: E402
 import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
-sys.path.insert(1, HERE)
-import facades              # noqa: E402
-import groundcover          # noqa: E402
-import parallel             # noqa: E402
-import propsmesh            # noqa: E402
-import roadtex              # noqa: E402
-import ground               # noqa: E402
-import rocks                # noqa: E402
-import trees                # noqa: E402
 import vegetation           # noqa: E402
-import water                # noqa: E402
+from scenery import facades, ground, groundcover, propsmesh, roadtex, rocks, trees, water     # noqa: E402
+from track import parallel  # noqa: E402
 
-TILES = os.path.join(HERE, "out", "tiles")
-OUT = os.path.join(HERE, "out", "obj")
-TEX_SRC = os.path.join(HERE, "assets", "textures")
+TILES = os.path.join(ROOT, "out", "tiles")
+OUT = os.path.join(ROOT, "out", "obj")
+TEX_SRC = os.path.join(ROOT, "assets", "textures")
 CELL = 2.0                  # m, terrain grid (like BeamNG.Earth's physics block)
 TERRAIN_UV_M = 8.0          # m per repeat of the grass texture
 MAX_VERTS = 65000           # kn5: 16 bit indices per mesh
@@ -350,7 +343,7 @@ _ctx = {}                       # per worker process: anchor, terrain, vegetatio
 def _init_scenery(tiles_dir, tex_dir):
     with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
         anc = json.load(f)
-    blockworker._s = blockworker._State(os.path.join(HERE, "cache"), offline=False, roads=True, grading=True,
+    blockworker._s = blockworker._State(os.path.join(ROOT, "cache"), offline=False, roads=True, grading=True,
                                         road_widths=True, surface=True)
     g, _ = blockworker._s.anchor(anc["aid"], anc["lat"], anc["lon"])
     frame = geodesy.EnuFrame(anc["lat"], anc["lon"])
@@ -363,7 +356,7 @@ def _init_scenery(tiles_dir, tex_dir):
     def raw(la, lo):            # terrain without levelling (for the water level)
         return blockworker.ground(frame, la, lo, dem.sample(la, lo, anc["dem_zoom"]))
 
-    veg = vegetation.Vegetation(blockworker._s.md, os.path.join(HERE, "cache"))
+    veg = vegetation.Vegetation(blockworker._s.md, os.path.join(ROOT, "cache"))
     veg.dem = dem               # (rocks by slope)
     _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir)
 

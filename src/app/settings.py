@@ -11,8 +11,9 @@ import json
 import os
 import re
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-FILE = os.path.join(HERE, "settings.json")
+from app.paths import ROOT
+
+FILE = os.path.join(ROOT, "settings.json")
 DEFAULTS = {"ac_path": None, "clean": True, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
             "car": None}
 STEAM_DEFAULT = r"C:\Program Files (x86)\Steam"

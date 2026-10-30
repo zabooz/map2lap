@@ -23,9 +23,9 @@ import tempfile
 import urllib.request
 import zipfile
 
-import version
-
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
+sys.path.insert(0, os.path.join(HERE, "src"))
+from app import version  # noqa: E402
 VENDOR = "vendor/beamng_earth"
 URL = "https://github.com/TecnaGamer/BeamNG.Earth/archive/refs/heads/main.zip"
 GIT = shutil.which("git") or r"C:\Program Files\Git\cmd\git.exe"

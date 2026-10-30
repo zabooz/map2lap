@@ -3,10 +3,10 @@ rem Map2Lap: starts the local generator page (http://localhost:8800) and opens i
 rem Uses the bundled Python of the release zip, else the development venv, else an installed Python.
 cd /d "%~dp0"
 if exist "python\python.exe" (
-  "python\python.exe" server.py
+  "python\python.exe" src\server.py
 ) else if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" server.py
+  ".venv\Scripts\python.exe" src\server.py
 ) else (
-  python server.py
+  python src\server.py
 )
 pause

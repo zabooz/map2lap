@@ -100,7 +100,7 @@ def _cobble(seed):
 
 def make_surfaces(tex_dir, seed=31):
     """The comic surfaces as road_<kind>.png into tex_dir (ground.ROAD_LOOKS)."""
-    import groundcover as gc
+    from scenery import groundcover as gc
     looks = {}
     rng = random.Random(seed)
     # Asphalt and concrete in one colour; their blotches are added world-locked (ground.CALM). A first version had

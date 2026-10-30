@@ -1,7 +1,7 @@
 """Route -> AC track: get the route from OSRM, build the tiles in the corridor (BeamNG.Earth), OBJ, the track folder
 in AC and the .kn5 with our own writer (obj_to_kn5.py, start at the beginning of the route). Drivable right away.
 
-    python generator.py --name test_route --width 100 46.6624,14.6345 46.6580,14.6500
+    python src/generator.py --name test_route --width 100 46.6624,14.6345 46.6580,14.6500
 """
 import argparse
 import glob
@@ -18,23 +18,16 @@ from concurrent.futures import as_completed
 
 import numpy as np
 
-import build_tiles          # (sets the asphalt mesh switches and the server path)
-import farview
-import gates
-import make_obj
-import make_track_folder
-import mapcache
-import mytracks
-import obj_to_kn5
-import parallel
-import settings
-import version
+from track import build_tiles     # (first: sets the asphalt mesh switches and the server path)
+from app import mapcache, mytracks, settings, version
+from app.paths import ROOT
+from scenery import farview, gates
+from track import make_obj, make_track_folder, obj_to_kn5, parallel
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
 import geodesy              # noqa: E402  (from the BeamNG.Earth server, path from build_tiles)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 OSRM = "https://router.project-osrm.org/route/v1/driving/"
 NOMINATIM = "https://nominatim.openstreetmap.org/reverse"
 SAMPLE_M = 20.0             # m: spacing of the route points for choosing the tiles
@@ -202,7 +195,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     t_start = time.perf_counter()
     name = slug(name)
     title = title or name
-    work = os.path.join(HERE, "out", "tracks", name)
+    work = os.path.join(ROOT, "out", "tracks", name)
     tiles_dir, obj_dir = (os.path.join(work, d) for d in ("tiles", "obj"))
     for d in (tiles_dir, obj_dir):
         if os.path.exists(d):
@@ -259,7 +252,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     log("(Map data for an area not built before is downloaded first: the first tiles can take a few minutes)")
     progress("tiles", 0, len(tiles))
     t0 = time.perf_counter()
-    with parallel.pool(n, _init_worker, (os.path.join(HERE, "cache"),)) as ex:
+    with parallel.pool(n, _init_worker, (os.path.join(ROOT, "cache"),)) as ex:
         futs = [ex.submit(_tile_job, lat0, lon0, tx, ty, tiles_dir) for tx, ty in tiles]
         for i, fut in enumerate(as_completed(futs), 1):
             tx, ty, dt = fut.result()
@@ -292,7 +285,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
                                   country=country, geotags=(lat0, lon0), extra_description=desc,
                                   route=None if area else xy.tolist(), log=log, parts=parts, bounds=bounds,
                                   point_to_point=timing is not None)
-    # For the debug app (ac_app/TrackDebug): the route in AC coordinates (x east, z = -north) and the anchor; an area has
+    # For the debug app (tools/TrackDebug): the route in AC coordinates (x east, z = -north) and the anchor; an area has
     # none (the app says so), and no old one from an earlier build under the same name either
     route_txt = os.path.join(root, "data", "map2lap_route.txt")
     for old in (route_txt, os.path.join(root, "data", "ac_export_route.txt")):     # (the second: older builds)
@@ -301,7 +294,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     if not area:
         with open(route_txt, "w", encoding="utf-8") as f:
             f.write(f"anchor {lat0:.8f} {lon0:.8f}\n" + "".join(f"{e_:.2f} {-n_:.2f}\n" for e_, n_ in xy))
-    debug_app = os.path.join(HERE, "ac_app", "TrackDebug")      # (developer checkout only, not in the release)
+    debug_app = os.path.join(ROOT, "tools", "TrackDebug")      # (developer checkout only, not in the release)
     if os.path.isdir(debug_app):
         shutil.copytree(debug_app, os.path.join(make_track_folder.AC, "apps", "lua", "TrackDebug"), dirs_exist_ok=True)
     for old in glob.glob(os.path.join(root, "*.kn5")):

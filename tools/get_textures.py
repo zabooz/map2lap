@@ -12,8 +12,8 @@ import urllib.request
 import zipfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, HERE)
-import version  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "src"))
+from app import version  # noqa: E402
 
 DEST = os.path.join(HERE, "assets", "textures")
 TEXTURES = ("Asphalt031", "Bricks108A", "Concrete034", "Grass005", "Gravel043", "Ground037", "PaintedPlaster017",

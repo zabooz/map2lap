@@ -18,8 +18,9 @@ import os
 import shutil
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.join(HERE, "cache")      # (absolute: build_tiles changes into the server folder)
+from app.paths import ROOT
+
+CACHE = os.path.join(ROOT, "cache")
 KEEP = {"netstats", "gravity", "airports"}      # never: the daily request budgets, one-off downloads (like cache.py)
 WHOLE = {"mapdata-mirror"}      # whole entries only (prune_mirror): removing a single file would break its entry
 LOW_WATER = 0.9
@@ -40,15 +41,15 @@ def _walk(root):
     return out
 
 
-def usage(root=ROOT):
+def usage(root=CACHE):
     """(bytes, files) of the cache."""
     files = _walk(root)
     return sum(s for _, s, _ in files), len(files)
 
 
-def trim(cap_gb, root=ROOT, log=print):
+def trim(cap_gb, root=CACHE, log=print):
     """Tidy the cache (1-3 above; cap_gb 0: no limit, only 1 and 2); returns the bytes left."""
-    import build_tiles  # noqa: F401  (BeamNG.Earth's path)
+    from track import build_tiles  # noqa: F401  (BeamNG.Earth's path)
     import cache as cachemod
     import dem
     import mapdata
@@ -92,7 +93,7 @@ def trim(cap_gb, root=ROOT, log=print):
     return after
 
 
-def clear(root=ROOT):
+def clear(root=CACHE):
     """Delete all map data (except KEEP); returns the bytes freed. Only while no build runs (server.py)."""
     if not os.path.isdir(root):
         return 0

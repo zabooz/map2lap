@@ -15,9 +15,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-import build_tiles
-import make_obj
-import obj_to_kn5
+from track import build_tiles, make_obj, obj_to_kn5
 
 roadsmod = build_tiles.roadsmod
 

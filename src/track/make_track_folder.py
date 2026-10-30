@@ -1,6 +1,6 @@
 """Create the AC track folder: surfaces, CSP config, minimap, UI (everything except the .kn5, see obj_to_kn5).
 
-    python make_track_folder.py <name> "<display name>"
+    python -m track.make_track_folder <name> "<display name>"
 """
 import json
 import os
@@ -10,13 +10,12 @@ import sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-import parallel
-import settings
-import version
+from app import settings, version
+from app.paths import ROOT
+from track import parallel
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 AC = settings.ac_path()         # (generator page: Settings; else found through Steam)
-OBJ = os.path.join(HERE, "out", "obj", "track.obj")
+OBJ = os.path.join(ROOT, "out", "obj", "track.obj")
 
 SURFACES = """\
 [SURFACE_0]
@@ -161,7 +160,7 @@ def _road_mask(part, view):
     return int(lo[0]), int(lo[1]), im.size, im.tobytes()
 
 
-def make(name, title, obj=OBJ, preview=os.path.join(HERE, "out", "check_top.png"), city="", country="", geotags=None,
+def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"), city="", country="", geotags=None,
          extra_description="", route=None, log=print, parts=None, bounds=None, point_to_point=False):
     """route: the generator's ENU polyline [(east, north), ...]: highlighted on the minimap.
     point_to_point: with start and finish lines from A to B (ui_track.json "run", like rally and hill climb tracks).
@@ -178,7 +177,7 @@ def make(name, title, obj=OBJ, preview=os.path.join(HERE, "out", "check_top.png"
         f.write(EXT_CONFIG)
     tex_dir = os.path.join(os.path.dirname(obj), "textures")
     if os.path.exists(os.path.join(tex_dir, "water_waves.png")):
-        import water                            # (only here: needs BeamNG.Earth's path from build_tiles)
+        from scenery import water                            # (only here: needs BeamNG.Earth's path from build_tiles)
         water.write_anim(os.path.join(root, "extension"), tex_dir)
 
     if parts:                       # generator: tile part files, extent from the tiles (fast, little RAM)

@@ -19,8 +19,8 @@ import urllib.request
 import zipfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, HERE)
-import version  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "src"))
+from app import version  # noqa: E402
 
 PY_VERSION = "%d.%d.%d" % sys.version_info[:3]
 PY_URL = f"https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-embed-amd64.zip"
@@ -28,8 +28,7 @@ DIST = os.path.join(HERE, "dist")
 NAME = "Map2Lap"
 ZIP = f"Map2Lap-{version.VERSION}-win64"
 # developer-only parts (in the repository, not in the release)
-SKIP = ("ac_app/", "tools/", "docs/images/", "check_drive.py", "measure.py", "test_tracks.json",
-        "update_beamng_earth.py", ".gitignore",
+SKIP = ("tools/", "docs/images/", ".gitignore",
         "vendor/beamng_earth/server/tests/", "vendor/beamng_earth/server/earthfast.abi3.so",
         "vendor/beamng_earth/native/", "vendor/beamng_earth/docs/", "vendor/beamng_earth/probes/",
         "vendor/beamng_earth/mod/",     # (the BeamNG mod: the server only reads it in its own developer tools)
@@ -45,7 +44,7 @@ def files():
 
 
 def embedded_python(dst):
-    """Python's embeddable package into dst/python, site-packages and the app folder on its path, the packages."""
+    """Python's embeddable package into dst/python, site-packages and src/ on its path, the packages."""
     os.makedirs(DIST, exist_ok=True)
     cached = os.path.join(DIST, os.path.basename(PY_URL))
     if not os.path.exists(cached):
@@ -59,8 +58,8 @@ def embedded_python(dst):
         z.extractall(py)
     pth = glob.glob(os.path.join(py, "python*._pth"))[0]
     stdlib = os.path.basename(glob.glob(os.path.join(py, "python*.zip"))[0])
-    with open(pth, "w", encoding="utf-8") as f:     # (".." = the app folder: Map2Lap's modules)
-        f.write(f"{stdlib}\n.\nLib\\site-packages\n..\nimport site\n")
+    with open(pth, "w", encoding="utf-8") as f:     # (..\src: Map2Lap's code; a ._pth adds no script folder)
+        f.write(f"{stdlib}\n.\nLib\\site-packages\n..\\src\nimport site\n")
     print("Installing the packages ...", flush=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
                     "--target", os.path.join(py, "Lib", "site-packages"), "-r", os.path.join(HERE, "requirements.txt")],

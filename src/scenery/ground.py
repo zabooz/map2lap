@@ -25,7 +25,7 @@ import heightmap
 import roads as roadsmod
 import surface as surfacemod
 
-import groundcover
+from scenery import groundcover
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m

@@ -15,8 +15,8 @@ removed), updates are taken over, and our AC-specific parts (looks, physics name
 - Fix problems at their cause, not for one place. If the cause is in BeamNG.Earth's code: a patch ([PATCHES.md](../PATCHES.md)).
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
-- Check with measurements (`measure.py`, `check_drive.py`) before showing a change.
-- Bump `version.VERSION` whenever a change alters how built tracks look or drive.
+- Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
+- Bump `VERSION` in `src/app/version.py` whenever a change alters how built tracks look or drive.
 
 ---
 
@@ -29,7 +29,7 @@ removed), updates are taken over, and our AC-specific parts (looks, physics name
 | Assetto Corsa (with CSP, Content Manager) | found through Steam, or set in the page's Settings |
 | CSP Lua docs (matching the installed version) | `assettocorsa\extension\internal\lua-sdk\<script type>\README.md` |
 | CC0 textures (ambientCG, not in git) | `assets\textures\` – `python tools\get_textures.py` downloads them |
-| Map data cache (not in git) | `cache\` (size limit: `mapcache.py`, 20 GB by default, trimmed after every build) |
+| Map data cache (not in git) | `cache\` (size limit: `src/app/mapcache.py`, 20 GB by default, trimmed after every build) |
 
 ```powershell
 py -3.12 -m venv .venv
@@ -40,14 +40,15 @@ py -3.12 -m venv .venv
 
 **Command line:**
 ```powershell
-.venv\Scripts\python.exe generator.py --name stausee_test --title "Stausee Test" --width 120 46.6600,14.6300 46.6470,14.6230
-.venv\Scripts\python.exe generator.py --name area_test --title "Area Test" --area 46.655 14.620 46.665 14.640
-.venv\Scripts\python.exe check_drive.py stausee_test --all-roads   # drivability: holes, jumps, terrain above the road
-.venv\Scripts\python.exe measure.py --all --build                  # rebuild the test tracks, compare with the reference
+.venv\Scripts\python.exe src\generator.py --name stausee_test --title "Stausee Test" --width 120 46.6600,14.6300 46.6470,14.6230
+.venv\Scripts\python.exe src\generator.py --name area_test --title "Area Test" --area 46.655 14.620 46.665 14.640
+.venv\Scripts\python.exe tools\check_drive.py stausee_test --all-roads   # drivability: holes, jumps, terrain above the road
+.venv\Scripts\python.exe tools\measure.py --all --build                  # rebuild the test tracks, compare with the reference
 ```
 Builds started from the command line keep their work folder `out\tracks\<name>` (the measuring tools read it).
+Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m track.kn5 <file.kn5>`.
 
-**Testing in AC:** the CSP app "Track Debug" (`ac_app\TrackDebug`, copied into AC on every build from a developer
+**Testing in AC:** the CSP app "Track Debug" (`tools\TrackDebug`, copied into AC on every build from a developer
 checkout) shows the route metre (the same count as `check_drive.py`), coordinates and G values; **F10** or "Mark"
 remembers a spot, "Start recording" records at 50 Hz. Files go to
 `Documents\Assetto Corsa\map2lap_debug\<track>_<time>_marks.csv` / `_drive.csv`.
@@ -81,41 +82,58 @@ threads because BeamNG.Earth's state (`blockworker._s`) is global: every process
 - Windows locks a cache file for a moment while another process replaces it: `parallel.retry_locked`.
 - Processes are not recycled (`max_tasks_per_child` hangs under Python 3.12, CPython gh-115634).
 
+### Project layout
+
+```
+src/            the program
+  server.py     the generator page (Start Map2Lap.bat runs it), web/index.html
+  generator.py  one build (the page runs it as its own process)
+  app/          the page's own state: settings, version, my tracks, map data cache, folders (paths.py)
+  track/        map data -> track: BeamNG.Earth tiles, OBJ parts, kn5, track folder, worker processes
+  scenery/      terrain, water, trees, rocks, street furniture, textures, gantries, distant view
+tools/          developer tools (not in the release): measuring, update, release, Track Debug app
+vendor/         BeamNG.Earth (branch upstream, see below)
+docs/           these notes, README images
+```
+`src\` is the import root: the packages import each other as `from track import make_obj`. `server.py` and
+`generator.py` find them because Python puts a script's folder on its path; the tools add `src\` themselves, the
+release's Python has it in `python312._pth`.
+
 | File | Purpose |
 |---|---|
 | `server.py`, `web/index.html` | Local generator page (Leaflet/OSM): new track (route or area), "My tracks" (rebuild, copy, delete, play), Settings, progress, stop |
 | `generator.py` | Route → tiles → OBJ → track folder → kn5 |
-| `version.py` | Map2Lap version, stored in every track; "My tracks" marks older ones |
-| `mytracks.py` | Our tracks in the AC folder and their saved settings (`data/map2lap.json`) |
-| `mapcache.py` | Map data cache with a size limit; "Clear now" |
-| `settings.py` | The page's settings (`settings.json`), finds AC through Steam |
-| `build_tiles.py` | BeamNG.Earth paths/state (default mode), single run for test areas |
-| `ground.py` | Terrain per tile like BeamNG.Earth's `blockworker.build`: heights, tunnel holes, surface per 2 m cell (physics), terrain texture with painted roads (look by road class), rock faces, streams, large-scale colour variation |
-| `groundcover.py` | WorldCover class per cell → comic ground material, Voronoi fields; Overture `land_use` on top; the ground textures |
-| `make_obj.py` | Assigns the tile meshes (collision like the BeamNG mod, `collision_prefix`), facade and wall colours, water/trees/furniture, textures |
-| `water.py` | Rasterises water areas, finds the level, lowers the terrain, water and foam meshes, comic textures, Lua animation |
-| `trees.py` | Tree billboards from `vegetation.tile_items`, comic atlas (deciduous, birch, linden, conifer, spruce, larch from 1500 m, two bushes) |
-| `rocks.py` | Boulders from BeamNG.Earth's vegetation as chunky 3D comic rocks, with collision from 1 m |
-| `propsmesh.py` | Street furniture from the tiles' `props` as comic block models (4×4 atlas), guardrails (`rails`), high-voltage pylons (`pylons`) |
-| `roadtex.py` | Comic textures for BeamNG.Earth's road decals and the comic road surfaces of the terrain texture |
-| `facades.py` | Facade textures (tinted plaster, windows, shop fronts), tinted wall textures |
-| `farview.py` | Distant view: BeamNG.Earth's far tiles (`farfield.build_tile`) chosen statically around the corridor; near squares in the comic ground's colours, further out a colour table by height/slope |
-| `gates.py` | Start and finish of point-to-point routes: checkered band, gantry, banner; decides where the timing lines are |
-| `obj_to_kn5.py`, `kn5.py` | Read/write kn5, OBJ → kn5, start slots, timing lines, material values, view distance and shadows per kind (`VIEW`), JPG → DDS (BC1) |
-| `make_track_folder.py` | Track folder (everything but the kn5) |
-| `parallel.py` | Number of worker processes, process pool |
-| `check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
-| `measure.py`, `test_tracks.json` | Measure the driving line of built tracks (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against the test tracks' reference values |
-| `update_beamng_earth.py` | BeamNG.Earth update: new version onto `upstream`, merge, rebuild `earthfast`, reference build with comparison |
-| `tools/` | `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
-| `ac_app/TrackDebug/` | CSP Lua app for testing: position on the route (`data/map2lap_route.txt` per track), F10, recording |
+| `app/version.py` | Map2Lap version, stored in every track; "My tracks" marks older ones |
+| `app/mytracks.py` | Our tracks in the AC folder and their saved settings (`data/map2lap.json`) |
+| `app/mapcache.py` | Map data cache with a size limit; "Clear now" |
+| `app/settings.py` | The page's settings (`settings.json`), finds AC through Steam |
+| `track/build_tiles.py` | BeamNG.Earth paths/state (default mode), single run for test areas |
+| `scenery/ground.py` | Terrain per tile like BeamNG.Earth's `blockworker.build`: heights, tunnel holes, surface per 2 m cell (physics), terrain texture with painted roads (look by road class), rock faces, streams, large-scale colour variation |
+| `scenery/groundcover.py` | WorldCover class per cell → comic ground material, Voronoi fields; Overture `land_use` on top; the ground textures |
+| `track/make_obj.py` | Assigns the tile meshes (collision like the BeamNG mod, `collision_prefix`), facade and wall colours, water/trees/furniture, textures |
+| `scenery/water.py` | Rasterises water areas, finds the level, lowers the terrain, water and foam meshes, comic textures, Lua animation |
+| `scenery/trees.py` | Tree billboards from `vegetation.tile_items`, comic atlas (deciduous, birch, linden, conifer, spruce, larch from 1500 m, two bushes) |
+| `scenery/rocks.py` | Boulders from BeamNG.Earth's vegetation as chunky 3D comic rocks, with collision from 1 m |
+| `scenery/propsmesh.py` | Street furniture from the tiles' `props` as comic block models (4×4 atlas), guardrails (`rails`), high-voltage pylons (`pylons`) |
+| `scenery/roadtex.py` | Comic textures for BeamNG.Earth's road decals and the comic road surfaces of the terrain texture |
+| `scenery/facades.py` | Facade textures (tinted plaster, windows, shop fronts), tinted wall textures |
+| `scenery/farview.py` | Distant view: BeamNG.Earth's far tiles (`farfield.build_tile`) chosen statically around the corridor; near squares in the comic ground's colours, further out a colour table by height/slope |
+| `scenery/gates.py` | Start and finish of point-to-point routes: checkered band, gantry, banner; decides where the timing lines are |
+| `track/obj_to_kn5.py`, `track/kn5.py` | Read/write kn5, OBJ → kn5, start slots, timing lines, material values, view distance and shadows per kind (`VIEW`), JPG → DDS (BC1) |
+| `track/make_track_folder.py` | Track folder (everything but the kn5) |
+| `track/parallel.py` | Number of worker processes, process pool |
+| `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
+| `tools/measure.py`, `tools/test_tracks.json` | Measure the driving line of built tracks (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against the test tracks' reference values |
+| `tools/update_beamng_earth.py` | BeamNG.Earth update: new version onto `upstream`, merge, rebuild `earthfast`, reference build with comparison |
+| `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
+| `tools/TrackDebug/` | CSP Lua app for testing: position on the route (`data/map2lap_route.txt` per track), F10, recording |
 
 ### BeamNG.Earth as a vendor branch
 
 - Branch **`upstream`**: only the **unmodified** BeamNG.Earth code under `vendor/beamng_earth`, one commit per version
   (ZIP from github.com/TecnaGamer/BeamNG.Earth). Branch **`main`** merges it in. **Remove nothing from their code.**
   Adjust in our own files where possible; otherwise as a patch, recorded in [PATCHES.md](../PATCHES.md).
-- **Update:** `.venv\Scripts\python.exe update_beamng_earth.py` (or with the path of a ZIP): downloads, commits onto
+- **Update:** `.venv\Scripts\python.exe tools\update_beamng_earth.py` (or with the path of a ZIP): downloads, commits onto
   `upstream`, merges, builds the Stausee reference and compares with `out/reference.json` (> 5 % deviation flagged).
   Read their `CHANGELOG.md` first; not during a build. Back: `git reset --hard ORIG_HEAD`.
 - **Rust module `earthfast`** (built by us for patch P1, `server/earthfast.pyd` in the repo): Rust

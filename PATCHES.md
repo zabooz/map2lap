@@ -14,7 +14,7 @@ physics names, kn5) are described in docs/DEVELOPMENT.md, not here.
   marker.
 - "Proven" means measured or driven on a test track, with and without the patch. A patch without evidence is checked
   and otherwise removed again.
-- The Rust module's patch announces itself as `earthfast.AC_EXPORT_YIELD` (update_beamng_earth.py checks it).
+- The Rust module's patch announces itself as `earthfast.AC_EXPORT_YIELD` (tools/update_beamng_earth.py checks it).
 
 **Based on:** BeamNG.Earth 1.7.1-beta.
 
@@ -43,12 +43,12 @@ where BeamNG.Earth's rules assume a coarser elevation model.
 
 1. Read their `CHANGELOG.md`: does the new version change a place from the sections below ("Code")? Does it fix one of
    the problems itself ("Problem")?
-2. `.venv\Scripts\python.exe update_beamng_earth.py` (not during a build): new version onto `upstream`, merge, rebuild
+2. `.venv\Scripts\python.exe tools\update_beamng_earth.py` (not during a build): new version onto `upstream`, merge, rebuild
    earthfast with P1. Conflicts at marked places: take their new code, put our rule back in.
 3. Tests (from the test folder, else `test_roads` is missing):
    `cd vendor\beamng_earth\server\tests` → `..\..\..\..\.venv\Scripts\python.exe -m unittest test_grading test_roadmesh test_roads test_gradesep test_otto_bridge`.
    Expected failures are listed below ("Known test failures"); every other failure is new.
-4. Build the test tracks again and measure them against their reference: `.venv\Scripts\python.exe measure.py --all --build`
+4. Build the test tracks again and measure them against their reference: `.venv\Scripts\python.exe tools\measure.py --all --build`
    (data, known spots and reference values in `test_tracks.json`; "WORSE" means check it).
 5. For every patch, check whether it is still needed: build a test track once with and once without it (switch in the
    table) and measure with `measure.py`. Whatever BeamNG.Earth now solves itself goes (a commit of its own).

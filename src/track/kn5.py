@@ -1,6 +1,6 @@
 """Read and write kn5 (Assetto Corsa's model format): textures, materials, node tree with meshes.
 
-    python kn5.py <file.kn5>        # overview + check that reading ends exactly at the end of the file
+    python -m track.kn5 <file.kn5>        # (in src/) overview + check that reading ends exactly at the end of the file
 """
 import struct
 import sys

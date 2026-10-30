@@ -6,7 +6,7 @@ Modelled on a file written by ksEditor (kn5.py reads it completely):
 - vertex: position, normal, UV (v negated), tangent; 16 bit indices (<= 65535 vertices per mesh).
 - material ksPerPixel with ksAmbient, ksDiffuse, ksSpecular, ksSpecularEXP, ksEmissive, ksAlphaRef and txDiffuse.
 
-    python obj_to_kn5.py <track.obj> <target.kn5> [anchor.json]
+    python -m track.obj_to_kn5 <track.obj> <target.kn5> [anchor.json]
 """
 import json
 import math
@@ -16,8 +16,7 @@ import sys
 
 import numpy as np
 
-import kn5
-import parallel
+from track import kn5, parallel
 
 # Material values (tried in AC). About a fifth less ambient light than at first (it all looked a bit bright; before:
 # ground and asphalt 0.45 / 0.35, buildings 0.45 / 0.35, trees 0.50 / 0.40); then 0.05 moved from the sun into the
