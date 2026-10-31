@@ -214,6 +214,57 @@ class PlanTest(unittest.TestCase):
         self.assertEqual((a.floors, a.roof, a.facade, a.band), (b.floors, b.roof, b.facade, b.band))
 
 
+class UseTest(unittest.TestCase):
+    """An unclassed footprint's use from the places in it and the land use under it (footprint_uses); its size alone
+    never makes a hall."""
+
+    def test_size_alone_keeps_windows(self):
+        for ring in (rect(0, 0, 60, 40), rect(0, 0, 100, 80)):
+            for k in range(10):
+                s = bld.plan(ring, {"class": "", "seed_id": f"b{k}"}, 0, 46.59, 14.64, town=True)
+                self.assertTrue(s.windows, "no data: a building with windows, not a blank hall")
+                self.assertFalse(s.facade.startswith(bld.METALWALL))
+
+    def test_use_makes_the_hall(self):
+        ring = rect(0, 0, 60, 40)
+        s = bld.plan(ring, {"class": "", "use": "industrial"}, 0, 46.59, 14.64, town=True)
+        self.assertFalse(s.windows)
+        self.assertTrue(s.facade.startswith(bld.METALWALL))
+        s = bld.plan(ring, {"class": "", "use": "retail"}, 0, 46.59, 14.64, town=True)
+        self.assertFalse(s.windows)
+        self.assertTrue(s.facade.startswith(bld.PANEL))
+        s = bld.plan(ring, {"class": "", "use": "shop"}, 0, 46.59, 14.64, town=True)
+        self.assertTrue(s.windows, "a shop in it: a shopfront, windows above")
+        self.assertTrue(s.shop)
+        s = bld.plan(rect(0, 0, 10, 9), {"class": "house", "use": "industrial"}, 0, 46.59, 14.64, town=True)
+        self.assertTrue(s.windows, "the mapped class wins")
+
+    def test_place_use(self):
+        self.assertEqual(bld.place_use("fashion_and_apparel_store", "clothing_store"), "shop")
+        self.assertEqual(bld.place_use("restaurant", "italian_restaurant"), "shop")
+        self.assertEqual(bld.place_use("hardware_home_and_garden_store", "home_improvement_store"), "retail")
+        self.assertEqual(bld.place_use("manufacturer", "metal_fabricator"), "industrial")
+        self.assertIsNone(bld.place_use("attorney_or_law_firm", "lawyer"))
+        self.assertIsNone(bld.place_use(None, None))
+
+    def test_footprint_uses(self):
+        hall, house, office = rect(0, 0, 60, 40), rect(100, 0, 12, 10), rect(200, 0, 25, 20)
+        places = (np.array([[30.0, 20.0], [106.0, 5.0], [500.0, 500.0]]), ["industrial", "industrial", "shop"])
+        self.assertEqual(bld.footprint_uses([hall, house], places), ["industrial", None],
+                         "a works place in a house-sized footprint: a firm at a home")
+        shops = (np.array([[30.0, 20.0], [31.0, 20.0]]), ["shop", "industrial"])
+        self.assertEqual(bld.footprint_uses([hall], shops), ["industrial"], "a works hall with its counter")
+        self.assertEqual(bld.footprint_uses([house], (np.array([[106.0, 5.0]]), ["shop"])), ["shop"])
+        estate = [("industrial", rect(-50, -50, 400, 200), [])]
+        self.assertEqual(bld.footprint_uses([hall, house, office], None, estate), ["industrial", None, "industrial"])
+        holed = [("industrial", rect(-50, -50, 400, 200), [rect(-10, -10, 90, 70)])]
+        self.assertEqual(bld.footprint_uses([hall], None, holed), [None], "its centre in a hole of the area")
+        stores = [("commercial", rect(-50, -50, 400, 200), [])]
+        self.assertEqual(bld.footprint_uses([hall, office], None, stores), ["commercial", None],
+                         "a store area: only its halls")
+        self.assertEqual(bld.footprint_uses([hall], None, [("residential", rect(-50, -50, 400, 200), [])]), [None])
+
+
 class TowerShopTest(unittest.TestCase):
     def test_city_towers_have_a_shop_ground_floor(self):
         # Midtown, 2026-10-14: classless towers had their curtain wall down to the pavement

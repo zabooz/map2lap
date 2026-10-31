@@ -15,6 +15,7 @@ footprints and a ground-height function; no game state.
 """
 import os
 import hashlib
+import logging
 import math
 
 import numpy as np
@@ -22,6 +23,8 @@ import numpy as np
 import fast
 import mapgeom
 import staging
+
+log = logging.getLogger("earthd.buildings")
 
 FLOOR_M = 3.0               # m per storey (residential)
 GROUND_FLOOR_SHOP_M = 4.2   # m, a shop's ground floor
@@ -255,12 +258,31 @@ GLASS_FLOORS = (20, 40)     # towers from 20 floors: glass, but for OLD_TOWER_GL
 OLD_TOWER_GLASS = 0.65      # ... (Midtown's pre-war skyscrapers are stone)
 MIDRISE_GLASS_OFFICE = 0.45 # offices / hotels of 7+ floors: this share glass (modern), the rest masonry
 TOWER_SHOP_FLOORS = 6       # a building this tall in a dense core: a shop / lobby ground floor whatever its class
-SHOP_CLASSES = {"retail", "commercial", "supermarket", "kiosk", "office", "hotel", "civic", "restaurant"}
+# (shop: not an Overture class, footprint_uses' for a building with a shop or restaurant inside: its ground floor)
+SHOP_CLASSES = {"retail", "commercial", "supermarket", "kiosk", "office", "hotel", "civic", "restaurant", "shop"}
+BIG_BOX_CLASSES = {"retail", "commercial", "supermarket"}   # low and from BIG_BOX_M2: blank walls, one storefront
 HOUSE_CLASSES = {"house", "detached", "semidetached_house", "bungalow", "residential", "farm", "static_caravan",
                  "cabin", "dormitory"}
+HOUSE_MAX_M2 = 300.0        # m2: the biggest footprint drawn as a detached house
 ROW_CLASSES = {"terrace"}
 GARAGE_MIN_M2 = 400.0       # a "parking" building this big is a parking structure
 INDUSTRIAL_CLASSES = {"industrial", "warehouse", "manufacture", "factory", "hangar"}
+
+# The use of a footprint whose class is not mapped (a village's ~90 %, most buildings outside Europe's cities), from
+# the Overture places (POIs from Meta and Microsoft: basic_category, taxonomy) inside it and the OSM land use under it
+# (footprint_uses). Without either the generic rules stand, and the size alone never makes a hall (a 2,000 m² village
+# building with no data came out as a windowless factory). A closed place counts too: the building outlasts its business.
+SHOP_PLACES = {"shopping", "restaurant", "bar", "cafe", "coffee_shop", "casual_eatery", "fast_food_restaurant",
+               "bakery", "bank_or_credit_union", "personal_or_beauty_service", "laundry_service", "travel_service",
+               "food_court", "smoothie_juice_bar", "non_alcoholic_beverage_venue", "auto_dealer", "vehicle_dealer"}
+# (and every basic category "..._store"); sales halls by their taxonomy (a grocery_store can be a corner shop, a
+# home_improvement_store is a hall)
+HALL_PLACES = {"superstore", "warehouse_club_store", "home_improvement_store", "building_supply_store", "shopping_mall",
+               "department_store"}
+WORKS_PLACES = {"manufacturer", "wholesaler", "storage_facility", "self_storage_facility", "sawmill"}
+# land use (Overture class) -> the class of a big unclassed building on it; residential land use is often a whole
+# district and says nothing, commercial (offices as often as stores) only for halls (BIG_BOX_M2)
+LAND_CLASSES = {"industrial": "industrial", "works": "industrial", "retail": "retail", "commercial": "commercial"}
 
 
 def _hash01(*vals):
@@ -444,6 +466,93 @@ def tree_line_m(lat):
     return max(0.0, 3600.0 - 110.0 * max(0.0, abs(float(lat)) - 32.0))
 
 
+def place_use(category, taxonomy):
+    """The class an Overture place (its basic_category and taxonomy) gives the building it is in: "retail" (a sales
+    hall), "shop" (a shopfront), "industrial" (works, a warehouse) or None (an office, a flat, a service: nothing
+    about its walls). Pure."""
+    category, taxonomy = str(category or ""), str(taxonomy or "")
+    if taxonomy in HALL_PLACES or category in HALL_PLACES:
+        return "retail"
+    if category in WORKS_PLACES or taxonomy in WORKS_PLACES:
+        return "industrial"
+    if category in SHOP_PLACES or category.endswith("_store"):
+        return "shop"
+    return None
+
+
+def footprint_uses(rings, places=None, lands=()):
+    """Per ring ((n, 2), one frame for all): the class its places and land use give it, or None. places: (xy (k, 2),
+    uses (k,) of place_use) of the places around; lands: [(class, outer (m, 2), [hole (h, 2), ...])] of the land use
+    areas of LAND_CLASSES. A hall needs the size of one: a works place or land use on a footprint up to a house's
+    (HOUSE_MAX_M2) is a firm registered at a home or an office in the estate, a store land use under a smaller one than a
+    big box (BIG_BOX_M2) an office as often as a shop. A works place on a big box's footprint wins over a shop in it
+    (the works' showroom or counter); a sales hall's place, then a store land use, over the shops in it. Pure."""
+    out = []
+    pxy, puse = (np.asarray(places[0], np.float64).reshape(-1, 2), list(places[1])) if places else (np.zeros((0, 2)), [])
+    for ring in rings:
+        r = np.asarray(ring, np.float64)
+        area = abs(_area2(r)) / 2
+        lo, hi = r.min(0), r.max(0)
+        got = set()
+        for k in np.flatnonzero(((pxy >= lo) & (pxy <= hi)).all(1)).tolist():
+            if puse[k] is not None and _inside(r, pxy[k]):
+                got.add(puse[k])
+        c = r[:-1].mean(0) if len(r) > 1 and np.allclose(r[0], r[-1]) else r.mean(0)
+        land = None
+        for cls, outer, holes in lands:
+            if _inside(outer, c) and not any(_inside(h, c) for h in holes):
+                land = LAND_CLASSES.get(cls)
+                break
+        use = None
+        if "industrial" in got and area >= BIG_BOX_M2:
+            use = "industrial"
+        elif "retail" in got:
+            use = "retail"
+        elif land in ("retail", "commercial") and area >= BIG_BOX_M2:
+            use = land
+        elif "shop" in got:
+            use = "shop"
+        elif area >= HOUSE_MAX_M2 and ("industrial" in got or land == "industrial"):
+            use = "industrial"
+        out.append(use)
+    return out
+
+
+def use_data(frame, md, keys, x0, y0):
+    """The places and land use areas of map cells keys for footprint_uses, relative to (x0, y0) in frame (an EnuFrame):
+    (places, lands), or None when the cells can't give them (offline without the places: the generic rules)."""
+    try:
+        cds = [md.cell(k, layers=("places", "land_use"), kind="demand") for k in keys]
+    except Exception as e:      # (the buildings stand without them)
+        log.debug("places / land use of cells %s: %s", keys, e)
+        return None
+    pxy, puse, lands, seen = [], [], [], set()
+    for c in cds:
+        f = c.layers.get("places")
+        if f is not None and len(f):
+            a = f.attrs
+            first = f.coord_off[f.ring_off[f.part_off[:-1]]]
+            xy = f.xy_in(frame)[first] - [x0, y0]
+            for i in range(len(f)):
+                u = place_use(a["basic_category"][i] if "basic_category" in a else None,
+                              a["taxonomy"][i] if "taxonomy" in a else None)
+                if u is not None and f.ids[i] not in seen:
+                    seen.add(f.ids[i])
+                    pxy.append(xy[i])
+                    puse.append(u)
+        f = c.layers.get("land_use")
+        if f is not None and len(f):
+            for i in range(len(f)):
+                cls = str(f.attrs["class"][i] or "")
+                if cls not in LAND_CLASSES:
+                    continue
+                for part in f.parts(i):
+                    rs = [np.stack(mapgeom.enu_xy(f, frame, np.asarray(rg)), 1) - [x0, y0] for rg in part]
+                    if rs and len(rs[0]) >= 4:
+                        lands.append((cls, rs[0], rs[1:]))
+    return (np.asarray(pxy, np.float64).reshape(-1, 2), puse), lands
+
+
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
          alpine=False):
     """The Spec of a footprint (local ring (n, 2) in metres, counter-clockwise) from its Overture attributes
@@ -462,7 +571,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     style = region_style(lat, lon)
     _, _, hl, hw = oriented_box(ring)
     box_fill = area / max(4 * hl * hw, 1e-6)
-    cls = (attrs.get("class") or "").lower()
+    cls = (attrs.get("class") or attrs.get("use") or "").lower()   # (use: footprint_uses', when no class is mapped)
     name = str(attrs.get("name") or "").lower()
     terminal = any(w in name for w in ("terminal", "concourse"))
     church = cls in CHURCH_CLASSES or any(w in name for w in ("church", "chapel", "cathedral"))
@@ -478,8 +587,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         dense and area < 260 and cls not in SHOP_CLASSES)))
     shed = (cls in SHED_CLASSES and not garage) or (area < 40 and not row)
     shop = cls in SHOP_CLASSES
-    industrial = cls in INDUSTRIAL_CLASSES or (area > 2500 and cls in ("", "commercial"))
-    industrial = industrial and not (garage or terminal)
+    industrial = cls in INDUSTRIAL_CLASSES and not (garage or terminal)
 
     h = attrs.get("height")
     nf = attrs.get("num_floors")
@@ -652,7 +760,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         plain = False
     wall = None
     house = (cls in HOUSE_CLASSES or (area < 260 and not shop and not industrial)) and not row and not shed \
-        and neighbours == 0 and area < 300         # a long "residential" block is not a house (Fells Point)
+        and neighbours == 0 and area < HOUSE_MAX_M2     # a long "residential" block is not a house (Fells Point)
     if house and band is not BAND_BRICK and nf <= 3:
         # detached houses: siding in the East and South, stucco in the West; windows laid over the wall
         u = _hash01(seed, "wall")
@@ -727,9 +835,9 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     elif garage:
         facade, band, plain = FACADE_TINTS[3], BAND_PANEL, False
     windows = True
+    # blank walls only where the data says hall (a class, or footprint_uses' places and land use)
     if not (shed or barn or row or house or terminal or garage or church) and nf <= 2 and roof == "flat" \
-            and (area >= BIG_BOX_M2 or industrial) \
-            and cls not in HOUSE_CLASSES and cls != "apartments":
+            and (industrial or (area >= BIG_BOX_M2 and cls in BIG_BOX_CLASSES)):
         kind = METALWALL if industrial else PANEL
         wall = f"{kind}|{int(_hash01(seed, 'wc') * len(WALL_TINTS[kind]))}"
         facade, windows = wall, False
@@ -2257,7 +2365,7 @@ class _PartsOf:
 
 def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=(), west_town=False, roads_xy=None,
                    tunnels_xy=None, garages_xy=None, supports=None, bridges_xy=None, water_xy=None, decks=None,
-                   ml_roads_xy=None, ways_xy=None, skip=frozenset(), min_size=None, own=None):
+                   ml_roads_xy=None, ways_xy=None, skip=frozenset(), min_size=None, own=None, uses=None):
     """[(Spec, gmin, gmax)] of the buildings whose footprint centroid is in the tile [x0, x1) x [y0, y1) (own: the
     tile's box when it says which points are its own, roads.box_owns: a geotile's)
     (anchor frame), rings relative to (x0, y0). layers: mapgeom.Features of buildings (one per map cell; a
@@ -2270,7 +2378,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
     buildings) is a deck, a boat or a vehicle, left out (_ml_false). skip: ids of buildings left out (a gas station's
     canopy, drawn by the mod from the stock levels' props: gasstations.tile_sites). min_size (min height m, min
     footprint m²): only buildings at least that tall or that large (the skyline tiles: skyline_tile), tested before
-    any other work on a building."""
+    any other work on a building. uses: use_data's places and land use relative to (x0, y0): an unclassed footprint
+    takes the class they give (footprint_uses)."""
     parts_of = _PartsOf(frame, part_layers)     # building id -> [(ring in the anchor frame, (own height, bottom))]
     seen = set()
     rings, attrs, looks, mins = [], [], [], []
@@ -2398,6 +2507,11 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
             mins.append(mh)
     if not rings:
         return []
+    if uses is not None:
+        todo = [k for k, (at, look) in enumerate(zip(attrs, looks)) if look is None and not at.get("class")]
+        for k, u in zip(todo, footprint_uses([rings[k] for k in todo], *uses)):
+            if u is not None:
+                attrs[k] = dict(attrs[k], use=u)
     if bridges_xy or decks:             # a road bridge through a building: a passage (Tower Bridge's towers and gate)
         def ground_at(c):
             la, lo, _ = frame.enu_to_geodetic(float(c[0]) + x0, float(c[1]) + y0, 0.0)
@@ -2889,10 +3003,11 @@ def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset()):
     import roads
     box = roads.tile_bbox(tx, ty)
     x0, y0, x1, y1 = box
+    keys = roads.cells_of_tile(frame, tx, ty, margin=0.0)
     cds = [md.cell(k, layers=("buildings", "building_parts", "roads", "infrastructure", "water"), kind="demand")
-           for k in roads.cells_of_tile(frame, tx, ty, margin=0.0)]
+           for k in keys]
     return tile_buildings(frame, x0, y0, x1, y1, [c.layers.get("buildings") for c in cds], ground,
-                          own=box if hasattr(box, "owns") else None,
+                          own=box if hasattr(box, "owns") else None, uses=use_data(frame, md, keys, x0, y0),
                           part_layers=[c.layers.get("building_parts") for c in cds],
                           west_town=district_town(frame, tx, ty, md),
                           roads_xy=road_lines(frame, [c.layers.get("roads") for c in cds], x0, y0),
@@ -2958,8 +3073,10 @@ def far_items(frame, tile, ty, md, ground, lamp_region=None):
     box = roads.tile_bbox(tile, ty)
     x0, y0, x1, y1 = box
     own = box if hasattr(box, "owns") else None
-    cds = [md.cell(k, layers=FAR_LAYERS, kind="demand") for k in roads.cells_of_tile(frame, tile, ty, margin=0.0)]
+    keys = roads.cells_of_tile(frame, tile, ty, margin=0.0)
+    cds = [md.cell(k, layers=FAR_LAYERS, kind="demand") for k in keys]
     items = tile_buildings(frame, x0, y0, x1, y1, [c.layers.get("buildings") for c in cds], ground, own=own,
+                           uses=use_data(frame, md, keys, x0, y0),
                            part_layers=[c.layers.get("building_parts") for c in cds],
                            west_town=district_town(frame, tile, ty, md),
                            garages_xy=garage_rings(frame, [c.layers.get("infrastructure") for c in cds], x0, y0),
