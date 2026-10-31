@@ -230,6 +230,20 @@ URBAN_BESIDE_SHARE = 0.2        # the land cover counts a wide road's own paveme
 URBAN_BOTH_SHARE = 0.1          # a motorway or trunk needs built-up land on both
                                 # sides of this share of its vertices: a roadhouse beside the Eyre Highway (Eucla: one
                                 # side 33 %, the other 0 %) is no town
+URBAN_STEP_M = 10.0             # m between the points those shares are taken at (the land cover's pixel): shares of a
+                                # road's length, not of its vertices, which crowd where it bends and joins (a 762 m
+                                # primary through fields read 64 % built-up from the 9 of its 14 vertices in the
+                                # village at its end, 41 % along its length, and got curbs and sidewalks throughout)
+
+
+def _even(p, step):
+    """A line (lon/lat (k, 2)) as points every step m along it, its ends included. Pure."""
+    if len(p) < 2:
+        return p
+    m = np.array([111320.0 * math.cos(math.radians(float(p[:, 1].mean()))), 110540.0])   # m per degree
+    cum = np.r_[0.0, np.cumsum(np.hypot(*(np.diff(p, axis=0) * m).T))]
+    s = np.r_[np.arange(0.0, cum[-1], step), cum[-1]]
+    return np.c_[np.interp(s, cum, p[:, 0]), np.interp(s, cum, p[:, 1])]
 
 
 def _beside(ll, counts, d):
@@ -1627,20 +1641,22 @@ def _road_specs(feats, urban_fn, left_hand):
         out.append(Spec(carriageway(cls, kind, False, rule_w, ow, lanes), kind, False, cls, ow, 2.5, *dk,
                         lanes=lanes, surf=surface_token(surf), link=link))
     if ask:
-        ll = np.concatenate([feats.lonlat[a:b] for _, _, _, a, b, *_ in ask])
-        left, right = _beside(ll, [b - a for _, _, _, a, b, *_ in ask], URBAN_BESIDE_M)
+        lines = [_even(feats.lonlat[a:b], URBAN_STEP_M) for _, _, _, a, b, *_ in ask]
+        counts = [len(p) for p in lines]
+        ll = np.concatenate(lines)
+        left, right = _beside(ll, counts, URBAN_BESIDE_M)
         n = len(ll)
         pts = np.concatenate([ll, left, right])
         u_all = np.asarray(urban_fn(pts[:, 1], pts[:, 0]), bool)      # (one call: its cost is per call)
         u, by, both = u_all[:n], u_all[n:2 * n] | u_all[2 * n:], u_all[n:2 * n] & u_all[2 * n:]
         k = 0
-        for j, cls, kind, a, b, ow, dk, lanes, token, link in ask:
-            developed_both[j] = float(np.mean(both[k:k + (b - a)])) >= URBAN_BOTH_SHARE
-            urban = (float(np.mean(u[k:k + (b - a)])) >= URBAN_SHARE
-                     and float(np.mean(by[k:k + (b - a)])) >= URBAN_BESIDE_SHARE
+        for (j, cls, kind, a, b, ow, dk, lanes, token, link), c in zip(ask, counts):
+            developed_both[j] = float(np.mean(both[k:k + c])) >= URBAN_BOTH_SHARE
+            urban = (float(np.mean(u[k:k + c])) >= URBAN_SHARE
+                     and float(np.mean(by[k:k + c])) >= URBAN_BESIDE_SHARE
                      and (cls not in ("motorway", "trunk")
-                          or float(np.mean(both[k:k + (b - a)])) >= URBAN_BOTH_SHARE))
-            k += b - a
+                          or float(np.mean(both[k:k + c])) >= URBAN_BOTH_SHARE))
+            k += c
             out[j] = Spec(carriageway(cls, kind, urban, None, ow, lanes), kind, urban, cls, ow, 2.5, *dk, lanes=lanes,
                           surf=token, link=link)
     out = _rings(feats, out)

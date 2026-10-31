@@ -1137,6 +1137,22 @@ class UrbanBesideTest(unittest.TestCase):
         both = roads.road_specs(f, lambda lat, lon: np.ones(np.shape(lat), bool))
         self.assertTrue(both[0].urban and roads.has_sidewalks(both[0]), "a town's main street on a highway")
 
+    def test_the_shares_are_of_the_length_not_of_the_vertices(self):
+        # 700 m through fields on two vertices, then nine in the last 60 m where it bends into a village: by its
+        # vertices the road was built-up, by its length it is not
+        bend = [(700.0 + 6.0 * k, 0.3 * k * k) for k in range(1, 10)]
+        f = features([[(0, 0), (700, 0)] + bend, [(0, 0), (700, 0)]], ["primary", "primary"])
+
+        def village(lat, lon):                  # all built-up past 640 m east
+            e, n, _ = FRAME.geodetic_to_enu(np.asarray(lat), np.asarray(lon), 0.0)
+            return np.asarray(e) > 640.0
+        specs = roads.road_specs(f, village)
+        self.assertFalse(specs[0].urban, "a village at its end is no town street throughout")
+        self.assertFalse(roads.has_sidewalks(specs[0]))
+        town = roads.road_specs(f, lambda lat, lon: np.asarray(
+            FRAME.geodetic_to_enu(np.asarray(lat), np.asarray(lon), 0.0)[0]) > 100.0)
+        self.assertTrue(town[0].urban, "built-up along most of its length")
+
 
 class TileNeedsTest(unittest.TestCase):
     def test_the_cells_a_tile_asks_for(self):

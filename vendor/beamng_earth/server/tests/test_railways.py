@@ -247,6 +247,22 @@ class RailwayTest(unittest.TestCase):
         self.assertTrue(0.55 * len(full) < len(some) < 0.85 * len(full), (len(some), len(full)))
         np.testing.assert_allclose(some[some[:, 0] >= s[10]], part, err_msg="a tile's run keeps the same ones")
 
+    def test_an_abandoned_line_under_a_path_is_gone_there(self):
+        """An abandoned line (its track taken up) is drawn only where nothing else is mapped on its bed: a cycle path
+        laid on it for 120 m takes that stretch; a path 8 m beside it does not, nor one on a disused line (its track
+        still there)."""
+        f = features([[(0.0, 100.0), (250.0, 100.0)], [(0.0, 101.5), (120.0, 101.5)], [(0.0, 108.0), (250.0, 108.0)],
+                      [(0.0, 150.0), (250.0, 150.0)], [(0.0, 151.0), (250.0, 151.0)]],
+                     ["unknown", "cycleway", "cycleway", "unknown", "cycleway"],
+                     subtypes=["rail", "road", "road", "rail", "road"], flags=[(0, "is_abandoned"), (3, "is_disused")])
+        rails = railways.parts(FRAME, [f], roads.tile_bbox(0, 0))
+        x = np.concatenate([xy[:, 0] for fid, _c, _k, xy in rails if fid == "id000"])
+        reach = railways.BED_HALF_M + railways.PATH_W_M / 2
+        self.assertGreater(x.min(), 120.0 + math.sqrt(reach ** 2 - 1.5 ** 2) - 0.01, "none under the path")
+        self.assertAlmostEqual(float(x.max()), 250.0, 0, "the rest kept")
+        x3 = np.concatenate([xy[:, 0] for fid, _c, _k, xy in rails if fid == "id003"])
+        self.assertAlmostEqual(float(np.ptp(x3)), 250.0, 0, "a disused line keeps its track under a path")
+
     def test_short_piece_on_its_own_is_left_out(self):
         f = features([[(0.0, 100.0), (120.0, 100.0)], [(120.0, 100.0), (250.0, 100.0)], [(50.0, 130.0), (62.0, 130.0)]],
                      ["standard_gauge"] * 3, subtypes=["rail"] * 3)

@@ -64,6 +64,11 @@ BALLAST_WORN = (BALLAST, "bne_rail_ballast_weedy", "bne_rail_ballast_grown")
 STEEL_WORN = (STEEL, "bne_rail_steel_old", "bne_rail_steel_old")
 SLEEPER_WORN = (SLEEPER, "bne_rail_sleeper_old", "bne_rail_sleeper_old")
 SLEEPERS_GONE = (0.0, 0.0, 0.3)
+# An abandoned line (OpenStreetMap: its track taken up, the bed left) is drawn only where nothing else is mapped on
+# its bed: a road or path whose surface reaches the bed's footprint (BED_HALF_M) has taken it over (the Vellach valley
+# line under its cycle path along the B82, its ballast in the road's sidewalk; built_over).
+BED_HALF_M = BALLAST_TOP_M + BALLAST_H * BALLAST_SLOPE   # m: half the ballast's footprint on the ground
+PATH_W_M = 2.5              # m: a path's width where OpenStreetMap gives none (a two-way cycle path's usual)
 
 
 _GROUND_MEMO = {}            # anchor key -> {point (cm): z}: point_ground's heights, shared by the tiles of an anchor
@@ -180,7 +185,7 @@ def parts(frame, cells, box, reach=REACH_M, clip=False, worn=None, gauges=None):
     its points was profiled for each cell and tile: _clip); the bridges stay whole (a deck runs between its ends)."""
     cells = list(cells)
     near = (box[0] - reach, box[1] - reach, box[2] + reach, box[3] + reach)
-    seen, out = set(), []
+    seen, out, abandoned = set(), [], set()
     for feats in cells:
         if feats is None or len(feats) == 0 or "subtype" not in feats.attrs:
             continue
@@ -199,6 +204,8 @@ def parts(frame, cells, box, reach=REACH_M, clip=False, worn=None, gauges=None):
             seen.add(fid)
             if worn is not None and got[1]:
                 worn[fid] = got[1]
+            if got[1] == 2:
+                abandoned.add(fid)
             if gauges is not None:
                 g = osm_gauge(feats, i)
                 if g:
@@ -217,6 +224,8 @@ def parts(frame, cells, box, reach=REACH_M, clip=False, worn=None, gauges=None):
                     if len(xy) >= 2:
                         out.append((fid, c, kind, xy))
     out.sort(key=lambda p: (p[0], p[2], float(p[3][0, 0]), float(p[3][0, 1])))
+    if abandoned:
+        out = built_over(out, abandoned, overlaid(frame, cells, near))
     out = _drop_stubs(out)
     out = _span_underpasses(out, road_underpasses(frame, cells, box, reach))
     return _clip(out, near) if clip else out
@@ -538,6 +547,60 @@ def _pieces(feats, i):
                         if len(r) >= 2:
                             out[kind].append(r)
     return list(out.items())
+
+
+def overlaid(frame, cells, near):
+    """[(xy (k, 2), half width)]: the ground parts of every road and path in near (x0, y0, x1, y1): a road's carriageway
+    (road_specs), a path's mapped width or PATH_W_M."""
+    seen, out = set(), []
+    for feats in cells:
+        if feats is None or len(feats) == 0 or "subtype" not in feats.attrs:
+            continue
+        specs = roads.road_specs(feats)
+        fb = feats.boxes(frame)
+        for i, sp in enumerate(specs):
+            fid = str(feats.ids[i])
+            if (str(feats.attrs["subtype"][i]) != "road" or fid in seen or not _box_hit(fb[i], near)
+                    or roads.unbuilt(feats, i)):
+                continue
+            seen.add(fid)
+            half = sp.width / 2 if sp is not None else (roads._osm(feats, "width", i, *roads.OSM_WIDTH_M)
+                                                        or PATH_W_M) / 2
+            for ring in roads.ground_parts(feats, i):
+                e, n = mapgeom.enu_xy(feats, frame, ring)
+                out.append((np.c_[e, n], half))
+    return out
+
+
+def built_over(rails, abandoned, others):
+    """rails with the ground parts of the abandoned lines (their ids) cut where another road's or path's surface
+    (others: [(xy, half width)]) reaches the bed's footprint (BED_HALF_M), the rest in runs of their own sample points.
+    Pure."""
+    out = []
+    for fid, c, kind, xy in rails:
+        if fid not in abandoned or kind != "ground" or not others:
+            out.append((fid, c, kind, xy))
+            continue
+        lo, hi = xy.min(0), xy.max(0)
+        free = np.ones(len(xy), bool)
+        for line, half in others:
+            reach = BED_HALF_M + half
+            if (line[:, 0].max() < lo[0] - reach or line[:, 0].min() > hi[0] + reach
+                    or line[:, 1].max() < lo[1] - reach or line[:, 1].min() > hi[1] + reach):
+                continue
+            a, b = line[:-1], line[1:]
+            d = b - a
+            t = np.clip(np.einsum("pkj,kj->pk", xy[:, None] - a[None], d) / np.maximum((d * d).sum(1), 1e-9), 0, 1)
+            gap = np.hypot(*(xy[:, None] - (a[None] + t[..., None] * d[None])).transpose(2, 0, 1)).min(1)
+            free &= gap > reach
+        if free.all():
+            out.append((fid, c, kind, xy))
+            continue
+        idx = np.flatnonzero(free)
+        for run in np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1) if len(idx) else []:
+            if len(run) >= 2:
+                out.append((fid, c, kind, xy[run[0]:run[-1] + 1]))
+    return out
 
 
 def crossings(frame, cells, box, reach=REACH_M):
