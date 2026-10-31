@@ -40,7 +40,8 @@ Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 | A build fails | See the build log. Usually the map data couldn't be downloaded: check the connection and try again. |
 | A new track is missing in Content Manager | Restart Content Manager. |
 
-Found a broken road or bridge? Please open an issue with the coordinates.
+Found a broken road or bridge? Please open an issue with the coordinates. Easiest: **Settings → Testing → Track Debug
+app**, press **F10** at the spot while driving and attach the marks file from `Documents\Assetto Corsa\map2lap_debug`.
 
 ## Development
 

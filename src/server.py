@@ -21,7 +21,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import generator
-from app import mapcache, mytracks, settings, version
+from app import debugapp, mapcache, mytracks, settings, version
 from app.paths import ROOT, SRC
 
 PORT = 8800
@@ -151,7 +151,8 @@ def browse_folder(start):
 def settings_view():
     path, s = settings.ac_path(), settings.load()
     return {"ac_path": path, "ac_ok": settings.is_ac(path), "clean": s["clean"], "cores": s["cores"],
-            "cache_gb": s["cache_gb"], "car": s["car"], "threads": os.cpu_count() or 2, "version": version.VERSION}
+            "cache_gb": s["cache_gb"], "car": s["car"], "debug_app": s["debug_app"],
+            "threads": os.cpu_count() or 2, "version": version.VERSION}
 
 
 def start_build(name, title, points, width, area):
@@ -426,7 +427,14 @@ class Handler(BaseHTTPRequestHandler):
                     if car and not os.path.isdir(os.path.join(settings.ac_path(), "content", "cars", car)):
                         return self._send(400, {"error": "That car is not installed"})
                     new["car"] = car
-                settings.save(new)
+                if "debug_app" in body:
+                    new["debug_app"] = bool(body["debug_app"])
+                s = settings.save(new)
+                if "debug_app" in new or ("ac_path" in new and s["debug_app"]):   # (into a newly set AC folder too)
+                    try:
+                        debugapp.sync(settings.ac_path(), s["debug_app"])
+                    except OSError as e:
+                        return self._send(500, {"error": f"Track Debug app: {e}"})
                 self._send(200, settings_view())
             elif self.path == "/api/browse":
                 self._send(200, {"path": browse_folder(settings.ac_path())})
@@ -470,6 +478,10 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
+    try:                                # (AC as Settings say: also an app left from before the switch existed)
+        debugapp.sync(settings.ac_path(), settings.load()["debug_app"])
+    except OSError:
+        pass
     print(f"Map2Lap: http://localhost:{PORT}  (stop with Ctrl+C)", flush=True)
     if "--no-browser" not in os.sys.argv:
         webbrowser.open(f"http://localhost:{PORT}")

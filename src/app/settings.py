@@ -6,6 +6,7 @@
     cores    % of the logical cores used for a build (parallel.SHARE)
     cache_gb size limit of the map data cache in GB, 0: none (mapcache.trim)
     car      car for "Play" (folder under content/cars); None: the one driven last (race.ini, server.play_car)
+    debug_app the CSP app "Track Debug" in AC (debugapp)
 """
 import json
 import os
@@ -15,7 +16,7 @@ from app.paths import ROOT
 
 FILE = os.path.join(ROOT, "settings.json")
 DEFAULTS = {"ac_path": None, "clean": True, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
-            "car": None}
+            "car": None, "debug_app": False}
 STEAM_DEFAULT = r"C:\Program Files (x86)\Steam"
 
 

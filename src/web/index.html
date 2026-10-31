@@ -244,6 +244,13 @@
       <label class="check"><input id="keep" type="checkbox"> Keep build files
         <span class="muted">(troubleshooting, several GB)</span></label>
     </div>
+    <div class="group">
+      <h3>Testing</h3>
+      <label class="check"><input id="debug-app" type="checkbox"> Track Debug app in Assetto Corsa</label>
+      <p class="small muted">A CSP app (in the app bar while driving): shows the metre along the route, <b>F10</b> marks
+        a spot, “Start recording” records the drive. Files go to Documents\Assetto Corsa\map2lap_debug – attach the
+        marks to a bug report.</p>
+    </div>
   </section>
 
   <div id="work" class="view">
@@ -841,7 +848,7 @@ async function poll() {
   else if (wasBusy) loadTracks();               // (a new track, or a rebuilt one's date)
 }
 
-// --- settings tab (saved by the server in settings.json): where AC is, CPU share, map data, build files ---
+// --- settings tab (saved by the server in settings.json): where AC is, CPU share, map data, build files, debug app ---
 let threads = 2;
 function showCores() {     // as parallel.workers: the share of the threads, at most all but one (fewer if RAM is short)
   const pct = +$('cores').value, n = Math.max(1, Math.min(threads - 1, Math.round(threads * pct / 100)));
@@ -856,6 +863,7 @@ function showSettings(s) {
   VERSION = s.version;
   $('ver').textContent = ` · v${s.version}`;
   $('keep').checked = !s.clean;
+  $('debug-app').checked = s.debug_app;
   carChoice = s.car || '';
   if (carsLoaded) $('car').value = carChoice;
   const cap = String(+s.cache_gb);
@@ -877,6 +885,7 @@ async function saveSettings(values) {
 }
 $('ac').addEventListener('change', () => saveSettings({ac_path: $('ac').value}));
 $('keep').addEventListener('change', () => saveSettings({clean: !$('keep').checked}));
+$('debug-app').addEventListener('change', () => saveSettings({debug_app: $('debug-app').checked}));
 $('cache-cap').addEventListener('change', () => saveSettings({cache_gb: +$('cache-cap').value}));
 
 let cacheAsk = 0;

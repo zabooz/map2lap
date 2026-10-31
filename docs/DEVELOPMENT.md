@@ -51,10 +51,10 @@ py -3.12 -m venv .venv
 Builds started from the command line keep their work folder `out\tracks\<name>` (the measuring tools read it).
 Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m track.kn5 <file.kn5>`.
 
-**Testing in AC:** the CSP app "Track Debug" (`tools\TrackDebug`, copied into AC on every build from a developer
-checkout) shows the route metre (the same count as `check_drive.py`), coordinates and G values; **F10** or "Mark"
-remembers a spot, "Start recording" records at 50 Hz. Files go to
-`Documents\Assetto Corsa\map2lap_debug\<track>_<time>_marks.csv` / `_drive.csv`.
+**Testing in AC:** the CSP app "Track Debug" (`src\acapp\TrackDebug`, in the release too) is switched on and off
+under Settings → Testing (`app/debugapp.py`: into AC's `apps\lua`, again on every build, removed when off). It shows
+the route metre (the same count as `check_drive.py`), coordinates and G values; **F10** or "Mark" remembers a spot,
+"Start recording" records at 50 Hz. Files go to `Documents\Assetto Corsa\map2lap_debug\<track>_<time>_marks.csv` / `_drive.csv`.
 
 **Release:** `.venv\Scripts\python.exe tools\make_release.py` builds `dist\Map2Lap-<version>-win64.zip` with an
 embedded Python, all packages, BeamNG.Earth and the textures.
@@ -126,11 +126,11 @@ release's Python has it in `python312._pth`.
 | `track/obj_to_kn5.py`, `track/kn5.py` | Read/write kn5, OBJ → kn5, start slots, timing lines, material values, view distance and shadows per kind (`VIEW`), JPG → DDS (BC1) |
 | `track/make_track_folder.py` | Track folder (everything but the kn5) |
 | `track/parallel.py` | Number of worker processes, process pool |
+| `src/acapp/TrackDebug/` | CSP Lua app for testing (Settings → Testing, `app/debugapp.py`): position on the route (`data/map2lap_route.txt` per track), F10, recording |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | Measure the driving line of built tracks (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against the test tracks' reference values |
 | `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`); its whole-version merge is no longer used (BeamNG.Earth frozen at 1.7.2) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
-| `tools/TrackDebug/` | CSP Lua app for testing: position on the route (`data/map2lap_route.txt` per track), F10, recording |
 
 ### BeamNG.Earth: frozen at 1.7.2
 

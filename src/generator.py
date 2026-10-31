@@ -19,7 +19,7 @@ from concurrent.futures import as_completed
 import numpy as np
 
 from track import build_tiles     # (first: sets the asphalt mesh switches and the server path)
-from app import mapcache, mytracks, settings, version
+from app import debugapp, mapcache, mytracks, settings, version
 from app.paths import ROOT
 from scenery import farview, gates
 from track import make_obj, make_track_folder, obj_to_kn5, parallel
@@ -333,7 +333,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
                                   country=country, geotags=(lat0, lon0), extra_description=desc,
                                   route=None if area else xy.tolist(), log=log, parts=parts, bounds=bounds,
                                   point_to_point=timing is not None)
-    # For the debug app (tools/TrackDebug): the route in AC coordinates (x east, z = -north) and the anchor; an area has
+    # For the debug app (debugapp): the route in AC coordinates (x east, z = -north) and the anchor; an area has
     # none (the app says so), and no old one from an earlier build under the same name either
     route_txt = os.path.join(root, "data", "map2lap_route.txt")
     for old in (route_txt, os.path.join(root, "data", "ac_export_route.txt")):     # (the second: older builds)
@@ -342,9 +342,8 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     if not area:
         with open(route_txt, "w", encoding="utf-8") as f:
             f.write(f"anchor {lat0:.8f} {lon0:.8f}\n" + "".join(f"{e_:.2f} {-n_:.2f}\n" for e_, n_ in xy))
-    debug_app = os.path.join(ROOT, "tools", "TrackDebug")      # (developer checkout only, not in the release)
-    if os.path.isdir(debug_app):
-        shutil.copytree(debug_app, os.path.join(make_track_folder.AC, "apps", "lua", "TrackDebug"), dirs_exist_ok=True)
+    if settings.load()["debug_app"]:        # (Settings; again on every build: the app of this release)
+        debugapp.sync(make_track_folder.AC, True)
     for old in glob.glob(os.path.join(root, "*.kn5")):
         os.remove(old)
     progress("kn5", 0, 0)
