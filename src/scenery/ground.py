@@ -10,6 +10,8 @@ As in BeamNG.Earth:
 - Looks: one texture per tile (TEX_PX): comic ground (groundcover) with the roads on top in BeamNG.Earth's road shapes
   and widths (surface._road_segments, earthfast.paint_lines; anti-aliased).
 
+Unlike BeamNG.Earth: the mapped paths (PATHS), which it leaves out, are painted in under the roads.
+
 Unlike BeamNG.Earth: visible terrain = physics terrain (there the visible terrain lies 4 cm lower because a road mesh
 lies on top as well; here there is none, the asphalt is the terrain texture).
 """
@@ -22,6 +24,7 @@ import blockworker
 import fast
 import grading as gradingmod
 import heightmap
+import mapgeom
 import roads as roadsmod
 import surface as surfacemod
 
@@ -52,6 +55,17 @@ ROCK_BAND_M = 4.0               # m of height per rock layer on the face (soft l
 # water m, bank per side m); intermittent ones (is_intermittent) as a stone bed. Ditches not, like BeamNG.Earth's riverlines
 STREAMS = {"stream": (0.8, 0.6), "river": (3.0, 1.2), "canal": (2.0, 0.5)}
 STREAM_WATER, STREAM_BANK, STREAM_DRY = (66, 124, 172), (104, 98, 84), (156, 150, 138)
+# Mapped paths (OpenStreetMap's footways, cycleways ...: Overture's road segments of these classes, which
+# roads.road_specs leaves out): painted into the ground's surface and texture at their own width, under the roads, and
+# nothing else: no grading, junctions, sidewalks, markings or furniture, so a path that meets or crosses a road changes
+# nothing of it (a crossing over the carriageway is painted over by the road). Class -> (width m where the map gives
+# none, paved where it gives no surface): a two-way cycle path's usual 2.5 m, a footway's 1.8 (two people side by
+# side), a trail's 1.5, a bridleway's 2 (a horse and room to pass), a pedestrian street's 5. Steps are left out (a
+# flight on a slope: no surface to paint).
+PATHS = {"cycleway": (2.5, True), "footway": (1.8, True), "path": (1.5, False), "bridleway": (2.0, False),
+         "pedestrian": (5.0, True)}
+PATH_WIDTH_M = (0.5, 20.0)      # a mapped width outside this is no path's (a typo, an area's)
+PATH_LOOK = {"paved": "service", "cobble": "cobble", "gravel": "gravel", "dirt": "dirt"}     # (ROAD_LOOKS)
 TRACK_GRASS = 0.22            # dirt track: grass strip in the middle, share of the width (0.16 looked like a line)
 # BeamNG.Earth surface -> AC driving surface (object name, surfaces.ini)
 SURF_AC = {surfacemod.ASPHALT: "1ROAD", surfacemod.COBBLE: "1ROAD", surfacemod.DUSTY: "1GRAVEL",
@@ -154,6 +168,90 @@ def _streams(frame, md, tx, ty, px_m):
     return np.concatenate(segs), np.concatenate(hw), np.concatenate(hb), np.concatenate(dry)
 
 
+def _paths(frame, feats_list, box):
+    """The mapped paths (PATHS) near box (x0, y0, x1, y1): [(xy (k, 2) in frame, half width m, surface kind, look)]
+    of their on-ground pieces (no bridges, no tunnels)."""
+    x0, y0, x1, y1 = box
+    out, seen = [], set()
+    for feats in feats_list:
+        if feats is None or len(feats) == 0 or "class" not in feats.attrs:
+            continue
+        cls_, sub, osm = feats.attrs["class"], feats.attrs.get("subtype"), feats.attrs.get("osm_surface")
+        for i in range(len(feats)):
+            cls, fid = str(cls_[i]), str(feats.ids[i])
+            if cls not in PATHS or fid in seen or (sub is not None and str(sub[i]) != "road") \
+                    or roadsmod.unbuilt(feats, i):
+                continue
+            seen.add(fid)
+            width, paved = PATHS[cls]
+            w = roadsmod._rule_value(feats.rules.get("width"), i)
+            w = float(w) if w is not None and PATH_WIDTH_M[0] <= float(w) <= PATH_WIDTH_M[1] else \
+                roadsmod._osm(feats, "width", i, *PATH_WIDTH_M)
+            width = w or width
+            surf = roadsmod._rule_value(feats.rules.get("surface"), i)
+            if surf is None and osm is not None and osm[i]:
+                surf = str(osm[i])
+            # (the class's own surface where the value is none or not understood: a street's or a track's)
+            kind = roadsmod.surface_kind("unclassified" if paved else "track", surf)
+            token = roadsmod.surface_token(surf) or ""
+            look = "concrete" if kind == "paved" and token.startswith("concrete") else PATH_LOOK[kind]
+            for ring in roadsmod.ground_parts(feats, i):
+                e, n = mapgeom.enu_xy(feats, frame, ring)
+                xy = np.c_[e, n]
+                m = width / 2 + CELL
+                if len(xy) < 2 or xy[:, 0].max() < x0 - m or xy[:, 0].min() > x1 + m or \
+                        xy[:, 1].max() < y0 - m or xy[:, 1].min() > y1 + m:
+                    continue
+                out.append((xy, width / 2, kind, look))
+    return out
+
+
+def _paint_paths(idx, paths, x0, y0):
+    """idx (surface per sample, [row northwards, col eastwards] from (x0, y0)) with the paths' materials
+    (surface.ROAD_MATERIAL by kind): a sample is a path's when the centre of the square north-east of it, the square it
+    gives its material to (surface.paint_roads), lies within the path's half width. Pure (a new array)."""
+    out = np.array(idx, copy=True)
+    for kind in surfacemod.ROAD_ORDER:
+        sel = [(xy, hw) for xy, hw, k, _look in paths if k == kind]
+        if not sel:
+            continue
+        segs = np.concatenate([np.c_[(xy[:-1] - (x0, y0)) / CELL - 0.5, (xy[1:] - (x0, y0)) / CELL - 0.5]
+                               for xy, _ in sel])
+        hws = np.concatenate([np.full(len(xy) - 1, hw / CELL) for xy, hw in sel])
+        m = np.zeros(out.shape, bool)
+        fast._ef.mask_segments(m, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64))
+        out[m] = surfacemod.ROAD_MATERIAL[kind]
+    return out
+
+
+def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
+    """img with the segments (m, 4) in pixels, half widths hws (pixels), look (ROAD_LOOKS number per segment)
+    painted in, anti-aliased. worn: the roads' patches and cracks (WEAR) and a dirt track's grass strip."""
+    for k, (name, (texname, rep, bright)) in enumerate(ROAD_LOOKS.items()):
+        colors = np.array([(255.0, 255.0, 255.0, 1.0 if j == k else 0.0) for j in range(len(ROAD_LOOKS))],
+                          np.float32)
+        alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws, look, colors)[..., 0]
+        if not alpha.any():
+            continue
+        am = alpha > 0
+        src = _texture(os.path.join(gc_dir, f"{texname}.png"), int(round(rep / sp)))
+        road = _sample(src, wx[am], wy[am], rep) * bright
+        if name in CALM:
+            road *= (1.0 + MOTTLE[1] * groundcover._noise(wx[am], wy[am], MOTTLE[0], 83))[:, None]
+        if worn and name in WEAR:
+            road = _wear(road, wx[am], wy[am], WEAR[name])
+        w = (alpha[am] / 255.0)[:, None]
+        img[am] = img[am] * (1 - w) + road * w
+        if worn and name == "dirt":      # grass strip between the wheel tracks
+            alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws * TRACK_GRASS,
+                                         look, colors)[..., 0]
+            am = alpha > 0
+            grass = _sample(_texture(os.path.join(gc_dir, "gc_meadow.png"), int(round(TERRAIN_UV_M / sp))),
+                            wx[am], wy[am], TERRAIN_UV_M)
+            w = (alpha[am] / 255.0)[:, None] * 0.85
+            img[am] = img[am] * (1 - w) + grass * w
+
+
 def _wear(rgb, x, y, amount):
     """Patches (darker blotches) and sealed cracks (thin dark lines, only here and there), world-locked."""
     # (a first try with patches from 0.6 and cracks on 40 % of the area looked like lava)
@@ -208,11 +306,14 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
 
     # surface per sample like blockworker.build (land use, slope -> rock, roads, car parks)
     idx = np.full((n, n), surfacemod.GRASS, np.int64)
-    feats = []
+    feats, paths = [], []
     if s.surface is not None:
         classes, _ = s.surface.classes(keep["lat"], keep["lon"])
         idx = surfacemod.classify(classes, keep["u"], CELL, keep["lat"], keep["lon"])
         feats, _ = s.surface.roads(keep["lat"], keep["lon"])
+        paths = _paths(frame, feats, (x0, y0, x1, y1))
+        if paths:                                           # (under the roads)
+            idx = _paint_paths(idx, paths, x0, y0)
         if feats:
             idx = surfacemod.paint_roads(idx, keep["lat"], keep["lon"], feats, CELL, s.surface.urban, s.widths,
                                          blockworker._open_tunnels(g, keep))
@@ -304,6 +405,15 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             texname, rep, bright = ROAD_LOOKS["service"]
             img[am] = _sample(_texture(os.path.join(gc_dir, f"{texname}.png"), int(round(rep / sp))), wx[am], wy[am],
                               rep) * bright
+    if paths:                   # the mapped paths, under the roads
+        names = list(ROAD_LOOKS)
+        px = 1.0 / sp
+        segs = np.concatenate([np.c_[(xy[:-1, 0] - x0) * px, (y1 - xy[:-1, 1]) * px, (xy[1:, 0] - x0) * px,
+                                     (y1 - xy[1:, 1]) * px] for xy, *_ in paths])
+        hws = np.concatenate([np.full(len(xy) - 1, hw * px) for xy, hw, *_ in paths])
+        look = np.concatenate([np.full(len(xy) - 1, names.index(lk), np.uint8) for xy, _hw, _k, lk in paths])
+        _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64), look, wx, wy,
+                     sp, gc_dir, worn=False)
     if feats:
         ro = []
         got = surfacemod._road_segments(frame, x0, y0, TILE, TEX_PX, TEX_PX, feats, s.surface.urban, s.widths,
@@ -311,28 +421,6 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         if got is not None:
             segs, hws, kind = got
             look = _segment_looks(frame, x0, y0, feats, s.surface.urban, s.widths, kind, ro)
-            for k, (name, (texname, rep, bright)) in enumerate(ROAD_LOOKS.items()):
-                colors = np.array([(255.0, 255.0, 255.0, 1.0 if j == k else 0.0) for j in range(len(ROAD_LOOKS))],
-                                  np.float32)
-                alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws, look, colors)[..., 0]
-                if not alpha.any():
-                    continue
-                am = alpha > 0
-                src = _texture(os.path.join(gc_dir, f"{texname}.png"), int(round(rep / sp)))
-                road = _sample(src, wx[am], wy[am], rep) * bright
-                if name in CALM:
-                    road *= (1.0 + MOTTLE[1] * groundcover._noise(wx[am], wy[am], MOTTLE[0], 83))[:, None]
-                if name in WEAR:
-                    road = _wear(road, wx[am], wy[am], WEAR[name])
-                w = (alpha[am] / 255.0)[:, None]
-                img[am] = img[am] * (1 - w) + road * w
-                if name == "dirt":      # grass strip between the wheel tracks
-                    alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws * TRACK_GRASS,
-                                                 look, colors)[..., 0]
-                    am = alpha > 0
-                    grass = _sample(_texture(os.path.join(gc_dir, "gc_meadow.png"), int(round(TERRAIN_UV_M / sp))),
-                                    wx[am], wy[am], TERRAIN_UV_M)
-                    w = (alpha[am] / 255.0)[:, None] * 0.85
-                    img[am] = img[am] * (1 - w) + grass * w
+            _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn=True)
     Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(out_tex, quality=88)
     return P, UV, groups, out_tex

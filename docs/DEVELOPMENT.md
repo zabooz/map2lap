@@ -116,7 +116,7 @@ release's Python has it in `python312._pth`.
 | `app/mapcache.py` | Map data cache with a size limit; "Clear now" |
 | `app/settings.py` | The page's settings (`settings.json`), finds AC through Steam |
 | `track/build_tiles.py` | BeamNG.Earth paths/state (default mode), single run for test areas |
-| `scenery/ground.py` | Terrain per tile like BeamNG.Earth's `blockworker.build`: heights, tunnel holes, surface per 2 m cell (physics), terrain texture with painted roads (look by road class), rock faces, streams, large-scale colour variation |
+| `scenery/ground.py` | Terrain per tile like BeamNG.Earth's `blockworker.build`: heights, tunnel holes, surface per 2 m cell (physics), terrain texture with painted roads (look by road class), the mapped paths under them (footways, cycleways, trails: surface and look only, no grading or junctions), rock faces, streams, large-scale colour variation |
 | `scenery/groundcover.py` | WorldCover class per cell → comic ground material, Voronoi fields; Overture `land_use` on top; the ground textures |
 | `track/make_obj.py` | Assigns the tile meshes (collision like the BeamNG mod, `collision_prefix`), facade and wall colours, water/trees/furniture, textures |
 | `scenery/water.py` | Rasterises water areas, finds the level (lakes flat; rivers, streams, canals following the bed downhill), lowers the terrain below it, water and foam meshes one cell past the shore, comic textures, Lua animation |
