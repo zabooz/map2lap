@@ -26,7 +26,9 @@ from track import make_obj, make_track_folder, obj_to_kn5, parallel
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
-import geodesy              # noqa: E402  (from the BeamNG.Earth server, path from build_tiles)
+import furniture            # noqa: E402  (from the BeamNG.Earth server, path from build_tiles)
+import geodesy              # noqa: E402
+import navgraph             # noqa: E402
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/"
 NOMINATIM = "https://nominatim.openstreetmap.org/"
@@ -88,7 +90,7 @@ def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M):
     return ext[1:]
 
 
-_places, _countries, _asked, _ask_lock = {}, {}, [0.0], threading.Lock()
+_places, _countries, _codes, _asked, _ask_lock = {}, {}, {}, [0.0], threading.Lock()
 
 
 def place(lat, lon):
@@ -109,7 +111,25 @@ def place(lat, lon):
             part = next((a[k] for k in ("suburb", "city_district", "quarter", "hamlet") if a.get(k, town) != town), None)
             _places[key] = (town, part)
             _countries[key] = a.get("country")
+            _codes[key] = ((a.get("country_code") or "").upper() or None, a.get("ISO3166-2-lvl4"))
         return _places[key]
+
+
+def road_rules(lat, lon):
+    """BeamNG.Earth's road rules at the anchor from its country (ISO code from Nominatim, as place()): driving on the
+    left, limits in mph, the share of low-voltage lines underground (fewer poles), the street lamps' spacing and the
+    country itself (road markings, speed-limit sign faces). Unknown (Nominatim not reachable): the rules used before
+    2026-10-31 (right-hand traffic, km/h)."""
+    try:
+        place(lat, lon)
+        country, region = _codes.get((round(lat, 3), round(lon, 3)), (None, None))
+    except Exception:
+        country = region = None
+    if country is None:
+        return {"country": None, "left_hand": False, "mph": False, "buried": 0.0, "lamp_region": None}
+    r = navgraph.road_rules(country)
+    return {"country": country, "left_hand": bool(r["rightHandDrive"]), "mph": bool(r["mph"]),
+            "buried": float(furniture.buried_share(country)), "lamp_region": furniture.lamp_region(country, region)}
 
 
 def search(text):
@@ -176,11 +196,20 @@ def _init_worker(cache):
                                         surface=True)
 
 
-def _tile_job(lat0, lon0, tx, ty, tiles_dir):
+def _tile_job(lat0, lon0, tx, ty, tiles_dir, rules):
+    """A road tile (blockworker._roads_tile) and its sign tile (speed limits everywhere, guide signs, exits and mile
+    markers in the US: blockworker.signs_tile) under the country's road rules (road_rules)."""
     t0 = time.perf_counter()
     parallel.retry_locked(lambda: blockworker._roads_tile(
         build_tiles.AID, lat0, lon0, build_tiles.DEM_ZOOM, tx, ty, tiles_dir, "tiles", sidewalks=True, lift=0.0,
-        buildings=True, left_hand=False, mph=False, q=None, gas_stations=False))
+        buildings=True, left_hand=rules["left_hand"], mph=rules["mph"], q=None, gas_stations=False,
+        buried=rules["buried"], lamp_region=rules["lamp_region"], country=rules["country"]))
+    try:                        # (optional scenery: a sign tile that fails leaves the road tile)
+        parallel.retry_locked(lambda: blockworker.signs_tile(
+            build_tiles.AID, lat0, lon0, build_tiles.DEM_ZOOM, tx, ty, tiles_dir, "tiles", rules["left_hand"],
+            rules["mph"], rules["country"]))
+    except Exception:
+        pass
     return tx, ty, time.perf_counter() - t0
 
 
@@ -262,13 +291,16 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     if len(tiles) > WARN_TILES:
         log(f"Note: {len(tiles)} tiles – this will be large and take a while (AC may load slowly)")
 
+    rules = road_rules(lat0, lon0)
+    log(f"Road rules: {rules['country'] or 'unknown country'}, traffic on the "
+        f"{'left' if rules['left_hand'] else 'right'}, limits in {'mph' if rules['mph'] else 'km/h'}")
     n = parallel.workers(len(tiles))
     log(f"Building tiles with {n} processes ({os.cpu_count()} cores) ...")
     log("(Map data for an area not built before is downloaded first: the first tiles can take a few minutes)")
     progress("tiles", 0, len(tiles))
     t0 = time.perf_counter()
     with parallel.pool(n, _init_worker, (os.path.join(ROOT, "cache"),)) as ex:
-        futs = [ex.submit(_tile_job, lat0, lon0, tx, ty, tiles_dir) for tx, ty in tiles]
+        futs = [ex.submit(_tile_job, lat0, lon0, tx, ty, tiles_dir, rules) for tx, ty in tiles]
         for i, fut in enumerate(as_completed(futs), 1):
             tx, ty, dt = fut.result()
             progress("tiles", i, len(tiles))
@@ -276,7 +308,8 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
                 log(f"Tile {i}/{len(tiles)} ({tx},{ty}): {dt:.1f} s")
     log(f"Tiles done in {time.perf_counter() - t0:.0f} s")
     anc = {"lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
-           "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points}
+           "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
+           "rules": rules}
     if area:                # (without route and start: obj_to_kn5.start_empties takes the road nearest the anchor)
         anc["area"] = [float(v) for v in area]
     else:

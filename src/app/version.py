@@ -10,8 +10,8 @@ TRACK_VERSION is never higher than VERSION: a release that changes the tracks se
 built before the split (up to 0.3.3) only stored "version", which then was the track version. Tracks built before
 versions existed have none and count as old. Small changes go in the third place (0.3.1), bigger ones in the second.
 """
-VERSION = "0.3.3"
-TRACK_VERSION = "0.3.3"
+VERSION = "0.4"
+TRACK_VERSION = "0.4"
 REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"
 # (the User-Agent for OSRM and Nominatim: their usage policies ask for an app name and a way to reach its maker)
@@ -22,6 +22,12 @@ USER_AGENT = f"Map2Lap/{VERSION} (+{REPO_URL}; {CONTACT})"
 # 0.3.1  start and finish made visible (checkered band, gantry with banner, gates.py)
 # 0.3.2  darker, greener larches
 # 0.3.3  BeamNG.Earth 1.7.2 (paved junctions on bridges, roundabout islands, piped rivers stay underground)
+# 0.4    trees by climate zone: boreal, mediterranean, savanna, rainforest, desert species; palms, tropical trees,
+#        western pines, junipers and dry bushes get their own images. Buildings in BeamNG.Earth's regional colours
+#        (walls, roofs, stone, metal), all four window bands (houses of the tall and brick bands had no windows),
+#        shutters only in the Alps, northern Europe and the Mediterranean. Parked cars, traffic lights, level
+#        crossings, speed-limit signs (US: guide signs, exits, mile markers). Road rules by country: left-hand
+#        traffic, mph, road markings, buried lines, street lamps (every track was right-hand km/h before)
 
 
 def key(v):

@@ -115,11 +115,12 @@ release's Python has it in `python312._pth`.
 | `scenery/groundcover.py` | WorldCover class per cell → comic ground material, Voronoi fields; Overture `land_use` on top; the ground textures |
 | `track/make_obj.py` | Assigns the tile meshes (collision like the BeamNG mod, `collision_prefix`), facade and wall colours, water/trees/furniture, textures |
 | `scenery/water.py` | Rasterises water areas, finds the level, lowers the terrain, water and foam meshes, comic textures, Lua animation |
-| `scenery/trees.py` | Tree billboards from `vegetation.tile_items`, comic atlas (deciduous, birch, linden, conifer, spruce, larch from 1500 m, two bushes) |
+| `scenery/trees.py` | Tree billboards from `vegetation.tile_items`, comic atlas (deciduous, birch, linden, conifer, spruce, larch from 1500 m, bushes; pine, stone pine, cypress, olive, acacia, baobab, palm, tropical tree, dry bush, juniper, jungle bush). The species follow the tile's climate zone (`zone()`, Köppen-Geiger from BeamNG.Earth's `climate.py`): boreal north of 55°, mediterranean, savanna, rainforest, desert, else temperate |
 | `scenery/rocks.py` | Boulders from BeamNG.Earth's vegetation as chunky 3D comic rocks, with collision from 1 m |
-| `scenery/propsmesh.py` | Street furniture from the tiles' `props` as comic block models (4×4 atlas), guardrails (`rails`), high-voltage pylons (`pylons`) |
+| `scenery/propsmesh.py` | Street furniture from the tiles' `props` as comic block models (5×5 atlas): traffic lights, level crossings (St Andrew's cross / crossbuck, flashers, open gates), guardrails (`rails`), high-voltage pylons (`pylons`) |
+| `scenery/cars.py` | Parked cars (four comic shapes, traffic's colours) on BeamNG.Earth's parking spots (`park`: curbside and lot stalls), 60 % / 70 % taken (hashed), on the ground's slope, with collision |
 | `scenery/roadtex.py` | Comic textures for BeamNG.Earth's road decals and the comic road surfaces of the terrain texture |
-| `scenery/facades.py` | Facade textures (tinted plaster, windows, shop fronts), tinted wall textures |
+| `scenery/facades.py` | Building textures: the window sheet with BeamNG.Earth's four bands, shop fronts, office glass, siding boards, ribbed metal, comic bricks; tinted wall textures |
 | `scenery/farview.py` | Distant view: BeamNG.Earth's far tiles (`farfield.build_tile`) chosen statically around the corridor; near squares in the comic ground's colours, further out a colour table by height/slope |
 | `scenery/gates.py` | Start and finish of point-to-point routes: checkered band, gantry, banner; decides where the timing lines are |
 | `track/obj_to_kn5.py`, `track/kn5.py` | Read/write kn5, OBJ → kn5, start slots, timing lines, material values, view distance and shadows per kind (`VIEW`), JPG → DDS (BC1) |
@@ -232,8 +233,23 @@ pos/normal/uv/tangent, uint16 indices, material, layer, LOD, bounding sphere, re
 - **Water:** Overture water areas, level = 25th percentile of the lidar heights, terrain lowered up to 1.5 m, a 2.5 m
   foam strip at the shore; animated through CSP `[SCRIPTABLE_DISPLAY_...]` (`water_anim.lua`/`foam_anim.lua`).
   Realistic instead of comic: `[Material_Water] Materials = water, Type = LAKE` in the track's `ext_config.ini`.
-- **Facades:** a house is recognised by its BeamNG vertex colour; 12 colours as tinted plaster with windows in
-  BeamNG's storey grid, 3 brightness levels through ksAmbient/ksDiffuse.
+- **Road rules by country:** `generator.road_rules` takes the anchor's country (ISO code from Nominatim, like the
+  track name) and passes BeamNG.Earth's rules to every road tile: driving on the left (parking side, signs, signals,
+  crossings), mph, the road markings' style, buried low-voltage lines (fewer poles), street lamp spacing. Before
+  2026-10-31 every track was built as right-hand traffic in km/h without a country.
+- **Road signs:** `blockworker.signs_tile` per tile (generator `_tile_job`): speed limits everywhere in the region's
+  face (Vienna Convention, US MUTCD, Canada), in the US also guide signs, exits, mile markers, merge signs. `make_obj`
+  reads `signs_*.json`: solid colours from `exit/merge.materials.json` (linear to sRGB), the lettering as RGBA with
+  alpha test (its texture flipped: the sign meshes' v runs the other way). Visual only, as in BeamNG.
+- **Parking:** the stall lines come with the road mesh (BeamNG.Earth's `parking.finish_markings` chunks); the cars are
+  ours (`cars.py`).
+- **Buildings:** shapes, roofs and colours are BeamNG.Earth's (`buildings.py`, 14 regions in `region_style`). It
+  passes each building's colour as vertex colours (a tint from its tables `buildings.LOOKS`, times a ±6 % jitter); AC
+  has none, so `make_obj.BLD_KINDS` gives each building material (window sheet, shop, office glass, siding, stucco,
+  panels, metal, stone, brick, four roofs) a comic texture per colour of BeamNG.Earth's table (`BLD_PALETTES`), and
+  `bld_split` takes the nearest colour and turns the jitter into one of 3 brightness levels (ksAmbient/ksDiffuse). The
+  window sheet has all four of BeamNG.Earth's bands (`facades.sheet`: tall, square, sash, sash on brick); shutters
+  only in the regions `SHUTTER_REGIONS` (alpine, northern Europe, Mediterranean, by the anchor).
 - **Walls** (portals, retaining walls, bridges, tunnel tube): tinted like BeamNG.Earth (`tunnel.materials.json`): stone
   (Bricks108A) or concrete (Concrete034, structure boosted), darker inside; one of 6 tones × 3 brightness levels per
   connected part (`make_obj.WALL_KINDS`).
@@ -254,6 +270,7 @@ pos/normal/uv/tangent, uint16 indices, material, layer, LOD, bounding sphere, re
 | **Bridges (Vienna):** the road sags into the lidar trench before motorway bridges | open; BeamNG.Earth never raises motorways (`APPROACH_SKIP`) |
 | **Roadside guardrails** | BeamNG.Earth builds only mapped guardrails (OSM/Overture) and median barriers on dual motorways. Open: add them on motorways ourselves? |
 | **Wires in the air** | street wires end at the corridor's edge without a pole; substations (`gantry`, `sub_*`) not built yet |
+| **Not built yet** | fences (BeamNG.Earth gives points without a length), shop wall signs (`wallsign_*`), gas stations (`fuel`, `gas_stations=False`), oil well pump jacks (`wells`), sounds (`sound`), runway markings unchecked |
 | **Asphalt physics wider than painted** (every touched 2 m cell; car parks physics only) | like in BeamNG; leave it |
 | **Sharpness and memory** (one terrain texture per tile, 12.5 cm/px) | try the `ksMultilayer` shader (mask + detail textures) |
 | **AI line** | no `ai/fast_lane.ai` yet: no AI cars, apps that need one (e.g. some timing apps) don't work; could be written from the route |

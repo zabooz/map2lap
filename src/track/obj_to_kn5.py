@@ -11,6 +11,7 @@ Modelled on a file written by ksEditor (kn5.py reads it completely):
 import json
 import math
 import os
+import re
 import shutil
 import sys
 
@@ -38,6 +39,8 @@ SMOOTH = {"grass", "asphalt", "cobble", "dirt", "ballast", "paint", "water", "fo
 # ksTree; they still cast them): with ksPerPixelAT every upright quad shadowed itself, diagonal stripes across all
 # crowns, different with every viewing angle
 SHADERS = {"trees": ("ksPerPixelAT_NS", 1), "edge_dirt": ("ksPerPixelAT", 1), "arrows": ("ksPerPixelAT", 1)}
+SIGN_LETTERS = ("bne_exit_letters", "bne_guide_letters", "bne_guide_letters_black")     # (make_obj.SIGN_LETTERS)
+SHADERS.update({m: ("ksPerPixelAT", 1) for m in SIGN_LETTERS})
 UP_NORMALS = {"trees"}
 VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}
 VALUES["edge_dirt"] = VALUES["grass"]
@@ -45,6 +48,7 @@ VALUES["far"] = VALUES["grass"]
 VALUES["arrows"] = VALUES["paint"]
 VALUES["gate_band"] = VALUES["paint"]
 ALPHA_REF = {"trees": 0.5, "edge_dirt": 0.5, "arrows": 0.5}
+ALPHA_REF.update({m: 0.5 for m in SIGN_LETTERS})
 FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make_obj.FACADE_LEVELS)
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
@@ -58,6 +62,8 @@ VIEW = (
     ("1GRASS_ground", 6000.0, 0), ("1ROAD_ground", 6000.0, 0), ("1GRAVEL_ground", 6000.0, 0),
     ("1ROAD_deck", 6000.0, 1), ("1WALL_tunnel_grass", 6000.0, 1), ("nocol_water", 6000.0, 0),
     ("1WALL_props", 400.0, 1), ("nocol_props", 400.0, 1), ("1WALL_rocks", 900.0, 1),   # (before "1WALL_")
+    ("1WALL_cars", 300.0, 1),                   # parked cars (cars.py)
+    ("nocol_signs", 600.0, 1),                  # road signs (make_obj: BeamNG.Earth's sign tiles)
     ("1WALL_gate", 3000.0, 1), ("nocol_gate_band", 1500.0, 0), ("nocol_gate", 3000.0, 1),     # start/finish (gates.py)
     ("1WALL_pylon", 2500.0, 1), ("nocol_pylon", 2500.0, 1),     # high-voltage pylons (30 m high)
     ("nocol_bld_", 2000.0, 1), ("1WALL_", 2000.0, 1), ("1GRAVEL_rail", 2000.0, 0),
@@ -480,8 +486,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         val = VALUES.get(m, DEFAULT)
         if m.startswith(("gc_", "ground_")):    # comic ground and terrain texture per tile: light values like the meadow
             val = VALUES["grass"]
-        # facades and walls <kind>_CC_L (make_obj.FACADE_SOURCE, WALL_SOURCE): brightness level L through the light values
-        if m.startswith(("fac_", "shp_", "sid_", "stn_", "sti_", "tub_", "con_")):
+        # buildings and walls <kind>_CC_L (make_obj.BLD_KINDS, WALL_SOURCE): brightness level L through the light values
+        if re.fullmatch(r"[a-z]{3}_\d{2}_[0-2]", m):
             k = FACADE_LEVELS[int(m[-1])]
             val = {**DEFAULT, "ksAmbient": DEFAULT["ksAmbient"] * k, "ksDiffuse": DEFAULT["ksDiffuse"] * k}
         props = [(k, val[k], (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))

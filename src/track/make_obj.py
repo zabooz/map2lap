@@ -22,11 +22,12 @@ if SRC not in sys.path:         # (after the chdir Python would no longer find o
 os.chdir(SERVER)
 
 import blockworker          # noqa: E402
+import buildings            # noqa: E402
 import cdae                 # noqa: E402
 import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
-from scenery import facades, ground, groundcover, propsmesh, roadtex, rocks, trees, water     # noqa: E402
+from scenery import cars, facades, ground, groundcover, propsmesh, roadtex, rocks, trees, water     # noqa: E402
 from track import parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
@@ -103,19 +104,69 @@ MATERIALS = {   # our material -> (texture or None, base colour)
     "water": ("@water", (1, 1, 1)), "foam": ("@foam", (1, 1, 1)),    # comic water (water.make_textures)
     "trees": ("@trees", (1, 1, 1)),             # (the atlas is made by trees.make_atlas)
     "props": ("@props", (1, 1, 1)),             # street furniture (propsmesh.make_atlas)
+    cars.MATERIAL: ("@cars", (1, 1, 1)),        # parked cars (cars.make_atlas)
     "edge_dirt": ("@edge", (1, 1, 1)), "arrows": ("@arrows", (1, 1, 1)),     # (roadtex.py)
     "rock": ("@rock", (1, 1, 1)),               # boulders (rocks.py): the ground's comic rock
 }
 for _g in list(groundcover.CLASS_MAT.values()) + [f"gc_field{k}" for k in range(groundcover.FIELD_VARIANTS)]:
     if _g != "gc_field":
         MATERIALS[_g] = ("@gc", (1, 1, 1))      # comic ground (groundcover.make_textures)
-for _c in range(12):                            # facades <kind>_CC_L (FACADE_COLORS; L: brightness in the kn5)
-    for _l in range(3):
-        for _kind in ("fac", "shp", "sid"):
-            MATERIALS[f"{_kind}_{_c:02d}_{_l}"] = (f"@facade:{_c}:{_kind}", (1, 1, 1))
+# Buildings in BeamNG.Earth's colours (2026-10-31; before, every house took one of 12 Carinthian colours): its
+# building mesh carries each building's colour as vertex colours, a tint from its tables (buildings.LOOKS: plaster,
+# paints, stucco, siding, wood, stone, roofs by region, OSM's building:colour) times a hashed brightness (JITTER).
+# AC has no vertex colours: each material of BLD_KINDS gets a texture per colour of its table (BLD_PALETTES), a
+# building the nearest one, and its jitter one of FACADE_LEVELS brightness levels (bld_split).
+# BeamNG material -> (our kind, texture px)
+BLD_KINDS = {buildings.FACADE: ("fac", 1024), buildings.SHOP: ("shp", 1024), buildings.OFFICE: ("off", 512),
+             buildings.SIDING: ("sid", 512), buildings.STUCCO: ("stu", 512), buildings.PANEL: ("pnl", 512),
+             buildings.METALWALL: ("mtw", 512), buildings.STONE: ("stw", 512), buildings.BRICK_WALL: ("brw", 512),
+             buildings.ROOF_SLATE: ("rsl", 512), buildings.ROOF_SHINGLE: ("rsh", 512),
+             buildings.ROOF_METAL: ("rme", 512), buildings.ROOF_FLAT: ("rfl", 512)}
+
+
+def _palette(mat):
+    """The colours BeamNG.Earth gives material mat (buildings.LOOKS), each once, in table order."""
+    out = []
+    for m, c in buildings.LOOKS.values():
+        c = tuple(round(float(v), 3) for v in c)
+        if m == mat and c not in out:
+            out.append(c)
+    return out or [(1.0, 1.0, 1.0)]
+
+
+BLD_PALETTES = {kind: np.asarray(_palette(mat), np.float64) for mat, (kind, _px) in BLD_KINDS.items()}
+for _kind, _pal in BLD_PALETTES.items():         # buildings <kind>_CC_L (L: brightness in the kn5)
+    for _c in range(len(_pal)):
+        for _l in range(3):
+            MATERIALS[f"{_kind}_{_c:02d}_{_l}"] = (f"@bld:{_kind}:{_c}", (1, 1, 1))
+# Road signs from BeamNG.Earth's sign tiles (signstream.py, signs_<aid>_<tx>_<ty>.json: speed limits everywhere in the
+# region's style, the US's guide signs, exits, mile markers and merge signs): its materials are solid colours
+# (baseColorFactor, linear: to sRGB here) and the lettering, a colour cut out by the letters' opacity map (alpha test).
+ROADSIDE = os.path.join(ROOT, "vendor", "beamng_earth", "mod", "beamng_earth", "levels", "beamng_earth", "art", "shapes",
+                        "beamngEarth", "roadside")
+SIGN_KINDS = ("exits", "mileposts", "merges", "speeds")
+
+
+def _srgb(c):
+    c = max(0.0, min(1.0, float(c)))
+    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
+SIGN_LETTERS = {}                               # letters material -> sRGB colour (its texture: @letters)
+for _f in ("exit.materials.json", "merge.materials.json"):
+    with open(os.path.join(ROADSIDE, _f), encoding="utf-8") as _fh:
+        for _name, _m in json.load(_fh).items():
+            _st = (_m.get("Stages") or [{}])[0]
+            _rgb = tuple(round(_srgb(v), 3) for v in _st.get("baseColorFactor", (1, 1, 1))[:3])
+            if _st.get("opacityMap"):
+                SIGN_LETTERS[_name] = _rgb
+                MATERIALS[_name] = ("@letters", (1, 1, 1))
+            else:
+                MATERIALS[_name] = (None, _rgb)
+# BeamNG.Earth's regions (buildings.region_style) whose houses have shutters
+SHUTTER_REGIONS = {"alpine", "europe_north", "mediterranean"}
 # colour factors per texture (the meadow looked glaring yellow-green in AC)
 TINT = {"grass": (0.72, 0.82, 0.62)}
-FACADE_TEX_PX = 1024                            # (12 facade textures: smaller than the 2K originals)
 # texture darkened (factor): Concrete034 looked almost white on pavements in AC
 DARKEN = {"sidewalk": 0.55, "kerbstone": 0.7}
 
@@ -175,37 +226,73 @@ def shape_parts(path, pos):
             yield names[mat & 0x0FFFFFFF], P, UV, T[:, ::-1], C
 
 
-# Facades: every house (recognised by its BeamNG vertex colour, else by its position) gets one of 12 colours in
-# 3 brightness levels for good. Colour = tinted plaster texture (facade_NN), brightness = material values
-# (obj_to_kn5.FACADE_LEVELS). BeamNG material -> facade kind: fac = residential facade with windows in BeamNG's grid,
-# shp = shop (shop windows), sid = family house wall (tiled world-wide, no windows: those come as faces of their
-# own from bne_bld_facade)
-FACADE_SOURCE = {"bne_bld_facade": "fac", "bne_bld_panel": "fac", "bne_bld_shop": "shp", "bne_bld_siding": "sid",
-                 "bne_bld_stucco": "sid"}     # (plaster: windows come from bne_bld_facade like with siding)
-FACADE_COLORS = [   # Carinthian townscape
-    (0.96, 0.95, 0.92), (0.95, 0.91, 0.80), (0.97, 0.92, 0.66), (0.90, 0.76, 0.46), (0.98, 0.84, 0.36),
-    (0.97, 0.80, 0.64), (0.93, 0.70, 0.62), (0.90, 0.76, 0.76), (0.80, 0.86, 0.72), (0.76, 0.82, 0.86),
-    (0.80, 0.80, 0.79), (0.86, 0.80, 0.68)]
 FACADE_LEVELS = 3
 
 
-def facade_material(key, kind="fac", colors=len(FACADE_COLORS)):
+def facade_material(key, kind="fac", colors=1):
     h = (int(key) * 2654435761) & 0xFFFFFFFF
     return f"{kind}_{h % colors:02d}_{(h // 97) % FACADE_LEVELS}"
 
 
-def facade_split(P, T, C, kind="fac"):
-    """{material: triangles} of the facade triangles, one colour per house (the same colour for all kinds of a house)."""
-    if C is not None:
-        c = C[T[:, 0]].astype(np.int64)
-        keys = (c[:, 0] << 16) | (c[:, 1] << 8) | c[:, 2]
-    else:                           # (without vertex colours: position rounded to 12 m)
+def bld_split(P, T, C, kind):
+    """{material: triangles} of a building material's triangles: each building's vertex colour to the nearest colour of
+    the kind's palette (BLD_PALETTES; the brightness factor that fits best: BeamNG.Earth's jitter, 0.94-1.06) and
+    that factor to a brightness level. Without vertex colours: a colour by position (12 m)."""
+    pal = BLD_PALETTES[kind]
+    if C is None:
         cen = P[T].mean(axis=1)
         keys = (np.floor(cen[:, 0] / 12).astype(np.int64) * 7919) ^ np.floor(cen[:, 1] / 12).astype(np.int64)
+        out = {}
+        for k in np.unique(keys):
+            out.setdefault(facade_material(k, kind, len(pal)), []).append(T[keys == k])
+        return {m: np.concatenate(ts) for m, ts in out.items()}
+    c = np.asarray(C, np.float64)[T[:, 0], :3]
+    if c.max() > 1.0:
+        c = c / 255.0
+    cols, inv = np.unique(np.round(c, 3), axis=0, return_inverse=True)
+    f = (cols @ pal.T) / np.maximum((pal * pal).sum(axis=1), 1e-9)             # (colours, palette): best factor
+    err = ((cols[:, None, :] - f[..., None] * pal[None]) ** 2).sum(axis=2)
+    err += np.where((f < 0.85) | (f > 1.15), 1.0, 0.0)                       # (a factor beyond the jitter: unlikely)
+    best = err.argmin(axis=1)
+    fb = f[np.arange(len(cols)), best]
+    level = np.where(fb < 0.98, 0, np.where(fb > 1.02, 2, 1))
+    names = [f"{kind}_{int(i):02d}_{int(lv)}" for i, lv in zip(best, level)]
     out = {}
-    for k in np.unique(keys):
-        out.setdefault(facade_material(k, kind), []).append(T[keys == k])
+    for j, name in enumerate(names):
+        out.setdefault(name, []).append(T[inv.ravel() == j])
     return {m: np.concatenate(ts) for m, ts in out.items()}
+
+
+def bld_texture(kind, color, shutters, px):
+    """The comic texture of a building material in one colour (facades.py)."""
+    from PIL import Image
+    src = lambda name: Image.open(glob.glob(os.path.join(TEX_SRC, name, "*_Color.jpg"))[0])   # noqa: E731
+    color = tuple(float(v) for v in color)
+    if kind == "fac":
+        img = facades.sheet(facades.plaster(src("Plaster001"), color), color, shutters)
+    elif kind == "shp":
+        img = facades.shopfront(facades.plaster(src("Plaster001"), color))
+    elif kind == "off":
+        img = facades.curtain(color)
+    elif kind == "sid":
+        img = facades.boards(facades.plaster(src("Plaster001"), color))
+    elif kind == "stu":
+        img = facades.plaster(src("Plaster001"), color)
+    elif kind == "pnl":
+        img = facades.tinted(src("Concrete034"), [v * 0.85 for v in color], 3.0)
+    elif kind == "mtw":
+        img = facades.ribbed(color)
+    elif kind == "stw":
+        img = facades.tinted(src("Bricks108A"), [v * 0.8 for v in color], 1.0)
+    elif kind == "brw":
+        img = facades.brickwall(color)
+    elif kind in ("rsl", "rsh"):
+        img = facades.tinted(src("RoofingTiles013A"), [v * 0.75 for v in color], 1.0)
+    elif kind == "rme":
+        img = facades.ribbed(color, step=96, vertical=False)
+    else:                       # rfl: flat roofs
+        img = facades.tinted(src("Concrete034"), [v * 0.72 for v in color], 3.0)
+    return img.convert("RGB").resize((px, px))
 
 
 # Walls: BeamNG.Earth tints them itself (mod/.../tunnel.materials.json, baseColorFactor): portals and retaining walls
@@ -257,7 +344,7 @@ def wall_split(P, T, kind):
     return {m: np.concatenate(ts) for m, ts in out.items()}
 
 
-def write_mtl(path, tex_dir, ground_mats=()):
+def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
     """Every material gets a texture: ksEditor aborts the export on a material without txDiffuse ("NULL TEXTURE ON
     MATERIAL ... EXPORT FAILED"); single-colour materials get a small PNG of their colour."""
     from PIL import Image
@@ -274,6 +361,18 @@ def write_mtl(path, tex_dir, ground_mats=()):
             elif tex == "@props":
                 propsmesh.make_atlas(os.path.join(tex_dir, "props.png"))
                 f.write("map_Kd textures/props.png\n\n")
+            elif tex == "@letters":           # sign lettering: the colour, alpha the letters' opacity map
+                png = os.path.join(tex_dir, f"{name}.png")
+                alpha = Image.open(os.path.join(ROADSIDE, "sign_letters_o.data.png")).convert("L")
+                # (the sign meshes' v runs from the image top, the other meshes' from its bottom: measured on the
+                # glyph quads, 41 % of their area letters this way round, none the other)
+                alpha = alpha.transpose(Image.FLIP_TOP_BOTTOM)
+                Image.merge("RGBA", (*Image.new("RGB", alpha.size,
+                                                tuple(int(v * 255) for v in SIGN_LETTERS[name])).split(), alpha)).save(png)
+                f.write(f"map_Kd textures/{name}.png\n\n")
+            elif tex == "@cars":
+                cars.make_atlas(os.path.join(tex_dir, "cars.png"))
+                f.write("map_Kd textures/cars.png\n\n")
             elif tex in ("@edge", "@arrows"):
                 png = os.path.join(tex_dir, f"{name}.png")
                 if not os.path.exists(png):
@@ -287,16 +386,14 @@ def write_mtl(path, tex_dir, ground_mats=()):
                 if not os.path.exists(os.path.join(tex_dir, "water.png")):
                     water.make_textures(os.path.join(tex_dir, "water.png"), os.path.join(tex_dir, "foam.png"))
                 f.write(f"map_Kd textures/{tex[1:]}.png\n\n")
-            elif tex and tex.startswith("@facade:"):
-                _, c, kind = tex.split(":")
-                c = int(c)
-                fname = f"facade_{kind}_{c:02d}.jpg"
-                out = os.path.join(tex_dir, fname)
-                if not os.path.exists(out):     # tinted plaster (+ windows or shop windows, facades.py)
-                    src = glob.glob(os.path.join(TEX_SRC, "Plaster001", "*_Color.jpg"))[0]
-                    img = facades.plaster(Image.open(src), FACADE_COLORS[c])
-                    img = {"fac": facades.windowed, "shp": facades.shopfront}.get(kind, lambda i: i)(img)
-                    img.save(out, quality=90)
+            elif tex and tex.startswith("@bld:"):
+                _, kind, c = tex.split(":")
+                fname = f"bld_{kind}_{int(c):02d}.jpg"
+                if fname not in made:           # (once per file: the 3 brightness levels share it)
+                    made.add(fname)
+                    px = next(px for k, px in BLD_KINDS.values() if k == kind)
+                    bld_texture(kind, BLD_PALETTES[kind][int(c)], shutters, px).save(
+                        os.path.join(tex_dir, fname), quality=90)
                 f.write(f"map_Kd textures/{fname}\n\n")
             elif tex and tex.startswith("@wall:"):
                 _, kind, c = tex.split(":")
@@ -391,7 +488,11 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
                 progress("scenery", k, len(tiles))
             if k == len(tiles) or k % max(1, len(tiles) // 20) == 0:
                 log(f"Scenery: tile {k}/{len(tiles)}")
-    write_mtl(os.path.join(out_dir, "track.mtl"), tex_dir, [f"ground_{tx}_{ty}" for tx, ty in tiles])
+    with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
+        anc = json.load(f)
+    region = buildings.region_style(anc["lat"], anc["lon"]).name
+    write_mtl(os.path.join(out_dir, "track.mtl"), tex_dir, [f"ground_{tx}_{ty}" for tx, ty in tiles],
+              shutters=region in SHUTTER_REGIONS)
     log(f"Scenery: {objects} objects, {nv:,} vertices")
     log("Triangles: " + ", ".join(f"{k} {v:,}" for k, v in tris.items()))
     if unknown:
@@ -444,8 +545,8 @@ def _scenery_tile(tx, ty, part_path):
         for bname, P, UV, T, C in parts_:
             if what == "road":  # (markings: the road itself is terrain texture now)
                 road_xy.append(P[np.unique(T), :2])
-            if bname in FACADE_SOURCE:
-                for mat, t in facade_split(P, T, C, FACADE_SOURCE[bname]).items():
+            if bname in BLD_KINDS:
+                for mat, t in bld_split(P, T, C, BLD_KINDS[bname][0]).items():
                     groups.setdefault(("1WALL", mat), []).append((P, UV, t))
                 continue
             if bname in WALL_SOURCE:
@@ -492,13 +593,48 @@ def _scenery_tile(tx, ty, part_path):
                     tris["guardrail"] = tris.get("guardrail", 0) + len(mesh[2])
         except Exception as e:
             log(f"Guard rails, tile {tx},{ty}: {type(e).__name__}: {e}")
+    signs_json = os.path.join(tiles_dir, f"signs_{anc['aid']}_{tx}_{ty}.json")
+    if os.path.exists(signs_json):  # road signs (generator._tile_job: blockworker.signs_tile), visual only like in BeamNG
+        try:
+            with open(signs_json, encoding="utf-8") as f:
+                sdata = json.load(f)
+            sgroups = {}
+            for kind in SIGN_KINDS:
+                if kind in sdata:
+                    for bname, P, UV, T, C in shape_parts(os.path.join(tiles_dir, os.path.basename(
+                            sdata[kind]["shape"])), sdata[kind]["pos"]):
+                        if bname not in MATERIALS:
+                            unknown.add(bname)
+                            continue
+                        sgroups.setdefault(bname, []).append((P, UV, T))
+            for mat, parts in sgroups.items():
+                P = np.concatenate([p for p, _, _ in parts])
+                UV = np.concatenate([uv for _, uv, _ in parts])
+                off = np.cumsum([0] + [len(p) for p, _, _ in parts[:-1]])
+                T = np.concatenate([t + o for (_, _, t), o in zip(parts, off)])
+                obj.add(f"nocol_signs_{mat}_{tx}_{ty}", mat, P, UV, T)
+                tris["signs"] = tris.get("signs", 0) + len(T)
+        except Exception as e:
+            log(f"Road signs, tile {tx},{ty}: {type(e).__name__}: {e}")
+    if data.get("park"):        # parked cars on BeamNG.Earth's parking spots (cars.py), standing on our ground
+        def on_ground(x, y):
+            la, lo, _ = frame.enu_to_geodetic(np.asarray(x, float), np.asarray(y, float), 0.0)
+            z = np.array([elev(float(a), float(b)) for a, b in zip(np.atleast_1d(la), np.atleast_1d(lo))])
+            return frame.geodetic_to_enu(la, lo, z)[2]
+        try:
+            mesh = cars.build(data["park"], on_ground)
+            if mesh is not None:
+                obj.add(f"1WALL_cars_{tx}_{ty}", cars.MATERIAL, *mesh)
+                tris["cars"] = tris.get("cars", 0) + len(mesh[2])
+        except Exception as e:
+            log(f"Parked cars, tile {tx},{ty}: {type(e).__name__}: {e}")
     try:
         items = parallel.retry_locked(lambda: trees.tile_items(frame, tx, ty, veg, elev))
     except Exception as e:      # (missing tree data shouldn't stop the track)
         log(f"Trees, tile {tx},{ty}: {type(e).__name__}: {e}")
         items = []
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
-    tmesh = trees.billboards(items + extra, wet)
+    tmesh = trees.billboards(items + extra, wet, trees.tile_zone(frame, items + extra))
     if tmesh is not None:
         obj.add(f"nocol_trees_{tx}_{ty}", "trees", *tmesh)
         tris["trees"] = tris.get("trees", 0) + len(tmesh[2])

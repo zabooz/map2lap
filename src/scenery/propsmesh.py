@@ -3,8 +3,12 @@ row = [group, x, y, z, rotation (degrees), scale, height (m), random value] in t
 
 Rotation: (cos, sin) of the rotation runs along the wall or sign face (measured on 240 doors against the house walls:
 median 0.00 to the wall normal); the facing direction is perpendicular to it.
-Models from boxes and quads, one shared atlas (props.png, 4 x 4 cells). Utility poles, street lights and sign posts
-collide (1WALL), the rest doesn't. Street trees go to trees.py, light cones/lenses and fences (length unknown) are left
+Models from boxes and quads, one shared atlas (props.png, 5 x 5 cells). Utility poles, street lights, sign posts,
+traffic light and level crossing posts collide (1WALL), the rest doesn't. Traffic lights (group signal: at the kerb of
+each way into a signalled junction) and the level crossings' kits (railways.crossing_props: rrcross / rrflash / rrgate,
+"_eu" outside the Americas, "_l" gates where traffic drives on the left; at the kerb, facing the traffic coming in) have
+their heads on both faces, so the side of the road doesn't matter. Gates stand open (arm up): a lowered one would close
+the road. Street trees go to trees.py, light cones/lenses and fences (length unknown) are left
 out. (The module isn't called "furniture": the BeamNG.Earth server already has one.)
 """
 import math
@@ -12,10 +16,11 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-ATLAS = 4
+ATLAS = 5
 CELL = 128
 # atlas cells
-METAL, WOOD, RED, GREEN, DOOR, STOP, GIVEWAY, S50, S60, S80, S100, LAMP, BENCH, WHITE, YELLOW, SIGNBACK = range(16)
+(METAL, WOOD, RED, GREEN, DOOR, STOP, GIVEWAY, S50, S60, S80, S100, LAMP, BENCH, WHITE, YELLOW, SIGNBACK,
+ SIGNAL_HEAD, XBUCK_EU, XBUCK_US, RR_FLASH, STRIPES) = range(21)
 SPEED = {"speedk50": S50, "speedk60": S60, "speedk80": S80, "speedk100": S100}
 SKIP = {"lamplens", "lampglow", "fence"}
 TREES = {"deciduous", "conifer"}
@@ -73,6 +78,29 @@ def make_atlas(path):
         d.ellipse([x0 - 60, y0 - 60, x0 + 60, y0 + 60], fill=(200, 30, 30))
         d.ellipse([x0 - 46, y0 - 46, x0 + 46, y0 + 46], fill=(245, 245, 240))
         d.text((x0, y0), n, fill=(20, 20, 20), font=_font(54 if len(n) < 3 else 42), anchor="mm")
+    x0, y0 = _cell_box(SIGNAL_HEAD)                         # traffic light: black housing, red / amber / green
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(28, 30, 32))
+    for k, (on, off) in enumerate((((236, 40, 34), (90, 24, 22)), ((250, 176, 30), (96, 70, 20)),
+                                   ((40, 200, 90), (20, 76, 40)))):
+        yy = y0 + 22 + k * 42
+        d.ellipse([x0 + 46, yy - 17, x0 + 82, yy + 17], fill=on if k == 0 else off)
+    x0, y0 = _cell_box(XBUCK_EU)                            # St Andrew's cross arm: red and white stripes
+    for k in range(4):
+        d.rectangle([x0 + k * 32, y0, x0 + k * 32 + 31, y0 + CELL - 1], fill=(206, 30, 32) if k % 2 else
+                    (246, 246, 242))
+    x0, y0 = _cell_box(XBUCK_US)                            # crossbuck arm: white, black lettering
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(246, 246, 242))
+    word = Image.new("RGB", (560, 100), (246, 246, 242))
+    ImageDraw.Draw(word).text((280, 50), "RAILROAD", fill=(16, 16, 16), font=_font(78), anchor="mm")
+    img.paste(word.resize((CELL - 8, CELL - 8)), (x0 + 4, y0 + 4))
+    x0, y0 = _cell_box(RR_FLASH)                            # level crossing flashers: two red lamps on black
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(22, 22, 24))
+    for cx_, on in ((x0 + 30, True), (x0 + 98, False)):
+        d.ellipse([cx_ - 22, y0 + 42, cx_ + 22, y0 + 86], fill=(236, 36, 30) if on else (96, 26, 24))
+    x0, y0 = _cell_box(STRIPES)                             # gate arm: red and white bands
+    for k in range(4):
+        d.rectangle([x0, y0 + k * 32, x0 + CELL - 1, y0 + k * 32 + 31], fill=(206, 30, 32) if k % 2 else
+                    (246, 246, 242))
     img.save(path)
     return path
 
@@ -228,6 +256,11 @@ def build(groups, rows, road_xy=None):
             c, s, w = math.cos(yaw), math.sin(yaw), 0.36
             p = lambda dx, dz: (x + dx * c, y + dx * s, z + h - 0.35 + dz)         # noqa: E731
             deco.quad(p(-w, -w), p(w, -w), p(w, w), p(-w, w), k, back=k)
+        elif g == "signal":                                 # traffic light on a post, head on both faces
+            solid.box(x, y, z - 0.3, 0.14, 0.14, 3.9, yaw, METAL)
+            _signal_head(deco, x, y, z + 2.6, yaw)
+        elif g.startswith(("rrcross", "rrflash", "rrgate")):    # level crossings (railways.crossing_props)
+            _crossing(solid, deco, g, x, y, z, yaw)
         elif g == "door":                                   # flat door on the wall
             c, s, w = math.cos(yaw), math.sin(yaw), 0.5
             p = lambda dx, dz: (x + dx * c, y + dx * s, z + dz)                    # noqa: E731
@@ -244,6 +277,44 @@ def build(groups, rows, road_xy=None):
             for dx in (-0.7, 0.7):
                 deco.box(x + c * dx, y + s * dx, z, 0.08, 0.4, 0.4, yaw, METAL)
     return solid.mesh(), deco.mesh(), street_trees
+
+
+def _plate(b, x, y, z0, yaw, w, h, k, depth=0.0):
+    """Double-sided upright plate: width w along yaw, height h from z0, depth m off the axis across it."""
+    c, s = math.cos(yaw), math.sin(yaw)
+    p = lambda dx, dz: (x + dx * c + depth * s, y + dx * s - depth * c, z0 + dz)          # noqa: E731
+    b.quad(p(-w / 2, 0), p(w / 2, 0), p(w / 2, h), p(-w / 2, h), k, back=k)
+
+
+def _signal_head(b, x, y, z0, yaw):
+    """Traffic light head: a dark housing (0.36 x 0.28 x 1.0 m) with the lamps on its front and its back."""
+    b.box(x, y, z0, 0.36, 0.28, 1.0, yaw, LAMP, top=LAMP)
+    for depth in (0.15, -0.15):
+        _plate(b, x, y, z0 + 0.02, yaw, 0.34, 0.96, SIGNAL_HEAD, depth)
+
+
+def _crossing(solid, deco, g, x, y, z, yaw):
+    """A level crossing kit: post, crossbuck (St Andrew's cross in Europe), flashers, a raised gate arm."""
+    kit = "gate" if g.startswith("rrgate") else "flash" if g.startswith("rrflash") else "cross"
+    eu = "_eu" in g
+    top = 2.9 if kit == "cross" else 3.6
+    solid.box(x, y, z - 0.3, 0.12, 0.12, top + 0.3, yaw, METAL if not eu else WHITE)
+    c, s = math.cos(yaw), math.sin(yaw)
+    zc, arm, half = z + top - 0.55, 0.62, 0.11
+    cell = XBUCK_EU if eu else XBUCK_US
+    for sign in (1, -1):                                    # the two arms of the cross, both faces
+        ex, ez = math.cos(math.pi / 4) * arm, sign * math.sin(math.pi / 4) * arm
+        nx, nz = -math.sin(math.pi / 4) * half * sign, math.cos(math.pi / 4) * half
+        p = lambda u, v: (x + (u * ex + v * nx) * c, y + (u * ex + v * nx) * s, zc + u * ez + v * nz)    # noqa: E731
+        deco.quad(p(-1, -1), p(1, -1), p(1, 1), p(-1, 1), cell, back=cell)
+    if kit in ("flash", "gate"):
+        _plate(deco, x, y, z + top - 1.75, yaw, 0.9, 0.42, RR_FLASH, 0.08)
+        _plate(deco, x, y, z + top - 1.75, yaw, 0.9, 0.42, RR_FLASH, -0.08)
+    if kit == "gate":                                       # the arm stands up beside the post, towards the road
+        toward = 1.0 if g.endswith("_l") else -1.0          # (railways._crossing_rows: yaw is the travel's right)
+        ax, ay = x + toward * 0.35 * c, y + toward * 0.35 * s
+        deco.box(ax, ay, z + 0.9, 0.3, 0.3, 0.5, yaw, LAMP)
+        deco.beam((ax, ay, z + 1.2), (ax, ay, z + 7.2), 0.06, STRIPES)
 
 
 # --- guardrails (since BeamNG.Earth 1.7.1) --------------------------------------------------------------------
