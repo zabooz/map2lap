@@ -6,6 +6,7 @@ heights (roadz)."""
 import os
 import sys
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -267,6 +268,22 @@ class JunctionPadTest(unittest.TestCase):
 
     def test_straight_joint_none(self):
         self.assertEqual(self.pads(ne=False), [], "a deck going on straight from the street: its abutment")
+
+    def test_bend_onto_its_own_approach_none(self):
+        """(ac-export patch P12) The street bends 40° onto the bridge, nothing else meets there: one road going on, no
+        pad (the Rossbach bridge on the Großglockner road); BeamNG.Earth's rule paves it."""
+        Spec = type("S", (), {})
+        s = Spec()
+        s.width = 7.0
+        a = np.radians(40.0)
+        decks = [("bridge", s, np.c_[np.linspace(0, 14 * np.sin(a), 6), np.linspace(0, 14 * np.cos(a), 6)],
+                  np.full(6, 22.0))]
+        ground = [("street", s, np.c_[np.zeros(11), np.linspace(-60, 0, 11)], None)]
+        box = (-50.0, -50.0, 50.0, 50.0)
+        with mock.patch.object(roads, "PAD_JUNCTIONS_ONLY", True):
+            self.assertEqual(roads.deck_pads(decks, ground, box, lambda xy: np.full(len(xy), 22.0)), [])
+        with mock.patch.object(roads, "PAD_JUNCTIONS_ONLY", False):
+            self.assertEqual(len(roads.deck_pads(decks, ground, box, lambda xy: np.full(len(xy), 22.0))), 1)
 
     def test_owned_by_one_tile(self):
         self.assertEqual(self.pads(box=(10.0, 10.0, 60.0, 60.0)), [])

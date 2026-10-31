@@ -1,15 +1,15 @@
 # Changes to BeamNG.Earth (Map2Lap patches)
 
-Everything we change in BeamNG.Earth's code under `vendor/beamng_earth`, with the reason, the evidence and what to check
-when a new version comes out. The branch `upstream` stays unmodified, the patches live on `main` only
-([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), "BeamNG.Earth as a vendor branch"). Deviations in **our own** files (looks,
+Everything we change in BeamNG.Earth's code under `vendor/beamng_earth`, with the reason and the evidence. Since
+2026-10-31 BeamNG.Earth is frozen at 1.7.2: the code is ours from here on, no further upstream version is merged
+([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), "BeamNG.Earth: frozen at 1.7.2"). The branch `upstream` keeps the
+unmodified 1.7.2 as the baseline the patches are measured against. Deviations in **our own** files (looks,
 physics names, kn5) are described in docs/DEVELOPMENT.md, not here.
 
 **Rules**
 - Every patch has an ID here, a switch to turn it off, and a test.
 - Every changed place in the code is marked `(ac-export patch Pn)` (ac-export is the project's former name; the
-  markers keep it so they stay easy to find in merges). All places of one patch: `git grep -n "ac-export patch P2"`.
-  Never lose these markers in merge conflicts.
+  markers keep it so they stay easy to find). All places of one patch: `git grep -n "ac-export patch P2"`.
 - All deviations from the original at a glance: `git diff upstream -- vendor/beamng_earth`. Every hunk there carries a
   marker.
 - "Proven" means measured or driven on a test track, with and without the patch. A patch without evidence is checked
@@ -33,6 +33,7 @@ A2's strongest bridge transition 1.68 instead of 1.66 G). Without them, 1.7.2 me
 | P9 | No junction into the parallel opposite carriageway | `grading.py` | – (`JUNCTION_PARALLEL_DEG`) | yes (A2, measured and driven) |
 | P10 | The terrain continues under the bridge end with the approach's gradient (on lidar) | `grading.py` | `BNE_UNDER_DECK=off` | yes (A2 measured, Graz) |
 | P11 | A short tunnel with ground above stays a tunnel, not a bridge (on lidar) | `gradesep.py` | `BNE_LIDAR_UNDERPASS_COVER=0` | yes (Graz, A2, Stausee measured; Graz driven) |
+| P12 | Junction pads on bridges only where three or more carriageways meet | `roads.py` | `BNE_PAD_JUNCTIONS_ONLY=off` | yes (Rossbach measured and driven) |
 
 Why patches at all: BeamNG drives on soft tyres and a soft-body chassis that rolls over centimetre bumps; Assetto
 Corsa's tyres and springs are much harder, so steps and kinks that go unnoticed in BeamNG.drive throw an AC car off the
@@ -41,23 +42,23 @@ where BeamNG.Earth's rules assume a coarser elevation model.
 
 ---
 
-## When updating BeamNG.Earth
+## Later BeamNG.Earth versions
 
-1. Read their `CHANGELOG.md`: does the new version change a place from the sections below ("Code")? Does it fix one of
-   the problems itself ("Problem")?
-2. `.venv\Scripts\python.exe tools\update_beamng_earth.py <release zip>` (not during a build; the release's zip from
-   GitHub, their main branch may be ahead of it): new version onto `upstream`, merge, rebuild earthfast with P1.
-   Conflicts at marked places: take their new code, put our rule back in. A running Map2Lap server keeps
-   `earthfast.pyd` locked: stop it first (or rename the old file aside).
+No more merges: 1.7.2 is the last upstream version in Map2Lap (decided 2026-10-31; their releases kept bringing new
+steps for AC, and every merge meant re-fitting and measuring all patches). Their releases are watched and single
+changes taken by hand:
+
+1. Read their `CHANGELOG.md` and the diff of the places in question: a fix or feature that helps AC tracks?
+2. Port it by hand as a patch of its own here (ID, switch, test, marker), only after agreeing on it.
 3. Tests (from the test folder, else `test_roads` is missing):
    `cd vendor\beamng_earth\server\tests` → `..\..\..\..\.venv\Scripts\python.exe -m unittest test_grading test_roadmesh test_roads test_gradesep test_otto_bridge`.
    Expected failures are listed below ("Known test failures"); every other failure is new.
 4. Build the test tracks again and measure them against their reference: `.venv\Scripts\python.exe tools\measure.py --all --build`
-   (data, known spots and reference values in `test_tracks.json`; "WORSE" means check it).
-5. For every patch, check whether it is still needed: build a test track once with and once without it (switch in the
-   table) and measure with `measure.py`. Whatever BeamNG.Earth now solves itself goes (a commit of its own).
-   Don't build while another build is running (a second build aborted twice with `BrokenProcessPool` that way).
-6. Update this file: version, evidence, test failures.
+   (data, known spots and reference values in `test_tracks.json`; "WORSE" means check it). Don't build while another
+   build is running (a second build aborted twice with `BrokenProcessPool` that way).
+
+`tools/update_beamng_earth.py` (the whole-version merge) is no longer used; `--build-native` still rebuilds
+`earthfast` (a running Map2Lap server keeps `earthfast.pyd` locked: stop it first).
 
 ---
 
@@ -276,6 +277,25 @@ where BeamNG.Earth's rules assume a coarser elevation model.
   lidar, a bridge with the coarse model). The other `test_gradesep` tests keep testing BeamNG.Earth's rule.
 - **Check on update:** `_underpasses`, `UNDERPASS_COVER_M`, `SHORT_ROAD_TUNNEL_M`, `gradesep.MODE`.
 
+## P12 Junction pads only at junctions
+
+- **Problem:** New in 1.7.2 (`roads.deck_pads`, for North Charles Street over I-83): where deck parts meet, or a ground
+  road goes on from a deck's end, at more than ~14° (`PAD_STRAIGHT_COS`), the convex hull of their carriageways within
+  12 m is paved, 6 cm under them (`roadmesh.PAD_DROP`), colliding, and the decks' parapets stop inside it. That also
+  hits every bridge in a bend onto its own approach. Großglockner road over the Rossbach (13 m, Heiligenblut, route
+  1642–1658 m): a 24 m plate under deck and road (a dark plate over the grass beside the road, overlapping surfaces)
+  and no parapets on the bridge.
+- **Rule:** a pad only where 3 or more carriageways meet (a junction: a ramp leaving, a street turning off). Two are one
+  road going on, at any angle: no pad, as in 1.7.1. The rest of BeamNG.Earth's pad (hull, rim railings, parapets
+  stopping) is unchanged.
+- **Code:** `roads.py`: `PAD_JUNCTIONS_ONLY`, `deck_pads` (the parts' count).
+- **Proven:** Rossbach test tracks (2026-10-31): with P12 the driving surface equals 1.7.2 with `BNE_DECK_PADS=off` and
+  1.7.1, the plate is gone, the parapets are back. Driven without pads: good. The bumps left at the Rossbach bridge
+  (the graded ground flattening before the deck, the hump at the deck's middle node) were already there in 1.7.1.
+- **Limits:** a joint of two deck parts in a bend leaves the wedge open as in 1.7.1.
+- **Tests:** `test_deckjoins.JunctionPadTest.test_bend_onto_its_own_approach_none`; the other `JunctionPadTest` tests
+  (3 carriageways) keep testing BeamNG.Earth's pad.
+
 ---
 
 ## Known test failures
@@ -291,3 +311,7 @@ one patch off at a time):
 
 Open: turn our patches off in the Otto test so it tests BeamNG.Earth's behaviour. (The two `test_roadmesh` failures
 caused by P3 are fixed: those tests run on the coarse model, P3 has a test of its own.)
+
+`test_deckjoins` fails 3 times (`EndJoinTest.test_branch_joins_the_viaduct`, `EndJoinTest.test_was_a_cliff_without_it`,
+`GroundGapTest.test_gap_is_deck`), already on 0.4 before P12 (found 2026-10-31); which patch, if any, causes them is
+not checked yet.

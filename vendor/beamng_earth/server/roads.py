@@ -6835,6 +6835,11 @@ PAD_STEP_M = 2.0
 PAD_JOIN_M = 0.75           # m: ends this near are one joint (_skew_decks' tolerance)
 PAD_GROUND_M = 1.0          # m: a ground road's end this near a joint goes on from it
 PAD_STRAIGHT_COS = -0.97    # two parts leaving a joint this straight need none
+# (ac-export patch P12) A pad only where three or more carriageways meet (a junction): two are one road going on (a
+# bridge in a bend onto its own approach, or a way split on the bridge), at any angle. The pad lay 6 cm under the deck
+# and the road over 24 m, both colliding, and took the short bridge's parapets (Großglockner road over the Rossbach,
+# 2026-10-31); 1.7.1 had no pads and drove those joints well. BNE_PAD_JUNCTIONS_ONLY=off: BeamNG.Earth's rule.
+PAD_JUNCTIONS_ONLY = os.environ.get("BNE_PAD_JUNCTIONS_ONLY", "on") != "off"
 # The pad reaches PAD_MARGIN_M past the carriageways (a turn cut across the corner stays that far from its rim); the
 # decks' parapets stand nowhere inside it, and its rim has a railing where the ground under it lies PAD_WALL_DROP_M or
 # more lower, except where a carriageway leaves it (within its half width + PAD_OPEN_M): the station road's parapet
@@ -6884,7 +6889,7 @@ def deck_pads(decks, ground_roads, box, ground_fn, own=True):
                     keep = s <= PAD_REACH_M + 2 * PAD_STEP_M
                     ln = ln[keep] if keep.sum() >= 2 else ln[:2]
                     parts.append((ln, np.asarray(ground_fn(ln), np.float64), half))
-        if len(parts) < 2:
+        if len(parts) < (3 if PAD_JUNCTIONS_ONLY else 2):     # (ac-export patch P12)
             continue
         if len(parts) == 2:
             d = []

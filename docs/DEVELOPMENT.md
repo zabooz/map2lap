@@ -28,7 +28,7 @@ removed), updates are taken over, and our AC-specific parts (looks, physics name
 | What | Where |
 |---|---|
 | Python 3.12 (venv) | `.venv\Scripts\python.exe`, packages from `requirements.txt` |
-| BeamNG.Earth (source, v1.7.1-beta) | `vendor\beamng_earth` (branch `upstream`, see below) |
+| BeamNG.Earth (source, frozen at v1.7.2-beta) | `vendor\beamng_earth` (our code since 2026-10-31, see below) |
 | Assetto Corsa (with CSP, Content Manager) | found through Steam, or set in the page's Settings |
 | CSP Lua docs (matching the installed version) | `assettocorsa\extension\internal\lua-sdk\<script type>\README.md` |
 | CC0 textures (ambientCG, not in git) | `assets\textures\` – `python tools\get_textures.py` downloads them |
@@ -95,7 +95,7 @@ src/            the program
   track/        map data -> track: BeamNG.Earth tiles, OBJ parts, kn5, track folder, worker processes
   scenery/      terrain, water, trees, rocks, street furniture, textures, gantries, distant view
 tools/          developer tools (not in the release): measuring, update, release, Track Debug app
-vendor/         BeamNG.Earth (branch upstream, see below)
+vendor/         BeamNG.Earth 1.7.2, frozen (see below)
 docs/           these notes, README images
 ```
 `src\` is the import root: the packages import each other as `from track import make_obj`. `server.py` and
@@ -128,18 +128,18 @@ release's Python has it in `python312._pth`.
 | `track/parallel.py` | Number of worker processes, process pool |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | Measure the driving line of built tracks (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against the test tracks' reference values |
-| `tools/update_beamng_earth.py` | BeamNG.Earth update: new version onto `upstream`, merge, rebuild `earthfast`, reference build with comparison |
+| `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`); its whole-version merge is no longer used (BeamNG.Earth frozen at 1.7.2) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 | `tools/TrackDebug/` | CSP Lua app for testing: position on the route (`data/map2lap_route.txt` per track), F10, recording |
 
-### BeamNG.Earth as a vendor branch
+### BeamNG.Earth: frozen at 1.7.2
 
-- Branch **`upstream`**: only the **unmodified** BeamNG.Earth code under `vendor/beamng_earth`, one commit per version
-  (ZIP from github.com/TecnaGamer/BeamNG.Earth). Branch **`main`** merges it in. **Remove nothing from their code.**
-  Adjust in our own files where possible; otherwise as a patch, recorded in [PATCHES.md](../PATCHES.md).
-- **Update:** `.venv\Scripts\python.exe tools\update_beamng_earth.py` (or with the path of a ZIP): downloads, commits onto
-  `upstream`, merges, builds the Stausee reference and compares with `out/reference.json` (> 5 % deviation flagged).
-  Read their `CHANGELOG.md` first; not during a build. Back: `git reset --hard ORIG_HEAD`.
+- Since 2026-10-31 `vendor/beamng_earth` is **our code**: BeamNG.Earth 1.7.2-beta (github.com/TecnaGamer/BeamNG.Earth)
+  is the last upstream version merged. Problems are fixed where they arise, in their code too; every change there is a
+  patch in [PATCHES.md](../PATCHES.md) (ID, switch, test, marker).
+- Branch **`upstream`** keeps the unmodified 1.7.2: `git diff upstream -- vendor/beamng_earth` shows all our changes.
+- **Later releases** are watched, not merged: a fix or feature worth having is ported by hand as a patch of its own
+  (PATCHES.md, "Later BeamNG.Earth versions").
 - **Rust module `earthfast`** (built by us for patch P1, `server/earthfast.pyd` in the repo): Rust
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
   `%USERPROFILE%\.cargo\dlltool-llvm\dlltool.exe`; in `native/earthfast` `cargo build --release`,
