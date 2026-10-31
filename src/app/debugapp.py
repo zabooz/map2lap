@@ -1,7 +1,8 @@
 """The CSP app "Track Debug" (src/acapp/TrackDebug): in AC's apps/lua while Settings → "Track Debug app" is on.
 
-It shows the metre along the route (data/map2lap_route.txt, written by every route build), marks a spot (F10) and
-records a drive into Documents/Assetto Corsa/map2lap_debug. Switched on: copied into AC (again on every build, so it
+It shows the metre along the route (data/map2lap_route.txt, written by every route build) and the build's versions
+(data/map2lap.json), marks a spot (F10: with the drive around it and a screenshot) and records a drive, into a folder
+per session in Documents/Assetto Corsa/map2lap_debug. Switched on: copied into AC (again on every build, so it
 stays the release's version); switched off: our copy removed again, an app of the same name by someone else is left.
 """
 import os

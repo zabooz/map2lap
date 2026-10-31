@@ -55,8 +55,11 @@ Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m tr
 
 **Testing in AC:** the CSP app "Track Debug" (`src\acapp\TrackDebug`, in the release too) is switched on and off
 under Settings → Testing (`app/debugapp.py`: into AC's `apps\lua`, again on every build, removed when off). It shows
-the route metre (the same count as `check_drive.py`), coordinates and G values; **F10** or "Mark" remembers a spot,
-"Start recording" records at 50 Hz. Files go to `Documents\Assetto Corsa\map2lap_debug\<track>_<time>_marks.csv` / `_drive.csv`.
+the route metre (the same count as `check_drive.py`), coordinates, G values and the build's versions. It always keeps
+the last 15 s of drive (50 Hz); **F10** (in the window: any key or wheel button) or "Mark" saves a spot with those 15 s and the next 5 s and a screenshot,
+"Start recording" records the whole drive. Files go to one folder per session,
+`Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`: `info.txt` (track, versions), `marks.csv`,
+`mark_NN.csv` / `mark_NN.jpg` per mark, `drive.csv`.
 
 **Release:** `.venv\Scripts\python.exe tools\make_release.py` builds `dist\Map2Lap-<version>-win64.zip` with an
 embedded Python, all packages, BeamNG.Earth and the textures.
