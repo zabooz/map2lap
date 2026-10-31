@@ -132,29 +132,35 @@ def invisible(name):
     return len(parts) > 1 and parts[1].endswith("col")
 
 
-def read_obj(path):
-    """{object name: (material, positions (n,3), UVs (n,2), triangles (m,3))} in AC coordinates (OBJ is Y-up)."""
-    V, VT, objs, cur = [], [], {}, None
+def read_obj(path, normals=None):
+    """{object name: (material, positions (n,3), UVs (n,2), triangles (m,3))} in AC coordinates (OBJ is Y-up); normals:
+    a dict that gets {object name: normals (n,3)} of the objects that carry them (make_obj: the trees)."""
+    V, VT, VN, objs, cur = [], [], [], {}, None
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.startswith("v "):
                 V.append(line.split()[1:4])
             elif line.startswith("vt "):
                 VT.append(line.split()[1:3])
+            elif line.startswith("vn "):
+                VN.append(line.split()[1:4])
             elif line.startswith("o "):
                 cur = {"mat": None, "f": []}
                 objs[line.split()[1]] = cur
             elif line.startswith("usemtl "):
                 cur["mat"] = line.split()[1]
             elif line.startswith("f "):         # (negative: relative to the end, make_obj writes them that way)
-                cur["f"].append([tuple(obj_index(x, len(L)) for x, L in zip(p.split("/")[:2], (V, VT)))
+                cur["f"].append([tuple(obj_index(x, len(L)) for x, L in zip(p.split("/")[:3], (V, VT, VN)))
                                  for p in line.split()[1:4]])
-    V, VT = np.asarray(V, np.float64), np.asarray(VT, np.float64)
+    V, VT, VN = np.asarray(V, np.float64), np.asarray(VT, np.float64), np.asarray(VN, np.float64).reshape(-1, 3)
     out = {}
     for name, o in objs.items():
-        F = np.asarray(o["f"], np.int64)            # (m, 3, 2): position and UV index
-        keys, inv = np.unique(F.reshape(-1, 2), axis=0, return_inverse=True)
+        F = np.asarray(o["f"], np.int64)            # (m, 3, 2 or 3): position, UV and normal index
+        k = F.shape[2]
+        keys, inv = np.unique(F.reshape(-1, k), axis=0, return_inverse=True)
         out[name] = (o["mat"], V[keys[:, 0]], VT[keys[:, 1]], inv.reshape(-1, 3))
+        if k == 3 and normals is not None:
+            normals[name] = VN[keys[:, 2]]
     return out
 
 
@@ -206,9 +212,9 @@ def skirt_normals(P, N):
     return N[order[last]][inv]
 
 
-def mesh_nodes(name, mat_index, smooth, P, UV, T, up=False, skirts=False):
+def mesh_nodes(name, mat_index, smooth, P, UV, T, up=False, skirts=False, normals=None):
     """One or more mesh nodes (<= 65535 vertices each) with normals and tangents; up: all normals pointing up;
-    skirts: skirts with the normal of the surface above (skirt_normals)."""
+    skirts: skirts with the normal of the surface above (skirt_normals); normals: given ones per vertex (they win)."""
     if smooth:                      # shared vertices, area-weighted normals
         fn = face_normals(P, T)
         N = np.zeros_like(P)
@@ -216,10 +222,14 @@ def mesh_nodes(name, mat_index, smooth, P, UV, T, up=False, skirts=False):
             np.add.at(N, T[:, k], fn)
     else:                           # hard edges: every face its own vertices (like ksEditor with FBX face normals)
         P, UV = P[T.ravel()], UV[T.ravel()]
+        if normals is not None:
+            normals = normals[T.ravel()]
         T = np.arange(len(P)).reshape(-1, 3)
         N = np.repeat(face_normals(P, T), 3, axis=0)
     N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
-    if up:
+    if normals is not None:
+        N = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    elif up:
         N[:] = (0.0, 1.0, 0.0)
     if skirts:
         N = skirt_normals(P, N)
@@ -411,7 +421,8 @@ START_NEAR_M = 1000.0      # road objects this close to the start of the route (
 def _part_chunk(path, chunk_path, mat_index, near_xz):
     """Mesh nodes of an OBJ (part) file as finished kn5 bytes to chunk_path (worker process); returns (nodes, vertices,
     road objects near one of the points near_xz for the grid slots and the finish line; all if near_xz is None)."""
-    objs = read_obj(path)
+    normals = {}
+    objs = read_obj(path, normals)
     n_nodes = n_verts = 0
     with open(chunk_path, "wb") as f:
         for name, (m, P, UV, T) in objs.items():
@@ -419,7 +430,8 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
                 T = np.r_[T, T[:, ::-1]]    # walls (bridge railings, some house walls) aren't wound consistently
             dist, shadows = view(name)
             for nd in mesh_nodes(name, mat_index[m], m in SMOOTH or m.startswith(("gc_", "ground_")), P, UV, T,
-                                 up=m in UP_NORMALS, skirts=m == "far" or m.startswith("ground_far_")):
+                                 up=m in UP_NORMALS, skirts=m == "far" or m.startswith("ground_far_"),
+                                 normals=normals.get(name)):
                 nd.lod_out, nd.cast_shadows = dist + nd.bs_radius, shadows
                 if invisible(name):     # (collision only: BeamNG.Earth's walkcol/bldcol)
                     nd.renderable, nd.cast_shadows = 0, 0

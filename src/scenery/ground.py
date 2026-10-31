@@ -25,7 +25,7 @@ import heightmap
 import roads as roadsmod
 import surface as surfacemod
 
-from scenery import groundcover
+from scenery import groundcover, water
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
@@ -283,7 +283,11 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             am = a > 0
             if not am.any():
                 continue
-            col = np.array(rgb, np.float32) * (1.0 + 0.06 * groundcover._noise(wx[am], wy[am], 1.5, 71))[:, None]
+            if rgb is STREAM_WATER:     # the comic water's texture, world-locked like the water mesh's (a flat colour
+                col = _sample(_texture(os.path.join(gc_dir, "water.png"), int(round(water.UV_M / sp))), wx[am],
+                              wy[am], water.UV_M)       # looked like no texture at all: Rossbach, 2026-10-31)
+            else:
+                col = np.array(rgb, np.float32) * (1.0 + 0.06 * groundcover._noise(wx[am], wy[am], 1.5, 71))[:, None]
             w = (a[am] / 255.0)[:, None]
             img[am] = img[am] * (1 - w) + col * w
     if feats:

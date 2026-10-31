@@ -1,18 +1,25 @@
 """Water (rivers, lakes, reservoirs) for a 256 m tile: the terrain lowered under water, and the water surface.
 
-Source: Overture/OSM water areas through buildings.water_rings (BeamNG.Earth), rasterised at 1 m (with a margin so
-tile borders come out the same). Water level per area and tile: the 25th percentile of the terrain heights inside the
-area (laser terrain models show the mostly flat surface over water). The terrain is lowered below it (0.15 m at the
-shore, +0.25 m per metre away from the shore inwards, at most 1.5 m), the surface lies on the level.
+Source: Overture/OSM water areas (like buildings.water_rings, BeamNG.Earth), rasterised at 1 m (with a margin so
+tile borders come out the same). Water level from the terrain heights inside the area (laser terrain models show the
+mostly flat surface over water), their 25th percentile:
+- lakes, reservoirs, the sea: one level per area and tile;
+- rivers, streams, canals (FLOWING): the level runs downhill with the bed, the percentile within FLOW_R of each cell,
+  smoothed (2026-10-31: one level per tile left the Lieser at Seeboden floating as a pale slab downstream and under
+  the ground upstream, with steps at the tile borders).
+The terrain is lowered below the level (0.15 m at the shore, +0.25 m per metre away from the shore inwards, at most
+1.5 m, plus whatever of it stood above the level), the surface lies on the level per vertex and reaches one cell past
+the shore: the shoreline is where the terrain comes out of it, not the 2 m cells' stairs.
 """
 import math
 import os
 import random
+import warnings
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-import buildings
+import mapgeom
 import roads as roadsmod
 
 FOAM_M = 2.5                # m: cells this close to the shore get the comic foam
@@ -91,6 +98,48 @@ MARGIN = 16                 # m margin around the raster
 SHORE_DEPTH, SLOPE, MAX_DEPTH, DIST_STEPS = 0.15, 0.25, 1.5, 6
 LEVEL_PERCENTILE = 25
 UV_M = 20.0
+FLOWING = {"river", "stream", "canal", "drain", "ditch"}     # Overture water subtype / class whose surface runs downhill
+FLOW_R = 14.0               # m (square reach, at most MARGIN): a flowing water's level from the bed around each cell
+SMOOTH_R = 6.0              # m: then averaged over this reach
+
+
+def _rings(frame, layers, x0, y0, size):
+    """[(outer ring (k, 2), [hole rings], flowing)] relative to (x0, y0) of the water areas near the tile."""
+    out = []
+    for f in layers:
+        if f is None or len(f.kind) == 0:
+            continue
+        sub, cls = f.attrs.get("subtype"), f.attrs.get("class")
+        for i in np.flatnonzero(f.kind == 3):
+            flowing = (sub is not None and str(sub[i]) in FLOWING) or (cls is not None and str(cls[i]) in FLOWING)
+            for part in f.parts(i):
+                if not part or len(part[0]) < 4:
+                    continue
+                e, n = mapgeom.enu_xy(f, frame, part[0])
+                xy = np.stack([e - x0, n - y0], 1)
+                if xy[:, 0].max() < -MARGIN or xy[:, 0].min() > size + MARGIN or xy[:, 1].max() < -MARGIN \
+                        or xy[:, 1].min() > size + MARGIN:
+                    continue
+                holes = []
+                for h in part[1:]:
+                    if len(h) >= 4:
+                        he, hn = mapgeom.enu_xy(f, frame, h)
+                        holes.append(np.stack([he - x0, hn - y0], 1))
+                out.append((xy, holes, flowing))
+    return out
+
+
+def _window(a, valid, r, fn):
+    """fn over the valid values of a (2-D) in the (2r+1)^2 square around each valid cell (NaN elsewhere)."""
+    pad = np.pad(np.where(valid, a, np.nan), r, constant_values=np.nan)
+    jj, ii = np.nonzero(valid)
+    offs = np.arange(-r, r + 1)
+    out = np.full(a.shape, np.nan)
+    for s in range(0, len(jj), 4096):
+        j, i = jj[s:s + 4096, None, None] + r, ii[s:s + 4096, None, None] + r
+        win = pad[j + offs[None, :, None], i + offs[None, None, :]].reshape(len(j), -1)
+        out[jj[s:s + 4096], ii[s:s + 4096]] = fn(win)
+    return out
 
 
 def _label_image(rings, size):
@@ -101,7 +150,7 @@ def _label_image(rings, size):
 
     def px(ring):
         return [(float(x) + MARGIN, float(size + MARGIN - y)) for x, y in ring]
-    for p, (outer, holes) in enumerate(rings):
+    for p, (outer, holes, _) in enumerate(rings):
         d.polygon(px(outer), fill=p + 1)
         for h in holes:
             d.polygon(px(h), fill=0)
@@ -130,15 +179,17 @@ def water_tile(frame, md, raw_elev, tx, ty, cell=2.0):
     size = x1 - x0
     keys = roadsmod.cells_of_tile(frame, tx, ty, MARGIN)
     layers = [md.cell(k, layers=("water",), kind="demand").layers.get("water") for k in keys]
-    rings = buildings.water_rings(frame, layers, x0, y0, margin=MARGIN, size=size)
+    rings = _rings(frame, layers, x0, y0, size)
     if not rings:
         return None, None, None
     lab = _label_image(rings, size)
     if not lab.any():
         return None, None, None
+    flowing = np.array([False] + [r[2] for r in rings])          # per label
     n = int(round(size / cell)) + 1
+    m = n - 1
 
-    # lowering at the terrain vertices
+    # the terrain vertices: wet ones, distance to the shore
     dist = _distance(lab > 0, DIST_STEPS)
     ii, jj = np.meshgrid(np.arange(n), np.arange(n))
     col = np.clip((ii * cell + MARGIN).astype(int), 0, lab.shape[1] - 1)
@@ -146,40 +197,67 @@ def water_tile(frame, md, raw_elev, tx, ty, cell=2.0):
     wet = lab[row, col] > 0
     depth = np.where(wet, np.minimum(MAX_DEPTH, SHORE_DEPTH + SLOPE * dist[row, col]), 0.0)
 
-    # water level per area from the terrain heights at the cell centres inside the area
-    m = n - 1
-    ci, cj = np.meshgrid(np.arange(m), np.arange(m))
+    # cells (centres) on a grid padded by FLOW_R: a flowing water's level comes out the same on both sides of a tile
+    # border; lakes keep one level per area from their cells inside the tile
+    pad = int(FLOW_R // cell)
+    ci, cj = np.meshgrid(np.arange(-pad, m + pad), np.arange(-pad, m + pad))
     ccol = np.clip((ci * cell + cell / 2 + MARGIN).astype(int), 0, lab.shape[1] - 1)
     crow = np.clip((size + MARGIN - (cj * cell + cell / 2)).astype(int), 0, lab.shape[0] - 1)
     clab = lab[crow, ccol]
-    if not (clab > 0).any():
+    inner = (ci >= 0) & (ci < m) & (cj >= 0) & (cj < m)
+    if not (clab[inner] > 0).any():
         return (depth if wet.any() else None), None, None
-    cx, cy = x0 + ci * cell + cell / 2, y0 + cj * cell + cell / 2
     sel = clab > 0
-    la, lo, _ = frame.enu_to_geodetic(cx[sel], cy[sel], 0.0)
-    h = np.asarray(raw_elev(la, lo), np.float64)
-    labels = clab[sel]
-    level = {}
-    for p in np.unique(labels):
-        level[int(p)] = float(np.percentile(h[labels == p], LEVEL_PERCENTILE))
+    h = np.full(clab.shape, np.nan)
+    la, lo, _ = frame.enu_to_geodetic(x0 + ci[sel] * cell + cell / 2, y0 + cj[sel] * cell + cell / 2, 0.0)
+    h[sel] = np.asarray(raw_elev(la, lo), np.float64)
+    level = np.full(clab.shape, np.nan)
+    for p in np.unique(clab[sel & inner]):
+        if not flowing[p]:
+            level[clab == p] = float(np.percentile(h[(clab == p) & inner], LEVEL_PERCENTILE))
+    flow = sel & flowing[clab]
+    if flow.any():
+        lv = _window(h, flow, pad, lambda w: np.nanpercentile(w, LEVEL_PERCENTILE, axis=1))
+        lv = _window(lv, flow, int(SMOOTH_R // cell), lambda w: np.nanmean(w, axis=1))
+        level[flow] = lv[flow]
 
-    # surface: one square per wet cell on its area's level (Earth curvature like the terrain);
+    # levels at the vertices: the mean of the wet cells around each, then one vertex further (the shore cells)
+    with warnings.catch_warnings():         # (vertices with no wet cell around: NaN, "mean of empty slice")
+        warnings.simplefilter("ignore", RuntimeWarning)
+        vl = np.nanmean(np.stack([level[pad - 1 + dj:pad - 1 + dj + n, pad - 1 + di:pad - 1 + di + n]
+                                  for dj in (0, 1) for di in (0, 1)]), axis=0)
+        vp = np.pad(vl, 1, constant_values=np.nan)
+        ring = np.nanmean(np.stack([vp[1 + dj:1 + dj + n, 1 + di:1 + di + n] for dj in (-1, 0, 1)
+                                    for di in (-1, 0, 1)]), axis=0)
+    vl = np.where(np.isnan(vl), ring, vl)
+
+    # lowering: below the level wherever the terrain stood above it
+    up = wet & ~np.isnan(vl)
+    if up.any():
+        la, lo, _ = frame.enu_to_geodetic(x0 + ii[up] * cell, y0 + jj[up] * cell, 0.0)
+        depth[up] += np.maximum(0.0, np.asarray(raw_elev(la, lo), np.float64) - vl[up])
+
+    # surface: the wet cells and one more around them (all four corners with a level), on the vertices' levels;
     # cells close to the shore as a separate foam strip (comic style)
-    shore = dist[crow, ccol] < FOAM_M
+    wet_c = sel[pad:pad + m, pad:pad + m]
+    corners = ~np.isnan(vl)
+    drawn = corners[:-1, :-1] & corners[:-1, 1:] & corners[1:, :-1] & corners[1:, 1:]
+    cd = dist[crow[pad:pad + m, pad:pad + m], ccol[pad:pad + m, pad:pad + m]]
+    shore = ~wet_c | (cd < FOAM_M)
+    gi, gj = np.meshgrid(np.arange(m), np.arange(m))
 
     def quads(mask):
         cells = np.flatnonzero(mask.ravel())
         if not len(cells):
             return None
-        ci_s, cj_s = ci.ravel()[cells], cj.ravel()[cells]
-        lv = np.array([level[int(p)] for p in clab.ravel()[cells]])
+        ci_s, cj_s = gi.ravel()[cells], gj.ravel()[cells]
         P = np.zeros((len(cells) * 4, 3))
         for k, (di, dj) in enumerate([(0, 0), (1, 0), (0, 1), (1, 1)]):
             ex, ny = x0 + (ci_s + di) * cell, y0 + (cj_s + dj) * cell
             la, lo, _ = frame.enu_to_geodetic(ex, ny, 0.0)
-            u = np.asarray(frame.geodetic_to_enu(la, lo, lv)[2], np.float64)
+            u = np.asarray(frame.geodetic_to_enu(la, lo, vl[cj_s + dj, ci_s + di])[2], np.float64)
             P[k::4] = np.c_[ex, ny, u]
         base = np.arange(len(cells)) * 4
         T = np.r_[np.c_[base, base + 1, base + 3], np.c_[base, base + 3, base + 2]]
         return P, P[:, :2] / UV_M, T
-    return depth, quads(sel & ~shore), quads(sel & shore)
+    return (depth if wet.any() else None), quads(drawn & ~shore), quads(drawn & shore)

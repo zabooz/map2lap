@@ -7,6 +7,7 @@ without a digit at the start have no collision (markings, wires). Coordinates: Y
 """
 import glob
 import json
+import math
 import os
 import shutil
 import struct
@@ -183,7 +184,8 @@ class Obj:
         self.nv = 0
         self.objects = 0
 
-    def add(self, name, mat, P, UV, T):
+    def add(self, name, mat, P, UV, T, N=None):
+        """N: normals per vertex (ENU) or None (obj_to_kn5 makes them)."""
         for s in range(0, len(T), MAX_VERTS // 3):          # (triangles per part: at most MAX_VERTS vertices)
             t = T[s:s + MAX_VERTS // 3]
             used, inv = np.unique(t.ravel(), return_inverse=True)
@@ -192,7 +194,11 @@ class Obj:
             self.f.write(f"o {part}\nusemtl {mat}\n")
             self.f.write("".join(f"v {x:.3f} {z:.3f} {-y:.3f}\n" for x, y, z in p))
             self.f.write("".join(f"vt {u:.4f} {v:.4f}\n" for u, v in uv))
-            self.f.write("".join(f"f {a}/{a} {b}/{b} {c}/{c}\n" for a, b, c in t))
+            if N is None:
+                self.f.write("".join(f"f {a}/{a} {b}/{b} {c}/{c}\n" for a, b, c in t))
+            else:
+                self.f.write("".join(f"vn {x:.3f} {z:.3f} {-y:.3f}\n" for x, y, z in N[used]))
+                self.f.write("".join(f"f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}\n" for a, b, c in t))
             self.nv += len(p)
             self.objects += 1
 
@@ -441,6 +447,26 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
 _ctx = {}                       # per worker process: anchor, terrain, vegetation (_init_scenery)
 
 
+BUSHES = {"shrub", "desert_shrub"}     # vegetation groups lit like the ground (ground_normals)
+
+
+def ground_normals(G, x0, y0, B):
+    """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per bush): the ground's under each, from the
+    tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Before, they pointed up like the
+    trees': bushes on a hillside turned away from the sun stayed bright on the dark ground (Seeboden, 2026-10-31); they
+    don't receive shadows (obj_to_kn5: ksPerPixelAT_NS), so the slope's light is what darkens them. Trees keep "up"
+    (they stand above the slope and looked right)."""
+    n = int(round(math.sqrt(len(G))))
+    Z = G[:, 2].reshape(n, n)                               # [j northwards, i eastwards]
+    dzdy, dzdx = np.gradient(Z, CELL)
+    c = B.reshape(-1, 8, 3)[:, :, :2].mean(1)
+    i = np.clip(np.round((c[:, 0] - x0) / CELL).astype(int), 0, n - 1)
+    j = np.clip(np.round((c[:, 1] - y0) / CELL).astype(int), 0, n - 1)
+    N = np.stack([-dzdx[j, i], -dzdy[j, i], np.ones(len(c))], 1)
+    N /= np.linalg.norm(N, axis=1, keepdims=True)
+    return np.repeat(N, 8, axis=0)
+
+
 def _init_scenery(tiles_dir, tex_dir):
     with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
         anc = json.load(f)
@@ -475,6 +501,7 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
     os.makedirs(tex_dir, exist_ok=True)
     groundcover.make_textures(tex_dir)      # (before the worker processes: they paint the terrain textures with them)
     roadtex.make_surfaces(tex_dir)          # (... and the roads)
+    water.make_textures(os.path.join(tex_dir, "water.png"), os.path.join(tex_dir, "foam.png"))   # (... the streams)
     n = parallel.workers(len(tiles))
     log(f"Scenery with {n} processes ...")
     objects, nv, tris, unknown = 0, 0, {}, set()
@@ -526,6 +553,7 @@ def _scenery_tile(tx, ty, part_path):
     P, UV, ggroups, _ = ground.build(frame, anc["aid"], tx, ty, _ctx["g"], blockworker._s.dem, anc["dem_zoom"],
                                      depth, blockworker._s.md, TEX_SRC, _ctx["tex_dir"],
                                      os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log)
+    grid = P                    # (the terrain vertices: the bushes' normals, ground_normals)
     for pre, T in ggroups.items():
         obj.add(f"{pre}_ground_{tx}_{ty}", gmat, P, UV, T)
         tris[pre] = tris.get(pre, 0) + len(T)
@@ -647,10 +675,15 @@ def _scenery_tile(tx, ty, part_path):
         log(f"Trees, tile {tx},{ty}: {type(e).__name__}: {e}")
         items = []
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
-    tmesh = trees.billboards(items + extra, wet, trees.tile_zone(frame, items + extra))
+    zone = trees.tile_zone(frame, items + extra)
+    tmesh = trees.billboards([t for t in items + extra if t[0] not in BUSHES], wet, zone)
     if tmesh is not None:
         obj.add(f"nocol_trees_{tx}_{ty}", "trees", *tmesh)
         tris["trees"] = tris.get("trees", 0) + len(tmesh[2])
+    bmesh = trees.billboards([t for t in items if t[0] in BUSHES], wet, zone)
+    if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees keep "up"
+        obj.add(f"nocol_trees_bush_{tx}_{ty}", "trees", *bmesh, N=ground_normals(grid, x0, y0, bmesh[0]))
+        tris["trees"] = tris.get("trees", 0) + len(bmesh[2])
     for prefix, mesh in rocks.meshes(items, wet).items():     # boulders (rocks.py)
         obj.add(f"{prefix}_rocks_{tx}_{ty}", rocks.MATERIAL, *mesh)
         tris["rocks"] = tris.get("rocks", 0) + len(mesh[2])

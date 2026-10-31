@@ -114,7 +114,7 @@ release's Python has it in `python312._pth`.
 | `scenery/ground.py` | Terrain per tile like BeamNG.Earth's `blockworker.build`: heights, tunnel holes, surface per 2 m cell (physics), terrain texture with painted roads (look by road class), rock faces, streams, large-scale colour variation |
 | `scenery/groundcover.py` | WorldCover class per cell → comic ground material, Voronoi fields; Overture `land_use` on top; the ground textures |
 | `track/make_obj.py` | Assigns the tile meshes (collision like the BeamNG mod, `collision_prefix`), facade and wall colours, water/trees/furniture, textures |
-| `scenery/water.py` | Rasterises water areas, finds the level, lowers the terrain, water and foam meshes, comic textures, Lua animation |
+| `scenery/water.py` | Rasterises water areas, finds the level (lakes flat; rivers, streams, canals following the bed downhill), lowers the terrain below it, water and foam meshes one cell past the shore, comic textures, Lua animation |
 | `scenery/trees.py` | Tree billboards from `vegetation.tile_items`, comic atlas (deciduous, birch, linden, conifer, spruce, larch from 1500 m, bushes; pine, stone pine, cypress, olive, acacia, baobab, palm, tropical tree, dry bush, juniper, jungle bush). The species follow the tile's climate zone (`zone()`, Köppen-Geiger from BeamNG.Earth's `climate.py`): boreal north of 55°, mediterranean, savanna, rainforest, desert, else temperate |
 | `scenery/rocks.py` | Boulders from BeamNG.Earth's vegetation as chunky 3D comic rocks, with collision from 1 m |
 | `scenery/propsmesh.py` | Street furniture from the tiles' `props` as comic block models (5×5 atlas): traffic lights, level crossings (St Andrew's cross / crossbuck, flashers, open gates), guardrails (`rails`), high-voltage pylons (`pylons`) |
@@ -209,7 +209,9 @@ release's Python has it in `python312._pth`.
 - Scale textures down to the target resolution before sampling them (else a blotchy pattern: asphalt like cobbles).
 - Atlases with an empty margin per image (`trees.PAD`): else billboard edges reach into the neighbouring image at small
   mip levels, or through the repeat into their own bottom row (floating lines).
-- Alpha-tested billboards with up-pointing normals shadow themselves (stripes): trees use `ksPerPixelAT_NS`.
+- Alpha-tested billboards with up-pointing normals shadow themselves (stripes): trees use `ksPerPixelAT_NS`. Bushes
+  carry the ground's normal instead (`make_obj.ground_normals`, written as `vn` into the OBJ), so they darken with a
+  slope turned away from the sun; trees keep "up".
 - The terrain casts no shadows (it shadowed itself: rings around the camera on the asphalt).
 - Unknown BeamNG materials become wall/concrete (`FALLBACK`); the build reports them → add them to `SURFACE`.
 
