@@ -99,6 +99,10 @@ SHORE_DEPTH, SLOPE, MAX_DEPTH, DIST_STEPS = 0.15, 0.25, 1.5, 6
 LEVEL_PERCENTILE = 25
 UV_M = 20.0
 FLOWING = {"river", "stream", "canal", "drain", "ditch"}     # Overture water subtype / class whose surface runs downhill
+# built basins up to BASIN_MAX_M2 (leisure.py draws them standing on the ground): lowering the terrain on 2 m
+# cells under a 4 x 8 m garden pool dug a pit wider than the pool, with the lake's foam round it
+BASINS = {"swimming_pool", "reflecting_pool", "fountain"}
+BASIN_MAX_M2 = 5000.0       # (a 50 m pool with its deck ~1250 m²; a larger one is a lagoon or a lake mapped as a pool)
 FLOW_R = 14.0               # m (square reach, at most MARGIN): a flowing water's level from the bed around each cell
 SMOOTH_R = 6.0              # m: then averaged over this reach
 
@@ -111,12 +115,16 @@ def _rings(frame, layers, x0, y0, size):
             continue
         sub, cls = f.attrs.get("subtype"), f.attrs.get("class")
         for i in np.flatnonzero(f.kind == 3):
+            basin = cls is not None and str(cls[i]) in BASINS
             flowing = (sub is not None and str(sub[i]) in FLOWING) or (cls is not None and str(cls[i]) in FLOWING)
             for part in f.parts(i):
                 if not part or len(part[0]) < 4:
                     continue
                 e, n = mapgeom.enu_xy(f, frame, part[0])
                 xy = np.stack([e - x0, n - y0], 1)
+                if basin and 0.5 * abs(np.dot(xy[:, 0], np.roll(xy[:, 1], 1))
+                                       - np.dot(xy[:, 1], np.roll(xy[:, 0], 1))) <= BASIN_MAX_M2:
+                    continue
                 if xy[:, 0].max() < -MARGIN or xy[:, 0].min() > size + MARGIN or xy[:, 1].max() < -MARGIN \
                         or xy[:, 1].min() > size + MARGIN:
                     continue

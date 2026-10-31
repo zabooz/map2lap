@@ -40,6 +40,7 @@ SHADERS = {"trees": ("ksPerPixelAT_NS", 1), "edge_dirt": ("ksPerPixelAT", 1), "a
 SIGN_LETTERS = ("bne_exit_letters", "bne_guide_letters", "bne_guide_letters_black")     # (make_obj.SIGN_LETTERS)
 SHADERS.update({m: ("ksPerPixelAT", 1) for m in SIGN_LETTERS})
 SHADERS["fences"] = ("ksPerPixelAT_NS", 1)     # (fences.py: chain link, mesh, pickets cut out; upright quads like trees)
+SHADERS["leisure"] = ("ksPerPixelAT", 1)        # (leisure.py: the goals' and hoops' nets cut out)
 UP_NORMALS = {"trees"}
 VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}
 VALUES["edge_dirt"] = VALUES["grass"]
@@ -49,6 +50,7 @@ VALUES["gate_band"] = VALUES["paint"]
 ALPHA_REF = {"trees": 0.5, "edge_dirt": 0.5, "arrows": 0.5}
 ALPHA_REF.update({m: 0.5 for m in SIGN_LETTERS})
 ALPHA_REF["fences"] = 0.5
+ALPHA_REF["leisure"] = 0.5
 FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make_obj.FACADE_LEVELS)
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
@@ -67,6 +69,10 @@ VIEW = (
     ("nocol_signs", 600.0, 1),                  # road signs (make_obj: BeamNG.Earth's sign tiles)
     ("1WALL_gate", 3000.0, 1), ("nocol_gate_band", 1500.0, 0), ("nocol_gate", 3000.0, 1),     # start/finish (gates.py)
     ("1WALL_pylon", 2500.0, 1), ("nocol_pylon", 2500.0, 1),     # high-voltage pylons (30 m high)
+    ("1WALL_tower", 2500.0, 1),                 # silos, tanks, masts (leisure.py)
+    ("1WALL_fountain", 500.0, 1),               # fountains, wells, drinking fountains (leisure.py)
+    ("nocol_pool", 600.0, 0), ("nocol_play", 400.0, 1), ("nocol_sport", 500.0, 1),     # (leisure.py)
+    ("nocol_graves", 300.0, 0),
     ("nocol_bld_", 2000.0, 1), ("1WALL_", 2000.0, 1), ("1GRAVEL_rail", 2000.0, 0),
     ("nocol_trees", 1200.0, 1), ("nocol_rocks", 600.0, 1),
     ("nocol_road_", 400.0, 0), ("nocol_tunnel_paint", 400.0, 0), ("nocol_walk_", 400.0, 0),

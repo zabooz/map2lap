@@ -11,6 +11,7 @@ and vineyards, lawns, pitches, cemeteries, residential and commercial areas ...;
 Under trees, snow and water (WorldCover) WorldCover stays.
 Everything depends only on the world position (anchor frame): seamless across tiles and the same on every build.
 """
+import json
 import math
 import random
 import zlib
@@ -45,6 +46,54 @@ LANDUSE_MAT = {
     "dog_park": "gc_lawn", "water_park": "gc_lawn", "camp_site": "gc_lawn",
 }
 LANDUSE_UNDER = (10, 70, 80)    # WorldCover classes land_use doesn't paint over: trees, snow/ice, water
+# A pitch's or track's ground: the mapped surface first (OSM surface=*, then Overture's coarser recreation_* surface:
+# it gives tennis clay as "paved"), else what its sport is played on most (OSM sport=*, the first of a list). pitch()
+# names the sport too: what a court's lines, nets and goals are drawn from
+PITCH_CLASSES = {"pitch": "grass", "track": "tartan"}  # (a track without a sport: most are running tracks)
+PITCH_LOOK = {"grass": "gc_pitch", "clay": "gc_clay", "hard": "gc_court", "acrylic": "gc_acrylic",
+              "tartan": "gc_tartan", "sand": "gc_sand", "dirt": "gc_dirt"}
+SURFACE_GROUND = {
+    "grass": "grass", "artificial_turf": "grass", "clay": "clay", "tartan": "tartan", "rubber": "tartan",
+    "acrylic": "acrylic", "carpet": "acrylic", "asphalt": "hard", "concrete": "hard", "paved": "hard",
+    "paving_stones": "hard", "wood": "hard", "sand": "sand", "fine_gravel": "sand", "gravel": "sand",
+    "compacted": "sand", "dirt": "dirt", "earth": "dirt", "ground": "dirt", "unpaved": "dirt", "mud": "dirt",
+    "recreation_grass": "grass", "recreation_paved": "hard", "recreation_sand": "sand",
+}
+SPORT_GROUND = {
+    "soccer": "grass", "baseball": "grass", "softball": "grass", "american_football": "grass", "rugby": "grass",
+    "rugby_union": "grass", "rugby_league": "grass", "cricket": "grass", "field_hockey": "grass", "golf": "grass",
+    "archery": "grass", "gaelic_games": "grass", "australian_football": "grass", "miniature_golf": "grass",
+    # (hard courts are the common tennis court worldwide; clay where it is mapped)
+    "tennis": "acrylic", "padel": "acrylic", "pickleball": "acrylic", "basketball": "hard", "skateboard": "hard",
+    "multi": "hard", "handball": "hard", "netball": "hard", "futsal": "hard", "volleyball": "hard",
+    "table_tennis": "hard", "chess": "hard", "roller_skating": "hard", "ice_stock": "hard", "cycling": "hard",
+    "motor": "hard", "karting": "hard",
+    "beachvolleyball": "sand", "beach_volleyball": "sand", "beachsoccer": "sand", "equestrian": "sand",
+    "boules": "sand", "petanque": "sand", "long_jump": "sand", "horse_racing": "dirt", "bmx": "dirt",
+    "motocross": "dirt", "athletics": "tartan", "running": "tartan",
+}
+
+
+def pitch(cls, tags, surface=""):
+    """(sport or "", ground of PITCH_LOOK) of a land_use area of PITCH_CLASSES; tags: its OSM tags (dict), surface:
+    Overture's surface. Pure."""
+    sport = str(tags.get("sport") or "").split(";")[0].strip().lower()
+    for s in (str(tags.get("surface") or "").split(";")[0].strip().lower(), str(surface or "")):
+        if s in SURFACE_GROUND:
+            return sport, SURFACE_GROUND[s]
+    return sport, SPORT_GROUND.get(sport, PITCH_CLASSES.get(cls, "grass"))
+
+
+def _tags(attrs, i):
+    """The OSM tags of feature i (Overture's tags column, JSON) as a dict ({} without)."""
+    t = attrs.get("tags")
+    if t is None or not str(t[i]):
+        return {}
+    try:
+        v = json.loads(str(t[i]))
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
 
 
 def _hash2(ix, iy, salt):
@@ -147,9 +196,13 @@ def landuse(frame, md, tx, ty, cell=2.0):
         f = md.cell(key, layers=("land_use",), kind="demand").layers.get("land_use")
         if f is None or len(f) == 0 or f.attrs.get("class") is None:
             continue
-        cls, xy = f.attrs["class"], f.xy_in(frame)
+        cls, xy, surf = f.attrs["class"], f.xy_in(frame), f.attrs.get("surface")
         for i in np.flatnonzero(f.kind == 3):
-            mat = LANDUSE_MAT.get(str(cls[i]))
+            c = str(cls[i])
+            if c in PITCH_CLASSES:
+                mat = PITCH_LOOK[pitch(c, _tags(f.attrs, i), "" if surf is None else str(surf[i]))[1]]
+            else:
+                mat = LANDUSE_MAT.get(c)
             if mat is None:
                 continue
             if mat == "@field":
@@ -437,10 +490,40 @@ def _garden(rng):
     return img
 
 
+def _clay(rng):
+    """Tennis clay: orange-red brick dust, swept."""
+    img = _base((198, 106, 66))
+    _dots(img, rng, [(186, 98, 60), (210, 118, 76)], 600, (1.5, 4))
+    _strokes(img, rng, [(206, 114, 72)], 160, (20, 40), 2, angle=0.0, jitter=0.05)
+    return img
+
+
+def _court(rng):
+    """Hard court of asphalt or concrete: grey, fine grain."""
+    img = _base((128, 128, 124))
+    _dots(img, rng, [(118, 118, 114), (140, 140, 136)], 700, (1, 3))
+    return img
+
+
+def _acrylic(rng):
+    """Painted hard court (tennis, padel): even green."""
+    img = _base((72, 128, 94))
+    _dots(img, rng, [(68, 122, 90), (78, 134, 100)], 400, (2, 5))
+    return img
+
+
+def _tartan(rng):
+    """Running track and all-weather court: red rubber."""
+    img = _base((172, 72, 58))
+    _dots(img, rng, [(160, 66, 54), (184, 80, 64)], 800, (1, 2.5))
+    return img
+
+
 LOOKS_NEW = {"gc_shrub": _shrub, "gc_scree": _scree, "gc_snow": _snow, "gc_alpine": _alpine, "gc_lawn": _lawn,
              "gc_pitch": _pitch, "gc_sand": _sand, "gc_cemetery": _cemetery, "gc_residential": _residential,
              "gc_yard": _yard, "gc_dirt": _dirt, "gc_orchard": _orchard, "gc_vineyard": _vineyard,
-             "gc_garden": _garden}
+             "gc_garden": _garden, "gc_clay": _clay, "gc_court": _court, "gc_acrylic": _acrylic,
+             "gc_tartan": _tartan}
 
 
 def make_textures(tex_dir, seed=23):

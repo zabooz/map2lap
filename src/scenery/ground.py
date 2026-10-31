@@ -28,7 +28,7 @@ import mapgeom
 import roads as roadsmod
 import surface as surfacemod
 
-from scenery import groundcover, water
+from scenery import groundcover, leisure, water
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
@@ -55,6 +55,7 @@ ROCK_BAND_M = 4.0               # m of height per rock layer on the face (soft l
 # water m, bank per side m); intermittent ones (is_intermittent) as a stone bed. Ditches not, like BeamNG.Earth's riverlines
 STREAMS = {"stream": (0.8, 0.6), "river": (3.0, 1.2), "canal": (2.0, 0.5)}
 STREAM_WATER, STREAM_BANK, STREAM_DRY = (66, 124, 172), (104, 98, 84), (156, 150, 138)
+PITCH_LINE = (236, 236, 230)       # the pitches' chalk / paint
 # Mapped paths (OpenStreetMap's footways, cycleways ...: Overture's road segments of these classes, which
 # roads.road_specs leaves out): painted into the ground's surface and texture at their own width, under the roads, and
 # nothing else: no grading, junctions, sidewalks, markings or furniture, so a path that meets or crosses a road changes
@@ -392,6 +393,18 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
                 col = np.array(rgb, np.float32) * (1.0 + 0.06 * groundcover._noise(wx[am], wy[am], 1.5, 71))[:, None]
             w = (a[am] / 255.0)[:, None]
             img[am] = img[am] * (1 - w) + col * w
+    got = leisure.marks(frame, md, tx, ty) if md is not None else None
+    if got is not None:         # the pitches' white lines (leisure.pitch_layout), under the paths and roads
+        segs, hw = got
+        px = 1.0 / sp
+        segs = np.c_[(segs[:, 0] - x0) * px, (y1 - segs[:, 1]) * px, (segs[:, 2] - x0) * px, (y1 - segs[:, 3]) * px]
+        a = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), np.ascontiguousarray(segs, np.float64),
+                                 np.ascontiguousarray(hw * px, np.float64), np.zeros(len(segs), np.uint8),
+                                 np.array([(255.0, 255.0, 255.0, 1.0)], np.float32))[..., 0]
+        am = a > 0
+        if am.any():
+            w = (a[am] / 255.0)[:, None]
+            img[am] = img[am] * (1 - w) + np.array(PITCH_LINE, np.float32) * w
     pads = s.surface.fuel_pads(la, lo) if getattr(s.surface, "gas_pads", False) else []
     if pads:                    # gas station forecourts (make_obj._init_scenery): service asphalt, under the roads
         mask = Image.new("L", (TEX_PX, TEX_PX), 0)

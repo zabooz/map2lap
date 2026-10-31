@@ -59,7 +59,9 @@ WALL_LOOK = {"brick": BRICK, "stone": STONE, "dry_stone": STONE, "drystone_wall"
              "flood_wall": CONCRETE, "plaster": PLASTER}
 # comic ground -> kind of an untagged fence (the most common one on both sides decides; the rest: pasture)
 GROUND_KIND = {"gc_residential": "garden", "gc_garden": "garden", "gc_lawn": "garden", "gc_cemetery": "wall",
-               "gc_urban": "garden", "gc_yard": "chain", "gc_pitch": "chain", "gc_sand": "bars", "gc_dirt": "chain"}
+               "gc_urban": "garden", "gc_yard": "chain", "gc_pitch": "chain", "gc_sand": "bars", "gc_dirt": "chain",
+               "gc_clay": "chain", "gc_court": "chain", "gc_acrylic": "chain", "gc_tartan": "chain"}
+BALL_GROUNDS = {"gc_pitch", "gc_clay", "gc_court", "gc_acrylic"}   # a chain link round them stops balls
 WILD_ROADS = {"motorway", "trunk"}     # a fence this near one is a wildlife fence (chain link on wooden posts)
 WILD_M = 30.0
 
@@ -389,7 +391,7 @@ def build(frame, md, tx, ty, elev, urban=None, widths=None):
         h = _height(tags) if kind != "retaining" else None
         if h is None:
             h = h0 + (h1 - h0) * _hash(fid, "h")
-        if kind == "chain" and ground == "gc_pitch":
+        if kind == "chain" and ground in BALL_GROUNDS:
             h = max(h, 3.0 + _hash(fid, "hp"))      # (a ball stop)
         span = s0 + (s1 - s0) * _hash(fid, "s")
         v = _hash(fid, "v")                          # the variant
