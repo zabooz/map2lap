@@ -65,6 +65,7 @@ VIEW = (
     ("1ROAD_deck", 6000.0, 1), ("1WALL_tunnel_grass", 6000.0, 1), ("nocol_water", 6000.0, 0),
     ("1WALL_props", 400.0, 1), ("nocol_props", 400.0, 1), ("1WALL_rocks", 900.0, 1),   # (before "1WALL_")
     ("1WALL_cars", 300.0, 1),                   # parked cars (cars.py)
+    ("1WALL_fuel", 800.0, 1), ("nocol_fuel", 400.0, 1),     # gas stations (propsmesh.fuel)
     ("nocol_signs", 600.0, 1),                  # road signs (make_obj: BeamNG.Earth's sign tiles)
     ("1WALL_gate", 3000.0, 1), ("nocol_gate_band", 1500.0, 0), ("nocol_gate", 3000.0, 1),     # start/finish (gates.py)
     ("1WALL_pylon", 2500.0, 1), ("nocol_pylon", 2500.0, 1),     # high-voltage pylons (30 m high)

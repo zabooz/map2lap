@@ -458,3 +458,20 @@ def build(frame, md, tx, ty, elev, urban=None, widths=None):
             if kind != "retaining":                         # collision: one wall per panel (obj_to_kn5: double-sided)
                 col.quad((*a, za - 0.3), (*c, zc - 0.3), (*c, zc + h), (*a, za + h), WIRE)
     return deco.mesh(), col.mesh()
+
+
+def substation_fence(groups, rows):
+    """(visible mesh, collision mesh) of the substations' chain link (BeamNG.Earth powerlines.py: "sub_fence" props rows,
+    one 2.04 m panel each along its x = (cos yaw, sin yaw), model height 1.76 m), each None when there is none."""
+    deco, col = Builder(), Builder()
+    for row in rows:
+        if groups[row[0]] != "sub_fence":
+            continue
+        x, y, z, yaw, h = row[1], row[2], row[3], math.radians(row[4]), row[6]
+        d = np.array([math.cos(yaw), math.sin(yaw)]) * 1.02
+        a, c = (x - d[0], y - d[1]), (x + d[0], y + d[1])
+        _band(deco, a, c, z, z, 0.0, h, CHAIN_GREY)
+        _post(deco, a, z, h + 0.3, 0.04, POST_GREY)
+        _band(deco, a, c, z, z, h + 0.2, h + 0.22, WIRE)            # (a strand of wire over it)
+        col.quad((*a, z - 0.3), (*c, z - 0.3), (*c, z + h), (*a, z + h), WIRE)
+    return deco.mesh(), col.mesh()

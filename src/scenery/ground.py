@@ -16,7 +16,7 @@ lies on top as well; here there is none, the asphalt is the terrain texture).
 import os
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import blockworker
 import fast
@@ -219,6 +219,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
                                          blockworker._open_tunnels(g, keep))
         if hasattr(s.surface, "lots"):
             idx = surfacemod.paint_lots(idx, keep["lat"], keep["lon"], s.surface.lots(keep["lat"], keep["lon"]))
+        if getattr(s.surface, "gas_pads", False):          # gas station forecourts (make_obj._init_scenery)
+            idx = surfacemod.paint_pads(idx, keep["lat"], keep["lon"], s.surface.fuel_pads(keep["lat"], keep["lon"]))
     idx = np.asarray(idx)
 
     # triangles per cell (split SW to NE as before), without cells at the portal hole; surface: the SW sample
@@ -290,6 +292,19 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
                 col = np.array(rgb, np.float32) * (1.0 + 0.06 * groundcover._noise(wx[am], wy[am], 1.5, 71))[:, None]
             w = (a[am] / 255.0)[:, None]
             img[am] = img[am] * (1 - w) + col * w
+    pads = s.surface.fuel_pads(la, lo) if getattr(s.surface, "gas_pads", False) else []
+    if pads:                    # gas station forecourts (make_obj._init_scenery): service asphalt, under the roads
+        mask = Image.new("L", (TEX_PX, TEX_PX), 0)
+        draw = ImageDraw.Draw(mask)
+        for pla, plo in pads:
+            e, nn, _ = frame.geodetic_to_enu(np.asarray(pla), np.asarray(plo), np.zeros(len(pla)))
+            draw.polygon(list(zip(((np.asarray(e) - x0) / sp).tolist(), ((y1 - np.asarray(nn)) / sp).tolist())),
+                         fill=255)
+        am = np.asarray(mask) > 0
+        if am.any():
+            texname, rep, bright = ROAD_LOOKS["service"]
+            img[am] = _sample(_texture(os.path.join(gc_dir, f"{texname}.png"), int(round(rep / sp))), wx[am], wy[am],
+                              rep) * bright
     if feats:
         ro = []
         got = surfacemod._road_segments(frame, x0, y0, TILE, TEX_PX, TEX_PX, feats, s.surface.urban, s.widths,

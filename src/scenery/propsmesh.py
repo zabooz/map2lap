@@ -20,7 +20,7 @@ ATLAS = 5
 CELL = 128
 # atlas cells
 (METAL, WOOD, RED, GREEN, DOOR, STOP, GIVEWAY, S50, S60, S80, S100, LAMP, BENCH, WHITE, YELLOW, SIGNBACK,
- SIGNAL_HEAD, XBUCK_EU, XBUCK_US, RR_FLASH, STRIPES) = range(21)
+ SIGNAL_HEAD, XBUCK_EU, XBUCK_US, RR_FLASH, STRIPES, FUEL_SIGN, PUMP_FACE, CANOPY) = range(24)
 SPEED = {"speedk50": S50, "speedk60": S60, "speedk80": S80, "speedk100": S100}
 SKIP = {"lamplens", "lampglow", "fence"}
 TREES = {"deciduous", "conifer"}
@@ -101,6 +101,25 @@ def make_atlas(path):
     for k in range(4):
         d.rectangle([x0, y0 + k * 32, x0 + CELL - 1, y0 + k * 32 + 31], fill=(206, 30, 32) if k % 2 else
                     (246, 246, 242))
+    x0, y0 = _cell_box(FUEL_SIGN)                           # gas station sign: a pump pictogram on red, price rows
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(200, 34, 32))
+    d.rectangle([x0 + 34, y0 + 10, x0 + 74, y0 + 62], fill=(246, 246, 242))
+    d.rectangle([x0 + 42, y0 + 18, x0 + 66, y0 + 32], fill=(200, 34, 32))
+    d.line([(x0 + 74, y0 + 24), (x0 + 88, y0 + 30), (x0 + 88, y0 + 52)], fill=(246, 246, 242), width=5)
+    for k in range(3):
+        yy = y0 + 74 + k * 18
+        d.rectangle([x0 + 14, yy, x0 + CELL - 15, yy + 13], fill=(24, 24, 26))
+        for j in range(4):
+            d.rectangle([x0 + 66 + j * 12, yy + 3, x0 + 74 + j * 12, yy + 10], fill=(255, 196, 60))
+    x0, y0 = _cell_box(PUMP_FACE)                           # pump front: white, red top, dark screen, nozzle
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(240, 240, 236))
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + 24], fill=(200, 34, 32))
+    d.rectangle([x0 + 30, y0 + 36, x0 + 98, y0 + 66], fill=(30, 36, 40))
+    d.rectangle([x0 + 14, y0 + 80, x0 + 34, y0 + 112], fill=(40, 40, 42))
+    d.rectangle([x0 + 94, y0 + 80, x0 + 114, y0 + 112], fill=(40, 40, 42))
+    x0, y0 = _cell_box(CANOPY)                              # canopy fascia: white with a red band
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(244, 244, 240))
+    d.rectangle([x0, y0 + 46, x0 + CELL - 1, y0 + 82], fill=(200, 34, 32))
     img.save(path)
     return path
 
@@ -204,12 +223,132 @@ def _pylon(solid, deco, x, y, z, yaw):
 
 
 def pylons(groups, rows):
-    """(collision mesh: the legs, visible mesh without collision) of the high-voltage pylons among the props rows;
-    separate from the other furniture because they are visible further away (obj_to_kn5.VIEW)."""
+    """(collision mesh: the legs, visible mesh without collision) of the high-voltage pylons and the substations' parts
+    among the props rows; separate from the other furniture because they are visible further away (obj_to_kn5.VIEW)."""
     solid, deco = Builder(), Builder()
     for row in rows:
-        if groups[row[0]] == "pylon":
+        g = groups[row[0]]
+        if g == "pylon":
             _pylon(solid, deco, *row[1:4], math.radians(row[4]))
+        elif g in SUBSTATION:
+            _substation(solid, deco, g, *row[1:4], math.radians(row[4]), row[6])
+    return solid.mesh(), deco.mesh()
+
+
+# Substations (BeamNG.Earth powerlines.py: West Coast USA's yard kit, its parts as rows [group, x, y, z, yaw, 1, model
+# height]; their x along (cos yaw, sin yaw), checked on the gantry pairs 11.6 m apart; the lines come in from +y and end
+# on the gantries' strain insulators 2.78 m in front of them, 1.75 m apart, 7.5 m up). The chain link fence round the
+# yard: fences.substation_fence.
+SUBSTATION = {"gantry", "sub_support", "sub_breaker", "sub_transformer", "sub_mast"}
+
+
+def _substation(solid, deco, g, x, y, z, yaw, h):
+    c, s = math.cos(yaw), math.sin(yaw)
+
+    def p(dx, dy, dz=0.0):
+        return x + dx * c - dy * s, y + dx * s + dy * c, z + dz
+    if g == "gantry":                       # two posts, beams at 9 and 7.5 m, three strain insulators, spikes
+        for dx in (-4.0, 4.0):
+            px, py, _ = p(dx, 0.0)
+            solid.box(px, py, z - 0.3, 0.5, 0.5, 9.9, yaw, METAL)
+            deco.beam(p(dx, 0.0, 9.6), p(dx, 0.0, h), 0.05, METAL)
+        for zz, r in ((9.3, 0.25), (7.6, 0.15)):
+            deco.beam(p(-4.0, 0.0, zz), p(4.0, 0.0, zz), r, METAL)
+        for dx in (-1.75, 0.0, 1.75):
+            deco.beam(p(dx, 0.0, 7.5), p(dx, 2.78, 7.5), 0.09, LAMP)
+    elif g == "sub_support":                # a column with an insulator on top
+        solid.box(x, y, z - 0.3, 0.35, 0.35, h - 0.6, yaw, METAL)
+        deco.box(x, y, z + h - 0.9, 0.22, 0.22, 0.9, yaw, WHITE)
+    elif g == "sub_breaker":                # a cabinet, three poles with insulators
+        solid.box(x, y, z, 3.0, 0.9, 1.3, yaw, METAL)
+        for dx in (-1.0, 0.0, 1.0):
+            px, py, _ = p(dx, 0.0)
+            deco.box(px, py, z + 1.3, 0.25, 0.25, h - 2.3, yaw, METAL)
+            deco.box(px, py, z + h - 1.0, 0.3, 0.3, 1.0, yaw, WHITE)
+    elif g == "sub_transformer":            # tank, cooling fins both sides, conservator, three bushings
+        solid.box(x, y, z, 3.2, 2.4, 3.2, yaw, METAL)
+        for side in (-1.0, 1.0):
+            for k in range(5):
+                px, py, _ = p(-1.2 + k * 0.6, side * 1.45)
+                deco.box(px, py, z + 0.3, 0.08, 0.5, 2.6, yaw, METAL)
+        px, py, _ = p(0.0, -0.9)
+        deco.box(px, py, z + 3.6, 2.4, 0.7, 0.7, yaw, METAL)
+        for dx in (-0.9, 0.0, 0.9):
+            px, py, _ = p(dx, 0.4)
+            deco.box(px, py, z + 3.2, 0.25, 0.25, h - 3.2, yaw, WHITE)
+    elif g == "sub_mast":                   # lightning mast, narrowing upwards
+        solid.box(x, y, z - 0.3, 0.6, 0.6, 8.3, yaw, METAL)
+        deco.box(x, y, z + 8.0, 0.4, 0.4, 8.0, yaw, METAL)
+        deco.beam(p(0.0, 0.0, 16.0), p(0.0, 0.0, h), 0.08, METAL)
+
+
+# --- gas stations (BeamNG.Earth gasstations.py, data "fuel") ------------------------------------------------------
+# A station's props are the BeamNG models it would place (their shapes' names), each drawn here as a comic one in the
+# same frame: x along (cos yaw, sin yaw), scaled by its "scale". Italy's awning half (the European style): 12 m along x,
+# 6.53 m to its -y, a row of two pumps under it at x +-2.25, y -3.2; West Coast's roof slab (half 7 x 8.61 m, 4.8 m up)
+# on 4.9 m pillars; East Coast's unit: three islands (x -5.215, 1.24, 7.74; y -9.2 .. -4.53) under a 4.7 m roof
+# (x -7.53 .. 10.1, y -10.04 .. -3.44). Only the pumps' bases (collide) are drawn, not their brand overlays.
+ROOF_T = 0.7                            # m: a canopy's thickness
+
+
+def _slab(solid, deco, p, x0, x1, y0, y1, z0, yaw, t=ROOF_T):
+    """A canopy roof over [x0, x1] x [y0, y1] (local) from z0 up: fascia all round, light underside, top."""
+    corners = [p(x0, y0, z0), p(x1, y0, z0), p(x1, y1, z0), p(x0, y1, z0)]
+    tops = [(a, b, zz + t) for a, b, zz in corners]
+    for i in range(4):
+        j = (i + 1) % 4
+        solid.quad(corners[i], corners[j], tops[j], tops[i], CANOPY)
+    solid.quad(*tops, WHITE)
+    solid.quad(corners[0], corners[3], corners[2], corners[1], SIGNBACK)
+
+
+def _pump(solid, deco, x, y, z, yaw):
+    """A dispenser on its island: x along the island, its faces to +-y."""
+    solid.box(x, y, z, 2.6, 1.2, 0.15, yaw, SIGNBACK)
+    solid.box(x, y, z + 0.15, 0.9, 0.5, 1.75, yaw, WHITE, top=RED)
+    _plate(deco, x, y, z + 0.15, yaw, 0.88, 1.74, PUMP_FACE, 0.26)
+    _plate(deco, x, y, z + 0.15, yaw, 0.88, 1.74, PUMP_FACE, -0.26)
+
+
+def fuel(records):
+    """(collision mesh, visible mesh without collision) of the gas stations' records (roads.write_tile "fuel")."""
+    solid, deco = Builder(), Builder()
+    for rec in records:
+        for pr in rec.get("props", ()):
+            shape = pr["shape"].lower()
+            x, y, z = pr["pos"]
+            yaw = math.radians(pr["yaw"])
+            sx, sy = pr.get("scale", (1.0, 1.0, 1.0))[:2]
+            c, s = math.cos(yaw), math.sin(yaw)
+
+            def p(dx, dy, dz=0.0, x=x, y=y, z=z, c=c, s=s):
+                return x + dx * c - dy * s, y + dx * s + dy * c, z + dz
+            if "awningst" in shape:                         # Italy's awning half: roof, its island and pillar
+                _slab(solid, deco, p, -6.0 * sx, 6.0 * sx, -6.53 * sy, 0.0, 4.6, yaw)
+                px, py, _ = p(0.0, -3.2 * sy)
+                solid.box(px, py, z, 0.4, 0.4, 4.6, yaw, WHITE)
+            elif "pump" in shape and "eca_" not in shape:
+                if pr.get("collide", True):
+                    _pump(solid, deco, x, y, z, yaw)
+            elif "brandsign" in shape:                      # the price sign by the road
+                solid.box(x, y, z - 0.3, 0.3, 0.3, 3.4, yaw, METAL)
+                solid.box(x, y, z + 3.0, 1.7, 0.3, 2.6, yaw, RED)
+                _plate(deco, x, y, z + 3.05, yaw, 1.66, 2.5, FUEL_SIGN, 0.16)
+                _plate(deco, x, y, z + 3.05, yaw, 1.66, 2.5, FUEL_SIGN, -0.16)
+            elif "fuel_structure_06" in shape:              # West Coast's roof slab (its origin 4.8 m up)
+                _slab(solid, deco, p, -7.0 * sx, 7.0 * sx, -8.61 * sy, 8.61 * sy, 0.0, yaw)
+            elif "fuel_structure_07" in shape:              # its pillar
+                solid.box(x, y, z, 0.45, 0.45, 4.85, yaw, WHITE)
+            elif "bollard" in shape:
+                solid.box(x, y, z, 0.22 * sx, 0.22 * sy, 1.0, yaw, YELLOW, top=LAMP)
+            elif "eca_gastation" in shape:                  # East Coast's unit: three islands under one roof
+                for ix in (-5.215, 1.24, 7.74):
+                    px, py, _ = p(ix * sx, -7.46 * sy)
+                    _pump(solid, deco, px, py, z, yaw + math.pi / 2)
+                    for iy in (-9.0, -4.7):
+                        qx, qy, _ = p(ix * sx, iy * sy)
+                        solid.box(qx, qy, z, 0.35, 0.35, 4.7, yaw, WHITE)
+                _slab(solid, deco, p, -7.53 * sx, 10.1 * sx, -10.04 * sy, -3.44 * sy, 4.7, yaw)
     return solid.mesh(), deco.mesh()
 
 
@@ -229,7 +368,7 @@ def build(groups, rows, road_xy=None):
         g = groups[row[0]]
         x, y, z, yaw_deg, scale, h, rank = row[1:8]
         yaw = math.radians(yaw_deg)
-        if g in SKIP or g.startswith("wallsign"):
+        if g in SKIP or g.startswith("wallsign") or g in SUBSTATION or g == "sub_fence":
             continue
         if g in TREES:
             street_trees.append((x, y, z, yaw_deg, h, rank))

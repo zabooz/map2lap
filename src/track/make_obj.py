@@ -483,6 +483,13 @@ def _init_scenery(tiles_dir, tex_dir):
     def raw(la, lo):            # terrain without levelling (for the water level)
         return blockworker.ground(frame, la, lo, dem.sample(la, lo, anc["dem_zoom"]))
 
+    pads = []                   # gas station forecourts of all tiles (generator._tile_job): asphalt in the ground
+    for p in glob.glob(os.path.join(tiles_dir, "fuelpads_*.json")):
+        with open(p, encoding="utf-8") as f:
+            pads += [(sid, [(np.asarray(la), np.asarray(lo)) for la, lo in rings]) for sid, rings in json.load(f)]
+    if pads:
+        blockworker._s.surface.gas_pads = True
+        blockworker._s.surface.add_fuel_pads(pads)
     veg = vegetation.Vegetation(blockworker._s.md, os.path.join(ROOT, "cache"))
     veg.dem = dem               # (rocks by slope)
     _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir)
@@ -655,8 +662,23 @@ def _scenery_tile(tx, ty, part_path):
             if mesh is not None:
                 obj.add(name, fences.MATERIAL, *mesh)
                 tris["fences"] = tris.get("fences", 0) + len(mesh[2])
+        if data.get("props"):   # the substations' chain link (BeamNG.Earth powerlines.py)
+            deco, col = fences.substation_fence(data["props"]["groups"], data["props"]["items"])
+            for name, mesh in ((f"nocol_fence_sub_{tx}_{ty}", deco), (f"1WALL_fencecol_sub_{tx}_{ty}", col)):
+                if mesh is not None:
+                    obj.add(name, fences.MATERIAL, *mesh)
+                    tris["fences"] = tris.get("fences", 0) + len(mesh[2])
     except Exception as e:
         log(f"Fences, tile {tx},{ty}: {type(e).__name__}: {e}")
+    if data.get("fuel"):        # gas stations (BeamNG.Earth gasstations.py, propsmesh.fuel)
+        try:
+            solid, deco = propsmesh.fuel(data["fuel"])
+            for prefix, mesh in (("1WALL", solid), ("nocol", deco)):
+                if mesh is not None:
+                    obj.add(f"{prefix}_fuel_{tx}_{ty}", "props", *mesh)
+                    tris["fuel"] = tris.get("fuel", 0) + len(mesh[2])
+        except Exception as e:
+            log(f"Gas stations, tile {tx},{ty}: {type(e).__name__}: {e}")
     if data.get("park"):        # parked cars on BeamNG.Earth's parking spots (cars.py), standing on our ground
         def on_ground(x, y):
             la, lo, _ = frame.enu_to_geodetic(np.asarray(x, float), np.asarray(y, float), 0.0)

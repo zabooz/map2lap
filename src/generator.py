@@ -200,10 +200,14 @@ def _tile_job(lat0, lon0, tx, ty, tiles_dir, rules):
     """A road tile (blockworker._roads_tile) and its sign tile (speed limits everywhere, guide signs, exits and mile
     markers in the US: blockworker.signs_tile) under the country's road rules (road_rules)."""
     t0 = time.perf_counter()
-    parallel.retry_locked(lambda: blockworker._roads_tile(
+    res = parallel.retry_locked(lambda: blockworker._roads_tile(
         build_tiles.AID, lat0, lon0, build_tiles.DEM_ZOOM, tx, ty, tiles_dir, "tiles", sidewalks=True, lift=0.0,
-        buildings=True, left_hand=rules["left_hand"], mph=rules["mph"], q=None, gas_stations=False,
+        buildings=True, left_hand=rules["left_hand"], mph=rules["mph"], q=None, gas_stations=True,
         buried=rules["buried"], lamp_region=rules["lamp_region"], country=rules["country"]))
+    # its gas stations' forecourts (gasstations.tile_sites pads): make_obj paints them into the ground as asphalt
+    with open(os.path.join(tiles_dir, f"fuelpads_{tx}_{ty}.json"), "w", encoding="utf-8") as f:
+        json.dump([[sid, [[np.asarray(la).tolist(), np.asarray(lo).tolist()] for la, lo in rings]]
+                   for sid, rings in res[2]], f)
     try:                        # (optional scenery: a sign tile that fails leaves the road tile)
         parallel.retry_locked(lambda: blockworker.signs_tile(
             build_tiles.AID, lat0, lon0, build_tiles.DEM_ZOOM, tx, ty, tiles_dir, "tiles", rules["left_hand"],
