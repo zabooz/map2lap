@@ -218,6 +218,74 @@ class GradePointsTest(unittest.TestCase):
         self.assertTrue(np.array_equal(grading.grade_points(px, py, base, [main, off]), before),
                         "an end 0.5 m off the road's height: blended as before")
 
+    def test_a_narrow_road_beside_at_another_level_gives_way(self):
+        """(BESIDE_*) a service road 8 m beside a primary, 2 m under it: the primary's carriageway keeps its height,
+        the service road takes the ramp (its weight back over YIELD_FADE_M past the primary's edge)."""
+        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-4.0, 12.1, 0.5))
+        px, py = px.ravel(), py.ravel()
+        main = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 7.0, road_half=4.0)
+        main.rid = 1
+        service = grading.Plan(np.array([[-100.0, 8.0], [100.0, 8.0]]), np.array([98.0, 98.0]), 3.0, road_half=2.0)
+        service.rid = 2
+        base = np.full(len(px), 99.0)
+        out = grading.grade_points(px, py, base, [main, service])
+        car = np.abs(py) <= 4.0
+        self.assertLess(np.abs(out[car] - 100.0).max(), 1e-6, "the primary's lanes at its own height")
+        ramp = out[py == 8.0]
+        self.assertTrue(((ramp > 98.0) & (ramp < 99.0)).all(), "the service road nearer its own height than ours")
+        wide = grading.Plan(service.xy, service.z, 7.0, road_half=4.0)
+        wide.rid = 2
+        out = grading.grade_points(px, py, base, [main, wide])
+        self.assertGreater(np.abs(out[car] - 100.0).max(), 0.1, "as wide: blended as before")
+
+    def test_a_narrow_carriageway_overlapping_a_wider_keeps_its_lanes(self):
+        """(BESIDE_*) two carriageways 10 m apart, the narrower 0.5 m under the wider, their carriageways overlapping
+        by 2.5 m: the narrower's lanes stay at its own height (giving way there lifted them to the wider one's)."""
+        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-5.0, 5.1, 0.5))
+        px, py = px.ravel(), py.ravel()
+        narrow = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 5.9, road_half=4.9)
+        narrow.rid = 1
+        wide = grading.Plan(np.array([[-100.0, 10.0], [100.0, 10.0]]), np.array([100.5, 100.5]), 8.6, road_half=7.6)
+        wide.rid = 2
+        out = grading.grade_points(px, py, np.full(len(px), 100.0), [narrow, wide])
+        own = np.abs(py) <= 2.0
+        self.assertLess(np.abs(out[own] - 100.0).max(), 0.25, "its lanes nearer its own height than the wider's")
+
+    def test_a_narrow_road_mapped_onto_a_wider_one_far_under_it_gives_way(self):
+        """(BESIDE_LEVEL_*) a driveway mapped onto a secondary's carriageway, 3 m off its centre line and 1.5 m under
+        it: the secondary keeps its height across its carriageway; 0.3 m under it the two blend as before."""
+        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-6.0, 6.1, 0.5))
+        px, py = px.ravel(), py.ravel()
+        main = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 9.0, road_half=6.0)
+        main.rid = 1
+        drive = grading.Plan(np.array([[-100.0, -3.0], [100.0, -3.0]]), np.array([98.5, 98.5]), 3.0, road_half=2.0)
+        drive.rid = 2
+        base = np.full(len(px), 99.0)
+        out = grading.grade_points(px, py, base, [main, drive])
+        car = np.abs(py) <= 6.0
+        self.assertLess(np.abs(out[car] - 100.0).max(), 1e-6, "the secondary's carriageway at its own height")
+        near = grading.Plan(drive.xy, np.array([99.7, 99.7]), 3.0, road_half=2.0)
+        near.rid = 2
+        out = grading.grade_points(px, py, base, [main, near])
+        self.assertGreater(np.abs(out[car] - 100.0).max(), 0.05, "0.3 m apart: blended as equals")
+
+    def test_a_road_over_a_wider_tunnel_does_not_give_way_to_it(self):
+        """(BESIDE_*, Plan.tunnel) a carriageway over a wider tunnel's open section 5.6 m under it: another level by
+        the map, it does not give way (blended as before); the same plan unmarked would pull it down to its height."""
+        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-4.0, 4.1, 0.5))
+        px, py = px.ravel(), py.ravel()
+        road = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 6.9, road_half=3.9)
+        road.rid = 1
+        tun = grading.tunnel_plan(np.array([[-100.0, 6.0], [100.0, 6.0]]), np.array([94.4, 94.4]), 7.3)
+        base = np.full(len(px), 99.0)
+        car = (py >= 0.0) & (py <= 3.9)        # (its carriageway over the tunnel's: from 6 - 7.3 m)
+        marked = grading.grade_points(px, py, base, [road, tun])
+        plain = grading.Plan(tun.xy, tun.z, 7.3)
+        plain.rid = 2
+        unmarked = grading.grade_points(px, py, base, [road, plain])
+        self.assertLess(np.abs(unmarked[car] - 94.4).max(), 0.5, "unmarked: the road gives way to it")
+        self.assertGreater(marked[car].min(), unmarked[car].max() + 1.0, "a tunnel's: not given way to")
+
 
 class AbutmentTest(unittest.TestCase):
     """GitHub #38 (the D1 near Presov): a motorway onto a bridge over a road in a cutting 8 m under it."""

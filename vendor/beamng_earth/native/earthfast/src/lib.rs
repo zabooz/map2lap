@@ -1383,10 +1383,16 @@ fn bank_profile<'py>(py: Python<'py>, xy: PyReadonlyArray2<'py, f64>, e_max: f64
 /// road with no part of its own going on (grading.PlanPack.yl). On the carriageway of a road that does not give way
 /// there its weight is 0, coming back over yield_fade m past that carriageway's edge (blended as equals, a short side
 /// road pulls the road it joins out of its profile: an S-wave)
+/// bw: per segment whether it lies beside a wider road (grading.PlanPack.bw, 0 or 255): past its own carriageway its
+/// weight is 0 on the carriageway of a road at least beside_wider m wider (half width), back over yield_fade m as yl;
+/// on its own carriageway only where the two lie apart in height, fully from beside_to m, not at all under beside_from
+/// (closer they blend as equals). tun: per segment whether it is a tunnel's own (another level by the map): never a
+/// wider road's carriageway for bw
 #[pyfunction]
 #[pyo3(signature = (px, pyy, base, a, b, za, zb, h, rh, rid, abut, cut, ba, bb, lift, slope_run, t_min, t_max, blend_r,
                     bucket, wall_cut, wall_t, wall_flat, wall_ahead, sep, sep_from, sep_full, core_fade, side_fade,
-                    sharp_step, yl=None, yield_fade=8.0))]
+                    sharp_step, yl=None, yield_fade=8.0, bw=None, beside_wider=0.5, beside_from=0.5,
+                    beside_to=1.0, tun=None))]
 #[allow(clippy::too_many_arguments)]
 fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyReadonlyArray1<'py, f64>,
                      base: PyReadonlyArray1<'py, f64>, a: PyReadonlyArray2<'py, f64>, b: PyReadonlyArray2<'py, f64>,
@@ -1396,10 +1402,14 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                      t_min: f64, t_max: f64, blend_r: f64,
                      bucket: f64, wall_cut: f64, wall_t: f64, wall_flat: f64, wall_ahead: f64,
                      sep: bool, sep_from: f64, sep_full: f64, core_fade: f64, side_fade: f64, sharp_step: f64,
-                     yl: Option<PyReadonlyArray1<'py, u8>>, yield_fade: f64)
+                     yl: Option<PyReadonlyArray1<'py, u8>>, yield_fade: f64,
+                     bw: Option<PyReadonlyArray1<'py, u8>>, beside_wider: f64, beside_from: f64, beside_to: f64,
+                     tun: Option<PyReadonlyArray1<'py, u8>>)
                      -> Bound<'py, PyArray1<f64>> {
-    let yl: Vec<u8> = match yl { Some(v) => v.as_array().to_vec(), None => Vec::new() };
-    let gives_way = yl.iter().any(|&v| v != 0);
+    let yl: Vec<u8> = match yl { Some(v) => v.as_array().to_vec(), None => vec![0u8; h.as_array().len()] };
+    let bw: Vec<u8> = match bw { Some(v) => v.as_array().to_vec(), None => vec![0u8; h.as_array().len()] };
+    let tun: Vec<u8> = match tun { Some(v) => v.as_array().to_vec(), None => vec![0u8; h.as_array().len()] };
+    let gives_way = yl.iter().chain(bw.iter()).any(|&v| v != 0);
     let (px, pyy, base) = (px.as_array(), pyy.as_array(), base.as_array());
     let (a, b, za, zb, h) = (a.as_array(), b.as_array(), za.as_array(), zb.as_array(), h.as_array());
     let (rh, rid) = (rh.as_array(), rid.as_array());
@@ -1456,11 +1466,14 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
     let mut bdeep = vec![0.0f64; n];
     let mut bz = vec![f64::NAN; n];
     let mut bid = vec![-1i64; n];
-    // the carriageways of roads not giving way near each point (up to KEEP_CAR: road, d - rh)
+    // the carriageways of roads not giving way near each point (up to KEEP_CAR: road, d - rh, rh (0: a tunnel's),
+    // height)
     const KEEP_CAR: usize = 4;
     let nk = if gives_way { n * KEEP_CAR } else { 0 };
     let mut car_rid = vec![-1i64; nk];
     let mut car_e = vec![f64::INFINITY; nk];
+    let mut car_rh = vec![0.0f64; nk];
+    let mut car_z = vec![0.0f64; nk];
     let smooth = |v: f64| { let v = v.clamp(0.0, 1.0); v * v * (3.0 - 2.0 * v) };
     // pass 1: a pair with d - h past this has u >= 1 (its core hs <= h, its ramp tt <= t_max, a wall's flat and ramp
     // wall_flat + wall_t), so w = 0: skipped (a margin for the rounding)
@@ -1536,9 +1549,13 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                                 if car_rid[k0 + slot] < 0 || e < car_e[k0 + slot] {
                                     car_rid[k0 + slot] = rid[s];
                                     car_e[k0 + slot] = e;
+                                    car_rh[k0 + slot] = if tun[s] != 0 { 0.0 } else { rh[s] };
+                                    car_z[k0 + slot] = target;
                                 }
                             } else if e < car_e[k0 + slot] {
                                 car_e[k0 + slot] = e;
+                                car_rh[k0 + slot] = if tun[s] != 0 { 0.0 } else { rh[s] };
+                                car_z[k0 + slot] = target;
                             }
                         }
                         if abut[s] != 0 && d <= h[s] && target > top[idx] {
@@ -1610,6 +1627,18 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                             let kk = idx * KEEP_CAR + k;
                             if car_rid[kk] >= 0 && car_rid[kk] != rid[s] {
                                 yf = yf.min(1.0 - (1.0 - smooth(car_e[kk] / yield_fade)) * strength);
+                            }
+                        }
+                    }
+                    // beside a wider road: none past its own carriageway on the wider one's, back over yield_fade; on
+                    // its own carriageway by how far apart the two lie there (beside_from .. beside_to)
+                    if gives_way && bw[s] != 0 {
+                        for k in 0..KEEP_CAR {
+                            let kk = idx * KEEP_CAR + k;
+                            if car_rid[kk] >= 0 && car_rid[kk] != rid[s] && car_rh[kk] >= rh[s] + beside_wider {
+                                let gate = if d > rh[s] { 1.0 }
+                                           else { smooth(((target - car_z[kk]).abs() - beside_from) / (beside_to - beside_from)) };
+                                yf = yf.min(1.0 - (1.0 - smooth(car_e[kk] / yield_fade)) * gate);
                             }
                         }
                     }
@@ -5297,6 +5326,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
     m.add("VERSION", 114)?;
-    m.add("AC_EXPORT_YIELD", 1)?;      // (grade_points takes yl, yield_fade)
+    m.add("AC_EXPORT_YIELD", 4)?;      // (grade_points takes yl, yield_fade; 4: bw, beside_wider/from/to, tun)
     Ok(())
 }

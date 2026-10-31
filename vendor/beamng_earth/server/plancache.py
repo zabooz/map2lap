@@ -88,7 +88,7 @@ class PlanCache:
 
     def load(self, key):
         """(plans, keeps, covers, opens) of cell key from the cache, or None."""
-        from grading import Plan
+        from grading import Plan, TUNNEL_TAG
         from roads import Spec
         try:
             src = self._path(key)
@@ -108,6 +108,7 @@ class PlanCache:
             pl.rid, pl.max_wall = m["rid"], m["max_wall"]
             pl.bank = next(banks) if m.get("bank") else None
             pl.free = tuple(bool(v) for v in m.get("free", (False, False)))
+            pl.tunnel = TUNNEL_TAG in m["fid"]
             plans.append((m["fid"], pl))
         keeps = list(zip(lists["k"], meta["keeps"]))
         covers = list(zip(lists["v"], meta["covers"]))

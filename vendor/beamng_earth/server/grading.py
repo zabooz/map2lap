@@ -286,7 +286,7 @@ class Plan:
     """One road's grading: vertices (n, 2) in the frame's ENU metres, their target heights, core half width; abut: does
     it lead onto a bridge at its (first, last) vertex (grade_points)."""
     # (free)
-    __slots__ = ("xy", "z", "half", "bbox", "abut", "cut", "road_half", "rid", "max_wall", "bank", "free")
+    __slots__ = ("xy", "z", "half", "bbox", "abut", "cut", "road_half", "rid", "max_wall", "bank", "free", "tunnel")
 
     def __init__(self, xy, z, half, abut=(False, False), cut=None, road_half=None):
         self.xy, self.z, self.half, self.abut = xy, z, float(half), (bool(abut[0]), bool(abut[1]))
@@ -298,6 +298,7 @@ class Plan:
         self.max_wall = WALL_MAX_H_M    # its cuttings' walls at most this tall (wall_max_h)
         self.bank = None                # (n,) its cross slope (m per m toward its left: a banked curve, bank) or None
         self.free = (False, False)      # does its (first, last) end give way (Grader._free_ends)
+        self.tunnel = False             # a tunnel's own plan (TUNNEL_TAG: an open section, a mouth), another level
         pad = half + T_MAX
         self.bbox = (xy[:, 0].min() - pad, xy[:, 1].min() - pad, xy[:, 0].max() + pad, xy[:, 1].max() + pad)
 
@@ -347,6 +348,13 @@ def clip_polyline(xy, box):
     if cur is not None:
         runs.append(cur)
     return [np.array(r, np.float64) for r in runs if len(r) >= 2]
+
+
+def tunnel_plan(xy, z, half):
+    """A Plan of a tunnel's own (TUNNEL_TAG): Plan.tunnel set."""
+    p = Plan(xy, z, half)
+    p.tunnel = True
+    return p
 
 
 def plan_road(frame, lonlat, spec, elev):
@@ -1161,7 +1169,7 @@ class _Planner:
                     tplans.extend((fid, q) for q in (pieces if cl else [p]))
                 plans = kept
             secs = self._tunnel_sections(feats, key, [p for _f, p in tplans])
-            plans.extend((fid + TUNNEL_TAG, Plan(xy, z, spec.width / 2 + shoulder(spec)))
+            plans.extend((fid + TUNNEL_TAG, tunnel_plan(xy, z, spec.width / 2 + shoulder(spec)))
                          for fid, spec, xy, z, k in secs if k == 0)
             plans.extend(self._mouth_plans(secs))
             covers = [(xy, spec.width / 2 + TUNNEL_KEEP_M) for _f, spec, xy, _z, k in _twin_trimmed(secs) if k]
@@ -1619,6 +1627,7 @@ class _Planner:
                 np_ = Plan(p.xy, p.z + add, p.half, p.abut, p.cut, p.road_half)
                 np_.rid, np_.max_wall, np_.bank = p.rid, p.max_wall, getattr(p, "bank", None)
                 np_.free = getattr(p, "free", (False, False))
+                np_.tunnel = getattr(p, "tunnel", False)
                 plans[i] = (fid, np_)
 
     def _lower_underpasses(self, key, plans):
@@ -1786,6 +1795,7 @@ class _Planner:
             np_ = Plan(p.xy, np.asarray(p.z) + offset, p.half, p.abut, p.cut, p.road_half)
             np_.rid, np_.max_wall, np_.bank = p.rid, p.max_wall, getattr(p, "bank", None)
             np_.free = getattr(p, "free", (False, False))
+            np_.tunnel = getattr(p, "tunnel", False)
             plans[n] = (fid, np_)
 
     def _ground_along(self, xy, arcs):
@@ -2356,7 +2366,7 @@ class _Planner:
                 else:
                     pxy, pzz = np.r_[p[None], xy[m]], np.r_[pz, z[m]]
                 if len(pxy) >= 2:
-                    out.append((fid + TUNNEL_TAG + ("m0" if at_start else "m1"), Plan(pxy, pzz, hw)))
+                    out.append((fid + TUNNEL_TAG + ("m0" if at_start else "m1"), tunnel_plan(pxy, pzz, hw)))
         return out
 
     def _covered_tunnels(self, feats):
@@ -2554,6 +2564,7 @@ def mapped_plan(p, fn):
     banking as they are (geodetic, or along / across the road)."""
     q = Plan(fn(p.xy), p.z, p.half, p.abut, p.cut, p.road_half)
     q.rid, q.max_wall, q.bank = p.rid, p.max_wall, getattr(p, "bank", None)
+    q.tunnel = getattr(p, "tunnel", False)
     return q
 
 
@@ -2754,6 +2765,7 @@ def trim_plan(p, box):
             q.rid = getattr(p, "rid", -1)
             q.max_wall = getattr(p, "max_wall", WALL_MAX_H_M)
             q.bank = pb
+            q.tunnel = getattr(p, "tunnel", False)
             fr = getattr(p, "free", (False, False))     # (only the pieces with its own ends)
             q.free = (fr[0] and i == 0 and t0 == 0.0, fr[1] and j == n - 1 and t1 == 1.0)
             out.append(q)
@@ -2814,10 +2826,12 @@ class PlanPack:
         self.box = np.array([p.bbox for _k, p in rows], f64).reshape(-1, 4)
         self.of = np.repeat(np.arange(self.n), nseg)
         self.yl = _yield_strength([p for _k, p in rows], self.box, nseg)
+        self.bw = _beside_strength([p for _k, p in rows], self.box, nseg)
+        self.tun = np.repeat(np.array([getattr(p, "tunnel", False) for _k, p in rows], np.uint8), nseg)
 
     def near(self, x0, y0, x1, y1, with_yield=False):
-        """The segment arrays of the plans whose boxes meet (x0, y0, x1, y1), or None; with_yield: their yl last too
-       ."""
+        """The segment arrays of the plans whose boxes meet (x0, y0, x1, y1), or None; with_yield: their yl, bw and tun
+        last too."""
         if not self.n:
             return None
         bx = self.box
@@ -2826,7 +2840,7 @@ class PlanPack:
             return None
         arrs = (self.a, self.b, self.za, self.zb, self.h, self.rh, self.rid, self.ab, self.cut, self.ba, self.bb)
         if with_yield:
-            arrs = arrs + (self.yl,)
+            arrs = arrs + (self.yl, self.bw, self.tun)
         if keep.all():
             return arrs
         sk = keep[self.of]
@@ -2873,6 +2887,58 @@ def _yield_strength(plans, box, nseg):
     return np.round(out * 255.0).astype(np.uint8)
 
 
+# A narrower road's edge never pulls a wider road's carriageway: past its own carriageway it gives way on the wider
+# one's as a junction's end does (YIELD_*), its weight back over YIELD_FADE_M past that carriageway's edge, whatever
+# their heights (the native loop, bw). Blended as equals, a driveway running along a secondary's edge 1-1.4 m under it
+# pulled the secondary's near lane 0.5-0.7 m down. On its own carriageway, where the two overlap, it gives way only
+# where they lie apart in height (BESIDE_LEVEL_*): a merging side road or a motorway's two carriageways side by side
+# lie within a few dm and blend as equals (giving way there lifted the narrower one's lanes 0.5 m to the wider one's
+# height over a few metres, a jump); a driveway mapped onto a secondary's carriageway, its profile 1.4-1.6 m under it
+# where it really leads down, pulled the secondary's line 0.3 m down onto its bridge (a 23 cm step). A tunnel's own
+# plans (Plan.tunnel) lie at another level by the map: neither gives way to the other (a bridge's far carriageway over
+# a wider tunnel 5.6 m under its west end sank 3-4.6 m to it).
+BESIDE_WIDER_M = 0.5        # m: the other road's carriageway this much wider (half width) at least
+BESIDE_LEVEL_FROM_M = 0.5   # m apart: on its own carriageway it gives way from this ...
+BESIDE_LEVEL_TO_M = 1.0     # ... and fully from this
+BESIDE_STEP_M = 1.0         # m between the narrow road's samples
+
+
+def _beside_strength(plans, box, nseg):
+    """Per segment of plans (PlanPack's rows, with their boxes and segment counts) whether it lies within its blend's
+    reach of a wider road's carriageway (another rid, neither a tunnel's: BESIDE_*; uint8, 0 or 255)."""
+    f64 = np.float64
+    out = np.zeros(int(np.sum(nseg)), f64)
+    s0 = np.r_[0, np.cumsum(nseg)]
+    rh = np.array([getattr(p, "road_half", p.half) for p in plans], f64)
+    tun = np.array([getattr(p, "tunnel", False) for p in plans], bool)
+    for k, p in enumerate(plans):
+        if tun[k]:
+            continue
+        wider = np.flatnonzero(~tun & (rh >= rh[k] + BESIDE_WIDER_M) & (box[:, 0] <= box[k, 2]) & (box[:, 2] >= box[k, 0])
+                               & (box[:, 1] <= box[k, 3]) & (box[:, 3] >= box[k, 1]))
+        wider = [o for o in wider if plans[o].rid != p.rid]
+        if not wider:
+            continue
+        xy = np.asarray(p.xy, f64)[:, :2]
+        arc = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+        t = np.unique(np.r_[np.arange(0.0, arc[-1], BESIDE_STEP_M), arc[-1]])
+        q = np.c_[np.interp(t, arc, xy[:, 0]), np.interp(t, arc, xy[:, 1])]
+        qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)    # (each sample's segment)
+        near = np.zeros(len(t), bool)
+        for o in wider:
+            op = plans[o]
+            oxy = np.asarray(op.xy, f64)[:, :2]
+            a, ab = oxy[:-1], np.diff(oxy, axis=0)
+            l2 = np.maximum((ab * ab).sum(1), 1e-12)
+            u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)     # (samples, segments)
+            d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
+            # (within reach: the narrow road's blend (its half and T_MAX) touches the wider one's carriageway)
+            near |= d.min(axis=1) < rh[o] + p.half + T_MAX
+        if near.any():
+            out[s0[k] + np.unique(qseg[near])] = 1.0
+    return np.round(out * 255.0).astype(np.uint8)
+
+
 def grade_points(px, py, base, plans, lift=0.0):
     """base at the points (px, py) graded under the plans (see the module doc; a list or a PlanPack of them), by the
     Rust loop (native/earthfast grade_points: a Python loop per segment was the server's largest CPU cost while driving,
@@ -2888,16 +2954,19 @@ def grade_points(px, py, base, plans, lift=0.0):
     got = pack.near(px.min(), py.min(), px.max(), py.max(), with_yield=True)
     if got is None:
         return out
-    A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, YL = got
+    A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, YL, BW, TUN = got
     import fast
     fast.require(84, "grade_points")         # (the Rust loop: native/earthfast; its banked curves: 84)
     f64 = np.float64
     extra = {}
-    if YL.any():                            # (the junctions' give way, our own earthfast build)
-        if not getattr(fast._ef, "AC_EXPORT_YIELD", 0):
+    if YL.any() or BW.any():                # (the junctions' and beside roads' give way, our own earthfast build)
+        if getattr(fast._ef, "AC_EXPORT_YIELD", 0) < 4:
             raise fast.NativeMissing("grade_points' junction rule needs our earthfast build "
                                      "(tools/update_beamng_earth.py --build-native)")
-        extra = {"yl": np.ascontiguousarray(YL, np.uint8), "yield_fade": float(YIELD_FADE_M)}
+        extra = {"yl": np.ascontiguousarray(YL, np.uint8), "yield_fade": float(YIELD_FADE_M),
+                 "bw": np.ascontiguousarray(BW, np.uint8), "beside_wider": float(BESIDE_WIDER_M),
+                 "beside_from": float(BESIDE_LEVEL_FROM_M), "beside_to": float(BESIDE_LEVEL_TO_M),
+                 "tun": np.ascontiguousarray(TUN, np.uint8)}
     return fast._ef.grade_points(np.ascontiguousarray(px, f64), np.ascontiguousarray(py, f64),
                                  np.ascontiguousarray(base, f64), A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, float(lift),
                                  float(SLOPE_RUN), float(T_MIN), float(T_MAX), float(BLEND_R), float(BUCKET),
