@@ -57,7 +57,7 @@
            background: var(--raised); border: 1px solid var(--line); color: var(--muted); }
   .count:empty { display: none; }
   .count.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
-  .panes { position: relative; flex: 1 0 auto; }      /* (gets a quarter of the free space, the log three) */
+  .panes { position: relative; flex: none; }         /* (as tall as the form: the log gets the free space) */
   #pane-new { display: flex; flex-direction: column; gap: 14px; }
   #pane-new.off { visibility: hidden; }
   #pane-mine { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px;
@@ -85,7 +85,35 @@
                      background: var(--raised); }
   input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   input[type=range] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
-  .slot { min-height: 62px; }
+  /* Route and area versions on top of each other: the taller one sets the height, so switching doesn't jump */
+  .stack { display: grid; }
+  .stack > * { grid-area: 1 / 1; }
+  .stack > [hidden] { display: flex !important; visibility: hidden; }
+  .block { display: flex; flex-direction: column; gap: 14px; }
+  /* The route's points: the first is the start, the last the finish; from three on the list scrolls */
+  .stops { max-height: 126px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .stop .tag { flex: none; align-self: center; width: 22px; height: 22px; border-radius: 50%; display: grid;
+               place-items: center; font-size: 11px; font-weight: 700; background: var(--line); color: var(--muted); }
+  .stop .tag.start { background: #26a654; color: #fff; }       /* (the colours of the START / FINISH banners) */
+  .stop .tag.finish { background: #e0243a; color: #fff; }
+  .stop { flex: none; display: flex; gap: 6px; }
+  .stop input { flex: 1; min-width: 0; }
+  .stop .x { flex: none; width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 9px;
+             background: var(--raised); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
+  .stop .x:hover { color: var(--accent); border-color: var(--accent); }
+  .add-stop { flex: none; height: 34px; border: 1px dashed var(--line); border-radius: 9px; background: none;
+              color: var(--muted); cursor: pointer; font-weight: 600; font-size: 12.5px; }
+  .add-stop:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+  .add-stop:disabled { opacity: .55; cursor: default; }
+  /* Search results: fixed under the field (the stop list would clip it) */
+  .drop { position: fixed; z-index: 2000; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px;
+          display: flex; flex-direction: column; }
+  .drop button { border: 0; background: none; text-align: left; padding: 7px 9px; border-radius: 7px; cursor: pointer;
+                 font-size: 12.5px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
+                 -webkit-box-orient: vertical; flex: none; }
+  .drop button:hover, .drop button.on { background: var(--raised); }
+  .drop p { margin: 0; padding: 7px 9px; font-size: 12.5px; color: var(--muted); }
   .muted { color: var(--muted); }
   .small { font-size: 12.5px; margin: 0; }
 
@@ -228,15 +256,27 @@
         <input id="title" type="text" value="My Route" spellcheck="false">
       </div>
 
-      <div class="slot">
-        <div id="width-row" class="field">
-          <div class="label-row"><span>Corridor each side</span><span class="val" id="width-val"></span></div>
-          <input id="width" type="range" min="30" max="400" step="10" value="100">
+      <div class="stack">
+        <div id="route-row" class="block">
+          <div class="field">
+            <div class="label-row"><span>Route</span></div>
+            <div id="stops" class="stops"></div>
+            <button id="add-stop" class="add-stop">+ Add a stop</button>
+          </div>
+          <div class="field">
+            <div class="label-row"><span>Corridor each side</span><span class="val" id="width-val"></span></div>
+            <input id="width" type="range" min="30" max="400" step="10" value="100">
+            <p class="small muted">The strip beside the road that is built in full: terrain, trees and buildings.
+              Beyond it you see distant mountains. Wider means more scenery, but a longer build.</p>
+          </div>
         </div>
-        <div id="area-row" class="field" hidden>
-          <div class="label-row"><span>Area</span></div>
-          <p class="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
-            middle.</p>
+        <div id="area-row" class="block" hidden>
+          <div class="field">
+            <div class="label-row"><span>Area</span></div>
+            <input id="q-area" type="text" spellcheck="false" autocomplete="off" placeholder="Find a place">
+            <p class="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
+              middle.</p>
+          </div>
         </div>
       </div>
     </div>
@@ -269,7 +309,14 @@
 </main>
 
 <script>
-const map = L.map('map').setView([46.6624, 14.6345], 14);
+// First visit: central Europe; after that, wherever the map was left
+const VIEW_KEY = 'map2lap.view';
+let view = null;
+try { view = JSON.parse(localStorage.getItem(VIEW_KEY)); } catch (e) {}
+const map = L.map('map').setView(view && view.c ? view.c : [48.5, 11], view && view.z ? view.z : 5);
+map.on('moveend', () => {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify({c: map.getCenter(), z: map.getZoom()})); } catch (e) {}
+});
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
@@ -371,7 +418,7 @@ function render() {
     const was = t.version ? 'Map2Lap ' + esc(t.version) : 'an earlier Map2Lap';
     const built = t.outdated ? `Built with ${was}, now ${esc(VERSION)}.` :
       t.current_copy ? `Built with ${was}; “${esc(t.current_copy)}” is the current build.` :
-      `Built with the current Map2Lap ${esc(VERSION)}.`;
+      `Built with ${was}, up to date.`;
     body = `<div class="big ell">${esc(t.title)}</div>
       <p class="small muted">${fmtSize(t)}${t.area ? '' : ` · corridor ±${Math.round(t.width)} m`} · ${t.tiles} tiles${
         t.kn5_bytes ? ' · ' + fmtBytes(t.kn5_bytes) : ''}</p>
@@ -503,7 +550,7 @@ function setMode(m) {
   $('m-route').classList.toggle('on', m === 'route');
   $('m-area').classList.toggle('on', m === 'area');
   $('hint').textContent = HINTS[m];
-  $('width-row').hidden = m !== 'route';
+  $('route-row').hidden = m !== 'route';
   $('area-row').hidden = m !== 'area';
   clearPoints();
 }
@@ -511,17 +558,20 @@ $('m-route').onclick = () => setMode('route');
 $('m-area').onclick = () => setMode('area');
 
 // --- route ---
-function addPoint(latlng) {
+function addPoint(latlng, label) {
   if (mode === 'area' || tab !== 'new') return;
   const m = L.marker(latlng, {draggable: true}).addTo(map);
-  m.on('dragend', updateRoute);
-  m.on('contextmenu', () => { map.removeLayer(m); markers.splice(markers.indexOf(m), 1); updateRoute(); });
-  markers.push(m);
+  m.label = label || null;                // (the place picked in its field; a pin set on the map: its coordinates)
+  m.on('dragend', () => { m.label = null; updateRoute(); });
+  m.on('contextmenu', () => removePoint(m));
+  markers.push(m);                        // (the last point is the finish)
   updateRoute();
 }
+function removePoint(m) { map.removeLayer(m); markers.splice(markers.indexOf(m), 1); updateRoute(); }
 map.on('click', e => addPoint(e.latlng));
 
 async function updateRoute() {
+  renderStops();
   markers.forEach((m, i) => m.bindTooltip(i === 0 ? 'Start' : (i === markers.length - 1 ? 'Finish' : String(i))));
   clearShapes();
   if (markers.length < 2) {
@@ -551,6 +601,122 @@ function setCorridorWidth() {   // corridor drawn as a wide line: pixel width fr
 }
 map.on('zoomend', setCorridorWidth);
 $('width').addEventListener('input', () => { setCorridorWidth(); if (sel && sel.kind === 'route') render(); });
+
+// --- the route's fields: start, stops, finish. Typing a place and Enter searches it (Nominatim through the server);
+// "Find a place" in area mode only moves the map ---
+const fmtLL = ll => `${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`;
+const shortName = name => name.split(', ').slice(0, 3).join(', ');
+let addingStop = false;                   // (an empty stop field from "+ Add a stop")
+
+function fitPins() {
+  if (markers.length > 1) map.fitBounds(L.latLngBounds(markers.map(m => m.getLatLng())), {padding: [60, 60]});
+  else if (markers.length) map.setView(markers[0].getLatLng(), Math.max(map.getZoom(), 13));
+}
+
+function stopRow(i, last, m, onPick, onRemove) {
+  const row = document.createElement('div'), tag = document.createElement('span'), el = document.createElement('input');
+  const kind = i === 0 ? 'start' : i === last ? 'finish' : '';
+  row.className = 'stop';
+  Object.assign(tag, {className: 'tag ' + kind, textContent: kind ? kind[0].toUpperCase() : i,
+                      title: kind ? kind[0].toUpperCase() + kind.slice(1) : `Stop ${i}`});
+  Object.assign(el, {type: 'text', spellcheck: false, autocomplete: 'off',
+                     placeholder: `${tag.title}: search a place or click the map`,
+                     value: m ? m.label || fmtLL(m.getLatLng()) : ''});
+  row.append(tag, el);
+  if (m) { m.field = el; nameMarker(m); }
+  if (onRemove) {
+    const x = document.createElement('button');
+    Object.assign(x, {className: 'x', title: 'Remove', textContent: '×', onclick: onRemove});
+    row.append(x);
+  }
+  searchField(el, onPick);
+  return row;
+}
+
+function nameMarker(m) {                  // (a pin set on the map: its place instead of the coordinates, once known)
+  const at = fmtLL(m.getLatLng()), ll = m.getLatLng();
+  if (m.label || m.asked === at) return;
+  m.asked = at;
+  fetch('/api/place', {method: 'POST', body: JSON.stringify({lat: ll.lat, lon: ll.lng})}).then(r => r.json())
+    .then(r => {
+      if (!r.name || fmtLL(m.getLatLng()) !== at) return;
+      m.label = r.name;
+      if (m.field && document.activeElement !== m.field) m.field.value = r.name;
+    }).catch(() => {});
+}
+
+let shownPoints = 0;
+function renderStops() {
+  const n = markers.length, empty = addingStop || !n, last = n + (empty ? 1 : 0) - 1, rows = [];
+  const add = p => { addingStop = false; addPoint([p.lat, p.lon], shortName(p.name)); fitPins(); };
+  const move = m => p => { m.label = shortName(p.name); m.setLatLng([p.lat, p.lon]); updateRoute(); fitPins(); };
+  markers.forEach((m, i) => rows.push(stopRow(i, last, m, move(m), () => removePoint(m))));
+  if (empty) {                            // (no point yet, or "+ Add a stop": an empty field at the end)
+    const row = stopRow(n, last, null, add, n ? () => { addingStop = false; renderStops(); } : null);
+    if (n) row.querySelector('input').addEventListener('blur', e => {
+      if (!e.target.value.trim()) { addingStop = false; renderStops(); }
+    });
+    rows.push(row);
+  }
+  const box = $('stops'), top = box.scrollTop;
+  box.replaceChildren(...rows);
+  box.scrollTop = n > shownPoints || addingStop ? box.scrollHeight : top;      // (a new point: show the end)
+  shownPoints = n;
+  $('add-stop').disabled = !n || addingStop;
+  if (addingStop) rows[rows.length - 1].querySelector('input').focus();
+}
+$('add-stop').onclick = () => { addingStop = true; renderStops(); };
+
+const drop = document.createElement('div');       // (one result list for all fields: only the focused one shows it)
+drop.className = 'drop';
+drop.hidden = true;
+document.body.append(drop);
+let dropPick = null;
+drop.addEventListener('mousedown', e => {          // (mousedown: before the field's blur closes the list)
+  const b = e.target.closest('button');
+  if (b && dropPick) { e.preventDefault(); dropPick(+b.dataset.k); }
+});
+
+function searchField(el, onPick) {
+  let found = [], on = 0, ask = 0;
+  const close = () => { drop.hidden = true; found = []; };
+  const show = html => {
+    dropPick = pick;
+    const r = el.getBoundingClientRect();
+    Object.assign(drop.style, {left: r.left + 'px', top: r.bottom + 4 + 'px', width: r.width + 'px'});
+    drop.innerHTML = html;
+    drop.hidden = false;
+  };
+  const list = () => show(found.map((p, k) => `<button class="${k === on ? 'on' : ''}" data-k="${k}">${esc(p.name)}</button>`)
+                               .join(''));
+  const pick = k => { const p = found[k]; close(); if (p) onPick(p); };
+  el.addEventListener('blur', close);
+  el.addEventListener('input', close);
+  el.addEventListener('keydown', async e => {
+    if (e.key === 'Escape') return close();
+    if (found.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      on = (on + (e.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length;
+      return list();
+    }
+    if (e.key !== 'Enter') return;
+    if (found.length) return pick(on);
+    const q = el.value.trim();
+    if (!q) return;
+    const k = ++ask;
+    show('<p>Searching …</p>');
+    const r = await fetch('/api/search', {method: 'POST', body: JSON.stringify({q})}).then(r => r.json())
+      .catch(e => ({error: String(e)}));
+    if (k !== ask || document.activeElement !== el) return;
+    found = r.places || [];
+    on = 0;
+    if (r.error) show(`<p>Search failed: ${esc(r.error)}</p>`);
+    else if (!found.length) show('<p>Nothing found</p>');
+    else if (found.length === 1) pick(0);
+    else list();
+  });
+}
+searchField($('q-area'), p => { $('q-area').value = shortName(p.name); map.setView([p.lat, p.lon], 14); });
 
 // --- area: press and drag; while there is none, dragging draws instead of moving the map ---
 let drawFrom = null, drawTo = null;
@@ -601,6 +767,7 @@ function clearShapes() {
 function clearPoints() {
   markers.forEach(m => map.removeLayer(m));
   markers.length = 0;
+  addingStop = false;
   if (mode === 'area') { clearShapes(); armArea(); }
   else { map.dragging.enable(); updateRoute(); }
 }

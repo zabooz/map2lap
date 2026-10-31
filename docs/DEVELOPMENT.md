@@ -16,7 +16,10 @@ removed), updates are taken over, and our AC-specific parts (looks, physics name
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
 - Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
-- Bump `VERSION` in `src/app/version.py` whenever a change alters how built tracks look or drive.
+- Versions (`src/app/version.py`): `VERSION` is the app and goes up with every release, even one that only changes
+  the page. `TRACK_VERSION` goes up only when a change alters how built tracks look or drive; "My tracks" compares
+  only that one, so page-only releases don't mark every track as old. A release that changes the tracks sets both
+  to the same number.
 
 ---
 
@@ -103,7 +106,7 @@ release's Python has it in `python312._pth`.
 |---|---|
 | `server.py`, `web/index.html` | Local generator page (Leaflet/OSM): new track (route or area), "My tracks" (rebuild, copy, delete, play), Settings, progress, stop |
 | `generator.py` | Route → tiles → OBJ → track folder → kn5 |
-| `app/version.py` | Map2Lap version, stored in every track; "My tracks" marks older ones |
+| `app/version.py` | App version (`VERSION`, every release) and track version (`TRACK_VERSION`, only when built tracks change); both are stored in every track, "My tracks" marks older track versions |
 | `app/mytracks.py` | Our tracks in the AC folder and their saved settings (`data/map2lap.json`) |
 | `app/mapcache.py` | Map data cache with a size limit; "Clear now" |
 | `app/settings.py` | The page's settings (`settings.json`), finds AC through Steam |

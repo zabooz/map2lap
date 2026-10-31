@@ -4,7 +4,8 @@ Every build stores its settings as data/map2lap.json in the track folder (genera
 again with the current release, even after the temporary data is gone. Tracks from before map2lap.json existed don't
 have the file: while their work folder is still there (out/tracks/<name>/tiles/anchor.json), it is filled in from it.
 
-    {"version" (version.VERSION; missing on filled-in ones), "title", "points": [[lat, lon], ...] (route; area: []),
+    {"version" (the app, version.VERSION), "track_version" (version.TRACK_VERSION; before 0.3.3 only "version", which
+     was the same; both missing on filled-in ones), "title", "points": [[lat, lon], ...] (route; area: []),
      "width": m or None, "area": [S, W, N, E] or None, "length_m", "area_m": [east, north] or None, "tiles",
      "built": Unix time, "line": [[lat, lon], ...] or None}
 """
@@ -98,7 +99,7 @@ def _same(info):
 
 def listing(ac_path):
     """The tracks with settings, most recently built first: each {name, kn5_bytes, outdated, current_copy, ...the
-    settings}. outdated: older than this release and no copy of the same track is current (an old build next to a new
+    settings}. outdated: older track version than this release's and no copy of the same track is current (an old build next to a new
     copy no longer counts as old, it only shows its version); current_copy: that copy's title."""
     tracks = os.path.join(ac_path, "content", "tracks")
     out = []
@@ -114,10 +115,12 @@ def listing(ac_path):
         out.append({**info, "name": name, "kn5_bytes": os.path.getsize(kn5) if os.path.exists(kn5) else None})
     current = {}
     for t in out:
-        if not version.outdated(t.get("version")) and t["kn5_bytes"]:
+        t["track_version"] = t.get("track_version", t.get("version"))
+    for t in out:
+        if not version.outdated(t["track_version"]) and t["kn5_bytes"]:
             current.setdefault(_same(t), t["title"])
     for t in out:
-        old = version.outdated(t.get("version"))
+        old = version.outdated(t["track_version"])
         t["current_copy"] = current.get(_same(t)) if old else None
         t["outdated"] = old and t["current_copy"] is None
     return sorted(out, key=lambda t: -(t.get("built") or 0))

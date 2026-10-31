@@ -29,7 +29,7 @@ roadsmod = build_tiles.roadsmod
 import geodesy              # noqa: E402  (from the BeamNG.Earth server, path from build_tiles)
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/"
-NOMINATIM = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM = "https://nominatim.openstreetmap.org/"
 SAMPLE_M = 20.0             # m: spacing of the route points for choosing the tiles
 MAX_ROUTE_M = 500000.0      # beyond ~50 km from the anchor float32 gets coarse in AC (cm)
 WARN_TILES = 150
@@ -99,7 +99,7 @@ def place(lat, lon):
         if key not in _places:
             time.sleep(max(0.0, _asked[0] + 1.0 - time.time()))
             q = urllib.parse.urlencode({"format": "jsonv2", "lat": f"{lat:.6f}", "lon": f"{lon:.6f}", "zoom": 14})
-            req = urllib.request.Request(f"{NOMINATIM}?{q}", headers={"User-Agent": version.USER_AGENT})
+            req = urllib.request.Request(f"{NOMINATIM}reverse?{q}", headers={"User-Agent": version.USER_AGENT})
             try:
                 with urllib.request.urlopen(req, timeout=10) as r:
                     a = json.load(r).get("address", {})
@@ -110,6 +110,21 @@ def place(lat, lon):
             _places[key] = (town, part)
             _countries[key] = a.get("country")
         return _places[key]
+
+
+def search(text):
+    """Places for a search on the generator page (Nominatim, typed text sent on Enter: the usage policy forbids
+    search-as-you-type): [{"name", "lat", "lon"}, ...], at most 5."""
+    q = urllib.parse.urlencode({"format": "jsonv2", "q": text, "limit": 5})
+    req = urllib.request.Request(f"{NOMINATIM}search?{q}", headers={"User-Agent": version.USER_AGENT})
+    with _ask_lock:
+        time.sleep(max(0.0, _asked[0] + 1.0 - time.time()))
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                found = json.load(r)
+        finally:
+            _asked[0] = time.time()
+    return [{"name": f["display_name"], "lat": float(f["lat"]), "lon": float(f["lon"])} for f in found]
 
 
 def where(lat, lon):
@@ -305,7 +320,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
                                   os.path.join(tiles_dir, "anchor.json"), log=log,
                                   parts=parts + [p for p in (gate, far) if p])
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
-    mytracks.save(root, {"version": version.VERSION, "title": title, "points": [list(p) for p in points],
+    mytracks.save(root, {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title, "points": [list(p) for p in points],
                          "width": None if area else width,
                          "area": [float(v) for v in area] if area else None, "length_m": length,
                          "area_m": list(size) if area else None, "tiles": len(tiles), "built": time.time(),

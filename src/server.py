@@ -403,6 +403,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/name":            # suggestion for the track name (generator.auto_title)
                 self._send(200, {"title": generator.auto_title([tuple(p) for p in body.get("points") or []],
                                                                body.get("area"))})
+            elif self.path == "/api/place":           # name for a pin set on the map (town, district)
+                town, part = generator.place(float(body["lat"]), float(body["lon"]))
+                self._send(200, {"name": ", ".join(x for x in (town, part) if x) or None})
+            elif self.path == "/api/search":          # places for the start/finish/place fields
+                self._send(200, {"places": generator.search((body.get("q") or "").strip()[:200])})
             elif self.path == "/api/settings":
                 new = {}
                 if "ac_path" in body:                  # (empty: look through Steam again)
