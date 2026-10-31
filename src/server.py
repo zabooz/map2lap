@@ -21,7 +21,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import generator
-from app import debugapp, mapcache, mytracks, settings, version
+from app import debugapp, mapcache, mytracks, settings, trackcode, version
 from app.paths import ROOT, SRC
 
 PORT = 8800
@@ -411,6 +411,15 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/place":           # name for a pin set on the map (town, district)
                 town, part = generator.place(float(body["lat"]), float(body["lon"]))
                 self._send(200, {"name": ", ".join(x for x in (town, part) if x) or None})
+            elif self.path == "/api/code" and body.get("make"):     # the code of a new route or area
+                self._send(200, {"code": trackcode.encode({**body["make"], "track_version": version.TRACK_VERSION})})
+            elif self.path == "/api/code":            # a pasted track code: its pins and width, or its area
+                try:
+                    got = trackcode.decode(body.get("code"))
+                except trackcode.BadCode as e:
+                    self._send(200, {"error": str(e)})
+                else:
+                    self._send(200, {**got, "current": version.TRACK_VERSION})
             elif self.path == "/api/search":          # places for the start/finish/place fields
                 self._send(200, {"places": generator.search((body.get("q") or "").strip()[:200])})
             elif self.path == "/api/settings":

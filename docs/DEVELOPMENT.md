@@ -59,7 +59,14 @@ the route metre (the same count as `check_drive.py`), coordinates, G values and 
 the last 15 s of drive (50 Hz); **F10** (in the window: any key or wheel button) or "Mark" saves a spot with those 15 s and the next 5 s and a screenshot,
 "Start recording" records the whole drive. Files go to one folder per session,
 `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`: `info.txt` (track, versions), `marks.csv`,
-`mark_NN.csv` / `mark_NN.jpg` per mark, `drive.csv`.
+`mark_NN.csv` / `mark_NN.jpg` per mark, `drive.csv`, and the track's `map2lap.json` and `map2lap_route.txt`:
+`tools\from_debug.py <folder>` builds the same track here (the route as built, no OSRM).
+
+**Track codes** (`app/trackcode.py`): the status card shows a track's inputs in one line to copy (`M2L1-…`: pins and
+corridor or area, title, track version), the picked one's under My tracks, the route's or area's under New track
+before it is built; a code pasted into that field under New track sets them. The code
+holds no route: OSRM routes the pins again. A build stores its map data's versions (`generator.data_versions`:
+Overture's release, the OpenStreetMap tags file's ETag) in `data/map2lap.json` beside the code.
 
 **Release:** `.venv\Scripts\python.exe tools\make_release.py` builds `dist\Map2Lap-<version>-win64.zip` with an
 embedded Python, all packages, BeamNG.Earth and the textures.
@@ -113,6 +120,7 @@ release's Python has it in `python312._pth`.
 | `generator.py` | Route → tiles → OBJ → track folder → kn5 |
 | `app/version.py` | App version (`VERSION`, every release) and track version (`TRACK_VERSION`, only when built tracks change); both are stored in every track, "My tracks" marks older track versions |
 | `app/mytracks.py` | Our tracks in the AC folder and their saved settings (`data/map2lap.json`) |
+| `app/trackcode.py` | Track codes: a track's inputs in one line to share, and back |
 | `app/mapcache.py` | Map data cache with a size limit; "Clear now" |
 | `app/settings.py` | The page's settings (`settings.json`), finds AC through Steam |
 | `track/build_tiles.py` | BeamNG.Earth paths/state (default mode), single run for test areas |
@@ -133,6 +141,7 @@ release's Python has it in `python312._pth`.
 | `track/make_track_folder.py` | Track folder (everything but the kn5) |
 | `track/parallel.py` | Number of worker processes, process pool |
 | `src/acapp/TrackDebug/` | CSP Lua app for testing (Settings → Testing, `app/debugapp.py`): position on the route (`data/map2lap_route.txt` per track), F10, recording |
+| `tools/from_debug.py` | A Track Debug session's track built here: its inputs, the route as built, the differences in version and map data |
 | `tools/stretch.py` | A track's stretch built again fast (tiles and OBJ only, nothing into AC), the driving surface along the route measured and compared with its last run: before and after a fix |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes, one per bridge or underpass worth checking) built up to the OBJ parts, nothing into AC (`--build`; `--install` into AC to drive one); the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |

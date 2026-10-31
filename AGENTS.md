@@ -97,9 +97,14 @@ status and progress live in fixed places, dialogs as overlays.
 ## Following up a report from AC
 
 With the Track Debug app on (generator page → Settings → Testing), every session writes a folder
-`Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`: `info.txt` (the track's build and versions), `marks.csv`
-(route metre, offset from the line, AC and lat/lon position per mark), `mark_NN.csv` (the 15 s before and 5 s after
-each mark at 50 Hz: G forces, suspension travel) and `mark_NN.jpg` (a screenshot).
+`Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`: `info.txt` (the track's build, versions, track code and map
+data), `marks.csv` (route metre, offset from the line, AC and lat/lon position per mark), `mark_NN.csv` (the 15 s
+before and 5 s after each mark at 50 Hz: G forces, suspension travel), `mark_NN.jpg` (a screenshot), and the track's
+own `map2lap.json` and `map2lap_route.txt`.
+
+- `tools\from_debug.py <folder>` builds that track here with the route exactly as it was built (no OSRM) and says
+  where this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring
+  tools).
 
 - The route metre is the same count as in `measure.py` (`--from/--to`) and `check_drive.py`.
 - AC coordinates: x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.

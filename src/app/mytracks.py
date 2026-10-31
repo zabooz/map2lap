@@ -7,12 +7,14 @@ have the file: while their work folder is still there (out/tracks/<name>/tiles/a
     {"version" (the app, version.VERSION), "track_version" (version.TRACK_VERSION; before 0.3.3 only "version", which
      was the same; both missing on filled-in ones), "title", "points": [[lat, lon], ...] (route; area: []),
      "width": m or None, "area": [S, W, N, E] or None, "length_m", "area_m": [east, north] or None, "tiles",
-     "built": Unix time, "line": [[lat, lon], ...] or None}
+     "built": Unix time, "line": [[lat, lon], ...] or None, "route_end": the end pin's index in the route
+     (data/map2lap_route.txt) or None, "data": {"overture": release, "osm": the tags file's ETag} (generator.
+     data_versions), "code": its track code (trackcode; listing fills it in for builds without one)}
 """
 import json
 import os
 
-from app import version
+from app import trackcode, version
 from app.paths import ROOT
 
 FILE = os.path.join("data", "map2lap.json")
@@ -116,6 +118,8 @@ def listing(ac_path):
     current = {}
     for t in out:
         t["track_version"] = t.get("track_version", t.get("version"))
+        if not t.get("code") and (t.get("area") or len(t.get("points") or []) >= 2):
+            t["code"] = trackcode.encode(t)
     for t in out:
         if not version.outdated(t["track_version"]) and t["kn5_bytes"]:
             current.setdefault(_same(t), t["title"])

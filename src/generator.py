@@ -19,7 +19,7 @@ from concurrent.futures import as_completed
 import numpy as np
 
 from track import build_tiles     # (first: sets the asphalt mesh switches and the server path)
-from app import debugapp, mapcache, mytracks, settings, version
+from app import debugapp, mapcache, mytracks, settings, trackcode, version
 from app.paths import ROOT
 from scenery import farview, gates
 from track import make_obj, make_track_folder, obj_to_kn5, parallel
@@ -29,6 +29,7 @@ roadsmod = build_tiles.roadsmod
 import furniture            # noqa: E402  (from the BeamNG.Earth server, path from build_tiles)
 import geodesy              # noqa: E402
 import navgraph             # noqa: E402
+import overture             # noqa: E402
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/"
 NOMINATIM = "https://nominatim.openstreetmap.org/"
@@ -42,6 +43,18 @@ START_LINE_M, FINISH_AFTER_M, RUNOUT_M, LOOP_M = 100.0, 50.0, 100.0, 100.0
 # Progress phases (build(progress=...), shown by the generator page): route, road tiles, terrain/trees/houses
 # (make_obj), distant view (farview), kn5, tidying up (map data cache, temporary data)
 PHASES = ("route", "tiles", "scenery", "distant", "kn5", "clean")
+
+
+def data_versions():
+    """The map data a build reads beside the code: Overture's release (pinned in overture.RELEASE) and the OpenStreetMap
+    tags file's version (its ETag, pinned in the cache for a week: osmtags.OsmTags.version; None if not fetched yet).
+    Stored with the track: a build from the same inputs on other data differs where the map was edited."""
+    try:
+        with open(os.path.join(ROOT, "cache", "mapdata", "raw", "osmtags", "pinned"), encoding="utf-8") as f:
+            osm = f.readline().strip().strip('"') or None
+    except OSError:
+        osm = None
+    return {"overture": overture.RELEASE, "osm": osm}
 
 
 def slug(name):
@@ -232,9 +245,12 @@ def area_tiles(x0, y0, x1, y1):
             for tx in range(math.floor(x0 / t), math.ceil(x1 / t))]
 
 
-def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None):
+def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
+          line=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
+    line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
+    the run-off behind the end pin included (tools/from_debug.py).
     clean: delete the temporary data afterwards (clean_up); the page does that while "Keep build files" is off.
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
@@ -262,13 +278,23 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
         log(f"Area {size[0] / 1000:.2f} × {size[1] / 1000:.2f} km: {len(tiles)} tiles")
     else:
         progress("route", 0, 0)
-        log("Calculating route (OSRM) ...")
-        pts, length = route(points)
+        if line is None:
+            log("Calculating route (OSRM) ...")
+            pts, length = route(points)
+        else:
+            log("Route as given (no OSRM)")
+            pts, given = [list(p) for p in line[0][:line[1] + 1]], [list(p) for p in line[0][line[1] + 1:]]
+            ll = np.asarray(pts, float)
+            length = float(np.sum(np.hypot(np.diff(ll[:, 0]) * 111320.0,
+                                           np.diff(ll[:, 1]) * 111320.0 * np.cos(np.radians(ll[:-1, 0])))))
         if length > MAX_ROUTE_M:
             raise RuntimeError(f"Route is {length / 1000:.1f} km long, at most {MAX_ROUTE_M / 1000:.0f} km possible")
         loop = math.hypot((pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0])),
                           (pts[-1][0] - pts[0][0]) * 111320.0) < LOOP_M
-        ext = [] if loop else extend(pts)           # (finish line and run-off behind the end pin)
+        if line is not None:
+            ext = given
+        else:
+            ext = [] if loop else extend(pts)       # (finish line and run-off behind the end pin)
         allp = pts + ext
         lats, lons = np.array([p[0] for p in allp]), np.array([p[1] for p in allp])
         lat0, lon0 = (lats.min() + lats.max()) / 2, (lons.min() + lons.max()) / 2     # anchor: centre of the route
@@ -359,11 +385,13 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
                                   os.path.join(tiles_dir, "anchor.json"), log=log,
                                   parts=parts + [p for p in (gate, far) if p])
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
-    mytracks.save(root, {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title, "points": [list(p) for p in points],
-                         "width": None if area else width,
-                         "area": [float(v) for v in area] if area else None, "length_m": length,
-                         "area_m": list(size) if area else None, "tiles": len(tiles), "built": time.time(),
-                         "line": None if area else mytracks.thin(pts)})
+    info = {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title,
+            "points": [list(p) for p in points], "width": None if area else width,
+            "area": [float(v) for v in area] if area else None, "length_m": length,
+            "area_m": list(size) if area else None, "tiles": len(tiles), "built": time.time(),
+            "line": None if area else mytracks.thin(pts),
+            "route_end": None if area else len(pts) - 1, "data": data_versions()}
+    mytracks.save(root, {**info, "code": trackcode.encode(info)})
     progress("clean", 0, 0)
     if cache_gb is not None:
         mapcache.trim(cache_gb, log=log)

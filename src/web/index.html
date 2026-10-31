@@ -111,6 +111,8 @@
               color: var(--muted); cursor: pointer; font-weight: 600; font-size: 12.5px; }
   .add-stop:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
   .add-stop:disabled { opacity: .55; cursor: default; }
+  .add-stop.clear { border-style: solid; border-color: var(--accent); color: var(--accent); }
+  .add-stop.clear:not(:disabled):hover { background: var(--accent-soft); }
   /* Search results: fixed under the field (the stop list would clip it) */
   .drop { position: fixed; z-index: 2000; background: var(--panel);
           border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px;
@@ -122,6 +124,23 @@
   .drop p { margin: 0; padding: 7px 9px; font-size: 12.5px; color: var(--muted); }
   .muted { color: var(--muted); }
   .small { font-size: 12.5px; margin: 0; }
+  /* A track code field: the route's or area's to copy, or one pasted (New track); the picked track's in the card.
+     A field like the others, its copy button inside it */
+  .code-wrap { position: relative; flex: 1; min-width: 0; }
+  .code-wrap input { padding-right: 38px; text-overflow: ellipsis; }
+  .code-cp { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 30px; height: 30px;
+             border: 0; border-radius: 7px; background: none; color: var(--muted); cursor: pointer; display: grid;
+             place-items: center; }
+  .code-cp:not(:disabled):hover { color: var(--accent); background: var(--line); }
+  .code-cp:disabled { opacity: .35; cursor: default; }
+  .stop .tag svg { display: block; }
+  .card-code { display: flex; gap: 6px; flex: none; }
+  .card-code[hidden] { display: none; }
+  .card-code input { height: 34px; background: var(--panel); }
+  .card-code .icon { flex: none; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px;
+                     background: var(--panel); color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+  .card-code .icon:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+  .card-code .icon:disabled { opacity: .45; cursor: default; }
 
   /* Status card: always the same height */
   .card { height: 164px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); padding: 12px 14px;
@@ -153,15 +172,14 @@
   .err { color: var(--accent); font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4;
          -webkit-box-orient: vertical; }
 
-  .actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+  .actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
   .actions button { height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised);
                     cursor: pointer; font-weight: 600; }
   .actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .actions button.danger { background: var(--panel); border-color: var(--accent); color: var(--accent); }
   .actions button:disabled { opacity: .45; cursor: default; }
-  .actions.mine { grid-template-columns: 42px 1fr 1fr; }
-  .actions button.icon { display: grid; place-items: center; color: var(--muted); }
-  .actions button.icon:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+  .actions.mine { grid-template-columns: 1fr 1fr 1fr; }
+  .actions button.play-act { background: var(--ok); border-color: var(--ok); color: #fff; }
 
   .log-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-weight: 600;
               margin-bottom: -8px; }
@@ -274,8 +292,15 @@
         <div id="route-row" class="block">
           <div class="field">
             <div class="label-row"><span>Route</span></div>
+            <div class="stop"><span class="tag" title="Track code"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6 2 12l6 6M16 6l6 6-6 6"/></svg></span>
+            <div class="code-wrap">
+              <input id="code-r" class="code-in" type="text" spellcheck="false" autocomplete="off"
+                     placeholder="Paste a track code" aria-label="Track code">
+              <button class="code-cp" data-for="code-r" title="Copy the track code: pasted here by someone else, it sets the same track" aria-label="Copy track code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+            </div></div>
             <div id="stops" class="stops"></div>
             <button id="add-stop" class="add-stop">+ Add a stop</button>
+            <button id="clear" class="add-stop clear">Clear all</button>
           </div>
           <div class="field">
             <div class="label-row"><span>Corridor each side</span><span class="val" id="width-val"></span></div>
@@ -287,9 +312,15 @@
         <div id="area-row" class="block" hidden>
           <div class="field">
             <div class="label-row"><span>Area</span></div>
+            <div class="code-wrap">
+              <input id="code-a" class="code-in" type="text" spellcheck="false" autocomplete="off"
+                     placeholder="Paste a track code" aria-label="Track code">
+              <button class="code-cp" data-for="code-a" title="Copy the track code: pasted here by someone else, it sets the same track" aria-label="Copy track code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+            </div>
             <input id="q-area" type="text" spellcheck="false" autocomplete="off" placeholder="Find a place">
             <p class="small muted">Everything inside the rectangle is built. The car starts on the road nearest to the
               middle.</p>
+            <button id="clear-area" class="add-stop clear">Clear area</button>
           </div>
         </div>
       </div>
@@ -300,16 +331,22 @@
   <div class="card">
     <div class="card-top"><span id="card-badge" class="badge">Ready</span><span id="card-time"></span></div>
     <div id="card-body"></div>
+    <div id="card-code" class="card-code" hidden>
+      <div class="code-wrap">
+        <input id="code" type="text" spellcheck="false" autocomplete="off" aria-label="Track code" readonly>
+        <button class="code-cp" data-for="code" title="Copy the track code: pasted here by someone else, it sets the same track" aria-label="Copy track code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      </div>
+      <button id="code-del" class="icon" title="Delete track" aria-label="Delete track">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+      </button>
+    </div>
   </div>
 
   <div id="actions" class="actions">
-    <button id="clear">Clear</button>
-    <button id="del" class="icon" hidden title="Delete track" aria-label="Delete track">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
-    </button>
     <button id="copy" hidden>Build as copy</button>
     <button id="go" class="primary" disabled>Build track</button>
+    <button id="play" class="play-act" hidden>▶ Play</button>
   </div>
 
   <div class="log-head"><span>Build log</span></div>
@@ -347,6 +384,7 @@ const ROUTE_COLOR = '#e0243a';
 let mode = 'route', routeLine = null, corridor = null, rect = null, routeCoords = null, area = null, timer = null;
 let status = {state: 'idle'}, sel = null, selNewer = false;
 let tab = 'new', tracks = [], pick = null, clearing = false, VERSION = '', car = null;
+let newCode = '', playing = false;     // (the new route's track code; Play pressed, AC starting)
 const mineLayer = L.layerGroup().addTo(map);
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -390,12 +428,14 @@ function render() {
   go.className = run ? 'danger' : 'primary';
   go.disabled = st === 'stopping' || (!run && !(mine ? t : sel && sel.ok));
   $('actions').classList.toggle('mine', mine);
-  $('clear').hidden = mine;
-  $('clear').disabled = run;
+  $('clear').disabled = $('clear-area').disabled = run || (!markers.length && !area);   // (nothing to clear: quiet)
   go.title = mine && !run ? 'Build it again with this version and replace it' : '';
   $('copy').title = 'Keep this track and build a new one next to it';
-  $('del').hidden = $('copy').hidden = !mine;
-  $('del').disabled = $('copy').disabled = run || !t;
+  $('copy').hidden = $('play').hidden = !mine;
+  $('copy').disabled = run || !t;
+  $('play').disabled = run || !t || !t.kn5_bytes || playing;
+  $('play').textContent = playing ? 'Starting …' : '▶ Play';
+  $('play').title = car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
   $('cache-clear').disabled = run || clearing;
   let badge = ['Ready', ''], time = '', body;
   const result = ['done', 'error', 'stopped'].includes(st) && !selNewer;
@@ -436,7 +476,7 @@ function render() {
     body = `<div class="big ell">${esc(t.title)}</div>
       <p class="small muted">${fmtSize(t)}${t.area ? '' : ` · corridor ±${Math.round(t.width)} m`} · ${t.tiles} tiles${
         t.kn5_bytes ? ' · ' + fmtBytes(t.kn5_bytes) : ''}</p>
-      <div class="foot"><p class="small muted">${built}</p>${t.kn5_bytes ? playButton(t.name) : ''}</div>`;
+      <p class="small muted ell">${built}</p>`;
   } else if (mine) {
     body = `<div class="big">${tracks.length ? 'Pick a track' : 'No tracks yet'}</div>
       <p class="small muted">${tracks.length ? 'Choose one from the list to rebuild it.' :
@@ -462,6 +502,12 @@ function render() {
   $('card-badge').className = 'badge ' + badge[1];
   $('card-time').textContent = time;
   $('card-body').innerHTML = body;
+  // the track code under it: the picked track's (with delete beside it), or the new route's / a pasted one
+  $('card-code').hidden = run || result || !t;
+  $('code-del').disabled = run || !t;
+  $('code').value = (t && t.code) || '';
+  for (const el of document.querySelectorAll('.code-in')) if (document.activeElement !== el) el.value = newCode;
+  for (const b of document.querySelectorAll('.code-cp')) b.disabled = !$(b.dataset.for).value;
 }
 
 // --- track name from the places (OpenStreetMap) until the user types one; emptying the field turns it back on ---
@@ -471,7 +517,7 @@ async function autoTitle(body) {
   if (!titleAuto) return;
   const k = ++nameAsk;
   const r = await fetch('/api/name', {method: 'POST', body: JSON.stringify(body)}).then(r => r.json()).catch(() => ({}));
-  if (k === nameAsk && titleAuto && r.title) $('title').value = r.title;
+  if (k === nameAsk && titleAuto && r.title) { $('title').value = r.title; makeCode(); }
 }
 
 // --- tabs: a new track, the tracks built before (rebuild, copy, delete), settings ---
@@ -590,9 +636,11 @@ async function updateRoute() {
   clearShapes();
   if (markers.length < 2) {
     setSel(markers.length ? {kind: 'msg', text: 'Now click the finish.', ok: false} : null);
+    makeCode();
     return;
   }
   setSel({kind: 'msg', text: 'Calculating route …', ok: false});
+  makeCode();                             // (none until the route is there)
   const points = markers.map(m => [m.getLatLng().lat, m.getLatLng().lng]);
   const r = await fetch('/api/route', {method: 'POST', body: JSON.stringify({points})}).then(r => r.json())
     .catch(e => ({error: String(e)}));
@@ -604,6 +652,7 @@ async function updateRoute() {
   const km = r.length_m / 1000;
   setSel({kind: 'route', km, ok: km <= MAX_KM});
   autoTitle({points});
+  makeCode();
 }
 
 function setCorridorWidth() {   // corridor drawn as a wide line: pixel width from metres at the current zoom
@@ -732,6 +781,86 @@ function searchField(el, onPick) {
 }
 searchField($('q-area'), p => { $('q-area').value = shortName(p.name); map.setView([p.lat, p.lon], 14); });
 
+// --- track codes: the new route's or area's (made by the server: trackcode.py), shown in the card to copy; one
+// pasted there sets its pins and corridor or its area, and its name ---
+let codeAsk = 0, codeWait = null;
+async function makeCode() {
+  const k = ++codeAsk, title = $('title').value.trim();
+  const make = mode === 'area' ? area && {title, area} :
+    markers.length >= 2 && routeCoords && {title, width: +$('width').value,
+                                           points: markers.map(m => [m.getLatLng().lat, m.getLatLng().lng])};
+  const r = make ? await fetch('/api/code', {method: 'POST', body: JSON.stringify({make})}).then(r => r.json())
+                     .catch(() => ({})) : {};
+  if (k !== codeAsk) return;
+  newCode = r.code || '';
+  render();
+}
+function makeCodeSoon() { clearTimeout(codeWait); codeWait = setTimeout(makeCode, 300); }
+$('title').addEventListener('input', makeCodeSoon);
+$('width').addEventListener('input', makeCodeSoon);
+
+async function pasteCode(el) {
+  const code = el.value.trim();
+  if (!code || code === newCode) return;
+  const got = await fetch('/api/code', {method: 'POST', body: JSON.stringify({code})}).then(r => r.json())
+    .catch(e => ({error: String(e)}));
+  if (got.error) { setSel({kind: 'msg', text: 'Track code: ' + got.error + '.', ok: false, bad: true}); return; }
+  el.blur();
+  applyCode(got);
+}
+for (const el of document.querySelectorAll('.code-in')) {
+  el.addEventListener('paste', () => setTimeout(() => pasteCode(el), 0));
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') pasteCode(el);
+    if (e.key === 'Escape') { el.blur(); render(); }
+  });
+  el.addEventListener('blur', () => setTimeout(render, 0));    // (a half-typed code gives way to the route's)
+}
+const TICK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" ' +
+             'stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+for (const b of document.querySelectorAll('.code-cp')) {
+  b.onclick = async () => {
+    const ok = await navigator.clipboard.writeText($(b.dataset.for).value).then(() => true).catch(() => false);
+    const icon = b.innerHTML;
+    b.innerHTML = ok ? TICK : '!';
+    b.title = ok ? 'Copied' : 'Copying failed';
+    setTimeout(() => { b.innerHTML = icon; b.title = 'Copy the track code: pasted here by someone else, it sets the same track'; }, 1500);
+  };
+}
+
+function applyCode(c) {
+  setTab('new');
+  setMode(c.area ? 'area' : 'route');
+  if (c.title) { $('title').value = c.title; titleAuto = false; }
+  if (c.area) {
+    const [s, w, n, e] = c.area;
+    showArea(L.latLng(s, w), L.latLng(n, e), true);
+    map.fitBounds([[s, w], [n, e]], {padding: [60, 60]});
+    return;
+  }
+  $('width').value = Math.min(400, Math.max(30, Math.round(c.width / 10) * 10));
+  setCorridorWidth();
+  for (const [lat, lon] of c.points) {     // (as addPoint, the route asked once at the end)
+    const m = L.marker([lat, lon], {draggable: true}).addTo(map);
+    m.label = null;
+    m.on('dragend', () => { m.label = null; updateRoute(); });
+    m.on('contextmenu', () => removePoint(m));
+    markers.push(m);
+  }
+  updateRoute();
+  fitPins();
+}
+
+$('play').onclick = async () => {
+  if (!pick) return;
+  playing = true;
+  render();
+  const r = await fetch('/api/play', {method: 'POST', body: JSON.stringify({name: pick})}).then(r => r.json())
+    .catch(e => ({error: String(e)}));
+  if (r.error) alert(r.error);
+  setTimeout(() => { playing = false; render(); }, r.error ? 0 : 5000);
+};
+
 // --- area: press and drag; while there is none, dragging draws instead of moving the map ---
 let drawFrom = null, drawTo = null;
 map.on('mousedown', e => {
@@ -769,6 +898,7 @@ function showArea(a, b, done) {
   map.dragging.enable();
   setSel({kind: 'area', w: wm, h: hm, tiles, ok: true});
   autoTitle({area});
+  makeCode();
 }
 
 function armArea() { map.dragging.disable(); setSel(null); }
@@ -784,8 +914,9 @@ function clearPoints() {
   addingStop = false;
   if (mode === 'area') { clearShapes(); armArea(); }
   else { map.dragging.enable(); updateRoute(); }
+  makeCode();
 }
-$('clear').onclick = clearPoints;
+$('clear').onclick = $('clear-area').onclick = clearPoints;
 
 // --- build / rebuild / stop (one button in one place) ---
 $('go').onclick = async () => {
@@ -803,7 +934,7 @@ $('go').onclick = async () => {
 };
 
 $('copy').onclick = () => pick && start('/api/rebuild', {name: pick, copy: true});   // (keeps the old one)
-$('del').onclick = async () => {
+$('code-del').onclick = async () => {
   const t = tracks.find(x => x.name === pick);
   if (!t || !confirm(`Delete “${t.title}”?\n\nIt is removed from Assetto Corsa. This cannot be undone.`)) return;
   const r = await fetch('/api/delete', {method: 'POST', body: JSON.stringify({name: t.name})}).then(r => r.json())

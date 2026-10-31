@@ -2,7 +2,9 @@
 -- The route comes from the track's data/map2lap_route.txt (written by generator.py: "anchor <lat> <lon>", then one
 -- "<x> <z>" per line in AC coordinates; older builds: ac_export_route.txt), the build's versions from data/map2lap.json.
 -- Output, one folder per session: Documents/Assetto Corsa/map2lap_debug/<track>_<time>/
---   info.txt         track, when and with which Map2Lap it was built, CSP and app version
+--   info.txt         track, when and with which Map2Lap it was built, its track code and map data, CSP and app version
+--   map2lap.json, map2lap_route.txt   the track's own (its settings, the route as built): tools/from_debug.py builds
+--                    the same track from the folder
 --   marks.csv        one row per mark (the mark key, F10 by default, or "Mark")
 --   mark_NN.csv      the drive around mark NN: the BEFORE_S before it (always recorded in the background) and AFTER_S after
 --   mark_NN.jpg      a screenshot taken with the mark (the app window shows the mark's number and the versions)
@@ -14,12 +16,12 @@ local SAMPLE_S = 0.02            -- s between two recorded rows
 local FLUSH_S = 2.0              -- s between two saves of drive.csv
 local BEFORE_S = 15.0            -- s of drive before a mark kept with it
 local AFTER_S = 5.0              -- s of drive after a mark kept with it
-local APP_VERSION = '1.2'
+local APP_VERSION = '1.3'
 local DRIVE_HEAD = 'time_s,route_m,off_m,x,y,z,speed_kmh,acc_vert_g,acc_side_g,acc_long_g,susp_fl,susp_fr,susp_rl,susp_rr\n'
 local MARKS_HEAD = 'mark,time_s,route_m,off_m,x,y,z,lat,lon,speed_kmh\n'
 
 local route, cum, anchor = nil, nil, nil
-local build = nil                -- {version, track_version, built} of data/map2lap.json, or false
+local build = nil                -- {version, track_version, built, code, overture, osm} of data/map2lap.json, or false
 local lastIdx = 1
 local recording = false
 local unsaved, recorded = {}, 0  -- rows of drive.csv not yet written, rows written
@@ -59,7 +61,9 @@ local function loadBuild()
   local built = tonumber(txt:match('"built"%s*:%s*([%d%.]+)'))
   return { version = txt:match('"version"%s*:%s*"([^"]+)"') or '?',
            track_version = txt:match('"track_version"%s*:%s*"([^"]+)"') or '?',
-           built = built and os.date('%Y-%m-%d %H:%M', math.floor(built)) or '?' }
+           built = built and os.date('%Y-%m-%d %H:%M', math.floor(built)) or '?',
+           code = txt:match('"code"%s*:%s*"([^"]+)"'),
+           overture = txt:match('"overture"%s*:%s*"([^"]+)"'), osm = txt:match('"osm"%s*:%s*"([^"]+)"') }
 end
 
 local function buildText()
@@ -98,8 +102,13 @@ local function folder()
     session = outDir .. '/' .. ac.getTrackID() .. '_' .. os.date('%Y%m%d_%H%M%S')
     io.createDir(outDir)
     io.createDir(session)
-    io.save(session .. '/info.txt', string.format('track %s\n%s\nCSP %s\nTrack Debug %s\n', ac.getTrackID(),
-      buildText(), ac.getPatchVersion() or '?', APP_VERSION))
+    io.save(session .. '/info.txt', string.format('track %s\n%s\ncode %s\nmap data: Overture %s, OSM tags %s\n' ..
+      'CSP %s\nTrack Debug %s\n', ac.getTrackID(), buildText(), build and build.code or '-',
+      build and build.overture or '?', build and build.osm or '?', ac.getPatchVersion() or '?', APP_VERSION))
+    for _, name in ipairs({ 'map2lap.json', 'map2lap_route.txt' }) do      -- (to build the same track: from_debug.py)
+      local data = io.load(ac.getTrackDataFilename(name))
+      if data then io.save(session .. '/' .. name, data) end
+    end
   end
   return session
 end
