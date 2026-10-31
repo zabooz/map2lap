@@ -143,10 +143,8 @@ release's Python has it in `python312._pth`.
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
   `%USERPROFILE%\.cargo\dlltool-llvm\dlltool.exe`; in `native/earthfast` `cargo build --release`,
   `target/release/earthfast.dll` → `server/earthfast.pyd` (stop the page first; or
-  `tools/update_beamng_earth.py --build-native`). The `.pyd` must match the Python version (3.12). The Linux `.so`
-  (`earthfast.abi3.so`) is not built with P1 yet: a build on Linux stops at the first junction with `NativeMissing`
-  until it is built there. No `std::env` in the Rust code:
-  reading environment variables crashed with this toolchain.
+  `tools/update_beamng_earth.py --build-native`). The `.pyd` must match the Python version (3.12). No `std::env` in
+  the Rust code: reading environment variables crashed with this toolchain.
 
 ### Terrain and physics like BeamNG.Earth
 
