@@ -200,8 +200,11 @@
   .path-row button:disabled { opacity: .45; cursor: default; }
   select { height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised); }
   select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  #ac-status.ok { color: var(--ok); }
-  #ac-status.bad { color: var(--accent); font-weight: 600; }
+  #ac-status.ok, #upd-status.ok { color: var(--ok); }
+  #ac-status.bad, #upd-status.bad { color: var(--accent); font-weight: 600; }
+  .ver-row { min-height: 38px; }
+  .ver-row span { align-self: center; font-weight: 600; }
+  #upd-status { min-height: 1.4em; }     /* (empty while asking: the card doesn't shrink) */
   .check { display: flex; gap: 9px; align-items: center; cursor: pointer; }
   .check input { width: 16px; height: 16px; accent-color: var(--accent); }
 
@@ -275,6 +278,11 @@
       <p class="small muted">A CSP app (in the app bar while driving): shows the metre along the route, <b>F10</b> (or a wheel button set in the app) marks
         a spot (with the drive around it and a screenshot), “Start recording” records the whole drive. Each session gets
         its own folder in Documents\Assetto Corsa\map2lap_debug – attach that folder to a bug report.</p>
+    </div>
+    <div class="group">
+      <h3>Version</h3>
+      <div class="path-row ver-row"><span id="app-ver"></span><button id="upd-check">Check for updates</button></div>
+      <p id="upd-status" class="small"></p>
     </div>
   </section>
 
@@ -1002,6 +1010,7 @@ function showSettings(s) {
   $('ac').value = s.ac_path;
   VERSION = s.version;
   $('ver').textContent = ` · v${s.version}`;
+  $('app-ver').textContent = `Map2Lap ${s.version}`;
   $('keep').checked = !s.clean;
   $('debug-app').checked = s.debug_app;
   carChoice = s.car || '';
@@ -1058,15 +1067,66 @@ $('browse').onclick = async () => {
   if (r.path) saveSettings({ac_path: r.path});
 };
 fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); render(); if (!s.ac_ok) setTab('set'); });
-// a newer release on GitHub (the server asks once per run; offline: nothing shows)
-fetch('/api/update').then(r => r.json()).then(u => {
-  if (!u.newer) return;
+// the newest release on GitHub (the server asks once per run, "Check for updates" again): a newer one shows in the
+// head and under Settings → Version, which also says when it's up to date or GitHub can't be reached. A release
+// folder installs it itself: the button turns into "Install"
+let updateTo = null;
+function showUpdate(u) {
+  updateTo = u && u.newer && u.can_install ? u.version : null;
+  $('upd-check').textContent = updateTo ? `Install ${updateTo}` : 'Check for updates';
+  const s = $('upd-status');
+  if (!u || !u.version) {
+    s.textContent = '✗ Couldn’t reach GitHub (offline?)';
+    s.className = 'small bad';
+    return;
+  }
+  if (!u.newer) {
+    s.textContent = '✓ Up to date';
+    s.className = 'small ok';
+    return;
+  }
   const a = $('update');
   a.textContent = `v${u.version} available`;
   a.href = u.url;
   a.title = `Map2Lap ${u.version} is out (you have ${VERSION}): open its download page`;
   a.hidden = false;
-}).catch(() => {});
+  s.innerHTML = `Map2Lap ${esc(u.version)} is out: <a href="${esc(u.url)}" target="_blank" rel="noopener">` +
+    (updateTo ? 'what’s new' : 'download it') + '</a>';
+  s.className = 'small';
+}
+const pause = ms => new Promise(ok => setTimeout(ok, ms));
+async function installUpdate() {
+  if (!confirm(`Install Map2Lap ${updateTo}? Map2Lap restarts; your settings, tracks and map data stay.`)) return;
+  const b = $('upd-check'), s = $('upd-status');
+  const fail = msg => { s.textContent = '✗ ' + msg; s.className = 'small bad'; b.disabled = false; };
+  b.disabled = true;
+  s.className = 'small';
+  s.textContent = 'Downloading …';
+  const r = await fetch('/api/update/install', {method: 'POST'}).then(r => r.json()).catch(e => ({error: String(e)}));
+  if (r.error) return fail(r.error);
+  for (;;) {
+    await pause(500);
+    const p = await fetch('/api/update/progress').then(r => r.json()).catch(() => ({state: 'restarting'}));
+    if (p.state === 'error') return fail(p.error);
+    if (p.state === 'restarting') break;
+    if (p.total) s.textContent = `Downloading … ${Math.floor(100 * p.done / p.total)} %`;
+  }
+  s.textContent = 'Installing, Map2Lap restarts …';
+  for (let i = 1; ; i++) {      // (the server is away while the files go in; back with the new version: reload)
+    await pause(1000);
+    const v = await fetch('/api/settings').then(r => r.json()).catch(() => null);
+    if (v && v.version !== VERSION) return location.reload();
+    if (i === 60) s.textContent = 'Map2Lap didn’t come back: start it again (Start Map2Lap.bat)';
+  }
+}
+async function checkUpdate(fresh) {
+  $('upd-check').disabled = true;
+  $('upd-status').textContent = fresh ? 'checking …' : '';
+  showUpdate(await fetch('/api/update' + (fresh ? '?fresh=1' : '')).then(r => r.json()).catch(() => null));
+  $('upd-check').disabled = false;
+}
+$('upd-check').onclick = () => updateTo ? installUpdate() : checkUpdate(true);
+checkUpdate(false);
 
 setCorridorWidth();
 setMode('route');

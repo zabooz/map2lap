@@ -10,7 +10,7 @@ TRACK_VERSION is never higher than VERSION: a release that changes the tracks se
 built before the split (up to 0.3.3) only stored "version", which then was the track version. Tracks built before
 versions existed have none and count as old. Small changes go in the third place (0.3.1), bigger ones in the second.
 """
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 TRACK_VERSION = "0.5.0"
 REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"
@@ -35,10 +35,11 @@ LATEST_URL = "https://api.github.com/repos/zabooz/map2lap/releases/latest"
 _latest = {}
 
 
-def latest():
-    """The newest release on GitHub: {"version", "url"}, or None (offline, no release yet, the repo private: GitHub
-    answers 404 without a login). Asked once per run."""
-    if "got" not in _latest:
+def latest(fresh=False):
+    """The newest release on GitHub: {"version", "url", "zip"}, or None (offline, no release yet, the repo private:
+    GitHub answers 404 without a login). zip: the Windows zip {"url", "size", "digest"} for updater, None when the
+    release has none. Asked once per run, again with fresh (Settings → "Check for updates")."""
+    if fresh or "got" not in _latest:
         import json
         import urllib.request
         try:
@@ -47,7 +48,10 @@ def latest():
             with urllib.request.urlopen(req, timeout=5) as r:
                 rel = json.load(r)
             v = str(rel.get("tag_name") or "").lstrip("vV")
-            _latest["got"] = {"version": v, "url": rel.get("html_url") or REPO_URL} if key(v) > (0,) else None
+            z = next((a for a in rel.get("assets") or () if a.get("name") == f"Map2Lap-{v}-win64.zip"), None)
+            z = z and {"url": z["browser_download_url"], "size": z["size"], "digest": z.get("digest")}
+            _latest["got"] = ({"version": v, "url": rel.get("html_url") or REPO_URL, "zip": z}
+                              if key(v) > (0,) else None)
         except Exception:
             _latest["got"] = None
     return _latest["got"]

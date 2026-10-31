@@ -21,7 +21,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import generator
-from app import debugapp, mapcache, mytracks, settings, trackcode, version
+from app import debugapp, mapcache, mytracks, settings, trackcode, updater, version
 from app.paths import ROOT, SRC
 
 PORT = 8800
@@ -179,6 +179,8 @@ def start_build(name, title, points, width, area):
             return 409, {"error": "A build is already running"}
         if running["clearing"]:
             return 409, {"error": "The map data is being cleared, try again in a moment"}
+        if updater.state["state"] in ("downloading", "restarting"):
+            return 409, {"error": "Map2Lap is installing an update"}
         job.update(state="running", log=[], result=None, error=None, progress=None, started=time.time(), ended=None)
         started = job["started"]
     threading.Thread(target=run_build, args=(args, name, clean, started), daemon=True).start()
@@ -349,6 +351,36 @@ def play(name):
     return 200, {"ok": True}
 
 
+def install_update():
+    """Settings → "Install update": the newest release is downloaded in the background (updater), then the server ends
+    for "Start Map2Lap.bat" to put it in and start it again; not during a build; returns (HTTP code, response)."""
+    if not updater.possible():
+        return 409, {"error": "Not a release folder: update it with git"}
+    with lock:
+        if job["state"] in ("running", "stopping") or running["clearing"]:
+            return 409, {"error": "Not while a build is running"}
+        if updater.state["state"] in ("downloading", "restarting"):
+            return 409, {"error": "The update is already being installed"}
+        updater.state.update(state="downloading", done=0, total=0, error=None)
+    rel = version.latest(fresh=True)
+    if not (rel and rel["zip"] and version.key(rel["version"]) > version.key(version.VERSION)):
+        updater.state["state"] = "idle"
+        return 409, {"error": "No newer release with a Windows zip on GitHub"}
+    threading.Thread(target=_install, args=(rel,), daemon=True).start()
+    return 200, {"ok": True, "version": rel["version"]}
+
+
+def _install(rel):
+    try:
+        updater.download(rel)
+    except Exception as e:
+        updater.state.update(state="error", error=str(e))
+        return
+    updater.state["state"] = "restarting"
+    time.sleep(2)                   # (the page's next poll sees "restarting")
+    os._exit(updater.RESTART)
+
+
 def clear_cache():
     """Delete the map data (Settings), not during a build; returns (HTTP code, response)."""
     with lock:
@@ -393,10 +425,13 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/cars":
             last = last_car()
             self._send(200, {"cars": cars(), "last": car_name(last) if last else None})
-        elif self.path == "/api/update":            # (a newer Map2Lap on GitHub: the page shows a link)
-            rel = version.latest()
-            self._send(200, {"newer": bool(rel) and version.key(rel["version"]) > version.key(version.VERSION),
+        elif self.path in ("/api/update", "/api/update?fresh=1"):   # (a newer Map2Lap on GitHub: the page links it)
+            rel = version.latest(fresh=self.path.endswith("fresh=1"))
+            newer = bool(rel) and version.key(rel["version"]) > version.key(version.VERSION)
+            self._send(200, {"newer": newer, "can_install": newer and bool(rel["zip"]) and updater.possible(),
                              **(rel or {})})
+        elif self.path == "/api/update/progress":
+            self._send(200, updater.state)
         elif self.path == "/api/cache":             # (counts every file: ~2 s for 170,000)
             size, files = mapcache.usage()
             self._send(200, {"bytes": size, "files": files})
@@ -475,6 +510,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":
                 self._send(*clear_cache())
+            elif self.path == "/api/update/install":
+                self._send(*install_update())
             elif self.path == "/api/stop":
                 with lock:
                     p = running["proc"]

@@ -69,7 +69,9 @@ holds no route: OSRM routes the pins again. A build stores its map data's versio
 Overture's release, the OpenStreetMap tags file's ETag) in `data/map2lap.json` beside the code.
 
 **Release:** `.venv\Scripts\python.exe tools\make_release.py` builds `dist\Map2Lap-<version>-win64.zip` with an
-embedded Python, all packages, BeamNG.Earth and the textures.
+embedded Python, all packages, BeamNG.Earth and the textures. A GitHub release `v<version>` carries it as its
+asset `Map2Lap-<version>-win64.zip` under exactly that name: the page's update check and "Install update" look for it
+(`--target` of `gh release create` takes the full commit hash).
 
 ---
 
@@ -119,6 +121,7 @@ release's Python has it in `python312._pth`.
 | `server.py`, `web/index.html` | Local generator page (Leaflet/OSM): new track (route or area), "My tracks" (rebuild, copy, delete, play), Settings, progress, stop |
 | `generator.py` | Route → tiles → OBJ → track folder → kn5 |
 | `app/version.py` | App version (`VERSION`, every release) and track version (`TRACK_VERSION`, only when built tracks change); both are stored in every track, "My tracks" marks older track versions |
+| `app/updater.py` | "Install update" (Settings → Version): downloads the release zip, checks it against GitHub's SHA-256, unpacks it into `update/`; `Start Map2Lap.bat` puts it in after the server ended with exit code 75 |
 | `app/mytracks.py` | Our tracks in the AC folder and their saved settings (`data/map2lap.json`) |
 | `app/trackcode.py` | Track codes: a track's inputs in one line to share, and back |
 | `app/mapcache.py` | Map data cache with a size limit; "Clear now" |
