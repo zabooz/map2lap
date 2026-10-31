@@ -8,11 +8,16 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
 - Edges across: where the surface deviates from its cross slope by more than EDGE_M from one metre to the next
   (second difference: a slope doesn't count, a step does), -2..+2 m.
 
-    .venv\\Scripts\\python.exe measure.py a2_test                      # one built track
-    .venv\\Scripts\\python.exe measure.py a2_test --from 3600 --to 3800  # only a section, with every spot
-    .venv\\Scripts\\python.exe measure.py --all                         # all test tracks (test_tracks.json)
-    .venv\\Scripts\\python.exe measure.py --all --build                 # build all test tracks again, then measure
-    ... --reference    save the values as the new reference in test_tracks.json (only after a test in game)
+The test tracks (test_tracks.json) are short routes, one per bridge or underpass worth checking. --build builds them
+up to the OBJ parts only (out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds one into
+AC to drive it.
+
+    .venv\\Scripts\\python.exe tools\\measure.py --all --build                      # build all test tracks again, measure
+    .venv\\Scripts\\python.exe tools\\measure.py bruecke_eisenkappel --build        # one of them
+    .venv\\Scripts\\python.exe tools\\measure.py bruecke_eisenkappel --from 180 --to 260   # a section, every spot
+    .venv\\Scripts\\python.exe tools\\measure.py bruecke_eisenkappel --install      # into AC, to drive it
+    .venv\\Scripts\\python.exe tools\\measure.py a2_test                            # any track built before
+    ... --reference    save the values as the new reference in test_tracks.json (the state a change is compared with)
 """
 import argparse
 import glob
@@ -106,6 +111,13 @@ def _lane(hits):
 
 
 def _route(track):
+    """The route in AC coordinates (x east, z = -north): from the build's anchor.json, else the track folder in AC."""
+    anchor = os.path.join(HERE, "out", "tracks", track, "tiles", "anchor.json")
+    if os.path.exists(anchor):
+        with open(anchor, encoding="utf-8") as f:
+            xy = np.asarray(json.load(f).get("route") or [], np.float64)
+        if len(xy):
+            return np.c_[xy[:, 0], -xy[:, 1]]
     data = os.path.join(settings.ac_path(), "content", "tracks", track, "data")
     path = next((os.path.join(data, n) for n in ROUTE_FILES if os.path.exists(os.path.join(data, n))),
                 os.path.join(data, ROUTE_FILES[0]))
@@ -183,16 +195,16 @@ def report(track, r, ref=None, everything=False):
     if rg:
         print("  edges at: " + ", ".join(f"{a:.0f}" if a == b else f"{a:.0f}-{b:.0f}" for a, b in rg[:n]) + " m"
               + (f" (+{len(rg) - n} more)" if n and len(rg) > n else ""))
-    if everything:
-        for u in r["_trans"]:
-            print(f"     {u['m']:7.0f} m  {'onto' if u['onto'] else 'off '}  {u['g']:5.2f} G, step {u['step']:+.3f} m")
+    for u in r["_trans"]:              # (the bridges' ends: a test track has a few)
+        print(f"     {u['m']:7.0f} m  {'onto' if u['onto'] else 'off '}  {u['g']:5.2f} G, step {u['step']:+.3f} m")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tracks", nargs="*")
     ap.add_argument("--all", action="store_true", help="all test tracks from test_tracks.json")
-    ap.add_argument("--build", action="store_true", help="build them again first (test tracks only)")
+    ap.add_argument("--build", action="store_true", help="build them again first, up to the OBJ parts (test tracks only)")
+    ap.add_argument("--install", action="store_true", help="build them into AC instead, to drive them (test tracks only)")
     ap.add_argument("--from", dest="start", type=float)
     ap.add_argument("--to", dest="end", type=float)
     ap.add_argument("--reference", action="store_true", help="save the values as the new reference")
@@ -202,18 +214,22 @@ def main():
     tracks = list(test) if a.all else a.tracks
     if not tracks:
         ap.error("a track or --all")
-    if a.build:
+    if a.build or a.install:
         import generator
         for t in tracks:
             if t not in test:
                 ap.error(f"{t} is not a test track (test_tracks.json)")
-            generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
+            print(f"building {t} ...", flush=True)
+            if a.install:
+                generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
+            else:
+                generator.build(test[t]["points"], test[t]["width"], t, log=lambda *x: None, upto="obj")
     part = a.start is not None or a.end is not None
     for t in tracks:
         r = measure(t, a.start, a.end)
+        if t in test:
+            print(f"\n{test[t]['about']}", end="")
         report(t, r, None if part else test.get(t, {}).get("reference"), everything=part)
-        if t in test and test[t].get("spots") and not part:
-            print("  known spots: " + "; ".join(f"{k} m {v}" for k, v in test[t]["spots"].items()))
         if a.reference and t in test and not part:
             test[t]["reference"] = {k: v for k, v in r.items() if not k.startswith("_")}
     if a.reference:
