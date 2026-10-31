@@ -4095,14 +4095,69 @@ def deck_split(depth):
 
 
 # The curve solve lets a deck leave its abutment up to CHORD_KINK (2 %) off its approach's grade, more where its curve
-# needs it: a kink stiff tyres throw a car off at speed. Where the elevation is lidar the deck's ends are the real
-# road's: a deck between two approaches is a cubic between its ends' heights meeting each approach at its grade (read
-# TANGENT_AT_M past the end).
+# needs it; past that its curve can stand well over the straight line between the abutments with nothing under it to
+# clear and drop into one at 10 % and more: a kink stiff tyres throw a car off at speed. Where the elevation is lidar
+# the deck's ends are the real road's: a deck between two approaches is a cubic between its ends' heights meeting each
+# approach at its grade (read TANGENT_AT_M past the end), lifted over what it must clear (_deck_needs: the roads and
+# water under it as far as the solve cleared them, the ground) by a bump that keeps its ends' heights and grades
+# (_lift_tangent).
 TANGENT_AT_M = np.array([4.0, 8.0, 12.0, 16.0])
-TANGENT_MIN_M = 6.0         # m: a shorter deck is left as solved
-TANGENT_DROP_M = 0.3        # m it may sink under the solved deck at most (more: a clearance it needs; kept as solved)
-TANGENT_TOL_M = 0.03        # m the ground under it may come nearer than DECK_CLEAR
-TANGENT_END_M = 15.0        # m: a deck that must keep its solved middle (a span over a road) is eased in this far only
+TANGENT_MIN_M = 3.0         # m: a shorter deck is left as solved
+TANGENT_TOL_M = 0.03        # m the deck may come nearer than what it must clear
+TANGENT_END_M = 15.0        # m: a deck the lifted cubic cannot carry keeps its solved middle and is eased in this far
+TANGENT_BUMPS = (0.5, 1 / 3, 1 / 4)     # the lift's ramps (share of the deck from each end): a hump, a plateau
+TANGENT_GRADE_SLACK = 0.02  # its grade at most this over the steepest of its approaches, its straight line, DECK_MAX_GRADE
+
+
+def _deck_needs(s, solved, floor, crossings, clear):
+    """Per arc s of a deck part the height it must keep: floor (the ground and DECK_CLEAR) inside it, and over each of
+    crossings (arc, height under it[, its own clearance]: the solve's) its clearance, at most the lowest the solve kept
+    over that corridor (the headroom _clearance_deficits measures: where the corridor reaches an abutment, its height).
+    The roads at its ends that are junctions at grade (deck_curve's rule) ask for nothing. -inf at the ends (they
+    stay). Pure."""
+    s, solved = np.asarray(s, np.float64), np.asarray(solved, np.float64)
+    L = float(s[-1])
+    need = np.asarray(floor, np.float64).copy()
+    z0, zL = float(solved[0]), float(solved[-1])
+    for cr in crossings:
+        arc, zc = float(cr[0]), float(cr[1])
+        own = len(cr) > 2 and cr[2] is not None
+        cl = float(cr[2]) if own else float(clear)
+        d_end = min(arc, L - arc)
+        if not own and d_end <= AT_GRADE_REACH_M and min(z0, zL) + DECK_MAX_GRADE * d_end < zc + AT_GRADE_M:
+            continue
+        m = np.abs(s - arc) <= max(DECK_ROAD_HALF, DECK_CLEAR_REACH_M if not own else 0.0)
+        if m.any():
+            need[m] = np.maximum(need[m], min(zc + cl, float(solved[m].min())))
+    need[0] = need[-1] = -np.inf
+    return need
+
+
+def _lift_tangent(s, zt, need, max_grade):
+    """The cubic zt (at arcs s) lifted over need (_deck_needs) by the smoothest of the bumps TANGENT_BUMPS (zero with
+    zero slope at both ends, so the ends' heights and grades stay), grades at most max_grade; zt itself when it clears
+    need, None when no bump does. Pure."""
+    s, zt, need = (np.asarray(a, np.float64) for a in (s, zt, need))
+    short = need - zt
+    if not (short > TANGENT_TOL_M).any():
+        return zt
+    t = s / max(float(s[-1]), 1e-9)
+    best = None
+    for a in TANGENT_BUMPS:
+        u = np.clip(np.minimum(t, 1.0 - t) / a, 0.0, 1.0)
+        b = 3 * u ** 2 - 2 * u ** 3
+        inner = b > 1e-3
+        if (short[~inner] > TANGENT_TOL_M).any():
+            continue
+        z = zt + float(np.max(np.where(inner, short, 0.0) / np.where(inner, b, 1.0))) * b
+        g = np.arange(0.0, float(s[-1]) + 1e-9, 1.0)
+        gr = np.diff(np.interp(g, s, z)) / np.maximum(np.diff(g), 1e-9) if len(g) > 1 else np.zeros(1)
+        if float(np.max(np.abs(gr))) > max_grade:
+            continue
+        bend = float(np.max(np.abs(np.diff(gr)))) if len(gr) > 1 else 0.0
+        if best is None or bend < best[0]:
+            best = (bend, z)
+    return None if best is None else best[1]
 
 
 def tangent_profile(s, z0, zL, g0, gL):
@@ -4693,8 +4748,14 @@ class BridgeProfiles:
         if simple:
             _simple_add(self.frame, lines)
         if head is not None and simple:     # on lidar: meeting its approaches' grades
-            zs = self._tangent(lines, zs)
-        elif ons and not over:          # (final is the solve before _tangent)
+            zs, laid = self._tangent(lines, zs, required + rails + water, deck_road_clear(depth, head))
+            # a part laid between its real ends at their grades keeps that: a measured profile eased between them
+            # (other data, another height reference) only humps it
+            if all(laid):
+                return zs
+            obs = self._observed(comp, pool, lines, zs, pins=_ground_pins(lines, gl))
+            return [z if done else o for z, o, done in zip(zs, obs, laid)]
+        if ons and not over:            # (final is the solve before _tangent)
             return final
         return self._observed(comp, pool, lines, zs, pins=_ground_pins(lines, gl))
 
@@ -4795,17 +4856,19 @@ class BridgeProfiles:
             out.append(zz)
         return out
 
-    def _tangent(self, lines, zs):
-        """zs with each part whose both ends are abutments (no other part ends there, the graded
-        ground at the end within DECK_BANK_ON_M of it) laid as tangent_profile between its ends: their heights kept,
-        the grade of the road leading onto each end (TANGENT_AT_M past it) taken; kept as solved where that would sink
-        it more than TANGENT_DROP_M anywhere (a clearance it needs) or under the ground beneath it."""
+    def _tangent(self, lines, zs, crossings=(), clear=DECK_ROAD_CLEAR):
+        """(zs with each part whose both ends are abutments (no other part ends there, the graded ground at the end
+        within DECK_BANK_ON_M of it) laid as tangent_profile between its ends: their heights kept, the grade of the
+        road leading onto each end (TANGENT_AT_M past it) taken, lifted over what it must clear (_deck_needs of
+        crossings, the solve's (part, arc, height[, its own clearance]), and the ground beneath it: _lift_tangent);
+        else its solved middle kept with tangent_ends where that clears it; else as solved, per part: was it laid)."""
         ends = np.array([np.asarray(ln, np.float64)[e, :2] for ln in lines for e in (0, -1)]).reshape(-1, 2)
-        out = []
-        for ln, z in zip(lines, zs):
+        out, laid = [], []
+        for k, (ln, z) in enumerate(zip(lines, zs)):
             xy = np.asarray(ln, np.float64)[:, :2]
             z = np.asarray(z, np.float64)
             out.append(z)
+            laid.append(False)
             if len(xy) < 2 or not np.isfinite(z).all():
                 continue
             s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
@@ -4826,13 +4889,17 @@ class BridgeProfiles:
                 grades.append(-slope if e == 0 else slope)
             if len(grades) < 2:
                 continue
-            under = self._ground(xy) + DECK_CLEAR - TANGENT_TOL_M
-            for zt in (tangent_profile(s, float(z[0]), float(z[-1]), grades[0], grades[1]),
-                       tangent_ends(s, z, grades[0], grades[1])):
-                if not ((zt < z - TANGENT_DROP_M).any() or (zt[1:-1] < under[1:-1]).any()):
-                    out[-1] = zt
-                    break
-        return out
+            need = _deck_needs(s, z, self._ground(xy) + DECK_CLEAR,
+                               [tuple(cr[1:]) for cr in crossings if cr[0] == k], clear)
+            steep = max(abs(grades[0]), abs(grades[1]), abs(float(z[-1] - z[0])) / float(s[-1]), DECK_MAX_GRADE)
+            zt = _lift_tangent(s, tangent_profile(s, float(z[0]), float(z[-1]), grades[0], grades[1]), need,
+                               steep + TANGENT_GRADE_SLACK)
+            if zt is None:
+                ze = tangent_ends(s, z, grades[0], grades[1])
+                zt = ze if not (need - ze > TANGENT_TOL_M).any() else None
+            if zt is not None:
+                out[-1], laid[-1] = zt, True
+        return out, laid
 
     def _depth(self, lines):
         """m of slab and girders of a chain: deck_depth of the inventory's main span where a record matches, else of

@@ -56,13 +56,13 @@
   "width": 60.0,
   "reference": {
    "length_m": 500,
-   "over_05g_m": 4,
-   "lanes_over_05g_m": 4,
-   "max_g": 0.66,
-   "max_g_at_m": 260.0,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.25,
+   "max_g_at_m": 283.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 0.65
+   "max_g_transition": 0.25
   }
  },
  "bruecke_a2_rammersdorf": {
@@ -204,13 +204,13 @@
   "width": 60.0,
   "reference": {
    "length_m": 656,
-   "over_05g_m": 31,
-   "lanes_over_05g_m": 113,
-   "max_g": 2.23,
+   "over_05g_m": 26,
+   "lanes_over_05g_m": 117,
+   "max_g": 1.91,
    "max_g_at_m": 200.0,
    "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 2.23
+   "transitions": 4,
+   "max_g_transition": 1.91
   }
  },
  "bruecke_graz_friedensbruecke": {
@@ -299,13 +299,13 @@
   "width": 60.0,
   "reference": {
    "length_m": 538,
-   "over_05g_m": 8,
-   "lanes_over_05g_m": 9,
-   "max_g": 5.35,
-   "max_g_at_m": 207.0,
+   "over_05g_m": 2,
+   "lanes_over_05g_m": 4,
+   "max_g": 0.66,
+   "max_g_at_m": 214.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 5.35
+   "max_g_transition": 0.66
   }
  },
  "bruecke_eisenkappel_rechberg": {
@@ -361,13 +361,13 @@
   "width": 60.0,
   "reference": {
    "length_m": 400,
-   "over_05g_m": 19,
-   "lanes_over_05g_m": 42,
-   "max_g": 6.79,
-   "max_g_at_m": 48.0,
+   "over_05g_m": 10,
+   "lanes_over_05g_m": 39,
+   "max_g": 1.79,
+   "max_g_at_m": 322.0,
    "edges_m": 4,
    "transitions": 2,
-   "max_g_transition": 6.79
+   "max_g_transition": 0.8
   }
  },
  "bruecke_seeboden": {

@@ -1216,6 +1216,41 @@ class TangentProfileTest(unittest.TestCase):
         self.assertAlmostEqual(float((z[1] - z[0]) / (s[1] - s[0])), 0.026, delta=0.001)     # (0.5 m steps)
         self.assertAlmostEqual(float((z[-1] - z[-2]) / (s[-1] - s[-2])), 0.020, delta=0.001)
 
+    # a 35 m deck over a stream on lidar: its curve solve stood 0.48 m over the cubic with nothing to clear and fell
+    # into one abutment at -14 %
+    S = np.array([0, 3.4, 6.8, 10.1, 13.5, 16.9, 20.5, 24.0, 27.6, 31.2, 34.8])
+    GROUND = np.array([527.102, 526.912, 526.647, 526.524, 526.463, 524.880, 525.865, 525.874, 525.877, 525.917,
+                       525.947])
+    SOLVED = np.array([527.102, 527.059, 527.001, 526.934, 526.859, 526.779, 526.693, 526.607, 526.530, 526.463,
+                       525.947])
+
+    def test_a_deck_over_nothing_to_clear_is_the_cubic(self):
+        """Its approaches at its ends are junctions at grade: they ask for nothing, the ground only for itself."""
+        need = roads._deck_needs(self.S, self.SOLVED, self.GROUND + roads.DECK_CLEAR,
+                                 [(0.0, 527.10), (34.77, 525.95)], 5.73)
+        zt = roads.tangent_profile(self.S, 527.102, 525.947, -0.0316, -0.0051)
+        got = roads._lift_tangent(self.S, zt, need, 0.08)
+        np.testing.assert_allclose(got, zt)
+        gr = np.diff(got) / np.diff(self.S)
+        self.assertLess(float(np.max(np.abs(np.diff(gr)))), 0.012)      # (the solve: 12.5 %)
+
+    def test_lifted_over_what_it_must_clear_keeping_its_ends(self):
+        """A road under the middle with a clearance the solve reached: the cubic lifted to it, its ends' heights and
+        grades as they were; one the solve fell short of only as high as the solve got over its corridor."""
+        s = np.linspace(0.0, 100.0, 101)
+        solved = 100.0 + 2.0 * np.sin(np.pi * s / 100.0)         # (2 m up over the road)
+        need = roads._deck_needs(s, solved, np.full(101, 90.0), [(50.0, 96.0)], 5.0)
+        self.assertAlmostEqual(float(need[50]), 101.0)
+        self.assertEqual(float(need[29]), 90.0)                     # (DECK_CLEAR_REACH_M either side)
+        low = float(roads._deck_needs(s, solved, np.full(101, 90.0), [(50.0, 99.0)], 5.0)[50])
+        self.assertAlmostEqual(low, 100.0 + 2.0 * np.sin(0.3 * np.pi))         # (the corridor's lowest)
+        zt = roads.tangent_profile(s, 100.0, 100.0, 0.0, 0.0)
+        got = roads._lift_tangent(s, zt, need, 0.08)
+        self.assertGreaterEqual(float(got[30:71].min()), 101.0 - roads.TANGENT_TOL_M)
+        self.assertEqual((float(got[0]), float(got[-1])), (100.0, 100.0))
+        self.assertLess(abs(float(got[1] - got[0])), 0.01)              # (leaves level, as the approach)
+        self.assertIsNone(roads._lift_tangent(s, zt, need, 0.01))       # (too steep a lift: none)
+
 
 if __name__ == "__main__":
     unittest.main()
