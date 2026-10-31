@@ -37,7 +37,13 @@
   /* Sidebar: fixed sections, only the log grows */
   aside { position: relative; background: var(--panel); border-right: 1px solid var(--line); height: 100vh;
           display: flex; flex-direction: column; gap: 14px; padding: 18px; min-width: 0; }
-  .head { display: flex; align-items: center; gap: 10px; }
+  .head { position: relative; display: flex; align-items: center; gap: 10px; }
+  /* A newer Map2Lap on GitHub: over the head's right end on the name's line (the tagline below runs under it), so
+     nothing moves when it shows */
+  .update { position: absolute; right: 0; top: 1px; font-size: 11px; font-weight: 700;
+            letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 99px; text-decoration: none;
+            background: var(--ok-soft); color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+  .update:hover { background: var(--ok); color: var(--panel); }
   .mark { width: 30px; height: 30px; border-radius: 8px; flex: none;
           background: repeating-conic-gradient(var(--text) 0 25%, var(--panel) 0 50%) 0 0 / 10px 10px;
           box-shadow: inset 0 0 0 2px var(--text); }
@@ -202,6 +208,7 @@
   <div class="head">
     <div class="mark"></div>
     <div class="brand"><b>Map2Lap</b><span>Real roads for Assetto Corsa<span id="ver"></span></span></div>
+    <a id="update" class="update" target="_blank" rel="noopener" hidden></a>
   </div>
 
   <nav class="tabs">
@@ -911,6 +918,15 @@ $('browse').onclick = async () => {
   if (r.path) saveSettings({ac_path: r.path});
 };
 fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); if (!s.ac_ok) setTab('set'); });
+// a newer release on GitHub (the server asks once per run; offline: nothing shows)
+fetch('/api/update').then(r => r.json()).then(u => {
+  if (!u.newer) return;
+  const a = $('update');
+  a.textContent = `v${u.version} available`;
+  a.href = u.url;
+  a.title = `Map2Lap ${u.version} is out (you have ${VERSION}): open its download page`;
+  a.hidden = false;
+}).catch(() => {});
 
 setCorridorWidth();
 setMode('route');

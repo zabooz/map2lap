@@ -29,3 +29,25 @@ def key(v):
 def outdated(v):
     """A track's version older than TRACK_VERSION (or none)."""
     return v is None or key(v) < key(TRACK_VERSION)
+
+
+LATEST_URL = "https://api.github.com/repos/zabooz/map2lap/releases/latest"
+_latest = {}
+
+
+def latest():
+    """The newest release on GitHub: {"version", "url"}, or None (offline, no release yet, the repo private: GitHub
+    answers 404 without a login). Asked once per run."""
+    if "got" not in _latest:
+        import json
+        import urllib.request
+        try:
+            req = urllib.request.Request(LATEST_URL, headers={"User-Agent": USER_AGENT,
+                                                              "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                rel = json.load(r)
+            v = str(rel.get("tag_name") or "").lstrip("vV")
+            _latest["got"] = {"version": v, "url": rel.get("html_url") or REPO_URL} if key(v) > (0,) else None
+        except Exception:
+            _latest["got"] = None
+    return _latest["got"]

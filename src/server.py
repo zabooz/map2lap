@@ -389,6 +389,10 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/cars":
             last = last_car()
             self._send(200, {"cars": cars(), "last": car_name(last) if last else None})
+        elif self.path == "/api/update":            # (a newer Map2Lap on GitHub: the page shows a link)
+            rel = version.latest()
+            self._send(200, {"newer": bool(rel) and version.key(rel["version"]) > version.key(version.VERSION),
+                             **(rel or {})})
         elif self.path == "/api/cache":             # (counts every file: ~2 s for 170,000)
             size, files = mapcache.usage()
             self._send(200, {"bytes": size, "files": files})
