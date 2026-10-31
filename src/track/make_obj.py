@@ -46,6 +46,8 @@ SURFACE = {
     "road_asphalt_2lane": ("1ROAD", "asphalt"), "italy_cobblestone": ("1ROAD", "cobble"),
     "gutter1": ("1ROAD", "concrete"), "m_metal_grid_drain": ("1ROAD", "concrete"),
     "line_white": (None, "paint"), "line_dashed_long": (None, "paint"), "crossing_white": (None, "paint"),
+    # the name signs' lettering on buildings (buildings.LETTERS: the guide signs' letters materials, MATERIALS below)
+    "bne_guide_letters": (None, "bne_guide_letters"), "bne_guide_letters_black": (None, "bne_guide_letters_black"),
     "sidewalk1": ("1ROAD", "sidewalk"), "tactile_indicator": ("1ROAD", "sidewalk"), "curbs": ("1KERB", "kerbstone"),
     "bne_bld_facade": ("1WALL", "plaster"), "bne_bld_shop": ("1WALL", "plaster2"), "bne_bld_siding": ("1WALL", "plaster"),
     "bne_bld_panel": ("1WALL", "plaster"), "bne_bld_metalwall": ("1WALL", "concrete"), "bne_bld_stone": ("1WALL", "bricks"),

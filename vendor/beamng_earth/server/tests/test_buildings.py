@@ -265,6 +265,66 @@ class UseTest(unittest.TestCase):
         self.assertEqual(bld.footprint_uses([hall], None, [("residential", rect(-50, -50, 400, 200), [])]), [None])
 
 
+class NameSignTest(unittest.TestCase):
+    """Names on the signs of shops and halls (names_for, _signs): the businesses in them, else an invented one where
+    the use is known, else none."""
+
+    def test_sign_name_and_text(self):
+        self.assertEqual(bld.sign_name("Kärntner Sparkasse - Eberndorf"), "Kärntner Sparkasse")
+        self.assertEqual(bld.sign_name("ALDI SÜD Filiale 12", "Hofer"), "Hofer", "the brand first")
+        self.assertIsNone(bld.sign_name(None))
+        self.assertLessEqual(len(bld.sign_name("Terra Möbel-Produktions GmbH und Handelsgesellschaft")),
+                             bld.SIGN_NAME_CHARS)
+        self.assertEqual(bld.sign_text("Fleischerei Weiß"), "Fleischerei Weiss")
+        self.assertEqual(bld.sign_text("Café Šoštanj"), "Café Sostanj")
+        self.assertIsNone(bld.sign_text("ラーメン一蘭"), "another script: no stray letters")
+
+    def test_names_for(self):
+        shop = bld.plan(rect(0, 0, 12, 10), {"class": "", "use": "shop"}, 0, 46.59, 14.64, town=True)
+        self.assertEqual(bld.names_for(shop, None, ["KiK", "Bäckerei Wienerroither"], "AT"),
+                         ("KiK", "Bäckerei Wienerroither"))
+        hall = bld.plan(rect(0, 0, 60, 40), {"class": "", "use": "industrial"}, 0, 46.59, 14.64, town=True)
+        self.assertEqual(bld.names_for(hall, "Schippel Stahlbau", ["Bistro"], "AT")[0], "Schippel Stahlbau",
+                         "a hall shows its own name first")
+        made = bld.names_for(hall, None, [], "AT")
+        self.assertEqual(len(made), 1, "a works hall with no name: an invented one")
+        self.assertEqual(made, bld.names_for(hall, None, [], "AT"), "the same on every build")
+        house = bld.plan(rect(0, 0, 12, 10), {"class": ""}, 0, 46.59, 14.64, town=True)
+        self.assertEqual(bld.names_for(house, "Haus Gruber", ["KiK"], "AT"), (), "not a shop front: no sign")
+        guess = bld.plan(rect(0, 0, 12, 10), {"class": ""}, 0, 46.59, 14.64, town=True)
+        guess.shop = True                   # (doors: a main street's ground floor, nothing mapped)
+        self.assertEqual(bld.names_for(guess, None, [], "AT"), (), "a shop from nothing but a guess: no invented name")
+
+    def test_invented_in_the_country_language(self):
+        import shopnames
+        de = shopnames.invented("AT", "industrial", 0.37)
+        self.assertIn(de.split()[-1], shopnames.TRADES["de"]["industrial"])
+        it = shopnames.invented("IT", "retail", 0.37)
+        self.assertIn(it.split()[0], shopnames.TRADES["it"]["retail"])
+        self.assertIn(shopnames.invented("JP", "shop", 0.5).split()[0], shopnames.SURNAMES["en"], "else English")
+
+    def test_letters_on_the_band(self):
+        spec = bld.plan(rect(0, 0, 14, 10), {"class": "", "use": "shop"}, 0, 46.59, 14.64, town=True)
+        spec.names, spec.sign = ("KiK",), 0
+        P, UV, T, M, mats, C = bld.build([(spec, 0.0, 0.0)])
+        lit = {bld.MATERIALS.index(m_) for m_ in bld.LETTERS}
+        got = [k for k in M.tolist() if k in lit]
+        self.assertEqual(len(got), 2 * 3, "three glyph quads")
+        spec.names = ()
+        self.assertFalse(lit & set(bld.build([(spec, 0.0, 0.0)])[3].tolist()))
+
+    def test_hall_panel_over_its_doors(self):
+        spec = bld.plan(rect(0, 0, 60, 40), {"class": "", "use": "industrial", "height": 9.0}, 0, 46.59, 14.64,
+                        town=True)
+        spec.names, spec.sign = ("Schippel Stahlbau",), 0
+        P, UV, T, M, mats, C = bld.build([(spec, 0.0, 0.0)])
+        lit = np.isin(M, [bld.MATERIALS.index(m_) for m_ in bld.LETTERS])
+        z = P[T[lit].ravel(), 2]
+        self.assertGreaterEqual(z.min(), bld.HALL_CLEAR_M - 1e-6)
+        self.assertLessEqual(z.max(), 9.0)
+        self.assertGreater(z.max() - z.min(), 0.8, "letters bigger than a shop band's")
+
+
 class TowerShopTest(unittest.TestCase):
     def test_city_towers_have_a_shop_ground_floor(self):
         # Midtown, 2026-10-14: classless towers had their curtain wall down to the pavement

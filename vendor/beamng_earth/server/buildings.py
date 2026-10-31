@@ -77,8 +77,10 @@ MARBLE = "bne_bld_marble"   # cut white marble (the stock m_marble_cut): Baltimo
 BRICK_WALL = "bne_bld_brick"    # plain red brick (the stock brick_plain): a garage's skin
 CONCRETE = "bne_bridge_concrete"  # plain concrete (tunnel.materials.json): a precast garage's skin
 SKY_WALL = "bne_bld_sky"    # the skyline's walls: plain (vertex colours), their windows lit at night (_sky_mesh)
+# the name signs' lettering: the guide signs' (exit.materials.json, the glyph atlas of exitsigns.lettering), light, dark
+LETTERS = ("bne_guide_letters", "bne_guide_letters_black")
 MATERIALS = (FACADE, SHOP, OFFICE, ROOF_FLAT, ROOF_SLATE, ROOF_SHINGLE, SIDING, STUCCO, ROOF_METAL, PANEL, METALWALL,
-             STONE, MARBLE, BRICK_WALL, CONCRETE, SKY_WALL)
+             STONE, MARBLE, BRICK_WALL, CONCRETE, SKY_WALL) + LETTERS
 LOOKS = {
     "bne_bridge_steel": (METALWALL, (0.50, 0.52, 0.54)),
     "bne_marble": (MARBLE, (1.0, 1.0, 1.0)),
@@ -136,6 +138,19 @@ for _k, _c in enumerate(SIGN_TINTS):
 SIGN_H = 0.9                # m, the band's height (its top 0.15 m under the ground floor's top)
 SIGN_OUT = 0.18             # m out from the wall
 SIGN_SHOP_M = (6.0, 11.0)   # one shop's width (hashed in this range)
+for _k, _m in enumerate(LETTERS):
+    LOOKS[f"letters|{_k}"] = (_m, (1.0, 1.0, 1.0))
+# Name signs (names_for): a shop's name on its band, a hall's on one panel over its storefront
+SIGN_CAP = 0.5              # of the band's height: the capitals' (squeezed to the band's width, never wider)
+SIGN_MARGIN_M = 0.3         # m of band kept free at each end of a name
+HALL_CAP_M = 1.0            # m: a hall's capitals at most (a firm's lettering readable from the road) ...
+HALL_CAP_SHARE = 0.6        # ... of the wall's width at most for the whole name
+HALL_CLEAR_M = 3.0          # m over a hall's floor kept free under its name (its doors, gates and shop windows)
+SIGN_NAME_CHARS = 30        # a longer name is cut after its last whole word within this
+SIGN_NAME_CUT = (" - ", " – ", " — ", " | ", " · ", " / ")   # a place's branch after these (Kärntner Sparkasse - Eberndorf)
+# classes that are a business whatever is mapped about it: with no name, one is invented (shopnames.invented); a
+# "commercial" building only as a hall (as often offices as shops)
+INVENTED_CLASSES = {"retail", "supermarket", "kiosk", "shop"}
 BARN_REDS = 2               # the last siding tints are barn red (barns only)
 US_WALL_TINTS = {STUCCO: 5}  # the first tints of these kinds are the US's (later ones: regional paints)
 JITTER = 0.06               # a building's colour varies this much (one factor, hashed)
@@ -343,7 +358,7 @@ def oriented_box(p):
 class Spec:
     """What is built for one footprint (decided by plan())."""
     __slots__ = ("ring", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "band", "shop", "plain", "min_h", "wall", "door", "windows", "front", "steeple", "stoop",
-                 "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring")
+                 "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -480,9 +495,15 @@ def place_use(category, taxonomy):
     return None
 
 
+def _places_in(ring, pxy):
+    """Indices of the points pxy (k, 2) inside ring (n, 2)."""
+    lo, hi = ring.min(0), ring.max(0)
+    return [k for k in np.flatnonzero(((pxy >= lo) & (pxy <= hi)).all(1)).tolist() if _inside(ring, pxy[k])]
+
+
 def footprint_uses(rings, places=None, lands=()):
     """Per ring ((n, 2), one frame for all): the class its places and land use give it, or None. places: (xy (k, 2),
-    uses (k,) of place_use) of the places around; lands: [(class, outer (m, 2), [hole (h, 2), ...])] of the land use
+    uses (k,) of place_use[, names]) of the places around; lands: [(class, outer (m, 2), [hole (h, 2), ...])] of the land use
     areas of LAND_CLASSES. A hall needs the size of one: a works place or land use on a footprint up to a house's
     (HOUSE_MAX_M2) is a firm registered at a home or an office in the estate, a store land use under a smaller one than a
     big box (BIG_BOX_M2) an office as often as a shop. A works place on a big box's footprint wins over a shop in it
@@ -492,11 +513,7 @@ def footprint_uses(rings, places=None, lands=()):
     for ring in rings:
         r = np.asarray(ring, np.float64)
         area = abs(_area2(r)) / 2
-        lo, hi = r.min(0), r.max(0)
-        got = set()
-        for k in np.flatnonzero(((pxy >= lo) & (pxy <= hi)).all(1)).tolist():
-            if puse[k] is not None and _inside(r, pxy[k]):
-                got.add(puse[k])
+        got = {puse[k] for k in _places_in(r, pxy) if puse[k] is not None}
         c = r[:-1].mean(0) if len(r) > 1 and np.allclose(r[0], r[-1]) else r.mean(0)
         land = None
         for cls, outer, holes in lands:
@@ -518,15 +535,83 @@ def footprint_uses(rings, places=None, lands=()):
     return out
 
 
+def footprint_names(rings, places):
+    """Per ring: the sign names (sign_name) of the businesses (a place_use) among places (xy, uses, names) inside it,
+    each once, in the places' order. Pure."""
+    pxy, puse, pname = np.asarray(places[0], np.float64).reshape(-1, 2), places[1], places[2]
+    out = []
+    for ring in rings:
+        got = []
+        for k in _places_in(np.asarray(ring, np.float64), pxy):
+            if puse[k] is not None and pname[k] and pname[k] not in got:
+                got.append(pname[k])
+        out.append(got)
+    return out
+
+
+def sign_name(name, brand=None):
+    """The name a business shows on its sign: its brand's, else its own without the branch after a dash (a listing's
+    "Kärntner Sparkasse - Eberndorf"), cut after its last whole word within SIGN_NAME_CHARS; None without one. Pure."""
+    s = " ".join(str(brand or "").split()) or " ".join(str(name or "").split())
+    if s.lower() in ("", "nan", "none"):
+        return None
+    for cut in SIGN_NAME_CUT:
+        if cut in s and s.index(cut) >= 2:
+            s = s[:s.index(cut)]
+    if len(s) > SIGN_NAME_CHARS:
+        s = s[:SIGN_NAME_CHARS + 1].rsplit(" ", 1)[0] if " " in s[:SIGN_NAME_CHARS + 1] else s[:SIGN_NAME_CHARS]
+    return s.strip(" ,;:-") or None
+
+
+def sign_text(value):
+    """value in the lettering's glyphs (exitsigns' accents and dashes; ß as ss), the letters it has none for left out,
+    or None when that is a quarter of it or more (another script: a Tokyo shop's name drawn as a few stray Latin
+    letters). Pure."""
+    import exitsigns
+    s = " ".join(str(value or "").replace("ß", "ss").replace("ẞ", "SS").split())
+    if not s:
+        return None
+    t = [exitsigns._text(c) for c in s]
+    bad = sum(1 for c, o in zip(s, t) if o == "?" and c != "?")
+    if bad * 4 >= len(s):
+        return None
+    return "".join(o for c, o in zip(s, t) if not (o == "?" and c != "?")).strip() or None
+
+
+def names_for(spec, own, found, country):
+    """The names on a building's signs, only for a business front: a shop (spec.shop) or a hall (no windows). On a
+    hall its own mapped name (own: the building's name) first, then the businesses in it (found: footprint_names; a
+    hall shows its firm, the shops in it are counters); on a shop building the businesses first, each on its own
+    band. With none and a business class (INVENTED_CLASSES, industrial; commercial on a hall): one invented in the
+    country's language (shopnames.invented); else none. Only what the lettering can write (sign_text). Pure."""
+    hall = spec.windows is False and not spec.plain
+    if not (spec.shop or hall):
+        return ()
+    own = sign_name(own)
+    raw = ([own] if own and hall else []) + list(found) + ([own] if own and not hall else [])
+    names = []
+    for n in raw:
+        t = sign_text(n)
+        if t and t not in names:
+            names.append(t)
+    industrial = spec.cls in INDUSTRIAL_CLASSES
+    if not names and (spec.cls in INVENTED_CLASSES or industrial or (hall and spec.cls == "commercial")):
+        import shopnames
+        t = sign_text(shopnames.invented(country, "industrial" if industrial else "retail" if hall else "shop",
+                                         _hash01(spec.seed, "shopname")))
+        names = [t] if t else []
+    return tuple(names)
+
+
 def use_data(frame, md, keys, x0, y0):
-    """The places and land use areas of map cells keys for footprint_uses, relative to (x0, y0) in frame (an EnuFrame):
-    (places, lands), or None when the cells can't give them (offline without the places: the generic rules)."""
+    """The places and land use areas of map cells keys for footprint_uses and footprint_names, relative to (x0, y0) in
+    frame (an EnuFrame): ((xy, uses, sign names), lands), or None when the cells can't give them (offline without the places: the generic rules)."""
     try:
         cds = [md.cell(k, layers=("places", "land_use"), kind="demand") for k in keys]
     except Exception as e:      # (the buildings stand without them)
         log.debug("places / land use of cells %s: %s", keys, e)
         return None
-    pxy, puse, lands, seen = [], [], [], set()
+    pxy, puse, pname, lands, seen = [], [], [], [], set()
     for c in cds:
         f = c.layers.get("places")
         if f is not None and len(f):
@@ -540,6 +625,8 @@ def use_data(frame, md, keys, x0, y0):
                     seen.add(f.ids[i])
                     pxy.append(xy[i])
                     puse.append(u)
+                    pname.append(sign_name(a["name"][i] if "name" in a else None,
+                                           a["brand_name"][i] if "brand_name" in a else None))
         f = c.layers.get("land_use")
         if f is not None and len(f):
             for i in range(len(f)):
@@ -550,7 +637,7 @@ def use_data(frame, md, keys, x0, y0):
                     rs = [np.stack(mapgeom.enu_xy(f, frame, np.asarray(rg)), 1) - [x0, y0] for rg in part]
                     if rs and len(rs[0]) >= 4:
                         lands.append((cls, rs[0], rs[1:]))
-    return (np.asarray(pxy, np.float64).reshape(-1, 2), puse), lands
+    return (np.asarray(pxy, np.float64).reshape(-1, 2), puse, pname), lands
 
 
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
@@ -1036,8 +1123,41 @@ def _box(m, c, u, hx, hy, z0, z1, mat):
     m.quad(*[(p[0], p[1], z1) for p in k], *uv, mat)
 
 
-def _signs(m, spec, ring, z_top, mat_idx):
-    """The sign band over a shop's street wall (spec.sign: its edge), shop by shop, a few without one."""
+def _letters_look(tint):
+    """The lettering's look on a sign of tint (rgb 0..1): dark on a light one, light on a dark one. Pure."""
+    return f"letters|{1 if 0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2] > 0.5 else 0}"
+
+
+def _lettering(m, text, c, d, out, z_mid, cap, max_w, mat):
+    """text (sign_text) in the guide signs' glyphs on a face looking out (its reading direction d), centred on c (2D)
+    and z_mid, the capitals cap high, squeezed to max_w; a hair in front of the face. Returns the width drawn."""
+    import exitsigns
+    data = exitsigns.lettering()
+    glyphs = data["glyphs"]
+    scale = cap / data["capHeight"]
+    width = sum(glyphs[ch]["advance"] for ch in text) * scale
+    if width > max_w:
+        scale *= max_w / width
+        width = max_w
+    base = z_mid - data["capHeight"] * scale / 2
+    cur = np.asarray(c, np.float64) + out * 0.02 - d * (width / 2)
+    for ch in text:
+        g = glyphs[ch]
+        l, t, r, b = g["bbox"]
+        u0, v0, u1, v1 = g["uv"]
+        if r > l and b > t:
+            p0, p1 = cur + d * (l * scale), cur + d * (r * scale)
+            zb, zt = base - b * scale, base - t * scale
+            m.quad((p0[0], p0[1], zb), (p1[0], p1[1], zb), (p1[0], p1[1], zt), (p0[0], p0[1], zt),
+                   (u0, v0), (u1, v0), (u1, v1), (u0, v1), mat)
+        cur = cur + d * (g["advance"] * scale)
+    return width
+
+
+def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None):
+    """The sign band over a shop's street wall (spec.sign: its edge), shop by shop, a few without one; the names
+    (spec.names) on the first bands, one each. A hall with a name: one panel in the middle instead, its name in
+    letters up to HALL_CAP_M, between HALL_CLEAR_M over its floor and the eave (z_eave)."""
     edge = spec.sign
     a, b = ring[edge], ring[(edge + 1) % len(ring)]
     L = float(math.hypot(*(b - a)))
@@ -1045,16 +1165,37 @@ def _signs(m, spec, ring, z_top, mat_idx):
         return
     d = (b - a) / L
     out = np.array([d[1], -d[0]])
-    t, k = 0.3, 0
+    names = list(spec.names or ())
+    if names and spec.windows is False:
+        tint = SIGN_TINTS[int(_hash01(spec.seed, "signc", 0) * len(SIGN_TINTS))]
+        z1 = (z_eave if z_eave is not None else z_top) - 0.3
+        z0 = max(z1 - HALL_CAP_M / SIGN_CAP, (floor if floor is not None else z1 - spec.height) + HALL_CLEAR_M)
+        if z1 - z0 < SIGN_H:                            # (a low hall: the band's place)
+            z0, z1 = z_top - 0.15 - SIGN_H, z_top - 0.15
+        cap = (z1 - z0) * SIGN_CAP
+        c = a + d * (L / 2) + out * (SIGN_OUT / 2)
+        tmp = Mesh()                                    # (the name's width first: the panel fits round it)
+        w = _lettering(tmp, names[0], c, d, out * 0, (z0 + z1) / 2, cap, L * HALL_CAP_SHARE, mat_idx["letters|0"])
+        hw = w / 2 + max(SIGN_MARGIN_M, cap * 0.6)
+        _box(m, c, d, hw, SIGN_OUT / 2, z0, z1, mat_idx[f"sign|{SIGN_TINTS.index(tint)}"])
+        _lettering(m, names[0], c + out * (SIGN_OUT / 2), d, out, (z0 + z1) / 2, cap, L * HALL_CAP_SHARE,
+                   mat_idx[_letters_look(tint)])
+        return
+    t, k, n = 0.3, 0, 0
     while t < L - 1.5:
         w = SIGN_SHOP_M[0] + (SIGN_SHOP_M[1] - SIGN_SHOP_M[0]) * _hash01(spec.seed, "signw", k)
         t1 = min(L - 0.3, t + w)
         if L - 0.3 - t1 < 2.5:                         # no sliver of a shop at the end
             t1 = L - 0.3
-        if _hash01(spec.seed, "signon", k) < 0.85:
+        if n < len(names) or _hash01(spec.seed, "signon", k) < 0.85:
             c = a + d * ((t + t1) / 2) + out * (SIGN_OUT / 2)
-            look = f"sign|{int(_hash01(spec.seed, 'signc', k) * len(SIGN_TINTS))}"
-            _box(m, c, d, (t1 - t) / 2 - 0.15, SIGN_OUT / 2, z_top - 0.15 - SIGN_H, z_top - 0.15, mat_idx[look])
+            ci = int(_hash01(spec.seed, 'signc', k) * len(SIGN_TINTS))
+            z0, z1 = z_top - 0.15 - SIGN_H, z_top - 0.15
+            _box(m, c, d, (t1 - t) / 2 - 0.15, SIGN_OUT / 2, z0, z1, mat_idx[f"sign|{ci}"])
+            if n < len(names):
+                _lettering(m, names[n], c + out * (SIGN_OUT / 2), d, out, (z0 + z1) / 2, SIGN_H * SIGN_CAP,
+                           (t1 - t) - 0.3 - 2 * SIGN_MARGIN_M, mat_idx[_letters_look(SIGN_TINTS[ci])])
+                n += 1
         t, k = t1, k + 1
 
 
@@ -1619,7 +1760,7 @@ def build(specs_and_ground, lite=False):
                 z_top = min(gmax + GROUND_FLOOR_SHOP_M + 1.15, z_eave)
             else:
                 z_top = z_eave - (spec.floors - 1) * spec.floor_h if spec.floors > 1 else z_eave
-            _signs(m, spec, ring, z_top, mat_idx)
+            _signs(m, spec, ring, z_top, mat_idx, base_z(spec, gmin, gmax) + mh, z_eave)
     if m.n == 0:
         return None
     P, UV, T, M, C = m.arrays()
@@ -2365,7 +2506,8 @@ class _PartsOf:
 
 def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=(), west_town=False, roads_xy=None,
                    tunnels_xy=None, garages_xy=None, supports=None, bridges_xy=None, water_xy=None, decks=None,
-                   ml_roads_xy=None, ways_xy=None, skip=frozenset(), min_size=None, own=None, uses=None):
+                   ml_roads_xy=None, ways_xy=None, skip=frozenset(), min_size=None, own=None, uses=None,
+                   country=None):
     """[(Spec, gmin, gmax)] of the buildings whose footprint centroid is in the tile [x0, x1) x [y0, y1) (own: the
     tile's box when it says which points are its own, roads.box_owns: a geotile's)
     (anchor frame), rings relative to (x0, y0). layers: mapgeom.Features of buildings (one per map cell; a
@@ -2379,7 +2521,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
     canopy, drawn by the mod from the stock levels' props: gasstations.tile_sites). min_size (min height m, min
     footprint m²): only buildings at least that tall or that large (the skyline tiles: skyline_tile), tested before
     any other work on a building. uses: use_data's places and land use relative to (x0, y0): an unclassed footprint
-    takes the class they give (footprint_uses)."""
+    takes the class they give (footprint_uses), a shop or hall the names on its signs (names_for, invented ones in
+    country's language: an ISO code)."""
     parts_of = _PartsOf(frame, part_layers)     # building id -> [(ring in the anchor frame, (own height, bottom))]
     seen = set()
     rings, attrs, looks, mins = [], [], [], []
@@ -2512,6 +2655,10 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         for k, u in zip(todo, footprint_uses([rings[k] for k in todo], *uses)):
             if u is not None:
                 attrs[k] = dict(attrs[k], use=u)
+        todo = [k for k, look in enumerate(looks) if look is None]
+        for k, got in zip(todo, footprint_names([rings[k] for k in todo], uses[0])):
+            if got:
+                attrs[k] = dict(attrs[k], places=got)
     if bridges_xy or decks:             # a road bridge through a building: a passage (Tower Bridge's towers and gate)
         def ground_at(c):
             la, lo, _ = frame.enu_to_geodetic(float(c[0]) + x0, float(c[1]) + y0, 0.0)
@@ -2551,6 +2698,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         spec = plan(ring, at, int(sh) if look is None else 0, clat, clon, look, town, dense, west_town, alpine)
         spec.min_h = mh
         spec.portal = bool(at.get("portal"))
+        spec.names = names_for(spec, at.get("name"), at.get("places") or (), country) if uses is not None else ()
         i0, i1 = (ends[k - 1] if k else 0), ends[k]
         if not ok[i0:i1].all():
             continue
@@ -2928,8 +3076,9 @@ def _sign_in_open(rows, spec, d, out, others):
 
 
 def _wall_sign(spec, a, d, Le, out, gmax):
-    """A company sign centred high on a big box's or restaurant's street wall (WALL_SIGNS), if it fits."""
-    if _hash01(spec.seed, "wallsign") >= WALL_SIGN_SHARE:
+    """A company sign centred high on a big box's or restaurant's street wall (WALL_SIGNS), if it fits; none on a
+    building with its own name (spec.names: _signs writes it there)."""
+    if spec.names or _hash01(spec.seed, "wallsign") >= WALL_SIGN_SHARE:
         return []
     if spec.cls in RESTAURANT_CLASSES:
         key = "burger"
@@ -2996,10 +3145,10 @@ def _front_fence(spec, a, d, Le, f, A, D, L2, half, z, driveway, roads=None):
     return rows
 
 
-def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset()):
+def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset(), country=None):
     """tile_buildings of road tile (tx, ty), from the map cells under it. decks: the bridge decks near it
     [(xy (k, 2), z (k,))] in the anchor frame (roads.BridgeProfiles.parts): buildings they run through get a way.
-    skip: building ids left out (gas station canopies)."""
+    skip: building ids left out (gas station canopies). country: ISO code (the signs' invented names)."""
     import roads
     box = roads.tile_bbox(tx, ty)
     x0, y0, x1, y1 = box
@@ -3008,6 +3157,7 @@ def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset()):
            for k in keys]
     return tile_buildings(frame, x0, y0, x1, y1, [c.layers.get("buildings") for c in cds], ground,
                           own=box if hasattr(box, "owns") else None, uses=use_data(frame, md, keys, x0, y0),
+                          country=country,
                           part_layers=[c.layers.get("building_parts") for c in cds],
                           west_town=district_town(frame, tx, ty, md),
                           roads_xy=road_lines(frame, [c.layers.get("roads") for c in cds], x0, y0),
