@@ -3,8 +3,9 @@
 degrees counter-clockwise from east: the car's nose). In BeamNG the game's own traffic parks stock cars there; here
 static boxy cars with collision (1WALL, like a wall), one shared atlas (cars.png).
 
-Not every spot is taken (FILL, hashed by position: the same cars on every build). The cars follow the ground's slope
-(each vertex lifted by the ground plane under the car).
+Not every spot is taken: the share by how built-up the land round it is and, for a lot, by what stands next to it
+(fill_shares), the spots hashed by position (the same cars on every build). The cars follow the ground's slope (each
+vertex lifted by the ground plane under the car).
 """
 import math
 
@@ -12,7 +13,20 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 MATERIAL = "cars"
-FILL = {"curb": 0.6, "lot": 0.7}       # share of the spots with a car
+FILL = {"curb": 0.6, "lot": 0.7}       # share of the spots with a car where the buildings round them are unknown
+# How full the curbs and lots are: by the built share of the ground round a spot (the buildings' footprints within
+# DENSITY_R_M), from FILL_RANGE's first on open built-up land (a village street: a car before every few houses) to its
+# second in a dense core (a city centre's curbs are nearly full). Where it fails: a stadium's or a station's lot
+# among few buildings stands as empty as a village's.
+DENSITY_R_M = 100.0         # m: a block and the streets round it, where the people who park there live and work
+FILL_RANGE = (0.2, 0.9)
+DENSE_SHARE = 0.4           # built share of a dense core (an old town's blocks: ~40-50 % of the ground under roofs)
+# A lot next to a shop, a restaurant, an office or a public building is fuller (its customers' and staff's cars) ...
+BUSY_M = 40.0               # m from the lot's stall to the building's wall, about
+BUSY_FILL = 0.8             # ... this full at least
+BUSY_CLASSES = {"retail", "supermarket", "commercial", "shop", "kiosk", "restaurant", "hotel", "office", "civic",
+                "public", "government", "townhall", "school", "university", "college", "kindergarten", "hospital",
+                "train_station", "transportation", "post_office", "library", "fire_station"}
 CELL, COLS, ROWS = 128, 8, 6
 # body colours and their share in traffic (white, black, greys and silver lead world-wide)
 BODY = (((236, 236, 232), 24), ((28, 30, 34), 18), ((120, 124, 128), 14), ((178, 182, 186), 12),
@@ -140,14 +154,38 @@ def _color(h):
     return 0
 
 
-def build(rows, ground=None):
-    """Mesh (P, UV, T) of the parked cars on the spots rows, or None. ground(x, y) -> z arrays: the ground the cars
-    stand on (else each spot's own z)."""
-    cars = []
+def fill_shares(rows, rings=(), classes=()):
+    """Per spot row ([x, y, z, heading] curbside, [..., 1] a lot's stall): the share of such spots with a car, by the
+    built share of the ground within DENSITY_R_M (rings: the buildings as drawn, (k, 2) each; classes: their class or
+    use), a lot's stall near a building of BUSY_CLASSES BUSY_FILL at least; FILL's without any rings. Pure."""
+    if not len(rings):
+        return [FILL["lot" if len(r) > 4 else "curb"] for r in rows]
+    rs = [np.asarray(r, np.float64).reshape(-1, 2) for r in rings]
+    c = np.array([r.mean(0) for r in rs])
+    area = np.array([abs(float(np.dot(r[:, 0], np.roll(r[:, 1], -1)) - np.dot(r[:, 1], np.roll(r[:, 0], -1)))) / 2
+                     for r in rs])
+    size = np.sqrt(area) / 2                    # (about a building's half width: its wall from its centre)
+    busy = np.array([str(k) in BUSY_CLASSES for k in classes] + [False] * (len(rs) - len(classes)))
+    out = []
     for r in rows:
+        d = np.hypot(c[:, 0] - float(r[0]), c[:, 1] - float(r[1]))
+        built = float(area[d <= DENSITY_R_M].sum()) / (math.pi * DENSITY_R_M ** 2)
+        lo, hi = FILL_RANGE
+        f = lo + (hi - lo) * min(built / DENSE_SHARE, 1.0)
+        if len(r) > 4 and (busy & (d - size <= BUSY_M)).any():
+            f = max(f, BUSY_FILL)
+        out.append(f)
+    return out
+
+
+def build(rows, ground=None, fill=None):
+    """Mesh (P, UV, T) of the parked cars on the spots rows, or None. ground(x, y) -> z arrays: the ground the cars
+    stand on (else each spot's own z). fill: per row the share of such spots with a car (fill_shares), else FILL's."""
+    cars = []
+    for k, r in enumerate(rows):
         x, y, z, heading = (float(v) for v in r[:4])
         lot = len(r) > 4
-        if _hash(x, y, 1) >= FILL["lot" if lot else "curb"]:
+        if _hash(x, y, 1) >= (fill[k] if fill is not None else FILL["lot" if lot else "curb"]):
             continue
         shape = int(_hash(x, y, 2) * len(SHAPES))
         if not lot and shape == 3 and _hash(x, y, 3) < 0.5:     # (fewer vans on the curb)

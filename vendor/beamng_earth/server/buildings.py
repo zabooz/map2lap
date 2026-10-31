@@ -1477,6 +1477,15 @@ def drawn_ring(spec):
     return ring
 
 
+def ground_rings(items, x0, y0, classes=False):
+    """The buildings of items (road_tile_items': rings tile-local, the tile's corner x0, y0) as drawn (drawn_ring) in
+    the anchor frame, those standing on the ground only (one lifted over a street leaves room under it): what parked
+    cars and tree trunks keep out of. classes: (ring, the building's class or use) pairs. Pure."""
+    got = [(drawn_ring(spec) + np.array([x0, y0]), spec.cls or "") for spec, *_ in (items or ())
+           if (spec.min_h or 0.0) <= 0.5]
+    return got if classes else [r for r, _ in got]
+
+
 def _porch(m, spec, base, mat_idx):
     """A front porch on the front door's wall (spec.door: (edge, distance along it) of spec.ring): a deck, three
     posts and a shallow roof, the house's trim white and its roof's colour."""

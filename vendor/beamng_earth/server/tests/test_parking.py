@@ -104,6 +104,28 @@ class CurbTest(unittest.TestCase):
             self.assertGreaterEqual(math.hypot(s[0] - h[0], s[1] - 56.0), parking.HYDRANT_CLEAR_M)
 
 
+class BuildingClearTest(unittest.TestCase):
+    HOUSE = np.array([(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)])
+
+    def test_the_whole_car_clear_of_a_house(self):
+        # a curbside row running on along the street's line through a house that stands in it: the car whose nose
+        # reaches 1 m into the wall goes, its centre outside (Eberndorf, the user's mark: a red car half in a house)
+        nose_in = [-1.45, 4.0, 0.0, 0.0]            # heading +x: its nose at x = 1.0
+        clear = [-3.0, 4.0, 0.0, 0.0]
+        side = [5.0, -1.1, 0.0, 0.0]                # along the wall, its side 0.1 m off it
+        self.assertEqual(parking.clear_of_buildings([nose_in, clear, side], [self.HOUSE]), [clear, side])
+        # a house's corner reaching into the car's side, between its corners
+        corner = [5.0, 10.0, 0.0, 0.0]
+        tip = np.array([(3.5, 12.0), (5.0, 10.6), (6.5, 12.0)])      # (no corner of the car, nor its centre, in it)
+        self.assertEqual(parking.clear_of_buildings([corner], [tip]), [])
+
+    def test_lifted_buildings_leave_room_under_them(self):
+        import buildings
+        spec = buildings.plan(self.HOUSE, {"class": "house"})
+        spec.min_h = 5.5
+        self.assertEqual(buildings.ground_rings([(spec, 0.0, 0.0)], 0.0, 0.0), [])
+
+
 class LotTest(unittest.TestCase):
     LOT = np.array([(0.0, 0.0), (60.0, 0.0), (60.0, 40.0), (0.0, 40.0)])
 

@@ -59,6 +59,8 @@ LARCH = (("larch", 0.4),)
 LARCH_FROM_M = 1500.0       # m altitude (anchor frame): above it every third conifer is a larch
 SKIP = {"rock", "desert_rock"}
 SINK_M = 0.2                # foot slightly into the ground (slopes)
+TRUNK_CLEAR_M = 0.5         # m a trunk (a bush's or a rock's foot) keeps from a building's walls; a crown may reach
+                            # over the roof, as a garden tree's does
 
 
 def _deciduous(rng):
@@ -433,6 +435,33 @@ def tile_items(frame, tx, ty, veg, elev):
     """Trees, bushes and rocks of the tile: (group name, x, y, z, rotation, height or size, random value) in ENU."""
     rows = vegetation.tile_items(frame, tx, ty, veg, lambda k: True, elev) or []
     return [(vegetation.GROUPS[int(g)], x, y, z, yaw, height, rank) for g, x, y, z, yaw, _s, height, rank in rows]
+
+
+def clear_of_buildings(items, rings, clear=TRUNK_CLEAR_M):
+    """The items (group, x, y, ...) whose foot stands outside every ring (the buildings as drawn: road tiles'
+    "footprints", the anchor frame) and clear m from its walls at least. The vegetation keeps its trees off the map's
+    footprints; a pitched roof's house is drawn on its oriented box, and an L-shaped house's box has room for a tree
+    of its garden. Pure."""
+    if not items or not rings:
+        return list(items or ())
+    p = np.array([(float(t[1]), float(t[2])) for t in items])
+    bad = np.zeros(len(p), bool)
+    for r in rings:
+        r = np.asarray(r, np.float64).reshape(-1, 2)
+        lo, hi = r.min(0) - clear, r.max(0) + clear
+        near = np.flatnonzero(((p >= lo) & (p <= hi)).all(1) & ~bad)
+        if not len(near) or len(r) < 3:
+            continue
+        q = p[near]
+        a, b = r, np.roll(r, -1, 0)
+        d = b - a
+        t = np.clip(((q[:, None, :] - a[None]) * d[None]).sum(2) / np.maximum((d * d).sum(1), 1e-12)[None], 0, 1)
+        dist = np.hypot(*(a[None] + t[..., None] * d[None] - q[:, None, :]).transpose(2, 0, 1)).min(1)
+        cross = ((a[None, :, 1] > q[:, None, 1]) != (b[None, :, 1] > q[:, None, 1])) & (
+            q[:, None, 0] < a[None, :, 0] + (q[:, None, 1] - a[None, :, 1]) * d[None, :, 0]
+            / np.where(d[None, :, 1] == 0, 1e-12, d[None, :, 1]))
+        bad[near] = (cross.sum(1) % 2 == 1) | (dist < clear)
+    return [t for t, b in zip(items, bad) if not b]
 
 
 def tile_zone(frame, items):

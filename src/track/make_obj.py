@@ -5,6 +5,7 @@ without a digit at the start have no collision (markings, wires). Coordinates: Y
 
     python -m track.make_obj          (in src/)
 """
+import functools
 import glob
 import json
 import math
@@ -452,6 +453,28 @@ _ctx = {}                       # per worker process: anchor, terrain, vegetatio
 BUSHES = {"shrub", "desert_shrub"}     # vegetation groups lit like the ground (ground_normals)
 
 
+@functools.lru_cache(maxsize=16)
+def _tile_footprints(path):
+    """(outline, class) of the buildings as drawn of a road tile's JSON (roads.write_tile's "footprints" and
+    "footprint_cls"), () without them."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return ()
+    rings, cls = data.get("footprints") or (), data.get("footprint_cls") or ()
+    return tuple((np.asarray(r, np.float64).reshape(-1, 2), cls[k] if k < len(cls) else "")
+                 for k, r in enumerate(rings))
+
+
+def _footprints(tiles_dir, aid, tx, ty):
+    """(outlines, classes) of the buildings as drawn of tile (tx, ty) and its eight neighbours (a house across the
+    tile's edge; the parked cars' density reaches cars.DENSITY_R_M round a spot)."""
+    got = [b for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+           for b in _tile_footprints(os.path.join(tiles_dir, f"roads_{aid}_{tx + dx}_{ty + dy}.json"))]
+    return [r for r, _ in got], [c for _, c in got]
+
+
 def ground_normals(G, x0, y0, B):
     """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per bush): the ground's under each, from the
     tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Bushes don't receive shadows
@@ -680,13 +703,14 @@ def _scenery_tile(tx, ty, part_path):
                     tris["fuel"] = tris.get("fuel", 0) + len(mesh[2])
         except Exception as e:
             log(f"Gas stations, tile {tx},{ty}: {type(e).__name__}: {e}")
+    rings, rclasses = _footprints(tiles_dir, anc["aid"], tx, ty)      # the buildings as drawn round the tile
     if data.get("park"):        # parked cars on BeamNG.Earth's parking spots (cars.py), standing on our ground
         def on_ground(x, y):
             la, lo, _ = frame.enu_to_geodetic(np.asarray(x, float), np.asarray(y, float), 0.0)
             z = np.array([elev(float(a), float(b)) for a, b in zip(np.atleast_1d(la), np.atleast_1d(lo))])
             return frame.geodetic_to_enu(la, lo, z)[2]
         try:
-            mesh = cars.build(data["park"], on_ground)
+            mesh = cars.build(data["park"], on_ground, cars.fill_shares(data["park"], rings, rclasses))
             if mesh is not None:
                 obj.add(f"1WALL_cars_{tx}_{ty}", cars.MATERIAL, *mesh)
                 tris["cars"] = tris.get("cars", 0) + len(mesh[2])
@@ -698,6 +722,7 @@ def _scenery_tile(tx, ty, part_path):
         log(f"Trees, tile {tx},{ty}: {type(e).__name__}: {e}")
         items = []
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
+    items, extra = trees.clear_of_buildings(items, rings), trees.clear_of_buildings(extra, rings)    # (no trunk in a house)
     zone = trees.tile_zone(frame, items + extra)
     tmesh = trees.billboards([t for t in items + extra if t[0] not in BUSHES], wet, zone)
     if tmesh is not None:

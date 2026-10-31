@@ -99,6 +99,51 @@ def clear_of(spots, props, drives):
     return [r for r, k in zip(spots, keep) if k]
 
 
+# half the length and width of the biggest parked car (Map2Lap's cars.SHAPES: a 4.9 x 1.95 m van): a spot whose car
+# would reach into a building is left empty
+CAR_HALF_M = (2.45, 1.0)
+
+
+def car_points(spots):
+    """(k, 5, 2) the centre and the four corners of the car on each spot ([x, y, z, heading, ...], heading in
+    degrees from +x: its nose), CAR_HALF_M round the centre. Pure."""
+    s = np.asarray([r[:4] for r in spots], np.float64).reshape(-1, 4)
+    a = np.radians(s[:, 3])
+    u = np.column_stack([np.cos(a), np.sin(a)])
+    v = np.column_stack([-u[:, 1], u[:, 0]])
+    hl, hw = CAR_HALF_M
+    offs = [(0, 0), (hl, hw), (hl, -hw), (-hl, hw), (-hl, -hw)]
+    return np.stack([s[:, :2] + u * a_ + v * b_ for a_, b_ in offs], 1)
+
+
+def clear_of_buildings(spots, rings):
+    """The spots whose car (car_points: its corners and centre) stands in none of the rings and has none of their
+    corners inside it (a house's corner reaching into its side between the car's corners): the buildings as drawn (a
+    curbside row runs on along the street's line through a house that stands in it, a stall's nose into the wall it
+    faces). Pure."""
+    if not spots or not rings:
+        return list(spots or ())
+    pts = car_points(spots)
+    flat = pts.reshape(-1, 2)
+    hit = np.zeros(len(flat), bool)
+    lo, hi = flat.min(0), flat.max(0)
+    s = np.asarray([r[:4] for r in spots], np.float64).reshape(-1, 4)
+    a = np.radians(s[:, 3])
+    u = np.column_stack([np.cos(a), np.sin(a)])
+    corner = np.zeros(len(spots), bool)
+    for ring in rings:
+        r = np.asarray(ring, np.float64).reshape(-1, 2)
+        if len(r) < 3 or (r.max(0) < lo).any() or (r.min(0) > hi).any():
+            continue
+        hit |= Path(r).contains_points(flat)
+        d = r[None, :, :] - s[:, None, :2]                  # (spots, corners, 2): the ring's corners from each car
+        along = (d * u[:, None, :]).sum(2)
+        across = d[..., 0] * -u[:, None, 1] + d[..., 1] * u[:, None, 0]
+        corner |= ((np.abs(along) < CAR_HALF_M[0]) & (np.abs(across) < CAR_HALF_M[1])).any(1)
+    keep = ~hit.reshape(len(spots), 5).any(1) & ~corner
+    return [r for r, k in zip(spots, keep) if k]
+
+
 LOT_SPOT_W_M = 2.6          # a lot's stall: width along its row ...
 LOT_SPOT_D_M = 5.5          # ... and depth (US: 8.5-9 ft x 18 ft)
 LOT_AISLE_M = 7.0           # the driving aisle between rows (two-way, 90-degree stalls: ~24 ft)
@@ -216,25 +261,27 @@ def lot_rings(frame, feats_list, paved_only=False):
 
 
 def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None):
-    """existing (the tile's other spots) with its lot stalls (aisle_spots' rows, kind 1) inside a building or a
-    mapped lot dropped, plus lot_spots of road tile (tx, ty): the lots of the map cells under it (md:
-    mapdata.MapData), the tile's buildings (items: buildings.road_tile_items' result, rings tile-local) as blockers,
-    elev(lat, lon) the ground."""
+    """existing (the tile's other spots) without those whose car reaches into a building (clear_of_buildings) and
+    without its lot stalls (aisle_spots' rows, kind 1) in a mapped lot, plus lot_spots of road tile (tx, ty): the
+    lots of the map cells under it (md: mapdata.MapData), the tile's buildings (items: buildings.road_tile_items'
+    result, rings tile-local; one lifted over a street leaves room under it) as blockers, elev(lat, lon) the
+    ground."""
     import roads
     existing = list(existing or [])
     box = roads.tile_bbox(tx, ty)
-    blockers = [spec.ring + np.array(box[:2]) for spec, *_ in (items or ())]
+    import buildings
+    blockers = buildings.ground_rings(items, *box[:2])     # (as drawn: a pitched roof's house is its oriented box)
     try:
         feats = [md.cell(k, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
                  for k in roads.cells_of_tile(frame, tx, ty, margin=0.0)]
         rings = lot_rings(frame, feats)
     except Exception:
         rings = []
-    paths = [Path(np.asarray(b, np.float64)) for b in blockers + rings if len(b) >= 3]
-    if paths and existing:
+    existing = clear_of_buildings(existing, blockers)
+    if rings and existing:              # (a mapped lot draws its own stalls: lot_spots)
         pts = np.array([r[:2] for r in existing], np.float64)
         drop = np.zeros(len(existing), bool)
-        for pa in paths:
+        for pa in (Path(np.asarray(r, np.float64)) for r in rings if len(r) >= 3):
             drop |= pa.contains_points(pts)
         existing = [r for r, d in zip(existing, drop) if not (d and len(r) > 4 and r[4] == 1)]
     if not rings:
@@ -243,7 +290,7 @@ def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None):
     def z_at(x, y):                 # the anchor frame's up, as the ground drawn (the Earth's curve: raw heights stood a
         la, lo, _ = frame.enu_to_geodetic(x, y, 0.0)    # spot ~6 m up 10 km from the anchor, 18 m at 15 km)
         return frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2]
-    return existing + lot_spots(rings, box, z_at, blockers)
+    return existing + clear_of_buildings(lot_spots(rings, box, z_at, blockers), blockers)
 
 
 AISLE_END_M = 6.0           # stalls kept this far from an aisle's ends (its junctions)
