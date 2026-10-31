@@ -450,6 +450,21 @@ class MapData:
             log.warning("mapdata: OSM road tags of %s: %s: %s", key, type(e).__name__, e)
             return {}, []
 
+    def pois(self, key, what, kind="demand"):
+        """[(lon0, lat0, lon1, lat1, *values)] of the OpenStreetMap POIs of pois.WHAT[what] in map cell key (pois.py);
+        none when the source fails (the map's own data alone)."""
+        import pois
+        if self.fetcher is None:
+            return []
+        try:
+            with self._lock:
+                if getattr(self, "_pois", None) is None:
+                    self._pois = pois.Pois(self.raw_dir, self.fetcher)
+            return self._pois.boxes(key.bounds(), what, kind)
+        except Exception as e:          # optional detail
+            log.warning("mapdata: %s of %s: %s: %s", what, key, type(e).__name__, e)
+            return []
+
     def settlements(self, key, kind="demand"):
         """[(lon, lat, place, name)] of the OpenStreetMap places in map cell key (settlements.py); none when the
         source fails (no town signs there)."""

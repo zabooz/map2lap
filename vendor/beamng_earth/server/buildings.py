@@ -70,6 +70,20 @@ STONE = "bne_bld_stone"     # dressed stone (old villages and towns of southern 
 STONE_FLOORS = 4            # stone walls on buildings this low at most
 BIG_BOX_M2 = 1200.0         # m2: a low commercial building this big is a big box (blank walls, one storefront)
 CHURCH_CLASSES = ("church", "chapel", "cathedral")
+# A footprint is the church an OSM Christian place of worship names (pois.py: its bbox; most churches are mapped as a
+# building tagged building=yes, Overture gives them no class): the one its point is in, or the one whose bbox it
+# covers this much of and is this much of (intersection over union; the same outline mapped once gives ~1, a church
+# site drawn round the church and its yard and rectory far less)
+CHURCH_IOU = 0.5
+CHURCH_OVER = ("", "religious")     # Overture classes a place of worship turns into a church (none says more)
+# A castle's buildings (castle_rings: those whose centre is in the box of an OSM historic=castle / fort / city_gate,
+# or that hold its point): dressed stone, no shop front, its corner tower over it (_keep), merlons on a flat roof.
+# A ruin (historic=ruins, building=ruins): a windowless stone block RUIN_H high with a broken top. One look for the
+# world: OSM's castle_type (fortress or palace) is not in the POI file
+RUIN_H = (3.0, 8.0)         # m: what is left standing of a ruin's walls (a hashed height between)
+CASTLE_FLOORS = (2, 3)      # floors of a castle's building with none mapped (a hall over a vaulted ground floor)
+MERLON = (0.6, 0.6, 0.8, 0.5)   # m: a merlon's length, the gap between two, its height, the wall's thickness
+KEEP_SIDE = (2.5, 5.0)      # m: half the side of a castle's corner tower, from the building's width
 BARN_CLASSES = {"barn", "farm_auxiliary", "stable", "cowshed"}
 # The mesh's materials (vertColor: each building's colours are its vertices'); the names above are the
 # looks plan() picks, each one of these with a colour (LOOKS).
@@ -146,7 +160,8 @@ SIGN_MARGIN_M = 0.3         # m of band kept free at each end of a name
 HALL_CAP_M = 1.0            # m: a hall's capitals at most (a firm's lettering readable from the road) ...
 HALL_CAP_SHARE = 0.6        # ... of the wall's width at most for the whole name
 HALL_CLEAR_M = 3.0          # m over a hall's floor kept free under its name (its doors, gates and shop windows)
-SIGN_NAME_CHARS = 30        # a longer name is cut after its last whole word within this
+SIGN_NAME_CHARS = 30        # a longer name is cut after its last whole word within this ...
+PANEL_NAME_CHARS = 40       # ... on a shop band; a public building's or hotel's panel (scaled to the wall) takes this
 SIGN_NAME_CUT = (" - ", " – ", " — ", " | ", " · ", " / ")   # a place's branch after these (Kärntner Sparkasse - Eberndorf)
 # classes that are a business whatever is mapped about it: with no name, one is invented (shopnames.invented); a
 # "commercial" building only as a hall (as often offices as shops)
@@ -349,6 +364,50 @@ SHOP_PLACES = {"shopping", "restaurant", "bar", "cafe", "coffee_shop", "casual_e
 HALL_PLACES = {"superstore", "warehouse_club_store", "home_improvement_store", "building_supply_store", "shopping_mall",
                "department_store"}
 WORKS_PLACES = {"manufacturer", "wholesaler", "storage_facility", "self_storage_facility", "sawmill"}
+# Public services that take the whole building: the businesses listed in it are its own counters (a town hall's
+# tourist office listed as a travel agency, a school's tuck shop), no shopfront. A police station, post office or
+# kindergarten often rents a floor of a block with shops (Eisenkappel's police over Cafe Haeferl)
+WHOLE_PUBLIC = ("fire_station", "town_hall", "school", "hospital", "library")
+# A place a few metres outside every footprint belongs to the nearest one this close (places_of): OSM's entrance
+# nodes and Overture's geocoded points sit on the pavement in front of the door (Eisenkappel's town hall: 0.1 m
+# outside its wall). In a terrace a point by a party wall goes to the nearer house, the right one most of the time
+PLACE_NEAR_M = 3.0
+# OpenStreetMap's POIs (pois.py "places": what Overture's places miss, a village's town hall, police, cafe) as the
+# Overture category the rules above know: (OSM key, value) -> category, (key, None) for any other value of the key
+OSM_PLACES = {
+    ("amenity", "townhall"): "town_hall", ("amenity", "police"): "police_station",
+    ("amenity", "fire_station"): "fire_station", ("amenity", "school"): "school",
+    ("amenity", "kindergarten"): "kindergarten", ("amenity", "childcare"): "kindergarten",
+    ("amenity", "hospital"): "hospital", ("amenity", "post_office"): "post_office",
+    ("amenity", "library"): "library", ("amenity", "courthouse"): "courthouse",
+    ("amenity", "community_centre"): "community_center", ("amenity", "arts_centre"): "cultural_center",
+    ("amenity", "college"): "college_university", ("amenity", "university"): "college_university",
+    ("amenity", "pharmacy"): "pharmacy", ("amenity", "bank"): "bank_or_credit_union",
+    ("amenity", "cafe"): "cafe", ("amenity", "restaurant"): "restaurant",
+    ("amenity", "fast_food"): "fast_food_restaurant", ("amenity", "bar"): "bar", ("amenity", "pub"): "bar",
+    ("amenity", "biergarten"): "bar", ("amenity", "ice_cream"): "cafe",
+    ("amenity", "doctors"): "primary_care_or_general_clinic", ("amenity", "dentist"): "dental_clinic",
+    ("amenity", "clinic"): "outpatient_care_facility", ("amenity", "veterinary"): "professional_service",
+    ("tourism", "hotel"): "hotel", ("tourism", "motel"): "hotel", ("tourism", "guest_house"): "inn",
+    ("tourism", "hostel"): "inn", ("tourism", "museum"): "museum",
+    ("shop", "mall"): "shopping_mall", ("shop", "department_store"): "department_store",
+    ("shop", "doityourself"): "home_improvement_store", ("shop", None): "shopping",
+    ("office", None): "professional_service", ("healthcare", None): "primary_care_or_general_clinic",
+    ("craft", None): "professional_service",
+}
+OSM_KEYS = ("amenity", "tourism", "shop", "office", "healthcare", "craft")   # (the first that gives a category)
+OSM_KEYS_READ = ("amenity", "shop", "office", "tourism", "craft", "healthcare")     # (pois.WHAT["places"]'s order)
+
+
+def osm_place(tags):
+    """The Overture category (place_use, place_sign) of an OSM POI's tags (dict), or None. Pure."""
+    for key in OSM_KEYS:
+        v = str(tags.get(key) or "").split(";")[0].strip().lower()
+        if v and v not in ("no", "vacant"):
+            got = OSM_PLACES.get((key, v)) or OSM_PLACES.get((key, None))
+            if got:
+                return got
+    return None
 # land use (Overture class) -> the class of a big unclassed building on it; residential land use is often a whole
 # district and says nothing, commercial (offices as often as stores) only for halls (BIG_BOX_M2)
 LAND_CLASSES = {"industrial": "industrial", "works": "industrial", "retail": "retail", "commercial": "commercial"}
@@ -412,7 +471,8 @@ def oriented_box(p):
 class Spec:
     """What is built for one footprint (decided by plan())."""
     __slots__ = ("ring", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "band", "shop", "plain", "min_h", "wall", "door", "windows", "front", "steeple", "stoop",
-                 "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names", "plates", "plate")
+                 "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names", "plates", "plate",
+                 "castle")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -555,19 +615,54 @@ def _places_in(ring, pxy):
     return [k for k in np.flatnonzero(((pxy >= lo) & (pxy <= hi)).all(1)).tolist() if _inside(ring, pxy[k])]
 
 
+def places_of(rings, pxy, near=None):
+    """Per ring ((n, 2) each): the indices of the points pxy (k, 2) that belong to it: those inside it, and of those in
+    none the ones within near m (PLACE_NEAR_M) of its walls, each to the nearest ring. Pure."""
+    near = PLACE_NEAR_M if near is None else near
+    rings = [np.asarray(r, np.float64) for r in rings]
+    out = [_places_in(r, pxy) for r in rings]
+    taken = {k for got in out for k in got}
+    rest = [k for k in range(len(pxy)) if k not in taken]
+    if not rest or near <= 0:
+        return out
+    q = pxy[rest]
+    best = np.full(len(rest), np.inf)
+    who = np.full(len(rest), -1)
+    for j, r in enumerate(rings):
+        lo, hi = r.min(0) - near, r.max(0) + near
+        sel = np.flatnonzero(((q >= lo) & (q <= hi)).all(1))
+        if not len(sel):
+            continue
+        a, b = r, np.roll(r, -1, 0)
+        d = b - a
+        p = q[sel]
+        t = np.clip(((p[:, None, :] - a[None]) * d[None]).sum(2) / np.maximum((d * d).sum(1), 1e-12)[None], 0, 1)
+        dist = np.hypot(*(a[None] + t[..., None] * d[None] - p[:, None, :]).transpose(2, 0, 1)).min(1)
+        better = (dist <= near) & (dist < best[sel])
+        best[sel[better]] = dist[better]
+        who[sel[better]] = j
+    for k, j in zip(rest, who):
+        if j >= 0:
+            out[j].append(k)
+    return [sorted(got) for got in out]
+
+
 def footprint_uses(rings, places=None, lands=()):
-    """Per ring ((n, 2), one frame for all): the class its places and land use give it, or None. places: (xy (k, 2),
-    uses (k,) of place_use[, names]) of the places around; lands: [(class, outer (m, 2), [hole (h, 2), ...])] of the land use
+    """Per ring ((n, 2), one frame for all): the class its places (places_of: in it or at its wall) and land use give
+    it, or None. places: (xy (k, 2), uses (k,) of place_use[, names, sign kinds]) of the places around (one of
+    WHOLE_PUBLIC keeps the shops listed in it from making a shop front); lands: [(class, outer (m, 2), [hole (h, 2), ...])] of the land use
     areas of LAND_CLASSES. A hall needs the size of one: a works place or land use on a footprint up to a house's
     (HOUSE_MAX_M2) is a firm registered at a home or an office in the estate, a store land use under a smaller one than a
     big box (BIG_BOX_M2) an office as often as a shop. A works place on a big box's footprint wins over a shop in it
     (the works' showroom or counter); a sales hall's place, then a store land use, over the shops in it. Pure."""
     out = []
     pxy, puse = (np.asarray(places[0], np.float64).reshape(-1, 2), list(places[1])) if places else (np.zeros((0, 2)), [])
-    for ring in rings:
+    psign = list(places[3]) if places and len(places) >= 4 else [None] * len(puse)
+    for ring, mine in zip(rings, places_of(rings, pxy)):
         r = np.asarray(ring, np.float64)
         area = abs(_area2(r)) / 2
-        got = {puse[k] for k in _places_in(r, pxy) if puse[k] is not None}
+        got = {puse[k] for k in mine if puse[k] is not None}
+        public = any(psign[k] in WHOLE_PUBLIC for k in mine)
         c = r[:-1].mean(0) if len(r) > 1 and np.allclose(r[0], r[-1]) else r.mean(0)
         land = None
         for cls, outer, holes in lands:
@@ -581,7 +676,7 @@ def footprint_uses(rings, places=None, lands=()):
             use = "retail"
         elif land in ("retail", "commercial") and area >= BIG_BOX_M2:
             use = land
-        elif "shop" in got:
+        elif "shop" in got and not public:
             use = "shop"
         elif area >= HOUSE_MAX_M2 and ("industrial" in got or land == "industrial"):
             use = "industrial"
@@ -594,10 +689,10 @@ def footprint_names(rings, places):
     each once, in the places' order. Pure."""
     pxy, puse, pname = np.asarray(places[0], np.float64).reshape(-1, 2), places[1], places[2]
     out = []
-    for ring in rings:
+    for mine in places_of(rings, pxy):
         got = []
-        for k in _places_in(np.asarray(ring, np.float64), pxy):
-            if puse[k] is not None and pname[k] and pname[k] not in got:
+        for k in mine:
+            if puse[k] is not None and pname[k] and pname[k].casefold() not in {g.casefold() for g in got}:
                 got.append(pname[k])
         out.append(got)
     return out
@@ -619,9 +714,9 @@ def footprint_signs(rings, places):
         return [[] for _ in rings]
     pxy, pname, psign = np.asarray(places[0], np.float64).reshape(-1, 2), places[2], places[3]
     out = []
-    for ring in rings:
+    for mine in places_of(rings, pxy):
         got = []
-        for k in _places_in(np.asarray(ring, np.float64), pxy):
+        for k in mine:
             if psign[k] is not None and (psign[k], pname[k]) not in got:
                 got.append((psign[k], pname[k]))
         out.append(got)
@@ -680,17 +775,18 @@ def signs_for(spec, own, found, country):
     return tuple(out + [("plate", t, tint) for t in offices[:OFFICE_PLATES]])
 
 
-def sign_name(name, brand=None):
+def sign_name(name, brand=None, limit=SIGN_NAME_CHARS):
     """The name a business shows on its sign: its brand's, else its own without the branch after a dash (a listing's
-    "Kärntner Sparkasse - Eberndorf"), cut after its last whole word within SIGN_NAME_CHARS; None without one. Pure."""
+    "Kärntner Sparkasse - Eberndorf"), cut after its last whole word within limit characters; None without one.
+    Pure."""
     s = " ".join(str(brand or "").split()) or " ".join(str(name or "").split())
     if s.lower() in ("", "nan", "none"):
         return None
     for cut in SIGN_NAME_CUT:
         if cut in s and s.index(cut) >= 2:
             s = s[:s.index(cut)]
-    if len(s) > SIGN_NAME_CHARS:
-        s = s[:SIGN_NAME_CHARS + 1].rsplit(" ", 1)[0] if " " in s[:SIGN_NAME_CHARS + 1] else s[:SIGN_NAME_CHARS]
+    if len(s) > limit:
+        s = s[:limit + 1].rsplit(" ", 1)[0] if " " in s[:limit + 1] else s[:limit]
     return s.strip(" ,;:-") or None
 
 
@@ -736,8 +832,9 @@ def names_for(spec, own, found, country):
 
 def use_data(frame, md, keys, x0, y0):
     """The places and land use areas of map cells keys for footprint_uses and footprint_names, relative to (x0, y0) in
-    frame (an EnuFrame): ((xy, uses, sign names, sign kinds), lands) of the places with a place_use or a place_sign,
-    or None when the cells can't give them (offline without the places: the generic rules)."""
+    frame (an EnuFrame): ((xy, uses, sign names, sign kinds), lands) of the places with a place_use or a place_sign
+    (Overture's, then OpenStreetMap's POIs: MapData.pois "places", osm_place), or None when the cells can't give them
+    (offline without the places: the generic rules)."""
     try:
         cds = [md.cell(k, layers=("places", "land_use"), kind="demand") for k in keys]
     except Exception as e:      # (the buildings stand without them)
@@ -760,7 +857,8 @@ def use_data(frame, md, keys, x0, y0):
                     puse.append(u)
                     psign.append(s)
                     pname.append(sign_name(a["name"][i] if "name" in a else None,
-                                           a["brand_name"][i] if "brand_name" in a else None))
+                                           a["brand_name"][i] if "brand_name" in a else None,
+                                           PANEL_NAME_CHARS if u is None else SIGN_NAME_CHARS))
         f = c.layers.get("land_use")
         if f is not None and len(f):
             for i in range(len(f)):
@@ -771,7 +869,92 @@ def use_data(frame, md, keys, x0, y0):
                     rs = [np.stack(mapgeom.enu_xy(f, frame, np.asarray(rg)), 1) - [x0, y0] for rg in part]
                     if rs and len(rs[0]) >= 4:
                         lands.append((cls, rs[0], rs[1:]))
+    for k in keys if hasattr(md, "pois") else ():          # OSM's POIs (pois.py), at their bbox's centre
+        for lo0, la0, lo1, la1, *vals in md.pois(k, "places"):
+            cat_ = osm_place(dict(zip(OSM_KEYS_READ, vals[:-1])))
+            use, sign = place_use(cat_, None), place_sign(cat_, None)
+            name = sign_name(vals[-1], None, PANEL_NAME_CHARS if use is None else SIGN_NAME_CHARS)
+            key = (round((lo0 + lo1) / 2, 6), round((la0 + la1) / 2, 6), name)
+            if cat_ is None or name is None or key in seen:
+                continue
+            seen.add(key)
+            e, n, _ = frame.geodetic_to_enu((la0 + la1) / 2, (lo0 + lo1) / 2, 0.0)
+            pxy.append((float(e) - x0, float(n) - y0))
+            puse.append(use)
+            psign.append(sign)
+            pname.append(name)
     return (np.asarray(pxy, np.float64).reshape(-1, 2), puse, pname, psign), lands
+
+
+def worship_boxes(frame, md, keys, x0, y0):
+    """[(x0, y0, x1, y1)] relative to (x0, y0) in frame of the Christian places of worship of map cells keys
+    (MapData.pois "churches"; none offline or when the source fails)."""
+    out = set()
+    if not hasattr(md, "pois"):
+        return []
+    for k in keys:
+        for lo0, la0, lo1, la1, *_ in md.pois(k, "churches"):
+            e, n, _ = frame.geodetic_to_enu(np.array([la0, la1]), np.array([lo0, lo1]), 0.0)
+            out.add((float(min(e)) - x0, float(min(n)) - y0, float(max(e)) - x0, float(max(n)) - y0))
+    return sorted(out)
+
+
+def castle_boxes(frame, md, keys, x0, y0):
+    """[(x0, y0, x1, y1, "castle" or "ruins")] relative to (x0, y0) in frame of the castles, forts, town gates and
+    ruins of map cells keys (MapData.pois "castles"; none offline or when the source fails)."""
+    out = set()
+    if not hasattr(md, "pois"):
+        return []
+    for k in keys:
+        for lo0, la0, lo1, la1, historic, building in md.pois(k, "castles"):
+            e, n, _ = frame.geodetic_to_enu(np.array([la0, la1]), np.array([lo0, lo1]), 0.0)
+            kind = "ruins" if "ruins" in (historic, building) else "castle"
+            out.add((float(min(e)) - x0, float(min(n)) - y0, float(max(e)) - x0, float(max(n)) - y0, kind))
+    return sorted(out)
+
+
+def castle_rings(rings, boxes):
+    """{ring index: "castle" or "ruins"} of the rings ((n, 2), the boxes' frame) on a castle's site: the centre in a
+    box (x0, y0, x1, y1, kind), or holding a point's. A ruin's own outline wins over the castle round it. Pure."""
+    out = {}
+    if not boxes or not rings:
+        return out
+    cs = np.array([np.asarray(r, np.float64).mean(0) for r in rings])
+    for bx0, by0, bx1, by1, kind in boxes:
+        if bx1 - bx0 < 1.0 and by1 - by0 < 1.0:     # a point
+            p = ((bx0 + bx1) / 2, (by0 + by1) / 2)
+            hit = [k for k in range(len(rings)) if _inside(rings[k], p)]
+        else:
+            hit = np.flatnonzero((cs[:, 0] >= bx0) & (cs[:, 0] <= bx1) & (cs[:, 1] >= by0) & (cs[:, 1] <= by1))
+        for k in hit:
+            if out.get(int(k)) != "ruins":
+                out[int(k)] = kind
+    return out
+
+
+def church_rings(rings, boxes):
+    """Indices of the rings ((n, 2), the boxes' frame) that are the churches of the boxes (x0, y0, x1, y1): a point's
+    ring holds it, a box's ring is the one of the best CHURCH_IOU or more. Pure."""
+    if not boxes or not rings:
+        return set()
+    rb = np.array([(*np.min(r, 0), *np.max(r, 0)) for r in rings], np.float64)
+    out = set()
+    for bx0, by0, bx1, by1 in boxes:
+        hit = np.flatnonzero((rb[:, 0] <= bx1) & (rb[:, 2] >= bx0) & (rb[:, 1] <= by1) & (rb[:, 3] >= by0))
+        if not len(hit):
+            continue
+        if bx1 - bx0 < 1.0 and by1 - by0 < 1.0:     # a point
+            p = ((bx0 + bx1) / 2, (by0 + by1) / 2)
+            out.update(int(k) for k in hit if _inside(rings[k], p))
+            continue
+        b = rb[hit]
+        iw = np.clip(np.minimum(b[:, 2], bx1) - np.maximum(b[:, 0], bx0), 0, None)
+        ih = np.clip(np.minimum(b[:, 3], by1) - np.maximum(b[:, 1], by0), 0, None)
+        inter = iw * ih
+        iou = inter / ((b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1]) + (bx1 - bx0) * (by1 - by0) - inter)
+        if iou.max() >= CHURCH_IOU:
+            out.add(int(hit[int(np.argmax(iou))]))
+    return out
 
 
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
@@ -1095,9 +1278,22 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
             facade = f"{SIDING}|w{int(_hash01(seed, 'wc') * len(WOOD_TINTS))}"
         else:
             facade = f"{SIDING}|{int(_hash01(seed, 'sc') * (len(tints) - 2))}"
+    castle = attrs.get("castle") if not (shed or garage or church or barn) else None
+    if castle:                                  # (CASTLE_FLOORS, RUIN_H)
+        wall = facade = f"{STONE}|{int(_hash01(seed, 'stc') * len(WALL_TINTS[STONE]))}"
+        shop = False
+        mapped = attrs.get("height") is not None and np.isfinite(attrs.get("height")) or \
+            attrs.get("num_floors") is not None and np.isfinite(attrs.get("num_floors"))
+        if castle == "ruins":
+            plain, windows, roof, nf = True, False, "flat", 1
+            h = floor_h = RUIN_H[0] + (RUIN_H[1] - RUIN_H[0]) * _hash01(seed, "ruin")
+            roof_mat = wall
+        elif not mapped:
+            nf = CASTLE_FLOORS[0] + int(_hash01(seed, "castle floors") * (CASTLE_FLOORS[1] - CASTLE_FLOORS[0] + 1))
+            h = nf * floor_h + (0.6 if roof == "flat" else 0.2)
     # a front porch (the photos of Lancaster, Ocean City, Frederick, Moab: most houses have one): pitched-roof
     # houses, a regional share; doors() puts it on the front door's wall
-    porch = (house and roof != "flat" and not barn and not shed and area < 300
+    porch = (house and roof != "flat" and not barn and not shed and area < 300 and not castle
              and _hash01(seed, "porch") < style.porch)
     if porch:   # pitched roofs draw the walls on the oriented box: an L-shaped house's door wall can be inside it
         _, _, hl, hw = oriented_box(ring)
@@ -1105,7 +1301,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     return Spec(ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall,
                 windows=windows, steeple=church and area < 2500, porch=porch, cls=cls,
-                deck=garage and roof == "flat", pitch=style.pitch)
+                deck=garage and roof == "flat", pitch=style.pitch, castle=castle)
 
 
 class Mesh:
@@ -1589,6 +1785,57 @@ def _steeple(m, spec, z_eave, mat_idx):
         m.tri((a[0], a[1], top), (b[0], b[1], top), apex, (0, 0), (1, 0), (0.5, 2.0), rm)
 
 
+def _merlons(m, ring, z, mat, seed, ragged=False):
+    """Merlons along the counter-clockwise ring's edges, on the wall's top at z (MERLON); ragged: a ruin's broken top,
+    hashed heights and gaps."""
+    ln, gap, hi, thick = MERLON
+    n = len(ring)
+    for i in range(n):
+        a, b = ring[i], ring[(i + 1) % n]
+        L = float(math.hypot(*(b - a)))
+        if L < ln + gap:
+            continue
+        d = (b - a) / L
+        inward = np.array([-d[1], d[0]])
+        k = int(L // (ln + gap))
+        for j in range(k):
+            h = hi
+            if ragged:
+                if _hash01(seed, "gap", i, j) < 0.25:
+                    continue
+                h = 0.3 + 2.2 * _hash01(seed, "rag", i, j)
+            c = a + d * ((j + 0.5) * L / k) + inward * (thick / 2)
+            _box(m, c, d, ln / 2, thick / 2, z - 0.05, z + h, mat)
+
+
+def _keep(m, spec, z_eave, mat_idx):
+    """A castle's square corner tower (KEEP_SIDE) over its building at one corner (hashed): merlons on top, or a
+    spire."""
+    c, u, hl, hw = oriented_box(spec.ring)
+    v = np.array([-u[1], u[0]])
+    side = float(np.clip(0.5 * hw, *KEEP_SIDE))
+    sx = 1.0 if _hash01(spec.seed, "keep x") < 0.5 else -1.0
+    sy = 1.0 if _hash01(spec.seed, "keep y") < 0.5 else -1.0
+    p = c + u * sx * max(0.0, hl - side) + v * sy * max(0.0, hw - side)
+    for k in range(1, 12):              # on the footprint (an irregular one's box corner can be outside it)
+        if _inside(spec.ring, p):
+            break
+        p = c + (u * sx * max(0.0, hl - side) + v * sy * max(0.0, hw - side)) * (1 - k / 12)
+    rise = 0.0 if spec.roof == "flat" else (min(hw, 12.0) + EAVE_M) * math.tan(math.radians(spec.pitch or
+                                                                                          PITCH["gabled"]))
+    top = z_eave + rise + 4.0 + 4.0 * _hash01(spec.seed, "keep h")
+    _box(m, p, u, side, side, z_eave - 1.0, top, mat_idx[spec.facade])
+    k = [p + u * a * side + v * b * side for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    if _hash01(spec.seed, "keep roof") < 0.5:
+        _merlons(m, np.array(k), top, mat_idx[spec.facade], spec.seed)
+    else:
+        apex = (float(p[0]), float(p[1]), top + 2.2 * side)
+        rm = mat_idx[f"{ROOF_SLATE}|3"]
+        for i in range(4):
+            a, b = k[i], k[(i + 1) % 4]
+            m.tri((a[0], a[1], top), (b[0], b[1], top), apex, (0, 0), (1, 0), (0.5, 2.0), rm)
+
+
 ROOF_CLUTTER_M2 = 250.0     # flat roofs this large get boxes: air-conditioning units, stair bulkheads
 
 
@@ -1982,6 +2229,11 @@ def build(specs_and_ground, lite=False):
             _clutter(m, spec, ring, z_eave, mat_idx)
         if spec.steeple:
             _steeple(m, spec, z_eave, mat_idx)
+        if spec.castle and not lite:
+            if spec.roof == "flat":
+                _merlons(m, ring, z_eave, mat_idx[spec.facade], spec.seed, ragged=spec.castle == "ruins")
+            if spec.castle == "castle":
+                _keep(m, spec, z_eave, mat_idx)
         if spec.stoop and not lite:
             _stoop(m, spec, ring, gmin, gmax, mat_idx)
         if spec.porch and spec.door and not lite:
@@ -2743,7 +2995,7 @@ class _PartsOf:
 def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=(), west_town=False, roads_xy=None,
                    tunnels_xy=None, garages_xy=None, supports=None, bridges_xy=None, water_xy=None, decks=None,
                    ml_roads_xy=None, ways_xy=None, skip=frozenset(), min_size=None, own=None, uses=None,
-                   country=None):
+                   country=None, worship=(), castles=()):
     """[(Spec, gmin, gmax)] of the buildings whose footprint centroid is in the tile [x0, x1) x [y0, y1) (own: the
     tile's box when it says which points are its own, roads.box_owns: a geotile's)
     (anchor frame), rings relative to (x0, y0). layers: mapgeom.Features of buildings (one per map cell; a
@@ -2759,7 +3011,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
     any other work on a building. uses: use_data's places and land use relative to (x0, y0): an unclassed footprint
     takes the class they give (footprint_uses), a shop or hall the names on its signs (names_for, invented ones in
     country's language: an ISO code), any building its other signs (signs_for: public buildings, hotels, pharmacies,
-    offices)."""
+    offices). worship: worship_boxes relative to (x0, y0): the footprints they name are churches (church_rings);
+    castles: castle_boxes relative to (x0, y0): the footprints on a castle's site or a ruin's (castle_rings)."""
     parts_of = _PartsOf(frame, part_layers)     # building id -> [(ring in the anchor frame, (own height, bottom))]
     seen = set()
     rings, attrs, looks, mins = [], [], [], []
@@ -2887,6 +3140,12 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
             mins.append(mh)
     if not rings:
         return []
+    for k in church_rings(rings, worship):
+        if looks[k] is None and str(attrs[k].get("class") or "") in CHURCH_OVER:
+            attrs[k] = dict(attrs[k], **{"class": "church"})
+    for k, kind in castle_rings(rings, castles).items():
+        if looks[k] is None:
+            attrs[k] = dict(attrs[k], castle=kind)
     if uses is not None:
         todo = [k for k, (at, look) in enumerate(zip(attrs, looks)) if look is None and not at.get("class")]
         for k, u in zip(todo, footprint_uses([rings[k] for k in todo], *uses)):
@@ -3400,7 +3659,8 @@ def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset(), cou
            for k in keys]
     return tile_buildings(frame, x0, y0, x1, y1, [c.layers.get("buildings") for c in cds], ground,
                           own=box if hasattr(box, "owns") else None, uses=use_data(frame, md, keys, x0, y0),
-                          country=country,
+                          country=country, worship=worship_boxes(frame, md, keys, x0, y0),
+                          castles=castle_boxes(frame, md, keys, x0, y0),
                           part_layers=[c.layers.get("building_parts") for c in cds],
                           west_town=district_town(frame, tx, ty, md),
                           roads_xy=road_lines(frame, [c.layers.get("roads") for c in cds], x0, y0),
@@ -3469,7 +3729,8 @@ def far_items(frame, tile, ty, md, ground, lamp_region=None):
     keys = roads.cells_of_tile(frame, tile, ty, margin=0.0)
     cds = [md.cell(k, layers=FAR_LAYERS, kind="demand") for k in keys]
     items = tile_buildings(frame, x0, y0, x1, y1, [c.layers.get("buildings") for c in cds], ground, own=own,
-                           uses=use_data(frame, md, keys, x0, y0),
+                           uses=use_data(frame, md, keys, x0, y0), worship=worship_boxes(frame, md, keys, x0, y0),
+                           castles=castle_boxes(frame, md, keys, x0, y0),
                            part_layers=[c.layers.get("building_parts") for c in cds],
                            west_town=district_town(frame, tile, ty, md),
                            garages_xy=garage_rings(frame, [c.layers.get("infrastructure") for c in cds], x0, y0),

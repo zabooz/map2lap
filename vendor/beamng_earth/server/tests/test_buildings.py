@@ -750,6 +750,80 @@ class PartsTest(unittest.TestCase):
         self.assertAlmostEqual(P[:, 2][P[:, 2] < 90.5].max(), 90.0, delta=0.01)
 
 
+class OsmPlaceTest(unittest.TestCase):
+    def test_tags_to_the_categories_the_rules_know(self):
+        self.assertEqual(bld.osm_place({"amenity": "townhall"}), "town_hall")
+        self.assertEqual(bld.place_sign(bld.osm_place({"amenity": "police"}), None), "police")
+        self.assertEqual(bld.place_use(bld.osm_place({"amenity": "cafe"}), None), "shop")
+        self.assertEqual(bld.place_use(bld.osm_place({"shop": "bakery"}), None), "shop", "any shop=*")
+        self.assertEqual(bld.place_sign(bld.osm_place({"office": "lawyer"}), None), "office")
+        self.assertEqual(bld.osm_place({"amenity": "bench"}), None)
+        self.assertEqual(bld.osm_place({"shop": "vacant"}), None)
+
+    def test_a_point_at_the_wall_belongs_to_the_nearest_building(self):
+        rings = [rect(0, 0, 10, 10), rect(14, 0, 10, 10)]
+        pxy = np.array([(5.0, 5.0), (5.0, 10.1), (12.5, 5.0), (5.0, 20.0)])
+        self.assertEqual(bld.places_of(rings, pxy), [[0, 1], [2]], "inside; 0.1 m outside; nearer the second")
+
+    def test_a_town_hall_is_no_shop_a_police_station_may_have_one(self):
+        ring = [rect(0, 0, 20, 15)]
+        hall = (np.array([(5.0, 5.0), (8.0, 5.0)]), ["shop", None], ["Tourist info", "Gemeindeamt"],
+                [None, "town_hall"])
+        self.assertEqual(bld.footprint_uses(ring, hall), [None])
+        police = (hall[0], ["shop", None], ["Cafe", "Polizei"], [None, "police"])
+        self.assertEqual(bld.footprint_uses(ring, police), ["shop"])
+
+    def test_a_panel_takes_a_longer_name(self):
+        self.assertEqual(bld.sign_name("Polizeiinspektion Bad Eisenkappel"), "Polizeiinspektion Bad")
+        self.assertEqual(bld.sign_name("Polizeiinspektion Bad Eisenkappel", None, bld.PANEL_NAME_CHARS),
+                         "Polizeiinspektion Bad Eisenkappel")
+
+
+class CastleTest(unittest.TestCase):
+    def test_which_buildings_are_on_a_castle_site(self):
+        rings = [rect(0, 0, 20, 12), rect(25, 0, 8, 8), rect(60, 0, 10, 10)]
+        boxes = [(-5, -5, 40, 20, "castle"), (26.0, 1.0, 32.0, 7.0, "ruins"), (65.0, 5.0, 65.0, 5.0, "castle")]
+        self.assertEqual(bld.castle_rings(rings, boxes), {0: "castle", 1: "ruins", 2: "castle"},
+                         "the site's buildings; a ruin's own outline wins; a point's building")
+
+    def test_castle_and_ruin_looks(self):
+        castle = bld.plan(rect(0, 0, 30, 18), {"class": "", "castle": "castle"}, lat=46.6, lon=14.3)
+        self.assertTrue(castle.facade.startswith(bld.STONE))
+        self.assertGreaterEqual(castle.floors, bld.CASTLE_FLOORS[0])
+        self.assertFalse(castle.shop)
+        ruin = bld.plan(rect(0, 0, 16, 12), {"class": "", "castle": "ruins"}, lat=46.6, lon=14.3)
+        self.assertTrue(ruin.plain and not ruin.windows)
+        self.assertTrue(bld.RUIN_H[0] <= ruin.height <= bld.RUIN_H[1])
+        P = bld.build([(castle, 0.0, 0.0)])[0]
+        self.assertGreater(P[:, 2].max(), castle.height + 4.0, "its tower over it")
+
+
+class ChurchTest(unittest.TestCase):
+    def test_which_footprint_a_place_of_worship_names(self):
+        rings = [rect(0, 0, 30, 14), rect(40, 0, 12, 10), rect(60, 0, 10, 10)]
+        self.assertEqual(bld.church_rings(rings, [(0.2, -0.1, 30.1, 14.2)]), {0}, "its own outline")
+        self.assertEqual(bld.church_rings(rings, [(45.0, 5.0, 45.0, 5.0)]), {1}, "a point in it")
+        self.assertEqual(bld.church_rings(rings, [(-20, -20, 80, 40)]), set(),
+                         "a church site round several buildings names none of them")
+        self.assertEqual(bld.church_rings(rings, [(80.0, 5.0, 80.0, 5.0)]), set())
+
+    def test_an_unclassed_footprint_becomes_a_church(self):
+        import geodesy
+        f = geodesy.EnuFrame(39.28, -76.59)
+
+        def ll(x, y, w, d):
+            e = np.array([x, x + w, x + w, x, x]); n = np.array([y, y, y + d, y + d, y])
+            la, lo, _ = f.enu_to_geodetic(e, n, 0.0)
+            return np.stack([lo, la], 1)
+        b = Feats(["C", "H"], [ll(10, 10, 30, 14), ll(100, 10, 12, 10)], **{"class": ["", "house"]})
+        worship = [(10.0, 10.0, 40.0, 24.0), (106.0, 15.0, 106.0, 15.0)]
+        items = bld.tile_buildings(f, 0, 0, 256, 256, [b], lambda la, lo: np.zeros(np.shape(la)), worship=worship)
+        by_x = sorted(items, key=lambda it: it[0].ring[:, 0].min())
+        self.assertEqual(by_x[0][0].cls, "church")
+        self.assertTrue(by_x[0][0].steeple)
+        self.assertEqual(by_x[1][0].cls, "house", "a class the map gives stays")
+
+
 class OverRoadTest(unittest.TestCase):
     def setUp(self):
         import geodesy
