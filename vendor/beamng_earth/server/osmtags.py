@@ -84,8 +84,8 @@ def way_id(record):
 class OsmTags:
     """Tags by OSM way id per map cell, from the pinned Layercake version."""
 
-    def __init__(self, raw_dir, fetcher, url=URL):
-        self.raw_dir, self.fetcher, self.url = raw_dir, fetcher, url
+    def __init__(self, raw_dir, fetcher, url=URL, sub="osmtags"):
+        self.raw_dir, self.fetcher, self.url, self.sub = raw_dir, fetcher, url, sub   # (sub: its cache folder)
         self._lock = threading.Lock()
         self._remote = None         # (etag, RemoteFile)
         self._checked = 0.0
@@ -97,7 +97,7 @@ class OsmTags:
         with self._lock:
             if self._remote is not None and time.time() - self._checked < VERSION_TTL_S:
                 return self._remote
-            pin = os.path.join(self.raw_dir, "osmtags", "pinned")
+            pin = os.path.join(self.raw_dir, self.sub, "pinned")
             etag = size = None
             try:
                 with open(pin) as f:
@@ -108,7 +108,7 @@ class OsmTags:
             except (OSError, ValueError):
                 etag = None
             if etag is None:
-                down = os.path.join(self.raw_dir, "osmtags", "unreachable")
+                down = os.path.join(self.raw_dir, self.sub, "unreachable")
                 try:
                     recent = time.time() - os.path.getmtime(down) < RETRY_S
                 except OSError:
@@ -130,7 +130,7 @@ class OsmTags:
                 with open(pin + ".tmp", "w") as f:
                     f.write(f"{etag}\n{size}\n{time.time()}\n")
                 os.replace(pin + ".tmp", pin)
-            d = os.path.join(self.raw_dir, "osmtags", re.sub(r"[^A-Za-z0-9]+", "_", etag).strip("_"))
+            d = os.path.join(self.raw_dir, self.sub, re.sub(r"[^A-Za-z0-9]+", "_", etag).strip("_"))
             self._remote = (etag, rangeread.RemoteFile([self.url], size, d, self.fetcher, if_match=etag))
             self._checked = time.time()
             return self._remote
@@ -139,7 +139,7 @@ class OsmTags:
         with self._lock:
             self._remote = None
             try:
-                os.remove(os.path.join(self.raw_dir, "osmtags", "pinned"))
+                os.remove(os.path.join(self.raw_dir, self.sub, "pinned"))
             except OSError:
                 pass
 

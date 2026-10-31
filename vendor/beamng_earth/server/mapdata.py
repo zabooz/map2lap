@@ -450,6 +450,21 @@ class MapData:
             log.warning("mapdata: OSM road tags of %s: %s: %s", key, type(e).__name__, e)
             return {}, []
 
+    def settlements(self, key, kind="demand"):
+        """[(lon, lat, place, name)] of the OpenStreetMap places in map cell key (settlements.py); none when the
+        source fails (no town signs there)."""
+        import settlements
+        if self.fetcher is None:
+            return []
+        try:
+            with self._lock:
+                if getattr(self, "_settlements", None) is None:
+                    self._settlements = settlements.Settlements(self.raw_dir, self.fetcher)
+            return self._settlements.area(key.bounds(), kind)
+        except Exception as e:          # optional scenery
+            log.warning("mapdata: places of %s: %s: %s", key, type(e).__name__, e)
+            return []
+
     @staticmethod
     def _osm(feats, got):
         """The roads with the cell's OpenStreetMap tags joined in and its raceways appended (Overture has none,

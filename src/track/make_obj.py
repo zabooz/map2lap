@@ -144,11 +144,11 @@ for _kind, _pal in BLD_PALETTES.items():         # buildings <kind>_CC_L (L: bri
         for _l in range(3):
             MATERIALS[f"{_kind}_{_c:02d}_{_l}"] = (f"@bld:{_kind}:{_c}", (1, 1, 1))
 # Road signs from BeamNG.Earth's sign tiles (signstream.py, signs_<aid>_<tx>_<ty>.json: speed limits everywhere in the
-# region's style, the US's guide signs, exits, mile markers and merge signs): its materials are solid colours
+# region's style, town signs, the US's guide signs, exits, mile markers and merge signs): its materials are solid colours
 # (baseColorFactor, linear: to sRGB here) and the lettering, a colour cut out by the letters' opacity map (alpha test).
 ROADSIDE = os.path.join(ROOT, "vendor", "beamng_earth", "mod", "beamng_earth", "levels", "beamng_earth", "art", "shapes",
                         "beamngEarth", "roadside")
-SIGN_KINDS = ("exits", "mileposts", "merges", "speeds")
+SIGN_KINDS = ("exits", "mileposts", "merges", "speeds", "towns")
 
 
 def _srgb(c):

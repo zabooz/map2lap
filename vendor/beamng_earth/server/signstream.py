@@ -1,11 +1,12 @@
 """Highway signs (from cody196's PR #363): optional scenery built per road tile after the tile's roads were sent,
 never part of their collision or readiness. A sign tile is sent as a `roads_tile` with key "s<tx>_<ty>" and the
-fields exits / mileposts / merges / speeds (render-only shapes, pooled slots); the mod's highwaySigns setting hides them.
+fields exits / mileposts / merges / speeds / towns (render-only shapes, pooled slots); the mod's highwaySigns setting
+hides them.
 
 Every guide sign face is drawn to the US MUTCD (green guide panels, Interstate / US / state shields, the yellow merge
 diamond, Interstate mile markers): those are built where signstates finds a US state (BNE_SIGNS_WORLD=1: everywhere,
 for tests), elsewhere no sign data is asked for. The speed-limit signs (speedsigns.py, field speeds: the AI's limit, in
-each region's style) are built everywhere."""
+each region's style) and the town signs (townsigns.py, field towns) are built everywhere."""
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
@@ -21,9 +22,10 @@ import roads
 import signstates
 import speedsigns
 import staging
+import townsigns
 
 log = logging.getLogger('earthd.signs')
-KINDS = ('exits', 'mileposts', 'merges', 'speeds')
+KINDS = ('exits', 'mileposts', 'merges', 'speeds', 'towns')
 WORKERS = 1                     # sign tiles in flight per connection (Tracker): a road tile waits behind one at most
 WORLD = os.environ.get("BNE_SIGNS_WORLD") == "1"
 
@@ -72,11 +74,12 @@ def build_tile(md, frame, aid, tx, ty, elev, out_dir, vfs_dir, urban=None, width
                 pts = np.column_stack(frame.geodetic_to_enu(ring[:, 1], ring[:, 0], 0.))
                 decks.append({'deck': True, 'n': pts, 'w': spec.width})
     speeds = _speeds(frame, tx, ty, elev, context, decks, left_hand, mph, speedsigns.style(country, us))
+    towns = _towns(frame, tx, ty, elev, context, md, decks, left_hand)
     if not (WORLD or us):
-        return write_tile(out_dir, vfs_dir, aid, tx, ty, (None, None, None, speeds))     # (not the US: no guide signs)
+        return write_tile(out_dir, vfs_dir, aid, tx, ty, (None, None, None, speeds, towns))  # (not the US: no guide signs)
     exits, miles = highwaysigns.build_tile(md, frame, tx, ty, elev, decks, left_hand, mph, urban, widths)
     merges = mergesigns.build_tile(frame, tx, ty, [feats], elev, decks, urban, widths, left_hand, context)
-    return write_tile(out_dir, vfs_dir, aid, tx, ty, (exits, miles, merges, speeds))
+    return write_tile(out_dir, vfs_dir, aid, tx, ty, (exits, miles, merges, speeds, towns))
 
 
 _warned = -float('inf')
@@ -93,6 +96,22 @@ def _speeds(frame, tx, ty, elev, context, decks, left_hand, mph, face):
             _warned = now
             log.warning('Speed-limit signs unavailable; roads continue: %s: %s', type(error).__name__, error)
         return None
+
+
+def _towns(frame, tx, ty, elev, context, md, decks, left_hand):
+    """townsigns.build_tile, or None: optional scenery never stops the other signs."""
+    global _warned_towns
+    try:
+        return townsigns.build_tile(frame, tx, ty, elev, context, md, decks, left_hand)
+    except Exception as error:
+        now = time.monotonic()
+        if now - _warned_towns >= 60.:
+            _warned_towns = now
+            log.warning('Town signs unavailable; roads continue: %s: %s', type(error).__name__, error)
+        return None
+
+
+_warned_towns = -float('inf')
 
 
 class Tracker:
