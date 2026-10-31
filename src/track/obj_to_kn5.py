@@ -19,10 +19,8 @@ import numpy as np
 
 from track import kn5, parallel
 
-# Material values (tried in AC). About a fifth less ambient light than at first (it all looked a bit bright; before:
-# ground and asphalt 0.45 / 0.35, buildings 0.45 / 0.35, trees 0.50 / 0.40); then 0.05 moved from the sun into the
-# ambient light: the shadow sides were too dark, the sunlit sides stay as bright as before (ambient + sun the
-# same)
+# Material values (set in AC by eye): ambient and sun balanced so the shadow sides are not too dark and the sunlit
+# sides not too bright
 DEFAULT = {"ksAmbient": 0.43, "ksDiffuse": 0.27, "ksSpecular": 0.05, "ksSpecularEXP": 20.0}
 VALUES = {
     "asphalt": {"ksAmbient": 0.41, "ksDiffuse": 0.27, "ksSpecular": 0.02, "ksSpecularEXP": 10.0},    # (like the terrain)
@@ -54,8 +52,8 @@ ALPHA_REF["fences"] = 0.5
 FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make_obj.FACADE_LEVELS)
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
-# View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC drew every tile up
-# to the horizon, kerbs and markings too (Völkermarkt–Vienna, 2419 tiles: 22 fps; Graz, 25 tiles: 90+).
+# View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC draws every tile up
+# to the horizon, kerbs and markings too (a 2400-tile track: 22 fps; a 25-tile one: 90+).
 # No shadows for flat and thin things (invisible, but every shadow cascade pays for them). AC measures from the mesh
 # centre; the meshes are per tile, hence the bounding sphere radius is added.
 # The terrain casts no shadows: it shadowed itself, rings around the camera on the asphalt. Trees, houses, pylons,
@@ -92,7 +90,7 @@ def view(name):
 def dds_bc1(path):
     """JPG -> DDS (BC1/DXT1) with mipmaps down to 4 px, stored next to it (reused while newer than the JPG); returns the
     path or None (sides not a multiple of 4). AC unpacks JPG to RGBA in video memory: 2048 px = 22 MB with mipmaps,
-    BC1 2.8 MB (Völkermarkt–Vienna: 2419 terrain textures, 53 GB -> 7 GB)."""
+    BC1 2.8 MB (2400 terrain textures: 53 GB -> 7 GB)."""
     import io
     import struct
     from PIL import Image

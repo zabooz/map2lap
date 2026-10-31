@@ -107,7 +107,7 @@ class PlanCache:
             pl = Plan(xy, z, m["half"], tuple(m["abut"]), next(cuts) if m["cut"] else None, m["road_half"])
             pl.rid, pl.max_wall = m["rid"], m["max_wall"]
             pl.bank = next(banks) if m.get("bank") else None
-            pl.free = tuple(bool(v) for v in m.get("free", (False, False)))     # (ac-export patch P1)
+            pl.free = tuple(bool(v) for v in m.get("free", (False, False)))
             plans.append((m["fid"], pl))
         keeps = list(zip(lists["k"], meta["keeps"]))
         covers = list(zip(lists["v"], meta["covers"]))
@@ -150,7 +150,7 @@ class PlanCache:
         meta = {"plans": [{"fid": fid, "half": p.half, "abut": list(p.abut), "road_half": p.road_half,
                            "rid": int(p.rid), "max_wall": float(p.max_wall), "cut": p.cut is not None,
                            "bank": getattr(p, "bank", None) is not None,
-                           "free": [bool(v) for v in getattr(p, "free", (False, False))]}     # (ac-export patch P1)
+                           "free": [bool(v) for v in getattr(p, "free", (False, False))]}
                           for fid, p in plans],
                 "keeps": [float(hw) for _xy, hw in keeps], "covers": [float(w) for _xy, w in covers],
                 "opens": [{k: (v.item() if hasattr(v, "item") else v) for k, v in sp._asdict().items()}

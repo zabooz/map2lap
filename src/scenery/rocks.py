@@ -1,6 +1,5 @@
 """Boulders as chunky 3D comic rocks from BeamNG.Earth's vegetation (groups rock, desert_rock: position, size,
-rotation, random value). As billboards they looked bad and there was no 3D shape, so they used to be left out
-(Heiligenblut: 325 in 60 tiles, mostly 0.8 m, up to 2 m).
+rotation, random value), mostly 0.8 m, up to 2 m (billboards look bad for them).
 
 VARIANTS base shapes: a once-subdivided icosahedron with jittered vertices, flattened; each rock takes one by its
 random value, rotated, scaled to its size and SINK into the ground. Hard edges (obj_to_kn5: material rock is not

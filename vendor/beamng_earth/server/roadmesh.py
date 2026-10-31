@@ -16,7 +16,6 @@ ribbons in one mesh draw in a fixed order and do not flicker). No collision: the
 terrain, whose surface masks carry the asphalt / dirt ground models. Pure given elev.
 """
 import math
-import os               # (ac-export patch P6: BNE_TRIM_DZ)
 
 import numpy as np
 
@@ -76,9 +75,9 @@ def _normals(xy):
 
 
 def _row_bank(c, mid):
-    """(ac-export patch P7) A deck chunk's cross slope ("bank" per point, roads._deck_chunks) at each ribbon row mid
+    """A deck chunk's cross slope ("bank" per point, roads._deck_chunks) at each ribbon row mid
     (k, 2), interpolated along the chunk at the row's nearest point (taken from the nearest point alone it stepped
-    between the chunk's points: 1-3 cm ripples across the A2's 69 m deck at 4.3 km); None when level. Pure."""
+    between the chunk's points: 1-3 cm ripples across a deck); None when level. Pure."""
     b = c.get("bank")
     if not b:
         return None
@@ -96,7 +95,7 @@ def _row_bank(c, mid):
 
 
 def _tilt_since(P, p0, mid, u, b):
-    """(ac-export patch P7) The point arrays P[p0:] (one deck's slab, girders and parapets, relative to the origin)
+    """The point arrays P[p0:] (one deck's slab, girders and parapets, relative to the origin)
     tilted about its centre rows mid (k, 2, same origin) by its cross slope b (k,) at their offset along u (k, 2, unit
     left). In place."""
     if b is None:
@@ -150,16 +149,14 @@ def ribbons(chunks):
 
 TRIM_DZ = (0.3, 4.5)                # m: another deck overlapping a deck in plan this far above or below it (two
                                     # surfaces, too near to pass over it: a ramp leaving its mainline) ...
-# (ac-export patch P6) ... from 5 cm apart: the two carriageways' decks of the A2 near Voelkermarkt overlap 2-4 m over
-# the median 0.1-0.29 m apart (each graded level across, the lidar's 4.5 % cross slope between them), just under 0.3:
-# the higher one's slab and parapet stood in the lower one's fast lane, a block Assetto Corsa's cars crashed into at
-# 220 km/h (the user, 2026-10-29). Under 5 cm they are one surface (a split _merge_overlaps pulled together).
-# Only between decks running opposite ways (the two carriageways of a divided road, a twin bridge): ramps and splits on
-# a junction's bridge (Graz, Triester Strasse) keep BeamNG.Earth's 0.3 m, the one surface _merge_overlaps made of them
-# (trimmed from 5 cm there, its deck fell into edges and slabs, the user 2026-10-29).
-TRIM_DZ_BNE = TRIM_DZ[0]
-TRIM_DZ = (float(os.environ.get("BNE_TRIM_DZ", "0.05")), TRIM_DZ[1])
-TRIM_OPPOSITE_COS = -0.85           # (ac-export patch P6) cos of the angle between their directions: opposite ways
+# ... from 5 cm apart between decks running opposite ways (the two carriageways of a divided road, a twin bridge):
+# overlapping over the median a few cm apart (each graded level across, the cross slope between them), the higher one's
+# slab and parapet would stand in the lower one's fast lane. Under 5 cm they are one surface (a split _merge_overlaps
+# pulled together). Ramps and splits on a junction's bridge keep 0.3 m (TRIM_DZ_SAME): the one surface _merge_overlaps
+# made of them would fall into edges and slabs.
+TRIM_DZ_SAME = TRIM_DZ[0]           # decks running the same way: 0.3 m
+TRIM_DZ = (0.05, TRIM_DZ[1])
+TRIM_OPPOSITE_COS = -0.85           # cos of the angle between their directions: opposite ways
 TRIM_GAP_M = 0.05                   # ... each slab ends this short of halfway between their centre lines
 
 
@@ -207,9 +204,9 @@ def trim_overlaps(rb, context=()):
             zo = oz[j] + tj * (oz[np.minimum(j + 1, len(oz) - 1)] - oz[j])
             wo = ohw[j] + tj * (ohw[np.minimum(j + 1, len(ohw) - 1)] - ohw[j])
             dz = np.abs(zo - z)
-            dj = d[j] / np.sqrt(L2[j])[:, None]       # (ac-export patch P6: TRIM_DZ only between opposite ways)
+            dj = d[j] / np.sqrt(L2[j])[:, None]       # (TRIM_DZ only between opposite ways)
             opposite = (u[:, 1] * dj[:, 0] - u[:, 0] * dj[:, 1]) < TRIM_OPPOSITE_COS
-            hit = (dc < hw + wo) & (dz >= np.where(opposite, TRIM_DZ[0], TRIM_DZ_BNE)) & (dz < TRIM_DZ[1]) & (dc > 1e-3)
+            hit = (dc < hw + wo) & (dz >= np.where(opposite, TRIM_DZ[0], TRIM_DZ_SAME)) & (dz < TRIM_DZ[1]) & (dc > 1e-3)
             if not hit.any():
                 continue
             cut = np.maximum(hw - (dc / 2 - TRIM_GAP_M), 0.0)
@@ -398,7 +395,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
     if clip is not None:
         chunks = [_reach_past(c, clip) for c in chunks]
     rb = ribbons(chunks)                        # deck surfaces too: their asphalt over deck()'s concrete
-    tilts = None                                # (ac-export patch P7: per ribbon a deck's cross slope by row)
+    tilts = None                                # (per ribbon a deck's cross slope by row)
     if any(r[5] is not None for r in rb):       # (trimmed as deck() trims their slabs: context, the decks around)
         ctx = [(r, c) for r, c in ribbon_pairs(list(context)) if r[5] is not None]
         rbc = trim_overlaps(ribbon_pairs(chunks), ctx)
@@ -424,7 +421,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         if fz is None:
             z = u[k0:k0 + 2 * k] + LIFT[layer] + lift
             k0 += 2 * k
-        elif tb is not None:                    # (ac-export patch P7) a tilted deck: its edges either side
+        elif tb is not None:                    # a tilted deck: its edges either side
             hw = np.hypot(*(left - right).T) / 2
             z = np.concatenate((fz + tb * hw, fz - tb * hw)) + LIFT[layer] + DECK_SKIN
         else:                                   # on a deck: over its opaque concrete top
@@ -694,7 +691,7 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
                            [(r, c) for r, c in zip(ribbons(list(context)), context) if r[5] is not None])
     for n, ((left, right, v, m, layer, z), c) in enumerate(rb):
         k = len(z)
-        p0 = len(P)                             # (ac-export patch P7: what this deck adds, tilted at its end)
+        p0 = len(P)                             # (what this deck adds, tilted at its end)
         lat = left - right
         u = lat / np.maximum(np.hypot(lat[:, 0], lat[:, 1]), 1e-9)[:, None]     # unit left
         wide = 0.0 if c.get("tunnel") else PARAPET_W
@@ -744,7 +741,7 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
             M.append(np.full(len(bt_), side))
             nv += len(bp)
         _tilt_since(P, p0, (left + right) / 2 - np.asarray(origin, np.float64)[:2], u,
-                    _row_bank(c, (left + right) / 2))       # (ac-export patch P7)
+                    _row_bank(c, (left + right) / 2))
     for p in _piers_clear(piers, rb):
         _pier(p, origin, P, T, UV, M, side)
         nv = sum(len(a) for a in P)

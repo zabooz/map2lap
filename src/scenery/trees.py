@@ -7,8 +7,7 @@ look bad; rocks.py makes them 3D).
 
 Species by region: BeamNG.Earth already turns its generic groups into regional ones (palm, tropical, pine_west,
 oak_west, juniper, desert_shrub: vegetation.regional); the generic deciduous, conifer and shrub left over get the
-trees of the tile's climate zone (zone(): Koppen-Geiger from BeamNG.Earth's climate map). Wau in South Sudan had
-birches and lindens before (2026-10-31).
+trees of the tile's climate zone (zone(): Koppen-Geiger from BeamNG.Earth's climate map).
 """
 import math
 import random
@@ -19,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFilter
 import climate
 import vegetation
 
-# the first ten keep their place and their random numbers (the look of the tracks built before the regions)
+# the first ten keep their place and their random numbers (older tracks keep their look when rebuilt)
 SPRITES = ("deciduous", "deciduous2", "conifer", "conifer2", "shrub", "birch", "linden", "spruce", "larch",
            "shrub_flowers", "pine", "stone_pine", "cypress", "olive", "acacia", "baobab", "palm", "tropical",
            "dry_shrub", "juniper", "jungle_bush")

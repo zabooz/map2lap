@@ -1,5 +1,5 @@
 """Distant view: coarse terrain around the corridor up to RADIUS_M, so the world doesn't end at the corridor's edge
-(without it Heiligenblut had no Grossglockner in the background).
+(the mountains on the horizon).
 
 The tiles come from BeamNG.Earth's distant terrain (farfield.build_tile): a quadtree of tiles of 256 m * 2^L, 32 cells
 per edge, L0 = our detail tiles, heights with the Earth's curvature, a skirt hanging down at every edge (no gaps between
@@ -35,10 +35,10 @@ import heightmap            # noqa: E402
 import mapdata              # noqa: E402
 import netfetch             # noqa: E402
 
-RADIUS_M = 40000.0          # m around the detail tiles (Grossglockner from Heiligenblut: ~9 km; Carinthian peaks: 30-40 km)
+RADIUS_M = 40000.0          # m around the detail tiles (a summit above a valley ~9 km off; peaks on the horizon 30-40 km)
 GROUP_LEVEL = 3             # finer tiles per 2 km square in one object (fewer draw calls), one texture each
-# BeamNG.Earth refines only around the player, here along the whole corridor edge: half as far (Heiligenblut,
-# 13.5 km +-1 km: 910 instead of 1750 tiles, 1.2 instead of 2.4 million vertices)
+# BeamNG.Earth refines only around the player, here along the whole corridor edge: half as far (a 13.5 km route,
+# +-1 km: 910 instead of 1750 tiles, 1.2 instead of 2.4 million vertices)
 K_FACTOR = 0.5
 MATERIAL = "far"            # the colour table; the textured squares: ground_far_<i>_<j> (obj_to_kn5: like the terrain)
 LAYOUT = farfield.V131      # 32 cells: L0 every 8 m, L1 16 m ... L6 512 m
@@ -55,8 +55,7 @@ LAND = ((0, (76, 128, 54)), (1700, (70, 120, 52)), (2100, (96, 128, 68)), (2600,
 ROCK = (122, 120, 114)
 WATER = (58, 118, 168)
 # Slope (tan, at most 1: the colour table goes up to 45°) from ... to: transition to rock (40° ... 45°; the detail
-# terrain: 40° ... 50°, ground.ROCK_SLOPE). From 29° on, half the alpine meadow at Heiligenblut was grey (median of the
-# slopes above 2000 m: 29°)
+# terrain: 40° ... 50°, ground.ROCK_SLOPE); not lower: alpine meadows above 2000 m have a median slope of ~29°
 STEEP = (0.84, 1.0)
 
 _w = {}                     # per worker process: heights, map data, ground colours, corridor (_init)

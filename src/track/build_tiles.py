@@ -16,17 +16,12 @@ sys.path.insert(0, SERVER)
 if SRC not in sys.path:         # (after the chdir Python would no longer find our packages through "")
     sys.path.insert(1, SRC)
 os.chdir(SERVER)                # (earthfast.pyd and the server's relative paths)
-# BeamNG.Earth's underpass rule (grading._lower_underpasses) is on (since 1.7.1: bridge thickness from the span, the
-# wall on Triester Straße in Graz is gone). Under 1.7.0 it was off (BNE_UNDERPASS=off): where the lidar is filled in
-# under a bridge, you then drove into the bridge.
-from track import patches   # noqa: E402
-patches.apply_env()         # (BNE_OUR_PATCHES=off: before BeamNG.Earth's modules read their switches)
 
 import blockworker          # noqa: E402
 import roads as roadsmod    # noqa: E402
 
 AID = 1
-DEM_ZOOM = 16               # Völkermarkt: lidar up to z16 (~0.8 m)
+DEM_ZOOM = 16               # lidar up to z16 (~0.8 m)
 
 # BeamNG.Earth's default: roads painted into the terrain (roads.ROADS_IN_GROUND, terrain_paint), the terrain is built
 # by ground.py like BeamNG.Earth's terrain block. (Until 29.10. switched off here with asphalt as a mesh: BeamNG.Earth's

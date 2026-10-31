@@ -16,7 +16,7 @@ from app import version
 from app.paths import ROOT
 
 FILE = os.path.join("data", "map2lap.json")
-AUTHORS = ("Map2Lap", "ac-export")      # (ui_track.json; ac-export: the project's earlier name)
+AUTHORS = ("Map2Lap", "ac-export")      # (ui_track.json: the authors our tracks carry)
 LINE_MAX = 2000                         # points of the route shown on the map, at most
 
 

@@ -158,8 +158,8 @@ class UnderpassTest(unittest.TestCase):
         self.assertEqual(roads.level_ranges(f, 0), [])
 
     def test_a_short_tunnel_under_lidar_ground_stays_a_tunnel(self):
-        # (ac-export patch P11) 6 m of ground over it (Graz, the Weblinger Guertel under Triester Strasse: 6.4 m): on
-        # lidar a tunnel; on the coarse DEM BeamNG.Earth's 12 m rule makes it an underpass under a bridge
+        # 6 m of ground over it: on lidar a tunnel; on the coarse DEM the 12 m rule makes it an underpass under a
+        # bridge
         import railways
         from unittest import mock
         _, n0, _ = FRAME.geodetic_to_enu(np.array([LAT]), np.array([LON]), 0.0)

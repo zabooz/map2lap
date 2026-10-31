@@ -16,18 +16,6 @@ REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"
 # (the User-Agent for OSRM and Nominatim: their usage policies ask for an app name and a way to reach its maker)
 USER_AGENT = f"Map2Lap/{VERSION} (+{REPO_URL}; {CONTACT})"
-# Track versions:
-# 0.2    brighter shadow sides, darker birch leaves, terrain casts no shadows
-# 0.3    point-to-point routes with start and finish lines (timing), run-off behind the finish
-# 0.3.1  start and finish made visible (checkered band, gantry with banner, gates.py)
-# 0.3.2  darker, greener larches
-# 0.3.3  BeamNG.Earth 1.7.2 (paved junctions on bridges, roundabout islands, piped rivers stay underground)
-# 0.4    trees by climate zone: boreal, mediterranean, savanna, rainforest, desert species; palms, tropical trees,
-#        western pines, junipers and dry bushes get their own images. Buildings in BeamNG.Earth's regional colours
-#        (walls, roofs, stone, metal), all four window bands (houses of the tall and brick bands had no windows),
-#        shutters only in the Alps, northern Europe and the Mediterranean. Parked cars, traffic lights, level
-#        crossings, speed-limit signs (US: guide signs, exits, mile markers). Road rules by country: left-hand
-#        traffic, mph, road markings, buried lines, street lamps (every track was right-hand km/h before)
 
 
 def key(v):

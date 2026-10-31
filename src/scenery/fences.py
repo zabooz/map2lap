@@ -1,12 +1,11 @@
 """Fences, walls and hedges from OpenStreetMap (Overture base/infrastructure, subtype barrier), as comic models.
 
 BeamNG.Earth reads the same lines but only draws guard rails, jersey and cable barriers (guardrails.py); its own fences
-are made up (buildings._front_fence: a front yard fence at 30 % of the houses). Here the mapped ones (the user,
-2026-10-31: "4 5 Klassen mit bissl Varianz"):
+are made up (buildings._front_fence: a front yard fence at 30 % of the houses). Here the mapped ones:
 
 - the kind: OSM's own tags first (fence_type, material, wall), else the surroundings: the comic ground on both sides
-  (groundcover.materials: WorldCover and land_use) and the nearest road (a motorway's wildlife fence). Only ~7 % of
-  the fences carry a fence_type (counted on the cache, 2026-10-31), so mostly the surroundings decide.
+  (groundcover.materials: WorldCover and land_use) and the nearest road (a motorway's wildlife fence). Only a few
+  per cent of the fences carry a fence_type, so mostly the surroundings decide.
 - KINDS: pasture (posts with wire or wooden rails), garden (pickets or boards), chain link, bars (welded mesh,
   railing), wall (stone, brick, concrete, plaster; noise barriers; city walls), hedge; colour, height and post
   spacing hashed per line (its id).

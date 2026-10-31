@@ -111,7 +111,7 @@ class BankTest(unittest.TestCase):
 
 
 class LidarBankTest(unittest.TestCase):
-    """(ac-export patch P7) On lidar a motorway takes the elevation's cross slope; elsewhere the design-speed rule."""
+    """On lidar a motorway takes the elevation's cross slope; elsewhere the design-speed rule."""
 
     def test_a_straight_motorway_on_a_4_percent_slope_leans_with_it(self):
         x = np.arange(-300.0, 300.1, 20.0)
@@ -197,7 +197,7 @@ class GradePointsTest(unittest.TestCase):
         self.assertTrue(np.isfinite(out1[j]).all())
 
     def test_a_side_road_gives_way_where_it_ends(self):
-        # (ac-export patch P1, YIELD_*) a service road ending on a road rising 5 %: the road keeps its own grade through
+        # (YIELD_*) a service road ending on a road rising 5 %: the road keeps its own grade through
         # the junction; blended as equals the side road's end flattened it there (an S-wave)
         px = np.arange(-30.0, 30.1, 0.5)
         py = np.zeros(len(px))
@@ -234,8 +234,8 @@ class AbutmentTest(unittest.TestCase):
         self.assertIs(grading.fill_abutment(steady, False), steady)
 
     def test_a_lidar_bank_is_filled_from_a_smaller_drop(self):
-        """(ac-export patch P5) The A2 near Voelkermarkt at 11.3 km: its last sample 0.29 m down the bank, 15 % steeper
-        than its grade: left on the coarse thresholds, filled on lidar's."""
+        """A motorway's last sample 0.29 m down the bank, 15 % steeper than its grade: left on the coarse
+        thresholds, filled on lidar's."""
         d = np.arange(0.0, 60.0, grading.PROFILE_STEP)
         road = 490.79 - 0.006 * d               # the road rising 0.6 % onto the bridge
         z = road.copy()
@@ -604,7 +604,8 @@ class WallHeightTest(unittest.TestCase):
 
 
 class UnderpassTest(unittest.TestCase):
-    @unittest.mock.patch.object(grading, "UNDER_HUMP_ON", False)    # (ac-export patch P2: BeamNG.Earth's clearance rule)
+    # (the clearance rule, which the coarse model keeps; lidar digs only a filled-in cutting)
+    @unittest.mock.patch.object(grading._Planner, "_coarse", lambda self, key: True)
     def test_road_dips_under_a_motorway_overpass(self):
         """A local road crossing under a short motorway bridge whose terrain was interpolated at deck height (lidar
         with the bridge removed) dips to the deck minus UNDER_CLEAR_M; a road crossing nothing is left alone."""
@@ -627,7 +628,7 @@ class UnderpassTest(unittest.TestCase):
 
 
 class UnderpassHumpTest(unittest.TestCase):
-    """(ac-export patch P2) UNDER_HUMP_*: dug only where the elevation is filled under the deck, down to the road's line."""
+    """UNDER_HUMP_*: dug only where the elevation is filled under the deck, down to the road's line."""
 
     def _road_z(self, elev, xs):
         f = features([[(-200, 0), (200, 0)], [(0, -20), (0, 20)]], ["residential", "motorway"],
@@ -637,8 +638,8 @@ class UnderpassHumpTest(unittest.TestCase):
         return g.apply(la, lo, np.asarray(elev(la, lo), np.float64))
 
     def test_a_road_in_its_cutting_is_left_alone(self):
-        """The elevation shows the road's own level under the bridge (Austrian lidar: the A2's overpasses, Graz):
-        nothing dug, though the clearance rule wanted 6 m."""
+        """The elevation shows the road's own level under the bridge (lidar): nothing dug, though the clearance
+        rule wanted 6 m."""
         xs = np.array([0.0, 30.0, 120.0])
         out = self._road_z(lambda la, lo: np.full(np.shape(la), 10.0), xs)
         self.assertTrue(np.allclose(out, 10.0, atol=0.1), out)
@@ -672,7 +673,8 @@ class UnderDipTest(unittest.TestCase):
 
 
 class UnderpassShortfallTest(unittest.TestCase):
-    @unittest.mock.patch.object(grading, "UNDER_HUMP_ON", False)    # (ac-export patch P2: BeamNG.Earth's clearance rule)
+    # (the clearance rule, which the coarse model keeps; lidar digs only a filled-in cutting)
+    @unittest.mock.patch.object(grading._Planner, "_coarse", lambda self, key: True)
     def test_road_under_gives_way_for_what_the_ramps_could_not_raise(self):
         """A local road's bridge over a motorway (the motorway never rises): with room for its ramps the overpass rises
         and the motorway stays; with frontage roads hugging both ends (the ramps held down) the motorway dips under it
@@ -785,8 +787,8 @@ class JunctionTest(unittest.TestCase):
         self.assertEqual((a.z[-1], b.z[0]), (10.0, 11.0))
 
     def test_the_other_carriageway_beside_it_is_no_junction(self):
-        """(ac-export patch P9) The A2 at 3.7 km: an approach's end 7 m beside the other carriageway, 0.35 m higher on
-        the cross slope, kept its own height; a motorway road joining that carriageway square on still meets it."""
+        """An approach's end 7 m beside the other carriageway, 0.35 m higher on the cross slope, keeps its own
+        height; a motorway road joining that carriageway square on still meets it."""
         import roads
         x = np.arange(-200, 201, 4.0)
         other = grading.Plan(np.stack([x, 0 * x], 1), 10.35 + 0 * x, 6, road_half=5)
@@ -802,7 +804,7 @@ class JunctionTest(unittest.TestCase):
 
 class UnderDeckTest(unittest.TestCase):
     def test_the_plan_goes_on_under_the_deck_at_its_grade(self):
-        """(ac-export patch P10) A plan rising 2 % onto a bridge at its end gets a vertex UNDER_DECK_M past it, at its
+        """A plan rising 2 % onto a bridge at its end gets a vertex UNDER_DECK_M past it, at its
         grade, UNDER_DECK_DROP_M and the grade over its half width below; its other end (no bridge) is left."""
         x = np.arange(0.0, 101.0, 4.0)
         xy, z, grow = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0)

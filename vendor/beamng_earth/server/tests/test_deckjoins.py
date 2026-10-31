@@ -52,6 +52,7 @@ def _measured(xy, s):
 
 
 @unittest.skipUnless(NATIVE, "earthfast 105 (deck_end_joins, deck_gaps)")
+@mock.patch("railways.COARSE_AT", lambda la, lo: True)     # (6 m of clearance: the coarse model's)
 class EndJoinTest(unittest.TestCase):
     """A viaduct (p0 then p1, joined at (0, 0)) and its right-hand branch p2 starting 3.3 m off the joint."""
 
@@ -145,6 +146,7 @@ class EndOnDeckTest(unittest.TestCase):
 
 
 @unittest.skipUnless(NATIVE, "earthfast 105 (deck_end_joins, deck_gaps)")
+@mock.patch("railways.COARSE_AT", lambda la, lo: True)     # (6 m of clearance: the coarse model's)
 class GroundGapTest(unittest.TestCase):
     """A viaduct p0 - a 40 m stretch p1 the map has on the ground - a viaduct p2."""
 
@@ -270,8 +272,8 @@ class JunctionPadTest(unittest.TestCase):
         self.assertEqual(self.pads(ne=False), [], "a deck going on straight from the street: its abutment")
 
     def test_bend_onto_its_own_approach_none(self):
-        """(ac-export patch P12) The street bends 40° onto the bridge, nothing else meets there: one road going on, no
-        pad (the Rossbach bridge on the Großglockner road); BeamNG.Earth's rule paves it."""
+        """The street bends 40° onto the bridge, nothing else meets there: one road going on, no
+        pad; counting two paves it."""
         Spec = type("S", (), {})
         s = Spec()
         s.width = 7.0
@@ -280,9 +282,8 @@ class JunctionPadTest(unittest.TestCase):
                   np.full(6, 22.0))]
         ground = [("street", s, np.c_[np.zeros(11), np.linspace(-60, 0, 11)], None)]
         box = (-50.0, -50.0, 50.0, 50.0)
-        with mock.patch.object(roads, "PAD_JUNCTIONS_ONLY", True):
-            self.assertEqual(roads.deck_pads(decks, ground, box, lambda xy: np.full(len(xy), 22.0)), [])
-        with mock.patch.object(roads, "PAD_JUNCTIONS_ONLY", False):
+        self.assertEqual(roads.deck_pads(decks, ground, box, lambda xy: np.full(len(xy), 22.0)), [])
+        with mock.patch.object(roads, "PAD_MIN_PARTS", 2):
             self.assertEqual(len(roads.deck_pads(decks, ground, box, lambda xy: np.full(len(xy), 22.0))), 1)
 
     def test_owned_by_one_tile(self):

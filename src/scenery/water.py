@@ -5,8 +5,8 @@ tile borders come out the same). Water level from the terrain heights inside the
 mostly flat surface over water), their 25th percentile:
 - lakes, reservoirs, the sea: one level per area and tile;
 - rivers, streams, canals (FLOWING): the level runs downhill with the bed, the percentile within FLOW_R of each cell,
-  smoothed (2026-10-31: one level per tile left the Lieser at Seeboden floating as a pale slab downstream and under
-  the ground upstream, with steps at the tile borders).
+  smoothed (one level per tile would leave a river floating downstream, under the ground upstream and stepped at the
+  tile borders).
 The terrain is lowered below the level (0.15 m at the shore, +0.25 m per metre away from the shore inwards, at most
 1.5 m, plus whatever of it stood above the level), the surface lies on the level per vertex and reaches one cell past
 the shore: the shoreline is where the terrain comes out of it, not the 2 m cells' stairs.

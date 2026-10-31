@@ -1,4 +1,4 @@
-"""Comic textures for BeamNG.Earth's road decals (since 1.7.1), whose game textures we don't have:
+"""Comic textures for BeamNG.Earth's road decals, whose game textures we don't have:
 
 - Gravel edge ECA_road_edge_dirt (roads.EDGE_DECAL): a 1.6 m band along the edge of roads without a kerb; u across
   (u = 1 on the asphalt, road edge at roads.EDGE_DECAL_AT), v along (6.4 m per repeat). Opaque from the edge to a
@@ -62,9 +62,9 @@ def _arrow(d, x0, y0, cell, kind, flip):
         d.polygon([p(u, v) for u, v in shape], fill=(240, 240, 235, 255))
 
 
-# --- Road surfaces in comic style (they used to be ambientCG photos: in the terrain texture at 12.5 cm per pixel a
-# cobblestone became 1-2 pixels of mush). Drawn coarse enough to stay readable at 12.5 cm per pixel; seamless,
-# 512 px per repeat (ground.ROAD_LOOKS: m per repeat).
+# --- Road surfaces in comic style (a photo in the terrain texture at 12.5 cm per pixel turns a cobblestone into 1-2
+# pixels of mush). Drawn coarse enough to stay readable at 12.5 cm per pixel; seamless, 512 px per repeat
+# (ground.ROAD_LOOKS: m per repeat).
 SURFACE_PX = 512
 COBBLE_N = 7                    # stones per repeat and direction (4 m: ~57 cm per stone, ~4.5 pixels in game;
                                 # 45 cm were hard to read)

@@ -118,8 +118,8 @@ def place(lat, lon):
 def road_rules(lat, lon):
     """BeamNG.Earth's road rules at the anchor from its country (ISO code from Nominatim, as place()): driving on the
     left, limits in mph, the share of low-voltage lines underground (fewer poles), the street lamps' spacing and the
-    country itself (road markings, speed-limit sign faces). Unknown (Nominatim not reachable): the rules used before
-    2026-10-31 (right-hand traffic, km/h)."""
+    country itself (road markings, speed-limit sign faces). Unknown (Nominatim not reachable): right-hand traffic,
+    km/h."""
     try:
         place(lat, lon)
         country, region = _codes.get((round(lat, 3), round(lon, 3)), (None, None))
@@ -238,7 +238,7 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     clean: delete the temporary data afterwards (clean_up); the page does that while "Keep build files" is off.
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
-    centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/patch_check.py: no distant view, kn5 or
+    centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/stretch.py: no distant view, kn5 or
     track folder; nothing goes into AC); returns {"work": the work folder}."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()

@@ -56,12 +56,10 @@ TURN_COS = 0.7          # a span goes on onto a joined line turning less than ~4
 SHORT_ROAD_TUNNEL_M = 80.0  # m: a road's tunnel this short crossed by a ground line ...
 UNDERPASS_COVER_M = 12.0    # ... with less ground over it than this (over its approaches PORTAL_OUT_M past its portals)
 PORTAL_OUT_M = 10.0         # is an underpass: ground under the line over it, which gets the bridge (_underpasses)
-# (ac-export patch P11) Where the elevation is lidar (not railways._coarse_here) the ground over the tunnel is the real
-# one: a bridge is filtered out of it (the A2 at 3.7 km over a 57 m tunnel: 0.4 m over its portals), a covered
-# underpass is not (Graz, the Weblinger Guertel's 64 m tunnels under Triester Strasse: 6.4 m). Made a bridge, Triester
-# Strasse stood 1.3 m over its lidar height with edges up to 1.5 m; left a tunnel it is flat (the user drove both,
-# 2026-10-29). There a tunnel with this much ground over it stays one. BNE_LIDAR_UNDERPASS_COVER=0: BeamNG.Earth's rule.
-LIDAR_COVER_M = float(os.environ.get("BNE_LIDAR_UNDERPASS_COVER", "3.0")) or None
+# Where the elevation is lidar (not railways._coarse_here) the ground over the tunnel is the real one: a bridge is
+# filtered out of it, a covered underpass is not. There a tunnel with this much ground over it stays a tunnel (made a
+# bridge, the road over it would stand over its lidar height, with edges).
+LIDAR_COVER_M = 3.0
 NEAR_M = 60.0           # m round the cell's own lines that neighbours' lines are taken from
 RAIL_HALF_M = 2.5       # m: a track's half width (its ballast)
 
@@ -341,9 +339,9 @@ def _underpasses(md, frame, lines, kinds, groups):
         z = np.asarray(_dem(md).sample(np.asarray(la), np.asarray(lo), DEM_ZOOM), np.float64)
         for c, i0, i1 in at:
             cover = UNDERPASS_COVER_M
-            if LIDAR_COVER_M is not None:       # (ac-export patch P11)
-                if not railways._coarse_here(frame, (*lines[c].min(0)[:2], *lines[c].max(0)[:2])):
-                    cover = LIDAR_COVER_M
+
+            if not railways._coarse_here(frame, (*lines[c].min(0)[:2], *lines[c].max(0)[:2])):
+                cover = LIDAR_COVER_M
             if not (np.nanmax(z[i0:i1]) - np.nanmin(z[i1:i1 + 2]) < cover):
                 keep[c] = False
     return keep

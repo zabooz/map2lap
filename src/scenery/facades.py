@@ -8,8 +8,7 @@ of building:
 - rows 512-768   sash windows on plaster, 5 bays (BAND_SASH)
 - rows 768-1024  sash windows on red brick, 5 bays (BAND_BRICK)
 
-Shutters only where BeamNG.Earth's region has them (make_obj.SHUTTER_REGIONS). Up to 2026-10-31 only the middle two
-bands had windows (and the sash band at 4 bays): houses of the tall or the brick band had none.
+Shutters only where BeamNG.Earth's region has them (make_obj.SHUTTER_REGIONS).
 Plain walls (siding boards, stucco, metal) and roofs are tiled (buildings.SIDING_UV_M, ROOF_UV_M).
 """
 import numpy as np

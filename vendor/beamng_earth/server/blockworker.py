@@ -754,7 +754,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     mark("guardrails")
     guardrail_rows = guardrail_rows + _median_rows(frame, near_roads, box, elev, left_hand, country, guardrail_rows,
                                                    tx, ty, deck_parts)
-    guardrail_rows = roadsmod.tilt_rows_on_decks(guardrail_rows, deck_parts, bridges)      # (ac-export patch P7)
+    guardrail_rows = roadsmod.tilt_rows_on_decks(guardrail_rows, deck_parts, bridges)
     mark("medians")
     P.dmesh = roadmeshmod.deck(chunks, (x0, y0, 0.0), bridges.piers_in(box), ctx, bridges.beams_in(box), ground=cover,
                                parapets=parapets, low_parapet_decks=low_parapet_decks, pads=pads)

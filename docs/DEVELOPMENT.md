@@ -1,18 +1,19 @@
 # Map2Lap – developer notes
 
-How Map2Lap is put together, the rules it follows, and what is still open. For using it, see the
-[README](../README.md); for our changes to BeamNG.Earth, see [BEAMNG_EARTH.md](BEAMNG_EARTH.md).
+How Map2Lap is put together and the rules it follows. For using it, see the
+[README](../README.md).
 
-Map2Lap is built on the server code of **BeamNG.Earth** (MIT licence, © TecnaGamer), vendored under
-`vendor/beamng_earth`. We call its building blocks without the game and write the result with **our own kn5 writer** –
-no Blender, no ksEditor. The aim is a *reskin* of BeamNG.Earth for Assetto Corsa: their code stays complete (nothing is
-removed), updates are taken over, and our AC-specific parts (looks, physics names, kn5) sit on top.
+Map2Lap is built on the server code of **BeamNG.Earth** (MIT licence, © TecnaGamer), in `vendor/beamng_earth` and
+developed further here. We call its building blocks without the game and write the result with **our own kn5 writer**
+– no Blender, no ksEditor. Our AC-specific parts (looks, physics names, kn5) sit on top.
 
 **Working rules**
 - BeamNG.Earth's world is the base: rebuild it completely, hide nothing. When something is wrong, first read what
   BeamNG.Earth intends at that place (the server code *and* the mod's `mod/.../roads.lua`, which shows what collides in
   game). Don't correct by screenshots of one test track.
-- Fix problems at their cause, not for one place. If the cause is in BeamNG.Earth's code: fix it there ([BEAMNG_EARTH.md](BEAMNG_EARTH.md)).
+- Fix problems at their cause, not for one place, in `vendor/beamng_earth` too. A rule for the driving surface gets a
+  comment at its place saying why (marked `(ac-export patch Pn)`: `git grep -n "patch P5"`), a test, and a measurement
+  before and after (`tools/stretch.py`).
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
 - Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
@@ -28,7 +29,7 @@ removed), updates are taken over, and our AC-specific parts (looks, physics name
 | What | Where |
 |---|---|
 | Python 3.12 (venv) | `.venv\Scripts\python.exe`, packages from `requirements.txt` |
-| BeamNG.Earth (source, frozen at v1.7.2-beta) | `vendor\beamng_earth` (our code since 2026-10-31, see below) |
+| BeamNG.Earth (source, based on v1.7.2-beta) | `vendor\beamng_earth` (see below) |
 | Assetto Corsa (with CSP, Content Manager) | found through Steam, or set in the page's Settings |
 | CSP Lua docs (matching the installed version) | `assettocorsa\extension\internal\lua-sdk\<script type>\README.md` |
 | CC0 textures (ambientCG, not in git) | `assets\textures\` – `python tools\get_textures.py` downloads them |
@@ -95,7 +96,7 @@ src/            the program
   track/        map data -> track: BeamNG.Earth tiles, OBJ parts, kn5, track folder, worker processes
   scenery/      terrain, water, trees, rocks, street furniture, textures, gantries, distant view
 tools/          developer tools (not in the release): measuring, update, release, Track Debug app
-vendor/         BeamNG.Earth 1.7.2, frozen (see below)
+vendor/         BeamNG.Earth (see below)
 docs/           these notes, README images
 ```
 `src\` is the import root: the packages import each other as `from track import make_obj`. `server.py` and
@@ -128,28 +129,22 @@ release's Python has it in `python312._pth`.
 | `track/make_track_folder.py` | Track folder (everything but the kn5) |
 | `track/parallel.py` | Number of worker processes, process pool |
 | `src/acapp/TrackDebug/` | CSP Lua app for testing (Settings → Testing, `app/debugapp.py`): position on the route (`data/map2lap_route.txt` per track), F10, recording |
-| `tools/patch_check.py` | Ours or BeamNG.Earth's? A track's stretch built with and without our patches (`track/patches.py`, `BNE_OUR_PATCHES=off`), tiles and OBJ only, the driving surface along the route compared, the patch found by halving |
+| `tools/stretch.py` | A track's stretch built again fast (tiles and OBJ only, nothing into AC), the driving surface along the route measured and compared with its last run: before and after a fix |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | Measure the driving line of built tracks (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against the test tracks' reference values |
-| `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`); its whole-version merge is no longer used (BeamNG.Earth frozen at 1.7.2) |
+| `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 
-### BeamNG.Earth: frozen at 1.7.2
+### BeamNG.Earth (`vendor/beamng_earth`)
 
-- Since 2026-10-31 `vendor/beamng_earth` is **our code**: BeamNG.Earth 1.7.2-beta (github.com/TecnaGamer/BeamNG.Earth)
-  is the last upstream version merged. Problems are fixed where they arise, in their code too; a change to the
-  driving surface or driving behaviour is a patch in [BEAMNG_EARTH.md](BEAMNG_EARTH.md) (ID, switch, test, marker),
-  anything else an ordinary commit.
-- Branch **`upstream`** keeps the unmodified 1.7.2: `git diff upstream -- vendor/beamng_earth` shows all our changes.
-- **Later releases** are watched, not merged: a fix or feature worth having is ported by hand as a patch of its own
-  (BEAMNG_EARTH.md, "Later BeamNG.Earth versions").
-- **Rust module `earthfast`** (built by us for patch P1, `server/earthfast.pyd` in the repo): Rust
+- Based on BeamNG.Earth 1.7.2-beta (github.com/TecnaGamer/BeamNG.Earth), developed further here.
+- **Rust module `earthfast`** (built by us for P1, `server/earthfast.pyd` in the repo): Rust
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
   `%USERPROFILE%\.cargo\dlltool-llvm\dlltool.exe`; in `native/earthfast` `cargo build --release`,
-  `target/release/earthfast.dll` → `server/earthfast.pyd` (stop the page first). The update script rebuilds it after
-  the merge (`--build-native`: only that). The `.pyd` must match the Python version (3.12). The Linux `.so`
-  (`earthfast.abi3.so`) stays without the patch: a build on Linux stops at the first junction with `NativeMissing`
-  until it is built there (or with `BNE_JUNCTION_YIELD=off`, then without the rule). No `std::env` in the Rust code:
+  `target/release/earthfast.dll` → `server/earthfast.pyd` (stop the page first; or
+  `tools/update_beamng_earth.py --build-native`). The `.pyd` must match the Python version (3.12). The Linux `.so`
+  (`earthfast.abi3.so`) is not built with P1 yet: a build on Linux stops at the first junction with `NativeMissing`
+  until it is built there. No `std::env` in the Rust code:
   reading environment variables crashed with this toolchain.
 
 ### Terrain and physics like BeamNG.Earth
@@ -173,8 +168,8 @@ release's Python has it in `python312._pth`.
   BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`).
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*`
   visible as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5
-  `renderable = 0`). Since 1.7.1 `rail` likewise with `railcol`.
-- **Guardrails** (since 1.7.1, tile key `guardrails`; in game forest models with collision): comic models
+  `renderable = 0`); `rail` likewise with `railcol`.
+- **Guardrails** (tile key `guardrails`; in game forest models with collision): comic models
   (`propsmesh.rails`: steel beam, concrete barrier, cable barrier) as `nocol_guardrail_…`, plus one invisible vertical
   wall `1WALL_guardrailcol_…` per 3 m module.
 - **Smoother than BeamNG.Earth** where AC needs it (hard tyres and springs; BeamNG's soft body rolls over centimetre
@@ -218,7 +213,7 @@ release's Python has it in `python312._pth`.
 
 ### Limits
 - 65,535 vertices per mesh (16 bit indices) → objects are split (`_<k>`; split names from the front when reading).
-- AC loads the whole track at start; nothing streams. Völkermarkt–Vienna (292 km, ±100 m): 2507 tiles, a 9.9 GB kn5,
+- AC loads the whole track at start; nothing streams. A 292 km route (±100 m): 2507 tiles, a 9.9 GB kn5,
   ~47 GB RAM while loading. Beyond ~50 km from the anchor float32 gets coarse (~1–2 cm at 150–250 km).
 - The road surface is 2 m terrain triangles (like BeamNG): as even as there in tight curves, not smoother.
 
@@ -240,8 +235,7 @@ pos/normal/uv/tangent, uint16 indices, material, layer, LOD, bounding sphere, re
   Realistic instead of comic: `[Material_Water] Materials = water, Type = LAKE` in the track's `ext_config.ini`.
 - **Road rules by country:** `generator.road_rules` takes the anchor's country (ISO code from Nominatim, like the
   track name) and passes BeamNG.Earth's rules to every road tile: driving on the left (parking side, signs, signals,
-  crossings), mph, the road markings' style, buried low-voltage lines (fewer poles), street lamp spacing. Before
-  2026-10-31 every track was built as right-hand traffic in km/h without a country.
+  crossings), mph, the road markings' style, buried low-voltage lines (fewer poles), street lamp spacing.
 - **Road signs:** `blockworker.signs_tile` per tile (generator `_tile_job`): speed limits everywhere in the region's
   face (Vienna Convention, US MUTCD, Canada), in the US also guide signs, exits, mile markers, merge signs. `make_obj`
   reads `signs_*.json`: solid colours from `exit/merge.materials.json` (linear to sRGB), the lettering as RGBA with
@@ -262,30 +256,3 @@ pos/normal/uv/tangent, uint16 indices, material, layer, LOD, bounding sphere, re
   Overture `land_use` on top; painted into the terrain texture per tile (1 m classes), roads on top.
 - **Bridge road** (`asphalt`): the same asphalt as in the terrain (`ground.ROAD_LOOKS`, scaled to 12.5 cm/px), light
   values like the terrain.
-
----
-
-## Open
-
-| Problem | State |
-|---|---|
-| **FPS on long tracks** | Völkermarkt–Vienna (300 km): 22 fps at the start, short tracks 90+. View distance and shadows per kind, DDS textures; not yet driven again on a long track |
-| **Bridge in the valley (random)** | One parallel A2 build put the 6.8 km bridge 5 m deep into the valley; the same tile alone and the next build: right. Suspicion: a process failed to read a map cell or elevation data (BeamNG.Earth then builds on and only notes it in `revisit.fault()`). Plan: the generator reports missing data and rebuilds the tile |
-| **A2 bridges** | Approaches at 11.3 and 4.3 km fixed (P5). Open: exit at 6.4 km 2.4 G at 100 km/h (`_merge_overlaps` pulls the deck away from the end); a knock at 4444 m (cause open); terrain at 532–543 m: 0.5 m over 3 m |
-| **Bridges (Vienna):** the road sags into the lidar trench before motorway bridges | open; BeamNG.Earth never raises motorways (`APPROACH_SKIP`) |
-| **Roadside guardrails** | BeamNG.Earth builds only mapped guardrails (OSM/Overture) and median barriers on dual motorways. Open: add them on motorways ourselves? |
-| **Wires in the air** | street wires end at the corridor's edge without a pole; substations (`gantry`, `sub_*`) not built yet |
-| **Not built yet** | fences (BeamNG.Earth gives points without a length), shop wall signs (`wallsign_*`), gas stations (`fuel`, `gas_stations=False`), oil well pump jacks (`wells`), sounds (`sound`), runway markings unchecked |
-| **Asphalt physics wider than painted** (every touched 2 m cell; car parks physics only) | like in BeamNG; leave it |
-| **Sharpness and memory** (one terrain texture per tile, 12.5 cm/px) | try the `ksMultilayer` shader (mask + detail textures) |
-| **AI line** | no `ai/fast_lane.ai` yet: no AI cars, apps that need one (e.g. some timing apps) don't work; could be written from the route |
-| **Tests** | more test places (city, mountain road with tunnel); BeamNG.Earth's `test_otto_bridge` fails 3× with P1/P2 (see BEAMNG_EARTH.md) |
-
-**Later:** long routes (coarser terrain further out, fewer meshes per tile, RAM warning); fields striped along their
-long axis; an invisible edge wall; traffic signs, car parks, tunnel sound; navigation (a CSP app with turn hints); AI
-traffic (`navgraph.py` → CSP's traffic tool); details (tree trunks with collision; left out: lamp glass, light cones,
-fences, wall signs, petrol stations, traffic lights).
-
-**Rejected – loading physics at runtime:** `physics.addTrackSurface` (CSP) works while loading, but triggers a growing
-Embree rebuild per call and **AC crashes when loading more while driving** (CSP docs: "causes a huge lag"). CSP's
-"custom raycasting" (a height map instead of meshes, like BeamNG's TerrainBlock) is undocumented.

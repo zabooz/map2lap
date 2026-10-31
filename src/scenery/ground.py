@@ -33,9 +33,8 @@ TEX_PX = 2048                   # pixels per tile edge (12.5 cm); TODO long rout
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
 # Road look -> (texture, m per repeat, brightness); painted in this order. Asphalt by road class (_look).
-# Textures: the comic surfaces (roadtex.make_surfaces, in the texture folder; photos from ambientCG used to turn into
-# mush at 12.5 cm per pixel). Brightness: the asphalt classes against each other. (A single photo asphalt for all
-# roads looked too bright next to the comic ground, gravel and dirt tracks shared one look.)
+# Textures: the comic surfaces (roadtex.make_surfaces, in the texture folder; photos turn into mush at 12.5 cm per
+# pixel). Brightness: the asphalt classes against each other.
 ROAD_LOOKS = {"dirt": ("road_dirt", 6.0, 1.0), "gravel": ("road_gravel", 4.0, 1.0), "cobble": ("road_cobble", 4.0, 1.0),
               "concrete": ("road_concrete", 6.0, 1.0), "service": ("road_asphalt", 4.0, 1.12),
               "minor": ("road_asphalt", 4.0, 1.06), "main": ("road_asphalt", 4.0, 1.0),
@@ -48,8 +47,8 @@ MOTTLE = (3.0, 0.04)            # m, strength of the blotches (nothing repeats, 
 ROCK_SLOPE = (0.84, 1.19)       # slope (tan): transition to the rock face from 40° to 50° (alpine meadows hold up to ~40°)
 ROCK_BAND_M = 4.0               # m of height per rock layer on the face (soft light/dark; 1.8 m hard looked like
                                 # contour lines from above, 3.5 m with +-10 %: zebra stripes)
-# Streams, rivers, canals: in Overture often only a line (Heiligenblut: ~190 streams, 16 rivers, 14 canals as lines,
-# 2 river areas); water.py draws only the areas. Painted into the terrain texture here: class -> (half width of the
+# Streams, rivers, canals: in Overture often only a line (a mountain valley: ~190 streams, 16 rivers, 14 canals as
+# lines, 2 river areas); water.py draws only the areas. Painted into the terrain texture here: class -> (half width of the
 # water m, bank per side m); intermittent ones (is_intermittent) as a stone bed. Ditches not, like BeamNG.Earth's riverlines
 STREAMS = {"stream": (0.8, 0.6), "river": (3.0, 1.2), "canal": (2.0, 0.5)}
 STREAM_WATER, STREAM_BANK, STREAM_DRY = (66, 124, 172), (104, 98, 84), (156, 150, 138)
@@ -223,7 +222,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             idx = surfacemod.paint_pads(idx, keep["lat"], keep["lon"], s.surface.fuel_pads(keep["lat"], keep["lon"]))
     idx = np.asarray(idx)
 
-    # triangles per cell (split SW to NE as before), without cells at the portal hole; surface: the SW sample
+    # triangles per cell (split SW to NE), without cells at the portal hole; surface: the SW sample
     i, j = np.meshgrid(np.arange(n - 1), np.arange(n - 1))
     a = (j * n + i).ravel()
     b, c, d = a + 1, a + n, a + n + 1
@@ -285,9 +284,9 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             am = a > 0
             if not am.any():
                 continue
-            if rgb is STREAM_WATER:     # the comic water's texture, world-locked like the water mesh's (a flat colour
+            if rgb is STREAM_WATER:     # the comic water's texture, world-locked like the water mesh's
                 col = _sample(_texture(os.path.join(gc_dir, "water.png"), int(round(water.UV_M / sp))), wx[am],
-                              wy[am], water.UV_M)       # looked like no texture at all: Rossbach, 2026-10-31)
+                              wy[am], water.UV_M)
             else:
                 col = np.array(rgb, np.float32) * (1.0 + 0.06 * groundcover._noise(wx[am], wy[am], 1.5, 71))[:, None]
             w = (a[am] / 255.0)[:, None]

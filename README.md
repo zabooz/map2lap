@@ -52,8 +52,7 @@ py -3.12 -m venv .venv
 "Start Map2Lap.bat"
 ```
 
-How it works, tools and releases: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Changes to BeamNG.Earth's code:
-[docs/BEAMNG_EARTH.md](docs/BEAMNG_EARTH.md).
+How it works, tools and releases: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Credits
 

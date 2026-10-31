@@ -478,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
-    try:                                # (AC as Settings say: also an app left from before the switch existed)
+    try:                                # (AC as Settings say)
         debugapp.sync(settings.ac_path(), settings.load()["debug_app"])
     except OSError:
         pass

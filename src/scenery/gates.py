@@ -78,8 +78,8 @@ def _place(objs, xy, s, d0, step):
 
 class _Tex:
     """The terrain textures (ground.py: the road painted in, 12.5 cm per pixel) to look up how wide the road really is
-    at the line: the 2 m physics cells were 25 m wide at the Stausee start (a car park next to it), the painted road
-    was 8 m."""
+    at the line: the 2 m physics cells can be 25 m wide there (a car park next to it) where the painted road is
+    8 m."""
 
     def __init__(self, tex_dir):
         self.dir, self.img = tex_dir, {}

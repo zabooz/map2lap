@@ -1379,11 +1379,10 @@ fn bank_profile<'py>(py: Python<'py>, xy: PyReadonlyArray2<'py, f64>, e_max: f64
     out.into_pyarray(py)
 }
 
-/// (ac-export patch P1) yl: per segment how much it gives way (0 none, 255 fully): a road's end that runs onto another
+/// yl: per segment how much it gives way (0 none, 255 fully): a road's end that runs onto another
 /// road with no part of its own going on (grading.PlanPack.yl). On the carriageway of a road that does not give way
-/// there its weight is 0, coming back over yield_fade m past that carriageway's edge (BeamNG.Earth blended them as
-/// equals: an 18 m service road pulled a tertiary it joins -10 / +5 cm out of its profile, an S-wave a car in Assetto
-/// Corsa felt at 1.6 g; ac-export, 2026-10-29)
+/// there its weight is 0, coming back over yield_fade m past that carriageway's edge (blended as equals, a short side
+/// road pulls the road it joins out of its profile: an S-wave)
 #[pyfunction]
 #[pyo3(signature = (px, pyy, base, a, b, za, zb, h, rh, rid, abut, cut, ba, bb, lift, slope_run, t_min, t_max, blend_r,
                     bucket, wall_cut, wall_t, wall_flat, wall_ahead, sep, sep_from, sep_full, core_fade, side_fade,
@@ -1399,7 +1398,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                      sep: bool, sep_from: f64, sep_full: f64, core_fade: f64, side_fade: f64, sharp_step: f64,
                      yl: Option<PyReadonlyArray1<'py, u8>>, yield_fade: f64)
                      -> Bound<'py, PyArray1<f64>> {
-    let yl: Vec<u8> = match yl { Some(v) => v.as_array().to_vec(), None => Vec::new() };     // (ac-export patch P1)
+    let yl: Vec<u8> = match yl { Some(v) => v.as_array().to_vec(), None => Vec::new() };
     let gives_way = yl.iter().any(|&v| v != 0);
     let (px, pyy, base) = (px.as_array(), pyy.as_array(), base.as_array());
     let (a, b, za, zb, h) = (a.as_array(), b.as_array(), za.as_array(), zb.as_array(), h.as_array());
@@ -1457,7 +1456,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
     let mut bdeep = vec![0.0f64; n];
     let mut bz = vec![f64::NAN; n];
     let mut bid = vec![-1i64; n];
-    // (ac-export patch P1) the carriageways of roads not giving way near each point (up to KEEP_CAR: road, d - rh)
+    // the carriageways of roads not giving way near each point (up to KEEP_CAR: road, d - rh)
     const KEEP_CAR: usize = 4;
     let nk = if gives_way { n * KEEP_CAR } else { 0 };
     let mut car_rid = vec![-1i64; nk];
@@ -1477,7 +1476,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
             let mut reach = if pass == 0 { (h[s] + if sep { core_fade } else { 0.0 }).max(cut_reach[s]).min(h[s] + t_max) }
                         else { h[s] + t_max };
             if pass == 0 && gives_way {
-                reach = reach.max(rh[s] + yield_fade);      // (ac-export patch P1: the carriageways' fade)
+                reach = reach.max(rh[s] + yield_fade);      // (the carriageways' fade)
             }
             let (ax, ay, bx, by) = (a[[s, 0]], a[[s, 1]], b[[s, 0]], b[[s, 1]]);
             let (lo_x, hi_x) = (ax.min(bx) - reach, ax.max(bx) + reach);
@@ -1495,7 +1494,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
             // (cut_reach: its side and ahead limits), a core (h + core_fade); a margin for the rounding
             let far0 = rh[s].max(h[s] + if has_cut[s] { wall_flat.max(0.0) } else { 0.0 }).max(cut_reach[s])
                 .max(h[s] + if sep { core_fade } else { 0.0 })
-                .max(if gives_way { rh[s] + yield_fade } else { 0.0 }) + 1e-6;     // (ac-export patch P1)
+                .max(if gives_way { rh[s] + yield_fade } else { 0.0 }) + 1e-6;
             for row in cy0..=cy1 {
                 let i0 = sk.partition_point(|&k| k < row * nbx + cx0);
                 let i1 = sk.partition_point(|&k| k <= row * nbx + cx1);
@@ -1521,7 +1520,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                             carz[idx] = target;
                             carid[idx] = rid[s];
                         }
-                        if gives_way && yl[s] == 0 && d - rh[s] < yield_fade {     // (ac-export patch P1)
+                        if gives_way && yl[s] == 0 && d - rh[s] < yield_fade {
                             let e = d - rh[s];
                             let k0 = idx * KEEP_CAR;
                             let mut slot = KEEP_CAR;
@@ -1603,7 +1602,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                     let on_other_car = carid[idx] >= 0 && carid[idx] != rid[s] && (target - carz[idx]).abs() > wall_cut;
                     let yields = d > rh[s] && (on_other_car
                         || (bid[idx] >= 0 && bid[idx] != rid[s] && (target - bz[idx]).abs() > wall_cut));
-                    // (ac-export patch P1) a road's end giving way: none on another's carriageway, back over yield_fade
+                    // a road's end giving way: none on another's carriageway, back over yield_fade
                     let mut yf = 1.0f64;
                     if gives_way && yl[s] != 0 {
                         let strength = yl[s] as f64 / 255.0;
@@ -5298,6 +5297,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
     m.add("VERSION", 114)?;
-    m.add("AC_EXPORT_YIELD", 1)?;      // (ac-export patch P1: grade_points takes yl, yield_fade)
+    m.add("AC_EXPORT_YIELD", 1)?;      // (grade_points takes yl, yield_fade)
     Ok(())
 }

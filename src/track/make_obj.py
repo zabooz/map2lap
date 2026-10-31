@@ -57,7 +57,7 @@ SURFACE = {
     "m_dirt_road": ("1GRAVEL", "dirt"),         # (OSM surface=gravel/unpaved/dirt: its own surface, less grip)
     "bne_bld_marble": ("1WALL", "concrete"),
     "bne_tunnel_inner": ("1WALL", "concrete"), "bne_tunnel_light": (None, "paint"),
-    # (first seen in Vienna; before, everything FALLBACK = wall: you crashed into tram rails in the road)
+    # (not FALLBACK: tram rails in the road would be walls)
     "road_gravel": ("1GRAVEL", "dirt"), "road_tramline": ("1ROAD", "asphalt"),
     "bne_rail_ballast": ("1GRAVEL", "ballast"), "bne_rail_ballast_grown": ("1GRAVEL", "ballast"),
     "bne_rail_ballast_weedy": ("1GRAVEL", "ballast"),
@@ -66,7 +66,7 @@ SURFACE = {
     "bne_bld_brick": ("1WALL", "bricks"), "bne_bld_office": ("1WALL", "plaster2"),
     "bne_truss_steel": ("1WALL", "rail"),
     "m_gm_concrete_plain": ("1WALL", "concrete"), "m_gm_metal_hotspotting": ("1WALL", "rail"),
-    # (since BeamNG.Earth 1.7.1: gravel edge on roads without kerbs, turn arrows, plaster walls; roadtex.py)
+    # (gravel edge on roads without kerbs, turn arrows, plaster walls; roadtex.py)
     "ECA_road_edge_dirt": (None, "edge_dirt"), "roadmarkings1": (None, "arrows"),
     "bne_bld_stucco": ("1WALL", "plaster"),
 }
@@ -74,7 +74,7 @@ FALLBACK = ("1WALL", "concrete")
 # Collision as in the BeamNG mod (mod/.../roads.lua: createWalk): "road" visual only (you drive on the terrain),
 # "deck" (bridges, tunnel floor), "tunnel" (tubes, portals, retaining walls) and "rail" visible with collision; "walk"
 # and "bld*" visible, their collision is the invisible copy "walkcol"/"bldcol" (without the copy they collide
-# themselves); "wire" visual only. (walkcol/bldcol used to be dropped as "duplicates" and "tunnel" hidden.)
+# themselves); "wire" visual only.
 COLLIDE = {"deck", "tunnel", "rail"}
 COL_ONLY = {"walkcol": "1KERB", "bldcol": "1WALL"}      # invisible (obj_to_kn5: name "<prefix>_<x>col_...")
 RENDER_ONLY = {"road", "wire"}
@@ -88,7 +88,7 @@ def collision_prefix(what, surf, data):
     base = what.rstrip("0123456789")            # (bld2, bld3 ...)
     if what in RENDER_ONLY or not surf:
         return "nocol"
-    if base in ("walk", "bld", "rail") and f"{base}col" in data:    # (railcol: since BeamNG.Earth 1.7.1)
+    if base in ("walk", "bld", "rail") and f"{base}col" in data:
         return "nocol"
     return surf
 
@@ -113,7 +113,7 @@ MATERIALS = {   # our material -> (texture or None, base colour)
 for _g in list(groundcover.CLASS_MAT.values()) + [f"gc_field{k}" for k in range(groundcover.FIELD_VARIANTS)]:
     if _g != "gc_field":
         MATERIALS[_g] = ("@gc", (1, 1, 1))      # comic ground (groundcover.make_textures)
-# Buildings in BeamNG.Earth's colours (2026-10-31; before, every house took one of 12 Carinthian colours): its
+# Buildings in BeamNG.Earth's colours: its
 # building mesh carries each building's colour as vertex colours, a tint from its tables (buildings.LOOKS: plaster,
 # paints, stucco, siding, wood, stone, roofs by region, OSM's building:colour) times a hashed brightness (JITTER).
 # AC has no vertex colours: each material of BLD_KINDS gets a texture per colour of its table (BLD_PALETTES), a
@@ -452,10 +452,9 @@ BUSHES = {"shrub", "desert_shrub"}     # vegetation groups lit like the ground (
 
 def ground_normals(G, x0, y0, B):
     """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per bush): the ground's under each, from the
-    tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Before, they pointed up like the
-    trees': bushes on a hillside turned away from the sun stayed bright on the dark ground (Seeboden, 2026-10-31); they
-    don't receive shadows (obj_to_kn5: ksPerPixelAT_NS), so the slope's light is what darkens them. Trees keep "up"
-    (they stand above the slope and looked right)."""
+    tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Bushes don't receive shadows
+    (obj_to_kn5: ksPerPixelAT_NS): pointing up they would stay bright on a hillside turned away from the sun, the
+    slope's light is what darkens them. Trees keep "up" (they stand above the slope)."""
     n = int(round(math.sqrt(len(G))))
     Z = G[:, 2].reshape(n, n)                               # [j northwards, i eastwards]
     dzdy, dzdx = np.gradient(Z, CELL)
@@ -623,7 +622,7 @@ def _scenery_tile(tx, ty, part_path):
                     tris["pylons"] = tris.get("pylons", 0) + len(mesh[2])
         except Exception as e:
             log(f"Street furniture, tile {tx},{ty}: {type(e).__name__}: {e}")
-    if data.get("guardrails"):  # guardrails, concrete barriers, cable barriers (since BeamNG.Earth 1.7.1, propsmesh.rails)
+    if data.get("guardrails"):  # guardrails, concrete barriers, cable barriers (propsmesh.rails)
         try:
             deco, col = propsmesh.rails(data["guardrails"]["groups"], data["guardrails"]["items"])
             for name, mesh in ((f"nocol_guardrail_{tx}_{ty}", deco), (f"1WALL_guardrailcol_{tx}_{ty}", col)):

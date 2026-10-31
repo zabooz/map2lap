@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
-import unittest.mock    # (ac-export patch P6)
+import unittest.mock
 
 import numpy as np
 
@@ -189,7 +189,7 @@ class TrimOverlapsTest(unittest.TestCase):
         np.testing.assert_allclose(m[0][:, 1], 19.4)                            # the far edges as they were
         np.testing.assert_allclose(r[1][:, 1], -5.8)
 
-    @unittest.mock.patch.object(roadmesh, "TRIM_DZ", (0.3, 4.5))   # (ac-export patch P6: BeamNG.Earth's threshold)
+    @unittest.mock.patch.object(roadmesh, "TRIM_DZ", (0.3, 4.5))   # (the 0.3 m threshold)
     def test_one_surface_or_stacked_kept(self):
         for dz in (0.1, 6.0):            # (one surface at a split; an upper roadway over a lower one)
             main = self.ribbon(10.0, 9.4, 95.0, "main")
@@ -204,7 +204,7 @@ class TrimOverlapsTest(unittest.TestCase):
         return (right[::-1], left[::-1], v[::-1], m, layer, z[::-1]), c
 
     def test_carriageways_a_little_apart_are_trimmed(self):
-        """(ac-export patch P6) Two carriageways' decks (opposite ways) overlapping 0.29 m apart (the A2 at 6.8 km): both
+        """Two carriageways' decks (opposite ways) overlapping 0.29 m apart: both
         end halfway; 2 cm apart they stay one surface."""
         main = self.ribbon(10.0, 9.4, 95.0, "main")
         other = self.opposite(self.ribbon(0.0, 5.8, 94.71, "other"))
@@ -216,7 +216,7 @@ class TrimOverlapsTest(unittest.TestCase):
         np.testing.assert_allclose(m[1], main[0][1])
 
     def test_a_ramp_a_little_apart_keeps_beamng_earths_threshold(self):
-        """(ac-export patch P6) A ramp (the same way) 0.29 m under its mainline: one surface as BeamNG.Earth has it."""
+        """A ramp (the same way) 0.29 m under its mainline: one surface."""
         main = self.ribbon(10.0, 9.4, 95.0, "main")
         ramp = self.ribbon(0.0, 5.8, 94.71, "ramp")
         (m, _), (r, _) = roadmesh.trim_overlaps([main, ramp])
@@ -440,7 +440,7 @@ class DeckRulesTest(unittest.TestCase):
 
 
 class BridgeProfilesTest(unittest.TestCase):
-    @unittest.mock.patch("railways.COARSE_AT", lambda la, lo: True)    # (ac-export patch P3: BeamNG.Earth's 6 m, coarse)
+    @unittest.mock.patch("railways.COARSE_AT", lambda la, lo: True)    # (6 m of clearance: the coarse model's)
     def test_chain_across_cells_and_clearance(self):
         import mapcells
         import roads
@@ -468,7 +468,7 @@ class BridgeProfilesTest(unittest.TestCase):
         ea, eb = got1["a"], got1["b"]
         self.assertAlmostEqual(float(ea[1][-1]), float(eb[1][0]), places=6, msg="the halves meet")
 
-    @unittest.mock.patch("railways.COARSE_AT", lambda la, lo: True)    # (ac-export patch P3: BeamNG.Earth's 6 m, coarse)
+    @unittest.mock.patch("railways.COARSE_AT", lambda la, lo: True)    # (6 m of clearance: the coarse model's)
     def test_crossing_decks_stack_by_level(self):
         import roads
         from test_roads import features
@@ -486,7 +486,7 @@ class BridgeProfilesTest(unittest.TestCase):
         self.assertGreaterEqual(zh - zl, roads.deck_road_clear(bp.depth_of("high")) - 0.6, (zl, zh))
 
     def test_lidar_headroom(self):
-        """(ac-export patch P3) On lidar a deck over a street leaves LIDAR_HEADROOM_M (4 m) under it, not 6 m: lower than
+        """On lidar a deck over a street leaves LIDAR_HEADROOM_M (4 m) under it, not 6 m: lower than
         on the coarse model, still clear of the street."""
         import railways
         import roads

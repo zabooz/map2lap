@@ -24,8 +24,8 @@ PX = 512
 FIELD_M = 70.0              # mean plot size (Voronoi grid)
 WARP_M, WARP_SCALE_M = 12.0, 45.0
 # WorldCover class -> material (10 trees, 20 shrubland, 30 grassland, 40 cropland, 50 built-up, 60 bare/sparse,
-# 70 snow/ice, 80 water, 90 wetland, 95 mangroves, 100 moss/lichen). 60, 70 and 100 used to be all rock and 20 meadow
-# (Heiligenblut: 10 % scree, 6 % alpine mats, 3 % glacier in grey)
+# 70 snow/ice, 80 water, 90 wetland, 95 mangroves, 100 moss/lichen). 60, 70 and 100 each their own (in the Alps a few
+# per cent each of scree, alpine mats and glacier)
 CLASS_MAT = {10: "gc_forest", 20: "gc_shrub", 30: "gc_meadow", 40: "gc_field", 50: "gc_urban", 60: "gc_scree",
              70: "gc_snow", 90: "gc_wetland", 95: "gc_wetland", 100: "gc_alpine"}
 DEFAULT = "gc_meadow"

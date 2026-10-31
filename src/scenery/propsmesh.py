@@ -183,7 +183,7 @@ class Builder:
 
 # High-voltage pylon (BeamNG.Earth powerlines.py, group "pylon", height 35.8 m with 5.9 m legs below the origin):
 # lattice tower from bars. yaw is the line direction, the cross arms stand across it: the wires hang 4.14 m
-# to the side at 15.6 / 20.4 / 25.2 m (measured on the A2, powerlines.ARMS) on insulators of PYLON_INSULATOR m
+# to the side at 15.6 / 20.4 / 25.2 m (powerlines.ARMS) on insulators of PYLON_INSULATOR m
 PYLON_BASE, PYLON_NECK, PYLON_BODY, PYLON_TOP = 3.2, 0.9, 27.5, 30.5     # m: half width at the bottom / top, heights
 PYLON_ARMS = (15.6, 20.4, 25.2)
 PYLON_REACH, PYLON_INSULATOR = 4.14, 0.6
@@ -456,7 +456,7 @@ def _crossing(solid, deco, g, x, y, z, yaw):
         deco.beam((ax, ay, z + 1.2), (ax, ay, z + 7.2), 0.06, STRIPES)
 
 
-# --- guardrails (since BeamNG.Earth 1.7.1) --------------------------------------------------------------------
+# --- guardrails --------------------------------------------------------------------------------------------
 # Row like guardrails.forest_rows: [group, x, y, z, yaw, -, height, random, front xyz, back xyz, top xyz] (ENU),
 # one 3 m module around (x, y), 2.8 m apart (overlapping); groups guardrails.GROUPS. In game they are Italy's beam,
 # the concrete barrier and the cable barrier as forest models (with collision). Here comic models without collision,
