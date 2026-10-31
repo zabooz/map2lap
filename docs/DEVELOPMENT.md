@@ -119,6 +119,7 @@ release's Python has it in `python312._pth`.
 | `scenery/rocks.py` | Boulders from BeamNG.Earth's vegetation as chunky 3D comic rocks, with collision from 1 m |
 | `scenery/propsmesh.py` | Street furniture from the tiles' `props` as comic block models (5×5 atlas): traffic lights, level crossings (St Andrew's cross / crossbuck, flashers, open gates), guardrails (`rails`), high-voltage pylons (`pylons`) |
 | `scenery/cars.py` | Parked cars (four comic shapes, traffic's colours) on BeamNG.Earth's parking spots (`park`: curbside and lot stalls), 60 % / 70 % taken (hashed), on the ground's slope, with collision |
+| `scenery/fences.py` | Fences, walls and hedges from OSM (Overture `infrastructure`, subtype barrier) as comic models: kind from the tags, else the ground on both sides and the nearest road; colour, height and spacing hashed per line; 1 m off the carriageways, gaps at gates, invisible collision walls |
 | `scenery/roadtex.py` | Comic textures for BeamNG.Earth's road decals and the comic road surfaces of the terrain texture |
 | `scenery/facades.py` | Building textures: the window sheet with BeamNG.Earth's four bands, shop fronts, office glass, siding boards, ribbed metal, comic bricks; tinted wall textures |
 | `scenery/farview.py` | Distant view: BeamNG.Earth's far tiles (`farfield.build_tile`) chosen statically around the corridor; near squares in the comic ground's colours, further out a colour table by height/slope |

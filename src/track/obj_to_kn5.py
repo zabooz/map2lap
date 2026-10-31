@@ -41,6 +41,7 @@ SMOOTH = {"grass", "asphalt", "cobble", "dirt", "ballast", "paint", "water", "fo
 SHADERS = {"trees": ("ksPerPixelAT_NS", 1), "edge_dirt": ("ksPerPixelAT", 1), "arrows": ("ksPerPixelAT", 1)}
 SIGN_LETTERS = ("bne_exit_letters", "bne_guide_letters", "bne_guide_letters_black")     # (make_obj.SIGN_LETTERS)
 SHADERS.update({m: ("ksPerPixelAT", 1) for m in SIGN_LETTERS})
+SHADERS["fences"] = ("ksPerPixelAT_NS", 1)     # (fences.py: chain link, mesh, pickets cut out; upright quads like trees)
 UP_NORMALS = {"trees"}
 VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}
 VALUES["edge_dirt"] = VALUES["grass"]
@@ -49,6 +50,7 @@ VALUES["arrows"] = VALUES["paint"]
 VALUES["gate_band"] = VALUES["paint"]
 ALPHA_REF = {"trees": 0.5, "edge_dirt": 0.5, "arrows": 0.5}
 ALPHA_REF.update({m: 0.5 for m in SIGN_LETTERS})
+ALPHA_REF["fences"] = 0.5
 FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make_obj.FACADE_LEVELS)
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
@@ -72,6 +74,7 @@ VIEW = (
     ("nocol_wire", 400.0, 0), ("nocol_rail_wood", 400.0, 0), ("nocol_rail_rail", 400.0, 0),
     ("nocol_rail_ballast", 2000.0, 0), ("nocol_rail_", 2000.0, 1), ("nocol_foam", 400.0, 0),
     ("nocol_guardrail", 800.0, 0),
+    ("nocol_fence", 500.0, 0),                  # fences, walls, hedges (fences.py)
     ("nocol_far", 100000.0, 0),                 # distant view (farview.py, up to 40 km around the corridor)
 )
 VIEW_DEFAULT = (2000.0, 1)

@@ -27,7 +27,7 @@ import cdae                 # noqa: E402
 import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
-from scenery import cars, facades, ground, groundcover, propsmesh, roadtex, rocks, trees, water     # noqa: E402
+from scenery import cars, facades, fences, ground, groundcover, propsmesh, roadtex, rocks, trees, water     # noqa: E402
 from track import parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
@@ -105,6 +105,7 @@ MATERIALS = {   # our material -> (texture or None, base colour)
     "trees": ("@trees", (1, 1, 1)),             # (the atlas is made by trees.make_atlas)
     "props": ("@props", (1, 1, 1)),             # street furniture (propsmesh.make_atlas)
     cars.MATERIAL: ("@cars", (1, 1, 1)),        # parked cars (cars.make_atlas)
+    fences.MATERIAL: ("@fences", (1, 1, 1)),    # fences, walls, hedges (fences.make_atlas)
     "edge_dirt": ("@edge", (1, 1, 1)), "arrows": ("@arrows", (1, 1, 1)),     # (roadtex.py)
     "rock": ("@rock", (1, 1, 1)),               # boulders (rocks.py): the ground's comic rock
 }
@@ -373,6 +374,9 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
             elif tex == "@cars":
                 cars.make_atlas(os.path.join(tex_dir, "cars.png"))
                 f.write("map_Kd textures/cars.png\n\n")
+            elif tex == "@fences":
+                fences.make_atlas(os.path.join(tex_dir, "fences.png"))
+                f.write("map_Kd textures/fences.png\n\n")
             elif tex in ("@edge", "@arrows"):
                 png = os.path.join(tex_dir, f"{name}.png")
                 if not os.path.exists(png):
@@ -616,6 +620,15 @@ def _scenery_tile(tx, ty, part_path):
                 tris["signs"] = tris.get("signs", 0) + len(T)
         except Exception as e:
             log(f"Road signs, tile {tx},{ty}: {type(e).__name__}: {e}")
+    try:                        # fences, walls and hedges from OSM (fences.py), standing on our ground
+        deco, col = fences.build(frame, blockworker._s.md, tx, ty, elev, blockworker._s.surface.urban,
+                                 blockworker._s.widths)
+        for name, mesh in ((f"nocol_fence_{tx}_{ty}", deco), (f"1WALL_fencecol_{tx}_{ty}", col)):
+            if mesh is not None:
+                obj.add(name, fences.MATERIAL, *mesh)
+                tris["fences"] = tris.get("fences", 0) + len(mesh[2])
+    except Exception as e:
+        log(f"Fences, tile {tx},{ty}: {type(e).__name__}: {e}")
     if data.get("park"):        # parked cars on BeamNG.Earth's parking spots (cars.py), standing on our ground
         def on_ground(x, y):
             la, lo, _ = frame.enu_to_geodetic(np.asarray(x, float), np.asarray(y, float), 0.0)
