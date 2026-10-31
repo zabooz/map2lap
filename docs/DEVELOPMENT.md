@@ -1,7 +1,7 @@
 # Map2Lap – developer notes
 
 How Map2Lap is put together, the rules it follows, and what is still open. For using it, see the
-[README](../README.md); for our changes to BeamNG.Earth, see [PATCHES.md](../PATCHES.md).
+[README](../README.md); for our changes to BeamNG.Earth, see [BEAMNG_EARTH.md](BEAMNG_EARTH.md).
 
 Map2Lap is built on the server code of **BeamNG.Earth** (MIT licence, © TecnaGamer), vendored under
 `vendor/beamng_earth`. We call its building blocks without the game and write the result with **our own kn5 writer** –
@@ -12,7 +12,7 @@ removed), updates are taken over, and our AC-specific parts (looks, physics name
 - BeamNG.Earth's world is the base: rebuild it completely, hide nothing. When something is wrong, first read what
   BeamNG.Earth intends at that place (the server code *and* the mod's `mod/.../roads.lua`, which shows what collides in
   game). Don't correct by screenshots of one test track.
-- Fix problems at their cause, not for one place. If the cause is in BeamNG.Earth's code: a patch ([PATCHES.md](../PATCHES.md)).
+- Fix problems at their cause, not for one place. If the cause is in BeamNG.Earth's code: fix it there ([BEAMNG_EARTH.md](BEAMNG_EARTH.md)).
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
 - Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
@@ -135,11 +135,12 @@ release's Python has it in `python312._pth`.
 ### BeamNG.Earth: frozen at 1.7.2
 
 - Since 2026-10-31 `vendor/beamng_earth` is **our code**: BeamNG.Earth 1.7.2-beta (github.com/TecnaGamer/BeamNG.Earth)
-  is the last upstream version merged. Problems are fixed where they arise, in their code too; every change there is a
-  patch in [PATCHES.md](../PATCHES.md) (ID, switch, test, marker).
+  is the last upstream version merged. Problems are fixed where they arise, in their code too; a change to the
+  driving surface or driving behaviour is a patch in [BEAMNG_EARTH.md](BEAMNG_EARTH.md) (ID, switch, test, marker),
+  anything else an ordinary commit.
 - Branch **`upstream`** keeps the unmodified 1.7.2: `git diff upstream -- vendor/beamng_earth` shows all our changes.
 - **Later releases** are watched, not merged: a fix or feature worth having is ported by hand as a patch of its own
-  (PATCHES.md, "Later BeamNG.Earth versions").
+  (BEAMNG_EARTH.md, "Later BeamNG.Earth versions").
 - **Rust module `earthfast`** (built by us for patch P1, `server/earthfast.pyd` in the repo): Rust
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
   `%USERPROFILE%\.cargo\dlltool-llvm\dlltool.exe`; in `native/earthfast` `cargo build --release`,
@@ -274,7 +275,7 @@ pos/normal/uv/tangent, uint16 indices, material, layer, LOD, bounding sphere, re
 | **Asphalt physics wider than painted** (every touched 2 m cell; car parks physics only) | like in BeamNG; leave it |
 | **Sharpness and memory** (one terrain texture per tile, 12.5 cm/px) | try the `ksMultilayer` shader (mask + detail textures) |
 | **AI line** | no `ai/fast_lane.ai` yet: no AI cars, apps that need one (e.g. some timing apps) don't work; could be written from the route |
-| **Tests** | more test places (city, mountain road with tunnel); BeamNG.Earth's `test_otto_bridge` fails 3× with P1/P2 (see PATCHES.md) |
+| **Tests** | more test places (city, mountain road with tunnel); BeamNG.Earth's `test_otto_bridge` fails 3× with P1/P2 (see BEAMNG_EARTH.md) |
 
 **Later:** long routes (coarser terrain further out, fewer meshes per tile, RAM warning); fields striped along their
 long axis; an invisible edge wall; traffic signs, car parks, tunnel sound; navigation (a CSP app with turn hints); AI

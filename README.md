@@ -52,7 +52,7 @@ py -3.12 -m venv .venv
 ```
 
 How it works, tools and releases: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Changes to BeamNG.Earth's code:
-[PATCHES.md](PATCHES.md).
+[docs/BEAMNG_EARTH.md](docs/BEAMNG_EARTH.md).
 
 ## Credits
 

@@ -1,17 +1,18 @@
-# Changes to BeamNG.Earth (Map2Lap patches)
+# Our changes to BeamNG.Earth's code
 
-Everything we change in BeamNG.Earth's code under `vendor/beamng_earth`, with the reason and the evidence. Since
-2026-10-31 BeamNG.Earth is frozen at 1.7.2: the code is ours from here on, no further upstream version is merged
-([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), "BeamNG.Earth: frozen at 1.7.2"). The branch `upstream` keeps the
-unmodified 1.7.2 as the baseline the patches are measured against. Deviations in **our own** files (looks,
-physics names, kn5) are described in docs/DEVELOPMENT.md, not here.
+Since 2026-10-31 BeamNG.Earth is frozen at 1.7.2 and `vendor/beamng_earth` is our code
+([DEVELOPMENT.md](DEVELOPMENT.md), "BeamNG.Earth: frozen at 1.7.2"). This file keeps the changes to its **driving
+surface and driving behaviour** (heights, decks, junctions, what collides): why, the rule, and the evidence, so a
+rule can be checked again later and a later upstream change can be weighed against ours. The branch `upstream` keeps
+the unmodified 1.7.2. Deviations in **our own** files (looks, physics names, kn5) are in DEVELOPMENT.md.
 
 **Rules**
-- Every patch has an ID here, a switch to turn it off, and a test.
-- Every changed place in the code is marked `(ac-export patch Pn)` (ac-export is the project's former name; the
-  markers keep it so they stay easy to find). All places of one patch: `git grep -n "ac-export patch P2"`.
-- All deviations from the original at a glance: `git diff upstream -- vendor/beamng_earth`. Every hunk there carries a
-  marker.
+- A change to the driving surface or driving behaviour is a patch here: an ID, a switch to turn it off, a test, and
+  the evidence. Measured with and without it is how we know a rule works, so the switch stays.
+- Other changes to their code (bug fixes, looks, logging, speed) are ordinary commits, no entry here.
+- Every place of a patch is marked `(ac-export patch Pn)` in the code (ac-export is the project's former name). All
+  places of one patch: `git grep -n "ac-export patch P2"`. Everything we changed against 1.7.2:
+  `git diff upstream -- vendor/beamng_earth`.
 - "Proven" means measured or driven on a test track, with and without the patch. A patch without evidence is checked
   and otherwise removed again.
 - The Rust module's patch announces itself as `earthfast.AC_EXPORT_YIELD` (tools/update_beamng_earth.py checks it).
@@ -49,7 +50,8 @@ steps for AC, and every merge meant re-fitting and measuring all patches). Their
 changes taken by hand:
 
 1. Read their `CHANGELOG.md` and the diff of the places in question: a fix or feature that helps AC tracks?
-2. Port it by hand as a patch of its own here (ID, switch, test, marker), only after agreeing on it.
+2. Port it by hand, only after agreeing on it; one that changes the driving surface as a patch of its own here (ID,
+   switch, test, marker).
 3. Tests (from the test folder, else `test_roads` is missing):
    `cd vendor\beamng_earth\server\tests` → `..\..\..\..\.venv\Scripts\python.exe -m unittest test_grading test_roadmesh test_roads test_gradesep test_otto_bridge`.
    Expected failures are listed below ("Known test failures"); every other failure is new.
@@ -75,8 +77,6 @@ changes taken by hand:
 - **Proven:** Stausee driven: junctions at 320–400 m 0.1 G instead of up to 1.6 G. Driven again with 1.7.1 using only
   their `snap_junctions`: the bumps were back, so P1 stays (both on).
 - **Tests:** `test_grading.GradePointsTest` (side road on a 5 % road).
-- **Check on update:** `grade_points` in Rust and Python (signature, blending), `snap_junctions`, `Plan` fields, the
-  `plancache` format.
 - **Rejected:** "the narrower road gives way to the wider one": when a wider road ends, the through road gives way,
   a plateau and then a drop (up to 5 G).
 
@@ -99,7 +99,6 @@ changes taken by hand:
   `UnderpassTest` and `UnderpassShortfallTest` test BeamNG.Earth's rule and run with P2 off.
 - **Weakness:** elevation models between lidar and coarse (e.g. Wyoming in the Otto test): where less than 0.5 m is
   filled in, nothing is dug and the clearance stays smaller (Otto Road: 3.88 m instead of 6 m).
-- **Check on update:** `_lower_underpasses`, `underpass_offsets`, the `UNDER_*` constants, `_coarse`.
 
 ## P3 4 m clearance under bridges on lidar
 
@@ -116,7 +115,6 @@ changes taken by hand:
 - **Tests:** `test_roadmesh.BridgeProfilesTest.test_lidar_headroom` (on lidar ≥ 0.5 m lower than with 6 m, still above
   the road). `test_chain_across_cells_and_clearance` and `test_crossing_decks_stack_by_level` test BeamNG.Earth's 6 m and
   run on the coarse model for that (`railways.COARSE_AT`).
-- **Check on update:** the `deck_road_clear` calls, `MIN_BRIDGE_HEADROOM_M`, `BridgeProfiles._solve`.
 
 ## P4 No raising over streams on lidar (removed)
 
@@ -142,7 +140,6 @@ changes taken by hand:
   instead of 490.53), 4.3 km 454.72 instead of 454.15. Built and measured: bridge at 11.3 km 3.05 → 0.59 G, 4.3 km
   1.41 → 0.56 G. Driven: 11.3 km drivable.
 - **Tests:** `test_grading.AbutmentTest.test_a_lidar_bank_is_filled_from_a_smaller_drop`.
-- **Check on update:** `fill_abutment`, `ABUT_*`, the `plan_roads` signature.
 
 ## P6 Trim overlapping bridge decks at the middle from a 5 cm height difference
 
@@ -163,7 +160,6 @@ changes taken by hand:
 - **Opposing decks only** (`TRIM_OPPOSITE_COS`): on a junction bridge with ramps (Graz, Triester Straße over the
   Weblinger Gürtel) the 5 cm threshold cut same-direction deck pieces apart. The threshold now only applies between
   decks running in opposite directions (the two carriageways of a motorway), else 0.3 m as in BeamNG.Earth.
-- **Check on update:** `trim_overlaps`, `TRIM_DZ`, `_median_gaps`.
 
 ## P7 Cross slope from the lidar for motorways and their bridges
 
@@ -200,9 +196,6 @@ changes taken by hand:
 - **Tests:** `test_grading.LidarBankTest`, `test_roadmesh.DeckTiltTest`.
 - **Limits:** other road classes stay flat across. Piers and poles on bridges are not tilted. At the joint of two
   bridge parts with different slopes a small offset may remain at the edge.
-- **Check on update:** `grading.bank`, `BANK_*`, `_plan`, `plan_roads`; `roadmesh.deck`/`build` (ribbons),
-  `roads._deck_chunks`, `guardrails.forest_rows`; `ChainView`, `ChainStore`, `BridgeProfiles._adopt` (who solves a
-  chain, in which frame). A deck that measures level again where the approach is banked means P7 no longer reaches it.
 
 ## P8 A bridge deck meets its approaches with their gradient
 
@@ -221,7 +214,6 @@ changes taken by hand:
 - **Proven:** A2 measured (with P9 and P10): 3.7 km bridge, approach 1.6 → 1.0 G, exit 0.56 → 0.32 G at 100 km/h;
   driven afterwards. Without P10, P8 hardly works (the ground under the bridge end held the deck flat).
 - **Tests:** `test_roads.TangentProfileTest`.
-- **Check on update:** `CHORD_KINK`, `deck_profile`, `BridgeProfiles._solve`.
 
 ## P9 No junction into the parallel opposite carriageway
 
@@ -235,7 +227,6 @@ changes taken by hand:
 - **Proven:** A2 measured: the hump behind the 3.7 km bridge is gone, the approach follows the lidar to ±6 cm; driven
   afterwards.
 - **Tests:** `test_grading.JunctionTest.test_the_other_carriageway_beside_it_is_no_junction`.
-- **Check on update:** `snap_junctions`, `JUNCTION_*`.
 
 ## P10 The terrain continues under the bridge end with the approach's gradient
 
@@ -251,7 +242,6 @@ changes taken by hand:
 - **Proven:** A2 measured: only with it does P8 work at all bridges (values there). Graz: 1.8 G on the bridge instead of
   6.4 G, since P10 only at simple bridge parts.
 - **Tests:** `test_grading.UnderDeckTest`.
-- **Check on update:** `grade_points` (the flat end), `_plan`, `plan_roads`.
 
 ## P11 A short tunnel with ground above stays a tunnel
 
@@ -275,7 +265,6 @@ changes taken by hand:
   standing in the ground, it becomes a tunnel (the road above stays at the right height).
 - **Tests:** `test_gradesep.UnderpassTest.test_a_short_tunnel_under_lidar_ground_stays_a_tunnel` (a tunnel with
   lidar, a bridge with the coarse model). The other `test_gradesep` tests keep testing BeamNG.Earth's rule.
-- **Check on update:** `_underpasses`, `UNDERPASS_COVER_M`, `SHORT_ROAD_TUNNEL_M`, `gradesep.MODE`.
 
 ## P12 Junction pads only at junctions
 
