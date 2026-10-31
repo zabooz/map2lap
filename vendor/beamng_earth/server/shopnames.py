@@ -1,8 +1,13 @@
-"""Invented business names for the signs of buildings whose use is known but whose name isn't (buildings.names_for: a
-hall on an industrial estate, a mapped retail building with no place in it): a surname and a trade word in the
-country's language, picked by the building's seed, so every build gives a building the same name. A building with no
-known use gets none: a sign where nothing says there is a business would be invented twice. The surnames are each
-language's common ones, none a retail brand's (Hofer is Austria's Aldi). Countries without a list here get English.
+"""Words for the signs of buildings whose use is known but whose name isn't, in the country's language (countries
+without a list here get English).
+
+Businesses (buildings.names_for: a hall on an industrial estate, a mapped retail building with no place in it): an
+invented name, a surname and a trade word picked by the building's seed, so every build gives a building the same
+name. A building with no known use gets none: a sign where nothing says there is a business would be invented twice.
+The surnames are each language's common ones, none a retail brand's (Hofer is Austria's Aldi).
+
+Public buildings (buildings.signs_for): what their lettering says where it names no place ("FEUERWEHR" over a fire
+station's gates, "SCHULE"), and a hotel's blade.
 """
 
 LANGS = {}
@@ -82,3 +87,54 @@ def invented(country, kind, seed):
     names, trades = SURNAMES[lang], TRADES[lang].get(kind) or TRADES[lang]["shop"]
     k = int(float(seed) * 1_000_003)
     return PATTERN[lang].format(s=names[k % len(names)], t=trades[(k // len(names)) % len(trades)])
+
+
+# kind (buildings.PUBLIC_KINDS but "public", which has no word of its own) -> the word over the entrance
+PUBLIC = {
+    "de": {"fire_station": "FEUERWEHR", "police": "POLIZEI", "town_hall": "RATHAUS", "school": "SCHULE",
+           "kindergarten": "KINDERGARTEN", "hospital": "KRANKENHAUS", "post": "POST", "library": "BIBLIOTHEK",
+           "station": "BAHNHOF"},
+    "en": {"fire_station": "FIRE STATION", "police": "POLICE", "town_hall": "TOWN HALL", "school": "SCHOOL",
+           "kindergarten": "PRESCHOOL", "hospital": "HOSPITAL", "post": "POST OFFICE", "library": "LIBRARY",
+           "station": "STATION"},
+    "fr": {"fire_station": "SAPEURS-POMPIERS", "police": "POLICE", "town_hall": "MAIRIE", "school": "ÉCOLE",
+           "kindergarten": "ÉCOLE MATERNELLE", "hospital": "HÔPITAL", "post": "LA POSTE", "library": "BIBLIOTHÈQUE",
+           "station": "GARE"},
+    "it": {"fire_station": "VIGILI DEL FUOCO", "police": "POLIZIA", "town_hall": "MUNICIPIO", "school": "SCUOLA",
+           "kindergarten": "SCUOLA DELL'INFANZIA", "hospital": "OSPEDALE", "post": "UFFICIO POSTALE",
+           "library": "BIBLIOTECA", "station": "STAZIONE"},
+    "es": {"fire_station": "BOMBEROS", "police": "POLICÍA", "town_hall": "MUNICIPALIDAD", "school": "ESCUELA",
+           "kindergarten": "JARDÍN INFANTIL", "hospital": "HOSPITAL", "post": "CORREOS", "library": "BIBLIOTECA",
+           "station": "ESTACIÓN"},
+    "pt": {"fire_station": "BOMBEIROS", "police": "POLÍCIA", "town_hall": "PREFEITURA", "school": "ESCOLA",
+           "kindergarten": "CRECHE", "hospital": "HOSPITAL", "post": "CORREIOS", "library": "BIBLIOTECA",
+           "station": "ESTAÇÃO"},
+    "nl": {"fire_station": "BRANDWEER", "police": "POLITIE", "town_hall": "GEMEENTEHUIS", "school": "SCHOOL",
+           "kindergarten": "KINDEROPVANG", "hospital": "ZIEKENHUIS", "post": "POSTKANTOOR", "library": "BIBLIOTHEEK",
+           "station": "STATION"},
+    "sl": {"fire_station": "GASILSKI DOM", "police": "POLICIJA", "town_hall": "OBČINA", "school": "ŠOLA",
+           "kindergarten": "VRTEC", "hospital": "BOLNIŠNICA", "post": "POŠTA", "library": "KNJIŽNICA",
+           "station": "ŽELEZNIŠKA POSTAJA"},
+    "pl": {"fire_station": "STRAŻ POŻARNA", "police": "POLICJA", "town_hall": "URZĄD GMINY", "school": "SZKOŁA",
+           "kindergarten": "PRZEDSZKOLE", "hospital": "SZPITAL", "post": "POCZTA", "library": "BIBLIOTEKA",
+           "station": "DWORZEC"},
+}
+# a country's own word where its language's differs (an Austrian village's town hall is its Gemeindeamt; Spain's an
+# ayuntamiento, Latin America's a municipalidad; Portugal's a câmara municipal, Brazil's a prefeitura)
+PUBLIC_COUNTRY = {"AT": {"town_hall": "GEMEINDEAMT"}, "ES": {"town_hall": "AYUNTAMIENTO", "kindergarten":
+                  "ESCUELA INFANTIL"}, "MX": {"town_hall": "PRESIDENCIA MUNICIPAL"},
+                  "PT": {"town_hall": "CÂMARA MUNICIPAL", "kindergarten": "JARDIM DE INFÂNCIA", "post": "CTT"},
+                  "GB": {"kindergarten": "NURSERY"}, "IE": {"kindergarten": "NURSERY"}}
+HOTEL = {"fr": "HÔTEL"}     # (the rest: HOTEL)
+
+
+def public_word(country, kind):
+    """The word on a public building of kind (buildings.PUBLIC_KINDS) in country (ISO code or None), or None for a
+    kind without one. Pure."""
+    c = str(country or "").upper()
+    return PUBLIC_COUNTRY.get(c, {}).get(kind) or PUBLIC[LANGS.get(c, "en")].get(kind)
+
+
+def hotel_word(country):
+    """The word on a hotel's blade in country (ISO code or None). Pure."""
+    return HOTEL.get(LANGS.get(str(country or "").upper(), "en"), "HOTEL")

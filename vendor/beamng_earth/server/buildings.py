@@ -151,6 +151,60 @@ SIGN_NAME_CUT = (" - ", " – ", " — ", " | ", " · ", " / ")   # a place's br
 # classes that are a business whatever is mapped about it: with no name, one is invented (shopnames.invented); a
 # "commercial" building only as a hall (as often offices as shops)
 INVENTED_CLASSES = {"retail", "supermarket", "kiosk", "shop"}
+# The signs of buildings that are no shop front (signs_for, _plates): a public building's or a hotel's name on a panel
+# over its entrance, the offices' plates beside the door, a hotel's upright blade, a pharmacy's symbol. The kind from
+# the mapped class first, else from the places in the footprint (place_sign).
+PUBLIC_KINDS = ("fire_station", "police", "town_hall", "school", "kindergarten", "hospital", "post", "library",
+                "station", "public")    # (most telling first: a building with several shows the first; "public": no
+                                        # word of its own, only a name)
+CLASS_SIGNS = {"fire_station": "fire_station", "police": "police", "school": "school", "kindergarten": "kindergarten",
+               "hospital": "hospital", "post_office": "post", "library": "library", "train_station": "station",
+               "townhall": "town_hall", "government": "public", "public": "public", "civic": "public",
+               "university": "public", "college": "public", "hotel": "hotel", "office": "office"}
+# Overture places (basic_category, or its primary taxonomy) -> sign kind
+PLACE_SIGNS = {"fire_station": "fire_station", "police_station": "police", "town_hall": "town_hall",
+               "elementary_school": "school", "middle_school": "school", "high_school": "school", "school": "school",
+               "private_school": "school", "preschool": "kindergarten", "kindergarten": "kindergarten",
+               "hospital": "hospital", "specialty_hospital": "hospital", "post_office": "post", "library": "library",
+               "train_station": "station", "government_office": "public", "government_department": "public",
+               "courthouse": "public", "college_university": "public", "community_center": "public",
+               "cultural_center": "public", "museum": "public", "embassy": "public",
+               "hotel": "hotel", "resort": "hotel",
+               # (a guest house, inn or hostel: its name over the door, no blade; a holiday flat, private_lodging, none)
+               "inn": "lodging", "bed_and_breakfast": "lodging", "lodging": "lodging",
+               "pharmacy": "pharmacy"}
+# lodging taxonomies that are a let house or flat, no sign on it (a holiday platform's listing, lodging / cabin:
+# "BELVILLA - ( AT-9141-11 ) Gemütliches Ferienhaus" would put the platform's name on a family house)
+NO_SIGN_PLACES = {"cabin", "holiday_rental_home", "service_apartment", "vacation_rental", "cottage"}
+# services that work behind a door rather than a shop window: a plate at the entrance (a lawyer, a doctor, a firm)
+OFFICE_PLACES = {"professional_service", "financial_service", "real_estate_service", "attorney_or_law_firm",
+                 "legal_service", "corporate_or_business_office", "b2b_office_and_professional_service",
+                 "media_service", "design_service", "technical_service", "building_or_construction_service",
+                 "b2b_service", "telecommunications_service", "security_service", "research_institute",
+                 "labor_union", "political_organization", "diagnostics_imaging_or_lab_service", "dental_clinic",
+                 "primary_care_or_general_clinic", "pediatric_clinic", "specialized_health_care",
+                 "behavioral_or_mental_health_clinic", "physical_medicine_and_rehabilitation",
+                 "vision_or_eye_care_clinic", "outpatient_care_facility"}
+OFFICE_PLATES = 3           # plates beside one door at most (the rest of a block's registered firms: unreadable anyway)
+PLATE_W, PLATE_H = 0.9, 0.3     # m: an office plate, ...
+PLATE_TOP_M = 2.1           # ... the top one's upper edge over the floor, the others stacked under it
+PANEL_H = 0.7               # m: a name panel over an entrance (between the ground floor's windows and the next ones)
+PANEL_CAP = 0.5             # of its height: the capitals'
+BLADE_W, BLADE_T = 0.8, 0.15    # m: a hotel's upright blade, out from the wall and thick, ...
+BLADE_CAP_M = 0.4           # ... its capitals at most, one under the other
+SYMBOL_M = 0.8              # m: a pharmacy's cross or "A", square
+SYMBOL_IN_M = 0.3           # m from the end of the street wall: a blade or symbol at the corner, clear of the bands
+# a pharmacy's symbol: the green cross is the pharmacists' sign of most of Europe and its neighbours; Germany and
+# Austria show the "Apotheken-A" (drawn white on a red square: the lettering has no red); elsewhere (the US's
+# drugstores, Japan) none: the name alone
+PHARMACY_A = {"AT", "DE"}
+PHARMACY_CROSS = {"FR", "BE", "LU", "MC", "NL", "IT", "SM", "VA", "MT", "ES", "AD", "PT", "CH", "LI", "SI", "HR", "BA",
+                  "RS", "ME", "MK", "AL", "GR", "CY", "PL", "CZ", "SK", "HU", "RO", "BG", "GB", "IE", "MA", "TN", "DZ"}
+PLATE_TINTS = (5, 7, 6)     # SIGN_TINTS of a plate: brass, white, black (one per building)
+PANEL_TINTS = {"fire_station": 0, "police": 1}  # SIGN_TINTS by kind (red, blue); others hashed among PANEL_PLAIN
+PANEL_PLAIN = (7, 3, 6, 1)
+GREEN_CROSS = "sign|cross"
+LOOKS[GREEN_CROSS] = (FACADE, (0.10, 0.62, 0.24))
 BARN_REDS = 2               # the last siding tints are barn red (barns only)
 US_WALL_TINTS = {STUCCO: 5}  # the first tints of these kinds are the US's (later ones: regional paints)
 JITTER = 0.06               # a building's colour varies this much (one factor, hashed)
@@ -358,7 +412,7 @@ def oriented_box(p):
 class Spec:
     """What is built for one footprint (decided by plan())."""
     __slots__ = ("ring", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "band", "shop", "plain", "min_h", "wall", "door", "windows", "front", "steeple", "stoop",
-                 "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names")
+                 "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names", "plates", "plate")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -549,6 +603,83 @@ def footprint_names(rings, places):
     return out
 
 
+def place_sign(category, taxonomy):
+    """The sign kind an Overture place gives the building it is in (signs_for): PLACE_SIGNS by its taxonomy, then by
+    its basic category, "office" for OFFICE_PLACES, else None (NO_SIGN_PLACES). Pure."""
+    category, taxonomy = str(category or ""), str(taxonomy or "")
+    if taxonomy in NO_SIGN_PLACES:
+        return None
+    return PLACE_SIGNS.get(taxonomy) or PLACE_SIGNS.get(category) or ("office" if category in OFFICE_PLACES else None)
+
+
+def footprint_signs(rings, places):
+    """Per ring: (sign kind, sign name or None) of each place among places (xy, uses, names[, signs]) inside it that
+    has a place_sign, in the places' order. Pure."""
+    if len(places) < 4:
+        return [[] for _ in rings]
+    pxy, pname, psign = np.asarray(places[0], np.float64).reshape(-1, 2), places[2], places[3]
+    out = []
+    for ring in rings:
+        got = []
+        for k in _places_in(np.asarray(ring, np.float64), pxy):
+            if psign[k] is not None and (psign[k], pname[k]) not in got:
+                got.append((psign[k], pname[k]))
+        out.append(got)
+    return out
+
+
+def signs_for(spec, own, found, country):
+    """A building's signs besides its shop bands (names_for), as (shape, text, SIGN_TINTS index): "panel" the name of
+    a public building (its own, else its place's, else its kind's word in the country's language:
+    shopnames.public_word), else a hotel's or guest house's, else a pharmacy's that has no shop band; "plate" each
+    office's (OFFICE_PLATES; an office building's own name first); "blade" a hotel's upright "HOTEL"; "cross" or "a"
+    a pharmacy's symbol (PHARMACY_CROSS, PHARMACY_A). own: the building's mapped name; found: its footprint_signs.
+    The kind from the mapped class (CLASS_SIGNS) first, else from the places; none on a church, shed or barn. Only
+    what the lettering can write (sign_text). Pure."""
+    if spec.plain or spec.steeple or spec.cls in CHURCH_CLASSES:
+        return ()
+    import shopnames
+    by = CLASS_SIGNS.get(spec.cls)
+    own = sign_text(sign_name(own))
+    kinds = {}
+    for k, n in found:
+        t = sign_text(n)
+        got = kinds.setdefault(k, [])
+        if t and t not in got:
+            got.append(t)
+    out = []
+    public = by if by in PUBLIC_KINDS else next((k for k in PUBLIC_KINDS if k in kinds), None)
+    if public:
+        text = (own if by == public else None) or next(iter(kinds.get(public, ())), None) or own or \
+            sign_text(shopnames.public_word(country, public))
+        if text:
+            out.append(("panel", text, PANEL_TINTS.get(public, PANEL_PLAIN[int(_hash01(spec.seed, "panelc")
+                                                                                * len(PANEL_PLAIN))])))
+    hotel = by == "hotel" or "hotel" in kinds
+    if not out and (hotel or "lodging" in kinds):
+        text = (own if by == "hotel" else None) or next(iter(kinds.get("hotel") or kinds.get("lodging") or ()), None)
+        if text:
+            out.append(("panel", text, int(_hash01(spec.seed, "panelc") * len(SIGN_TINTS))))
+    if hotel:
+        out.append(("blade", sign_text(shopnames.hotel_word(country)), int(_hash01(spec.seed, "bladec")
+                                                                           * len(SIGN_TINTS))))
+    if "pharmacy" in kinds:
+        if not out and not spec.shop and kinds["pharmacy"]:
+            out.append(("panel", kinds["pharmacy"][0], PANEL_PLAIN[0]))
+        c = str(country or "").upper()
+        if c in PHARMACY_A:
+            out.append(("a", "A", 0))
+        elif c in PHARMACY_CROSS:
+            out.append(("cross", None, None))
+    taken = {t for _, t, _ in out}
+    offices = []
+    for t in ([own] if by == "office" and own else []) + kinds.get("office", []):
+        if t not in taken and t not in offices:
+            offices.append(t)
+    tint = PLATE_TINTS[int(_hash01(spec.seed, "platec") * len(PLATE_TINTS))]
+    return tuple(out + [("plate", t, tint) for t in offices[:OFFICE_PLATES]])
+
+
 def sign_name(name, brand=None):
     """The name a business shows on its sign: its brand's, else its own without the branch after a dash (a listing's
     "Kärntner Sparkasse - Eberndorf"), cut after its last whole word within SIGN_NAME_CHARS; None without one. Pure."""
@@ -564,11 +695,11 @@ def sign_name(name, brand=None):
 
 
 def sign_text(value):
-    """value in the lettering's glyphs (exitsigns' accents and dashes; ß as ss), the letters it has none for left out,
+    """value in the lettering's glyphs (exitsigns' accents and dashes; ß as ss, ł as l), the letters it has none for left out,
     or None when that is a quarter of it or more (another script: a Tokyo shop's name drawn as a few stray Latin
     letters). Pure."""
     import exitsigns
-    s = " ".join(str(value or "").replace("ß", "ss").replace("ẞ", "SS").split())
+    s = " ".join(str(value or "").replace("ß", "ss").replace("ẞ", "SS").replace("ł", "l").replace("Ł", "L").split())
     if not s:
         return None
     t = [exitsigns._text(c) for c in s]
@@ -605,13 +736,14 @@ def names_for(spec, own, found, country):
 
 def use_data(frame, md, keys, x0, y0):
     """The places and land use areas of map cells keys for footprint_uses and footprint_names, relative to (x0, y0) in
-    frame (an EnuFrame): ((xy, uses, sign names), lands), or None when the cells can't give them (offline without the places: the generic rules)."""
+    frame (an EnuFrame): ((xy, uses, sign names, sign kinds), lands) of the places with a place_use or a place_sign,
+    or None when the cells can't give them (offline without the places: the generic rules)."""
     try:
         cds = [md.cell(k, layers=("places", "land_use"), kind="demand") for k in keys]
     except Exception as e:      # (the buildings stand without them)
         log.debug("places / land use of cells %s: %s", keys, e)
         return None
-    pxy, puse, pname, lands, seen = [], [], [], [], set()
+    pxy, puse, pname, psign, lands, seen = [], [], [], [], [], set()
     for c in cds:
         f = c.layers.get("places")
         if f is not None and len(f):
@@ -619,12 +751,14 @@ def use_data(frame, md, keys, x0, y0):
             first = f.coord_off[f.ring_off[f.part_off[:-1]]]
             xy = f.xy_in(frame)[first] - [x0, y0]
             for i in range(len(f)):
-                u = place_use(a["basic_category"][i] if "basic_category" in a else None,
-                              a["taxonomy"][i] if "taxonomy" in a else None)
-                if u is not None and f.ids[i] not in seen:
+                cat_ = a["basic_category"][i] if "basic_category" in a else None
+                tax_ = a["taxonomy"][i] if "taxonomy" in a else None
+                u, s = place_use(cat_, tax_), place_sign(cat_, tax_)
+                if (u is not None or s is not None) and f.ids[i] not in seen:
                     seen.add(f.ids[i])
                     pxy.append(xy[i])
                     puse.append(u)
+                    psign.append(s)
                     pname.append(sign_name(a["name"][i] if "name" in a else None,
                                            a["brand_name"][i] if "brand_name" in a else None))
         f = c.layers.get("land_use")
@@ -637,7 +771,7 @@ def use_data(frame, md, keys, x0, y0):
                     rs = [np.stack(mapgeom.enu_xy(f, frame, np.asarray(rg)), 1) - [x0, y0] for rg in part]
                     if rs and len(rs[0]) >= 4:
                         lands.append((cls, rs[0], rs[1:]))
-    return (np.asarray(pxy, np.float64).reshape(-1, 2), puse, pname), lands
+    return (np.asarray(pxy, np.float64).reshape(-1, 2), puse, pname, psign), lands
 
 
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
@@ -1154,19 +1288,20 @@ def _lettering(m, text, c, d, out, z_mid, cap, max_w, mat):
     return width
 
 
-def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None):
-    """The sign band over a shop's street wall (spec.sign: its edge), shop by shop, a few without one; the names
-    (spec.names) on the first bands, one each. A hall with a name: one panel in the middle instead, its name in
-    letters up to HALL_CAP_M, between HALL_CLEAR_M over its floor and the eave (z_eave)."""
-    edge = spec.sign
+def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None, names=None, edge=None, top=False):
+    """The sign band over a shop's street wall (edge, else spec.sign), shop by shop, a few without one; the names
+    (names, else spec.names) on the first bands, one each. A hall with a name, or top (an office building's name with
+    no door to put it at): one panel in the middle instead, its name in letters up to HALL_CAP_M, between
+    HALL_CLEAR_M over its floor and the eave (z_eave)."""
+    edge = spec.sign if edge is None else edge
     a, b = ring[edge], ring[(edge + 1) % len(ring)]
     L = float(math.hypot(*(b - a)))
     if L < 3.0:
         return
     d = (b - a) / L
     out = np.array([d[1], -d[0]])
-    names = list(spec.names or ())
-    if names and spec.windows is False:
+    names = list(spec.names or ()) if names is None else list(names)
+    if names and (spec.windows is False or top):
         tint = SIGN_TINTS[int(_hash01(spec.seed, "signc", 0) * len(SIGN_TINTS))]
         z1 = (z_eave if z_eave is not None else z_top) - 0.3
         z0 = max(z1 - HALL_CAP_M / SIGN_CAP, (floor if floor is not None else z1 - spec.height) + HALL_CLEAR_M)
@@ -1197,6 +1332,93 @@ def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None):
                            (t1 - t) - 0.3 - 2 * SIGN_MARGIN_M, mat_idx[_letters_look(SIGN_TINTS[ci])])
                 n += 1
         t, k = t1, k + 1
+
+
+def _plates(m, spec, ring, base, z_eave, mat_idx, bands=False):
+    """spec.plates (signs_for) on the street wall (spec.plate, else the shop band's spec.sign): the name panel over
+    the entrance (the door, else the wall's middle), between the ground floor's windows and the next floor's (a
+    one-storey building's: under its eave); the office plates stacked beside the door (no door and four floors or
+    more: the first name at the top, an office building's lettering; else at the wall's middle); a hotel's blade over
+    the ground floor and a pharmacy's symbol at the wall's corners, the one away from the door first. bands: the
+    names are on the shop bands (no panel, no plates). base: the floor's height."""
+    edge = spec.plate if spec.plate is not None else spec.sign
+    a, b = ring[edge], ring[(edge + 1) % len(ring)]
+    L = float(math.hypot(*(b - a)))
+    if L < 3.0:
+        return
+    d = (b - a) / L
+    out = np.array([d[1], -d[0]])
+    door = spec.door[1] if spec.door is not None and spec.door[0] == edge else None
+    gf = GROUND_FLOOR_SHOP_M if spec.shop and spec.floors > 1 else spec.floor_h     # the ground floor's top over base
+    first = (SYMBOL_IN_M if door > L / 2 else L - SYMBOL_IN_M) if door is not None else \
+        (SYMBOL_IN_M if _hash01(spec.seed, "corner") < 0.5 else L - SYMBOL_IN_M)
+    corners = [first, L - first]
+    plates = []
+    for shape, text, tint in spec.plates:
+        if shape == "panel" and not bands:
+            if spec.floors > 1:
+                z_mid = base + (WIN_SILL + WIN_H + gf + WIN_SILL) / 2
+                z0, z1 = z_mid - PANEL_H / 2, min(z_mid + PANEL_H / 2, z_eave - 0.15)
+            else:
+                z1 = z_eave - 0.15
+                z0 = max(z1 - PANEL_H, base + 2.2)          # (over the door)
+            if z1 - z0 < 0.35:
+                continue
+            cap = (z1 - z0) * PANEL_CAP
+            w = _lettering(Mesh(), text, a, d, out, (z0 + z1) / 2, cap, L * 0.8 - 2 * SIGN_MARGIN_M,
+                           mat_idx["letters|0"])            # (the width first: the panel fits round it)
+            hw = w / 2 + max(SIGN_MARGIN_M, cap * 0.6)
+            along = min(max(door if door is not None else L / 2, hw + 0.2), L - hw - 0.2)
+            c = a + d * along + out * (SIGN_OUT / 2)
+            _box(m, c, d, hw, SIGN_OUT / 2, z0, z1, mat_idx[f"sign|{tint}"])
+            _lettering(m, text, c + out * (SIGN_OUT / 2), d, out, (z0 + z1) / 2, cap, L * 0.8 - 2 * SIGN_MARGIN_M,
+                       mat_idx[_letters_look(SIGN_TINTS[tint])])
+        elif shape == "plate" and not bands:
+            plates.append((text, tint))
+        elif shape == "blade" and corners and spec.floors > 1:
+            z0, z1 = base + gf + 0.3, z_eave - 0.3
+            cap = min(BLADE_CAP_M, (z1 - z0 - 0.3) / (len(text) * 1.35))
+            if cap < 0.2:
+                continue
+            z1 = z0 + len(text) * cap * 1.35 + 0.3
+            c = a + d * corners.pop(0) + out * (BLADE_W / 2 + 0.05)
+            _box(m, c, out, BLADE_W / 2, BLADE_T / 2, z0, z1, mat_idx[f"sign|{tint}"])
+            for n in (d, -d):                       # both faces, read from either way along the street
+                for i, ch in enumerate(text):
+                    _lettering(m, ch, c + n * (BLADE_T / 2), np.array([-n[1], n[0]]), n,
+                               z1 - 0.15 - cap * 1.35 * (i + 0.5), cap, BLADE_W - 0.2,
+                               mat_idx[_letters_look(SIGN_TINTS[tint])])
+        elif shape in ("cross", "a") and corners:
+            s = SYMBOL_M
+            zc = base + gf + 0.3 + s / 2 if spec.floors > 1 else z_eave - 0.2 - s / 2
+            if zc - s / 2 < base + 2.2:
+                continue
+            c = a + d * corners.pop(0) + out * (s / 2 + 0.05)
+            if shape == "cross":
+                _box(m, c, out, s / 2, BLADE_T / 2, zc - s / 6, zc + s / 6, mat_idx[GREEN_CROSS])
+                _box(m, c, out, s / 6, BLADE_T / 2, zc - s / 2, zc + s / 2, mat_idx[GREEN_CROSS])
+            else:
+                _box(m, c, out, s / 2, BLADE_T / 2, zc - s / 2, zc + s / 2, mat_idx[f"sign|{tint}"])
+                for n in (d, -d):
+                    _lettering(m, text, c + n * (BLADE_T / 2), np.array([-n[1], n[0]]), n, zc, s * 0.6, s * 0.8,
+                               mat_idx[_letters_look(SIGN_TINTS[tint])])
+    if not plates:
+        return
+    if door is None and spec.floors >= 4:
+        _signs(m, spec, ring, z_eave, mat_idx, base, z_eave, names=[plates[0][0]], edge=edge, top=True)
+        return
+    along = L / 2
+    if door is not None:
+        along = door + DOOR_GAP_M + PLATE_W / 2 + 0.1
+        if along + PLATE_W / 2 > L - 0.2:           # (no room after the door: before it)
+            along = door - DOOR_GAP_M - PLATE_W / 2 - 0.1
+    along = min(max(along, PLATE_W / 2 + 0.2), L - PLATE_W / 2 - 0.2)
+    c = a + d * along + out * 0.015
+    for i, (text, tint) in enumerate(plates):
+        z1 = base + PLATE_TOP_M - i * (PLATE_H + 0.06)
+        _box(m, c, d, PLATE_W / 2, 0.015, z1 - PLATE_H, z1, mat_idx[f"sign|{tint}"])
+        _lettering(m, text, c + out * 0.015, d, out, z1 - PLATE_H / 2, PLATE_H * 0.4, PLATE_W - 0.1,
+                   mat_idx[_letters_look(SIGN_TINTS[tint])])
 
 
 PORCH_DEPTH_M = 2.2
@@ -1755,12 +1977,17 @@ def build(specs_and_ground, lite=False):
             _stoop(m, spec, ring, gmin, gmax, mat_idx)
         if spec.porch and spec.door and not lite:
             _porch(m, spec, gmax, mat_idx)
-        if spec.sign is not None and spec.roof == "flat" and not lite:
+        plates = spec.plates or ()
+        if spec.sign is not None and not lite:
             if spec.windows is False:           # a big box: over its storefront band (_plain_wall_with_windows)
                 z_top = min(gmax + GROUND_FLOOR_SHOP_M + 1.15, z_eave)
             else:
                 z_top = z_eave - (spec.floors - 1) * spec.floor_h if spec.floors > 1 else z_eave
-            _signs(m, spec, ring, z_top, mat_idx, base_z(spec, gmin, gmax) + mh, z_eave)
+            names = tuple(spec.names or ())     # (a hotel's, a town hall's or an office's name on a band of its own)
+            names += tuple(t for s, t, _ in plates if s in ("panel", "plate") and t not in names)
+            _signs(m, spec, ring, z_top, mat_idx, base_z(spec, gmin, gmax) + mh, z_eave, names)
+        if plates and not lite and (spec.plate is not None or spec.sign is not None):
+            _plates(m, spec, ring, base_z(spec, gmin, gmax) + mh, z_eave, mat_idx, bands=spec.sign is not None)
     if m.n == 0:
         return None
     P, UV, T, M, C = m.arrays()
@@ -2522,7 +2749,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
     footprint m²): only buildings at least that tall or that large (the skyline tiles: skyline_tile), tested before
     any other work on a building. uses: use_data's places and land use relative to (x0, y0): an unclassed footprint
     takes the class they give (footprint_uses), a shop or hall the names on its signs (names_for, invented ones in
-    country's language: an ISO code)."""
+    country's language: an ISO code), any building its other signs (signs_for: public buildings, hotels, pharmacies,
+    offices)."""
     parts_of = _PartsOf(frame, part_layers)     # building id -> [(ring in the anchor frame, (own height, bottom))]
     seen = set()
     rings, attrs, looks, mins = [], [], [], []
@@ -2656,9 +2884,10 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
             if u is not None:
                 attrs[k] = dict(attrs[k], use=u)
         todo = [k for k, look in enumerate(looks) if look is None]
-        for k, got in zip(todo, footprint_names([rings[k] for k in todo], uses[0])):
-            if got:
-                attrs[k] = dict(attrs[k], places=got)
+        for k, got, sg in zip(todo, footprint_names([rings[k] for k in todo], uses[0]),
+                              footprint_signs([rings[k] for k in todo], uses[0])):
+            if got or sg:
+                attrs[k] = dict(attrs[k], places=got, signs=sg)
     if bridges_xy or decks:             # a road bridge through a building: a passage (Tower Bridge's towers and gate)
         def ground_at(c):
             la, lo, _ = frame.enu_to_geodetic(float(c[0]) + x0, float(c[1]) + y0, 0.0)
@@ -2699,6 +2928,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         spec.min_h = mh
         spec.portal = bool(at.get("portal"))
         spec.names = names_for(spec, at.get("name"), at.get("places") or (), country) if uses is not None else ()
+        spec.plates = signs_for(spec, at.get("name"), at.get("signs") or (), country) if uses is not None else ()
         i0, i1 = (ends[k - 1] if k else 0), ends[k]
         if not ok[i0:i1].all():
             continue
@@ -2966,9 +3196,11 @@ def doors(items, lines, x0, y0, drives=None):
         if spec.plain or spec.floors >= 7 or spec.band in (BAND_OFFICE, BAND_OFFICE2) or spec.wall:
             if not spec.wall or spec.plain or spec.floors >= 7:
                 no_door = True
-        # shops and big boxes: their sign faces the street, not the alley or the parking aisle behind
-        storefront = (spec.shop or spec.windows is False) and not spec.plain and spec.roof == "flat"
-        if no_door and not storefront:
+        # shops and big boxes: their sign faces the street, not the alley or the parking aisle behind (a pitched roof's
+        # too: its band hangs under the eave; most village shops have one)
+        storefront = (spec.shop or spec.windows is False) and not spec.plain
+        named = bool(spec.plates) and not spec.plain     # signs_for's: on the street wall, any building
+        if no_door and not (storefront or named):
             continue
         ring = drawn_ring(spec) + np.array([x0, y0])
         best = None
@@ -2988,13 +3220,15 @@ def doors(items, lines, x0, y0, drives=None):
             out = np.array([e[1], -e[0]]) / Le
             if float(np.dot(q[k] - mid, out)) <= 0:
                 continue                                 # the wall faces away from that road
-            rank = (bool(SMINOR[k]) if storefront else False, float(dist[k]))
+            rank = (bool(SMINOR[k]) if storefront or named else False, float(dist[k]))
             if best is None or rank < best[0]:
                 best = (rank, a, e / Le, Le, out, i, bool(SMAIN[k]) and dist[k] < SHALF[k] + MAIN_STREET_SETBACK_M,
                         k)
         if best is None:
             continue
         _, a, d, Le, out, edge, on_main, kseg = best
+        if named:
+            spec.plate = edge
         if spec.windows is False:
             spec.front = edge                   # a big box: its storefront faces the road
             if storefront:
@@ -3077,8 +3311,8 @@ def _sign_in_open(rows, spec, d, out, others):
 
 def _wall_sign(spec, a, d, Le, out, gmax):
     """A company sign centred high on a big box's or restaurant's street wall (WALL_SIGNS), if it fits; none on a
-    building with its own name (spec.names: _signs writes it there)."""
-    if spec.names or _hash01(spec.seed, "wallsign") >= WALL_SIGN_SHARE:
+    building with its own name (spec.names, spec.plates: _signs and _plates write it there)."""
+    if spec.names or spec.plates or _hash01(spec.seed, "wallsign") >= WALL_SIGN_SHARE:
         return []
     if spec.cls in RESTAURANT_CLASSES:
         key = "burger"
@@ -3480,6 +3714,7 @@ def sky_items(frame, box, keys, md, ground, lamp_region=None, own=None):
             ring = ring[::int(np.ceil(len(ring) / SKY_MAX_CORNERS))]
         spec.ring = ring
         spec.roof, spec.steeple, spec.stoop, spec.porch, spec.sign, spec.door = "flat", None, None, None, None, None
+        spec.plate = None
     items.sort(key=lambda it: (-(float(it[0].height or 0.0) + float(it[0].min_h or 0.0)), str(it[0].seed)))
     picked, n = [], 0
     for it in items:                        # (the tallest first, up to the 16-bit vertex budget: 5 per corner)

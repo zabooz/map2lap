@@ -325,6 +325,104 @@ class NameSignTest(unittest.TestCase):
         self.assertGreater(z.max() - z.min(), 0.8, "letters bigger than a shop band's")
 
 
+class PlateTest(unittest.TestCase):
+    """Signs of buildings that are no shop front (signs_for, _plates): a public building's or hotel's name over the
+    entrance, office plates beside the door, a hotel's blade, a pharmacy's symbol."""
+    STREET = (np.array([(-50.0, -6.0), (80.0, -6.0)]), 4.0)          # south of the buildings
+
+    def letters_z(self, spec):
+        P, UV, T, M, mats, C = bld.build([(spec, 0.0, 0.0)])
+        lit = np.isin(M, [bld.MATERIALS.index(m_) for m_ in bld.LETTERS])
+        return P[T[lit].ravel()]
+
+    def test_place_sign(self):
+        self.assertEqual(bld.place_sign("pharmacy_and_drug_store", "pharmacy"), "pharmacy")
+        self.assertIsNone(bld.place_sign("pharmacy_and_drug_store", "drugstore"), "a drugstore: no cross")
+        self.assertEqual(bld.place_sign("government_office", "town_hall"), "town_hall")
+        self.assertEqual(bld.place_sign("government_office", "government_office"), "public")
+        self.assertEqual(bld.place_sign("diagnostics_imaging_or_lab_service", "doctors_office"), "office")
+        self.assertIsNone(bld.place_sign("private_lodging", "holiday_rental_home"), "a holiday flat: no sign")
+        self.assertIsNone(bld.place_sign("lodging", "cabin"), "a holiday platform's listing: no sign")
+        self.assertEqual(bld.place_sign("lodging", "hostel"), "lodging")
+        self.assertIsNone(bld.place_sign("restaurant", "restaurant"), "a shop band's (names_for)")
+
+    def test_footprint_signs(self):
+        places = (np.array([(5.0, 5.0), (6.0, 5.0), (50.0, 50.0)]), [None, "shop", None],
+                  ["Dr. Moser", "Apotheke Eberndorf", "Gemeindeamt"], ["office", "pharmacy", "town_hall"])
+        self.assertEqual(bld.footprint_signs([rect(0, 0, 12, 10)], places),
+                         [[("office", "Dr. Moser"), ("pharmacy", "Apotheke Eberndorf")]])
+        self.assertEqual(bld.footprint_signs([rect(0, 0, 12, 10)], places[:3]), [[]], "no sign kinds: none")
+
+    def test_public_name_else_its_word(self):
+        school = bld.plan(rect(0, 0, 30, 14), {"class": "school"}, 0, 46.59, 14.64, town=True)
+        self.assertEqual(bld.signs_for(school, "Volksschule Eberndorf", [], "AT")[0][:2],
+                         ("panel", "Volksschule Eberndorf"))
+        fire = bld.plan(rect(0, 0, 20, 12), {"class": ""}, 0, 46.59, 14.64, town=True)
+        got = bld.signs_for(fire, None, [("fire_station", None)], "AT")
+        self.assertEqual(got, (("panel", "FEUERWEHR", 0),), "no name: the kind's word, on red")
+        self.assertEqual(bld.signs_for(fire, None, [("fire_station", None)], "FR")[0][1], "SAPEURS-POMPIERS")
+        self.assertEqual(bld.signs_for(fire, None, [("town_hall", None)], "AT")[0][1], "GEMEINDEAMT")
+        self.assertEqual(bld.signs_for(fire, None, [("public", None)], "AT"), (), "no name, no word: none")
+        house = bld.plan(rect(0, 0, 12, 10), {"class": "house"}, 0, 46.59, 14.64, town=True)
+        self.assertEqual(bld.signs_for(house, "Haus Gruber", [], "AT"), (), "a house: no sign")
+        church = bld.plan(rect(0, 0, 30, 14), {"class": "church"}, 0, 46.59, 14.64, town=True)
+        self.assertEqual(bld.signs_for(church, "Pfarrkirche", [("public", "Pfarramt")], "AT"), ())
+
+    def test_hotel_pharmacy_offices(self):
+        spec = bld.plan(rect(0, 0, 20, 12), {"class": "", "num_floors": 3}, 0, 46.59, 14.64, town=True)
+        shapes = [s for s, _, _ in bld.signs_for(spec, None, [("hotel", "Hotel Pirkdorfer See")], "AT")]
+        self.assertEqual(shapes, ["panel", "blade"])
+        self.assertEqual([s for s, _, _ in bld.signs_for(spec, None, [("lodging", "Gasthof Mak")], "AT")],
+                         ["panel"], "a guest house: its name, no hotel blade")
+        self.assertIn(("a", "A", 0), bld.signs_for(spec, None, [("pharmacy", "Apotheke")], "AT"))
+        self.assertIn(("cross", None, None), bld.signs_for(spec, None, [("pharmacy", "Pharmacie")], "FR"))
+        self.assertFalse({"a", "cross"} & {s for s, _, _ in bld.signs_for(spec, None, [("pharmacy", "CVS")], "US")},
+                         "no symbol where pharmacies show none")
+        firms = [("office", f"Kanzlei {k}") for k in range(5)] + [("office", "Kanzlei 0")]
+        plates = [t for s, t, _ in bld.signs_for(spec, None, firms, "AT") if s == "plate"]
+        self.assertEqual(plates, ["Kanzlei 0", "Kanzlei 1", "Kanzlei 2"], "each once, OFFICE_PLATES at most")
+
+    def test_panel_between_the_floors_plates_at_the_door(self):
+        spec = bld.plan(rect(0, 0, 20, 12), {"class": "school", "num_floors": 2}, 0, 46.59, 14.64, town=True)
+        spec.plates = bld.signs_for(spec, "Volksschule", [], "AT")
+        bld.doors([(spec, 0.0, 0.0)], [self.STREET], 0.0, 0.0)
+        self.assertEqual(spec.plate, 0, "on the street (south) wall")
+        P = self.letters_z(spec)
+        gf = spec.floor_h
+        self.assertGreater(P[:, 2].min(), bld.WIN_SILL + bld.WIN_H - 0.2, "over the ground floor's windows")
+        self.assertLess(P[:, 2].max(), gf + bld.WIN_SILL + 0.2, "under the next floor's")
+        self.assertTrue((P[:, 1] < 0).all(), "in front of the south wall")
+        office = bld.plan(rect(0, 0, 14, 10), {"class": "", "num_floors": 2}, 0, 46.59, 14.64, town=True)
+        office.plates = bld.signs_for(office, None, [("office", "Notar Dr. Huber"), ("office", "Steuerberatung")],
+                                      "AT")
+        bld.doors([(office, 0.0, 0.0)], [self.STREET], 0.0, 0.0)
+        P = self.letters_z(office)
+        self.assertLessEqual(P[:, 2].max(), bld.PLATE_TOP_M + 1e-6, "plates at eye height")
+        self.assertGreater(P[:, 2].min(), 0.8)
+        if office.door is not None and office.door[0] == 0:
+            gap = np.abs(P[:, 0] - office.door[1]).min()
+            self.assertGreaterEqual(gap, bld.DOOR_GAP_M, "beside the door, not over it")
+
+    def test_hotel_blade_upright_and_out(self):
+        spec = bld.plan(rect(0, 0, 20, 12), {"class": "hotel", "num_floors": 4}, 0, 46.59, 14.64, town=True)
+        spec.plates = (("blade", "HOTEL", 1),)
+        spec.plate = 0
+        P = self.letters_z(spec)
+        self.assertEqual(len(P), 2 * 5 * 2 * 3, "five letters on both faces")
+        self.assertGreater(P[:, 2].max() - P[:, 2].min(), 5 * bld.BLADE_CAP_M, "one under the other")
+        self.assertLess(P[:, 1].max(), -0.05, "out from the wall")
+        self.assertGreater(P[:, 2].min(), spec.floor_h, "over the ground floor")
+
+    def test_pitched_roof_shop_gets_its_band(self):
+        spec = bld.plan(rect(0, 0, 12, 9), {"class": "", "use": "shop", "roof_shape": "gabled"}, 0, 46.59, 14.64,
+                        town=True)
+        self.assertNotEqual(spec.roof, "flat")
+        spec.names = ("BILLA",)
+        bld.doors([(spec, 0.0, 0.0)], [self.STREET], 0.0, 0.0)
+        self.assertEqual(spec.sign, 0, "a village shop under a gable: its band on the street wall")
+        self.assertEqual(len(self.letters_z(spec)), 5 * 2 * 3)
+
+
 class TowerShopTest(unittest.TestCase):
     def test_city_towers_have_a_shop_ground_floor(self):
         # Midtown, 2026-10-14: classless towers had their curtain wall down to the pavement
@@ -681,17 +779,6 @@ class OverRoadTest(unittest.TestCase):
         self.assertAlmostEqual(over.min_h + over.height, 16.0, delta=0.01, msg="its top where it was")
         self.assertEqual(house.min_h, 0.0)
         self.assertAlmostEqual(bld.road_through(over.ring, [street - 0]), 80.0, delta=2.5)
-
-
-class PhotoFillTest(unittest.TestCase):
-    def test_big_footprint_fills_from_the_ground_around(self):
-        rgb = np.zeros((512, 512, 3), np.uint8)
-        rgb[:] = (40, 160, 60)
-        mask = np.zeros((512, 512), bool)
-        mask[10:500, 10:500] = True         # far wider than the first blur
-        rgb[mask] = (200, 200, 200)
-        out = bld.fill_photo(rgb, mask, 256.0, 512)
-        self.assertTrue(np.allclose(out[mask].astype(int), (40, 160, 60), atol=4), "no black holes, no roof colour")
 
 
 class StoopStreetTest(unittest.TestCase):
