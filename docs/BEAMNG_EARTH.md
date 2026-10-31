@@ -35,6 +35,7 @@ A2's strongest bridge transition 1.68 instead of 1.66 G). Without them, 1.7.2 me
 | P10 | The terrain continues under the bridge end with the approach's gradient (on lidar) | `grading.py` | `BNE_UNDER_DECK=off` | yes (A2 measured, Graz) |
 | P11 | A short tunnel with ground above stays a tunnel, not a bridge (on lidar) | `gradesep.py` | `BNE_LIDAR_UNDERPASS_COVER=0` | yes (Graz, A2, Stausee measured; Graz driven) |
 | P12 | Junction pads on bridges only where three or more carriageways meet | `roads.py` | `BNE_PAD_JUNCTIONS_ONLY=off` | yes (Rossbach measured and driven) |
+| P13 | No open-tunnel grading under a road's bridge deck | `roads.py`, `grading.py` | `BNE_TUNNEL_DECK_COVER=off` | yes (Friedensbrücke Graz measured) |
 
 Why patches at all: BeamNG drives on soft tyres and a soft-body chassis that rolls over centimetre bumps; Assetto
 Corsa's tyres and springs are much harder, so steps and kinks that go unnoticed in BeamNG.drive throw an AC car off the
@@ -285,6 +286,28 @@ changes taken by hand:
 - **Tests:** `test_deckjoins.JunctionPadTest.test_bend_onto_its_own_approach_none`; the other `JunctionPadTest` tests
   (3 carriageways) keep testing BeamNG.Earth's pad.
 
+## P13 No open-tunnel grading under a road's bridge deck
+
+- **Problem:** BeamNG.Earth splits a tunnel into covered sections (the ground over them kept as it is) and open ones (an
+  open road in a cutting: the ground graded to its floor, `grading._open_tunnels`), by the ground over its floor and
+  the ground roads crossing over it (`roads.cover_roads`). A bridge deck crossing over it does not count, and the lidar
+  has bridges taken out. Graz, Friedensbrücke's west bridgehead over the Grieskai tunnel (a road along the Mur, 261 m,
+  open all along): the open section's plan (half width 7.3 m + shoulder) lowered the ground to the tunnel's floor,
+  341.7 m, 4 m under the approach (347.4 m), and the deck's end was solved on that ground (2.4 m low, then a 1 m step
+  between its two parts): a cliff where the bridge begins (the user drove off it).
+- **Rule:** where a road's bridge deck crosses an open tunnel section (at the same minimum angle as `cover_roads`), its
+  samples within the deck's half width over the crossing's sine + `TUNNEL_ROAD_CLEAR_M` (2 m) make no plan at all: the
+  roads grade the ground there as anywhere. Marking them covered was tried first: the ground stayed raw there and the
+  approach could not meet the deck (0.6 m down in 1.75 m). The meshes are unchanged (the open road is drawn under the
+  deck).
+- **Code:** `roads.py`: `TUNNEL_DECK_COVER`, `UNDER_DECK`, `cover_decks`; `grading.py`: `_decks_over_tunnels`,
+  `_tunnel_sections` (drops the `UNDER_DECK` sections).
+- **Proven:** Friedensbrücke (2026-10-31), along each carriageway: eastbound 0.9 m drop before the deck -> smooth
+  (0.02 m per m), westbound 0.83 m -> 0.46 m; the cliff (4 m) and the step on the deck are gone. Patches P1-P12 off one
+  at a time changed nothing there before: BeamNG.Earth's own behaviour.
+- **Limits:** the westbound deck still starts 0.46 m under its approach (dips over ~2 m).
+- **Tests:** `test_tunnels.DeckOverOpenTunnel`.
+
 ---
 
 ## Known test failures
@@ -302,5 +325,6 @@ Open: turn our patches off in the Otto test so it tests BeamNG.Earth's behaviour
 caused by P3 are fixed: those tests run on the coarse model, P3 has a test of its own.)
 
 `test_deckjoins` fails 3 times (`EndJoinTest.test_branch_joins_the_viaduct`, `EndJoinTest.test_was_a_cliff_without_it`,
-`GroundGapTest.test_gap_is_deck`), already on 0.4 before P12 (found 2026-10-31); which patch, if any, causes them is
-not checked yet.
+`GroundGapTest.test_gap_is_deck`): P3 (all three pass with `BNE_LIDAR_HEADROOM=0`, checked 2026-10-31). Its 4 m of
+clearance leaves their test viaduct lower than the 6 m they expect (10.6 m instead of over 12 m; a 0.24 m step instead
+of over 3 m without the join). Open: run them with P3 off, as the `test_roadmesh` ones.

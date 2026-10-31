@@ -479,3 +479,35 @@ class Underwater(unittest.TestCase):
         w = np.zeros(50, bool)
         w[40:] = True
         self.assertEqual(roads.wet_run_inside(xy, w), 0.0)              # at an end: a portal on a bank
+
+
+class DeckOverOpenTunnel(unittest.TestCase):
+    """(ac-export patch P13) An open tunnel section under a road's bridge deck plans no ground there (the Grieskai
+    tunnel under the Friedensbrücke in Graz: its open plan cut a cliff where the bridge begins)."""
+
+    def setUp(self):
+        self.xy = np.stack([np.arange(0.0, 101.0, 2.0), np.zeros(51)], axis=1)
+        self.s = self.xy[:, 0].copy()
+        self.old, roads.TUNNEL_DECK_COVER = roads.TUNNEL_DECK_COVER, True     # (whatever BNE_TUNNEL_DECK_COVER says)
+
+    def tearDown(self):
+        roads.TUNNEL_DECK_COVER = self.old
+
+    def test_under_the_deck(self):
+        kinds = roads.cover_decks(self.xy, self.s, np.zeros(51, np.int64), [np.array([[50.0, -30], [50, 30]])], [5.0])
+        under = np.flatnonzero(kinds == roads.UNDER_DECK)
+        self.assertEqual((self.s[under].min(), self.s[under].max()), (44.0, 56.0))     # 5 m and 2 m clear each side
+        self.assertTrue((kinds[(self.s < 43) | (self.s > 57)] == 0).all())
+
+    def test_covered_sections_and_parallel_decks_stay(self):
+        kinds = np.zeros(51, np.int64)
+        kinds[20:30] = 2
+        got = roads.cover_decks(self.xy, self.s, kinds, [np.array([[50.0, -30], [50, 30]])], [5.0])
+        self.assertTrue((got[20:30] == 2).all())        # (a full tunnel there already)
+        along = [np.array([[0.0, -1], [100, 3]])]       # (a deck beside it, not across)
+        self.assertTrue((roads.cover_decks(self.xy, self.s, np.zeros(51, np.int64), along, [5.0]) == 0).all())
+
+    def test_off(self):
+        roads.TUNNEL_DECK_COVER = False
+        got = roads.cover_decks(self.xy, self.s, np.zeros(51, np.int64), [np.array([[50.0, -30], [50, 30]])], [5.0])
+        self.assertTrue((got == 0).all())

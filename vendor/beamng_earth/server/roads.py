@@ -3181,6 +3181,46 @@ MAJOR_LOW_H = 5.0       # m: ... on a major road (CONCRETE_WALL_CLASSES: road tu
 TUNNEL_ROAD_CLEAR_M = 2.0
 TUNNEL_ROAD_MIN_SIN = 0.35
 TUNNEL_ROAD_REACH_M = 15.0
+# (ac-export patch P13) Under a road's bridge deck an open tunnel section plans no ground (its width and
+# TUNNEL_ROAD_CLEAR_M past it), for the grading only: the Grieskai tunnel along the Mur under the Friedensbrücke's west
+# bridgehead in Graz (2026-10-31) is open all along in the lidar (bridges taken out of it, the lower road seen), so its
+# open section's plan lowered a 17 m strip to its floor, 4 m under the bridge's approach and the deck's end with it: a
+# cliff where the bridge begins. Marked covered instead, the ground stayed as it is there (_over_tunnels) and the
+# approach could not meet the deck (0.6 m down in 1.75 m); with no plan at all the roads grade it as anywhere. The
+# meshes keep drawing the open road under the deck. BNE_TUNNEL_DECK_COVER=off: BeamNG.Earth's rule.
+TUNNEL_DECK_COVER = os.environ.get("BNE_TUNNEL_DECK_COVER", "on") != "off"
+UNDER_DECK = -1         # cover_decks' kind: an open section's samples under a deck (grading._tunnel_sections drops them)
+
+
+def cover_decks(xy, s, kinds, lines, halves):
+    """(ac-export patch P13) kinds (tunnel_sections') with the open samples under a deck crossing the tunnel (lines
+    (k, 2) in xy's frame, half widths; at TUNNEL_ROAD_MIN_SIN or more) UNDER_DECK: within the deck's half width over
+    the crossing's sine plus TUNNEL_ROAD_CLEAR_M of the crossing along the tunnel. Pure."""
+    kinds = np.array(kinds, np.int64)
+    if not TUNNEL_DECK_COVER or not lines or len(xy) < 2:
+        return kinds
+    xy = np.asarray(xy, np.float64)[:, :2]
+    s = np.asarray(s, np.float64)
+    A, D = xy[:-1], np.diff(xy, axis=0)
+    LD = np.maximum(np.hypot(D[:, 0], D[:, 1]), 1e-9)
+    for ln, hw in zip(lines, halves):
+        ln = np.asarray(ln, np.float64)[:, :2]
+        for a, b in zip(ln[:-1], ln[1:]):
+            r = b - a
+            lr = float(np.hypot(*r))
+            if lr < 1e-9:
+                continue
+            den = D[:, 0] * r[1] - D[:, 1] * r[0]
+            ok = np.abs(den) > 1e-12
+            den = np.where(ok, den, 1.0)
+            q = a - A
+            t = (q[:, 0] * r[1] - q[:, 1] * r[0]) / den        # along the tunnel's segment
+            u = (q[:, 0] * D[:, 1] - q[:, 1] * D[:, 0]) / den  # along the deck's segment
+            sin = np.abs(den) / (LD * lr)
+            for i in np.flatnonzero(ok & (t >= 0) & (t <= 1) & (u >= 0) & (u <= 1) & (sin >= TUNNEL_ROAD_MIN_SIN)):
+                sc = s[i] + t[i] * (s[i + 1] - s[i])
+                kinds[(np.abs(s - sc) <= float(hw) / sin[i] + TUNNEL_ROAD_CLEAR_M) & (kinds == 0)] = UNDER_DECK
+    return kinds
 
 
 PORTAL_SHALLOW_COVER_M = 1.5    # m: a major road's open end run with at least this much ground over its floor is covered

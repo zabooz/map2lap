@@ -2252,6 +2252,7 @@ class _Planner:
         ts = roadsmod.tunnel_specs(feats)
         pack = None                     # (the road plans packed once: per tunnel part, ~6 ms each, 0.9 s of 8 tiles)
         over = None                     # (the ground roads near the tunnels, as roads.TunnelProfiles covers them)
+        decks = ([], [])                # (ac-export patch P13: the roads' decks near them, roads.cover_decks)
         for i in range(len(feats)):
             if ts[i] is None:
                 continue
@@ -2279,14 +2280,16 @@ class _Planner:
                 kinds = roadsmod.portal_cover(kinds, g - floor, ts[i])
                 if over is None:
                     over = self._roads_over_tunnels(feats, ts)
+                    decks = self._decks_over_tunnels(feats, ts)     # (ac-export patch P13)
                 kinds = roadsmod.cover_roads(xy, s, kinds, *over)
+                kinds = roadsmod.cover_decks(xy, s, kinds, *decks)  # (ac-export patch P13)
                 i0 = 0
                 while i0 < len(kinds):
                     i1 = i0
                     while i1 + 1 < len(kinds) and kinds[i1 + 1] == kinds[i0]:
                         i1 += 1
                     a = max(0, i0 - 1)          # sharing the end sample with the section before
-                    if i1 > a:
+                    if i1 > a and kinds[i0] != roadsmod.UNDER_DECK:     # (ac-export patch P13: no plan under a deck)
                         out.append((str(feats.ids[i]), ts[i], xy[a:i1 + 1], floor[a:i1 + 1], int(kinds[i0])))
                     i0 = i1 + 1
         return out
@@ -2312,6 +2315,23 @@ class _Planner:
                     (tb[:, 3] + pad >= b[1])).any():
                 continue
             for ring in roadsmod.ground_parts(feats, i):
+                e, n = mapgeom.enu_xy(feats, self.frame, ring)
+                lines.append(np.stack([e, n], axis=1))
+                halves.append(rs[i].width / 2)
+        return lines, halves
+
+    def _decks_over_tunnels(self, feats, ts):
+        """(ac-export patch P13) ([deck lines (k, 2) in the frame], [carriageway half widths]) of the roads' bridge parts
+        near feats' tunnels (ts: tunnel_specs): roads.cover_decks."""
+        import mapgeom
+        if not roadsmod.TUNNEL_DECK_COVER or not any(t is not None for t in ts):
+            return [], []
+        rs = roadsmod.road_specs(feats)
+        lines, halves = [], []
+        for i in range(len(feats)):
+            if rs[i] is None:
+                continue
+            for ring in roadsmod.bridge_parts(feats, i):
                 e, n = mapgeom.enu_xy(feats, self.frame, ring)
                 lines.append(np.stack([e, n], axis=1))
                 halves.append(rs[i].width / 2)
