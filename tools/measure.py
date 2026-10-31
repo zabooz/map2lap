@@ -7,6 +7,8 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
 - Transitions: terrain <-> bridge deck on the line, with the step and the G there.
 - Edges across: where the surface deviates from its cross slope by more than EDGE_M from one metre to the next
   (second difference: a slope doesn't count, a step does), -2..+2 m.
+- Across the carriageway: its whole width (the visible asphalt or deck around the line, up to WIDTH_MAX_M each side),
+  where the driving surface under it lies more than EDGE_M off a straight line across (one side sunk or raised).
 
 The test tracks (test_tracks.json) are short routes, one per bridge or underpass worth checking. --build builds them
 up to the OBJ parts only (out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds one into
@@ -38,6 +40,9 @@ ROUTE_FILES = ("map2lap_route.txt", "ac_export_route.txt")     # (data/ of the t
 CELL_M = 20.0           # m: grid the triangles are sorted into for the lookup
 ACROSS_M = (-2, -1, 0, 1, 2)   # m across the route: the two lanes around the line (wider would hit kerbs)
 EDGE_M = 0.10           # m step against the cross slope between neighbouring points 1 m apart
+WIDTH_MAX_M = 15.0      # m each side of the line the carriageway is looked for
+WIDTH_STEP_M = 0.5      # m between the points across it
+PAINT = ("nocol_road_asphalt", "1ROAD_deck")    # (the visible carriageway: road asphalt, bridge decks)
 G_LIMIT = 0.5           # G at 100 km/h
 V = 100 / 3.6
 
@@ -56,6 +61,58 @@ def _surfaces(track, box):
             tris.append(t[keep])
             deck.append(np.full(int(keep.sum()), d))
     return np.concatenate(tris), np.concatenate(deck)
+
+
+def _paint(track, box):
+    """Triangles (n, 3, 3) of the visible carriageway (PAINT) in box (x0, z0, x1, z1)."""
+    tris = []
+    for p in glob.glob(os.path.join(HERE, "out", "tracks", track, "obj", "parts", "t_*.obj")):
+        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
+            if not name.startswith(PAINT):
+                continue
+            t = P[T]
+            c = t.mean(1)
+            tris.append(t[(c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])])
+    return np.concatenate(tris) if tris else np.zeros((0, 3, 3))
+
+
+def _across(T3, D, P3, px, pz, nx, nz, h):
+    """Per metre the carriageway's surface off a straight line across it (m, the largest) and its width (m): the
+    visible carriageway's points around the line (a gap of one point bridged), the driving surface under each (the
+    one closest to the visible one), a least-squares line through them."""
+    offs = np.arange(-WIDTH_MAX_M, WIDTH_MAX_M + 1e-9, WIDTH_STEP_M)
+    c = int(np.flatnonzero(np.abs(offs) < 1e-9)[0])
+    qx = (px[:, None] + nx[:, None] * offs[None]).ravel()
+    qz = (pz[:, None] + nz[:, None] * offs[None]).ravel()
+    vis = _heights(P3, np.zeros(len(P3), bool), qx, qz) if len(P3) else [(np.zeros(0), None)] * len(qx)
+    drv = _heights(T3, D, qx, qz)
+    n, m = len(px), len(offs)
+    warp, width = np.zeros(n), np.zeros(n)
+    for i in range(n):
+        if np.isnan(h[i]):
+            continue
+        z = np.full(m, np.nan)
+        for j in range(m):
+            v, (d, _) = vis[i * m + j][0], drv[i * m + j]
+            if len(v) and len(d):
+                ref = v[np.argmin(np.abs(v - h[i]))]       # (the visible carriageway nearest the line's height)
+                if abs(ref - h[i]) < 3.0:
+                    z[j] = d[np.argmin(np.abs(d - ref))]
+        ok = ~np.isnan(z)
+        if not ok[c]:
+            continue
+        a = b = c
+        while a > 0 and (ok[a - 1] or (a > 1 and ok[a - 2])):
+            a -= 1
+        while b < m - 1 and (ok[b + 1] or (b < m - 2 and ok[b + 2])):
+            b += 1
+        k = np.arange(a, b + 1)[ok[a:b + 1]]
+        if offs[b] - offs[a] < 2.0:
+            continue
+        fit = np.polyval(np.polyfit(offs[k], z[k], 1), offs[k])
+        warp[i] = float(np.abs(z[k] - fit).max())
+        width[i] = float(offs[b] - offs[a])
+    return warp, width
 
 
 def _heights(T3, D, qx, qz):
@@ -154,14 +211,18 @@ def measure(track, start=None, end=None):
     gs = np.zeros(n)                                    # per metre the strongest G of the lanes
     gs[2:-2] = np.nan_to_num(np.abs(H[:, 4:] - 2 * H[:, 2:-2] + H[:, :-4])).max(0) / 4.0 * V ** 2 / 9.81
     edge = np.nan_to_num(np.abs(np.diff(H, 2, axis=0))).max(0) > EDGE_M
+    warp, width = _across(T3, D, _paint(track, box), px, pz, nx, nz, h)
     worst = sorted(np.flatnonzero(ga > G_LIMIT), key=lambda k: -ga[k])
     return {"length_m": round(float(S[-1])), "over_05g_m": int((ga > G_LIMIT).sum()),
             "lanes_over_05g_m": int((gs > G_LIMIT).sum()),
             "max_g": round(float(ga.max()), 2), "max_g_at_m": float(ss[int(ga.argmax())]),
             "edges_m": int(edge.sum()), "transitions": len(trans),
             "max_g_transition": max((u["g"] for u in trans), default=0.0),
+            "warp_m": int((warp > EDGE_M).sum()), "max_warp": round(float(warp.max()), 2),
+            "max_warp_at_m": float(ss[int(warp.argmax())]),
             "_worst": [(float(ss[k]), round(float(g[k]), 2), bool(isd[k])) for k in worst],
-            "_edges": ss[edge], "_trans": trans}
+            "_edges": ss[edge], "_trans": trans, "_warp": ss[warp > EDGE_M],
+            "_width": round(float(np.median(width[width > 0])), 1) if (width > 0).any() else 0.0}
 
 
 def _ranges(m):
@@ -187,6 +248,13 @@ def report(track, r, ref=None, everything=False):
     print(f"  worst spot: {r['max_g']} G at {r['max_g_at_m']:.0f} m ({r['max_g'] * 6.25:.1f} G at 250 km/h)"
           + cmp("max_g"))
     print(f"  edges across above {EDGE_M * 100:.0f} cm (-2..+2 m): {r['edges_m']} m" + cmp("edges_m"))
+    print(f"  carriageway (~{r['_width']} m wide) off straight across above {EDGE_M * 100:.0f} cm: {r['warp_m']} m"
+          + cmp("warp_m") + f", most {r['max_warp']} m at {r['max_warp_at_m']:.0f} m" + cmp("max_warp"))
+    rw = _ranges(r["_warp"])
+    if rw:
+        n = None if everything else 8
+        print("     at: " + ", ".join(f"{a:.0f}" if a == b else f"{a:.0f}-{b:.0f}" for a, b in rw[:n]) + " m"
+              + (f" (+{len(rw) - n} more)" if n and len(rw) > n else ""))
     print(f"  bridge transitions: {r['transitions']}, strongest {r['max_g_transition']} G" + cmp("max_g_transition"))
     n = None if everything else 8
     for s, gg, d in r["_worst"][:n]:

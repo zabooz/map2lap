@@ -132,7 +132,7 @@ release's Python has it in `python312._pth`.
 | `src/acapp/TrackDebug/` | CSP Lua app for testing (Settings → Testing, `app/debugapp.py`): position on the route (`data/map2lap_route.txt` per track), F10, recording |
 | `tools/stretch.py` | A track's stretch built again fast (tiles and OBJ only, nothing into AC), the driving surface along the route measured and compared with its last run: before and after a fix |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
-| `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes, one per bridge or underpass worth checking) built up to the OBJ parts, nothing into AC (`--build`; `--install` into AC to drive one); the driving line measured (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against their reference values. Measures any built track too |
+| `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes, one per bridge or underpass worth checking) built up to the OBJ parts, nothing into AC (`--build`; `--install` into AC to drive one); the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
 | `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 
