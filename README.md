@@ -31,7 +31,7 @@ Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 
 | Problem | What to do |
 |---|---|
-| Windows warns about running the file | The release isn't signed: *More info → Run anyway*. |
+| Windows warns about running the file | The release isn't signed: click **Run** (or *More info → Run anyway*). To stop the question, right-click the zip before unzipping → *Properties* → tick **Unblock**. |
 | Assetto Corsa isn't found | **Settings** → choose your `assettocorsa` folder. |
 | The page doesn't open / port in use | Map2Lap is already running – use that window, or close it and start again (http://localhost:8800). |
 | A build fails | See the build log. Usually the map data couldn't be downloaded: check the connection and try again. |
