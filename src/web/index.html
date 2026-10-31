@@ -385,6 +385,8 @@ let mode = 'route', routeLine = null, corridor = null, rect = null, routeCoords 
 let status = {state: 'idle'}, sel = null, selNewer = false;
 let tab = 'new', tracks = [], pick = null, clearing = false, VERSION = '', car = null;
 let newCode = '', playing = false;     // (the new route's track code; Play pressed, AC starting)
+let acOk = true;                       // (an AC folder to install into: without it nothing can be built or played)
+const NO_AC = 'Assetto Corsa not found: choose its folder under Settings';
 const mineLayer = L.layerGroup().addTo(map);
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -404,8 +406,8 @@ function fmtSize(t) {
 
 // --- play: AC with this track (Practice, the car driven last; the server starts Steam if needed) ---
 function playButton(name) {
-  const what = car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
-  return `<button class="play" data-play="${esc(name)}" title="${esc(what)}">▶ Play</button>`;
+  const what = !acOk ? NO_AC : car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
+  return `<button class="play" data-play="${esc(name)}" title="${esc(what)}"${acOk ? '' : ' disabled'}>▶ Play</button>`;
 }
 $('card-body').addEventListener('click', async e => {
   const b = e.target.closest('[data-play]');
@@ -426,16 +428,16 @@ function render() {
   const go = $('go'), t = mine && tracks.find(x => x.name === pick);
   go.textContent = run ? (st === 'stopping' ? 'Stopping …' : 'Stop build') : (mine ? 'Rebuild' : 'Build track');
   go.className = run ? 'danger' : 'primary';
-  go.disabled = st === 'stopping' || (!run && !(mine ? t : sel && sel.ok));
+  go.disabled = st === 'stopping' || (!run && (!acOk || !(mine ? t : sel && sel.ok)));
   $('actions').classList.toggle('mine', mine);
   $('clear').disabled = $('clear-area').disabled = run || (!markers.length && !area);   // (nothing to clear: quiet)
-  go.title = mine && !run ? 'Build it again with this version and replace it' : '';
-  $('copy').title = 'Keep this track and build a new one next to it';
+  go.title = run ? '' : !acOk ? NO_AC : mine ? 'Build it again with this version and replace it' : '';
+  $('copy').title = acOk ? 'Keep this track and build a new one next to it' : NO_AC;
   $('copy').hidden = $('play').hidden = !mine;
-  $('copy').disabled = run || !t;
-  $('play').disabled = run || !t || !t.kn5_bytes || playing;
+  $('copy').disabled = run || !t || !acOk;
+  $('play').disabled = run || !t || !t.kn5_bytes || playing || !acOk;
   $('play').textContent = playing ? 'Starting …' : '▶ Play';
-  $('play').title = car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
+  $('play').title = !acOk ? NO_AC : car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
   $('cache-clear').disabled = run || clearing;
   let badge = ['Ready', ''], time = '', body;
   const result = ['done', 'error', 'stopped'].includes(st) && !selNewer;
@@ -1010,6 +1012,7 @@ function showSettings(s) {
   $('cores').value = s.cores;
   threads = s.threads;
   showCores();
+  acOk = s.ac_ok;
   $('ac-status').textContent = s.ac_ok ? '✓ Assetto Corsa found – tracks are installed here' :
     '✗ No Assetto Corsa folder there';
   $('ac-status').className = 'small ' + (s.ac_ok ? 'ok' : 'bad');
@@ -1017,7 +1020,13 @@ function showSettings(s) {
 }
 async function saveSettings(values) {
   const r = await fetch('/api/settings', {method: 'POST', body: JSON.stringify(values)}).then(r => r.json());
-  if (r.error) { $('ac-status').textContent = '✗ ' + r.error; $('ac-status').className = 'small bad'; return; }
+  if (r.error) {        // (nothing saved: the field shows the folder still in use again, the error says why)
+    const s = await fetch('/api/settings').then(r => r.json());
+    showSettings(s);
+    $('ac-status').textContent = '✗ ' + r.error + (s.ac_ok ? ' – tracks still go to the folder above' : '');
+    $('ac-status').className = 'small bad';
+    return;
+  }
   showSettings(r);
   render();
 }
@@ -1048,7 +1057,7 @@ $('browse').onclick = async () => {
   const r = await fetch('/api/browse', {method: 'POST'}).then(r => r.json());
   if (r.path) saveSettings({ac_path: r.path});
 };
-fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); if (!s.ac_ok) setTab('set'); });
+fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); render(); if (!s.ac_ok) setTab('set'); });
 // a newer release on GitHub (the server asks once per run; offline: nothing shows)
 fetch('/api/update').then(r => r.json()).then(u => {
   if (!u.newer) return;

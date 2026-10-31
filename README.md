@@ -4,9 +4,6 @@
 Corsa track from real-world data: lidar terrain, real roads with bridges and tunnels, buildings, water and trees, in a
 comic style. The track is installed straight into Assetto Corsa.
 
-![A mountain road with forest and peaks](docs/images/mountain_road.jpg)
-![City streets in Graz](docs/images/graz.jpg)
-
 Built on the world generator of [BeamNG.Earth](https://github.com/TecnaGamer/BeamNG.Earth) by TecnaGamer.
 
 ## Quick start

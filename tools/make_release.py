@@ -28,19 +28,22 @@ DIST = os.path.join(HERE, "dist")
 NAME = "Map2Lap"
 ZIP = f"Map2Lap-{version.VERSION}-win64"
 # developer-only parts (in the repository, not in the release)
-SKIP = ("tools/", "docs/images/", ".gitignore",
+SKIP = ("tools/", ".gitignore", "AGENTS.md", "CLAUDE.md",
         "vendor/beamng_earth/server/tests/", "vendor/beamng_earth/server/earthfast.abi3.so",
         "vendor/beamng_earth/native/", "vendor/beamng_earth/docs/", "vendor/beamng_earth/probes/",
         "vendor/beamng_earth/mod/",     # (the BeamNG mod: the server only reads it in its own developer tools)
         "vendor/beamng_earth/tools/", "vendor/beamng_earth/beammp/")
+# what Map2Lap reads from inside SKIP (the road signs' materials and lettering: make_obj.ROADSIDE)
+KEEP = ("vendor/beamng_earth/mod/beamng_earth/levels/beamng_earth/art/shapes/beamngEarth/roadside/",)
 TEXTURES = os.path.join("assets", "textures")
 
 
 def files():
-    """The project's files: tracked and new ones git doesn't ignore, without SKIP."""
+    """The project's files: tracked and new ones git doesn't ignore, without SKIP (but with KEEP)."""
     out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=HERE,
                          capture_output=True, check=True).stdout.decode("utf-8").split("\0")
-    return sorted(f for f in set(out) if f and not f.startswith(SKIP) and os.path.isfile(os.path.join(HERE, f)))
+    return sorted(f for f in set(out) if f and (f.startswith(KEEP) or not f.startswith(SKIP))
+                  and os.path.isfile(os.path.join(HERE, f)))
 
 
 def embedded_python(dst):

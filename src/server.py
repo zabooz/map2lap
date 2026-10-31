@@ -128,14 +128,18 @@ def tidy_interrupted():
     log("Done.")
 
 
-# Windows' folder picker through PowerShell (the release's embedded Python has no tkinter); a topmost owner form puts
-# it in front of the browser, UTF-8 output keeps paths with umlauts intact
+# Windows' folder picker through PowerShell (the release's embedded Python has no tkinter); a shown, invisible topmost
+# owner form puts it in front of the browser (Windows doesn't let a background process bring a window forward: with
+# an owner that is never shown the picker opens behind the browser, and every later click waits for it), UTF-8 output
+# keeps paths with umlauts intact
 BROWSE_PS = (
     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms;"
     "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Assetto Corsa folder';"
     "$d.ShowNewFolderButton = $false; if (Test-Path $env:M2L_START) { $d.SelectedPath = $env:M2L_START };"
-    "$o = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
-    "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { $d.SelectedPath }")
+    "$o = New-Object System.Windows.Forms.Form -Property @{TopMost = $true; ShowInTaskbar = $false; Opacity = 0;"
+    " FormBorderStyle = 'None'; StartPosition = 'CenterScreen'; Width = 1; Height = 1};"
+    "$o.Show(); $o.Activate();"
+    "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { $d.SelectedPath }; $o.Close()")
 
 
 def browse_folder(start):
