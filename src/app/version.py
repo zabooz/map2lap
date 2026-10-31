@@ -10,7 +10,7 @@ TRACK_VERSION is never higher than VERSION: a release that changes the tracks se
 built before the split (up to 0.3.3) only stored "version", which then was the track version. Tracks built before
 versions existed have none and count as old. Small changes go in the third place (0.3.1), bigger ones in the second.
 """
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 TRACK_VERSION = "0.5.0"
 REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"

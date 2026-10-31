@@ -8,7 +8,7 @@ Built on the world generator of [BeamNG.Earth](https://github.com/TecnaGamer/Bea
 
 ## Quick start
 
-1. Download `Map2Lap-<version>-win64.zip` from [Releases](../../releases) and unzip it.
+1. Download `Map2Lap-<version>-win64.zip` from [Releases](https://github.com/zabooz/map2lap/releases/latest) and unzip it.
 2. Double-click **`Start Map2Lap.bat`** – the generator page opens in your browser.
 3. Click a start and a finish on the map, then **Build track**. When it's done, click **▶ Play**.
 

@@ -320,7 +320,7 @@ def play(name):
     except (configparser.Error, UnicodeDecodeError):
         ini = None
     if ini is None or not ini.has_option("RACE", "MODEL"):
-        return 409, {"error": "Drive once with Content Manager first, so Map2Lap knows your car"}
+        return 409, {"error": "Drive once in Assetto Corsa first, so Map2Lap knows your car"}
     model, _ = play_car()
     if model and model != ini.get("RACE", "MODEL"):        # (the car set, its first skin)
         skins = os.path.join(ac, "content", "cars", model, "skins")
