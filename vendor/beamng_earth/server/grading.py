@@ -350,9 +350,12 @@ def clip_polyline(xy, box):
     return [np.array(r, np.float64) for r in runs if len(r) >= 2]
 
 
-def tunnel_plan(xy, z, half):
-    """A Plan of a tunnel's own (TUNNEL_TAG): Plan.tunnel set."""
-    p = Plan(xy, z, half)
+def tunnel_plan(xy, z, spec):
+    """A Plan of a tunnel's own (TUNNEL_TAG) for road spec: its core and carriageway as any road's (plan_road), Plan.tunnel
+    set. (With the shoulder counted as its carriageway, the rule that a road's band never pulls another road's
+    carriageway at another level (the native loop's on_other_car) would never hold for a trench's shoulder: an open
+    section 5.7 m under a bridge's approach pulled its abutment 0.9 m down.)"""
+    p = Plan(xy, z, spec.width / 2 + shoulder(spec), road_half=spec.width / 2)
     p.tunnel = True
     return p
 
@@ -1169,7 +1172,7 @@ class _Planner:
                     tplans.extend((fid, q) for q in (pieces if cl else [p]))
                 plans = kept
             secs = self._tunnel_sections(feats, key, [p for _f, p in tplans])
-            plans.extend((fid + TUNNEL_TAG, tunnel_plan(xy, z, spec.width / 2 + shoulder(spec)))
+            plans.extend((fid + TUNNEL_TAG, tunnel_plan(xy, z, spec))
                          for fid, spec, xy, z, k in secs if k == 0)
             plans.extend(self._mouth_plans(secs))
             covers = [(xy, spec.width / 2 + TUNNEL_KEEP_M) for _f, spec, xy, _z, k in _twin_trimmed(secs) if k]
@@ -2347,7 +2350,6 @@ class _Planner:
                 continue
             same = lambda m: 0 <= m < len(secs) and secs[m][0] == fid     # noqa: E731
             s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
-            hw = spec.width / 2 + shoulder(spec)
             for at_start in (True, False):
                 nb = n - 1 if at_start else n + 1
                 if same(nb) and secs[nb][4] != 0:
@@ -2366,7 +2368,7 @@ class _Planner:
                 else:
                     pxy, pzz = np.r_[p[None], xy[m]], np.r_[pz, z[m]]
                 if len(pxy) >= 2:
-                    out.append((fid + TUNNEL_TAG + ("m0" if at_start else "m1"), tunnel_plan(pxy, pzz, hw)))
+                    out.append((fid + TUNNEL_TAG + ("m0" if at_start else "m1"), tunnel_plan(pxy, pzz, spec)))
         return out
 
     def _covered_tunnels(self, feats):

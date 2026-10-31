@@ -269,22 +269,49 @@ class GradePointsTest(unittest.TestCase):
         out = grading.grade_points(px, py, base, [main, near])
         self.assertGreater(np.abs(out[car] - 100.0).max(), 0.05, "0.3 m apart: blended as equals")
 
+    @staticmethod
+    def _tunnel_spec(width):
+        """A road spec with a shoulder (SHOULDER_M: a built road of no sidewalk class) for grading.tunnel_plan."""
+        import types
+        import roads as roadsmod
+        return types.SimpleNamespace(kind=sorted(roadsmod.BUILT)[0], cls="unclassified", width=width, oneway=False,
+                                     walk=0.0)
+
     def test_a_road_over_a_wider_tunnel_does_not_give_way_to_it(self):
         """(BESIDE_*, Plan.tunnel) a carriageway over a wider tunnel's open section 5.6 m under it: another level by
-        the map, it does not give way (blended as before); the same plan unmarked would pull it down to its height."""
+        the map, it does not give way to it; the same plan unmarked would pull it down to its height."""
         px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-4.0, 4.1, 0.5))
         px, py = px.ravel(), py.ravel()
         road = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 6.9, road_half=3.9)
         road.rid = 1
-        tun = grading.tunnel_plan(np.array([[-100.0, 6.0], [100.0, 6.0]]), np.array([94.4, 94.4]), 7.3)
+        tun = grading.tunnel_plan(np.array([[-100.0, 6.0], [100.0, 6.0]]), np.array([94.4, 94.4]),
+                                  self._tunnel_spec(10.0))
         base = np.full(len(px), 99.0)
-        car = (py >= 0.0) & (py <= 3.9)        # (its carriageway over the tunnel's: from 6 - 7.3 m)
+        car = (py >= 1.5) & (py <= 3.9)        # (its carriageway over the tunnel's: from 6 - 5 m)
         marked = grading.grade_points(px, py, base, [road, tun])
-        plain = grading.Plan(tun.xy, tun.z, 7.3)
+        plain = grading.Plan(tun.xy, tun.z, tun.half, road_half=tun.road_half)
         plain.rid = 2
         unmarked = grading.grade_points(px, py, base, [road, plain])
         self.assertLess(np.abs(unmarked[car] - 94.4).max(), 0.5, "unmarked: the road gives way to it")
         self.assertGreater(marked[car].min(), unmarked[car].max() + 1.0, "a tunnel's: not given way to")
+
+    def test_a_trench_shoulder_never_pulls_the_road_over_it(self):
+        """(tunnel_plan) an open tunnel section 5.6 m under a road beside it, the trench's shoulder under the road's
+        carriageway: its carriageway is the road's width, so its shoulder gives way there (another level, the native
+        on_other_car) and the road keeps its height up to the trench's carriageway."""
+        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-4.0, 4.1, 0.5))
+        px, py = px.ravel(), py.ravel()
+        road = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 6.9, road_half=3.9)
+        road.rid = 1
+        spec = self._tunnel_spec(8.6)
+        self.assertGreater(grading.shoulder(spec), 0.0)
+        tun = grading.tunnel_plan(np.array([[-100.0, 8.0], [100.0, 8.0]]), np.array([94.4, 94.4]), spec)
+        self.assertEqual(tun.road_half, 4.3)
+        base = np.full(len(px), 99.0)
+        out = grading.grade_points(px, py, base, [road, tun])
+        alone = grading.grade_points(px, py, base, [road])
+        mine = (py >= -3.9) & (py <= 3.5)      # (the road's carriageway short of the trench's at 8 - 4.3 m)
+        self.assertLess(np.abs(out[mine] - alone[mine]).max(), 1e-6, "its carriageway as without the trench")
 
 
 class AbutmentTest(unittest.TestCase):
