@@ -232,13 +232,14 @@ def area_tiles(x0, y0, x1, y1):
             for tx in range(math.floor(x0 / t), math.ceil(x1 / t))]
 
 
-def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None):
+def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     clean: delete the temporary data afterwards (clean_up); the page does that while "Keep build files" is off.
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
-    centre."""
+    centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/patch_check.py: no distant view, kn5 or
+    track folder; nothing goes into AC); returns {"work": the work folder}."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
     name = slug(name)
@@ -324,6 +325,8 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
 
     log("Terrain, water, trees, buildings ...")
     n_obj, n_verts, tris, parts = make_obj.main(tiles_dir, obj_dir, log=log, progress=progress)
+    if upto == "obj":
+        return {"work": work}
     gate = gates.build(tiles_dir, obj_dir, log=log)     # (start and finish made visible; decides where the lines are: anchor.json)
     far = farview.build(tiles_dir, obj_dir, log=log, progress=progress)    # (only into the kn5: not into the minimap)
 

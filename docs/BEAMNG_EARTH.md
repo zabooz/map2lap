@@ -15,6 +15,10 @@ the unmodified 1.7.2. Deviations in **our own** files (looks, physics names, kn5
   `git diff upstream -- vendor/beamng_earth`.
 - "Proven" means measured or driven on a test track, with and without the patch. A patch without evidence is checked
   and otherwise removed again.
+- Every patch's switch is listed in `src/track/patches.py` (a new patch goes there too). `BNE_OUR_PATCHES=off` turns
+  them all off at once. Is a bump ours or BeamNG.Earth's? `tools\patch_check.py <track> <from m> <to m>` builds the
+  stretch with and without them (tiles and OBJ only, nothing into AC), compares the driving surface along the route and
+  finds the patch by halving the set (`--each`: every patch off on its own).
 - The Rust module's patch announces itself as `earthfast.AC_EXPORT_YIELD` (tools/update_beamng_earth.py checks it).
 
 **Based on:** BeamNG.Earth 1.7.2-beta. With the patches, A2, Stausee and Graz measure the same as on 1.7.1 (2026-10-30;
@@ -31,7 +35,7 @@ A2's strongest bridge transition 1.68 instead of 1.66 G). Without them, 1.7.2 me
 | P6 | Trim overlapping bridge decks at the middle from a 5 cm height difference (opposing ones only) | `roadmesh.py` | `BNE_TRIM_DZ=0.3` | yes (A2, measured and driven) |
 | P7 | Cross slope from the lidar for motorways and their bridges | `grading.py`, `roads.py`, `roadmesh.py`, `blockworker.py` | `BNE_BANK_LIDAR=off` | yes (A2, measured and driven) |
 | P8 | A bridge deck meets its approaches with their gradient (on lidar) | `roads.py` | `BNE_DECK_TANGENT=off` | yes (A2, measured and driven) |
-| P9 | No junction into the parallel opposite carriageway | `grading.py` | – (`JUNCTION_PARALLEL_DEG`) | yes (A2, measured and driven) |
+| P9 | No junction into the parallel opposite carriageway | `grading.py` | `BNE_JUNCTION_PARALLEL=off` | yes (A2, measured and driven) |
 | P10 | The terrain continues under the bridge end with the approach's gradient (on lidar) | `grading.py` | `BNE_UNDER_DECK=off` | yes (A2 measured, Graz) |
 | P11 | A short tunnel with ground above stays a tunnel, not a bridge (on lidar) | `gradesep.py` | `BNE_LIDAR_UNDERPASS_COVER=0` | yes (Graz, A2, Stausee measured; Graz driven) |
 | P12 | Junction pads on bridges only where three or more carriageways meet | `roads.py` | `BNE_PAD_JUNCTIONS_ONLY=off` | yes (Rossbach measured and driven) |

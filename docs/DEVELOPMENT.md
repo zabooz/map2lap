@@ -128,6 +128,7 @@ release's Python has it in `python312._pth`.
 | `track/make_track_folder.py` | Track folder (everything but the kn5) |
 | `track/parallel.py` | Number of worker processes, process pool |
 | `src/acapp/TrackDebug/` | CSP Lua app for testing (Settings → Testing, `app/debugapp.py`): position on the route (`data/map2lap_route.txt` per track), F10, recording |
+| `tools/patch_check.py` | Ours or BeamNG.Earth's? A track's stretch built with and without our patches (`track/patches.py`, `BNE_OUR_PATCHES=off`), tiles and OBJ only, the driving surface along the route compared, the patch found by halving |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | Measure the driving line of built tracks (G at 100 km/h on the line and in the lanes, edges across, bridge transitions) against the test tracks' reference values |
 | `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`); its whole-version merge is no longer used (BeamNG.Earth frozen at 1.7.2) |

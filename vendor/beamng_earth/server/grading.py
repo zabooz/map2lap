@@ -132,6 +132,7 @@ JUNCTION_TAPER_M = 40.0     # m along the side road the height change is eased i
 # at 3.7 km (a 19 m part off its deck) took the other carriageway's height 10 m across, 0.35 m higher on the curve's
 # 4.5 % cross slope, and humped 40 m past the bridge: 5 G at the 250 km/h the user drives, thrown off there.
 JUNCTION_PARALLEL_DEG = 25.0
+JUNCTION_PARALLEL_ON = os.environ.get("BNE_JUNCTION_PARALLEL", "on") != "off"     # (ac-export patch P9: its switch)
 JUNCTION_MAX_M = 6.0        # m: a bigger difference is left as it was (bad data; Perm, GitHub #414: 4-5 m steps where a
                             # 30 m DEM smeared an embankment into the junctions)
 # Roads side by side where the elevation is only the coarse global model (dem.coarse_at: no lidar; GitHub #414, Perm on
@@ -841,7 +842,7 @@ def snap_junctions(plans, specs):
                     continue
                 if rank[k] == rank[j] and from_end < JUNCTION_END_M:
                     continue        # the same class end to end: a road's continuation, not a junction
-                if rank[k] == rank[j] and _parallel_at(p, end, q, x, y):
+                if JUNCTION_PARALLEL_ON and rank[k] == rank[j] and _parallel_at(p, end, q, x, y):
                     continue        # (ac-export patch P9) the other carriageway beside it
                 if best is None or dist < best[0]:
                     best = (dist, zq)
