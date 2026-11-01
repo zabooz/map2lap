@@ -6925,6 +6925,21 @@ TWIN_DZ_M = 2.0         # ... with its floor within this of the other's: twin tu
                         # the Route des Tamarins' two carriageways 9.5 m apart on Réunion, each an 11 m road in its own
                         # tube, the tubes through each other's walls and portals)
 TWIN_STEP_M = 10.0
+# Two parts of one tunnel joined end to end are one road going on, never twins: the pieces of a tube split by its sections
+# (tunnel_sections: a 1 m low arch at the portal, then the full tube) or by the map (one way in two segments). Every point
+# of a short piece lies by the next one, so it passed as beside it, the long one became a twin's floor without a tube of
+# its own and the shared tube was the 1 m they overlap: 650 m of the Kollmanntunnel's westbound tube open to the sky,
+# the hill over it seen from below. Both are checked: the same feature's tunnel range (the fid before "#") and an end
+# shared (_EndJoin's tolerance).
+
+
+def _one_road(fa, xa, fb, xb):
+    """Whether tunnel parts a and b (fid, xy (k, 2)) are pieces of one road: the same feature's range or an end of
+    one at an end of the other. Pure."""
+    if str(fa).split("#")[0] == str(fb).split("#")[0]:
+        return True
+    ends = [np.asarray(xb, np.float64)[k, :2] for k in (0, -1)]
+    return any(np.hypot(*(np.asarray(xa, np.float64)[k, :2] - e)) < _EndJoin().tol for k in (0, -1) for e in ends)
 
 
 def _line_near(xy, other):
@@ -6961,7 +6976,7 @@ def twin_tunnels(parts):
         Z = np.interp(ss, sj, np.asarray(za, np.float64))
         for j in range(i + 1, len(parts)):
             fb, sb, xb, zb, _ = parts[j]
-            if j in taken or len(xb) < 2:
+            if j in taken or len(xb) < 2 or _one_road(fa, xa, fb, xb):
                 continue
             xb = np.asarray(xb, np.float64)
             reach = (sa.width + sb.width) / 2 + 2 * roadmesh.TUNNEL_SHOULDER + 1.0      # their tubes would overlap

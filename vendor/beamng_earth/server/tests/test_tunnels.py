@@ -474,6 +474,19 @@ class TwinTunnels(unittest.TestCase):
         self.assertEqual(roads.twin_tunnels(self.parts(gap=40.0)), [], "apart: two tubes")
         self.assertEqual(roads.twin_tunnels(self.parts(dz=5.0)), [], "one over the other: two tubes")
 
+    def test_pieces_of_one_tube_are_no_twins(self):
+        # a 1 m low arch at the portal, then the full tube: every point of the short piece lies by the long one
+        short = np.array([[0.0, 0.0], [1.1, 0.0]])
+        long_ = np.array([[1.1, 0.0], [650.0, 0.0]])
+        spec = Spec(11.6, "paved", False, "motorway")
+        for fa, fb in (("w.1#0", "w.1#1"), ("w1", "w2")):      # split by its sections / by the map into two ways
+            parts = [(fa, spec, short, np.array([10.0, 10.0]), 0.0), (fb, spec, long_, np.array([10.0, 2.0]), 0.0)]
+            self.assertEqual(roads.twin_tunnels(parts), [], (fa, fb))
+            tubes = [c for c in roads._tunnel_chunks(type("T", (), {"parts": lambda self, c, e: parts})(), [],
+                                                     (-50.0, -50.0, 700.0, 50.0)) if c.get("tunnel") and not c.get("no_tube")]
+            self.assertGreater(max(np.hypot(*np.diff(np.asarray(c["n"])[:, :2], axis=0).T).sum() for c in tubes), 600.0)
+        self.assertEqual(len(roads.twin_tunnels(self.parts())), 1, "two carriageways side by side still are")
+
     def test_chunks_one_tube_round_both(self):
         class T:
             def __init__(self, parts):

@@ -264,5 +264,34 @@
     "onto the bridge: on at the road's grade, no ramp up"
    ]
   ]
+ },
+ "griffen_kollmanntunnel_test": {
+  "title": "Griffen Kollmanntunnel Test",
+  "about": "A2 near Griffen, westbound: the valley bridge, whose map data ends about 57 m short of the eastbound one's, then the Kollmanntunnel, split into pieces at its portal (a tube in pieces, a bridge mapped short)",
+  "points": [
+   [
+    46.699735531714396,
+    14.763513738461914
+   ],
+   [
+    46.700161022351004,
+    14.76018266225278
+   ],
+   [
+    46.699977407350794,
+    14.755073338868748
+   ]
+  ],
+  "width": 30.0,
+  "spots": [
+   [
+    "20-100",
+    "onto the bridge: the road dives about 10 m where the map's bridge ends short (open)"
+   ],
+   [
+    "410-660",
+    "the Kollmanntunnel: its tube, walls and vault the whole way"
+   ]
+  ]
  }
 }
