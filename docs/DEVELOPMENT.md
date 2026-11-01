@@ -13,7 +13,8 @@ developed further here. We call its building blocks without the game and write t
   game). Don't correct by screenshots of one test track.
 - Fix problems at their cause, not for one place, in `vendor/beamng_earth` too. A rule for the driving surface gets a
   comment at its place saying why, a test, and a measurement before and after (`tools/measure.py --all --build`: the
-  test tracks, short routes over the bridges and underpasses worth checking, `tools/test_tracks.json`).
+  test tracks, short routes over the bridges and underpasses worth checking, `tools/test_tracks.json`). The spots to
+  drive in AC after such a change, each a short track with its track code: [TEST_TRACKS.md](TEST_TRACKS.md).
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
 - Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
