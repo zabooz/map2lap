@@ -10,14 +10,16 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
 - Across the carriageway: its whole width (the visible asphalt or deck around the line, up to WIDTH_MAX_M each side),
   where the driving surface under it lies more than EDGE_M off a straight line across (one side sunk or raised).
 
-The test tracks (test_tracks.json) are short routes, one per bridge or underpass worth checking. --build builds them
-up to the OBJ parts only (out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds one into
-AC to drive it.
+The test tracks (test_tracks.json, named "<Place> Test") are short routes, each around the spots worth driving after a
+change to the driving surface (a junction, a bridge end, an underpass): their pins lie along the route, so OSRM routes
+it the same way again; "spots" names the route metres to look at (the Track Debug app's count). Each is shown with its
+track code (app/trackcode.py: the same inputs, for the generator page). --build builds them up to the OBJ parts only
+(out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds one into AC to drive it.
 
     .venv\\Scripts\\python.exe tools\\measure.py --all --build                      # build all test tracks again, measure
-    .venv\\Scripts\\python.exe tools\\measure.py bruecke_eisenkappel --build        # one of them
-    .venv\\Scripts\\python.exe tools\\measure.py bruecke_eisenkappel --from 180 --to 260   # a section, every spot
-    .venv\\Scripts\\python.exe tools\\measure.py bruecke_eisenkappel --install      # into AC, to drive it
+    .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --build              # one of them
+    .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --from 70 --to 120   # a section, every spot
+    .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --install            # into AC, to drive it
     .venv\\Scripts\\python.exe tools\\measure.py a2_test                            # any track built before
     ... --reference    save the values as the new reference in test_tracks.json (the state a change is compared with)
 """
@@ -32,7 +34,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
 sys.path.insert(0, os.path.join(HERE, "src"))
-from app import settings  # noqa: E402
+from app import settings, trackcode, version  # noqa: E402
 from track import obj_to_kn5  # noqa: E402
 
 TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
@@ -267,6 +269,12 @@ def report(track, r, ref=None, everything=False):
         print(f"     {u['m']:7.0f} m  {'onto' if u['onto'] else 'off '}  {u['g']:5.2f} G, step {u['step']:+.3f} m")
 
 
+def code(entry):
+    """The track code of a test track (a test_tracks.json entry) at this track version."""
+    return trackcode.encode({"points": entry["points"], "width": entry["width"], "title": entry["title"],
+                             "track_version": version.TRACK_VERSION})
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tracks", nargs="*")
@@ -296,7 +304,9 @@ def main():
     for t in tracks:
         r = measure(t, a.start, a.end)
         if t in test:
-            print(f"\n{test[t]['about']}", end="")
+            print(f"\n{test[t]['about']}\n  code {code(test[t])}", end="")
+            for m, what in test[t].get("spots", ()):
+                print(f"\n  spot {m} m: {what}", end="")
         report(t, r, None if part else test.get(t, {}).get("reference"), everything=part)
         if a.reference and t in test and not part:
             test[t]["reference"] = {k: v for k, v in r.items() if not k.startswith("_")}

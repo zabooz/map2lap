@@ -1,406 +1,214 @@
 {
- "bruecke_a2_greuth": {
-  "title": "Brücke A2 Greuth",
-  "about": "A2 near Völkermarkt (Greuth): a short motorway bridge",
+ "stausee_kreuzung_test": {
+  "title": "Stausee Kreuzung Test",
+  "about": "Stausee near Völkermarkt: a narrow tertiary road down to a junction, a 21 m connector, then a junction where a trunk goes on as a primary and the route turns onto it (roads of different widths meeting at a junction)",
   "points": [
    [
-    46.6568807,
-    14.5673153
+    46.6573263,
+    14.6324524
    ],
    [
-    46.6578109,
-    14.568415
+    46.6563103,
+    14.6328449
    ],
    [
-    46.6587671,
-    14.5694666
+    46.6555697,
+    14.6333813
    ],
    [
-    46.6597412,
-    14.5704825
+    46.6548753,
+    14.6326255
    ]
   ],
-  "width": 60.0,
+  "width": 120.0,
+  "spots": [
+   [
+    "149-154",
+    "a dip just before the first junction (open)"
+   ],
+   [
+    "155-159",
+    "the connector between the junctions, 5-8 m from the second: the roads meet at one height, no hump"
+   ],
+   [
+    "160-175",
+    "the turn onto the primary (drive it at about 40 km/h)"
+   ]
+  ],
   "reference": {
-   "length_m": 550,
-   "over_05g_m": 0,
-   "lanes_over_05g_m": 0,
-   "max_g": 0.21,
-   "max_g_at_m": 182.0,
+   "length_m": 320,
+   "over_05g_m": 9,
+   "lanes_over_05g_m": 35,
+   "max_g": 2.88,
+   "max_g_at_m": 150.0,
    "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 0.21
+   "transitions": 0,
+   "max_g_transition": 0.0,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 0.0
   }
  },
- "bruecke_a2_korb": {
-  "title": "Brücke A2 Korb",
-  "about": "A2 near Völkermarkt (Korb): a 70 m motorway bridge, carriageways' decks side by side",
+ "rechberg_test": {
+  "title": "Rechberg Test",
+  "about": "Eisenkappel-Vellach (Rechberg): two short bridges close together on a narrow road, a driveway joining 2.5 m before the first",
   "points": [
    [
-    46.6650133,
-    14.574011
+    46.5211061,
+    14.576363
    ],
    [
-    46.6660969,
-    14.5744459
+    46.5206611,
+    14.5764457
    ],
    [
-    46.668124,
-    14.5758338
+    46.520236,
+    14.5766576
    ],
    [
-    46.6690185,
-    14.5768202
+    46.5198091,
+    14.5768601
+   ],
+   [
+    46.518404,
+    14.576919
+   ],
+   [
+    46.5180977,
+    14.5772496
+   ],
+   [
+    46.5180282,
+    14.5777683
+   ],
+   [
+    46.5175784,
+    14.5777649
    ]
   ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 500,
-   "over_05g_m": 0,
-   "lanes_over_05g_m": 0,
-   "max_g": 0.25,
-   "max_g_at_m": 283.0,
-   "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 0.25
-  }
- },
- "bruecke_a2_rammersdorf": {
-  "title": "Brücke A2 Rammersdorf",
-  "about": "A2 near Völkermarkt (Rammersdorf): a bridge over a short tunnel, then one on a map cell border",
-  "points": [
+  "width": 120.0,
+  "spots": [
    [
-    46.6767028,
-    14.592464
+    "78-112",
+    "the first bridge, the driveway joining before it: level across, onto the deck and off"
    ],
    [
-    46.6773634,
-    14.5937255
-   ],
-   [
-    46.6783148,
-    14.5965719
-   ],
-   [
-    46.6785777,
-    14.598111
-   ],
-   [
-    46.6786953,
-    14.5996875
-   ],
-   [
-    46.6786702,
-    14.6012727
-   ],
-   [
-    46.678535,
-    14.6028473
+    "357-403",
+    "the second bridge and the ground after its end (open: up to 5.6 G off the deck)"
    ]
   ],
-  "width": 60.0,
   "reference": {
-   "length_m": 1000,
-   "over_05g_m": 4,
-   "lanes_over_05g_m": 7,
-   "max_g": 0.95,
-   "max_g_at_m": 218.0,
-   "edges_m": 0,
+   "length_m": 579,
+   "over_05g_m": 35,
+   "lanes_over_05g_m": 43,
+   "max_g": 5.62,
+   "max_g_at_m": 392.0,
+   "edges_m": 1,
    "transitions": 4,
-   "max_g_transition": 0.95
+   "max_g_transition": 5.62,
+   "warp_m": 0,
+   "max_warp": 0.01,
+   "max_warp_at_m": 358.0
   }
  },
- "bruecke_a2_sankt_agnes": {
-  "title": "Brücke A2 Sankt Agnes",
-  "about": "A2 near Völkermarkt (Sankt Agnes): a 400 m valley bridge, then a short one",
-  "points": [
-   [
-    46.6809521,
-    14.6393753
-   ],
-   [
-    46.6814896,
-    14.640968
-   ],
-   [
-    46.6836505,
-    14.6473312
-   ],
-   [
-    46.6841762,
-    14.6489321
-   ],
-   [
-    46.6846468,
-    14.6505681
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 950,
-   "over_05g_m": 5,
-   "lanes_over_05g_m": 5,
-   "max_g": 1.35,
-   "max_g_at_m": 765.0,
-   "edges_m": 0,
-   "transitions": 4,
-   "max_g_transition": 1.35
-  }
- },
- "bruecke_glockner_rossbach": {
-  "title": "Brücke Glockner Rossbach",
-  "about": "Großglockner road over the Rossbach (Heiligenblut): a 13 m bridge in a bend",
-  "points": [
-   [
-    47.0456425,
-    12.8508428
-   ],
-   [
-    47.0466894,
-    12.8515577
-   ],
-   [
-    47.0473489,
-    12.850748
-   ],
-   [
-    47.0476647,
-    12.849086
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 562,
-   "over_05g_m": 39,
-   "lanes_over_05g_m": 119,
-   "max_g": 3.97,
-   "max_g_at_m": 519.0,
-   "edges_m": 33,
-   "transitions": 2,
-   "max_g_transition": 1.86
-  }
- },
- "bruecke_glockner_winkl": {
-  "title": "Brücke Glockner Winkl",
-  "about": "Großglockner road near Winkl (Heiligenblut): an 85 m bridge",
-  "points": [
-   [
-    47.0591466,
-    12.808879
-   ],
-   [
-    47.0586145,
-    12.8074361
-   ],
-   [
-    47.0566546,
-    12.806007
-   ],
-   [
-    47.055833,
-    12.8052092
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 656,
-   "over_05g_m": 26,
-   "lanes_over_05g_m": 117,
-   "max_g": 1.91,
-   "max_g_at_m": 200.0,
-   "edges_m": 0,
-   "transitions": 4,
-   "max_g_transition": 1.91
-  }
- },
- "bruecke_graz_friedensbruecke": {
-  "title": "Brücke Graz Friedensbrücke",
+ "friedensbruecke_test": {
+  "title": "Friedensbruecke Test",
   "about": "Graz: a short bridge, then the Friedensbrücke over the Mur with the Grieskai tunnel under its west end",
   "points": [
    [
-    47.05658,
-    15.4318027
+    47.0572857,
+    15.4319079
    ],
    [
-    47.0574563,
-    15.4338578
+    47.0573474,
+    15.4330863
    ],
    [
-    47.0578444,
-    15.436965
+    47.0575035,
+    15.4342466
    ],
    [
-    47.058033,
-    15.4385163
+    47.0576492,
+    15.4354118
+   ],
+   [
+    47.0578019,
+    15.4365751
    ]
   ],
-  "width": 60.0,
+  "width": 120.0,
+  "spots": [
+   [
+    "29-46",
+    "the short bridge: onto its deck and off"
+   ],
+   [
+    "217-313",
+    "the Friedensbrücke, the Grieskai tunnel under its west end"
+   ]
+  ],
   "reference": {
-   "length_m": 600,
-   "over_05g_m": 6,
-   "lanes_over_05g_m": 25,
-   "max_g": 1.39,
-   "max_g_at_m": 403.0,
-   "edges_m": 11,
+   "length_m": 511,
+   "over_05g_m": 4,
+   "lanes_over_05g_m": 6,
+   "max_g": 1.4,
+   "max_g_at_m": 313.0,
+   "edges_m": 0,
    "transitions": 6,
-   "max_g_transition": 1.39
+   "max_g_transition": 1.4,
+   "warp_m": 29,
+   "max_warp": 1.98,
+   "max_warp_at_m": 226.0
   }
  },
- "unterfuehrung_graz_weblinger_guertel": {
-  "title": "Unterführung Graz Weblinger Gürtel",
-  "about": "Graz: the Weblinger Gürtel under the Triester Straße junction bridge",
+ "weblinger_guertel_test": {
+  "title": "Weblinger Guertel Test",
+  "about": "Graz: the route over the Triester Straße junction; under it the Weblinger Gürtel's underpass (mapped as a tunnel, twin carriageways, their portals 10 m apart)",
   "points": [
    [
-    47.0273451,
-    15.4338245
+    47.0278417,
+    15.4335168
    ],
    [
-    47.0284585,
-    15.4331757
+    47.028349,
+    15.4332481
    ],
    [
-    47.0306492,
-    15.4317681
+    47.0288292,
+    15.4328905
+   ],
+   [
+    47.029315,
+    15.4325488
+   ],
+   [
+    47.0298057,
+    15.4322204
    ]
   ],
-  "width": 60.0,
+  "width": 120.0,
+  "spots": [
+   [
+    "around 73",
+    "the junction over the underpass"
+   ],
+   [
+    "beside 60-100",
+    "drive down to the Gürtel, 20-60 m beside the route: through the underpass both ways, its west portal"
+   ]
+  ],
   "reference": {
-   "length_m": 400,
+   "length_m": 240,
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
-   "max_g": 0.23,
-   "max_g_at_m": 182.0,
+   "max_g": 0.21,
+   "max_g_at_m": 123.0,
    "edges_m": 0,
    "transitions": 0,
-   "max_g_transition": 0.0
-  }
- },
- "bruecke_eisenkappel": {
-  "title": "Brücke Eisenkappel",
-  "about": "Eisenkappel-Vellach: a 35 m bridge right after a small dip",
-  "points": [
-   [
-    46.5011967,
-    14.5826085
-   ],
-   [
-    46.5000329,
-    14.5822584
-   ],
-   [
-    46.4988628,
-    14.5825082
-   ],
-   [
-    46.4977665,
-    14.5829246
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 538,
-   "over_05g_m": 2,
-   "lanes_over_05g_m": 4,
-   "max_g": 0.66,
-   "max_g_at_m": 214.0,
-   "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 0.66
-  }
- },
- "bruecke_eisenkappel_rechberg": {
-  "title": "Brücke Eisenkappel Rechberg",
-  "about": "Eisenkappel-Vellach (Rechberg): a 28 m bridge, then a 35 m one",
-  "points": [
-   [
-    46.5219132,
-    14.5764419
-   ],
-   [
-    46.5207204,
-    14.5764309
-   ],
-   [
-    46.519571,
-    14.5768541
-   ],
-   [
-    46.5184043,
-    14.5769193
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 601,
-   "over_05g_m": 47,
-   "lanes_over_05g_m": 60,
-   "max_g": 6.8,
-   "max_g_at_m": 482.0,
-   "edges_m": 0,
-   "transitions": 4,
-   "max_g_transition": 6.8
-  }
- },
- "bruecke_sor_gutvika": {
-  "title": "Brücke Sør-Gutvika",
-  "about": "Sør-Gutvika (Norway): a 6 m bridge over a stream mouth, right at the start",
-  "points": [
-   [
-    65.08862,
-    11.8416429
-   ],
-   [
-    65.0889713,
-    11.839154
-   ],
-   [
-    65.0897433,
-    11.8398089
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 400,
-   "over_05g_m": 10,
-   "lanes_over_05g_m": 39,
-   "max_g": 1.79,
-   "max_g_at_m": 322.0,
-   "edges_m": 4,
-   "transitions": 2,
-   "max_g_transition": 0.8
-  }
- },
- "bruecke_seeboden": {
-  "title": "Brücke Seeboden",
-  "about": "Seeboden am Millstätter See: a 60 m bridge",
-  "points": [
-   [
-    46.8396747,
-    13.4985943
-   ],
-   [
-    46.8403667,
-    13.499992
-   ],
-   [
-    46.841405,
-    13.5005852
-   ],
-   [
-    46.8424849,
-    13.4998265
-   ]
-  ],
-  "width": 60.0,
-  "reference": {
-   "length_m": 400,
-   "over_05g_m": 24,
-   "lanes_over_05g_m": 30,
-   "max_g": 2.23,
-   "max_g_at_m": 177.0,
-   "edges_m": 0,
-   "transitions": 2,
-   "max_g_transition": 2.23
+   "max_g_transition": 0.0,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 0.0
   }
  }
 }

@@ -33,7 +33,7 @@ kn5 with its own writer. Windows first: Python 3.12 in `.venv`, PowerShell, Asse
 cd vendor\beamng_earth\server\tests
 ..\..\..\..\.venv\Scripts\python.exe -m unittest test_roads test_grading
 
-# the test tracks (tools/test_tracks.json, short routes over bridges and junctions worth checking), built up to the
+# the test tracks (tools/test_tracks.json, short routes around the spots worth driving; only these), built up to the
 # OBJ parts and measured against their reference values
 .venv\Scripts\python.exe tools\measure.py --all --build
 .venv\Scripts\python.exe tools\measure.py <test track> --install      # into AC, to drive it

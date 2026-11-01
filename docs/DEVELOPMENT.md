@@ -13,8 +13,9 @@ developed further here. We call its building blocks without the game and write t
   game). Don't correct by screenshots of one test track.
 - Fix problems at their cause, not for one place, in `vendor/beamng_earth` too. A rule for the driving surface gets a
   comment at its place saying why, a test, and a measurement before and after (`tools/measure.py --all --build`: the
-  test tracks, short routes over the bridges and underpasses worth checking, `tools/test_tracks.json`). The spots to
-  drive in AC after such a change, each a short track with its track code: [TEST_TRACKS.md](TEST_TRACKS.md).
+  test tracks, `tools/test_tracks.json`: short routes named "<Place> Test", each around the spots worth driving in AC
+  after such a change, with their route metres and track codes). Only these are tested; a new spot gets a new short
+  track there.
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
 - Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
@@ -49,7 +50,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe src\generator.py --name area_test --title "Area Test" --area 46.655 14.620 46.665 14.640
 .venv\Scripts\python.exe tools\check_drive.py stausee_test --all-roads   # drivability: holes, jumps, terrain above the road
 .venv\Scripts\python.exe tools\measure.py --all --build                  # rebuild the test tracks, compare with the reference
-.venv\Scripts\python.exe tools\measure.py bruecke_eisenkappel --install    # one test track into AC, to drive it
+.venv\Scripts\python.exe tools\measure.py rechberg_test --install          # one test track into AC, to drive it
 ```
 Builds started from the command line keep their work folder `out\tracks\<name>` (the measuring tools read it).
 Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m track.kn5 <file.kn5>`.
@@ -149,7 +150,7 @@ release's Python has it in `python312._pth`.
 | `tools/from_debug.py` | A Track Debug session's track built here: its inputs, the route as built, the differences in version and map data |
 | `tools/stretch.py` | A track's stretch built again fast (tiles and OBJ only, nothing into AC), the driving surface along the route measured and compared with its last run: before and after a fix |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
-| `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes, one per bridge or underpass worth checking) built up to the OBJ parts, nothing into AC (`--build`; `--install` into AC to drive one); the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
+| `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes around the spots worth driving: their route metres and track codes) built up to the OBJ parts, nothing into AC (`--build`; `--install` into AC to drive one); the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
 | `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 
