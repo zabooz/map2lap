@@ -21,7 +21,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import generator
-from app import debugapp, mapcache, mytracks, settings, trackcode, updater, version
+from app import debugapp, mapcache, mytracks, settings, system, trackcode, updater, version
 from app.paths import ROOT, SRC
 
 PORT = 8800
@@ -44,7 +44,7 @@ def run_build(args, name, clean, started):
     try:
         p = subprocess.Popen([sys.executable, "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                             errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                             errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"}, **system.GROUP)
         running["proc"] = p
         os.makedirs(os.path.dirname(MARK), exist_ok=True)
         with open(MARK, "w", encoding="utf-8") as f:
@@ -117,39 +117,19 @@ def tidy_interrupted():
     except (OSError, ValueError):
         return
     log(f"The last build (“{m['name']}”) was cut off when Map2Lap was closed: tidying up")
-    pid = str(m.get("pid") or "")
-    out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, encoding="oem",
-                         errors="replace").stdout if pid else ""
-    if pid and pid in out and "python" in out.lower():          # (still there: without a server nobody sees it any more)
-        subprocess.run(["taskkill", "/T", "/F", "/PID", pid], capture_output=True)
+    pid = m.get("pid")
+    if pid and system.is_python(pid):          # (still there: without a server nobody sees it any more)
+        system.kill_tree(pid)
         log("Its build process was still running: stopped")
     tidy(m["name"], m.get("clean", True), m.get("started", 0.0))
     _unmark()
     log("Done.")
 
 
-# Windows' folder picker through PowerShell (the release's embedded Python has no tkinter); a shown, invisible topmost
-# owner form puts it in front of the browser (Windows doesn't let a background process bring a window forward: with
-# an owner that is never shown the picker opens behind the browser, and every later click waits for it), UTF-8 output
-# keeps paths with umlauts intact
-BROWSE_PS = (
-    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms;"
-    "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Assetto Corsa folder';"
-    "$d.ShowNewFolderButton = $false; if (Test-Path $env:M2L_START) { $d.SelectedPath = $env:M2L_START };"
-    "$o = New-Object System.Windows.Forms.Form -Property @{TopMost = $true; ShowInTaskbar = $false; Opacity = 0;"
-    " FormBorderStyle = 'None'; StartPosition = 'CenterScreen'; Width = 1; Height = 1};"
-    "$o.Show(); $o.Activate();"
-    "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { $d.SelectedPath }; $o.Close()")
-
-
 def browse_folder(start):
-    """Windows' folder picker (the page runs on the same machine); None: cancelled."""
+    """The system's folder picker (system.browse_folder), one at a time; None: cancelled."""
     with dialog_lock:
-        r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", BROWSE_PS], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", env={**os.environ, "M2L_START": start or ""},
-                           creationflags=subprocess.CREATE_NO_WINDOW)
-    path = r.stdout.strip()
-    return os.path.normpath(path) if path else None
+        return system.browse_folder(start)
 
 
 def settings_view():
@@ -208,57 +188,8 @@ def delete_track(name):
     return 200, {"ok": True}
 
 
-def _documents():
-    """Windows' Documents folder (also when it was moved, e.g. to OneDrive)."""
-    import ctypes
-    buf = ctypes.create_unicode_buffer(260)
-    if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0:     # (CSIDL_PERSONAL)
-        return buf.value
-    return os.path.join(os.path.expanduser("~"), "Documents")
-
-
-def _running(exe):
-    # (tasklist answers in the console code page, with umlauts on German Windows: cp850 output wasn't readable as
-    # Python's cp1252 and the check crashed as soon as AC wasn't running)
-    out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}", "/NH"], capture_output=True, text=True,
-                         encoding="oem", errors="replace").stdout or ""
-    return exe.lower() in out.lower()
-
-
-def _steam_user():
-    """Signed-in Steam user (registry ActiveProcess\\ActiveUser, 0: Steam isn't running or is still signing in)."""
-    import winreg
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as k:
-            return int(winreg.QueryValueEx(k, "ActiveUser")[0])
-    except OSError:
-        return 0
-
-
-def ensure_steam(wait_s=90.0):
-    """Start Steam if it isn't running and wait until it is signed in (acs.exe without the launcher needs it and
-    doesn't start Steam itself); returns True when ready."""
-    if _running("steam.exe") and _steam_user():
-        return True
-    import winreg
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
-            exe = winreg.QueryValueEx(k, "SteamExe")[0]
-    except OSError:
-        exe = os.path.join(settings.STEAM_DEFAULT, "steam.exe")
-    if not _running("steam.exe"):
-        subprocess.Popen([exe, "-silent"], creationflags=subprocess.DETACHED_PROCESS)
-    end = time.time() + wait_s
-    while time.time() < end:
-        if _running("steam.exe") and _steam_user():
-            time.sleep(3.0)         # (signed in; a moment more until Steam also accepts games)
-            return True
-        time.sleep(1.0)
-    return False
-
-
 def race_ini():
-    return os.path.join(_documents(), "Assetto Corsa", "cfg", "race.ini")
+    return os.path.join(system.documents(settings.ac_path()), "Assetto Corsa", "cfg", "race.ini")
 
 
 def car_name(model):
@@ -302,8 +233,8 @@ def play_car():
 
 def play(name):
     """Drive the track in AC (My tracks, "Play"): race.ini the way Content Manager writes it, with the last settings
-    (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (steam_appid.txt
-    lies next to it: runs without the launcher; ensure_steam starts Steam if needed); returns (HTTP code, response)."""
+    (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (system.start_ac;
+    system.ensure_steam starts Steam if needed); returns (HTTP code, response)."""
     import configparser
     ac = settings.ac_path()
     if not os.path.exists(os.path.join(ac, "content", "tracks", name, name + ".kn5")):
@@ -311,9 +242,9 @@ def play(name):
     with lock:
         if job["state"] in ("running", "stopping"):
             return 409, {"error": "Not while a build is running"}
-    if _running("acs.exe"):
+    if system.running("acs.exe"):
         return 409, {"error": "Assetto Corsa is already running"}
-    if not ensure_steam():
+    if not system.ensure_steam():
         return 409, {"error": "Steam did not start (or is not signed in): start it and try again"}
     ini = configparser.ConfigParser(interpolation=None, strict=False)
     ini.optionxform = str
@@ -347,7 +278,7 @@ def play(name):
         ini.set("SESSION_0", k, v)
     with open(race_ini(), "w", encoding="utf-8") as f:
         ini.write(f, space_around_delimiters=False)
-    subprocess.Popen([os.path.join(ac, "acs.exe")], cwd=ac, creationflags=subprocess.DETACHED_PROCESS)
+    system.start_ac(ac)
     return 200, {"ok": True}
 
 
@@ -466,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
                 if "ac_path" in body:                  # (empty: look through Steam again)
                     p = os.path.normpath(body["ac_path"].strip()) if (body["ac_path"] or "").strip() else None
                     if p and not settings.is_ac(p):
-                        return self._send(400, {"error": "No Assetto Corsa folder there (content\\tracks is missing)"})
+                        return self._send(400, {"error": "No Assetto Corsa folder there (content/tracks is missing)"})
                     new["ac_path"] = p
                 if "clean" in body:
                     new["clean"] = bool(body["clean"])
@@ -489,7 +420,10 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(500, {"error": f"Track Debug app: {e}"})
                 self._send(200, settings_view())
             elif self.path == "/api/browse":
-                self._send(200, {"path": browse_folder(settings.ac_path())})
+                try:
+                    self._send(200, {"path": browse_folder(settings.ac_path())})
+                except system.NoPicker as e:
+                    self._send(409, {"error": str(e)})
             elif self.path == "/api/build":
                 name = generator.slug(body.get("name") or "route")
                 self._send(*start_build(name, body.get("title") or name, [tuple(p) for p in body.get("points") or []],
@@ -518,7 +452,7 @@ class Handler(BaseHTTPRequestHandler):
                     if job["state"] != "running" or p is None:
                         return self._send(409, {"error": "No build is running"})
                     job["state"] = "stopping"
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)    # (with the worker processes)
+                system.kill_tree(p.pid)         # (with the worker processes)
                 self._send(200, {"ok": True})
             else:
                 self._send(404, {"error": "not found"})

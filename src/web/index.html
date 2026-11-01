@@ -1064,7 +1064,10 @@ $('cache-clear').onclick = async () => {
 };
 $('browse').onclick = async () => {
   const r = await fetch('/api/browse', {method: 'POST'}).then(r => r.json());
-  if (r.path) saveSettings({ac_path: r.path});
+  if (r.error) {        // (Linux without a folder picker: the path is typed in)
+    $('ac-status').textContent = '✗ ' + r.error;
+    $('ac-status').className = 'small bad';
+  } else if (r.path) saveSettings({ac_path: r.path});
 };
 fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); render(); if (!s.ac_ok) setTab('set'); });
 // the newest release on GitHub (the server asks once per run, "Check for updates" again): a newer one shows in the

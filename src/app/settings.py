@@ -10,14 +10,13 @@
 """
 import json
 import os
-import re
 
+from app import system
 from app.paths import ROOT
 
 FILE = os.path.join(ROOT, "settings.json")
 DEFAULTS = {"ac_path": None, "clean": True, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
             "car": None, "debug_app": False}
-STEAM_DEFAULT = r"C:\Program Files (x86)\Steam"
 
 
 def load():
@@ -41,21 +40,8 @@ def is_ac(path):
 
 
 def find_ac():
-    """AC in the Steam libraries (Steam path from the registry, libraries from libraryfolders.vdf); else None."""
-    steam = STEAM_DEFAULT
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
-            steam = os.path.normpath(winreg.QueryValueEx(k, "SteamPath")[0])
-    except OSError:
-        pass
-    libs = [steam]
-    try:
-        with open(os.path.join(steam, "steamapps", "libraryfolders.vdf"), encoding="utf-8") as f:
-            libs += [p.replace("\\\\", "\\") for p in re.findall(r'"path"\s+"([^"]+)"', f.read())]
-    except OSError:
-        pass
-    for lib in libs:
+    """AC in the Steam libraries (system.steam_libraries); else None."""
+    for lib in system.steam_libraries():
         p = os.path.join(lib, "steamapps", "common", "assettocorsa")
         if is_ac(p):
             return p
@@ -64,4 +50,5 @@ def find_ac():
 
 def ac_path():
     """The AC folder: the one set, else the one found, else Steam's default location."""
-    return load()["ac_path"] or find_ac() or os.path.join(STEAM_DEFAULT, "steamapps", "common", "assettocorsa")
+    return (load()["ac_path"] or find_ac()
+            or os.path.join(system.STEAM_DEFAULT, "steamapps", "common", "assettocorsa"))

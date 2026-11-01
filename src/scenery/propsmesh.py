@@ -12,9 +12,12 @@ the road. Street trees go to trees.py, light cones/lenses and fences (length unk
 out. (The module isn't called "furniture": the BeamNG.Earth server already has one.)
 """
 import math
+import os
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+from app import paths
 
 ATLAS = 5
 CELL = 128
@@ -33,10 +36,13 @@ def _cell_box(k):
 
 
 def _font(size):
-    try:
-        return ImageFont.truetype("arialbd.ttf", size)
-    except OSError:
-        return ImageFont.load_default()
+    """Arial Bold; where it is missing (Linux) Liberation Sans Bold from assets/fonts, made to Arial's widths."""
+    for name in ("arialbd.ttf", os.path.join(paths.FONTS, "LiberationSans-Bold.ttf")):
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 def make_atlas(path):

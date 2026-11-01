@@ -15,6 +15,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from app import paths
 from track import build_tiles, make_obj, obj_to_kn5
 
 roadsmod = build_tiles.roadsmod
@@ -28,7 +29,8 @@ BANNER_PX = 256                 # banner texture height
 INK = (22, 22, 26)              # outlines
 COLORS = {"start": (38, 166, 84), "finish": (224, 36, 58)}      # banner colour
 WORDS = {"start": "START", "finish": "FINISH"}
-FONTS = ("ariblk.ttf", "impact.ttf", "arialbd.ttf")             # (Windows; else Pillow's own)
+# Windows' own first; elsewhere (Linux) Archivo Black from assets/fonts, a free font of Arial Black's weight
+FONTS = ("ariblk.ttf", "impact.ttf", "arialbd.ttf", os.path.join(paths.FONTS, "ArchivoBlack-Regular.ttf"))
 MATERIALS = ("gate_band", "gate_post", "gate_start", "gate_finish")
 
 
