@@ -291,6 +291,21 @@ class GradePointsTest(unittest.TestCase):
         self.assertFalse(turn[0], "near the node")
         self.assertTrue(turn[2], "alongside, past the node's reach")
 
+    def test_an_end_joining_a_road_before_its_bridge_is_no_approach(self):
+        """(APPROACH_TOUCH_M, junction_ends) a driveway ending on a road 2.5 m before the road's bridge starts joins the
+        road (its end on the road's line, away from the road's own end); the road's own end at the abutment, and a road
+        forking off at that end, do lead onto the bridge."""
+        road = np.array([[0.0, -100.0], [0.0, 0.0]])          # (its end at y = 0: the abutment)
+        drive = np.array([[-40.0, -2.5], [0.0, -2.5]])
+        fork = np.array([[-30.0, -30.0], [0.0, 0.0]])
+        got = grading.junction_ends([road, drive, fork], ["road", "drive", "fork"])
+        self.assertTrue(got[1, 1], "the driveway's end: a junction with the road")
+        self.assertFalse(got[0].any(), "the road's own ends")
+        self.assertFalse(got[2, 1], "a fork at the road's end")
+        self.assertFalse(got[1, 0], "the driveway's far end, on nothing")
+        part = np.array([[0.0, -2.5], [0.0, 0.0]])            # (the same road's next piece: its own feature)
+        self.assertFalse(grading.junction_ends([road, part], ["road", "road"])[1, 0], "a piece of the same road")
+
     @staticmethod
     def _tunnel_spec(width):
         """A road spec with a shoulder (SHOULDER_M: a built road of no sidewalk class) for grading.tunnel_plan."""

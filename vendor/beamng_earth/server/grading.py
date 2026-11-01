@@ -159,7 +159,12 @@ APPROACH_MAX_LIFT = 10.0    # m an abutment is raised at most
 APPROACH_MIN_LIFT = 0.5     # m: less is left as it is
 APPROACH_MIN_RUN = 30.0     # m: the shortest ramp
 APPROACH_MAX_RUN = 320.0    # m: the longest ramp
-APPROACH_TOUCH_M = 2.5      # m: a road whose end is this close to an abutment leads onto the bridge
+APPROACH_TOUCH_M = 2.5      # m: a road whose end is this close to an abutment leads onto the bridge ...
+# ... unless that end lies on another road going on past it (junction_ends: a driveway joining the road a few metres
+# before its bridge). It joins that road, not the deck: its end takes the road's height and gives way on its
+# carriageway (snap_junctions, YIELD_*). Taken for an approach, its end kept its own height (a driveway coming down
+# the slope 1 m under the road), ran on UNDER_DECK_M straight across the road (_under_deck) and pulled the road's near
+# lane 0.2 m down just before the deck, and a car took off at the deck's start at 50 km/h.
 APPROACH_MIN_CROSS_M = 6.0  # m: a road crossing a deck closer than this to its end is a junction at grade (not
                             # under it)
 APPROACH_FLAT_M = 20.0      # m from an abutment the deck needs its full clearance (beyond: it may fall at DECK_GRADE)
@@ -1080,6 +1085,8 @@ class _Planner:
                     pe = np.array([[r[0], r[-1]] for r, _sp in parts], np.float64).reshape(-1, 2)
                     e, n, _ = self.frame.geodetic_to_enu(pe[:, 1], pe[:, 0], 0.0)
                     abut = self._abut_ends(key, np.stack([np.asarray(e), np.asarray(n)], axis=1)).reshape(-1, 2)
+                    if abut.any():          # (an end joining a road going on: no approach, APPROACH_TOUCH_M)
+                        abut &= ~junction_ends(self._enu_lines([r for r, _sp in parts]), ids, abut)
                     # the ends onto a single bridge part
                     under = self._simple_abuts(np.stack([np.asarray(e), np.asarray(n)], axis=1),
                                                abut.ravel()).reshape(-1, 2)
@@ -1656,6 +1663,8 @@ class _Planner:
         pe = np.array([[p.xy[0][:2], p.xy[-1][:2]] for _f, p in plans], np.float64).reshape(-1, 2)
         ok = np.repeat([s is not None for s in specs], 2)       # (a motorway's or trunk's: over water only, below)
         touch = self._abut_ends(key, pe, ok).reshape(-1, 2)
+        if touch.any():
+            touch &= ~junction_ends([p.xy for _f, p in plans], [f for f, _p in plans], touch)
         for i, (fid, p) in enumerate(plans):
             if not touch[i].any():
                 continue
@@ -1948,6 +1957,16 @@ class _Planner:
                               and bridge_chain_ends_free(line, bl, line[-1, :2]))
                     break
         return out
+
+    def _enu_lines(self, rings):
+        """Lon/lat polylines rings in the frame's ENU metres ((k, 2) each), with one conversion call."""
+        if not rings:
+            return []
+        ll = np.concatenate([np.asarray(r, np.float64)[:, :2] for r in rings])
+        e, n, _ = self.frame.geodetic_to_enu(ll[:, 1], ll[:, 0], 0.0)
+        xy = np.stack([np.asarray(e, np.float64), np.asarray(n, np.float64)], axis=1)
+        cut = np.cumsum([len(r) for r in rings])[:-1]
+        return np.split(xy, cut)
 
     def _abut_ends(self, key, pe, ok=None):
         """Which of the points pe (n, 2) (road ends; ok: those to look at) near cell key are within APPROACH_TOUCH_M
@@ -3156,6 +3175,38 @@ def bridge_chain(line, all_bridges):
             used[k] = True
             out.append(parts[k])
             frontier += [parts[k][0], parts[k][-1]]
+    return out
+
+
+def junction_ends(lines, ids, ask=None):
+    """(n, 2) whether the (first, last) point of each line (k, 2) of lines lies on another feature's line (ids: each
+    line's feature) within CHAIN_JOIN_M, at least CHAIN_JOIN_M from that line's own ends: a junction with a road going
+    on past it (APPROACH_TOUCH_M). ask: (n, 2) the ends to look at (the rest False). Pure."""
+    n = len(lines)
+    out = np.zeros((n, 2), bool)
+    if ask is None:
+        ask = np.ones((n, 2), bool)
+    lines = [np.asarray(ln, np.float64)[:, :2] for ln in lines]
+    boxes = np.array([np.r_[ln.min(0), ln.max(0)] if len(ln) else np.full(4, np.nan) for ln in lines]).reshape(-1, 4)
+    for j, e in zip(*np.nonzero(ask)):
+        if len(lines[j]) < 2:
+            continue
+        q = lines[j][-1 if e else 0]
+        near = np.flatnonzero((boxes[:, 0] - CHAIN_JOIN_M <= q[0]) & (q[0] <= boxes[:, 2] + CHAIN_JOIN_M)
+                              & (boxes[:, 1] - CHAIN_JOIN_M <= q[1]) & (q[1] <= boxes[:, 3] + CHAIN_JOIN_M))
+        for k in near:
+            o = lines[k]
+            if ids[k] == ids[j] or len(o) < 2:
+                continue
+            a, ab = o[:-1], np.diff(o, axis=0)
+            l2 = np.maximum((ab * ab).sum(1), 1e-12)
+            t = np.clip(((q - a) * ab).sum(1) / l2, 0.0, 1.0)
+            d = np.hypot(*(a + t[:, None] * ab - q).T)
+            i = int(np.argmin(d))
+            s = float(np.sqrt(l2[:i]).sum() + np.sqrt(l2[i]) * t[i])
+            if d[i] < CHAIN_JOIN_M and CHAIN_JOIN_M <= s <= float(np.sqrt(l2).sum()) - CHAIN_JOIN_M:
+                out[j, e] = True
+                break
     return out
 
 
