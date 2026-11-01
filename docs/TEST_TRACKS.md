@@ -58,3 +58,21 @@ M2L1-eNpFzLsKwzAMheFXKZqNkWxJvjxG6Ra8NJh0LG1oh5J3ryF2sh0-fs4PPpABrVgEA2vb1zo_7vW
 |---|---|---|
 | 78–112 | the first bridge, a driveway joining 2.5 m before it: onto its deck and off, level across | under 0.5 G; onto 0.07 G, off 0.10 G |
 | 357–403 | the second bridge and the ground after its end | up to 5.6 G off the deck at 388–401 (open) |
+
+## Friedensbruecke Test
+
+Graz: a short bridge, then the Friedensbrücke over the Mur with the Grieskai tunnel under its west end. Checks bridge
+ends in town and a tunnel under a deck (`grading.py`: `BESIDE_*`, `Plan.tunnel`).
+
+- name `friedensbruecke_test`, width 120, 360 m
+- pins `47.0572857,15.4319079 47.0573474,15.4330863 47.0575035,15.4342466 47.0576492,15.4354118 47.0578019,15.4365751`
+- code (track version 0.5.0):
+
+```
+M2L1-eNo9y0EKAjEMheGrSNYlpGnSdnoAT-Bu6EbNQgSRmXFciHe3UOnu8T3-D-xQgFCRwMHW9nG52dUe63l52eVuh5OtW7ueUOZZEpImztF5RQl-olzdX4OkroFyHKokXYUlDY0ydVXxPDQTd42tq9XBG4pnQvr-AJHtJ3g
+```
+
+| Route m | What | Now |
+|---|---|---|
+| 29–46 | the short bridge: onto its deck and off | onto 0.22 G, off 0.11 G |
+| 217–313 | the Friedensbrücke, the Grieskai tunnel under its west end | up to 1.4 G at its east end (310–314) |
