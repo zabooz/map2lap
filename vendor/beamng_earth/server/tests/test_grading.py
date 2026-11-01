@@ -269,6 +269,28 @@ class GradePointsTest(unittest.TestCase):
         out = grading.grade_points(px, py, base, [main, near])
         self.assertGreater(np.abs(out[car] - 100.0).max(), 0.05, "0.3 m apart: blended as equals")
 
+    def test_a_narrow_road_at_a_junction_with_a_wider_one_blends_as_an_equal(self):
+        """(BESIDE_*) a narrower road sharing a node with a wider one does not give way beside it near the node (a
+        primary going on from a trunk's end, a side road ending on its middle: the junction's roads meet at one height;
+        giving way there left a hump on the side road joining at that node); one running alongside it does, and a
+        road starting at the node and turning alongside does past the node's reach."""
+        trunk = grading.Plan(np.array([[-100.0, 0.0], [0.0, 0.0]]), np.array([100.0, 100.0]), 9.6, road_half=6.6)
+        trunk.rid = 1
+
+        def bw(xy):
+            narrow = grading.Plan(np.asarray(xy, np.float64), np.zeros(len(xy)) + 100.0, 8.0, road_half=5.0)
+            narrow.rid = 2
+            pack = grading.PlanPack([trunk, narrow])
+            return pack.bw[pack.of == 1]
+
+        self.assertFalse(bw([[0.0, 0.0], [100.0, 0.0]]).any(), "going on from its end")
+        self.assertFalse(bw([[100.0, -10.0], [0.0, 0.0]]).any(), "going on, drawn toward the node")
+        self.assertFalse(bw([[-50.0, 0.0], [-50.0, 100.0]]).any(), "a side road ending on its middle")
+        self.assertTrue(bw([[-100.0, 9.0], [0.0, 9.0]]).any(), "alongside, no node")
+        turn = bw([[-50.0, 0.0], [-50.0, 9.0], [-100.0, 9.0], [-150.0, 9.0]])
+        self.assertFalse(turn[0], "near the node")
+        self.assertTrue(turn[2], "alongside, past the node's reach")
+
     @staticmethod
     def _tunnel_spec(width):
         """A road spec with a shoulder (SHOULDER_M: a built road of no sidewalk class) for grading.tunnel_plan."""

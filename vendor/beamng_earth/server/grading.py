@@ -3028,7 +3028,12 @@ def _yield_strength(plans, box, nseg):
 # height over a few metres, a jump); a driveway mapped onto a secondary's carriageway, its profile 1.4-1.6 m under it
 # where it really leads down, pulled the secondary's line 0.3 m down onto its bridge (a 23 cm step). A tunnel's own
 # plans (Plan.tunnel) lie at another level by the map: neither gives way to the other (a bridge's far carriageway over
-# a wider tunnel 5.6 m under its west end sank 3-4.6 m to it).
+# a wider tunnel 5.6 m under its west end sank 3-4.6 m to it). Within its blend's reach of a node it shares with the
+# wider road (an end of one on the other's line: a junction) it blends as an equal: there the roads meet at one height,
+# and the ends that run onto another road give way by YIELD_*. Giving way there too, a primary going on from a trunk's
+# end dropped out on the trunk's carriageway (a round cap reaching past its end over the junction) and on a wider side
+# road's joining at that node: the side road's lanes there no longer came down to the primary, a 10 cm hump 6 m from
+# the node, 3.5 G at 100 km/h.
 BESIDE_WIDER_M = 0.5        # m: the other road's carriageway this much wider (half width) at least
 BESIDE_LEVEL_FROM_M = 0.5   # m apart: on its own carriageway it gives way from this ...
 BESIDE_LEVEL_TO_M = 1.0     # ... and fully from this
@@ -3057,6 +3062,7 @@ def _beside_strength(plans, box, nseg):
         q = np.c_[np.interp(t, arc, xy[:, 0]), np.interp(t, arc, xy[:, 1])]
         qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)    # (each sample's segment)
         near = np.zeros(len(t), bool)
+        node = np.zeros(len(t), bool)
         for o in wider:
             op = plans[o]
             oxy = np.asarray(op.xy, f64)[:, :2]
@@ -3065,10 +3071,36 @@ def _beside_strength(plans, box, nseg):
             u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)     # (samples, segments)
             d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
             # (within reach: the narrow road's blend (its half and T_MAX) touches the wider one's carriageway)
-            near |= d.min(axis=1) < rh[o] + p.half + T_MAX
+            reach = rh[o] + p.half + T_MAX
+            near |= d.min(axis=1) < reach
+            for s in _shared_nodes(p, op):              # (a junction with it: blended as equals there)
+                node |= np.abs(t - s) < reach
+        near &= ~node
         if near.any():
             out[s0[k] + np.unique(qseg[near])] = 1.0
     return np.round(out * 255.0).astype(np.uint8)
+
+
+def _shared_nodes(p, q):
+    """Arc positions (m from p's first point) of the nodes Plans p and q share: p's ends within CHAIN_JOIN_M of q's
+    line, q's ends within CHAIN_JOIN_M of p's line. Pure."""
+    pxy, qxy = np.asarray(p.xy, np.float64)[:, :2], np.asarray(q.xy, np.float64)[:, :2]
+    if len(pxy) < 2 or len(qxy) < 2:
+        return []
+
+    def on(line, pt):
+        """(distance, arc position) of the point of line nearest pt."""
+        a, ab = line[:-1], np.diff(line, axis=0)
+        l2 = np.maximum((ab * ab).sum(1), 1e-12)
+        t = np.clip(((pt - a) * ab).sum(1) / l2, 0.0, 1.0)
+        d = np.hypot(*(a + t[:, None] * ab - pt).T)
+        i = int(np.argmin(d))
+        return float(d[i]), float(np.sqrt(l2[:i]).sum() + np.sqrt(l2[i]) * t[i])
+
+    length = float(np.hypot(*np.diff(pxy, axis=0).T).sum())
+    out = [s for s, pt in ((0.0, pxy[0]), (length, pxy[-1])) if on(qxy, pt)[0] < CHAIN_JOIN_M]
+    out += [s for d, s in (on(pxy, qxy[0]), on(pxy, qxy[-1])) if d < CHAIN_JOIN_M]
+    return out
 
 
 def grade_points(px, py, base, plans, lift=0.0):
