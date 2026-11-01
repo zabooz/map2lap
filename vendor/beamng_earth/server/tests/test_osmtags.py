@@ -52,6 +52,42 @@ class JoinTest(unittest.TestCase):
         self.assertGreater(roads.road_specs(f)[0].width, roads.road_specs(f)[2].width)
 
 
+class GalleryTest(unittest.TestCase):
+    """OpenStreetMap's tunnel=avalanche_protector: Overture keeps only its layer=-1, so the gallery's range is flagged
+    (GALLERY_FLAG) from the OSM way, and roads build it on the ground (test_tunnels.GalleryTest)."""
+
+    def box(self, x0, x1, y=0.0):
+        from test_roads import LAT, LON, M_LAT, M_LON
+        return {"bx0": LON + x0 / M_LON, "by0": LAT + (y - 5) / M_LAT, "bx1": LON + x1 / M_LON,
+                "by1": LAT + (y + 5) / M_LAT}
+
+    def flagged(self, f, i):
+        t = f.rules["flags"]
+        return [(round(float(t.start[j]), 3), round(float(t.end[j]), 3)) for j in t.rows(i)
+                if str(t.value[j]) == osmtags.GALLERY_FLAG]
+
+    def test_relation_segment_s_level_range_in_the_gallery_way(self):
+        """The Grossglockner road's Freiwand gallery: a segment from a relation (no way id), layer -1 over 0.25-0.5 of
+        it, where the gallery way of its name lies. A real tunnel of the same road further on, and a gallery of
+        another name over it, stay tunnels."""
+        f = features([[(0, 0), (400, 0)]], ["tertiary"], levels=[(0, -1.0, 0.25, 0.5), (0, -1.0, 0.75, 0.9)])
+        f.attrs["src_record"] = np.array(["r4205967@46"])
+        f.attrs["name"] = np.array(["Gletscherstrasse"])
+        osmtags.join(f, {1: dict(self.box(100, 200), name="Gletscherstrasse", osm_tunnel="avalanche_protector"),
+                         2: dict(self.box(300, 360), name="Gletscherstrasse", osm_tunnel="yes"),
+                         3: dict(self.box(300, 360), name="Other", osm_tunnel="avalanche_protector")})
+        self.assertEqual(self.flagged(f, 0), [(0.25, 0.5)])
+
+    def test_segment_of_a_gallery_way(self):
+        """A segment from the gallery way itself: its tunnel range is the gallery; a tunnel=yes way's stays a tunnel."""
+        f = features([[(0, 0), (200, 0)], [(0, 50), (200, 50)]], ["secondary"] * 2,
+                     flags=[(0, "is_tunnel"), (1, "is_tunnel")])
+        f.attrs["src_record"] = np.array(["w1@1", "w2@1"])
+        osmtags.join(f, {1: {"osm_tunnel": "avalanche_protector"}, 2: {"osm_tunnel": "yes"}})
+        self.assertEqual(self.flagged(f, 0), [(0.0, 1.0)])
+        self.assertEqual(self.flagged(f, 1), [])
+
+
 class SpecTest(unittest.TestCase):
     def test_lanes_set_the_width_and_the_markings(self):
         f = tagged([[(0, 0), (200, 0)], [(0, 30), (200, 30)]], ["secondary", "secondary"], ["w1@1", "w2@1"],

@@ -59,12 +59,17 @@ COLUMNS = {
     # a road not built yet (GitHub #184: a trunk road under construction, opening 2026-12-31, drawn as a finished road;
     # Overture calls highway=construction "unknown"): only these two values, every other highway NULL
     "osm_highway": "CASE WHEN highway IN ('construction', 'proposed') THEN highway END",
+    # the kind of tunnel (Overture keeps only its level -1: an avalanche gallery became a tunnel, _mark_galleries)
+    "osm_tunnel": "tunnel",
     "bx0": "bbox.xmin", "by0": "bbox.ymin", "bx1": "bbox.xmax", "by1": "bbox.ymax",
 }
-USED = {"id", "bbox", "lanes", "width", "maxspeed", "sidewalk", "lit", "smoothness", "surface", "oneway", "layer", "name"}
+USED = {"id", "bbox", "lanes", "width", "maxspeed", "sidewalk", "lit", "smoothness", "surface", "oneway", "layer", "name",
+        "tunnel"}
 FLOATS = ("lanes", "width", "maxspeed", "osm_layer")
-TEXTS = ("sidewalk", "lit", "smoothness", "osm_surface", "osm_oneway", "osm_highway")
+TEXTS = ("sidewalk", "lit", "smoothness", "osm_surface", "osm_oneway", "osm_highway", "osm_tunnel")
 UNBUILT = ("construction", "proposed")      # osm_highway's values: not drawn (roads.unbuilt)
+GALLERY = "avalanche_protector"             # OSM tunnel=avalanche_protector: a road under a roof against the slope
+GALLERY_FLAG = "is_avalanche_protector"     # its range in the "flags" rule (roads.tag_level_ranges: on the ground)
 NAME_MATCH_M = 25.0     # m a segment's middle may lie outside the bbox of the same-named way it takes the tags of
 ONEWAY_YES = ("yes", "1", "-1", "true")
 
@@ -389,4 +394,81 @@ def join(feats, tags):
             w = _named_way(feats, i, {nm: sense.get((nm, str(ows[i]) in ONEWAY_YES), [])})
             if w is not None:
                 lanes[i] = float(tags[w]["lanes"])
+    _mark_galleries(feats, tags, ids)
     return feats
+
+
+def _tunnel_rows(feats, i):
+    """[(start, end)] of feature i's tunnel rules as the map has them: flags is_tunnel, level < 0. Pure."""
+    out = []
+    for name in ("flags", "level"):
+        t = feats.rules.get(name)
+        if t is None or len(t.feature) == 0:
+            continue
+        for j in t.rows(i):
+            v = t.value[j]
+            if name == "flags":
+                hit = "is_tunnel" in str(v)
+            else:
+                try:
+                    hit = float(v) < 0
+                except (TypeError, ValueError):
+                    hit = False
+            if hit and t.end[j] > t.start[j]:
+                out.append((float(t.start[j]), float(t.end[j])))
+    return out
+
+
+def _at_fractions(ring, fr):
+    """(len(fr), 2) lon/lat at the fractions fr of a lon/lat polyline's length (lon scaled by cos lat). Pure."""
+    ring = np.asarray(ring, np.float64)[:, :2]
+    c = math.cos(math.radians(float(np.mean(ring[:, 1]))))
+    s = np.r_[0.0, np.cumsum(np.hypot(np.diff(ring[:, 0]) * c, np.diff(ring[:, 1])))]
+    at = np.asarray(fr, np.float64) * s[-1]
+    return np.c_[np.interp(at, s, ring[:, 0]), np.interp(at, s, ring[:, 1])]
+
+
+def _mark_galleries(feats, tags, ids):
+    """feats with GALLERY_FLAG over each tunnel range (_tunnel_rows) that OpenStreetMap has as an avalanche gallery
+    (tunnel=avalanche_protector, a road on the ground under a roof against the slope): the range of a segment from
+    such a way; of a segment from a relation (no way id), a range whose ends and middle lie in a gallery way's bbox
+    (grown by NAME_MATCH_M) of its name. Overture keeps only the gallery's layer=-1, and the roads built a tunnel in
+    the open with a low arch's grass cap across the lanes (the Grossglockner road's Freiwand gallery)."""
+    import mapgeom as mg
+    gal = {w: t for w, t in tags.items() if str(t.get("osm_tunnel", "")) == GALLERY}
+    if not gal:
+        return
+    names = feats.attrs.get("name")
+    my = NAME_MATCH_M / 111320.0
+    rows = []
+    for i in range(len(feats)):
+        rngs = _tunnel_rows(feats, i)
+        if not rngs:
+            continue
+        if ids[i] in gal:
+            rows += [(i, GALLERY_FLAG, (a, b)) for a, b in rngs]
+            continue
+        rings = [r for part in feats.parts(i) for r in part if len(r) >= 2]
+        if not rings:
+            continue
+        nm = str(names[i]) if names is not None else ""
+        for a, b in rngs:
+            pts = _at_fractions(rings[0], (a, (a + b) / 2, b))
+            mx = my / max(math.cos(math.radians(float(pts[1, 1]))), 0.1)
+            for t in gal.values():
+                if not all(k in t for k in ("bx0", "by0", "bx1", "by1")) or (nm and t.get("name") and
+                                                                             str(t["name"]) != nm):
+                    continue
+                if np.all((pts[:, 0] >= t["bx0"] - mx) & (pts[:, 0] <= t["bx1"] + mx) & (pts[:, 1] >= t["by0"] - my)
+                          & (pts[:, 1] <= t["by1"] + my)):
+                    rows.append((i, GALLERY_FLAG, (a, b)))
+                    break
+    if not rows:
+        return
+    add, fl = mg.rule_table(rows), feats.rules.get("flags")
+    if fl is not None and len(fl.feature):
+        add = mg.RuleTable(np.concatenate([fl.feature, add.feature]).astype(np.int32),
+                           np.concatenate([np.asarray(fl.value, str), add.value]),
+                           np.concatenate([fl.start, add.start]).astype(np.float32),
+                           np.concatenate([fl.end, add.end]).astype(np.float32))
+    feats.rules["flags"] = add

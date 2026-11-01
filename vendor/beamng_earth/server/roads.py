@@ -32,6 +32,7 @@ import numpy as np
 import junctions
 import mapcells
 import mapgeom
+import osmtags
 import roadmesh
 import staging
 
@@ -1003,12 +1004,16 @@ def _level_ranges(feats, i):
 def tag_level_ranges(feats, i):
     """Feature i's off-ground ranges as the map's flags and level rules have them (level_ranges, before gradesep)."""
     got = {"flags": [], "level": []}
+    galleries = []
     for name in ("flags", "level"):
         t = feats.rules.get(name)
         if t is None or len(t.feature) == 0:
             continue
         for j in t.rows(i):
             v = t.value[j]
+            if name == "flags" and str(v) == osmtags.GALLERY_FLAG:
+                galleries.append((float(t.start[j]), float(t.end[j])))
+                continue
             if name == "flags":
                 kind = "tunnel" if "is_tunnel" in str(v) else "bridge" if "is_bridge" in str(v) else None
             else:
@@ -1067,7 +1072,27 @@ def tag_level_ranges(feats, i):
             else:
                 joined.append((a, b, k))
         merged = joined
-    return merged
+    # an avalanche gallery (osmtags.GALLERY_FLAG) is a road on the ground under a roof against the slope, not a tunnel:
+    # built as one, it stood in the open with a low arch's grass cap across the lanes, unpainted, its floor a kink
+    # from the graded road (the Grossglockner road's Freiwand gallery)
+    return _without(merged, galleries, "tunnel")
+
+
+def _without(ranges, cuts, kind):
+    """ranges [(start, end, kind)] with the pieces of those of kind that lie in cuts [(start, end)] taken out. Pure."""
+    out = list(ranges)
+    for a, b in cuts:
+        cut = []
+        for fa, fb, k in out:
+            if k != kind or fb <= a or fa >= b:
+                cut.append((fa, fb, k))
+                continue
+            if fa < a - 1e-5:
+                cut.append((fa, a, k))
+            if fb > b + 1e-5:
+                cut.append((b, fb, k))
+        out = cut
+    return out
 
 
 PASSAGE_M = 40.0        # m: a tunnel range this short between two bridge ranges is a passage through a tower

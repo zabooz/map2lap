@@ -144,6 +144,46 @@ class OpenUnderpass(unittest.TestCase):
         self.assertTrue(any(c.get("tunnel") for c in ch))
 
 
+class GalleryTest(unittest.TestCase):
+    """An avalanche gallery (osmtags.GALLERY_FLAG over the range of its layer -1) is a road on the ground, not a
+    tunnel: built as one, the Grossglockner road's Freiwand gallery stood in the open with a low arch's grass cap
+    across the lanes (a wall: cars crashed into it), unpainted (grass through the road) and its floor a kink from the
+    graded road (a jump)."""
+
+    def feats(self, gallery):
+        import osmtags
+        from test_roads import features
+        return features([[(-100, 0), (100, 0)]], ["tertiary"], levels=[(0, -1.0, 0.2, 0.8)],
+                        flags=[(0, osmtags.GALLERY_FLAG, 0.2, 0.8)] if gallery else [])
+
+    def hill(self, la, lo):
+        from test_roads import LON, M_LON
+        e = (np.asarray(lo) - LON) * M_LON
+        return 10.0 + np.maximum(0.0, 40.0 - np.abs(e) * 0.4)
+
+    def test_gallery_is_a_road_on_the_ground(self):
+        f = self.feats(True)
+        self.assertEqual(roads.level_ranges(f, 0), [])
+        self.assertEqual(roads.tunnel_parts(f, 0), [])
+        self.assertEqual(len(roads.ground_parts(f, 0)), 1, "the whole road on the ground")
+        self.assertEqual(len(roads.ground_parts(f, 0)[0]), 2, "its line as it is")
+
+    def test_under_a_hill_no_tube(self):
+        from test_roads import FRAME
+        f = self.feats(True)
+        tp = roads.TunnelProfiles(FRAME, lambda key: f, self.hill)
+        self.assertFalse(any(c.get("tunnel") for c in roads._tunnel_chunks(tp, [f], (-128.0, -128.0, 128.0, 128.0))))
+
+    def test_level_minus_one_without_the_flag_stays_a_tunnel(self):
+        self.assertEqual([k for _, _, k in roads.level_ranges(self.feats(False), 0)], ["tunnel"])
+
+    def test_without(self):
+        rs = [(0.0, 0.2, "bridge"), (0.3, 0.9, "tunnel")]
+        self.assertEqual(roads._without(rs, [(0.5, 0.6)], "tunnel"),
+                         [(0.0, 0.2, "bridge"), (0.3, 0.5, "tunnel"), (0.6, 0.9, "tunnel")])
+        self.assertEqual(roads._without(rs, [(0.0, 1.0)], "tunnel"), [(0.0, 0.2, "bridge")])
+
+
 class LowArch(unittest.TestCase):
     def test_a_park_bridge_is_a_low_stone_arch(self):
         # 5 m of ground over a short 'tunnel' (Central Park's West Drive over the 86th Street Transverse): a tube that
