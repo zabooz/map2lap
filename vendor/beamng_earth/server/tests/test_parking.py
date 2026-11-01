@@ -151,6 +151,32 @@ class LotTest(unittest.TestCase):
         b = parking.lot_spots([self.LOT], (30, 0, 256, 256), z)
         self.assertEqual(len(a) + len(b), len(parking.lot_spots([self.LOT], (0, 0, 256, 256), z)))
 
+    def test_a_lot_drawn_to_the_road_s_centre_line_keeps_off_its_carriageway(self):
+        # the lot's south edge on a 7 m road's centre line (y = 0): no stall within 3.5 m of it; the lot's own aisle
+        # (across it at x = 30) takes none
+        z = lambda x, y: np.zeros(len(x))
+        road = ("r", roads.Spec(7.0, "paved", False, "secondary", False), np.array([(-50.0, 0.0, 0.0), (110.0, 0.0, 0.0)]), 0.0)
+        aisle = ("a", roads.Spec(6.0, "paved", False, "service", False), np.array([(30.0, 0.0, 0.0), (30.0, 40.0, 0.0)]), 0.0)
+        whole = parking.lot_spots([self.LOT], (0, 0, 256, 256), z)
+        spots = parking.lot_spots([self.LOT], (0, 0, 256, 256), z, (), parking.through_roads([road, aisle], {"a"}))
+        clear = [s for s in whole if s[1] - parking.LOT_SPOT_D_M / 2 + 0.1 >= 3.5]
+        self.assertLess(len(clear), len(whole))
+        self.assertTrue(spots)
+        self.assertEqual(sorted(map(tuple, spots)), sorted(map(tuple, clear)))
+        self.assertIsNone(parking.through_roads([aisle], {"a"}))
+
+    def test_no_stall_on_an_embankment(self):
+        # the lot's north half falls 1:1 (the slope down to a lower deck the polygon takes in), its south half is level
+        z = lambda x, y: np.where(np.asarray(y) > 20.0, 20.0 - np.asarray(y), 0.0)
+        level = lambda x, y: np.zeros(len(x))
+        spots = parking.lot_spots([self.LOT], (0, 0, 256, 256), z)
+        self.assertTrue(spots)
+        self.assertFalse(any(s[1] > 20.0 for s in spots))
+        self.assertLess(len(spots), len(parking.lot_spots([self.LOT], (0, 0, 256, 256), level)))
+        tilted = lambda x, y: 0.4 * np.asarray(x, np.float64)       # (a steep but even lot keeps its stalls)
+        self.assertEqual(len(parking.lot_spots([self.LOT], (0, 0, 256, 256), tilted)),
+                         len(parking.lot_spots([self.LOT], (0, 0, 256, 256), level)))
+
 
 class AisleTest(unittest.TestCase):
     def test_stalls_both_sides_nose_out(self):
@@ -195,6 +221,15 @@ class MarkTest(unittest.TestCase):
             b = (round(c["n"][1][0], 2), round(c["n"][1][1], 2))
             keys.append(tuple(sorted((a, b))))
         self.assertEqual(len(keys), len(set(keys)), "a shared head line drawn once")
+
+    def test_no_lines_on_the_road_or_the_embankment(self):
+        road = ("r", roads.Spec(7.0, "paved", False, "secondary", False), np.array([(-50.0, 0.0, 0.0), (110.0, 0.0, 0.0)]), 0.0)
+        z = lambda x, y: np.where(np.asarray(y) > 20.0, 20.0 - np.asarray(y), 0.0)
+        chunks = parking.lot_markings([self.LOT], (0, 0, 256, 256), z, (), parking.through_roads([road]))
+        self.assertTrue(chunks)
+        for c in chunks:
+            for x, y, _ in c["n"]:
+                self.assertTrue(3.5 - 0.15 <= y <= 20.0 + 0.15, (x, y))
 
     def test_a_building_takes_its_half(self):
         garage = np.array([(0.0, 0.0), (30.0, 0.0), (30.0, 40.0), (0.0, 40.0)])

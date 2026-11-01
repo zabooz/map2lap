@@ -157,6 +157,46 @@ LOT_UNPAVED = {"unpaved", "ground", "dirt", "earth", "mud", "grass", "sand", "so
 STALL_LINE = {"m": "line_white", "tl": 6.4, "p": 2, "w": 0.10}
 MIN_MARK_M = 0.4            # a clipped stall line shorter than this is dropped
 MARK_EDGE_M = 1e-3          # the tile box is half-open: a line on the far edge belongs to the next tile
+# A mapped lot's polygon often takes in more than its stalls: drawn up to the road's centre line (its nodes shared
+# with the way), its stalls and lines stood on half the carriageway (the Grossglockner road at the Glocknerhaus); drawn
+# over the embankment down to a lower deck, its cars stood on their noses on the 13 m slope (4-9 m over a stall's
+# 5.5 m). A stall stands clear of the through roads' carriageways (not the lot's own aisles) and on ground no steeper
+# than LOT_MAX_GRADE. (The elevation data's pixels blur a terraced lot's edge, so a real stall there can read steep:
+# the limit stays well above a lot's few percent and well below an embankment's 80 %.)
+LOT_MAX_GRADE = 0.45
+
+
+def through_roads(roads, aisles=()):
+    """fast.Others of the carriageways of roads ((fid, spec, centreline (k, 3), lon): build_tile's roads_out) but the
+    parking aisles (aisles: their fids), or None without any."""
+    rs = [(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads or () if fid not in aisles and len(pts) >= 2]
+    if not rs:
+        return None
+    import fast
+    return fast.Others(rs)
+
+
+def _stalls_ok(centres, heading, z_at, through=None):
+    """Which stalls (centres (k, 2), noses toward heading, degrees from +x) stand clear of the through roads'
+    carriageways (through_roads, or None) and on ground no steeper than LOT_MAX_GRADE (z_at(x, y) -> the ground,
+    arrays): the plane through a stall's corners and centre."""
+    c = np.asarray(centres, np.float64).reshape(-1, 2)
+    ok = np.ones(len(c), bool)
+    if not len(c):
+        return ok
+    a = math.radians(heading)
+    v = np.array([math.cos(a), math.sin(a)])
+    u = np.array([-v[1], v[0]])
+    hu, hv = LOT_SPOT_W_M / 2 - 0.1, LOT_SPOT_D_M / 2 - 0.1
+    su = np.array([0.0, -1.0, 1.0, 1.0, -1.0])[:, None]
+    sv = np.array([0.0, -1.0, -1.0, 1.0, 1.0])[:, None]
+    pts = (c[None] + (su * hu)[..., None] * u + (sv * hv)[..., None] * v).reshape(-1, 2)
+    if through is not None:
+        ok &= np.array([through.clear(p, None, 0.0) for p in pts]).reshape(5, -1).all(0)
+    z = np.asarray(z_at(pts[:, 0], pts[:, 1]), np.float64).reshape(5, -1)
+    gu = (su * z).sum(0) / (4 * hu)        # (the least-squares plane's slopes: the points are symmetric)
+    gv = (sv * z).sum(0) / (4 * hv)
+    return ok & (np.hypot(gu, gv) <= LOT_MAX_GRADE)
 
 
 def _lot_rows(hw):
@@ -178,11 +218,11 @@ def _lot_rows(hw):
     return out
 
 
-def lot_spots(rings, box, z_at, blockers=()):
+def lot_spots(rings, box, z_at, blockers=(), through=None):
     """Rows [x, y, z, heading, 1] of the stalls of parking lots (rings: (k, 2) arrays in the anchor frame)
-    whose centres are in the tile box: rows along each lot's long side, every stall wholly inside the lot and
-    its centre in none of the blockers (building footprints: a garage's ground floor). z_at(x, y) -> the
-    ground (arrays). Deterministic."""
+    whose centres are in the tile box: rows along each lot's long side, every stall wholly inside the lot, its
+    centre in none of the blockers (building footprints: a garage's ground floor), clear of the through roads
+    (through_roads) and level enough (_stalls_ok). z_at(x, y) -> the ground (arrays). Deterministic."""
     import buildings
     x0, y0, x1, y1 = box
     cand = []
@@ -208,9 +248,10 @@ def lot_spots(rings, box, z_at, blockers=()):
             for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
                 ok &= path.contains_points(centres + sx * hx + sy * hy)
             heading = math.degrees(math.atan2(nose * v[1], nose * v[0])) % 360.0
-            for q in centres[ok]:
-                if _owns(box, q[0], q[1]):
-                    cand.append((float(q[0]), float(q[1]), heading))
+            own = centres[ok]
+            own = own[np.array([_owns(box, q[0], q[1]) for q in own], bool)] if len(own) else own
+            for q in own[_stalls_ok(own, heading, z_at, through)]:
+                cand.append((float(q[0]), float(q[1]), heading))
     if not cand:
         return []
     pts = np.array([(x, y) for x, y, _ in cand])
@@ -260,12 +301,12 @@ def lot_rings(frame, feats_list, paved_only=False):
     return out
 
 
-def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None):
+def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None, roads_near=(), aisles=()):
     """existing (the tile's other spots) without those whose car reaches into a building (clear_of_buildings) and
     without its lot stalls (aisle_spots' rows, kind 1) in a mapped lot, plus lot_spots of road tile (tx, ty): the
     lots of the map cells under it (md: mapdata.MapData), the tile's buildings (items: buildings.road_tile_items'
-    result, rings tile-local; one lifted over a street leaves room under it) as blockers, elev(lat, lon) the
-    ground."""
+    result, rings tile-local; one lifted over a street leaves room under it) as blockers, the roads near it
+    (roads_near: build_tile's roads_out; aisles: build_tile's aisles_out) kept clear, elev(lat, lon) the ground."""
     import roads
     existing = list(existing or [])
     box = roads.tile_bbox(tx, ty)
@@ -290,7 +331,8 @@ def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None):
     def z_at(x, y):                 # the anchor frame's up, as the ground drawn (the Earth's curve: raw heights stood a
         la, lo, _ = frame.enu_to_geodetic(x, y, 0.0)    # spot ~6 m up 10 km from the anchor, 18 m at 15 km)
         return frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2]
-    return existing + clear_of_buildings(lot_spots(rings, box, z_at, blockers), blockers)
+    return existing + clear_of_buildings(lot_spots(rings, box, z_at, blockers, through_roads(roads_near, aisles)),
+                                         blockers)
 
 
 AISLE_END_M = 6.0           # stalls kept this far from an aisle's ends (its junctions)
@@ -461,11 +503,11 @@ def _row_segs(c, u, v, along, off, hw, nose, ok, back):
     return segs
 
 
-def lot_markings(rings, box, z_at, blockers=()):
+def lot_markings(rings, box, z_at, blockers=(), through=None):
     """line_white chunks of the stall lines of parking lots (the rows lot_spots parks cars in): a divider
-    between stalls and a line across their heads, each stall wholly inside its lot and its centre in none of
-    the blockers (a garage). A back-to-back pair shares one head line. Clipped to the tile box. z_at(x, y)
-    the ground. Deterministic."""
+    between stalls and a line across their heads, each stall wholly inside its lot, its centre in none of
+    the blockers (a garage), clear of the through roads (through_roads) and level enough (_stalls_ok). A
+    back-to-back pair shares one head line. Clipped to the tile box. z_at(x, y) the ground. Deterministic."""
     import buildings
     x0, y0, x1, y1 = box
     pad = LOT_SPOT_D_M
@@ -502,6 +544,9 @@ def lot_markings(rings, box, z_at, blockers=()):
             ok &= (centres[:, 0] >= ex0) & (centres[:, 0] < ex1) & (centres[:, 1] >= ey0) & (centres[:, 1] < ey1)
             for pa in blocks:
                 ok &= ~pa.contains_points(centres)
+            if ok.any():
+                ok[ok] = _stalls_ok(centres[ok], math.degrees(math.atan2(nose * v[1], nose * v[0])) % 360.0, z_at,
+                                    through)
             room = LOT_MAX_PER_TILE - n_stalls
             if int(ok.sum()) > room:
                 idx = np.flatnonzero(ok)
@@ -609,9 +654,10 @@ def drop_covered(chunks, rings):
     return kept
 
 
-def finish_markings(frame, tx, ty, md, elev, items=None, marks=()):
+def finish_markings(frame, tx, ty, md, elev, items=None, marks=(), roads_near=(), aisles=()):
     """A road tile's stall-line chunks: the aisle lines (marks, from build_tile) that are not inside a
-    building or a mapped lot, plus lot_markings of the paved lots under the tile. elev(lat, lon) the ground."""
+    building or a mapped lot, plus lot_markings of the paved lots under the tile, clear of the roads near it
+    (roads_near: build_tile's roads_out; aisles: build_tile's aisles_out). elev(lat, lon) the ground."""
     import roads
     box = roads.tile_bbox(tx, ty)
     blockers = [spec.ring + np.array(box[:2]) for spec, *_ in (items or ()) if getattr(spec, "ring", None) is not None]
@@ -626,4 +672,5 @@ def finish_markings(frame, tx, ty, md, elev, items=None, marks=()):
         la, lo, _ = frame.enu_to_geodetic(np.asarray(x, np.float64), np.asarray(y, np.float64), 0.0)
         return frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2]
 
-    return drop_covered(marks, blockers + rings) + lot_markings(rings, box, z_at, blockers)
+    return drop_covered(marks, blockers + rings) + lot_markings(rings, box, z_at, blockers,
+                                                                through_roads(roads_near, aisles))

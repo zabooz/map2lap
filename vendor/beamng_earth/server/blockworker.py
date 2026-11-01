@@ -689,6 +689,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     cover = []                          # the ground carriageways for the decks' parapets (roadmesh.deck ground=)
     marks = []                          # stall lines along parking aisles (parking.finish_markings adds the lot polygons')
     near_roads = []                     # the ground carriageways near the tile (the median barriers': medians.tile_rows)
+    aisles = set()                      # its parking aisles (parking.through_roads: the lots' stalls clear of the others)
     chunks = roadsmod.build_tile(frame, tx, ty, cells, elev, urban, walks=walks, deck_context=ctx, bridges=bridges, widths=_s.widths,
                                  walk_cuts=fuel_cuts,    # (the stations' made-up driveways: no sidewalk across them)
                                  props=props, lines=lines, wires=wires, town=town, park=park,
@@ -697,7 +698,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
                                  tunnels=tunnels, walls=rwalls, galleries=rgalleries,
                                  ground=lambda x, y: roadmeshmod.drawn_ground(frame, drawn, np.c_[x, y], q),
                                  terrain_paint=getattr(_s, "surface", None) is not None, cover_out=cover, marks=marks,
-                                 roads_out=near_roads, skin_margin=skin_margin, walks_raw=walks_raw,
+                                 roads_out=near_roads, aisles_out=aisles, skin_margin=skin_margin, walks_raw=walks_raw,
                                  signals=furniture.signals_for(_s.md, frame,
                                                                roadsmod.cells_of_tile(frame, tx, ty, SIGNALS_MARGIN_M)))
     mark("build_tile")
@@ -714,7 +715,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         drives.extend(buildingsmod.garage_drives(items, lines, x0, y0))
         chunks += drives
         park = parkingmod.clear_of(park, props, drives)
-        park = parkingmod.tile_lot_spots(frame, tx, ty, _s.md, elev, items, park)
+        park = parkingmod.tile_lot_spots(frame, tx, ty, _s.md, elev, items, park, near_roads, aisles)
         if fuel:
             import gasstations
             park = gasstations.clear_park(park, fuel)
@@ -722,7 +723,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         if walks_raw is not None:
             buildingsmod.brick_walks(walks_raw, items, centre[0], centre[1], side)
     mark("doors_park")
-    chunks += parkingmod.finish_markings(frame, tx, ty, _s.md, elev, items, marks)
+    chunks += parkingmod.finish_markings(frame, tx, ty, _s.md, elev, items, marks, near_roads, aisles)
     mark("markings")
     # Share the bridge mesh's exact parapet geometry with the tile builder.
     # (the junction pads on the bridges round the tile: their decks' parapets stop at them; the tile draws its own:
