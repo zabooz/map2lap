@@ -16,7 +16,7 @@ sources' own pixel grids, nothing from timing, threads or fetch order. CellData.
 it (the golden-hash tests and the deterministic generators can rely on it).
 
 Layers (LAYERS):
-  roads, connectors, buildings, water, land_use, infrastructure   Overture (overture.py)
+  roads, connectors, buildings, water, land_use, land, infrastructure   Overture (overture.py)
   landcover                                                       ESA WorldCover 10 m (maprasters.py)
   canopy                                                          Meta/WRI CHMv2 1.2 m (maprasters.py)
 Vector features carry lon/lat (float64) and `en`, metres in the cell's local ENU frame (the
@@ -100,9 +100,11 @@ LAYER_VERSIONS = {"roads": 8}
 # no canopy version bump, which would fetch every player's canopy cells again)
                                 # (2: clipped polygon pieces `own`ed by their cell, exact cell edges,
                                 # the exact no-area test of clipped rings)
-VECTOR_LAYERS = ("roads", "connectors", "buildings", "water", "land_use", "infrastructure", "building_parts", "places")
+VECTOR_LAYERS = ("roads", "connectors", "buildings", "water", "land_use", "infrastructure", "building_parts", "places",
+                 "land")
 RASTER_LAYERS = ("landcover", "canopy")
-OPTIONAL_LAYERS = ("building_parts", "places")   # built only when asked for by name (buildings.py, gasstations.py)
+OPTIONAL_LAYERS = ("building_parts", "places", "land")   # built only when asked for by name (buildings.py,
+                                                        # gasstations.py, groundcover.land)
 LAYERS = tuple(x for x in VECTOR_LAYERS if x not in OPTIONAL_LAYERS) + RASTER_LAYERS
 ALL_LAYERS = VECTOR_LAYERS + RASTER_LAYERS
 DEFAULT_CACHE = os.path.expanduser("~/.cache/beamng-earth")
@@ -874,7 +876,7 @@ def summarize(cd):
                 s["class"] = _hist(a["class"])
                 s["source"] = _hist(a["src_dataset"])
                 s["height_source"] = _hist(a["height_src"][h]) if h.any() else ""
-            elif name in ("water", "land_use", "infrastructure"):
+            elif name in ("water", "land_use", "land", "infrastructure"):
                 s["subtype_class"] = _hist(np.char.add(np.char.add(a["subtype"], "/"), a["class"]), 20)
                 if obj.clipped is not None:
                     s["clipped"] = int(obj.clipped.sum())

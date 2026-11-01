@@ -15,7 +15,7 @@ for its URLs and size) are cached under <raw>/overture/<release>/stac/; parquet 
 Layers (LAYERS: name -> theme, type, columns): roads (transportation/segment: class, subclass,
 surface / flags / width / level / speed / subclass rules along the segment, connector ids with
 their position), connectors (transportation/connector), buildings (buildings/building: height,
-min_height, floors, roof and facade fields, class), water and land_use (base: subtype, class,
+min_height, floors, roof and facade fields, class), water, land_use and land (base: subtype, class,
 tags), infrastructure (base: power lines and plants, towers, barriers, bridges...). Rows are
 deduplicated by id (highest version) and sorted by id, so a cell's content does not depend on
 which file or row group a feature came from, or in which order they were read. Water and land-use
@@ -131,6 +131,12 @@ LAYERS = {
                      cols=f"subtype, class, {_NAME}, {_SRC}, level, surface, elevation, {_TAGS}",
                      text=("subtype", "class", "name", "src_dataset", "src_record", "surface", "tags"),
                      float=("level", "elevation")),
+    # the natural ground (OpenStreetMap's natural=*: glacier, bare_rock, scree, sand ...): its look where WorldCover's
+    # 10 m classes take rock and scree for grassland (groundcover.land: the Grossglockner road's meadows at 2,300 m)
+    "land": dict(theme="base", type="land", clip=True,
+                 cols=f"subtype, class, {_NAME}, {_SRC}, elevation, surface",
+                 text=("subtype", "class", "name", "src_dataset", "src_record", "surface"),
+                 float=("elevation",)),
     "infrastructure": dict(theme="base", type="infrastructure", clip=False,
                            cols=f"subtype, class, {_NAME}, {_SRC}, level, height, surface, {_TAGS}",
                            text=("subtype", "class", "name", "src_dataset", "src_record", "surface", "tags"),

@@ -8,7 +8,8 @@ So it doesn't look blocky (stair-step edges on slopes):
   FIELD_VARIANTS variants.
 On top the areas from Overture land_use (OSM landuse/leisure, landuse()): farmland with its real borders, orchards
 and vineyards, lawns, pitches, cemeteries, residential and commercial areas ...; smaller over larger, sharply edged.
-Under trees, snow and water (WorldCover) WorldCover stays.
+Under trees, snow and water (WorldCover) WorldCover stays. Over both the natural ground from Overture land (OSM
+natural=*, land()): glaciers, bare rock, scree, sand, where the map has them (except on WorldCover's water).
 Everything depends only on the world position (anchor frame): seamless across tiles and the same on every build.
 """
 import json
@@ -46,6 +47,12 @@ LANDUSE_MAT = {
     "dog_park": "gc_lawn", "water_park": "gc_lawn", "camp_site": "gc_lawn",
 }
 LANDUSE_UNDER = (10, 70, 80)    # WorldCover classes land_use doesn't paint over: trees, snow/ice, water
+# Overture land class (OSM natural=*) -> material: the ground the map names, over WorldCover and land_use. WorldCover's
+# 10 m classes take scree and rock for grassland (the Grossglockner road at 2,300 m: 80 % meadow, the map's bare rock
+# and scree all round it); the rest of land's classes (grassland, forest, wetland, heath ...) WorldCover has as well
+LAND_MAT = {"glacier": "gc_snow", "bare_rock": "gc_rock", "rock": "gc_rock", "stone": "gc_rock", "scree": "gc_scree",
+            "shingle": "gc_scree", "sand": "gc_sand", "beach": "gc_sand", "dune": "gc_sand"}
+LAND_UNDER = (80,)              # WorldCover classes land doesn't paint over: water (water.py's lies there)
 # A pitch's or track's ground: the mapped surface first (OSM surface=*, then Overture's coarser recreation_* surface:
 # it gives tennis clay as "paved"), else what its sport is played on most (OSM sport=*, the first of a list). pitch()
 # names the sport too: what a court's lines, nets and goals are drawn from
@@ -189,24 +196,39 @@ def landuse(frame, md, tx, ty, cell=2.0):
     """Material per terrain cell [j, i] from the tile's land_use areas ("" for none), or None without areas.
     Larger ones painted first, smaller ones on top (the pitch in the park in the residential area); holes left out. A
     field gets its variant from its id: all pieces of one area (one per map cell) the same."""
+    def mat_of(f, i, c):
+        if c in PITCH_CLASSES:
+            surf = f.attrs.get("surface")
+            return PITCH_LOOK[pitch(c, _tags(f.attrs, i), "" if surf is None else str(surf[i]))[1]]
+        mat = LANDUSE_MAT.get(c)
+        if mat == "@field":
+            mat = f"gc_field{zlib.crc32(str(f.ids[i]).encode()) % FIELD_VARIANTS}"
+        return mat
+    return _areas(frame, md, tx, ty, cell, "land_use", mat_of)
+
+
+def land(frame, md, tx, ty, cell=2.0):
+    """Material per terrain cell [j, i] from the tile's natural ground areas (Overture land: LAND_MAT; "" for none), or
+    None without any; as landuse()."""
+    return _areas(frame, md, tx, ty, cell, "land", lambda f, i, c: LAND_MAT.get(c))
+
+
+def _areas(frame, md, tx, ty, cell, layer, mat_of):
+    """Material per terrain cell [j, i] from the tile's polygons of map layer `layer` (mat_of(feats, i, class) -> a
+    material or None to leave one out; "" for none), or None without any: larger ones painted first, smaller ones on
+    top; holes left out."""
     x0, y0, x1, y1 = roadsmod.tile_bbox(tx, ty)
     m = int(round((x1 - x0) / cell))
     polys = []                  # (area m², material, rings in cells)
     for key in roadsmod.cells_of_tile(frame, tx, ty, 2.0):
-        f = md.cell(key, layers=("land_use",), kind="demand").layers.get("land_use")
+        f = md.cell(key, layers=(layer,), kind="demand").layers.get(layer)
         if f is None or len(f) == 0 or f.attrs.get("class") is None:
             continue
-        cls, xy, surf = f.attrs["class"], f.xy_in(frame), f.attrs.get("surface")
+        cls, xy = f.attrs["class"], f.xy_in(frame)
         for i in np.flatnonzero(f.kind == 3):
-            c = str(cls[i])
-            if c in PITCH_CLASSES:
-                mat = PITCH_LOOK[pitch(c, _tags(f.attrs, i), "" if surf is None else str(surf[i]))[1]]
-            else:
-                mat = LANDUSE_MAT.get(c)
+            mat = mat_of(f, i, str(cls[i]))
             if mat is None:
                 continue
-            if mat == "@field":
-                mat = f"gc_field{zlib.crc32(str(f.ids[i]).encode()) % FIELD_VARIANTS}"
             for part in f.parts(i, xy):
                 if not part or len(part[0]) < 3:
                     continue
@@ -236,8 +258,8 @@ def landuse(frame, md, tx, ty, cell=2.0):
 
 def materials(frame, md, tx, ty, cell=2.0, water=None):
     """Material per terrain cell (m, m) as an object array: WorldCover (fields as Voronoi plots), on top the land_use
-    areas except on trees, snow and water. water: name for WorldCover's water (the distant view paints lakes; close
-    by water.py's water lies there, meadow below it)."""
+    areas except on trees, snow and water, over both the natural ground's (land) except on water. water: name for
+    WorldCover's water (the distant view paints lakes; close by water.py's water lies there, meadow below it)."""
     cls = classes(frame, md, tx, ty, cell)
     x0, y0, _, _ = roadsmod.tile_bbox(tx, ty)
     m = cls.shape[0]
@@ -253,6 +275,10 @@ def materials(frame, md, tx, ty, cell=2.0, water=None):
     if lu is not None:
         on = (lu != "") & ~np.isin(cls, LANDUSE_UNDER)
         mats[on] = lu[on]
+    nat = land(frame, md, tx, ty, cell)
+    if nat is not None:
+        on = (nat != "") & ~np.isin(cls, LAND_UNDER)
+        mats[on] = nat[on]
     if water is not None:
         mats[cls == 80] = water
     return mats
