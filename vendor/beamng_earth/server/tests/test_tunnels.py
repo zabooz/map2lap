@@ -177,6 +177,46 @@ class GalleryTest(unittest.TestCase):
     def test_level_minus_one_without_the_flag_stays_a_tunnel(self):
         self.assertEqual([k for _, _, k in roads.level_ranges(self.feats(False), 0)], ["tunnel"])
 
+    def gallery(self, x0=0.0, x1=30.0, side=1.0):
+        """A gallery piece along x from x0 to x1 (metres along it = x), the road at 10 m, the ground under its pillars
+        at 8 m (the slope falling to the valley), a 6 m road."""
+        xs = np.arange(x0, x1 + 1e-9, 2.0)
+        return {"pts": np.c_[xs, np.zeros(len(xs)), np.full(len(xs), 10.0), xs, np.full(len(xs), 8.0)], "w": 6.0,
+                "side": side}
+
+    def test_roof_clears_the_road_and_pillars_stand_on_the_valley_side(self):
+        P, T, UV, mats, M = roadmesh.tunnel([], (0.0, 0.0, 0.0), galleries=[self.gallery()])
+        under = P[:, 2] < 10.0 + roadmesh.GALLERY_H - 1e-6     # under the roof (y across, z up): beside the road
+        self.assertTrue((np.abs(P[under, 1]) > 3.0).all(), "nothing in the road's way")
+        self.assertTrue((P[:, 1].min() < -3.0) and (P[:, 1].max() > 3.0), "the roof across it")
+        low = P[:, 2] < 10.0 - 1e-6
+        self.assertTrue((P[low, 1] < -3.0).any(), "pillars down on the valley side (y < 0: side +1 = left = +y)")
+        self.assertAlmostEqual(float(P[:, 2].min()), 8.0 - roadmesh.GALLERY_FOOT_M, msg="down to their ground")
+        self.assertTrue((P[P[:, 1] > 3.0, 2] >= 10.0 - roadmesh.GALLERY_FOOT_M - 1e-6).all(), "the wall on the road")
+        self.assertEqual(mats[0], roadmesh.TUNNEL_SIDE)
+
+    def pillars(self, mesh):
+        P = mesh[0]
+        return sorted({round(float(x), 2) for x in P[np.isclose(P[:, 2], 8.0 - roadmesh.GALLERY_FOOT_M), 0]})
+
+    def test_pillars_each_once_across_a_tile_edge(self):
+        whole = self.pillars(roadmesh.tunnel([], (0.0, 0.0, 0.0), galleries=[self.gallery()]))
+        halves = self.pillars(roadmesh.tunnel([], (0.0, 0.0, 0.0), galleries=[self.gallery(0, 14), self.gallery(14, 30)]))
+        self.assertEqual(whole, halves)
+        self.assertEqual(len(whole), 2 * 5, "5 pillars, each's two faces along")
+
+    def test_mountain_side_from_the_slope(self):
+        import osmtags
+        from test_roads import FRAME, M_LAT, LAT, features
+        for slope, side in ((0.5, 1.0), (-0.5, -1.0)):
+            f = features([[(0, 0), (40, 0)]], ["tertiary"], levels=[(0, -1.0)], flags=[(0, osmtags.GALLERY_FLAG)])
+            sp = roads.road_specs(f)[0]
+            g = roads.tile_galleries(FRAME, {"id000": (f, 0, sp)},
+                                     lambda la, lo: 10.0 + slope * (np.asarray(la) - LAT) * M_LAT, (-50, -50, 50, 50))
+            self.assertEqual(len(g), 1)
+            self.assertEqual(g[0]["side"], side, "the mountain where the ground rises")
+            self.assertTrue((g[0]["pts"][:, 4] < g[0]["pts"][:, 2]).all(), "the pillars' ground below the road")
+
     def test_without(self):
         rs = [(0.0, 0.2, "bridge"), (0.3, 0.9, "tunnel")]
         self.assertEqual(roads._without(rs, [(0.5, 0.6)], "tunnel"),

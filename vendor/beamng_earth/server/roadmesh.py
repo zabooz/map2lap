@@ -1253,18 +1253,98 @@ def _retaining_walls(walls, origin, P, T, UV, M, nv):
     return nv
 
 
-def tunnel(chunks, origin, walls=()):
+GALLERY_H = 4.7            # m clear over an avalanche gallery's road (a truck's 4.5 m, as built a little more)
+GALLERY_ROOF_M = 0.8       # m of roof slab (it carries the avalanche: thick reinforced concrete)
+GALLERY_SHOULDER_M = 1.0   # m between the road's edge and the mountain wall or the pillars
+GALLERY_WALL_M = 0.8       # m of mountain-side wall
+GALLERY_PILLAR_W = 0.8     # m a valley-side pillar measures across the road, ...
+GALLERY_PILLAR_L = 1.2     # ... along it, ...
+GALLERY_PILLAR_EVERY = 6.0  # ... and between the middles of two (the roof's span along the open side)
+GALLERY_OVERHANG_M = 0.5   # m the roof reaches past the pillars toward the valley
+GALLERY_FOOT_M = 0.5       # m the wall and the pillars reach under the road's height (into the ground beside it)
+
+
+def _two_sided(P, T, UV, M, nv, a, b, ua, ub, mat):
+    """A strip between the rows a and b (k, 3), seen from both sides, uv ua / ub (k, 2): appended; returns the new
+    vertex count."""
+    k = len(a)
+    P.append(np.concatenate([a, b]))
+    UV.append(np.concatenate([ua, ub]))
+    i = np.arange(k - 1)
+    A, A1, B, B1 = nv + i, nv + i + 1, nv + k + i, nv + k + i + 1
+    tri = np.concatenate([np.stack([A, B, B1], 1), np.stack([A, B1, A1], 1)])
+    T.append(np.concatenate([tri, tri[:, ::-1]]))
+    M.append(mat)
+    return nv + 2 * k
+
+
+def _galleries(gals, origin, P, T, UV, M, nv):
+    """roads.tile_galleries' avalanche galleries in concrete (material index 0): on the mountain side a wall from the
+    road's height to the roof, the roof slab GALLERY_H over the road across to past the pillars, and on the valley side
+    a pillar every GALLERY_PILLAR_EVERY metres along the gallery (at its own metres: each tile its own, none twice
+    at a tile edge). Every face seen from both sides. Appended to P, T, UV, M; returns the new vertex count."""
+    for g in gals:
+        pts = np.asarray(g["pts"], np.float64)
+        xy, z, s = pts[:, :2], pts[:, 2], pts[:, 3]
+        t = np.gradient(xy, axis=0)
+        t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
+        mtn = np.c_[-t[:, 1], t[:, 0]] * float(g["side"])      # unit toward the mountain
+        hw = float(g["w"]) / 2
+        wall_in = hw + GALLERY_SHOULDER_M
+        wall_out = wall_in + GALLERY_WALL_M
+        valley = -(hw + GALLERY_SHOULDER_M + GALLERY_PILLAR_W + GALLERY_OVERHANG_M)
+        lo, roof, top = z - GALLERY_FOOT_M, z + GALLERY_H, z + GALLERY_H + GALLERY_ROOF_M
+
+        def row(off, h):
+            return np.c_[xy + mtn * off, h] - origin
+
+        def uv(across):
+            return np.c_[s, np.broadcast_to(across, s.shape)] / CONCRETE_UV_M
+        faces = [(wall_in, lo, wall_in, roof, -GALLERY_FOOT_M, GALLERY_H),           # the wall toward the road
+                 (wall_out, lo, wall_out, top, -GALLERY_FOOT_M, GALLERY_H + GALLERY_ROOF_M),   # its back
+                 (wall_in, roof, valley, roof, wall_in, valley),                  # the roof's underside
+                 (wall_out, top, valley, top, wall_out, valley),                  # its top
+                 (valley, roof, valley, top, GALLERY_H, GALLERY_H + GALLERY_ROOF_M)]   # its valley edge
+        for oa, ha, ob, hb, va, vb in faces:
+            nv = _two_sided(P, T, UV, M, nv, row(oa, ha), row(ob, hb), uv(va), uv(vb), 0)
+        first = math.ceil(s[0] / GALLERY_PILLAR_EVERY - 1e-9)
+        for n in range(first, int(math.floor(s[-1] / GALLERY_PILLAR_EVERY - 1e-9)) + 1):
+            at = n * GALLERY_PILLAR_EVERY
+            if not (s[0] <= at < s[-1]):
+                continue
+            j = int(np.clip(np.searchsorted(s, at, side="right") - 1, 0, len(s) - 2))
+            f = (at - s[j]) / max(s[j + 1] - s[j], 1e-9)
+            p, zp = xy[j] + f * (xy[j + 1] - xy[j]), z[j] + f * (z[j + 1] - z[j])
+            zf = min(zp, pts[j, 4] + f * (pts[j + 1, 4] - pts[j, 4])) if pts.shape[1] > 4 else zp  # (its ground)
+            d = xy[j + 1] - xy[j]
+            d /= max(float(np.hypot(*d)), 1e-9)
+            m = np.array([-d[1], d[0]]) * float(g["side"])
+            c = p + m * (-(hw + GALLERY_SHOULDER_M + GALLERY_PILLAR_W / 2))
+            ring = np.array([c + d * a * GALLERY_PILLAR_L / 2 + m * b * GALLERY_PILLAR_W / 2
+                             for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1))])
+            per = np.r_[0.0, np.cumsum(np.hypot(*np.diff(ring, axis=0).T))]
+            a_ = np.c_[ring, np.full(5, zf - GALLERY_FOOT_M)] - origin
+            b_ = np.c_[ring, np.full(5, zp + GALLERY_H)] - origin
+            nv = _two_sided(P, T, UV, M, nv, a_, b_, np.c_[per, np.full(5, zf - zp - GALLERY_FOOT_M)] / CONCRETE_UV_M,
+                            np.c_[per, np.full(5, GALLERY_H)] / CONCRETE_UV_M, 0)
+    return nv
+
+
+def tunnel(chunks, origin, walls=(), galleries=()):
     """The tunnels of a tile as one colliding mesh: around every "tunnel" chunk (its road surface: a deck, deck()
     makes its slab) a tube of concrete (TUNNEL_SIDE) faced inwards: shoulders, walls and a vault TUNNEL_H over the
-    floor; at a chunk end that is a portal ("portal") a face around the opening, seen from both sides. (positions,
-    tris, uvs, materials, tri material index) or None. Pure."""
+    floor; at a chunk end that is a portal ("portal") a face around the opening, seen from both sides; the retaining
+    walls and the avalanche galleries' roofs (_galleries). (positions, tris, uvs, materials, tri material index) or
+    None. Pure."""
     tc = [c for c in chunks if c.get("tunnel") and not c.get("no_tube")]     # (twins: one tube_only round both)
     rb = [(r, c) for r, c in zip(ribbons(tc), tc) if r[5] is not None] if tc else []
-    if not rb and not walls:
+    if not rb and not walls and not galleries:
         return None
     P, T, UV, M = [], [], [], []           # M: per T entry its material index (0 concrete, 1 lamps, 2 stone, 3 dark stone,
                                             # 4 soil)
     nv = _retaining_walls(walls, np.asarray(origin, np.float64), P, T, UV, M, 0) if walls else 0
+    if galleries:
+        nv = _galleries(galleries, np.asarray(origin, np.float64), P, T, UV, M, nv)
     for (left, right, v, _, _, z), c in rb:
         # a piece ending at a tile edge reaches TUNNEL_OVERLAP past it: the next tile's piece meets it there without a
         # hairline of daylight (2026-10-17, inside Eisenhower)

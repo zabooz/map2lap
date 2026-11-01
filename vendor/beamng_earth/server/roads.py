@@ -1193,6 +1193,17 @@ def bridge_parts(feats, i):
     return _parts_by_level(feats, i, "bridge")
 
 
+def gallery_parts(feats, i):
+    """The avalanche gallery pieces of feature i (lon/lat polylines): its ranges flagged osmtags.GALLERY_FLAG, roads
+    on the ground (level_ranges) under a roof (roadmesh.tunnel's galleries)."""
+    t = feats.rules.get("flags")
+    if t is None or len(t.feature) == 0:
+        return []
+    rngs = sorted((float(t.start[j]), float(t.end[j]), "gallery") for j in t.rows(i)
+                  if str(t.value[j]) == osmtags.GALLERY_FLAG)
+    return _parts_by_level_new(feats, i, "gallery", rngs) if rngs else []
+
+
 def tunnel_parts(feats, i):
     """The tunnel pieces of feature i (lon/lat polylines), each end made longer where its portal would stand on a road
     it passes under (_clear_portals)."""
@@ -7231,11 +7242,51 @@ def _going_on(roads):
     return out
 
 
+GALLERY_STEP_M = 2.0       # m between a gallery's samples (the terrain's grid: its road's height follows it)
+GALLERY_SLOPE_M = 6.0      # m past the road's edge where the ground tells a gallery's mountain side from its valley side
+
+
+def tile_galleries(frame, seen, elev, box):
+    """The avalanche galleries (gallery_parts) of the roads seen ({fid: (feats, i, spec)}) cut to the tile's box:
+    [{"pts": (k, 5) east, north, up, metres along the gallery, up of the ground under its pillars, "w": the road's
+    width, "side": +1 when the mountain is on the left of the line, -1 on the right}]. The height is elev's on the
+    line (the graded road's); the mountain side the one where the ground GALLERY_SLOPE_M past the road's edge lies
+    higher (a gallery leans against its slope); the pillars stand on the ground on the other (below the road where
+    the slope falls away: they reach down to it, not hang in the air)."""
+    import roadmesh
+    out = []
+    pillar = roadmesh.GALLERY_SHOULDER_M + roadmesh.GALLERY_PILLAR_W / 2
+    for fid in sorted(seen):
+        feats, i, spec = seen[fid]
+        for ring in gallery_parts(feats, i):
+            e, n = mapgeom.enu_xy(feats, frame, ring)
+            xy = densify(np.c_[e, n], GALLERY_STEP_M)
+            if len(xy) < 2 or xy[:, 0].max() < box[0] or xy[:, 0].min() > box[2] or xy[:, 1].max() < box[1] \
+                    or xy[:, 1].min() > box[3]:
+                continue
+            t = np.gradient(xy, axis=0)
+            t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
+            left = np.c_[-t[:, 1], t[:, 0]]
+            reach, at = spec.width / 2 + GALLERY_SLOPE_M, spec.width / 2 + pillar
+            q = np.concatenate([xy, xy + left * reach, xy - left * reach, xy + left * at, xy - left * at])
+            la, lo, _ = frame.enu_to_geodetic(q[:, 0], q[:, 1], 0.0)
+            la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
+            up = np.asarray(frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2], np.float64)
+            k = len(xy)
+            side = 1.0 if float(np.mean(up[k:2 * k] - up[2 * k:3 * k])) >= 0.0 else -1.0
+            foot = up[4 * k:] if side > 0 else up[3 * k:4 * k]      # (the valley side's)
+            s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+            for piece in clip_polyline(np.c_[xy, up[:k], s, foot], *box):
+                if len(piece) >= 2:
+                    out.append({"pts": piece, "w": float(spec.width), "side": side})
+    return out
+
+
 def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=None, widths=None, props=None,
                lines=None, wires=None, town=None, park=None, left_hand=False, structures=(), mph=True, tunnels=None,
                buried=0.0, lamp_region=None, country=None,
                walls=None, deck_context=None, ground=None, terrain_paint=True, cover_out=None, walk_cuts=(),
-               signals=None, marks=None, roads_out=None, skin_margin=0.0, walks_raw=None):
+               signals=None, marks=None, roads_out=None, skin_margin=0.0, walks_raw=None, galleries=None):
     """The chunks of one tile. cells: the mapgeom.Features of the "roads" layer of every cell touching
     the tile; elev(lat, lon) -> metres (the DEM); urban_fn: as road_specs. Features in several cells are
     taken once (by id). The carriageways, then each road's sidewalks / gutters / markings (extras), cut
@@ -7250,7 +7301,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     blockworker.roads_geo): the draped surfaces' pieces (sidewalk runs and corners, markings, crosswalks, corner fills)
     taken this far past the tile's box, its own, the skin clipping them exactly at the tile's quad in the anchor's
     world (a seam-straddling crosswalk drawn by both tiles, each its half); walks_raw: a list that gets the sidewalk
-    pieces before they are put on the ground (the skin drapes them on its anchor's). Pure given its inputs (sorted by
+    pieces before they are put on the ground (the skin drapes them on its anchor's). galleries: a list that gets the
+    tile's avalanche galleries (tile_galleries: their roofs, roadmesh.tunnel). Pure given its inputs (sorted by
     feature id)."""
     own_box = tile_bbox(tx, ty)                 # (a geotile's knows its own points: box_owns)
     x0, y0, x1, y1 = own_box
@@ -7279,6 +7331,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             if (e.max() < near[0] or e.min() > near[2] or n.max() < near[1] or n.min() > near[3]):
                 continue
             rings.append((fid, spec, ring))
+    if galleries is not None:
+        galleries.extend(tile_galleries(frame, seen, elev, own_box))
     roads = []                                  # (fid, spec, centreline (k, 3), lon) near the tile
     if rings:                                   # one elevation call for every ring (the grader's cost
         lon = np.concatenate([r[:, 0] for _, _, r in rings])     # is per call: 2026-10-11 profile,

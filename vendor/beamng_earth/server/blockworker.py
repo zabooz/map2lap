@@ -678,6 +678,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         town = buildingsmod.coverage(items, side) < buildingsmod.POLES_COVERAGE
     mark("items")
     rwalls = []
+    rgalleries = []                     # the avalanche galleries' roofs (roads.tile_galleries)
     ctx = []
     cell_fn = lambda key: _s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")   # noqa: E731
 
@@ -693,7 +694,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
                                  props=props, lines=lines, wires=wires, town=town, park=park,
                                  left_hand=left_hand, mph=mph, buried=buried, lamp_region=lamp_region, country=country,
                                  structures=buildingsmod.centres(items, tx, ty) if items else (),
-                                 tunnels=tunnels, walls=rwalls,
+                                 tunnels=tunnels, walls=rwalls, galleries=rgalleries,
                                  ground=lambda x, y: roadmeshmod.drawn_ground(frame, drawn, np.c_[x, y], q),
                                  terrain_paint=getattr(_s, "surface", None) is not None, cover_out=cover, marks=marks,
                                  roads_out=near_roads, skin_margin=skin_margin, walks_raw=walks_raw,
@@ -759,7 +760,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     P.dmesh = roadmeshmod.deck(chunks, (x0, y0, 0.0), bridges.piers_in(box), ctx, bridges.beams_in(box), ground=cover,
                                parapets=parapets, low_parapet_decks=low_parapet_decks, pads=pads)
     mark("deck_mesh")
-    P.tmesh = roadmeshmod.tunnel(chunks, (x0, y0, 0.0), rwalls)
+    P.tmesh = roadmeshmod.tunnel(chunks, (x0, y0, 0.0), rwalls, rgalleries)
     mark("tunnel_mesh")
     import railways
     rcells = [cell_fn(k) for k in roadsmod.cells_of_tile(frame, tx, ty, railways.REACH_M)]
