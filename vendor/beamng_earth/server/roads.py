@@ -1004,18 +1004,17 @@ def _level_ranges(feats, i):
 def tag_level_ranges(feats, i):
     """Feature i's off-ground ranges as the map's flags and level rules have them (level_ranges, before gradesep)."""
     got = {"flags": [], "level": []}
-    galleries = []
     for name in ("flags", "level"):
         t = feats.rules.get(name)
         if t is None or len(t.feature) == 0:
             continue
         for j in t.rows(i):
             v = t.value[j]
-            if name == "flags" and str(v) == osmtags.GALLERY_FLAG:
-                galleries.append((float(t.start[j]), float(t.end[j])))
-                continue
             if name == "flags":
-                kind = "tunnel" if "is_tunnel" in str(v) else "bridge" if "is_bridge" in str(v) else None
+                # (an avalanche gallery is a tunnel whose covered sections lie open on one side: TunnelProfiles,
+                # GALLERY_KIND; flagged by OSM alone, Overture calls it a plain road)
+                kind = "tunnel" if "is_tunnel" in str(v) or str(v) == osmtags.GALLERY_FLAG else \
+                    "bridge" if "is_bridge" in str(v) else None
             else:
                 try:
                     lv = float(v)
@@ -1072,27 +1071,7 @@ def tag_level_ranges(feats, i):
             else:
                 joined.append((a, b, k))
         merged = joined
-    # an avalanche gallery (osmtags.GALLERY_FLAG) is a road on the ground under a roof against the slope, not a tunnel:
-    # built as one, it stood in the open with a low arch's grass cap across the lanes, unpainted, its floor a kink
-    # from the graded road (the Grossglockner road's Freiwand gallery)
-    return _without(merged, galleries, "tunnel")
-
-
-def _without(ranges, cuts, kind):
-    """ranges [(start, end, kind)] with the pieces of those of kind that lie in cuts [(start, end)] taken out. Pure."""
-    out = list(ranges)
-    for a, b in cuts:
-        cut = []
-        for fa, fb, k in out:
-            if k != kind or fb <= a or fa >= b:
-                cut.append((fa, fb, k))
-                continue
-            if fa < a - 1e-5:
-                cut.append((fa, a, k))
-            if fb > b + 1e-5:
-                cut.append((b, fb, k))
-        out = cut
-    return out
+    return merged
 
 
 PASSAGE_M = 40.0        # m: a tunnel range this short between two bridge ranges is a passage through a tower
@@ -1194,8 +1173,8 @@ def bridge_parts(feats, i):
 
 
 def gallery_parts(feats, i):
-    """The avalanche gallery pieces of feature i (lon/lat polylines): its ranges flagged osmtags.GALLERY_FLAG, roads
-    on the ground (level_ranges) under a roof (roadmesh.tunnel's galleries)."""
+    """The avalanche gallery pieces of feature i (lon/lat polylines): its ranges flagged osmtags.GALLERY_FLAG, tunnels
+    (level_ranges) whose covered sections are galleries (gallery_kinds)."""
     t = feats.rules.get("flags")
     if t is None or len(t.feature) == 0:
         return []
@@ -5271,6 +5250,36 @@ def tunnel_sections(s, g, open_cover=None, full_cover=None, min_m=SECTION_MIN_M)
     return _shallow_full_low(s, g, np.asarray(f), np.asarray(k))
 
 
+# An avalanche gallery (osmtags.GALLERY_FLAG) is a roof against the slope on pillars, open toward the valley. Where the
+# elevation data sees cover over its line (the roof, the slope over it) tunnel_sections calls it covered, and that is
+# where it stands; the map's way runs on past it (the Grossglockner road's Freiwand gallery: the way from route metre
+# 295, its roof from 575). Its covered sections are GALLERY_KIND: a road in the open at the tunnel's floor (straight
+# under the roof: the lower hull, the scan never saw the road there), graded and painted as an open section, with the
+# gallery drawn over it (roadmesh.tunnel's galleries). As a tube it stood in the open, a low arch's grass cap across the
+# lanes, its terrain holes and portal faces in the slope.
+GALLERY_KIND = 3
+GALLERY_ON_M = 1.0      # m from a gallery's line a tunnel sample counts as on it (the same line, resampled)
+
+
+def gallery_kinds(xy, kinds, lines, kind=GALLERY_KIND):
+    """kinds (tunnel_sections') with the covered samples (1, 2) of xy (k, 2) within GALLERY_ON_M of a gallery's line
+    (lines: [(m, 2)] in the same frame) set to kind. Pure."""
+    kinds = np.array(kinds, np.int64)
+    xy = np.asarray(xy, np.float64)[:, :2]
+    on = np.zeros(len(kinds), bool)
+    for ln in lines:
+        ln = np.asarray(ln, np.float64)[:, :2]
+        if len(ln) < 2:
+            continue
+        a, b = ln[:-1], ln[1:]
+        d = b - a
+        t = np.clip(((xy[:, None, :] - a[None]) * d[None]).sum(-1) / np.maximum((d * d).sum(-1), 1e-12)[None], 0.0, 1.0)
+        gap = np.hypot(*(xy[:, None, :] - (a[None] + t[..., None] * d[None])).transpose(2, 0, 1)).min(axis=1)
+        on |= gap <= GALLERY_ON_M
+    kinds[on & ((kinds == 1) | (kinds == 2))] = kind
+    return kinds
+
+
 def _shallow_full_low(s, g, floor, kinds):
     """kinds with each full-tunnel run (2) shorter than FULL_MIN_M and nowhere FULL_DEEP_M under the ground a low arch
     (1). Pure."""
@@ -5314,6 +5323,8 @@ class TunnelProfiles(BridgeProfiles):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self.open = set()           # sub-part fids that are open roads
+        self.roofs = {}             # sub-part fid -> True: an avalanche gallery's covered section (GALLERY_KIND), open
+        self._gal = {}              # feature id -> its galleries' lines in the frame (gallery_parts; _load)
         self.heights = {}           # sub-part fid -> a low arch's tube height
         self.ups = {}               # sub-part fid -> its portal faces' reach over the vault at its start and end
         self.sections = {}          # part fid -> [(i0, i1, kind)] (inclusive sample ranges, sharing their ends)
@@ -5344,8 +5355,10 @@ class TunnelProfiles(BridgeProfiles):
         self.sections[pid] = secs
         for n, (kind, th, ups, mouths, caps) in subs.items():
             sub = f"{pid}#{n}"
-            if kind == 0:
+            if kind in (0, GALLERY_KIND):
                 self.open.add(sub)
+                if kind == GALLERY_KIND:
+                    self.roofs[sub] = True
                 continue
             if kind == 1:
                 self.heights[sub] = th
@@ -5445,6 +5458,7 @@ class TunnelProfiles(BridgeProfiles):
             floor, kinds = tunnel_sections(s, g)
             kinds = portal_cover(kinds, g - floor, pool[k][0])
             kinds = self._cover_roads(xy, s, kinds, ground)
+            kinds = gallery_kinds(xy, kinds, self._gal.get(str(k[0]), ()))
             secs, i = [], 0
             while i < len(kinds):
                 j = i
@@ -5460,8 +5474,8 @@ class TunnelProfiles(BridgeProfiles):
             log.debug("tunnel %s: sections %s over %.0f m", k, secs, s[-1])
             subs = {}
             for n, (a, b, kd) in enumerate(secs):
-                if kd == 0:
-                    subs[n] = (0, None, None, None, None)
+                if kd in (0, GALLERY_KIND):
+                    subs[n] = (kd, None, None, None, None)
                     continue
                 th = roadmesh.TUNNEL_H
                 if kd == 1:
@@ -5482,7 +5496,8 @@ class TunnelProfiles(BridgeProfiles):
                 for near in (s[a:b + 1] <= s[a] + PORTAL_LOOK_M, s[a:b + 1] >= s[b] - PORTAL_LOOK_M):
                     cv = float(np.max(cover[a:b + 1][near])) if near.any() else th
                     ups.append(float(np.clip(cv + PORTAL_GROUND_M - th, PORTAL_UP_MIN, roadmesh.PORTAL_FRAME)))
-                mouths = (n == 0 or secs[n - 1][2] == 0, n == len(secs) - 1 or secs[n + 1][2] == 0)
+                mouths = (n == 0 or secs[n - 1][2] in (0, GALLERY_KIND),
+                          n == len(secs) - 1 or secs[n + 1][2] in (0, GALLERY_KIND))
                 caps = None
                 if kd == 1:
                     caps, ups = self._road_caps(xy[a:b + 1], floor[a:b + 1], th, ups, mouths, pool[k][0].width, ground)
@@ -5500,7 +5515,7 @@ class TunnelProfiles(BridgeProfiles):
         Pure given the provider's cached data."""
         import roadz
         prov = roadz.PROVIDER
-        if prov is None or not prov.enabled or not any(kd for _a, _b, kd in secs):
+        if prov is None or not prov.enabled or not any(kd in (1, 2) for _a, _b, kd in secs):
             return floor
         try:
             spec = pool[k][0]
@@ -5517,16 +5532,16 @@ class TunnelProfiles(BridgeProfiles):
             last = len(s) - 1
             for n, (a, b, kd) in enumerate(secs):
                 seg = zg[a:b + 1]
-                if not kd or b - a < 2 or np.isfinite(seg).mean() < roadz.MIN_COVER:
+                if kd not in (1, 2) or b - a < 2 or np.isfinite(seg).mean() < roadz.MIN_COVER:
                     continue
                 ok = np.isfinite(seg)
                 ss = s[a:b + 1]
                 filled = np.interp(ss, ss[ok], seg[ok])
                 inside0 = a == 0 and joints[0]
                 inside1 = b == last and joints[1]
-                if n > 0 and secs[n - 1][2]:            # (another covered section before it: no portal between)
+                if n > 0 and secs[n - 1][2] in (1, 2):  # (another covered section before it: no portal between)
                     inside0 = True
-                if n + 1 < len(secs) and secs[n + 1][2]:
+                if n + 1 < len(secs) and secs[n + 1][2] in (1, 2):
                     inside1 = True
                 eased = np.asarray(fast._ef.deck_blend(ss - ss[0], np.ascontiguousarray(filled),
                                                        float("nan") if inside0 else float(out[a]),
@@ -5551,6 +5566,10 @@ class TunnelProfiles(BridgeProfiles):
         for i in range(len(feats)):
             if rs[i] is not None:
                 self._hw[(str(feats.ids[i]), "g")] = rs[i].width / 2
+            gal = gallery_parts(feats, i)
+            if gal:
+                self._gal.setdefault(str(feats.ids[i]), [np.stack(mapgeom.enu_xy(feats, self.frame, r), axis=1)
+                                                         for r in gal])
 
     def _cover_roads(self, xy, s, kinds, ground):
         """kinds with each covered section carried on until the ground roads crossing over it are covered (their
@@ -5684,15 +5703,15 @@ class TunnelProfiles(BridgeProfiles):
         def mine(d):
             return {k: v for k, v in d.items() if str(k).split("#")[0] in pids}
         return {"sections": mine(self.sections), "heights": mine(self.heights), "ups": mine(self.ups),
-                "caps": mine(self.caps), "mouths": mine(self.mouths), "open": {o for o in self.open
-                                                                               if o.split("#")[0] in pids},
+                "caps": mine(self.caps), "mouths": mine(self.mouths), "roofs": mine(self.roofs),
+                "open": {o for o in self.open if o.split("#")[0] in pids},
                 "drowned": {k: v for k, v in self._drowned.items() if k in pids}}
 
     def _adopt_take(self, extra):
         if not extra:
             return
-        for name in ("sections", "heights", "ups", "caps", "mouths"):
-            for k, v in extra[name].items():
+        for name in ("sections", "heights", "ups", "caps", "mouths", "roofs"):
+            for k, v in extra.get(name, {}).items():
                 getattr(self, name).setdefault(k, v)
         self.open.update(extra["open"])
         for k, v in extra["drowned"].items():
@@ -5949,6 +5968,7 @@ class ChainView:
 
     heights = property(lambda self: self._merged("heights"))
     mouths = property(lambda self: self._merged("mouths"))
+    roofs = property(lambda self: self._merged("roofs"))
 
     def _sub(self, method, fid, default):
         for st in self._stores():
@@ -7246,39 +7266,43 @@ GALLERY_STEP_M = 2.0       # m between a gallery's samples (the terrain's grid: 
 GALLERY_SLOPE_M = 6.0      # m past the road's edge where the ground tells a gallery's mountain side from its valley side
 
 
-def tile_galleries(frame, seen, elev, box):
-    """The avalanche galleries (gallery_parts) of the roads seen ({fid: (feats, i, spec)}) cut to the tile's box:
-    [{"pts": (k, 5) east, north, up, metres along the gallery, up of the ground under its pillars, "w": the road's
-    width, "side": +1 when the mountain is on the left of the line, -1 on the right}]. The height is elev's on the
-    line (the graded road's); the mountain side the one where the ground GALLERY_SLOPE_M past the road's edge lies
-    higher (a gallery leans against its slope); the pillars stand on the ground on the other (below the road where
-    the slope falls away: they reach down to it, not hang in the air)."""
+def tile_galleries(frame, tunnels, cells, elev, box):
+    """The avalanche galleries' roofs (TunnelProfiles.roofs: their covered sections, GALLERY_KIND) of the tunnels
+    (a TunnelProfiles or ChainView) in cells, cut to the tile's box: [{"pts": (k, 5) east, north, up, metres along
+    the section, up of the ground under its pillars, "w": the road's width, "side": +1 when the mountain is on the left
+    of the line, -1 on the right}]. The height is the tunnel's floor (the road's, drawn there and the ground graded to
+    it); the mountain side the one where the ground (elev) GALLERY_SLOPE_M past the road's edge lies higher (a
+    gallery leans against its slope); the pillars stand on the ground on the other (below the road where the slope
+    falls away: they reach down to it, not hang in the air)."""
     import roadmesh
+    if tunnels is None or getattr(tunnels, "open_parts", None) is None:
+        return []
+    opened = sorted(tunnels.open_parts(cells, box), key=lambda p: p[0])
+    roofs = tunnels.roofs if opened else {}         # (solved by open_parts)
     out = []
     pillar = roadmesh.GALLERY_SHOULDER_M + roadmesh.GALLERY_PILLAR_W / 2
-    for fid in sorted(seen):
-        feats, i, spec = seen[fid]
-        for ring in gallery_parts(feats, i):
-            e, n = mapgeom.enu_xy(feats, frame, ring)
-            xy = densify(np.c_[e, n], GALLERY_STEP_M)
-            if len(xy) < 2 or xy[:, 0].max() < box[0] or xy[:, 0].min() > box[2] or xy[:, 1].max() < box[1] \
-                    or xy[:, 1].min() > box[3]:
-                continue
-            t = np.gradient(xy, axis=0)
-            t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
-            left = np.c_[-t[:, 1], t[:, 0]]
-            reach, at = spec.width / 2 + GALLERY_SLOPE_M, spec.width / 2 + pillar
-            q = np.concatenate([xy, xy + left * reach, xy - left * reach, xy + left * at, xy - left * at])
-            la, lo, _ = frame.enu_to_geodetic(q[:, 0], q[:, 1], 0.0)
-            la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
-            up = np.asarray(frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2], np.float64)
-            k = len(xy)
-            side = 1.0 if float(np.mean(up[k:2 * k] - up[2 * k:3 * k])) >= 0.0 else -1.0
-            foot = up[4 * k:] if side > 0 else up[3 * k:4 * k]      # (the valley side's)
-            s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
-            for piece in clip_polyline(np.c_[xy, up[:k], s, foot], *box):
-                if len(piece) >= 2:
-                    out.append({"pts": piece, "w": float(spec.width), "side": side})
+    for fid, spec, xy, z, _lon in opened:
+        if fid not in roofs or not np.isfinite(z).all():
+            continue
+        pts = densify(np.c_[np.asarray(xy, np.float64)[:, :2], np.asarray(z, np.float64)], GALLERY_STEP_M)
+        xy = pts[:, :2]
+        if len(xy) < 2 or xy[:, 0].max() < box[0] or xy[:, 0].min() > box[2] or xy[:, 1].max() < box[1]                 or xy[:, 1].min() > box[3]:
+            continue
+        t = np.gradient(xy, axis=0)
+        t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
+        left = np.c_[-t[:, 1], t[:, 0]]
+        reach, at = spec.width / 2 + GALLERY_SLOPE_M, spec.width / 2 + pillar
+        q = np.concatenate([xy + left * reach, xy - left * reach, xy + left * at, xy - left * at])
+        la, lo, _ = frame.enu_to_geodetic(q[:, 0], q[:, 1], 0.0)
+        la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
+        up = np.asarray(frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2], np.float64)
+        k = len(xy)
+        side = 1.0 if float(np.mean(up[:k] - up[k:2 * k])) >= 0.0 else -1.0
+        foot = up[3 * k:] if side > 0 else up[2 * k:3 * k]      # (the valley side's)
+        s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+        for piece in clip_polyline(np.c_[pts, s, foot], *box):
+            if len(piece) >= 2:
+                out.append({"pts": piece, "w": float(spec.width), "side": side})
     return out
 
 
@@ -7332,7 +7356,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                 continue
             rings.append((fid, spec, ring))
     if galleries is not None:
-        galleries.extend(tile_galleries(frame, seen, elev, own_box))
+        galleries.extend(tile_galleries(frame, tunnels, cells, elev, own_box))
     roads = []                                  # (fid, spec, centreline (k, 3), lon) near the tile
     if rings:                                   # one elevation call for every ring (the grader's cost
         lon = np.concatenate([r[:, 0] for _, _, r in rings])     # is per call: 2026-10-11 profile,

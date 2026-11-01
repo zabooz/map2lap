@@ -145,37 +145,51 @@ class OpenUnderpass(unittest.TestCase):
 
 
 class GalleryTest(unittest.TestCase):
-    """An avalanche gallery (osmtags.GALLERY_FLAG over the range of its layer -1) is a road on the ground, not a
-    tunnel: built as one, the Grossglockner road's Freiwand gallery stood in the open with a low arch's grass cap
-    across the lanes (a wall: cars crashed into it), unpainted (grass through the road) and its floor a kink from the
-    graded road (a jump)."""
+    """An avalanche gallery (osmtags.GALLERY_FLAG) is a tunnel whose covered sections (the elevation data's cover over
+    its line) are open roads under a roof (roads.GALLERY_KIND): the map's way runs on past the roof (the Grossglockner
+    road's Freiwand gallery: the way from route metre 295, the roof from 575). As a tube it stood in the open with a
+    low arch's grass cap across the lanes (a wall: cars crashed into it), its terrain holes and portals in the slope."""
 
-    def feats(self, gallery):
+    def feats(self, gallery, level=True):
         import osmtags
         from test_roads import features
-        return features([[(-100, 0), (100, 0)]], ["tertiary"], levels=[(0, -1.0, 0.2, 0.8)],
+        return features([[(-100, 0), (100, 0)]], ["tertiary"], levels=[(0, -1.0, 0.2, 0.8)] if level else [],
                         flags=[(0, osmtags.GALLERY_FLAG, 0.2, 0.8)] if gallery else [])
 
-    def hill(self, la, lo):
-        from test_roads import LON, M_LON
+    def hill(self, la, lo, slope=0.0):
+        from test_roads import LAT, LON, M_LAT, M_LON
         e = (np.asarray(lo) - LON) * M_LON
-        return 10.0 + np.maximum(0.0, 40.0 - np.abs(e) * 0.4)
+        return 10.0 + np.maximum(0.0, 40.0 - np.abs(e) * 0.4) + slope * (np.asarray(la) - LAT) * M_LAT
 
-    def test_gallery_is_a_road_on_the_ground(self):
-        f = self.feats(True)
-        self.assertEqual(roads.level_ranges(f, 0), [])
-        self.assertEqual(roads.tunnel_parts(f, 0), [])
-        self.assertEqual(len(roads.ground_parts(f, 0)), 1, "the whole road on the ground")
-        self.assertEqual(len(roads.ground_parts(f, 0)[0]), 2, "its line as it is")
+    def test_gallery_is_a_tunnel(self):
+        for level in (True, False):         # (flagged by OSM alone: Overture's plain road)
+            self.assertEqual([k for _, _, k in roads.level_ranges(self.feats(True, level), 0)], ["tunnel"])
+        self.assertEqual(roads.level_ranges(self.feats(False, False), 0), [])
 
-    def test_under_a_hill_no_tube(self):
+    def test_covered_section_an_open_road_under_a_roof(self):
         from test_roads import FRAME
+        box = (-128.0, -128.0, 128.0, 128.0)
         f = self.feats(True)
         tp = roads.TunnelProfiles(FRAME, lambda key: f, self.hill)
-        self.assertFalse(any(c.get("tunnel") for c in roads._tunnel_chunks(tp, [f], (-128.0, -128.0, 128.0, 128.0))))
+        ch = roads._tunnel_chunks(tp, [f], box)
+        self.assertFalse(any(c.get("tunnel") for c in ch), "no tube, portals or holes")
+        self.assertTrue(ch, "the road drawn at its floor")
+        g = roads.tile_galleries(FRAME, tp, [f], self.hill, box)
+        self.assertTrue(g, "the roof over the covered section")
+        z = np.concatenate([q["pts"][:, 2] for q in g])
+        self.assertLess(float(np.ptp(z)), 0.5, "the floor straight under it, not over the hill")
+        bare = self.feats(False)
+        tb = roads.TunnelProfiles(FRAME, lambda key: bare, self.hill)
+        self.assertTrue(any(c.get("tunnel") for c in roads._tunnel_chunks(tb, [bare], box)), "without the flag a tube")
+        self.assertFalse(roads.tile_galleries(FRAME, tb, [bare], self.hill, box))
 
-    def test_level_minus_one_without_the_flag_stays_a_tunnel(self):
-        self.assertEqual([k for _, _, k in roads.level_ranges(self.feats(False), 0)], ["tunnel"])
+    def test_gallery_kinds(self):
+        xy = np.c_[np.arange(6.0) * 4.0, np.zeros(6)]
+        kinds = np.array([0, 1, 2, 2, 0, 1])
+        on = [np.array([[0.0, 0.5], [12.0, 0.5]])]
+        self.assertEqual(roads.gallery_kinds(xy, kinds, on).tolist(), [0, 3, 3, 3, 0, 1], "covered and on the line")
+        self.assertEqual(roads.gallery_kinds(xy, kinds, on, kind=0).tolist(), [0, 0, 0, 0, 0, 1])
+        self.assertEqual(roads.gallery_kinds(xy, kinds, []).tolist(), kinds.tolist())
 
     def gallery(self, x0=0.0, x1=30.0, side=1.0):
         """A gallery piece along x from x0 to x1 (metres along it = x), the road at 10 m, the ground under its pillars
@@ -206,22 +220,14 @@ class GalleryTest(unittest.TestCase):
         self.assertEqual(len(whole), 2 * 5, "5 pillars, each's two faces along")
 
     def test_mountain_side_from_the_slope(self):
-        import osmtags
-        from test_roads import FRAME, M_LAT, LAT, features
+        from test_roads import FRAME
+        f = self.feats(True)
         for slope, side in ((0.5, 1.0), (-0.5, -1.0)):
-            f = features([[(0, 0), (40, 0)]], ["tertiary"], levels=[(0, -1.0)], flags=[(0, osmtags.GALLERY_FLAG)])
-            sp = roads.road_specs(f)[0]
-            g = roads.tile_galleries(FRAME, {"id000": (f, 0, sp)},
-                                     lambda la, lo: 10.0 + slope * (np.asarray(la) - LAT) * M_LAT, (-50, -50, 50, 50))
-            self.assertEqual(len(g), 1)
-            self.assertEqual(g[0]["side"], side, "the mountain where the ground rises")
-            self.assertTrue((g[0]["pts"][:, 4] < g[0]["pts"][:, 2]).all(), "the pillars' ground below the road")
-
-    def test_without(self):
-        rs = [(0.0, 0.2, "bridge"), (0.3, 0.9, "tunnel")]
-        self.assertEqual(roads._without(rs, [(0.5, 0.6)], "tunnel"),
-                         [(0.0, 0.2, "bridge"), (0.3, 0.5, "tunnel"), (0.6, 0.9, "tunnel")])
-        self.assertEqual(roads._without(rs, [(0.0, 1.0)], "tunnel"), [(0.0, 0.2, "bridge")])
+            elev = lambda la, lo, sl=slope: self.hill(la, lo, sl)     # noqa: E731
+            tp = roads.TunnelProfiles(FRAME, lambda key: f, elev)
+            g = roads.tile_galleries(FRAME, tp, [f], elev, (-128.0, -128.0, 128.0, 128.0))
+            self.assertTrue(g)
+            self.assertTrue(all(q["side"] == side for q in g), "the mountain where the ground rises")
 
 
 class LowArch(unittest.TestCase):
