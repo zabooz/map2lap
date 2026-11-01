@@ -399,7 +399,7 @@ class MapData:
             osm = self._osm_pool().submit(self._osm_cell, key, kind) if layer == "roads" else None
             feats, sources = self.overture.query(layer, key, kind)
             if osm is not None:
-                feats = self._osm(feats, osm.result())
+                feats = self._osm(feats, osm.result(), self._osm_around(feats, key, kind))
             ox, oy = mapcells.owner(feats.attrs.get("cx", np.zeros(0)), feats.attrs.get("cy", np.zeros(0)), key.z)
             feats.own = (ox == key.x) & (oy == key.y)
             if feats.clipped is not None:
@@ -428,9 +428,16 @@ class MapData:
                 self._osm_ex = ThreadPoolExecutor(OSM_THREADS, thread_name_prefix="osmtags")
             return self._osm_ex
 
-    def _osm_cell(self, key, kind):
-        """(tags, raceways) of the cell's OpenStreetMap highways (osmtags.py); none when the source fails (the roads
-        keep their width guesses)."""
+    def _osm_around(self, feats, key, kind):
+        """The OSM tags of the ways around the cell's tunnels that reach out of it (osmtags.tunnel_reach), {} when
+        none: a gallery way beyond the cell is what marks its copy of the segment (osmtags._mark_galleries)."""
+        import osmtags
+        box = osmtags.tunnel_reach(feats, key.bounds())
+        return self._osm_cell(key, kind, box)[0] if box is not None else {}
+
+    def _osm_cell(self, key, kind, bounds=None):
+        """(tags, raceways) of the cell's OpenStreetMap highways (osmtags.py), or of those touching bounds; none when the
+        source fails (the roads keep their width guesses)."""
         import osmtags
         if self.fetcher is None:
             return {}, []
@@ -438,7 +445,7 @@ class MapData:
             with self._lock:
                 if getattr(self, "osmtags", None) is None:
                     self.osmtags = osmtags.OsmTags(self.raw_dir, self.fetcher)
-            return self.osmtags.cell(key.bounds(), kind)
+            return self.osmtags.cell(bounds or key.bounds(), kind)
         except DEFERRED:
             # a prefetch the host had no room for: the cell is not built now (MapData.prefetch: False) rather than cached
             # for good without its tags (a player's start cell in Baltimore kept the roads' guesses, 2026-10-23); on
@@ -482,15 +489,15 @@ class MapData:
             return []
 
     @staticmethod
-    def _osm(feats, got):
+    def _osm(feats, got, around=None):
         """The roads with the cell's OpenStreetMap tags joined in and its raceways appended (Overture has none,
-        GitHub #143)."""
+        GitHub #143); around: the tags around its tunnels reaching out of it (osmtags.join)."""
         import mapgeom
         import osmtags
         tags, ways = got
         if ways:
             feats = mapgeom.concat(feats, osmtags.raceway_features(ways))
-        osmtags.join(feats, tags)
+        osmtags.join(feats, tags, around)
         import oneway_joins
         oneway_joins.apply(feats)
         return feats

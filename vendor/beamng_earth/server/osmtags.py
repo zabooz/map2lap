@@ -357,11 +357,32 @@ def _named_way(feats, i, by_name):
     return best[1] if best else None
 
 
-def join(feats, tags):
+def tunnel_reach(feats, bounds):
+    """(lon0, lat0, lon1, lat1) around the features with a tunnel range (_tunnel_rows) that reach out of bounds (a
+    cell's), or None. A cell holds every segment touching it whole, but reads the OSM tags of its own bounds only: the
+    gallery way of a segment's tunnel range may lie in the next cell. Pure."""
+    lon0, lat0, lon1, lat1 = bounds
+    box = None
+    for i in range(len(feats)):
+        if not _tunnel_rows(feats, i):
+            continue
+        pts = np.concatenate([np.asarray(r, np.float64)[:, :2] for part in feats.parts(i) for r in part if len(r)])
+        x0, y0 = pts.min(axis=0)
+        x1, y1 = pts.max(axis=0)
+        if x0 >= lon0 and x1 <= lon1 and y0 >= lat0 and y1 <= lat1:
+            continue
+        box = (x0, y0, x1, y1) if box is None else (min(box[0], x0), min(box[1], y0), max(box[2], x1),
+                                                    max(box[3], y1))
+    return None if box is None else tuple(float(v) for v in box)
+
+
+def join(feats, tags, around=None):
     """The tags of each road feature (its source record's way id) as attrs columns: floats (NaN where unknown) for
     FLOATS, text ('' where unknown) for TEXTS. feats: an Overture roads Features (attrs src_record). A segment without a
     known way (from a relation) takes the tags of the same-named way around it (_named_way), but its oneway: that way may
-    be one carriageway of the road the segment draws."""
+    be one carriageway of the road the segment draws. around: the tags of the ways around its tunnels that reach out of
+    the cell (tunnel_reach), only for finding their galleries (_mark_galleries): every cell holding a segment marks it
+    alike."""
     import mapgeom as mg
     recs = feats.attrs.get("src_record")
     n = len(feats)
@@ -394,7 +415,7 @@ def join(feats, tags):
             w = _named_way(feats, i, {nm: sense.get((nm, str(ows[i]) in ONEWAY_YES), [])})
             if w is not None:
                 lanes[i] = float(tags[w]["lanes"])
-    _mark_galleries(feats, tags, ids)
+    _mark_galleries(feats, {**around, **tags} if around else tags, ids)
     return feats
 
 

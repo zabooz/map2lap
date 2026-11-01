@@ -78,6 +78,28 @@ class GalleryTest(unittest.TestCase):
                          3: dict(self.box(300, 360), name="Other", osm_tunnel="avalanche_protector")})
         self.assertEqual(self.flagged(f, 0), [(0.25, 0.5)])
 
+    def test_the_next_cell_s_copy_is_marked_too(self):
+        """The Freiwand gallery's segment lies in two map cells, the gallery way in one: the other cell, reading the
+        OSM tags of its own bounds, kept its copy a tunnel (a groove, a step and a hole in the road where the two met).
+        Its tunnel reaching out of the cell (tunnel_reach), the tags around it mark it alike."""
+        from test_roads import LAT, LON, M_LAT, M_LON
+        f = features([[(0, 0), (400, 0)]], ["tertiary"], levels=[(0, -1.0, 0.25, 0.5)])
+        f.attrs["src_record"] = np.array(["r4205967@46"])
+        f.attrs["name"] = np.array(["Gletscherstrasse"])
+        cell = (LON + 300 / M_LON, LAT - 50 / M_LAT, LON + 500 / M_LON, LAT + 50 / M_LAT)
+        box = osmtags.tunnel_reach(f, cell)
+        self.assertIsNotNone(box)
+        self.assertLess(box[0], cell[0], "out to the segment's west end")
+        self.assertIsNone(osmtags.tunnel_reach(f, (LON - 1, LAT - 1, LON + 1, LAT + 1)), "all of it in the cell")
+        gallery = {1: dict(self.box(100, 200), name="Gletscherstrasse", osm_tunnel="avalanche_protector")}
+        osmtags.join(f, {}, gallery)
+        self.assertEqual(self.flagged(f, 0), [(0.25, 0.5)])
+        g = features([[(0, 0), (400, 0)]], ["tertiary"], levels=[(0, -1.0, 0.25, 0.5)])
+        g.attrs["src_record"] = np.array(["r4205967@46"])
+        g.attrs["name"] = np.array(["Gletscherstrasse"])
+        osmtags.join(g, {})
+        self.assertEqual(self.flagged(g, 0), [], "without the tags around it: a tunnel")
+
     def test_segment_of_a_gallery_way(self):
         """A segment from the gallery way itself: its tunnel range is the gallery; a tunnel=yes way's stays a tunnel."""
         f = features([[(0, 0), (200, 0)], [(0, 50), (200, 50)]], ["secondary"] * 2,
