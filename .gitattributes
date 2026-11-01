@@ -1,1 +1,4 @@
 *.bat text eol=crlf
+# (Linux reads these: a CR at a line's end breaks the shebang and every command)
+*.sh text eol=lf
+*.desktop text eol=lf

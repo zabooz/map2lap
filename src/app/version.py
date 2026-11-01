@@ -1,6 +1,6 @@
 """Two version numbers:
 
-VERSION        the app: every release gets a new one, even if only the page changed (zip name, the page, the
+VERSION        the app: every release gets a new one, even if only the page changed (archive names, the page, the
                User-Agent, ui_track.json for Content Manager).
 TRACK_VERSION  the built tracks: bump it only when a change alters how built tracks look or drive (ground, trees,
                roads, kn5, distant view, gates). Every build stores it (data/map2lap.json "track_version"), and
@@ -10,6 +10,8 @@ TRACK_VERSION is never higher than VERSION: a release that changes the tracks se
 built before the split (up to 0.3.3) only stored "version", which then was the track version. Tracks built before
 versions existed have none and count as old. Small changes go in the third place (0.3.1), bigger ones in the second.
 """
+import os
+
 VERSION = "0.5.4"
 TRACK_VERSION = "0.5.4"
 REPO_URL = "https://github.com/zabooz/map2lap"
@@ -31,14 +33,20 @@ def outdated(v):
     return v is None or key(v) < key(TRACK_VERSION)
 
 
+def archive_name(v):
+    """The release download for this system (tools/make_release.py builds both). Pure."""
+    return f"Map2Lap-{v}-win64.zip" if os.name == "nt" else f"Map2Lap-{v}-linux-x64.tar.gz"
+
+
 LATEST_URL = "https://api.github.com/repos/zabooz/map2lap/releases/latest"
 _latest = {}
 
 
 def latest(fresh=False):
-    """The newest release on GitHub: {"version", "url", "zip"}, or None (offline, no release yet, the repo private:
-    GitHub answers 404 without a login). zip: the Windows zip {"url", "size", "digest"} for updater, None when the
-    release has none. Asked once per run, again with fresh (Settings → "Check for updates")."""
+    """The newest release on GitHub: {"version", "url", "archive"}, or None (offline, no release yet, the repo
+    private: GitHub answers 404 without a login). archive: this system's download (archive_name) {"name", "url",
+    "size", "digest"} for updater, None when the release has none. Asked once per run, again with fresh (Settings →
+    "Check for updates")."""
     if fresh or "got" not in _latest:
         import json
         import urllib.request
@@ -48,9 +56,10 @@ def latest(fresh=False):
             with urllib.request.urlopen(req, timeout=5) as r:
                 rel = json.load(r)
             v = str(rel.get("tag_name") or "").lstrip("vV")
-            z = next((a for a in rel.get("assets") or () if a.get("name") == f"Map2Lap-{v}-win64.zip"), None)
-            z = z and {"url": z["browser_download_url"], "size": z["size"], "digest": z.get("digest")}
-            _latest["got"] = ({"version": v, "url": rel.get("html_url") or REPO_URL, "zip": z}
+            a = next((a for a in rel.get("assets") or () if a.get("name") == archive_name(v)), None)
+            a = a and {"name": a["name"], "url": a["browser_download_url"], "size": a["size"],
+                       "digest": a.get("digest")}
+            _latest["got"] = ({"version": v, "url": rel.get("html_url") or REPO_URL, "archive": a}
                               if key(v) > (0,) else None)
         except Exception:
             _latest["got"] = None

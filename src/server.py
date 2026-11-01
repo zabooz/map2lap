@@ -284,7 +284,8 @@ def play(name):
 
 def install_update():
     """Settings → "Install update": the newest release is downloaded in the background (updater), then the server ends
-    for "Start Map2Lap.bat" to put it in and start it again; not during a build; returns (HTTP code, response)."""
+    for "Start Map2Lap.bat" (start.sh) to put it in and start it again; not during a build; returns (HTTP code,
+    response)."""
     if not updater.possible():
         return 409, {"error": "Not a release folder: update it with git"}
     with lock:
@@ -294,9 +295,9 @@ def install_update():
             return 409, {"error": "The update is already being installed"}
         updater.state.update(state="downloading", done=0, total=0, error=None)
     rel = version.latest(fresh=True)
-    if not (rel and rel["zip"] and version.key(rel["version"]) > version.key(version.VERSION)):
+    if not (rel and rel["archive"] and version.key(rel["version"]) > version.key(version.VERSION)):
         updater.state["state"] = "idle"
-        return 409, {"error": "No newer release with a Windows zip on GitHub"}
+        return 409, {"error": "No newer release for this system on GitHub"}
     threading.Thread(target=_install, args=(rel,), daemon=True).start()
     return 200, {"ok": True, "version": rel["version"]}
 
@@ -359,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path in ("/api/update", "/api/update?fresh=1"):   # (a newer Map2Lap on GitHub: the page links it)
             rel = version.latest(fresh=self.path.endswith("fresh=1"))
             newer = bool(rel) and version.key(rel["version"]) > version.key(version.VERSION)
-            self._send(200, {"newer": newer, "can_install": newer and bool(rel["zip"]) and updater.possible(),
+            self._send(200, {"newer": newer, "can_install": newer and bool(rel["archive"]) and updater.possible(),
                              **(rel or {})})
         elif self.path == "/api/update/progress":
             self._send(200, updater.state)

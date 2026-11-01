@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Map2Lap
+Comment=Build Assetto Corsa tracks from real roads
+Exec=sh -c "exec \\"\\$(dirname \\"\\$0\\")/start.sh\\"" %k
+Terminal=true
+Categories=Game;
