@@ -235,5 +235,34 @@
     "the north portal: the tunnel's floor, then the road, no hole, no step"
    ]
   ]
+ },
+ "griffen_bruecke_test": {
+  "title": "Griffen Bruecke Test",
+  "about": "A2 near Griffen: out of a tunnel, then a 320 m valley bridge climbing about 4 % (a climbing deck's start, a tunnel's portal)",
+  "points": [
+   [
+    46.700044481426936,
+    14.757374658137142
+   ],
+   [
+    46.70000257873528,
+    14.760494698259551
+   ],
+   [
+    46.69964221795705,
+    14.763577752142455
+   ]
+  ],
+  "width": 30.0,
+  "spots": [
+   [
+    "70-90",
+    "the tunnel's portal: its floor, then the road, no hole, no step"
+   ],
+   [
+    "120-145",
+    "onto the bridge: on at the road's grade, no ramp up"
+   ]
+  ]
  }
 }

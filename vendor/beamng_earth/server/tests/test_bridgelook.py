@@ -97,6 +97,18 @@ class DeckTest(unittest.TestCase):
         self.assertEqual(out[-1], 25.0)
         self.assertTrue((out[1:-1] >= np.minimum(floor, 25.0 + roads.LIFT_END_GRADE * (s[-1] - s))[1:-1] - 1e-6).all())
 
+    def test_a_small_lift_on_a_climbing_deck_stays_by_its_place(self):
+        # the lift runs out, not the floor's height: a deck climbing faster than LIFT_GRADE stood a 3 m ramp over its
+        # first metres, its far end's few cm run back at 3 % all the way
+        s = np.r_[np.arange(0.0, 318.0, 1.0), 318.4, 320.1]
+        z = 518.24 + 0.039 * s
+        floor = np.where((s > 312.0) & (s < 320.0), z + 0.04, z - 0.05)    # 4 cm short by the far abutment
+        out = roads._lift_smooth(s, z, floor)
+        near = (s > 312.0) & (s < 320.0)
+        self.assertTrue((out[near] >= floor[near] - 0.011).all())
+        self.assertLess(float(np.max(out - z)), 0.1)
+        self.assertTrue(np.allclose(out[s < 290], z[s < 290], atol=1e-6))
+
     def test_side_by_side_carriageways_not_stacked(self):
         a = np.c_[np.arange(0.0, 400.0, 4.0), np.zeros(100)]
         b = np.c_[np.arange(0.0, 400.0, 4.0), np.full(100, 8.5)]

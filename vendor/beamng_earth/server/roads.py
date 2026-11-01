@@ -2937,14 +2937,16 @@ def _lift_smooth(s, z, floor, iters=8):
         out = np.array(z)
         out[1:-1] = np.maximum(out[1:-1], np.interp(s, g, fg)[1:-1])
         return out
-    want = fg.copy()
+    # the lift (how far the deck is short of its floor) runs out, not the floor's height: a deck climbing faster than
+    # LIFT_GRADE never met a height run out from a 4 cm shortfall by one of its abutments, the cone stood over the deck
+    # all the way back to the other abutment, kept at its road's height (a 320 m valley bridge climbing 3.9 %: 3.3 m up
+    # over its first 14 m, 30 % at its steepest)
+    want = np.where(inner, np.maximum(fg - zg, 0.0), 0.0)
     zz = zg
     for _ in range(iters):
-        cone = _tents(g, np.where(inner, want, -np.inf), LIFT_GRADE)
-        tgt = np.maximum(zg, cone)
-        ext = np.r_[np.full(r, tgt[0]), tgt, np.full(r, tgt[-1])]
-        zz = np.convolve(ext, np.ones(2 * r + 1) / (2 * r + 1), mode="valid")
-        zz = np.maximum(zz, zg)
+        cone = np.maximum(_tents(g, np.where(want > 0.0, want, -np.inf), LIFT_GRADE), 0.0)
+        ext = np.r_[np.full(r, cone[0]), cone, np.full(r, cone[-1])]
+        zz = zg + np.convolve(ext, np.ones(2 * r + 1) / (2 * r + 1), mode="valid")
         zz[0], zz[-1] = zg[0], zg[-1]
         short = np.where(inner, fg - zz, 0.0)
         if short.max() <= 0.01:
