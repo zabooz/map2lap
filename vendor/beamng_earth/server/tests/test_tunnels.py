@@ -505,6 +505,30 @@ class TwinTunnels(unittest.TestCase):
         self.assertFalse(m[mid_row, (xs > 20) & (xs < 200)].any())
 
 
+class PortalApron(unittest.TestCase):
+    def test_a_floor_reaches_past_its_portals_up_to_the_road(self):
+        # the terrain cells astride a portal are dropped whole: without the apron the road in front had no floor
+        class T:
+            def parts(self, cells, exact):
+                return [("a", Spec(7.0, "paved", False, "trunk"), np.array([[0.0, 0.0], [100.0, 0.0]]),
+                         np.array([10.0, 12.0]), 0.0)]
+
+            def mouth(self, fid):
+                return (True, False)            # its end runs on into the next piece
+        ch = roads._tunnel_chunks(T(), [], (-50.0, -50.0, 300.0, 300.0))
+        aprons = [np.asarray(c["n"]) for c in ch if c.get("deck") and c.get("no_tube")]
+        self.assertEqual(len(aprons), 1, "at the portal, not at the inner end")
+        a = aprons[0]
+        self.assertAlmostEqual(float(a[:, 0].min()), -roads.PORTAL_APRON_M, places=3)
+        self.assertGreaterEqual(roads.PORTAL_APRON_M, 1.5 * 2.0 * np.sqrt(2.0) - 1e-9)
+        at_out = float(a[np.argmin(a[:, 0]), 2])
+        want = 10.0 - 0.02 * roads.PORTAL_APRON_M + grading.ROAD_LIFT     # the floor's slope on, as the ground lifted
+        self.assertAlmostEqual(at_out, want, places=3)
+        self.assertAlmostEqual(float(a[np.argmax(a[:, 0]), 2]), 10.0 + grading.ROAD_LIFT, places=3)
+        self.assertIsNotNone(roadmesh.tunnel(ch, (0.0, 0.0, 0.0)))
+        self.assertTrue(all(c.get("tunnel") and not c.get("no_tube") for c in ch if c.get("deck") and not c.get("no_tube")))
+
+
 class FloorAt(unittest.TestCase):
     def test_in_the_tube_and_beside_it(self):
         # a teleport into a park arch: the car on its floor, not the soil over it

@@ -210,5 +210,30 @@
    "max_warp": 0.0,
    "max_warp_at_m": 0.0
   }
+ },
+ "griffen_tunnel_test": {
+  "title": "Griffen Tunnel Test",
+  "about": "A2 near Griffen: a 400 m motorway tunnel, through both portals (the road in front of a portal and the tunnel's floor)",
+  "points": [
+   [
+    46.70573006913425,
+    14.778730273246767
+   ],
+   [
+    46.70949685060435,
+    14.778478145599367
+   ]
+  ],
+  "width": 50.0,
+  "spots": [
+   [
+    "14-20",
+    "the south portal: road, then the tunnel's floor, no hole, no step"
+   ],
+   [
+    "414-420",
+    "the north portal: the tunnel's floor, then the road, no hole, no step"
+   ]
+  ]
  }
 }

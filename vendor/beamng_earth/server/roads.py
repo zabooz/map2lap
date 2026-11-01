@@ -6983,12 +6983,42 @@ def twin_tunnels(parts):
     return out
 
 
+# m a tunnel's floor reaches out past a portal, under the road in front: the terrain grid's reach there (below)
+PORTAL_APRON_M = 1.5 * roadmesh.GRID_M * math.sqrt(2.0)
+# The terrain block drops every grid cell with a corner on a hole sample (scenery.ground: a cell kept with a corner in
+# the hole hung the slope over the vault into the opening). A hole sample stands for the square from it on, cut when
+# that square's centre lies past the portal face; the cells round the sample reach 1.5 squares back from that centre,
+# a diagonal's worth on a road at 45 degrees to the grid: up to 4.2 m of road in front of the face with nothing under
+# it, seen as a hole and driven as one (the A2's tunnels at Griffen: 2.5 to 3 m at both portals, a 1.5 G hit at
+# 190 km/h). The floor's apron covers it. The floor lies grading.ROAD_LIFT over its heights, as the ground under every
+# road lies over its grading (the mouth's ground is graded to the floor, Grader._mouth_plans): at the floor's own
+# heights a 4 cm step down where the ground ended.
+
+
+def portal_apron(pts, at):
+    """The apron's line (2, 3) out past the end `at` (0: the start, -1: the end) of a tunnel's floor pts (k, 3):
+    PORTAL_APRON_M on along its end's heading and slope (over its last MOUTH_PLAN_M, the mouth's grading plan); in the
+    line's own direction. Pure."""
+    import grading
+    pts = np.asarray(pts, np.float64)
+    q = pts if at == 0 else pts[::-1]
+    s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(q[:, :2], axis=0).T))]
+    j = min(int(np.searchsorted(s, min(grading.MOUTH_PLAN_M, s[-1]))), len(q) - 1)
+    d = q[0, :2] - q[j, :2]
+    run = max(float(np.hypot(*d)), 1e-9)
+    slope = (q[0, 2] - q[j, 2]) / run
+    out = np.r_[q[0, :2] + d / run * PORTAL_APRON_M, q[0, 2] + slope * PORTAL_APRON_M]
+    line = np.array([out, q[0]])
+    return line if at == 0 else line[::-1]
+
+
 def _tunnel_chunks(tunnels, cells, exact, terrain_paint=True):
     """The chunks of the tunnels crossing the tile box `exact`: the road surface ("deck", "tunnel": the tube is
     built around it, roadmesh.tunnel) and its lines, every one "fixed" at the floor's heights; a surface chunk
     ending at its part's end carries "portal": [start is one, end is one]. Twin tunnels (twin_tunnels): their surfaces
     are floors without a tube ("no_tube"), and one "tube_only" chunk along their midline (not drawn as a road) carries
-    the tube round both, with the first's portals."""
+    the tube round both, with the first's portals. Their heights: the floor's, ROAD_LIFT over it (PORTAL_APRON_M)."""
+    import grading
     out = []
     if getattr(tunnels, "open_parts", None) is not None:
         for fid, spec, xy, z, lon in tunnels.open_parts(cells, exact):
@@ -7010,15 +7040,20 @@ def _tunnel_chunks(tunnels, cells, exact, terrain_paint=True):
     twinned = {k for i, j, _, _ in twins for k in (i, j)}
     jobs = []                                   # (fid, its ends, [(look, width, line)])
     for i, j, mid, width in twins:              # the tube round both, with the first's portals
+        mid = np.c_[mid[:, :2], mid[:, 2] + grading.ROAD_LIFT]
         if len(mid) >= 2:
             jobs.append((parts[i][0], (mid[0, :2], mid[-1, :2]), [({**TUNNEL, "tunnel": True, "tube_only": True}, width, mid)],
                          parts[i][1]))
     for n, (fid, spec, xy, z, lon) in enumerate(parts):
-        pts = np.c_[xy, z]
+        pts = np.c_[xy, np.asarray(z, np.float64) + grading.ROAD_LIFT]
         look = _deck_look(spec) if not terrain_surface(spec) else None
         if terrain_paint and terrain_surface(spec):
             look = None                     # painted in the ground layer, as any other ground part
         lines = [] if look is None else [({**look, "deck": True, "tunnel": True, "no_tube": n in twinned}, spec.width, pts)]
+        if look is not None:                # the floor's aprons past its portals (PORTAL_APRON_M), no tube over them
+            mouths = tunnels.mouth(fid) if getattr(tunnels, "mouth", None) is not None else (True, True)
+            lines += [({**look, "deck": True, "tunnel": True, "no_tube": True}, spec.width, portal_apron(pts, at))
+                      for at, mouth in zip((0, -1), mouths) if mouth]
         for look, w, line in extras(spec, pts, lon):
             if look["m"] not in (SIDEWALK["m"], GUTTER["m"], EDGE_DECAL["m"]):     # (no ground beside a deck)
                 lines.append((look, w, line))
@@ -7044,7 +7079,8 @@ def _tunnel_chunks(tunnels, cells, exact, terrain_paint=True):
                             if getattr(tunnels, "height", None) is not None:
                                 ch["tunnel_h"] = tunnels.height(fid)
                             if getattr(tunnels, "portal_ups", None) is not None:
-                                u0, u1 = tunnels.portal_ups(fid)
+                                # (over the floor's own heights: its face's top stays where TunnelProfiles put it)
+                                u0, u1 = (None if u is None else u - grading.ROAD_LIFT for u in tunnels.portal_ups(fid))
                                 at = lambda p: u0 if np.hypot(*(p - ends[0])) < 0.5 else u1    # noqa: E731
                                 ch["portal_up"] = [at(c[0, :2]), at(c[-1, :2])]
                             if getattr(tunnels, "cap_m", None) is not None:
