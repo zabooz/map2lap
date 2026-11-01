@@ -128,6 +128,54 @@ class LidarBankTest(unittest.TestCase):
         self.assertIsNone(grading.plan_roads(FRAME, [part], elev)[0].bank, "coarse: a straight stays level")
 
 
+class GalleryProfileTest(unittest.TestCase):
+    """Under an avalanche gallery's roof the elevation data never saw the road (the Freiwand gallery: 2-2.5 times the
+    bumps of the open road): as a tunnel's floor its road runs straight between its ends' heights, blended in past its
+    ends; the road elsewhere is planned as before; every cell's piece takes the same line."""
+
+    def plans(self, galleries, x0=-400.0, x1=400.0):
+        x = np.arange(x0, x1 + 0.1, 10.0)
+        la, lo, _ = FRAME.enu_to_geodetic(x, np.zeros(len(x)), 0.0)
+        part = (np.c_[lo, la], roads.Spec(6.5, "paved", False, "tertiary"))
+
+        def elev(la_, lo_):     # a 10 % grade with 1 m waves every 50 m (the data filled in under a roof; shorter ones
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(la_), np.asarray(lo_), np.zeros(np.shape(la_)))   # the median
+            e = np.asarray(e)                                                                             # takes)
+            return 100.0 + 0.1 * e + 1.0 * np.sin(2 * np.pi * e / 50.0)
+        p = grading.plan_roads(FRAME, [part], elev, galleries=[galleries])[0]
+        return p.xy[:, 0], p.z
+
+    def gal(self):
+        return [np.c_[np.arange(-100.0, 100.1, 10.0), np.zeros(21)]]
+
+    def test_straight_under_the_roof_as_before_elsewhere(self):
+        x, z = self.plans(self.gal())
+        x0, z0 = self.plans(None)
+        np.testing.assert_allclose(x, x0)
+        inside = np.abs(x) <= 100.0
+        self.assertLess(float(np.abs(np.diff(z[inside], 2)).max()), 1e-6, "straight from end to end")
+        far = np.abs(x) > 100 + grading.GALLERY_BLEND_M
+        np.testing.assert_allclose(z[far], z0[far], atol=1e-6, err_msg="the open road as before")
+        self.assertLess(float(np.abs(np.diff(z, 2)).max()), 1.25 * float(np.abs(np.diff(z0, 2)).max()),
+                        "no kink at its ends: blended over GALLERY_BLEND_M, as curved as the open road's own bumps")
+
+    def test_every_cell_s_piece_the_same_line(self):
+        """Two cells plan overlapping pieces of the road (the gallery reaching across their edge): under the roof both
+        lay it at the same heights (from the whole gallery's ends, not their piece's: a step where they met)."""
+        xa, za = self.plans(self.gal(), -400.0, 40.0)
+        xb, zb = self.plans(self.gal(), -40.0, 400.0)
+        for x in (-30.0, 0.0, 30.0):
+            self.assertAlmostEqual(float(np.interp(x, xa, za)), float(np.interp(x, xb, zb)), places=4)
+
+    def test_weight(self):
+        xy = np.c_[np.arange(0.0, 101.0, 2.0), np.zeros(51)]
+        w = grading.gallery_weight(xy, [np.array([[40.0, 0.0], [60.0, 0.0]])], 2.0)
+        self.assertEqual(float(w[25]), 1.0)
+        self.assertEqual(float(w[0]), 0.0)
+        self.assertTrue(0.0 < float(w[17]) < 1.0, "blended in before it")
+        self.assertFalse(grading.gallery_weight(xy, [], 2.0).any())
+
+
 class CrestTest(unittest.TestCase):
     def test_no_kinks_over_a_crest(self):
         # a road over a crest (the grade falls 4 % per 10 m): the graded centreline's slope changes smoothly, not

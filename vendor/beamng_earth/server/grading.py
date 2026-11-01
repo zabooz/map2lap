@@ -60,6 +60,17 @@ CLASS_SIGMA_M = {"secondary": 25.0, "tertiary": 20.0, "unclassified": 16.0, "res
 # 8.5 m spike near Thetford: a 3.2 m hump). Slopes, crests and steps longer than the window stay.
 MEDIAN_M = float(os.environ.get("BNE_GRADE_MEDIAN", "24"))
 DIRT_MEDIAN_M = 10.0        # (tracks keep their small real bumps)
+# Under an avalanche gallery's roof (roads.gallery_parts) the elevation data never saw the road: a scan from above
+# measured the roof and the slope round it, and the model fills the road's line from those (the Grossglockner road's
+# Freiwand gallery: 2-2.5 times the bumps of the open road either side, a car's suspension twice as busy; smoothed
+# longer, the bumps stayed). As a tunnel's floor (roads.tunnel_profile) its road runs straight from end to end, at the
+# ground's height at its ends (gallery_heights: the median over GALLERY_END_M either side of each, where the scan sees
+# the road), blended into the road's own profile over GALLERY_BLEND_M past each end (a tunnel's floor met the graded
+# road in a kink: a crest that threw cars). Every cell planning a piece of it takes the same line (from the whole
+# gallery, not the piece). (A gallery whose road really bends up or down inside would be laid straight.)
+GALLERY_END_M = 10.0
+GALLERY_BLEND_M = 30.0
+GALLERY_ON_M = 1.0          # m from a gallery's line a profile sample counts as on it (the same line, resampled)
 RAIL_GRADE_ON = os.environ.get("BNE_RAIL_GRADE", "1") != "0"    # the ground laid to the railways' bed (railways.py)
 RAIL_TAG = "rail:"
 SHOULDER_M = 1.0            # m of flat shoulder beyond the carriageway, each side
@@ -376,7 +387,7 @@ def _normals(xy):
 
 
 def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, coarse=False, fine=False, under=None,
-               obs=None):
+               obs=None, galleries=None):
     """plan_road for many (lonlat, spec) parts with one elev call (its cost is per call); abut: per part (start, end)
     flags, the ends leading onto a bridge (fill_abutment); ext: per part (before, after), the lines (k, 2) in the frame
     from its start / end outward along the part the road goes on in (Grader._extensions), or None: their ground is in
@@ -384,7 +395,8 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
     road ending on a more smoothed one meets it at its height); fine: the elevation is lidar
     (ABUT_*_FINE); obs(xy (m, 2), spec) -> measured heights (m,) of a
     part's samples (NaN where none) or None: they stand in for the DEM's (roadz.py, on coarse elevation: Grader._obs).
-    Pure given elev and obs."""
+    galleries: per part the avalanche galleries' lines (k, 2) in the frame near it (their profile: gallery_weight), or
+    None. Pure given elev and obs."""
     if not parts:
         return []
     ll = np.concatenate([lonlat for lonlat, _ in parts])
@@ -433,6 +445,8 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
     else:
         la, lo, _ = frame.enu_to_geodetic(allxy[:, 0], allxy[:, 1], 0.0)
         zall = np.asarray(elev(la, lo), np.float64)
+    glines = {id(ln): ln for g in (galleries or []) if g for ln in g}     # (each gallery's ends once: gallery_heights)
+    gends = dict(zip(glines, gallery_heights(frame, list(glines.values()), elev)))
     out, k = [], 0
     pend = []                   # (out index, _plan's arguments)
     for j, ((lonlat, spec), pr) in enumerate(zip(parts, prof)):
@@ -442,6 +456,7 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
         xy, before, after, step, bank_before, bank_after = pr
         nb, na = len(before), len(after)
         zx = zall[k:k + nb + len(xy) + na]
+        xyx = allxy[k:k + nb + len(xy) + na]
         k += nb + len(xy) + na
         if obs is not None:
             o = obs(xy, spec)
@@ -452,9 +467,9 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
         if abut is not None and ABUT_FILL_ON:
             ab = (bool(abut[j][0]), bool(abut[j][1]))
             if ab[0] and nb:            # (no extension past an end onto a bridge: its fill is the part's own)
-                zx, nb = zx[nb:], 0
+                zx, xyx, nb = zx[nb:], xyx[nb:], 0
             if ab[1] and na:
-                zx, na = zx[:len(zx) - na], 0
+                zx, xyx, na = zx[:len(zx) - na], xyx[:len(xyx) - na], 0
             z = zx[nb:nb + len(xy)]
             for at_end in (False, True):
                 if ab[int(at_end)]:
@@ -477,11 +492,18 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
         bank_xy = np.concatenate([bank_before, xy, bank_after])
         out.append(None)        # (planned below, with the elevation's cross slopes in one call)
         ud = (bool(under[j][0]), bool(under[j][1])) if under is not None else (False, False)
-        pend.append((len(out) - 1, xy, zx, spec, ab, (nb, na), step, bank_xy, (len(bank_before), len(bank_after)), ud))
+        gw = None
+        if galleries is not None and galleries[j]:
+            ends = [gends[id(ln)] for ln in galleries[j]]
+            w = gallery_weight(xyx, galleries[j], step)
+            if w.any():
+                gw = (w, gallery_z(xyx, galleries[j], ends))
+        pend.append((len(out) - 1, xy, zx, spec, ab, (nb, na), step, bank_xy, (len(bank_before), len(bank_after)), ud,
+                     gw))
     lidar = _lidar_banks(frame, elev, [(p[7], p[3]) for p in pend]) if fine else [None] * len(pend)
-    for (i, xy, zx, spec, ab, ext_, step_, bank_xy, bext, ud), lb in zip(pend, lidar):
+    for (i, xy, zx, spec, ab, ext_, step_, bank_xy, bext, ud, gw), lb in zip(pend, lidar):
         out[i] = _plan(xy, zx, spec, ab, ext_, step_, bank_xy=bank_xy, bank_ext=bext, lidar_bank=lb, fine=fine,
-                       under_deck=ud)
+                       under_deck=ud, gallery=gw)
     if SHARP_ON and cuts:           # (cuts False: the profile alone, Grader._stronger_z)
         _add_cuts(frame, [p if p is not None and sp.kind in roadsmod.BUILT else None
                           for p, (_ll, sp) in zip(out, parts)], elev)
@@ -587,13 +609,100 @@ def profile_sigma(spec):
     return max(SIGMA_M, CLASS_SIGMA_M.get(spec.cls, SIGMA_M)) if not getattr(spec, "link", False) else SIGMA_M
 
 
+def gallery_weight(xy, lines, step):
+    """(k,) weight of the gallery profile per profile sample xy (k, 2), every `step` m: 1 on a gallery's line (lines:
+    [(m, 2)] in the frame, GALLERY_ON_M), smoothstepping to 0 over GALLERY_BLEND_M along the profile past it; zeros
+    without lines. Pure."""
+    w = np.zeros(len(xy))
+    if not lines or not len(xy):
+        return w
+    on = np.zeros(len(xy), bool)
+    for ln in lines:
+        ln = np.asarray(ln, np.float64)[:, :2]
+        if len(ln) < 2:
+            continue
+        a, b = ln[:-1], ln[1:]
+        d = b - a
+        L2 = np.maximum((d * d).sum(1), 1e-12)
+        t = np.clip(((xy[:, None, :] - a[None]) * d[None]).sum(2) / L2[None], 0.0, 1.0)
+        gap = np.hypot(*(xy[:, None, :] - (a[None] + t[..., None] * d[None])).transpose(2, 0, 1)).min(1)
+        on |= gap <= GALLERY_ON_M
+    idx = np.flatnonzero(on)
+    if not len(idx):
+        return w
+    i = np.arange(len(xy))
+    j = np.clip(np.searchsorted(idx, i), 1, len(idx) - 1) if len(idx) > 1 else np.zeros(len(xy), np.int64)
+    near = np.minimum(np.abs(i - idx[j]), np.abs(i - idx[np.maximum(j - 1, 0)]))
+    x = np.clip(1.0 - near * step / GALLERY_BLEND_M, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def _line_arcs(lines):
+    """Per line (k, 2): its cumulative metres (k,). Pure."""
+    return [np.r_[0.0, np.cumsum(np.hypot(*np.diff(np.asarray(ln, np.float64)[:, :2], axis=0).T))] for ln in lines]
+
+
+def gallery_heights(frame, lines, elev):
+    """Per gallery line (k, 2) in the frame its ends' heights (z0, z1): the median of the elevation along it and on
+    along its end's direction, GALLERY_END_M either side of each end (the roof's edge: the scan sees the road just
+    outside). One elev call. Pure given elev."""
+    if not lines:
+        return []
+    pts = []
+    d = np.linspace(-GALLERY_END_M, GALLERY_END_M, 11)
+    for ln, s in zip(lines, _line_arcs(lines)):
+        ln = np.asarray(ln, np.float64)[:, :2]
+        for at, nb, sign in ((0, 1, -1.0), (-1, -2, 1.0)):
+            u = ln[at] - ln[nb]
+            u /= max(float(np.hypot(*u)), 1e-9)
+            inside = np.c_[np.interp(np.clip(s[at] - sign * np.maximum(-d, 0), 0, s[-1]), s, ln[:, 0]),
+                           np.interp(np.clip(s[at] - sign * np.maximum(-d, 0), 0, s[-1]), s, ln[:, 1])]
+            pts.append(np.where((d > 0)[:, None], ln[at] + u * np.maximum(d, 0)[:, None], inside))
+    P = np.concatenate(pts)
+    la, lo, _ = frame.enu_to_geodetic(P[:, 0], P[:, 1], 0.0)
+    z = np.asarray(elev(la, lo), np.float64).reshape(-1, len(d))
+    return [(float(np.median(z[2 * j])), float(np.median(z[2 * j + 1]))) for j in range(len(lines))]
+
+
+def gallery_z(xy, lines, ends):
+    """(k,) the gallery floor's height at each profile sample xy (k, 2): straight between its ends' heights (ends:
+    gallery_heights) along the nearest of the lines, on at its grade past its ends; NaN without lines. Pure."""
+    out = np.full(len(xy), np.nan)
+    best = np.full(len(xy), np.inf)
+    for ln, s, (z0, z1) in zip(lines, _line_arcs(lines), ends):
+        ln = np.asarray(ln, np.float64)[:, :2]
+        if len(ln) < 2 or s[-1] <= 0:
+            continue
+        a, d = ln[:-1], np.diff(ln, axis=0)
+        L2 = np.maximum((d * d).sum(1), 1e-12)
+        t = ((xy[:, None, :] - a[None]) * d[None]).sum(2) / L2[None]
+        tc = np.clip(t, 0.0, 1.0)
+        gap = np.hypot(*(xy[:, None, :] - (a[None] + tc[..., None] * d[None])).transpose(2, 0, 1))
+        j = gap.argmin(1)
+        g = gap[np.arange(len(xy)), j]
+        tj = tc[np.arange(len(xy)), j]
+        first, last = j == 0, j == len(a) - 1      # (past an end: on along its grade)
+        tj = np.where(first & (t[np.arange(len(xy)), j] < 0), t[np.arange(len(xy)), j], tj)
+        tj = np.where(last & (t[np.arange(len(xy)), j] > 1), t[np.arange(len(xy)), j], tj)
+        arc = s[j] + tj * np.sqrt(L2[j])
+        take = g < best
+        out[take] = (z0 + (z1 - z0) * arc / s[-1])[take]
+        best[take] = g[take]
+    return out
+
+
 def _plan(xy, z, spec, abut=(False, False), ext=(0, 0), step=PROFILE_STEP, bank_xy=None, bank_ext=None,
-          lidar_bank=None, fine=False, under_deck=(False, False)):
+          lidar_bank=None, fine=False, under_deck=(False, False), gallery=None):
     """ext: (before, after), samples of z past the part's ends (plan_roads): smoothed with it, then dropped. step: m
-    between the samples. bank_xy: the matching extended geometry, trimmed after the curvature/runoff pass."""
+    between the samples. bank_xy: the matching extended geometry, trimmed after the curvature/runoff pass. gallery: per
+    sample of z (the weight of the gallery floor (gallery_weight), its height (gallery_z)), or None."""
     built = spec.kind in roadsmod.BUILT
-    zs = smooth_profile(median_profile(z, step, MEDIAN_M if built else DIRT_MEDIAN_M), step,
-                        profile_sigma(spec))[ext[0]:len(z) - ext[1]]
+    zs = smooth_profile(median_profile(z, step, MEDIAN_M if built else DIRT_MEDIAN_M), step, profile_sigma(spec))
+    if gallery is not None:
+        w, zg = (np.asarray(v, np.float64) for v in gallery)
+        w = np.where(np.isfinite(zg), w, 0.0)
+        zs = zs + w * (np.nan_to_num(zg) - zs)
+    zs = zs[ext[0]:len(z) - ext[1]]
     # thin to VERTEX_STEP (the profile stays smooth between: linear in the grading pass)
     every = max(1, int(round(VERTEX_STEP / PROFILE_STEP)))
     keep = np.r_[np.arange(0, len(xy) - 1, every), len(xy) - 1]
@@ -1040,7 +1149,7 @@ class _Planner:
         plans = []
         if feats is not None and len(feats):
             specs = roadsmod.road_specs(feats, None, self.widths)
-            parts, ids, clipped = [], [], []
+            parts, ids, clipped, gals = [], [], [], []
             box = self._clip_box(key)
             keeps = []
             for i in range(len(feats)):
@@ -1052,12 +1161,17 @@ class _Planner:
                     continue
                 if specs[i] is None:
                     continue
+                gl = []                                         # its avalanche galleries (plan_roads galleries)
+                for ring in roadsmod.gallery_parts(feats, i):
+                    e, n, _ = self.frame.geodetic_to_enu(ring[:, 1], ring[:, 0], 0.0)
+                    gl.append(np.stack([np.asarray(e), np.asarray(n)], axis=1))
                 for ring in roadsmod.ground_parts(feats, i):     # not bridges / tunnels
                     pieces = self._near_cell(np.asarray(ring, np.float64), box)
                     for r in pieces:
                         parts.append((r, specs[i]))
                         ids.append(str(feats.ids[i]))
                         clipped.append(len(pieces) > 1 or r is not ring)
+                        gals.append(gl or None)
             pspecs = []
             abut = under = None
             if (ABUT_FILL_ON or APPROACH_ON) and parts:
@@ -1090,7 +1204,8 @@ class _Planner:
             for j, (fid, part, cl, p) in enumerate(zip(ids, parts, clipped,
                                                        plan_roads(self.frame, parts, self.elev, abut, ext, pins,
                                                                   coarse=coarse, fine=fine, under=under,
-                                                                  obs=self._obs(key)))):
+                                                                  obs=self._obs(key),
+                                                                  galleries=gals if any(gals) else None))):
                 if p is not None:
                     p.rid = road_id(fid)
                     if free is not None:
