@@ -10,8 +10,8 @@ TRACK_VERSION is never higher than VERSION: a release that changes the tracks se
 built before the split (up to 0.3.3) only stored "version", which then was the track version. Tracks built before
 versions existed have none and count as old. Small changes go in the third place (0.3.1), bigger ones in the second.
 """
-VERSION = "0.5.3"
-TRACK_VERSION = "0.5.0"
+VERSION = "0.5.4"
+TRACK_VERSION = "0.5.4"
 REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"
 # (the User-Agent for OSRM and Nominatim: their usage policies ask for an app name and a way to reach its maker)
