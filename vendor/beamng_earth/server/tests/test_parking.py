@@ -193,6 +193,16 @@ class AisleTest(unittest.TestCase):
         self.assertTrue(all(abs(s[0] - 40.0) > 4.0 for s in crossed))
         self.assertEqual(parking.aisle_spots([street], {"a"}, (0, 0, 256, 256)), [])
 
+    def test_no_stalls_on_the_slope_beside_an_aisle(self):
+        # an aisle along a slope's edge (y = 50): the ground north of its edge falls 1:1, the south is level
+        aisle = ("a", roads.Spec(4.0, "paved", False, "service", False), np.array([(0.0, 50.0, 0.0), (80.0, 50.0, 0.0)]), 0.0)
+        z = lambda x, y: np.where(np.asarray(y) > 52.0, 52.0 - np.asarray(y), 0.0)
+        spots = parking.aisle_spots([aisle], {"a"}, (0, 0, 256, 256), z_at=z)
+        self.assertTrue(spots and all(s[1] < 50 for s in spots))
+        self.assertEqual(len(spots), len([s for s in parking.aisle_spots([aisle], {"a"}, (0, 0, 256, 256)) if s[1] < 50]))
+        marks = parking.aisle_markings([aisle], {"a"}, (0, 0, 256, 256), z_at=z)
+        self.assertTrue(marks and all(max(n[1] for n in c["n"]) <= 50.0 for c in marks))
+
 
 def _z(*_a, **_k):
     return np.zeros(len(_a[0]))

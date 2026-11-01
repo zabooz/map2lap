@@ -177,22 +177,24 @@ def through_roads(roads, aisles=()):
 
 
 def _stalls_ok(centres, heading, z_at, through=None):
-    """Which stalls (centres (k, 2), noses toward heading, degrees from +x) stand clear of the through roads'
-    carriageways (through_roads, or None) and on ground no steeper than LOT_MAX_GRADE (z_at(x, y) -> the ground,
-    arrays): the plane through a stall's corners and centre."""
+    """Which stalls (centres (k, 2), noses toward heading, degrees from +x: one or (k,)) stand clear of the through
+    roads' carriageways (through_roads, or None) and on ground no steeper than LOT_MAX_GRADE (z_at(x, y) -> the
+    ground, arrays; None: any): the plane through a stall's corners and centre."""
     c = np.asarray(centres, np.float64).reshape(-1, 2)
     ok = np.ones(len(c), bool)
     if not len(c):
         return ok
-    a = math.radians(heading)
-    v = np.array([math.cos(a), math.sin(a)])
-    u = np.array([-v[1], v[0]])
+    a = np.radians(np.broadcast_to(np.asarray(heading, np.float64), (len(c),)))
+    v = np.stack([np.cos(a), np.sin(a)], 1)
+    u = np.stack([-v[:, 1], v[:, 0]], 1)
     hu, hv = LOT_SPOT_W_M / 2 - 0.1, LOT_SPOT_D_M / 2 - 0.1
     su = np.array([0.0, -1.0, 1.0, 1.0, -1.0])[:, None]
     sv = np.array([0.0, -1.0, -1.0, 1.0, 1.0])[:, None]
-    pts = (c[None] + (su * hu)[..., None] * u + (sv * hv)[..., None] * v).reshape(-1, 2)
+    pts = (c[None] + (su * hu)[..., None] * u[None] + (sv * hv)[..., None] * v[None]).reshape(-1, 2)
     if through is not None:
         ok &= np.array([through.clear(p, None, 0.0) for p in pts]).reshape(5, -1).all(0)
+    if z_at is None:
+        return ok
     z = np.asarray(z_at(pts[:, 0], pts[:, 1]), np.float64).reshape(5, -1)
     gu = (su * z).sum(0) / (4 * hu)        # (the least-squares plane's slopes: the points are symmetric)
     gv = (sv * z).sum(0) / (4 * hv)
@@ -338,11 +340,12 @@ def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None, roads_nea
 AISLE_END_M = 6.0           # stalls kept this far from an aisle's ends (its junctions)
 
 
-def aisle_spots(roads, aisles, box, blockers=(), lots=()):
+def aisle_spots(roads, aisles, box, blockers=(), lots=(), z_at=None):
     """Rows [x, y, z, heading, 1] of 90-degree stalls along both sides of the parking aisles (aisles: their
     fids; Overture maps many lots by their aisles alone), LOT_SPOT_W_M apart at stations of the aisle, clear
-    of its ends, of other roads, of buildings (blockers) and of mapped lots (lots: lot_spots covers those);
-    nose in, away from the aisle."""
+    of its ends, of other roads, of buildings (blockers) and of mapped lots (lots: lot_spots covers those), on
+    ground level enough (_stalls_ok; z_at(x, y) -> the ground, arrays; None: any); nose in, away from the aisle.
+    (An aisle along a slope's edge: its stalls on the valley side stood on the slope.)"""
     x0, y0, x1, y1 = box
     import fast
     others = fast.Others([(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads if fid not in aisles])
@@ -362,7 +365,8 @@ def aisle_spots(roads, aisles, box, blockers=(), lots=()):
         for side in (1.0, -1.0):
             n = np.stack([-D[:, 1], D[:, 0]], 1) * side
             Q = P[:, :2] + n * (spec.width / 2 + LOT_SPOT_D_M / 2)
-            for q, nn, p in zip(Q, n, P):
+            flat = _stalls_ok(Q, np.degrees(np.arctan2(n[:, 1], n[:, 0])), z_at)
+            for q, nn, p in zip(Q[flat], n[flat], P[flat]):
                 if not (_owns(box, q[0], q[1])):
                     continue
                 if not furniture._clear(np.array([q[0], q[1], p[2]]), others, fid):
@@ -588,10 +592,11 @@ def _aisle_side_segs(line, spec, st, keep, side):
     return segs
 
 
-def aisle_markings(roads, aisles, box, blockers=(), lots=()):
+def aisle_markings(roads, aisles, box, blockers=(), lots=(), z_at=None):
     """line_white chunks of the stall lines along both sides of the parking aisles (aisles: their fids),
     the rows aisle_spots parks in: clear of the aisle's ends, of other roads, of buildings and of mapped
-    lots. Nose away from the aisle. Clipped to the tile box. Deterministic."""
+    lots, on ground level enough (z_at: as aisle_spots'). Nose away from the aisle. Clipped to the tile box.
+    Deterministic."""
     x0, y0, x1, y1 = box
     import fast
     others = fast.Others([(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads if fid not in aisles])
@@ -615,7 +620,7 @@ def aisle_markings(roads, aisles, box, blockers=(), lots=()):
                 break
             n = np.stack([-D[:, 1], D[:, 0]], 1) * side
             Q = P[:, :2] + n * (spec.width / 2 + LOT_SPOT_D_M / 2)
-            keep = np.ones(len(st), bool)
+            keep = _stalls_ok(Q, np.degrees(np.arctan2(n[:, 1], n[:, 0])), z_at)
             for i, (q, p) in enumerate(zip(Q, P)):
                 if not (ex0 <= q[0] < ex1 and ey0 <= q[1] < ey1):
                     keep[i] = False

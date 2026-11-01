@@ -7823,6 +7823,12 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         aisles_out.update(aisles)
     if (park is not None and walks is not None) or (marks is not None and aisles):
         import parking
+
+        def z_at(x, y):                             # (the ground the stalls stand on: no stall on a slope)
+            if ground is not None:
+                return np.asarray(ground(x, y), np.float64)
+            la, lo, _ = frame.enu_to_geodetic(x, y, 0.0)
+            return frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2]
         if park is not None and walks is not None:      # curbside parking spots (parking.py)
             dirs = {}
             for fid, (f, i, sp) in seen.items():
@@ -7831,9 +7837,9 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                     dirs[fid] = (-1 if float(v) < 0 else 1) if v is not None else (sp.dir or 1)
             park.extend(parking.curb_spots(roads, walks, own_box, left_hand, dirs))
             if aisles:
-                park.extend(parking.aisle_spots(roads, aisles, own_box))
+                park.extend(parking.aisle_spots(roads, aisles, own_box, z_at=z_at))
         if marks is not None and aisles:            # stall lines along the aisles (parking.aisle_markings)
-            marks.extend(parking.aisle_markings(roads, aisles, wexact))
+            marks.extend(parking.aisle_markings(roads, aisles, wexact, z_at=z_at))
     return chunks
 
 
