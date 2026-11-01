@@ -495,6 +495,28 @@ class SharpCutTest(unittest.TestCase):
         self.assertIsNone(p.cut)
 
 
+class DropSideTest(unittest.TestCase):
+    """A road on a steep slope whose valley side falls away past its edge (a cutting's wall without a top: where the
+    ground falls away the road ends): its carriageway stays flat across. The rule acts beside the road past its edge
+    only; judged by the distance to each segment, the road's own segments a few metres on dropped out for the points
+    right of the centre line only, a 3-7 cm step there wherever the grade changed (the Freiwand gallery)."""
+
+    def test_flat_across_on_a_changing_grade(self):
+        x = np.arange(0.0, 81.0, 4.0)
+        z = 10.0 + 0.005 * (x - 40.0) ** 2                  # a sag: the segments ahead and behind do not cancel
+        cut = np.full((len(x) - 1, 6), np.nan)
+        cut[:, 3] = 5.0                                     # the right side: the ground falls away past the core
+        p = grading.Plan(np.c_[x, np.zeros(len(x))], z, 5.0, cut=cut, road_half=4.0)
+        p.rid = 1
+        ys = np.arange(-3.0, 3.01, 0.5)
+        px = np.full(len(ys), 40.0)
+        base = 10.0 + 0.3 * ys                              # 30 % across, falling to the right (y < 0)
+        got = grading.grade_points(px, ys, base, [p])
+        self.assertLess(float(got.max() - got.min()), 0.01, f"flat across the carriageway: {np.round(got - got[6], 3)}")
+        far = grading.grade_points(np.array([40.0]), np.array([-9.0]), np.array([10.0 - 2.7]), [p])
+        self.assertAlmostEqual(float(far[0]), 10.0 - 2.7, places=6, msg="past the edge the ground falls away as it is")
+
+
 class ShoulderTest(unittest.TestCase):
     def test_sidewalk_classes_keep_the_sidewalk_flat(self):
         res = roads.Spec(6.0, "paved", True, "residential")

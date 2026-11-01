@@ -1602,9 +1602,13 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                     } else { 0.0 };
                     // (and not far past a road's end: beside a tunnel the approach's last segment flattened a strip
                     // 10 m along it, a pit beside the arch, 2026-10-17)
-                    // (on a cutting's side the core ends at its wall; where the ground falls away there the road ends)
+                    // (on a cutting's side the core ends at its wall; where the ground falls away there the road ends:
+                    // for a point beside the segment past its wall, not ahead of it, as the wall's rule. Judged by its
+                    // distance, the road's own segments a few metres on dropped out for the points on one half of its
+                    // carriageway only: a step of 3-7 cm at the centre line wherever the grade or the bend changed, on a
+                    // steep slope's road whose shelf the elevation data lacks, the Grossglockner road's Freiwand gallery)
                     let hs = if cwall.is_finite() { h[s].min(cwall) } else { h[s] };
-                    let drop = cwall.is_finite() && !ctop.is_finite() && d > cwall;
+                    let drop = cwall.is_finite() && !ctop.is_finite() && side > cwall && ahead < side;
                     let wall = beff[idx] - target > wall_cut && ahead < side && ahead < wall_ahead;
                     let tt = if wall { wall_t } else { (slope_run * (target - beff[idx]).abs()).clamp(t_min, t_max) };
                     // a wall: flat on one terrain step behind it (no slope in front of its face), then up
