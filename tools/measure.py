@@ -45,21 +45,27 @@ EDGE_M = 0.10           # m step against the cross slope between neighbouring po
 WIDTH_MAX_M = 15.0      # m each side of the line the carriageway is looked for
 WIDTH_STEP_M = 0.5      # m between the points across it
 PAINT = ("nocol_road_asphalt", "1ROAD_deck")    # (the visible carriageway: road asphalt, bridge decks)
+FLOOR = "1WALL_deck_con"    # a tunnel's floor slab (its top: the surface a car drives on in the tube)
 G_LIMIT = 0.5           # G at 100 km/h
 V = 100 / 3.6
 
 
 def _surfaces(track, box):
-    """Triangles (n, 3, 3) of the driving surfaces in box (x0, z0, x1, z1) and per triangle: is it a bridge deck."""
+    """Triangles (n, 3, 3) of the driving surfaces in box (x0, z0, x1, z1) and per triangle: is it a bridge deck.
+    (A tunnel's floor slab counts by its top faces: without it the lane in a tube read the hill over it, 30 G spikes.)"""
     tris, deck = [], []
     for p in glob.glob(os.path.join(HERE, "out", "tracks", track, "obj", "parts", "t_*.obj")):
         for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
             d = name.startswith("1ROAD_deck")
-            if "_ground_" not in name and not d:
+            floor = name.startswith(FLOOR)
+            if "_ground_" not in name and not d and not floor:
                 continue
             t = P[T]
             c = t.mean(1)
             keep = (c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])
+            if floor:               # (the slab's top: faces looking up, not its sides or underside)
+                n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+                keep &= n[:, 1] > 0.7 * np.linalg.norm(n, axis=1)
             tris.append(t[keep])
             deck.append(np.full(int(keep.sum()), d))
     return np.concatenate(tris), np.concatenate(deck)
