@@ -362,6 +362,20 @@ class ArchRaise(unittest.TestCase):
         self.assertEqual(out[4], 12.0, "past its portal as it was")
         self.assertTrue(np.array_equal(roads.arch_raise([part], {}, px, py, z), z), "a full tunnel: nothing")
 
+    def test_a_twin_arch_past_the_shared_tube_lies_open(self):
+        """(twin_spans) two carriageways under one tube, one mapped 10 m longer: under the shared tube the ground is
+        raised over both; on the longer one's 10 m past it (no tube over it) it is cut to its floor, as at a mouth."""
+        spec = Spec(11.0, "paved", False, "trunk")
+        a = ("a", spec, np.array([[0.0, 0.0], [70.0, 0.0]]), np.array([10.0, 10.0]), 0.0)
+        b = ("b", spec, np.array([[70.0, 9.5], [10.0, 9.5]]), np.array([10.0, 10.0]), 0.0)
+        px = np.array([6.0, 40.0, 40.0])
+        py = np.array([0.0, 0.0, 9.5])
+        z = np.full(3, 12.0)
+        out = roads.arch_raise([a, b], {"a": 4.0, "b": 4.0}, px, py, z)
+        self.assertAlmostEqual(out[0], 9.98, msg="past the shared tube: open at its floor")
+        self.assertAlmostEqual(out[1], 10.0 + 4.0 + roads.ARCH_SOIL_MIN, msg="under the tube: over the vault")
+        self.assertAlmostEqual(out[2], 10.0 + 4.0 + roads.ARCH_SOIL_MIN, msg="the other twin too")
+
 
 class Sections(unittest.TestCase):
     """A long 'tunnel' cut by its cover (Central Park's 79th Street Transverse, 683 m in the map: a sunken road with

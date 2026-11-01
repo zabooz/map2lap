@@ -6219,6 +6219,11 @@ def tunnel_hole_mask(parts, u, cx, cy, square, heights=None, mouths=None):
 
 ARCH_SIDE_M = 1.0           # m beside a low arch's tube its soil is raised too
 ARCH_SOIL_MIN = 0.6         # m of ground kept over a low arch's vault (arch_raise)
+# Twin tunnels (twin_tunnels) have one tube round both, along the stretch they run side by side; the grading keeps the
+# ground over that stretch alone (grading._twin_trimmed). A twin's arch reaching past it has no tube over it: its soil is
+# not raised there, its floor lies open as at a mouth. Raised over the twin's whole mapped length, a divided road's
+# underpass whose carriageways' portals the map puts 10 m apart had the ground 6 m over the longer one's floor in front
+# of the shared tube: a wall across its lanes, one-sided, and no ground to drive on under it.
 
 
 def arch_raise(parts, heights, px, py, z, mouths=None):
@@ -6233,6 +6238,7 @@ def arch_raise(parts, heights, px, py, z, mouths=None):
     fast.require(0, "arch_raise_part")
     px = np.ascontiguousarray(px, np.float64)
     py = np.ascontiguousarray(py, np.float64)
+    tubes = twin_spans(parts)
     for fid, spec, xy, zf, _lon in parts:
         th = (heights or {}).get(fid)
         if th is None or th >= roadmesh.TUNNEL_H - 0.05:
@@ -6242,17 +6248,57 @@ def arch_raise(parts, heights, px, py, z, mouths=None):
         if len(xy) < 2 or not np.isfinite(zf).all():
             continue
         hw = spec.width / 2 + roadmesh.TUNNEL_SHOULDER + ARCH_SIDE_M
-        # the Rust kernel (per part) on the points in its box
         m0, m1 = (mouths or {}).get(fid, (True, True))
-        lo, hi = xy.min(0) - hw, xy.max(0) + hw
-        k = np.flatnonzero((px >= lo[0]) & (px <= hi[0]) & (py >= lo[1]) & (py <= hi[1]))
-        if len(k):
-            zk = np.ascontiguousarray(z[k])
-            fast._ef.arch_raise_part(zk, np.ascontiguousarray(px[k]), np.ascontiguousarray(py[k]),
-                                     np.ascontiguousarray(xy), np.ascontiguousarray(zf), float(hw), float(th),
-                                     float(ARCH_SOIL_MIN), float(LOW_HOLE_M), bool(m0), bool(m1))
-            z[k] = zk
+        pieces = [(xy, zf, m0, m1, LOW_HOLE_M)]
+        if fid in tubes:                # (a twin: raised under the shared tube, open past it)
+            s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+            a, b = tubes[fid]
+            pieces = [(*_line_piece(xy, zf, s, a, b), m0 or a > 0.0, m1 or b < s[-1], LOW_HOLE_M)]
+            pieces += [(*_line_piece(xy, zf, s, u, v), True, True, math.inf) for u, v in ((0.0, a), (b, s[-1])) if v > u]
+        for pxy, pz, p0, p1, mouth_m in pieces:
+            if len(pxy) < 2:
+                continue
+            # the Rust kernel (per piece) on the points in its box
+            lo, hi = pxy.min(0) - hw, pxy.max(0) + hw
+            k = np.flatnonzero((px >= lo[0]) & (px <= hi[0]) & (py >= lo[1]) & (py <= hi[1]))
+            if len(k):
+                zk = np.ascontiguousarray(z[k])
+                fast._ef.arch_raise_part(zk, np.ascontiguousarray(px[k]), np.ascontiguousarray(py[k]),
+                                         np.ascontiguousarray(pxy), np.ascontiguousarray(pz), float(hw), float(th),
+                                         float(ARCH_SOIL_MIN), float(mouth_m), bool(p0), bool(p1))
+                z[k] = zk
     return z
+
+
+def twin_spans(parts):
+    """{fid: (from, to)} the arc range (m along its line) of each twin tunnel part (twin_tunnels, among parts with
+    finite floors) under the tube round both: from the shared midline's first point to its last, projected on it.
+    Pure."""
+    fin = [p for p in parts if np.isfinite(np.asarray(p[3], np.float64)).all()]
+    out = {}
+    for i, j, mid, _w in twin_tunnels(fin):
+        for n in (i, j):
+            xy = np.asarray(fin[n][2], np.float64)[:, :2]
+            ends = sorted(_arc_on(xy, np.asarray(q, np.float64)) for q in (mid[0, :2], mid[-1, :2]))
+            out[fin[n][0]] = (ends[0], ends[1])
+    return out
+
+
+def _arc_on(xy, q):
+    """m along polyline xy (k, 2) to its point nearest q. Pure."""
+    a, ab = xy[:-1], np.diff(xy, axis=0)
+    l2 = np.maximum((ab * ab).sum(1), 1e-12)
+    t = np.clip(((q - a) * ab).sum(1) / l2, 0.0, 1.0)
+    i = int(np.argmin(np.hypot(*(a + t[:, None] * ab - q).T)))
+    return float(np.sqrt(l2[:i]).sum() + np.sqrt(l2[i]) * t[i])
+
+
+def _line_piece(xy, z, s, a, b):
+    """The piece of polyline xy (k, 2) with heights z (k,), s its arc lengths, from arc a to arc b: (xy, z), its ends
+    interpolated. Pure."""
+    inner = (s > a) & (s < b)
+    ss = np.r_[a, s[inner], b]
+    return np.c_[np.interp(ss, s, xy[:, 0]), np.interp(ss, s, xy[:, 1])], np.interp(ss, s, z)
 
 
 def tunnel_floor_at(parts, x, y):
