@@ -73,13 +73,18 @@ effects, parenthetical asides for the less important reason.
 **Versions** (`src/app/version.py`): `TRACK_VERSION` goes up only when a change alters how built tracks look or drive;
 `VERSION` goes up with every release.
 
-**The Rust module.** When a function's signature or behaviour changes, rebuild it and copy the DLL over the `.pyd`:
+**The Rust module.** When a function's signature or behaviour changes, rebuild it for both systems: the DLL over the
+`.pyd` (Windows) and, in WSL, the `.so` (Linux release):
 
 ```bash
 cd vendor/beamng_earth/native/earthfast
 export PATH="$HOME/.cargo/dlltool-llvm:$HOME/.cargo/bin:$PATH"
 cargo build --release
 cp target/release/earthfast.dll ../../server/earthfast.pyd     # stop the generator page first: it locks the file
+
+# Linux, in WSL (Ubuntu-24.04) in the same folder; its own target folder keeps it apart from the Windows build
+CARGO_TARGET_DIR=~/earthfast-target cargo build --release --locked
+cp ~/earthfast-target/release/libearthfast.so ../../server/earthfast.abi3.so
 ```
 
 New arguments get defaults so older callers keep working, and a feature constant in the module (`m.add(...)`) that

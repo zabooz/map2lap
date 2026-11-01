@@ -163,6 +163,13 @@ release's Python has it in `python312._pth`.
   `target/release/earthfast.dll` → `server/earthfast.pyd` (stop the page first; or
   `tools/update_beamng_earth.py --build-native`). The `.pyd` must match the Python version (3.12). No `std::env` in
   the Rust code: reading environment variables crashed with this toolchain.
+- **The Linux build of it** (`server/earthfast.abi3.so`, for the Linux release) is built in WSL (Ubuntu 24.04,
+  `build-essential` and rustup) from the same folder, with its own target folder so it doesn't mix with the Windows
+  one: `CARGO_TARGET_DIR=~/earthfast-target cargo build --release --locked`, then
+  `~/earthfast-target/release/libearthfast.so` → `server/earthfast.abi3.so`. It is abi3 (any Python ≥ 3.10) and
+  needs glibc 2.35 (the distro it is built on sets that: Ubuntu 22.04, Debian 12 and newer). Every change to the
+  Rust code builds both files; a stale one gives the other system different roads (`AC_EXPORT_YIELD` and the
+  module's `VERSION` show which rules it has).
 
 ### Terrain and physics like BeamNG.Earth
 
