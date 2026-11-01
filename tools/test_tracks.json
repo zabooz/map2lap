@@ -211,42 +211,21 @@
    "max_warp_at_m": 0.0
   }
  },
- "griffen_tunnel_test": {
-  "title": "Griffen Tunnel Test",
-  "about": "A2 near Griffen: a 400 m motorway tunnel, through both portals (the road in front of a portal and the tunnel's floor)",
-  "points": [
-   [
-    46.70573006913425,
-    14.778730273246767
-   ],
-   [
-    46.70949685060435,
-    14.778478145599367
-   ]
-  ],
-  "width": 50.0,
-  "spots": [
-   [
-    "14-20",
-    "the south portal: road, then the tunnel's floor, no hole, no step"
-   ],
-   [
-    "414-420",
-    "the north portal: the tunnel's floor, then the road, no hole, no step"
-   ]
-  ]
- },
  "griffen_bruecke_test": {
   "title": "Griffen Bruecke Test",
-  "about": "A2 near Griffen: out of a tunnel, then a 320 m valley bridge climbing about 4 % (a climbing deck's start, a tunnel's portal)",
+  "about": "A2 near Griffen, eastbound: through the 620 m Kollmanntunnel, then onto a 320 m valley bridge climbing about 4 % (a tunnel's portals and tube, a climbing deck's start)",
   "points": [
    [
-    46.700044481426936,
-    14.757374658137142
+    46.697458590443055,
+    14.750292336075153
    ],
    [
-    46.70000257873528,
-    14.760494698259551
+    46.69935804621919,
+    14.754415568415642
+   ],
+   [
+    46.7001187873196,
+    14.75919952698334
    ],
    [
     46.69964221795705,
@@ -256,42 +235,38 @@
   "width": 30.0,
   "spots": [
    [
-    "70-90",
-    "the tunnel's portal: its floor, then the road, no hole, no step"
+    "70-80",
+    "the west portal: the road, then the tunnel's floor"
    ],
    [
-    "120-145",
-    "onto the bridge: on at the road's grade, no ramp up"
-   ]
-  ]
- },
- "griffen_kollmanntunnel_test": {
-  "title": "Griffen Kollmanntunnel Test",
-  "about": "A2 near Griffen, westbound: the valley bridge, whose map data ends about 57 m short of the eastbound one's, then the Kollmanntunnel, split into pieces at its portal (a tube in pieces, a bridge mapped short)",
-  "points": [
-   [
-    46.699735531714396,
-    14.763513738461914
+    "80-695",
+    "the tube, walls and vault the whole way"
    ],
    [
-    46.700161022351004,
-    14.76018266225278
+    "693-703",
+    "the east portal: the floor, then the road (the ground in front lies a few cm over the floor: open)"
    ],
    [
-    46.699977407350794,
-    14.755073338868748
+    "740-760",
+    "onto the valley bridge: on at the road's grade, no ramp up"
+   ],
+   [
+    "1060-1075",
+    "off the valley bridge"
    ]
   ],
-  "width": 30.0,
-  "spots": [
-   [
-    "20-100",
-    "onto the bridge: the road dives about 10 m where the map's bridge ends short (open)"
-   ],
-   [
-    "410-660",
-    "the Kollmanntunnel: its tube, walls and vault the whole way"
-   ]
-  ]
+  "reference": {
+   "length_m": 1245,
+   "over_05g_m": 10,
+   "lanes_over_05g_m": 12,
+   "max_g": 1.29,
+   "max_g_at_m": 699.0,
+   "edges_m": 1,
+   "transitions": 4,
+   "max_g_transition": 0.9,
+   "warp_m": 169,
+   "max_warp": 1.4,
+   "max_warp_at_m": 956.0
+  }
  }
 }
