@@ -139,6 +139,27 @@ def _segment_looks(frame, x0, y0, feats_list, urban, widths, kind, roads_of):
     return np.array(looks + [names.index("motorway")], np.uint8)[np.minimum(nr, len(looks))]
 
 
+def _open_segments(frame, x0, y1, opened):
+    """(segs (m, 4) in pixels of the tile texture, half widths (m,) in pixels, look (m,) ROAD_LOOKS number) of the
+    tunnels' open sections opened ([(lat (k,), lon (k,), Spec)], grading's open_tunnels), or None. They are roads on
+    the ground that the map calls tunnels (an avalanche gallery's open side, an underpass in the open): the physics
+    paints them as road (surface.paint_roads' extra), the texture has to as well, or grass flickers through the
+    road mesh lying on it. Pure."""
+    names, px = list(ROAD_LOOKS), TEX_PX / TILE
+    segs, hws, look = [], [], []
+    for la, lo, spec in opened:
+        if spec is None or spec.kind not in surfacemod.PHOTO_ROAD_RGBA or len(la) < 2:
+            continue
+        e, n, _ = frame.geodetic_to_enu(np.asarray(la, np.float64), np.asarray(lo, np.float64), np.zeros(len(la)))
+        c, r = (np.asarray(e) - x0) * px, (y1 - np.asarray(n)) * px
+        segs.append(np.stack([c[:-1], r[:-1], c[1:], r[1:]], axis=1))
+        hws.append(np.full(len(c) - 1, (spec.width / 2 + surfacemod.PHOTO_ROAD_EDGE_M) * px))
+        look.append(np.full(len(c) - 1, names.index(_look(spec, None)), np.uint8))
+    if not segs:
+        return None
+    return np.concatenate(segs), np.concatenate(hws), np.concatenate(look)
+
+
 def _streams(frame, md, tx, ty, px_m):
     """The water lines around the tile (STREAMS): (segments (m, 4) in pixels of the tile texture, half width of the water,
     half width with the bank (pixels), dry (m,)), or None."""
@@ -307,7 +328,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
 
     # surface per sample like blockworker.build (land use, slope -> rock, roads, car parks)
     idx = np.full((n, n), surfacemod.GRASS, np.int64)
-    feats, paths = [], []
+    feats, paths, opened = [], [], []
     if s.surface is not None:
         classes, _ = s.surface.classes(keep["lat"], keep["lon"])
         idx = surfacemod.classify(classes, keep["u"], CELL, keep["lat"], keep["lon"])
@@ -316,8 +337,9 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         if paths:                                           # (under the roads)
             idx = _paint_paths(idx, paths, x0, y0)
         if feats:
+            opened = blockworker._open_tunnels(g, keep)
             idx = surfacemod.paint_roads(idx, keep["lat"], keep["lon"], feats, CELL, s.surface.urban, s.widths,
-                                         blockworker._open_tunnels(g, keep))
+                                         opened)
         if hasattr(s.surface, "lots"):
             idx = surfacemod.paint_lots(idx, keep["lat"], keep["lon"], s.surface.lots(keep["lat"], keep["lon"]))
         if getattr(s.surface, "gas_pads", False):          # gas station forecourts (make_obj._init_scenery)
@@ -433,7 +455,13 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
                                         roads_of=ro)
         if got is not None:
             segs, hws, kind = got
-            look = _segment_looks(frame, x0, y0, feats, s.surface.urban, s.widths, kind, ro)
-            _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn=True)
+            got = (segs, hws, _segment_looks(frame, x0, y0, feats, s.surface.urban, s.widths, kind, ro))
+        more = _open_segments(frame, x0, y1, opened)
+        if more is not None:
+            got = more if got is None else tuple(np.concatenate([a, b]) for a, b in zip(got, more))
+        if got is not None:
+            segs, hws, look = got
+            _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64),
+                         np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True)
     Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(out_tex, quality=88)
     return P, UV, groups, out_tex
