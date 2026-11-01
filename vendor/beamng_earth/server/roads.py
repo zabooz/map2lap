@@ -5250,34 +5250,173 @@ def tunnel_sections(s, g, open_cover=None, full_cover=None, min_m=SECTION_MIN_M)
     return _shallow_full_low(s, g, np.asarray(f), np.asarray(k))
 
 
-# An avalanche gallery (osmtags.GALLERY_FLAG) is a roof against the slope on pillars, open toward the valley. Where the
-# elevation data sees cover over its line (the roof, the slope over it) tunnel_sections calls it covered, and that is
-# where it stands; the map's way runs on past it (the Grossglockner road's Freiwand gallery: the way from route metre
-# 295, its roof from 575). Its covered sections are GALLERY_KIND: a road in the open at the tunnel's floor (straight
-# under the roof: the lower hull, the scan never saw the road there), graded and painted as an open section, with the
-# gallery drawn over it (roadmesh.tunnel's galleries). As a tube it stood in the open, a low arch's grass cap across the
-# lanes, its terrain holes and portal faces in the slope.
+# An avalanche gallery (osmtags.GALLERY_FLAG) is a roof against the slope on pillars, open toward the valley: a road in
+# the open at the tunnel's floor (straight under the roof: the lower hull, the scan never saw the road there), graded and
+# painted as an open section, with the gallery drawn over it (roadmesh.tunnel's galleries): GALLERY_KIND along all of
+# the map's gallery. The elevation data cannot tell its roof from the rock it leans on: the cover over the floor
+# (tunnel_sections) put the Grossglockner road's Freiwand gallery's roof from route metre 575 or 296 or nowhere as the
+# floor's height moved by a few metres. As a tube it stood in the open, a low arch's grass cap across the lanes, its
+# terrain holes and portal faces in the slope. (Where the map's way runs on past the real roof, so does the drawn one.)
 GALLERY_KIND = 3
 GALLERY_ON_M = 1.0      # m from a gallery's line a tunnel sample counts as on it (the same line, resampled)
 
 
 def gallery_kinds(xy, kinds, lines, kind=GALLERY_KIND):
-    """kinds (tunnel_sections') with the covered samples (1, 2) of xy (k, 2) within GALLERY_ON_M of a gallery's line
-    (lines: [(m, 2)] in the same frame) set to kind. Pure."""
+    """kinds (tunnel_sections') with the samples of xy (k, 2) within GALLERY_ON_M of a gallery's line (lines: [(m, 2)] in
+    the same frame) set to kind (UNDER_DECK kept). Pure."""
     kinds = np.array(kinds, np.int64)
-    xy = np.asarray(xy, np.float64)[:, :2]
-    on = np.zeros(len(kinds), bool)
-    for ln in lines:
-        ln = np.asarray(ln, np.float64)[:, :2]
-        if len(ln) < 2:
-            continue
-        a, b = ln[:-1], ln[1:]
-        d = b - a
-        t = np.clip(((xy[:, None, :] - a[None]) * d[None]).sum(-1) / np.maximum((d * d).sum(-1), 1e-12)[None], 0.0, 1.0)
-        gap = np.hypot(*(xy[:, None, :] - (a[None] + t[..., None] * d[None])).transpose(2, 0, 1)).min(axis=1)
-        on |= gap <= GALLERY_ON_M
-    kinds[on & ((kinds == 1) | (kinds == 2))] = kind
+    on = _near_lines(xy, lines, GALLERY_ON_M)
+    kinds[on & (kinds != UNDER_DECK)] = kind
     return kinds
+
+
+def _near_lines(xy, lines, tol):
+    """Which points of xy (k, 2) lie within tol m of one of the polylines lines ([(m, 2)]). Pure."""
+    xy = np.asarray(xy, np.float64)[:, :2]
+    on = np.zeros(len(xy), bool)
+    for ln in lines:
+        on |= _line_gap(xy, ln)[0] <= tol
+    return on
+
+
+def _line_gap(xy, ln):
+    """(distance (k,), segment index (k,), fraction along it (k,)) of each point of xy (k, 2) to the polyline ln (m, 2)'s
+    nearest point; inf without a segment. Pure."""
+    xy = np.asarray(xy, np.float64)[:, :2]
+    ln = np.asarray(ln, np.float64)[:, :2]
+    if len(ln) < 2:
+        return np.full(len(xy), np.inf), np.zeros(len(xy), np.int64), np.zeros(len(xy))
+    a, d = ln[:-1], ln[1:] - ln[:-1]
+    t = np.clip(((xy[:, None, :] - a[None]) * d[None]).sum(-1) / np.maximum((d * d).sum(-1), 1e-12)[None], 0.0, 1.0)
+    gap = np.hypot(*(xy[:, None, :] - (a[None] + t[..., None] * d[None])).transpose(2, 0, 1))
+    k = gap.argmin(axis=1)
+    r = np.arange(len(xy))
+    return gap[r, k], k, t[r, k]
+
+
+# A tunnel's floor is the lower hull of the ground along it and along the road going on out of each portal, as far as
+# that road's profile smoothing reaches (approach_reach: grading.profile_sigma's three sigma); the approach's road lies
+# at most at that hull (grading.Grader._portal_lows). Hulled over the tunnel alone, its portal stood on whatever the
+# elevation data had at that one point and the road climbed to it: the Freiwand gallery's way began on a 6 m step of the
+# cliff in the data, its approach 30 % up to it and 11 % on (a crest the cars took off from). Where the approach's
+# ground lies on the hull (a valley road into a mountain) nothing changes: the Lilienberg tunnel's approaches by under
+# 10 cm. (A road that really crosses a crest just before a portal would be cut down to the hull there.)
+APPROACH_JOIN_M = 2.0   # m between a portal and the end of the ground road going on from it (the map's shared node)
+APPROACH_ON_M = 1.0     # m from an approach's line a road sample takes its hull's height (the same line, resampled)
+APPROACH_TURN = 0.0     # cosine: an approach leaves its portal less than 90 degrees off the tunnel's direction
+
+
+def approach_reach(spec):
+    """m of a tunnel's approaches for road spec: its profile smoothing's reach (grading.profile_sigma)."""
+    import grading
+    return 3.0 * grading.profile_sigma(spec) + grading.PROFILE_STEP
+
+
+def approach_lines(feats, frame):
+    """The ground roads' lines [(m, 2)] of feats in the frame (ground_parts of the roads road_specs builds)."""
+    out = []
+    rs = road_specs(feats)
+    for i in range(len(feats)):
+        if rs[i] is None:
+            continue
+        for ring in ground_parts(feats, i):
+            e, n = mapgeom.enu_xy(feats, frame, ring)
+            out.append(np.stack([e, n], axis=1))
+    return out
+
+
+def portal_approaches(xy, lines, reach):
+    """(before, after) of a tunnel part's line xy (k, 2): the ground road going on out of its start / its end, from the
+    portal outward reach m along the one of lines ([(m, 2)] in the same frame) with an end within APPROACH_JOIN_M of the
+    portal that leaves it most nearly straight on ((m, 2), its first point at the portal); None where none does. Pure."""
+    xy = np.asarray(xy, np.float64)[:, :2]
+    out = []
+    for end in (0, 1):
+        line = xy if end == 0 else xy[::-1]
+        p = line[0]
+        d = p - _along(line, 5.0)               # (out of the tunnel)
+        d = d / max(float(np.hypot(*d)), 1e-9)
+        best, bc = None, APPROACH_TURN
+        for ln in lines:
+            ln = np.asarray(ln, np.float64)[:, :2]
+            if len(ln) < 2:
+                continue
+            for o in (ln, ln[::-1]):
+                if float(np.hypot(*(o[0] - p))) > APPROACH_JOIN_M:
+                    continue
+                v = _along(o, 5.0) - o[0]
+                c = float(v @ d) / max(float(np.hypot(*v)), 1e-9)
+                if c > bc:
+                    best, bc = o, c
+        if best is None:
+            out.append(None)
+            continue
+        sa = np.r_[0.0, np.cumsum(np.hypot(*np.diff(best, axis=0).T))]
+        cut = best[sa < reach]
+        if sa[-1] > reach:
+            cut = np.vstack([cut, _along(best, reach)])
+        out.append(cut if len(cut) >= 2 else None)
+    return tuple(out)
+
+
+def _along(line, m):
+    """The point m along polyline line (k, 2) (its last point past its end). Pure."""
+    sa = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
+    m = min(float(m), float(sa[-1]))
+    return np.array([np.interp(m, sa, line[:, 0]), np.interp(m, sa, line[:, 1])])
+
+
+def approach_floor(s, g, before=None, after=None):
+    """tunnel_sections of a tunnel's samples (s: arc lengths, g: ground) with its approaches' joined on (before /
+    after: (arc lengths from the portal outward, > 0; their ground), or None): (floor, kinds) at the tunnel's samples,
+    and (before, after) the hull at the approaches' samples (None where none). Pure."""
+    s, g = np.asarray(s, np.float64), np.asarray(g, np.float64)
+    S, G, nb, na = [s], [g], 0, 0
+    if before is not None and len(before[0]):
+        sb, gb = np.asarray(before[0], np.float64), np.asarray(before[1], np.float64)
+        S.insert(0, s[0] - sb[::-1])
+        G.insert(0, gb[::-1])
+        nb = len(sb)
+    if after is not None and len(after[0]):
+        sa, ga = np.asarray(after[0], np.float64), np.asarray(after[1], np.float64)
+        S.append(s[-1] + sa)
+        G.append(ga)
+        na = len(sa)
+    floor, kinds = tunnel_sections(np.concatenate(S), np.concatenate(G))
+    k = len(s)
+    return (floor[nb:nb + k], np.asarray(kinds)[nb:nb + k],
+            (floor[:nb][::-1] if nb else None, floor[nb + k:] if na else None))
+
+
+def approach_samples(apps, step, ground_fn):
+    """portal_approaches' (before, after) resampled every step m, the portal left out, with their ground (ground_fn(xy
+    (m, 2)) -> (m,)): each (arc lengths from the portal, ground, points (m, 2)) or None. Pure given ground_fn."""
+    import grading
+    out = []
+    for a in apps:
+        if a is None:
+            out.append(None)
+            continue
+        q, sa = grading.resample(a, step)
+        if len(q) < 2:
+            out.append(None)
+            continue
+        out.append((sa[1:], np.asarray(ground_fn(q[1:]), np.float64), q[1:]))
+    return tuple(out)
+
+
+def approach_heights(xy, lows):
+    """(k,) the approaches' hull height at each point of xy (k, 2) within APPROACH_ON_M of one of lows ([(line (m, 2),
+    z (m,))]: interpolated along it), NaN elsewhere; the lowest where several. Pure."""
+    xy = np.asarray(xy, np.float64)[:, :2]
+    out = np.full(len(xy), np.nan)
+    for ln, z in lows:
+        gap, k, t = _line_gap(xy, ln)
+        z = np.asarray(z, np.float64)
+        zz = z[k] + t * (z[np.minimum(k + 1, len(z) - 1)] - z[k])
+        on = gap <= APPROACH_ON_M
+        out[on] = np.fmin(out[on], zz[on])
+    return out
 
 
 def _shallow_full_low(s, g, floor, kinds):
@@ -5455,7 +5594,7 @@ class TunnelProfiles(BridgeProfiles):
             ge = np.asarray(self._ends_ground(xy[[0, -1]]), np.float64)
             g = g.copy()
             g[0], g[-1] = ge[0], ge[-1]
-            floor, kinds = tunnel_sections(s, g)
+            floor, kinds, _ = approach_floor(s, g, *self._approaches(xy, pool[k][0], gfn))
             kinds = portal_cover(kinds, g - floor, pool[k][0])
             kinds = self._cover_roads(xy, s, kinds, ground)
             kinds = gallery_kinds(xy, kinds, self._gal.get(str(k[0]), ()))
@@ -5552,6 +5691,29 @@ class TunnelProfiles(BridgeProfiles):
         except Exception as ex:             # the hull rather than no tunnel
             log.debug("observed tunnel floor %s: %s: %s", k, type(ex).__name__, ex)
             return floor
+
+    def _approaches(self, xy, spec, gfn):
+        """approach_samples of tunnel line xy (k, 2) (road spec) among the ground roads of its portals' map cells
+        (portal_approaches), every DECK_STEP on the ground gfn: (before, after)."""
+        if spec is None or len(xy) < 2:
+            return None, None
+        la, lo, _ = self.frame.enu_to_geodetic(xy[[0, -1], 0], xy[[0, -1], 1], 0.0)
+        lines = []
+        for ck in {str(c): c for c in (mapcells.cell_of(float(a), float(b)) for a, b in zip(la, lo))}.values():
+            lines += self._approach_lines(ck)
+        return approach_samples(portal_approaches(xy, lines, approach_reach(spec)), DECK_STEP, gfn)
+
+    def _approach_lines(self, key):
+        """approach_lines of map cell key, made once."""
+        memo = self.__dict__.setdefault("approach_memo", {})
+        with self.lock:
+            got = memo.get(str(key))
+        if got is None:
+            feats = self.cell_fn(key)
+            got = approach_lines(feats, self.frame) if feats is not None and len(feats) else []
+            with self.lock:
+                memo[str(key)] = got
+        return got
 
     def _load(self, key, pool, ground):
         super()._load(key, pool, ground)

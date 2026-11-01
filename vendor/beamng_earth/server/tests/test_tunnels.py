@@ -187,9 +187,21 @@ class GalleryTest(unittest.TestCase):
         xy = np.c_[np.arange(6.0) * 4.0, np.zeros(6)]
         kinds = np.array([0, 1, 2, 2, 0, 1])
         on = [np.array([[0.0, 0.5], [12.0, 0.5]])]
-        self.assertEqual(roads.gallery_kinds(xy, kinds, on).tolist(), [0, 3, 3, 3, 0, 1], "covered and on the line")
+        self.assertEqual(roads.gallery_kinds(xy, kinds, on).tolist(), [3, 3, 3, 3, 0, 1], "all on the line")
         self.assertEqual(roads.gallery_kinds(xy, kinds, on, kind=0).tolist(), [0, 0, 0, 0, 0, 1])
         self.assertEqual(roads.gallery_kinds(xy, kinds, []).tolist(), kinds.tolist())
+        self.assertEqual(roads.gallery_kinds(xy, [-1, 0, 0, 0, 0, 0], on).tolist()[0], roads.UNDER_DECK)
+
+    def test_the_roof_along_all_of_the_map_gallery(self):
+        # (no cover over it in the elevation data: a gallery on a cliff, the scan seeing the rock or the road)
+        from test_roads import FRAME
+        f = self.feats(True)
+        flat = lambda la, lo: np.full(np.shape(la), 10.0)      # noqa: E731
+        tp = roads.TunnelProfiles(FRAME, lambda key: f, flat)
+        g = roads.tile_galleries(FRAME, tp, [f], flat, (-128.0, -128.0, 128.0, 128.0))
+        x = np.concatenate([q["pts"][:, 0] for q in g])
+        self.assertLess(float(x.min()), -55.0)
+        self.assertGreater(float(x.max()), 55.0)
 
     def gallery(self, x0=0.0, x1=30.0, side=1.0):
         """A gallery piece along x from x0 to x1 (metres along it = x), the road at 10 m, the ground under its pillars
@@ -228,6 +240,52 @@ class GalleryTest(unittest.TestCase):
             g = roads.tile_galleries(FRAME, tp, [f], elev, (-128.0, -128.0, 128.0, 128.0))
             self.assertTrue(g)
             self.assertTrue(all(q["side"] == side for q in g), "the mountain where the ground rises")
+
+
+class ApproachTest(unittest.TestCase):
+    """A tunnel's floor is hulled over its approaches too (roads.approach_floor), the approaches' road held at that hull
+    (grading._with_lows): hulled over the tunnel alone its portal stood on the elevation data's one point there (the
+    Freiwand gallery's: a 6 m step of the cliff), the road 30 % up to it and 11 % on, a crest."""
+
+    def test_portal_on_a_step_lies_on_the_approach_line(self):
+        s = np.arange(0.0, 101.0, 4.0)
+        g = 100.0 + 0.11 * s + np.where(s < 6.0, 6.0, 0.0) + np.where(s > 10.0, 8.0, 0.0)     # (a step at the portal)
+        sa = np.arange(4.0, 61.0, 4.0)
+        before = (sa, 100.0 - 0.10 * sa)
+        alone, _ = roads.tunnel_sections(s, g)
+        floor, kinds, (hb, ha) = roads.approach_floor(s, g, before, None)
+        self.assertGreater(alone[0], 105.0, "alone: on the step")
+        self.assertLess(floor[0], 101.0, "with the approach: on its line")
+        self.assertIsNone(ha)
+        self.assertTrue((hb <= before[1] + 1e-9).all(), "the approach only lowered")
+        self.assertEqual(len(floor), len(s))
+        self.assertEqual(len(kinds), len(s))
+
+    def test_an_approach_on_the_hull_stays(self):
+        s = np.arange(0.0, 201.0, 4.0)
+        g = 100.0 + 0.05 * s + np.maximum(0.0, 40.0 - np.abs(s - 100.0) * 0.4)     # (a hill over the tunnel)
+        sa = np.arange(4.0, 61.0, 4.0)
+        before, after = (sa, 100.0 - 0.02 * sa), (sa, 110.0 + 0.08 * sa)        # (a sag at each portal)
+        _f, _k, (hb, ha) = roads.approach_floor(s, g, before, after)
+        self.assertTrue(np.allclose(hb, before[1]) and np.allclose(ha, after[1]))
+
+    def test_portal_approaches(self):
+        tunnel = np.array([[0.0, 0.0], [100.0, 0.0]])
+        on = np.array([[100.5, 0.0], [300.0, 0.0]])          # (the road on, its end at the portal)
+        side = np.array([[100.0, 0.0], [100.0, -200.0]])      # (a side road off it there, at right angles)
+        back = np.array([[100.0, 0.0], [20.0, 1.0]])          # (one back along the tunnel)
+        before, after = roads.portal_approaches(tunnel, [side, back, on], 50.0)
+        self.assertIsNone(before)
+        self.assertAlmostEqual(float(after[0, 0]), 100.5)
+        self.assertAlmostEqual(float(np.hypot(*(after[-1] - after[0]))), 50.0, places=6)
+
+    def test_the_approach_profile_held_at_the_hull(self):
+        lows = [(np.array([[0.0, 0.0], [40.0, 0.0]]), np.array([10.0, 14.0]))]
+        obs = grading._with_lows(None, lows)
+        z = obs(np.array([[20.0, 0.0], [20.0, 5.0], [60.0, 0.0]]), None)
+        self.assertAlmostEqual(float(z[0]), 12.0)
+        self.assertTrue(np.isnan(z[1:]).all(), "off its line, past its end: the ground's")
+        self.assertIs(grading._with_lows(None, []), None)
 
 
 class LowArch(unittest.TestCase):

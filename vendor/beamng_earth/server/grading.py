@@ -897,6 +897,21 @@ def shoulder(spec):
     return SHOULDER_M
 
 
+def _with_lows(obs, lows):
+    """plan_roads' obs with the tunnels' approaches held at their hulls (lows: Grader._portal_lows) where no source
+    measured the road (roads.approach_heights). Pure given obs."""
+    if not lows:
+        return obs
+
+    def got(xy, spec):
+        o = obs(xy, spec) if obs is not None else None
+        low = roadsmod.approach_heights(xy, lows)
+        if o is None or len(o) != len(xy):
+            return low
+        return np.where(np.isfinite(o), o, low)
+    return got
+
+
 def _twin_trimmed(secs):
     """secs ([(fid, spec, xy, z, kind)]) with the covered sections of twin tunnels (roads.twin_tunnels: side by side,
     one tube round both) cut to the stretch they share: one twin's portal a few metres deeper than the other's, the
@@ -1087,10 +1102,16 @@ class _Planner:
             pparts = []                         # (fid, spec, lon/lat ring) of each plan (roadcorners.grade_rows)
             coarse = COARSE_EASE_ON and self._coarse(key)
             fine = self._fine(key)
+            lows = []
+            if parts:
+                try:
+                    lows = self._portal_lows(parts, key)
+                except Exception as e:      # the approaches as the ground has them rather than no grading
+                    log.debug("grading: tunnel approaches of %s: %s: %s", key, type(e).__name__, e)
             for j, (fid, part, cl, p) in enumerate(zip(ids, parts, clipped,
                                                        plan_roads(self.frame, parts, self.elev, abut, ext, pins,
                                                                   coarse=coarse, fine=fine, under=under,
-                                                                  obs=self._obs(key)))):
+                                                                  obs=_with_lows(self._obs(key), lows)))):
                 if p is not None:
                     p.rid = road_id(fid)
                     if free is not None:
@@ -1212,11 +1233,45 @@ class _Planner:
                     out.append((en[k0:k0 + len(ring)], profile_sigma(specs[i]), road_id(str(feats.ids[i])), ring,
                                 specs[i], str(feats.ids[i])))
                     k0 += len(ring)
+        tun = self._cell_tunnels(feats)
         with self.lock:
             if len(memo) > 64:
                 memo.clear()
+                self._tunnel_memo.clear()
             memo[key] = out
+            self._tunnel_memo[key] = tun
         return out
+
+    def _cell_tunnels(self, feats):
+        """(roads.approach_lines, [(fid, j, lon/lat ring, spec, its ends (2, 2) in the frame)] of the tunnel parts) of a
+        cell's roads (_tunnels_of)."""
+        self.__dict__.setdefault("_tunnel_memo", {})
+        if feats is None or not len(feats):
+            return [], []
+        ts = roadsmod.tunnel_specs(feats)
+        parts = []
+        for i in range(len(feats)):
+            if ts[i] is None:
+                continue
+            for j, ring in enumerate(roadsmod.tunnel_parts(feats, i)):
+                ll = np.asarray(ring, np.float64)
+                if len(ll) >= 2:
+                    e, n, _ = self.frame.geodetic_to_enu(ll[[0, -1], 1], ll[[0, -1], 0], 0.0)
+                    parts.append((str(feats.ids[i]), j, ring, ts[i], np.stack([np.asarray(e), np.asarray(n)], axis=1)))
+        return roadsmod.approach_lines(feats, self.frame), parts
+
+    def _tunnels_of(self, key):
+        """_cell_tunnels of map cell key, kept with its _chain_cands (one read of the cell for both)."""
+        memo = self.__dict__.setdefault("_tunnel_memo", {})
+        with self.lock:
+            got = memo.get(key)
+        if got is None:
+            self._chain_cands(key)
+            with self.lock:
+                got = memo.get(key)
+        if got is None:                 # (dropped meanwhile: read again)
+            got = self._cell_tunnels(self.md.cell(key, layers=("roads",), kind="demand").layers.get("roads"))
+        return got
 
     def _extensions(self, parts, ids):
         """plan_roads' ext of a cell's parts [(lonlat, spec)] (ids: their features'): per part (before, after), the line
@@ -2276,7 +2331,7 @@ class _Planner:
                     g = g.copy()
                     pack = PlanPack(list(road_plans)) if pack is None else pack
                     g[[0, -1]] = grade_points(xy[[0, -1], 0], xy[[0, -1], 1], g[[0, -1]], pack)
-                floor, kinds = roadsmod.tunnel_sections(s, g)
+                floor, kinds, _ = roadsmod.approach_floor(s, g, *self._approaches(xy, ts[i]))
                 kinds = roadsmod.portal_cover(kinds, g - floor, ts[i])
                 if over is None:
                     over = self._roads_over_tunnels(feats, ts)
@@ -2298,6 +2353,76 @@ class _Planner:
                         out.append((str(feats.ids[i]), ts[i], xy[a:i1 + 1], floor[a:i1 + 1], int(kinds[i0])))
                     i0 = i1 + 1
         return out
+
+    def _approaches(self, xy, spec):
+        """roads.approach_samples of tunnel line xy (k, 2) in the frame (road spec) among the ground roads of its
+        portals' map cells (roads.portal_approaches), every VERTEX_STEP on the ungraded ground: (before, after)."""
+        if spec is None or len(xy) < 2:
+            return None, None
+        la, lo, _ = self.frame.enu_to_geodetic(xy[[0, -1], 0], xy[[0, -1], 1], 0.0)
+        lines = []
+        for ck in {str(c): c for c in (mapcells.cell_of(float(a), float(b)) for a, b in zip(la, lo))}.values():
+            lines += self._approach_lines(ck)
+
+        def ground(q):
+            qa, qo, _ = self.frame.enu_to_geodetic(q[:, 0], q[:, 1], 0.0)
+            return self.elev(qa, qo)
+        return roadsmod.approach_samples(roadsmod.portal_approaches(xy, lines, roadsmod.approach_reach(spec)),
+                                         VERTEX_STEP, ground)
+
+    def _approach_lines(self, key):
+        """roads.approach_lines of map cell key (_tunnels_of)."""
+        return self._tunnels_of(key)[0]
+
+    def _portal_lows(self, parts, key):
+        """[(line (m, 2), heights (m,))] in the frame: the hulls (roads.approach_floor) over the approaches of the
+        tunnels that cell key's ground parts ([(lonlat, spec)]) lead out of (a tunnel part in the map cell of a part's
+        end with a portal there; another cell's only where the approach could reach into this one), on the ungraded
+        ground (the road plans come after); plan_roads holds the approaches' profiles at them (_with_lows). Kept per
+        tunnel part."""
+        ends = np.array([[r[0], r[-1]] for r, _sp in parts], np.float64).reshape(-1, 2)
+        e, n, _ = self.frame.geodetic_to_enu(ends[:, 1], ends[:, 0], 0.0)
+        exy = np.stack([np.asarray(e), np.asarray(n)], axis=1)
+        reach = np.repeat([roadsmod.approach_reach(sp) for _r, sp in parts], 2)
+        box = self._clip_box(key, 0.0)
+        if box is not None:
+            out_by = np.maximum(np.maximum(box[0] - exy[:, 0], exy[:, 0] - box[2]),
+                                np.maximum(box[1] - exy[:, 1], exy[:, 1] - box[3]))
+            near = out_by <= reach
+            ends, exy = ends[near], exy[near]
+        out = []
+        if not len(ends):
+            return out
+        for ck in {str(c): c for c in mapcells.cells_of(ends[:, 1], ends[:, 0])}.values():
+            for fid, j, ring, spec, pxy in self._tunnels_of(ck)[1]:
+                if np.hypot(*(exy[:, None, :] - pxy[None]).transpose(2, 0, 1)).min() <= roadsmod.APPROACH_JOIN_M:
+                    out += self._approach_lows(fid, j, ring, spec, ck)
+        return out
+
+    def _approach_lows(self, fid, j, ring, spec, key):
+        """_portal_lows' lines of tunnel part j of fid (ring: its lon/lat points, spec its road's)."""
+        memo = self.__dict__.setdefault("_lows_memo", {})
+        with self.lock:
+            got = memo.get((fid, j))
+        if got is not None:
+            return got
+        got = []
+        ll = np.asarray(self._longest(fid, j, ring, key), np.float64)
+        E, N, _ = self.frame.geodetic_to_enu(ll[:, 1], ll[:, 0], 0.0)
+        xy, s = resample(np.stack([np.asarray(E), np.asarray(N)], axis=1), VERTEX_STEP)
+        if len(xy) >= 2 and s[-1] > 0:
+            la, lo, _ = self.frame.enu_to_geodetic(xy[:, 0], xy[:, 1], 0.0)
+            dry = self.wet is None or ((np.asarray(self.wet(la, lo)) > 0.5).mean() <= roadsmod.TUNNEL_WET_SHARE
+                                       and not self._drowned((fid, j), ring))
+            if dry:
+                apps = self._approaches(xy, spec)
+                floor, _k, hulls = roadsmod.approach_floor(s, np.asarray(self.elev(la, lo), np.float64), *apps)
+                for app, hull, at in zip(apps, hulls, (0, -1)):
+                    if app is not None and hull is not None:
+                        got.append((np.vstack([xy[at], app[2]]), np.r_[floor[at], hull]))
+        with self.lock:
+            memo[(fid, j)] = got
+        return got
 
     def _roads_over_tunnels(self, feats, ts):
         """([ground lines (k, 2) in the frame], [carriageway half widths]) of the roads near feats' tunnels (ts:
