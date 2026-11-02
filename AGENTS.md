@@ -18,7 +18,7 @@ kn5 with its own writer. Windows first: Python 3.12 in `.venv`, PowerShell, Asse
 | `src/scenery/` | Our own terrain mesh, water, trees, rocks, street furniture, facades, distant view |
 | `src/app/` | The page's state: settings, versions (`version.py`), "My tracks", map data cache |
 | `src/acapp/TrackDebug/` | CSP Lua app for testing in AC (route metre, marks, drive recordings) |
-| `vendor/beamng_earth/server/` | Map data and world rules: `roads.py` (road specs, sidewalks, markings), `grading.py` (ground under roads), `railways.py`, `buildings.py`, `blockworker.py` (one tile) |
+| `vendor/beamng_earth/server/` | Map data and world rules: `roads/` (road specs, sidewalks, markings, bridges, tunnels), `grading/` (ground under roads), `buildings/`, `railways.py`, `blockworker.py` (one tile). A package's `__init__.py` lists its parts |
 | `vendor/beamng_earth/native/earthfast/` | Rust module (`earthfast.pyd`), the hot loops of grading and painting |
 | `vendor/beamng_earth/server/tests/` | Unit tests (`unittest`) |
 | `vendor/beamng_earth/tools/` | The scripts that make the data files in `server/` (bridges, sign tables, elevation indexes) |

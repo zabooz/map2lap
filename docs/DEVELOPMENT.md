@@ -173,6 +173,12 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 - Holds what builds a track: `server/` (map data and world rules), `native/earthfast` (Rust), `tools/` (the scripts
   that make the data files in `server/`), the licence and the credits. BeamNG.Earth's game mod and its live server
   (`earthd`) are not part of it.
+- **`roads/`, `grading/`, `buildings/` are packages of topic files.** The rest of the project reads them by the
+  package's name (`roads.portal_apron`): `__init__.py` holds those names, and a new name read from outside goes there.
+  The parts call each other, so a name a part reads at import time is imported at its top, and one read only inside
+  functions at its end (else two parts can't load each other). A part holds its own copy of what it imported: to set a
+  switch, set `roads.NAME`, which reaches every part holding it (setting one part's copy leaves the others' as they
+  were). `revisit.code_key` hashes the packages' files too.
 - **Rust module `earthfast`** (our own build: the grading's junction and beside rules are in it, `AC_EXPORT_YIELD`;
   `server/earthfast.pyd` in the repo): Rust
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
@@ -190,7 +196,7 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 
 ### Terrain and physics like BeamNG.Earth
 
-**How BeamNG.Earth builds** (`blockworker.build`, `grading.Grader.apply`, `roads.py`):
+**How BeamNG.Earth builds** (`blockworker.build`, `grading.Grader.apply`, `roads/`):
 - **You drive on the terrain:** levelled to road height under roads, plus `ROAD_LIFT` 4 cm; without gaps. Surface
   (grip) per 2 m sample: `surface.classify` (land use, slope > 35° = rock), `paint_roads`, `paint_lots`.
 - **Roads painted into the terrain** (`roads.ROADS_IN_GROUND`, the default). `BNGE_ROADS_IN_GROUND=0` is the old mode
@@ -215,7 +221,7 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
   wall `1WALL_guardrailcol_…` per 3 m module.
 - **Smoother than BeamNG.Earth** where AC needs it (hard tyres and springs; BeamNG's soft body rolls over centimetre
   bumps): junction ends give way, abutments and the ground under a deck's ends from the lidar, decks meeting their
-  approaches at their grade; each rule's reason is in a comment at its place (`grading.py`, `roads.py`).
+  approaches at their grade; each rule's reason is in a comment at its place (`grading/`, `roads/`).
 
 ### Coordinates
 - BeamNG.Earth: a local ENU frame around the anchor (x east, y north, z up). Anchor = middle of the route or area.
@@ -284,7 +290,7 @@ pos/normal/uv/tangent, uint16 indices, material, layer, LOD, bounding sphere, re
   alpha test (its texture flipped: the sign meshes' v runs the other way). Visual only, as in BeamNG.
 - **Parking:** the stall lines come with the road mesh (BeamNG.Earth's `parking.finish_markings` chunks); the cars are
   ours (`cars.py`).
-- **Buildings:** shapes, roofs and colours are BeamNG.Earth's (`buildings.py`, 14 regions in `region_style`). It
+- **Buildings:** shapes, roofs and colours are BeamNG.Earth's (`buildings/`, 14 regions in `region_style`). It
   passes each building's colour as vertex colours (a tint from its tables `buildings.LOOKS`, times a ±6 % jitter); AC
   has none, so `make_obj.BLD_KINDS` gives each building material (window sheet, shop, office glass, siding, stucco,
   panels, metal, stone, brick, four roofs) a comic texture per colour of BeamNG.Earth's table (`BLD_PALETTES`), and
