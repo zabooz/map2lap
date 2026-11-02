@@ -1,9 +1,7 @@
 """Highway signs (from cody196's PR #363): the road worker and the in-process fallback build the same sign tiles
 without changing road geometry or physics; the stream's bookkeeping; the sign shards' reader (railtags.SignTags)."""
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
 import json
-import multiprocessing
 from pathlib import Path
 import sys
 import tempfile
@@ -16,11 +14,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import blockworker
-import earthd
 import highwaysigns
 import milemarkers
 import railtags
-import signshards
 import roads
 import revisit
 import signstream
@@ -63,42 +59,11 @@ def fixture(raw_dir):
     return md
 
 
-def server(md, out):
-    anchor = SimpleNamespace(id=1, lat=LAT, lon=LON, frame=FRAME, zooms=[15], bridges=None, tunnels=None)
-    ns = SimpleNamespace(mapdata=md, anchors={1: anchor}, road_pool=None, far_bld_pool=None, sign_pool=None,
-        gas_stations=False, surface=None,
-        grader_for=lambda a: None, ground=lambda f, la, lo, z: z, dem=FakeDem(),
-        grader_lock=threading.Lock(), sea=None, buildings=False, road_widths=None,
-        left_hand=lambda a: False, mph=lambda a: True, anchor_q=lambda a: None, buried=lambda a: 0.0,
-        country=lambda a: 'US', lamp_region=lambda a: None, keep_fuel_pads=lambda pads: None,
-        airports=None, near_visual='detail', out_dir=out, vfs_dir='/temp/test', sidewalks=False,
-        _tunnel_ground=lambda a, g: None)
-    ns.chain_view = lambda *a, **kw: earthd.Server.chain_view(ns, *a, **kw)
-    return ns
 
 
-def init_sign_worker(raw_dir):
-    """Spawn-safe fixture: exercise the actual worker entry point in another process."""
-    blockworker._s = SimpleNamespace(md=fixture(raw_dir), dem=FakeDem(), widths=None, surface=None,
-        airports=None, sea=None, anchor=lambda *a: (None, None))
 
 
 class PipelineTest(unittest.TestCase):
-    def test_spawned_sign_pool_matches_thread_fallback(self):
-        with tempfile.TemporaryDirectory() as root:
-            md = fixture(root)
-            self.addCleanup(md.highway_signs.close)
-            direct, worker = Path(root, 'direct'), Path(root, 'worker')
-            direct.mkdir()
-            worker.mkdir()
-            expected = earthd.Server.build_signs_tile(server(md, str(direct)), 1, 0, 0)
-            with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context('spawn'),
-                                     initializer=init_sign_worker, initargs=(root,)) as pool:
-                srv = server(md, str(worker))
-                srv.sign_pool = pool
-                self.assertEqual(earthd.Server.build_signs_tile(srv, 1, 0, 0), expected)
-            self.assertEqual({p.name: p.read_bytes() for p in direct.iterdir()},
-                             {p.name: p.read_bytes() for p in worker.iterdir()})
 
     def test_revisited_roads_can_get_fresh_signs_without_rebuilding_roads(self):
         with tempfile.TemporaryDirectory() as root:
@@ -125,54 +90,8 @@ class PipelineTest(unittest.TestCase):
                 self.assertIn('mileposts', data)
                 self.assertIn('/temp/revisited/', data['exits']['shape'])
 
-    def test_sign_worker_and_fallback_match_without_touching_road_outputs(self):
-        with tempfile.TemporaryDirectory() as root:
-            md = fixture(root)
-            dirs = [Path(root, name) for name in ('direct', 'worker', 'roads')]
-            for path in dirs:
-                path.mkdir()
-            direct = server(md, str(dirs[0]))
-            expected = earthd.Server.build_signs_tile(direct, 1, 0, 0)
-            blockworker._s = SimpleNamespace(md=md, dem=FakeDem(), widths=None, surface=None,
-                airports=None, sea=None, anchor=lambda *a: (None, None))
-            result = blockworker.signs_tile(1, LAT, LON, 15, 0, 0, str(dirs[1]), '/temp/test')
-            self.assertEqual(result, expected)
-            for path in dirs[0].iterdir():
-                self.assertEqual(path.read_bytes(), (dirs[1] / path.name).read_bytes(), path.name)
-            data = json.loads((dirs[0] / 'signs_1_0_0.json').read_text())
-            self.assertIn('exits', data)
-            self.assertIn('mileposts', data)
-            self.assertNotIn('colliders', data)
-            self.assertEqual(data['chunks'], [])
-            road_server = server(md, str(dirs[2]))
-            with mock.patch.object(highwaysigns, 'build_tile', side_effect=AssertionError('road waited on signs')):
-                earthd.Server.build_roads_tile(road_server, 1, 0, 0)
-            before = {p.name: p.read_bytes() for p in dirs[2].iterdir()}
-            earthd.Server.build_signs_tile(road_server, 1, 0, 0)
-            for name, content in before.items():
-                self.assertEqual(content, (dirs[2] / name).read_bytes(), name)
-            md.highway_signs.close()
 
-    def test_optional_source_failure_keeps_road_build_available(self):
-        with tempfile.TemporaryDirectory() as root:
-            md = fixture(root)
-            with mock.patch.object(highwaysigns, 'tile_objects', side_effect=OSError('offline')):
-                with self.assertLogs('earthd.highwaysigns', level='WARNING'):
-                    result = earthd.Server.build_signs_tile(server(md, root), 1, 0, 0)
-            self.assertIsNotNone(result)
-            self.assertIsNotNone(earthd.Server.build_roads_tile(server(md, root), 1, 0, 0))
-            md.highway_signs.close()
 
-    def test_outside_the_us_no_sign_data_is_asked_for(self):
-        with tempfile.TemporaryDirectory() as root:
-            md = fixture(root)
-            far = SimpleNamespace(**vars(server(md, root)))
-            frame = earthd.geodesy.EnuFrame(48.85, 2.35, 0.0)      # (Paris)
-            far.anchors = {1: SimpleNamespace(id=1, lat=48.85, lon=2.35, frame=frame, zooms=[15], bridges=None,
-                                              tunnels=None)}
-            with mock.patch.object(highwaysigns, 'tile_objects', side_effect=AssertionError('asked')):
-                path, n = earthd.Server.build_signs_tile(far, 1, 0, 0)
-            self.assertEqual(n, 0)
 
 
 class StreamingTest(unittest.IsolatedAsyncioTestCase):
@@ -257,20 +176,6 @@ class StreamingTest(unittest.IsolatedAsyncioTestCase):
         self.pose({(0, 0)})
         self.assertEqual(len(self.pending), 2)
 
-    async def test_road_setting_reset_cancels_old_sign_jobs_and_resends_signs(self):
-        self.pose({(0, 0)})
-        old = self.tracker
-        self.conn.roads, self.conn.signs = roads.Tracker(), old
-        earthd.Connection.dispatch(self.conn, {'type': 'roads_reset'})
-        self.addCleanup(self.conn.roads.close)
-        self.addCleanup(self.conn.signs.close)
-        await asyncio.sleep(0)
-        self.assertTrue(old.closed)
-        self.assertTrue(self.pending[0].cancelled())
-        self.tracker = self.conn.signs
-        self.pose({(0, 0)})
-        await self.finish(1, n=1)
-        self.assertEqual([m['key'] for m in self.conn.sent], ['s0_0'])
 
     async def test_an_empty_tile_is_not_announced_unless_it_replaces_signs(self):
         self.pose({(0, 0)})

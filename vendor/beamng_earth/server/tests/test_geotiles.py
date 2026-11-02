@@ -9,11 +9,9 @@
 - vegetation tiles in tile frames (vegetation.geo_tile_items): the same items from any anchor once placed, the
   tracker keeps what it sent across a rebase.
 """
-import json
 import math
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -34,7 +32,6 @@ from test_grading import FakeMD  # noqa: E402
 from test_roads import features, FRAME, LAT, LON  # noqa: E402
 from test_approaches import overpass, flat_elev  # noqa: E402
 
-MOD = Path(__file__).resolve().parents[2] / "mod"
 LUAJIT = shutil.which("luajit")
 
 
@@ -136,51 +133,6 @@ print(enc(out))
 """
 
 
-@unittest.skipUnless(LUAJIT, "luajit")
-class LuaAgreementTest(unittest.TestCase):
-    """geotile.lua against earthfast's geotiles.rs: keys, centres, bounds and quad corners bit for bit; placements to
-    1e-9 (Lua's geodesy iterates its latitudes, the Rust is Heikkinen's closed form)."""
-
-    def test_agrees(self):
-        rng = np.random.default_rng(7)
-        points = [[float(a), float(b), 17] for a, b in zip(rng.uniform(-84, 84, 300), rng.uniform(-180, 180, 300))]
-        points += [[LAT, LON, 17], [85.2, 10.0, 17], [-85.2, -10.0, 17], [0.0, 0.0, 17], [46.529, 10.4557, 10],
-                   [34.0617, -118.2468, 12]]
-        tiles = []
-        for la, lo, z in points[:40] + points[-6:]:
-            x, y = geotiles.tile_of(la, lo, z)
-            tiles.append([z, x, y])
-        quads = [[LAT, LON, 17, *geotiles.tile_of(LAT, LON)],
-                 [LAT, LON + 0.17, 17, *geotiles.tile_of(LAT + 0.01, LON)],
-                 [46.529, 10.4557, 17, *geotiles.tile_of(46.6, 10.3)]]
-        places = []
-        for z, x, y in tiles[:12]:
-            cl, cn = geotiles.centre(x, y, z)
-            places.append([cl, cn, cl + 0.07, cn - 0.11, 0.0, 0.0, 1650.0])
-        inp = {"points": points, "tiles": tiles, "quads": quads, "places": places}
-
-        def lua_table(v):
-            if isinstance(v, list):
-                return "{" + ",".join(lua_table(x) for x in v) + "}"
-            if isinstance(v, dict):
-                return "{" + ",".join(f"{k}={lua_table(x)}" for k, x in v.items()) + "}"
-            return repr(float(v)) if isinstance(v, float) else str(v)
-        script = LUA_AGREE % (MOD, lua_table(inp))
-        out = subprocess.run([LUAJIT, "-"], input=script, capture_output=True, text=True, timeout=60)
-        self.assertEqual(out.returncode, 0, out.stderr)
-        got = json.loads(out.stdout)
-        want_keys = [list(geotiles.tile_of(la, lo, z)) for la, lo, z in points]
-        self.assertEqual(got["keys"], want_keys, "keys bit for bit")
-        for (z, x, y), lt in zip(tiles, got["tiles"]):
-            self.assertEqual(lt, list(geotiles.info(x, y, z)), f"tile {z}/{x}/{y} centre and bounds bit for bit")
-        for q, lq in zip(quads, got["quads"]):
-            rq = geotiles.quad(geodesy.EnuFrame(q[0], q[1]), q[3], q[4], q[2]).ravel().tolist()
-            self.assertEqual(lq, rq, "quad corners bit for bit")
-        for q, lp in zip(places, got["places"]):
-            r, t, c = geotiles.placement(geodesy.EnuFrame(q[0], q[1]), geodesy.EnuFrame(q[2], q[3]), q[4:7])
-            np.testing.assert_allclose(lp["r"], r.ravel(), atol=1e-12)
-            np.testing.assert_allclose(lp["t"], t, atol=1e-8)
-            np.testing.assert_allclose(lp["c"], c, atol=1e-9)
 
 
 class PlansAcrossAnchorsTest(unittest.TestCase):

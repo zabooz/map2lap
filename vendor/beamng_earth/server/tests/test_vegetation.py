@@ -350,29 +350,6 @@ class FlatTileTest(unittest.TestCase):
         self.assertEqual(veg.FLAT_STRIDE, len(rows[0]))
 
 
-class FlatHelloTest(unittest.TestCase):
-    """The connection builds its vegetation tiles flat only for a mod whose hello says it reads them (vegFlat)."""
-
-    def run_hello(self, extra):
-        import test_server
-        h = test_server.ServerHarness()
-        h.setUp()
-        try:
-            asked = []
-            h.server.build_veg_tile = lambda aid, tx, ty, flat=False: asked.append(flat)
-            h.c.send(dict({"type": "hello", "protocol": 4, "format": h.MOD_FORMAT, "modVersion": "0.4.0"}, **extra))
-            h.c.until(lambda m: m["type"] == "hello", timeout=10)
-            h.conn().build_veg_tile(1, 0, 0)
-            return h.conn().veg_flat, asked
-        finally:
-            h.tearDown()
-
-    def test_vegflat_hello(self):
-        self.assertEqual(self.run_hello({"vegFlat": True}), (True, [True]))
-
-    def test_older_mod_gets_rows(self):
-        self.assertEqual(self.run_hello({}), (False, [False]))
-        self.assertEqual(self.run_hello({"vegFlat": "yes"}), (False, [False]))      # (only a JSON true)
 
 
 class DemFailedTest(unittest.TestCase):

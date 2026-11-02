@@ -7,7 +7,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cdae  # noqa: E402
@@ -16,7 +15,6 @@ import geodesy as g  # noqa: E402
 import heightmap  # noqa: E402
 
 LAT0, LON0 = 36.5785, -118.2923
-MOD = Path(__file__).resolve().parents[2] / "mod" / "beamng_earth"
 
 
 class FakeDem:
@@ -526,16 +524,6 @@ class AssetsTest(unittest.TestCase):
         self.assertGreater(np.abs(flat[high] - ff.DIRT).max(), 0.1)
         self.assertGreater(np.abs(steep[high] - flat[high]).max(), 0.05)
 
-    def test_mod_assets_match(self):
-        """The palette and material shipped in the mod are what write_mod_assets() produces."""
-        d = MOD.joinpath(*ff.MOD_SHAPES)
-        with Image.open(d / ff.MOD_PALETTE) as im:
-            np.testing.assert_array_equal(np.asarray(im.convert("RGB")), np.asarray(ff.palette_image()))
-        import json
-        mats = json.loads((d / "main.materials.json").read_text())
-        vfs = "/" + "/".join(ff.MOD_SHAPES) + "/" + ff.MOD_PALETTE
-        self.assertEqual(mats, ff.material_json(vfs))
-        self.assertEqual(mats[ff.MATERIAL]["mapTo"], ff.MATERIAL)
 
 
 class AdaptiveTileTest(unittest.TestCase):

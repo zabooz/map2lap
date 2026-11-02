@@ -4,19 +4,16 @@ DEM chain, response classes and .404 marker TTLs, host policies, daily budgets (
 day), the User-Agent, --offline and the status note earthd sends. No network: a FakeTransport
 answers from a script, a FakeClock / FakeSleep pair stands in for time, the rng is seeded."""
 import email.utils
-import getpass
 import io
 import json
 import os
 import random
 import re
-import socket
 import sys
 import tempfile
 import threading
 import time
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -26,11 +23,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dem as demmod  # noqa: E402
-import earthd  # noqa: E402
-import farfield as ff  # noqa: E402
-import gravity  # noqa: E402
 import netfetch as nf  # noqa: E402
-import test_server  # noqa: E402
 
 USGS = "basemap.nationalmap.gov"
 EOX = "tiles.maps.eox.at"
@@ -757,84 +750,8 @@ class BudgetTest(unittest.TestCase):
             self.assertTrue(os.listdir(d))
 
 
-class UserAgentTest(unittest.TestCase):
-    def test_project_user_agent_and_nothing_personal(self):
-        self.assertEqual(nf.USER_AGENT, f"BeamNG.Earth/{earthd.SERVER_VERSION} (+https://github.com/TecnaGamer/BeamNG.Earth)")
-        f, clock, sleep, tr = fetcher()
-        for u in (url(USGS), url(EOX), url(MT), "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/1/0/0.png",
-                  "https://api.open-meteo.com/v1/forecast?latitude=1"):
-            f.get(u)
-        personal = {os.path.expanduser("~"), socket.gethostname(), getpass.getuser()}
-        try:
-            personal.add(os.getlogin())
-        except OSError:
-            pass
-        for _, u, headers in tr.calls:
-            self.assertEqual(headers, {"User-Agent": nf.USER_AGENT})
-            # the project URL is the one identifying part (its owner is the project, not the player)
-            text = (u + " " + json.dumps(headers)).replace(nf.PROJECT_URL, "")
-            for s in personal:
-                if s:
-                    self.assertNotIn(s, text)
-            self.assertNotRegex(text, r"[\w.]+@[\w.]+")
-
-    def test_gravity_download_through_the_fetcher(self):
-        """gravity._download: the project UA through a session (one slot), and no download offline."""
-        data = b"egm" * 1000
-        import hashlib
-        seen = []
-
-        class Resp(io.BytesIO):
-            status = 200
-
-            def __enter__(self):
-                return self
-
-        def urlopen(req, timeout):
-            seen.append(dict(req.header_items()))
-            return Resp(data)
-        f, clock, sleep, tr = fetcher()
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(gravity.urllib.request, "urlopen", urlopen):
-            dest = os.path.join(d, "egm.tar.bz2")
-            gravity._download(gravity.EGM2008_URL, dest, hashlib.sha256(data).hexdigest(), len(data),
-                              log=lambda s: None, net=f)
-            self.assertTrue(os.path.exists(dest))
-            self.assertEqual(seen, [{"User-agent": nf.USER_AGENT}])
-            self.assertEqual(f.snapshot()["downloads.sourceforge.net"]["requests"], 1)
-            off, *_ = fetcher(offline=True)
-            with self.assertRaises(nf.Offline):
-                gravity._download(gravity.EGM2008_URL, dest + "2", "0", 10, log=lambda s: None, net=off)
-            self.assertEqual(len(seen), 1)
-        p = gravity.Provider(tempfile.gettempdir() + "/no-such-gravity-cache", net=off)
-        p._start_download()
-        self.assertIsNone(p.fetcher)                    # --offline: no download thread
-
-    def test_session_honours_retry_after(self):
-        f, clock, sleep, tr = fetcher()
-        u = gravity.EGM2008_URL
-        err = urllib.error.HTTPError(u, 503, "busy", {"Retry-After": "30"}, None)
-        self.addCleanup(err.close)
-        with self.assertRaises(urllib.error.HTTPError):
-            with f.session(u):
-                raise err
-        with self.assertRaises(nf.HostUnavailable) as cm:
-            with f.session(u):
-                pass
-        self.assertAlmostEqual(cm.exception.retry_after, 30.0)
 
 
-class _Writer:
-    def __init__(self):
-        self.msgs = []
-
-    def write(self, data):
-        self.msgs.append(json.loads(data[4:].decode()))
-
-    def is_closing(self):
-        return False
-
-    def get_extra_info(self, name):
-        return ("127.0.0.1", 0)
 
 
 class OfflineTest(unittest.TestCase):
@@ -844,66 +761,9 @@ class OfflineTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def server(self, net, imagery=("usgs", "eox2023", "eox2016")):
-        s = earthd.Server(self.tmp.name, os.path.join(self.tmp.name, "cache"), imagery=imagery, net=net)
-        s.dem = test_server.FakeDem()
-        return s
 
-    def connection(self, s):
-        import asyncio
 
-        async def make():
-            return earthd.Connection(s, None, _Writer())
-        return asyncio.run(make())
 
-    def test_offline_flag(self):
-        f, clock, sleep, tr = fetcher(offline=True)
-        self.assertTrue(f.offline)
-        with self.assertRaises(nf.Offline):
-            f.get(url())
-        self.assertEqual(tr.calls, [])
-        s = self.server(f)
-        c = self.connection(s)
-        c.status("Far field ready (12 tiles)")
-        self.assertEqual(c.writer.msgs[-1]["text"], "Far field ready (12 tiles) | Offline - using cached data")
-        self.assertEqual(c.last_status, "Far field ready (12 tiles)")
-        # an uncached tile: palette material, recorded as degraded
-        a = s.new_anchor(test_server.LAT, test_server.LON)
-        s.anchors[a.id] = a
-        info = s.make_tile(a, ff.Tile(3, 0, 0))
-        self.assertIsNone(info.material)
-        self.assertEqual(s.degraded, {(a.id, ff.Tile(3, 0, 0).key)})
-        s.tile_pool.shutdown(wait=True)
-        s.hm_pool.shutdown(wait=True)
-
-    def test_all_chain_hosts_open_is_offline(self):
-        f, clock, sleep, tr = fetcher()
-        s = self.server(f)
-        c = self.connection(s)
-        c.status("Ready")
-        self.assertEqual(c.writer.msgs[-1]["text"], "Ready")          # all well: the text as before
-        f.host(EOX).breaker.trip(60.0)
-        self.assertFalse(f.offline)
-        c.refresh_status()                                              # the note changed: re-sent
-        self.assertEqual(c.writer.msgs[-1]["text"],
-                         f"Ready | Degraded: {EOX} unreachable ({nf.ROLES[EOX]})")     # (what it affects)
-        for h in (USGS, MT, "s3.amazonaws.com"):
-            f.host(h).breaker.trip(60.0)
-        self.assertTrue(f.offline)
-        c.refresh_status()
-        self.assertEqual(c.writer.msgs[-1]["text"], "Ready | Offline - using cached data")
-        n = len(c.writer.msgs)
-        c.refresh_status()                                              # unchanged: nothing sent
-        self.assertEqual(len(c.writer.msgs), n)
-        clock.advance(61.0)
-        tr.script[USGS] = [(200, {}, b"ok", 0)]
-        f.get(url(USGS))                                                # a probe closes USGS
-        self.assertFalse(f.offline)
-        c.refresh_status()
-        self.assertIn("Degraded", c.writer.msgs[-1]["text"])
-        self.assertNotIn(USGS, c.writer.msgs[-1]["text"])
-        s.tile_pool.shutdown(wait=True)
-        s.hm_pool.shutdown(wait=True)
 
     def test_expired_marker_counts_while_the_host_is_down(self):
         f, clock, sleep, tr = fetcher()
@@ -916,16 +776,6 @@ class OfflineTest(unittest.TestCase):
             self.assertTrue(f.miss_alive(m, url(USGS)))
             self.assertFalse(f.miss_alive(m + "-none", url(USGS)))
 
-    def test_cli_flag(self):
-        got = []
-        with mock.patch.object(sys, "argv", ["earthd.py", "--offline", "--nice", "0"]), \
-                mock.patch.object(earthd.logging, "basicConfig"), \
-                mock.patch.object(earthd, "main_async", lambda args: got.append(args)), \
-                mock.patch.object(earthd.asyncio, "run", lambda coro: None):
-            earthd.main()
-            sys.argv[1:] = ["--nice", "0"]
-            earthd.main()
-        self.assertEqual([a.offline for a in got], [True, False])
 
 
 if __name__ == "__main__":

@@ -11,8 +11,6 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import geodesy  # noqa: E402
-import mapcells  # noqa: E402
 import seacarve  # noqa: E402
 
 LAT0, LON0 = 39.28, -76.59
@@ -297,17 +295,6 @@ class LakeTest(unittest.TestCase):
         sea = (np.array([south(100)]), np.array([LON0]))
         self.assertTrue(np.isnan(self.sc.lake_at(*sea)[0]), "the sea is not a lake")
 
-    def test_tiles_never_over_the_valley(self):
-        import seatiles
-        f = geodesy.EnuFrame(LAKE_LAT + D / 2, LAKE_LON + D / 2)
-        dem = LakeDem()
-        tiles = seatiles.plan_lakes(f, 0.0, 0.0, self.sc.lake_at, lambda la, lo: dem.sample(la, lo, 15))
-        self.assertTrue(tiles)
-        valley_x = float(f.geodetic_to_enu(LAKE_LAT, LAKE_LON + 1.2 * D, 0)[0])
-        for t in tiles:
-            self.assertLessEqual(t.x + t.size / 2, valley_x + 1e-6, t)
-            la, lo, _ = f.enu_to_geodetic(t.x, t.y, 0.0)
-            self.assertAlmostEqual(t.z, float(f.geodetic_to_enu(la, lo, 50.0)[2]), places=5)
 
 
 CAN_LAT, CAN_LON = 39.36, -76.62          # a 40 m wide town canal the DEM does not see (flat 2 m all round),
@@ -420,12 +407,6 @@ class RiverTest(unittest.TestCase):
         self.assertNotEqual(float(lv[0]), seacarve.SEA_E)
         self.assertFalse(bool(sc.sea_at(RiverDem(), *p, 512.0)[0]))
 
-    def test_no_tiles_for_rivers(self):
-        import seatiles
-        f = geodesy.EnuFrame(RIV_LAT + W / 2, RIV_LON + L / 2)
-        dem = RiverDem()
-        self.assertEqual(seatiles.plan_lakes(f, 0.0, 0.0, self.sc.lake_at, lambda la, lo: dem.sample(la, lo, 15)),
-                         [], "rivers slope: River objects (riverlines.py), not flat tiles")
 
 
 class SinkTest(unittest.TestCase):
@@ -458,39 +439,6 @@ class SeaAtTest(unittest.TestCase):
 
 
 
-class PlanAgainTest(unittest.TestCase):
-    """earthd: the water planned again after SEA_CHECK_S only when the last plan lacked map data."""
-
-    def conn(self):
-        import types
-        import earthd
-        c = earthd.Connection.__new__(earthd.Connection)
-        c.s = types.SimpleNamespace(anchors={1: types.SimpleNamespace(frame=None)}, sea=None, dem=None)
-        c.sea_busy, c.started = False, []
-
-        def spawn(coro):
-            c.started.append(1)
-            coro.close()
-        c.spawn = spawn
-        return c
-
-    def test_complete_plan_kept(self):
-        import time
-        import earthd
-        import seatiles
-        sq = seatiles.square_of(10.0, 10.0)
-        old = time.monotonic() - earthd.SEA_CHECK_S - 1
-        c = self.conn()
-        c.sea_checked = (1, sq, old, True)
-        c.sea_tiles(1, 10.0, 10.0)
-        self.assertEqual(c.started, [], "complete: not planned again")
-        c.sea_checked = (1, sq, old, False)
-        c.sea_tiles(1, 10.0, 10.0)
-        self.assertEqual(c.started, [1], "incomplete: planned again")
-        c = self.conn()
-        c.sea_checked = (1, sq, time.monotonic(), True)
-        c.sea_tiles(1, 10.0 + seatiles.PLAN_SQUARE, 10.0)
-        self.assertEqual(c.started, [1], "another square: planned")
 
 
 class UndergroundLinesTest(unittest.TestCase):

@@ -1026,14 +1026,6 @@ class TrackerTest(unittest.TestCase):
             drops = {tuple(map(int, m["key"].split("_"))) for m in conn.sent if m["type"].endswith("_drop")}
             self.assertEqual(drops, near, kind)
 
-    def test_parse_foci(self):
-        import earthd
-        f = earthd.parse_foci([{"x": 10, "y": -20, "r": 320, "trees": True}, {"x": 1, "y": 2},
-                               {"x": float("nan"), "y": 0, "r": 80}, {"x": 1e9, "y": 0, "r": 80},
-                               {"x": 5, "y": 5, "r": 99999}, "junk"])
-        self.assertEqual(f, ((10.0, -20.0, 320.0, True), (5.0, 5.0, earthd.FOCI_R_MAX_M, False)))
-        self.assertEqual(earthd.parse_foci(None), ())
-        self.assertEqual(len(earthd.parse_foci([{"x": 0, "y": 0, "r": 80}] * 40)), earthd.FOCI_MAX)
 
     def test_drops_far_and_resends_on_anchor_change(self):
         conn, tr, built = self.run_poses([(1, 0.0, 0.0), (1, 3000.0, 0.0), (2, 3000.0, 0.0)])

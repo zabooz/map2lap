@@ -3,8 +3,6 @@ from pathlib import Path
 import json
 import sys
 import tempfile
-import threading
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -17,7 +15,6 @@ import signcontext
 import signstream
 import geodesy
 import mapgeom
-import roads
 from test_roads import flat,FRAME,LAT,LON,features,rules
 
 
@@ -155,34 +152,6 @@ class ModelTest(unittest.TestCase):
             self.assertNotIn('merges',data.get('colliders',{}))
 
 
-class PipelineTest(unittest.TestCase):
-    def test_worker_and_fallback_match_and_road_geometry_is_unchanged(self):
-        import blockworker,earthd
-        from test_highway_signs import server
-        from test_blockworker import FakeDem,FakeMapData
-        from test_roads import LAT,LON
-        f=interchange(True)
-        md=FakeMapData(f,roads.cells_of_tile(FRAME,0,0)[0])
-        with tempfile.TemporaryDirectory() as root:
-            import highwaysigns
-            from test_highway_signs import FakeTags
-            md.highway_signs=highwaysigns.Source(md,tags=FakeTags())
-            directories=[Path(root,name) for name in ('server','worker','unsigned')]
-            for path in directories:path.mkdir()
-            earthd.Server.build_signs_tile(server(md,str(directories[0])),1,0,0)
-            blockworker._s=SimpleNamespace(md=md,dem=FakeDem(),widths=None,surface=None,airports=None,sea=None,
-                                          lock=threading.Lock(),bridges={},anchor=lambda *args:(None,None))
-            blockworker.signs_tile(1,LAT,LON,15,0,0,str(directories[1]),'/temp/test')
-            for p in directories[0].iterdir():
-                self.assertEqual(p.read_bytes(),(directories[1]/p.name).read_bytes(),p.name)
-            data=json.loads((directories[0]/'signs_1_0_0.json').read_text())
-            self.assertIn('merges',data)
-            with patch.object(mergesigns,'build_tile',return_value=None):
-                earthd.Server.build_signs_tile(server(md,str(directories[2])),1,0,0)
-            unsigned=json.loads((directories[2]/'signs_1_0_0.json').read_text())
-            self.assertEqual({k:v for k,v in data.items() if k!='merges'},unsigned)
-            for p in directories[2].glob('*.cdae'):
-                self.assertEqual(p.read_bytes(),(directories[0]/p.name).read_bytes(),p.name)
 
 
 if __name__=='__main__':unittest.main()

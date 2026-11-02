@@ -21,7 +21,9 @@ kn5 with its own writer. Windows first: Python 3.12 in `.venv`, PowerShell, Asse
 | `vendor/beamng_earth/server/` | Map data and world rules: `roads.py` (road specs, sidewalks, markings), `grading.py` (ground under roads), `railways.py`, `buildings.py`, `blockworker.py` (one tile) |
 | `vendor/beamng_earth/native/earthfast/` | Rust module (`earthfast.pyd`), the hot loops of grading and painting |
 | `vendor/beamng_earth/server/tests/` | Unit tests (`unittest`) |
-| `tools/` | Developer tools, not in the release: `measure.py`, `check_drive.py`, `stretch.py`, `make_release.py` |
+| `vendor/beamng_earth/tools/` | The scripts that make the data files in `server/` (bridges, sign tables, elevation indexes) |
+| `assets/roadside/` | Road signs' materials and lettering |
+| `tools/` | Developer tools, not in the release: `measure.py`, `check_drive.py`, `stretch.py`, `build_native.py`, `make_release.py` |
 | `out/`, `cache/`, `dist/`, `settings.json`, `assets/textures/` | Build output, map data, releases, local settings, downloaded textures: never committed |
 
 `src/` is the import root (`from track import make_obj`). Tools add `src/` to the path themselves.
@@ -44,7 +46,7 @@ cd vendor\beamng_earth\server\tests
 .venv\Scripts\python.exe tools\check_drive.py my_test --all-roads
 ```
 
-- Don't run the whole BeamNG.Earth test suite: `test_integration_drive.py` and the drive tool tests start BeamNG.
+- Run each test file in its own process: a crash in the native module ends the whole run otherwise.
 - pytest isn't installed; the tests are plain `unittest`.
 - `measure.py` numbers are hints. Whether a road drives better or worse is decided by driving it in AC.
 

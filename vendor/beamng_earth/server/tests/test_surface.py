@@ -11,10 +11,7 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import earthd  # noqa: E402
-import heightmap  # noqa: E402
 import mapcells  # noqa: E402
-import maprasters  # noqa: E402
 import surface as sf  # noqa: E402
 
 LAT, LON = 36.5785, -118.2923
@@ -307,28 +304,7 @@ class ServerSurfaceTest(unittest.TestCase):
         def stats_snapshot(self):
             return {}
 
-    def make(self, **kw):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        s = earthd.Server(tmp.name, os.path.join(tmp.name, "cache"), imagery=None, cells=64, block=512, **kw)
-        self.addCleanup(s.hm_pool.shutdown)
-        self.addCleanup(s.tile_pool.shutdown)
-        s.dem = self.Dem()
-        return s
 
-    def test_gas_stations_paint_pads(self):
-        # --gas-stations on: the ground's painters get the forecourts (Surface.gas_pads); off: they do not
-        import types
-        sur = sf.Surface(None)
-        self.addCleanup(sur.close)
-        s = self.make(surface=sur, mapdata=types.SimpleNamespace(), gas_stations=True)
-        self.assertTrue(sur.gas_pads)
-        s.keep_fuel_pads([("a", [FuelPadTest.ring(None, LAT, LON)])])      # (a road tile's, earthd.build_roads_tile)
-        self.assertEqual(len(s.block_fuel_pads(s.new_anchor(LAT, LON), 0.0, 0.0, 512.0)), 1, "handed to a block")
-        off = sf.Surface(None)
-        self.addCleanup(off.close)
-        self.make(surface=off, mapdata=types.SimpleNamespace())
-        self.assertFalse(off.gas_pads)
 
     def test_block_worker_paints_pads(self):
         import blockworker
@@ -349,38 +325,8 @@ class ServerSurfaceTest(unittest.TestCase):
         self.assertFalse(st.surface.gas_pads)
         st.surface.close()
 
-    def test_masks_and_message(self):
-        s = self.make(surface=self.NorthGrass())
-        a = s.new_anchor(LAT, LON)
-        info = s.make_heightmap(a, 0.0, 0.0, None)
-        self.assertEqual(info["layers"], sf.mask_names(s.hm_name((a.id, 0.0, 0.0))[:-4]))
-        self.assertTrue(info["surfaceComplete"])
-        grass = np.array(Image.open(os.path.join(s.out_dir, info["layers"][sf.GRASS])))
-        dirt = np.array(Image.open(os.path.join(s.out_dir, info["layers"][sf.DIRT])))
-        self.assertEqual(grass.shape, (512, 512))
-        self.assertTrue((grass[:200] == 255).all() and (grass[-200:] == 0).all(), "row 0 is north (grass)")
-        self.assertTrue((dirt[-200:] == 255).all())
-        conn = earthd.Connection.__new__(earthd.Connection)
-        conn.s = s
-        msg = conn.terrain_msg((a.id, 0.0, 0.0), info)
-        # only the .ter's own materials (grass and dirt), in its order
-        self.assertEqual(info["mats"], [sf.GRASS, sf.DIRT])
-        self.assertEqual(msg["layers"], [f"{s.vfs_dir}/{info['layers'][i]}" for i in (sf.GRASS, sf.DIRT)])
-        self.assertEqual(msg["materials"], [list(sf.MATERIALS[i]) for i in (sf.GRASS, sf.DIRT)])
 
-    def test_default_server_sends_no_layers(self):
-        s = self.make()
-        a = s.new_anchor(LAT, LON)
-        info = s.make_heightmap(a, 0.0, 0.0, None)
-        self.assertNotIn("layers", info)
-        conn = earthd.Connection.__new__(earthd.Connection)
-        conn.s = s
-        self.assertNotIn("layers", conn.terrain_msg((a.id, 0.0, 0.0), info))
 
-    def test_cli_flag(self):
-        with open(earthd.__file__) as f:
-            src = f.read()
-        self.assertIn('ap.add_argument("--surface", choices=("on", "off"), default="on"', src)
 
 
 class LotTest(unittest.TestCase):

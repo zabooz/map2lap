@@ -56,29 +56,6 @@ class GuardrailTagTest(unittest.TestCase):
                 self.assertFalse(guardrails._is_guardrail(f, 0))
 
 
-class GuardrailStockAssetTest(unittest.TestCase):
-    def test_stock_italy_guardrail_model_is_registered_as_forest_type(self):
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        path = os.path.join(root, "mod", "beamng_earth", "lua", "ge", "extensions",
-                            "beamngEarth", "trees.lua")
-        with open(path, encoding="utf-8") as f:
-            source = f.read()
-        self.assertIn("M.CATALOG.guardrail", source)
-        self.assertIn("/art/shapes/objects/italy_guardrails_basic", source)
-        self.assertIn("/art/shapes/objects/italy_guardrails_basic_end_cw", source)
-        self.assertIn("/art/shapes/objects/italy_guardrails_basic_end_ccw", source)
-        self.assertNotIn("M.NO_COLLIDE.guardrail = true", source)
-        self.assertIn("M.GROUP_MAX_M.guardrail = 4000", source)
-        # (its basis: one reused vec3, column by column; a road geotile's turned by its placement)
-        self.assertIn("itemVec:set(vx, vy, vz); m:setColumn(c, itemVec)", source)
-        self.assertIn("local isGuardrail = M.isBarrier(g)", source)
-        # the median barriers' and mapped jersey / cable barriers' groups (guardrails.GROUPS)
-        for g in guardrails.GROUPS:
-            self.assertIn("M.CATALOG." + g + " = ", source)
-        self.assertIn("/art/shapes/objects/jerseybarrier_3m", source)
-        self.assertTrue(os.path.isfile(os.path.join(root, "mod", "beamng_earth", "levels", "beamng_earth", "art", "shapes",
-                                                    "beamngEarth", "bne_cable_barrier.dae")))
-        self.assertIn("elseif not rowCap or t.n <= rowCap then", source)
 
 
 class GuardrailForestTest(unittest.TestCase):

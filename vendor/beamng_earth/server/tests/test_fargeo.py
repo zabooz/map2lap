@@ -13,15 +13,12 @@ rebases.
   far tiles, none of a road geotile's in another key's far tile, and the mod's rule (a far tile hidden once its road
   geotile shows its own) shows each building of a square once, whichever road geotiles are in.
 """
-import hashlib
 import math
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 
@@ -36,11 +33,8 @@ LAT, LON = 39.2834, -76.5934
 BRIDGE_LAT, BRIDGE_LON = 39.2617, -76.611        # (Baltimore's Hanover Street bridge: a square with far bridge pieces)
 CACHE = os.path.expanduser("~/.cache/beamng-earth")
 HAVE_DATA = os.path.isdir(os.path.join(CACHE, "mapdata")) and os.environ.get("BNGE_FARGEO_REAL", "1") != "0"
-ROADS_LUA = Path(__file__).resolve().parents[2] / "mod/beamng_earth/lua/ge/extensions/beamngEarth/roads.lua"
 
 
-def east(lat, lon, km):
-    return geodesy.EnuFrame(lat, lon + km * 1000.0 / (111320.0 * math.cos(math.radians(lat))))
 
 
 class SlabKernelTest(unittest.TestCase):
@@ -88,113 +82,12 @@ class SlabKernelTest(unittest.TestCase):
         self.assertEqual(len(got[0]) if got else 0, 16 * n, "the box's segments: 4 quads each")
 
 
-class Loop:
-    def __init__(self):
-        self.futs = []
-
-    def run_in_executor(self, pool, fn, *args):
-        f = pool.submit(fn, *args)
-        self.futs.append(f)
-        return f
 
 
-class Conn:
-    def __init__(self):
-        self.msgs, self.lock = [], threading.Lock()
-
-    def send(self, m):
-        with self.lock:
-            self.msgs.append(m)
 
 
-class TrackerTest(unittest.TestCase):
-    """The far geotiles' trackers as earthd.Connection.make_far_trackers makes them, driven like the mod's poses."""
-
-    def trackers(self, geo):
-        import types
-        import earthd
-        c = types.SimpleNamespace(bldfar=None, bldsky=None, brfar=None, building_scale=1.0)
-        earthd.Connection.make_far_trackers(c, geo)
-        return c
-
-    def drive(self, trs, frames, builds):
-        from concurrent.futures import wait
-        loop, conn = Loop(), Conn()
-        counts = []
-        for aid, f in frames:
-            n0 = len(builds)
-            x, y, _ = f.geodetic_to_enu(LAT, LON, 0.0)
-            for _ in range(400):
-                for kind, tr, build in trs:
-                    tr.on_pose(conn, aid, float(x), float(y), loop, build(aid), frame=f)
-                wait(loop.futs)
-                if all(not tr.building and all(k in tr.sent for k in tr.car) for _k, tr, _b in trs):
-                    break
-            counts.append(len(builds) - n0)
-        for _k, tr, _b in trs:
-            tr.close()
-        return counts, conn.msgs
-
-    def test_rebase_builds_and_sends_no_far_content(self):
-        builds, lock = [], threading.Lock()
-
-        def geo(kind):
-            def mk(_aid):
-                def build(gx, gy):
-                    with lock:
-                        builds.append((kind, gx, gy))
-                    z = {"bldfar": geotiles.FAR_Z, "bldsky": geotiles.SKY_Z, "brfar": geotiles.BRIDGE_Z}[kind]
-                    return f"/x/{kind}.json", 1, geotiles.centre(gx, gy, z), 0.0, {}
-                return build
-            return mk
-
-        def anchor(kind):
-            def mk(_aid):
-                def build(aid, tx, ty):
-                    with lock:
-                        builds.append((kind, aid, tx, ty))
-                    return f"/x/{kind}.json", 1
-                return build
-            return mk
-        a, b = east(LAT, LON, -15.0), geodesy.EnuFrame(LAT, LON)
-        t = self.trackers(True)
-        trs = [(k, getattr(t, k), geo(k)) for k in ("bldfar", "bldsky", "brfar")]
-        n, msgs = self.drive(trs, [(1, a), (2, b)], builds)
-        first = [m for m in msgs if m["type"].endswith("_tile")]
-        by = {k: [m for m in first if m["type"] == f"{k}_tile"] for k in ("bldfar", "bldsky", "brfar")}
-        self.assertGreater(n[0], 150)
-        self.assertEqual(n[1], 0, "after the rebase: no far content built again")
-        m0 = len(first)
-        self.assertEqual(len([m for m in msgs if m["type"].endswith("_tile")]), m0, "... nor sent (0 mod loads)")
-        # far buildings in the road geotiles' grid, whole skyline squares; the skyline only where none of theirs are
-        far = {tuple(map(int, m["key"][4:].split("_"))) for m in by["bldfar"]}
-        self.assertTrue(all(m["key"].startswith("g17_") for m in by["bldfar"]))
-        self.assertTrue(all(m["key"].startswith("g15_") for m in by["bldsky"] + by["brfar"]))
-        squares = {geotiles.parent(x, y, geotiles.FAR_Z, geotiles.SKY_Z) for x, y in far}
-        for sq in squares:
-            self.assertLessEqual(set(geotiles.children(*sq, geotiles.SKY_Z, geotiles.FAR_Z)), far, "whole squares")
-        sky = {tuple(map(int, m["key"][4:].split("_"))) for m in by["bldsky"]}
-        self.assertFalse(sky & squares, "no skyline tile over a far buildings square")
-        self.assertTrue(all("frame" in m and "pivot" in m for m in first))
-        # the anchor trackers: every tile again
-        builds.clear()
-        t = self.trackers(False)
-        trs = [(k, getattr(t, k), anchor(k)) for k in ("bldfar", "bldsky", "brfar")]
-        old, _ = self.drive(trs, [(1, a), (2, b)], builds)
-        self.assertGreater(old[1], 150)
-        kinds = {k: sum(1 for j in builds if j[0] == k and j[1] == 2) for k in ("bldfar", "bldsky", "brfar")}
-        print(f"\nscripted rebase (15 km): far jobs before {n[0]} / after {n[1]} (geotiles: "
-              f"{len(by['bldfar'])} far buildings, {len(by['bldsky'])} skyline, {len(by['brfar'])} far bridge squares); "
-              f"anchor tiles {old[0]} / after {old[1]} ({kinds})")
 
 
-class AgreementTest(unittest.TestCase):
-    def test_constants(self):
-        src = ROADS_LUA.read_text()
-        self.assertEqual(int(re.search(r"^M\.FAR_GEO = (\d+)", src, re.M).group(1)), buildings.FAR_GEO)
-        self.assertEqual(int(re.search(r"^M\.SKY_UNIT = (\d+)", src, re.M).group(1)), buildings.SKY_UNIT)
-        self.assertEqual(2 ** (geotiles.FAR_Z - geotiles.SKY_Z), buildings.SKY_UNIT)
-        self.assertEqual(geotiles.FAR_Z, geotiles.Z, "far buildings in the road geotiles' own grid")
 
 
 @unittest.skipUnless(HAVE_DATA, "the map data cache (~/.cache/beamng-earth)")

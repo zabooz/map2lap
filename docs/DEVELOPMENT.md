@@ -9,8 +9,8 @@ developed further here. We call its building blocks without the game and write t
 
 **Working rules**
 - BeamNG.Earth's world is the base: rebuild it completely, hide nothing. When something is wrong, first read what
-  BeamNG.Earth intends at that place (the server code *and* the mod's `mod/.../roads.lua`, which shows what collides in
-  game). Don't correct by screenshots of one test track.
+  BeamNG.Earth intends at that place (the server code; what collides in game: "Terrain and physics like BeamNG.Earth"
+  below). Don't correct by screenshots of one test track.
 - Fix problems at their cause, not for one place, in `vendor/beamng_earth` too. A rule for the driving surface gets a
   comment at its place saying why, a test, and a measurement before and after (`tools/measure.py --all --build`: the
   test tracks, `tools/test_tracks.json`: short routes named "<Place> Test", each around the spots worth driving in AC
@@ -120,7 +120,8 @@ src/            the program
   app/          the page's own state: settings, version, my tracks, map data cache, folders (paths.py)
   track/        map data -> track: BeamNG.Earth tiles, OBJ parts, kn5, track folder, worker processes
   scenery/      terrain, water, trees, rocks, street furniture, textures, gantries, distant view
-tools/          developer tools (not in the release): measuring, update, release, Track Debug app
+tools/          developer tools (not in the release): measuring, Rust build, release
+assets/         fonts, road sign materials and lettering (roadside/), downloaded textures (textures/)
 vendor/         BeamNG.Earth (see below)
 docs/           these notes, README images
 ```
@@ -169,6 +170,9 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 ### BeamNG.Earth (`vendor/beamng_earth`)
 
 - Based on BeamNG.Earth 1.7.2-beta (github.com/TecnaGamer/BeamNG.Earth), developed further here.
+- Holds what builds a track: `server/` (map data and world rules), `native/earthfast` (Rust), `tools/` (the scripts
+  that make the data files in `server/`), the licence and the credits. BeamNG.Earth's game mod and its live server
+  (`earthd`) are not part of it.
 - **Rust module `earthfast`** (our own build: the grading's junction and beside rules are in it, `AC_EXPORT_YIELD`;
   `server/earthfast.pyd` in the repo): Rust
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
@@ -186,12 +190,12 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 
 ### Terrain and physics like BeamNG.Earth
 
-**How BeamNG.Earth builds** (`blockworker.build`, `grading.Grader.apply`, `roads.py`, the mod's `roads.lua`):
+**How BeamNG.Earth builds** (`blockworker.build`, `grading.Grader.apply`, `roads.py`):
 - **You drive on the terrain:** levelled to road height under roads, plus `ROAD_LIFT` 4 cm; without gaps. Surface
   (grip) per 2 m sample: `surface.classify` (land use, slope > 35° = rock), `paint_roads`, `paint_lots`.
 - **Roads painted into the terrain** (`roads.ROADS_IN_GROUND`, the default). `BNGE_ROADS_IN_GROUND=0` is the old mode
   with asphalt as a mesh of its own (asphalt walls, zigzags, holes at seams – don't use).
-- Collision in game (the mod's `createWalk`): `road` (markings) and `wire` visual only; `deck` (bridges and tunnel
+- Collision in BeamNG.Earth's game mod: `road` (markings) and `wire` visual only; `deck` (bridges and tunnel
   floor), `tunnel` (tubes, portals, retaining walls), `rail` visible with collision; `walk`/`bld` visible, their
   collision is the invisible copy `walkcol`/`bldcol`.
 - **Tunnels:** terrain holed only at the portals (`block_tunnel_holes`), raised over flat vaults (`block_arch_raise`);

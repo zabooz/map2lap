@@ -2,7 +2,6 @@
 overhead stations (tools/build_sign_tags.py, when pyosmium is installed)."""
 from pathlib import Path
 import importlib.util
-import json
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -211,38 +210,6 @@ class BuilderTest(unittest.TestCase):
             self.assertEqual(source.objects(FRAME, (1000., -100., 1500., 100.)), [])
 
 
-class PipelineTest(unittest.TestCase):
-    def test_overhead_mesh_is_identical_in_server_and_worker_and_has_no_collision(self):
-        import blockworker
-        import earthd
-        import roads
-        import threading
-        from test_highway_signs import FakeTags, fixture as pipeline_fixture, server
-        from test_blockworker import FakeDem
-        from test_roads import FRAME as frame, LAT, LON
-        with tempfile.TemporaryDirectory() as tmp:
-            md = pipeline_fixture(tmp)
-            path = md.feats.parts(0)[0][0]
-            lat, lon, _ = frame.enu_to_geodetic(150., 100., 0.)
-            obj = dict(id=-12345, lon=float(lon), lat=float(lat), tags={}, ways=[],
-                       through=dict(label=throughsigns.label(tags(direction='north')),
-                                    main_ids=[10], approach=path.tolist(), point=[float(lon),float(lat)]))
-            md.highway_signs = highwaysigns.Source(md, tags=FakeTags([obj]))
-            dirs = [Path(tmp, name) for name in ('server', 'worker')]
-            for directory in dirs:
-                directory.mkdir()
-            expected = earthd.Server.build_signs_tile(server(md, str(dirs[0])), 1, 0, 0)
-            blockworker._s = SimpleNamespace(md=md, dem=FakeDem(), widths=None, surface=None,
-                airports=None, sea=None, lock=threading.Lock(), bridges={}, anchor=lambda *a: (None, None))
-            result = blockworker.signs_tile(1, LAT, LON, 15, 0, 0, str(dirs[1]), '/temp/test')
-            self.assertEqual(expected, result)
-            self.assertEqual(sorted(p.name for p in dirs[0].iterdir()), sorted(p.name for p in dirs[1].iterdir()))
-            for path in dirs[0].iterdir():
-                self.assertEqual(path.read_bytes(), (dirs[1]/path.name).read_bytes(), path.name)
-            data = json.loads(next(dirs[0].glob('*.json')).read_text())
-            self.assertIn('exits', data)
-            self.assertNotIn('exits', data.get('colliders', {}))
-            md.highway_signs.close()
 
 
 if __name__ == '__main__':

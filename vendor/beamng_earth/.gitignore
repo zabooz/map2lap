@@ -6,11 +6,6 @@ __pycache__/
 backups/
 *.log
 
-# in-game test runs and screenshots (hundreds of MB): keep the written reports (*.md, *.json),
-# not the per-run folders
-docs/research/*/
-docs/research/*.jsonl
-
 # editor / OS
 .vscode/
 .idea/
@@ -19,14 +14,9 @@ docs/research/*.jsonl
 
 # agent worktrees
 .claude/
-tools/gcpatch/build/
-docs/research/streetview/
-docs/research/ortho/
 
-# install.py / tools/package.py output
+# build output
 .venv/
-.beamng_earth.json
 dist/
 native/earthfast/target/
 build/
-native/serverlist/target/

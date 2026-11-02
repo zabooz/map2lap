@@ -3,7 +3,6 @@ cap and the low-water mark, the protection rules (this session's last hour, grav
 markers), index persistence and damage, the VERSION file, per-source lifetimes, concurrent use from
 worker threads, clear, the background thread's pacing, and the hooks in dem.py / imagery.py /
 deshadow.py / colormatch.py and earthd's 'cache' messages. No network: fake clock, stub fetcher."""
-import asyncio
 import os
 import sys
 import tempfile
@@ -13,13 +12,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cache as cachemod  # noqa: E402
 import dem as demmod  # noqa: E402
-import earthd  # noqa: E402
 import imagery as imagerymod  # noqa: E402
 import netfetch  # noqa: E402
 
@@ -566,136 +563,11 @@ class ProducerTest(Base):
         self.assertNotIn("imagery/usgs/16/1/2.jpg", c._entries)
         im.close()
 
-    def test_region_caches(self):
-        """The de-shadow and colour-seam region files are tracked through their own write / read points
-        (_atomic_write + disk.wrote / disk.used), and a de-shadow region whose grids were evicted is
-        computed again instead of staying "pending"."""
-        import colormatch as colormatchmod
-        import deshadow as deshadowmod
-        c = self.make()
-        cm = colormatchmod.ColorMatch(self.root)
-        cm.disk = c
-        try:
-            cm._store((1, 2), "field", colormatchmod.EMPTY, {})        # the "no seams" marker (JSON)
-            self.assertIn("colormatch/v1/usgs/12/1/2.none", c._entries)
-            self.clock.t += 10
-            self.assertIsNotNone(cm._load((1, 2), "field"))
-            self.assertEqual(c._entries["colormatch/v1/usgs/12/1/2.none"][1], T0 + 10)
-        finally:
-            cm.close()
-        ds = deshadowmod.Deshadow(self.root, dem=None, mode="full")
-        ds.disk = c
-        try:
-            jp, npz = ds._paths((5, 6))
-            deshadowmod._atomic_write(npz, lambda fh: np.savez_compressed(fh, grids=np.zeros((2, 2, 2), np.uint8)))
-            deshadowmod._atomic_write(jp, lambda fh: fh.write(
-                b'{"version": %d, "ok": true, "cast": false}' % deshadowmod.VERSION))
-            with ds._lock:
-                P = ds._load_params((5, 6))
-            self.assertTrue(P["ok"])
-            self.assertIn("deshadow/usgs/12/5/6.json", c._entries)
-            r = ds.region((5, 6), wait=False)
-            self.assertIsNotNone(r)
-            self.assertIn("deshadow/usgs/12/5/6.npz", c._entries)
-            with ds._lock:
-                ds._grids.clear()
-            os.remove(npz)                              # evicted
-            self.assertIsNone(ds.region((5, 6), wait=False))
-            self.assertNotIn((5, 6), ds._params, "dropped: queued again on the next request")
-        finally:
-            ds.close()
 
 
 # --- earthd ------------------------------------------------------------------------------------------
-class _Writer:
-    def __init__(self):
-        import json
-        self.json, self.msgs = json, []
-
-    def write(self, data):
-        self.msgs.append(self.json.loads(data[4:].decode()))
-
-    def is_closing(self):
-        return False
-
-    def get_extra_info(self, name):
-        return ("127.0.0.1", 0)
 
 
-class ServerCacheTest(Base):
-    def run_conn(self, server, script):
-        async def go():
-            w = _Writer()
-            c = earthd.Connection(server, None, w)
-            await script(c, w)
-            return w.msgs
-        return asyncio.run(go())
-
-    def test_messages(self):
-        put(self.root, "cache/imagery/usgs/16/1/0.jpg", MB, T0 - DAY)
-        put(self.root, "cache/gravity/egm2008_rowmajor.npy", 2 * MB, T0 - DAY)
-        disk = cachemod.Cache(os.path.join(self.root, "cache"), 20, now=self.clock, start=False)
-        disk.scan()
-        s = earthd.Server(self.root, os.path.join(self.root, "cache"), imagery=("usgs",), cache=disk)
-        self.assertIs(s.dem.disk, disk)
-        self.assertIs(s.imagery.disk, disk)
-        hello = {"type": "hello", "protocol": earthd.PROTOCOL, "format": 4, "modVersion": "0.4.0"}
-
-        async def script(c, w):
-            c.dispatch(hello)
-            c.dispatch({"type": "cache", "capGb": 5})
-            c.dispatch({"type": "cache"})
-            c.dispatch({"type": "cache", "clear": True})
-            for _ in range(200):
-                if any("clearedBytes" in m for m in w.msgs):
-                    break
-                await asyncio.sleep(0.01)
-        msgs = self.run_conn(s, script)
-        cache_msgs = [m for m in msgs if m["type"] == "cache"]
-        self.assertEqual([m["type"] for m in msgs[:2]], ["hello", "cache"], "the usage follows hello")
-        self.assertEqual(cache_msgs[0], {"type": "cache", "v": 1, "usedBytes": 3 * MB, "capBytes": 20_000_000_000,
-                                         "files": 2, "ready": True, "managed": True})
-        self.assertEqual(cache_msgs[1]["capBytes"], 5_000_000_000)
-        self.assertEqual(len(cache_msgs), 4)
-        self.assertEqual((cache_msgs[3]["clearedBytes"], cache_msgs[3]["usedBytes"]), (MB, 2 * MB))
-        self.assertFalse(exists(self.root, "cache/imagery/usgs/16/1/0.jpg"))
-        s.imagery.close()
-
-    def test_bad_cap_and_default_server(self):
-        disk = cachemod.Cache(os.path.join(self.root, "c1"), 20, now=self.clock, start=False)
-        s = earthd.Server(self.root, os.path.join(self.root, "c1"), imagery=None, cache=disk)
-        for bad in ({"capGb": "5"}, {"capGb": True}, {"capGb": -1}):
-            with self.assertRaises(ValueError):
-                earthd.Connection.on_cache(types.SimpleNamespace(s=s, send=lambda m: None), bad)
-        self.assertEqual(disk.cap, 20_000_000_000)
-        # Server()'s default: no Cache, no 'cache' message, a mod's 'cache' is ignored
-        s0 = earthd.Server(self.root, os.path.join(self.root, "c2"), imagery=None)
-        self.assertIsNone(s0.cache)
-        self.assertIs(s0.dem.disk, cachemod.NONE)
-
-        async def script(c, w):
-            c.dispatch({"type": "hello", "protocol": earthd.PROTOCOL, "format": 4, "modVersion": "0.4.0"})
-            c.dispatch({"type": "cache", "capGb": 5, "clear": True})
-        msgs = self.run_conn(s0, script)
-        self.assertEqual([m["type"] for m in msgs], ["hello"])
-        self.assertFalse(os.path.exists(os.path.join(self.root, "c2", cachemod.VERSION_FILE)),
-                         "Server() alone writes nothing into the cache root")
-
-    @unittest.skip("shared world building, commented out 2026-10-27 (off since 2026-10-23; the user: not coming back for a while): earthd.share_port")
-    def test_share_port(self):
-        """The BeamMP group service's port: this machine's BNGE_SHARE_PORT, else the BeamMP server's, else 47621."""
-        self.assertEqual(earthd.share_port(None, ""), earthd.peerworkmod.SHARE_PORT)
-        self.assertEqual(earthd.share_port(50000, ""), 50000)
-        self.assertEqual(earthd.share_port(50000, "51000"), 51000)
-        self.assertEqual(earthd.share_port(80, "x"), earthd.peerworkmod.SHARE_PORT, "unusable ones skipped")
-
-    def test_cli(self):
-        self.assertEqual(earthd.parse_cache_cap("12.5"), 12.5)
-        self.assertEqual(earthd.parse_cache_cap("0"), 0.0)
-        import argparse
-        for bad in ("-1", "nan", "lots"):
-            with self.assertRaises(argparse.ArgumentTypeError):
-                earthd.parse_cache_cap(bad)
 
 
 
@@ -757,26 +629,6 @@ class ChangeHookTest(Base):
         c.forget(p)
         self.assertEqual(len(seen), 2, "forgetting an unknown key: nothing")
 
-    def test_cover_index_stays_in_sync(self):
-        import covermap
-        import revisit
-        revisit.COMPACTED.set()
-        for i in range(6):
-            put(self.root, f"imagery/usgs/16/100/{i}.jpg", MB, T0 - (10 - i) * DAY)
-        c = self.make(cap_gb=0.0045)
-        cm = covermap.CoverMap(c, self.root)
-        self.assertTrue(cm.build(wait=1.0))
-        self.assertEqual(cm.idx.count(covermap.IMG), (6, 0))
-        p = put(self.root, "imagery/usgs/16/100/9.jpg", 1000)
-        c.wrote(p)
-        miss = put(self.root, "imagery/usgs/16/100/8.404", 0)
-        c.wrote(miss, 0)
-        c.evict()                       # 2 of the old MB files go (down to 90 % of 4.5 MB)
-        cm._drain()
-        self.assertEqual(cm.idx.count(covermap.IMG), (5, 1))
-        c.clear()
-        cm._drain()
-        self.assertEqual(cm.idx.count(covermap.IMG), (1, 1), "the older files go, this session's two stay")
 
 
 class PinTest(Base):
