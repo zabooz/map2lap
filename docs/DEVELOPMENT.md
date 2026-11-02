@@ -70,10 +70,19 @@ before it is built; a code pasted into that field under New track sets them. The
 holds no route: OSRM routes the pins again. A build stores its map data's versions (`generator.data_versions`:
 Overture's release, the OpenStreetMap tags file's ETag) in `data/map2lap.json` beside the code.
 
-**Release:** `.venv\Scripts\python.exe tools\make_release.py` builds `dist\Map2Lap-<version>-win64.zip` with an
-embedded Python, all packages, BeamNG.Earth and the textures. A GitHub release `v<version>` carries it as its
-asset `Map2Lap-<version>-win64.zip` under exactly that name: the page's update check and "Install update" look for it
-(`--target` of `gh release create` takes the full commit hash).
+**Release:** `.venv\Scripts\python.exe tools\make_release.py [--win | --linux]` builds, on Windows, both
+`dist\Map2Lap-<version>-win64.zip` (python.org's embeddable Python) and `dist\Map2Lap-<version>-linux-x64.tar.gz`
+(python-build-standalone with the packages' manylinux wheels), each with all packages, BeamNG.Earth and the textures.
+A GitHub release `v<version>` carries both as its assets under exactly these names: the page's update check and
+"Install update" look for the one of their system (`--target` of `gh release create` takes the full commit hash).
+
+**Linux:** everything that differs between the systems is in `app/system.py`: Steam and its libraries, AC's Proton
+prefix (its `Documents` with `race.ini`), Play, processes, the folder picker, free memory. Play starts `acs.exe` the
+way Steam does (`_v2-entry-point` of the Steam Linux Runtime the Proton names, then `proton waitforexitandrun`, with
+the `STEAM_COMPAT_*` environment), with the Proton Steam last used for AC (`compatdata/244210/config_info`); Play starts
+Steam first and waits until it is signed in (on Linux its `logs/connection_log.txt`). `start.sh` and `Map2Lap.desktop` are `Start Map2Lap.bat`'s
+counterpart. To develop on Linux: `python3.12 -m venv .venv`, `.venv/bin/python -m pip install -r requirements.txt`,
+`./start.sh` (it takes `.venv` when there is no bundled Python).
 
 ---
 
@@ -105,7 +114,7 @@ threads because BeamNG.Earth's state (`blockworker._s`) is global: every process
 
 ```
 src/            the program
-  server.py     the generator page (Start Map2Lap.bat runs it), web/index.html
+  server.py     the generator page (Start Map2Lap.bat / start.sh runs it), web/index.html
   generator.py  one build (the page runs it as its own process)
   app/          the page's own state: settings, version, my tracks, map data cache, folders (paths.py)
   track/        map data -> track: BeamNG.Earth tiles, OBJ parts, kn5, track folder, worker processes
@@ -116,14 +125,15 @@ docs/           these notes, README images
 ```
 `src\` is the import root: the packages import each other as `from track import make_obj`. `server.py` and
 `generator.py` find them because Python puts a script's folder on its path; the tools add `src\` themselves, the
-release's Python has it in `python312._pth`.
+Windows release's Python has it in `python312._pth` (a `._pth` adds no script folder).
 
 | File | Purpose |
 |---|---|
 | `server.py`, `web/index.html` | Local generator page (Leaflet/OSM): new track (route or area), "My tracks" (rebuild, copy, delete, play), Settings, progress, stop |
 | `generator.py` | Route → tiles → OBJ → track folder → kn5 |
 | `app/version.py` | App version (`VERSION`, every release) and track version (`TRACK_VERSION`, only when built tracks change); both are stored in every track, "My tracks" marks older track versions |
-| `app/updater.py` | "Install update" (Settings → Version): downloads the release zip, checks it against GitHub's SHA-256, unpacks it into `update/`; `Start Map2Lap.bat` puts it in after the server ended with exit code 75 |
+| `app/updater.py` | "Install update" (Settings → Version): downloads this system's release archive, checks it against GitHub's SHA-256, unpacks it into `update/`; `Start Map2Lap.bat` / `start.sh` puts it in after the server ended with exit code 75 |
+| `app/system.py` | What differs between Windows and Linux: Steam, AC's documents (Proton prefix on Linux), Play, processes, folder picker |
 | `app/mytracks.py` | Our tracks in the AC folder and their saved settings (`data/map2lap.json`) |
 | `app/trackcode.py` | Track codes: a track's inputs in one line to share, and back |
 | `app/mapcache.py` | Map data cache with a size limit; "Clear now" |

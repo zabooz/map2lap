@@ -6,6 +6,20 @@
 # Each folder of the new release replaces the old one; settings.json, cache and out aren't in it and stay. This file
 # is replaced by a rename: the shell reads a running script as it goes, and keeps reading the old one that way.
 cd "$(dirname "$0")" || exit 1
+# Double-clicked in a file manager, this runs without a terminal: the server would go on hidden, with no window to
+# close it by. It opens itself in the first terminal found instead (else it goes on without one).
+if [ ! -t 0 ] && [ -z "$MAP2LAP_TERMINAL" ]; then
+  export MAP2LAP_TERMINAL=1
+  for t in xdg-terminal-exec konsole gnome-terminal kgx xfce4-terminal kitty alacritty foot xterm; do
+    command -v "$t" >/dev/null || continue
+    case $t in
+      xdg-terminal-exec|kitty|foot) exec "$t" "$PWD/start.sh" ;;
+      gnome-terminal|kgx) exec "$t" -- "$PWD/start.sh" ;;
+      xfce4-terminal) exec "$t" -x "$PWD/start.sh" ;;
+      *) exec "$t" -e "$PWD/start.sh" ;;
+    esac
+  done
+fi
 ARGS=
 while :; do
   if [ -f update/ready ]; then
@@ -32,7 +46,7 @@ while :; do
   [ "$code" = 75 ] || break
   ARGS=--no-browser
 done
-# (started from Map2Lap.desktop the terminal closes with the script: an error stays readable until Enter)
+# (the terminal closes with the script: an error stays readable until Enter)
 if [ "$code" != 0 ] && [ "$code" != 130 ]; then
   printf "\nMap2Lap ended with exit code %s. Press Enter to close." "$code"
   read -r _
