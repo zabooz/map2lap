@@ -27,6 +27,15 @@ them. A build's log: out/build_<name>.log.
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --install            # into AC, to drive it
     .venv\\Scripts\\python.exe tools\\measure.py a2_test                            # any track built before
     ... --reference    save the values as the new reference in test_tracks.json (the state a change is compared with)
+    .venv\\Scripts\\python.exe tools\\measure.py griffen_bruecke_test --holes       # the gaps in the ground, whole corridor
+
+--holes looks at every 2 m terrain cell of the built area, not only along the route, for gaps with nothing facing up to
+stand on, and sorts each gap by whether a car gets there:
+- lane: drivable surface on two opposite sides, the gap lies in the road: a car falls in.
+- edge: drivable surface on one side, no wall in the gap: at the road's edge (a car leaving the road falls in).
+- walled: beside the road, but a wall stands in it (a tunnel's): seen through at most.
+- reachable: not at a road, but over ground a car can climb (CLIMB_M per cell) from one.
+- unreachable: up a slope or behind walls: seen through at most.
 """
 import argparse
 import glob
@@ -54,6 +63,9 @@ PAINT = ("nocol_road_asphalt", "1ROAD_deck")    # (the visible carriageway: road
 FLOOR = "1WALL_deck_con"    # a tunnel's floor slab (its top: the surface a car drives on in the tube)
 G_LIMIT = 0.5           # G at 100 km/h
 V = 100 / 3.6
+HOLE_CELL_M = 2.0       # m: the terrain's grid
+CLIMB_M = 0.6           # m between neighbouring cells a car drives over (30 %): past that a slope stops it (--holes)
+STAND_ON = ("1ROAD", "1GRASS", "1GRAVEL", "1KERB", FLOOR, "1WALL_tunnel", "1WALL_railcol", "nocol_road_asphalt")
 
 
 def _surfaces(track, box):
@@ -281,6 +293,131 @@ def report(track, r, ref=None, everything=False):
         print(f"     {u['m']:7.0f} m  {'onto' if u['onto'] else 'off '}  {u['g']:5.2f} G, step {u['step']:+.3f} m")
 
 
+def _hole_cells(track):
+    """The terrain's cells of a built track, by what is on them: (cells: {(i, j): height of what stands there, None for
+    nothing}, road: the cells with drivable surface on them, wall: the cells with an upright collision face). Cell (i, j)
+    is x in 2i .. 2i + 2, z likewise."""
+    ground, stand, road, wall = [], [], [], []
+    for p in glob.glob(os.path.join(HERE, "out", "tracks", track, "obj", "parts", "t_*.obj")):
+        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
+            if not name.startswith("1") and name != "nocol_road_asphalt" and not name.startswith("nocol_road_asphalt"):
+                continue
+            t = P[T]
+            n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+            up = n[:, 1] / np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+            if "_ground_" in name:
+                ground.append(t)
+                if name.startswith("1ROAD"):
+                    road.append(t)
+                continue
+            if name.startswith("1"):
+                wall.append(t[np.abs(up) < 0.3])
+            if name.startswith(STAND_ON):
+                stand.append(t[up > 0.5])
+                if name.startswith(("1ROAD_deck", "nocol_road_asphalt")):
+                    road.append(t[up > 0.5])
+    ground = np.concatenate(ground)
+    lo, hi = ground.reshape(-1, 3).min(0), ground.reshape(-1, 3).max(0)
+    # (the cells the terrain's tiles cover: a cell with a triangle, and every cell inside a tile's rows of them)
+    i0, j0 = np.floor(ground[:, :, [0, 2]].mean(1) / HOLE_CELL_M).astype(np.int64).T
+    have = set(zip(i0.tolist(), j0.tolist()))
+    near = {(i + a, j + b) for i, j in have for a in (-1, 0, 1) for b in (-1, 0, 1)}
+    near = [c for c in near if lo[0] <= c[0] * HOLE_CELL_M and (c[0] + 1) * HOLE_CELL_M <= hi[0]
+            and lo[2] <= c[1] * HOLE_CELL_M and (c[1] + 1) * HOLE_CELL_M <= hi[2]]
+    q = np.array(near, np.int64)
+    qx, qz = (q[:, 0] + 0.5) * HOLE_CELL_M, (q[:, 1] + 0.5) * HOLE_CELL_M
+
+    def hits(tris):
+        tris = np.concatenate(tris) if tris else np.zeros((0, 3, 3))
+        if not len(tris):
+            return [np.zeros(0)] * len(q)
+        return [z for z, _d in _heights(tris, np.zeros(len(tris), bool), qx, qz)]
+    hg, hs, hr = hits([ground]), hits(stand), hits(road)
+    cells = {}
+    for c, g, s in zip(near, hg, hs):
+        cells[c] = float(g.max()) if len(g) else float(s.max()) if len(s) else None
+    on_road = {c for c, r in zip(near, hr) if len(r)}
+    w = np.concatenate(wall) if wall else np.zeros((0, 3, 3))
+    walls = set()
+    if len(w):        # (a face's own extent: an upright face has no area seen from above)
+        a, b = np.floor(w[:, :, [0, 2]].min(1) / HOLE_CELL_M).astype(np.int64), np.floor(w[:, :, [0, 2]].max(1) / HOLE_CELL_M).astype(np.int64)
+        for (i0_, j0_), (i1_, j1_) in zip(a.tolist(), b.tolist()):
+            if (i1_ - i0_ + 1) * (j1_ - j0_ + 1) <= 64:
+                walls.update((i, j) for i in range(i0_, i1_ + 1) for j in range(j0_, j1_ + 1))
+    return cells, on_road, walls
+
+
+def classify_holes(cells, road, walls):
+    """The gaps among cells ({(i, j): height or None for nothing}), road and walls as _hole_cells': [(kind, [cells])],
+    kinds as in the module doc. Pure."""
+    around = [(a, b) for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b]
+    reached = set(road)
+    todo = list(road)
+    while todo:             # (from the roads over ground a car can climb, not through walls)
+        i, j = todo.pop()
+        h = cells.get((i, j))
+        for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            c = (i + a, j + b)
+            if c in reached or c in walls or cells.get(c) is None or h is None:
+                continue
+            if abs(cells[c] - h) <= CLIMB_M:
+                reached.add(c)
+                todo.append(c)
+    gaps = {c for c, h in cells.items() if h is None}
+    out = []
+    while gaps:
+        comp, todo = [], [gaps.pop()]
+        while todo:
+            c = todo.pop()
+            comp.append(c)
+            for a, b in around:
+                n = (c[0] + a, c[1] + b)
+                if n in gaps:
+                    gaps.remove(n)
+                    todo.append(n)
+        members = set(comp)
+        # (open to the outside: the built area's own edge, no gap in it)
+        if any((c[0] + a, c[1] + b) not in cells for c in comp for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            continue
+
+        def lands(c, a, b):
+            while c in members:
+                c = (c[0] + a, c[1] + b)
+            return c in road
+        open_ = [c for c in comp if c not in walls]
+        at_road = [c for c in comp if any((c[0] + a, c[1] + b) in road for a, b in around)]
+        if any(lands(c, a, b) and lands(c, -a, -b) for c in open_ for a, b in ((1, 0), (0, 1), (1, 1), (1, -1))):
+            kind = "lane"
+        elif at_road:
+            kind = "edge" if any(c not in walls for c in at_road) else "walled"
+        elif any((c[0] + a, c[1] + b) in reached for c in open_ for a, b in around):
+            kind = "reachable"
+        else:
+            kind = "unreachable"
+        out.append((kind, sorted(comp)))
+    order = ("lane", "edge", "reachable", "walled", "unreachable")
+    return sorted(out, key=lambda g: (order.index(g[0]), -len(g[1])))
+
+
+def report_holes(track):
+    """The gaps in a built track's ground, with where they are on the route."""
+    route = _route(track)
+    S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
+    t = np.arange(0.0, S[-1], 0.5)
+    rx, rz = np.interp(t, S, route[:, 0]), np.interp(t, S, route[:, 1])
+    gaps = classify_holes(*_hole_cells(track))
+    kinds = {}
+    for kind, comp in gaps:
+        kinds[kind] = kinds.get(kind, 0) + 1
+    print(f"{track}: gaps in the ground: {kinds or 'none'}")
+    for kind, comp in gaps:
+        c = (np.array(comp, np.float64) + 0.5) * HOLE_CELL_M
+        d = np.hypot(rx[:, None] - c[:, 0], rz[:, None] - c[:, 1])
+        k = int(d.min(1).argmin())
+        print(f"  {kind:11} {len(comp) * HOLE_CELL_M ** 2:6.0f} m2 at x {c[:, 0].mean():8.1f} z {c[:, 1].mean():8.1f}, "
+              f"route {t[k]:7.0f} m, {float(d[k].min()):5.1f} m off the line")
+
+
 def code(entry):
     """The track code of a test track (a test_tracks.json entry) at this track version."""
     return trackcode.encode({"points": entry["points"], "width": entry["width"], "title": entry["title"],
@@ -333,6 +470,7 @@ def main():
     ap.add_argument("--from", dest="start", type=float)
     ap.add_argument("--to", dest="end", type=float)
     ap.add_argument("--reference", action="store_true", help="save the values as the new reference")
+    ap.add_argument("--holes", action="store_true", help="only the gaps in the ground over the whole built area")
     ap.add_argument("--build-one", help=argparse.SUPPRESS)      # (a child process: build this track, nothing else)
     ap.add_argument("--share", type=float, default=1.0, help=argparse.SUPPRESS)
     a = ap.parse_args()
@@ -352,6 +490,10 @@ def main():
         short = [t for t in tracks if not test[t].get("long")]
         build_all(short, a.install, min(BUILD_JOBS, len(short)))
         build_all([t for t in tracks if test[t].get("long")], a.install, 1)
+    if a.holes:
+        for t in tracks:
+            report_holes(t)
+        return
     part = a.start is not None or a.end is not None
     refs = {}
     for t in tracks:
