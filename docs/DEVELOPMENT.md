@@ -162,6 +162,7 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 | `tools/stretch.py` | A track's stretch built again fast (tiles and OBJ only, nothing into AC), the driving surface along the route measured and compared with its last run: before and after a fix |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes around the spots worth driving: their route metres and track codes; `"long": true` ones only with `--long`) built up to the OBJ parts, nothing into AC (`--build`), or into AC to drive them (`--install`), the short ones three at a time, each build's log in `out/build_<name>.log`; the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
+| `tools/portal.py` | A tunnel portal's heights from the code that decides them, at an AC point (a Track Debug mark): elevation, graded ground, floor and floor as drawn along its last metres and past it, the road plans there against the elevation, the tunnel's map range against the built part, the approaches the grader finds. Nothing is built |
 | `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 
