@@ -372,7 +372,8 @@
 const VIEW_KEY = 'map2lap.view';
 let view = null;
 try { view = JSON.parse(localStorage.getItem(VIEW_KEY)); } catch (e) {}
-const map = L.map('map').setView(view && view.c ? view.c : [48.5, 11], view && view.z ? view.z : 5);
+// (worldCopyJump: dragged around the earth the map stays on the real one, its clicks' longitudes within -180 .. 180)
+const map = L.map('map', {worldCopyJump: true}).setView(view && view.c ? L.latLng(view.c).wrap() : [48.5, 11], view && view.z ? view.z : 5);
 map.on('moveend', () => {
   try { localStorage.setItem(VIEW_KEY, JSON.stringify({c: map.getCenter(), z: map.getZoom()})); } catch (e) {}
 });
@@ -630,9 +631,9 @@ $('m-area').onclick = () => setMode('area');
 // --- route ---
 function addPoint(latlng, label) {
   if (mode === 'area' || tab !== 'new') return;
-  const m = L.marker(latlng, {draggable: true}).addTo(map);
+  const m = L.marker(L.latLng(latlng).wrap(), {draggable: true}).addTo(map);
   m.label = label || null;                // (the place picked in its field; a pin set on the map: its coordinates)
-  m.on('dragend', () => { m.label = null; updateRoute(); });
+  m.on('dragend', () => { m.label = null; m.setLatLng(m.getLatLng().wrap()); updateRoute(); });
   m.on('contextmenu', () => removePoint(m));
   markers.push(m);                        // (the last point is the finish)
   updateRoute();
@@ -851,9 +852,9 @@ function applyCode(c) {
   $('width').value = Math.min(400, Math.max(30, Math.round(c.width / 10) * 10));
   setCorridorWidth();
   for (const [lat, lon] of c.points) {     // (as addPoint, the route asked once at the end)
-    const m = L.marker([lat, lon], {draggable: true}).addTo(map);
+    const m = L.marker(L.latLng(lat, lon).wrap(), {draggable: true}).addTo(map);
     m.label = null;
-    m.on('dragend', () => { m.label = null; updateRoute(); });
+    m.on('dragend', () => { m.label = null; m.setLatLng(m.getLatLng().wrap()); updateRoute(); });
     m.on('contextmenu', () => removePoint(m));
     markers.push(m);
   }
@@ -896,7 +897,8 @@ const handles = [0, 1, 2, 3].map(k => {
 
 function showArea(a, b, done) {
   if (rect) map.removeLayer(rect);
-  const s = Math.min(a.lat, b.lat), n = Math.max(a.lat, b.lat), w = Math.min(a.lng, b.lng), e = Math.max(a.lng, b.lng);
+  const turns = 360 * Math.round((a.lng + b.lng) / 720);     // (drawn on a copy of the earth: the same place on the real one)
+  const s = Math.min(a.lat, b.lat), n = Math.max(a.lat, b.lat), w = Math.min(a.lng, b.lng) - turns, e = Math.max(a.lng, b.lng) - turns;
   rect = L.rectangle([[s, w], [n, e]], {color: ROUTE_COLOR, weight: 2, fillOpacity: .1, interactive: false}).addTo(map);
   const wm = map.distance([(s + n) / 2, w], [(s + n) / 2, e]), hm = map.distance([s, (w + e) / 2], [n, (w + e) / 2]);
   const tiles = 4 * Math.ceil(wm / (2 * TILE_M)) * Math.ceil(hm / (2 * TILE_M));     // (tiles counted from the middle)

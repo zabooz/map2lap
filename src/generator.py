@@ -62,9 +62,14 @@ def slug(name):
     return s or "route"
 
 
+def wrap_lon(lon):
+    """lon in -180 .. 180 (a map dragged around the earth gives -706 for 14: OSRM answers 400). Pure."""
+    return (float(lon) + 180.0) % 360.0 - 180.0
+
+
 def route(points):
     """OSRM route through points [(lat, lon), ...]: (coordinates [(lat, lon)], length m)."""
-    coords = ";".join(f"{lon:.6f},{lat:.6f}" for lat, lon in points)
+    coords = ";".join(f"{wrap_lon(lon):.6f},{lat:.6f}" for lat, lon in points)
     req = urllib.request.Request(OSRM + coords + "?overview=full&geometries=geojson",
                                  headers={"User-Agent": version.USER_AGENT})
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -258,6 +263,10 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     track folder; nothing goes into AC); returns {"work": the work folder}."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
+    points = [(lat, wrap_lon(lon)) for lat, lon in points or ()]
+    if area:                # (both sides by the same whole turns: an area keeps its width)
+        turns = wrap_lon(area[1]) - float(area[1])
+        area = (area[0], float(area[1]) + turns, area[2], float(area[3]) + turns)
     name = slug(name)
     title = title or name
     work = os.path.join(ROOT, "out", "tracks", name)
