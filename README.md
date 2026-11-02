@@ -47,6 +47,7 @@ Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 | Problem | What to do |
 |---|---|
 | Windows warns about running the file | The release isn't signed: click **Run** (or *More info → Run anyway*). To stop the question, right-click the zip before unzipping → *Properties* → tick **Unblock**. |
+| Windows blocks Map2Lap, or a build fails with "DLL load failed" | **Smart App Control** blocks Map2Lap's unsigned files (it does even after *Unblock*). Turn it off under *Windows Security → App & browser control → Smart App Control settings*. |
 | Assetto Corsa isn't found | **Settings** → choose your `assettocorsa` folder. |
 | Linux: **Browse …** opens no folder dialog | Type the path of your `assettocorsa` folder into the field (the dialog needs `zenity` or `kdialog`). |
 | Linux: **▶ Play** starts nothing | Start Assetto Corsa from Steam once (see *On Linux*): when it doesn't start there either, its Proton is the problem. |
