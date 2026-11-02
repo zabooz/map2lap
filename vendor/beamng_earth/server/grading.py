@@ -257,6 +257,7 @@ ABUT_MAX_M = 8.0            # m filled at most
 # holding that end, draws the road's last ~50 m down and the deck climbs from there.
 ABUT_STEEP_FINE = 0.05
 ABUT_MIN_FINE_M = 0.1
+ABUT_SHORT_SAMPLES = 3      # samples of a short profile's far half: the fewest that say a grade and not one bump
 
 
 def median_profile(z, step, width):
@@ -466,11 +467,12 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
                 zx, nb = zx[nb:], 0
             if ab[1] and na:
                 zx, na = zx[:len(zx) - na], 0
-            z = zx[nb:nb + len(xy)]
+            # (with the road going on past its other end: an 8 m part between a junction and a bridge that the map draws
+            # 4 m short of its bank has nothing of its own further on to tell the bank from the road, its end stayed 1.5 m
+            # down the bank, 19 %, and the deck with it, 5 G where it reached the junction: Rechberg, Carinthia)
             for at_end in (False, True):
                 if ab[int(at_end)]:
-                    z = fill_abutment(z, at_end, fine=fine)     # (fine)
-            zx = np.concatenate([zx[:nb], z, zx[nb + len(xy):]])
+                    zx = fill_abutment(zx, at_end, fine=fine)   # (fine)
         pin = pins[j] if pins is not None else (None, None)
         if pin[0] is not None and not nb and not ab[0]:     # (the end sample held: the smoothing keeps an end's height)
             zx = zx.copy()
@@ -3570,17 +3572,24 @@ def bridge_lifts(line, all_bridges, ground_lines, z_at, chain=None, rail_lines=(
 def fill_abutment(z, at_end, step=PROFILE_STEP, fine=False):
     """The raw profile z (a sample every step m) of a road leading onto a bridge at its first (at_end False) or last
     sample, its last ABUT_NEAR_M filled up to the straight grade of the stretch from there to ABUT_FAR_M where they
-    fall at least ABUT_STEEP more steeply than it toward the bridge (ABUT_FILL_ON).
+    fall at least ABUT_STEEP more steeply than it toward the bridge (ABUT_FILL_ON). A profile too short for that (a part
+    between a junction and a bridge, with no road going on straight past the junction) takes its half nearer the bridge
+    against the other, at least ABUT_SHORT_SAMPLES of them: on a side road's last 10 m, 1.5 m down the bank and then
+    level, the end stayed down the bank at 19 % and the deck with it.
     fine: lidar, ABUT_*_FINE. Returns z itself when nothing is filled. Pure."""
     min_m, steep = (ABUT_MIN_FINE_M, ABUT_STEEP_FINE) if fine else (ABUT_MIN_M, ABUT_STEEP)
     z = np.asarray(z, np.float64)
     p = z[::-1] if at_end else z
     d = np.arange(len(p)) * step
-    far = (d >= ABUT_NEAR_M) & (d <= ABUT_FAR_M)
+    near_m = ABUT_NEAR_M
+    far = (d >= near_m) & (d <= ABUT_FAR_M)
     if far.sum() < 4:
-        return z
+        near_m = float(d[-1]) / 2 if len(d) else 0.0
+        far = d >= near_m
+        if far.sum() < ABUT_SHORT_SAMPLES:
+            return z
     b, a = np.polyfit(d[far], p[far], 1)
-    n = int((d < ABUT_NEAR_M).sum())
+    n = int((d < near_m).sum())
     e = a + b * d[:n]
     if e[0] - p[0] < min_m or (np.diff(p[:n + 1]) / step - b).max() < steep:
         return z

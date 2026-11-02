@@ -169,6 +169,40 @@ class EndBankTest(unittest.TestCase):
         self.assertAlmostEqual(grading.end_bank([p], (0.0, 0.0), (1.0, 0.0)), 0.08 * np.sin(a))
 
 
+class ShortRoadOntoBridgeTest(unittest.TestCase):
+    """An 8 m part between a junction and a bridge tells the bank from the road by the road going on past the junction."""
+
+    def plan(self, goes_on):
+        def elev(la, lo):       # level up to the part's start, then down the bank at 19 %
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 100.0 - 0.19 * np.maximum(np.asarray(e), 0.0)
+        x = np.array([0.0, 8.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        part = (np.c_[lo, la], roads.Spec(6.0, "paved", False, "service"))
+        west = np.c_[np.arange(0.0, -61.0, -4.0), np.zeros(16)]
+        return grading.plan_roads(FRAME, [part], elev, abut=[(False, True)], ext=[(west if goes_on else None, None)],
+                                  cuts=False, fine=True)[0]
+
+    def test_with_the_road_going_on_its_end_keeps_the_road_s_height(self):
+        self.assertGreater(float(self.plan(True).z[-1]), 99.5)
+
+    def test_with_nothing_further_on_there_is_nothing_to_tell_it_by(self):
+        self.assertLess(float(self.plan(False).z[-1]), 99.2)
+
+    def test_a_side_road_s_own_level_half_tells_it_too(self):
+        # (10 m to a bridge, no road going on straight past the junction: level, then 1.5 m down the bank)
+        z = np.array([100.0, 100.0, 100.0, 99.95, 99.4, 98.5])
+        np.testing.assert_allclose(grading.fill_abutment(z, True, fine=True)[-1], 100.0, atol=0.05)
+
+    def test_an_even_steep_side_road_stays(self):
+        z = 100.0 - 0.19 * np.arange(6) * 2.0
+        np.testing.assert_array_equal(grading.fill_abutment(z, True, fine=True), z)
+
+    def test_too_short_to_say_stays(self):
+        z = np.array([100.0, 99.0, 98.0])
+        np.testing.assert_array_equal(grading.fill_abutment(z, True, fine=True), z)
+
+
 class DeckFromItsRoadsTest(unittest.TestCase):
     """A deck between two roads takes its ends' heights and grades from them, not from the ground; the ground follows."""
 
