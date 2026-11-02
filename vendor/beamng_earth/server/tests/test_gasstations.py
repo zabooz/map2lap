@@ -1,6 +1,6 @@
 """gasstations: which Overture places are fuel stations (categories, two brand lists), their pins merged into one
 station, the shop and the canopy found among the buildings, and the forecourt laid out clear of roads and buildings
-(the user, 2026-10-23: "the refueling is the main part")."""
+("the refueling is the main part")."""
 import sys
 import unittest
 from pathlib import Path
@@ -22,7 +22,7 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(gs.classify("gas_station", "gas_station", "", "open"), (True, False, False))
         self.assertEqual(gs.classify("fueling_station", "", "", None), (True, False, False))
         # a Sheetz near Pittsburgh: a convenience store by its category, fuel by its brand (a fuel brand:
-        # the user, 2026-10-23; one of its stores has no canopy in any building data)
+        # the user; one of its stores has no canopy in any building data)
         self.assertEqual(gs.classify("convenience_store", "convenience_store", "Q7492551", "open"), (False, True, False))
         self.assertEqual(gs.classify("convenience_store", "", "Q5936320", "open"), (False, False, True))   # Wawa
         # "7-ELEVEN/SPEEDWAY #40001": Western Union by its category, no brand
@@ -33,7 +33,7 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(gs.classify("gas_station", "gas_station", "Q458363", "open"), (True, True, False))
 
     def test_brand_name_without_wikidata(self):
-        # a Sheetz near Pittsburgh carries the brand's name but no Wikidata id (found 2026-10-23)
+        # a Sheetz near Pittsburgh carries the brand's name but no Wikidata id (found)
         self.assertEqual(gs.classify("convenience_store", "convenience_store", "", "open", "Sheetz"), (False, True, False))
         self.assertEqual(gs.classify("atm", "atm", None, "open", "MARATHON"), (False, True, False))
         self.assertIsNone(gs.classify("convenience_store", "", "", "open", "Sheetz Bakery"))
@@ -89,7 +89,7 @@ class MergeTest(unittest.TestCase):
 
     def test_name_without_the_brand_shows_the_brand(self):
         # the Aral at Garmischer Str. 197, Munich: Overture's name is its operator's (the refuel prompt said "Wolfgang
-        # Tulach", 2026-10-23); a name that has the brand in it stays
+        # Tulach"); a name that has the brand in it stays
         self.assertEqual(gs.merge([pin("a", 0, 0, "Wolfgang Tulach", "Aral", gas=True)])[0].name, "Aral")
         self.assertEqual(gs.merge([pin("j", 0, 0, "Joby's Gulf", "Gulf", gas=True)])[0].name, "Joby's Gulf")
         self.assertEqual(gs.merge([pin("g", 0, 0, "GetGo Gas Station", "GetGo", gas=True)])[0].name, "GetGo Gas Station")
@@ -138,7 +138,7 @@ class CanopyTest(unittest.TestCase):
         self.assertIsNone(gs.find_canopy(STATION, SHOP, [SHOP, a, b], ROAD))
 
     def test_ml_behind_shop_none(self):
-        # a car wash behind the shop (the user, 2026-10-23: replacing one "I wouldn't like that")
+        # a car wash behind the shop (replacing one "I wouldn't like that")
         wash = rect("wash", 0.0, 70.0, 28.0, 12.0, src=ML)
         self.assertIsNone(gs.find_canopy(STATION, SHOP, [SHOP, wash], ROAD))
 
@@ -155,7 +155,7 @@ class CanopyTest(unittest.TestCase):
 
     def test_two_tagged_roofs_of_a_big_store(self):
         # Buc-ee's, 2760 N I-35, New Braunfels TX: a 155 x 55 m store, two mapped canopies of 157 x 21 m beside it,
-        # their centres 52 and 90 m from the store's (the user, 2026-10-23: "canopys are buildings and we put two
+        # their centres 52 and 90 m from the store's ("canopys are buildings and we put two
         # pumps outside instead")
         shop = rect("shop", 0.0, 80.0, 155.0, 55.0, cls="retail", name="Buc-ee's")
         near = rect("roof1", 0.0, 32.0, 157.0, 21.0, cls="roof")     # 10 m from the store
@@ -170,7 +170,7 @@ class CanopyTest(unittest.TestCase):
 
     def test_chained_roofs_need_a_canopy_shape(self):
         # final review I1: a roofed hall 15 m past the canopy, a platform roof chained on from the hall, a 1 x 0.6 m
-        # roof by the shop: none of them a canopy (real ones: short side <= 21 m, >= 118 m2, rectangles; 2026-10-23)
+        # roof by the shop: none of them a canopy (real ones: short side <= 21 m, >= 118 m2, rectangles)
         can = rect("can", 0.0, 22.0, 30.0, 13.0, cls="roof")
         hall = rect("hall", 60.0, 22.0, 60.0, 30.0, cls="roof")
         plat = rect("plat", 100.0, 22.0, 10.0, 60.0, cls="roof")      # 5 m from the hall, 80 m from the canopy
@@ -270,7 +270,7 @@ def road_gap(x, y):
 
 class LayoutTest(unittest.TestCase):
     def test_canopy_layout(self):
-        # a mapped canopy gets the lanes' style (the user, 2026-10-23): one roof slab over its outline, islands across
+        # a mapped canopy gets the lanes' style: one roof slab over its outline, islands across
         # its short side, one every ~7 m along its long side
         roof = rect("roof", 0.0, 22.0, 30.0, 21.0, cls="roof")
         site = gs.layout(STATION, [SHOP, roof], ROAD)
@@ -284,13 +284,13 @@ class LayoutTest(unittest.TestCase):
             self.assertTrue(inside_box(roof, p["x"], p["y"], pad=1.5), p)
 
     def test_platform_roof_beside_the_shop_is_no_canopy(self):
-        # (GitHub #308, Rio de Janeiro: a train station's 1355 m2 platform roof beside a station's lot took its pumps,
+        # (Rio de Janeiro: a train station's 1355 m2 platform roof beside a station's lot took its pumps,
         # on the tracks) a tagged roof only in a canopy's shape
         platform = rect("platform", 0.0, 80.0, 120.0, 30.0, cls="roof")
         self.assertIsNone(gs.find_canopy(STATION, SHOP, [SHOP, platform], ROAD))
 
     def test_lot_named_like_the_station_gets_a_canopy_in_it(self):
-        # (GitHub #308: Rio's Posto Ipiranga, its whole 2323 m2 lot mapped as one building named "Ipiranga", was drawn as
+        # (Rio's Posto Ipiranga, its whole 2323 m2 lot mapped as one building named "Ipiranga", was drawn as
         # a big block, its pumps elsewhere) the lot's box dropped, a canopy-sized roof in its middle, the pumps under it
         st = gs.Station("st", 0.0, 40.0, "Posto Ipiranga", "Ipiranga", ("p",), True)
         lot = rect("lot", 0.0, 40.0, 54.0, 43.0, name="Ipiranga")
@@ -304,14 +304,14 @@ class LayoutTest(unittest.TestCase):
         self.assertFalse(gs._is_lot(rect("mkt", 0.0, 40.0, 54.0, 43.0, name="Supermercado"), st))
 
     def test_lot_named_as_a_fuel_station(self):
-        # (GitHub #308: a BR station's lot mapped as "Auto Posto Jari LTDA", 1661 m2, drawn four storeys high)
+        # (a BR station's lot mapped as "Auto Posto Jari LTDA", 1661 m2, drawn four storeys high)
         st = gs.Station("st", 0.0, 40.0, "BR", "BR", ("p",), True)
         self.assertTrue(gs._is_lot(rect("lot", 0.0, 40.0, 41.0, 41.0, cls="commercial", name="Auto Posto Jari LTDA"), st))
         self.assertTrue(gs._is_lot(rect("lot", 0.0, 40.0, 41.0, 41.0, name="Tankstelle Meier"), st))
         self.assertFalse(gs._is_lot(rect("lot", 0.0, 40.0, 41.0, 41.0, name="Postal Office"), st))
 
     def test_canopy_never_across_the_street(self):
-        # (GitHub #308: an imagery outline on the other corner took the station) the shop north of the street, a
+        # (an imagery outline on the other corner took the station) the shop north of the street, a
         # canopy-sized imagery outline south of it: none
         across = rect("ml", 0.0, -20.0, 16.0, 10.0, src=ML)
         self.assertIsNone(gs.find_canopy(STATION, SHOP, [SHOP, across], ROAD))
@@ -321,7 +321,7 @@ class LayoutTest(unittest.TestCase):
     def test_canopy_across_the_street_from_a_pin_on_the_road(self):
         # (a Sunoco in Pittsburgh, BNGE_GAS_REAL: its pin 2.4 m from the road's centre line, the nearest building north
         # of the road, its two mapped canopies south of it) a pin on the carriageway does not say which side the
-        # station is on: the canopy is taken, as before GitHub #308
+        # station is on: the canopy is taken, as before
         st = gs.Station("sun", 0.0, 2.4, "Sunoco", "", ("p",), True)
         shop = rect("shop", 0.0, 20.0, 16.0, 14.0)
         roof = rect("roof", 0.0, -20.0, 16.0, 10.0, cls="roof")
@@ -349,7 +349,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(len([p for p in site.props if p["shape"].endswith("s_fuel_structure_07.dae")]), 12)
 
     def test_narrow_canopy_short_islands_across_it(self):
-        # a Speedway near Pittsburgh: its mapped canopy is 73 x 8.6 m; the user's photo, 2026-10-23: short
+        # a Speedway near Pittsburgh: its mapped canopy is 73 x 8.6 m: short
         # islands across the canopy one after another, one dispenser and a pillar on each, bollards at their ends
         roof = rect("roof", 0.0, 22.0, 73.0, 8.6, cls="roof")
         site = gs.layout(STATION, [SHOP, roof], ROAD)
@@ -400,7 +400,7 @@ class LayoutTest(unittest.TestCase):
             self.assertFalse(inside_box(shop, p["x"], p["y"], pad=gs.BLD_CLEAR_M), p)
 
     def test_forecourt_beside_the_shop(self):
-        # a Kwik Fill near Pittsburgh (2026-10-23): the shop's front close to the road, the forecourt and the
+        # a Kwik Fill near Pittsburgh: the shop's front close to the road, the forecourt and the
         # pin beside it; the pair at the pin, clear of both
         shop = rect("shop", 0.0, 12.0, 20.0, 10.0)
         st = gs.Station("kf", 22.0, 16.0, "Kwik Fill", "Kwik Fill", ("p",), True)
@@ -462,7 +462,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(gs.layout(gs.Station("st", 0.0, 22.0, "Speedway", "", ("p",), True), [home], ROAD).drop_ids, ())
 
     def test_station_mapped_as_one_building(self):
-        # (Japan: Tokyo laid out 0 of 20 stations, 2026-10-26) the whole station, canopy and office, mapped as one
+        # (Japan: Tokyo laid out 0 of 20 stations) the whole station, canopy and office, mapped as one
         # unclassed outline around its pin, a tight lot with no room for a pump pair: that outline is its canopy
         st = gs.Station("en", 0.0, 17.0, "ENEOS", "ENEOS", ("p",), True)
         bld = rect("bld", 0.0, 17.0, 20.0, 15.0)
@@ -495,7 +495,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(site.shop_id, "bld:bld")
 
     def test_one_building_pillars_off_the_sidewalk(self):
-        # (the user, 2026-10-27, Mexico City's two stations: "pillars on the side walks, it looks tacky") an outline of the
+        # (Mexico City's two stations: "pillars on the side walks, it looks tacky") an outline of the
         # whole station runs to the lot line at the back of the sidewalk: the canopy stands back from every side that
         # faces a public road, so no pillar or roof edge is on the sidewalk
         st = gs.Station("en", 0.0, 15.0, "ENEOS", "ENEOS", ("p",), True)
@@ -516,7 +516,7 @@ class LayoutTest(unittest.TestCase):
         self.assertGreaterEqual(roof["y"] + roof["scale"][1] * gs.ROOF_HALF[1], 22.5)
 
     def test_one_building_outline_to_the_kerb(self):
-        # (Gasolineria San Jeronimo, Mexico City, 2026-10-27: its outline drawn to the kerb, the sidewalk inside it, so
+        # (Gasolineria San Jeronimo, Mexico City: its outline drawn to the kerb, the sidewalk inside it, so
         # 3 m in from the outline left its pillars on the sidewalk) the canopy is measured from the road's edge
         st = gs.Station("sj", 0.0, 15.0, "Gasolineria San Jeronimo", "", ("p",), True)
         bld = rect("bld", 0.0, 14.0, 22.0, 18.0)             # front at y = 5.0: on the road's edge
@@ -559,7 +559,7 @@ class LayoutTest(unittest.TestCase):
             self.assertIsNone(gs._one_building_site(s, [bld] + tight, ROAD), s.name)
 
     def test_one_building_needs_a_trusted_station(self):
-        # (the user, 2026-10-27, a Google Maps view of Ginza 8-chome: an office block, "I dont think that is a gas
+        # (a Google Maps view of Ginza 8-chome: an office block, "I dont think that is a gas
         # station") a single old listing (Meta, 0.77: Showa Shell Shinbashi, a brand gone since 2023) put a station in
         # an office: with no mapped canopy to confirm it, a building around the pin needs a record that is current
         mk = lambda pid, conf, src: gs.Pin(pid, 0.0, 15.0, "ENEOS", "ENEOS", "", True, False, False, conf, src)
@@ -582,7 +582,7 @@ class LayoutTest(unittest.TestCase):
         for t in ("Servicio Postal Mexicano", "H&m Land And Minerals", "fuel2U", "McDonald's", "Business Services",
                   "Shellfish Bar", "Sind Ofs Elet Trab IND Inst e Manut Elet Gas Hidr", "", None):
             self.assertFalse(gs._fuel_named(t), t)
-        # (the user, 2026-10-27: "it needs to work for around the world, we have players in Russia all over Europe")
+        # ("it needs to work for around the world, we have players in Russia all over Europe")
         for t in ("Лукойл", "АЗС №12", "Роснефть", "Газпромнефть", "Татнефть", "Заправка", "ORLEN", "MOL", "Circle K",
                   "Neste", "OKQ8", "Preem", "St1", "Uno-X", "Petrom", "Rompetrol", "Slovnaft", "Benzina", "INA",
                   "Petrol Ofisi", "Opet", "Tamoil", "WOG", "OKKO", "SOCAR", "čerpací stanice", "huoltoasema", "bensinstasjon",
@@ -604,7 +604,7 @@ class LayoutTest(unittest.TestCase):
 
     def test_pumps_match_the_roof(self):
         # the roof slab (West Coast's s_fuel_structure_06) carries Trilobite's sign: every pump is Trilobite's too (the
-        # user, 2026-10-23: "the pumps are changing brands but the canopy is not")
+        # user: "the pumps are changing brands but the canopy is not")
         roof = rect("roof", 0.0, 22.0, 30.0, 21.0, cls="roof")
         shapes = set()
         for i in range(50):
@@ -615,7 +615,7 @@ class LayoutTest(unittest.TestCase):
 
 
 class RegionTest(unittest.TestCase):
-    """Stations by region (the user, 2026-10-23: "I want to use them based on region so we should take advantage of
+    """Stations by region ("I want to use them based on region so we should take advantage of
     the italy assets for europe")."""
 
     def test_style_of(self):
@@ -695,7 +695,7 @@ class RegionTest(unittest.TestCase):
             self.assertLess(best, 0.01, a)
 
     def test_us_east_units_one_roof(self):
-        # the user's screenshot, 2026-10-23: a gap between the units' roofs ("can we do just one big canopy"; option 1:
+        # screenshot: a gap between the units' roofs ("can we do just one big canopy"; option 1:
         # the East Coast units, joined up): six islands, two units, the first's roof ending where the second's begins
         roof = rect("roof", 0.0, 22.0, 43.0, 8.0, cls="roof")
         units = sorted(self.eca(gs.layout(STATION, [SHOP, roof], ROAD, style="us_east")), key=lambda u: u["x"])
@@ -762,7 +762,7 @@ def in_pad(site, x, y):
 
 
 class PadTest(unittest.TestCase):
-    """The forecourt's asphalt (the user, 2026-10-23: "some stations spawn on dirt because we do not paint ashpat
+    """The forecourt's asphalt ("some stations spawn on dirt because we do not paint ashpat
     there"; "I'd start with the pad and driveway, some driveways are there if caught by OSM but some do not")."""
 
     ROOF = rect("roof", 0.0, 22.0, 30.0, 13.0, cls="roof")      # y 15.5 .. 28.5; the road's edge at y = 5
@@ -798,7 +798,7 @@ class PadTest(unittest.TestCase):
     SIDE = (np.array([(-40.0, -300.0), (-40.0, 300.0)]), 4.0)        # a side street 15 m west of the pad
 
     def test_corner_lot_two_driveways(self):
-        # the Speedway (2026-10-23, the user's screenshot): an entrance on the side street too, as in real life
+        # the Speedway: an entrance on the side street too, as in real life
         site = gs.layout(STATION, [SHOP, self.ROOF], ROAD + [self.SIDE])
         self.assertEqual(len(site.drives), 2)
         self.assertTrue(in_pad(site, -30.0, 22.0), "the driveway to the side street")
@@ -810,7 +810,7 @@ class PadTest(unittest.TestCase):
         self.assertEqual(len(site.drives), 1)
 
     def test_mapped_access_no_made_up_driveways(self):
-        # a Sheetz near Pittsburgh (the user, 2026-10-23: "can we skip drawing drivewas if there is already a service
+        # a Sheetz near Pittsburgh ("can we skip drawing drivewas if there is already a service
         # road there for access"): mapped into the main road, so none made up to the side street either
         drive = [lane(0.0, 14.0, 0.0, 2.0)]
         site = gs.layout(STATION, [SHOP, self.ROOF], ROAD + [self.SIDE], service=drive)
@@ -851,7 +851,7 @@ def lane(x0, y0, x1, y1):
 
 
 # a Sheetz near Pittsburgh: its forecourt's drive lanes mapped as six short parallel service roads, 7 m apart
-# (the user, 2026-10-23: "you see the rows thats the roads for the pumps")
+# ("you see the rows thats the roads for the pumps")
 LADDER = [lane(-14.0, 12.0, -14.0, 30.0), lane(-7.0, 12.0, -7.0, 30.0), lane(0.0, 12.0, 0.0, 30.0),
           lane(7.0, 12.0, 7.0, 30.0)]
 
@@ -900,7 +900,7 @@ class LaneLayoutTest(unittest.TestCase):
 
     def test_lane_pumps_face_the_lanes(self):
         # a pump model's x runs along its island, its screens face the cars either side (West Coast USA's fs_4: pumps
-        # at yaw 0 in rows along x, areas 0.6 along x, 2.2 across); the user, 2026-10-23, at a Sheetz near Pittsburgh:
+        # at yaw 0 in rows along x, areas 0.6 along x, 2.2 across): at a Sheetz near Pittsburgh:
         # "pumps are facing the wrong way"
         site = gs.layout(STATION, [SHOP], ROAD, LADDER)                 # lanes along y
         for p in site.props:
@@ -1035,7 +1035,7 @@ class TileTest(unittest.TestCase):
 
     def test_tile_sites_pads(self):
         # the road tiles' own pads, for the ground's painters (surface.Surface.add_fuel_pads): no other process lays
-        # the stations out again for them (a Steam Deck's memory: the user, 2026-10-23)
+        # the stations out again for them (a Steam Deck's memory)
         import polygon
         md = station_md()
         pads = []
@@ -1141,7 +1141,7 @@ REAL = __import__("os").environ.get("BNGE_GAS_REAL") == "1"
 
 @unittest.skipUnless(REAL, "set BNGE_GAS_REAL=1 to lay out real stations (Pittsburgh area, Nagambie, Tokyo) from the Overture data")
 class RealSpotsTest(unittest.TestCase):
-    """Real stations around Pittsburgh, one per kind of canopy data (picked 2026-10-23 from the stations laid out in
+    """Real stations around Pittsburgh, one per kind of canopy data (picked from the stations laid out in
     and around the city)."""
 
     @classmethod
@@ -1188,7 +1188,7 @@ class RealSpotsTest(unittest.TestCase):
         self.assertTrue(any("s_fuel_structure_06" in p["shape"] for p in rec["props"]))
 
     def test_one_building_japan(self):
-        # an ENEOS in Tokyo (2026-10-26): the whole station one unclassed 451 m2 outline around its pin
+        # an ENEOS in Tokyo: the whole station one unclassed 451 m2 outline around its pin
         # (_one_building_site); before, Tokyo and Osaka laid out 0 of 20 stations
         rec, skip = self.site(35.678616, 139.777064)
         self.assertEqual(len(skip), 1, "the station's outline left out")

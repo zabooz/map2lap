@@ -1,4 +1,4 @@
-"""server/imagery.py (docs/V1_3_SPEC.md §A): reprojection (a known lat/lon lands on the right
+"""server/imagery.py: reprojection (a known lat/lon lands on the right
 texel), the source chain with coverage detection (404 / blank tiles), the disk cache with
 remembered 404s (and their TTL), unreachable sources (netfetch circuit breakers), prefetch
 priorities, the tone curve and the DXT1 DDS with its mip chain. Synthetic tile servers behind a
@@ -204,7 +204,7 @@ class ChainTest(unittest.TestCase):
         self.assertFalse([r for r in im.requests if r[0] == "usgs"])
 
     def test_black_part_of_a_tile_from_the_next_source(self):
-        """A regional photo ending mid-tile with black past its edge (New Jersey's over Manhattan, GitHub #251): the black
+        """A regional photo ending mid-tile with black past its edge (New Jersey's over Manhattan): the black
         part comes from the next source, the rest of the tile stays."""
         def serve(name, z, x, y):
             if name == "usgs" and z >= 15:
@@ -470,7 +470,7 @@ class ChainTest(unittest.TestCase):
 
     def test_prefetch_soon_past_the_budget(self):
         """A host that takes no prefetch (past 80 % of its daily budget): the far field's next tiles (soon) still go,
-        as demand; a plain prefetch does not (GitHub #116)."""
+        as demand; a plain prefetch does not."""
         def serve(name, z, x, y):
             return self.tile(name, z, x, y)
         im = FakeNet(self.tmp.name, serve, chain=("eox2023",), tone=0.0)
@@ -572,7 +572,7 @@ class ExportImageryTest(unittest.TestCase):
 
     def test_warm_with_children_evicted(self):
         # the cache cap evicted a parent's last child but not its first: warming read the first one in a loop (it
-        # was on disk, the key never done: 170 s of the server's CPU in a drive, 2026-10-20). Now the parent is
+        # was on disk, the key never done: 170 s of the server's CPU in a drive). Now the parent is
         # fetched again and the thread rests.
         im = self.make()
         self.assertEqual(self.warm(im, [(128.0, 128.0)]), [])
@@ -700,7 +700,7 @@ class ExportImageryTest(unittest.TestCase):
         self.assertFalse([r for r in self.requests[n:] if r[0] == "md6in"])
 
     def test_regional_source_never_probed_outside_its_area(self):
-        """A regional source's coverage probe is not fetched for a tile outside its bounds (2026-10-15: Vermont,
+        """A regional source's coverage probe is not fetched for a tile outside its bounds (Vermont,
         Ohio, NJ ... servers got hundreds of probe requests from a session in Maryland and Switzerland)."""
         im = imagery.Imagery(self.tmp.name, ("vermont", "usgs"), tone=0.0)      # (nothing may be fetched)
         src = imagery.SOURCES["vermont"]

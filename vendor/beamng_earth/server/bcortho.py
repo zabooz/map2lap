@@ -1,6 +1,6 @@
 """British Columbia's lidar-programme orthophotos (LidarBC), 10-15 cm, as an imagery source (imagery.py "bcortho").
 
-Why (Vancouver Island, 2026-10-23): outside the regional services the ground had Sentinel-2's 10 m.
+Why (Vancouver Island): outside the regional services the ground had Sentinel-2's 10 m.
 The Province publishes the orthophotos flown with its lidar (Open Government Licence - British Columbia) as GeoTIFFs
 in https://nrs.objectstore.gov.bc.ca/gdwuts/<NTS>/<sheet>/<year>/orthophoto/. Only the streamable ones are indexed
 (lidarbc_ortho_index.json.gz, tools/build_lidarbc_index.py --ortho): JPEG-compressed (2016: 10 cm, 2019 / 2020:

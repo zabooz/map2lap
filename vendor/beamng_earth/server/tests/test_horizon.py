@@ -1,4 +1,4 @@
-"""Horizon mode (docs/V1_4_SPEC.md §3.6 "Radius: the real line-of-sight horizon", milestone M1h;
+"""Horizon mode (milestone M1h;
 earthd --horizon, off by default): the horizon distances with refraction, the per-anchor zmax grid
 (a coarse DEM pass, never below the DEM's pixels), RADIUS = clamp(sqrt(2R'h_eye) + sqrt(2R'zmax_region),
 80 km, 1500 km), the disc selection with L10 roots and the per-tile horizon cull (the selection tiles
@@ -9,7 +9,7 @@ zooms and flags.
 
 The synthetic terrain is sea level with cones at Mount Whitney (the anchor, 4415 m) and San
 Gorgonio (3342 m, the scratchpad `viewshed.py` z7 value), or the real DEM's numbers checked
-offline (2026-10-10, z6, Whitney summit: radius 503 km, zmax 4217 m, 83 tiles beyond 80 km; Central
+offline (z6, Whitney summit: radius 503 km, zmax 4217 m, 83 tiles beyond 80 km; Central
 Valley floor 289 km; open ocean 80 km; recorded in docs/V1_4_SPEC.md §3.6 implementation notes).
 """
 import sys

@@ -1,5 +1,5 @@
 """build_rail_tags.py PLANET OUT_DIR: OpenStreetMap's railways as small gzip JSON shards the server reads per area
-(server/railtags.py), rebuilt weekly from the planet (the user, 2026-10-27: "Build our own weekly rail file";
+(server/railtags.py), rebuilt weekly from the planet ("Build our own weekly rail file";
 Overture keeps rail geometry but no gauge, electrification or service, and calls proposed lines "unknown").
 
     python3 tools/build_rail_tags.py planet-latest.osm.pbf out/
@@ -8,7 +8,7 @@ Overture keeps rail geometry but no gauge, electrification or service, and calls
 Shards: <OUT_DIR>/<x>/<y>.json.gz per z7 tile (SHARD_ZOOM) with rails, {"ways": {way id: tags}, "nodes": [[id,
 lon, lat, tags]]} (ways with railway=*, nodes railway=level_crossing / crossing and power=catenary_mast / _portal; the
 tags in TAGS), and <OUT_DIR>/manifest.json. Served by GitHub Pages from TecnaGamer/BeamNG.Earth-data, rebuilt weekly
-by its GitHub Action (the user, 2026-10-27: "could we automate some of the data with github actions?").
+by its GitHub Action ("could we automate some of the data with github actions?").
 A way is in every shard its points fall in. Two passes over the planet: the
 ways and the nodes of interest first (their node ids kept), then those nodes' places (the planet's ways come after
 its nodes: one streaming pass cannot place them). Data: (c) OpenStreetMap contributors, ODbL 1.0.

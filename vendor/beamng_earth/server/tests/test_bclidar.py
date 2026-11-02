@@ -1,4 +1,4 @@
-"""Canada / BC lidar terrain (2026-10-23): bcproj's projections against PROJ's values, cog.py's striped TIFFs, LZW and
+"""Canada / BC lidar terrain: bcproj's projections against PROJ's values, cog.py's striped TIFFs, LZW and
 float predictor 2 (fixtures written by GDAL), lidarbc's file choice (newest first, older ones fill the gaps),
 hrdem's item grid and feathering, and dem.Dem._canada's blend (the sea kept, failures not mirrored)."""
 import gzip
@@ -308,7 +308,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# --- round 2 (2026-10-23): RGB / JPEG orthophotos, sparse rows, canopy ---------------------------------------------
+# --- round 2: RGB / JPEG orthophotos, sparse rows, canopy ---------------------------------------------
 import bcortho  # noqa: E402
 import maprasters  # noqa: E402
 import mapcells  # noqa: E402

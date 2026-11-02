@@ -3,7 +3,7 @@
 The TerrainMaterial texture arrays are BC7 (sRGB for colour: DXGI 99, as the engine's own
 temp/art/terrainmaterialcache/*.dds). Any other input - PNG, a DXT1 DDS - is encoded to BC7 by the game on
 its main thread the first time it is used: 2-8 s for a 2048² photo, a stall at every terrain move. A DDS
-that is already BC7 with its mip chain is taken as it is (~30 ms, in-game 2026-10-12). So the server
+that is already BC7 with its mip chain is taken as it is (~30 ms, in-game). So the server
 encodes the photo here, off the game's thread.
 
 Mode 6 only: one RGBA endpoint pair per 4x4 block (7 bits + a shared p-bit per endpoint) and a 4-bit index

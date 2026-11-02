@@ -1,8 +1,8 @@
-"""Road plans shared between the server's processes (2026-10-23).
+"""Road plans shared between the server's processes.
 
 A cell's road plans (grading._Planner._plan_cell: the profiles, the kept carriageways, the tunnels' covers and open
 sections) are a pure function of the cell, the map data and elevation, and the grading settings (in the frame of the
-cell's planning region, geotiles.PLAN_Z: no anchor in them since 2026-10-29, so every anchor reads them), and
+cell's planning region, geotiles.PLAN_Z: no anchor in them since, so every anchor reads them), and
 every process that grades needs them: both terrain-block processes (each warmed the cells ahead of the player for
 itself) and the road-tile processes. On a Steam Deck a fresh place's teleport spent ~300 CPU-s planning the same
 cells up to four times over, of ~1000 CPU-s for its whole world on four cores. Now the first process to plan a cell

@@ -1,4 +1,4 @@
-"""The download cache's size cap (server/cache.py; docs/ROADMAP.md "Caching" 1, 3, 5): LRU order, the
+"""The download cache's size cap (server/cache.py;  1, 3, 5): LRU order, the
 cap and the low-water mark, the protection rules (this session's last hour, gravity/, netstats/, empty
 markers), index persistence and damage, the VERSION file, per-source lifetimes, concurrent use from
 worker threads, clear, the background thread's pacing, and the hooks in dem.py / imagery.py /
@@ -133,7 +133,7 @@ if __name__ == "__main__":
 
 
 class LinkedCacheTest(unittest.TestCase):
-    """A scratch cache of links into a real one must never delete the real one's files (2026-10-29: ~7 GB evicted
+    """A scratch cache of links into a real one must never delete the real one's files (~7 GB evicted
     through the links of a benchmark's scratch cache)."""
 
 

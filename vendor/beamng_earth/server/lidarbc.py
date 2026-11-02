@@ -1,6 +1,6 @@
 """British Columbia's lidar terrain models (LidarBC): 1 m bare-earth DEMs, read where they cover a tile.
 
-Why (2026-10-23): on Vancouver Island Mapterhorn's z13-z15 tiles are lidar only in the Capital Region and along some
+Why: on Vancouver Island Mapterhorn's z13-z15 tiles are lidar only in the Capital Region and along some
 coasts; elsewhere (the east coast lowlands, Port Alberni, the Cowichan valley, the north island) they are a coarse
 model drawn out, and NRCan's HRDEM mosaic (hrdem.py) covers little more. The Province publishes its lidar programme's
 DEMs openly (Open Government Licence - British Columbia; https://lidar.gov.bc.ca) as GeoTIFFs in a public bucket:
@@ -269,7 +269,7 @@ def canopy(dem, dsm, lat, lon, files=None):
 
 def despike(h, ok, spike_m=SPIKE_M, cap_m=TREE_CAP_M):
     """Canopy heights with lone spikes taken down to their 3 x 3 neighbourhood's median: a surface pixel over a cliff
-    edge or a wire minus the ground beside it (Elk Falls' canyon read 105 m, 2026-10-23). Above cap_m (taller than any
+    edge or a wire minus the ground beside it (Elk Falls' canyon read 105 m). Above cap_m (taller than any
     tree measured on the coast: the Carmanah Giant, ~95 m) also to the median. Grids only (2-D); pure."""
     if h.ndim != 2 or min(h.shape) < 3:
         return np.minimum(h, cap_m)

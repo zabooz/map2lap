@@ -1,5 +1,5 @@
 """A building on a pier or bridge deck over water stands on the deck, not on the seabed under it (the Sunshine Skyway
-fishing pier's bait shop, 2026-10-27); one over the deck's lanes is left out; one on dry land under a viaduct stays."""
+fishing pier's bait shop); one over the deck's lanes is left out; one on dry land under a viaduct stays."""
 import os
 import sys
 import unittest

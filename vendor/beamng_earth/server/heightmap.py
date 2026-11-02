@@ -1,4 +1,4 @@
-"""Near-field TerrainBlock heightmap (docs/V1_2_DESIGN.md §1, §12 P1).
+"""Near-field TerrainBlock heightmap (§12 P1).
 
 1024 x 1024 samples at exactly s = 2.0 m, on a world-locked lattice: the block centre (cx, cy)
 is a multiple of 256 m in the anchor's ENU plane, the block position (SW corner) is
@@ -20,7 +20,7 @@ SIZE, HALF, VALID and GRID describe the v1.3.1 block. The functions that depend 
 take it as a parameter (`size`, samples per edge; the server passes its Layout's `block`,
 docs/V1_4_SPEC.md §3.1), defaulting to SIZE; nothing reads a module setting at call time.
 
-M4 (docs/V1_4_SPEC.md §3.5, `earthd.py --block 512`): a 512² block, collidable [c-512, c+510],
+M4 (`earthd.py --block 512`): a 512² block, collidable [c-512, c+510],
 centred on a 128 m grid (GRIDS). Its SW corner c - 512 is then a multiple of 128 m, an even lattice
 index, so the block-local Torque diagonal parity is the world one, as with 1024² (farfield.py
 torque_split45), and a 128 m move is exactly 64 samples.
@@ -120,7 +120,7 @@ class ChunkCache:
     """Surface heights (grid_u's values) per CHUNK×CHUNK lattice chunk of one frame, so a block that moved
     by a grid step computes only its new samples (a 512² block moving 128 m shares 7/8 of its samples
     with the last; computing all of them every move took 2-10 s, more than the 2.2 s between moves at
-    58 m/s, 2026-10-12). Exact: the heights are elementwise (surface_u). LRU, thread-safe."""
+    58 m/s). Exact: the heights are elementwise (surface_u). LRU, thread-safe."""
 
     def __init__(self, cap=CHUNK_CACHE):
         self.cap = cap
@@ -234,7 +234,7 @@ def write_ter(path, qgrid, idx, materials):
     lay = np.zeros((n, n), np.uint8) if idx is None else np.array(idx, np.uint8)
     # the outermost samples are holes (TER_HOLE): the engine lights a block's edge cells as if it repeated
     # (their normals take the opposite edge's heights), a dark 2 m strip along an edge that is lower than
-    # the opposite one (in-game 2026-10-13); the edge ring under them (0.3 m lower) shows instead. No
+    # the opposite one (in-game); the edge ring under them (0.3 m lower) shows instead. No
     # collision there: the edge guard keeps the car tens of metres inside.
     lay[0, :] = lay[-1, :] = lay[:, 0] = lay[:, -1] = TER_HOLE
     tmp = staging.tmp_for(path)

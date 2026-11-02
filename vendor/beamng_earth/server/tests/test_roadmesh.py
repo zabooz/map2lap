@@ -57,7 +57,7 @@ class RoadMeshTest(unittest.TestCase):
 
     def test_clipped_to_the_tile(self):
         """Two tiles' ribbons each reach roads.OVERLAP past their edge; overlapping at one height they flickered along
-        every seam (the user, 2026-10-20): each is cut exactly at its tile's edge, the two together cover the road
+        every seam: each is cut exactly at its tile's edge, the two together cover the road
         once."""
         flat = lambda la, lo: np.zeros(np.shape(la))     # noqa: E731
         area = 0.0
@@ -93,7 +93,7 @@ class RoadMeshTest(unittest.TestCase):
 
 
 class FollowTest(unittest.TestCase):
-    """The road surface on the terrain block's own triangles (the user, 2026-10-20: the tyres sank into a road
+    """The road surface on the terrain block's own triangles (the tyres sank into a road
     drawn 5 cm over the ground)."""
 
     def bumpy(self):
@@ -104,7 +104,7 @@ class FollowTest(unittest.TestCase):
         return elev
 
     def test_drawn_ground_is_the_road_surfaces_ground(self):
-        # the sidewalks' curbs on the ground the road surfaces lie on (the user, 2026-10-21): drawn_ground at every
+        # the sidewalks' curbs on the ground the road surfaces lie on: drawn_ground at every
         # point follow_ground (the kernel the road mesh uses) cuts the triangles into is the height it gives them,
         # on the cells' edges, diagonals and corners too
         rng = np.random.default_rng(7)
@@ -119,7 +119,7 @@ class FollowTest(unittest.TestCase):
 
     def test_with_filled_polygons(self):
         """A tile with corner asphalt (a filled polygon) follows the ground too: the polygon's points once took the
-        name of the height quantum and every such road tile failed (a Steam Deck in Baltimore, 2026-10-20)."""
+        name of the height quantum and every such road tile failed (a Steam Deck in Baltimore)."""
         chunks = [chunk("road_asphalt_2lane", 9.0, [(3.3, 1.7, 0), (61.9, 40.2, 0)]),
                   {"m": "road_asphalt_2lane", "tl": 10.0, "poly": [(0.0, 0.0, 0), (8.0, 0.0, 0), (8.0, 6.0, 0)], "n": []}]
         P, T, UV, mats, M = roadmesh.build(FRAME, chunks, self.bumpy(), (0.0, 0.0, 0.0), 0.015, follow=True,
@@ -264,7 +264,7 @@ class BridgeTest(unittest.TestCase):
         flat = np.abs(n[:, 2]) > 0.5
         c = P[T].mean(1)
         high = c[:, 2] > 20.0 + 0.04 * c[:, 0] - roadmesh.DECK_DEPTH / 2   # the top rises 20 -> 22 m
-        # (the parapets are closed solids since 2026-10-27: their undersides, on the slab's edge, face down)
+        # (the parapets are closed solids since: their undersides, on the slab's edge, face down)
         road = np.abs(c[:, 1]) < 4.0
         self.assertTrue((n[flat & high & road, 2] > 0).all() and (flat & high & road).any(), "the top faces up")
         self.assertTrue((n[flat & ~high, 2] < 0).all() and (flat & ~high).any(), "the underside faces down")
@@ -276,7 +276,7 @@ class BridgeTest(unittest.TestCase):
 
 
 class BridgeLookTest(unittest.TestCase):
-    """Girders, parapets and piers (2026-10-17, the user: "Bridges need a lot of work in general")."""
+    """Girders, parapets and piers ("Bridges need a lot of work in general")."""
 
     def deck(self, y, fid, z=20.0):
         return {"m": "road_asphalt_2lane", "w": 8.0, "tl": 11.0, "p": 20, "deck": True, "fixed": True, "fid": fid,
@@ -336,7 +336,7 @@ class BridgeLookTest(unittest.TestCase):
         self.assertTrue(((ys > 3.0) & (ys < 5.0)).any(), "over a lower deck the edge is free")
 
     def test_no_parapet_across_a_road_at_grade(self):
-        """GitHub #96: a ramp's deck at grade over a road stood its parapets across the road's lanes; over a road well
+        """a ramp's deck at grade over a road stood its parapets across the road's lanes; over a road well
         under it the parapets stay."""
         road = lambda z: {"m": "road_asphalt_2lane", "w": 10.0, "tl": 11.0, "p": 10,
                           "n": [[25.0, -30.0, z], [25.0, 30.0, z]]}
@@ -346,7 +346,7 @@ class BridgeLookTest(unittest.TestCase):
             return ((t[:, 0] > 21.0) & (t[:, 0] < 29.0)).sum()
         self.assertEqual(tops_over_road(19.5), 0, "at grade: no wall across the road")
         self.assertGreater(tops_over_road(12.0), 0, "a road 8 m below: the parapets stay")
-        # the roads painted into the ground (no ground chunks drawn): the carriageway comes as ground= (GitHub #258)
+        # the roads painted into the ground (no ground chunks drawn): the carriageway comes as ground=
         P = roadmesh.deck([self.deck(0.0, "a")], (0.0, 0.0, 0.0), ground=[road(19.5)])[0]
         t = self.parapet_tops(P)
         self.assertEqual(((t[:, 0] > 21.0) & (t[:, 0] < 29.0)).sum(), 0, "ground=: no wall across the road either")
@@ -404,7 +404,7 @@ class DeckRulesTest(unittest.TestCase):
                         float((zs[1][mid] - zs[0][mid]).min()))
 
     def test_ramp_of_a_higher_level_starts_at_the_fork(self):
-        # I-83, Baltimore (2026-10-21): a ramp (level 2) leaving the mainline (level 1) overlaps it from the fork on; it
+        # I-83, Baltimore: a ramp (level 2) leaving the mainline (level 1) overlaps it from the fork on; it
         # was lifted to clear it there and started 2.2 m over the fork, a ledge across the lanes
         import roads
         flat = lambda q: np.full(len(q), 2.0)      # noqa: E731
@@ -418,7 +418,7 @@ class DeckRulesTest(unittest.TestCase):
         self.assertLess(abs(zs[1][0] - zs[0][-1]), 0.3)
 
     def test_no_step_onto_a_steep_abutment(self):
-        # Lombard Street, Baltimore (2026-10-20): the map's bridge line ends down its east embankment, whose top stands
+        # Lombard Street, Baltimore: the map's bridge line ends down its east embankment, whose top stands
         # over the deck's climb cap from that end; the deck met it in a 0.86 m step in 4 m and cars stopped dead there
         import roads
         s = np.arange(0.0, 164.1, 4.0)

@@ -1,6 +1,6 @@
-"""Road surfaces and markings as one render-only mesh per road tile (docs/ARCHITECTURE.md "Roads").
+"""Road surfaces and markings as one render-only mesh per road tile.
 
-Why not DecalRoads (2026-10-11, the user's drive at speed): a DecalRoad re-clips itself to the
+Why not DecalRoads (the user's drive at speed): a DecalRoad re-clips itself to the
 terrain whenever the TerrainBlock changes, and ours moves every few seconds at speed. With 3,740
 DecalRoads one block move cost a 140-148 ms frame (9 ms without them; ~37 us per decal), so the
 game stuttered on every block commit. The official maps never move their terrain.
@@ -11,7 +11,7 @@ graded ground: the ribbon is cut every DRAPE_STEP m and both edges sampled from 
 function as the physics block (raised ROAD_LIFT under roads over the visible ground tiles, so the
 mesh lies on what the tyres touch and above what is drawn), in one call per tile, plus its layer's
 LIFT (markings over the asphalt). The stock decal
-materials render on a mesh (probe 2026-10-11: they are translucent with zwrite, so overlapping
+materials render on a mesh (probe: they are translucent with zwrite, so overlapping
 ribbons in one mesh draw in a fixed order and do not flicker). No collision: the tyres stay on the
 terrain, whose surface masks carry the asphalt / dirt ground models. Pure given elev.
 """
@@ -114,7 +114,7 @@ def ribbons(chunks):
     """Per chunk: (left (k, 2), right (k, 2), v (k,), material, layer, z (k,) or None) in the anchor
     frame; z: the chunk's own heights where it is "fixed" (bridge decks), else None (draped). Pure. The draped and
     plain chunks' resampling and normals in one Rust call (earthfast.ribbon_edges: numpy per chunk was ~0.9 s of 8
-    city road tiles, 2026-10-28); a fixed deck's (its profile's knots kept) here."""
+    city road tiles); a fixed deck's (its profile's knots kept) here."""
     import fast
     out = [None] * len(chunks)
     batch, pts, half = [], [], []
@@ -167,7 +167,7 @@ def trim_overlaps(rb, context=()):
     higher one from PARAPET_COVER_DZ apart), each road on its own surface, instead of the higher one's side standing in
     the lower one's lanes, and a car on the lower one's line riding the higher one's slab until it ends: a
     US-101 exit ramp diverging downhill under its mainline's 18.8 m deck put that deck's edge 0.9 m from the ramp's
-    centre, and an AI car drove into it at 29 mph (Los Angeles, 2026-10-27). Pure."""
+    centre, and an AI car drove into it at 29 mph (Los Angeles). Pure."""
     if not rb:
         return rb
     others = []                         # (owner, centre (k, 2), half width (k,), z (k,))
@@ -299,7 +299,7 @@ def _reach_past(c, box):
 
 
 GRID_M = 2.0            # the terrain block's square (heightmap.SQUARE): its samples on multiples of it, each square cut
-                        # from its south-west corner to its north-east one (probed in-game 2026-10-20)
+                        # from its south-west corner to its north-east one (probed in-game)
 
 
 FOLLOW_TOL = 0.02       # m a road triangle may depart from the drawn ground inside it before it is cut along the
@@ -328,7 +328,7 @@ def drawn_ground(frame, drawn, xy, q=None, cell=GRID_M):
     """The drawn ground (n,) at the points xy (n, 2) over one _height_grid of drawn (lat, lon) -> metres: the block's
     squares, each cut from its south-west corner to its north-east one, a point on the grid's last line in the square
     before it - the ground follow_ground (earthfast.follow_tris) puts the road surfaces on. The sidewalks' curbs on
-    the ground the road surfaces lie on (the user, 2026-10-21: sidewalks on the drawn ground with upstream's road
+    the ground the road surfaces lie on (sidewalks on the drawn ground with upstream's road
     surfaces): elev and the block differ by its height quantum q alone, more between its samples on hills. One drawn
     call."""
     xy = np.asarray(xy, np.float64).reshape(-1, 2)
@@ -351,7 +351,7 @@ def drawn_ground(frame, drawn, xy, q=None, cell=GRID_M):
 
 FOLLOW_STEP_M = 0.9     # a terrain cell whose corners are further apart holds a step (a cutting's wall, the lattice's
 FOLLOW_MAX_UP = 0.1     # teeth): a draped surface goes at most this over its lowest corner there (the McGraw-Graben's
-                        # edge lines climbed the teeth as white tents up to 1.3 m, 2026-10-22). A road would need a
+                        # edge lines climbed the teeth as white tents up to 1.3 m). A road would need a
                         # ~32 % grade along a cell's diagonal to count as a step.
 
 
@@ -383,12 +383,12 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
     as the physics block). One elev call. lift: m more for the draped surfaces (detail mode: the physics
     block is drawn, so the asphalt must sit over it, not in it; earthd DETAIL_ROAD_LIFT). clip: the tile's box
     (x0, y0, x1, y1): the ribbons (built roads.OVERLAP past it, no gap at the seam) cut exactly at its edges; two
-    tiles' meshes overlapping there at one height flickered in a 4 m band along every tile seam (the user,
-    2026-10-20: z-fighting on the road texture). follow: the draped surfaces given the terrain block's own heights
+    tiles' meshes overlapping there at one height flickered in a 4 m band along every tile seam
+    (z-fighting on the road texture). follow: the draped surfaces given the terrain block's own heights
     and cut along its triangles where it bends under them (follow_ground; q its height quantum), so they lie `lift`
     over the drawn ground (within FOLLOW_TOL; drawn(lat, lon): the block's heights where they are not elev's, its
     ground raised over low arches): a ribbon straight across the road stood under the ground's bumps (up to 30 cm on hills), so it was drawn
-    5 cm over it and the tyres sank into it (the user, 2026-10-20). clip_poly (k, 2): a convex polygon the mesh is cut
+    5 cm over it and the tyres sank into it. clip_poly (k, 2): a convex polygon the mesh is cut
     to instead of the box (a geotile's quad in the anchor's world: earthfast.clip_tris_convex, the neighbours' cuts
     along the very same lines); clip then only says where the ribbons reach past the tile (_reach_past)."""
     chunks = [c for c in chunks if not c.get("tube_only")]  # (twin tunnels' tube: no road surface, roads._tunnel_chunks)
@@ -436,7 +436,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         # left edge to the left of the direction: (A, B, B1) is counter-clockwise seen from above
         tri = np.concatenate([np.stack([A, B, B1], 1), np.stack([A, B1, A1], 1)])
         # where a ribbon folds over itself (a mitred joint at a sharp merge pulls its edges across: the user saw
-        # black triangles in President St, 2026-10-14) its triangles turn over: dropped, the neighbours cover it
+        # black triangles in President St) its triangles turn over: dropped, the neighbours cover it
         xy = np.concatenate([left, right])[:, :2]
         loc = tri - nverts
         e1, e2 = xy[loc[:, 1]] - xy[loc[:, 0]], xy[loc[:, 2]] - xy[loc[:, 0]]
@@ -509,15 +509,15 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
 
 DECK_DEPTH = 1.2        # m of deck slab under the surface
 DECK_SKIN = 0.01        # m the road mesh lies over a deck's top (the decal materials are translucent:
-                        # 2026-10-11 a deck topped with road_asphalt_2lane was see-through)
+                        # a deck topped with road_asphalt_2lane was see-through)
 DECK_TOP = "bne_bridge_asphalt"     # the slab's top: plain opaque asphalt (the stock terrain's), under the road's own
 DECK_TOP_TILE_M = 4.0               # m of asphalt a texture tile covers across ...
 DECK_TOP_V = 10.0 / DECK_TOP_TILE_M  # ... and along (v: the road's, 10 m a tile)
 DECK_SIDE = "bne_bridge_concrete"  # the slab, girders, parapets, piers and tunnel tubes: plain concrete (the stock
                         # concrete_plain textures; West Coast USA's "sidewalk1" had drain covers in it, round marks
-                        # along every parapet next to Mapillary's Queensboro Bridge, 2026-10-17)
+                        # along every parapet next to Mapillary's Queensboro Bridge)
 # A bridge as the official maps build theirs (Italy's road bridges on tapered wall piers, East Coast's): girders under
-# the slab, a parapet along each free edge, piers (roads.pier_sites); ours was a bare floating slab (the user,
+# the slab, a parapet along each free edge, piers (roads.pier_sites); ours was a bare floating slab (
 # 2026-10-17: "Bridges need a lot of work in general")
 GIRDER_D = 1.0          # m of girders under the slab
 GIRDER_W = 0.6          # m wide each
@@ -528,10 +528,10 @@ PARAPET_COVER_DZ = 2.0  # m: another deck's surface within this height at an edg
 BRIDGE_RAILS = True     # stock rail modules on decks with mapped support; unsupported decks keep full parapets
 BRIDGE_CURB_H = 0.3     # m curb under generated guardrails, only on decks supported by mapped data
 PARAPET_MIN_M = 8.0     # m: a parapet run shorter than this is left out (stubs stood in the Queensboro Bridge's lanes
-                        # where its two directions' decks meet and the cover test missed a few points, 2026-10-17)
+                        # where its two directions' decks meet and the cover test missed a few points)
 MEDIAN_JOIN_M = 6.0     # m: two decks' edges closer than this (a divided road's carriageways on one bridge) face a
                         # median: no parapets there, each slab widened to meet the other halfway (two parapets and a
-                        # dark gap stood in a divided road's median over a canal, Port St. Lucie, 2026-10-23)
+                        # dark gap stood in a divided road's median over a canal, Port St. Lucie)
 FOOTING_M = 2.0         # m a pier reaches into the ground
 PIER_T = 1.8            # m: a wall pier's thickness along the deck (at its top; FOOTING tapers wider)
 PIER_TAPER = 0.012      # its width grows this much per m down (each side)
@@ -540,9 +540,9 @@ PIER_BENT_W = 16.0      # a deck wider than this stands on columns (a bent) rath
 PIER_COLUMN = 1.6       # m square columns of a bent
 
 
-# The parapet (2026-10-27): a closed New Jersey barrier, not three open faces (its ends and underside were missing: the
+# The parapet: a closed New Jersey barrier, not three open faces (its ends and underside were missing: the
 # far faces were culled where it ended, the top read as a lip floating over the water, the Sunshine Skyway's north
-# end, the user's screenshots). A precast barrier's dimensions (the user's drawing): 610 mm base, 840 mm high; a 130 mm
+# end). A precast barrier's dimensions: 610 mm base, 840 mm high; a 130 mm
 # vertical toe, a lower slope to 380 mm (125 mm in), a steep upper face to the top (105 mm in), a 150 mm top. On a deck
 # edge the half section: the outer face vertical, the road face the jersey's. (m in from the slab's outer edge, m up).
 JERSEY_H = 0.84
@@ -554,7 +554,7 @@ JERSEY_LOWER_IN = 0.125
 JERSEY_HALF_W = JERSEY_TOP_W + JERSEY_UPPER_IN + JERSEY_LOWER_IN       # 0.38 m
 JERSEY = ((0.0, 0.0), (0.0, JERSEY_H), (JERSEY_TOP_W, JERSEY_H), (JERSEY_TOP_W + JERSEY_UPPER_IN, JERSEY_BREAK),
           (JERSEY_HALF_W, JERSEY_TOE), (JERSEY_HALF_W, 0.0))
-# Its ends (a precast sloped end section, Jensen Precast's; the user's photos): over END_M the top falls from full
+# Its ends (a precast sloped end section, Jensen Precast's): over END_M the top falls from full
 # height to END_H, the section keeping its shape, and ends in a square low nose. At an abutment and wherever a run of
 # parapet stops (a gap, a ramp's gore); not at a tile seam, where it goes on in the next tile.
 END_M = 4.0
@@ -851,7 +851,7 @@ def _pad(ring, centre, origin, P, T, UV, M, top, side):
 
 def _piers_clear(piers, rb):
     """The piers that cross no other deck under their top: a pier of the Queensboro Bridge's upper roadway stood on
-    the ground through the lower one, across its lanes (the user, 2026-10-17: "objects blocking the bridge road")."""
+    the ground through the lower one, across its lanes ("objects blocking the bridge road")."""
     if not piers or not rb:
         return list(piers)
     lines = [(((l + r) / 2), float(np.median(np.hypot(*(l - r).T))) / 2 + PARAPET_W, z) for (l, r, v, m, layer, z), c in rb
@@ -878,7 +878,7 @@ GROUND_COVER_MIN_W = 3.0    # m: a ground road this wide at a deck edge's height
 
 def _ground_carriageways(chunks):
     """[(ribbon with the nodes' own heights, chunk)] of the tile's ground roads (no decks, tunnels, sidewalks, markings,
-    gutters or driveways) for _parapet_cover: a deck at grade across a road has no parapet over its lanes (GitHub #96:
+    gutters or driveways) for _parapet_cover: a deck at grade across a road has no parapet over its lanes (
     the Pitt River Bridge's ramps, at grade over Lougheed Highway, stood their walls across its lanes)."""
     out = []
     for c in chunks:
@@ -946,7 +946,7 @@ MEDIAN_FILL_PTS = 8     # a median's run of points missing it between two that f
 def _fill_short(g, k):
     """g (per edge point the median gap, 0 none) with each run of zeros of k points or fewer between two nonzero
     points filled by the interpolation of its ends: an edge facing a median now and then missed it a point at a time
-    and the slab's edge zigzagged, black teeth of the ground under the Four Level's 110 deck (Los Angeles, 2026-10-27)."""
+    and the slab's edge zigzagged, black teeth of the ground under the Four Level's 110 deck (Los Angeles)."""
     g = np.asarray(g, np.float64).copy()
     nz = np.flatnonzero(g > 0)
     if len(nz) < 2:
@@ -1126,13 +1126,13 @@ PORTAL_FRAME = 6.0         # m of portal face around the opening (hides the terr
 TUNNEL_SIDE = DECK_SIDE    # the tube's concrete (portal faces) ...
 TUNNEL_INNER = "bne_tunnel_inner"   # ... and inside a full tube darker (tunnel.materials.json): lit by the sky as the
                             # engine lights it, the Caldecott's tube was as bright as the day outside (its photos:
-                            # dark, lit by its lamps, 2026-10-18)
+                            # dark, lit by its lamps)
 TUNNEL_STONE = "bne_tunnel_stone"  # a low arch's portal faces and the retaining walls: grey coursed rubble (Central
                                     # Park's transverse walls and arches; the buildings' pale dressed stone read as
-                                    # concrete, 2026-10-17)
+                                    # concrete)
 TUNNEL_STONE_IN = "bne_tunnel_stone_in"   # the same stone darker: a low arch's vault (in its shade)
 TUNNEL_SOIL = "bne_tunnel_soil"     # grass on the ground over the masonry: a retaining wall's top behind its coping,
-                                    # a low arch's top (stone slabs on the grass, the user 2026-10-17: "blend the
+                                    # a low arch's top (stone slabs on the grass: "blend the
                                     # stone and terrain better")
 SOIL_UV_M = 1.0            # m per repeat of the grass (the terrain's detail texture: bngEarthGroundGrass, size 1)
 WALL_COPING_M = 0.5        # m of a retaining wall's top in stone (its coping), the rest of it soil
@@ -1146,7 +1146,7 @@ ARCH_CAP_OVER = 0.75       # m a low arch's top lies over its vault (roads.ARCH_
 LOW_CAP_MIN = 1.0          # m: a stone top shorter than this (a road just behind the face) is left out
 LOW_CAP_M = 7.0            # m a low arch's stone top runs back from its portal face over the mouth: the terrain there
                            # dips to the floor and is cut away (roads.arch_raise, LOW_HOLE_M + LOW_HOLE_STEP): from
-                           # above a row of dark terrain teeth behind the face (79th Street Transverse, 2026-10-17)
+                           # above a row of dark terrain teeth behind the face (79th Street Transverse)
 TUNNEL_OVERLAP = 0.25      # m a tube piece reaches past a tile edge
 TUNNEL_LIGHT = "bne_tunnel_light"   # the lamps' emissive material (levels/beamng_earth/art/shapes/beamngEarth)
 TUNNEL_LAMP_EVERY = 6.0    # m between the lamp fixtures along each wall ...
@@ -1205,7 +1205,7 @@ def _retaining_walls(walls, origin, P, T, UV, M, nv):
             bot = top - WALL_SKIRT_M            # ground there lies lower, its edge was open, seen from above)
         back_lo = np.c_[back, bot] - origin
         quads.append((back_lo, back_hi, bot, top, face_m))
-        # its underside, from the back's bottom to the face's foot: a closed solid (2026-10-27: no face of it open,
+        # its underside, from the back's bottom to the face's foot: a closed solid (no face of it open,
         # its ends one-sided caps of its section; every edge shared by two faces, test_shortdecks.WallSolidTest)
         quads.append((back_lo, face_lo, None, float(np.mean(thick)), face_m))
         for qi, (lo_, hi_, vlo, vhi, mat) in enumerate(quads):
@@ -1347,7 +1347,7 @@ def tunnel(chunks, origin, walls=(), galleries=()):
         nv = _galleries(galleries, np.asarray(origin, np.float64), P, T, UV, M, nv)
     for (left, right, v, _, _, z), c in rb:
         # a piece ending at a tile edge reaches TUNNEL_OVERLAP past it: the next tile's piece meets it there without a
-        # hairline of daylight (2026-10-17, inside Eisenhower)
+        # hairline of daylight (inside Eisenhower)
         portal = c.get("portal") or (False, False)
         left, right, z = left.copy(), right.copy(), z.copy()
         for at, nb in ((0, 1), (-1, -2)):
@@ -1364,7 +1364,7 @@ def tunnel(chunks, origin, walls=(), galleries=()):
         th = float(c.get("tunnel_h") or TUNNEL_H)
         low = th < TUNNEL_H - 0.05                          # a low arch: stone, a short portal face
         # (a major road's low arch in concrete, as its cutting's walls: the Gotthard road tunnel's portal, a cut-and-cover
-        # box under the meadow at Goeschenen, stood as a park's stone arch, 2026-10-28)
+        # box under the meadow at Goeschenen, stood as a park's stone arch)
         stone = low and not c.get("concrete")
         mat = 3 if stone else 5                               # (its portal faces: 2, the stone in daylight; a full
                                                             # tube's inside: 5, TUNNEL_INNER)
@@ -1483,7 +1483,7 @@ def _tunnel_lamps(P, T, UV, M, nv, mid, u, z, hw, origin):
     """Lamp fixtures along both walls of a tube (material TUNNEL_LIGHT, index 1): TUNNEL_LAMP_L long every
     TUNNEL_LAMP_EVERY m, just under the springing, faced into the tube; appended to P, T, UV, M; returns the new vertex
     count. (Two dashed strips under the vault read as lane markings on the ceiling: the Caldecott Tunnel on Mapillary
-    has fixtures along its walls, 2026-10-18.) Pure but for the lists."""
+    has fixtures along its walls.) Pure but for the lists."""
     k = len(mid)
     if k < 2:
         return nv

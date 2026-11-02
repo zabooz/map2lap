@@ -1,4 +1,4 @@
-"""Sign-only pavement outlines from the current road renderer's widths and centre lines (from cody196's PR #363).
+"""Sign-only pavement outlines from the current road renderer's widths and centre lines.
 
 These helpers never alter a road, lane count, terrain mask or bridge profile. A sign's whole source neighbourhood
 (the map cells round its approach) is used in every tile, so its position has one owner.
@@ -6,7 +6,7 @@ These helpers never alter a road, lane count, terrain mask or bridge profile. A 
 Each map cell's rows are worked out once (road_specs on the cell, as the road tiles do, and every ground part's
 pavement outline), kept on the decoded cell while the map data keeps it; a neighbourhood is the union of its cells'
 rows, each feature once. (The PR merged the cells of each sign's neighbourhood into one feature set and ran
-road_specs and every outline on it again for each sign: ~10 s of CPU a road tile near Baltimore, 2026-10-28.)
+road_specs and every outline on it again for each sign: ~10 s of CPU a road tile near Baltimore.)
 """
 from collections import namedtuple, OrderedDict
 import threading

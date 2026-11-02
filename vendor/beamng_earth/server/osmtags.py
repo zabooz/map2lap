@@ -54,9 +54,9 @@ COLUMNS = {
     "osm_oneway": "oneway",
     "osm_layer": "TRY_CAST(layer AS INTEGER)",
     # for the segments Overture took from a relation (no way id: Samara's Novo-Sadovaya, "r3851280@53", drawn 10 m wide
-    # instead of its 6 lanes, the user 2026-10-24): the way of the same name around them (join)
+    # instead of its 6 lanes): the way of the same name around them (join)
     "name": "name",
-    # a road not built yet (GitHub #184: a trunk road under construction, opening 2026-12-31, drawn as a finished road;
+    # a road not built yet (a trunk road under construction, opening, drawn as a finished road;
     # Overture calls highway=construction "unknown"): only these two values, every other highway NULL
     "osm_highway": "CASE WHEN highway IN ('construction', 'proposed') THEN highway END",
     # the kind of tunnel (Overture keeps only its level -1: an avalanche gallery became a tunnel, _mark_galleries)
@@ -229,7 +229,7 @@ class OsmTags:
             cols = ", ".join(f"{expr} AS \"{name}\"" for name, expr in COLUMNS.items())
             # only the ways with a tag the roads use (and the raceways): join() treats a way without one as one not
             # here, and building a dict per way of every highway in the cell was most of this thread's CPU
-            # (osmtags, 14 CPU-s of a Deck's teleport, 2026-10-23)
+            # (osmtags, 14 CPU-s of a Deck's teleport)
             some = " OR ".join([f"{c} IS NOT NULL" for c in sorted(USED - {"id", "bbox"})]
                                + [f"highway IN ({', '.join(repr(v) for v in UNBUILT)})"])
             rows = con.execute(f"""SELECT id, highway = 'raceway', file_row_number, {cols}
@@ -401,7 +401,7 @@ def join(feats, tags, around=None):
             [str(tags.get(w, {}).get(c, "")) if w is not None else "" for w in src])
     # A way without a lane count takes the count of the same-named way around it going the same way (one-way or
     # not): OpenStreetMap's lanes ahead of the class's width (Portland's arterials carry lanes on some of their ways
-    # only, the rest were drawn at the class's guess, the user 2026-10-27).
+    # only, the rest were drawn at the class's guess).
     lanes, ows = feats.attrs["osm_lanes"], feats.attrs["osm_oneway"]
     names = feats.attrs.get("name")
     sense = {}

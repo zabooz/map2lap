@@ -79,7 +79,7 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(roads.surface_kind("primary", "gravel"), "gravel")
         self.assertEqual(roads.surface_kind("primary", "unpaved"), "dirt")
         # the detail after a colon (or a second value after a semicolon) does not lose the base surface: İzmir's
-        # sett streets were drawn as dirt/gravel tracks (2026-10-22)
+        # sett streets were drawn as dirt/gravel tracks
         for v in ("cobblestone:flattened", "sett:pattern", "paving_stones:30", "sett;asphalt"):
             self.assertEqual(roads.surface_kind("residential", v), "cobble", v)
         self.assertEqual(roads.surface_kind("residential", "concrete:lanes"), "paved")
@@ -237,7 +237,7 @@ class GeometryTest(unittest.TestCase):
         self.assertEqual(sum(len(c) for c in chunks) - (len(chunks) - 1), 250)
 
     def test_a_straight_deck_keeps_its_rise(self):
-        # Lombard Street, Baltimore 2026-10-20: on xy alone a straight bridge kept its two ends in a tile (both at
+        # Lombard Street, Baltimore: on xy alone a straight bridge kept its two ends in a tile (both at
         # 22.2 m) and lost the 2.5 m rise between; the abutment's ground stood over the deck and a car drove into it
         x = np.arange(0.0, 160.0, 10.0)
         z = 22.0 + 2.5 * np.sin(np.pi * x / 160.0)
@@ -260,7 +260,7 @@ class GeometryTest(unittest.TestCase):
         self.assertEqual(roads.tile_distance(1, 0, 10, 10), roads.TILE - 10)
 
     def test_tiles_near_is_a_disc(self):
-        # the user, 2026-10-28: "change the quality/view distance radius from a square to a circle": a corner tile
+        # "change the quality/view distance radius from a square to a circle": a corner tile
         # within the radius on both axes (Chebyshev 256 m) but 362 m away (Euclidean) is not wanted at 300 m
         ks = roads.tiles_near(0, 0, 300)
         self.assertNotIn((-2, -2), ks)
@@ -316,7 +316,7 @@ class BuildTileTest(unittest.TestCase):
         self.assertEqual(roads.bridge_specs(features([[(0, 0), (100, 0)]], ["motorway"])), [None])
 
     def test_motorway_lanes_rural_two_urban_three(self):
-        """GitHub #43: every US Interstate had three lanes a direction, rural ones mostly have two; a rural road's edge
+        """every US Interstate had three lanes a direction, rural ones mostly have two; a rural road's edge
         strips were counted as lanes (a rural divided trunk had three too)."""
         pts = np.array([(0.0, 0.0, 0.0), (100.0, 0.0, 0.0)])
 
@@ -333,7 +333,7 @@ class BuildTileTest(unittest.TestCase):
                          "edge lines between the lanes and the shoulders")
         self.assertEqual(lanes("motorway", True)[0], 3, "urban motorway carriageway")
         self.assertEqual(lanes("trunk", False)[0], 2, "rural divided trunk")
-        # a ramp (one lane, LINK_M): its edge lines a lane apart, not inside the motorway's shoulders (GitHub #107)
+        # a ramp (one lane, LINK_M): its edge lines a lane apart, not inside the motorway's shoulders
         ramp = roads.Spec(roads.LINK_M[1], "paved", False, "motorway", True, 2.5, 1)
         edges = [line[0][1] for look, w, line in roads.extras(ramp, pts, -100.0) if look.get("kind") == "edge"]
         self.assertAlmostEqual(abs(edges[0] - edges[1]), roads.LINK_LANE_M, places=2)
@@ -394,7 +394,7 @@ class BuildTileTest(unittest.TestCase):
 
     def test_walk_cuts_open_the_sidewalk(self):
         # a gas station's made-up driveway (gasstations.tile_sites cuts): the sidewalk it crosses is cut, not the one
-        # across the street (the user, 2026-10-23: "the drive you added sidewalk blocks it")
+        # across the street ("the drive you added sidewalk blocks it")
         f = features([[(-300, 100), (300, 100)]], ["secondary"])
         urban = lambda la, lo: np.ones(np.shape(la), bool)      # noqa: E731
 
@@ -486,7 +486,7 @@ class BuildTileTest(unittest.TestCase):
     def test_sidewalks_on_the_drawn_ground(self):
         # the road surfaces lie on the terrain block's own heights (its 2 m lattice rounded to the quantum, each
         # square cut south-west to north-east: roadmesh.follow), elev's smooth curve off them by up to the quantum and
-        # more between the samples; the curbs take the same ground (the user, 2026-10-21)
+        # more between the samples; the curbs take the same ground
         import roadmesh
         import sidewalks
 
@@ -567,7 +567,7 @@ class BuildTileTest(unittest.TestCase):
         self.assertEqual(len(cw), 4, "a crosswalk on each arm")
         self.assertTrue(sum(len(w["ramps"]) for w in runs) + sum(len(c["ramps"]) for c in corners) >= 8,
                         "two curb ramps per crosswalk")
-        # residential streets with parking: no curb extensions (GitHub #208), the corners at the parking curb
+        # residential streets with parking: no curb extensions, the corners at the parking curb
         wd = roads.carriageway("residential", "paved", True) / 2
         cls_ = [np.array(c["n"])[:, :2] for c in chunks if c["m"] == roads.LOOK["paved"]["m"] and c["n"]]
         for c in corners:
@@ -650,7 +650,7 @@ class BuildTileTest(unittest.TestCase):
     def test_offset_junction_corners_across_the_connector(self):
         import junctions
         # two junctions ~10 m apart on a diagonal connector no longer than the streets are wide (the user's
-        # Fells Point junction, 2026-10-17): every quadrant gets a curb return, turning onto the connector's edge
+        # Fells Point junction): every quadrant gets a curb return, turning onto the connector's edge
         # at one node and off at the other, none on a carriageway, and the connector keeps no sidewalk
         A, B = (120.0, 120.0), (127.0, 113.0)
         arms = [[A, (120, 300)], [A, (-60, 120)], [A, B], [B, (127, -60)], [B, (300, 113)]]
@@ -709,7 +709,7 @@ class BuildTileTest(unittest.TestCase):
         self.assertIsNotNone(roads.road_specs(f)[0], "a street with a bridge in it stays")
         self.assertIsNotNone(roads.bridge_specs(f)[0])
         # (OpenStreetMap's lane count makes the deck as wide as the road: a 4-lane bridge drawn at its class's 8 m,
-        # GitHub #378)
+        #)
         f4 = features([[(-200, 50), (200, 50)]], ["secondary"], levels=[(0, 1.0, 0.4, 0.6)])
         f4.attrs["osm_lanes"] = np.array([4.0])
         self.assertEqual(roads.bridge_specs(f4)[0].lanes, 4)
@@ -742,7 +742,7 @@ class BuildTileTest(unittest.TestCase):
         self.assertEqual(roads.centre_colour(-76.6), "line_yellow")
         self.assertEqual(roads.centre_colour(12.5), "line_white")
         # the Americas' yellow centre line: double solid in town, broken (MUTCD 10 ft / 30 ft) on a rural two-lane road;
-        # elsewhere one broken white line (the Gotthard road, 2026-10-18), its dashes the country's (DE: 6 m / 12 m)
+        # elsewhere one broken white line (the Gotthard road), its dashes the country's (DE: 6 m / 12 m)
         sp = roads.Spec(7.0, "paved", False, "primary", False)
         line = np.array([[0.0, 0, 5], [100, 0, 5]])
         centre = lambda s, lon, c=None: [(lk, ln) for lk, w, ln in roads.extras(s, line, lon, country=c)
@@ -812,7 +812,7 @@ class PaintRoadsTest(unittest.TestCase):
         self.assertEqual(int(idx[64, 10]), sf.GRASS, "input untouched")
 
     def test_bare_verge_beside_roads(self):
-        """Grass tufts stood on the asphalt along road edges (the user, 2026-10-20): a road without sidewalks gets a
+        """Grass tufts stood on the asphalt along road edges: a road without sidewalks gets a
         bare verge (VERGE_M a side) where the ground carries grass; rock stays rock."""
         lat, lon = self.grid()
         f = features([[(-200, 0), (200, 0)]], ["residential"])
@@ -838,7 +838,7 @@ class PaintRoadsTest(unittest.TestCase):
         self.assertEqual(sf.DIRT, len(sf.MATERIALS) - 1, "dirt still last")
 
     def test_a_tunnels_open_section_painted(self):
-        # a 'tunnel' in the map lying open (grading.Grader.open_tunnels): road, not grass (Central Park, 2026-10-17)
+        # a 'tunnel' in the map lying open (grading.Grader.open_tunnels): road, not grass (Central Park)
         lat, lon = self.grid()
         f = features([[(-200, 0), (200, 0)]], ["residential"], flags=[(0, "is_tunnel")])
         idx = np.full(lat.shape, sf.GRASS, np.uint8)
@@ -852,7 +852,7 @@ class PaintRoadsTest(unittest.TestCase):
 class UrbanBesideTest(unittest.TestCase):
     def test_a_highway_through_a_built_up_strip_is_not_a_town_street(self):
         # the land cover counts the pavement itself as built-up: a road is urban only with built-up land beside it too
-        # (GitHub #267: the Eyre Highway through Eucla got footpaths and street furniture)
+        # (the Eyre Highway through Eucla got footpaths and street furniture)
         f = features([[(0, 0), (400, 0)], [(0, 100), (400, 100)]], ["trunk", "residential"])
 
         def pavement_only(lat, lon):            # built-up within 6 m of the first road's line, and around the second
@@ -1047,7 +1047,7 @@ class MedianTest(unittest.TestCase):
 
 class WallRunsTest(unittest.TestCase):
     def test_no_wall_under_a_bridge_deck(self):
-        # the Bruce Highway (the user's report, 2026-10-21): beside a motorway under an overpass the ground is the
+        # the Bruce Highway: beside a motorway under an overpass the ground is the
         # abutment's fill; the wall rose to it, through the deck
         xy = np.c_[np.zeros(21), np.arange(-20.0, 21.0, 2.0)]          # a wall line along a road at z 8
         z = np.full(len(xy), 8.0)
@@ -1070,7 +1070,7 @@ class WallRunsTest(unittest.TestCase):
 class ChainResolveTest(unittest.TestCase):
     """BridgeProfiles._resolve: a cell loaded at a loose end can put a longer copy of a part already in the chain into
     the pool (its ends then new); the chain is followed on instead of failing (KeyError, a Chicago road tile,
-    2026-10-24), whatever order the set of keys comes in."""
+   ), whatever order the set of keys comes in."""
 
     def test_part_grown_by_a_loaded_cell(self):
         spec = type("Spec", (), {"width": 8.0})()
@@ -1094,7 +1094,7 @@ class ChainResolveTest(unittest.TestCase):
 
 
 class TunnelReachTest(unittest.TestCase):
-    """GitHub #450: a tunnel's portal inside the carriageway of a road crossing over it moves out past that road."""
+    """a tunnel's portal inside the carriageway of a road crossing over it moves out past that road."""
 
     def _ranges(self, lines, classes, flags):
         return roads.level_ranges(features(lines, classes, flags=flags), 0)
@@ -1133,7 +1133,7 @@ class TunnelReachTest(unittest.TestCase):
 
 
 class TunnelCoverRoadsTest(unittest.TestCase):
-    """GitHub #450: a covered tunnel section goes on until the road crossing over it is covered."""
+    """a covered tunnel section goes on until the road crossing over it is covered."""
 
     def test_a_short_arch_grows_under_the_whole_carriageway(self):
         import fast
@@ -1157,7 +1157,7 @@ class WorldConventionTest(unittest.TestCase):
     def test_a_roads_line_lies_where_the_ground_puts_it_whatever_its_height(self):
         """The road lines' x, y are their points' at h = 0 (as the ground's samples: heightmap.surface), their z at the
         road's height: 13 km out at 1650 m the lines lay 2.8 m east and 2.0 m north of the asphalt painted into the
-        ground (US-163, Utah, 2026-10-29)."""
+        ground (US-163, Utah)."""
         f = features([[(12700.0, 7750.0), (13200.0, 7750.0)]], ["primary"])
         got = {}
         for h in (10.0, 2000.0):
@@ -1187,7 +1187,7 @@ class RetainingWallTest(unittest.TestCase):
 
     def test_a_cut_step_gets_its_wall_a_natural_bank_none(self):
         """The grading's cut: flat to the core's edge, then 3 m up within a metre: a wall. A natural bank 3 m high over
-        3 m (US-163 in Utah, a low eroded bank, 2026-10-29): the terrain draws it, no wall."""
+        3 m (US-163 in Utah, a low eroded bank): the terrain draws it, no wall."""
         import grading
         rh = roads.carriageway("primary", "paved", True, None, False) / 2
         edge = rh + grading.shoulder(roads.Spec(2 * rh, "paved", False, "primary")) + grading.WALL_FLAT_M

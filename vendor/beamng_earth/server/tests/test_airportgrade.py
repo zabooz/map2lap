@@ -37,7 +37,7 @@ class AirportGradeTest(unittest.TestCase):
         return la, lo
 
     def test_runway_pads_cover_the_paved_runways_end_to_end(self):
-        # (GitHub #337: only the markings were drawn; the runway's own surface came from the photo alone)
+        # (only the markings were drawn; the runway's own surface came from the photo alone)
         import geodesy
         la, lo = self.grid(45.0, 7.0)
         pads = self.ag.runway_pads(la, lo)

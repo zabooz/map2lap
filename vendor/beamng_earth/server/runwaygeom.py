@@ -1,7 +1,7 @@
 """Runway geometry and grading: the runway rectangle, shoulders, graded strip and blend zone in a
 runway-local frame, a smooth longitudinal profile fitted between the data's end elevations and the
 DEM under design limits, and the graded height field merged into the terrain without steps
-(docs/research/2026-10-11-airports.md §3).
+.
 
 Pure functions (no engine, no network): a runway (airports.Runway or anything with the same fields)
 plus a DEM sampler elev_fn(lat, lon) -> metres (numpy arrays in, an array of the same shape out, as

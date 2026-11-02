@@ -1,5 +1,5 @@
 """The shared map-data pipeline: roads, buildings, water, land use, infrastructure, land cover and
-canopy height per global cell, for every content feature to read (docs/ARCHITECTURE.md "Map data";
+canopy height per global cell, for every content feature to read (
 design: docs/research/2026-10-10-world-data-sources.md).
 
     md = mapdata.MapData(cache_dir, fetcher)            # the server's netfetch.Fetcher
@@ -40,7 +40,7 @@ VERSION (or release) leaves the old directories for the cache cap's LRU to evict
 
 Not here (documented API for later): building meshes, road ribbons, ground layers, trees, sending
 anything to the mod. Generators take CellData and key their choices on feature ids and global
-positions (docs/ROADMAP.md "Principle: deterministic generation").
+positions.
 
 CLI (development):  python3 server/mapdata.py --cell 39.2834,-76.5934 --dump --png out.png
                     python3 server/mapdata.py --latest
@@ -77,21 +77,21 @@ log = logging.getLogger("earthd.mapdata")
 LAYER_THREADS = 4               # layers of a cell built at once (each fetches through the shared limits)
 OSM_THREADS = 8                 # cells whose OpenStreetMap tags are read at once (alongside their Overture roads)
 # (cell, layer)s built ahead at once by warm() (a fresh place's first road tile asked for ~70 of them one after another:
-# 56 s in Marseille, GitHub #241): half the CPUs, at most 8, and none on 8 or fewer: each is a DuckDB query and a
+# 56 s in Marseille): half the CPUs, at most 8, and none on 8 or fewer: each is a DuckDB query and a
 # decode of its own, and on a Steam Deck (4 cores, 8 threads) the work done ahead kept the CPUs from the road tiles
-# (all 36 of a fresh place: 122 s -> 145-181 s over 8 places, 2026-10-25); on a 16-thread PC they came 2-10 s sooner.
+# (all 36 of a fresh place: 122 s -> 145-181 s over 8 places); on a 16-thread PC they came 2-10 s sooner.
 _CPUS = os.cpu_count() or 4
 WARM_THREADS = min(8, _CPUS // 2) if _CPUS > 8 else 0
 BUILDING_MAX_M2 = 2.0e6     # m2: a building footprint larger than this is a mapping error (the largest real ones are
-                            # ~1 km2; an OpenStreetMap one of 15.8 km2 roofed a city in Egypt, GitHub #413)
+                            # ~1 km2; an OpenStreetMap one of 15.8 km2 roofed a city in Egypt)
 VERSION = 2                     # pipeline version: bump when what a cell's layers contain changes
 # per layer, on top of VERSION (a layer's own change without re-fetching the others): roads 2 adds
 # the "oneway" rule (Overture access_restrictions by heading)
 # roads 3: OpenStreetMap's lanes, width, sidewalk, maxspeed... joined by way id (osmtags.py)
-# roads 4: OpenStreetMap's raceways appended (osmtags.raceways, GitHub #143)
+# roads 4: OpenStreetMap's raceways appended (osmtags.raceways)
 # roads 5: a segment from an OSM relation (no way id) takes the tags of the same-named way around it (osmtags.join)
-# roads 6: rail segments' rail_flags (is_bridge / is_tunnel) in the "flags" rule (railways.py, mpsteppe's PR #287)
-# (osmtags osm_highway, construction/proposed roads left out, GitHub #184: only cells fetched after it; the cached
+# roads 6: rail segments' rail_flags (is_bridge / is_tunnel) in the "flags" rule (railways.py)
+# (osmtags osm_highway, construction/proposed roads left out: only cells fetched after it; the cached
 # ones get it with the next Overture release bump, not a roads 7 here: every player's roads fetched again)
 # roads 7: a way without lanes takes the same-named way's (osmtags.join); one-way ends at their own lane (oneway_joins)
 # roads 8: OpenStreetMap's tunnel kind; avalanche galleries flagged over their tunnel range (osmtags._mark_galleries)
@@ -172,7 +172,7 @@ def digest_arrays(arrays):
 
 # The layer files' arrays uncompressed (<cache>/mapdata-mirror/...: one .npy each and a marker), memory-mapped read-only:
 # every server process decompressed and kept its own copy of the cells it read (each one's largest allocation after
-# the walls, ~90-160 MB, 2026-10-20); a mirrored layer is decompressed once per machine and its pages shared, dropped
+# the walls, ~90-160 MB); a mirrored layer is decompressed once per machine and its pages shared, dropped
 # instead of swapped under memory pressure. At most MIRROR_MB on disk (the least recently read go first); the vector
 # layers' `en` (the cell frame's metres, Features.localize) is kept with them.
 BUILD_WAIT_S = 180.0        # a cell layer another process is building is waited for this long (xproc.once)
@@ -180,7 +180,7 @@ MIRROR_MB = 2048
 MIRROR_PRUNE_S = 120.0  # the mirror pruned at most this often per process (each prune walks it all)
 MIRROR_SMALL = 65536    # bytes: an array this small is read into memory (no mapping)
 MEM_MB = 192        # decoded cell layers kept in memory per process (a road tile reads its ~4 cells, each read by
-                    # its neighbours too: ~8 ms of decompression and a coordinate transform each time, 2026-10-15).
+                    # its neighbours too: ~8 ms of decompression and a coordinate transform each time).
                     # A road tile's layers of Baltimore's 4 cells are ~124 MB by _nbytes (the infrastructure 65):
                     # at 64 every tile decoded them again, 446 loads for 36 tiles (7.5 s of 87 on a Steam Deck)
 
@@ -450,7 +450,7 @@ class MapData:
             return self.osmtags.cell(bounds or key.bounds(), kind)
         except DEFERRED:
             # a prefetch the host had no room for: the cell is not built now (MapData.prefetch: False) rather than cached
-            # for good without its tags (a player's start cell in Baltimore kept the roads' guesses, 2026-10-23); on
+            # for good without its tags (a player's start cell in Baltimore kept the roads' guesses); on
             # demand the roads go on without them, as below
             if kind not in ("demand", "urgent"):
                 raise
@@ -493,7 +493,7 @@ class MapData:
     @staticmethod
     def _osm(feats, got, around=None):
         """The roads with the cell's OpenStreetMap tags joined in and its raceways appended (Overture has none,
-        GitHub #143); around: the tags around its tunnels reaching out of it (osmtags.join)."""
+       ); around: the tags around its tunnels reaching out of it (osmtags.join)."""
         import mapgeom
         import osmtags
         tags, ways = got
@@ -598,7 +598,7 @@ class MapData:
         return got if got is not None else arrays
 
     # (a process's first write prunes: the count of a session's own writes alone never reached the threshold when
-    # each run wrote less, and the mirror grew past MIRROR_MB across sessions: 6.3 GB on a Steam Deck, 2026-10-23)
+    # each run wrote less, and the mirror grew past MIRROR_MB across sessions: 6.3 GB on a Steam Deck)
     _mirror_written = MIRROR_MB * 1e6
     _mirror_pruned = -1e9
     _mirror_lock = threading.Lock()
@@ -670,7 +670,7 @@ class MapData:
                     # (which cell's layer: the per-cell facts the server's processes share, roads.cell_facts)
                     self._rails(key, layer, cd.layers[layer])
                     self._lanes(key, layer, cd.layers[layer])
-                    if layer == "buildings":    # (a "building" of a whole city's size: left out, GitHub #413)
+                    if layer == "buildings":    # (a "building" of a whole city's size: left out)
                         cd.layers[layer] = mapgeom.drop_huge(cd.layers[layer], BUILDING_MAX_M2)
                     if layer == "roads":        # (the bridges the map lacks, found when its ranges are first asked)
                         cd.layers[layer].__dict__["_bnge_gradesep"] = gradesep.hook(self, key)

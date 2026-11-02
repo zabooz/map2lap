@@ -1,6 +1,6 @@
 """KyzoFox 1.5.4: overpass approach ramps (grading.bridge_lifts / approach_add / Grader._lift_approaches): a
 short bridge over an interstate on flat ground gets its approach roads graded up so its deck clears the lanes (trucks
-hit the I-20 overpass near Temple, GA: ~2.5 m over the lanes, 2026-10-19)."""
+hit the I-20 overpass near Temple, GA: ~2.5 m over the lanes)."""
 import math
 import os
 import sys
@@ -64,7 +64,7 @@ class BridgeLiftsTest(unittest.TestCase):
         self.assertAlmostEqual(float(out[0][0][0]), 0.0)
 
     def test_short_part_of_a_chain_raises_its_free_end(self):
-        # (GitHub #306, BR-343 at Teresina: the deck carried 5 m onto the road joined at its end; that short part no
+        # (BR-343 at Teresina: the deck carried 5 m onto the road joined at its end; that short part no
         # road crosses under must still raise its free end for the carriageways under the rest of the chain, or the
         # whole deck sat ~4.5 m low)
         deck = np.c_[np.linspace(0, 34, 18), np.zeros(18)]
@@ -78,7 +78,7 @@ class BridgeLiftsTest(unittest.TestCase):
         self.assertEqual(grading.bridge_lifts(stub, [stub], under, lambda xy: np.full(len(xy), FLAT)), [])
 
     def test_railway_by_the_end_still_counts(self):
-        # (a track 3 m from an abutment is still crossed over: a road deck never meets a railway at grade, GitHub #324)
+        # (a track 3 m from an abutment is still crossed over: a road deck never meets a railway at grade)
         line = np.c_[np.linspace(0, 70, 36), np.zeros(36)]
         track = [np.array([[3.0, -50], [3, 50]])]
         out = grading.bridge_lifts(line, [line], [], lambda xy: np.full(len(xy), FLAT), rail_lines=track)
@@ -170,7 +170,7 @@ class OverpassIntegrationTest(unittest.TestCase):
         self.assertLess(np.abs(self.lanes).max(), 0.2, "the motorway is not raised")
 
     def test_motorway_over_a_road_not_raised(self):
-        # the user's crash (I-20 in Greene County, AL): the motorway was the bridge, over a local road, and both its
+        # crash (I-20 in Greene County, AL): the motorway was the bridge, over a local road, and both its
         # carriageways went up 7.8 m on 300 m fills, differently in different cells
         a, b = (400 - 35) / 800, (400 + 35) / 800
         f = features([[(-400, 0), (400, 0)], [(-12, -500), (-12, 500)]], ["motorway", "residential"],

@@ -1,4 +1,4 @@
-"""The global data-cell grid of the map-data pipeline (docs/ARCHITECTURE.md "Map data").
+"""The global data-cell grid of the map-data pipeline.
 
 Map data (roads, buildings, water, land use, land cover, canopy height) is fetched, cached and
 handed out per *cell*: a Web-Mercator (EPSG:3857) XYZ tile at zoom ZOOM = 14, the same tiling the
@@ -162,7 +162,7 @@ def cell_of(lat, lon, z=ZOOM):
 def cells_of(lat, lon, z=ZOOM):
     """[cell_of(lat[i], lon[i])] for arrays of points, at once: the tile formula for all, cell_of's exact edge rules for
     the few within EDGE_EPS of an edge (the same cells; road planning asked cell_of point by point ~60000 times per 16
-    city road tiles, 2026-10-26)."""
+    city road tiles)."""
     lat = np.asarray(lat, np.float64).ravel()
     lon = np.asarray(lon, np.float64).ravel()
     if not len(lat):

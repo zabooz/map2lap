@@ -294,7 +294,7 @@ def features():
                 wkt="POINT({!r} {!r})".format(*_cell_xy(0.5, 0.5))),
            dict(id="inf-line", version=1, subtype="power", **{"class": "power_line"}, sources=[OSM],
                 height=20.0, wkt=_wkt_line([_cell_xy(0.0, 0.1), _cell_xy(1.0, 0.1)]))]
-    # a Sheetz (a convenience store by its category, a fuel seller by its brand: the gas stations, 2026-10-23)
+    # a Sheetz (a convenience store by its category, a fuel seller by its brand: the gas stations)
     pla = [dict(id="pla-sheetz", version=1, names={"primary": "Sheetz"}, basic_category="convenience_store",
                 taxonomy={"primary": "convenience_store"}, brand={"wikidata": "Q7492551", "names": {"primary": "Sheetz"}},
                 sources=[dict(OSM, dataset="meta", record_id="m1")], operating_status="open", confidence=0.92,

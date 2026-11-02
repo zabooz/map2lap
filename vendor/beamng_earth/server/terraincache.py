@@ -1,4 +1,4 @@
-"""The game's terrain texture cache, pre-filled by the server (detail near-visual mode, 2026-10-12).
+"""The game's terrain texture cache, pre-filled by the server (detail near-visual mode).
 
 A TerrainMaterial's textures reach the GPU as BC7 texture arrays. The game packs each source map it has not
 seen before into BC7 on its main thread and keeps the result in <user>/temp/art/terrainMaterialCache/
@@ -88,7 +88,7 @@ def cache_dir(user_dir):
 def stored_png(rgb):
     """PNG bytes of an RGB image (uint8 [h, w, 3]): rows unfiltered, deflate level 0 (stored). The base photo's file,
     which the game reads only when its packed cache entry is stale: Pillow at level 0 still filtered every row (0.43 s
-    for a 4096² photo, this 0.10 s; 2026-10-28)."""
+    for a 4096² photo, this 0.10 s)."""
     import struct
     import zlib
     rgb = np.ascontiguousarray(rgb, np.uint8)

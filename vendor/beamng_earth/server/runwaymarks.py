@@ -1,4 +1,4 @@
-"""Runway markings as geometry (docs/research/2026-10-11-airports.md §4): threshold stripes,
+"""Runway markings as geometry: threshold stripes,
 designation numbers and letters, centreline dashes, aiming point, touchdown zone, side stripes,
 displaced-threshold bar and arrows, closed-runway crosses. Pure: no engine calls.
 

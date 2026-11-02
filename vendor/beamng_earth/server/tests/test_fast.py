@@ -1,5 +1,5 @@
 """fast: the Rust kernels (earthfast) against independent references (Pillow, the JSON encoder, plain sums), and
-fast.require. The Python twins they replaced are gone (the user, 2026-10-21: "we dont need 2 versions of the same
+fast.require. The Python twins they replaced are gone ("we dont need 2 versions of the same
 thing"); each module's own tests check its results."""
 import os
 import sys

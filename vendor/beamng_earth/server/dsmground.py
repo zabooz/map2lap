@@ -1,4 +1,4 @@
-"""The ground under a surface model: buildings and tree stands taken out of a DSM (2026-10-15).
+"""The ground under a surface model: buildings and tree stands taken out of a DSM.
 
 Outside the national lidar models Mapterhorn's elevation is Copernicus GLO-30, a surface model: a city block
 stands 5-25 m above its streets (Mexico City's Zocalo, a flat square, read 9-20 m below the blocks around it;
@@ -30,7 +30,7 @@ TERRAIN_CUT_M = (35.0, 55.0)    # a cut this deep within a window is a hill, not
 def ground(a, px_m, window_m=WINDOW_M, threshold_m=THRESHOLD_M, slope_k=SLOPE_K, max_cut_m=MAX_CUT_M,
            relief_m=RELIEF_M):
     """a with the surface objects narrower than window_m taken down to the ground around them (where the ground
-    is flat enough to tell them from hills). The work is the native module's (earthfast dsm_ground, 2026-10-23: the
+    is flat enough to tell them from hills). The work is the native module's (earthfast dsm_ground: the
     same float32 steps as the numpy code it replaced, to the bit, ~3.7x faster and off the interpreter's lock):
 
     - the opening o of a over w (window_m in samples): cut = a - o;

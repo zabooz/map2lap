@@ -25,7 +25,7 @@ DEM_ZOOM = 16               # lidar up to z16 (~0.8 m)
 
 # BeamNG.Earth's default: roads painted into the terrain (roads.ROADS_IN_GROUND, terrain_paint), the terrain is built
 # by ground.py like BeamNG.Earth's terrain block. (Until 29.10. switched off here with asphalt as a mesh: BeamNG.Earth's
-# old mode with asphalt walls on steep slopes, GitHub #135, zigzags and holes at the seams.)
+# old mode with asphalt walls on steep slopes, zigzags and holes at the seams.)
 
 
 def main():

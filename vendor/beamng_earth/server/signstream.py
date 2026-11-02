@@ -1,4 +1,4 @@
-"""Highway signs (from cody196's PR #363): optional scenery built per road tile after the tile's roads were sent,
+"""Highway signs: optional scenery built per road tile after the tile's roads were sent,
 never part of their collision or readiness. A sign tile is sent as a `roads_tile` with key "s<tx>_<ty>" and the
 fields exits / mileposts / merges / speeds / towns (render-only shapes, pooled slots); the mod's highwaySigns setting
 hides them.

@@ -1,6 +1,6 @@
-"""Raised sidewalks with curbs as one mesh per road tile (docs/ARCHITECTURE.md "Raised sidewalks").
+"""Raised sidewalks with curbs as one mesh per road tile.
 
-How West Coast USA does it (2026-10-11 study of its level files, after the user found our first
+How West Coast USA does it (study of its level files, after the user found our first
 curbs "invisible" and plain): no MeshRoads anywhere. Each district's sidewalks are one modelled
 mesh (64 `sidewalk_<district>.dae`, 231k triangles in all) with a curb profile textured from the
 `curbs` trim sheet (8 horizontal bands: plain, red / yellow / white / green painted; in each band the
@@ -27,7 +27,7 @@ CURB_H = 0.15           # m above the road (US curbs: 0.15)
 SINK = 0.10             # m the faces reach below the road / ground
 BACK_RUN = 2.0          # the slab's back falls to the ground at 1:2, not straight down: the ground behind a sidewalk is
                         # graded at road level (grading.SIDEWALK_MARGIN_M), so a vertical back was a ~20 cm ledge that
-                        # caught a wheel leaving the sidewalk for the verge ("pulling the car down", user 2026-10-14)
+                        # caught a wheel leaving the sidewalk for the verge ("pulling the car down")
 BATTER = 0.02           # m the face leans back over its height
 NOSE = 0.025            # m: the bevelled nose, down from the top ...
 NOSE_W = 0.045          # ... and in from the face
@@ -82,7 +82,7 @@ def profile(h=CURB_H, w=2.5, hr=None):
     f = hr / h if h > 0 else 0.0
     # a band narrower than RAMP_RUN (a median's 0.3-0.6 m, an island's 1.2 m) ends its ramp inside it: past its outer
     # edge the profile folded back over itself, and the folded collision caught wheels ("the median eats tires",
-    # GitHub #55; a truck held on an island band in Bodø, 2026-10-20)
+    # GitHub #55; a truck held on an island band in Bodø)
     rr = max(CURB_W + NARROW_EDGE_M, min(RAMP_RUN, w - NARROW_EDGE_M))
     zr = h + rr * CROSS_SLOPE
     xp = CURB_W + min(PAD_W, (rr - CURB_W) / 2)
@@ -108,7 +108,7 @@ CURB_STRIPS = STRIPS[:3]
 
 
 # The lean collision mesh (Builder(collision=True), written as the tile's "walkcol"): the drawn mesh's 8-point profile
-# and 0.5 m ramp steps cost the game's collision rebuild ~7 ms of ~12 in Fells Point (2026-10-16: 31 tiles, 245k
+# and 0.5 m ramp steps cost the game's collision rebuild ~7 ms of ~12 in Fells Point (31 tiles, 245k
 # triangles). Physics gets the face, the curb top to the ramp run, the slab and the back (profile points LEAN) at the
 # points that matter: a run's points within LEAN_TOL_M of the line between their neighbours kept (Douglas-Peucker,
 # the curb height counted too, so ramps keep their shape).

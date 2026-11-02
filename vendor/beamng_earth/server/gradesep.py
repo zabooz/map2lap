@@ -1,10 +1,10 @@
-"""The grade separations the map has no bridge for (2026-10-27, the user: "Sure start with the missing then steep decks,
-then tunnels"; GitHub #387: a railway over a trunk road with no bridge on either was drawn as a hump the road climbed
+"""The grade separations the map has no bridge for ("Sure start with the missing then steep decks,
+then tunnels";: a railway over a trunk road with no bridge on either was drawn as a hump the road climbed
 over). Where two ground lines (drawn roads, drawn railways) cross with no junction, the ground on either side of the
 crossing tells which is above: the upper one, higher by SEP_M (and by SIDE_M on each side of each line, so a road up
 a hillside crossing one along it is no bridge), gets a bridge over the lower one's carriageway and CLEAR_M either side.
 Two more without the heights: a line over a railway's short tunnel (railways.SHORT_TUNNEL_M: OSM tags the line under a
-road bridge so; the road over it had none, 2026-10-25), and a short stretch between two decks crossing a ground line (a
+road bridge so; the road over it had none), and a short stretch between two decks crossing a ground line (a
 flyover's middle left untagged). A span past a line's end goes on along the line joined there.
 
 A cell's are found among its roads and its neighbours' (the crossings of its lines out of the cell), with the map's own
@@ -25,11 +25,11 @@ import railways
 
 log = logging.getLogger("earthd.gradesep")
 
-# All of it off by default (2026-10-27 in-game A/B on fresh caches): every cell whose level ranges are asked reads its
+# All of it off by default (in-game A/B on fresh caches): every cell whose level ranges are asked reads its
 # eight neighbours, and grading asks a ring of cells round a road tile, so a first visit read about twice the roads
 # cells (PC: +7-12 s to the first road tile; Steam Deck, no warm-up threads: first road tile 141 s against 91 s off).
 # BNE_GRADESEP=on turns it on. The default, "tunnels": only a line over another's short tunnel (an underpass OSM maps
-# as the lower road's tunnel, a railway's short "tunnel" under a road bridge: GitHub #450, the A-7 at Malaga on two
+# as the lower road's tunnel, a railway's short "tunnel" under a road bridge:, the A-7 at Malaga on two
 # short decks over an open road, drawn as a tube in an embankment), and a cell's neighbours read only when the cell
 # has such a tunnel itself (few do: no cost elsewhere). off: none.
 MODE = os.environ.get("BNE_GRADESEP", "tunnels")
@@ -88,7 +88,7 @@ _POOL_LOCK = threading.Lock()
 
 def _neighbours(md, key):
     """The roads layers of the eight cells round key, asked at once (one after another, cold, they held a fresh
-    place's first road tile ~7 s: 2026-10-27 A/B)."""
+    place's first road tile ~7 s: A/B)."""
     global _POOL
     keys = [mapcells.CellKey(key.z, (key.x + dx) % key.n, key.y + dy)
             for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx or dy) and 0 <= key.y + dy < key.n]
@@ -285,7 +285,7 @@ def _underpasses(md, frame, lines, kinds, groups):
     crosses over it away from their ends, or the ground there stands UNDERPASS_COVER_M or more over the ground
     PORTAL_OUT_M past its portals (a short tunnel through a hill with a road over it). OSM maps an underpass as the
     lower road's tunnel under a road on the ground; built as a tunnel, its vault and soil stood over the motorway on
-    top (the A7 at Brackel and at Schuby, GitHub #228 / #243)."""
+    top (the A7 at Brackel and at Schuby / #243)."""
     keep = [True] * len(lines)
     cand = [n for n, k in enumerate(kinds) if k == 3]
     if not cand:

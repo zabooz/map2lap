@@ -1,5 +1,5 @@
-"""Sea water: the ground carved under the sea, and land kept above the mod's sea plane (user 2026-10-13:
-sea and bays first, roughly real depths, cars sink; docs/research/2026-10-13-water-probe.md).
+"""Sea water: the ground carved under the sea, and land kept above the mod's sea plane (
+sea and bays first, roughly real depths, cars sink;.
 
     sc = SeaCarver(md, cache_dir)                 # md: mapdata.MapData
     z = sc.carve(lat, lon, z_dem)                 # the DEM with the sea floor carved in
@@ -57,7 +57,7 @@ SEA_SUBTYPES = ("ocean",)
 SEA_WATER_TAGS = ('"water":"harbour"', '"water":"bay"', '"water":"lagoon"', '"water":"sound"', '"water":"strait"',
                   '"water":"fjord"', '"water":"cove"', '"tidal":"yes"')   # OSM water areas at sea level: the sea
                   # (Sydney Harbour, natural=water + water=harbour, not coastline: a lake 2-6 m up on the DEM, the
-                  # Harbour Bridge's deck 35 m over "ground"; 2026-10-18)
+                  # Harbour Bridge's deck 35 m over "ground")
 TAG_SEA_MAX_M = 15.0        # m: a water area tagged as the sea's (SEA_WATER_TAGS) is the sea only this near sea level
 SEA_LO, SEA_HI = -0.5, 0.3  # m: DEM heights in this band are the sea where no polygons are at hand (far
                             # tiles, the large water tiles): the DEMs' sea surfaces are flat at ~0
@@ -65,7 +65,7 @@ SINK_M = 6.0                # m: such ground sunk below the surface (no flicker 
                             # deep as the carved floor away from the shore (DEPTH_CAP) and past the water's
                             # colour ramp (sea.lua depthGradientMax 5-6 m): at 1.5 m the water's colour followed
                             # the WaterBlock tiles' flat surfaces (up to 1.3 m off the curve at their corners),
-                            # nested pale and dark squares over the open sea (Italy 40.190, 16.689; 2026-10-15)
+                            # nested pale and dark squares over the open sea (Italy 40.190, 16.689)
 POLY_TILE_MAX = 2048.0      # water tiles up to this size are placed from the polygons, larger ones by
                             # the DEM band (map data is fetched near the player only)
 CARVE_MAX_LEVEL = 2         # far tiles up to this level are carved (their map data is near the player:
@@ -82,7 +82,7 @@ WIDE_RIVER_M = 120.0        # a flattened river this wide or more is tiles (area
 OUTLINE_PAD_PX = 2          # the river mask spread this far past the river's water
 LINE_CELLS = 1              # stream / river lines from the 3 x 3 cells around: a line is in every cell it crosses
                             # (owned by one); the 5 x 5 around fetched 16 more cells of water per raster on a
-                            # first visit (~50 for one road tile in a Pennsylvania town, 2026-10-27)
+                            # first visit (~50 for one road tile in a Pennsylvania town)
 LINE_STEP_PX = 4            # a level every 4 px (~7.5 m) along them
 LINE_PROBE_MAX_M = 15.0     # the level: the lowest DEM within half the width, at most this far
 LINE_DEPTH_M = (0.6, 3.0)   # the bed's depth in the middle: width / 6, clamped
@@ -115,7 +115,7 @@ EARTH_R = 6371000.0
 # lookup reads only the pages it touches, and the server's processes share them in the system's file cache. Read
 # from the compressed npz instead, every lookup of a cell out of a process's MEM_CELLS decoded ~10 MB again (the
 # far tiles near the player and the ground ahead take turns over more cells than that: ~30 s of a Baltimore
-# teleport on a Steam Deck, 2026-10-20).
+# teleport on a Steam Deck).
 RAW_DTYPE = np.dtype([("depth", "<f4"), ("level", "<f4"), ("outline", "?")])
 
 
@@ -233,7 +233,7 @@ def _lonlat(mx, my, z=PX_ZOOM):
 def _cells_of(cx, cy):
     """The distinct (cx, cy) of the points, sorted by cx then cy (np.unique's order). A terrain block's ~260k
     points lie in a few cells: their range is walked (np.unique(axis=0) sorted every point: ~0.8 s a 9-tile
-    profile, 2026-10-15)."""
+    profile)."""
     if cx.size == 0:
         return []
     x0, x1, y0, y1 = int(cx.min()), int(cx.max()), int(cy.min()), int(cy.max())
@@ -402,7 +402,7 @@ class SeaCarver:
                 sea |= m                # a lagoon, a tidal pond: part of the sea
                 continue
             if abs(lv - SEA_E) < 0.01:  # a lake at sea level away from the sea (the Netherlands'): not the sea's
-                lv = SEA_E + LAKE_NOT_SEA_M     # tiles (sea_at), which flooded every town round it (GitHub #8)
+                lv = SEA_E + LAKE_NOT_SEA_M     # tiles (sea_at), which flooded every town round it
             m &= ~self._lake_dry(m, lv, ox, oy)
             kmax = int(math.ceil(LAKE_DEPTH_CAP / DEPTH_SLOPE / px)) + 2
             st = shore_steps(m, kmax).astype(np.float32)
@@ -422,7 +422,7 @@ class SeaCarver:
                 level[river] = rl[river]
                 # wide stretches (a half width of WIDE_RIVER_M / 2 or more somewhere: the Susquehanna) are
                 # area water like a lake, tiles fitted to its fall; one River ribbon that wide folded over
-                # itself at bends and islands (holes, 2026-10-13). Narrow ones stay Rivers (the outline).
+                # itself at bends and islands (holes). Narrow ones stay Rivers (the outline).
                 core_k = int(math.ceil(WIDE_RIVER_M / 2 / px))
                 wide = shore_steps(river, core_k) >= core_k
                 for _ in range(core_k):                 # the core grown back over its own river
@@ -532,7 +532,7 @@ class SeaCarver:
                 mx, my = _merc(ring[:, 1], ring[:, 0])
                 runs.extend((q, kind) for q in self._line_runs(np.stack([mx - ox, my - oy], -1), n, px))
         # every run's DEM probes in one sample (its tiles fetched at once): a run at a time was a network round trip
-        # each, ~40 s of a fresh place's first block on a slow line (Ostrava, a Windows PC on Wi-Fi, 2026-10-28)
+        # each, ~40 s of a fresh place's first block on a slow line (Ostrava, a Windows PC on Wi-Fi)
         probes = [self._run_probes(q, kind, n, px, o_dist, ox, oy) for q, kind in runs]
         if probes:
             la = np.concatenate([p[1] for p in probes])
@@ -598,7 +598,7 @@ class SeaCarver:
         q = np.stack([np.interp(t, s, pts[:, 0]), np.interp(t, s, pts[:, 1])], -1)
         # only the samples whose channel and bank can reach the raster, and one either side (their segments): each
         # sample's level is its own; the whole river's were read for every raster, a long river's ~20,000 at a time
-        # (~300 km2 of DEM for one road tile on a first visit to rural Pennsylvania, 2026-10-27)
+        # (~300 km2 of DEM for one road tile on a first visit to rural Pennsylvania)
         m = wmax + LINE_BANK_M / px + 2 * LINE_STEP_PX
         near = (q[:, 0] >= -m) & (q[:, 0] <= n + m) & (q[:, 1] >= -m) & (q[:, 1] <= n + m)
         if not near.any():
@@ -687,7 +687,7 @@ class SeaCarver:
             if core.any() and np.percentile((e[comp] - lo[comp])[core], 90) <= RIVER_FLAT_M:
                 flat[comp] = True
         # the surface smoothed over the river's own samples (a flattened DEM still steps by ~0.6 m within
-        # 128 m below a dam: tiles fitted to it split into dozens of small ones, 2026-10-13)
+        # 128 m below a dam: tiles fitted to it split into dozens of small ones)
         sm = _box_mean(np.where(cm & np.isfinite(lo), lo, 0.0), (cm & np.isfinite(lo)).astype(np.float64),
                        RIVER_SMOOTH)
         lvl = np.round(sm[cj, ci] / LEVEL_Q) * LEVEL_Q
@@ -722,7 +722,7 @@ class SeaCarver:
     def _near_sea_level(self, m, ox, oy):
         """Is the DEM inside the pixels m (a water area tagged as the sea's: SEA_WATER_TAGS) near sea level (median at
         most TAG_SEA_MAX_M)? Lake Michigan's harbours, tagged harbour at 176 m, were carved as the sea down to 0 m:
-        holes 180 m deep along Chicago's lakeshore (GitHub #45); Sydney Harbour's DEM reads 2-6 m. Yes without a DEM."""
+        holes 180 m deep along Chicago's lakeshore; Sydney Harbour's DEM reads 2-6 m. Yes without a DEM."""
         jj, ii = np.nonzero(m)
         if len(jj) == 0:
             return True

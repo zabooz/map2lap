@@ -1,5 +1,5 @@
 """Render-only dynamic-LOD tiles: the far field, and in mesh mode the near ground too
-(docs/V1_2_DESIGN.md §2, §3, §6; docs/V1_3_SPEC.md §A, §B; V1_1_SPEC 2).
+(§3, §6; §B; V1_1_SPEC 2).
 
 A quadtree in the current anchor's ENU plane. Tile (L, i, j) is 256*2^L m wide and covers
 [i*S, (i+1)*S) x [j*S, (j+1)*S); its key is "L_i_j" and depends on nothing else, so a terrain
@@ -21,7 +21,7 @@ Selection (select()):
   - everything intersecting the square of half-size RADIUS (80 km) around the player is kept.
 The selected tiles tile the radius square exactly once.
 
-Horizon mode (docs/V1_4_SPEC.md §3.6 "Radius", milestone M1h; earthd --horizon, off by default):
+Horizon mode (milestone M1h; earthd --horizon, off by default):
 roots at HORIZON_MAX_LEVEL (L10, 262 km), a disc instead of the square (radius from the line-of-sight
 horizon, HorizonGrid.radius) and, beyond HORIZON_MIN (80 km), a per-node horizon cull (Horizon): a
 node whose nearest point is farther than sqrt(2R'h_eye) + sqrt(2R'zmax_node) is dropped with its
@@ -34,7 +34,7 @@ vertical crossover (§2.5 C2).
 
 Each tile is C x C cells plus a skirt on all 4 edges: a vertical curtain facing outwards,
 max(2 m, 0.02 S, 2.5 err + 1 m) deep, so neighbours at different levels and tiles moving during a
-crossover never show cracks. C is the layout's cell count (Layout, docs/V1_4_SPEC.md §3.1 M1):
+crossover never show cracks. C is the layout's cell count (Layout,  M1):
 32 (v1.3.1, FORMAT 3, 2048 + 256 tris; the default) or 64 (FORMAT 4, 8192 + 512 tris, every level
 keeps its size so its vertex spacing halves, and the exact level is L-1). Vertex x, y are plane
 positions; z is the ENU z of the DEM surface point under it (curvature included). Tiles of level
@@ -74,7 +74,7 @@ import imagery
 BASE = 256.0            # L0 tile size
 MAX_LEVEL = 9           # L9 = 131 072 m
 RADIUS = 80000.0
-# Tile layouts by cell count (docs/V1_4_SPEC.md §3.1 M1; Layout below). Nothing reads these at call
+# Tile layouts by cell count ( M1; Layout below). Nothing reads these at call
 # time through a module setting: a Layout picks its row, and the server makes one Layout.
 CELL_COUNTS = (32, 64)
 # K(L) for refining a node of level L >= 1; the last entry repeats for coarser levels.
@@ -92,7 +92,7 @@ CONTENT_FORMAT = {32: 3, 64: 4}     # the protocol's FORMAT (hello.format) of ea
 # v1.3.1 rule (two finest levels tex_near, the rest tex_far; both 256). 64 (§3.1; P8 may change it):
 # 256 to L1, 512 from L2 (keeps today's texel density at distance).
 TEX_DEFAULT = {32: (256, 256, 256), 64: (256, 256, 256, 512)}
-BLOCK_SIZES = (1024, 512)   # terrain block samples per edge (M4, docs/V1_4_SPEC.md §3.5: 512, mesh mode only)
+BLOCK_SIZES = (1024, 512)   # terrain block samples per edge (M4,: 512, mesh mode only)
 # Triangles per tile shape: 8192 + 512 at 64 cells. The old 8192 was the ProceduralMesh rule;
 # .cdae has no such cliff (§3.1): its limit is the engine's 16-bit vertex indices (VERTS_MAX), which the fine near
 # tiles (NEAR_FINE_M, up to ~2x the grid's triangles at a cutting) keep under.
@@ -103,16 +103,16 @@ HOLD_S = 2.0                # a node changes state at most once per HOLD_S secon
 DETAIL_M = 2.0              # UV1 (detail map) repeat in metres; must divide 64 (see module doc)
 FAR_MAX_ZOOM = 14           # DEM zoom cap for L1+ (L0 uses the heightmap's zoom)
 SINK_MARGIN = 0.3           # m below the terrain everywhere for a sunk L0 tile
-# Adaptive far meshes (the user, 2026-10-22: "Only use the highest resolution available when needed ... Large flat
+# Adaptive far meshes ("Only use the highest resolution available when needed ... Large flat
 # areas can use lower resolutions ... and far away of course uses low res"): from ADAPT_MIN_LEVEL up a tile is the
 # right-triangulated irregular network of its grid (earthfast.rtin_mesh) within ADAPT_EPS of its vertex spacing of
-# every grid height: flat ground a few large triangles, cliffs the whole grid. 2026-10-22, 64 cells: 75-85 % fewer
+# every grid height: flat ground a few large triangles, cliffs the whole grid., 64 cells: 75-85 % fewer
 # triangles on Baltimore's and Kansas's tiles, 50-70 % at Whitney Portal, 25-35 % in Yosemite, for ~0.06 spacings
 # of error (under a pixel at a level's switch distance; the grid's own sampling error is 0.3-5 spacings). Levels <= 0
 # stay the 2 m lattice the roads and the terrain block meet. BNGE_FAR_ADAPT=0 turns it off.
 ADAPT_MIN_LEVEL = 1
 ADAPT_EPS = 0.0 if os.environ.get("BNGE_FAR_ADAPT") == "0" else 0.04
-# Fine near ground (prototype, BNGE_NEAR_FINE=1; the user, 2026-10-22: "up close sharp features (like walls) more
+# Fine near ground (prototype, BNGE_NEAR_FINE=1: "up close sharp features (like walls) more
 # detailed and sharper ... instead of the mesh being forced to a grid it can be more fluid"): in mesh mode (the tiles
 # drawn, the terrain block physics only) the finest near level is sampled every NEAR_FINE_M of the graded ground and
 # simplified like the far tiles (rtin_mesh within NEAR_FINE_EPS of the spacing, doubled until the mesh has at most NEAR_FINE_VERTS
@@ -136,7 +136,7 @@ MOD_SHAPES = ("levels", "beamng_earth", "art", "shapes", "beamngEarth")   # in m
 MOD_PALETTE = "far_palette.png"
 FORMATS = ("cdae", "dae")
 
-# --- horizon mode (M1h, docs/V1_4_SPEC.md §3.6 "Radius: the real line-of-sight horizon") ---------
+# --- horizon mode (M1h,  ---------
 # Texture px of the coarse levels in horizon mode (a 256 px L9 is 512 m/px; at 300 km one screen
 # pixel is ~100 m, so the texture is never the limit); imagery.render picks the low source zoom.
 HORIZON_TEX = {8: 256, 9: 256, 10: 128}
@@ -145,7 +145,7 @@ VISIBLE_MARGIN = 1.10           # the mod's LevelInfo.visibleDistance = radius *
 
 @dataclass(frozen=True)
 class Layout:
-    """The tile layout of a server (docs/V1_4_SPEC.md §3.1, M1): cells per tile edge (32: v1.3.1,
+    """The tile layout of a server (M1): cells per tile edge (32: v1.3.1,
     FORMAT 3; 64: FORMAT 4), the terrain block's samples per edge, the near-visual mode (mesh: tiles
     down to the exact level with the near radii; terrain: L0 floor, frozen at 32 cells) and the
     texture edge per level (from the mode's finest level, the last value repeating; None: the
@@ -520,7 +520,7 @@ def material_json(palette_vfs):
         "name": MATERIAL, "mapTo": MATERIAL, "class": "Material", "version": 1.5,
         "persistentId": "6f1c2a3e-4b5d-4e6f-8a9b-0c1d2e3f4a5b",
         "Stages": [{"baseColorMap": palette_vfs, "metallicFactor": 0, "roughnessFactor": 1}, {}, {}, {}],
-        "castShadows": False,       # (PR #41; the far tiles lie beyond the shadow distance: no change measured)
+        "castShadows": False,       # (the far tiles lie beyond the shadow distance: no change measured)
     }}
 
 

@@ -8,9 +8,9 @@ swing. Per item: lat, lon, the type as bridgetypes' code (NBI item 43B where it 
 whose deck position is unknown), its longest span (P2787) and length (P2043) in metres (0 when not given). An item
 in two classes keeps the more specific: a suspension bridge also listed as a beam bridge is a suspension bridge.
 Bridges with a demolition date (P576) or demolished (P5817) are left out (Genoa's Ponte Morandi, cable-stayed,
-fell in 2018: its stays stood over the girders of the San Giorgio bridge that replaced it, 2026-10-18).
+fell in 2018: its stays stood over the girders of the San Giorgio bridge that replaced it).
 Wikidata corrects the map's tags where they are wrong (OSM calls Tokyo's Rainbow Bridge, a suspension bridge,
-cable-stayed; 2026-10-18) and covers the world beyond the US inventory."""
+cable-stayed) and covers the world beyond the US inventory."""
 import json
 import os
 import sys

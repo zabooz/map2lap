@@ -1,4 +1,4 @@
-"""Seasons in the imagery (the user, 2026-10-14: colour-correct Maryland's leaf-off photos, "we could use this
+"""Seasons in the imagery (colour-correct Maryland's leaf-off photos, "we could use this
 later for different seasons depending on the time of year; it's currently fall and trees are changing colour").
 
 Two steps on a rendered texture (imagery.Imagery.render; the block's photo and every far tile go through it, so

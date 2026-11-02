@@ -1,4 +1,4 @@
-"""Interstate mile markers (from cody196's PR #363): OSM milestone calibration, shoulder ownership and panels."""
+"""Interstate mile markers: OSM milestone calibration, shoulder ownership and panels."""
 import copy
 import json
 from pathlib import Path

@@ -1,14 +1,14 @@
 """Temporary files of the atomic writes into the game's user folder, kept outside it.
 
 The game watches its user folder: every file created or changed there is an onFileChanged event, handled in Lua by
-every loaded extension, and the engine's FileWatchers took up to ~1 s in a frame during a 100 mph drive (2026-10-17).
+every loaded extension, and the engine's FileWatchers took up to ~1 s in a frame during a 100 mph drive.
 A write as "<path>.tmp" then os.replace() made two events per tile file (3,220 in a 3 km drive, 1,079 of them .tmp).
 tmp_for(path) puts the temporary file in "beamngEarth_staging" next to the user folder (the same disk: the rename stays
 atomic), so only the finished file shows up. Paths outside a user folder's "temp" (the download cache) keep
 "<path>.tmp". Pure but for creating that folder.
 
 replace() is the atomic rename into the game's folder; a destination folder that vanished mid-session is made again
-(GitHub #27: a player's session folder under temp/beamngEarth was gone, and every terrain write after it failed).
+(a player's session folder under temp/beamngEarth was gone, and every terrain write after it failed).
 """
 import itertools
 import logging
@@ -77,7 +77,7 @@ WARM_CHUNK = 1 << 20
 def warm(path):
     """Read a file just written into the game's folder once, here (Windows): the first open of a new file is scanned
     by the antivirus, and the game paid it in the frame (a far tile's shape and texture 20-184 ms per tile on a
-    Windows test PC, 2026-10-24, 0.4 ms on Linux; a second open of the same file 0.15 ms). Read in this process, a
+    Windows test PC, 0.4 ms on Linux; a second open of the same file 0.15 ms). Read in this process, a
     server worker, the scan is done before the game opens it. Errors ignored (the game reads it anyway)."""
     try:
         with open(path, "rb") as f:
@@ -119,7 +119,7 @@ READ_WAITS = (0.02, 0.05, 0.1, 0.25)            # s between the tries of read_he
 def read_held(read):
     """read() of a cache file, tried again READ_WAITS when it raises PermissionError: on Windows a file another thread
     or process is replacing cannot be opened for a moment (a map data water layer was "unreadable" and rebuilt from
-    the network, GitHub #240 / #241). The last try's PermissionError goes to the caller."""
+    the network / #241). The last try's PermissionError goes to the caller."""
     for wait in READ_WAITS:
         try:
             return read()
@@ -131,7 +131,7 @@ def read_held(read):
 def replace_cached(tmp, path):
     """replace(tmp, path) for a cache file whose content is the same whoever writes it (a download, a decoded or built
     copy of one). On Windows a file another thread or process has open, or memory-mapped, cannot be replaced
-    (PermissionError, WinError 5: GitHub #67, the DEM tile cache on a cloud PC failed terrain requests): retried
+    (PermissionError, WinError 5:, the DEM tile cache on a cloud PC failed terrain requests): retried
     REPLACE_WAITS; still held but there, that copy is kept and tmp removed. True when tmp went in, False when the
     copy already there was kept."""
     for wait in REPLACE_WAITS + (None,):

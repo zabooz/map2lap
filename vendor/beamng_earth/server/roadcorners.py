@@ -1,4 +1,4 @@
-"""Rounded junction pavement without curbs (ported from PR #363 by cody196, 2026-10-28; the user, 2026-10-28: at a rural
+"""Rounded junction pavement without curbs (ported by cody196: at a rural
 T or crossroads the asphalt had square corners and the gravel edge decals stopped square, Carroll County MD).
 
 Where two paved roads without sidewalks meet, the asphalt between their edges is rounded off: junctions.find(pavement=

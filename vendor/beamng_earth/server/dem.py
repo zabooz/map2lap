@@ -1,6 +1,6 @@
 """Elevation tiles (Terrarium encoding, Web Mercator) with a disk cache.
 
-Primary: Mapterhorn, 512 px WebP tiles. Measured 2026-10-09: z<=12 everywhere
+Primary: Mapterhorn, 512 px WebP tiles. Measured: z<=12 everywhere
 on land, deeper only where national lidar exists (z16 around Lone Pine CA,
 z17 in the Swiss Alps); everything else returns 404. Open ocean is 404 even at
 z11, and in coastal tiles the sea reads exactly 0.
@@ -12,7 +12,7 @@ assembled from AWS tiles of the same footprint and resampled to 512 px.
 Outside the lidar areas (no Mapterhorn tile deeper than z12) Mapterhorn is Copernicus GLO-30, a surface model:
 its z12 tiles get their buildings and small tree stands taken out (dsmground.ground, with the 8 neighbouring
 tiles as context so neighbours agree), and deeper zooms there are that ground upsampled, not AWS (SRTM there:
-25 m building bumps in Mexico City, a 28 m void fill over Botafogo's bay; 2026-10-15). Dem.ground_filter = False
+25 m building bumps in Mexico City, a 28 m void fill over Botafogo's bay). Dem.ground_filter = False
 keeps the raw tiles and AWS (tests, comparisons).
 
 Requests go through a netfetch.Fetcher (rate limit, retries, circuit breaker per host). When
@@ -62,7 +62,7 @@ DECODED_VERSION = 4          # 2: tiles past the lidar's depth upsampled from it
                              # filled (fill_holes); 3: Canada's HRDEM lidar (hrdem.py) from z13 down; 4: LidarBC,
                              # and z12 / z13 shifted to its ground (BIAS_*)
 MAX_ZOOM = 15               # AWS stops at z15 (the far field's zooms: zoom_for's default cap)
-# The near terrain and the road profiles read Mapterhorn's lidar one zoom deeper where it has it (the user, 2026-10-21:
+# The near terrain and the road profiles read Mapterhorn's lidar one zoom deeper where it has it (
 # "the terrain data gets smoothed ... sharper terrain features get lost": z16 is ~0.8 m a pixel at 48 N, z15 ~1.6 m, the
 # terrain's lattice 2 m); a z16 tile it lacks is its z15 parent upsampled (AWS has no z16). BNE_DEM_ZOOM=15: as before.
 FINE_ZOOM = int(os.environ.get("BNE_DEM_ZOOM", "16"))
@@ -70,9 +70,9 @@ GLOBAL_ZOOM = 12            # Mapterhorn is complete on land up to here
 HRDEM = os.environ.get("BNE_HRDEM", "1") != "0"
 # British Columbia's own lidar (lidarbc.py): opt-in. Its 1 m files have no overviews and are read in full-width rows:
 # ~15 MB a square km of near terrain, and a first visit on Vancouver Island took ~60 s longer to its roads (four
-# fresh towns, 2026-10-28: all 36 road tiles at 85-88 s against 23-26 s). HRDEM (its overviews) stays on.
+# fresh towns: all 36 road tiles at 85-88 s against 23-26 s). HRDEM (its overviews) stays on.
 LIDARBC = HRDEM and os.environ.get("BNE_LIDARBC", "0") == "1"
-# HRDEM read whole for the near terrain (z15 and deeper, 2 m): opt-in too (2026-10-28, four fresh Vancouver Island
+# HRDEM read whole for the near terrain (z15 and deeper, 2 m): opt-in too (four fresh Vancouver Island
 # towns: all road tiles at 33-53 s against 20-22 s without, 61-72 MB a place). Its coarse overview still lines the
 # far tiles up with the lidar ground (_hrdem_bias: a few MB).
 HRDEM_NEAR = HRDEM and os.environ.get("BNE_HRDEM_NEAR", "0") == "1"
@@ -80,14 +80,14 @@ HRDEM_FEATHER_M = 60.0      # m over which HRDEM's edge blends into Mapterhorn's
 HRDEM_FEATHER_MAX_PX = 48
 # The distant terrain (z12 / z13: the far field's L2 / L3 rings, 1-4 km out): reading BC's 1 m lidar whole for it would
 # cost ~40 MB a tile, but where Mapterhorn has no lidar its forests stand ~5-18 m above the ground (a quarter of the
-# LidarBC areas sampled, 2026-10-23: Carmanah +15 m), a step against the lidar of the rings inside. So a sparse grid
+# LidarBC areas sampled: Carmanah +15 m), a step against the lidar of the rings inside. So a sparse grid
 # of lidar points (every BIAS_STEP_M along the files' own rows, read through small cache blocks), binned on a
 # BIAS_GRID x BIAS_GRID grid
 # measures Mapterhorn's offset there, smoothed over BIAS_SMOOTH grid cells, and the tile is shifted by it: Mapterhorn's
 # shape at the lidar's level, fading out where the lidar ends.
 BIAS_ZOOMS = (12, 13, 14)
 # The lidar itself (HRDEM, LidarBC) only from this zoom on: the near terrain (z15: ~1.6 m pixels at 49 N, the
-# terrain's 2 m lattice). Read whole, the far rings' z13 / z14 tiles cost ~10 MB each (2026-10-28, Port Alberni: 440 MB
+# terrain's 2 m lattice). Read whole, the far rings' z13 / z14 tiles cost ~10 MB each (Port Alberni: 440 MB
 # of lidar for one first visit, against Overture's 84 MB); there HRDEM's coarse overview shifts Mapterhorn instead.
 FINE_MIN_ZOOM = 15
 HRDEM_BIAS_PX = 64          # the far tile's grid the HRDEM overview is read on ...
@@ -109,7 +109,7 @@ MAPTERHORN = dict(name="mapterhorn", ext="webp", size=512,
 # Mapterhorn's list of its files: the planet to z12, then one file per z6 tile with lidar under it, with the deepest
 # zoom it has there. A deeper tile under a z6 tile it does not list (or deeper than that file goes) is a 404 without
 # asking: a fresh place's first block asked ~240 such tiles (z16 -> z15 -> z14 -> z13 per tile), on its critical path
-# (Belgrade, 2026-10-25).
+# (Belgrade).
 COVERAGE_URL = "https://download.mapterhorn.com/download_urls.json"
 COVERAGE_ZOOM = 6
 COVERAGE_MAX_AGE_S = 7 * 86400.0    # the copy on disk read again from the net after this (it adds areas)
@@ -157,7 +157,7 @@ def decode_terrarium(data, size):
 
 
 HOLE_FILL_M = 600.0          # lidar holes up to ~2x this wide filled (a coarse tile's are whole city blocks: a
-HOLE_FILL_MAX_PX = 24        # Rotterdam district read 67 % zeros at z9-z11, ~1 % after 24 px; 2026-10-21); wider
+HOLE_FILL_MAX_PX = 24        # Rotterdam district read 67 % zeros at z9-z11, ~1 % after 24 px); wider
                              # zero areas are the sea
 
 
@@ -172,10 +172,10 @@ def hole_px(z, y):
 def fill_holes(a, k=HOLE_FILL_MAX_PX):
     """Lidar tile a with its small exact-0 holes filled from their surroundings. National lidar terrain models have
     no ground under buildings, and Mapterhorn writes those cells as 0 (Rotterdam's AHN: 74 % of the zeros in
-    Spangen on land, 2026-10-21): a polder at -1.5 m got 0 m pits, and seacarve read them as the sea. Zeros take
+    Spangen on land): a polder at -1.5 m got 0 m pits, and seacarve read them as the sea. Zeros take
     the mean of their non-zero 4-neighbours, k rounds; zero areas wider than that (the sea, which reads exactly
     0) keep 0, the band filled into their edge too. Pure."""
-    fast.require(65, "dem.fill_holes")     # (earthfast fill_holes, 2026-10-23: the same values as the numpy rounds)
+    fast.require(65, "dem.fill_holes")     # (earthfast fill_holes: the same values as the numpy rounds)
     return fast._ef.fill_holes(np.ascontiguousarray(a, np.float32), int(k))
 
 
@@ -216,10 +216,10 @@ class Dem:
         self.fetcher.register_chain("dem", (MAPTERHORN["url"], AWS["url"]))
         self.pool = ThreadPoolExecutor(fetch_workers, thread_name_prefix="dem-fetch")
         # The urgent lane (urgent()): the anchor's first block after a teleport needs ~10 tiles and waited ~33 s
-        # behind hundreds queued by the far field, the road plans and the ground ahead (2026-10-16; alone 0.9 s).
+        # behind hundreds queued by the far field, the road plans and the ground ahead (alone 0.9 s).
         self.urgent_pool = ThreadPoolExecutor(URGENT_WORKERS, thread_name_prefix="dem-urgent")
         # raw Mapterhorn downloads started ahead of need (_ahead): a fresh place's tiles walked z16 -> z15 -> z14 ->
-        # z13 -> z12 and its 8 neighbours one request at a time, ~1 s each before the CDN has them (2026-10-22)
+        # z13 -> z12 and its 8 neighbours one request at a time, ~1 s each before the CDN has them
         self.probe_pool = ThreadPoolExecutor(PROBE_WORKERS, thread_name_prefix="dem-probe")
         self._probing = {}              # (z, x, y) -> Future of its raw download
         self._local = threading.local()
@@ -447,7 +447,7 @@ class Dem:
     def coarse_at(self, lat, lon):
         """Is the elevation at (lat, lon) only the coarse global model (Mapterhorn's file list has nothing deeper than
         GLOBAL_ZOOM under its z6 tile: no lidar, ~30 m Copernicus and the like)? False when unknown (no list yet) or
-        where the opt-in Canadian lidar reads. grading.ease_coarse (GitHub #414)."""
+        where the opt-in Canadian lidar reads. grading.ease_coarse."""
         idx = self._coverage()
         if idx is None:
             return False
@@ -663,7 +663,7 @@ class Dem:
         with Dem._mirror_lock:
             Dem._mirror_written += TILE * TILE * 4
             # (and at most every MIRROR_PRUNE_S: each prune walks the whole mirror, ~28k folders; a fresh place's
-            # DEM reads in a worker triggered it again and again, seconds of a far field's geometry, 2026-10-23)
+            # DEM reads in a worker triggered it again and again, seconds of a far field's geometry)
             now = time.monotonic()
             prune = (Dem._mirror_written >= MIRROR_MB * 1e6 / 8
                      and now - Dem._mirror_pruned >= MIRROR_PRUNE_S)
@@ -674,7 +674,7 @@ class Dem:
         return self._mirror_get(key)
 
     # (a process's first write prunes: the count of a session's own writes alone never reached the threshold when
-    # each run wrote less, and the mirror grew past MIRROR_MB across sessions: 6.3 GB on a Steam Deck, 2026-10-23)
+    # each run wrote less, and the mirror grew past MIRROR_MB across sessions: 6.3 GB on a Steam Deck)
     _mirror_written = MIRROR_MB * 1e6
     _mirror_pruned = -1e9
     _mirror_lock = threading.Lock()
@@ -773,7 +773,7 @@ class Dem:
         if self.ground_filter and z > GLOBAL_ZOOM:
             # deeper than the lidar goes here (Rotterdam: AHN to z14, z15 404): its deepest tile upsampled; no
             # lidar at all: the surface model's ground, upsampled. z12 under lidar gave 19 m steps and 0.5 m stairs
-            # on city roads (Pleinweg's grade 1.5 % from z12, 0.4 % from z14; 2026-10-21)
+            # on city roads (Pleinweg's grade 1.5 % from z12, 0.4 % from z14)
             az = self._deepest_lidar(z, x, y)
             a = self._from_ancestor(z, x, y, az) if az else self._from_ground12(z, x, y)
             self.served[key] = MAPTERHORN["name"]
@@ -995,11 +995,11 @@ class Dem:
         sparse = False
         if SPARSE_MIN_TILES < nx * ny <= MAX_TILES_PER_SAMPLE:
             # points along a line (a road's profile) in a large box: the whole box's tiles were fetched, decoded and
-            # copied into one mosaic (I-80 over the salt flats: a road tile's grading took minutes, 2026-10-17)
+            # copied into one mosaic (I-80 over the salt flats: a road tile's grading took minutes)
             tid = (np.floor(fx).astype(np.int64) // TILE - tx0) * ny + (np.floor(fy).astype(np.int64) // TILE - ty0)
             sparse = nx * ny > SPARSE_RATIO * len(np.unique(tid))
         if nx * ny > MAX_TILES_PER_SAMPLE or sparse:
-            # spread-out points (all the roads of a cell with a long highway, 2026-10-12: every road tile of
+            # spread-out points (all the roads of a cell with a long highway: every road tile of
             # a session failed on one 53 x 82 box): sample groups of nearby tiles separately (the same values)
             g = SPARSE_GROUP if sparse else max(1, int(math.isqrt(MAX_TILES_PER_SAMPLE)) - 1)
             gx = (np.floor(fx).astype(np.int64) // TILE) // g

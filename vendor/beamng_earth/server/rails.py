@@ -145,7 +145,7 @@ def tile_chunks(frame, tx, ty, cells):
             fid = str(feats.ids[i])
             if fid in seen:
                 continue
-            # the lines railways.py builds as a 3D track (mpsteppe's PR #287; railways.drawn, worn ones too): only where
+            # the lines railways.py builds as a 3D track (mpsteppe's; railways.drawn, worn ones too): only where
             # they cross a carriageway (its street track across the road, which railways.py leaves to the road),
             # nothing on open ground
             got = railways.drawn(feats, i) if str(sub[i]) == "rail" else None
@@ -163,7 +163,7 @@ def tile_chunks(frame, tx, ty, cells):
             seen.add(fid)
             if far[i]:
                 continue                        # (no part of it near the tile: converting each to find that out was
-                                                # most of this, 2026-10-25)
+                                                # most of this)
             for k, part in enumerate(roads.ground_parts(feats, i)):
                 xy = _enu(frame, np.asarray(part, np.float64))
                 if len(xy) < 2 or not _near(xy, box, reach + 20.0):
@@ -184,7 +184,7 @@ def tile_chunks(frame, tx, ty, cells):
     for kind, xy, meshed in tracks:
         if meshed and kind != "tram":
             # (a main line's only street track is where it crosses a road: just those stretches, every metre of every
-            # line in reach tested against every carriageway cost a tile ~0.1 s, 2026-10-25)
+            # line in reach tested against every carriageway cost a tile ~0.1 s)
             todo += [(kind, w, meshed) for w in _crossing_windows(xy, cw_lines)]
         else:
             todo.append((kind, xy, meshed))

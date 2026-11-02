@@ -1,4 +1,4 @@
-"""Real road heights (roadz.py, earthfast roadz kernels; docs/research/2026-10-28-3d-road-data.md): source parsing,
+"""Real road heights (roadz.py, earthfast roadz kernels;: source parsing,
 matching a map road to a source's 3D lines, profile cleaning, the lidar deck fit, the datum fit, and the overrides in
 BridgeProfiles / TunnelProfiles / grading with today's inference as the fallback."""
 import os

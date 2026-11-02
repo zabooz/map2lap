@@ -1,4 +1,4 @@
-"""Tunnels (2026-10-17, the user: "tunnels through terrain need to be added"): the floor profile, the tube mesh and the
+"""Tunnels ("tunnels through terrain need to be added"): the floor profile, the tube mesh and the
 terrain block's holes at the portals."""
 import sys
 import unittest
@@ -56,7 +56,7 @@ class Profile(unittest.TestCase):
 
 class Holes(unittest.TestCase):
     def test_a_cut_into_a_cliff_opens(self):
-        # GitHub #403 (Malibu Canyon Road): the road at the cliff's foot, the next sample far over the vault: no sample
+        # (Malibu Canyon Road): the road at the cliff's foot, the next sample far over the vault: no sample
         # between floor and vault, yet the square from the road up the cliff stood across the opening. The squares
         # crossing the opening are cut, the road in front stays, the rock over the vault stays.
         n, sq = 64, 2.0
@@ -431,7 +431,7 @@ class ArchRaise(unittest.TestCase):
 
 class Sections(unittest.TestCase):
     """A long 'tunnel' cut by its cover (Central Park's 79th Street Transverse, 683 m in the map: a sunken road with
-    arches and a short rock tunnel, drawn as one concrete tube, 2026-10-17)."""
+    arches and a short rock tunnel, drawn as one concrete tube)."""
 
     def ground(self):
         s = np.arange(0.0, 400.0 + 1e-9, 4.0)
@@ -491,7 +491,7 @@ class Sections(unittest.TestCase):
         self.assertTrue(m_one[:, xs < 4].any())
 
     def test_a_low_arch_s_mouth_cuts_no_square_past_its_portal(self):
-        # GitHub #450 (Malaga): a portal facing +x had the squares of its last samples cut, reaching a grid step out
+        # (Malaga): a portal facing +x had the squares of its last samples cut, reaching a grid step out
         # past the face into the open road in front (a hole cars fell through)
         for sq in (1.0, 2.0):
             xy = np.array([[0.0, 0.0], [30.0, 0.0]])
@@ -507,7 +507,7 @@ class Sections(unittest.TestCase):
 
 
 class TwinTunnels(unittest.TestCase):
-    """GitHub #84: two carriageways 9.5 m apart, each an 11 m road in its own tube, the tubes through each other."""
+    """two carriageways 9.5 m apart, each an 11 m road in its own tube, the tubes through each other."""
 
     def parts(self, gap=9.5, length=220.0, dz=0.0):
         a = ("a", Spec(11.0, "paved", False, "trunk"), np.array([[0.0, 0.0], [length, 0.0]]), np.array([10.0, 11.0]), 0.0)
@@ -618,7 +618,7 @@ class SegmentalArch(unittest.TestCase):
         self.assertTrue(np.allclose(d, r))
 
 class PortalClearTest(unittest.TestCase):
-    """GitHub #2: an underpass under the E6 in Norway mapped to end 0.7 m off the carriageway: its floor rose to the
+    """an underpass under the E6 in Norway mapped to end 0.7 m off the carriageway: its floor rose to the
     road's level at that end and its portal stood across the lanes."""
 
     def ends(self, lines, classes, flags):
@@ -657,7 +657,7 @@ class ShallowFullTest(unittest.TestCase):
 
 
 class Underwater(unittest.TestCase):
-    """GitHub #128 (the Burnley Tunnel, Melbourne): an underwater tunnel split into a dry piece and a wet one is
+    """(the Burnley Tunnel, Melbourne): an underwater tunnel split into a dry piece and a wet one is
     left out whole; the dry piece alone was built as a trench ending at the river."""
 
     def setup(self, wet_from_m):
@@ -702,7 +702,7 @@ class Underwater(unittest.TestCase):
         self.assertEqual(tp.parts([f], box) + tp.open_parts([f], box), [])
 
     def test_a_mountain_lake_far_over_a_deep_tunnel_is_no_river(self):
-        # the Gotthard road tunnel: one pond ~900 m over it left all 17 km out (2026-10-28)
+        # the Gotthard road tunnel: one pond ~900 m over it left all 17 km out
         from test_roads import features, FRAME, LON, M_LON
         f = features([[(-300, 0), (300, 0)]], ["motorway"], flags=[(0, "is_tunnel")])
         mountain = lambda la, lo: 30.0 + np.maximum(0.0, 600.0 - 2.0 * np.abs((np.asarray(lo) - LON) * M_LON))

@@ -50,7 +50,7 @@ class GeometryTest(unittest.TestCase):
             heightmap.sample_coords(1.0, 0.0)
 
     def test_block_size_parameter(self):
-        """The block size is a parameter (the server passes its Layout's block, docs/V1_4_SPEC.md
+        """The block size is a parameter (the server passes its Layout's block,
         §3.1), not a module setting: a 512² block sits on the same lattice, centred the same way."""
         self.assertEqual(heightmap.half_extent(), heightmap.HALF)
         self.assertEqual(heightmap.half_extent(512), 512.0)
@@ -70,7 +70,7 @@ class GeometryTest(unittest.TestCase):
 
 class HeightmapTest(unittest.TestCase):
     """The block as the server writes it, parametrised over the layouts' block sizes
-    (docs/V1_4_SPEC.md §3.5, E11: (32 cells, 1024²) here, (64 cells, 512²) in Heightmap512Test):
+    (E11: (32 cells, 1024²) here, (64 cells, 512²) in Heightmap512Test):
     a move of the size's grid shares bit-identical samples, the q / zBase rules are the same."""
     layout = ff.Layout(32, 1024)
     ORIENT_C = (768.0, -256.0)          # a block centre with (0, 0) inside it
@@ -216,7 +216,7 @@ class HeightmapTest(unittest.TestCase):
 
 
 class Heightmap512Test(HeightmapTest):
-    """M4 (docs/V1_4_SPEC.md §3.5): the 512² block of the (64 cells, 512) layout, on a 128 m grid."""
+    """M4: the 512² block of the (64 cells, 512) layout, on a 128 m grid."""
     layout = ff.Layout(64, 512)
     ORIENT_C = (384.0, -256.0)
 

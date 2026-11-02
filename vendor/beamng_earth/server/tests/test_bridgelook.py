@@ -1,4 +1,4 @@
-"""Bridge look (2026-10-27): the type a movable or lens bridge gets, its spans, its towers and houses; the deck's
+"""Bridge look: the type a movable or lens bridge gets, its spans, its towers and houses; the deck's
 lift over a bank; carriageways side by side are not stacked."""
 import sys
 import unittest

@@ -1,4 +1,4 @@
-"""Short bridges are not humped (2026-10-27, I-275 by the Sunshine Skyway): a short overpass follows the straight line
+"""Short bridges are not humped (I-275 by the Sunshine Skyway): a short overpass follows the straight line
 between its abutments when that clears what is under it; a deck's slab and girders scale with its span; a short
 water span too low for its clearance gets its approach fill raised instead of a hump; the approach meets the deck."""
 import os

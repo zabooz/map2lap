@@ -1,6 +1,6 @@
 """build_sign_tags.py PLANET OUT_DIR: the highway signs' sources from OpenStreetMap as small gzip JSON shards the
 server reads per area (server/railtags.py SignTags, dataset "signs"), rebuilt weekly from the planet by the GitHub
-Action of TecnaGamer/BeamNG.Earth-data like the rail and lane shards. From cody196's PR #363, whose server
+Action of TecnaGamer/BeamNG.Earth-data like the rail and lane shards. From, whose server
 downloaded regional extracts and indexed them on each player's machine (osmregions.py / osmsigns.py): built here
 once a week instead, with the PR's own indexing functions (server/exitsigns.py, throughsigns.py, milemarkers.py).
 

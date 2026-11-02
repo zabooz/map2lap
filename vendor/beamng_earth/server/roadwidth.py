@@ -1,4 +1,4 @@
-"""Street widths from the buildings that line them (docs/ARCHITECTURE.md "Roads"; the user, 2026-10-11:
+"""Street widths from the buildings that line them (
 Thames St at Fells Point, a 25-30 m cobbled square, was drawn as a 10.6 m street - Overture has no
 width for most streets, so every street of a class got the same default).
 
@@ -49,8 +49,8 @@ BUCKET = 16.0           # m, wall segment buckets
 WALL_CELLS = 48          # cells of building walls kept per process (budget.py: fewer on a small machine)
 # A cell's walls also on disk (store_dir), float32 in the cell's frame (within a few km of its centre: sub-mm): every
 # server process built them from the buildings of the 9 cells around, ~0.6 s a cell on a Steam Deck, and the block
-# process, the road processes and the server each did it again (7.4 s of a 15 s Baltimore block, 2026-10-20)
-WALLS_VERSION = 2         # (2: a cell's own buildings only, 2026-10-27)
+# process, the road processes and the server each did it again (7.4 s of a 15 s Baltimore block)
+WALLS_VERSION = 2         # (2: a cell's own buildings only)
 
 class Walls:
     """Building wall segments (metres, a local frame) with a bucket index for ray casts."""
@@ -59,7 +59,7 @@ class Walls:
         """index: (buckets (3, B) int64 rows key, first, count, seg_of (P,) int64) as index_arrays() gives (the
         store's, memory-mapped), else made here."""
         # x0 y0 x1 y1: float32 kept as given (the store's file, memory-mapped: one copy in the page cache for every
-        # server process; their float64 copies were ~100-160 MB a process on a small machine, 2026-10-20), widened to
+        # server process; their float64 copies were ~100-160 MB a process on a small machine), widened to
         # float64 wherever they are computed with (exact: the same numbers as a float64 copy)
         if isinstance(segs, np.ndarray) and segs.dtype == np.float32 and segs.ndim == 2:
             self.segs = segs
@@ -69,7 +69,7 @@ class Walls:
             bk, self.seg_of = index
             self.keys, self.first, self.counts = bk[0], bk[1], bk[2]     # (rows: contiguous, as the Rust loop takes)
             return
-        # bucket index, vectorised (a Python loop per segment took ~18 s for a city's 9 cells, 2026-10-12):
+        # bucket index, vectorised (a Python loop per segment took ~18 s for a city's 9 cells):
         # one (segment, bucket) pair per bucket a segment's box touches, sorted by bucket key
         s = np.asarray(self.segs, np.float64)
         bx0 = np.floor(np.minimum(s[:, 0], s[:, 2]) / BUCKET).astype(np.int64)
@@ -107,7 +107,7 @@ class Walls:
     def rays(self, p, d, reach=REACH):
         """Distances from the points p (m, 2) along the unit directions d (m, 2) to the first wall, NaN
         where none is within reach. All rays at once (one Python call per ray took ~3 s a block,
-        2026-10-12): every (ray, bucket) pair of the rays' boxes, then every (ray, segment) pair of those
+       ): every (ray, bucket) pair of the rays' boxes, then every (ray, segment) pair of those
         buckets, intersected together."""
         p = np.asarray(p, np.float64).reshape(-1, 2)
         d = np.asarray(d, np.float64).reshape(-1, 2)
@@ -178,7 +178,7 @@ def split(row):
 def polygon_walls(feats, frame):
     """Wall segments of building polygons (Features) in frame's metres: consecutive vertices of every ring
     (rings of fewer than 3 points skipped). One coordinate transform for the whole set (one per ring took
-    ~22 s for a city's 9 cells, 2026-10-12)."""
+    ~22 s for a city's 9 cells)."""
     ll = np.asarray(feats.lonlat, np.float64)
     off = np.asarray(feats.coord_off, np.int64)
     if len(ll) < 2 or len(off) < 2:
@@ -253,7 +253,7 @@ def _write_segs(path, segs):
             pass
 
 
-STORE_MB = 1024             # the walls' files kept at most (earthd's start-up prune; 3.5 GB on a Steam Deck, 2026-10-23)
+STORE_MB = 1024             # the walls' files kept at most (earthd's start-up prune; 3.5 GB on a Steam Deck)
 
 
 def store_dir(cache_dir, md):
@@ -338,7 +338,7 @@ class RoadWidths:
         """(frame, Walls) of the buildings in the cells within NEAR_M of the road (lon/lat (k, 2)): its own cell's,
         or, near a cell's edge, those of the cells there in the first one's frame (kept for the COMBOS last used).
         Each road read the buildings of the 8 cells around its middle's too: ~75 cells of buildings for one road
-        tile's planning on a first visit to a Pennsylvania town, 2026-10-27; a width needs the walls within REACH."""
+        tile's planning on a first visit to a Pennsylvania town; a width needs the walls within REACH."""
         # (the cells along it: every NEAR_STEP_M of it; its box's cells were a grid of them for a long rural road)
         seg = np.hypot(np.diff(ll[:, 1]) * 111320.0, np.diff(ll[:, 0]) * 111320.0 * np.cos(np.radians(ll[:-1, 1])))
         s = np.r_[0.0, np.cumsum(seg)]

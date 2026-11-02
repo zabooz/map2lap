@@ -1,6 +1,6 @@
-"""Satellite imagery for the visual tiles (docs/V1_3_SPEC.md §A).
+"""Satellite imagery for the visual tiles.
 
-Sources (all Web-Mercator XYZ, 256 px tiles, no key; verified 2026-10-10):
+Sources (all Web-Mercator XYZ, 256 px tiles, no key; verified):
   usgs     USGS The National Map ImageryOnly. Public domain. US only, z <= 16 (~1.9 m/px at 36 N).
            Outside its coverage it answers 404, or (at low zooms) a uniform white tile.
   eox2023  Sentinel-2 cloudless 2023 by EOX. Global, ~10 m (native around z14). CC BY-NC-SA 4.0.
@@ -24,7 +24,7 @@ host. A source whose host cannot be asked fails at once (ImageryError), and rend
 next source. prefetch() asks with kind="prefetch" (dropped when the host's bucket is low; render
 then fetches the tile on demand).
 
-The finished pyramid (geotiles phase 3a, 2026-10-29): what does not depend on the anchor is done once per source
+The finished pyramid (geotiles phase 3a): what does not depend on the anchor is done once per source
 tile and kept: Imagery.finished() is the tile de-shadowed (--deshadow), colour-matched (--colormatch) and tone-mapped,
 with its nodata mask, under <cache>/imagery/fin<FIN_VERSION>-<settings>/<source>/z/x/y.bnf (a JPEG, FIN_QUALITY), in
 memory as that JPEG (MEM_FINISHED_MB) and the recent ones decoded (MEM_DECODED). A texture for any anchor is then a
@@ -66,7 +66,7 @@ TILE = 256
 MAX_LAT = demmod.MAX_LAT
 EARTH_CIRC = 40075016.686          # m, equatorial circumference (Web-Mercator scale)
 R_MERC = EARTH_CIRC / (2 * math.pi)  # m, the Web-Mercator sphere
-FETCH_WORKERS = 16      # (the photo hosts allow 24 (USGS, 2026-10-23) / 6 at once; more threads here only queue)
+FETCH_WORKERS = 16      # (the photo hosts allow 24 (USGS) / 6 at once; more threads here only queue)
 URGENT_WORKERS = 4      # Imagery.urgent(): its own fetch threads (netfetch gives urgent requests URGENT_CONC slots)
 MEM_TILES = 512                    # decoded 256² RGB tiles kept in memory (~100 MB)
 # Attempts, retry delays, timeouts and the "source unreachable" backoff are the host's netfetch
@@ -75,7 +75,7 @@ MEM_TILES = 512                    # decoded 256² RGB tiles kept in memory (~10
 # the next source or, with none left, to the palette material.
 # source tiles per texture and source (zoom is lowered beyond). A 1024 m ground block at z17 takes 6 x 6 at 39 deg, 7 x 7
 # north of ~47.5 deg, 8 x 8 north of ~57 deg: at 36 every z17-only regional source (Germany, Poland, Czechia, the
-# Netherlands...) was skipped for the near ground there (found adding Poland, 2026-10-22); 81 = 9 x 9 (~64 deg),
+# Netherlands...) was skipped for the near ground there (found adding Poland); 81 = 9 x 9 (~64 deg),
 # a 2304 px RGBA mosaic (~21 MB) while one texture renders
 MAX_MOSAIC = 81
 MESH_CELLS = 8                     # render(): exact reprojection on an 8 x 8 grid of texture cells
@@ -101,7 +101,7 @@ class Source:
     # probes a start in the Alps asked it 1132 times before using EOX.
     probe_zooms: tuple = ()
     # Below this zoom the source is not used. USGS serves a global low-resolution basemap at
-    # z <= 9 (verified 2026-10-10: imagery for the Alps / Pyrenees / open Pacific at z6 and z8,
+    # z <= 9 (verified: imagery for the Alps / Pyrenees / open Pacific at z6 and z8,
     # 404 at z10), which would put a different source on the far rings outside the US.
     min_zoom: int = 0
     # ArcGIS exportImage instead of XYZ tiles: one request covers 2^export x 2^export tiles of zoom z
@@ -136,7 +136,7 @@ SOURCES = {
 # NAIP (USDA aerial photography, 0.3-0.6 m, the flights the USGS layer above is made from at ~1.9 m),
 # at z17 only (~0.9 m): the block's base photo (1 m texels) and the nearest far tiles (L0 1 m, L-1
 # 0.5 m texels: capped at z17 so they use the tiles warm() fetched for the block; 0.5 m texels from
-# z18 looked hardly sharper in the 2026-10-13 comparison); where it has
+# z18 looked hardly sharper in the comparison); where it has
 # nothing (outside the lower 48: a uniform image) or its tile is not fetched yet, USGS takes over.
 SOURCES["naip"] = Source(
     "naip", "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer/exportImage"
@@ -144,17 +144,17 @@ SOURCES["naip"] = Source(
     17, "USDA NAIP via USGS The National Map (public domain)", probe_zooms=(10, 12), min_zoom=17,
     export=2, lazy=True, probe_source="usgs")
 # The same NAIP from USDA's own service: newer flights (2024-25, some states 0.3 m) and 2-5x faster
-# (1.6-4 s per 1024² in-game 2026-10-13 vs ~10 s), but blank in places (Maryland, Denver: black, so
+# (1.6-4 s per 1024² in-game vs ~10 s), but blank in places (Maryland, Denver: black, so
 # missing, and "naip" fills in).
 SOURCES["naipusda"] = Source(
     "naipusda", "https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage"
                 "?bbox={bbox}&bboxSR=3857&imageSR=3857&size={size},{size}&format=jpg&f=image",
     17, "USDA NAIP (public domain)", probe_zooms=(10, 12), min_zoom=17, export=2, lazy=True, probe_source="usgs")
 # Maryland's own six-inch orthophotos (MD iMAP, 0.15 m, flown 2023-25, leaf-off spring): ~1.3 s per
-# 1024² (in-game 2026-10-13, vs ~10 s for the USGS NAIP service Maryland otherwise needs; USDA's has none
-# there). White outside the state. Free with acknowledgement (docs/research/2026-10-10-us-state-imagery.md).
+# 1024² (in-game, vs ~10 s for the USGS NAIP service Maryland otherwise needs; USDA's has none
+# there). White outside the state. Free with acknowledgement.
 # A cached MapServer: it draws only at ~1 m per pixel or coarser (0.75 and 0.5 m requests came back all
-# white, 2026-10-13); the z15 parent at 1024 px is 0.93 m at 39 N. Keep max_zoom 17 / export 2 (finer
+# white); the z15 parent at 1024 px is 0.93 m at 39 N. Keep max_zoom 17 / export 2 (finer
 # texels need the three-inch ImageServer of that research).
 SOURCES["md6in"] = Source(
     "md6in", "https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery2023_2024_2025/MapServer/export"
@@ -166,7 +166,7 @@ BASE_CHAIN = ("md6in", "naipusda", "naip", "usgs", "eox2023", "eox2016")     # t
 import bcortho as bcorthomod  # noqa: E402
 import imagery_regional  # noqa: E402
 # A state's tile cache serves the far rings from this zoom on; coarser rings (texels of ~15 m and more, kilometres
-# away) take USGS / Sentinel-2 (the user, 2026-10-22: "the world gen is really slow": Columbus's far field waited
+# away) take USGS / Sentinel-2 ("the world gen is really slow": Columbus's far field waited
 # 4 minutes on Ohio's cache at its 6 requests/s, ~1,000 tiles for the 2-4 km tiles: z15 / z14).  z16: L2 and nearer.
 REGIONAL_XYZ_MIN_ZOOM = 16
 for _n, (_url, _attr, _bounds, _kind, _leaf) in imagery_regional.REGIONAL.items():
@@ -237,7 +237,7 @@ def mercator_px(lat, lon, z):
 def is_uniform(a):
     """True for a one-colour (blank) tile: every channel varies by at most BLANK_RANGE. A sparse sample first: its
     range is at most the tile's, so a photo is told apart without reducing every pixel (~9 s of a teleport's
-    fetch threads in Fells Point, 2026-10-16); only a sample that looks blank checks them all."""
+    fetch threads in Fells Point); only a sample that looks blank checks them all."""
     if a.ndim == 3 and a.shape[0] >= 32 and a.shape[1] >= 32:
         sm = a[::16, ::16]
         if int((sm.max(axis=(0, 1)).astype(int) - sm.min(axis=(0, 1))).max()) > BLANK_RANGE:
@@ -358,7 +358,7 @@ def _dilate(m, e):
 def nodata_mask(rgb):
     """The texels of a source tile outside its data: in a NODATA_BLOCK square all black (NODATA_MAX), and NODATA_EDGE
     round it; None when there are none. A regional photo stops mid-tile with black past its edge (New Jersey's over
-    Manhattan drew black streets and blocks: GitHub #251); a whole tile mostly black was caught (NODATA_SHARE, export
+    Manhattan drew black streets and blocks); a whole tile mostly black was caught (NODATA_SHARE, export
     sources), a black part of one was not. A deep shadow is rarely a whole square of pure black. Pure."""
     dark = np.maximum(np.maximum(rgb[..., 0], rgb[..., 1]), rgb[..., 2]) <= NODATA_MAX    # (max(axis=2): 20x slower)
     if dark.sum() < NODATA_BLOCK * NODATA_BLOCK:
@@ -446,7 +446,7 @@ class Imagery:
         self.fetcher.register_chain("imagery", [s.url for s in self.chain])
         self.pool = ThreadPoolExecutor(min(fetch_workers, FETCH_WORKERS), thread_name_prefix="img-fetch")
         # urgent(): the player's block's photo, fetched on threads of its own as netfetch "urgent" (ahead of the far
-        # field's demand: a teleport's first block waited 37 s behind it with EOX at its budget, GitHub #116)
+        # field's demand: a teleport's first block waited 37 s behind it with EOX at its budget)
         self.urgent_pool = ThreadPoolExecutor(URGENT_WORKERS, thread_name_prefix="img-urgent")
         self._caller = threading.local()
         self.mem_tiles = MEM_TILES if mem_tiles is None else mem_tiles
@@ -488,7 +488,7 @@ class Imagery:
 
     def credits_by_area(self):
         """[[attribution, w, s, e, n] or [attribution]] per source in use (a box: the source covers only that
-        area), for the world map to credit what its view shows (2026-10-15: the map listed 31 regional services
+        area), for the world map to credit what its view shows (the map listed 31 regional services
         over Paris)."""
         names = [s.name for s in self.chain]
         extra = [SOURCES[n] for n in getattr(self.colormatch, "refs", ()) if n not in names]
@@ -883,7 +883,7 @@ class Imagery:
                 return
             if not range_in_bounds(src, z, tx0, tx1, ty0, ty1):
                 # outside the source's area: never asked, and the prefetch ends here as it did when this
-                # source's coverage probe was fetched first (2026-10-15: carrying on to the base sources made
+                # source's coverage probe was fetched first (carrying on to the base sources made
                 # the integration drive's far field 1729 coverage holes; tonight's game measurements all ran
                 # with this behaviour; render fetches what is missing on demand)
                 return
@@ -942,7 +942,7 @@ class Imagery:
     def fetch_needed(self, frame, x0, y0, size, px):
         """Fetch (on demand, waiting) the source tiles render(frame, x0, y0, size, px) needs: the first source of the
         chain, the next where every tile of the previous is missing. For a far-tile worker that met a tile not on
-        disk (its prefetch was dropped: a host at its budget, GitHub #116, or a fast drive): the tiles come here,
+        disk (its prefetch was dropped: a host at its budget, or a fast drive): the tiles come here,
         the render goes back to the worker processes (one main-process render held the far field on a Deck).
         True when the tiles are there (or known to be missing); False on a fetch error."""
         for k, src, host, keys in self._needed(frame, x0, y0, size, px):
@@ -1018,7 +1018,7 @@ class Imagery:
             try:
                 # the child _warm_done looks for: with only some children on disk (the cache cap evicted the
                 # others) the first one was a disk hit, the key never done, and this thread read it in a loop
-                # (170 s of the server process's CPU in a 4-minute drive, 2026-10-20)
+                # (170 s of the server process's CPU in a 4-minute drive)
                 self._download(src, z, x | last, y | last)
                 self._count(src.name + ":warm")
             except ImageryError as e:       # the host takes no prefetch now / failed: later
@@ -1318,7 +1318,7 @@ class Imagery:
     def render(self, frame, x0, y0, size, px, pending=None):
         """_render(); texels from a lazy source (NAIP) then take their large-scale colour from the rest of
         the chain (match_colours): NAIP's detail, USGS's colours, so the block's photo meets the far tiles
-        around it (USGS, colour-matched and de-shadowed) without a seam (in-game 2026-10-13, Annapolis: the
+        around it (USGS, colour-matched and de-shadowed) without a seam (in-game, Annapolis: the
         NAIP block was a darker, greener square, its water much darker)."""
         return self.render_where(EnuSquare(frame, x0, y0, size), px, pending)
 
@@ -1563,7 +1563,7 @@ def dxt1_size(w, h):
     return max(1, (w + 3) // 4) * max(1, (h + 3) // 4) * 8
 
 
-# Mip levels (LOD research 2026-10-14: the plain sRGB 2 x 2 box is the softest possible chain, and ground at a
+# Mip levels (LOD research: the plain sRGB 2 x 2 box is the softest possible chain, and ground at a
 # grazing angle is drawn from the small levels): averaged in linear light (dark detail does not swallow light
 # detail) and each smaller level sharpened a little (MIP_SHARPEN, a 3 x 3 unsharp mask).
 MIP_SHARPEN = 0.35

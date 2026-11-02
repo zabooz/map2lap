@@ -1,8 +1,8 @@
-"""Gas stations with refuelling (the user, 2026-10-23: "the refueling is the main part, we can already refuel in beam
+"""Gas stations with refuelling ("the refueling is the main part, we can already refuel in beam
 so I want to include it on this impressive map mod"; design: .claude/superpowers/specs/2026-10-23-gas-stations-design.md).
 
 Stations come from Overture places (mapdata layer "places"): a place is a fuel-station candidate by its category
-(gas_station, fueling_station) or by its brand's Wikidata id, from two lists (the user agreed to two, 2026-10-23):
+(gas_station, fueling_station) or by its brand's Wikidata id, from two lists (the user agreed to two):
 fuel brands count on their own; convenience brands that sell fuel at some stores only (Sheetz, Wawa, 7-Eleven,
 Circle K ...) count once there is more evidence, a canopy found by find_canopy or a merged gas_station pin, so a plain
 convenience store never gets pumps in its car park. Pins of one station from several sources (meta, Microsoft,
@@ -38,7 +38,7 @@ FUEL_BRANDS = {
     "Q2007561": "OIL!", "Q2121146": "Q1", "Q16998281": "Murco", "Q130223576": "EG On the Move",
     "Q1640290": "ENEOS",
     # Sheetz: all 48 of its places around Pittsburgh are filed as gas stations, and one of its stores near Pittsburgh has
-    # no canopy in any building data, so the convenience rule left it without pumps (the user, 2026-10-23: move it)
+    # no canopy in any building data, so the convenience rule left it without pumps (move it)
     "Q7492551": "Sheetz",
 }
 # Convenience brands with fuel at some of their stores: a match needs a canopy or a gas_station pin too.
@@ -84,7 +84,7 @@ class Pin:
     src: str = ""               # its first source's dataset (meta, Foursquare, AllThePlaces, Microsoft...)
 
 
-# (the user, 2026-10-27: Ginza 8-chome, an office block, "I dont think that is a gas station") a single old listing
+# (Ginza 8-chome, an office block, "I dont think that is a gas station") a single old listing
 # (Meta, 0.77: Showa Shell Shinbashi, a brand gone since 2023) is no proof a station is there; a station is trusted
 # when a brand's own store finder lists it (AllThePlaces), a record is at least TRUST_CONF sure, or two sources agree
 TRUST_CONF = 0.8
@@ -164,7 +164,7 @@ def _compatible(a, b):
 
 def _display_name(name, brand):
     """The name the refuel prompt shows: the place's name, or its brand when the name does not mention it (Overture
-    names some stations after their operator: the Munich Aral's "Wolfgang Tulach", 2026-10-23)."""
+    names some stations after their operator: the Munich Aral's "Wolfgang Tulach")."""
     for known in (*FUEL_BRANDS.values(), *CONV_BRANDS.values()):     # ("Buc-ee's Katy Texas" in New Braunfels)
         if brand.lower().startswith(known.lower() + " "):
             brand = known
@@ -225,7 +225,7 @@ ML_SOURCES = {"Microsoft ML Buildings", "Google Open Buildings"}    # traced fro
 CANOPY_RECT_MIN = 0.85      # area / its oriented box's: a canopy is a rectangle
 CANOPY_AREA_M2 = (120.0, 900.0)
 CANOPY_MAX_H_M = 7.0
-# never a station's shop: homes and public buildings (Munich, 2026-10-23: a Shell's and an Agip's kiosks are not mapped,
+# never a station's shop: homes and public buildings (Munich: a Shell's and an Agip's kiosks are not mapped,
 # the nearest buildings were a hospital and a block of flats)
 NOT_SHOP_CLASSES = {"apartments", "house", "residential", "detached", "semidetached_house", "terrace", "bungalow",
                     "dormitory", "houseboat", "static_caravan", "hospital", "school", "university", "college",
@@ -237,7 +237,7 @@ PIN_ROAD_M = 60.0           # no shop: the pumps at the pin (a kiosk not mapped)
 ROOF_CLASSES = {"roof"}     # OSM building=roof (the Speedway's canopy: outbuilding / roof)
 CANOPY_GAP_M = 30.0         # a tagged roof this close to the shop's outline, or to another canopy's, is a canopy (Buc-ee's
                             # New Braunfels: a 155 x 55 m store, two 157 m canopies whose centres are 52 and 90 m from
-                            # its centre; the user, 2026-10-23: "canopys are buildings and we put two pumps outside")
+                            # its centre: "canopys are buildings and we put two pumps outside")
 ROAD_SLACK_M = 20.0         # a canopy may face any public road this much farther from the shop than the nearest (a
                             # corner lot: a Sheetz near Pittsburgh faces the road 59 m away, the nearest is 49 m)
 
@@ -281,7 +281,7 @@ def _named(b, st):
 def find_shop(st, blds):
     """The station's shop: among the buildings (not roofs) within SHOP_SEARCH_M of the station, one named like the
     station, else the nearest a mapper drew, else the nearest imagery outline (one of those next to a station is often
-    its canopy: a Sunoco near Pittsburgh, its pin on the road, 2026-10-23); None without one."""
+    its canopy: a Sunoco near Pittsburgh, its pin on the road); None without one."""
     p = np.array([st.x, st.y])
     near = []
     for b in blds:
@@ -301,7 +301,7 @@ def _gap(a, b):
     return float(min(_seg_dist(a, b[:-1], b[1:]).min(), _seg_dist(b, a[:-1], a[1:]).min()))
 
 
-# a tagged roof is a canopy only in a canopy's shape (the real ones, 2026-10-23: Buc-ee's 157 x 21 m and 8.4 m high,
+# a tagged roof is a canopy only in a canopy's shape (the real ones: Buc-ee's 157 x 21 m and 8.4 m high,
 # the Speedway's 73 x 9 m, Munich's 118-328 m2; final review I1: not a market hall, a platform roof or a carport)
 ROOF_AREA_MIN_M2 = 40.0
 ROOF_SHORT_MAX_M = 25.0
@@ -320,7 +320,7 @@ LOT_MAX_M2 = 6000.0                 # ... (but not a truck stop's whole site) an
 
 
 # a building whose name says it is a fuel station (Rio de Janeiro's "Auto Posto Jari LTDA", a BR station's 1661 m2 lot,
-# was drawn four storeys high, GitHub #308): words of the station names in the map data's languages, whole words
+# was drawn four storeys high): words of the station names in the map data's languages, whole words
 STATION_WORDS = re.compile(r"\b(posto|postos|gasolinera|gasolineria|servicentro|tankstelle|station[- ]service|"
                            r"benzinaio|distributore|gas station|petrol station|filling station|fuel|carburant|"
                            r"stacja paliw|benzinkút|benzinstation|tankstation|estação de serviço|estacion de servicio)\b",
@@ -426,7 +426,7 @@ def _pin_on_road(st, roads):
 def _roof_canopy(b):
     """Whether a tagged roof can be the shop's own canopy (find_canopy): in a canopy's shape, or of a canopy's area
     (CANOPY_AREA_M2) and height whatever its outline (a BP in Pittsburgh: 26 x 25 m, 461 m2, not a rectangle); never a
-    platform roof or a hall (Rio de Janeiro's 1355 m2 one, GitHub #308)."""
+    platform roof or a hall (Rio de Janeiro's 1355 m2 one)."""
     if _canopy_shape(b):
         return True
     return (CANOPY_AREA_M2[0] <= _area(b.ring) <= CANOPY_AREA_M2[1]
@@ -438,14 +438,14 @@ def find_canopy(st, shop, blds, roads):
     CANOPY_GAP_M of the shop's outline; else an untagged imagery outline (ML_SOURCES) that is not the shop, a canopy-sized
     rectangle no taller than CANOPY_MAX_H_M, between the shop and a public road (projected on the line from the
     shop's centre to that road's nearest point; the nearest road or one at most ROAD_SLACK_M farther), and the only one
-    that passes (the user, 2026-10-23, on turning a car wash into a
+    that passes (on turning a car wash into a
     canopy: "I wouldn't like that")."""
     sc = _centre(shop.ring)
     # (a tagged roof in a canopy's shape or of a canopy's area only: a station beside a train station took its 1355 m2
-    # platform roof and stood its pumps on the tracks, Rio de Janeiro, GitHub #308)
+    # platform roof and stood its pumps on the tracks, Rio de Janeiro)
     roofs = [(_gap(b.ring, shop.ring), b.id, b) for b in blds
              if b is not shop and b.cls in ROOF_CLASSES and _roof_canopy(b)]
-    # (never across a public road from the shop: the other corner's roof, GitHub #308; unless the pin is on the road)
+    # (never across a public road from the shop: the other corner's roof; unless the pin is on the road)
     sides = not _pin_on_road(st, roads)
     roofs = [r for r in roofs if r[0] <= CANOPY_GAP_M and not (sides and _across(sc, _centre(r[2].ring), roads))]
     if roofs:
@@ -473,7 +473,7 @@ def find_canopy(st, shop, blds, roads):
         if area / max(4.0 * hl * hw, 1e-9) < CANOPY_RECT_MIN:
             continue
         if _across(sc, c, roads):
-            continue                    # (on the other side of a street: another lot's, GitHub #308)
+            continue                    # (on the other side of a street: another lot's)
         v = c - sc
         for q, dist in fronts:
             axis = (q - sc) / dist
@@ -487,11 +487,11 @@ def find_canopy(st, shop, blds, roads):
 
 # --- the forecourt -----------------------------------------------------------------------------------------------
 _WCA = "/levels/west_coast_usa/art/shapes/buildings/"
-# West Coast USA's own canopy kits (docs/research/2026-10-23-gas-station-probe.md section 1): the canopy shape, its
+# West Coast USA's own canopy kits ( section 1): the canopy shape, its
 # model's half size across (x) and along (y), its pumps' positions in its frame (fuel_station_1/2/3/5), their yaw
 # relative to the canopy, their height over its origin and their (base, brand) shapes
 # (p_fuel_pump_<year>_<brand>.prefab.json). Only the pump shapes are used now (a station's style, hashed): canopies are
-# the roof slab over islands (_lane_site; the user, 2026-10-23, after a Sheetz near Pittsburgh: the same style for the
+# the roof slab over islands (_lane_site: after a Sheetz near Pittsburgh: the same style for the
 # Speedway's mapped canopy)
 KITS = (
     dict(shape=_WCA + "s_fuel_structure_01.dae", half=(8.11, 11.11), dyaw=0.0, dz=0.33,
@@ -507,7 +507,7 @@ KITS = (
          pumps=((-4.74, 2.38), (0.05, -5.30), (0.29, 5.50), (5.08, -2.16)),
          pump=(_WCA + "s_fuel_pump_2000.dae", _WCA + "s_fuel_pump_2000_tyranos.dae")),
 )
-# every station's pumps: Trilobite's, as the roof slab's sign (the user, 2026-10-23: "the pumps are changing brands but
+# every station's pumps: Trilobite's, as the roof slab's sign ("the pumps are changing brands but
 # the canopy is not"; West Coast has no other stretchable roof)
 PUMP_KIT = KITS[0]
 BOLLARD = "/art/shapes/objects/bollard_yellow.dae"      # (global art; West Coast's fs_6: scale 1.5 1.5 1)
@@ -645,10 +645,10 @@ def _pair_site(st, shop, blds, roads, kit=None, at_pin=False):
     return None
 
 
-# --- stations by region (the user, 2026-10-23: "I want to use them based on region so we should take advantage of the
+# --- stations by region ("I want to use them based on region so we should take advantage of the
 # italy assets for europe") ---------------------------------------------------------------------------------------
 EUROPE = {"alpine", "europe_north", "nordic", "mediterranean"}    # buildings.region_style's names
-US_EAST = {"us_east", "us_south"}       # East Coast USA's units (the user, 2026-10-23: "check the east coast etc.")
+US_EAST = {"us_east", "us_south"}       # East Coast USA's units ("check the east coast etc.")
 
 
 def style_of(lat, lon):
@@ -660,7 +660,7 @@ def style_of(lat, lon):
 
 
 _ITA = "/levels/italy/art/shapes/buildings/italy_petrolstation_"
-# Italy's set, measured in game (2026-10-23): an awning half 12 m along its x, 6.53 m to its -y from its origin (two
+# Italy's set, measured in game: an awning half 12 m along its x, 6.53 m to its -y from its origin (two
 # turned 180 degrees about one origin make a 12 x 13 m section, italy_big_petrolstation.prefab), its pillars built in;
 # under each half a row of 2 pumps at x +-2.25, y -3.2 (the prefab's), turned as the awning (a pump's x along its row)
 ITA_AWNING = _ITA + "awningSt.DAE"
@@ -704,7 +704,7 @@ def _italy_site(st, boxes, others, roads):
     return Site(st, props, areas, ())
 
 
-# East Coast USA's unit (eca_gastation_pumps.DAE; its collision mesh, 2026-10-23): one model of three islands, a
+# East Coast USA's unit (eca_gastation_pumps.DAE; its collision mesh): one model of three islands, a
 # dispenser on each and the roof over them, its origin at the ground. In its frame the islands are 1.46 m wide at
 # x = -5.215, 1.24 and 7.74, run along y over -9.2 .. -4.53 (centre -6.865) and are 0.2 m high; the dispensers at
 # y = -7.46; the roof 17.6 x 6.6 m (x -7.53 .. 10.1, y -10.04 .. -3.44) 4.7 m up. East Coast's own station (Gas_Station,
@@ -726,7 +726,7 @@ ECA_MIN_GAP_M = 5.5             # made-up islands no closer for East Coast's uni
 def _eca_site(st, lanes, others, roads):
     """East Coast's units over lanes (mapped or made up under a canopy): an island between each two lanes, the units'
     islands on them, stretched so three islands' worth of roof (ECA_ROOF_STEP an island) spans three of the lanes'
-    gaps: the units' roofs meet edge to edge, one roof (the user, 2026-10-23, on the gaps between them: "can we do just
+    gaps: the units' roofs meet edge to edge, one roof (on the gaps between them: "can we do just
     one big canopy"; a unit's own islands are a little farther apart than its roof's share, so its outer islands are
     up to ~0.7 m off the lanes' midpoints, still between them). Made-up lanes come in threes for them
     (_outline_lanes); mapped ones that do not get the last unit back over the one before, every other unit ECA_LIFT_M
@@ -798,7 +798,7 @@ def _lanes_box(lanes):
 
 # --- the forecourt's mapped drive lanes ----------------------------------------------------------------------------
 # OpenStreetMap often maps a forecourt's drive lanes as short parallel service roads (a Sheetz near Pittsburgh:
-# six of ~20 m, 7 m apart; the user, 2026-10-23: "you see the rows thats the roads for the pumps"). The pump islands
+# six of ~20 m, 7 m apart: "you see the rows thats the roads for the pumps"). The pump islands
 # stand between them: the most exact layout there is, and evidence of fuel for a convenience brand.
 LANE_LEN_M = (10.0, 35.0)       # a lane's length
 LANE_STRAIGHT = 0.95            # chord / length
@@ -810,7 +810,7 @@ ISLAND_END_M = 1.0              # an island stops this short of its lanes' ends
 PUMP_STEP_M = 6.5               # pumps along an island (West Coast's fuel_station_4)
 ISLAND_MAX_M = 20.0             # a longer island is split, a pillar at each piece's ends
 SHORT_ISLAND_M = 10.0           # an island this short (a narrow canopy's, across it) has one dispenser in its middle, a
-                                # pillar on it behind the pump and a bollard at each end (the user's photo, 2026-10-23)
+                                # pillar on it behind the pump and a bollard at each end
 ISLAND_BREAK_M = 2.0            # the gap between the pieces
 _PILLAR = _WCA + "s_fuel_structure_07.dae"     # (fs_4: a 4.9 m pillar at each island's end ...)
 _ROOF = _WCA + "s_fuel_structure_06.dae"       # (... and a 14 x 17.2 m roof slab 4.8 m up)
@@ -892,7 +892,7 @@ def _lane_site(st, lanes, others, roads, kit):
     """Islands between the lanes, a pump every PUMP_STEP_M along each (clear of roads and buildings, as every pump),
     a pillar at each island's end and the roof slab over all the lanes."""
     c, u, n = lanes.centre, lanes.u, lanes.n
-    yaw = _yaw(u)                               # pumps and pillars: their x along the island (fs_4; the user,
+    yaw = _yaw(u)                               # pumps and pillars: their x along the island (fs_4:
     roof_yaw = yaw - 90.0                       # 2026-10-23: "pumps are facing the wrong way"); the roof slab's y
     length = (lanes.a1 - lanes.a0) - 2 * ISLAND_END_M
     if length < 3.0:
@@ -940,7 +940,7 @@ def _lane_site(st, lanes, others, roads, kit):
 
 ISLAND_GAP_M = 7.0              # islands under a mapped canopy without mapped lanes: one every this much (a Sheetz's
                                 # lanes: 7 m apart) along its long side, each across its short side (the
-                                # user's photo of a long narrow canopy, 2026-10-23: short islands across it, one after
+                                # user's photo of a long narrow canopy: short islands across it, one after
                                 # another)
 
 
@@ -979,7 +979,7 @@ def layout(st, blds, roads, service=(), style="default"):
     return site
 
 
-# --- the forecourt's asphalt (the user, 2026-10-23: "some stations spawn on dirt because we do not paint ashpat there";
+# --- the forecourt's asphalt ("some stations spawn on dirt because we do not paint ashpat there";
 # "I'd start with the pad and driveway, some driveways are there if caught by OSM but some do not obviously") -------
 PAD_MARGIN_M = 6.0          # around the islands or pumps: room to drive round them
 PAD_BLD_GAP_M = 0.5         # short of a neighbour's walls
@@ -987,11 +987,11 @@ PAD_SHOP_LINK_M = 10.0      # the shop's front this close: the asphalt reaches i
 DRIVEWAY_W_M = 8.0          # a driveway made up where none is mapped ...
 DRIVEWAY_MAX_M = 45.0       # ... to a road at most this far from the pad
 DRIVEWAY_MAPPED_M = 3.0     # a service road with a point this near the pad and one this near a road's edge: mapped
-# a corner lot's second entrance (the user, 2026-10-23, at the Speedway: "there is an entrance where you added tho IRL
+# a corner lot's second entrance (at the Speedway: "there is an entrance where you added tho IRL
 # as well"): another public road this near the pad, crossing the first at least this much (not a street behind it)
 DRIVEWAY_CORNER_M = 45.0    # (the Speedway's side street: 40 m from its pad)
 DRIVEWAY_CORNER_DEG = 45.0
-# no driveway made up at all where mapped service roads already give the forecourt access to a public road (the user,
+# no driveway made up at all where mapped service roads already give the forecourt access to a public road (
 # 2026-10-23, at a Sheetz near Pittsburgh: "can we skip drawing drivewas if there is already a service road there for
 # access"): one this near the pad (alongside it: the margin's dirt between), joined to others within DRIVEWAY_JOIN_M
 DRIVEWAY_ACCESS_M = 8.0
@@ -1193,15 +1193,15 @@ def _hits(ring, pts):
     return bool(polygon.contains_points(ring, pts).any())
 
 
-# --- a station mapped as one building around its pin (Japan: Tokyo and Osaka laid out 0 of 20 stations, 2026-10-26: the
+# --- a station mapped as one building around its pin (Japan: Tokyo and Osaka laid out 0 of 20 stations: the
 # whole station, canopy and office, is one unclassed outline of 120-900 m2 around the pin, on a lot too tight for a
-# pump pair; the user, 2026-10-26: "let's start writing the plan for phase 2 including the Japan coverage gap") ------
+# pump pair: "let's start writing the plan for phase 2 including the Japan coverage gap") ------
 ONE_BLD_PIN_M = 2.0                         # the pin inside the outline, or this near it
 ONE_BLD_CLASSES = {"", "roof", "commercial"}    # (retail, apartments, homes, warehouses around a pin: real buildings)
 ONE_BLD_MAX_H_M = 9.0                       # Japanese canopies to 8.3 m; the next real building in the sample 10.8 m
 ONE_BLD_MIN_H_M = 4.5                       # (where a height is mapped) a canopy's clearance; a kiosk is lower (3.1 m)
 ONE_BLD_FILL = 0.6                          # area / its oriented box's (not an L: the roof slab would cut the rest)
-# (the user, 2026-10-27, Mexico City: "pillars on the side walks, it looks tacky") the outline is the lot, to the back
+# (Mexico City: "pillars on the side walks, it looks tacky") the outline is the lot, to the back
 # of the sidewalk or (Gasolineria San Jeronimo) to the kerb: each side of the canopy stands at least ONE_BLD_CLEAR_M
 # from a public road's edge (a sidewalk and room to drive in under it)
 ONE_BLD_CLEAR_M = 6.0
@@ -1209,7 +1209,7 @@ ONE_BLD_ROAD_M = ONE_BLD_CLEAR_M + 2.0      # a side whose middle a road's edge 
 
 # a fuel station's name (as well as STATION_WORDS): its brands and words in the map data's languages, whole words; a
 # Japanese service station's "SS" after its place name (南森町SS); never a bare "gas" (a union of gas fitters is no station).
-# Russia's, Eastern and Northern Europe's brands and words too (the user, 2026-10-27: "it needs to work for around the
+# Russia's, Eastern and Northern Europe's brands and words too ("it needs to work for around the
 # world, we have players in Russia all over Europe")
 FUEL_WORDS = re.compile(r"\b(oil|petrol\w*|petro|gasolina|gasoline|service[- ]station|pemex|ipiranga|petrobras|br|ypf|"
                         r"repsol|galp|cepsa|moeve|q8|omv|ömv|lukoil|rosneft|gazprom\w*|tatneft|bashneft|petronas|caltex|"
@@ -1348,7 +1348,7 @@ def _layout_core(st, blds, roads, service=(), style="default"):
         return site
     if _is_lot(shop, st):
         # the station's whole lot mapped as a building named like it: no shop box, a canopy in its middle (Rio de
-        # Janeiro's Posto Ipiranga, 2323 m2, was drawn as one big block, GitHub #308)
+        # Janeiro's Posto Ipiranga, 2323 m2, was drawn as one big block)
         canopies = [_lot_canopy(shop)]
     else:
         canopies = find_canopies(st, shop, blds, roads)

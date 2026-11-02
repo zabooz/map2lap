@@ -20,7 +20,7 @@ def run(n=200, bend=0.0):
 
 class NarrowBandTest(unittest.TestCase):
     def test_profile_never_folds(self):
-        # GitHub #55 "the median eats tires": a band narrower than RAMP_RUN folded back over itself (its ramp end past
+        # "the median eats tires": a band narrower than RAMP_RUN folded back over itself (its ramp end past
         # its outer edge), and the folded collision caught wheels
         for w in (0.3, 0.6, 1.2, 1.8, 2.5, 4.0):
             for hr in (sidewalks.CURB_H, 0.02):

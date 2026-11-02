@@ -1,7 +1,7 @@
 """Deck parts of one carriageway that the map does not join (roads._end_joins, earthfast.deck_end_joins) and short
 ground gaps between decks (roads._deck_gaps, earthfast.deck_gaps): the surface a car drives on has no step where a
 branch leaves a viaduct a few metres off the joint (I-83, the Jones Falls Expressway in Baltimore: the AI drove off an
-8.8 m cliff, 2026-10-29) or where the map leaves a short stretch of a viaduct untagged; with and without measured deck
+8.8 m cliff) or where the map leaves a short stretch of a viaduct untagged; with and without measured deck
 heights (roadz)."""
 import os
 import sys

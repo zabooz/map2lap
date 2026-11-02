@@ -1,4 +1,4 @@
-"""Whole-mile Interstate reference signs from mapped OpenStreetMap milestones (from cody196's PR #363).
+"""Whole-mile Interstate reference signs from mapped OpenStreetMap milestones.
 
 The weekly sign shards (tools/build_sign_tags.py) carry osm_records' references: mapped highway=milestone nodes on
 an Interstate's directed carriageway, and the whole miles between two compatible ones (interpolated only where the

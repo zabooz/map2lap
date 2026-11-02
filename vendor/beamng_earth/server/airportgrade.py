@@ -1,4 +1,4 @@
-"""Runways graded into the ground (docs/research/2026-10-11-airports.md §6; ROADMAP quick win 4).
+"""Runways graded into the ground.
 
     ag = AirportGrader(db, dem)                 # db: airports.AirportDB, dem: dem.Dem
     z = ag.apply(lat, lon, z_dem)               # the DEM with the runways near (lat, lon) graded in
@@ -148,7 +148,7 @@ class AirportGrader:
         """[(lat (4,), lon (4,))]: the paved, open runways near the points (their map-data cells) as rectangles end to
         end and RUNWAY_PAD_SHOULDER_M wider each side than the runway, painted in like the gas stations' forecourts
         (surface.Surface.extra_pads: the ground's asphalt layer and the photo). Only the markings were drawn: where
-        the photo is soft or pale the runway looked unpaved (Tallinn, GitHub #337)."""
+        the photo is soft or pale the runway looked unpaved (Tallinn)."""
         out = []
         for g in self._groups(lat, lon):
             for rw in g:

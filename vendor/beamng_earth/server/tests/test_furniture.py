@@ -90,7 +90,7 @@ class PoleTest(unittest.TestCase):
         self.assertEqual(len(m[1]) % 4, 0)
 
     def test_town_street_without_sidewalk_is_lit(self):
-        """A town street with no sidewalk run: lamps from its edge (the user, 2026-10-27: lamps only near the
+        """A town street with no sidewalk run: lamps from its edge (lamps only near the
         camera; most streets had none), on its poles where the lines run overhead, on posts where buried; a main
         road's every pole, a side street's every other; a service road: nothing."""
         rows = furniture.place([road("d", "secondary", True)], [], (0, 0, 256, 256))
@@ -152,7 +152,7 @@ class PoleTest(unittest.TestCase):
         self.assertNotIn(furniture.G_POLELAMP, [x[0] for x in rows])
 
     def test_buried_lines_no_poles(self):
-        """The country's low-voltage lines underground (furniture.BURIED_LV, the user 2026-10-26: poles "almost
+        """The country's low-voltage lines underground (furniture.BURIED_LV: poles "almost
         everywhere"): that share of the roads (hashed) have no poles; all of them in the Netherlands."""
         self.assertEqual(furniture.buried_share("nl"), 1.0)
         self.assertEqual(furniture.buried_share("US"), 0.0)
@@ -193,7 +193,7 @@ class JunctionTest(unittest.TestCase):
     def test_signals_only_where_the_map_has_them(self):
         """With OpenStreetMap's signals (mapped_signals' points): lights at a junction with one near it, none at a
         major crossing without (stop signs there are left to the minor arms: none here), and lights at a mapped rural
-        junction too (the user, 2026-10-25: lights where there are none)."""
+        junction too (lights where there are none)."""
         rs = [self.arm(f"a{i}", "tertiary", dx, dy) for i, (dx, dy) in enumerate([(1, 0), (-1, 0), (0, 1), (0, -1)])]
         none = furniture.junction_props(rs, (0, 0, 256, 256), signals=np.zeros((0, 2)))
         self.assertNotIn(furniture.G_SIGNAL, [r[0] for r in none], "no mapped signal: no lights")
@@ -222,7 +222,7 @@ class JunctionTest(unittest.TestCase):
 
     def test_divided_road_crossing_one_signal_per_way_in(self):
         # Boston St: a divided road (two one-way carriageways 20 m apart) crossing a street is two junctions; the
-        # user saw ten heads there (2026-10-14). One per way in: none on the arms leaving, none across the median.
+        # user saw ten heads there. One per way in: none on the arms leaving, none across the median.
         def seg(fid, cls, a, b, oneway=False):
             sp = roads.Spec(10.0, "paved", True, cls, oneway, 2.5, 1 if oneway else 0)
             return (fid, sp, np.array([(a[0], a[1], 0.0), (b[0], b[1], 0.0)]), 0.0)
@@ -294,7 +294,7 @@ if __name__ == "__main__":
 class SignClearance(unittest.TestCase):
     def test_moved_off_a_wide_road_beside_the_junction(self):
         # the spot 'past the junction, right of the approach' lies on a 16 m road running beside it (Boston Street,
-        # Baltimore, 2026-10-17): the sign moves along / out until clear, never onto a carriageway
+        # Baltimore): the sign moves along / out until clear, never onto a carriageway
         wide = (3.0, np.array([[-50.0, -4.0], [50.0, -4.0]]))     # crossing the approach just past the junction
         own = (3.0, np.array([[0.0, 0.0], [0.0, -60.0]]))         # the approach, away from the junction along -y
         q = furniture._off_carriageways(np.array([0.0, 0.0]), np.array([0.0, -1.0]), np.array([1.0, 0.0]), 2.0, 4.0,

@@ -1,5 +1,5 @@
-"""Street intersections: curb returns (rounded corners), crosswalks and curb ramps (docs/ARCHITECTURE.md
-"Raised sidewalks"; the user, 2026-10-11: "the sidewalks have sharp corners at the intersections and
+"""Street intersections: curb returns (rounded corners), crosswalks and curb ramps (
+"Raised sidewalks": "the sidewalks have sharp corners at the intersections and
 don't join together seamlessly, also there are no crosswalks or ramps leading to the crosswalks").
 
 Overture splits roads at their junctions, so a junction is a node shared by several road centrelines.
@@ -23,7 +23,7 @@ import numpy as np
 import fast     # Rust kernels (earthfast)
 
 RADIUS = 5.0                    # m, curb return radius when the class is not listed in RADII
-# by the larger road's class (street-view study of Fells Point, 2026-10-11: city corners are tight)
+# by the larger road's class (street-view study of Fells Point: city corners are tight)
 RADII = {"residential": 3.0, "living_street": 3.0, "unclassified": 3.0, "service": 3.0,
          "tertiary": 4.5, "secondary": 6.0, "primary": 6.0, "trunk": 8.0}
 STOP_LINE = {"m": "line_white", "tl": 6.4, "p": 2, "w": 0.45}   # 1 m before the crosswalk
@@ -31,7 +31,7 @@ STOP_GAP = 1.0
 BULB_M = 6.0                    # m a curb extension runs along the street past the corner
 TAPER_M = 3.0                   # m over which it returns to the parking curb
 CORNER_ANGLES = (15.0, 150.0)   # degrees between two branches for a curb return (an acute one under ACUTE_DEG:
-                                # its sidewalks met in a sharp wedge, the user's report #46, Fells Point 2026-10-17)
+                                # its sidewalks met in a sharp wedge, Fells Point)
 RADIUS_TRIES = (1.0, 0.5, 0.25)  # a corner's radius tried at these shares of it until it fits
 ACUTE_DEG = 50.0                # under this the return's radius shrinks so it starts within ACUTE_T_M of the
 ACUTE_T_M = 9.0                 # carriageways' corner (radius / tan(theta / 2) from it), at least ACUTE_R_MIN,
@@ -44,8 +44,8 @@ MERGE_M = 3.0                   # m: junction nodes this close are one junction
 CONNECTOR_M = 0.0              # m: ... and nodes joined by a road shorter than this
 CONNECTOR_WIDTHS = 1.0          # ... or by a connector no longer than this many times the widest road at its two
                                 # nodes: an offset junction lying within the carriageway (Fells Point, 10 m between
-                                # two nodes of 10.6 m streets, 2026-10-17)
-# Corners without curbs (find(pavement=True), roadcorners.py; from PR #363 by cody196): a rural junction's asphalt
+                                # two nodes of 10.6 m streets)
+# Corners without curbs (find(pavement=True), roadcorners.py; by cody196): a rural junction's asphalt
 # rounded off at PAVE_RADIUS, PAVE_RADIUS_MAJOR where a major road meets; a driveway's or a lot's service road keeps
 # the service class's small radius (RADII: a 12 m flare at every driveway along a highway is not what the aerials show)
 PAVE_RADIUS = 6.0
@@ -315,7 +315,7 @@ def find(roads, has_walk, walk_w, parking_m=0.0, has_parking=lambda spec: False,
             nodes.setdefault(key, []).append((ri, vi))
     corners, cuts, crosswalks, ramps, line_cuts, stops = [], {}, [], {}, {}, []
     # junction nodes (two roads or more), merged into one junction when within MERGE_M: a complex
-    # junction is several nodes a few metres apart joined by tiny connectors (2026-10-11, a five-way
+    # junction is several nodes a few metres apart joined by tiny connectors (a five-way
     # cobbled junction at Fells Point lost most of its corners to the short-branch check)
     jn = [nodes[k] for k in sorted(nodes) if len({ri for ri, _ in nodes[k]}) >= 2]
     pos = [roads[inc[0][0]][2][inc[0][1], :2] for inc in jn]
@@ -377,7 +377,7 @@ def find(roads, has_walk, walk_w, parking_m=0.0, has_parking=lambda spec: False,
         inc = sorted({x for a in groups[cid] for x in jn[a]})
         X = np.mean([pos[a] for a in groups[cid]], axis=0)
         if pavement_bounds is not None and pavement and walk_w == 0.0 and parking_m == 0.0 and len(groups[cid]) == 1:
-            # (PR #363) a simple corner's tangents are <= 40 m out (below), its arc at most two radii from a tangent
+            # a simple corner's tangents are <= 40 m out (below), its arc at most two radii from a tangent
             # and its fill's tip <= 20 + MERGE_M from X; merged junctions (_across) are kept whole
             radius = max(PAVE_RADIUS_MAJOR, RADIUS, *(RADII.get(roads[ri][1].cls, RADIUS) for ri, _ in inc))
             extent = max(40.0 + max(roads[ri][1].width for ri, _ in inc) / 2 + 2 * radius, 20.0 + MERGE_M) \
@@ -414,7 +414,7 @@ def find(roads, has_walk, walk_w, parking_m=0.0, has_parking=lambda spec: False,
             cr = connector.get(frozenset((na, nb))) if na != nb else None
             if cr is not None and has_walk(spi) and has_walk(spj) and not pavement:     # (a curb's: not pavement's)
                 # two nodes of a merged junction: the curb turns onto the connector's edge at one node,
-                # runs along it and turns off at the other (an offset junction, Fells Point 2026-10-17)
+                # runs along it and turns off at the other (an offset junction, Fells Point)
                 got = _across(roads, branches[i], branches[j], cr, X, walk_w, debug)
                 if got is not None:
                     corner, ci, cj = got
@@ -440,7 +440,7 @@ def find(roads, has_walk, walk_w, parking_m=0.0, has_parking=lambda spec: False,
             wi, wj = spi.width / 2, spj.width / 2
             # curb extensions: on a two-way street with parking the corner's curb is the driving
             # lanes' edge, BULB_M along the street, then back to the parking curb over TAPER_M
-            # (Fells Point aerials, 2026-10-11: bulb-outs at most corners; off since GitHub #208, as most streets
+            # (Fells Point aerials: bulb-outs at most corners;, as most streets
             # have none: roads.build_tile passes no has_parking)
             acute = theta < ACUTE_DEG
             pi_ = parking_m if has_parking(spi) and not acute else 0.0
@@ -448,7 +448,7 @@ def find(roads, has_walk, walk_w, parking_m=0.0, has_parking=lambda spec: False,
             di, dj = wi - pi_, wj - pj_
             bi, bj = (BULB_M if pi_ else 0.0), (BULB_M if pj_ else 0.0)
             # a smaller radius where the corner does not fit (its street bending on past it put the curb on
-            # its own carriageway: no corner, bare ground in the angle, the user's report #46, 2026-10-17)
+            # its own carriageway: no corner, bare ground in the angle)
             for rscale in RADIUS_TRIES:
                 radius = max(RADII.get(spi.cls, RADIUS), RADII.get(spj.cls, RADIUS)) * rscale
                 if pavement:
@@ -467,7 +467,7 @@ def find(roads, has_walk, walk_w, parking_m=0.0, has_parking=lambda spec: False,
                 ci = ti + (bi + TAPER_M if pi_ else 0.0)            # where the sidewalk runs resume
                 cj = tj + (bj + TAPER_M if pj_ else 0.0)
                 # the branches must go on past the corner (a short connector between two close
-                # junctions cannot carry a curb return: 2026-10-11 survey, slabs on carriageways)
+                # junctions cannot carry a curb return: survey, slabs on carriageways)
                 if _branch_len(roads[ri][2], vi, si) < ci + 1.0 or _branch_len(roads[rj][2], vj, sj) < cj + 1.0:
                     if debug is not None:
                         debug.append(('short branch', round(_branch_len(roads[ri][2], vi, si), 1), round(ci, 1), round(_branch_len(roads[rj][2], vj, sj), 1), round(cj, 1), X.round(1).tolist()))
@@ -614,7 +614,7 @@ def apply_cuts(line, cuts, near=40.0):
         for f, inside in alongs:
             if inside[k_out] and not inside[k_in] and f[k_in] != f[k_out]:
                 # (between the two samples: where the line leaves the cut by its side or behind the node rather than
-                # across t, both f are of one sign, and the line ran on 3 km past its tile, 2026-10-28)
+                # across t, both f are of one sign, and the line ran on 3 km past its tile)
                 w = min(1.0, max(0.0, f[k_in] / (f[k_in] - f[k_out])))
                 return d[k_in] + w * (d[k_out] - d[k_in])
         return d[k_in]

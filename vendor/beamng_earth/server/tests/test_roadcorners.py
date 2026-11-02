@@ -1,4 +1,4 @@
-"""Rounded corners where curbless paved roads meet (roadcorners.py; ported from PR #363's test_pavement_corners.py by
+"""Rounded corners where curbless paved roads meet (roadcorners.py; ported's test_pavement_corners.py by
 cody196): the fills, the gravel edge decal and edge lines along their arcs, the straight lines cut at the tangents, the
 ground paint (material, photo, asphalt mask), the grading under them and no trees on them; curb returns unchanged."""
 import os

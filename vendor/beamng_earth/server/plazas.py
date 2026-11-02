@@ -1,4 +1,4 @@
-"""Squares and pedestrian areas as a paved mesh (the user's report #45, Fells Point 2026-10-17: "Paived or brick
+"""Squares and pedestrian areas as a paved mesh (Fells Point: "Paived or brick
 terrain that isnt roads are too organic and blurry"; Broadway Square on Mapillary: crisp red brick pavers round its
 pavilion, where the terrain showed the aerial photo's blur).
 
@@ -6,7 +6,7 @@ Each Overture land_use polygon of subtype "pedestrian" (surface.PLAZA_CLASSES) i
 until no edge is longer than STEP_M (earthfast.subdivide_tris, Rust) so it follows the graded ground, and draped
 LIFT_M over it with the brick pavers tiled in world metres. A road tile gets the triangles whose centre lies in it
 (no overlap between tiles). Overlapping areas are paved once: the smaller (the more specific) keeps the ground it
-shares with a larger one (GitHub #127: Melbourne's Federation Square, two pavings at one height flickered through
+shares with a larger one (Melbourne's Federation Square, two pavings at one height flickered through
 each other). Render only (the terrain under it collides); the road mesh draws over it (a road's lift is higher). Pure
 given its inputs (elev)."""
 import numpy as np
@@ -16,10 +16,10 @@ LIFT_M = 0.04           # m over the graded ground (under the road mesh's asphal
 BRICK = "bne_sidewalk_brick"    # red brick pavers in herringbone (buildings.materials.json; sidewalks.BRICK)
 BRICK_REPEAT_M = 1.2    # m per repeat (sidewalks.BRICK_REPEAT_M)
 MIN_AREA_M2 = 60.0      # smaller polygons are left to the terrain
-# The paving by the mapped surface (GitHub #70: every square was red brick, Paris's Place de la Concorde and Louvre
+# The paving by the mapped surface (every square was red brick, Paris's Place de la Concorde and Louvre
 # courtyards among them, 56,000 and 71,000 m2 of it): (material, m per texture repeat) as the road mesh draws those
 # surfaces (roads.LOOK); unpaved ones (the Tuileries' compacted sand and gravel) are left to the terrain's photo. No
-# surface mapped or paving stones: red brick in the US (Fells Point's squares, the user's report #45), stone elsewhere.
+# surface mapped or paving stones: red brick in the US (Fells Point's squares), stone elsewhere.
 ASPHALT = ("road_asphalt_2lane", 11.0)
 STONE = ("italy_cobblestone", 2.5)
 PAVING = {"asphalt": ASPHALT, "concrete": ASPHALT, "concrete:plates": ASPHALT, "concrete_plates": ASPHALT,
@@ -92,7 +92,7 @@ def mesh(frame, box, rings, elev, origin, cover=None):
     (positions relative to origin (k, 3), tris, uvs, [material], tri material index) or None. elev(lat, lon) -> m
     (the graded ground the physics block has). cover: the road mesh's triangles in the frame (n, 6: x0 y0 x1 y1 x2
     y2) or None: the ground they cover is left to them (a pedestrian street mapped over a square drew its cobbles
-    1 cm over the paving, and the two flickered at a distance; GitHub #127)."""
+    1 cm over the paving, and the two flickered at a distance)."""
     import buildings
     x0, y0, x1, y1 = box
     Ps, Ts, Ms, n0 = [], [], [], 0

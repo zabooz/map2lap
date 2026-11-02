@@ -1,4 +1,4 @@
-"""Physics-block builds in a process of their own (2026-10-12).
+"""Physics-block builds in a process of their own.
 
 The server is one Python process: its threads share one interpreter lock, so while three far-tile workers
 built, a physics block took 3-10x longer than alone (land cover 1.4 s instead of 0.1 s), too long to follow a
@@ -68,7 +68,7 @@ class _State:
         self.surface = surfacemod.Surface(md) if surface else None
         if self.surface is not None:    # gas station forecourts painted asphalt (--gas-stations on)
             self.surface.gas_pads = bool(gas_stations)
-            if self.airports is not None:   # ... and the runways (GitHub #337)
+            if self.airports is not None:   # ... and the runways
                 self.surface.extra_pads = self.airports.runway_pads
         self.graders = {}           # anchor id -> grading.Grader
         self.chunks = {}            # anchor id -> heightmap.ChunkCache
@@ -288,7 +288,7 @@ def _nav_bridges(aid, frame, elev):
 def navgraph(aid, lat, lon, zoom, x, y, out_dir, vfs_dir, serial, left_hand, mph, rules):
     """earthd.Server.build_navgraph here (a road-tile process): the AI road graph around (x, y) written to out_dir;
     returns (vfs path, nodes, edges), in a road process (in the server's interpreter it cost 13 s of its CPU in a
-    4-minute drive, 2026-10-20). Past NAV_GRADED_M the ground is graded only under cells planned already."""
+    4-minute drive). Past NAV_GRADED_M the ground is graded only under cells planned already."""
     import navgraph as navgraphmod
     import mapcells
     g, _ = _s.anchor(aid, lat, lon)
@@ -314,7 +314,7 @@ def navgraph(aid, lat, lon, zoom, x, y, out_dir, vfs_dir, serial, left_hand, mph
     decks = {}
     try:
         # (its own deck heights, on that ground: the road tiles' profiles plan every cell they touch, and the graph's
-        # 2.2 km window planned ~50 cells, minutes of a road process on a Windows PC, 2026-10-25)
+        # 2.2 km window planned ~50 cells, minutes of a road process on a Windows PC)
         for fid, _spec, xy, z, _lon in _nav_bridges(aid, frame, elev).parts(feats, (x - w, y - w, x + w, y + w)):
             decks.setdefault(fid, []).append((np.asarray(xy, np.float64)[:, :2], np.asarray(z, np.float64)))
     except Exception as e:          # no decks: the graph follows the ground under bridges
@@ -341,7 +341,7 @@ def terrain_patch(aid, lat, lon, zoom, box, path):
 
 
 def signs_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, left_hand=False, mph=True, country=None):
-    """signstream.build_tile here: the highway signs of a road tile the mod has (from cody196's PR #363), in a road
+    """signstream.build_tile here: the highway signs of a road tile the mod has, in a road
     process: its map cells are warm there. Returns (vfs path of the sign tile's JSON, number of meshes)."""
     import signstream
     g, _ = _s.anchor(aid, lat, lon)

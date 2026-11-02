@@ -1,4 +1,4 @@
-"""Street furniture (the user, 2026-10-13: "make the world look alive"): street lights along the sidewalks
+"""Street furniture ("make the world look alive"): street lights along the sidewalks
 of town streets and wooden utility poles along country roads, placed per road tile with the road tile's
 geometry (roads.build_tile) and shown by the mod as Forest items (trees.lua groups "streetlight", "pole").
 
@@ -14,7 +14,7 @@ import math
 
 import numpy as np
 
-# class: (spacing m along one side, both sides staggered: a lamp every half that along the road). Measured (the user,
+# class: (spacing m along one side, both sides staggered: a lamp every half that along the road). Measured (
 # 2026-10-27: "check that they are realistically spaced apart") from OpenStreetMap's mapped street lamps (Overture
 # infrastructure street_lamp, matched to the nearest street, gaps along it): Prague, Warsaw, Szeged and Utrecht's main
 # roads ~30 m, their residential streets 25-30 m, nearly all on one side (the wide ones: both, or the median).
@@ -285,7 +285,7 @@ def _guess_signalled(arms):
 
 def _is_signalled(arms, signals=None):
     """Traffic lights at this junction: a mapped signal (signals: mapped_signals' points) within SIGNAL_NEAR_M of its
-    widest arm's edge; with no map data (None), where two or more major roads meet (the user, 2026-10-25: lights where
+    widest arm's edge; with no map data (None), where two or more major roads meet (lights where
     there are none)."""
     if signals is None:
         return _guess_signalled(arms)
@@ -310,7 +310,7 @@ def junction_controls(arms, k, link_ok=None, ring=None, signals=None):
     minor = [a for a in arms if a[1].cls in MINOR]
     if _is_signalled(arms, signals):
         # one head per way in: none on a one-way arm leaving it, none on a short link to the next signalled
-        # junction (a divided road crossing a street is two junctions 20 m apart: the user's report 2026-10-14,
+        # junction (a divided road crossing a street is two junctions 20 m apart:,
         # Boston St, "way too many traffic lights"); link_ok(arm) says whether that link's far end is signalled
         return [(a, G_SIGNAL) for a in arms if a[1].cls in MAJOR | MINOR and not _outbound(a)
                 and not (link_ok is not None and len(a) >= 6 and a[5] < LINK_M and link_ok(a))]
@@ -323,7 +323,7 @@ def junction_controls(arms, k, link_ok=None, ring=None, signals=None):
         return [(min(arms, key=straightest), G_STOP)] if all(a[1].cls in MINOR for a in arms) else []
     # the all-way coin flip: keyed on the roads that meet there (their map ids, sorted: the arms' order differs between
     # the road tiles and the road graph), the same from both and from every anchor (an 8 m cell of the junction in
-    # the anchor's frame flipped junctions at a rebase: geotiles, 2026-10-29)
+    # the anchor's frame flipped junctions at a rebase: geotiles)
     key = tuple(sorted(str(a[0]) for a in arms))
     return [(a, G_STOP) for a in minor] if _h01("allway", key) < 0.5 else []
 
@@ -353,7 +353,7 @@ def _off_carriageways(c, u, right, along, out, lines):
     """The point along m past the junction c along u and out m to the right, moved further along and out (up to
     10 m and 3 m) until it is SIGN_CLEAR_M clear of every carriageway in lines [(half width, centreline)]; None
     when nowhere is: stop signs and signals stood in the middle of a wide road beside the junction (Boston Street,
-    Baltimore, the user's report 2026-10-17: 6 in one tile)."""
+    Baltimore: 6 in one tile)."""
     for da in (0.0, 2.0, 4.0, 6.0, 8.0, 10.0):
         for do in (0.0, 1.0, 2.0, 3.0):
             q = c + u * (along + da) + right * (out + do)
@@ -374,7 +374,7 @@ def signal_spot(c, u, right, wide, half, lines):
     """Where an approach's signal or sign stands at junction point c (arm direction u away from it, right: the kerb
     side): past the junction's widest arm (wide: its half width) and outside the approach's carriageway (half), moved
     off every carriageway in lines [(half width, centreline (k, 2))], bridge decks included (a signal pole stood on a
-    ramp's deck where it comes down to Fallsway, Baltimore, and a car hit it, 2026-10-21); None when nowhere is clear.
+    ramp's deck where it comes down to Fallsway, Baltimore, and a car hit it); None when nowhere is clear.
     junction_props' props and navgraph's switchable heads (which stand in for them) both stand here."""
     c = np.asarray(c, np.float64)[:2]
     near = [(h, ln) for h, ln in lines if len(ln) >= 2 and np.hypot(*(ln - c).T).min() < 80.0]
@@ -418,7 +418,7 @@ def junction_props(roads, box, curb_h=0.15, left_hand=False, decks=(), signals=N
     return rows
 
 
-# The mod's round km/h sign models (trees.lua's speedk<n>, tools/generate_kmh_speed_signs.py; PR #195). Not placed since
+# The mod's round km/h sign models (trees.lua's speedk<n>, tools/generate_kmh_speed_signs.py). Not placed since
 # 2026-10-28: the speed-limit signs are the sign tiles' (speedsigns.py: where the limit changes, past major junctions,
 # drawn in each region's style), which replaced the props that stood 30 m after both ends of every long segment.
 SIGN_KMH = (30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150)
@@ -431,7 +431,7 @@ STREET_TREE_SHARE = 0.5         # streets with a row of trees (hashed per street
 STREET_TREE_SPACING = 11.0
 STREET_TREE_CURB_M = 0.9
 G_POLELAMP = "polelamp"     # a cobra-head arm on a utility pole (East Coast USA's electrical_pole_lamp)
-# The share of a country's low-voltage lines that are underground (the user, 2026-10-26: "Currently we've been placing
+# The share of a country's low-voltage lines that are underground ("Currently we've been placing
 # them almost everywhere"): the European Commission's "Overview of the Potential for Undergrounding the Electricity
 # Networks in Europe" (ICF Consulting, 2003; Europacable / Sycabel km of overhead and underground LV line, ~2000), the
 # underground share of each country's low-voltage km. Countries not listed: mostly overhead (the US, Canada, Japan,
@@ -446,7 +446,7 @@ def buried_share(country):
 # The lamps' lenses (night lighting: nightlights.lua lights their material after dusk and puts its lights at them;
 # tools/build_lamp_lens.py): the stock heads' glass is a material every building's windows share. At each lamp's glass
 # (the centroid of its transparent vertices in the stock mesh, its local frame: x along the row's yaw; measured by
-# MihneaTeodorStoica for PR #340), LENS_DROP_M under it.
+# MihneaTeodorStoica for), LENS_DROP_M under it.
 G_LENS = "lamplens"
 # and a glow at each (tools/build_lamp_glow.py: a ball growing with distance, drawn at night only, so lamps show far off)
 G_GLOW = "lampglow"
@@ -465,10 +465,10 @@ def pole_lamp(cls, k, region):
         return True
     return k % (3 if region == "na:sparse" else 2) == 0
 # a town street without a mapped sidewalk: its lamps at the carriageway's edge (on its poles, or posts where the lines
-# are buried) LAMP_EDGE_M beyond it (the user, 2026-10-27: lamps only near the camera; Potee Street's streets had
+# are buried) LAMP_EDGE_M beyond it (lamps only near the camera; Potee Street's streets had
 # lamps on a quarter of their length: only where a sidewalk was mapped)
 LAMP_EDGE_M = 1.2
-# highways (the user, 2026-10-27: "make sure highways have street lights"): in built-up land, and every ramp, lamp posts
+# highways ("make sure highways have street lights"): in built-up land, and every ramp, lamp posts
 # along each carriageway's outer edge (a divided road's two one-way ways: both sides lit, nothing in the median)
 # (US freeways: 40-50 ft poles 220-270 ft apart, TxDOT's lighting manual; elsewhere closer and lower; the stock post
 # scaled to HIGHWAY_LAMP_H)
@@ -477,7 +477,7 @@ HIGHWAY_LAMP_SPACING = {"na": 70.0, None: 45.0}
 LINK_LAMP_SPACING = {"na": 60.0, None: 40.0}
 PARTIAL_END_M = 15.0        # m from a rural ramp's ends its two lamps stand (partial interchange lighting, FHWA Lighting
                             # Handbook 2012 / AASHTO: luminaires at the gores and the ramp terminals only; every rural
-                            # ramp lit end to end put 27 lamps on a Wyoming interchange of I-80, Discord 2026-10-28)
+                            # ramp lit end to end put 27 lamps on a Wyoming interchange of I-80, Discord)
 HIGHWAY_LAMP_H = {"na": 13.5, None: 11.0}         # (ramps: the street post, NJDOT's 26 ft on ramps)
 LAMP_H = {G_LAMP: 9.0, "polelamp": 1.1}    # the catalog's heights (trees.lua CATALOG): a row's height over it, its scale
 POLE_LAMP_Z = 7.0           # m above the pole's base
@@ -533,7 +533,7 @@ DECK_WIRE_M = 1.5          # m a wire stays below a deck over it
 
 def under_decks(rows, decks, wires=None):
     """rows without the props that would reach up into a bridge deck above them (a road's lamps and poles
-    under a motorway bridge stood 9 m tall through its deck: a car hit one at 75 mph on I-80, 2026-10-15).
+    under a motorway bridge stood 9 m tall through its deck: a car hit one at 75 mph on I-80).
     decks: [(points (k, 3) of the deck's centreline, half width)]. wires: removed in place where one passes
     under a deck closer than the headroom."""
     if not decks:
@@ -603,7 +603,7 @@ def place(roads, walks, box, curb_h=0.15, wires=None, town=False, left_hand=Fals
         if fid is None or "pts" not in wk or fid not in by_fid:
             continue
         if wk.get("median"):        # a divided road's median: no lamps, poles, benches or bins on it (Boston
-            continue                # Street's is a bare curb, Mapillary 2026-10-17)
+            continue                # Street's is a bare curb, Mapillary)
         spec, line = by_fid[fid]
         run = np.asarray(wk["pts"], np.float64)
         if len(run) < 2:
@@ -654,7 +654,7 @@ def place(roads, walks, box, curb_h=0.15, wires=None, town=False, left_hand=Fals
                 q = p[:2] - out * (w / 2 - STREET_TREE_CURB_M)
                 if _owns(box, q[0], q[1]):
                     # (each tree's size, turn and rank keyed on its station along the road, not on where the anchor's
-                    # frame puts it: the same tree from every anchor, geotiles 2026-10-29)
+                    # frame puts it: the same tree from every anchor, geotiles)
                     k = int(round((float(_project(line, p[None, :2])[0]) - tph) / STREET_TREE_SPACING))
                     h = 6.5 + 3.5 * _h01(fid, side, k, "th")
                     rows.append([G_STREET_TREE, round(float(q[0]), 2), round(float(q[1]), 2), round(float(p[2] + curb_h), 2),

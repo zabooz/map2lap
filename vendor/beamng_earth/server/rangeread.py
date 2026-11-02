@@ -1,5 +1,5 @@
 """Byte ranges of large remote files (GeoParquet, Cloud-Optimised GeoTIFF) through netfetch, cached on
-disk in fixed blocks (docs/ARCHITECTURE.md "Map data").
+disk in fixed blocks.
 
 The map-data pipeline (mapdata.py) never downloads a whole Overture parquet file (0.1-0.5 GB) or a
 WorldCover / canopy-height COG (0.1-0.3 GB): it reads the parts a cell needs with HTTP Range

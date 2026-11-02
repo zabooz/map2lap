@@ -1,6 +1,6 @@
 """The US Federal Railroad Administration's Highway-Rail Crossing Inventory (Form 71, current; public domain, a work of
 the US government): each open at-grade crossing's place and warning devices, so a level crossing gets the gates, lamps
-or crossbucks it really has (railways.crossing_props; the user, 2026-10-27, OK'd "1 and 2": OSM rail tags and the US
+or crossbucks it really has (railways.crossing_props: OK'd "1 and 2": OSM rail tags and the US
 rail data).
 
 Read from BeamNG.Earth-data's GitHub Pages (tools/build_fra_shards.py, rebuilt weekly with the rail file by its GitHub

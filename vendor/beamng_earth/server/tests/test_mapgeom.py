@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import mapgeom  # noqa: E402
 class DropHugeTest(unittest.TestCase):
-    """GitHub #413: an OpenStreetMap "building" of 15.8 km2 roofed a whole city."""
+    """an OpenStreetMap "building" of 15.8 km2 roofed a whole city."""
 
     def test_city_sized_footprint_collapsed(self):
         def sq(x0, y0, s):

@@ -129,7 +129,7 @@ class FormatTest(unittest.TestCase):
 
     def test_only_used_materials_listed(self):
         # the engine makes a material instance for every material a shape lists when it loads it: a shape lists the
-        # ones its levels use, in the given order, each primitive pointing at its own (2026-10-20)
+        # ones its levels use, in the given order, each primitive pointing at its own
         pos, uv, tri = dae.grid(2, 1.0)
         tri = np.asarray(tri).reshape(-1, 3)
         tm = np.array([0, 3] * (len(tri) // 2) + [0] * (len(tri) % 2))
@@ -147,12 +147,12 @@ class FormatTest(unittest.TestCase):
         self.assertEqual([m["name"] for m in cdae.decode(same)["materials"]], ["a", "b"], "all used: as given")
 
     def test_collision_only_object_is_colmesh(self):
-        # the engine collides only with collision-detail objects named "Col..." (in-game test, 2026-10-16)
+        # the engine collides only with collision-detail objects named "Col..." (in-game test)
         pos, uv, tri = dae.grid(2, 1.0)
         d = cdae.decode(cdae.encode(pos, tri, uvs=uv, object_name="buildings", collision_only=True))
         self.assertEqual(d["names"], ["Colmesh", "detail2", "Collision-1"])
         self.assertEqual(d["header"]["objectNames"], ["Colmesh"])
-        # a visible detail with a null mesh first (no "Shape with invalid detail levels" in the log, 2026-10-17), the
+        # a visible detail with a null mesh first (no "Shape with invalid detail levels" in the log), the
         # triangles in the collision detail's mesh
         self.assertEqual([m["type"] for m in d["meshes"]], [4, 0])
         n, size, raw = d["details"]

@@ -1,5 +1,5 @@
-"""Mesh near-visual mode (docs/V1_3_SPEC.md §B) and the textured tile shapes (§A), for both tile
-layouts (docs/V1_4_SPEC.md §3.1 M1: 32 cells, exact level L-2; 64 cells, exact level L-1; every
+"""Mesh near-visual mode  and the textured tile shapes (§A), for both tile
+layouts ( M1: 32 cells, exact level L-2; 64 cells, exact level L-1; every
 class has a 64-cell subclass):
   - selection down to the exact level with the min-level radii and no block forcing: no gaps, no
     overlaps; with 64 cells the vertex spacing at a distance is v1.3.1's (never coarser);
@@ -344,7 +344,7 @@ class TexturedShapeTest(unittest.TestCase):
 
 
 
-# --- 64 cells (docs/V1_4_SPEC.md §3.1, M1) ---------------------------------------------------
+# --- 64 cells (M1) ---------------------------------------------------
 L64 = ff.Layout(64)
 
 

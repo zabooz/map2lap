@@ -1,4 +1,4 @@
-"""Regional aerial imagery beyond Maryland (the user, 2026-10-15: "I think only maryland has the high res data. Try to
+"""Regional aerial imagery beyond Maryland ("I think only maryland has the high res data. Try to
 add the other data sources you found"): keyless state and national orthophoto services with an open or permissive
 licence (docs/research/2026-10-10-us-state-imagery.md, docs/research/2026-10-10-imagery-sources-world.md), each
 limited to its own bounding box. They come first in imagery.DEFAULT_CHAIN; where one has nothing (outside its state
@@ -71,7 +71,7 @@ REGIONAL = {
                    "geoportail.lu orthophoto (CC0)", (49.44, 5.73, 50.19, 6.53), "xyz", False),
     "austria": ("https://maps.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857/{z}/{y}/{x}.jpeg",
                 "Datenquelle: basemap.at (CC BY 4.0)", (46.37, 9.53, 49.02, 17.16), "xyz", False),
-    # Italy (the user's reports #40 / #44 at the Stelvio Pass, 2026-10-17: "Ground to blurry here", the 10 m Sentinel
+    # Italy (the user's reports #40 / #44 at the Stelvio Pass: "Ground to blurry here", the 10 m Sentinel
     # mosaic): South Tyrol's 2024 flight (open data, no access constraints) inside its province, then the national
     # 2012 orthophoto (Geoportale Nazionale, both UTM zones' layers; plain http: its https redirects there) for the
     # rest of the country
@@ -80,7 +80,7 @@ REGIONAL = {
     "it_pcn": ("http://wms.pcn.minambiente.it/ogc?map=/ms_ogc/WMS_v1.3/raster/ortofoto_colore_12.map&"
                "LAYERS=OI.ORTOIMMAGINI.2012.32,OI.ORTOIMMAGINI.2012.33&" + WMS,
                "Geoportale Nazionale (MASE) orthophoto 2012", (35.40, 6.60, 47.10, 18.60), "export", False),
-    # Poland (a user's tip, 2026-10-22, from MapNG's developer): GUGiK's national orthophoto (Geoportal, ~25 cm; free
+    # Poland (a user's tip, from MapNG's developer): GUGiK's national orthophoto (Geoportal, ~25 cm; free
     # to download and use for any purpose, no access constraints in its INSPIRE record); its WMS has no Web Mercator
     "poland": ("https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/HighResolution?LAYERS=Raster&" + WMS_4326,
                "Ortofotomapa (c) GUGiK, geoportal.gov.pl", (49.00, 14.12, 54.84, 24.15), "export", False),

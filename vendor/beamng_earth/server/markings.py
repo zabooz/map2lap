@@ -1,4 +1,4 @@
-"""Road markings by country (the user, 2026-10-28: "revamp the road markings system ... as accurate and detailed as
+"""Road markings by country ("revamp the road markings system ... as accurate and detailed as
 possible ... official government resources on how they mark lanes"): line colours, widths and dash patterns from the
 national manuals, summed up in docs/research/2026-10-28-road-markings-standards.md (MUTCD 11th ed., TSRGD / Traffic Signs
 Manual ch. 5, RMS, IISR, MLIT, AS 1742.2), and the broken lines cut into real dashes (earthfast.dash_pieces) instead of
@@ -26,7 +26,7 @@ _US = Style(centre="line_yellow", w=0.12, w_motorway=0.15, edge=0.12, edge_motor
             lane_motorway=(3.05, 9.14), left_edge="line_yellow", double_centre_urban=True, double_gap=0.12,
             min_centre_m=4.9,
             # edge lines on arterials (MUTCD 3B.10: rural arterials 20 ft and wider); local and collector roads mostly
-            # have none (PEMA 6-inch aerials, Lancaster County, 2026-10-28: tertiary roads with a centre line only)
+            # have none (PEMA 6-inch aerials, Lancaster County: tertiary roads with a centre line only)
             edge_classes=frozenset({"motorway", "trunk", "primary", "secondary"}), ladder=True)
 _CA = _US._replace(centre_rural=(3.0, 6.0), centre_urban=(3.0, 6.0), lane_rural=(3.0, 6.0), lane_urban=(3.0, 6.0),
                    lane_motorway=(3.0, 6.0))
@@ -359,7 +359,7 @@ def arrow_quad(centre, t, kind_):
     u0, v0 = ARROW_CELLS[kind_]
     # (the shape's V runs up from the sheet's bottom: the cell's top (1 - v0) at the arrow's tip. Read from the top
     # down, every arrow showed the bottom row upside down: blank in the old sheet, game 0.40's "EXIT" for the
-    # straight ones, Baltimore 2026-10-29)
+    # straight ones, Baltimore)
     top, bottom = 1.0 - v0, 1.0 - v0 - 0.25
     uv = np.array([[u0, top], [u0 + 0.25, top], [u0 + 0.25, bottom], [u0, bottom]])
     return corners, uv

@@ -1,4 +1,4 @@
-"""The ground past Web Mercator's +-85.05 deg (the user, 2026-10-22: "add polar support"): the Copernicus DEM.
+"""The ground past Web Mercator's +-85.05 deg ("add polar support"): the Copernicus DEM.
 
 Mapterhorn and every other tiled source stop at Web Mercator's limit (mercator.MAX_LAT, 85.05 deg; Mapterhorn's
 heights a little before 85.0, ~11 m short at its deeper zooms: a trench to sea level ran round Antarctica), so the

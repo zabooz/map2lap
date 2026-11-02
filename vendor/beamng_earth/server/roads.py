@@ -1,4 +1,4 @@
-"""Roads near the player (docs/ROADMAP.md v1.6 "Roads"; first cut 2026-10-11): Overture road segments
+"""Roads near the player (first cut 2026-10-11): Overture road segments
 from the map-data cache (mapdata.py "roads"), drawn by the mod as DecalRoads on the physics ground, and
 painted into the surface masks (surface.py) so the tyres feel asphalt or dirt.
 
@@ -56,25 +56,25 @@ STYLE = {
     "motorway": (11.0, True), "trunk": (9.0, True), "primary": (8.0, True), "secondary": (7.5, True),
     "tertiary": (6.5, True), "residential": (6.0, True), "living_street": (5.0, True),
     "unclassified": (5.5, True), "service": (4.0, True), "track": (3.5, False), "unknown": (5.0, True),
-    # racetracks (OpenStreetMap highway=raceway, osmtags.raceways: GitHub #143): a circuit's typical 12 m unless its
+    # racetracks (OpenStreetMap highway=raceway, osmtags.raceways): a circuit's typical 12 m unless its
     # width is mapped; no markings, sidewalks, furniture or traffic (not in those classes' sets nor navgraph.DRIVE),
     # and graded by the terrain alone (grading.UNGRADED: an oval's banking stays)
     "raceway": (12.0, True),
 }
 PAVED = {"paved", "asphalt", "concrete", "metal", "wood", "tar", "bitumen"}
 COBBLE = {"paving_stones", "sett", "cobblestone", "unhewn_cobblestone", "bricks",   # Overture: "paving_stones"
-          "interlocking", "paver", "paver_blocks"}      # (South Asia's names, PR #146)
+          "interlocking", "paver", "paver_blocks"}      # (South Asia's names)
 # interlocking concrete pavers under the names the map gives them (surface_kind: a street paved with them is a
 # cobble street, not a gravel track)
 COBBLE_ALIASES = {"interlocking_pavers", "interlocking_stones", "pavers", "block_pavers", "paving_stone",
                   # OSM's surface=stone is mostly stone paving (flagstones, slabs), not a rock track (merge review of
-                  # PR #119, 2026-10-22)
+                  #)
                   "stone", "stones"}
-GRAVEL = {"gravel", "fine_gravel", "compacted", "pebblestone", "wbm", "laterite"}   # (water-bound macadam: PR #146)
+GRAVEL = {"gravel", "fine_gravel", "compacted", "pebblestone", "wbm", "laterite"}   # (water-bound macadam)
 # ... and the values that do mean "no hard surface": an unrecognised one is not one of these (the class decides)
 UNPAVED = {"unpaved", "ground", "dirt", "earth", "mud", "grass", "grass_paver", "sand", "soil",
            # the rock family: a rough, unpaved surface, never a marked asphalt street (gridmap v2's Rock is a
-           # TerrainMaterial — a heightfield shader, not a surface a decal can carry: 2026-10-22)
+           # TerrainMaterial — a heightfield shader, not a surface a decal can carry)
            "rock", "rocky", "bedrock",
            # more of OSM's recognised unpaved values, which an unrecognised value must not outrank
            "clay", "shells", "woodchips"}
@@ -91,7 +91,7 @@ LOOK = {
     "dirt": {"m": "m_dirt_road", "tl": 88.0, "p": 21},
 }
 # a `surface=concrete` street is still a paved one (markings, widths, the tyres' asphalt feel) but is drawn with
-# gridmap v2's plain concrete instead of asphalt (the user, 2026-10-22: "for concrete road surfaces")
+# gridmap v2's plain concrete instead of asphalt ("for concrete road surfaces")
 CONCRETE = {"m": "m_gm_concrete_plain", "tl": 11.0, "p": 20}
 
 
@@ -120,7 +120,7 @@ def look_of(spec):
 Spec = namedtuple("Spec", "width kind urban cls oneway walk dir kmh gap median lanes surf link sides",
                   defaults=(False, 2.5, 0, None, None, None, None, None, False, None))   # median: m to the other carriageway's centre line
 # (sides: the sidewalk sides OpenStreetMap's sidewalk tag gives (_osm_sidewalks; walk_sides' +1 left / -1 right of the
-# geometry, () none), None where it has none: the class and land-cover rule, has_sidewalks; from mpsteppe's PR #292)
+# geometry, () none), None where it has none: the class and land-cover rule, has_sidewalks)
 # (lanes: OpenStreetMap's lane count, both directions on a two-way road, None unknown: osmtags.py; surf: the surface
 # rule value's base token, e.g. "concrete": the look's concrete, roads.py look_of; link: a ramp / slip road, Overture's
 # subclass "link", its class the road's it leads to)
@@ -128,11 +128,11 @@ Spec = namedtuple("Spec", "width kind urban cls oneway walk dir kmh gap median l
 # dir: a one-way road's direction along its geometry, +1 / -1, 0 two-way; kmh: its speed limit, None unknown;
 # gap: m of road per junction along it (its connectors), None unknown)
 # (width = carriageway). One-way driving widths (Overture's divided roads are two one-way segments, each
-# drawn before as a full two-way street: 2026-10-11 orthophoto of Broadway, 14-15 m drawn for 8-9 m)
+# drawn before as a full two-way street: orthophoto of Broadway, 14-15 m drawn for 8-9 m)
 ONEWAY_STYLE = {"primary": 6.5, "secondary": 6.5, "tertiary": 4.0, "residential": 3.5, "living_street": 3.5,
                 "unclassified": 3.5, "service": 3.5, "unknown": 3.5}
 
-# Sidewalks and markings (user 2026-10-11, after the first street-view comparison of Fells Point:
+# Sidewalks and markings (after the first street-view comparison of Fells Point:
 # real streets have concrete sidewalks behind a curb and a double yellow centre line). Stock West
 # Coast USA materials. renderPriority: lower draws on top (WCUSA: lines 2-6, the asphalt strip 20).
 SIDEWALK = {"m": "sidewalk_concrete", "tl": 6.0, "p": 16, "w": 2.5}      # beyond the carriageway, city streets
@@ -147,7 +147,7 @@ EDGE_LINE = {"m": "line_white", "tl": 6.4, "p": 2, "w": 0.15, "inset": 0.3}
 # The asphalt's edge where no curb ends it: East Coast USA's decal (a ragged opaque edge of gravel and dirt fading
 # into the ground; its texture's u = 1 side lies on the asphalt, the opaque edge EDGE_DECAL_AT across it). The
 # ground photo is ~2 m a pixel and the terrain's materials change on its 2 m grid: the edge was blurred and stepped
-# (the user, 2026-10-28: "the edge of the road is blurry and slightly jagged").
+# ("the edge of the road is blurry and slightly jagged").
 EDGE_DECAL = {"m": "ECA_road_edge_dirt", "tl": 6.4, "p": 1, "w": 1.6, "layer": "edge"}
 EDGE_DECAL_AT = 0.95
 LADDER_LINE_W = 0.30            # a ladder crosswalk's side lines (MUTCD 3C.04: 6-24 in)
@@ -161,14 +161,14 @@ LANE_CLASSES = {"primary", "secondary", "tertiary", "trunk", "motorway"}
 # urban arterials not lined by buildings (roadwidth.py measures those): 4 lanes (Moab's Main Street, US-191,
 # 4 lanes + a turn lane in the photos, was drawn 9 m)
 # Ramps and slip roads (Overture subclass "link", any class): one lane and its shoulders, whatever the class
-# (Columbia's US-29 ramps were drawn 13 m wide, a whole motorway, 2026-10-14 photos): m paved by lanes a way.
+# (Columbia's US-29 ramps were drawn 13 m wide, a whole motorway, photos): m paved by lanes a way.
 LINK_M = {1: 6.0, 2: 9.0}
 LINK_LANE_M = 3.7       # a one-lane ramp's lane between its shoulders
 URBAN_ARTERIAL = {"trunk": 13.2}     # primaries in towns are often 2 lanes (Lancaster County's PA-340)
 LANE_M = 3.3            # m per lane when counting the lanes a carriageway holds
-# carriageways painted into the drawn ground instead of meshes (surface.photo_roads; the user, 2026-10-22: "I dont love
+# carriageways painted into the drawn ground instead of meshes (surface.photo_roads: "I dont love
 # that we are applying a floating road texture over the normal terrain"; it also ended the white diamonds on the
-# Stelvio's hairpins, GitHub #135). BNGE_ROADS_IN_GROUND=0: the carriageway meshes as before
+# Stelvio's hairpins). BNGE_ROADS_IN_GROUND=0: the carriageway meshes as before
 ROADS_IN_GROUND = os.environ.get("BNGE_ROADS_IN_GROUND", "1") != "0"
 # m per driving lane by class when OpenStreetMap gives the lane count (osmtags.py; typical design widths)
 LANE_W = {"motorway": 3.6, "trunk": 3.5, "primary": 3.3, "secondary": 3.3, "tertiary": 3.1}
@@ -202,7 +202,7 @@ NEAR_M = 40.0                   # roads this far outside the tile still cut its 
 # rule, where Overture has one, is the carriageway already.
 PARKING_M = 2.3
 # Rural motorways: two lanes a direction (most rural Interstates and European motorways; every US Interstate was drawn
-# with three, GitHub #43) between paved shoulders, the edge line along each; urban ones keep STYLE's three lanes.
+# with three) between paved shoulders, the edge line along each; urban ones keep STYLE's three lanes.
 # Overture has no lane counts.
 MOTORWAY_RURAL_M = 7.4
 SHOULDER_M = 2.2
@@ -218,7 +218,7 @@ URBAN_SHARE = 0.5               # a road is urban when this share of its vertice
 URBAN_BESIDE_M = 30.0           # ... and at least URBAN_BESIDE_SHARE of them have built-up land this far to one side:
 URBAN_BESIDE_SHARE = 0.2        # the land cover counts a wide road's own pavement as built-up, and the Eyre Highway
                                 # through Eucla (centre 94 %, beside it 3 %) got a town's footpaths, bins and hydrants
-                                # across the Nullarbor (GitHub #267). Baltimore and Chicago keep every urban road.
+                                # across the Nullarbor. Baltimore and Chicago keep every urban road.
 URBAN_BOTH_SHARE = 0.1          # a motorway or trunk needs built-up land on both
                                 # sides of this share of its vertices: a roadhouse beside the Eyre Highway (Eucla: one
                                 # side 33 %, the other 0 %) is no town
@@ -269,7 +269,7 @@ def _rule_value(table, i):
 def level_ranges(feats, i):
     """The off-ground ranges of feature i as sorted (start, end, "bridge" | "tunnel") fractions of its
     length, from its flags (is_bridge / is_tunnel) and level (> 0 bridge, < 0 tunnel) rules. Overture
-    puts most bridges on a range of a longer segment (2026-10-11: a street with a few metres of bridge
+    puts most bridges on a range of a longer segment (a street with a few metres of bridge
     was taken whole as a bridge and dropped). Pure. A cell's are made all at once and shared (cell_facts)."""
     memo = feats.__dict__.setdefault("_level_ranges", {})
     got = memo.get(i)
@@ -310,7 +310,7 @@ def raw_level_ranges(feats, i):
 # Per-cell facts shared by the server's processes and kept for the next run (the revisit cache: one file per cell and
 # kind, keyed by the cell, its map data versions and the code): a cell's road specs and level ranges, which every
 # process that draws or grades its roads made for itself (~0.2 s a city cell each; the terrain blocks', the road
-# tiles' and the AI graph's processes, 2026-10-25). Kept only when complete (revisit.faults unchanged).
+# tiles' and the AI graph's processes). Kept only when complete (revisit.faults unchanged).
 _FACTS_LOCK = threading.Lock()
 
 
@@ -378,7 +378,7 @@ def _cell_ranges(feats, load_only=False):
 
 # A bridge over a road spans more than its carriageway: the road's shoulders and the abutments' slopes stand under it.
 # The map's bridge range often ends close to the lower road's edge (an 18 m deck of the Baltimore-Washington Parkway
-# over an 11 m local road, 2026-10-25: the ground climbed 10 m from the road's edge to the Parkway within 3 m, wedges
+# over an 11 m local road: the ground climbed 10 m from the road's edge to the Parkway within 3 m, wedges
 # into its lanes), or, crossing at an angle, short of its edge under the upper road's outer lanes. A bridge range is
 # lengthened until it covers, across the upper road's whole width, the lower road's carriageway, SKEW_MARGIN_M and an
 # abutment slope of SKEW_SLOPE_M either side: (lower half width + margin + slope) / sin + upper half width / tan of
@@ -444,7 +444,7 @@ def _seg_hits(m, lines):
 def _structure_width(feats, i):
     """m: the carriageway of road feature i as _bridge_specs makes it, without its level ranges (a road bridged along
     its whole length has no road_specs entry: its ranges were never lengthened over the roads under it; from cody196's
-    PR #368), or None (not a drawn road)."""
+   ), or None (not a drawn road)."""
     cls = str(feats.attrs["class"][i]) if "class" in feats.attrs else "unknown"
     if str(feats.attrs.get("subtype", ["road"] * len(feats))[i]) != "road" or cls not in STYLE or unbuilt(feats, i):
         return None
@@ -492,7 +492,7 @@ def _bridge_reach(feats, i):
             a0, b0 = a, b
             lo_m, hi_m = a0 * L, b0 * L
             # (only the bridge's own stretch: a crossing counts under it; a 3 km segment's whole line and every road
-            # near it cost a rail-yard tile seconds, 2026-10-25)
+            # near it cost a rail-yard tile seconds)
             inner = (sm > lo_m) & (sm < hi_m)      # (metres: sub_polyline scales lon/lat)
             sub = np.vstack([[np.interp(lo_m, sm, m[:, 0]), np.interp(lo_m, sm, m[:, 1])], m[inner],
                              [np.interp(hi_m, sm, m[:, 0]), np.interp(hi_m, sm, m[:, 1])]])
@@ -534,14 +534,14 @@ def _bridge_reach(feats, i):
 # A tunnel's portal moved out past a ground road crossing over the tunnel's road at it (earthfast.tunnel_reach): its
 # carriageway and TUNNEL_PORTAL_CLEAR_M past it (along the road: / the sine of the crossing, at least TUNNEL_ROAD_MIN_SIN),
 # a crossing up to TUNNEL_PORTAL_REACH_M outside the portal, TUNNEL_PORTAL_GROW_M at most. OSM often ends an underpass's
-# tunnel inside the carriageway over it: the portal's approach cut ran through the A-7's lanes near Malaga (GitHub #450).
+# tunnel inside the carriageway over it: the portal's approach cut ran through the A-7's lanes near Malaga.
 TUNNEL_PORTAL_CLEAR_M = 3.0
 TUNNEL_PORTAL_REACH_M = 10.0
 TUNNEL_PORTAL_GROW_M = 30.0
 TUNNEL_PORTAL_END_M = 2.0   # m: a crossing this close to the other road's end is a junction
 # A portal inside the carriageway of a road running along the tunnel (the map's ground stretch of a service tunnel laid
 # in a motorway's lanes: the Gotthard road tunnel's service gallery at Goeschenen, an arch and a mound in the A2's
-# lanes, 2026-10-28) moves into the tunnel until clear, TUNNEL_PORTAL_SHRINK_M at most; a tunnel shorter than
+# lanes) moves into the tunnel until clear, TUNNEL_PORTAL_SHRINK_M at most; a tunnel shorter than
 # TUNNEL_PORTAL_MIN_M left that way is none.
 TUNNEL_PORTAL_SHRINK_M = 60.0
 TUNNEL_PORTAL_MIN_M = 8.0
@@ -616,7 +616,7 @@ def _bridge_ends(feats):
 def _near_bridge_ends(feats):
     """Per feature: may an end of its first ring lie within _skew_decks' 0.75 m of a bridge feature's end? A box test
     in lon / lat, wider than that everywhere (earthfast.ends_near; most features are nowhere near a bridge, and their
-    exact test was most of _skew_decks' time, 2026-10-25). None: no pre-check. Kept on feats."""
+    exact test was most of _skew_decks' time). None: no pre-check. Kept on feats."""
     got = feats.__dict__.get("_near_bridge_ends")
     if got is not None:
         return got
@@ -703,7 +703,7 @@ def _skew_decks(feats, i, rngs):
 # A ground piece of a road shorter than GAP_DECK_M with a deck on both sides (a bridge range of its own, or another
 # road's bridge going on from its end with nothing else meeting there) and no road joining it is deck too: a viaduct's
 # stretch the map leaves untagged between two bridges was drawn on the ground, each deck eased down to it and up again
-# (with the measured decks, 10-15 m: the Springfield Interchange, 2026-10-28). A junction on it keeps it on the ground.
+# (with the measured decks, 10-15 m: the Springfield Interchange). A junction on it keeps it on the ground.
 GAP_DECK_ON = os.environ.get("BNE_DECK_GAPS", "on") != "off"
 GAP_DECK_M = 60.0
 GAP_JUNCTION_M = 1.5
@@ -782,7 +782,7 @@ def _deck_gaps(feats, i, rngs):
     return out
 
 
-# Ground stretches the lidar shows on a structure (roadz.py, US 3DEP; the user, 2026-10-29: "Sure add the check"): a
+# Ground stretches the lidar shows on a structure (roadz.py, US 3DEP: "Sure add the check"): a
 # drawn road's ground piece that touches a deck's end (rule_level_ranges) is measured along its first LIDAR_GAP_REACH_M
 # with the decks' own lidar read, and is deck where its surface goes on from the deck's end well over the DTM (an
 # untagged viaduct stretch: Springfield's, a measured deck eased 10-15 m down to it). roadz answers per map cell (the
@@ -1016,7 +1016,7 @@ def tag_level_ranges(feats, i):
                 got[name].append((float(t.start[j]), float(t.end[j]), kind))
     # the flags first; a level range only where no flag says otherwise (Tower Bridge: level 1 over 0.03-0.88 of its
     # segment, flags bridge / tunnel (through a tower) / bridge / tunnel / bridge: merged, tunnel winning, the whole
-    # bridge was a tunnel, under water for most of it, and left out, 2026-10-18)
+    # bridge was a tunnel, under water for most of it, and left out)
     out = sorted(got["flags"])
     for a, b, k in sorted(got["level"]):
         for fa, fb, _ in out[:]:
@@ -1186,7 +1186,7 @@ def tunnel_parts(feats, i):
 
 PORTAL_CLEAR_M = 1.0        # m a tunnel's portal face keeps from the edge of a carriageway it passes under, its tube
 PORTAL_EXTEND_MAX_M = 25.0  # going on straight up to this far past the mapped end for it (an underpass mapped short: its
-                            # portal face stood across the E6's lanes in Norway, GitHub #2)
+                            # portal face stood across the E6's lanes in Norway)
 PORTAL_JOIN_M = 1.5         # a road this near a tunnel's end meets it there (a garage ramp ending in a street), not over it
 UNDERPASS_MAX_M = 80.0      # only tunnel parts this short (an underpass) under roads of PORTAL_CLASSES are carried on
 PORTAL_CLASSES = {"motorway", "trunk", "primary", "secondary"}
@@ -1287,7 +1287,7 @@ def _clear_end(feats, i, rs, ring, at_start, half):
 
 # surfaces that belong to the ground layer, not to a road decal: rock and grass are rough, mask-driven terrain
 # materials (gridmap v2 draws them exactly that way), so the mod paints their ground (surface.py) instead of laying
-# a smooth ribbon over it (2026-10-22)
+# a smooth ribbon over it
 ROCKISH = frozenset({"rock", "rocky", "bedrock"})
 GRASSY = frozenset({"grass", "grass_paver"})
 
@@ -1306,7 +1306,7 @@ def surface_kind(cls, surface):
     The value's base token decides: OSM writes the detail after a colon (`cobblestone:flattened`,
     `paving_stones:30`, `sett:pattern`) and more than one value after a semicolon, and matched whole they all fell
     through to "dirt", which is drawn with gravel's own material (LOOK) and painted DIRT: İzmir's sett streets read
-    as gravel tracks (2026-10-22). Interlocking pavers have their own names in the map. A value not understood at
+    as gravel tracks. Interlocking pavers have their own names in the map. A value not understood at
     all is the class's own surface, not dirt: an unknown tag must not turn a residential street into a track."""
     if surface is not None:
         s = surface_token(surface)
@@ -1363,7 +1363,7 @@ def edge_margin(spec):
 
 def motorway_shoulder(spec):
     """A rural motorway carriageway's shoulder: SHOULDER_M, or on a ramp (one lane, LINK_M) what one LINK_LANE_M lane
-    leaves (GitHub #107: a 6 m ramp's edge lines stood 1.6 m apart, inside the motorway's 2.2 m shoulders)."""
+    leaves (a 6 m ramp's edge lines stood 1.6 m apart, inside the motorway's 2.2 m shoulders)."""
     return float(np.clip((spec.width - LINK_LANE_M) / 2, EDGE_LINE["inset"], SHOULDER_M))
 
 
@@ -1427,7 +1427,7 @@ def _dual_side(a, b):
 def dual_carriageways(feats, specs, left_hand=False):
     """specs with the two carriageways of a divided road made one-way when the map says neither is (Boston St,
     Baltimore: two "primary" roads either side of a wide median, each with its own double yellow centre line, the
-    user's report 2026-10-14). Two roads of one name and class running side by side DUAL_GAP_M apart over most of
+    user's report). Two roads of one name and class running side by side DUAL_GAP_M apart over most of
     the shorter one; each runs so that the other is on its left (driving on the right) or right. Pure."""
     groups = {}
     names = feats.attrs.get("name")
@@ -1475,7 +1475,7 @@ def dual_carriageways(feats, specs, left_hand=False):
                 continue
             if sp.lanes:                # OpenStreetMap counts this way's lanes as a two-way road (a divided road's
                 continue                # carriageways are one-way ways there): Portland's Rosa Parks Way, 1+1 lanes and
-                                        # a turn lane, was drawn as two one-ways of 3 lanes each (2026-10-27)
+                                        # a turn lane, was drawn as two one-ways of 3 lanes each
             d = (1 if best[1] > 0 else -1) * (-1 if left_hand else 1)
             w = sp.width if (_rule_value(feats.rules.get("width"), i) is not None
                              or _osm(feats, "width", i, *OSM_WIDTH_M) is not None) else \
@@ -1485,7 +1485,7 @@ def dual_carriageways(feats, specs, left_hand=False):
 
 
 URBAN_MEDIAN_M = 1.5    # m: a city's divided road (centre lines within URBAN_MEDIAN_GAP_M): a narrow concrete median,
-URBAN_MEDIAN_GAP_M = 24.0   # its carriageways out to it (Boston Street, Mapillary 2026-10-17: two lanes and parking
+URBAN_MEDIAN_GAP_M = 24.0   # its carriageways out to it (Boston Street, Mapillary: two lanes and parking
 URBAN_DUAL_MAX_W = 12.0     # each way either side of a ~1.5 m curb; we drew 6.5 m carriageways and a 4.5 m strip)
 
 
@@ -1525,7 +1525,7 @@ def _centre_gap(a, b):
 def road_specs(feats, urban_fn=None, widths=None, left_hand=False):
     """Per feature: None (left out) or (width m, surface kind). urban_fn(lat, lon) -> bool array (built-up
     land cover), None = rural everywhere; called once for every candidate's points (its cost is per
-    call: 2026-10-11, one call per road made 4.4 of a physics block's 6 s). Pure given urban_fn.
+    call:, one call per road made 4.4 of a physics block's 6 s). Pure given urban_fn.
     Remembered on feats (mapdata keeps decoded cells in memory: every tile of a cell asked again)."""
     memo = feats.__dict__.setdefault("_road_specs", {})
     k = (urban_fn, widths, bool(left_hand))     # a bound method equals another of the same object and function
@@ -1588,7 +1588,7 @@ def unbuilt(feats, i):
     """Is feature i a road not built yet (OpenStreetMap's highway=construction / proposed: osmtags osm_highway, or
     Overture's is_under_construction flag over most of it)? Not drawn, as on the stock map views (GitHub #184). (The
     Gotthard road tunnel's second bore, highway=construction until ~2029, was built beside the real one, its portal in
-    the A2's lanes: Layercake leaves construction ways out, and the join took the open tunnel's tags, 2026-10-28.)"""
+    the A2's lanes: Layercake leaves construction ways out, and the join took the open tunnel's tags.)"""
     col = feats.attrs.get("osm_highway")
     if col is not None and str(col[i]) in ("construction", "proposed"):
         return True
@@ -1724,7 +1724,7 @@ def _rural_connectors(feats, specs):
 # the design guides make it, not a one-way street's lane (3.5-4 m: cars clipped the central island's curb). FHWA /
 # NCHRP Report 672 (Roundabouts: An Informational Guide, 2nd ed., 6.4.5 / 6.5.5): single-lane 16-20 ft (4.9-6.1 m),
 # two-lane 29-32 ft (8.8-9.8 m). No parking lanes or inferred sidewalks on the ring (urban False; mapped sidewalks
-# stay). (cody196's PR #363 took 9 m a lane: twice the guides.)
+# stay). (cody196's took 9 m a lane: twice the guides.)
 RING_LANE_M = 5.5               # m: a single-lane ring
 RING_EXTRA_LANE_M = 4.3         # m per further circulating lane
 RING_JUNCTIONS = ("roundabout", "circular")
@@ -1813,14 +1813,14 @@ def _bridge_specs(feats, want="bridge"):
             continue
         # (the lengthened ranges: a bridge's range carried onto the road joined at its end (_skew_decks) is a deck
         # too; with the raw ranges that stretch was neither deck nor ground, the deck's end lost its approach ramp
-        # and sat ~4.5 m low over BR-343 at Teresina, GitHub #306)
+        # and sat ~4.5 m low over BR-343 at Teresina)
         if not any(k == want for _, _, k in (level_ranges(feats, i) if want == "bridge" else raw_level_ranges(feats, i))):
             out.append(None)
             continue
         width = _rule_value(rules.get("width"), i)
         rule_w = float(width) if width is not None and 1.0 <= float(width) <= 40.0 else None
         # (OpenStreetMap's width and lane count, as _road_specs: a 4-lane bridge was drawn at its class's 8 m, one lane
-        # each way, Kommunalny Bridge in Perm, GitHub #378 by RiDexSS; tunnels too)
+        # each way, Kommunalny Bridge in Perm by RiDexSS; tunnels too)
         if rule_w is None:
             rule_w = _osm(feats, "width", i, *OSM_WIDTH_M)
         lanes = _osm(feats, "lanes", i, *OSM_LANES)
@@ -1839,7 +1839,7 @@ def _bridge_specs(feats, want="bridge"):
 class _EndJoin:
     """Line end points joined into nodes when within tol m of each other (the first point seen names the node; a later
     one joins the nearest node within tol). Rounding to a 0.5 m grid split ends a few cm apart either side of a grid
-    line and joined ends 0.68 m apart on a diagonal (from cody196's PR #368). A grid of tol cells, the 3 x 3 around a
+    line and joined ends 0.68 m apart on a diagonal. A grid of tol cells, the 3 x 3 around a
     point looked up: as cheap as the rounding. Deterministic for a given order."""
 
     def __init__(self, tol=0.5):
@@ -1912,7 +1912,7 @@ MERGE_TOUCH_M = 1.5     # m: decks side by side this close (edge to edge) are pu
 # END_JOIN_GROUND_M) is no abutment when it lies on another deck part's end, along it: a carriageway's split or merge
 # drawn a few metres off the joint. Held at the ground as an abutment, the branch's deck rose from the street under the
 # viaduct beside the main deck, a cliff of 7-14 m across a motorway's lanes the AI drove off (I-83 in Baltimore, 3.3 m
-# off the joint, the Springfield Interchange; 2026-10-29). Such an end is solved as joined there (earthfast.
+# off the joint, the Springfield Interchange). Such an end is solved as joined there (earthfast.
 # deck_end_joins): within min(END_JOIN_M, the wider part's half width), directions within acos(END_JOIN_COS).
 END_JOIN_ON = os.environ.get("BNE_DECK_END_JOINS", "on") != "off"
 END_JOIN_M = 6.0
@@ -1941,7 +1941,7 @@ def _end_joins(lines, halves, ground_lines):
 
 # ... and a free end standing on another deck part's carriageway of its level (within its half width and END_ON_MARGIN_M;
 # no road going on on the ground there): a ramp's end on the cross street's bridge. Held at the ground, the ramp's
-# short deck rose 8 m in 6 m to its measured joint, a wall (the Springfield Interchange, 2026-10-29). Solved again with
+# short deck rose 8 m in 6 m to its measured joint, a wall (the Springfield Interchange). Solved again with
 # that end at the other deck's height where they differ by more than END_ON_STEP_M (earthfast.deck_end_on).
 END_ON_MARGIN_M = 0.5
 END_ON_STEP_M = 0.3
@@ -2000,7 +2000,7 @@ def _ground_pins(lines, ground_lines):
 def _merge_overlaps(lines, zs, widths, levels, rounds=3, pins=None):
     """Heights of decks lying over each other (a ramp leaving the mainline, parallel carriageways of
     one level) pulled to their mean where their surfaces overlap, so a split is one surface until the
-    decks part (2026-10-11 the user: exits and splits not clean). Parts are related when they share an
+    decks part (exits and splits not clean). Parts are related when they share an
     end node or a level and run within ~30 degrees of each other. Abutment ends stay (pins: deck_profile's). Pure."""
     nodes, edges, adj = _chain_graph(lines)
     deg = np.zeros(len(nodes), int)
@@ -2088,7 +2088,7 @@ def _merge_overlaps(lines, zs, widths, levels, rounds=3, pins=None):
                 new[i] = np.maximum(new[i], _ground_envelope(es, np.where(lifted, new[i], -np.inf), DECK_MAX_GRADE))
             # never raised faster than DECK_MAX_GRADE from an abutment (a road's bridge forking off uphill near one,
             # taken for a carriageway beside it, pulled US-24's deck 1.1 m up in the first 3 m off its abutment near
-            # Buena Vista CO, 2026-10-27)
+            # Buena Vista CO)
             # (fading out toward a joint with other parts, where the parts must meet: capped right up to it, an 8 m
             # ramp part of a Calgary diverging diamond stood 0.7 m under the joint it leaves, #369)
             rise = np.full(len(es), np.inf)
@@ -2121,7 +2121,7 @@ DUAL_DECK_M = 30.0      # m: parts of one level parallel within this are one dec
 
 def deck_profile(lines, ground_fn, crossings=(), clear=None, grade=None, lift=None, levels=None, widths=None, pins=None):
     """deck_profile_once, then repeated with the deck-over-deck requirements: where two parts of
-    different levels cross, the higher one clears the lower one's deck by `clear` (2026-10-11: crossing
+    different levels cross, the higher one clears the lower one's deck by `clear` (crossing
     decks clipped into each other). pins: points where a ground road goes on from a joint of decks (abutments too: _pin).
     Pure given ground_fn."""
     zs = deck_profile_once(lines, ground_fn, crossings, clear, grade, lift, pins=pins)
@@ -2136,7 +2136,7 @@ def deck_profile(lines, ground_fn, crossings=(), clear=None, grade=None, lift=No
     arcs = [np.r_[0.0, np.cumsum(np.hypot(*np.diff(ln[:, :2], axis=0).T))] for ln in lines]
     # curve mode: one round. Its grades carry a requirement along the line to the parts joined to it whatever their
     # level, so a ramp under the upper deck rose with it and lifted it again each round (the Morrison Bridge 21 ->
-    # 41 m over the Willamette, 2026-10-19)
+    # 41 m over the Willamette)
     for _ in range(1 if bridge_profile_mode() == "curve" else 4):
         extra = []
         for i, j, si, sj in over:
@@ -2164,7 +2164,7 @@ STACK_STEP_M = 16.0     # m between the points where an upper deck must clear th
 def _deck_stacks(lines, levels, widths, step=STACK_STEP_M):
     """(upper part, arc on it, lower part, arc on that) every `step` m where a part of a higher level runs over one
     of a lower level, their surfaces overlapping in plan: the Queensboro Bridge's upper and lower roadways lay at
-    one height, one road through the other (the user's report, 2026-10-17); _deck_crossings only finds crossings.
+    one height, one road through the other; _deck_crossings only finds crossings.
     Pure."""
     out = []
     n = len(lines)
@@ -2183,7 +2183,7 @@ def _deck_stacks(lines, levels, widths, step=STACK_STEP_M):
                 continue
             # over it means over at least half the narrower deck: two carriageways side by side that the map gives
             # different layers touch edge to edge (the Vincent Thomas Bridge's, 8.5 m apart, 11.8 m wide: the upper
-            # was lifted 10 m over its twin, 2026-10-27)
+            # was lifted 10 m over its twin)
             reach -= 0.5 * min(float(widths[i]), float(widths[j]))
             s = np.arange(0.0, arcs[i][-1], step)
             q = np.c_[np.interp(s, arcs[i], pts[i][:, 0]), np.interp(s, arcs[i], pts[i][:, 1])]
@@ -2196,7 +2196,7 @@ def _deck_stacks(lines, levels, widths, step=STACK_STEP_M):
             dd = d[np.arange(len(q)), m]
             # (two parts joined at an end: a ramp leaving the mainline overlaps it from the fork on. A requirement there
             # falls back to the shared end at DECK_GRADE and lifted the upper part's end alone: a ramp of a higher
-            # level started 2.2 m over the fork, a ledge across the lanes, I-83 in Baltimore 2026-10-21. None within
+            # level started 2.2 m over the fork, a ledge across the lanes, I-83 in Baltimore. None within
             # the distance it takes to fall away.)
             shared = [ei for ei in (0, -1) for ej in (0, -1) if np.hypot(*(pts[i][ei] - pts[j][ej])) < 0.5]
             for a in np.flatnonzero(dd < reach):
@@ -2307,7 +2307,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
             if g <= DECK_STEEP_GRADE or _end_step(lines, got) <= DECK_STEEP_GRADE:
                 return got
             # (a curve steeper than that may not meet its ends: a "bridge" mapped along a hillside stepped 40 m at
-            # its abutment, GitHub #382 near Tata. The ground envelope's profile when it is the gentler one)
+            # its abutment near Tata. The ground envelope's profile when it is the gentler one)
             old = deck_profile_once(lines, ground_fn, crossings, clear, grade, lift, n_road, levels, pins, False)
             return got if not old or _end_step(lines, got) <= _end_step(lines, old) + 0.05 else old
     zs = deck_heights(lines, ground_fn, pins)
@@ -2322,7 +2322,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
         deg[b] += 1
     deg = _pin(nodes, deg, pins)
     # no steeper than DECK_MAX_GRADE from an abutment: a short bridge over a road cannot reach full
-    # headroom (2026-10-11: such decks became steep wedges, "walls" in the user's screenshot)
+    # headroom (such decks became steep wedges, "walls" in the user's screenshot)
     cap = [np.full(len(ln), np.inf) for ln in lines]
     dab = [np.full(len(ln), np.inf) for ln in lines]      # m to the nearest abutment
     steep = [np.full(len(ln), np.inf) for ln in lines]    # DECK_STEEP_GRADE off each abutment (below)
@@ -2343,11 +2343,11 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
         cl = cr[3] if len(cr) > 3 and cr[3] is not None else clear
         # a deck-over-deck requirement (its 5th element: the upper part's level) lifts the parts of that level and
         # above only: falling along the chain it reached the lower deck it was measured on, lifting it, and so the
-        # upper again each round (the Tsing Ma Bridge's upper deck 33 m over its lower one, 7 m in life, 2026-10-18)
+        # upper again each round (the Tsing Ma Bridge's upper deck 33 m over its lower one, 7 m in life)
         min_lv = cr[4] if len(cr) > 4 and levels is not None else None
         a, b, s = edges[pi]
         d = _dijkstra(adj, {a: sc, b: s[-1] - sc})
-        # a junction at grade (Queens Plaza, the user's report #55, 2026-10-17: a ramp's map line starts in the
+        # a junction at grade (Queens Plaza: a ramp's map line starts in the
         # intersection it climbs from; its deck rose 0.8 m over the cross street there, a hump across it)
         flat = (ci < n_road and len(cr) == 3 and float(np.interp(sc, s, dab[pi])) <= AT_GRADE_REACH_M
                 and float(np.interp(sc, s, cap[pi])) < zc + AT_GRADE_M)
@@ -2375,7 +2375,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
                                 req[k][at] = max(req[k][at], zc + cl)
     # the caps (from an abutment, from a junction at grade) never under the straight line between the abutments: two
     # abutments further apart in height than DECK_MAX_GRADE allows had the higher one pulled under its own road, a
-    # step onto the deck (0.9 m up onto the I-20 bridge near Temple, GA, once its approaches were raised, 2026-10-20)
+    # step onto the deck (0.9 m up onto the I-20 bridge near Temple, GA, once its approaches were raised)
     cap = [np.where(np.isfinite(z), np.maximum(c, z), c) for c, z in zip(cap, zs)]
     out, k0 = [], 0
     for k, (z, (a, b, s)) in enumerate(zip(zs, edges)):
@@ -2392,7 +2392,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
             continue
         # ground standing over a cap raises it, falling at DECK_MAX_GRADE either way: capped from its abutment, a deck
         # met a steep embankment's ground in a step where the ground took over (0.86 m in 4 m onto Lombard Street's
-        # east abutment in Baltimore, the bridge's map line ending down the embankment; cars stopped dead, 2026-10-20)
+        # east abutment in Baltimore, the bridge's map line ending down the embankment; cars stopped dead)
         # the floor: the ground rounded over its peaks (a vertical curve of DECK_CREST_R), so a deck smoothed under a
         # sharp peak and floored there has no spike
         g = np.maximum(g, _ground_envelope(s, g, 0.0, 1.0 / (2.0 * DECK_CREST_R)))
@@ -2400,7 +2400,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
         # ... but never steeper than DECK_STEEP_GRADE off an abutment where the ground under it is lower (nor under
         # the straight line between the abutments): raised by the ground 90 m off at the far, 10 m higher abutment, a
         # water clearance stood the New York Thruway's deck over the Vloman Kill 5 m up in its first 3.6 m, a wall an
-        # AI car hit at 65 mph (2026-10-27)
+        # AI car hit at 65 mph
         cap[k] = np.minimum(cap[k], np.maximum(np.maximum(steep[k], g), np.where(np.isfinite(z), z, -np.inf)))
         zz = np.maximum(np.minimum(np.maximum(z, req[k]), cap[k]), g)
         if deg[a] == 1:                         # an abutment keeps the ground's height
@@ -2409,7 +2409,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
             zz[-1] = z[-1]
         if len(zz) > 3:
             # no sag between two higher points (the Queensboro Bridge dipped 7 m over Roosevelt Island between its
-            # channel spans: one arch in life, 2026-10-18), within the caps
+            # channel spans: one arch in life), within the caps
             zz = np.maximum(np.minimum(_no_sag(s, zz), np.maximum(cap[k], zz)), zz)
             step = s[-1] / (len(s) - 1)
             sigma = float(np.clip(s[-1] / DECK_SIGMA_SHARE, DECK_SIGMA, DECK_SIGMA_MAX))   # a long deck: a long curve
@@ -2426,7 +2426,7 @@ def deck_profile_once(lines, ground_fn, crossings=(), clear=None, grade=None, li
 
 DECK_CREST_R = 60.0     # m: the ground under a deck is its floor rounded to vertical curves this wide (deck_profile_once)
 # ---- clearance-aware deck profile ----------------------------------------------------------------------
-# 2026-10-18 (a user in Portland, OR): decks came out as "two flat pieces of road joined in the middle with slight
+# (a user in Portland, OR): decks came out as "two flat pieces of road joined in the middle with slight
 # up, then down slopes": deck_heights' straight line between abutments, a 5 % tent where a road crosses
 # under, smoothed. deck_curve plans the deck as a road designer would: grades of DECK_DESIGN_GRADE up to
 # whatever must be cleared beneath (never steeper than DECK_MAX_GRADE from an abutment), joined by parabolic vertical
@@ -2541,7 +2541,7 @@ def curve_profile(s, g, req, z0, zL, g0=0.0, gL=0.0, max_grade=None, lift=None, 
     # each abutment, when that clears everything (the requirements within CHORD_TOL: they carry 0.21 m of margin;
     # the ground itself, which it may rest on) and meets both approaches within CHORD_KINK. The curve's floor stood
     # DECK_CLEAR over the approach ground beside each abutment and its smoothing crowned a 24 m overpass by 0.2-0.3 m
-    # (I-275 by the Sunshine Skyway, 2026-10-27: "it just has a HUMP in the middle that's not necessary")
+    # (I-275 by the Sunshine Skyway: "it just has a HUMP in the middle that's not necessary")
     chord = _chord(s, np.asarray(g, np.float64), np.asarray(req, np.float64) - lift, z0, zL, g0, gL, max_grade, cap)
     if chord is not None:
         return chord
@@ -2598,7 +2598,7 @@ def _curve_try(s, want, cap, z0, zL, g0, gL, step, L, K, iters):
         if short.max() <= 0.02:
             break
         # (not where the grade cap holds want down: no raise reaches it there, and raising it again and again
-        # tented a 5 m hump past the cap onto the Vincent Thomas Bridge's span, 2026-10-28)
+        # tented a 5 m hump past the cap onto the Vincent Thomas Bridge's span)
         raise_ += np.maximum(short, 0.0)
     return z
 
@@ -2690,7 +2690,7 @@ def deck_curve(lines, ground_fn, crossings=(), spans=(), clear=None, lift=None, 
         return None if got is None else [got[0][k] for k in range(len(lines))]
     nodes, edges, adj = _chain_graph(lines)
     # parts not joined at all (a chain also holds the decks crossing it, solved together for the deck-over-deck
-    # rule): each joined group on its own (2026-10-19: one crossing deck sent a whole interchange to the legacy
+    # rule): each joined group on its own (one crossing deck sent a whole interchange to the legacy
     # profile)
     comp = list(range(len(nodes)))
 
@@ -2791,7 +2791,7 @@ def deck_curve(lines, ground_fn, crossings=(), spans=(), clear=None, lift=None, 
         return (z, gr)
 
     # the trunk: of the abutment-to-abutment paths, the one carrying the highest requirement (the span over the
-    # river: solved first, so a branch never pins it low), then the longest. (2026-10-19: the Crescent City
+    # river: solved first, so a branch never pins it low), then the longest. (the Crescent City
     # Connection's river decks were branches of a longer, low line through the approaches and stayed 17 m up)
     need = {}
     for cr in crossings:
@@ -2865,7 +2865,7 @@ def _ease(lines, zs, ground_fn, lift=None):
     """Each part's heights after _merge_overlaps / the deck-over-deck rounds, run through a DECK_EASE_M moving
     average on a 1 m grid with its end heights kept (a linear correction) and never under the ground + lift:
     blending a part with its neighbour where their surfaces overlap left 2.5-4.3 % grade changes between deck
-    points (Steel, Broadway, 2026-10-19). Pure given ground_fn."""
+    points (Steel, Broadway). Pure given ground_fn."""
     lift = DECK_CLEAR if lift is None else lift
     out = []
     for ln, z in zip(lines, zs):
@@ -2958,7 +2958,7 @@ DECK_SIGMA_MAX = 40.0   # ... at most
 def _curve_deck(s, z, floor, cap):
     """The deck profile z (at arcs s) projected onto its bounds [min(floor, cap), cap] and a change of grade of at most
     1/300 per metre (a 300 m vertical radius), its ends pinned; z itself when the map's constraints cannot all hold.
-    Only bridge decks use this (wyo-backroads, PR #374: I-80 over Otto Road's 6 % crests). Pure."""
+    Only bridge decks use this (wyo-backroads: I-80 over Otto Road's 6 % crests). Pure."""
     import fast
     fast.require(83, "curve_deck")      # (Dykstra's projections, up to 2000 rounds: ~170 ms a deck in Python)
     f64 = np.float64
@@ -3029,7 +3029,7 @@ def _unpinned(lines, ground_fn, pins):
     """(lines, ground_fn) for deck_curve with each joint at pins (_pin: a ground road goes on from it) made an end of
     each part there: their ends moved PIN_SPLIT_M apart (one more step east each), ground_fn giving the ground at the
     joint itself there. deck_curve's graph joined them, the path went through the joint, and the ground road went on
-    from it 8.5 m under the deck (Charles Street over I-83 in Baltimore: the AI crashed at the step, 2026-10-29). The
+    from it 8.5 m under the deck (Charles Street over I-83 in Baltimore: the AI crashed at the step). The
     heights stay one per point of each line. Pure."""
     if pins is None or not len(pins) or len(lines) < 2:
         return lines, ground_fn
@@ -3077,7 +3077,7 @@ def _unpinned(lines, ground_fn, pins):
 def _pin(nodes, deg, pins):
     """deg with the joints at pins made ends (1): abutments, held at the ground. Two motorway decks met at a node the
     motorway went on from on the ground; taken for a joint of decks it stood 3.9 m over the road it ran on to, a wall
-    (the Four Level Interchange, Los Angeles, 2026-10-27). Pure."""
+    (the Four Level Interchange, Los Angeles). Pure."""
     if pins is None or not len(pins):
         return deg
     P = np.asarray(pins, np.float64).reshape(-1, 2)
@@ -3095,7 +3095,7 @@ def deck_heights(lines, end_z, pins=None):
     1 / their distance along the chain, and each part runs straight between its two ends (between two abutments: a
     straight line). Weighting every point, a part from an abutment to a joint of three parts rose ~16 % off its
     abutment and flattened toward the joint, 38 % once smoothed: US-24's deck near Buena Vista CO, 1.1 m up in its
-    first 3 m, 2026-10-27. Returns one height array per line. Pure given end_z."""
+    first 3 m. Returns one height array per line. Pure given end_z."""
     if not lines:
         return []
     edges, ez, dist = _end_dists(lines, end_z, pins)
@@ -3174,7 +3174,7 @@ TUNNEL_WET_RUN_M = 20.0 # ... and a tunnel chain passing under water this far aw
 TUNNEL_OPEN_COVER = 4.0 # m: a 'tunnel' whose ground nowhere rises this far over the straight line between its portals
                         # is an underpass in the open (under a bridge the map does not draw as a deck over it): a road
                         # on the ground, no tube, portals or holes (Central Park's 86th Street Transverse under its
-                        # park bridges got portal frames standing in the open, the user's report 2026-10-17). Between it
+                        # park bridges got portal frames standing in the open). Between it
                         # and TUNNEL_COVER: a low arch (a park's stone bridge over a sunken road, Central Park's West
                         # Drive over the 86th Street Transverse: 3.4 m clearance under ~1.5 m of arch and soil):
                         # straight between its portals, its tube as high as the ground over it allows (TUNNEL_SOIL_M
@@ -3186,7 +3186,7 @@ SECTION_MIN_M = 8.0     # m: a tunnel's covered sections and the open gaps betwe
 FULL_MIN_M = 60.0       # a covered section reaching TUNNEL_COVER is a full tunnel (a rock tube) if it is this long or
 FULL_DEEP_M = 16.0      # has this much ground over it somewhere; shorter and shallower, an underpass under an embankment:
                         # a low arch, the ground built up over it (a 31 m underpass under the E6 in Norway with 8.6 m of
-                        # embankment over it stood as a bare 6.8 m concrete tube on the ground beside the road, GitHub #2)
+                        # embankment over it stood as a bare 6.8 m concrete tube on the ground beside the road)
 TUNNEL_SOIL_M = 1.0     # m of arch and soil kept over a low tunnel's vault
 ARCH_SIZE_SKIP_M = 5.0  # m at a low arch's mouths left out when its height is sized from the cover over it
 ROAD_CAP_JOIN_M = 20.0  # a road with an end this near a low arch's mouth joins it (its own road going on), not one over it
@@ -3198,7 +3198,7 @@ MAJOR_LOW_H = 5.0       # m: ... on a major road (CONCRETE_WALL_CLASSES: road tu
 # TUNNEL_ROAD_REACH_M of its ends is covered, its carriageway and TUNNEL_ROAD_CLEAR_M past it (along the tunnel: / the
 # sine of the crossing angle, at least TUNNEL_ROAD_MIN_SIN). On lidar each carriageway of a divided motorway over an
 # underpass is its own embankment: the arch under one was 8 m long under 13 m of lanes, its mouths and terrain holes
-# in them (GitHub #450, the A-7 near Málaga).
+# in them (the A-7 near Málaga).
 TUNNEL_ROAD_CLEAR_M = 2.0
 TUNNEL_ROAD_MIN_SIN = 0.35
 TUNNEL_ROAD_REACH_M = 15.0
@@ -3248,7 +3248,7 @@ def portal_cover(kinds, cover, spec):
     """kinds with a major road's (CONCRETE_WALL_CLASSES) open run at either end of its tunnel covered (a low arch, in
     concrete: roadmesh) where the median ground over its floor is PORTAL_SHALLOW_COVER_M or more: the map's portal is a
     cut-and-cover box under shallow ground there (the Gotthard road tunnel's north portal under the meadow at
-    Goeschenen stood 90 m further in, an open cut before it, 2026-10-28). Park roads keep their open cuts (Central
+    Goeschenen stood 90 m further in, an open cut before it). Park roads keep their open cuts (Central
     Park's transverses). The meshes (TunnelProfiles) and the grading both."""
     kinds = np.array(kinds, np.int64)
     if spec is None or spec.cls not in CONCRETE_WALL_CLASSES or not (kinds > 0).any():
@@ -3271,7 +3271,7 @@ def cover_roads(xy, s, kinds, lines, halves):
     """kinds (tunnel_sections') with each covered section carried on until the ground roads crossing over it (lines
     (k, 2) in xy's frame, carriageway half widths) are covered, TUNNEL_ROAD_*: earthfast.tunnel_cover_roads. The
     road meshes (TunnelProfiles) and the grading (grading._tunnel_sections) both: an open section the grading did
-    not know of cut its trench through the A-7's lanes near Malaga (GitHub #450)."""
+    not know of cut its trench through the A-7's lanes near Malaga."""
     kinds = np.asarray(kinds, np.int64)
     if not lines or not (kinds > 0).any() or len(xy) < 2:
         return kinds
@@ -3428,7 +3428,7 @@ ARTERIAL_GAP_M = 150.0          # ... or, with no limit, one with a junction thi
 def has_sidewalks(spec):
     # a two-way urban trunk is a town's main street on a state highway (Bishop's US-395, Moab's US-191);
     # divided trunks are one-way per carriageway: expressways get none, slow ones (Ocean City's Coastal
-    # Highway, 35 mph, 2026-10-14 street photos) one on their outer side (walk_sides)
+    # Highway, 35 mph, street photos) one on their outer side (walk_sides)
     if getattr(spec, "sides", None) is not None:      # the map says (_osm_sidewalks)
         return spec.kind in BUILT and bool(spec.sides)
     return spec.kind in BUILT and spec.urban and (spec.cls in SIDEWALK_CLASSES
@@ -3459,7 +3459,7 @@ MEDIAN_SLAB_M = 6.0     # m: a divided road's median up to this wide is one rais
                         # carriageway's half of it); wider, ...
 MEDIAN_CURB_W = 0.6     # ... a curbed band this wide along each carriageway, ...
 MEDIAN_MIN_M = 0.8      # ... where its ground between them is this wide or more (Boston Street's is ~1.5 m of concrete
-                        # curb, Mapillary 2026-10-17), lawn on one wider than MEDIAN_SLAB_M (surface.paint_roads), ...
+                        # curb, Mapillary), lawn on one wider than MEDIAN_SLAB_M (surface.paint_roads), ...
 MEDIAN_MAX_M = 16.0     # ... and no wider (two one-way streets a block apart are not one road with a median)
 
 
@@ -3511,15 +3511,15 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
         ms = median_side(spec, left_hand)
         if ms is not None:
             # the median: a curbed band, lawn beyond it (two sidewalks back to back made a concrete strip, the user's
-            # report #48 on Boston Street, 2026-10-17: "Improve how medians are made")
+            # report #48 on Boston Street: "Improve how medians are made")
             mw = median_width(spec)
             # (each carriageway's half, a hair short of the middle: touching the other's carriageway where the gap
             # narrows, the band was cut away)
             band = max(0.3, mw / 2 - 0.15) if mw <= MEDIAN_SLAB_M else MEDIAN_CURB_W
             out.append(({**SIDEWALK, "side": ms, "median": True}, band, offset_polyline(pts, ms * (w / 2 + band / 2))))
-            if kind == "paved":     # a double yellow line along it (Boston Street, Mapillary 2026-10-17) ...
+            if kind == "paved":     # a double yellow line along it (Boston Street, Mapillary) ...
                 look = {"m": st.centre, "tl": CENTRE["tl"], "p": CENTRE["p"]}
-                # ... where centre lines are white one solid white edge line along the median's curb (PR #146)
+                # ... where centre lines are white one solid white edge line along the median's curb
                 for k in ((0,) if st.centre == "line_white" else (0, 1)):
                     out.append((look, st.w, offset_polyline(
                         pts, ms * (w / 2 - EDGE_LINE["inset"] - k * (st.w + st.double_gap)))))
@@ -3539,7 +3539,7 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
         for piece in markings.dashes(along, pattern):
             out.append(({"m": mat, "tl": max(1.0, pattern[0]), "p": CENTRE["p"], "kind": kind_}, width, piece))
     # the driving width (a town street's parking lanes and a rural road's edge strips left out: three lanes on every
-    # rural Interstate, GitHub #43) and its lanes (OpenStreetMap's count where known)
+    # rural Interstate) and its lanes (OpenStreetMap's count where known)
     parked = urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
     drive, lanes = lane_layout(spec)
     plan = markings.lane_plan(osm, not spec.oneway, drive, lanes, left_hand) \
@@ -3624,22 +3624,22 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
         ms = median_side(spec, left_hand)
         if ms is not None:
             # the median: a curbed band, lawn beyond it (two sidewalks back to back made a concrete strip, the user's
-            # report #48 on Boston Street, 2026-10-17: "Improve how medians are made")
+            # report #48 on Boston Street: "Improve how medians are made")
             mw = median_width(spec)
             # (each carriageway's half, a hair short of the middle: touching the other's carriageway where the gap
             # narrows, the band was cut away)
             band = max(0.3, mw / 2 - 0.15) if mw <= MEDIAN_SLAB_M else MEDIAN_CURB_W
             out.append(({**SIDEWALK, "side": ms, "median": True}, band, offset_polyline(pts, ms * (w / 2 + band / 2))))
-            if kind == "paved":     # a double yellow line along it (Boston Street, Mapillary 2026-10-17) ...
+            if kind == "paved":     # a double yellow line along it (Boston Street, Mapillary) ...
                 look = {"m": centre_colour(lon), "tl": CENTRE["tl"], "p": CENTRE["p"]}
-                # ... outside the Americas one solid white edge line along the median's curb (PR #146)
+                # ... outside the Americas one solid white edge line along the median's curb
                 for k in ((0,) if centre_colour(lon) == "line_white" else (0, 1)):
                     out.append((look, CENTRE["w"], offset_polyline(
                         pts, ms * (w / 2 - EDGE_LINE["inset"] - 2 * k * CENTRE["gap"]))))
             out.append(({**GUTTER, "side": ms}, GUTTER["w"], offset_polyline(pts, ms * (w / 2 - GUTTER["w"] / 2))))
     if kind == "paved" and cls in CENTRE_CLASSES and w >= 6.0 and not spec.oneway:   # no paint on cobbles
         if centre_colour(lon) == "line_white":
-            # outside the Americas one broken white line (the Gotthard road on Mapillary, 2026-10-18: ours had the
+            # outside the Americas one broken white line (the Gotthard road on Mapillary: ours had the
             # Americas' double line in white)
             out.append((LANE_LINE, LANE_LINE["w"], pts.copy()))
         else:
@@ -3649,7 +3649,7 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
     if kind == "paved" and cls in LANE_CLASSES:
         # lane lines (white dashes) where the driving width holds two or more lanes a direction
         parked = urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
-        # (a rural road's edge strips counted as lanes: three on every rural Interstate, GitHub #43)
+        # (a rural road's edge strips counted as lanes: three on every rural Interstate)
         drive = w - ((PARKING_M if spec.oneway else 2 * PARKING_M) if parked else 2 * edge_margin(spec))
         lanes = spec.lanes if spec.lanes else int(drive // LANE_M)      # (OpenStreetMap's count where known)
         if spec.oneway and lanes >= 2:
@@ -3691,8 +3691,8 @@ def _end_dir(pts, at_end):
 
 
 def join_walk_ends(runs, carriageways):
-    """Sidewalk runs whose open ends face each other across a short gap merged into one run (the user,
-    2026-10-14: sidewalks at sharp corners do not join; junctions.py makes no curb return under 35 degrees or with a
+    """Sidewalk runs whose open ends face each other across a short gap merged into one run
+    (sidewalks at sharp corners do not join; junctions.py makes no curb return under 35 degrees or with a
     long tangent, so each street's sidewalk stopped at the other's carriageway with bare ground between). runs: the
     runs near the tile before clipping ({pts, side, w, fid, j, open, ramp_fids}); two are merged when the straight
     gap between their ends stays off every carriageway and they are on the same side (one continuous polyline: the
@@ -3791,7 +3791,7 @@ def simplify(pts, tol=SIMPLIFY_M, ztol=None):
     """Ramer-Douglas-Peucker on the xy of a polyline (k, D). ztol (D >= 3): a point is also kept where its height is
     more than this off the line between the kept ones (a deck drawn at its own heights: on xy alone a straight bridge
     kept its two ends in a tile and lost its rise between, 2.5 m below the abutment it met; a car drove into the
-    ground, Baltimore's Lombard Street 2026-10-20). Pure."""
+    ground, Baltimore's Lombard Street). Pure."""
     if len(pts) < 3:
         return pts
     keep = np.zeros(len(pts), bool)
@@ -3847,8 +3847,8 @@ def drape_walks(frame, elev, walks, ground=None):
     points the ground's shape needs (WALK_DRAPE_TOL_M) and densified again: a flat street keeps exactly its points.
     One elev call (its cost is per call). ground(x (n,), y (n,)) -> z (n,): the terrain block's drawn ground in the
     frame (roadmesh.drawn_ground), which the road surfaces lie on (roadmesh.build follow) and elev is off by its
-    height quantum and more between its samples; the curbs take it instead, sampled every WALK_GROUND_M m (the user,
-    2026-10-21: sidewalks on the drawn ground with upstream's road surfaces). One ground call."""
+    height quantum and more between its samples; the curbs take it instead, sampled every WALK_GROUND_M m
+    (sidewalks on the drawn ground with upstream's road surfaces). One ground call."""
     import sidewalks
     items, xy = [], []
     for wk in walks:
@@ -3927,7 +3927,7 @@ def box_gap(x0, y0, x1, y1, x, y):
 
 def tiles_near(x, y, radius):
     """Tile keys whose square comes within `radius` of (x, y): the Euclidean distance to its nearest point, a disc (the
-    user, 2026-10-28: "change the quality/view distance radius from a square to a circle"). Before it was the square
+    user: "change the quality/view distance radius from a square to a circle"). Before it was the square
     (Chebyshev): its corners reached 41 % farther than its sides, ~27 % more tiles than the disc for no reach ahead
     (the anchor frame's axes are not the way the car drives). Order: tx, then ty (as before)."""
     t0x, t1x = int(math.floor((x - radius) / TILE)), int(math.floor((x + radius) / TILE))
@@ -4000,7 +4000,7 @@ COVER_MARGIN_M = 30.0   # m past the tile: the ground carriageways a deck's para
 def lane_layout(spec):
     """(driving width m, lanes) of a road as its lane lines are painted (extras) and the AI drives it (navgraph): the
     carriageway less a town street's parking lanes or a rural road's edge strips (counted as lanes, every rural
-    Interstate had three, GitHub #43), its lanes OpenStreetMap's count or as many LANE_M as fit (at least 1). Pure."""
+    Interstate had three), its lanes OpenStreetMap's count or as many LANE_M as fit (at least 1). Pure."""
     w, cls = spec.width, spec.cls
     parked = spec.urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
     drive = w - ((PARKING_M if spec.oneway else 2 * PARKING_M) if parked else 2 * edge_margin(spec))
@@ -4046,7 +4046,7 @@ DECK_SPAN_RATIO = 22.0  # a deck is its main span / this deep (girder bridges ru
 def deck_depth(span):
     """m of structure (slab + girders) under a deck's road for a main span of span m. A short overpass or channel
     span drew 2.2 m of slab and girders whatever its span, and had to climb that much more to clear what is under it
-    (a crown on 24 m overpasses and 2.7 m humps on the Sunshine Skyway causeway's channel bridges, 2026-10-27). Pure."""
+    (a crown on 24 m overpasses and 2.7 m humps on the Sunshine Skyway causeway's channel bridges). Pure."""
     return float(np.clip(float(span) / DECK_SPAN_RATIO, DECK_MIN_DEPTH, DECK_FULL_DEPTH))
 
 
@@ -4327,7 +4327,7 @@ def pier_sites(xy, z, width, ground_fn, road_lines=(), wet_fn=None, depth=None):
     PIER_IN_WATER_M under water); evenly spaced inside the part (its ends are abutments or joints) at PIER_SPAN_M,
     longer under a higher deck; none where the deck is within PIER_MIN_CLEAR of the ground, moved along up to 40 % of
     a span off a road under it (PIER_ROAD_M) or left out; none in a ship channel. The official maps' bridges stand
-    on piers (Italy's tapered walls, East Coast's) where ours floated (the user, 2026-10-17: "Bridges need a lot of
+    on piers (Italy's tapered walls, East Coast's) where ours floated ("Bridges need a lot of
     work in general"). Pure given ground_fn(xy) -> heights, wet_fn(xy) -> bool."""
     import fast
     import roadmesh
@@ -4403,7 +4403,7 @@ OBS_END_MAX_M = float(os.environ.get("BNE_OBS_END_MAX", "inf"))  # m a measured 
 
 class BridgeProfiles:
     """Deck heights per bridge part for one anchor frame, each chain resolved once from all of it, so
-    every tile gets the same deck (2026-10-11: computed per tile from the tile's cells, a chain's
+    every tile gets the same deck (computed per tile from the tile's cells, a chain's
     two halves disagreed at a tile seam). cell_fn(key) -> the roads Features of a map cell; elev:
     the physics elevation. Worker threads."""
 
@@ -4451,7 +4451,7 @@ class BridgeProfiles:
                 if nav > 0:
                     # the inventory's clearance decides over the share-of-span rule, from the water's surface (sea
                     # level) not the carved bed: a causeway's 100 m channel bridge with 3.8 m of clearance was asked
-                    # for 15 m over a 3 m deep bed and humped to its grade cap (the Sunshine Skyway causeway, 2026-10-27)
+                    # for 15 m over a 3 m deep bed and humped to its grade cap (the Sunshine Skyway causeway)
                     c = nav + under if s[j] - s[i] >= NAV_RUN_M else min(c, nav + under)
                     base = np.maximum(g, sea)
                 run = s[j] - s[i]
@@ -4459,7 +4459,7 @@ class BridgeProfiles:
                 # run's deepest water, else the middle half of the run; outside it the clearance asked eases off at the
                 # design grade to the run's own (water_clear: a causeway's low). Held flat across the whole run the
                 # Sunshine Skyway stood 58 m up for 3.5 km of its causeway, and where the grade cap only just reached
-                # the run's start the solver humped the Vincent Thomas Bridge 5 m over its span (2026-10-28)
+                # the run's start the solver humped the Vincent Thomas Bridge 5 m over its span
                 c_low = min(c, water_clear(run + (s[1] - s[0])))
                 if nav > 0 and channel > 0 and 3 * channel < run:      # (a river crossing: its whole run)
                     seg = np.arange(i, j + 1)
@@ -4488,7 +4488,7 @@ class BridgeProfiles:
         parts, roads_ = self._cell_entries(key)
         for k, v in parts:
             # a part in several cells can come clipped differently: the longest (the same part whichever
-            # cell a process loads first: the terrain and the road tiles took different ones, 2026-10-17)
+            # cell a process loads first: the terrain and the road tiles took different ones)
             old = pool.get(k)
             if old is None or v[4] > old[4]:
                 pool[k] = v
@@ -4498,7 +4498,7 @@ class BridgeProfiles:
 
     def _cell_entries(self, key):
         """([((fid, j), (spec, deck line, lon, level, ring points))], [((fid, "g"), [ground lines])]) of cell key, made
-        once (every chain solved gathered its cells again: each a loop over all their roads, 2026-10-25). Not to be
+        once (every chain solved gathered its cells again: each a loop over all their roads). Not to be
         changed by the caller."""
         cache = self.__dict__.setdefault("cell_entries", {})
         with self.lock:
@@ -4531,7 +4531,7 @@ class BridgeProfiles:
                         lines.append(np.stack([e, n], axis=1))
                     roads_.append(((fid, "g"), lines))
                 elif _rail_drawn(feats, i):
-                    # a railway on the ground: the decks over it keep their headroom too (GitHub #324: a road bridge
+                    # a railway on the ground: the decks over it keep their headroom too (a road bridge
                     # lay on the tracks; only roads under a deck were counted)
                     import railways
                     lines = []
@@ -4595,7 +4595,7 @@ class BridgeProfiles:
                 crossing.setdefault(keys[a], set()).add(keys[b])
                 crossing.setdefault(keys[b], set()).add(keys[a])
             # and side by side / one over the other (solved apart, the Queensboro Bridge's two upper roadways met at
-            # a 0.5 m step and its tiles' decks at different heights stood as blocks in the lanes, 2026-10-17)
+            # a 0.5 m step and its tiles' decks at different heights stood as blocks in the lanes)
             for a, b in _deck_beside([pool[k][1] for k in keys], [pool[k][0].width for k in keys]):
                 crossing.setdefault(keys[a], set()).add(keys[b])
                 crossing.setdefault(keys[b], set()).add(keys[a])
@@ -4619,7 +4619,7 @@ class BridgeProfiles:
                 for p in (xy[0], xy[-1]):
                     deg[nk(p)] = deg.get(nk(p), 0) + 1
             # the loose ends first, in key order: a cell loaded can put a longer copy of a part in the pool (_load), whose
-            # ends deg never saw (KeyError: a Chicago road tile on a Windows test PC, 2026-10-24), and the set's order
+            # ends deg never saw (KeyError: a Chicago road tile on a Windows test PC), and the set's order
             # changes with each process's string hashing (which cells CHAIN_CELLS let in)
             ends = [p for k in sorted(comp) for p in (pool[k][1][0], pool[k][1][-1]) if deg[nk(p)] == 1]
             grew = False
@@ -4703,7 +4703,7 @@ class BridgeProfiles:
         deficits = _clearance_deficits(lines, zs, required + [r[:3] for r in rails], depth)
         if deficits:
             # (debug: a city has hundreds of such bridges, each solved again in every process and tile; as a warning it
-            # filled players' consoles, GitHub #391, TGForever Discord 2026-10-28)
+            # filled players' consoles, TGForever Discord)
             log.debug("bridge clearance below %.1f m target: %s; abutment/grade or map constraints prevent full headroom",
                       MIN_BRIDGE_HEADROOM_M, [(comp[i], round(h, 2)) for i, h in deficits[:3]])
         simple = _simple_chain(lines)           # (a single deck or a twin bridge only)
@@ -4759,7 +4759,7 @@ class BridgeProfiles:
             deg[b] = deg.get(b, 0) + 1
         # a joint a ground road goes on from (pins: the solve's abutment there) keeps the solve's height, the graded
         # road's, as an abutment does: eased to the decks' measured mean, the street went on 2.5 m over them (Charles
-        # Street over I-83 in Baltimore, 2026-10-29)
+        # Street over I-83 in Baltimore)
         if pins is not None and len(pins):
             P = np.asarray(pins, np.float64).reshape(-1, 2)
             for i_, (a, b) in enumerate(ends):
@@ -4945,7 +4945,7 @@ class BridgeProfiles:
 
     def _gap(self, lines, nav, depth=None):
         """Clearance requirements where the sea's depth knows no water but the inventory gives the bridge a
-        navigation clearance (a river: the Calcasieu, the Mississippi at New Orleans, 2026-10-19 stayed 10-14 m up
+        navigation clearance (a river: the Calcasieu, the Mississippi at New Orleans, stayed 10-14 m up
         under a 41-46 m clearance): every WATER_STEP_M along the chain's low stretch (ground within GAP_LOW_M of its
         lowest point, which lies at sea level, GAP_SEA_M at most, and GAP_DIP_M or more under the chain's highest
         end), nav plus the slab and girders over it. Only at sea level: up a river the inventory's clearances are
@@ -4982,7 +4982,7 @@ class BridgeProfiles:
                     continue
                 fid = str(feats.ids[i])
                 for j, ring in enumerate(self.parts_of(feats, i)):
-                    if (fid, j) in queued:          # a feature in several of the cells: once (2026-10-17: every
+                    if (fid, j) in queued:          # a feature in several of the cells: once (every
                         continue                    # part came once per cell it is in, decks made 2-3 times over)
                     e, n = mapgeom.enu_xy(feats, self.frame, ring)
                     if e.max() < x0 - NEAR_M or e.min() > x1 + NEAR_M or n.max() < y0 - NEAR_M or n.min() > y1 + NEAR_M:
@@ -5184,7 +5184,7 @@ def tunnel_sections(s, g, open_cover=None, full_cover=None, min_m=SECTION_MIN_M)
     lower convex hull of (s, g), the road's level under the covered parts and the ground where it lies open; kinds per
     sample: 0 open road, 1 a low arch, 2 a full tunnel (a run with TUNNEL_OPEN_COVER over the floor, full where it
     reaches TUNNEL_COVER; runs and gaps shorter than min_m merged away). One long 'tunnel' in the map can be a sunken
-    road with arches and a rock tunnel along it (Central Park's 79th Street Transverse, 683 m: one tube, 2026-10-17).
+    road with arches and a rock tunnel along it (Central Park's 79th Street Transverse, 683 m: one tube).
     The Rust kernel (fast). Pure."""
     s = np.ascontiguousarray(s, np.float64)
     g = np.ascontiguousarray(g, np.float64)
@@ -5492,7 +5492,7 @@ class TunnelProfiles(BridgeProfiles):
     ends = None     # ends(lat, lon) -> the graded ground (its portals' floor: portal_ends), else the profiles' elev. At one DEM
                     # zoom (grading.PROFILE_ZOOM) in every process: the terrain blocks and the road tiles are built in
                     # different processes at different zooms, and cut 97th Street's arch 15 m apart: its west mouth
-                    # filled with ground behind the portal face (2026-10-17)
+                    # filled with ground behind the portal face
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
@@ -5517,7 +5517,7 @@ class TunnelProfiles(BridgeProfiles):
     @staticmethod
     def _part_id(key):
         # one feature can come as several parts (clipped differently in the map cells around: 97th Street's arch as
-        # 45 m and 30 m pieces, the shorter one's sections cut the longer one's terrain 15 m short, 2026-10-17)
+        # 45 m and 30 m pieces, the shorter one's sections cut the longer one's terrain 15 m short)
         return f"{key[0]}.{key[1]}"
 
     def _commit(self, k, ground=None):
@@ -5545,7 +5545,7 @@ class TunnelProfiles(BridgeProfiles):
         """Mark every part of the chain comp drowned when one of its parts is under water for more than
         TUNNEL_WET_SHARE of its points: an underwater tunnel is left out whole. Overture splits one into pieces (the
         Burnley Tunnel, Melbourne: the piece under the Yarra was left out, the dry piece from Batman Avenue to the
-        bank was built, an open trench across the avenue with its mouth at the river; GitHub #128)."""
+        bank was built, an open trench across the avenue with its mouth at the river)."""
         if self.wet is None:
             return
         wet = False
@@ -5565,7 +5565,7 @@ class TunnelProfiles(BridgeProfiles):
             w = np.asarray(self.wet(la, lo), np.float64) > 0.5
             if w.any() and low is not None:
                 # (water far above the portals is a mountain lake over a deep tunnel, not a river over a shallow one:
-                # one pond 900 m over the Gotthard road tunnel left all 17 km of it out, 2026-10-28)
+                # one pond 900 m over the Gotthard road tunnel left all 17 km of it out)
                 g = np.asarray(gfn(xy), np.float64)
                 w &= ~(g - low > TUNNEL_WET_COVER_M)
             if w.mean() > TUNNEL_WET_SHARE or wet_run_inside(xy, w) >= TUNNEL_WET_RUN_M:
@@ -5658,7 +5658,7 @@ class TunnelProfiles(BridgeProfiles):
                     base = float(np.percentile(c_[k0:k1], 20))
                     # nor over the thinnest cover along it (ARCH_SIZE_SKIP_M at its mouths aside, where the ground
                     # rises over it): the vault follows a sloping floor, and sized from the middle it rose out of the
-                    # ground near a mouth, its stone top 2 m over the E6 beside it (an underpass in Norway, GitHub #2)
+                    # ground near a mouth, its stone top 2 m over the E6 beside it (an underpass in Norway)
                     s_ = s[a:b + 1]
                     inner = (s_ >= s_[0] + ARCH_SIZE_SKIP_M) & (s_ <= s_[-1] - ARCH_SIZE_SKIP_M)
                     if inner.any():
@@ -5770,7 +5770,7 @@ class TunnelProfiles(BridgeProfiles):
 
     def _cover_roads(self, xy, s, kinds, ground):
         """kinds with each covered section carried on until the ground roads crossing over it are covered (their
-        carriageway and TUNNEL_ROAD_CLEAR_M past it): earthfast.tunnel_cover_roads (GitHub #450)."""
+        carriageway and TUNNEL_ROAD_CLEAR_M past it): earthfast.tunnel_cover_roads."""
         lines, halves = [], []
         for gk, lns in (ground or {}).items():
             hw = self._hw.get(gk)
@@ -5787,7 +5787,7 @@ class TunnelProfiles(BridgeProfiles):
         """A low arch's stone tops (roadmesh.LOW_CAP_M back from each portal face over its mouth) and face reaches where
         a road on the ground runs over a mouth (not one joined there: ends of it within ROAD_CAP_JOIN_M): the top stops
         ROAD_CAP_GAP_M short of the carriageway, the face ROAD_CAP_OVER_M over the road at most (an underpass under
-        the E6 in Norway: its stone top 1.7 m over the lanes, 4 m into them, GitHub #2). ((start, end) depths or None
+        the E6 in Norway: its stone top 1.7 m over the lanes, 4 m into them). ((start, end) depths or None
         where nothing changes, ups)."""
         import fast
         import roadmesh
@@ -5838,7 +5838,7 @@ class TunnelProfiles(BridgeProfiles):
     def portal_ups(self, fid):
         """(at the part's start, at its end): the portal faces' reach over the vault, PORTAL_GROUND_M over the ground
         just inside (within PORTAL_LOOK_M), PORTAL_UP_MIN..roadmesh.PORTAL_FRAME (a 6 m frame stood ~10 m over the
-        flat park at the 79th Street Transverse, 2026-10-17); the full frame when not known."""
+        flat park at the 79th Street Transverse); the full frame when not known."""
         import roadmesh
         with self.lock:
             return self.ups.get(fid, [roadmesh.PORTAL_FRAME, roadmesh.PORTAL_FRAME])
@@ -5877,7 +5877,7 @@ class TunnelProfiles(BridgeProfiles):
         with self.lock:
             opened = set(self.open)
         # (an open section under water is an underwater tunnel with no ground over it: the Sydney Harbour Tunnel
-        # was drawn as a road across the harbour, 2026-10-18)
+        # was drawn as a road across the harbour)
         return self._dry([p for p in self._split(whole) if p[0] in opened])
 
     def parts(self, cells_feats, box):
@@ -5926,14 +5926,14 @@ class TunnelProfiles(BridgeProfiles):
             xy = np.asarray(p[2], np.float64)
             la, lo, _ = self.frame.enu_to_geodetic(xy[:, 0], xy[:, 1], 0.0)
             # under water for a good part of it (a portal on a river bank, Fort Pitt's east end 0.6 m "in" the
-            # Monongahela, is not: that dropped one of its two tubes, 2026-10-17)
+            # Monongahela, is not: that dropped one of its two tubes)
             if (np.asarray(self.wet(la, lo)) > 0.5).mean() <= TUNNEL_WET_SHARE:
                 keep.append(p)
         return keep
 
 
 class ChainStore:
-    """Bridge (or tunnel) chain profiles shared by every anchor of a process (geotiles, 2026-10-29): one
+    """Bridge (or tunnel) chain profiles shared by every anchor of a process (geotiles): one
     BridgeProfiles / TunnelProfiles per geotiles.CHAIN_Z region in that region's frame (a WorldFrame: nearly level
     over a chain), a part asked for in the store of its first point's region, a chain solved in the store of its first
     part's (owner_of): one deck profile per chain, whatever the anchor or the store a tile asks. cell_fn, elev (the
@@ -6202,7 +6202,7 @@ class ChainView:
 
 def wet_run_inside(xy, wet):
     """The longest run (m) of wet points along the line xy that touches neither end: a tunnel under a river (the
-    Burnley Tunnel's 70 m under the Yarra, 2 % of its 3.2 km, GitHub #128), not one whose portal is on a bank (Fort
+    Burnley Tunnel's 70 m under the Yarra, 2 % of its 3.2 km), not one whose portal is on a bank (Fort
     Pitt's east end 0.6 m "in" the Monongahela). earthfast.wet_run_inside (Rust)."""
     import fast
     fast.require(48, "wet_run_inside")
@@ -6309,7 +6309,7 @@ def arch_raise(parts, heights, px, py, z, mouths=None):
     parts; heights: their tubes, TunnelProfiles.heights) to ARCH_SOIL_MIN over the vault, beside it too, but for
     their mouths (LOW_HOLE_M, cut there by tunnel_hole_mask): the ground dipping into a low tube near its mouths
     made one-sided terrain triangles from the road's level up to the soil, seen as dark wedges in the opening from
-    outside (Central Park, 2026-10-17). Pure."""
+    outside (Central Park). Pure."""
     import fast
     import roadmesh
     z = np.array(z, np.float64, copy=True)
@@ -6461,7 +6461,7 @@ HOLE_JOIN_M = 3.0           # m: a road with an end this near a tunnel part's en
 def spare_carriageways(mask, parts, cells, frame, cx, cy, square):
     """mask with the hole samples inside the carriageway of a ground road that is not the tunnel's (another feature, not
     an approach joined at a mouth) filled again: a portal's opening reaching into a road beside or over it left a hole in
-    its lanes (GitHub #450, the A-7 near Málaga, a 2 m drop at the edge of a carriageway beside an underpass's mouth)."""
+    its lanes (the A-7 near Málaga, a 2 m drop at the edge of a carriageway beside an underpass's mouth)."""
     import fast
     own = {str(p[0]).split("#")[0] for p in parts}
     ends = np.array([np.asarray(p[2], np.float64)[k, :2] for p in parts for k in (0, -1) if len(p[2])], np.float64)
@@ -6509,7 +6509,7 @@ WALL_TAPER_LOW_M = 0.6  # ... to this over the road
 WALL_SLAB_DZ = 0.8      # m the ground behind a wall may fall under its top before the top ends there ...
 WALL_COPING_MIN_M = 0.5  # ... at least its coping
 WALL_DIAG_M = 2.9       # the terrain lattice's diagonal (heightmap.SQUARE 2 m)
-# a major road's cutting is walled in concrete (Munich's McGraw-Graben, Mapillary 2026-10-21), a smaller road's in stone
+# a major road's cutting is walled in concrete (Munich's McGraw-Graben, Mapillary), a smaller road's in stone
 # (Central Park's transverses)
 CONCRETE_WALL_CLASSES = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"}
 WALL_EVEN_N = 2         # a wall's top as deep as its deepest within this many WALL_STEPs either side
@@ -6518,11 +6518,11 @@ WALL_STEP_UP_M = 0.5     # m the graded ground climbs over the road where a wall
 
 WALL_KEEP_M = 1.2       # m: a wall goes on while the cut stays this deep (it starts at grading.WALL_CUT_M) ...
 WALL_GAP_N = 3          # ... over gaps of up to this many WALL_STEPs, and none shorter than WALL_MIN_N (the cut's depth
-WALL_MIN_N = 3          # wavered round 2 m: stubs of wall with gaps, the 97th Street Transverse, 2026-10-17)
+WALL_MIN_N = 3          # wavered round 2 m: stubs of wall with gaps, the 97th Street Transverse)
 # A wall stands only where the graded ground behind its face climbs at least this steeply (m per m, its median over
 # the wall; across WALL_STEEP_SPAN from 1 m in front of the face): the step the grading cut. A natural bank the
 # terrain already draws as a slope is no cutting: a 1.5 m concrete wall stood in front of a low eroded bank beside
-# US-163 in Utah (its ground rose 0.4-1.2 m per m; Munich's McGraw-Graben's cut walls 5-9, measured 2026-10-29)
+# US-163 in Utah (its ground rose 0.4-1.2 m per m; Munich's McGraw-Graben's cut walls 5-9, measured)
 WALL_STEEP = 2.0
 WALL_STEEP_SPAN = (-1.0, 6.0)
 
@@ -6640,7 +6640,7 @@ WALL_TOP_EDGE_M = 0.3   # a road surface goes this far onto a wall's top at most
 
 def _taper(xy, run):
     """Per point of a road's wall sample line xy (k, 2): its wall's height factor, 0 at the ends of each run of run (k,)
-    rising (smoothstep) to 1 over WALL_TAPER_M (no full-height wall ending in a cliff, the user 2026-10-21). Pure."""
+    rising (smoothstep) to 1 over WALL_TAPER_M (no full-height wall ending in a cliff). Pure."""
     s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(np.asarray(xy, np.float64)[:, :2], axis=0).T))]
     f = np.zeros(len(xy))
     i = 0
@@ -6661,7 +6661,7 @@ def _taper(xy, run):
 class _Segs:
     """others {fid: (centreline (m, 2), half width)} as one table of segments (a, b, half width, its road's fid), with
     each segment's box: the carriageway tests below in one Rust call each (one per road cost retaining_walls ~2 s of
-    a Canton tile set, 2026-10-25)."""
+    a Canton tile set)."""
 
     def __init__(self, others):
         rows = [(f, np.asarray(ln, np.float64), h) for f, (ln, h) in others.items() if len(ln) >= 2]
@@ -6716,7 +6716,7 @@ def _clear_depth(base, out, depth, others, own):
     return np.minimum(np.asarray(depth, np.float64), np.maximum(first, 0.0))
 
 
-# Rock cliffs (the user, 2026-10-21, after the official maps: Italy's and West Coast USA's rural cuts are rock-face meshes
+# Rock cliffs (after the official maps: Italy's and West Coast USA's rural cuts are rock-face meshes
 # sunk into the slope, overlapping): a rural road's retaining wall is drawn as Italy's rock-face pieces (trees.lua group
 # "cliff") along its face instead of stone. (shape height m, its bottom under the pivot as a share of it, its depth in
 # front of the pivot m per unit scale, its width m, its depth m)
@@ -6730,7 +6730,7 @@ CLIFF_EDGE_M = 0.5      # m off the carriageway's edge the pieces' fronts stand
 CLIFF_ROAD_GAP_M = 0.3  # m a piece's footprint keeps from any carriageway
 
 
-# Parapets (the Stelvio Pass, Mapillary 2026-10-21: a low dry-stone wall along the outside of every bend and drop): a
+# Parapets (the Stelvio Pass, Mapillary: a low dry-stone wall along the outside of every bend and drop): a
 # rural road (not a motorway / trunk: guardrails there) whose ground falls PARAPET_DROP_M or more within PARAPET_PROBE_M of
 # its edge gets a stone parapet just off its carriageway, not across a road joining it.
 PARAPET_DROP_M = 2.0
@@ -6866,8 +6866,8 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
     flat core (as grading plans it), from the road level up to the ground behind; none where another road comes in
     (its ground is graded to the road), nor under a bridge deck (decks: the deck chunks near the tile; the ground beside
     a motorway under an overpass is its abutment's fill, and the wall rose through the deck, the user's report on the
-    Bruce Highway, 2026-10-21). Central Park's 86th Street Transverse between its stone walls (the user's photos,
-    2026-10-17). Pure given elev."""
+    Bruce Highway). Central Park's 86th Street Transverse between its stone walls (
+   ). Pure given elev."""
     import grading
     import roadmesh
     x0, y0, x1, y1 = exact
@@ -6905,7 +6905,7 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
     g = ground(np.concatenate(pts_all))
     # the graded ground at the steps out from the road only where a wall or a parapet can stand: a side whose probe
     # finds no cutting (_wall_runs) and that gets no parapets has no use for them (most of a town's streets: 8 of 9 of
-    # the ground lookups, 2026-10-25)
+    # the ground lookups)
     probes, k = [], 0
     for xy, z, out_n, core, inside, rh, steps, concrete, fid, rural, parapets, max_h in info:
         gg = g[k:k + len(xy)]
@@ -6949,14 +6949,14 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
             top_g = np.maximum(gg, np.where(under, gs, -np.inf).max(axis=1))
             # (and never past where the ground behind falls away again: between a hairpin's legs the bank tops out
             # and drops to the other leg, and the top hung out over that slope, its underside seen from the road
-            # above, the Stelvio Pass 2026-10-21)
+            # above, the Stelvio Pass)
             low = (gs < (top_g - WALL_SLAB_DZ)[:, None]) & (steps[None, :] > (face + 1.0)[:, None])
             reach = np.where(low.any(axis=1), steps[np.argmax(low, axis=1)] - face, np.inf)
             thick = np.minimum(thick, np.maximum(reach - 0.5, WALL_COPING_MIN_M))
         if parapets and need:
             out.extend(_parapets(xy, z, out_n, rh, inside, steps, gs, others, fid, decks))
         full = _wall_runs(gg - z) & ~_under_decks(xy + out_n * core, z, decks) & ~bends
-        # (no face standing on a carriageway: a hairpin's other leg, the same road, the Stelvio Pass 2026-10-21)
+        # (no face standing on a carriageway: a hairpin's other leg, the same road, the Stelvio Pass)
         full &= ~_on_carriageways(xy + out_n * face[:, None], others, 0.0)
         # (its ends lowered over WALL_TAPER_M toward the road, the whole wall's ends, not a tile edge's)
         taper = _taper(xy, full)
@@ -6980,12 +6980,12 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
                     i = j + 1
                     continue
                 # (never over another road: a hairpin's wall top covered the road above, the Stelvio Pass, the user's
-                # report 2026-10-21)
+                # report)
                 th = np.minimum(th, _clear_depth(base, out_n[sl], th, others, fid))
                 tp = np.minimum(top_g[sl], z[sl] + max_h) + WALL_TOP_M      # (no taller than that)
                 tp = z[sl] + WALL_TAPER_LOW_M + (tp - z[sl] - WALL_TAPER_LOW_M).clip(0) * taper[sl]
                 # (rock faces only as an experiment, BNE_CLIFF_WALLS=on, for tall rural cuts: the Stelvio's hairpins are
-                # walled in dry stone, tall cuts too, Mapillary 2026-10-21; the user chose stone walls for passes)
+                # walled in dry stone, tall cuts too, Mapillary; the user chose stone walls for passes)
                 tall = CLIFF_WALLS_ON and float(np.max(top_g[sl] - z[sl])) > CLIFF_MIN_CUT_M
                 out.append({"base": base, "top": np.maximum(tp, z[sl] + WALL_TAPER_LOW_M), "foot": z[sl] - WALL_FOOT_M,
                             "toward": -out_n[sl], "thick": th, "concrete": concrete, "rock": rural and tall,
@@ -6997,7 +6997,7 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
 
 
 TWIN_SHARE = 0.8        # a tunnel part beside another for this share of its length (their tubes overlapping) ...
-TWIN_DZ_M = 2.0         # ... with its floor within this of the other's: twin tubes, one tube round both (GitHub #84:
+TWIN_DZ_M = 2.0         # ... with its floor within this of the other's: twin tubes, one tube round both (
                         # the Route des Tamarins' two carriageways 9.5 m apart on Réunion, each an 11 m road in its own
                         # tube, the tubes through each other's walls and portals)
 TWIN_STEP_M = 10.0
@@ -7126,7 +7126,7 @@ def _tunnel_chunks(tunnels, cells, exact, terrain_paint=True):
                         if len(c) >= 2:
                             # on the ground as any road (the grading lays the ground at its floor, Grader._open_tunnels:
                             # at the floor's own heights the ground graded from the grader's profile covered it
-                            # outside 97th Street's arch, 2026-10-17)
+                            # outside 97th Street's arch)
                             out.append(_chunk(look, w, c))
     parts = [p for p in tunnels.parts(cells, exact) if np.isfinite(p[3]).all()]
     twins = twin_tunnels(parts)
@@ -7227,7 +7227,7 @@ def _bridge_chunks(frame, bseen, elev, exact, bridges=None, cells=None):
         k += len(xy)
         if not np.isfinite(z).all():
             continue
-        # never below the ground under it (2026-10-11: abutments on low spots buried decks), then
+        # never below the ground under it (abutments on low spots buried decks), then
         # smoothed along it like a road profile (the ends keep their heights: the abutments)
         g = g + DECK_CLEAR
         z = np.maximum(z, g)
@@ -7240,7 +7240,7 @@ def _bridge_chunks(frame, bseen, elev, exact, bridges=None, cells=None):
 
 DECK_CONTEXT_M = 24.0   # m around a tile its bridges' decks are passed as context (roadmesh.deck: whether an edge has
                         # another deck beside it; a parapet stood across the lanes at a tile seam, the deck beside it
-                        # in the next tile, Queensboro Bridge 2026-10-17)
+                        # in the next tile, Queensboro Bridge)
 
 
 def _deck_look(spec):
@@ -7359,7 +7359,7 @@ def tilt_rows_on_decks(rows, parts, bridges):
 # convex hull of their carriageways within PAD_REACH_M of the joint is paved at their heights (roadmesh.deck draws it,
 # colliding): the corner of a turn, the wedge where a ramp leaves, a wider deck's edge past a narrower street's. The map
 # leaves those open, over whatever lies under the bridge: at North Charles Street over I-83 in Baltimore the AI cut the
-# corner onto the station's road and fell 6 m into the motorway's cut, 2 of 2 runs (2026-10-29). None where a deck simply
+# corner onto the station's road and fell 6 m into the motorway's cut, 2 of 2 runs. None where a deck simply
 # goes on straight from another part (BNE_DECK_PADS=off: none at all).
 PADS_ON = os.environ.get("BNE_DECK_PADS", "on") != "off"
 PAD_REACH_M = 12.0
@@ -7374,7 +7374,7 @@ PAD_MIN_PARTS = 3
 # The pad reaches PAD_MARGIN_M past the carriageways (a turn cut across the corner stays that far from its rim); the
 # decks' parapets stand nowhere inside it, and its rim has a railing where the ground under it lies PAD_WALL_DROP_M or
 # more lower, except where a carriageway leaves it (within its half width + PAD_OPEN_M): the station road's parapet
-# began at the joint, in the turn's path, and the AI clipped its end (Charles Street over I-83, 2026-10-29).
+# began at the joint, in the turn's path, and the AI clipped its end (Charles Street over I-83).
 PAD_MARGIN_M = 2.5
 PAD_OPEN_M = 0.75
 PAD_WALL_DROP_M = 1.0
@@ -7492,7 +7492,7 @@ def _deck_chunks(decks, exact, ground_fn=None, depths=None, banks=None):
     for i, (fid, spec, pts, lon) in enumerate(decks):
         abut.setdefault(fid, []).extend(_abutments(pts, ground_fn))
         # an end no other deck part goes on from is an end of its parapets too (it stood there full height, square, on
-        # the slab's edge: a short channel bridge's ends on the Sunshine Skyway causeway, 2026-10-27)
+        # the slab's edge: a short channel bridge's ends on the Sunshine Skyway causeway)
         for i2, e, q in ends:
             if i2 != i:
                 continue
@@ -7583,7 +7583,7 @@ GOING_ON_DEG = 20.0     # a road whose end meets another's end turning by under 
 def _going_on(roads):
     """{(fid, fid2)} (both ways) of the roads [(fid, spec, pts (k, 3), lon)] whose gravel edge decals need not keep
     EDGE_DECAL_GAP_M off each other's carriageway (meant for a ramp's gore, it left a ~10 m gap on the far side of every
-    T junction, the user 2026-10-28, Carroll County MD): roads at one junction node, not both one-way (a merge's or a
+    T junction, Carroll County MD): roads at one junction node, not both one-way (a merge's or a
     diverge's gore keeps it) and the second without sidewalks (its slab's end), and a road going on in another at a
     shared end (the map splits a road at every junction:
     the straightest of each other's there). Pure."""
@@ -7723,13 +7723,13 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         galleries.extend(tile_galleries(frame, tunnels, cells, elev, own_box))
     roads = []                                  # (fid, spec, centreline (k, 3), lon) near the tile
     if rings:                                   # one elevation call for every ring (the grader's cost
-        lon = np.concatenate([r[:, 0] for _, _, r in rings])     # is per call: 2026-10-11 profile,
+        lon = np.concatenate([r[:, 0] for _, _, r in rings])     # is per call: profile,
         lat = np.concatenate([r[:, 1] for _, _, r in rings])     # 1,240 calls took 7 of a tile's 8 s)
         h = np.asarray(elev(lat, lon), np.float64)
         # east / north of the point at h = 0, as the ground's (heightmap.surface: its samples' lat / lon at plane
         # z 0) and every outline's (mapgeom.enu_xy); up of the point at its height. At its height the point lands
         # h x distance / earth radius farther out: US-163 in Utah at 1650 m, 13 km out, the lines lay 2.8 m east and
-        # 2.0 m north of the asphalt and grip painted into the ground (the user's screenshot, 2026-10-29)
+        # 2.0 m north of the asphalt and grip painted into the ground
         e, n, _ = frame.geodetic_to_enu(lat, lon, 0.0)
         u = frame.geodetic_to_enu(lat, lon, h)[2]
         k = 0
@@ -7739,7 +7739,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                           float(np.mean(ring[:, 0]))))
             k += m
     # Geometric roundabout rings (islands.ring_directions): Overture often leaves junction=roundabout and oneway
-    # off the ring ways (Chavagnes-en-Paillers 2026-10-28). No parking / inferred sidewalks on the ring, one-way so
+    # off the ring ways (Chavagnes-en-Paillers). No parking / inferred sidewalks on the ring, one-way so
     # centre lines are not painted through the circle. Short approaches that meet the ring lose sidewalks too:
     # their stubs against the circle were rectangular concrete blocks.
     ring_dir = {}
@@ -7760,8 +7760,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         roads_out.extend(roads)
     if cover_out is not None:
         # the ground carriageways for the decks' parapet test (roadmesh.deck ground=): drawn or painted into the ground,
-        # a deck at grade across one has no parapet over its lanes (GitHub #96). With the roads in the ground there
-        # were none, and a small bridge's wall stood across the road at its end (GitHub #258)
+        # a deck at grade across one has no parapet over its lanes. With the roads in the ground there
+        # were none, and a small bridge's wall stood across the road at its end
         for fid, spec, pts, _ in roads:
             for piece in clip_polyline(pts, x0 - COVER_MARGIN_M, y0 - COVER_MARGIN_M, x1 + COVER_MARGIN_M,
                                        y1 + COVER_MARGIN_M):
@@ -7800,7 +7800,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         chunks.extend(tch)
         import roadmesh
         # (retaining walls: none in a tube either, its vault over them; between twin tunnels' carriageways one stood in
-        # their shared mouth, GitHub #84)
+        # their shared mouth)
         for c in tch:
             if c.get("tunnel") and not c.get("no_tube"):
                 n = np.array(c["n"], np.float64)
@@ -7826,7 +7826,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     corners, jcuts, crosswalks, jramps, jlines, jinternal = ({}, {}, [], {}, {}, set()) if walks is None else \
         junctions.find(roads, has_sidewalks, None)
     # (no curb extensions: they were on every town street with parking, after Fells Point's, and most streets have none:
-    # the corners stuck out into the road in Tustin's suburbs, GitHub #208)
+    # the corners stuck out into the road in Tustin's suburbs)
     # small road loops (roundabouts, turnaround loops): no sidewalks facing their inside, a curbed island instead
     import islands
     isl = islands.find(roads, structures=structures) if walks is not None else []
@@ -7860,7 +7860,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             if isl and islands.in_island(isl, p[:2]):
                 continue                        # a curb return inside a loop: its island has its own curb
             # a curb return on the circulatory roadway or at a ring entry (approach sidewalks meeting there): the
-            # ring has no sidewalk, so the corner was a rectangular block on the asphalt (PR #468)
+            # ring has no sidewalk, so the corner was a rectangular block on the asphalt
             if any(float(np.hypot(*(p[:2] - f["poly"].mean(0))))
                    < float(np.max(np.hypot(*(f["poly"] - f["poly"].mean(0)).T))) + islands.ENTRY_CLEAR_M
                    for f in isl if f.get("round")):
@@ -7912,10 +7912,10 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                     chunks.append(_chunk(gore_look, gw, c))
     runs_near = []                              # sidewalk runs near the tile, before clipping (walks: below)
     # a parking aisle lies in a paved lot (painted asphalt: surface.photo_lots): no gravel edge along it (a dirt strip
-    # stood across the asphalt between the stall rows, Canton, 2026-10-28)
+    # stood across the asphalt between the stall rows, Canton)
     lot_aisles = {fid for fid, (f, i, sp) in seen.items()
                   if sp.kind == "paved" and _rule_value(f.rules.get("subclass"), i) == "parking_aisle"}
-    # rounded corners where curbless paved roads meet (roadcorners.py, from PR #363): their fills when the roads are
+    # rounded corners where curbless paved roads meet (roadcorners.py): their fills when the roads are
     # meshes (else painted into the ground: surface.py), the gravel edge decal along each arc and a curved edge line
     # where both roads have them; corner_cuts end those road sides' straight edge lines and decals at the tangents
     import roadcorners
@@ -8011,7 +8011,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     if lines is not None:                           # the centrelines near the tile (buildings' front doors)
         lines.extend((pts[:, :2], spec.width / 2, spec.cls, spec.urban) for _, spec, pts, _ in roads)
     if props is not None and walks is not None:     # street lights and utility poles (furniture.py)
-        # (the speed-limit signs are the sign tiles' since 2026-10-28: speedsigns.py)
+        # (the speed-limit signs are the sign tiles' since: speedsigns.py)
         import furniture
         decks = [(np.asarray(ch["n"], np.float64), ch["w"] / 2) for ch in chunks if ch.get("deck")]
         props.extend(furniture.place(roads, walks, own_box, wires=wires, town=bool(town), left_hand=left_hand,
@@ -8148,7 +8148,7 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
     import sidewalks
     name = f"roads_{aid}_{tx}_{ty}.json"
     path = os.path.join(out_dir, name)
-    # (from PR #41, Madderose) with a road mesh the mod makes no DecalRoads: their chunks were ~36 % of the file it
+    # (from, Madderose) with a road mesh the mod makes no DecalRoads: their chunks were ~36 % of the file it
     # parses on its main thread
     data = {"v": VERSION, "chunks": [] if road_mesh is not None or not decals else
             [c for c in chunks if not c.get("tube_only")]}
@@ -8261,7 +8261,7 @@ def collider_boxes(walks, chunks):
     """{"walk": [...], "deck": [...]}: boxes [x0, y0, z0, x1, y1, z1] (anchor frame, m) around the
     sidewalk runs / corners and the bridge decks of a tile, in pieces of COLLIDER_PIECE_M. The mod
     does not make a colliding mesh solid while the player's vehicle is inside one of its boxes (a late
-    curb or deck turning solid around a car; the intermittent NaN drives, 2026-10-13). Pure."""
+    curb or deck turning solid around a car; the intermittent NaN drives). Pure."""
     import roadmesh
     import sidewalks
     out = {}

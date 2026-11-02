@@ -34,7 +34,7 @@ class IslandTest(unittest.TestCase):
         ow = roads.Spec(6.0, "paved", True, "residential", True)
         rs = [("r1", ow, arc(16, 0, math.pi), 0.0), ("r2", ow, arc(16, math.pi, 2 * math.pi), 0.0)]
         self.assertEqual(len(islands.find(rs)), 1)
-        # a turn lane across it, joined to neither half at the loop's corners (Timisoara 2026-10-15)
+        # a turn lane across it, joined to neither half at the loop's corners (Timisoara)
         lane = ("lane", ow, np.array([(-30.0, 3.0, 0.0), (30.0, 3.0, 0.0)]), 0.0)
         self.assertEqual(islands.find(rs + [lane]), [])
 
@@ -61,7 +61,7 @@ class IslandTest(unittest.TestCase):
 
     def test_large_roundabout_gets_an_island(self):
         # diameter ~44 m: above the old 1200 m2 cap, so inner sidewalks used to stay as four arcs at the entries
-        # (Chavagnes-en-Paillers 2026-10-28)
+        # (Chavagnes-en-Paillers)
         ow = roads.Spec(5.5, "paved", True, "tertiary", True, 2.5, 1)
         two = roads.Spec(9.0, "paved", True, "tertiary", False)
         R = 22.0
@@ -141,7 +141,7 @@ class IslandTest(unittest.TestCase):
     def test_roundabout_on_a_tile_corner_curb_shared_by_its_tiles(self):
         # a roundabout on the corner of four tiles: each tile its part of the curb (clipped to its box; a geotile's
         # skin cuts them at its quad), together all the way round with no gap, and the same vertices either side of a
-        # seam (the whole ring simplified before it is clipped). (PR #468 gave the whole curb to the tile with the
+        # seam (the whole ring simplified before it is clipped). (gave the whole curb to the tile with the
         # island's centre: with the geotiles' skins clipping at the quad the other three quarters were lost.)
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from test_roads import FRAME, flat, features, rules

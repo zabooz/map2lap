@@ -1,4 +1,4 @@
-"""Speed-limit signs along the roads (the user, 2026-10-28: "speed limit panels could be a good fallback in case osm is
+"""Speed-limit signs along the roads ("speed limit panels could be a good fallback in case osm is
 missing data"): the glue of the native kernels earthfast.speed_sign_place (where they stand: changes of the limit,
 past major junctions, past motorway entrances, reminders on long stretches) and speed_sign_mesh (MUTCD R2-1 in the
 US, Rb-1 in Canada, the Vienna Convention's red ring elsewhere); the rules and their sources are there

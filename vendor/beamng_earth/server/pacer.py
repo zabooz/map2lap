@@ -1,10 +1,10 @@
-"""Duty-cycle pacing for the server's background analyses (2026-10-13).
+"""Duty-cycle pacing for the server's background analyses.
 
 The game's rendering is very sensitive to memory bandwidth: one numpy thread streaming large arrays made
 its shadow pass 5-6x slower (3.4 -> 19 ms), a pure CPU loop changed nothing (in-game, the server frozen
 for the comparison). The colour-seam and de-shadow analyses (colormatch.py, deshadow.py) are exactly that
 kind of work: ~24 s per region, region after region while the player explores, and they doubled the
-game's frame cost in ~15 s bursts (in-game 2026-10-13, the cycle stopped with the server frozen). Their
+game's frame cost in ~15 s bursts (in-game, the cycle stopped with the server frozen). Their
 results are cached per region forever, so they can take longer: a thread that calls enable(duty) sleeps
 at its pace() calls whenever it has been busy for SLICE_S, so that it runs at most `duty` of the time.
 
@@ -29,7 +29,7 @@ def idle():
 # While the player waits for a teleport's first terrain block (built in the server process), the server's background
 # loops (the place's trees, water, imagery and road plans made ahead of need) hold before their next item: they share
 # the interpreter with the block's grading, which took 10.6 s of a 16.9 s Baltimore block on a Steam Deck with them
-# running (1.3 s on a desktop, 2026-10-20). They never hold longer than HOLD_MAX_S.
+# running (1.3 s on a desktop). They never hold longer than HOLD_MAX_S.
 HOLD_MAX_S = 30.0
 
 _fg = [0]

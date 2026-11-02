@@ -1,4 +1,4 @@
-"""High-voltage power lines (the user, 2026-10-26, on "a map of all power lines and how they connect": "start with
+"""High-voltage power lines (on "a map of all power lines and how they connect": "start with
 1"): OpenStreetMap's power=line ways (Overture infrastructure class power_line; underground ones left out) as the
 stock lattice tower (Automation Test Track's / West Coast USA's pylon, 35.8 m: trees.lua group "pylon") at each of
 their vertices (the mapped towers) with six conductors (its double circuit: under the insulators of its three cross-arms)
@@ -14,7 +14,7 @@ import fast
 G_PYLON = "pylon"
 PYLON_H = 35.8              # m (the shape's height: trees.lua scales to it)
 # the conductors' attachment: the bottoms of the shape's insulator strings (lateral m, height m over its origin, which
-# sits on the ground with the legs 5.9 m below it; read from pylon.dae 2026-10-26: 3.27 m out at 12.43 / 16.20 / 20.01,
+# sits on the ground with the legs 5.9 m below it; read from pylon.dae: 3.27 m out at 12.43 / 16.20 / 20.01,
 # its base node scaled by 1.259; ARMS below)
 SAG = 0.03                  # the sag at mid-span per metre of span
 SEG_M = 10.0
@@ -22,11 +22,11 @@ MIN_SPAN_M, MAX_SPAN_M = 15.0, 2000.0
 DEDUPE_M = 6.0
 TOWER_ROAD_CLEAR_M = 6.0    # m off a public road's carriageway edge a tower's centre stands (its base ~10 m square):
                             # a line's mapped tower node a few metres off put a pylon on a highway's shoulder, in the way
-                            # (TGForever Discord, 2026-10-28)
+                            # (TGForever Discord)
 WIRE_R = 0.022              # the conductors' half width (West Coast USA's read about twice a street wire's)
 # The yards: West Coast USA's substation yard (-238, 20) as a kit, in its parts' own frame (its forest4 files'
 # rotationMatrix rows are the parts' axes; read across, every part sat turned 90 degrees and the busbars ended in the
-# air: the user, 2026-10-26, "alot of disconnected poles/pipes"): two bays 11.6 m apart, each a gantry
+# air: the user, "alot of disconnected poles/pipes"): two bays 11.6 m apart, each a gantry
 # (substation_truss: an 8 m beam ~9 m up, the line's conductors on its strain insulators 2.78 m in front of it, 1.75 m
 # apart, 7.5 m up) whose busbars run 29.5 m back over a column of six supports to the transformers, the breaker
 # between the bays, two lightning masts behind. Its smaller yard (-75, 645): a transformer and a mast. [group, x, y]
@@ -93,7 +93,7 @@ def _near(frame, ring, box):
     """The runs of a line's points (lon/lat ring) within NEAR_M of box, each with the point either side of it: the
     tile's spans and their towers' neighbours. A line's every tower had its ground read for each tile it touched: a
     100 km line's 2,000 towers, ~6,000 DEM tiles downloaded for one road tile in rural Pennsylvania (5 min),
-    2026-10-27."""
+   ."""
     e, n, _ = frame.geodetic_to_enu(ring[:, 1], ring[:, 0], np.zeros(len(ring)))
     e, n = np.asarray(e), np.asarray(n)
     near = (e >= box[0] - NEAR_M) & (e <= box[2] + NEAR_M) & (n >= box[1] - NEAR_M) & (n <= box[3] + NEAR_M)

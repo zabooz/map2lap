@@ -1,4 +1,4 @@
-"""Industrial sounds: West Coast USA's refinery tower sounds (the user, 2026-10-26, on a clip of them: "various fans and
+"""Industrial sounds: West Coast USA's refinery tower sounds (on a clip of them: "various fans and
 monitors"; its power plant sound, "an alarm", is not used) on a GRID_M grid inside OpenStreetMap's refineries and
 petrochemical plants (industrial=refinery / petrochemical areas, built once by tools/build_refineries.py into
 refineries.npz beside the modules: ODbL, (c) OpenStreetMap contributors; Overture keeps only an area's main tag,
@@ -19,7 +19,7 @@ GRID_M = 150.0
 UP_M = 5.0
 NAME_WORDS = re.compile(r"refin|raffin|rafin|нефтеперераб", re.I)
 PLANT_CLASSES = ("industrial", "works")
-# Power plants that look like ones (the user, 2026-10-26: West Coast USA's power plant sound "just quieter", "at
+# Power plants that look like ones (West Coast USA's power plant sound "just quieter", "at
 # locations that look like power plants"): areas mapped as plants (Overture infrastructure class plant, or land use
 # tagged power=plant) burning fuel or nuclear, by plant:source / generator:source (solar, wind and hydro farms and
 # plants of no stated source are left out); their sound on the same grid (the mod plays it quieter: ambience.lua)

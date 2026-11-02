@@ -1,12 +1,12 @@
 """Bridge structure types and the steel trusses drawn over (or under) a bridge's decks.
 
 The map data says where a bridge is, not what it is: the Queensboro Bridge, a steel cantilever truss, was a plain
-concrete deck (the user, 2026-10-17: "Bridges need a lot of work in general"; Mapillary: the truss all along it).
+concrete deck ("Bridges need a lot of work in general"; Mapillary: the truss all along it).
 A bridge outline in the map tagged bridge:structure (OSM, carried in Overture's infrastructure "tags") decides
 first, anywhere. Where the US National Bridge Inventory covers (bridges_us.npz, tools/build_bridge_db.py: FHWA, public domain) its
 main span type decides (item 43B: through or deck truss, arch, suspension, cable-stayed, movable); a bridge there
 with no such record is a plain deck. Elsewhere a long span over water is taken for a through truss (the commonest
-long steel span of the 20th century; the user's choice, 2026-10-18: "OSM tag + size rule").
+long steel span of the 20th century; the user's choice: "OSM tag + size rule").
 
 truss_members() builds the truss of one chain of deck parts as beams (p, q, width, height) in the anchor frame:
 two vertical Warren trusses (chords, verticals, alternating diagonals) at the outer edges of the decks running side
@@ -31,7 +31,7 @@ MATCH_M = 200.0         # an NBI record's point this close to a chain's deck lin
                         # rough: Golden Gate's lies 140 m off its deck) ...
 MATCH_LEN_M = 150.0     # ... the best by distance + this many m per factor e of length mismatch
 WET_SPAN_M = 300.0      # (size rule, outside the inventory) a run over water this long: a through truss (150 m made
-                        # trusses of Tokyo's expressways over the bay, girders in life, 2026-10-18)
+                        # trusses of Tokyo's expressways over the bay, girders in life)
 PANEL_M = 14.0          # m between a truss's verticals
 ANCHOR_ARM = 0.75       # a big truss reaches this share of its main span past the water (the Queensboro Bridge's
                         # anchor arms: 143 and 140 m for its 182 and 299 m channel spans)
@@ -272,7 +272,7 @@ MOVABLE = (15, 16, 17)       # NBI 43B: lift, bascule, swing
 
 def nav_plausible(nav, span, kind):
     """Whether NBI item 39 (m) fits the closed bridge: 3-80 m; for a main span of 40 m or more, at least
-    min(NAV_SPAN_MIN x span, 15 m); a movable one's at most NAV_SPAN_MAX_MOVABLE x span. Portland, 2026-10-19: the
+    min(NAV_SPAN_MIN x span, 15 m); a movable one's at most NAV_SPAN_MAX_MOVABLE x span. Portland: the
     Interstate Bridge's 4.3 m under a 162 m lift span (its deck is 22 m up), the Hawthorne Bridge's 33.5 m (the
     lift span raised) over 74 m; the Golden Gate Bridge's 67 m over its 1280 m span stays. Pure."""
     if not 3.0 <= nav <= 80.0:
@@ -319,7 +319,7 @@ def chain_structures(frame, parts, wet_fn=None, infra=()):
     out, taken, used, osm_sites, wd_used = [], [], set(), [], set()
     wdm = wd_matches(frame, lines)
     # Wikidata's type where it has the bridge: the map's tags can be wrong (OSM calls Tokyo's Rainbow Bridge, a
-    # suspension bridge, cable-stayed: drawn with stays, 2026-10-18); a bridge's outlines that hold the same Wikidata
+    # suspension bridge, cable-stayed: drawn with stays); a bridge's outlines that hold the same Wikidata
     # bridge are one site (the Rainbow Bridge has a second, unnamed one)
     groups = {}
     for tags, outline in (_osm_outlines(frame, parts, infra) if infra else []):
@@ -342,7 +342,7 @@ def chain_structures(frame, parts, wet_fn=None, infra=()):
             wd_used.add(g["wd"])
             # Wikidata corrects the map within a kind of structure (suspension / stayed: the Rainbow Bridge) or where
             # the map gives none; between kinds the map is kept (Wikidata's Port Mann Bridge still had the 1964 tied
-            # arch's type and span over the 2012 cable-stayed bridge: an arch drawn over its lanes, GitHub #65)
+            # arch's type and span over the 2012 cable-stayed bridge: an arch drawn over its lanes)
             wd_agrees = code in (0, PLAIN) or _family(code) == _family(wdr["type"])
             if wd_agrees and not (wdr["type"] == ARCH_ANY and code in (NBI_DECK_ARCH, NBI_THROUGH_ARCH)):
                 code = wdr["type"]          # (an arch the map places over or under its deck keeps that)
@@ -434,7 +434,7 @@ def resolve_type(code, nbi_t, tags=None):
     """(type code, shape None | "lens" | "arched") of a bridge from the map's / Wikidata's code and its inventory record's
     type nbi_t (0: none). The inventory knows what moves: a bascule or lift span the map tags `arch` (Portland's
     Broadway Bridge, a bascule between curved-chord Petit trusses) or `beam` was drawn as an arch hanging under its
-    road (the user's screenshots, 2026-10-26), so a movable record decides the type; the arch tag then says the
+    road, so a movable record decides the type; the arch tag then says the
     truss's top chord is curved. A truss record the map or Wikidata calls an arch is a lens truss (Pittsburgh's
     Smithfield Street Bridge: Wikidata's arch, the inventory's through truss), as is one tagged bridge:truss=lenticular.
     Pure."""
@@ -473,12 +473,12 @@ def _circle(frame, i):
 def _drop_strays(out):
     """The structures of a chain without a second site of a kind that has no size from any source where one of the same
     kind has one: a second outline of the Fremont Bridge (tagged arch, no record of its own) put a 40 m arch on an
-    approach ramp beside the real 383 m one (2026-10-27)."""
+    approach ramp beside the real 383 m one."""
     sized = {_family(s["type"]) for s in out if s.get("span")}
     out = [s for s in out if s.get("span") or _family(s["type"]) not in sized]
     # one main span per site: an arch or a cable span from a record whose circle holds a bigger one's centre is the
     # same crossing (the Fort Pitt Bridge's 229 m through arch got a 56 m deck arch drawn under it from a record of
-    # a ramp beside it, 2026-10-27; both go on the chain's one main span)
+    # a ramp beside it; both go on the chain's one main span)
     keep = []
     for s in sorted(out, key=lambda s: -float(s.get("span") or 0)):
         if s["type"] in ARCH_TYPES + (NBI_SUSPENSION, NBI_STAYED) and s.get("src") in ("nbi", "wd"):
@@ -644,7 +644,7 @@ def low_water(P, ground_fn, inside=None):
 def _span_axis(groups):
     """(origin (2,), unit axis (2,), x0, x1): the line all of a structure's truss runs lie along (their stations'
     principal direction) and their extent on it, so their spans fall in one place: the runs of the decks side by side
-    each took their own (three lenses over the Smithfield Street Bridge's two spans, 2026-10-27)."""
+    each took their own (three lenses over the Smithfield Street Bridge's two spans)."""
     c = np.array([(L + R) / 2 for run in groups for L, R, *_ in run])
     o = c.mean(0)
     _, _, vt = np.linalg.svd(c - o, full_matrices=False)
@@ -740,7 +740,7 @@ def truss_members(parts, info, ground_fn, wet_fn=None, with_piers=False, road_li
     if shape or info.get("movable"):
         # the river: the sea's depth where it has one, and the low ground under the bridge (a river the sea does not
         # reach, Pittsburgh's, ~218 m; the Willamette under the Hawthorne Bridge, which the sea's mask held only by its
-        # east bank: one tower and a 40 m truss, 2026-10-27)
+        # east bank: one tower and a 40 m truss)
         low = low_water(P, ground_fn, ins_all)
         if low is not None:
             wets = [w | np.asarray(low(xy), bool) for w, (xy, _, _) in zip(wets, P)]
@@ -858,7 +858,7 @@ def truss_members(parts, info, ground_fn, wet_fn=None, with_piers=False, road_li
 # --- arches, suspension and cable-stayed spans ------------------------------------------------------------------
 # One main span per chain, on its longest part: centred on its longest run over water (else where the deck stands
 # highest over the ground), as long as the inventory's span (else most of that run). Sydney Harbour Bridge was a
-# plain deck between the city's towers where the photos show its steel arch (Mapillary, 2026-10-18).
+# plain deck between the city's towers where the photos show its steel arch (Mapillary).
 ARCH_TYPES = (NBI_DECK_ARCH, NBI_THROUGH_ARCH, ARCH_ANY)
 ARCH_SPAN_SHARE = 1.05  # (no inventory span) an arch springs from the banks: a little more than the water
 SPAN_SHARE = 0.85       # (no inventory span) the main span: this share of the run over water it stands over
@@ -894,7 +894,7 @@ def _station(P, tans, k, sc, arcs):
             continue
         # the nearest point on its segments, not its nearest node: a suspension span's way can run a kilometre
         # between nodes, and its twin carriageway was missed there, a tower leg standing in its lanes (25 de Abril,
-        # the Bay Bridge, 2026-10-28)
+        # the Bay Bridge)
         a, b = xy2[:-1], xy2[1:]
         ab = b - a
         f = np.clip(((p - a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-12), 0.0, 1.0)
@@ -1150,7 +1150,7 @@ def _river(P, info, ground_fn, wet_fn):
     """wet(xy) -> bool: the sea's depth (wet_fn) or the low ground under the structure (low_water), either; None
     without both. Where the sea knows no river (Pittsburgh's, Portland's Willamette) main_span centred an arch or a
     tower pair on the bridge's highest point or its outline instead of the water (the Fort Pitt Bridge's arch on its
-    approach, 2026-10-27)."""
+    approach)."""
     low = low_water(P, ground_fn, _inside(P, info))
     if low is None:
         return wet_fn
@@ -1163,7 +1163,7 @@ def _river_span(P, arcs, info, river):
     """(part, centre arc, span) of a movable bridge's opening: the inventory's span (else SPAN_SHARE of the water)
     centred on the longest run over the river (river(xy) -> bool) of any part inside the bridge's outline; None
     without one (the opening was put on an interchange ramp by main_span's longest-inside part, the Morrison
-    Bridge's, and over no water on an approach chain, the Burnside's, 2026-10-27)."""
+    Bridge's, and over no water on an approach chain, the Burnside's)."""
     if river is None:
         return None
     ins = _inside(P, info)
@@ -1189,7 +1189,7 @@ def movable_members(parts, info, ground_fn, wet_fn=None, road_lines=()):
     over the river spans (its top chord curved where the map says arch: info["shape"]); a lift span gets its two
     towers, LIFT_TOWER of its span over the deck. A bascule without one is a deck girder: its leaves' steel girders
     under the deck's edges, a control house beside the road at each end of the opening and the solid bascule piers
-    under them (the Burnside and Morrison bridges were plain flat decks, the user's screenshots 2026-10-26)."""
+    under them (the Burnside and Morrison bridges were plain flat decks)."""
     from roadmesh import DECK_DEPTH, GIRDER_D
     beams, piers = [], []
     kind = info["type"]
@@ -1244,7 +1244,7 @@ HEADROOM_STEP_M = 2.0
 def _clear_of_decks(beams, P):
     """The members [(p, q, w, h, ...)] that keep HEADROOM_M over every deck of P (xy, z, width) they pass over: a stay
     whose fan reached over the other carriageway where the two part on a curve came down to car height across its
-    lanes (an autodrive hit one at 49 mph on the Port Mann Bridge's south approach, GitHub #65). Members beside the
+    lanes (an autodrive hit one at 49 mph on the Port Mann Bridge's south approach). Members beside the
     decks or under them stay. Pure."""
     if not beams or not P:
         return beams

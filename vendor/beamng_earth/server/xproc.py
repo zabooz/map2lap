@@ -1,4 +1,4 @@
-"""One process does a piece of work while the server's other processes wait for its result (2026-10-23).
+"""One process does a piece of work while the server's other processes wait for its result.
 
 The server's processes (the main one, the two terrain-block processes, the far-tile, road-tile and far-building
 workers) all start on a new place at once and need the same things: a fresh place's network log on a PC showed 51 %

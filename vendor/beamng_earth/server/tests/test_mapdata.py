@@ -997,7 +997,7 @@ class ProvenanceTest(Sources, SmallBlocks, unittest.TestCase):
 
     def test_theme_licences_are_whole(self):
         """Overture's per-theme licence texts word for word (docs.overturemaps.org/attribution/, read
-        2026-10-11), not cut off with '...': the CC BY sources at the end need their credit too."""
+       ), not cut off with '...': the CC BY sources at the end need their credit too."""
         text = " ".join((REPO / "CREDITS.md").read_text(encoding="utf-8").split())
         for theme, lic in overture.THEME_LICENCES.items():
             self.assertNotIn("...", lic, theme)

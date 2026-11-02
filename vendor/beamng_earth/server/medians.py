@@ -1,4 +1,4 @@
-"""Median barriers on divided highways (the user, 2026-10-28: "Do the median barriers, they're mostly missing anyway").
+"""Median barriers on divided highways ("Do the median barriers, they're mostly missing anyway").
 
 Mapped barriers come first (guardrails.forest_rows draws OpenStreetMap's guard_rail / jersey_barrier / cable_barrier
 lines); they are rare along medians (none along I-95 in Baltimore, the A2 near Utrecht or the E4 near Uppsala,
@@ -37,7 +37,7 @@ WIDE_M = 14.0
 # Rows (max median width m: the first row the median, pavement edge to edge as drawn, is not wider than; past the last
 # none) -> the type of: a rural motorway, an urban motorway, a rural motorway of WIDE_LANES or more, a rural trunk, an
 # urban trunk (an expressway: a trunk with sidewalks is a street with a curbed median, none). From aerials (ortho_hi)
-# and Mapillary photos of 22 places, 2026-10-28 (widths edge to edge):
+# and Mapillary photos of 22 places, (widths edge to edge):
 #   US/Canada: I-65 / I-75 Kentucky rebuilt to six lanes (Bonnieville, Bowling Green, Berea): a tall concrete wall in
 #     ~8 m of paved median (our gap reads 12-17 m there: the drawn carriageways are narrower than three lanes and
 #     shoulders); I-65 Louisville 2.7 m, I-95 Baltimore 3-8 m paved, I-10 Phoenix ~6 m paved: concrete; I-95 Harford Co.

@@ -1,4 +1,4 @@
-"""server/netfetch.py (docs/research/2026-10-10-rate-limits.md §5.4): the token bucket, the per-host
+"""server/netfetch.py: the token bucket, the per-host
 concurrency cap, backoff with full jitter, Retry-After, the circuit breaker and the failover of the
 DEM chain, response classes and .404 marker TTLs, host policies, daily budgets (persisted per UTC
 day), the User-Agent, --offline and the status note earthd sends. No network: a FakeTransport
@@ -28,7 +28,7 @@ import netfetch as nf  # noqa: E402
 USGS = "basemap.nationalmap.gov"
 EOX = "tiles.maps.eox.at"
 MT = "tiles.mapterhorn.com"
-T0 = 1791700000.0           # the fake wall clock's start (2026-10-11 UTC)
+T0 = 1791700000.0           # the fake wall clock's start (UTC)
 
 
 def url(host=USGS, n=0):
@@ -103,7 +103,7 @@ def fetcher(script=None, policies=None, **kw):
 
 
 class ThroughputTest(unittest.TestCase):
-    """GitHub #241: map data at a crawl looked like stuck road workers; the status says the connection is slow."""
+    """map data at a crawl looked like stuck road workers; the status says the connection is slow."""
 
     def test_large_responses_measure_the_connection(self):
         big = b"x" * (1 << 20)
@@ -400,7 +400,7 @@ class RetryAfterTest(unittest.TestCase):
         self.assertEqual(f.unavailable_hosts(), [MT])
 
     def test_a_lane_has_its_own_breaker_under_the_hosts_policy(self):
-        """GitHub #350: the status bar's town lookups timed out, opened photon.komoot.io's breaker and the map's
+        """the status bar's town lookups timed out, opened photon.komoot.io's breaker and the map's
         search said 'unavailable'. A lane is the host's policy with its own bucket and breaker."""
         P = "photon.komoot.io"
         f, clock, sleep, tr = fetcher()
@@ -411,7 +411,7 @@ class RetryAfterTest(unittest.TestCase):
         self.assertIs(f.host(P + "#reverse").policy, f.host(P).policy)
 
     def test_optional_hosts_left_out_of_the_status(self):
-        """GitHub #23: SourceForge (gravity only) blocked in the player's country showed "Degraded" for good."""
+        """SourceForge (gravity only) blocked in the player's country showed "Degraded" for good."""
         f, clock, sleep, tr = fetcher()
         for h in (MT, "downloads.sourceforge.net", "api.open-meteo.com"):
             f.host(h).breaker.trip(60)
@@ -419,7 +419,7 @@ class RetryAfterTest(unittest.TestCase):
         self.assertEqual(f.unavailable_hosts(optional=False), [MT])
 
     def test_regional_imagery_left_out_of_the_status(self):
-        """Lower Saxony's WMS down for maintenance (2026-10-21): the banner named it while Sentinel-2 drew every tile."""
+        """Lower Saxony's WMS down for maintenance: the banner named it while Sentinel-2 drew every tile."""
         f, clock, sleep, tr = fetcher()
         for h in (MT, "opendata.lgln.niedersachsen.de"):
             f.host(h).breaker.trip(60)
@@ -671,7 +671,7 @@ class PolicyTest(unittest.TestCase):
 
     def test_policies_match_the_plan(self):
         """docs/research/2026-10-10-rate-limits.md §5.2 for the hosts in use, raised 2026-10-16 (USGS again 2026-10-23)
-        (docs/research/2026-10-16-rate-limits-raised.md)."""
+        ."""
         want = {USGS: (50, 150, 24, 150000), EOX: (10, 40, 6, 30000), MT: (50, 200, 32, 80000),
                 "s3.amazonaws.com": (50, 100, 8, None), "api.open-meteo.com": (0.1, 2, 1, 500),
                 "downloads.sourceforge.net": (1, 1, 1, None)}
@@ -784,7 +784,7 @@ if __name__ == "__main__":
 
 class RolesTest(unittest.TestCase):
     def test_every_source_says_what_it_affects(self):
-        # the status line names what a source that does not answer affects (the user, 2026-10-27); SOURCES.md too
+        # the status line names what a source that does not answer affects; SOURCES.md too
         import imagery_regional
         missing = [h for h, p in nf.POLICIES.items() if not p.denied and nf.role_of(h) is None]
         self.assertEqual(missing, [])

@@ -1,4 +1,4 @@
-"""OSM exit destinations on generated, traffic-facing highway guide signs (from cody196's PR #363).
+"""OSM exit destinations on generated, traffic-facing highway guide signs.
 
 The weekly sign shards (tools/build_sign_tags.py, read by railtags.SignTags) keep short connected approaches from
 the planet. Sign workers project sign stations onto the generated carriageway and batch all panels, posts and atlas
@@ -441,7 +441,7 @@ def place(frame, objects, roads, box, elev, chunks=(), left_hand=False, mph=True
             centre = at[:2] + right * side * (edge + 2. + width / 2.)
             # Never put a panel in a nearby road's pavement or on a bridge deck (a ramp still mapped as a bridge where it
             # comes down: not in the ground pavements; an EXIT 3 panel stood in the Fallsway's lane where the Jones
-            # Falls Expressway's Guilford Avenue ramp lands, Baltimore 2026-10-29). Advance panels too.
+            # Falls Expressway's Guilford Avenue ramp lands, Baltimore). Advance panels too.
             polygons = _outlines(pavements)
             for _ in range(12):
                 if _clear(centre, width/2+.5, polygons) and not _on_deck(centre, chunks, width/2+1.):
@@ -487,7 +487,7 @@ def text_width(value, height):
 
 
 def guide_lettering():
-    """The guide panels' lettering: the same atlas (one font for all sign faces since PR #363's port)."""
+    """The guide panels' lettering: the same atlas (one font for all sign faces's port)."""
     return lettering()
 
 
@@ -605,7 +605,7 @@ def dimensions(label, kind, state=''):
                      if r['qualifier'] in ('NORTH','SOUTH','EAST','WEST') else 0.) for r in routes]
         width = min(6.0, max(3.5, max([guide_width(s,.58) for s in names]+groups+[0.])+.65))
         # (its content's height, a little taller for the portrait look: width * 1.22 alone made a long one-name panel
-        # ~6 m tall and nearly empty, the Guilford Avenue exit, Baltimore 2026-10-29)
+        # ~6 m tall and nearly empty, the Guilford Avenue exit, Baltimore)
         content = .6+len(routes)*1.20+len(names)*.85+1.1
         return width, max(content, min(width*1.22, content*1.35))
     lines = label['names'] or ([] if label['routes'] else ['EXIT '+label['ref']])

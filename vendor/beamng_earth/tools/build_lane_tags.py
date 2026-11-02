@@ -1,6 +1,6 @@
 """build_lane_tags.py PLANET OUT_DIR: OpenStreetMap's lane-level road tags (turn:lanes, change:lanes, placement,
 lanes:forward / backward, overtaking, ...) as small gzip JSON shards the server reads per area (server/lanetags.py),
-for the road markings (the user, 2026-10-28: "look at how some maps get detailed lane by lane data"; research:
+for the road markings ("look at how some maps get detailed lane by lane data"; research:
 docs/research/2026-10-28-road-markings-standards.md §5). OSM US's Layercake highways file, which osmtags.py reads, has
 `lanes` but none of these.
 

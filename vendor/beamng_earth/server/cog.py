@@ -57,7 +57,7 @@ TABLE_PIECE = 256 * 1024    # bytes of a long tile table read at a time (rangere
 class _Table:
     """A long tile table read in TABLE_PIECE pieces as they are indexed (an int or an int array, like the int64
     array it stands for): HRDEM's 1 m mosaic item has ~950k tiles, 15 MB of offsets and counts per place otherwise
-    (2026-10-28: 24 MB fetched for one z15 terrain tile)."""
+    (24 MB fetched for one z15 terrain tile)."""
 
     def __init__(self, cog, off, dtype, cnt):
         self._cog, self._off, self._dt, self._n = cog, off, dtype, cnt
@@ -374,7 +374,7 @@ class Cog:
 
     def _libtiff_many(self, parts, last_rows):
         """Blocks (whole strips, or one tile) in one wrapper TIFF of len(parts) strips, decoded by one Pillow call:
-        thousands of 1-row strips cost ~1 ms each one by one (6 s a canopy cell, 2026-10-23). The last part holds
+        thousands of 1-row strips cost ~1 ms each one by one (6 s a canopy cell). The last part holds
         last_rows rows. Returns the decoded blocks (the last cut to its rows)."""
         import io
         from PIL import Image

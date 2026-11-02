@@ -1,4 +1,4 @@
-"""Rock on steep ground in the far tiles' photos (2026-10-15, world tour: Lauterbrunnen's and Geiranger's
+"""Rock on steep ground in the far tiles' photos (world tour: Lauterbrunnen's and Geiranger's
 cliffs were the aerial photo stretched down the wall, vertical streaks of the trees and meadows at its top).
 
 A far tile's texture is the photo seen from above, mapped straight down: a wall gets a few texels stretched
@@ -40,7 +40,7 @@ def rock(rgb, frame, x0, y0, size, U, ux0, uy0, usp):
     # no texel can be steeper than the grid's steepest cell edge (the bilinear surface's gradient within a cell
     # interpolates its edges' differences; np.gradient averages it): below the rock slope there, nothing to do
     # (most tiles: the full-resolution heights and gradient below were computed for them all, ~25 % of a far
-    # tile's CPU, 2026-10-15)
+    # tile's CPU)
     if U.shape[0] >= 2 and U.shape[1] >= 2:
         gmax = math.hypot(float(np.abs(np.diff(U, axis=1)).max()), float(np.abs(np.diff(U, axis=0)).max())) / usp
         if steepness(gmax) <= 0.01:

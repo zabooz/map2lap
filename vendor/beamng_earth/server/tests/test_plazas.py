@@ -1,4 +1,4 @@
-"""Squares and pedestrian areas as a paved mesh (plazas.py; the user's report #45, 2026-10-17)."""
+"""Squares and pedestrian areas as a paved mesh (plazas.py)."""
 import sys
 import unittest
 from pathlib import Path
@@ -24,7 +24,7 @@ def ring(pts):
 
 
 class PavingTest(unittest.TestCase):
-    """GitHub #70: Paris's squares and the Louvre's courtyards all red brick (and their holes paved over)."""
+    """Paris's squares and the Louvre's courtyards all red brick (and their holes paved over)."""
 
     def test_by_the_mapped_surface(self):
         self.assertEqual(plazas.paving("asphalt", 48.86, 2.32)[0], plazas.ASPHALT[0])
@@ -73,7 +73,7 @@ class PlazaMeshTest(unittest.TestCase):
         self.assertAlmostEqual(area(a) + area(b), 40 * 20, delta=1.0)
 
     def test_overlap_paved_once(self):
-        """GitHub #127 (Federation Square): a smaller area inside a larger one is paved once, by the smaller."""
+        """(Federation Square): a smaller area inside a larger one is paved once, by the smaller."""
         big = ring([(-40, 10), (40, 10), (40, 70), (-40, 70)])
         small = (ring([(-10, 30), (10, 30), (10, 50), (-10, 50)]), [], "asphalt")
         flat = lambda la, lo: np.zeros(np.shape(la))    # noqa: E731
@@ -85,7 +85,7 @@ class PlazaMeshTest(unittest.TestCase):
         self.assertAlmostEqual(_area(P[T[stone]]), 20 * 20, delta=2.0, msg="the smaller area keeps its paving")
 
     def test_ground_under_the_road_mesh_left_out(self):
-        """GitHub #127: a pedestrian street's road mesh over a square: the square leaves that ground to it."""
+        """a pedestrian street's road mesh over a square: the square leaves that ground to it."""
         sq = ring([(-40, 10), (40, 10), (40, 70), (-40, 70)])
         flat = lambda la, lo: np.zeros(np.shape(la))    # noqa: E731
         # a 10 m wide street across the square (two triangles), in the frame

@@ -35,7 +35,7 @@ class PolygonTest(unittest.TestCase):
 
 
 class RegionStyleTest(unittest.TestCase):
-    """Building habits by region (2026-10-15: Swiss villages had come out as American clapboard houses)."""
+    """Building habits by region (Swiss villages had come out as American clapboard houses)."""
 
     def houses(self, lat, lon, n=400):
         rng = np.random.default_rng(5)
@@ -116,7 +116,7 @@ class RegionStyleTest(unittest.TestCase):
 
 class PlanTest(unittest.TestCase):
     def test_hut_above_the_tree_line_is_stone(self):
-        # the user, 2026-10-14: Mount Whitney's stone summit shelter was a plain grey box
+        # Mount Whitney's stone summit shelter was a plain grey box
         self.assertAlmostEqual(bld.tree_line_m(36.6), 3600 - 110 * 4.6, places=6)
         self.assertGreater(bld.tree_line_m(46.0), 1900)
         self.assertLess(bld.tree_line_m(46.0), 2200)
@@ -425,7 +425,7 @@ class PlateTest(unittest.TestCase):
 
 class TowerShopTest(unittest.TestCase):
     def test_city_towers_have_a_shop_ground_floor(self):
-        # Midtown, 2026-10-14: classless towers had their curtain wall down to the pavement
+        # Midtown: classless towers had their curtain wall down to the pavement
         t = bld.plan(rect(0, 0, 40, 30), {"class": "", "height": 120.0}, 2, 40.758, -73.985, dense=True)
         self.assertTrue(t.shop)
         low = bld.plan(rect(0, 0, 40, 30), {"class": "", "height": 9.0}, 2, 40.758, -73.985, dense=True)
@@ -436,7 +436,7 @@ class TowerShopTest(unittest.TestCase):
 
 class MidriseTest(unittest.TestCase):
     def test_midrises_are_mostly_masonry_towers_glass(self):
-        # Midtown's theatre district: 5-15 storey brick and stone, not glass (street photos 2026-10-14)
+        # Midtown's theatre district: 5-15 storey brick and stone, not glass (street photos)
         mid = [bld.plan(rect(x * 40, 0, 25, 30), {"class": "", "height": 40.0}, 2, 40.76, -73.99, dense=True)
                for x in range(40)]
         glass = sum(1 for sp in mid if sp.facade.startswith(bld.OFFICE))
@@ -472,7 +472,7 @@ class ParkingDeckTest(unittest.TestCase):
         return False
 
     def test_skin_tower_and_entrance(self):
-        # reports #51/#52 (2026-10-17): a brick or precast skin, a stair tower over the roof, a driveway from the road
+        # reports #51/#52: a brick or precast skin, a stair tower over the roof, a driveway from the road
         spec, (P, UV, T, M, mats, C) = self.deck(60, 40)
         used = {mats[k] for k in np.unique(M)}
         self.assertTrue(used & {bld.BRICK_WALL, bld.CONCRETE}, used)
@@ -486,7 +486,7 @@ class ParkingDeckTest(unittest.TestCase):
         self.assertAlmostEqual(n[:, 1].min(), -12.0 + 4.1, places=1, msg="to the road's edge")
 
     def test_a_big_garage_is_open_decks_with_a_ramp_well(self):
-        # the user, 2026-10-14: "garage buildings ... are solid"
+        # "garage buildings ... are solid"
         spec, (P, UV, T, M, mats, C) = self.deck(60, 40)
         self.assertTrue(spec.deck)
         zs = [0.03 + k * 3.0 for k in range(4)]
@@ -525,7 +525,7 @@ class ParkingDeckTest(unittest.TestCase):
 
 
     def test_ramp_along_another_edge_when_the_longest_is_a_thin_leg(self):
-        # an L whose longest edge runs along a 6 m leg: the ramp goes along the 50 m side (2026-10-17: 3 of
+        # an L whose longest edge runs along a 6 m leg: the ramp goes along the 50 m side (3 of
         # downtown Baltimore's 15 garages were boxes)
         ring = np.array([(0, 0), (80, 0), (80, 6), (20, 6), (20, 50), (0, 50)], np.float64)
         lay = bld._deck_layout(ring, 3.0)
@@ -683,7 +683,7 @@ class DoorTest(unittest.TestCase):
                                           False), [], "no fence without a front yard")
 
     def test_front_fence_keeps_off_other_roads(self):
-        """A corner house: its fence along the front road stops short of the side street (GitHub #105)."""
+        """A corner house: its fence along the front road stops short of the side street."""
         a, d = np.array([0.0, 20.0]), np.array([1.0, 0.0])
         args = (type("S", (), {"seed": 0.3})(), a, d, 12.0, 0.5, np.array([-100.0, 0.0]), np.array([300.0, 0.0]),
                 300.0 ** 2, 4.0, 1.5, False)
@@ -898,7 +898,7 @@ class BridgePassageTest(unittest.TestCase):
 
 class MachineLearnedFootprintTest(unittest.TestCase):
     """Microsoft's machine-learned footprints on a road bridge or on water are its deck or a boat (Tower Bridge's
-    river, 2026-10-18); on an island in the river, a building."""
+    river); on an island in the river, a building."""
 
     def test_deck_boat_island(self):
         sq = lambda cx, cy: np.array([[cx - 5, cy - 5], [cx + 5, cy - 5], [cx + 5, cy + 5], [cx - 5, cy + 5]], float)
@@ -911,7 +911,7 @@ class MachineLearnedFootprintTest(unittest.TestCase):
         self.assertFalse(bld._ml_false(sq(150, 20), bridge, river))
 
     def test_vehicle_on_a_road(self):
-        """GitHub #2: a lorry on a Norwegian trunk road (Microsoft's footprint 4 x 17 m) stood as a white building
+        """a lorry on a Norwegian trunk road (Microsoft's footprint 4 x 17 m) stood as a white building
         over the lanes; a house beside the road stays."""
         road = [np.array([[0.0, 0.0], [200.0, 0.0]])]
         lorry = np.array([[50, 0.5], [67, 0.5], [67, 4.5], [50, 4.5]], float)      # in the outer lane
@@ -922,7 +922,7 @@ class MachineLearnedFootprintTest(unittest.TestCase):
 
 
     def test_in_a_median(self):
-        """GitHub #90: a 10 x 9 m footprint between the carriageways of Moscow's Bolshaya Tulskaya (7.6 m from each)
+        """a 10 x 9 m footprint between the carriageways of Moscow's Bolshaya Tulskaya (7.6 m from each)
         stood as a house in the road; a house between two streets of a block stays, as does one beside a single road."""
         sq = lambda cx, cy: np.array([[cx - 5, cy - 4.5], [cx + 5, cy - 4.5], [cx + 5, cy + 4.5], [cx - 5, cy + 4.5]],
                                      float)
@@ -937,7 +937,7 @@ class MachineLearnedFootprintTest(unittest.TestCase):
 
 class BridgeStructureTest(unittest.TestCase):
     """A bridge's tower (Overture bridge_structure: the Queensboro Bridge's, 33 x 4.6 x 110 m) is an open steel frame
-    the decks run through, not a glass tower (2026-10-17)."""
+    the decks run through, not a glass tower."""
 
     def test_part_on_a_bridge_support_is_painted_steel(self):
         """A building part over a mapped bridge support (the Golden Gate Bridge's towers): a plain box in the
@@ -999,7 +999,7 @@ class PortalSkipTest(unittest.TestCase):
 
 class TollBoothTest(unittest.TestCase):
     """A toll plaza's islands (low mapped "buildings") with booths on them are West Coast USA's toll booth (the user's
-    report at the Golden Gate, 2026-10-21: bare boxes on slabs)."""
+    report at the Golden Gate: bare boxes on slabs)."""
 
     @staticmethod
     def box(cx, cy, length, width, angle_deg):
@@ -1034,7 +1034,7 @@ class TollBoothTest(unittest.TestCase):
 
 class RoadLinesTest(unittest.TestCase):
     def test_a_road_with_a_bridge_in_it_keeps_its_ground_pieces(self):
-        """A motorway segment with a short overpass in it (the A7, GitHub #239): its pieces on the ground are public
+        """A motorway segment with a short overpass in it (the A7): its pieces on the ground are public
         road lines (they were left out whole, and lorries machine-learned as buildings stood on its lanes)."""
         from test_roads import FRAME, features
         f = features([[(-100, 128), (356, 128)]], ["motorway"], levels=[(0, 1.0, 0.45, 0.5)],
@@ -1049,7 +1049,7 @@ class RoadLinesTest(unittest.TestCase):
 
 
 class SteepMachineLearnedTest(unittest.TestCase):
-    """GitHub #242: machine-learned outlines on a volcano's bare slopes (rocks, shadows) are left out; huts are not."""
+    """machine-learned outlines on a volcano's bare slopes (rocks, shadows) are left out; huts are not."""
     def ring(self, x=100.0, y=100.0, s=6.0):
         return np.array([[x, y], [x + s, y], [x + s, y + s], [x, y + s], [x, y]], np.float64)
 
@@ -1070,7 +1070,7 @@ class SteepMachineLearnedTest(unittest.TestCase):
 
 
 class FarLampTest(unittest.TestCase):
-    """The far and skyline tiles' street lamps (buildings.far_lamps; the user, 2026-10-27: "extend the street and
+    """The far and skyline tiles' street lamps (buildings.far_lamps: "extend the street and
     window lights as far as the buildings render"): town streets in built-up squares, at the region's spacing; every
     ramp; nothing in empty country."""
 
@@ -1159,7 +1159,7 @@ class RoadAcrossTest(unittest.TestCase):
 class CurvatureTest(unittest.TestCase):
     def test_ground_in_the_anchor_frame(self):
         # 8 km from the anchor's origin the ground (h = 100 m everywhere) lies d^2 / 2R = ~5 m lower in the frame, as the
-        # terrain and the roads have it: the building stands on that (it floated 5 m, Santa Maria Val Muestair 2026-10-18)
+        # terrain and the roads have it: the building stands on that (it floated 5 m, Santa Maria Val Muestair)
         import geodesy
         f = geodesy.EnuFrame(46.53, 10.45)
         x0, y0 = 0.0, 8000.0
@@ -1175,7 +1175,7 @@ class CurvatureTest(unittest.TestCase):
         self.assertAlmostEqual(gmin, 100.0 - r * r / (2 * 6371000.0), delta=0.2)
 
     def test_a_flat_area_is_not_a_building(self):
-        # the Golden Gate toll plaza's 0.01 m footprint drew a slab with a rim round the booths (2026-10-21)
+        # the Golden Gate toll plaza's 0.01 m footprint drew a slab with a rim round the booths
         import geodesy
         f = geodesy.EnuFrame(37.807, -122.476)
 

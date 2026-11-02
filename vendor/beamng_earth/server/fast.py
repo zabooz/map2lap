@@ -1,8 +1,8 @@
 """The world server's Rust kernels (native/earthfast, built by tools/build_native.py).
 
-The road tiles' hot loops were Python over tiny numpy arrays (a 2026-10-15 profile: the islands' curb ray march alone
+The road tiles' hot loops were Python over tiny numpy arrays (a profile: the islands' curb ray march alone
 was ~20 % of a road tile, 0.9 s of ~4 s); the compiled module does them in one call. The server needs it: the Python
-twins of the kernels are gone (the user, 2026-10-21: "we dont need 2 versions of the same thing"); require() says
+twins of the kernels are gone ("we dont need 2 versions of the same thing"); require() says
 what is missing when it cannot be loaded.
 """
 import os
@@ -25,7 +25,7 @@ class NativeMissing(RuntimeError):
 
 def require(version, what):
     """Raise NativeMissing unless the module is loaded at VERSION >= version (what: the kernel, for the message). The
-    kernels that have no Python twin any more (the user, 2026-10-21: "we dont need 2 versions of the same thing")."""
+    kernels that have no Python twin any more ("we dont need 2 versions of the same thing")."""
     have = getattr(_ef, "VERSION", 0) if _ef is not None else None
     if have is None or have < version:
         raise NativeMissing(f"{what} needs the server's native module (earthfast) version {version} or newer, "
@@ -90,7 +90,7 @@ def gpu():
     module, or BNGE_GPU=0): the callers keep their CPU path. Found once (~0.4 s, the first call)."""
     global _GPU
     if _GPU is None and sys.platform == "win32" and os.environ.get("BNGE_GPU") != "1":
-        # Windows: off unless BNGE_GPU=1 (2026-10-23). 1.6.0's players on Windows saw the game freeze for seconds in new
+        # Windows: off unless BNGE_GPU=1. 1.6.0's players on Windows saw the game freeze for seconds in new
         # places (none on Linux or a Steam Deck); a long compute dispatch from the server can hold the GPU the game draws
         # with, and Windows often cannot preempt it. The CPU path is 1.5.5's.
         _GPU = ""

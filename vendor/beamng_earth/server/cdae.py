@@ -434,8 +434,8 @@ def encode(positions, tris, normals=None, uvs=None, material="bngEarthDae", uvs2
     collision_only: the one detail is a collision detail ("Collision-1", negative size): never drawn, used by a
     TSStatic with collisionType "Collision Mesh" (a hidden "Visible Mesh" object got no collision at all). Its object
     is named "Colmesh" whatever object_name says: the engine only collides with collision-detail objects whose name
-    starts with "Col" (stock shapes' Colmesh-1); named "buildings" it had no collision at all (in-game test boxes,
-    2026-10-16: cars drove through every building since 2026-10-15).
+    starts with "Col" (stock shapes' Colmesh-1); named "buildings" it had no collision at all (in-game test boxes:
+    cars drove through every building).
     lods: coarser detail levels of the same object, the engine's own camera LOD (TSShapeInstance picks the finest
     detail whose size is at most the shape's projected size in pixels): a list of (size_px, dict of positions, tris
     and optional uvs / tri_materials / colors, same material list), sizes falling, the last one drawn down to
@@ -481,7 +481,7 @@ def encode(positions, tris, normals=None, uvs=None, material="bngEarthDae", uvs2
     centre = [float(x) for x in center]
 
     # collision only: a visible detail "detail2" whose mesh is a null mesh (draws nothing), then "Collision-1": with the
-    # collision detail alone the engine logged "Shape with invalid detail levels" for every such shape (2026-10-17;
+    # collision detail alone the engine logged "Shape with invalid detail levels" for every such shape (
     # the buildings' lean collision meshes filled players' logs)
     if collision_only:
         names = [object_name, "detail2", "Collision-1"]

@@ -21,7 +21,7 @@ import roads
 
 # the classes drawn (Overture's rail classes); trams lie in the street, subways underground, monorails and funiculars
 # on their own structures: none of those. Nor "unknown": OpenStreetMap's railway=proposed / construction (99 of 101
-# such ways not flagged abandoned or disused, in 3000 cached cells, 2026-10-27; the rest 2 trams and a miniature
+# such ways not flagged abandoned or disused, in 3000 cached cells; the rest 2 trams and a miniature
 # line): Los Angeles' planned Link Union Station tracks lay across US-101 on the ground and the freeway was dipped
 # under a planned high-speed line's 2.6 km "viaduct", a 38 % step at Union Station
 DRAWN = {"standard_gauge", "narrow_gauge", "light_rail"}
@@ -30,14 +30,14 @@ FI_GAUGE_M = 1.524          # ... the Finnish (Russian) broad gauge in the Finni
 NARROW_GAUGE_M = 1.0
 STEP_M = 2.0                # m between cross-sections, from each part's start (the same at every tile)
 SMOOTH_M = 10.0             # m either side the bed's height is averaged over: the real elevation, its DEM bumps out
-                            # (50 lifted the bed off the ground, the user, 2026-10-25: "follow the real elevation")
+                            # (50 lifted the bed off the ground: "follow the real elevation")
 GRADE = 0.02                # the steepest a deck or an approach ramp climbs (2 %: a main line's)
 REACH_M = 200.0             # m around a tile the lines are taken: the smoothing's reach and a raised deck's ramps
 BALLAST_H = 0.3             # m of ballast over the bed line
 BALLAST_TOP_M = 1.8         # m: half the ballast's top width
 BALLAST_SLOPE = 1.5         # m out per m down on its sides
 BALLAST_FOOT_M = 0.4        # m its sides reach under the ground at their foot
-FOOT_MAX_M = 6.0            # m out at most (the grading fills a tall ramp's embankment; 15 fanned out, 2026-10-25)
+FOOT_MAX_M = 6.0            # m out at most (the grading fills a tall ramp's embankment; 15 fanned out)
 SLEEPER_EVERY = 0.6         # m between sleepers
 SLEEPER_L, SLEEPER_W, SLEEPER_H = 2.6, 0.26, 0.2
 SLEEPER_SINK = 0.08         # m of sleeper in the ballast
@@ -56,7 +56,7 @@ CROSSING_DZ = 1.5           # m: a road this far over or under the bed passes it
 VERTS_MAX = 60000           # under the engine's 16-bit indices (sleepers are dropped first past it)
 BALLAST = "bne_rail_ballast"
 CONCRETE = "bne_bridge_concrete"    # (roadmesh.DECK_SIDE: the decks and piers)
-SLEEPER = "bne_rail_sleeper"        # weathered concrete sleepers (bne_bridge_concrete stood out near-white, 2026-10-25)
+SLEEPER = "bne_rail_sleeper"        # weathered concrete sleepers (bne_bridge_concrete stood out near-white)
 STEEL = "bne_rail_steel"            # rust-brown rails
 # per wear (wear()): a disused line's ballast weedy, an abandoned one's grown over, their rails and sleepers older, and
 # a share of an abandoned line's sleepers gone (SLEEPERS_GONE)
@@ -79,7 +79,7 @@ GROUND_MEMO_ANCHORS = 2
 def point_ground(frame, elev, key=None):
     """ground(xy (n, 2)) -> z in frame at exactly those points, from elev(lat, lon) (the graded physics ground). Not
     roadmesh.drawn_ground: that fills a 2 m grid over the points' whole box, and the lines here span ~1 km (a road
-    tile's workers spun on it for minutes, 2026-10-25). key (the anchor's): heights remembered per point. Every tile
+    tile's workers spun on it for minutes). key (the anchor's): heights remembered per point. Every tile
     within REACH_M of a line asks for the same points (each part resampled from its start), ~6 tiles each, and the
     graded ground's lookups were most of a rail tile's time (16 tiles round Baltimore Penn Station: 28 of 68 s)."""
     memo = None
@@ -266,7 +266,7 @@ def road_underpasses(frame, cells, box, reach=REACH_M):
 # Where the elevation is only the coarse global model (dem.coarse_at; the server sets COARSE_AT to its Dem's), a rail
 # bridge over a ground road stands on an embankment the 30 m data smeared away: the track is raised over the road (its
 # piece COARSE_PIECE_M either side of the crossing, as a tunnel's mouths) and ramps at GRADE, and the road stays at
-# grade (grading leaves rail spans alone there). Perm, GitHub #414: the underpass rule dug Первомайская улица 7.5 m
+# grade (grading leaves rail spans alone there). Perm: the underpass rule dug Первомайская улица 7.5 m
 # under the Балмошная–Лёвшино line, a walled trench 400 m long where the street is at grade under an embankment.
 COARSE_AT = None
 COARSE_PIECE_M = 25.0
@@ -433,7 +433,7 @@ def _clip(rails, near):
 
 
 MIN_LINE_M = 50.0           # m: connected track shorter than this is left out (a siding's piece cut off by its
-                            # abandoned rest, 12 m under a bridge on its own, 2026-10-25)
+                            # abandoned rest, 12 m under a bridge on its own)
 
 
 def _drop_stubs(rails):
@@ -457,10 +457,10 @@ def _drop_stubs(rails):
 
 
 WEAR_FLAGS = (("is_abandoned", 2), ("is_disused", 1))    # a line's wear: 1 out of use, 2 abandoned (drawn worn: the
-# user, 2026-10-27, "id still like abandond lines to show. perhapse with some grass on them or sumilate wear")
+# user, "id still like abandond lines to show. perhapse with some grass on them or sumilate wear")
 UNBUILT_FLAGS = ("is_under_construction",)              # not drawn (no track yet), as OSM's proposed lines
 SHORT_TUNNEL_M = 60.0       # m: a "tunnel" this short is the line passing under a road bridge (OSM tags those
-                            # tunnel too): track there (the track stopped either side of an overpass, 2026-10-25)
+                            # tunnel too): track there (the track stopped either side of an overpass)
 
 
 def wear(feats, i):
@@ -678,7 +678,7 @@ def deck_heights(s, z_ground, z_start, z_end):
     """A bridge's bed line: straight from z_start to z_end (the bed at its ends: a line keeps its grade over what it
     crosses, the stream or road under it goes down, and the bare-earth DEM has that dip), raised only where the ground
     under it stands higher than the track itself (bad data, a ridge), climbing at most GRADE. Pure. (A required 6 m
-    clearance stood an 8 m culvert's track 6.8 m up on 4.5 m ramps, 2026-10-25.)"""
+    clearance stood an 8 m culvert's track 6.8 m up on 4.5 m ramps.)"""
     s = np.asarray(s, np.float64)
     L = max(float(s[-1]), 1e-9)
     req = np.maximum(z_start + (z_end - z_start) * s / L, np.asarray(z_ground, np.float64))
@@ -749,7 +749,7 @@ FLUSH_REACH_M = 40.0        # ... steeper when it would run longer than this (in
 def _flush(s, zb, blk, zroad):
     """Bed heights zb (at arcs s) lowered or raised so the rails' top meets the road at a level crossing (blk: the
     points in a road's carriageway, zroad: the drawn ground there), on straight ramps (FLUSH_GRADE, at most
-    FLUSH_REACH_M long) either side: a real crossing's rails lie in the road's surface (the user, 2026-10-27: "make
+    FLUSH_REACH_M long) either side: a real crossing's rails lie in the road's surface ("make
     road/rail crossings smooth like real ones"); they stood 0.6 m over the road at its edge. The same in every tile:
     every crossing within FLUSH_REACH_M of a tile's points is among its crossers."""
     sb = s[blk]
@@ -900,7 +900,7 @@ PIER_ROAD_M = 1.5           # m a pier keeps off a road's carriageway under the 
 
 def _sited(pr, crossers, ground):
     """The piers pr (_piers') clear of the roads under the deck (crossers: [(centreline, half width, z)]; a pier stood
-    in the lanes of a road under a rail bridge, 2026-10-25), each reaching PIER_FOOT_M under the lowest ground at its
+    in the lanes of a road under a rail bridge), each reaching PIER_FOOT_M under the lowest ground at its
     four corners (from the ground at the line's centre one hung in the air where the ground fell away to the road)."""
     if pr is None:
         return None
@@ -1005,7 +1005,7 @@ CROSSING_SIGN_BEFORE_M = 2.5    # m before the track's ballast (along the road)
 CROSSING_HEIGHT = {"cross": 3.263, "flash": 4.7, "gate": 8.25}
 AMERICAS_LON = -30.0            # west of this the crossbuck (the Americas), else the St Andrew's cross
 # light rail mostly runs in the street (a German Stadtbahn's tracks down Bielefeld's Schildescher Strasse had crosses
-# at every side street, 2026-10-27): its crossings have devices only where the FRA's inventory or OSM's tags say
+# at every side street): its crossings have devices only where the FRA's inventory or OSM's tags say
 CROSSING_DATA_ONLY = {"light_rail"}
 
 
@@ -1138,7 +1138,7 @@ def tile_mesh(frame, tx, ty, cells, ground, sign_style=None, far_ground=None):
     None. cells: the roads layers of the cells within REACH_M of the tile (cells_of_tile(..., margin=REACH_M));
     ground(xy (n, 2)) -> z: the drawn ground in the frame. far_ground: the natural ground, read beyond GRADED_NEAR_M
     of the tile (the lines REACH_M round it only smooth the track and carry its ramps: the graded ground there made the
-    grader plan the cells round every tile, and the railways doubled a tile's time, 2026-10-25)."""
+    grader plan the cells round every tile, and the railways doubled a tile's time)."""
     cells = list(cells)
     box = roads.tile_bbox(tx, ty)
     tunnels = road_underpasses(frame, cells, box)

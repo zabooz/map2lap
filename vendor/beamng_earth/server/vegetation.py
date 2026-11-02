@@ -1,4 +1,4 @@
-"""Trees, bushes and rocks per map-data cell (docs/ROADMAP.md v1.9 "Cities & nature"; the user, 2026-10-13:
+"""Trees, bushes and rocks per map-data cell (
 "trees, rocks and other decoration").
 
     veg = Vegetation(md, cache_dir)
@@ -33,11 +33,11 @@ import staging
 
 log = logging.getLogger("earthd.vegetation")
 
-VERSION = 18          # (the cached cells hold their groups: 14 for the regional rules of GitHub #110; 16: the roads'
+VERSION = 18          # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
                       # drawn widths and sidewalks kept clear; 17: BC's lidar canopy heights, mapdata's canopy layer 2;
                       # 18: the rounded junction corners kept clear, roadcorners.py)
 TREE_MIN_M = 3.0
-CROWN_SPACING = 0.5          # tops kept this many crown radii apart (0.8 looked sparse: the user, 2026-10-13)
+CROWN_SPACING = 0.5          # tops kept this many crown radii apart (0.8 looked sparse)
 BUSH_MIN_M = 1.0
 KIND_TREE, KIND_BUSH, KIND_ROCK = 0, 1, 2
 GROUPS = ("deciduous", "conifer", "shrub", "rock", "pine_west", "palm", "juniper", "desert_shrub", "desert_rock",
@@ -47,7 +47,7 @@ GROUPS = ("deciduous", "conifer", "shrub", "rock", "pine_west", "palm", "juniper
 ROAD_CLEAR_M = 1.5          # trees kept this far off a road's edge (its width by class below)
 TREE_PIT_M = 0.4            # m past a road's edge (+ the push's 0.6) where a top over the road lands: a sidewalk's
                             # tree pit by the curb (pushed out of the full corridor, Boston Street's trees landed on the
-                            # row houses at the back of the sidewalk and all went; Mapillary: one every ~8 m, 2026-10-17)
+                            # row houses at the back of the sidewalk and all went; Mapillary: one every ~8 m)
 PATH_CLASSES = {"footway", "path", "steps", "cycleway", "bridleway", "pedestrian"}   # no corridor: street trees
                             # stand in the sidewalk (mapped as a footway: Boston Street's row sat on its line)
 ROAD_HALF_WIDTH_M = {"motorway": 7.0, "trunk": 6.0, "primary": 5.5, "secondary": 5.0, "tertiary": 4.5,
@@ -60,7 +60,7 @@ SCATTER_P = {10: (0.30, 0.0), 20: (0.10, 0.04), 30: (0.01, 0.003), 60: (0.0, 0.0
 UNDERSTORY = 10
 BUILT_NEAR_M = 60.0         # bare ground with built-up land this far around gets no scatter (squares, lots)
 # Rocks on bare ground lie on slopes, outcrops and fans, not on flat playas, salt pans and dry lake beds (the
-# Bonneville Salt Flats had a rock every ~75 m2, the user 2026-10-20; photos: a bare white crust for miles). A bare
+# Bonneville Salt Flats had a rock every ~75 m2; photos: a bare white crust for miles). A bare
 # cell's rock is kept with the share of the ground's slope between these (the DEM ROCK_SLOPE_D m either side, at
 # ROCK_SLOPE_ZOOM: coarse tiles, few downloads); without a DEM, as before.
 ROCK_SLOPE = (0.02, 0.10)
@@ -157,7 +157,7 @@ def _north_america(lat, lon):
 
 def _conifer_share(lat, lon):
     """The regional share of conifers (a coarse climate stand-in until a species map). Beyond North America
-    (2026-10-15: Douglas firs stood in Punjab's fields): few in the tropics and subtropics, the pines of the
+    (Douglas firs stood in Punjab's fields): few in the tropics and subtropics, the pines of the
     Mediterranean, the boreal north."""
     lat, lon = np.asarray(lat, np.float64), np.asarray(lon, np.float64)
     west = lon < -100.0
@@ -255,7 +255,7 @@ class Vegetation:
         self._tl.dem_failed = False
         items = self._build(x, y)
         # (a cell built while the DEM could not answer, offline or no tile, lacks its slope rocks: it serves this
-        # session but is not kept, so the next one builds it whole. From cristivasile's PR #295. No DEM at all,
+        # session but is not kept, so the next one builds it whole. From. No DEM at all,
         # self.dem None, is a setting, not a failure)
         if p and not self._tl.dem_failed:
             os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -354,7 +354,7 @@ class Vegetation:
         lcls = lc.sample(tlon, tlat) if lc is not None else np.zeros(len(tlon), np.uint8)
         is_tree &= lcls != WC["water"]
         # canopy heights on bare ground or permanent snow with no vegetated land around: the canopy map misreading
-        # bright ground (the Bonneville Salt Flats had ~19k "trees" up to 21 m tall on bare salt, 2026-10-20). By
+        # bright ground (the Bonneville Salt Flats had ~19k "trees" up to 21 m tall on bare salt). By
         # its definition bare land has under 10 % plant cover; an edge tree, or one by an oasis, has some within
         # BARREN_NEAR_M and stays
         barren = np.flatnonzero((lcls == WC["bare"]) | (lcls == WC["snow"])) if lc is not None else []
@@ -485,7 +485,7 @@ class Vegetation:
         free = np.zeros(len(px), bool)
         free[ok] = ~blocked[r_[ok], c_[ok]] & ((hs[r_[ok], c_[ok]] < BUSH_MIN_M) | (cls[ok] == UNDERSTORY))
         # bare land in a town is a square, a lot or a building site, not a rock field (desert rocks stood on
-        # Mexico City's Zocalo, 2026-10-15): none where built-up land is around (2 of 4 points BUILT_NEAR_M away)
+        # Mexico City's Zocalo): none where built-up land is around (2 of 4 points BUILT_NEAR_M away)
         bare = np.flatnonzero(free & (cls == WC["bare"]))
         if len(bare):
             near = np.zeros(len(bare), np.int64)
@@ -518,7 +518,7 @@ class Vegetation:
 def _thin(jj, ii, h, px):
     """Non-maximum suppression: the tallest tops first, each removing the others within its crown
     radius (0.12 h + 1 m, times CROWN_SPACING). Deterministic (ties broken by position). earthfast thin_tops
-    (2026-10-23: the same tops as the Python loop it replaced)."""
+    (the same tops as the Python loop it replaced)."""
     if len(jj) == 0:
         return jj, ii
     fast.require(64, "thin_tops")
@@ -556,7 +556,7 @@ def _to4326(x, y):
 def _mask_polys(f, mask, chm, grow_m, kind=3, select=None):
     """Mark the polygons of Features f (buildings, water) on the CHM-grid mask (bool, C order): every pixel whose
     centre lies inside a part (its rings XOR'd, matplotlib's point-in-path test), within the part's box grown by
-    grow_m (select: a bool per feature, only those). The native module's (earthfast mask_polys, 2026-10-23: the same
+    grow_m (select: a bool per feature, only those). The native module's (earthfast mask_polys: the same
     pixels as the per-polygon Python loop it replaced, 13x faster: half of a tree cell's build)."""
     if f is None:
         return
@@ -598,7 +598,7 @@ def _mask_roads(f, mask, chm, push=None, clear=ROAD_CLEAR_M, specs=None, walks=F
     cols) float32: dx, dy in px and the distance to the nearest road, inf where none) gets, per corridor
     pixel, the move that takes it just out of its nearest road's corridor (street trees: vegetation._build). With the
     class widths alone a city street's trees stood in its parking lanes: 136 of 536 trunks in Baltimore, 215 of 1358 in
-    Seattle on a drawn carriageway (the user, 2026-10-28: "make sure no trees spawn on the road")."""
+    Seattle on a drawn carriageway ("make sure no trees spawn on the road")."""
     if f is None:
         return
     n_r, n_c = mask.shape
@@ -611,13 +611,13 @@ def _mask_roads(f, mask, chm, push=None, clear=ROAD_CLEAR_M, specs=None, walks=F
     import roads as roadsmod
 
     def drawn(s):       # the drawn half width, its sidewalks too (walks: the canopy's trees and the bushes keep off
-        if s is None:   # them; the street trees, pushed to the curb, stand in pits at its edge: GitHub #424 / #425)
+        if s is None:   # them; the street trees, pushed to the curb, stand in pits at its edge: / #425)
             return 0.0
         return s.width / 2 + (s.walk if walks and getattr(s, "walk", 0) and roadsmod.has_sidewalks(s) else 0.0)
     hw_m = np.array([max(ROAD_HALF_WIDTH_M.get(str(cls[i]), ROAD_HALF_DEFAULT_M), drawn(sp[i])) + clear
                      for i in sel], np.float64)
     # every ring's segments on the CHM grid, its half width in grid pixels (a 3857 metre is 1 / cos(lat) of a ground
-    # metre), rings off the grid left out (earthfast road_segments, 2026-10-23: the per-ring Python loop it
+    # metre), rings off the grid left out (earthfast road_segments: the per-ring Python loop it
     # replaced gave the same segments); then the distances and the nearest road's push, without the GIL
     segs, hws = fast._ef.road_segments(np.ascontiguousarray(f.lonlat, np.float64),
                                        np.ascontiguousarray(f.coord_off, np.int64),
@@ -632,7 +632,7 @@ def _mask_roads(f, mask, chm, push=None, clear=ROAD_CLEAR_M, specs=None, walks=F
 TILE = 256.0                # m, as the road tiles (roads.tile_bbox)
 TILE_ROWS_MAX = 6000        # items a tile sends at most, the lowest ranks: the most the mod shows of one (trees.lua
                             # TILE_CAP). Dense forest has 10-20k a tile: Bodø's 145 tiles held 1.66 M rows in the game's
-                            # Lua (394 MB of heap, 1.25 s garbage collection pauses on a Steam Deck; GitHub #66)
+                            # Lua (394 MB of heap, 1.25 s garbage collection pauses on a Steam Deck)
 SEND_M = 1280.0             # tiles this close to the player (Euclidean, to the square's nearest point) are sent
 DROP_M = 1536.0             # ... and dropped beyond this
 BUILD_PER_POSE = 8
@@ -730,7 +730,7 @@ def tile_items(frame, tx, ty, veg, cell_ready, elev, sea=None, as_json=False):
 
 ROCK_SINK = 0.35            # a rock sinks this share of its height per unit of ground slope (1 = 45 degrees) ...
 ROCK_SINK_MAX = 0.6         # ... up to this share: on a steep slope its downhill side stood clear of the ground and
-                            # its flat underside showed (Stelvio pass, the user's report 2026-10-17)
+                            # its flat underside showed (Stelvio pass)
 SLOPE_STEP_M = 1.5
 
 

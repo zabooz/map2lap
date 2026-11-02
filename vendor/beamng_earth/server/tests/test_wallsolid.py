@@ -1,4 +1,4 @@
-"""Retaining walls and rural stone parapets are closed solids (2026-10-27): every edge shared by exactly two faces and
+"""Retaining walls and rural stone parapets are closed solids: every edge shared by exactly two faces and
 every face wound outward (no culled back face to be seen), as the deck's jersey parapets (test_bridgelook)."""
 import os
 import sys

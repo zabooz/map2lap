@@ -109,7 +109,7 @@ class BuildingClearTest(unittest.TestCase):
 
     def test_the_whole_car_clear_of_a_house(self):
         # a curbside row running on along the street's line through a house that stands in it: the car whose nose
-        # reaches 1 m into the wall goes, its centre outside (Eberndorf, the user's mark: a red car half in a house)
+        # reaches 1 m into the wall goes, its centre outside (Eberndorf: a red car half in a house)
         nose_in = [-1.45, 4.0, 0.0, 0.0]            # heading +x: its nose at x = 1.0
         clear = [-3.0, 4.0, 0.0, 0.0]
         side = [5.0, -1.1, 0.0, 0.0]                # along the wall, its side 0.1 m off it

@@ -93,7 +93,7 @@ class StructureTest(unittest.TestCase):
             bt._wd = None
 
     def test_wikidata_of_another_kind_does_not_replace_the_tag(self):
-        """GitHub #65: Wikidata's Port Mann Bridge kept the 1964 tied arch (366 m span) over the 2012 cable-stayed
+        """Wikidata's Port Mann Bridge kept the 1964 tied arch (366 m span) over the 2012 cable-stayed
         bridge the map tags: the map's kind stands, without Wikidata's span."""
         bt._db = db_with((90000.0, 0.0, 1, 0.0))
         la, lo, _ = FRAME.enu_to_geodetic(np.array([0.0]), np.array([0.0]), np.zeros(1))
@@ -108,7 +108,7 @@ class StructureTest(unittest.TestCase):
             bt._wd = None
 
     def test_members_keep_clear_of_the_lanes(self):
-        """GitHub #65: a stay reaching across the other carriageway down to car height is dropped; one over the
+        """a stay reaching across the other carriageway down to car height is dropped; one over the
         deck's edge or high over it stays."""
         P = [(np.c_[np.arange(0.0, 101.0, 4.0), np.zeros(26)], np.full(26, 30.0), 12.0)]
         low = (np.array([50.0, 20.0, 80.0]), np.array([50.0, -2.0, 32.0]), 0.25, 0.25)     # into the lanes at 2 m

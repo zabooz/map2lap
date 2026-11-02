@@ -1,5 +1,5 @@
 """Traffic islands inside small road loops: roundabouts, turnaround loops, teardrop islands (the user's report
-2026-10-14, Harbor Point: a one-way loop and the link closing it each had sidewalks on both sides, and the inner
+Harbor Point: a one-way loop and the link closing it each had sidewalks on both sides, and the inner
 ones overlapped into a D-shaped slab with stray corner pieces).
 
 find(roads) looks for short cycles of the road graph (endpoints joined within JOIN_M) that enclose a small area,
@@ -20,7 +20,7 @@ MAX_EDGES = 10          # roads in a loop (a ring split at every entry; matches 
 MAX_LOOP_M = 450.0      # loop length (matches RING_MAX_LOOP_M)
 # Roundabouts up to ~120 m across (RING_MAX_AREA_M2). The old 1200 m2 cut off rings ~40 m across: their inner
 # sidewalks stayed and junctions cut them into four arcs with gaps at the entries (Chavagnes-en-Paillers,
-# 46.91387, -1.24230, 2026-10-28). City blocks of one-way streets are filtered by roundness below, not by area.
+# 46.91387, -1.24230). City blocks of one-way streets are filtered by roundness below, not by area.
 MAX_AREA_M2 = 12000.0
 SMALL_AREA_M2 = 1200.0  # below this: any mostly-one-way loop (turnarounds, teardrops); above: must be round
 MIN_AREA_M2 = 25.0
@@ -57,7 +57,7 @@ def _graph(roads_list):
 
     def node_of(p):
         # the first node within JOIN_M, as a scan of every node would find it (they were ~7 s of a teleport's event
-        # loop in Fells Point, 2026-10-16): only the 3 x 3 cells around p can hold one
+        # loop in Fells Point): only the 3 x 3 cells around p can hold one
         cx, cy = math.floor(p[0] / JOIN_M), math.floor(p[1] / JOIN_M)
         best = None
         for gx in (cx - 1, cx, cx + 1):
@@ -114,7 +114,7 @@ def ring_directions(roads_list, left_hand=False):
     """{fid: direction along its geometry} of roundabout rings: small loops round as a circle, or nearly that round and at least
     half one-way, all those driven the same way round (spec.dir: +1 along the geometry, -1 against). A junction on a ring gets no
     signals or stop signs (furniture.junction_controls): a ring entry looked like a crossroads of three major roads,
-    and its signal poles stood on the ring (Timisoara 2026-10-15). Shared by the road tiles and the road graph, so
+    and its signal poles stood on the ring (Timisoara). Shared by the road tiles and the road graph, so
     both decide the same. Mapped one-way directions take precedence; missing directions follow the ring's mapped
     circulation, or the driving side when none is mapped. Sorting makes inference independent of cell/load order."""
     edges, adj = _graph(sorted(roads_list, key=lambda r: r[0]))
@@ -156,7 +156,7 @@ ENTRY_CLEAR_M = 4.0         # sidewalks stop this far outside a ring's carriagew
 
 def ring_approaches(roads_list, ring=None):
     """Feature ids of roads that meet a roundabout ring at an end (not themselves on the ring). Short ones are the
-    entry/exit lanes whose sidewalks became rectangular stubs against the circle (Chavagnes-en-Paillers 2026-10-28)."""
+    entry/exit lanes whose sidewalks became rectangular stubs against the circle (Chavagnes-en-Paillers)."""
     ring = set(ring if ring is not None else ring_fids(roads_list))
     if not ring:
         return set()
@@ -200,7 +200,7 @@ def find(roads_list, is_oneway=lambda spec: bool(getattr(spec, "oneway", False))
         oneway_ok = ow >= ONEWAY_SHARE * L
         rnd = 4 * math.pi * abs_area / (L * L)
         # Roundabouts: same roundness rule as ring_directions (a mapped ring often has no oneway tags in Overture,
-        # Chavagnes-en-Paillers 2026-10-28: rnd 0.99 but ow 0/102, so the central island was skipped and only the
+        # Chavagnes-en-Paillers: rnd 0.99 but ow 0/102, so the central island was skipped and only the
         # entry teardrops matched). Small non-round loops: mostly one-way (turnarounds, teardrops).
         is_roundabout = rnd >= RING_ROUND_ANY or (rnd >= RING_ROUND and oneway_ok)
         if not (is_roundabout or (abs_area <= SMALL_AREA_M2 and oneway_ok)):
@@ -210,7 +210,7 @@ def find(roads_list, is_oneway=lambda spec: bool(getattr(spec, "oneway", False))
         if any(_crosses(poly, edges[j][2]) for j in range(len(edges)) if j not in key):
             continue                                # a road through it (a turn lane across the triangle, not
                                                     # joined at its corners): the AI drove into the island's curb
-                                                    # and backed out, twice (Timisoara 2026-10-15)
+                                                    # and backed out, twice (Timisoara)
         ccw = area > 0
         inner = {}
         for (k, fwd), p in zip(cyc, parts):

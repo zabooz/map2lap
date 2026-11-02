@@ -1,4 +1,4 @@
-"""Far-field demand: tiles added per second while driving (docs/V1_4_SPEC.md §2.1, milestone M0).
+"""Far-field demand: tiles added per second while driving (milestone M0).
 
 The [M] rows of table 2.1 come from the real farfield.select driven the way the server drives it
 (earthd.Connection.update_far): a pose every 0.25 s (4 Hz), the 25 % hysteresis on the previous
@@ -15,7 +15,7 @@ The M1 rows (64-cell layout, --cells 64: the K' table, NEAR_RADII {-1: 150, 0: 4
 run with the same driver. Hooks for later milestones (clearly marked below): M3a the capsule /
 speed-scale rows and D(s) against the simulation, M5 the flight rows.
 
-NetDemandTest (docs/research/2026-10-10-rate-limits.md §2.2 and §5.4 case 12): the same driver
+NetDemandTest ( and §5.4 case 12): the same driver
 counts the upstream requests the added tiles cause (every imagery or DEM source tile not seen
 before is one HTTP request: a cold disk cache), per minute and host, for the default CLI layout (64
 cells) at 30 and 134 m/s with a rebase every 10 km, starting in the US (USGS first) and in Europe
@@ -283,7 +283,7 @@ class NetDemandTest(unittest.TestCase):
             with self.subTest(start=start):
                 first, _ = net_demand(lat, lon, imagery.SOURCES[name], 0.0, 0)
                 host = netfetch.host_of(imagery.SOURCES[name].url)
-                # (5x since the 2026-10-16 raise: USGS burst 150, ~1,430 requests)
+                # (5x since the raise: USGS burst 150, ~1,430 requests)
                 self.assertGreater(first[host], 5 * netfetch.POLICIES[host].burst)
 
 

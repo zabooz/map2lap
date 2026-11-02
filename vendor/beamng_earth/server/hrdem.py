@@ -1,7 +1,7 @@
 """Canada's lidar terrain model: NRCan's HRDEM mosaic (CanElevation series), 1 m bare earth.
 
 Why: Mapterhorn answers z13-z15 tiles all over Vancouver Island, but outside the Capital Region they hold a coarse
-model drawn out (Englishman River Falls, Strathcona: no feature under ~20 m, 2026-10-23), and dem.Dem takes any
+model drawn out (Englishman River Falls, Strathcona: no feature under ~20 m), and dem.Dem takes any
 tile deeper than z12 for national lidar, so those places got neither lidar nor the ground filter. The HRDEM mosaic
 is airborne lidar with trees and buildings taken out (a DTM) at 1 m, for most of southern Canada.
 

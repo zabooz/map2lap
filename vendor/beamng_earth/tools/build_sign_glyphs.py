@@ -10,7 +10,7 @@ overhead, merge and mile-marker meshes (server/exitsigns.py lettering()). Every 
 code point order on fixed-height shelves: the same font file and Pillow/FreeType give the same bytes. Runtime never
 renders text: it places atlas quads.
 
-(PR #363 shipped a second atlas, exit_letters_o.data.png with exit_glyphs.json, whose 916 glyphs are not this font's
+(shipped a second atlas, exit_letters_o.data.png with exit_glyphs.json, whose 916 glyphs are not this font's
 and whose source font is not stated: replaced by this one.)
 """
 import json

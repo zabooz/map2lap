@@ -43,7 +43,7 @@ class RuleTable:
 
     def rows(self, i):
         """Row indices of feature i, ascending (built once: a scan of the whole table per feature made
-        the road tile builds quadratic in a cell's features, 2026-10-13 profile)."""
+        the road tile builds quadratic in a cell's features, profile)."""
         if self._rows is None:
             order = np.argsort(self.feature, kind="stable")
             f = self.feature[order]
@@ -110,7 +110,7 @@ class Features:
 
     def xy_in(self, frame):
         """(N, 2) east / north of every coordinate in frame (an EnuFrame), converted once per frame and kept (the
-        cells stay decoded in memory: ~60k one-ring conversions a 9-tile set before, 2026-10-15)."""
+        cells stay decoded in memory: ~60k one-ring conversions a 9-tile set before)."""
         key = (frame.lat0, frame.lon0, frame.h0)
         memo = self.__dict__.setdefault("_xy_in", {})
         got = memo.get(key)
@@ -231,7 +231,7 @@ class Features:
 def drop_huge(f, max_m2):
     """f with every polygon whose outer ring encloses more than max_m2 collapsed onto its first point (a ring of no
     area: every reader leaves it out), or f itself when there is none. An OpenStreetMap "building" of 15.8 km2 roofed
-    a whole city in Egypt (GitHub #413); the largest real buildings are about 1 km2. Its ids, attrs and rules stay."""
+    a whole city in Egypt; the largest real buildings are about 1 km2. Its ids, attrs and rules stay."""
     n = len(f)
     if not n or not len(f.lonlat):
         return f

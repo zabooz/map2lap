@@ -24,7 +24,7 @@ DRIVE = {"motorway": (1.0, 65), "trunk": (1.0, 55), "primary": (1.0, 45), "secon
 SKIP_SUBCLASSES = {"driveway", "parking_aisle", "sidewalk", "crosswalk", "cycle_crossing"}
 URBAN_MPH_CAP = {"primary": 35, "secondary": 35, "tertiary": 30}   # in town (spec.urban) unless mapped
 # the km/h countries' rural defaults for the fast classes (Europe's 120-130 motorways: Bavaria's A9, unmapped, was
-# driven at the US 65 mph, 2026-10-15)
+# driven at the US 65 mph)
 KMH_DEFAULT = {"motorway": 120, "trunk": 100, "primary": 80, "secondary": 70}
 MPH = 0.44704
 LANE_W_M = 3.3
@@ -35,7 +35,7 @@ CURVE_ACCEL = 2.0           # m/s^2: comfortable lateral acceleration, a driving
 BRAKE_ACCEL = 2.5           # m/s^2: spread a tight bend's target back along its approaches
 NARROW_M = 5.5              # narrower two-way town streets need slower encounters with oncoming traffic (parked cars,
 NARROW_MS = 30.0 / 3.6      # doors); a narrow rural road keeps its limit (the Netherlands' 60 km/h country roads, ~5 m
-                            # wide: the AI held 30 km/h on all of them, GitHub #451)
+                            # wide: the AI held 30 km/h on all of them)
 RING_MS = 30.0 / 3.6
 ENTRY_DRIVABILITY = 0.9     # stock AI yields to the ring's 1.0, even on a tangential entry
 
@@ -112,7 +112,7 @@ def driving_width(spec):
     strips (roads.carriageway adds them), i.e. the class's driving width capped by the drawn one; a four-lane
     urban arterial is all lanes. Where lane lines are painted (roads.LANE_CLASSES, paved) the painted lanes'
     (roads.lane_layout): the AI in the lanes it sees (a measured 12.8 m tertiary: 8.2 m painted, 6.5 m driven; the
-    user, 2026-10-28: "make sure all elements of the road are properly aligned (markers, materials, ai paths)")."""
+    user: "make sure all elements of the road are properly aligned (markers, materials, ai paths)")."""
     if spec.kind == "paved" and spec.cls in roads.LANE_CLASSES:
         return float(roads.lane_layout(spec)[0])
     if spec.urban and not spec.oneway and spec.cls in roads.URBAN_ARTERIAL:
@@ -311,7 +311,7 @@ def build(frame, feats_list, elev, centre, urban_fn=None, window=WINDOW_M, decks
                 for nm, q in ((a, pa), (b, pb)):
                     # a connector the map's lines reach at different points (a ramp's end 3.3 m off the motorway's
                     # joint, I-83 in Baltimore: the AI's lanes stood 3 m east of the drawn ones, their edge on the
-                    # parapet, 2026-10-29) stands where the widest road's line reaches it (then the lower id): not
+                    # parapet) stands where the widest road's line reaches it (then the lower id): not
                     # wherever the first road read put it
                     old = pending_by.get(nm)
                     if nm not in nodes and (old is None or (-w, fid) < old):
@@ -347,7 +347,7 @@ def build(frame, feats_list, elev, centre, urban_fn=None, window=WINDOW_M, decks
         la, lo, _ = frame.enu_to_geodetic(X, Y, 0.0)
         # the anchor frame's up, as the ground drawn: raw heights put the AI's nodes and the traffic lights over the
         # ground by the Earth's curve, ~6 m 10 km from the anchor, ~18 m at the 15 km rebase (PR #112's finding,
-        # measured in game 2026-10-24); the decks' heights (_deck_z) are already in this frame (roads.BridgeProfiles)
+        # measured in game); the decks' heights (_deck_z) are already in this frame (roads.BridgeProfiles)
         Z = np.asarray(frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2], np.float64).copy()
         if decks:
             for k, nm in enumerate(used):
@@ -374,7 +374,7 @@ def build(frame, feats_list, elev, centre, urban_fn=None, window=WINDOW_M, decks
 STOP_BACK_M = 2.0           # the stop point: this far before the junction's widest road edge
 # An approach this short is a link inside one intersection (offset streets split it into connectors a few metres
 # apart: Fells Point): no stop or signal on it. A car that had stopped at the first node met the next one's stop
-# line behind it and waited forever (in game 2026-10-14, a queue of four at an all-way stop).
+# line behind it and waited forever (in game, a queue of four at an all-way stop).
 SHORT_APPROACH_M = 15.0
 
 

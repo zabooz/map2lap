@@ -1,4 +1,4 @@
-"""Exit, overhead destination and mile-marker signs of a road tile (from cody196's PR #363), from the weekly sign
+"""Exit, overhead destination and mile-marker signs of a road tile, from the weekly sign
 shards (railtags.SignTags: tools/build_sign_tags.py over the OSM planet) and the tile's generated road geometry."""
 import logging
 import threading

@@ -1,4 +1,4 @@
-"""One-way roads meet a two-way road at their own lane, not its centre line (the user, 2026-10-25: one-way pairs ended in
+"""One-way roads meet a two-way road at their own lane, not its centre line (one-way pairs ended in
 the middle of the two-way road they join, and the reverse).
 
 Overture (and OSM) join a one-way to a two-way at the two-way's centre line, so the one-way's carriageway, drawn about

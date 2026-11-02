@@ -1,4 +1,4 @@
-"""The download cache's size cap: last use per file, LRU eviction, "clear cache" (docs/ROADMAP.md
+"""The download cache's size cap: last use per file, LRU eviction, "clear cache" (
 "Caching" 1, the cheap parts of 3 and 5).
 
 Layout of the cache root (~/.cache/beamng-earth by default):
@@ -65,7 +65,7 @@ class NoCache:
     def read(self, path):
         """The file's bytes, or None if it is not there (also when it was evicted a moment ago). On Windows a file
         another process is replacing or deleting cannot be opened for a moment (PermissionError: a far tile of a
-        first visit to Chicago failed on a Windows test PC, 2026-10-24): tried again READ_WAITS, then a miss (the
+        first visit to Chicago failed on a Windows test PC): tried again READ_WAITS, then a miss (the
         caller fetches it again and staging.replace_cached keeps whichever copy goes in)."""
         for wait in READ_WAITS + (None,):
             try:

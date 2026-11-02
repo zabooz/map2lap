@@ -1,4 +1,4 @@
-"""The 'detail' near-visual mode (2026-10-12): the mesh layout (64 cells, the 512² block) with the
+"""The 'detail' near-visual mode: the mesh layout (64 cells, the 512² block) with the
 physics block drawn as the near ground. The server forces L-1 tiles under the block (their 128 m edges
 meet the block's 128 m-grid edges), gives them sinks, and writes the block's aerial photo (BASE_PX²,
 the block's footprint) next to its heightmap; terrain messages name it (base, baseSize)."""

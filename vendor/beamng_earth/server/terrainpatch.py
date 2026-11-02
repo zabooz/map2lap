@@ -1,4 +1,4 @@
-"""Terrain collision patches for collision islands off the terrain block (BeamMP support, the user, 2026-10-22: "As cars
+"""Terrain collision patches for collision islands off the terrain block (BeamMP support: "As cars
 spread apart they can have their own island of collision").
 
 The engine collides with one TerrainBlock only (the first; the block follows the active car), so a vehicle far from
@@ -10,9 +10,9 @@ import os
 
 import numpy as np
 
-STEP_M = 8.0                # grid spacing (the ground a far car rests on; 4 m until 2026-10-24: 4x the cells for it)
+STEP_M = 8.0                # grid spacing (the ground a far car rests on; 4 m until: 4x the cells for it)
 # A patch is written as PIECE_M squares, one collision mesh each: the Windows game builds a collision mesh in time
-# growing with about the square of its triangles (a Windows 10 / RTX 3060 test PC, 2026-10-24: one 51k-triangle patch
+# growing with about the square of its triangles (a Windows 10 / RTX 3060 test PC: one 51k-triangle patch
 # 3.81 s, the same ground as 16 meshes 0.09 s, 12.8k triangles in one mesh 0.28 s; players froze 6-26 s each time the
 # game rebuilt its collision with patches in; Linux builds 1.3M triangles in 0.09 s either way).
 PIECE_M = 128.0             # 16 x 16 quads, 512 triangles a piece (a Steam Deck in a 3-player session made 977 cells

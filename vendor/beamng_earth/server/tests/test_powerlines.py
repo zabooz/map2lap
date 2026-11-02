@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
 
 class OffRoadsTest(unittest.TestCase):
-    """TGForever Discord 2026-10-28: a pylon on a highway's shoulder (its mapped tower node a few metres off)."""
+    """TGForever Discord: a pylon on a highway's shoulder (its mapped tower node a few metres off)."""
 
     def test_tower_moved_off_the_carriageway(self):
         import gasstations

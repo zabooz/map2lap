@@ -46,10 +46,10 @@ CHM_FILE_Z = 10                     # files are quadkey level 10 tiles
 CHM_NODATA = 255
 MERC_HALF = 20037508.342789244      # m, half the Web-Mercator world width
 COG_CACHE = 16                      # parsed COG headers kept in memory
-# British Columbia (Vancouver Island, 2026-10-23): where LidarBC flew both a surface (DSM) and a terrain
+# British Columbia (Vancouver Island): where LidarBC flew both a surface (DSM) and a terrain
 # (DEM) model, the canopy height is measured (DSM - DEM) instead of the Meta / WRI model's estimate (it saturates in
 # tall coastal forest). Same grid, same uint8 metres; the Meta raster stays where lidar has nothing.
-BC_CANOPY = os.environ.get("BNE_BC_CANOPY", "0") == "1"     # opt-in: ~36 MB of DSM + DEM a map cell (2026-10-28)
+BC_CANOPY = os.environ.get("BNE_BC_CANOPY", "0") == "1"     # opt-in: ~36 MB of DSM + DEM a map cell
 BC_BAND = 512               # rows of the cell's canopy grid built at once
 
 

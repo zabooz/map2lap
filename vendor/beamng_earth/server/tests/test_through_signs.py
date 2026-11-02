@@ -1,4 +1,4 @@
-"""Overhead control-city labels, pavement clearance and streaming (from cody196's PR #363); the planet builder's
+"""Overhead control-city labels, pavement clearance and streaming; the planet builder's
 overhead stations (tools/build_sign_tags.py, when pyosmium is installed)."""
 from pathlib import Path
 import importlib.util

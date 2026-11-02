@@ -170,7 +170,7 @@ class SpecTest(unittest.TestCase):
 
 
 class OsmAheadOfClassTest(unittest.TestCase):
-    """Lane counts and widths follow OpenStreetMap ahead of the class's defaults (the user, 2026-10-27: "it leans on
+    """Lane counts and widths follow OpenStreetMap ahead of the class's defaults ("it leans on
     the road's class definition more than the road's actual metadata")."""
 
     def box(self, x0, x1, y=0.0):
@@ -202,7 +202,7 @@ class OsmAheadOfClassTest(unittest.TestCase):
             self.assertEqual(navgraph._lanes(navgraph.driving_width(sp), False, sp.lanes), (1, 1))
 
     def test_bridge_without_lanes_takes_the_same_named_way_count(self):
-        """GitHub #378: a bridge drawn at its class's 8 m instead of OSM's 4 lanes. Here the bridge's own way has no
+        """a bridge drawn at its class's 8 m instead of OSM's 4 lanes. Here the bridge's own way has no
         lane count; it takes the street's (4), and the deck is as wide as 4 lanes."""
         f = features([[(-300, 0), (-100, 0)], [(-100, 0), (100, 0)]], ["primary"] * 2,
                      levels=[(1, 1.0, 0.0, 1.0)])
@@ -215,7 +215,7 @@ class OsmAheadOfClassTest(unittest.TestCase):
         self.assertGreaterEqual(sp.width, 4 * roads.LANE_W.get("primary", roads.LANE_W_DEFAULT))
 
     def test_relation_segment_takes_the_two_way_count_not_split(self):
-        """GitHub #175 (Kostiantynivka, vul. Konrada Hampera): a relation segment (no way id) beside the same street's
+        """(Kostiantynivka, vul. Konrada Hampera): a relation segment (no way id) beside the same street's
         two-way 4-lane way, a one-way 1-lane ramp and an untagged side piece was drawn as one 3.5 m one-way lane: the road narrowed
         sharply. It takes the two-way's 4 lanes and stays two-way."""
         f = features([[(0, 0), (100, 0), (200, 0)], [(200, 0), (400, 0)], [(0, 10), (200, 10)], [(50, 0), (150, 0)]],

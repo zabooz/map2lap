@@ -1,5 +1,5 @@
 """The one door to the network: per-host rate limits, priorities, retries and circuit breakers
-(docs/research/2026-10-10-rate-limits.md §5).
+.
 
 Every request the server makes goes through a Fetcher (earthd builds one and hands it to the DEM,
 the imagery, the weather and the gravity download). Per host (POLICIES, by URL host name; unknown
@@ -62,7 +62,7 @@ USER_AGENT = f"BeamNG.Earth/{SERVER_VERSION} (+{PROJECT_URL})"
 KINDS = ("demand", "prefetch", "background", "predownload", "urgent")
 # "urgent": demand that goes first (the block the player waits on: its base photo). Demand takes a token only while
 # URGENT_TOKENS more stay in the bucket and leaves URGENT_CONC request slots of its own to urgent, so with a host at
-# its rate (a daily budget at half rate: GitHub #116, a teleport's first block waited 37 s behind the far field's
+# its rate (a daily budget at half rate:, a teleport's first block waited 37 s behind the far field's
 # hundreds of tile requests) the player's block still gets its tiles at once.
 URGENT_TOKENS = 2.0
 URGENT_CONC = 2
@@ -126,19 +126,19 @@ class HostPolicy:
     binary: bool = False                    # a 200 with an HTML page is an error page
     referer: bool = False                   # send PROJECT_URL as Referer (hosts that ask for one)
     optional: bool = False                  # the world builds without it (gravity, weather, search, routing,
-                                            # updates): left out of the player's "Degraded" status (GitHub #23)
+                                            # updates): left out of the player's "Degraded" status
 
 
 TILE_HOST = dict(redirect_limited=True, binary=True)
 # docs/research/2026-10-10-rate-limits.md §5.2, the hosts the server contacts today (rates per player).
 POLICIES = {
-    # (2026-10-16, the user: raise them, lower again on trouble; a first visit's far field waited ~100 s on 15/s)
-    # (2026-10-23, the user: raise it again: 24 at once; a PC already got ~26/s with 12 and the same far field with 24,
+    # (raise them, lower again on trouble; a first visit's far field waited ~100 s on 15/s)
+    # (raise it again: 24 at once; a PC already got ~26/s with 12 and the same far field with 24,
     # all answered, so it helps players far from USGS, whose every request waits longer)
     "basemap.nationalmap.gov": HostPolicy(rate=50.0, burst=150.0, max_conc=24, daily_budget=150000,
                                           allow_prefetch=True, offline_ok=True, miss_ttl=90 * DAY, **TILE_HOST),
     # NAIP through USGS's ArcGIS exportImage (imagery.py "naip"): one 1024² image a request, 4-10 s each
-    # and 5xx under parallel requests (docs/research/2026-10-10-us-state-imagery.md, in-game 2026-10-13):
+    # and 5xx under parallel requests (in-game):
     # one at a time, only imagery.warm()'s look-ahead (never on a render's critical path)
     "imagery.nationalmap.gov": HostPolicy(rate=0.5, burst=4.0, max_conc=1, daily_budget=3000,
                                           allow_prefetch=True, offline_ok=True, miss_ttl=90 * DAY,
@@ -267,7 +267,7 @@ def _regional_policies():
 POLICIES.update(_regional_policies())
 DEFAULT_POLICY = HostPolicy()
 
-# What each source gives the world, and what the player gets while it does not answer (the user, 2026-10-27: "in case
+# What each source gives the world, and what the player gets while it does not answer ("in case
 # a certain source is not responding ... tell the player what that source effects"). Shown after the host in the
 # status line (Server.net_note); SOURCES.md says more about each.
 ROLES = {
@@ -651,7 +651,7 @@ RATE_WINDOW_S = 120.0           # the samples of the last this many seconds coun
 RATE_MIN_SAMPLES = 3            # ... at least this many of them
 SLOW_MBPS = 0.4                 # MB/s a large response comes in at or slower (the median): a slow connection. A Windows
                                 # PC on Wi-Fi got 0.02-0.15 MB/s a request; a first visit's ~75 MB of map data took
-                                # minutes and the roads looked stuck (GitHub #241); a wired PC gets 5-15 MB/s
+                                # minutes and the roads looked stuck; a wired PC gets 5-15 MB/s
 
 
 # --- per-host state ----------------------------------------------------------------------------
@@ -873,7 +873,7 @@ class Fetcher:
     def get(self, url, *, kind="demand", headers=None, lane=None):
         """GET url under its host's policy: a Response with status 2xx, or one of the errors above. lane: a name of
         its own (its own rate bucket, breaker and day's count under the host's policy): one kind of request whose
-        failures must not shut another out (the status bar's town lookups and the map's search, GitHub #350)."""
+        failures must not shut another out (the status bar's town lookups and the map's search)."""
         if kind != "predownload":
             return self._get(url, kind, headers, lane)
         prev = getattr(_quiet, "on", False)

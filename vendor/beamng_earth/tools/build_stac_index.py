@@ -1,7 +1,7 @@
 """build_stac_index.py: the pinned Overture release's STAC index (overture.RELEASE), every collection BeamNG.Earth reads
 (overture.LAYERS) with every item's file name, box, URLs and size, as one small file the app ships
 (server/overture_stac_<release>.json.gz). The server then never asks stac.overturemaps.org for that release: Overture's
-index server was down for about an hour on 2026-10-26 and no fresh place got roads or buildings (GitHub #357). Read
+index server was down for about an hour on and no fresh place got roads or buildings. Read
 through the server's own StacIndex (netfetch's limits; the cache keeps what it fetched). Run again after a release bump.
 
     python3 tools/build_stac_index.py

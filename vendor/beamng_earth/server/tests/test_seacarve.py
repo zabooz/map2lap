@@ -187,7 +187,7 @@ class SeaCarveTest(unittest.TestCase):
         self.assertGreater(float(d[0]), 1.0)
 
     def test_a_lakes_harbour_is_not_the_sea(self):
-        """GitHub #45: Chicago's harbours on Lake Michigan (176 m), tagged water=harbour, were carved as the sea at 0 m:
+        """Chicago's harbours on Lake Michigan (176 m), tagged water=harbour, were carved as the sea at 0 m:
         holes 180 m deep. Near sea level (Port Jackson's DEM reads 2-6 m) it is still the sea."""
         class Tagged(FakeMapData):
             def cell(self, key, layers=None, kind="demand"):
@@ -322,7 +322,7 @@ class CanalDem:
 
 class ShoreTest(unittest.TestCase):
     def test_level_no_higher_than_the_ground_round_it(self):
-        # GitHub #8 / #53: a canal's water at street level flooded the streets (Petten, Maarssen)
+        # / #53: a canal's water at street level flooded the streets (Petten, Maarssen)
         sc = seacarve.SeaCarver(CanalMapData(), None, dem=CanalDem())
         mid = (np.array([CAN_LAT + CW / 2]), np.array([CAN_LON + CL / 2]))
         self.assertAlmostEqual(float(sc.lake_at(*mid)[0]), 2.0 - seacarve.SHORE_DROP_M, places=4)

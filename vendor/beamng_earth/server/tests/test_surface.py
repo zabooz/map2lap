@@ -83,7 +83,7 @@ def _glob(lay, used):
 
 class CompactTerTest(unittest.TestCase):
     def test_the_ter_lists_only_the_materials_used(self):
-        # each material a .ter lists costs the swap's first draw ~20 ms (in-game probes 2026-10-18)
+        # each material a .ter lists costs the swap's first draw ~20 ms (in-game probes)
         import struct
         import tempfile
         n = 16
@@ -459,7 +459,7 @@ class PhotoRoadsTest(unittest.TestCase):
 
 
 class FuelPadTest(unittest.TestCase):
-    """Gas station forecourts painted asphalt (the user, 2026-10-23: "some stations spawn on dirt because we do not
+    """Gas station forecourts painted asphalt ("some stations spawn on dirt because we do not
     paint ashpat there"): Surface's store of the road tiles' pads (gasstations.tile_sites pads) and the three painters."""
 
     def ring(self, lat, lon, d=1e-4):

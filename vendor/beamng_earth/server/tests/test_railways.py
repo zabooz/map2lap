@@ -101,7 +101,7 @@ class RailwayTest(unittest.TestCase):
         self.assertGreaterEqual(P[:, 0].min(), -roads.OVERLAP - railways.STEP_M - 3.0)
 
     def test_lean_collider_without_rails_and_sleepers(self):
-        # (PR #41) the collider is the bed alone: most of the track's triangles are its rails and sleepers
+        # the collider is the bed alone: most of the track's triangles are its rails and sleepers
         f = features([[(-50.0, 100.0), (300.0, 100.0)]], ["standard_gauge"], subtypes=["rail"])
         mesh = railways.tile_mesh(FRAME, 0, 0, [f], flat)
         P, T, UV, mats, M = mesh
@@ -139,7 +139,7 @@ class RailwayTest(unittest.TestCase):
 
     def test_short_tunnel_under_a_road_is_track_and_abandoned_lines_are_worn(self):
         """The line under a road bridge tagged is_tunnel for 12 m (OSM's habit) is track; a long tunnel is left out;
-        an abandoned line beside it is drawn worn (Joensuu, 2026-10-25; the user, 2026-10-27: abandoned lines shown,
+        an abandoned line beside it is drawn worn (Joensuu: abandoned lines shown,
         grown over)."""
         f = features([[(0.0, 100.0), (250.0, 100.0)], [(0.0, 110.0), (250.0, 110.0)], [(0.0, 150.0), (250.0, 150.0)]],
                      ["standard_gauge", "unknown", "standard_gauge"], subtypes=["rail"] * 3,
@@ -224,7 +224,7 @@ class RailwayTest(unittest.TestCase):
 
     def test_proposed_and_unbuilt_lines_are_not_drawn(self):
         """Overture's "unknown" rail with no abandoned or disused flag is OpenStreetMap's railway=proposed or
-        construction (Link Union Station across US-101, 2026-10-27); a line under construction neither."""
+        construction (Link Union Station across US-101); a line under construction neither."""
         f = features([[(0.0, 100.0), (250.0, 100.0)], [(0.0, 120.0), (250.0, 120.0)], [(0.0, 140.0), (250.0, 140.0)],
                       [(0.0, 160.0), (250.0, 160.0)]],
                      ["unknown", "standard_gauge", "unknown", "standard_gauge"], subtypes=["rail"] * 4,
@@ -304,7 +304,7 @@ class RailwayTest(unittest.TestCase):
 
     def test_bridge_over_a_dip_keeps_the_line_level(self):
         """A short bridge over a stream or an underpass road (the ground 3 m down under it): the deck straight at the
-        line's height, no ramps (a 6 m clearance stood an 8 m culvert's track 6.8 m up on 4.5 m ramps, 2026-10-25)."""
+        line's height, no ramps (a 6 m clearance stood an 8 m culvert's track 6.8 m up on 4.5 m ramps)."""
         def dip(xy):
             return np.where((xy[:, 0] > 112) & (xy[:, 0] < 138), 7.0, 10.0)
         f, x, z = self._line(dip)
@@ -316,7 +316,7 @@ class RailwayTest(unittest.TestCase):
 
     def test_piers_stand_beside_a_road_under_the_bridge_on_the_ground(self):
         """A rail bridge over a road in a 5 m dip: no pier in the road's lanes, every pier's foot under the ground at
-        all its corners (one stood in the lanes, one hung in the air, 2026-10-25)."""
+        all its corners (one stood in the lanes, one hung in the air)."""
         f = features([[(-300.0, 100.0), (60.0, 100.0)], [(60.0, 100.0), (190.0, 100.0)],
                       [(190.0, 100.0), (500.0, 100.0)], [(125.0, -100.0), (125.0, 300.0)]],
                      ["standard_gauge"] * 3 + ["secondary"], subtypes=["rail"] * 3 + ["road"], flags=[(1, "is_bridge")])
@@ -372,7 +372,7 @@ class RailwayTest(unittest.TestCase):
 
     def test_ground_graded_to_the_bed(self):
         """A line through a 6 m ridge (a rock cutting the DEM half shows): the grader lays the ground to the track's
-        bed, the walls back from it, so the track is not buried (2026-10-25: half a track under the rock)."""
+        bed, the walls back from it, so the track is not buried (half a track under the rock)."""
         import grading
         from test_grading import FakeMD
         f = features([[(-400.0, 0.0), (400.0, 0.0)]], ["standard_gauge"], subtypes=["rail"])
@@ -563,7 +563,7 @@ if __name__ == "__main__":
 
 
 class CoarseUnderpassTest(unittest.TestCase):
-    """GitHub #414: on coarse elevation a rail bridge over a ground road rises over it (railways.coarse_underpasses)."""
+    """on coarse elevation a rail bridge over a ground road rises over it (railways.coarse_underpasses)."""
 
     def test_crossings_are_found_along_the_road(self):
         road = np.array([[0.0, 0.0], [100.0, 0.0]])

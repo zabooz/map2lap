@@ -1,6 +1,6 @@
 """build_sign_states.py SRC.geojson: server/sign_states.geojson, the US states' outlines the highway signs' styles
 look up (server/signstates.py: shield shapes, post spacing, portrait exit panels), from the U.S. Census Bureau's
-TIGERweb Generalized ACS 2024 "States 500K" layer (public domain, a work of the US government) that PR #363 bundled
+TIGERweb Generalized ACS 2024 "States 500K" layer (public domain, a work of the US government) that bundled
 as highway_marking_states.geojson (6.5 MB).
 
     python3 tools/build_sign_states.py highway_marking_states.geojson

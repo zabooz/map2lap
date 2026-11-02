@@ -110,7 +110,7 @@ class VegetationTest(unittest.TestCase):
         self.assertGreater(off, 8.0 + veg.TREE_PIT_M, "past the drawn curb, not the class's")
 
     def test_its_sidewalks_kept_clear_too(self):
-        # GitHub #424 / #425: the canopy's trees and the bushes stood on the sidewalks; a street tree (a top over the
+        # / #425: the canopy's trees and the bushes stood on the sidewalks; a street tree (a top over the
         # road) still lands in a pit at the curb
         import roads as roadsmod
         md = FakeMapData()
@@ -210,7 +210,7 @@ class VegetationTest(unittest.TestCase):
 
 
     def test_rocks_on_bare_ground_follow_its_slope(self):
-        # the Bonneville Salt Flats had a rock every ~75 m2 (the user, 2026-10-20): none on flat bare ground
+        # the Bonneville Salt Flats had a rock every ~75 m2: none on flat bare ground
         class Bare(Raster):
             def sample(self, lon, lat):
                 return np.full(np.shape(lon), veg.WC["bare"], np.uint8)
@@ -353,7 +353,7 @@ class FlatTileTest(unittest.TestCase):
 
 
 class DemFailedTest(unittest.TestCase):
-    """A cell built while the DEM could not answer is not kept on disk (from PR #295): its slope rocks were missing for
+    """A cell built while the DEM could not answer is not kept on disk: its slope rocks were missing for
     good."""
 
     def test_failed_dem_cell_not_cached(self):

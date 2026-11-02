@@ -87,7 +87,7 @@ class GraphTest(unittest.TestCase):
 
     def test_nodes_on_the_curve_of_the_earth(self):
         """10 km from the anchor the ground drawn lies ~7.8 m under the flat plane (the anchor frame's up): the nodes
-        too, not at the raw height (the AI's nodes and traffic lights stood over the ground, PR #112's finding)."""
+        too, not at the raw height (the AI's nodes and traffic lights stood over the ground's finding)."""
         g = graph([[(0, 10000), (200, 10000)]], ["primary"], centre=(100.0, 10000.0))
         zs = np.array([n[2] for n in g["nodes"].values()])
         self.assertTrue(len(zs))

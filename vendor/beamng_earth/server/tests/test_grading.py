@@ -38,7 +38,7 @@ class ProfileTest(unittest.TestCase):
         self.assertTrue(np.allclose(steps, ground), "a constant grade stays, ends included")
 
     def test_the_parts_of_a_road_meet_at_one_height(self):
-        # a road on a 20 % grade split in two at a junction (GitHub #266, BR-381): each part's smoothed profile keeps
+        # a road on a 20 % grade split in two at a junction (BR-381): each part's smoothed profile keeps
         # the grade to its end and ends at the ground's height there, so the two meet without a step (mirrored at the
         # ends, one ended 1.3 m under the ground and the next began 0.8 m over it)
         s = np.arange(0, 400, 2.0)
@@ -361,7 +361,7 @@ class DeckBankTest(unittest.TestCase):
 class CrestTest(unittest.TestCase):
     def test_no_kinks_over_a_crest(self):
         # a road over a crest (the grade falls 4 % per 10 m): the graded centreline's slope changes smoothly, not
-        # in a kink at every plan vertex (r/BeamNG 2026-10-17: 'bumpy roads, worst uphill and at speed'; with
+        # in a kink at every plan vertex (r/BeamNG: 'bumpy roads, worst uphill and at speed'; with
         # 16 m vertices the slope jumped 6.4 % at each)
         xy = np.stack([np.arange(-150.0, 150.1, grading.PROFILE_STEP), np.zeros(151)], axis=1)
         z = 20.0 - 0.002 * xy[:, 0] ** 2
@@ -582,7 +582,7 @@ class GradePointsTest(unittest.TestCase):
 
 
 class AbutmentTest(unittest.TestCase):
-    """GitHub #38 (the D1 near Presov): a motorway onto a bridge over a road in a cutting 8 m under it."""
+    """(the D1 near Presov): a motorway onto a bridge over a road in a cutting 8 m under it."""
 
     def test_fill_keeps_the_grade_down_the_embankment(self):
         d = np.arange(0.0, 100.0, grading.PROFILE_STEP)
@@ -623,7 +623,7 @@ class AbutmentTest(unittest.TestCase):
 
 
 class SeparationTest(unittest.TestCase):
-    """GitHub #92: a street in a cutting, a service road on the bank 7.5 m above it beside its core."""
+    """a street in a cutting, a service road on the bank 7.5 m above it beside its core."""
 
     def setUp(self):
         xs = np.arange(-100.0, 100.1, 4.0)
@@ -803,7 +803,7 @@ class GraderTest(unittest.TestCase):
 
     def test_points_far_apart_plan_only_their_cells(self):
         # two points 27 km apart (a straight salt-flats track's ends): the cells around each, not the ~240 of their
-        # bbox (one road tile planned them all: 53 s, 2026-10-20); the same heights, in an order of their own
+        # bbox (one road tile planned them all: 53 s); the same heights, in an order of their own
         f = features([[(-300, 20), (300, 20)]], ["residential"])
         md = FakeMD(f)
         g = grading.Grader(FRAME, md, lambda la, lo: np.full(np.shape(la), 10.0))
@@ -832,7 +832,7 @@ class GraderTest(unittest.TestCase):
     @unittest.mock.patch.object(grading, "SHARP_ON", False)        # (the profile's samples alone counted)
     def test_long_parts_planned_near_the_cell_only(self):
         # a 30 km straight track (one segment): its plan in a cell covers the cell and CLIP_MARGIN_M round it, not
-        # its whole length (each cell sampled the ground to both ends: thousands of DEM tiles, 2026-10-20), with the
+        # its whole length (each cell sampled the ground to both ends: thousands of DEM tiles), with the
         # same heights in the cell; a short road is planned whole
         la, lo, _ = FRAME.enu_to_geodetic(np.array([-15000.0, 15000.0]), np.array([20.0, 20.0]), 0.0)
         f = features([[(-15000, 20), (15000, 20)], [(-300, 400), (300, 400)]], ["residential", "residential"])
@@ -873,7 +873,7 @@ class GraderTest(unittest.TestCase):
 
 
 class ChainTest(unittest.TestCase):
-    """A road split at a junction (GitHub #266, BR-381): its parts are smoothed as one road."""
+    """A road split at a junction (BR-381): its parts are smoothed as one road."""
 
     @staticmethod
     def hill(la, lo):           # a 20 % grade, with a 1.5 m bump in the data right at the junction
@@ -1112,7 +1112,7 @@ class JunctionTest(unittest.TestCase):
         np.testing.assert_allclose(main.z, 10 + 0.02 * x)                  # the main road keeps its profile
 
     def test_a_side_road_follows_its_road_down_into_a_dip(self):
-        """Baltimore's Haven Street (2026-10-28): the alleys were snapped to the street before the underpass dip lowered
+        """Baltimore's Haven Street: the alleys were snapped to the street before the underpass dip lowered
         it 3.5 m, each a hump; snapped again after the dips, they meet it at its new height (a second snap is what
         Grader._make_cell runs after _lower_underpasses)."""
         import roads
@@ -1129,7 +1129,7 @@ class JunctionTest(unittest.TestCase):
         self.assertAlmostEqual(side.z[-1], 10.0, places=6)
 
     def test_a_road_crossing_a_bigger_one_meets_it_there(self):
-        """GitHub #414 (Perm): a service road crossing a primary at a shared node, 4 m higher, stood as a wall across
+        """(Perm): a service road crossing a primary at a shared node, 4 m higher, stood as a wall across
         it; it takes the primary's height at the crossing, eased in either side; the primary keeps its own. (Opt-in with
         the coarse easing: BNE_COARSE_EASE=1.)"""
         import roads
@@ -1267,7 +1267,7 @@ if __name__ == "__main__":
 
 
 class CoarseEaseTest(unittest.TestCase):
-    """earthfast.ease_coarse (GitHub #414): roads side by side on a coarse DEM brought together."""
+    """earthfast.ease_coarse: roads side by side on a coarse DEM brought together."""
 
     def run_ease(self, z_main, z_side, gap_y, rank_side=1, take=(1, 1)):
         import fast

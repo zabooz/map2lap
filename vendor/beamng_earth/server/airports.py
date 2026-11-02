@@ -1,4 +1,4 @@
-"""Airports and runways from OurAirports (docs/research/2026-10-11-airports.md; ROADMAP quick win 4).
+"""Airports and runways from OurAirports.
 
     store = airports.Store(cache_dir, fetcher)          # the server's netfetch.Fetcher
     db = store.load()                                   # AirportDB: refreshed weekly, last good copy offline
@@ -9,8 +9,8 @@
 
 Source: OurAirports' nightly CSV dump (public domain: "All data is released to the Public Domain, and
 comes with no guarantee of accuracy or fitness for use.", https://ourairports.com/data/, read
-2026-10-11 through the Internet Archive because ourairports.com's TLS certificate had expired that
-day). Since 2021-11-03 the files live on GitHub Pages (DATA_URL; the repository davidmegginson/
+through the Internet Archive because ourairports.com's TLS certificate had expired that
+day). Since the files live on GitHub Pages (DATA_URL; the repository davidmegginson/
 ourairports-data is under The Unlicense); only airports.csv and runways.csv are used. Columns: the
 data dictionary https://ourairports.com/help/data-dictionary.html (REQUIRED_* below).
 
@@ -576,7 +576,7 @@ class AirportDB:
         stats["helipads"] = len(helipads)
         stats["runway_rows"] = len(rrows)
         # only the airports with a runway or helipad kept (every lookup goes through those; the rest, ~70k strips
-        # and heliports without one, cost ~50 MB of strings in every server process, a Steam Deck 2026-10-20)
+        # and heliports without one, cost ~50 MB of strings in every server process, a Steam Deck)
         used = {r.airport_ident for r in runways} | {h.airport_ident for h in helipads}
         airports = {k: a for k, a in airports.items() if k in used}
         return cls(airports, runways, helipads, stats, snapshot)
@@ -847,7 +847,7 @@ class Store:
             return db
 
     # The parsed snapshot, pickled next to its CSV files: the server's main process and every worker parsed the
-    # 86k airports themselves, ~257 MB a process for ~50 MB kept (a Steam Deck, 2026-10-20). PARSED_V: raise it when
+    # 86k airports themselves, ~257 MB a process for ~50 MB kept (a Steam Deck). PARSED_V: raise it when
     # the classes change.
     PARSED_V = 4
 

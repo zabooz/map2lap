@@ -75,7 +75,7 @@ THEME_LICENCES = {
             "Copernicus Sentinel data (2020) processed by ESA WorldCover consortium. Available under CC BY "
             "4.0 DEED. Data products from ETOPO1. Available under Open Data Commons Public Domain Dedication "
             "and License. Data from GLOBathy. Available under CC0 1.0 (assumed).",
-    # (read 2026-10-23)
+    # (read)
     "places": "Data from Meta. Available under CDLA Permissive 2.0. Data from Microsoft. Available under CDLA "
               "Permissive 2.0. Data from PinMeTo. Available under CDLA Permissive 2.0. Data from Krick. Available "
               "under CDLA Permissive 2.0. Data from RenderSEO. Available under CDLA Permissive 2.0. Data from DAC. "
@@ -141,7 +141,7 @@ LAYERS = {
                            cols=f"subtype, class, {_NAME}, {_SRC}, level, height, surface, {_TAGS}",
                            text=("subtype", "class", "name", "src_dataset", "src_record", "surface", "tags"),
                            float=("level", "height")),
-    # points of interest; read for the gas stations (gasstations.py, the user 2026-10-23: "we can already refuel in
+    # points of interest; read for the gas stations (gasstations.py: "we can already refuel in
     # beam so I want to include it on this impressive map mod"). Schema of 2026-09-23.1: basic_category and
     # taxonomy.primary (the old categories column is gone), brand.wikidata / brand.names.primary
     "places": dict(theme="places", type="place", clip=False,
@@ -186,7 +186,7 @@ def intersects(b, bounds):
 
 # The pinned release's whole index shipped with the app (tools/build_stac_index.py): the server never asks
 # stac.overturemaps.org for it. That host was down for about an hour on 2026-10-26 and no fresh place got roads or
-# buildings (GitHub #357); it also saves a first visit an item request per file.
+# buildings; it also saves a first visit an item request per file.
 BUNDLED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overture_stac_{release}.json.gz")
 
 
@@ -286,7 +286,7 @@ class Reader:
         self.pool = ThreadPoolExecutor(FETCH_THREADS, thread_name_prefix="mapdata-fetch")
         # path -> [(row group, {"first", "n", "bbox", "cols"})]: a file's parsed Parquet metadata (_plan; a release's
         # files never change). Re-reading it for every cell was most of a map cell's CPU (the Deck's mapdata-layer
-        # thread, 36 CPU-s of a teleport, 2026-10-23); osmtags._groups keeps its file's the same way.
+        # thread, 36 CPU-s of a teleport); osmtags._groups keeps its file's the same way.
         self._meta = OrderedDict()
 
     def close(self):

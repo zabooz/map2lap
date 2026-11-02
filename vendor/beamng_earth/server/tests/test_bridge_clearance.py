@@ -122,7 +122,7 @@ class MinimumBridgeClearanceTest(TestCase):
         key = ("short", 0)
         pool = {key: (mock.Mock(width=12.0), xy, 0.0, 1.0, len(xy))}
         with mock.patch("bridgetypes.nav_clearance", return_value=0.0), \
-                self.assertLogs("earthd.roads", level="DEBUG") as messages:     # (debug: GitHub #391)
+                self.assertLogs("earthd.roads", level="DEBUG") as messages:     # (debug)
             bp._solve([key], pool, {("lower", "g"): [lower]})
         self.assertIn("below 6.0 m target", " ".join(messages.output))
 

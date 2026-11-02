@@ -1,11 +1,11 @@
-"""Real road heights (docs/research/2026-10-28-3d-road-data.md; the user, 2026-10-28: "Find a way to pull actual 3d
+"""Real road heights ("Find a way to pull actual 3d
 road data", then "Ok work on the 3d road / lidar"): a height-source override for bridge decks, tunnel floors and
 (on coarse elevation only) ground roads, today's inference staying the fallback everywhere else.
 
 Sources, each per z14 map-data cell, kept on disk under <cache>/roadz/v<VERSION>/<source>/<z>/<x>/<y>.npz:
 - "ign": France, IGN BD TOPO troncon_de_route (Etalab Licence Ouverte 2.0) from the Geoplateforme WFS: per-vertex Z
   (photogrammetry, 1.5-2.5 m; -1000 = none), position_par_rapport_au_sol (>0 on a bridge, <0 in a tunnel), cpx_numero
-  (the road's number), nom_collaboratif_gauche (its name). The WFS request is the one Madderose's PR #456 (ign_fr.py)
+  (the road's number), nom_collaboratif_gauche (its name). The WFS request is the one (ign_fr.py)
   reads BD TOPO with (CRS:84 bbox, GeoJSON, the "ign_wfs" lane).
 - "nvdb": Norway, the Norwegian Public Roads Administration's NVDB API v4 road network (NLOD 2.0): LINESTRING Z,
   10-15 cm; medium L (in the air: a bridge), U / B (underground, in a building: a tunnel); vegsystem (E18, R4 ...).

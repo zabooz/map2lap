@@ -1,12 +1,12 @@
-"""Ground surfaces under the physics block (docs/ROADMAP.md v1.5 "Per-cell surface physics"; earthd
---surface, on by default since 2026-10-11).
+"""Ground surfaces under the physics block (earthd
+--surface, on by default since).
 
 The TerrainBlock is physics-only in mesh mode, so its layer map decides nothing but the tyres'
 ground model (and GroundCover, which binds to a layer). Every 2 m sample of the block gets one of
-MATERIALS from the ESA WorldCover class under it (docs/research/2026-10-10-world-data-sources.md
+MATERIALS from the ESA WorldCover class under it (
 §5.4, without the OSM overrides yet) and the slope (ROCK where steeper than ROCK_SLOPE_DEG); the
 server writes one 0/255 mask per material next to the heightmap and the mod imports them with the
-block (8 greyscale masks: +4-5 ms per 512² import, docs/research/2026-10-11-engine-probes.md).
+block (8 greyscale masks: +4-5 ms per 512² import,.
 
 Land cover comes from the map-data cache (mapdata.py "landcover" layer, per z14 cell). Building a
 block never waits for the network: a cell that is not cached yet reads as "no data" (DIRT, the
@@ -42,7 +42,7 @@ VERSION = 1
 # default, and the one every block had before (an all-zero sample falls to the later layer on ties,
 # docs/research/2026-10-10-world-data-sources.md §4.4, so DIRT goes last).
 # Names carry their own prefix: "bngEarthSnow" is the weather's Precipitation object (weather.lua), and
-# a TerrainMaterial of that name was never made - its layer fell back to asphalt (in-game 2026-10-11).
+# a TerrainMaterial of that name was never made - its layer fell back to asphalt (in-game).
 MATERIALS = (
     ("bngEarthGroundAsphalt", "ASPHALT_OLD"),
     ("bngEarthGroundGrass", "GRASS"),
@@ -62,7 +62,7 @@ ASPHALT, GRASS, DUSTY, LOOSE, ROCK, SNOW, MUD, COBBLE, LAWN, DIRT = range(len(MA
 # (paint_roads), and the photo's own colours now show through.
 CLASS_MATERIAL = {0: DIRT, 10: GRASS, 20: DUSTY, 30: GRASS, 40: DIRT, 50: DIRT, 60: LOOSE, 70: SNOW,
                   80: MUD, 90: MUD, 95: MUD, 100: GRASS}
-# Lawns (2026-10-14, street photos of Ocean City, Lancaster, Frederick, Moab): built-up land between the
+# Lawns (street photos of Ocean City, Lancaster, Frederick, Moab): built-up land between the
 # buildings is mostly mown grass, which the dirt layer drew pale and bare. A share of it is LAWN, in patches
 # of smooth noise on a fixed world grid: most of it where the climate is humid, less in the dry West (yards
 # of gravel and dirt there). The rest stays dirt (lots, gravel, bare yards); roads and lots paint over both.
@@ -70,10 +70,10 @@ LAWN_SHARE_HUMID = 0.9
 LAWN_SHARE_DRY = 0.75
 LAWN_PATCH_M = 30.0
 # Past Web Mercator's limit (+-85.05 deg) there are no map cells: all of it is ice, Antarctica's ice sheet and the
-# Arctic Ocean's year-round sea ice (the user, 2026-10-22: "add polar support"), WorldCover's "snow and ice".
+# Arctic Ocean's year-round sea ice ("add polar support"), WorldCover's "snow and ice".
 POLAR_CLASS = 70
 ROCK_SLOPE_DEG = 35.0       # steeper ground is rock (cliffs, scree), except snow
-# Organic borders (user 2026-10-11: rectangular grass in Monument Valley). WorldCover's 10 m square
+# Organic borders (rectangular grass in Monument Valley). WorldCover's 10 m square
 # pixels give stair-stepped, ruler-straight class borders, which the grass makes visible. Every
 # sample reads the land cover a few metres off, by smooth value noise on a fixed world grid (no
 # state, the same for every block): (feature size m, amplitude m) per octave.
@@ -272,9 +272,9 @@ def paint_roads(idx, lat, lon, feats_list, square, urban_fn=None, widths=None, e
     sections, grading.Grader.open_tunnels). Each sample is a road's when it lies within the road's half width
     (+ ROAD_EDGE_M) of its line (earthfast.mask_segments): PIL's thick lines put the material half a sample off the line
     and an odd number of samples wide (an 11 m road painted 14 m, 1.4 m to one side: the asphalt's grain beyond the
-    edge line, GitHub #402). The engine gives each square the material of its south-west sample (the ground model under
+    edge line). The engine gives each square the material of its south-west sample (the ground model under
     a wheel and the detail texture both: a car 1.4 m inside a 9 m road's edge was on dirt, and the dirt's grain lay over
-    the asphalt along one edge; wheels swept across the edges in game, 2026-10-28): a sample is tested at the centre of
+    the asphalt along one edge; wheels swept across the edges in game): a sample is tested at the centre of
     the square north-east of it. Pure (a new array)."""
     h, w = idx.shape
     grid = grid_affine(lat, lon)
@@ -305,7 +305,7 @@ def paint_roads(idx, lat, lon, feats_list, square, urban_fn=None, widths=None, e
         if walks:
             width += 2 * (spec.walk + square)   # the sidewalks (+ a sample: tufts at the outer edge): grass grew up
                                                 # through them (ground cover is the terrain's: Lauterbrunnen, Baltimore
-                                                # 2026-10-15)
+                                                #)
         c, r = to_px(x, y)
         c, r = np.asarray(c, np.float64), np.asarray(r, np.float64)
         reach = (width / 2 + ROAD_EDGE_M + (0 if walks else VERGE_M)) / square + 2
@@ -340,7 +340,7 @@ def paint_roads(idx, lat, lon, feats_list, square, urban_fn=None, widths=None, e
             for ring in roadsmod.ground_parts(feats, i):      # not bridges / tunnels
                 line(ring[:, 0], ring[:, 1], specs[i], aisle)
                 if ms is not None and mw > roadsmod.MEDIAN_SLAB_M and len(ring) >= 2:
-                    # the median's ground: lawn (report #48, Boston Street, 2026-10-17)
+                    # the median's ground: lawn (report #48, Boston Street)
                     sc = np.array([111320.0 * math.cos(math.radians(float(ring[0, 1]))), 110540.0])
                     xy = (ring[:, :2] - ring[0, :2]) * sc
                     off = roadsmod.offset_polyline(np.c_[xy, np.zeros(len(xy))],
@@ -419,7 +419,7 @@ def _corner_mask(feats_list, urban_fn, widths, lonlat_bounds, to_px, shape, grow
     return None if im is None else np.asarray(im) > 0
 
 
-# Roads in the ground (the user, 2026-10-22: "I dont love that we are applying a floating road texture over the normal
+# Roads in the ground ("I dont love that we are applying a floating road texture over the normal
 # terrain"): by default (BNGE_ROADS_IN_GROUND=0 turns it off) the road tiles carry no carriageway mesh (roads.ROADS_IN_GROUND) and the
 # ground's photos have the carriageways painted in at their width (photo_roads): the drawn block's base photo and the
 # far tiles' textures down to PHOTO_ROADS_MAX_TEXEL (the near ring the block does not cover, where the meshes were);
@@ -428,7 +428,7 @@ def _corner_mask(feats_list, urban_fn, widths, lonlat_bounds, to_px, shape, grow
 # colour and opacity by surface, blended in this order (paved last: it wins at junctions); a trace of the photo is kept
 # (stains, patches), and most of it on unpaved tracks, which the photo shows well and a flat colour drew as stripes
 # paved alpha 1.0 (was 0.92): an old through-road scar in the photo stayed visible as a dark E–W band across
-# roundabout approaches even after island grass fill (Chavagnes-en-Paillers 2026-10-28)
+# roundabout approaches even after island grass fill (Chavagnes-en-Paillers)
 PHOTO_ROAD_RGBA = {"dirt": (122, 104, 82, 0.45), "gravel": (128, 118, 102, 0.6), "cobble": (112, 104, 96, 0.85),
                    "paved": (95, 95, 94, 1.0)}
 PHOTO_ROADS_MAX_TEXEL = 2.0     # m per texel: coarser far tiles keep the photo's own roads (far, under a pixel wide)
@@ -563,7 +563,7 @@ def photo_ghosts(rgb, frame, x0, y0, size, feats_list, urban_fn=None, widths=Non
     coloured like the photo on the road) replaced by the ground beyond it, mirrored (earthfast.photo_ghosts), before
     photo_roads paints the roads in: the map's carriageway is narrower than the photo's (its paved shoulders)
     or a metre or two off it, and the photo's strip showed as a pale band beside one edge (Woodland Park, US-24: the
-    photo's pavement 17 m wide, the drawn road 11 m; the user, 2026-10-28). Pure (a new array)."""
+    photo's pavement 17 m wide, the drawn road 11 m). Pure (a new array)."""
     h, w = rgb.shape[:2]
     of = []
     got = _road_segments(frame, x0, y0, size, w, h, feats_list, urban_fn, widths, roads_of=of)
@@ -581,7 +581,7 @@ def photo_ghosts(rgb, frame, x0, y0, size, feats_list, urban_fn=None, widths=Non
     return out
 
 
-# Roundabout island fill (Chavagnes-en-Paillers 2026-10-28): the photo often still shows the old through-road
+# Roundabout island fill (Chavagnes-en-Paillers): the photo often still shows the old through-road
 # across the grass and as a dark E–W band on the approaches; carriageway paint leaves gaps so the scar stays visible.
 ISLAND_GRASS = (76, 98, 58)     # muted grass when the photo's own greens are too few to sample
 # Outset past the ring centreline so the fill covers the whole roundabout footprint (island + carriageways); paint_lines
@@ -613,7 +613,7 @@ def _roundabout_footprints(roads_list):
 
 # m round the painted area a road may lie and still be part of a roundabout reaching it (islands.MAX_AREA_M2: ~120 m
 # across, + ISLAND_OUTSET_M). Only those go to islands.find: all the roads of the cells round a photo square or a block
-# took ~125 ms a call in Fells Point, its painting of the roads themselves 3 ms (merge of PR #468, 2026-10-29)
+# took ~125 ms a call in Fells Point, its painting of the roads themselves 3 ms (merge of PR #468)
 ISLAND_REACH_M = 150.0
 
 
@@ -819,7 +819,7 @@ def _square_pads(frame, x0, y0, size, surface):
 
 # The near tiles' asphalt (mesh near-visual mode, where the tiles are the ground seen): a mask of the built
 # carriageways (paved, cobble) beside the tile's texture, far_<a>_<key>_road.dds (road_mask_name), finer than the photo
-# (farfield.NEAR_MASK_PX; the GPU has room, the CPU less, the user 2026-10-22); the mod's material gives the masked
+# (farfield.NEAR_MASK_PX; the GPU has room, the CPU less); the mod's material gives the masked
 # part a second layer of the stock asphalt (its colour, grain and bumps, world-locked; satmat.lua), the rest the photo.
 ROAD_MASK_MAX_TEXEL = 1.0       # m per texel of the mask
 ROAD_MASK_KINDS = ("paved", "cobble")
@@ -850,14 +850,14 @@ def road_mask(frame, x0, y0, size, px, surface, widths=None):
 
 # A road without sidewalks gets a verge of VERGE_M a side painted bare where the ground would carry grass or shrubs:
 # the ground cover goes by the 2 m layer samples, and tufts stood on the asphalt along its edges in many places (the
-# user, 2026-10-20: "grass on the road")
+# user: "grass on the road")
 VERGE_M = 2.0
 VERGE_FROM = (GRASS, LAWN, DUSTY)
 VERGE = DIRT
 AISLE_STALLS_M = 5.5        # a parking aisle's stall rows (parking.LOT_SPOT_D_M), painted with it
 PARKING_CLASSES = {"parking"}     # Overture infrastructure (transit) polygons drawn as asphalt: no grass on a lot
 # Squares and pedestrian areas (Overture land_use subtype "pedestrian": Mexico City's Zocalo read as bare dirt,
-# 2026-10-15): paving, under the parking lots and the roads drawn over them
+#): paving, under the parking lots and the roads drawn over them
 PLAZA_CLASSES = {"pedestrian", "plaza"}
 # Substations' yards (Overture infrastructure class substation; powerlines.py fills them with switchgear): crushed
 # stone, as West Coast USA's yard (the gravel layer), 2026-10-26
@@ -868,7 +868,7 @@ def paint_lots(idx, lat, lon, feats_list):
     """idx with the squares and pedestrian areas (land_use polygons of subtype "pedestrian") of feats_list
     drawn in as plain paving (the asphalt layer), then the parking lots (polygons of class "parking") as asphalt (Lancaster County's
     photos: the grass layer's ground cover grew on lots), the substations' yards as gravel. Pure."""
-    # (grey paving: the cobble layer's setts drew big squares and promenades pink, Harbor Point 2026-10-15)
+    # (grey paving: the cobble layer's setts drew big squares and promenades pink, Harbor Point)
     idx = _paint(idx, lat, lon, feats_list, _plazas, ASPHALT)
     idx = _paint(idx, lat, lon, feats_list, _yards, LOOSE)
     return _paint(idx, lat, lon, feats_list, _parking, ASPHALT)
@@ -1116,10 +1116,10 @@ LAWN_GREEN = 10             # 2g - r - b of the ground photo above which a lawn 
 def photo_lawns(out_dir, ter_name, mask_names_, rgb):
     """Detail mode: the block's LAWN samples where the ground photo (rgb (px, px, 3), row 0 = north, the
     block's footprint) is not green turn DIRT (paved yards, lots and driveways: the grass layer's blades
-    over a pale photo looked like snow, Lancaster 2026-10-14). Patches the .ter's layer map and the two
+    over a pale photo looked like snow, Lancaster). Patches the .ter's layer map and the two
     masks in place, atomically. Returns the number of samples changed. Likewise SNOW (WorldCover "snow and ice")
     where the photo is not snow-white turns LOOSE scree (the Stelvio Pass's summit in late summer: the snow layer's
-    white blur where the orthophoto has grey-brown gravel, the user's reports #40 / #44, 2026-10-17)."""
+    white blur where the orthophoto has grey-brown gravel)."""
     path = os.path.join(out_dir, ter_name)
     with open(path, "rb") as f:
         data = bytearray(f.read())
@@ -1180,7 +1180,7 @@ def photo_lawns(out_dir, ter_name, mask_names_, rgb):
 def used_materials(idx):
     """The MATERIALS indices a block's .ter lists: those its samples use (holes aside), plus what photo_lawns may
     turn them into (LAWN -> DIRT, SNOW -> LOOSE), in MATERIALS order. Each distinct material a .ter lists costs
-    the engine's first draw after the swap ~20 ms (in-game probes 2026-10-18 at Tower Bridge: one material
+    the engine's first draw after the swap ~20 ms (in-game probes at Tower Bridge: one material
     55-80 ms, three 80-180, all ten 250-560 ms in RenderShadows, whether a sample uses them or not)."""
     u = set(np.unique(np.asarray(idx, np.uint8)).tolist())
     u.discard(heightmap.TER_HOLE)
@@ -1265,7 +1265,7 @@ class Surface:
         dlat = radius_m / 111320.0
         dlon = radius_m / (111320.0 * max(0.05, math.cos(math.radians(lat))))
         # a file test, not a load: this runs on the server's event loop at every pose, and reading each
-        # cell's arrays there stalled it for seconds while driving (2026-10-12); an unreadable file is
+        # cell's arrays there stalled it for seconds while driving; an unreadable file is
         # rebuilt when a block reads it
         for key in mapcells.cells_for_bbox(lat - dlat, lon - dlon, lat + dlat, lon + dlon):
             if not self.md.has(key, "landcover"):
@@ -1317,7 +1317,7 @@ class Surface:
         """Keep gas station forecourt pads [(station id, [(lat (k,), lon (k,))])]: the road tiles' own
         (gasstations.tile_sites pads), handed over by earthd (and to a block's process with its job). No other process
         lays the stations out again for them: that read every cell's buildings and places into the terrain blocks'
-        processes too (~60 MB a city cell, out of a Steam Deck's map data budget; the user, 2026-10-23: "this is meant
+        processes too (~60 MB a city cell, out of a Steam Deck's map data budget: "this is meant
         to run on steam decks too"). Returns the stations new to it [(id, rings)] (their ground to paint again)."""
         new = []
         with self._lock:

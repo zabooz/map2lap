@@ -26,7 +26,7 @@ class StagingTest(unittest.TestCase):
             self.assertNotEqual(staging.tmp_for(target), staging.tmp_for(target))   # one per write
 
     def test_session_folder_deleted_mid_run(self):
-        """GitHub #27: the session folder was gone (temp cleared) and every terrain write after it failed."""
+        """the session folder was gone (temp cleared) and every terrain write after it failed."""
         with tempfile.TemporaryDirectory() as root:
             session = os.path.join(root, "BeamNG.drive", "current", "temp", "beamngEarth", "s1")
             target = os.path.join(session, "hm_11_0_0.png")
@@ -60,7 +60,7 @@ class StagingTest(unittest.TestCase):
             self.assertTrue(os.path.exists(new))
 
     def test_cache_file_held_elsewhere(self):
-        # Windows: a file open or mapped in another process cannot be replaced (PermissionError, GitHub #67)
+        # Windows: a file open or mapped in another process cannot be replaced (PermissionError)
         real, calls = os.replace, []
 
         def held(n):
@@ -120,7 +120,7 @@ class WarmTest(unittest.TestCase):
 
 
 class ReadHeldTest(unittest.TestCase):
-    """Windows: a cache file being replaced cannot be opened for a moment (GitHub #240 / #241)."""
+    """Windows: a cache file being replaced cannot be opened for a moment (/ #241)."""
     def test_tried_again(self):
         from unittest import mock
         tries = []

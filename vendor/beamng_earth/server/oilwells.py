@@ -1,4 +1,4 @@
-"""Oil wells for the pump jacks (the mod's pumpjacks.lua; the user, 2026-10-26: matching props for the pump jack sound):
+"""Oil wells for the pump jacks (the mod's pumpjacks.lua: matching props for the pump jack sound):
 OpenStreetMap's man_made=petroleum_well / pumping_rig points, built once by tools/build_oilwells.py into oil_wells.npz
 beside the modules (ODbL, (c) OpenStreetMap contributors; Overture has no well class). A well gets a pump jack unless
 it is a gas well (substance=gas) or tagged pump=no; closed ones (an end_date, disused / abandoned) are left out of the

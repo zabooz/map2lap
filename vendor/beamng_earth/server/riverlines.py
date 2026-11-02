@@ -1,4 +1,4 @@
-"""Rivers and streams as River objects along their centrelines (the mod's sea.lua; user 2026-10-13: like
+"""Rivers and streams as River objects along their centrelines (the mod's sea.lua;: like
 the "Downhill Mayhem" map's rivers, whose River objects run down a valley with a node every ~35 m and
 push cars along with flowMagnitudePhysics).
 
@@ -10,7 +10,7 @@ intermittent ones) are drawn in the direction of flow, as OSM ways. Ways that co
 resampled every SPACING_M, and cut into pieces on a PIECE_M lattice of the anchor frame (stable keys:
 a piece is made again only when its chain changes). Where the sea, a lake or a river the DEM flattens is
 already water as tiles (the sea, lakes; seacarve), the chain is left out. Every river is drawn this way,
-wide ones too (flat tiles left holes and steps on sloping rivers, 2026-10-13); seacarve still carves the
+wide ones too (flat tiles left holes and steps on sloping rivers); seacarve still carves the
 beds of the rivers the DEM flattens, so those are deep.
 
 The surface: the DEM in the channel (the lowest of the node and four points CHANNEL_PROBE_M around it),
@@ -50,7 +50,7 @@ DEPTH_M = (1.0, 8.0)        # the River's depth (its volume below the surface): 
 FLOW_MS = {"river": 2.0, "stream": 1.2, "canal": 0.5}          # flowMagnitudePhysics (m/s), downstream
                                                                 # (stock rivers: 2-4, waterfalls 5-8)
 DEM_ZOOM = 15
-# The water keeps off the roads beside it (2026-10-15, Lauterbrunnen valley and Interlaken: a River as wide as the
+# The water keeps off the roads beside it (Lauterbrunnen valley and Interlaken: a River as wide as the
 # river's outline (or WIDTH_M) lay over the valley road beside the stream and the AI drove into it): a node's
 # half-width is at most its distance to the nearest road's edge (on-ground pieces: a bridge passes over), less
 # ROAD_MARGIN_M, but never under RIVER_MIN_HALF_M.
@@ -135,7 +135,7 @@ class River:
 def underground(f, i):
     """Whether water line i of Features f runs underground by its OSM tags (Overture's source tags): tunnel=yes /
     culvert / ... or location=underground. A river piped under a city (Novosibirsk's Kamenka, under the streets of its
-    centre) was drawn as open water and its bed carved: a strip of water lay along the streets (2026-10-25); a culvert
+    centre) was drawn as open water and its bed carved: a strip of water lay along the streets; a culvert
     under a road, a strip across it."""
     tags = f.attrs.get("tags") if hasattr(f, "attrs") else None
     if tags is None:
@@ -267,11 +267,11 @@ def plan(frame, x, y, cell_water, water_at, dem_at, outline_at=None, radius=None
 def _confluences(rivers):
     """Where a river runs into a wider one (or a stream into a river), its nodes inside the other's ribbon
     are left out (two
-    Rivers over each other: their ripples flow two ways, 2026-10-13); the wider one carries the water."""
+    Rivers over each other: their ripples flow two ways); the wider one carries the water."""
     rank_of = {"river": 0, "canal": 1, "stream": 2}     # a stream inside a river's outline measures the
     # (by the median width: at its mouth the width probed across a tributary's outline runs on along the river it
     # joins, the Vitba's 780 m at Vitebsk, so by its widest node it outranked the Daugava, whose nodes there were
-    # left out: no water under Castle Street's bridge, GitHub #323)
+    # left out: no water under Castle Street's bridge)
     order = sorted(range(len(rivers)), key=lambda k: (rank_of[rivers[k]["kind"]],   # river's width there
                                                      -float(np.median(rivers[k]["width"])), rivers[k]["ids"]))
     for rank, k in enumerate(order):
@@ -307,13 +307,13 @@ def _nodes(frame, ids, kind, pts, water_at, dem_at, outline_at, level_at=None, r
         carved = np.asarray(level_at(cla, clo), np.float64)
         level = np.where(np.isfinite(carved), carved + CARVED_ABOVE_M, level)
     # (a node far wider than its river's own median width measured into other water: a tributary's mouth probed
-    # along the river it joins, 780 m for the 30 m Vitba at Vitebsk, GitHub #323)
+    # along the river it joins, 780 m for the 30 m Vitba at Vitebsk)
     if len(width) >= 3:
         width = np.minimum(width, max(WIDTH_OUTLIER * float(np.median(width)), WIDTH_M[kind]))
     depth = np.clip(width / 8.0, *DEPTH_M)
     # the surface in the anchor frame (the curve included)
     _, _, z = frame.geodetic_to_enu(la, lo, level)
-    width = width * WIDTH_PAD + WIDTH_PAD_M         # over the carved bed's edges (holes, 2026-10-13)
+    width = width * WIDTH_PAD + WIDTH_PAD_M         # over the carved bed's edges (holes)
     if road_clear is not None:                      # never over the road beside the river
         clear = np.asarray(road_clear(centre), np.float64)
         width = np.minimum(width, 2.0 * np.maximum(clear - ROAD_MARGIN_M, RIVER_MIN_HALF_M))
@@ -344,7 +344,7 @@ def _pieces(rv, x, y, r):
         while j + 1 < n and keep[j + 1] and tuple(sq[j + 1]) == tuple(sq[i]):
             j += 1
         # the piece and the first node of the next: they share a node, never a segment (two Rivers over
-        # the same stretch drew by turns as the camera moved, 2026-10-13)
+        # the same stretch drew by turns as the camera moved)
         a, b = i, (j + 1 if (j + 1 < n and keep[j + 1]) else j)
         if b > a:
             nodes = tuple((float(centre[k, 0]), float(centre[k, 1]), float(z[k]), float(width[k]), float(depth[k]))
@@ -389,7 +389,7 @@ def _widths(frame, kind, pts, outline_at):
 
 def _smooth(v):
     """A running median, then a running mean over SMOOTH_N nodes: a centre or a width that changes from
-    node to node folds a River's surface over itself (stretched, streaky texture, 2026-10-13)."""
+    node to node folds a River's surface over itself (stretched, streaky texture)."""
     v = _running_median(v, MEDIAN_N)
     if len(v) < 3:
         return v

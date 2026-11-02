@@ -59,7 +59,7 @@ def code_key():
             h = hashlib.sha1()
             for name in sorted(os.listdir(here)):
                 # (a packaged app's modules are in its archive, not beside __file__: the build's CODE_ID, their
-                # fingerprint, is; without it a Python-only update reused the older build's items. From PR #368)
+                # fingerprint, is; without it a Python-only update reused the older build's items. From)
                 if name == "CODE_ID" or name.endswith(".py") or name.startswith("earthfast"):
                     try:
                         with open(os.path.join(here, name), "rb") as f:

@@ -54,7 +54,7 @@ class TerrainCacheKeyTest(unittest.TestCase):
     def test_xxh64_and_the_games_key(self):
         import terraincache
         self.assertEqual(terraincache.xxh64(b""), 0xEF46DB3751D8E999)
-        # a cache miss in the game's log (2026-10-12): base colour = this path, ao = the level's flat map
+        # a cache miss in the game's log: base colour = this path, ao = the level's flat map
         self.assertEqual(terraincache.base_key("/temp/beamngEarth/20261012-205217-e109/hm_3_0_0_base.dds",
                                                "/levels/beamng_earth/art/terrains/bngEarth_base_ao.png"),
                          "a85a55fd11d8c1f6")
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
 class TerrainCacheMipsTest(unittest.TestCase):
     def test_rgba_mips_follow_the_photo(self):
-        """GitHub #115: the terrain cache's RGBA (photo + AO) mips were read as RGB: grey under the top level, the
+        """the terrain cache's RGBA (photo + AO) mips were read as RGB: grey under the top level, the
         distant ground striped (worst at Low texture quality, which draws the lower levels)."""
         import struct
         rng = np.random.default_rng(5)

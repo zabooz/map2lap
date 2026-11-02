@@ -100,7 +100,7 @@ class PlanTest(unittest.TestCase):
         self.assertLessEqual(len(inside), 1, "the stream stops at the river (one node into it)")
 
     def test_tributary_wide_at_its_mouth_never_outranks_the_river(self):
-        """GitHub #323: a 30 m river whose last nodes measured 780 m (probed along the river it joins) left that
+        """a 30 m river whose last nodes measured 780 m (probed along the river it joins) left that
         river's nodes out under itself; ranked by the median width, the main river keeps its water there."""
         n = 40
         main = {"kind": "river", "ids": ("main",), "centre": np.stack([np.arange(n) * 20.0, np.zeros(n)], -1),
@@ -117,7 +117,7 @@ if __name__ == "__main__":
 
 
 class RoadClearanceTest(unittest.TestCase):
-    """Rivers keep off the roads beside them (Lauterbrunnen valley, 2026-10-15: the AI drove into a river
+    """Rivers keep off the roads beside them (Lauterbrunnen valley: the AI drove into a river
     drawn over the valley road)."""
 
     def test_distance_to_road_edges(self):
@@ -143,7 +143,7 @@ class RoadClearanceTest(unittest.TestCase):
 
 class UndergroundTest(unittest.TestCase):
     """Rivers piped underground (OSM tunnel=* / location=underground, in Overture's source tags) are neither drawn nor
-    carved: Novosibirsk's Kamenka under its streets was a strip of water along a dual carriageway (2026-10-25)."""
+    carved: Novosibirsk's Kamenka under its streets was a strip of water along a dual carriageway."""
 
     @staticmethod
     def lines(tags):
