@@ -344,3 +344,18 @@ def free_ram_gb():
     except (AttributeError, OSError):
         pass
     return None
+
+
+def trust_windows_certificates():
+    """Windows: HTTPS (OSRM, Nominatim, GitHub) checks a server's certificate through Windows itself, as the browser
+    does, instead of OpenSSL with the roots copied out of Windows' store (truststore). OpenSSL fails on a stale root
+    there that Windows replaces when it checks a chain itself: "certificate has expired" for OSRM's Let's Encrypt
+    chain while the map loads in the browser. (BeamNG.Earth's map downloads use truststore on their own: netfetch.)
+    Once per process, before its first request."""
+    if not WIN:
+        return
+    try:
+        import truststore
+    except ImportError:
+        return
+    truststore.inject_into_ssl()

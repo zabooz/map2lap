@@ -19,7 +19,7 @@ from concurrent.futures import as_completed
 import numpy as np
 
 from track import build_tiles     # (first: sets the asphalt mesh switches and the server path)
-from app import debugapp, mapcache, mytracks, settings, trackcode, version
+from app import debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import farview, gates
 from track import make_obj, make_track_folder, obj_to_kn5, parallel
@@ -416,6 +416,7 @@ def main():
     ap.add_argument("--cache-gb", type=float, help="size limit of the map data cache (default: settings.json)")
     ap.add_argument("points", nargs="*", help="lat,lon ... (at least two; none with --area)")
     a = ap.parse_args()
+    system.trust_windows_certificates()
     pts = [tuple(map(float, p.split(","))) for p in a.points]
     parallel.SHARE = a.cores / 100.0
     progress = None

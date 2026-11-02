@@ -465,6 +465,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    system.trust_windows_certificates()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
     try:                                # (AC as Settings say)
