@@ -6242,6 +6242,40 @@ def tunnel_hole_mask(parts, u, cx, cy, square, heights=None, mouths=None):
                               np.ascontiguousarray(z), float(hw), float(th), bool(low), bool(m0), bool(m1),
                               float(TUNNEL_HOLE_MARGIN), float(LOW_HOLE_M if low else LOW_HOLE_M + LOW_HOLE_STEP),
                               float(ARCH_SIDE_M + 1.0), not low)
+    return spare_open_floors(mask, parts[:n_own], x0, y0, square)
+
+
+def spare_open_floors(mask, parts, x0, y0, square):
+    """mask (samples at (x0 + ix * square, y0 + iy * square)) with the hole samples filled again whose cells reach past
+    the floor of a twin tunnel's stretch with no tube over it (twin_spans: past the shared tube, its floor lies open). The
+    terrain drops every cell with a corner on a hole sample; beside a tube its wall closes that off, here nothing does: a
+    2 m cell past the floor's edge was a hole a car fell through beside the road, at a divided road's underpass whose
+    portals the map puts 10 m apart (the Weblinger Gürtel, Graz). Pure."""
+    spans = twin_spans(parts)
+    if not spans or not mask.any():
+        return mask
+    mask = mask.copy()
+    corners = np.array([[-1, -1], [-1, 1], [1, -1], [1, 1]], np.float64) * square
+    for fid, spec, xy, _z, _lon in parts:
+        if fid not in spans:
+            continue
+        line = np.asarray(xy, np.float64)[:, :2]
+        a, b = spans[fid]
+        half = spec.width / 2
+        lo, hi = line.min(0) - half - 2 * square, line.max(0) + half + 2 * square
+        for iy, ix in np.argwhere(mask):
+            q = np.array([x0 + ix * square, y0 + iy * square])
+            if not ((q >= lo) & (q <= hi)).all():
+                continue
+            if a <= _arc_on(line, q) <= b:      # (under the shared tube)
+                continue
+            seg_a, seg = line[:-1], np.diff(line, axis=0)
+            l2 = np.maximum((seg * seg).sum(1), 1e-12)
+            p = q + corners
+            t = np.clip(((p[:, None] - seg_a[None]) * seg[None]).sum(2) / l2[None], 0.0, 1.0)
+            d = np.hypot(*(p[:, None] - seg_a[None] - t[..., None] * seg[None]).transpose(2, 0, 1)).min(1)
+            if d.min() <= half + square and d.max() > half:
+                mask[iy, ix] = False
     return mask
 
 

@@ -169,6 +169,37 @@ class EndBankTest(unittest.TestCase):
         self.assertAlmostEqual(grading.end_bank([p], (0.0, 0.0), (1.0, 0.0)), 0.08 * np.sin(a))
 
 
+class OpenFloorHoleTest(unittest.TestCase):
+    """roads.spare_open_floors: past a twin's shared tube no terrain cell is cut wider than the floor under it."""
+
+    def filled(self, samples, span=(40.0, 100.0)):
+        # a floor along x from 0 to 100, half width 4.3, the shared tube from x 40 on; samples every 2 m from (0, -12)
+        mask = np.zeros((13, 51), bool)
+        for x, y in samples:
+            mask[int((y + 12) / 2), int(x / 2)] = True
+        part = ("t#0", roads.Spec(8.6, "paved", False, "primary"), np.array([[0.0, 0.0], [100.0, 0.0]]), np.zeros(2), 0.0)
+        with unittest.mock.patch.object(roads, "twin_spans", lambda parts: {"t#0": span}):
+            out = roads.spare_open_floors(mask, [part], 0.0, -12.0, 2.0)
+        return {(ix * 2.0, iy * 2.0 - 12.0) for iy, ix in np.argwhere(out)}
+
+    def test_a_cell_past_the_open_floor_s_edge_stays_ground(self):
+        self.assertEqual(self.filled([(20.0, 6.0)]), set())
+
+    def test_on_the_floor_it_is_cut(self):
+        self.assertEqual(self.filled([(20.0, 0.0)]), {(20.0, 0.0)})
+
+    def test_under_the_shared_tube_its_wall_closes_it_off(self):
+        self.assertEqual(self.filled([(60.0, 6.0)]), {(60.0, 6.0)})
+
+    def test_far_off_the_floor_it_is_another_part_s(self):
+        self.assertEqual(self.filled([(20.0, 12.0)]), {(20.0, 12.0)})
+
+    def test_no_twin_nothing_changes(self):
+        part = ("t#0", roads.Spec(8.6, "paved", False, "primary"), np.array([[0.0, 0.0], [100.0, 0.0]]), np.zeros(2), 0.0)
+        mask = np.ones((3, 3), bool)
+        self.assertTrue(roads.spare_open_floors(mask, [part], 0.0, 0.0, 2.0).all())
+
+
 class ShortRoadOntoBridgeTest(unittest.TestCase):
     """An 8 m part between a junction and a bridge tells the bank from the road by the road going on past the junction."""
 
