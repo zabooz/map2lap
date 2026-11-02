@@ -140,9 +140,16 @@ def kill_tree(pid):
         pass
 
 
+def _logged_on(log):
+    """The account a Steam connection log (logs/connection_log.txt) ends signed in with, else 0: its last state line,
+    e.g. "[Logged On, 4, 7] [U:1:155752522] ...", is "Logged On". Pure."""
+    states = re.findall(r"\] \[([A-Za-z ]+), [^\]]*\] \[U:1:(\d+)\]", log)
+    return int(states[-1][1]) if states and states[-1][0] == "Logged On" else 0
+
+
 def steam_user():
-    """Signed-in Steam user (ActiveProcess/ActiveUser in the registry, on Linux in registry.vdf); 0: Steam isn't
-    running or is still signing in."""
+    """Signed-in Steam user (ActiveProcess/ActiveUser in the registry); 0: Steam isn't running or is still signing in.
+    Linux' Steam writes no ActiveUser into registry.vdf (only SteamPID): there its connection log says it (_logged_on)."""
     if not WIN:
         for p in LINUX_REGISTRY:
             try:
@@ -152,6 +159,15 @@ def steam_user():
                 continue
             if m and int(m.group(1)):
                 return int(m.group(1))
+        for steam in steam_roots():
+            try:
+                with open(os.path.join(steam, "logs", "connection_log.txt"), encoding="utf-8", errors="replace") as f:
+                    f.seek(max(0, os.fstat(f.fileno()).st_size - 65536))     # (the end: the log grows for weeks)
+                    user = _logged_on(f.read())
+            except OSError:
+                continue
+            if user:
+                return user
         return 0
     import winreg
     try:
@@ -218,10 +234,34 @@ def proton(ac):
     return None
 
 
+def runtime(tool):
+    """Linux: the Steam Linux Runtime a Proton folder runs in (its toolmanifest.vdf's require_tool_appid, e.g.
+    1628350 = sniper, found through that app's appmanifest in the libraries); None when it needs none or it isn't
+    installed."""
+    try:
+        with open(os.path.join(tool, "toolmanifest.vdf"), encoding="utf-8", errors="replace") as f:
+            m = re.search(r'"require_tool_appid"\s+"(\d+)"', f.read())
+    except OSError:
+        return None
+    for lib in steam_libraries() if m else ():
+        try:
+            with open(os.path.join(lib, "steamapps", f"appmanifest_{m.group(1)}.acf"), encoding="utf-8",
+                      errors="replace") as f:
+                d = re.search(r'"installdir"\s+"([^"]+)"', f.read())
+        except OSError:
+            continue
+        path = os.path.join(lib, "steamapps", "common", d.group(1)) if d else ""
+        if os.path.isfile(os.path.join(path, "_v2-entry-point")):
+            return path
+    return None
+
+
 def start_ac(ac):
     """Start acs.exe (the race race.ini describes; steam_appid.txt next to it: runs without the launcher). Linux:
-    through the Proton that ran AC last, with the environment Steam gives it; without one, Steam starts AC (its
-    launcher, or what replaced it)."""
+    the way Steam starts AC, with acs.exe instead of the launcher: the Proton that ran AC last inside the runtime it
+    requires (Proton 9 outside its "sniper" container finds the wrong libraries), with Steam's STEAM_COMPAT_*
+    environment (the container mounts the libraries and tool folders it names); without a Proton, Steam starts AC
+    (its launcher, or what replaced it)."""
     exe = os.path.join(ac, "acs.exe")
     if WIN:
         _detached([exe], cwd=ac)
@@ -230,10 +270,17 @@ def start_ac(ac):
     if script is None:
         _detached((_steam_command() or ["steam"]) + ["-applaunch", AC_APPID])
         return
-    root = (steam_roots() or [STEAM_DEFAULT])[0]
-    env = {**os.environ, "STEAM_COMPAT_DATA_PATH": compatdata(ac), "STEAM_COMPAT_CLIENT_INSTALL_PATH": root,
-           "SteamAppId": AC_APPID, "SteamGameId": AC_APPID}
-    _detached([script, "run", exe], cwd=ac, env=env)
+    tool = os.path.dirname(script)
+    run = runtime(tool)
+    env = {**os.environ, "SteamAppId": AC_APPID, "SteamGameId": AC_APPID, "STEAM_COMPAT_APP_ID": AC_APPID,
+           "STEAM_COMPAT_DATA_PATH": compatdata(ac), "STEAM_COMPAT_INSTALL_PATH": ac,
+           "STEAM_COMPAT_CLIENT_INSTALL_PATH": (steam_roots() or [STEAM_DEFAULT])[0],
+           "STEAM_COMPAT_LIBRARY_PATHS": ":".join(os.path.join(lib, "steamapps") for lib in steam_libraries()),
+           "STEAM_COMPAT_TOOL_PATHS": ":".join(p for p in (tool, run) if p)}
+    cmd = [script, "waitforexitandrun", exe]
+    if run:
+        cmd = [os.path.join(run, "_v2-entry-point"), "--verb=waitforexitandrun", "--"] + cmd
+    _detached(cmd, cwd=ac, env=env)
 
 
 class NoPicker(Exception):
