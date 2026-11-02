@@ -268,5 +268,257 @@
    "max_warp": 1.4,
    "max_warp_at_m": 956.0
   }
+ },
+ "drau_bruecke_test": {
+  "title": "Drau Bruecke Test",
+  "about": "Völkermarkt, southbound: down to the Völkermarkter Stausee and over the Drau on a 550 m bridge to the far bank (a long deck over a reservoir's water area, its two ends on the banks)",
+  "points": [
+   [
+    46.649789678381275,
+    14.627684354782106
+   ],
+   [
+    46.64632,
+    14.627249
+   ],
+   [
+    46.64431730136987,
+    14.630881547927858
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "145-175",
+    "the north end: onto the deck from the bank"
+   ],
+   [
+    "160-715",
+    "the deck over the water; the ground and water under its ends"
+   ],
+   [
+    "695-730",
+    "the south end: off the deck onto the bank"
+   ]
+  ],
+  "reference": {
+   "length_m": 919,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.15,
+   "max_g_at_m": 81.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.13,
+   "warp_m": 0,
+   "max_warp": 0.01,
+   "max_warp_at_m": 720.0
+  }
+ },
+ "a2_voelkermarkt_test": {
+  "title": "A2 Voelkermarkt Test",
+  "about": "A2 near Völkermarkt, eastbound, 12.7 km: the motorway's bridges at Greuth, Korb, Rammersdorf (over a short tunnel, the one at ~3.7 km that P8 and P10 were made for) and the Sankt Agnes valley bridge, driven at motorway speed",
+  "points": [
+   [
+    46.653892,
+    14.5644211
+   ],
+   [
+    46.6654488,
+    14.5741745
+   ],
+   [
+    46.6737254,
+    14.5884848
+   ],
+   [
+    46.6782778,
+    14.6054342
+   ],
+   [
+    46.6785231,
+    14.6249995
+   ],
+   [
+    46.6823413,
+    14.6434807
+   ],
+   [
+    46.6841503,
+    14.6620275
+   ],
+   [
+    46.6834676,
+    14.6807549
+   ],
+   [
+    46.687873,
+    14.6989889
+   ],
+   [
+    46.690179,
+    14.699991
+   ]
+  ],
+  "width": 60.0,
+  "spots": [
+   [
+    "581-607",
+    "a short bridge"
+   ],
+   [
+    "1662-1732",
+    "the 70 m bridge, carriageways' decks side by side"
+   ],
+   [
+    "3668-3700",
+    "Rammersdorf: the bridge over a short tunnel, onto it 1.0 G (the deck P8 and P10 were made for)"
+   ],
+   [
+    "4098-4119",
+    "a short bridge on a map cell border"
+   ],
+   [
+    "5126-5154",
+    "a short bridge"
+   ],
+   [
+    "6431-6451",
+    "a short bridge, 0.5 G on and off"
+   ],
+   [
+    "7359-7756",
+    "the Sankt Agnes valley bridge, 400 m"
+   ],
+   [
+    "7886-7914",
+    "a short bridge, off it 1.7 G (open)"
+   ],
+   [
+    "8596-8612",
+    "a short bridge"
+   ],
+   [
+    "11978-12011",
+    "a short bridge"
+   ],
+   [
+    "12550-12556",
+    "terrain, 3.2 G (open)"
+   ]
+  ],
+  "reference": {
+   "length_m": 12681,
+   "over_05g_m": 30,
+   "lanes_over_05g_m": 129,
+   "max_g": 3.19,
+   "max_g_at_m": 12551.0,
+   "edges_m": 0,
+   "transitions": 20,
+   "max_g_transition": 1.68,
+   "warp_m": 457,
+   "max_warp": 0.19,
+   "max_warp_at_m": 7514.0
+  },
+  "long": true
+ },
+ "heiligenblut_test": {
+  "title": "Heiligenblut Test",
+  "about": "Großglockner road from Heiligenblut, 13.5 km: mountain road with hairpins, avalanche galleries, short tunnels, bridges over mountain streams, rocks and scree",
+  "points": [
+   [
+    47.039452,
+    12.860592
+   ],
+   [
+    47.046203,
+    12.85099
+   ],
+   [
+    47.052496,
+    12.836394
+   ],
+   [
+    47.060364,
+    12.824272
+   ],
+   [
+    47.057653,
+    12.812582
+   ],
+   [
+    47.058662,
+    12.798127
+   ],
+   [
+    47.064593,
+    12.781906
+   ],
+   [
+    47.072161,
+    12.768273
+   ],
+   [
+    47.07891,
+    12.764821
+   ],
+   [
+    47.074405,
+    12.752218
+   ]
+  ],
+  "width": 100.0,
+  "long": true,
+  "spots": [
+   [
+    "1644-1657",
+    "a short bridge, onto it 1.7 G (10 cm step)"
+   ],
+   [
+    "3917-3944",
+    "a bridge"
+   ],
+   [
+    "5081-5119",
+    "a bridge"
+   ],
+   [
+    "5222-5250",
+    "terrain after it, 3.6 G (open)"
+   ],
+   [
+    "6600-6687",
+    "a bridge, onto it 2.0 G (12 cm step)"
+   ],
+   [
+    "8513-8523",
+    "a short bridge"
+   ],
+   [
+    "10702-10807",
+    "a 100 m bridge"
+   ],
+   [
+    "11267-11275",
+    "a short bridge"
+   ],
+   [
+    "12962-13014",
+    "the carriageway 9 m off straight across (open)"
+   ]
+  ],
+  "reference": {
+   "length_m": 13510,
+   "over_05g_m": 48,
+   "lanes_over_05g_m": 421,
+   "max_g": 3.61,
+   "max_g_at_m": 5223.0,
+   "edges_m": 1,
+   "transitions": 14,
+   "max_g_transition": 2.03,
+   "warp_m": 53,
+   "max_warp": 9.11,
+   "max_warp_at_m": 12999.0
+  }
  }
 }

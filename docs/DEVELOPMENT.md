@@ -14,8 +14,8 @@ developed further here. We call its building blocks without the game and write t
 - Fix problems at their cause, not for one place, in `vendor/beamng_earth` too. A rule for the driving surface gets a
   comment at its place saying why, a test, and a measurement before and after (`tools/measure.py --all --build`: the
   test tracks, `tools/test_tracks.json`: short routes named "<Place> Test", each around the spots worth driving in AC
-  after such a change, with their route metres and track codes). Only these are tested; a new spot gets a new short
-  track there.
+  after such a change, with their route metres and track codes; `--long` the few long ones, a motorway stretch and a
+  mountain road). Only these are tested; a new spot gets a new short track there.
 - Where **Assetto Corsa** differs (driving surfaces through mesh names, collision only through meshes, no terrain
   with holes, other shaders), we deviate **on purpose**, with a short reason in the code and here.
 - Check with measurements (`tools/measure.py`, `tools/check_drive.py`) before showing a change.
@@ -50,6 +50,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe src\generator.py --name area_test --title "Area Test" --area 46.655 14.620 46.665 14.640
 .venv\Scripts\python.exe tools\check_drive.py stausee_test --all-roads   # drivability: holes, jumps, terrain above the road
 .venv\Scripts\python.exe tools\measure.py --all --build                  # rebuild the test tracks, compare with the reference
+.venv\Scripts\python.exe tools\measure.py --long --build                 # ... the long ones, minutes each
 .venv\Scripts\python.exe tools\measure.py rechberg_test --install          # one test track into AC, to drive it
 ```
 Builds started from the command line keep their work folder `out\tracks\<name>` (the measuring tools read it).
@@ -160,14 +161,15 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 | `tools/from_debug.py` | A Track Debug session's track built here: its inputs, the route as built, the differences in version and map data |
 | `tools/stretch.py` | A track's stretch built again fast (tiles and OBJ only, nothing into AC), the driving surface along the route measured and compared with its last run: before and after a fix |
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
-| `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes around the spots worth driving: their route metres and track codes) built up to the OBJ parts, nothing into AC (`--build`; `--install` into AC to drive one); the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
+| `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes around the spots worth driving: their route metres and track codes; `"long": true` ones only with `--long`) built up to the OBJ parts, nothing into AC (`--build`), or into AC to drive them (`--install`), the short ones three at a time, each build's log in `out/build_<name>.log`; the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
 | `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`) |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 
 ### BeamNG.Earth (`vendor/beamng_earth`)
 
 - Based on BeamNG.Earth 1.7.2-beta (github.com/TecnaGamer/BeamNG.Earth), developed further here.
-- **Rust module `earthfast`** (built by us for P1, `server/earthfast.pyd` in the repo): Rust
+- **Rust module `earthfast`** (our own build: the grading's junction and beside rules are in it, `AC_EXPORT_YIELD`;
+  `server/earthfast.pyd` in the repo): Rust
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
   `%USERPROFILE%\.cargo\dlltool-llvm\dlltool.exe`; in `native/earthfast` `cargo build --release`,
   `target/release/earthfast.dll` → `server/earthfast.pyd` (stop the page first; or
@@ -207,7 +209,8 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
   (`propsmesh.rails`: steel beam, concrete barrier, cable barrier) as `nocol_guardrail_…`, plus one invisible vertical
   wall `1WALL_guardrailcol_…` per 3 m module.
 - **Smoother than BeamNG.Earth** where AC needs it (hard tyres and springs; BeamNG's soft body rolls over centimetre
-  bumps): see patches P1 and P5–P11.
+  bumps): junction ends give way, abutments and the ground under a deck's ends from the lidar, decks meeting their
+  approaches at their grade; each rule's reason is in a comment at its place (`grading.py`, `roads.py`).
 
 ### Coordinates
 - BeamNG.Earth: a local ENU frame around the anchor (x east, y north, z up). Anchor = middle of the route or area.

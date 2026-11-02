@@ -12,11 +12,16 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
 
 The test tracks (test_tracks.json, named "<Place> Test") are short routes, each around the spots worth driving after a
 change to the driving surface (a junction, a bridge end, an underpass): their pins lie along the route, so OSRM routes
-it the same way again; "spots" names the route metres to look at (the Track Debug app's count). Each is shown with its
-track code (app/trackcode.py: the same inputs, for the generator page). --build builds them up to the OBJ parts only
-(out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds one into AC to drive it.
+it the same way again; "spots" names the route metres to look at (the Track Debug app's count). A few long ones
+("long": true: a whole motorway stretch, a mountain road) are built only with --long, their builds take minutes. Each is
+shown with its track code (app/trackcode.py: the same inputs, for the generator page). --build builds them up to the OBJ
+parts only (out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds them into AC to drive
+them, and measures the same build's OBJ parts. The short ones are built BUILD_JOBS at a time, each with that share of
+the cores (one has a handful of tiles: alone it kept most cores idle); the long ones one after another, with all of
+them. A build's log: out/build_<name>.log.
 
-    .venv\\Scripts\\python.exe tools\\measure.py --all --build                      # build all test tracks again, measure
+    .venv\\Scripts\\python.exe tools\\measure.py --all --build                      # the short test tracks built again
+    .venv\\Scripts\\python.exe tools\\measure.py --long --build                     # ... the long ones
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --build              # one of them
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --from 70 --to 120   # a section, every spot
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --install            # into AC, to drive it
@@ -38,6 +43,7 @@ from app import settings, trackcode, version  # noqa: E402
 from track import obj_to_kn5  # noqa: E402
 
 TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
+BUILD_JOBS = 3          # short test tracks built at a time
 ROUTE_FILES = ("map2lap_route.txt", "ac_export_route.txt")     # (data/ of the track; the second: older builds)
 CELL_M = 20.0           # m: grid the triangles are sorted into for the lookup
 ACROSS_M = (-2, -1, 0, 1, 2)   # m across the route: the two lanes around the line (wider would hit kerbs)
@@ -281,32 +287,73 @@ def code(entry):
                              "track_version": version.TRACK_VERSION})
 
 
+def build_one(test, t, install, share):
+    """Build test track t (into AC with install, else up to the OBJ parts) with share of the cores."""
+    import generator
+    from track import parallel
+    parallel.SHARE = share
+    if install:
+        generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
+    else:
+        generator.build(test[t]["points"], test[t]["width"], t, upto="obj")
+
+
+def build_all(tracks, install, jobs):
+    """Build the test tracks, jobs at a time, each in its own process (BeamNG.Earth's state is global) with its share
+    of the cores, its log in out/build_<name>.log; exits when one fails."""
+    import subprocess
+    import time
+    run, todo, failed = {}, list(tracks), []
+    while todo or run:
+        while todo and len(run) < jobs:
+            t = todo.pop(0)
+            print(f"building {t} ...", flush=True)
+            log = open(os.path.join(HERE, "out", f"build_{t}.log"), "w", encoding="utf-8")
+            cmd = [sys.executable, os.path.abspath(__file__), "--build-one", t, "--share", str(1.0 / jobs)]
+            run[t] = (subprocess.Popen(cmd + (["--install"] if install else []), stdout=log, stderr=subprocess.STDOUT,
+                                       cwd=HERE, env={**os.environ, "PYTHONIOENCODING": "utf-8"}), log)
+        time.sleep(1.0)
+        for t, (proc, log) in list(run.items()):
+            if proc.poll() is not None:
+                log.close()
+                del run[t]
+                if proc.returncode:
+                    failed.append(t)
+    if failed:
+        sys.exit(f"build failed: {', '.join(failed)} (out/build_<name>.log)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tracks", nargs="*")
-    ap.add_argument("--all", action="store_true", help="all test tracks from test_tracks.json")
+    ap.add_argument("--all", action="store_true", help="all short test tracks from test_tracks.json")
+    ap.add_argument("--long", action="store_true", help="all long test tracks (\"long\": true) from test_tracks.json")
     ap.add_argument("--build", action="store_true", help="build them again first, up to the OBJ parts (test tracks only)")
     ap.add_argument("--install", action="store_true", help="build them into AC instead, to drive them (test tracks only)")
     ap.add_argument("--from", dest="start", type=float)
     ap.add_argument("--to", dest="end", type=float)
     ap.add_argument("--reference", action="store_true", help="save the values as the new reference")
+    ap.add_argument("--build-one", help=argparse.SUPPRESS)      # (a child process: build this track, nothing else)
+    ap.add_argument("--share", type=float, default=1.0, help=argparse.SUPPRESS)
     a = ap.parse_args()
     with open(TEST_TRACKS, encoding="utf-8") as f:
         test = json.load(f)
-    tracks = list(test) if a.all else a.tracks
+    if a.build_one:
+        build_one(test, a.build_one, a.install, a.share)
+        return
+    tracks = list(a.tracks) + [t for t, v in test.items()
+                               if (a.all and not v.get("long")) or (a.long and v.get("long"))]
     if not tracks:
-        ap.error("a track or --all")
+        ap.error("a track, --all or --long")
     if a.build or a.install:
-        import generator
         for t in tracks:
             if t not in test:
                 ap.error(f"{t} is not a test track (test_tracks.json)")
-            print(f"building {t} ...", flush=True)
-            if a.install:
-                generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
-            else:
-                generator.build(test[t]["points"], test[t]["width"], t, log=lambda *x: None, upto="obj")
+        short = [t for t in tracks if not test[t].get("long")]
+        build_all(short, a.install, min(BUILD_JOBS, len(short)))
+        build_all([t for t in tracks if test[t].get("long")], a.install, 1)
     part = a.start is not None or a.end is not None
+    refs = {}
     for t in tracks:
         r = measure(t, a.start, a.end)
         if t in test:
@@ -315,10 +362,18 @@ def main():
                 print(f"\n  spot {m} m: {what}", end="")
         report(t, r, None if part else test.get(t, {}).get("reference"), everything=part)
         if a.reference and t in test and not part:
-            test[t]["reference"] = {k: v for k, v in r.items() if not k.startswith("_")}
-    if a.reference:
+            refs[t] = {k: v for k, v in r.items() if not k.startswith("_")}
+    if refs:
+        # (read again: a long track's build takes a while, and the list may have changed meanwhile; only the measured
+        # tracks' references are written)
+        with open(TEST_TRACKS, encoding="utf-8") as f:
+            test = json.load(f)
+        for t, ref in refs.items():
+            if t in test:
+                test[t]["reference"] = ref
         with open(TEST_TRACKS, "w", encoding="utf-8") as f:
             json.dump(test, f, indent=1, ensure_ascii=False)
+            f.write("\n")
         print("\nReference saved.")
 
 
