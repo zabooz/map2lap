@@ -99,16 +99,16 @@
   ],
   "reference": {
    "length_m": 579,
-   "over_05g_m": 35,
-   "lanes_over_05g_m": 43,
-   "max_g": 5.62,
-   "max_g_at_m": 392.0,
-   "edges_m": 1,
+   "over_05g_m": 16,
+   "lanes_over_05g_m": 26,
+   "max_g": 2.19,
+   "max_g_at_m": 356.0,
+   "edges_m": 0,
    "transitions": 4,
-   "max_g_transition": 5.62,
+   "max_g_transition": 2.19,
    "warp_m": 0,
-   "max_warp": 0.01,
-   "max_warp_at_m": 358.0
+   "max_warp": 0.0,
+   "max_warp_at_m": 370.0
   }
  },
  "friedensbruecke_test": {
@@ -149,16 +149,16 @@
   ],
   "reference": {
    "length_m": 511,
-   "over_05g_m": 4,
-   "lanes_over_05g_m": 6,
-   "max_g": 1.4,
+   "over_05g_m": 3,
+   "lanes_over_05g_m": 12,
+   "max_g": 0.97,
    "max_g_at_m": 313.0,
-   "edges_m": 0,
-   "transitions": 6,
-   "max_g_transition": 1.4,
-   "warp_m": 29,
-   "max_warp": 1.98,
-   "max_warp_at_m": 226.0
+   "edges_m": 3,
+   "transitions": 4,
+   "max_g_transition": 0.97,
+   "warp_m": 26,
+   "max_warp": 0.45,
+   "max_warp_at_m": 244.0
   }
  },
  "weblinger_guertel_test": {
@@ -257,16 +257,16 @@
   ],
   "reference": {
    "length_m": 1245,
-   "over_05g_m": 10,
-   "lanes_over_05g_m": 12,
-   "max_g": 1.29,
+   "over_05g_m": 9,
+   "lanes_over_05g_m": 14,
+   "max_g": 1.35,
    "max_g_at_m": 699.0,
    "edges_m": 1,
    "transitions": 4,
-   "max_g_transition": 0.9,
-   "warp_m": 169,
-   "max_warp": 1.4,
-   "max_warp_at_m": 956.0
+   "max_g_transition": 0.96,
+   "warp_m": 0,
+   "max_warp": 0.02,
+   "max_warp_at_m": 72.0
   }
  },
  "drau_bruecke_test": {
@@ -306,13 +306,13 @@
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
    "max_g": 0.15,
-   "max_g_at_m": 81.0,
+   "max_g_at_m": 660.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 0.13,
+   "max_g_transition": 0.12,
    "warp_m": 0,
-   "max_warp": 0.01,
-   "max_warp_at_m": 720.0
+   "max_warp": 0.0,
+   "max_warp_at_m": 487.0
   }
  },
  "a2_voelkermarkt_test": {
@@ -409,16 +409,16 @@
   ],
   "reference": {
    "length_m": 12681,
-   "over_05g_m": 30,
-   "lanes_over_05g_m": 129,
+   "over_05g_m": 22,
+   "lanes_over_05g_m": 122,
    "max_g": 3.19,
    "max_g_at_m": 12551.0,
    "edges_m": 0,
    "transitions": 20,
-   "max_g_transition": 1.68,
-   "warp_m": 457,
-   "max_warp": 0.19,
-   "max_warp_at_m": 7514.0
+   "max_g_transition": 0.62,
+   "warp_m": 465,
+   "max_warp": 0.18,
+   "max_warp_at_m": 7364.0
   },
   "long": true
  },
@@ -509,13 +509,13 @@
   ],
   "reference": {
    "length_m": 13510,
-   "over_05g_m": 48,
-   "lanes_over_05g_m": 421,
+   "over_05g_m": 47,
+   "lanes_over_05g_m": 404,
    "max_g": 3.61,
    "max_g_at_m": 5223.0,
    "edges_m": 1,
-   "transitions": 14,
-   "max_g_transition": 2.03,
+   "transitions": 16,
+   "max_g_transition": 3.1,
    "warp_m": 53,
    "max_warp": 9.11,
    "max_warp_at_m": 12999.0
