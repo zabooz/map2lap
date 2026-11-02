@@ -128,6 +128,172 @@ class LidarBankTest(unittest.TestCase):
         self.assertIsNone(grading.plan_roads(FRAME, [part], elev)[0].bank, "coarse: a straight stays level")
 
 
+class EndBankTest(unittest.TestCase):
+    """A deck's end takes the cross slope of the road ending there, whatever the road's grade."""
+
+    def plan(self, x, bank=None, under=(False, False)):
+        x = np.asarray(x, np.float64)
+        p = grading.Plan(np.c_[x, np.zeros(len(x))], 100.0 + 0.08 * x, 5.0, (False, False))
+        p.bank, p.under = None if bank is None else np.asarray(bank, np.float64), under
+        return p
+
+    def test_the_end_s_own_slope(self):
+        p = self.plan([-8.0, -4.0, 0.0], [0.01, 0.02, 0.03])
+        self.assertAlmostEqual(grading.end_bank([p], (0.0, 0.0), (1.0, 0.0)), 0.03)
+
+    def test_a_road_with_no_bank_is_level(self):
+        self.assertEqual(grading.end_bank([self.plan([-8.0, -4.0, 0.0])], (0.0, 0.0), (1.0, 0.0)), 0.0)
+
+    def test_a_road_drawn_the_other_way_leans_the_other_way_in_the_deck_s_sense(self):
+        p = self.plan([0.0, -4.0, -8.0], [0.03, 0.02, 0.01])
+        self.assertAlmostEqual(grading.end_bank([p], (0.0, 0.0), (1.0, 0.0)), -0.03)
+
+    def test_the_end_before_its_way_on_under_the_deck(self):
+        p = self.plan([-8.0, -4.0, 0.0, 6.0], [0.01, 0.02, 0.03, 0.09], under=(False, True))
+        self.assertAlmostEqual(grading.end_bank([p], (0.0, 0.0), (1.0, 0.0)), 0.03)
+
+    def test_no_road_ends_there(self):
+        self.assertIsNone(grading.end_bank([self.plan([-8.0, -4.0, 0.0])], (20.0, 0.0), (1.0, 0.0)))
+
+    def test_of_two_roads_ending_there_the_one_running_along_the_deck(self):
+        side = grading.Plan(np.array([[0.0, -8.0], [0.0, -4.0], [0.0, 0.0]]), np.full(3, 100.0), 5.0, (False, False))
+        road = self.plan([-8.0, -4.0, 0.0], [0.03, 0.03, 0.03])
+        self.assertAlmostEqual(grading.end_bank([side, road], (0.0, 0.0), (1.0, 0.0)), 0.03)
+
+    def test_a_road_arriving_at_an_angle_takes_its_grade_across_the_deck(self):
+        # level across, rising 8 % toward the deck, 16 degrees to the right of the deck's axis: its surface falls
+        # toward the deck's left by 8 % x sin 16 degrees
+        a = np.radians(-16.0)
+        s = np.array([-12.0, -8.0, -4.0, 0.0])
+        p = grading.Plan(np.c_[s * np.cos(a), s * np.sin(a)], 100.0 + 0.08 * s, 5.0, (False, False))
+        self.assertAlmostEqual(grading.end_bank([p], (0.0, 0.0), (1.0, 0.0)), 0.08 * np.sin(a))
+
+
+class DeckFromItsRoadsTest(unittest.TestCase):
+    """A deck between two roads takes its ends' heights and grades from them, not from the ground; the ground follows."""
+
+    XY = np.c_[np.arange(0.0, 21.0, 4.0), np.zeros(6)]
+
+    def laid(self, ground, crossings=(), xy=None):
+        xy = self.XY if xy is None else xy
+        bp = roads.BridgeProfiles(FRAME, None, ground)
+        ends = iter([(100.04, 0.08), (100.04 + 0.08 * float(xy[-1, 0]), 0.08)])
+        bp._road_end = lambda p, f: next(ends)
+        out, laid = bp._tangent([xy], [np.full(len(xy), 110.0)], crossings)
+        return out[0], laid[0]
+
+    def test_its_ends_are_the_road_s_and_a_straight_grade_between(self):
+        z, ok = self.laid(lambda la, lo: np.zeros(np.shape(la)))
+        self.assertTrue(ok)
+        np.testing.assert_allclose(z, 100.04 + 0.08 * self.XY[:, 0], atol=1e-9)
+
+    def test_a_bank_under_it_does_not_lift_it(self):
+        z, _ok = self.laid(lambda la, lo: np.full(np.shape(la), 500.0))
+        np.testing.assert_allclose(z, 100.04 + 0.08 * self.XY[:, 0], atol=1e-9)
+
+    def test_a_road_under_it_still_does(self):
+        xy = np.c_[np.arange(0.0, 121.0, 4.0), np.zeros(31)]
+        z, ok = self.laid(lambda la, lo: np.zeros(np.shape(la)), [(0, 60.0, 99.0, 6.0)], xy)
+        self.assertTrue(ok)
+        self.assertGreater(float(z[15]), 100.04 + 0.08 * 60.0 + 0.1)
+        self.assertAlmostEqual(float(z[0]), 100.04)
+
+    def test_the_road_end_s_height_and_grade(self):
+        s = np.array([-12.0, -8.0, -4.0, 0.0])
+        p = grading.Plan(np.c_[s, 0 * s], 100.0 + 0.08 * s, 5.0, (False, True))
+        z, g = grading.road_end([p], (0.0, 0.0), (1.0, 0.0))
+        self.assertAlmostEqual(z, 100.0 + grading.ROAD_LIFT)
+        self.assertAlmostEqual(g, 0.08)
+        self.assertAlmostEqual(grading.road_end([p], (0.0, 0.0), (-1.0, 0.0))[1], -0.08)
+        self.assertIsNone(grading.road_end([p], (30.0, 0.0), (1.0, 0.0)))
+
+    def test_the_ground_stays_under_the_deck_but_for_the_cell_at_its_ends(self):
+        q = np.array([[1.0, 0.0], [10.0, 0.0], [10.0, 2.0], [10.0, 20.0], [19.0, 0.0]])
+        z = np.full(5, 200.0)
+        deck = (self.XY, 100.0 + 0.08 * self.XY[:, 0], 3.0)
+        out = roads.under_deck_ground(q, z, [deck], [None])
+        np.testing.assert_allclose(out, [200.0, 100.8 - roads.DECK_CLEAR, 100.8 - roads.DECK_CLEAR, 200.0, 200.0])
+        low = roads.under_deck_ground(q, np.full(5, 50.0), [deck], [None])
+        np.testing.assert_allclose(low, 50.0)
+
+
+class RoadEndOntoBridgeTest(unittest.TestCase):
+    """The ground keeps the road's own line up to the joint (_past_segments): one height for the road and the deck."""
+
+    def grade(self, x, abut, grade=0.08):
+        s = np.arange(-120.0, 0.1, 4.0)
+        p = grading.Plan(np.c_[s, 0 * s], 100.0 + grade * s, 7.0, (False, abut), road_half=3.0)
+        x = np.asarray(x, np.float64)
+        return grading.grade_points(x, 0 * x, np.full(len(x), 50.0), [p]), 100.0 + grade * x
+
+    def test_the_ground_stays_on_the_line_up_to_a_bridge_on_a_steep_road(self):
+        got, line = self.grade([-12.0, -8.0, -4.0, -2.0, -1.0, 0.0], True)
+        np.testing.assert_allclose(got, line, atol=0.01)
+
+    def test_and_on_a_falling_road(self):
+        got, line = self.grade([-4.0, -2.0, 0.0], True, -0.08)
+        np.testing.assert_allclose(got, line, atol=0.01)
+
+    def test_a_road_ending_elsewhere_is_blended_as_ever(self):
+        got, line = self.grade([0.0], False)
+        self.assertLess(float(got[0] - line[0]), -0.05)
+
+    def test_nothing_changes_past_the_end(self):
+        at = [1.0, 3.0, 6.0]
+        np.testing.assert_allclose(self.grade(at, True)[0], self.grade(at, False)[0])
+
+    def test_under_a_deck_the_terrain_cell_past_the_joint_stays_on_the_line_too(self):
+        # (its corner past the joint: blended one-sided, the cell across the joint sank the road's last metres)
+        s = np.arange(-120.0, 0.1, 4.0)
+        xy, z, grow, _opens = grading._under_deck(np.c_[s, 0 * s], 100.0 + 0.08 * s, (False, True), 3.0)
+        p = grading.Plan(xy, z, 7.0, (False, True), road_half=3.0)
+        p.under = (False, bool(grow[1]))
+        x = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+        got = grading.grade_points(x, 0 * x, np.full(len(x), 50.0), [p])
+        np.testing.assert_allclose(got, 100.0 + 0.08 * x, atol=0.03)
+
+    def test_the_end_s_cross_slope_goes_on_with_it(self):
+        s = np.arange(-120.0, 0.1, 4.0)
+        p = grading.Plan(np.c_[s, 0 * s], 100.0 + 0 * s, 7.0, (False, True), road_half=3.0)
+        p.bank = np.full(len(s), 0.03)
+        got = grading.grade_points(np.array([-1.0, -1.0]), np.array([2.0, -2.0]), np.full(2, 50.0), [p])
+        self.assertAlmostEqual(float(got[0] - got[1]), 0.12, delta=0.01)
+
+
+class DeckBankTest(unittest.TestCase):
+    """roads.BridgeProfiles.deck_bank: the slopes of the roads ending at the deck's ends, run linearly between them."""
+
+    def bank(self, plans):
+        bp = roads.BridgeProfiles(FRAME, None, None)
+        bp.plans_at = lambda xy: plans
+        x = np.arange(0.0, 13.0, 3.0)
+        with unittest.mock.patch.object(roads, "_is_simple", lambda f, xy: True), \
+                unittest.mock.patch("railways._coarse_here", lambda f, box: False):
+            return bp.deck_bank(np.c_[x, np.zeros(len(x))], 100.0 + 0.08 * x)
+
+    def road(self, x, b=None):
+        x = np.asarray(x, np.float64)
+        p = grading.Plan(np.c_[x, np.zeros(len(x))], 100.0 + 0.08 * x, 5.0, (False, False))
+        p.bank = None if b is None else np.full(len(x), b)
+        return p
+
+    def test_level_roads_on_an_8_percent_grade_keep_the_deck_level(self):
+        self.assertIsNone(self.bank([self.road([-8.0, -4.0, 0.0]), self.road([12.0, 16.0, 20.0])]))
+
+    def test_each_end_its_own_road_s_slope(self):
+        b = self.bank([self.road([-8.0, -4.0, 0.0], 0.03), self.road([12.0, 16.0, 20.0], -0.01)])
+        self.assertAlmostEqual(float(b[0]), 0.03)
+        self.assertAlmostEqual(float(b[-1]), -0.01)
+        self.assertAlmostEqual(float(b[2]), 0.01)
+
+    def test_an_end_no_road_ends_at_takes_the_other_s(self):
+        b = self.bank([self.road([-8.0, -4.0, 0.0], 0.03)])
+        self.assertAlmostEqual(float(b[-1]), 0.03)
+
+    def test_no_road_at_either_end_is_level(self):
+        self.assertIsNone(self.bank([]))
+
+
 class CrestTest(unittest.TestCase):
     def test_no_kinks_over_a_crest(self):
         # a road over a crest (the grade falls 4 % per 10 m): the graded centreline's slope changes smoothly, not
@@ -959,12 +1125,12 @@ class JunctionTest(unittest.TestCase):
 class UnderDeckTest(unittest.TestCase):
     def test_the_plan_goes_on_under_the_deck_at_its_grade(self):
         """A plan rising 2 % onto a bridge at its end gets a vertex UNDER_DECK_M past it, at its
-        grade, UNDER_DECK_DROP_M and the grade over its half width below; its other end (no bridge) is left."""
+        grade, UNDER_DECK_FALL below it; its other end (no bridge) is left."""
         x = np.arange(0.0, 101.0, 4.0)
         xy, z, grow, _opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0)
         self.assertEqual(grow, (0, 1))
         np.testing.assert_allclose(xy[-1], [100.0 + grading.UNDER_DECK_M, 0.0])
-        self.assertAlmostEqual(z[-1], 2.0 + 0.02 * grading.UNDER_DECK_M - grading.UNDER_DECK_DROP_M - 0.02 * 4.0)
+        self.assertAlmostEqual(z[-1], 2.0 + (0.02 - grading.UNDER_DECK_FALL) * grading.UNDER_DECK_M)
         np.testing.assert_allclose(z[:-1], 0.02 * x)
         _xy, _z, grow, _opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, False), 4.0)
         self.assertEqual(grow, (0, 0))
@@ -981,7 +1147,7 @@ class UnderDeckTest(unittest.TestCase):
         self.assertEqual(grow, (0, 1))
         self.assertEqual(opens, (False, True))
         np.testing.assert_allclose(xy[-1], [103.0, 0.0])
-        self.assertAlmostEqual(z[-1], 2.0 + 0.02 * 3.0 - grading.UNDER_DECK_DROP_M - 0.02 * 4.0)
+        self.assertAlmostEqual(z[-1], 2.0 + (0.02 - grading.UNDER_DECK_FALL) * 3.0)
 
     def test_at_least_one_terrain_cell_under_the_deck(self):
         """Elevation open right past the abutment: the plan still goes on UNDER_DECK_MIN_M (the terrain cell under the

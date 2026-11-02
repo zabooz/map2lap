@@ -652,6 +652,9 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         return g.apply(la, lo, z, gradingmod.ROAD_LIFT) if g is not None else z
     P.elev = elev
     bridges = _bridges(None, frame, elev)
+    if g is not None:
+        bridges.plans_at = lambda xy: g.plans(*map(np.asarray, frame.enu_to_geodetic(xy[:, 0], xy[:, 1], 0.0)[:2]))
+        bridges.cs.set_road_end(gradingmod.road_end_reader(g))
     tunnels = tunnel_profiles(None, frame, elev, g)
     P.bridges, P.tunnels = bridges, tunnels
     mark("profiles")

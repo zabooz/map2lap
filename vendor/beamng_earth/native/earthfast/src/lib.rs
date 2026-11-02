@@ -1388,11 +1388,13 @@ fn bank_profile<'py>(py: Python<'py>, xy: PyReadonlyArray2<'py, f64>, e_max: f64
 /// on its own carriageway only where the two lie apart in height, fully from beside_to m, not at all under beside_from
 /// (closer they blend as equals). tun: per segment whether it is a tunnel's own (another level by the map): never a
 /// wider road's carriageway for bw
+/// past: per segment NaN, or how far back of its start along it a point must lie for it to count: it only blends (the
+/// road's own line going on past its end: grading.PlanPack.past), no cores, carriageways or reach of its own
 #[pyfunction]
 #[pyo3(signature = (px, pyy, base, a, b, za, zb, h, rh, rid, abut, cut, ba, bb, lift, slope_run, t_min, t_max, blend_r,
                     bucket, wall_cut, wall_t, wall_flat, wall_ahead, sep, sep_from, sep_full, core_fade, side_fade,
                     sharp_step, yl=None, yield_fade=8.0, bw=None, beside_wider=0.5, beside_from=0.5,
-                    beside_to=1.0, tun=None))]
+                    beside_to=1.0, tun=None, past=None))]
 #[allow(clippy::too_many_arguments)]
 fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyReadonlyArray1<'py, f64>,
                      base: PyReadonlyArray1<'py, f64>, a: PyReadonlyArray2<'py, f64>, b: PyReadonlyArray2<'py, f64>,
@@ -1404,8 +1406,9 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                      sep: bool, sep_from: f64, sep_full: f64, core_fade: f64, side_fade: f64, sharp_step: f64,
                      yl: Option<PyReadonlyArray1<'py, u8>>, yield_fade: f64,
                      bw: Option<PyReadonlyArray1<'py, u8>>, beside_wider: f64, beside_from: f64, beside_to: f64,
-                     tun: Option<PyReadonlyArray1<'py, u8>>)
+                     tun: Option<PyReadonlyArray1<'py, u8>>, past: Option<PyReadonlyArray1<'py, f64>>)
                      -> Bound<'py, PyArray1<f64>> {
+    let past: Vec<f64> = match past { Some(v) => v.as_array().to_vec(), None => vec![f64::NAN; h.as_array().len()] };
     let yl: Vec<u8> = match yl { Some(v) => v.as_array().to_vec(), None => vec![0u8; h.as_array().len()] };
     let bw: Vec<u8> = match bw { Some(v) => v.as_array().to_vec(), None => vec![0u8; h.as_array().len()] };
     let tun: Vec<u8> = match tun { Some(v) => v.as_array().to_vec(), None => vec![0u8; h.as_array().len()] };
@@ -1485,6 +1488,10 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
             }
         }
         for s in 0..h.len() {
+            let only_blends = past[s].is_finite();
+            if pass == 0 && only_blends {
+                continue;
+            }
             // (pass 0 within the blend's reach too: the Python loop pairs the points with a segment once, at h + t_max)
             let mut reach = if pass == 0 { (h[s] + if sep { core_fade } else { 0.0 }).max(cut_reach[s]).min(h[s] + t_max) }
                         else { h[s] + t_max };
@@ -1592,6 +1599,9 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                     if d - h[s] > far1 {
                         continue;
                     }
+                    if only_blends && (qx * abx + qy * aby) / l2.max(1e-24).sqrt() > -past[s] {
+                        continue;       // (past the road's end: its line goes on only for the points behind it)
+                    }
                     // a cut deeper than wall_cut: a retaining wall at the core's edge, the ground right behind it
                     // (for a point more beside the segment than ahead of it: ahead, the road's own next segments blend
                     // in along it, and cutting those off made a kink on every crest)
@@ -1657,7 +1667,7 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                         }
                         num[idx] += wb * target;
                         den[idx] += wb;
-                        if w > wmax[idx] {
+                        if w > wmax[idx] && !only_blends {
                             wmax[idx] = w;
                         }
                     }
@@ -5331,5 +5341,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
     m.add("VERSION", 114)?;
     m.add("AC_EXPORT_YIELD", 4)?;      // (grade_points takes yl, yield_fade; 4: bw, beside_wider/from/to, tun)
+    m.add("AC_EXPORT_PAST", 1)?;       // (grade_points takes past)
     Ok(())
 }

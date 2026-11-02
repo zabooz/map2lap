@@ -4894,12 +4894,16 @@ class BridgeProfiles:
         within DECK_BANK_ON_M of it) laid as tangent_profile between its ends: their heights kept, the grade of the
         road leading onto each end (TANGENT_AT_M past it) taken, lifted over what it must clear (_deck_needs of
         crossings, the solve's (part, arc, height[, its own clearance]), and the ground beneath it: _lift_tangent);
-        else its solved middle kept with tangent_ends where that clears it; else as solved, per part: was it laid)."""
+        else its solved middle kept with tangent_ends where that clears it; else as solved, per part: was it laid).
+        Where a road ends at both ends (road_end) both heights and both grades are that road's and nothing is read off
+        the ground: the deck and the road meet at one point of the map at one height, and the ground, graded from those
+        same roads, follows the deck (under_deck_ground) instead of lifting it. Read off the ground, the deck took the
+        ground's error at the joint, and a bank left under it humped it 10 cm over a stream on a mountain road."""
         ends = np.array([np.asarray(ln, np.float64)[e, :2] for ln in lines for e in (0, -1)]).reshape(-1, 2)
         out, laid = [], []
         for k, (ln, z) in enumerate(zip(lines, zs)):
             xy = np.asarray(ln, np.float64)[:, :2]
-            z = np.asarray(z, np.float64)
+            z = np.array(z, np.float64)
             out.append(z)
             laid.append(False)
             if len(xy) < 2 or not np.isfinite(z).all():
@@ -4907,12 +4911,18 @@ class BridgeProfiles:
             s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
             if s[-1] < TANGENT_MIN_M:
                 continue
-            grades = []
+            grades, roads_ = [], 0
             for e in (0, -1):
                 if (np.hypot(*(ends - xy[e]).T) < 0.75).sum() > 1:     # (a joint with another part)
                     break
                 f = xy[1] - xy[0] if e == 0 else xy[-1] - xy[-2]
                 f = f / max(float(np.hypot(*f)), 1e-9)
+                got = self._road_end(xy[e], f)
+                if got is not None:
+                    z[e] = got[0]
+                    grades.append(got[1])
+                    roads_ += 1
+                    continue
                 outw = -f if e == 0 else f
                 c = xy[e] + outw[None] * TANGENT_AT_M[:, None]
                 g = self._ground(np.r_[xy[e][None], c])
@@ -4922,8 +4932,8 @@ class BridgeProfiles:
                 grades.append(-slope if e == 0 else slope)
             if len(grades) < 2:
                 continue
-            need = _deck_needs(s, z, self._ground(xy) + DECK_CLEAR,
-                               [tuple(cr[1:]) for cr in crossings if cr[0] == k], clear)
+            floor = np.full(len(s), -np.inf) if roads_ == 2 else self._ground(xy) + DECK_CLEAR
+            need = _deck_needs(s, z, floor, [tuple(cr[1:]) for cr in crossings if cr[0] == k], clear)
             steep = max(abs(grades[0]), abs(grades[1]), abs(float(z[-1] - z[0])) / float(s[-1]), DECK_MAX_GRADE)
             zt = _lift_tangent(s, tangent_profile(s, float(z[0]), float(z[-1]), grades[0], grades[1]), need,
                                steep + TANGENT_GRADE_SLACK)
@@ -4933,6 +4943,21 @@ class BridgeProfiles:
             if zt is not None:
                 out[-1], laid[-1] = zt, True
         return out, laid
+
+    road_end = None     # road_end(lat (2,), lon (2,)) -> (absolute height, grade) or None: grading.road_end_reader
+
+    def _road_end(self, p, f):
+        """(height in this frame, grade in unit direction f (2,)) of the road ending at point p (2,) of this frame, or
+        None."""
+        if self.road_end is None:
+            return None
+        q = np.array([p, p + f], np.float64)
+        la, lo, _ = self.frame.enu_to_geodetic(q[:, 0], q[:, 1], np.zeros(2))
+        la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
+        got = self.road_end(la, lo)
+        if got is None:
+            return None
+        return float(np.asarray(self.frame.geodetic_to_enu(la[:1], lo[:1], np.array([got[0]]))[2])[0]), float(got[1])
 
     def _depth(self, lines):
         """m of slab and girders of a chain: deck_depth of the inventory's main span where a record matches, else of
@@ -4952,12 +4977,16 @@ class BridgeProfiles:
         ds = [d for k, d in list(self.__dict__.get("depth", {}).items()) if self._part_id(k) == fid]
         return max(ds) if ds else DECK_FULL_DEPTH
 
-    def deck_bank(self, xy, z, width):
-        """A deck part's cross slope at each vertex (m per m toward its left, grading.bank's
-        sense), or None (level): where the elevation is fine, each end's from the graded ground of the road leading
-        onto it (DECK_BANK_AT_M past the end, grading.BANK_LIDAR_SIDE of its half width either side: the approach's
-        own cross slope, grading.BANK_LIDAR_*), run linearly between the ends; an end not on the ground (a joint over
-        the valley) takes the other's."""
+    plans_at = None     # plans_at(xy (k, 2)) -> the grading.Plans around those points of this frame (deck_bank)
+
+    def deck_bank(self, xy, z):
+        """A deck part's cross slope at each vertex (m per m toward its left, grading.bank's sense), or None (level):
+        where the elevation is fine, each end's that of the road ending there (grading.end_bank, plans_at), run
+        linearly between the ends; an end no road ends at (a joint over the valley) takes the other's.
+        The road and the deck meet at one point of the map, so they take one cross slope there. Read off the graded
+        ground past the end instead, a level road on an 8 % grade read -2 % and stood 9 cm under the deck's edge at the
+        joint, and the test of whether that ground was the road's took the grade for a gap past 6 %: the deck's other
+        end took the first end's slope, the wrong way round, 11 cm at both edges (the road to Heiligenblut)."""
         import grading
         xy = np.asarray(xy, np.float64)[:, :2]
         z = np.asarray(z, np.float64)
@@ -4972,21 +5001,9 @@ class BridgeProfiles:
             cache[key] = None
             return None
         import railways
-        if not railways._coarse_here(self.frame, (*xy.min(0), *xy.max(0))):
-            o = grading.BANK_LIDAR_SIDE * max(float(width or 0.0), 2.0) / 2
-            ends = []
-            for e in (0, -1):
-                f = xy[1] - xy[0] if e == 0 else xy[-1] - xy[-2]
-                f = f / max(float(np.hypot(*f)), 1e-9)
-                out = -f if e == 0 else f
-                left = np.array([-f[1], f[0]]) * o
-                c = xy[e] + out[None] * DECK_BANK_AT_M[:, None]
-                g = self._ground(np.concatenate([c, c + left, c - left]))
-                n = len(c)
-                gc, gl, gr = g[:n], g[n:2 * n], g[2 * n:]
-                ok = abs(float(np.median(gc)) - float(z[e])) <= DECK_BANK_ON_M
-                ends.append(float(np.clip(np.median((gl - gr) / (2 * o)), -grading.BANK_E_MAX, grading.BANK_E_MAX))
-                            if ok else None)
+        if self.plans_at is not None and not railways._coarse_here(self.frame, (*xy.min(0), *xy.max(0))):
+            plans = self.plans_at(xy[[0, -1]])
+            ends = [grading.end_bank(plans, xy[0], xy[1] - xy[0]), grading.end_bank(plans, xy[-1], xy[-1] - xy[-2])]
             if ends[0] is None:
                 ends[0] = ends[1]
             if ends[1] is None:
@@ -5908,6 +5925,13 @@ class ChainStore:
     raw, ends on each store made. Anchors see it through a ChainView."""
 
     KEPT = 12           # stores kept (the farthest regions behind go first)
+    road_end = None     # (BridgeProfiles.road_end, on each store)
+
+    def set_road_end(self, fn):
+        with self.lock:
+            self.road_end = fn
+            for st in self.stores.values():
+                st.road_end = fn
 
     def __init__(self, cls, cell_fn, elev, setup=None):
         self.cls, self.cell_fn, self.elev, self.setup = cls, cell_fn, elev, setup
@@ -5925,6 +5949,7 @@ class ChainStore:
             got = self.cls(geotiles.frame(region[0], region[1], geotiles.CHAIN_Z), self.cell_fn, self.elev)
             got.owner_of = self._owner
             got.region = region
+            got.road_end = self.road_end
             if self.setup is not None:
                 self.setup(got)
             self.stores[region] = got
@@ -5998,7 +6023,8 @@ class ChainView:
         self.specs_of, self.parts_of = cs.cls.specs_of, cs.cls.parts_of
 
     mapper = staticmethod(lambda src, dst: _Mapper(src, dst))
-    deck_bank = BridgeProfiles.deck_bank        # (in this frame, its _ground and parts)
+    deck_bank = BridgeProfiles.deck_bank        # (in this frame, its plans_at)
+    plans_at = None
 
     def __getattr__(self, name):        # wet, infra_fn, raw, ends: the stores' settings (setup)
         if name in ("wet", "infra_fn", "raw", "ends"):
@@ -7124,7 +7150,7 @@ def _bridge_chunks(frame, bseen, elev, exact, bridges=None, cells=None):
         dd = getattr(bridges, "depth_of", None)
         bb = getattr(bridges, "deck_bank", None)
         return _deck_chunks(got, exact, bridges._ground, {d[0]: dd(d[0]) for d in got} if dd else None,
-                            [bb(p[:, :2], p[:, 2], spec.width) if bb else None for _f, spec, p, _l in got])
+                            [bb(p[:, :2], p[:, 2]) if bb else None for _f, _spec, p, _l in got])
     if not bseen:
         return []
     parts = []                                  # (fid, spec, xy (k, 2), lon)
@@ -7205,9 +7231,7 @@ def _abutments(pts, ground_fn):
         return []
 
 
-# a deck end's cross slope: the graded ground of the road leading onto it at these m past it, and
-# only where that ground is within DECK_BANK_ON_M of the deck's end (else an end over the valley: a joint)
-DECK_BANK_AT_M = np.array([2.0, 4.0, 6.0, 8.0])
+# a deck's end is on the ground where the graded ground at it is within this of it (else an end over the valley: a joint)
 DECK_BANK_ON_M = 0.3
 
 
@@ -7227,6 +7251,34 @@ def _deck_tilt(center, bank, q):
     return b, off
 
 
+def under_deck_ground(q, z, parts, banks):
+    """Ground heights z (m,) at points q (m, 2) kept DECK_CLEAR under the deck parts over them, tilted by their banks:
+    parts [(xy (k, 2), z (k,), half width)], banks per part (k,) or None. Not within UNDER_DECK_END_M of a part's end: the
+    terrain cell across the joint carries the road. A deck takes its height from its road, so the ground follows it.
+    Pure."""
+    z = np.array(z, np.float64)
+    q = np.asarray(q, np.float64).reshape(-1, 2)
+    for (xy, zd, half), bank in zip(parts, banks):
+        xy, zd = np.asarray(xy, np.float64)[:, :2], np.asarray(zd, np.float64)
+        if len(xy) < 2 or not len(q):
+            continue
+        lo, hi = xy.min(0) - half - 1.0, xy.max(0) + half + 1.0
+        near = np.flatnonzero(((q >= lo) & (q <= hi)).all(1))
+        if not len(near):
+            continue
+        s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+        zq, off = _deck_tilt(xy, zd, q[near])
+        arc, _o = _deck_tilt(xy, s, q[near])
+        b = 0.0 if bank is None else _deck_tilt(xy, np.asarray(bank, np.float64), q[near])[0]
+        top = zq + b * np.clip(off, -half, half) - DECK_CLEAR
+        on = (np.abs(off) <= half + 1.0) & (arc >= UNDER_DECK_END_M) & (arc <= s[-1] - UNDER_DECK_END_M)
+        z[near[on]] = np.minimum(z[near[on]], top[on])
+    return z
+
+
+UNDER_DECK_END_M = 2.0      # m: one terrain cell
+
+
 def tilt_rows_on_decks(rows, parts, bridges):
     """The guard rail rows (guardrails.forest_rows: [group, x, y, z, ...]) that stand on a tilted
     deck (deck_bank) raised or lowered with it at their offset from its centre line. parts: bridges.parts()'."""
@@ -7237,7 +7289,7 @@ def tilt_rows_on_decks(rows, parts, bridges):
     q = np.array([[r[1], r[2]] for r in out], np.float64)
     zr = np.array([r[3] for r in out], np.float64)
     for _fid, spec, xy, z, _lon in parts:
-        b = bb(xy, z, spec.width)
+        b = bb(xy, z)
         if b is None:
             continue
         xy = np.asarray(xy, np.float64)[:, :2]

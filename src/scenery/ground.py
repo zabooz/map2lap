@@ -314,6 +314,19 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     if depth is not None:
         z = z - depth.ravel()
     u = np.asarray(frame.geodetic_to_enu(la, lo, z)[2], np.float64)
+    if md is not None and g is not None:    # (under a single deck the ground follows it: it took its height from its road)
+        try:
+            bridges = blockworker._bridges(aid, frame, elev)
+            bridges.plans_at = lambda xy: g.plans(*map(np.asarray, frame.enu_to_geodetic(xy[:, 0], xy[:, 1], 0.0)[:2]))
+            bridges.cs.set_road_end(gradingmod.road_end_reader(g))
+            cells = [cell_fn(k) for k in roadsmod.cells_of_tile(frame, tx, ty)]
+            decks = [(np.asarray(xy, np.float64)[:, :2], np.asarray(zd, np.float64), spec.width / 2)
+                     for _f, spec, xy, zd, _l in bridges.parts(cells, (x0, y0, x1, y1))
+                     if np.isfinite(zd).all() and roadsmod._is_simple(frame, np.asarray(xy, np.float64)[:, :2])]
+            u = roadsmod.under_deck_ground(np.c_[gx.ravel(), gy.ravel()], u, decks,
+                                           [bridges.deck_bank(xy, zd) for xy, zd, _h in decks])
+        except Exception as e:  # (rather the ground as graded than no tile)
+            log(f"Ground {tx},{ty}: under decks: {type(e).__name__}: {e}")
     P = np.c_[gx.ravel(), gy.ravel(), u]
     keep = {"lat": la.reshape(n, n), "lon": lo.reshape(n, n), "u": u.reshape(n, n)}
 

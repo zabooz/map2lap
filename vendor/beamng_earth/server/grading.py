@@ -641,8 +641,10 @@ def _plan(xy, z, spec, abut=(False, False), ext=(0, 0), step=PROFILE_STEP, bank_
 # beyond the end takes the end's height) under the deck's first metres. A deck stays over that ground: it would run level
 # off the abutment and kink onto the approach's grade, and a deck meeting the approach at its grade (roads TANGENT_*)
 # would dip under it. Where the elevation is lidar the plan goes on UNDER_DECK_M under the deck at its end's grade,
-# UNDER_DECK_DROP_M (and its grade over its half width more) below it: the ground stays under the deck, the deck is free
-# to meet the approach's grade. Only at a bridge part no other part joins at either end (a single deck, each half of a
+# falling UNDER_DECK_FALL below it: the ground stays under the deck, the deck is free to meet the approach's grade. The
+# fall is the one a deck needs over one 2 m terrain cell (roads.DECK_CLEAR): the terrain cell across the joint runs from
+# a corner on the road to a corner under the deck, so a steeper fall sinks the road's own last metre with it, an edge
+# across the carriageway at the deck's start. Only at a bridge part no other part joins at either end (a single deck, each half of a
 # twin bridge: the decks laid tangent); under a junction's bridge the ramps meet it at their own grades and the
 # extensions would cross under its decks (Grader._simple_abuts).
 # Where the elevation opens under the deck within UNDER_DECK_M (more than UNDER_DECK_OPEN_M under that grade line: the
@@ -658,7 +660,7 @@ UNDER_DECK_M = 6.0
 UNDER_DECK_MIN_M = 2.0
 UNDER_DECK_OPEN_M = roadsmod.DECK_MIN_DEPTH
 UNDER_DECK_STEP_M = 1.0     # m between the elevation's samples under the deck
-UNDER_DECK_DROP_M = 0.10
+UNDER_DECK_FALL = roadsmod.DECK_CLEAR / UNDER_DECK_MIN_M    # m per m under the end's grade line
 UNDER_DECK_GRADE_M = 10.0   # m of the plan before its end its grade is read over
 
 
@@ -700,7 +702,7 @@ def _under_deck(xy, z, abut, half, ground=None):
             reach = _under_reach(zp, g, ground(p[None, :] + a[:, None] * u[None, :]))
             opens[e] = reach < UNDER_DECK_M
         new = p + u * reach
-        zn = zp + g * reach - UNDER_DECK_DROP_M - abs(g) * half
+        zn = zp + g * reach - UNDER_DECK_FALL * reach
         if e == 0:
             xy, z = np.r_[new[None], xy], np.r_[zn, z]
         else:
@@ -3034,10 +3036,41 @@ class PlanPack:
         self.yl = _yield_strength([p for _k, p in rows], self.box, nseg)
         self.bw = _beside_strength([p for _k, p in rows], self.box, nseg)
         self.tun = np.repeat(np.array([getattr(p, "tunnel", False) for _k, p in rows], np.uint8), nseg)
+        self.past = np.full(int(s0[-1]), np.nan)
+        self._add_past([(n, p) for n, (_k, p) in enumerate(rows)])
+
+    def _add_past(self, rows):
+        """The segments of each road's line going on past its ends onto a bridge (_past_segments) added to the arrays.
+        rows: [(row number, Plan)]."""
+        f64 = np.float64
+        got = [(n, p, s) for n, p in rows for s in _past_segments(p)]
+        if not got:
+            return
+        one = {"h": lambda p: p.half, "rh": lambda p: getattr(p, "road_half", p.half)}
+        first = {int(n): int(i) for n, i in zip(*np.unique(self.of, return_index=True))}
+        at = np.array([first[n] for n, _p, _s in got], np.int64)
+        m = np.array([len(s[0]) for _n, _p, s in got], np.int64)
+        take = np.repeat(at, m)
+        self.a = np.ascontiguousarray(np.r_[self.a, np.concatenate([s[0] for _n, _p, s in got])])
+        self.b = np.ascontiguousarray(np.r_[self.b, np.concatenate([s[1] for _n, _p, s in got])])
+        self.za = np.r_[self.za, np.concatenate([s[2] for _n, _p, s in got])]
+        self.zb = np.r_[self.zb, np.concatenate([s[3] for _n, _p, s in got])]
+        self.ba = np.r_[self.ba, np.concatenate([np.full(len(s[0]), s[4], f64) for _n, _p, s in got])]
+        self.bb = np.r_[self.bb, np.concatenate([np.full(len(s[0]), s[4], f64) for _n, _p, s in got])]
+        for name, fn in one.items():
+            setattr(self, name, np.r_[getattr(self, name), np.repeat(np.array([fn(p) for _n, p, _s in got], f64), m)])
+        self.rid = np.r_[self.rid, self.rid[take]]
+        self.tun = np.r_[self.tun, self.tun[take]]
+        self.of = np.r_[self.of, self.of[take]]
+        self.ab = np.r_[self.ab, np.zeros(len(take), np.uint8)]
+        self.yl = np.r_[self.yl, np.zeros(len(take), np.uint8)]
+        self.bw = np.r_[self.bw, np.zeros(len(take), np.uint8)]
+        self.cut = np.r_[self.cut, np.full((len(take), 6), np.nan)]
+        self.past = np.r_[self.past, np.concatenate([s[5] for _n, _p, s in got])]
 
     def near(self, x0, y0, x1, y1, with_yield=False):
-        """The segment arrays of the plans whose boxes meet (x0, y0, x1, y1), or None; with_yield: their yl, bw and tun
-        last too."""
+        """The segment arrays of the plans whose boxes meet (x0, y0, x1, y1), or None; with_yield: their yl, bw, tun and
+        past last too."""
         if not self.n:
             return None
         bx = self.box
@@ -3046,11 +3079,69 @@ class PlanPack:
             return None
         arrs = (self.a, self.b, self.za, self.zb, self.h, self.rh, self.rid, self.ab, self.cut, self.ba, self.bb)
         if with_yield:
-            arrs = arrs + (self.yl, self.bw, self.tun)
+            arrs = arrs + (self.yl, self.bw, self.tun, self.past)
         if keep.all():
             return arrs
         sk = keep[self.of]
         return tuple(np.ascontiguousarray(v[sk]) for v in arrs)
+
+
+def _end_onward(p, e):
+    """Plan p's end e (0: first, 1: last) as the road's, before its way on under its deck (Plan.under): (the end's point
+    (2,), unit direction out of the plan past it, height, grade along that direction over UNDER_DECK_GRADE_M, cross slope
+    toward that direction's left), or None for a plan too short. Pure."""
+    xy = np.asarray(p.xy, np.float64)[:, :2]
+    z = np.asarray(p.z, np.float64)
+    bank = getattr(p, "bank", None)
+    k = (1 if getattr(p, "under", (False, False))[0] else 0) if e == 0 else \
+        (len(xy) - 2 if getattr(p, "under", (False, False))[1] else len(xy) - 1)
+    line, zl = (xy[k:], z[k:]) if e == 0 else (xy[k::-1], z[k::-1])     # (from the end into the plan)
+    if len(line) < 2:
+        return None
+    s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
+    if s[-1] < 1e-9:
+        return None
+    back = min(UNDER_DECK_GRADE_M, float(s[-1]))
+    q = np.array([np.interp(back, s, line[:, 0]), np.interp(back, s, line[:, 1])])
+    u = (line[0] - q) / max(float(np.hypot(*(line[0] - q))), 1e-9)
+    b = 0.0 if bank is None else float(np.asarray(bank, np.float64)[k])
+    return line[0], u, float(zl[0]), (float(zl[0]) - float(np.interp(back, s, zl))) / back, b if e == 1 else -b
+
+
+# The grading blends every segment within reach, nearest point of each: in a road's middle those lie on both sides and
+# on an even grade they cancel out, the ground on the road's line. At an end onto a bridge they lie on one side only and
+# pull the ground off the line: on an 8 % road 12 cm over its last 4 m, and the deck's end, which reads that ground, with
+# it (too low at a bridge's lower end, too high at its upper: a mound or a trench across the whole carriageway at both
+# joints, in proportion to the grade, on the road to Heiligenblut). The road and the deck meet at one point of the map at
+# one height. So the road's line goes on past such an end, at its grade, for the blend alone: both sides are there again
+# up to the joint, as in the road's middle, and the road's profile is left to do what it does everywhere else. It counts
+# for the points behind the end and one terrain cell past it (Plan.under: UNDER_DECK_MIN_M): the cell across the joint
+# has a corner past the end, and blended one-sided that corner sank the road's last 1.5 m by 10 cm. Further on the ground
+# is the deck's end's (Plan.under, Plan.beyond).
+PAST_ON_M = 0.01    # m past an end with nothing under its deck it still counts: a deck's end on the map's same point
+
+
+def _past_segments(p):
+    """Per end of Plan p onto a bridge (Plan.abut) the road's line going on past it as far as the blend reaches (half
+    width + T_MAX): (a (m, 2), b (m, 2), za (m,), zb (m,), cross slope, past (m,): how far past each segment's start,
+    back along the road, a point must lie to count), its vertices VERTEX_STEP apart. The segment under the deck
+    (Plan.under) stands for the first of them. Each runs away from the end. Pure."""
+    out = []
+    for e in (0, 1):
+        if not getattr(p, "abut", (False, False))[e]:
+            continue
+        got = _end_onward(p, e)
+        if got is None:
+            continue
+        end, u, zp, g, b = got
+        under = getattr(p, "under", (False, False))[e]
+        d = np.arange(VERTEX_STEP if under else 0.0, p.half + T_MAX + VERTEX_STEP, VERTEX_STEP)
+        if len(d) < 2:
+            continue
+        pts = end[None] + d[:, None] * u[None]
+        zs = zp + g * d
+        out.append((pts[:-1], pts[1:], zs[:-1], zs[1:], b, d[:-1] - (UNDER_DECK_MIN_M if under else PAST_ON_M)))
+    return out
 
 
 def _yield_strength(plans, box, nseg):
@@ -3192,7 +3283,7 @@ def grade_points(px, py, base, plans, lift=0.0):
     got = pack.near(px.min(), py.min(), px.max(), py.max(), with_yield=True)
     if got is None:
         return out
-    A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, YL, BW, TUN = got
+    A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, YL, BW, TUN, PAST = got
     import fast
     fast.require(84, "grade_points")         # (the Rust loop: native/earthfast; its banked curves: 84)
     f64 = np.float64
@@ -3205,6 +3296,11 @@ def grade_points(px, py, base, plans, lift=0.0):
                  "bw": np.ascontiguousarray(BW, np.uint8), "beside_wider": float(BESIDE_WIDER_M),
                  "beside_from": float(BESIDE_LEVEL_FROM_M), "beside_to": float(BESIDE_LEVEL_TO_M),
                  "tun": np.ascontiguousarray(TUN, np.uint8)}
+    if np.isfinite(PAST).any():             # (a road's line going on past its end onto a bridge: _past_segments)
+        if getattr(fast._ef, "AC_EXPORT_PAST", 0) < 1:
+            raise fast.NativeMissing("grade_points' road ends onto a bridge need our earthfast build "
+                                     "(tools/update_beamng_earth.py --build-native)")
+        extra["past"] = np.ascontiguousarray(PAST, f64)
     return fast._ef.grade_points(np.ascontiguousarray(px, f64), np.ascontiguousarray(py, f64),
                                  np.ascontiguousarray(base, f64), A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, float(lift),
                                  float(SLOPE_RUN), float(T_MIN), float(T_MAX), float(BLEND_R), float(BUCKET),
@@ -3220,6 +3316,62 @@ def raisable_ends(plans):
     approaches to a 30 m bridge over a road east of Völkermarkt rose 1-2.5 m over the lidar, a 7 cm step at both deck
     ends, 1.4-1.6 G at 100 km/h. Pure."""
     return ~np.array([getattr(p, "under", (False, False)) for p in plans], bool).reshape(-1, 2)
+
+
+END_BANK_JOIN_M = 0.75      # m: a road's end and a bridge's are one point of the map (as bridge_chain's joints)
+
+
+def end_bank(plans, p, along):
+    """The slope (m per m toward the left of direction along (2,)) of the surface of the road in plans ending at point
+    p (2,), at its own end (_end_onward): its cross slope, and its grade where it arrives at an angle to along (a level
+    road rising 8 % at 16 degrees to a deck falls 2 % across the deck's axis). Of several the one running most nearly
+    along; None where no road ends there. Pure."""
+    got = _end_at(plans, p, along)
+    if got is None:
+        return None
+    u, _z, g, b, along = got
+    left = np.array([-along[1], along[0]])
+    return g * float(u @ left) + b * float(u @ along)
+
+
+def _end_at(plans, p, along):
+    """The road in plans ending at point p (2,), of several the one running most nearly along direction along (2,): its
+    (unit direction out of the plan past the end, height, grade along that direction, cross slope toward that
+    direction's left, along as a unit vector), or None where no road ends there. Pure."""
+    p = np.asarray(p, np.float64)
+    along = np.asarray(along, np.float64)
+    along = along / max(float(np.hypot(*along)), 1e-9)
+    best, out = -1.0, None
+    for q in plans:
+        for e in (0, 1):
+            got = _end_onward(q, e)
+            if got is None or float(np.hypot(*(got[0] - p))) > END_BANK_JOIN_M:
+                continue
+            c = abs(float(got[1] @ along))
+            if c > best:
+                best, out = c, (got[1], got[2], got[3], got[4], along)
+    return out
+
+
+def road_end(plans, p, along):
+    """(height + ROAD_LIFT, the road's surface's slope in direction along (2,)) of the road in plans ending at point p
+    (2,), at its own end (_end_at): what a deck starting there takes, one height and one grade for both; None where no
+    road ends there. Heights absolute, as the plans'. Pure."""
+    got = _end_at(plans, p, along)
+    if got is None:
+        return None
+    u, z, g, b, along = got
+    return z + ROAD_LIFT, g * float(u @ along) + b * float(np.array([-u[1], u[0]]) @ along)
+
+
+def road_end_reader(g):
+    """road_end for a deck's ends in any frame: read(lat (2,), lon (2,)) of the end and a point on along the deck, under
+    Grader g's plans (roads.BridgeProfiles.road_end)."""
+    def read(la, lo):
+        la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
+        e, n, _ = g.frame.geodetic_to_enu(la, lo, np.zeros(2))
+        return road_end(g.plans(la, lo), (float(e[0]), float(n[0])), (float(e[1] - e[0]), float(n[1] - n[0])))
+    return read
 
 
 def regrade_past_ends(px, py, base, plans, out, lift=0.0):

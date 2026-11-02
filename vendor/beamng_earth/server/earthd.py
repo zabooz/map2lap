@@ -1179,7 +1179,7 @@ class Server:
         try:            # the bridges' deck heights (the road tiles' BridgeProfiles, one per anchor)
             with self.grader_lock:
                 if anchor.bridges is None:
-                    anchor.bridges = self.chain_view(anchor, "bridges", elev)
+                    anchor.bridges = self.chain_view(anchor, "bridges", elev, g)
             for fid, _spec, xy, z, _lon in anchor.bridges.parts(feats, (x - w, y - w, x + w, y + w)):
                 decks.setdefault(fid, []).append((np.asarray(xy, np.float64)[:, :2], np.asarray(z, np.float64)))
         except Exception as e:          # no decks: the graph follows the ground under bridges
@@ -1482,7 +1482,7 @@ class Server:
         walks = []
         with self.grader_lock:
             if anchor.bridges is None:
-                anchor.bridges = self.chain_view(anchor, "bridges", elev)
+                anchor.bridges = self.chain_view(anchor, "bridges", elev, g)
             if anchor.tunnels is None:
                 anchor.tunnels = self.chain_view(anchor, "tunnels", elev, g)
         fuel, skip, fuel_cuts, fuel_pads = [], frozenset(), [], []
@@ -2067,7 +2067,11 @@ class Server:
                         t.ends = lambda la, lo: g.apply(la, lo, t.raw(la, lo), gradingmod.ROAD_LIFT, roads_only=True)
                 cls = roadsmod.TunnelProfiles
             cs = stores[kind] = roadsmod.ChainStore(cls, cell_fn, elev, setup)
-        return roadsmod.ChainView(cs, anchor.frame)
+        view = roadsmod.ChainView(cs, anchor.frame)
+        if kind == "bridges" and g is not None:
+            view.plans_at = lambda xy: g.plans(*map(np.asarray, anchor.frame.enu_to_geodetic(xy[:, 0], xy[:, 1], 0.0)[:2]))
+            cs.set_road_end(gradingmod.road_end_reader(g))
+        return view
 
     def _tunnel_holes(self, anchor, elev, keep, cx, cy, idx, info):
         """idx with the block's tunnel portals as holes (roads.block_tunnel_holes; blockworker._tunnel_holes)."""
