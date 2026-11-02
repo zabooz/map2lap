@@ -5323,6 +5323,12 @@ def _line_gap(xy, ln):
 APPROACH_JOIN_M = 2.0   # m between a portal and the end of the ground road going on from it (the map's shared node)
 APPROACH_ON_M = 1.0     # m from an approach's line a road sample takes its hull's height (the same line, resampled)
 APPROACH_TURN = 0.0     # cosine: an approach leaves its portal less than 90 degrees off the tunnel's direction
+# cosine: a road is held at an approach's hull only where it runs along it, under 45 degrees off (the approach's own road,
+# resampled: a few degrees). A road crossing it is another road at its own height: the road over an underpass crosses
+# the stretch its tube was carried on under it (_clear_portals), and its point there held at the floor would dip it metres
+# down to the tube's floor. (A
+# road meeting an approach at under 45 degrees, a slip road merging, is held over its last metres as the approach is.)
+APPROACH_ALONG_COS = math.cos(math.radians(45.0))
 
 
 def approach_reach(spec):
@@ -5347,15 +5353,30 @@ def approach_lines(feats, frame):
 def portal_approaches(xy, lines, reach):
     """(before, after) of a tunnel part's line xy (k, 2): the ground road going on out of its start / its end, from the
     portal outward reach m along the one of lines ([(m, 2)] in the same frame) with an end within APPROACH_JOIN_M of the
-    portal that leaves it most nearly straight on ((m, 2), its first point at the portal); None where none does. Pure."""
+    portal that leaves it most nearly straight on ((m, 2), its first point at the portal); None where none does
+    (portal_roads). Pure."""
+    return portal_roads(xy, lines, reach)[0]
+
+
+# A tube can run on past the end of the ground road going on from it: _clear_portals carries an underpass's end on until
+# its portal face clears the road it passes under, and the road's way still starts at the map's end, inside the tube.
+# Looked for only at the portal, that road was no approach: the Weblinger Gürtel's underpass (Graz) was carried on 8 m,
+# its road's profile not held at the floor's hull began on the elevation's edge of the road overhead, 20 cm over the
+# road under it, and held that for 40 m (a hump onto the floor at the portal). Such a road is the approach from where its
+# line passes the portal, and it lies on the floor over the stretch inside (portal_lows).
+def portal_roads(xy, lines, reach):
+    """((before, after), (m before, m after)) of a tunnel part's line xy (k, 2): portal_approaches, and the m of the tube
+    each approach's road runs inside it before its portal (0.0 where it ends at the portal). A road with no end at the
+    portal but one on the tube's line within PORTAL_EXTEND_MAX_M of it, its line passing the portal, is the approach from
+    there. Pure."""
     xy = np.asarray(xy, np.float64)[:, :2]
-    out = []
+    out, inside = [], []
     for end in (0, 1):
         line = xy if end == 0 else xy[::-1]
         p = line[0]
         d = p - _along(line, 5.0)               # (out of the tunnel)
         d = d / max(float(np.hypot(*d)), 1e-9)
-        best, bc = None, APPROACH_TURN
+        best, bc, m = None, APPROACH_TURN, 0.0
         for ln in lines:
             ln = np.asarray(ln, np.float64)[:, :2]
             if len(ln) < 2:
@@ -5368,14 +5389,49 @@ def portal_approaches(xy, lines, reach):
                 if c > bc:
                     best, bc = o, c
         if best is None:
+            best, m = _road_through_portal(line, d, lines)
+        if best is None:
             out.append(None)
+            inside.append(0.0)
             continue
         sa = np.r_[0.0, np.cumsum(np.hypot(*np.diff(best, axis=0).T))]
         cut = best[sa < reach]
         if sa[-1] > reach:
             cut = np.vstack([cut, _along(best, reach)])
         out.append(cut if len(cut) >= 2 else None)
-    return tuple(out)
+        inside.append(m if len(cut) >= 2 else 0.0)
+    return tuple(out), tuple(inside)
+
+
+def _road_through_portal(line, d, lines):
+    """(the road of lines ([(m, 2)]) going on out through the portal line[0] of a tube's line (k, 2, from that portal
+    inward) from its end inside the tube (portal_roads): its line from where it passes the portal ((m, 2)), the m of the
+    tube's line from the portal to its end), or (None, 0.0). d: out of the tube. Pure."""
+    p = line[0]
+    sl = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
+    best, bc, bm = None, APPROACH_TURN, 0.0
+    for ln in lines:
+        ln = np.asarray(ln, np.float64)[:, :2]
+        if len(ln) < 2:
+            continue
+        for o in (ln, ln[::-1]):
+            gap, k, t = _line_gap(o[:1], line)
+            m = float(sl[k[0]] + t[0] * (sl[k[0] + 1] - sl[k[0]]))
+            if gap[0] > APPROACH_JOIN_M or not 0.0 < m <= PORTAL_EXTEND_MAX_M:
+                continue
+            gp, kp, tp = _line_gap(p[None], o)
+            if gp[0] > APPROACH_JOIN_M:
+                continue                        # (it ends inside, not on through the portal)
+            so = np.r_[0.0, np.cumsum(np.hypot(*np.diff(o, axis=0).T))]
+            at = float(so[kp[0]] + tp[0] * (so[kp[0] + 1] - so[kp[0]]))
+            rest = np.vstack([_along(o, at)[None], o[so > at + 1e-6]])
+            if len(rest) < 2:
+                continue
+            v = _along(rest, 5.0) - rest[0]
+            c = float(v @ d) / max(float(np.hypot(*v)), 1e-9)
+            if c > bc:
+                best, bc, bm = rest, c, m
+    return best, bm
 
 
 def _along(line, m):
@@ -5383,6 +5439,14 @@ def _along(line, m):
     sa = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
     m = min(float(m), float(sa[-1]))
     return np.array([np.interp(m, sa, line[:, 0]), np.interp(m, sa, line[:, 1])])
+
+
+def portal_ends(g, raw):
+    """TunnelProfiles.ends for the grader g and the ungraded ground raw(lat, lon): the ground at a portal graded by the
+    roads' plans alone (apply roads_only), without grading.ROAD_LIFT, as the grader's own sections read the floor's ends
+    (Grader._tunnel_sections). The floor is drawn ROAD_LIFT over its heights (_tunnel_chunks): read with the lift, its
+    end lay twice the lift over the road's plan, a 4 cm crest at the portal over the road in front. Pure given g, raw."""
+    return lambda la, lo: g.apply(la, lo, raw(la, lo), 0.0, roads_only=True)     # noqa: E731
 
 
 def approach_floor(s, g, before=None, after=None):
@@ -5425,16 +5489,39 @@ def approach_samples(apps, step, ground_fn):
 
 
 def approach_heights(xy, lows):
-    """(k,) the approaches' hull height at each point of xy (k, 2) within APPROACH_ON_M of one of lows ([(line (m, 2),
-    z (m,))]: interpolated along it), NaN elsewhere; the lowest where several. Pure."""
+    """(k,) the approaches' hull height at each point of a road's line xy (k, 2, in order) within APPROACH_ON_M of one
+    of lows ([(line (m, 2), z (m,))]: interpolated along it) where the road runs along it (APPROACH_ALONG_COS), NaN
+    elsewhere; the lowest where several. Pure."""
     xy = np.asarray(xy, np.float64)[:, :2]
     out = np.full(len(xy), np.nan)
+    tan = np.gradient(xy, axis=0) if len(xy) >= 2 else None
     for ln, z in lows:
+        ln = np.asarray(ln, np.float64)[:, :2]
         gap, k, t = _line_gap(xy, ln)
         z = np.asarray(z, np.float64)
         zz = z[k] + t * (z[np.minimum(k + 1, len(z) - 1)] - z[k])
         on = gap <= APPROACH_ON_M
+        if tan is not None and len(ln) >= 2:
+            seg = ln[np.minimum(k + 1, len(ln) - 1)] - ln[k]
+            c = np.abs((tan * seg).sum(1)) / np.maximum(np.hypot(*tan.T) * np.hypot(*seg.T), 1e-12)
+            on &= c >= APPROACH_ALONG_COS
         out[on] = np.fmin(out[on], zz[on])
+    return out
+
+
+def portal_lows(xy, s, floor, apps, hulls, inside, step):
+    """[(line (m, 2), heights (m,))] of a tunnel part (its line xy (k, 2), arc lengths s, floor) for approach_heights:
+    per portal with an approach (apps: approach_samples', hulls: approach_floor's), the portal on to the approach's
+    samples at the hull; where its road runs inside the tube (inside: portal_roads' m per end), that stretch and one
+    step (m between the samples) more at the floor before it. Pure."""
+    xy, s, floor = np.asarray(xy, np.float64)[:, :2], np.asarray(s, np.float64), np.asarray(floor, np.float64)
+    out = []
+    for app, hull, m, at in zip(apps, hulls, inside, (0, -1)):
+        if app is None or hull is None:
+            continue
+        back = m + step if m > 0 else 0.0
+        idx = np.flatnonzero(s <= back)[::-1] if at == 0 else np.flatnonzero(s >= s[-1] - back)
+        out.append((np.vstack([xy[idx], app[2]]), np.r_[floor[idx], hull]))
     return out
 
 
@@ -5473,7 +5560,7 @@ class TunnelProfiles(BridgeProfiles):
                     # 100 m down: a car in the tube would float; earthd / blockworker set the sea's depth)
     open = None
     raw = None      # raw(lat, lon) -> the ground without the roads' grading (the cover over a tunnel is read on it)
-    ends = None     # ends(lat, lon) -> the graded ground (its portals' floor), else the profiles' elev. Both at one DEM
+    ends = None     # ends(lat, lon) -> the graded ground (its portals' floor: portal_ends), else the profiles' elev. At one DEM
                     # zoom (grading.PROFILE_ZOOM) in every process: the terrain blocks and the road tiles are built in
                     # different processes at different zooms, and cut 97th Street's arch 15 m apart: its west mouth
                     # filled with ground behind the portal face (2026-10-17)

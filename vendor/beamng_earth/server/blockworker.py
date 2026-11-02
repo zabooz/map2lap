@@ -1446,7 +1446,7 @@ def tunnel_profiles(aid, frame, elev, g=None):
         t.wet = sea.depth if sea is not None else None
         t.raw = lambda la, lo: ground(None, la, lo, _s.dem.sample(la, lo, gradingmod.PROFILE_ZOOM))  # noqa: E731
         if g is not None:
-            t.ends = lambda la, lo: g.apply(la, lo, t.raw(la, lo), gradingmod.ROAD_LIFT, roads_only=True)    # noqa: E731
+            t.ends = roadsmod.portal_ends(g, t.raw)
     return roadsmod.ChainView(_chain_store("tunnels", roadsmod.TunnelProfiles, elev, setup), frame)
 
 

@@ -2425,21 +2425,27 @@ class _Planner:
                     i0 = i1 + 1
         return out
 
-    def _approaches(self, xy, spec):
+    def _approaches(self, xy, spec, found=None):
         """roads.approach_samples of tunnel line xy (k, 2) in the frame (road spec) among the ground roads of its
-        portals' map cells (roads.portal_approaches), every VERTEX_STEP on the ungraded ground: (before, after)."""
-        if spec is None or len(xy) < 2:
-            return None, None
-        la, lo, _ = self.frame.enu_to_geodetic(xy[[0, -1], 0], xy[[0, -1], 1], 0.0)
-        lines = []
-        for ck in {str(c): c for c in (mapcells.cell_of(float(a), float(b)) for a, b in zip(la, lo))}.values():
-            lines += self._approach_lines(ck)
+        portals' map cells (found: _portal_roads', made here if None), every VERTEX_STEP on the ungraded ground:
+        (before, after)."""
+        found = self._portal_roads(xy, spec) if found is None else found
 
         def ground(q):
             qa, qo, _ = self.frame.enu_to_geodetic(q[:, 0], q[:, 1], 0.0)
             return self.elev(qa, qo)
-        return roadsmod.approach_samples(roadsmod.portal_approaches(xy, lines, roadsmod.approach_reach(spec)),
-                                         VERTEX_STEP, ground)
+        return roadsmod.approach_samples(found[0], VERTEX_STEP, ground)
+
+    def _portal_roads(self, xy, spec):
+        """roads.portal_roads of tunnel line xy (k, 2) in the frame (road spec) among the ground roads of its portals'
+        map cells: ((before, after), (m before, m after))."""
+        if spec is None or len(xy) < 2:
+            return (None, None), (0.0, 0.0)
+        la, lo, _ = self.frame.enu_to_geodetic(xy[[0, -1], 0], xy[[0, -1], 1], 0.0)
+        lines = []
+        for ck in {str(c): c for c in (mapcells.cell_of(float(a), float(b)) for a, b in zip(la, lo))}.values():
+            lines += self._approach_lines(ck)
+        return roadsmod.portal_roads(xy, lines, roadsmod.approach_reach(spec))
 
     def _approach_lines(self, key):
         """roads.approach_lines of map cell key (_tunnels_of)."""
@@ -2486,11 +2492,10 @@ class _Planner:
             dry = self.wet is None or ((np.asarray(self.wet(la, lo)) > 0.5).mean() <= roadsmod.TUNNEL_WET_SHARE
                                        and not self._drowned((fid, j), ring))
             if dry:
-                apps = self._approaches(xy, spec)
+                found = self._portal_roads(xy, spec)
+                apps = self._approaches(xy, spec, found)
                 floor, _k, hulls = roadsmod.approach_floor(s, np.asarray(self.elev(la, lo), np.float64), *apps)
-                for app, hull, at in zip(apps, hulls, (0, -1)):
-                    if app is not None and hull is not None:
-                        got.append((np.vstack([xy[at], app[2]]), np.r_[floor[at], hull]))
+                got = roadsmod.portal_lows(xy, s, floor, apps, hulls, found[1], VERTEX_STEP)
         with self.lock:
             memo[(fid, j)] = got
         return got

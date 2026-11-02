@@ -282,10 +282,62 @@ class ApproachTest(unittest.TestCase):
     def test_the_approach_profile_held_at_the_hull(self):
         lows = [(np.array([[0.0, 0.0], [40.0, 0.0]]), np.array([10.0, 14.0]))]
         obs = grading._with_lows(None, lows)
-        z = obs(np.array([[20.0, 0.0], [20.0, 5.0], [60.0, 0.0]]), None)
+        z = obs(np.array([[20.0, 0.0], [40.0, 0.0], [60.0, 0.0]]), None)
         self.assertAlmostEqual(float(z[0]), 12.0)
-        self.assertTrue(np.isnan(z[1:]).all(), "off its line, past its end: the ground's")
+        self.assertTrue(np.isnan(z[2]), "past its end: the ground's")
+        self.assertTrue(np.isnan(obs(np.array([[20.0, 5.0], [30.0, 5.0]]), None)).all(), "off its line: the ground's")
         self.assertIs(grading._with_lows(None, []), None)
+
+    def test_a_road_crossing_an_approach_is_not_held(self):
+        lows = [(np.array([[0.0, 0.0], [40.0, 0.0]]), np.array([10.0, 14.0]))]
+        z = roads.approach_heights(np.array([[20.0, -4.0], [20.0, 0.0], [20.0, 4.0]]), lows)
+        self.assertTrue(np.isnan(z).all(), "across it: another road at its own height")
+
+    def test_a_road_starting_inside_a_carried_on_tube_is_its_approach(self):
+        # (an underpass carried on 8 m past its map end, _clear_portals: the road's way still starts at the map's end)
+        tunnel = np.array([[0.0, 0.0], [100.0, 0.0]])
+        road = np.array([[92.0, 0.3], [300.0, 0.0]])
+        (before, after), (m0, m1) = roads.portal_roads(tunnel, [road], 50.0)
+        self.assertIsNone(before)
+        self.assertEqual(m0, 0.0)
+        self.assertAlmostEqual(float(after[0, 0]), 100.0, places=2)
+        self.assertAlmostEqual(m1, 8.0, places=2)
+        self.assertAlmostEqual(float(np.hypot(*(after[-1] - after[0]))), 50.0, places=6)
+
+    def test_a_road_ending_inside_without_passing_the_portal_is_none(self):
+        tunnel = np.array([[0.0, 0.0], [100.0, 0.0]])
+        side = np.array([[92.0, 0.0], [92.0, 200.0]])        # (off to the side over the tube)
+        back = np.array([[92.0, 0.0], [20.0, 0.0]])          # (back along it)
+        self.assertEqual(roads.portal_roads(tunnel, [side, back], 50.0), ((None, None), (0.0, 0.0)))
+
+    def test_the_road_inside_the_tube_is_held_at_its_floor(self):
+        s = np.arange(0.0, 101.0, 4.0)
+        xy = np.c_[s, np.zeros(len(s))]
+        floor = 100.0 + 0.0 * s
+        app = (np.array([4.0, 8.0]), np.array([100.2, 100.2]), np.array([[104.0, 0.0], [108.0, 0.0]]))
+        hull = np.array([100.0, 100.0])
+        (line, z), = roads.portal_lows(xy, s, floor, (None, app), (None, hull), (0.0, 8.0), 4.0)
+        self.assertLessEqual(float(line[0, 0]), 88.0, "back past the road's end inside")
+        road = np.array([[92.0, 0.0], [96.0, 0.0], [100.0, 0.0], [104.0, 0.0]])
+        self.assertTrue(np.allclose(roads.approach_heights(road, [(line, z)]), 100.0))
+
+    def test_a_road_ending_at_the_portal_is_held_from_there(self):
+        s = np.arange(0.0, 101.0, 4.0)
+        xy = np.c_[s, np.zeros(len(s))]
+        app = (np.array([4.0]), np.array([100.2]), np.array([[104.0, 0.0]]))
+        (line, z), = roads.portal_lows(xy, s, 100.0 + 0.0 * s, (None, app), (None, np.array([100.0])), (0.0, 0.0), 4.0)
+        self.assertEqual(line.tolist(), [[100.0, 0.0], [104.0, 0.0]])
+
+
+class PortalEndsTest(unittest.TestCase):
+    """The floor's ends read the roads' graded ground without ROAD_LIFT: it is drawn ROAD_LIFT over them."""
+
+    def test_no_lift(self):
+        class G:
+            def apply(self, la, lo, base, lift=0.0, roads_only=False):
+                return base + 0.2 + lift + (0.0 if roads_only else 5.0)
+        ends = roads.portal_ends(G(), lambda la, lo: np.full(len(la), 100.0))
+        self.assertTrue(np.allclose(ends(np.zeros(2), np.zeros(2)), 100.2))
 
 
 class LowArch(unittest.TestCase):

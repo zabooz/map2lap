@@ -2064,7 +2064,7 @@ class Server:
                     t.wet = self.sea.depth if self.sea is not None else None
                     t.raw = lambda la, lo: self.ground(None, la, lo, self.dem.sample(la, lo, gradingmod.PROFILE_ZOOM))
                     if g is not None:
-                        t.ends = lambda la, lo: g.apply(la, lo, t.raw(la, lo), gradingmod.ROAD_LIFT, roads_only=True)
+                        t.ends = roadsmod.portal_ends(g, t.raw)
                 cls = roadsmod.TunnelProfiles
             cs = stores[kind] = roadsmod.ChainStore(cls, cell_fn, elev, setup)
         view = roadsmod.ChainView(cs, anchor.frame)
