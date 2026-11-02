@@ -108,6 +108,8 @@ class PlanCache:
             pl.rid, pl.max_wall = m["rid"], m["max_wall"]
             pl.bank = next(banks) if m.get("bank") else None
             pl.free = tuple(bool(v) for v in m.get("free", (False, False)))
+            pl.under = tuple(bool(v) for v in m.get("under", (False, False)))
+            pl.beyond = tuple(None if v is None else float(v) for v in m.get("beyond", (None, None)))
             pl.tunnel = TUNNEL_TAG in m["fid"]
             plans.append((m["fid"], pl))
         keeps = list(zip(lists["k"], meta["keeps"]))
@@ -151,7 +153,9 @@ class PlanCache:
         meta = {"plans": [{"fid": fid, "half": p.half, "abut": list(p.abut), "road_half": p.road_half,
                            "rid": int(p.rid), "max_wall": float(p.max_wall), "cut": p.cut is not None,
                            "bank": getattr(p, "bank", None) is not None,
-                           "free": [bool(v) for v in getattr(p, "free", (False, False))]}
+                           "free": [bool(v) for v in getattr(p, "free", (False, False))],
+                           "under": [bool(v) for v in getattr(p, "under", (False, False))],
+                           "beyond": [None if v is None else float(v) for v in getattr(p, "beyond", (None, None))]}
                           for fid, p in plans],
                 "keeps": [float(hw) for _xy, hw in keeps], "covers": [float(w) for _xy, w in covers],
                 "opens": [{k: (v.item() if hasattr(v, "item") else v) for k, v in sp._asdict().items()}

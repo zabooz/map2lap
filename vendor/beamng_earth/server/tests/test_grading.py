@@ -961,13 +961,88 @@ class UnderDeckTest(unittest.TestCase):
         """A plan rising 2 % onto a bridge at its end gets a vertex UNDER_DECK_M past it, at its
         grade, UNDER_DECK_DROP_M and the grade over its half width below; its other end (no bridge) is left."""
         x = np.arange(0.0, 101.0, 4.0)
-        xy, z, grow = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0)
+        xy, z, grow, _opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0)
         self.assertEqual(grow, (0, 1))
         np.testing.assert_allclose(xy[-1], [100.0 + grading.UNDER_DECK_M, 0.0])
         self.assertAlmostEqual(z[-1], 2.0 + 0.02 * grading.UNDER_DECK_M - grading.UNDER_DECK_DROP_M - 0.02 * 4.0)
         np.testing.assert_allclose(z[:-1], 0.02 * x)
-        _xy, _z, grow = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, False), 4.0)
+        _xy, _z, grow, _opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, False), 4.0)
         self.assertEqual(grow, (0, 0))
+
+    def test_it_stops_where_the_elevation_opens_under_the_deck(self):
+        """Under the deck the plan goes on only as far as the elevation stands within UNDER_DECK_OPEN_M of the
+        approach's grade line: a stream's bank 3 m past the abutment, 7 m deep beyond it (RN 147 at Moulismes)."""
+        x = np.arange(0.0, 101.0, 4.0)
+
+        def ground(xy):
+            a = xy[:, 0] - 100.0
+            return np.where(a <= 3.0, 2.0 + 0.02 * a, 2.0 + 0.02 * a - 7.0)
+        xy, z, grow, opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0, ground)
+        self.assertEqual(grow, (0, 1))
+        self.assertEqual(opens, (False, True))
+        np.testing.assert_allclose(xy[-1], [103.0, 0.0])
+        self.assertAlmostEqual(z[-1], 2.0 + 0.02 * 3.0 - grading.UNDER_DECK_DROP_M - 0.02 * 4.0)
+
+    def test_at_least_one_terrain_cell_under_the_deck(self):
+        """Elevation open right past the abutment: the plan still goes on UNDER_DECK_MIN_M (the terrain cell under the
+        deck's end on the road's height: no hole under the joint)."""
+        x = np.arange(0.0, 101.0, 4.0)
+        xy, _z, _grow, _opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0,
+                                                    lambda q: np.full(len(q), -10.0))
+        np.testing.assert_allclose(xy[-1], [100.0 + grading.UNDER_DECK_MIN_M, 0.0])
+
+    def test_closed_under_the_deck_it_goes_on_and_blends_out_as_before(self):
+        """The elevation at the road's height under the deck's first UNDER_DECK_M (a deck along a slope the lidar draws
+        at the road, the Grossglockner road at 6.6 km): no opening, the plan goes on UNDER_DECK_M and its grading is not
+        cut (Plan.beyond None): cut off, the lidar came up through the deck's start."""
+        x = np.arange(0.0, 101.0, 4.0)
+        xy, _z, grow, opens = grading._under_deck(np.stack([x, 0 * x], 1), 0.02 * x, (False, True), 4.0,
+                                                  lambda q: 2.0 + 0.02 * (q[:, 0] - 100.0) + 0.05)
+        np.testing.assert_allclose(xy[-1], [100.0 + grading.UNDER_DECK_M, 0.0])
+        self.assertEqual((grow, opens), ((0, 1), (False, False)))
+
+
+class PastEndsTest(unittest.TestCase):
+    """regrade_past_ends: a plan's grading stops square across at an abutment's end (Plan.beyond); the ground past it
+    is the elevation's, graded by the other roads alone."""
+
+    def approach(self, beyond):
+        x = np.arange(0.0, 51.0, 2.0)
+        p = grading.Plan(np.stack([x, 0 * x], 1), np.full(len(x), 10.0), 8.0, (False, True), road_half=5.0)
+        p.rid = 1
+        p.beyond = beyond
+        return p
+
+    def graded(self, plans, px, py):
+        base = np.full(len(px), 3.0)
+        out = grading.grade_points(px, py, base, plans)
+        return grading.regrade_past_ends(px, py, base, plans, out)
+
+    def test_the_ground_past_an_abutment_is_the_elevations(self):
+        px, py = np.array([49.0, 52.0, 55.0, 51.0]), np.array([0.0, 0.0, 5.0, -6.0])
+        out = self.graded([self.approach((None, 0.0))], px, py)
+        self.assertAlmostEqual(out[0], 10.0, places=2)             # (on the plan: the road)
+        np.testing.assert_allclose(out[1:], 3.0, atol=1e-6)         # (past its end: the stream bed)
+
+    def test_without_the_cut_the_end_fills_under_the_deck(self):
+        """(the cause: a point past a segment's end takes the end's height up to the core's half width)"""
+        out = self.graded([self.approach((None, None))], np.array([52.0]), np.array([0.0]))
+        self.assertAlmostEqual(out[0], 10.0, places=2)
+
+    def test_an_end_going_on_under_its_deck_is_never_raised(self):
+        """raisable_ends: the approach ramps (_lift_approaches) leave an end that goes on under its deck (Plan.under:
+        the lidar shows its embankment), cut where the elevation opens or not; any other end may rise."""
+        cut, closed, other = self.approach((None, 0.0)), self.approach((None, None)), self.approach((None, None))
+        cut.under = closed.under = (False, True)
+        np.testing.assert_array_equal(grading.raisable_ends([cut, closed, other]),
+                                      [[True, False], [True, False], [True, True]])
+
+    def test_a_road_under_the_bridge_still_grades_it(self):
+        y = np.arange(-30.0, 31.0, 2.0)
+        under = grading.Plan(np.stack([0 * y + 60.0, y], 1), np.full(len(y), 4.0), 4.0, road_half=3.0)
+        under.rid = 2
+        out = self.graded([self.approach((None, 0.0)), under], np.array([60.0]), np.array([0.0]))
+        self.assertAlmostEqual(out[0], 4.0, places=2)
 
 
 if __name__ == "__main__":
