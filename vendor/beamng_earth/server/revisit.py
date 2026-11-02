@@ -51,21 +51,34 @@ def faults():
     return _faults[0]
 
 
+def code_files(here):
+    """The paths under folder here, relative with "/", sorted, whose content is the server's code: the modules, those
+    of its packages too (a change in one must not reuse what the old code built), and the native module. The tests are
+    not. Pure given the folder."""
+    out = []
+    for folder, dirs, names in os.walk(here):
+        dirs[:] = [d for d in dirs if d not in ("tests", "__pycache__")]
+        rel = os.path.relpath(folder, here).replace(os.sep, "/")
+        for name in names:
+            # (a packaged app's modules are in its archive, not beside __file__: the build's CODE_ID, their
+            # fingerprint, is; without it a Python-only update reused the older build's items)
+            if name.endswith(".py") or (rel == "." and (name == "CODE_ID" or name.startswith("earthfast"))):
+                out.append(name if rel == "." else f"{rel}/{name}")
+    return sorted(out)
+
+
 def code_key():
     """A hash of the server's source files and native module (once per process)."""
     with _lock:
         if not _code:
             here = os.path.dirname(os.path.abspath(__file__))
             h = hashlib.sha1()
-            for name in sorted(os.listdir(here)):
-                # (a packaged app's modules are in its archive, not beside __file__: the build's CODE_ID, their
-                # fingerprint, is; without it a Python-only update reused the older build's items. From)
-                if name == "CODE_ID" or name.endswith(".py") or name.startswith("earthfast"):
-                    try:
-                        with open(os.path.join(here, name), "rb") as f:
-                            h.update(name.encode() + b"\0" + f.read())
-                    except OSError:
-                        pass
+            for name in code_files(here):
+                try:
+                    with open(os.path.join(here, name), "rb") as f:
+                        h.update(name.encode() + b"\0" + f.read())
+                except OSError:
+                    pass
             for k in sorted(os.environ):                # (the build switches: BNE_*)
                 if k.startswith("BNE_") and k not in ("BNE_REVISIT", "BNE_REVISIT_MB", "BNE_REVISIT_SKIP"):
                     h.update(f"{k}={os.environ[k]}".encode())

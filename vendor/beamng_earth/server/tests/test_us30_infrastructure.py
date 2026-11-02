@@ -139,7 +139,7 @@ class MedianConnectorTest(unittest.TestCase):
 class RoadsideParapetTest(unittest.TestCase):
     def walls(self, divided, ground):
         """ground: a height (flat), or 'cut': the grading's cutting, flat to the core's edge then 3 m up within a
-        metre (test_roads.RetainingWallTest: a natural bank gets no wall since)."""
+        metre (test_roads.RetainingWallTest: a natural bank gets no wall)."""
         import grading
         spec = roads.Spec(8.6,'paved',False,'primary',True,median=30. if divided else None)
         p = np.c_[np.arange(0.,121.,4.),np.zeros(31),np.full(31,20.)]

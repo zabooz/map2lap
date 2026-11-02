@@ -72,6 +72,15 @@ class RevisitTest(unittest.TestCase):
         self.assertNotEqual(revisit.key("roads", 1, 2), revisit.key("roads", 1, 3))
         self.assertEqual(len(revisit.code_key()), 16)
 
+    def test_the_code_holds_its_packages_but_not_the_tests(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name in ("a.py", "earthfast.pyd", "CODE_ID", "notes.md", "roads/__init__.py", "roads/bridges.py",
+                         "roads/earthfast.txt", "tests/test_a.py", "__pycache__/a.py", "roads/__pycache__/b.py"):
+                os.makedirs(os.path.dirname(os.path.join(d, name)) or d, exist_ok=True)
+                open(os.path.join(d, name), "w").close()
+            self.assertEqual(revisit.code_files(d), ["CODE_ID", "a.py", "earthfast.pyd", "roads/__init__.py",
+                                                     "roads/bridges.py"])
+
 
 if __name__ == "__main__":
     unittest.main()
