@@ -26,7 +26,6 @@ index, so the block-local Torque diagonal parity is the world one, as with 1024Â
 torque_split45), and a 128 m move is exactly 64 samples.
 """
 import math
-import os
 import struct
 import threading
 from collections import OrderedDict
@@ -49,11 +48,6 @@ Q_LADDER = (1 / 256, 1 / 128, 1 / 64, 1 / 32, 1 / 16)
 Q_DEFAULT = 1 / 64
 ZBASE_STEP = 64.0                   # zBase is a multiple of this (and so of every Q)
 ZBASE_MARGIN = 8.0                  # m below the lowest sample
-
-
-def snap(v, grid=GRID):
-    """Nearest multiple of grid, halves rounded up (Lua: floor(v/g + 0.5)*g)."""
-    return float(math.floor(v / grid + 0.5) * grid) + 0.0
 
 
 def half_extent(size=SIZE):
@@ -192,16 +186,6 @@ def grid_u_chunked(frame, elev_fn, cx, cy, size, cache, keep=None):
 def quantise(u, q):
     """Global quantum index round(u / Q) (exact: Q is a power of two)."""
     return np.rint(np.asarray(u, np.float64) / q)
-
-
-def choose_q(relief, ladder=Q_LADDER):
-    """Smallest quantum whose block range (65535 Q) covers the relief plus 10 % and the zBase
-    rounding (ZBASE_STEP + ZBASE_MARGIN)."""
-    need = relief * 1.1 + ZBASE_STEP + ZBASE_MARGIN
-    for q in ladder:
-        if 65535 * q >= need:
-            return q
-    return ladder[-1]
 
 
 def block_params(u_min, u_max, q):

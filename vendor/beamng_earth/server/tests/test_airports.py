@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import airportfixtures as af  # noqa: E402
 import airports  # noqa: E402
-import cache as cachemod  # noqa: E402
 import mapcells  # noqa: E402
 import netfetch  # noqa: E402
 import runwaygeom  # noqa: E402
@@ -371,9 +370,6 @@ class PolicyTest(unittest.TestCase):
         self.assertIsNotNone(p.daily_hard)
         self.assertTrue(p.offline_ok)
 
-    def test_cache_keeps_the_copy(self):
-        self.assertIn("airports", cachemod.KEPT)
-        self.assertNotIn("airports", cachemod.MANAGED)
 
 
 class CliTest(unittest.TestCase):

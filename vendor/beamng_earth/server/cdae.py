@@ -35,7 +35,6 @@ Geometry conventions of the engine's Collada import (verified against golden pai
   - one primitive per material, indexed triangle list (matIndex | 0x20000000);
   - tangents are xyz + w (handedness), 16 bytes per vertex.
 """
-import os
 import struct
 
 import numpy as np
@@ -253,15 +252,6 @@ class _Stream:
         if not isinstance(data, bytes) or len(data) != n * size:
             raise CdaeError(f"bad vector ({n} x {size}, {type(data).__name__})")
         return n, size, data
-
-
-def read_version(path):
-    """The version word of a shape file (0x007C001F for the format written here)."""
-    with open(path, "rb") as f:
-        head = f.read(4)
-    if len(head) < 4:
-        raise CdaeError("file too short")
-    return struct.unpack("<I", head)[0]
 
 
 def read(path):
@@ -564,20 +554,3 @@ def write(path, positions, tris, **kw):
     return len(data)
 
 
-def engine_version(user_dir, limit=20):
-    """Version word of the .cdae files the engine itself wrote under <user_dir>/temp/temp
-    (its Collada cache), or None if there are none. A different word than VERSION_WORD means
-    the game's shape format moved on, and the DAE path is the safe choice."""
-    root = os.path.join(user_dir, "temp", "temp")
-    seen = {}
-    for dirpath, _, files in os.walk(root):
-        for f in files:
-            if f.endswith(".cdae"):
-                try:
-                    v = read_version(os.path.join(dirpath, f))
-                except (OSError, CdaeError):
-                    continue
-                seen[v] = seen.get(v, 0) + 1
-                if sum(seen.values()) >= limit:
-                    return max(seen, key=seen.get)
-    return max(seen, key=seen.get) if seen else None

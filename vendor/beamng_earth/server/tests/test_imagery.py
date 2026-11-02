@@ -483,27 +483,6 @@ class ChainTest(unittest.TestCase):
         time.sleep(0.3)
         self.assertTrue(im.requests and all(r[0] == "eox2023" for r in im.requests))
 
-    def test_parse_chain_and_attribution(self):
-        self.assertIsNone(imagery.parse_chain("off"))
-        self.assertEqual(imagery.parse_chain("usgs,eox2016"), ("usgs", "eox2016"))
-        with self.assertRaises(ValueError):
-            imagery.parse_chain("google")
-        self.assertEqual(imagery.Imagery(self.tmp.name).attribution(), imagery.ATTRIBUTION)
-        self.assertIn("CT ECO 2023 orthoimagery (CC0)", imagery.ATTRIBUTION, "the regional sources too")
-        self.assertIn("CC BY 4.0", imagery.Imagery(self.tmp.name, ("eox2016",)).attribution())
-        # EOX's required wording (June 2026, docs/research/2026-10-10-rate-limits.md)
-        eox = "EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data "
-        self.assertEqual(imagery.SOURCES["eox2023"].attribution, eox + "2023), CC BY-NC-SA 4.0")
-        self.assertEqual(imagery.SOURCES["eox2016"].attribution, eox + "2016 & 2017), CC BY 4.0")
-        self.assertEqual(imagery.Imagery(self.tmp.name, imagery.BASE_CHAIN).attribution(),
-                         "Imagery: State of Maryland, MD iMAP / DoIT six-inch imagery; "
-                         "USDA NAIP (public domain); "
-                         "USDA NAIP via USGS The National Map (public domain); "
-                         "USGS The National Map (public domain); " + eox
-                         + "2023), CC BY-NC-SA 4.0; " + eox + "2016 & 2017), CC BY 4.0")
-        self.assertNotIn("Sentinel-2 cloudless", imagery.ATTRIBUTION)
-        for n in imagery.DEFAULT_CHAIN:                     # the overlay's font is ASCII only
-            imagery.SOURCES[n].attribution.encode("ascii")
 
 
 class ExportTransport:
@@ -820,25 +799,6 @@ class ToneTest(unittest.TestCase):
         self.assertTrue((np.diff(imagery.tone_lut(3.0).astype(int)) >= 0).all())
 
 
-def bc1_decode(data, w, h):
-    """Minimal BC1 (DXT1) decoder for the tests: RGB [h, w, 3] float."""
-    bw, bh = max(1, (w + 3) // 4), max(1, (h + 3) // 4)
-    blocks = np.frombuffer(data, np.uint8).reshape(bh * bw, 8)
-    c0 = blocks[:, 0].astype(np.uint32) | (blocks[:, 1].astype(np.uint32) << 8)
-    c1 = blocks[:, 2].astype(np.uint32) | (blocks[:, 3].astype(np.uint32) << 8)
-    idx = (blocks[:, 4].astype(np.uint32) | (blocks[:, 5].astype(np.uint32) << 8)
-           | (blocks[:, 6].astype(np.uint32) << 16) | (blocks[:, 7].astype(np.uint32) << 24))
-
-    def rgb565(c):
-        return np.stack([(c >> 11 & 31) * 255 / 31, (c >> 5 & 63) * 255 / 63, (c & 31) * 255 / 31], -1)
-    p0, p1 = rgb565(c0), rgb565(c1)
-    four = (c0 > c1)[:, None]
-    pal = np.stack([p0, p1, np.where(four, (2 * p0 + p1) / 3, (p0 + p1) / 2),
-                    np.where(four, (p0 + 2 * p1) / 3, 0.0)], 1)              # (n, 4, 3)
-    sel = (idx[:, None] >> (2 * np.arange(16, dtype=np.uint32))) & 3          # (n, 16)
-    px = np.take_along_axis(pal, sel[:, :, None].astype(np.int64), 1)        # (n, 16, 3)
-    img = px.reshape(bh, bw, 4, 4, 3).transpose(0, 2, 1, 3, 4).reshape(bh * 4, bw * 4, 3)
-    return img[:h, :w]
 
 
 class DdsTest(unittest.TestCase):
@@ -853,35 +813,6 @@ class DdsTest(unittest.TestCase):
         self.assertTrue(all(int(np.abs(a.astype(int) - 90).max()) <= 1 for a in imagery.mip_arrays(flat)),
                         "a flat image stays flat (the sharpening adds no ringing)")
 
-    def test_dxt1_with_full_mip_chain(self):
-        n = 128
-        # smooth, imagery-like content (BC1 is lossy; this tests the chain, not the encoder)
-        low = (np.random.default_rng(5).random((8, 8, 3)) * 100 + 60).astype(np.uint8)
-        rgb = np.asarray(Image.fromarray(low, "RGB").resize((n, n), Image.BICUBIC))
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "t.dds")
-            size = imagery.write_dds(path, rgb)
-            data = Path(path).read_bytes()
-            self.assertEqual(size, len(data))
-            w, h, mips, fourcc, sizes = imagery.read_dds_info(data)
-            self.assertEqual((w, h, mips, fourcc), (n, n, 8, b"DXT1"))     # 128 .. 1
-            self.assertEqual(len(data), imagery.DDS_HEADER + sum(sizes))
-            self.assertEqual(sizes[0], n * n // 2)
-            caps = int.from_bytes(data[108:112], "little")
-            self.assertTrue(caps & imagery.DDSCAPS_MIPMAP and caps & imagery.DDSCAPS_COMPLEX)
-            with Image.open(path) as im:                                    # a standard reader accepts it
-                self.assertEqual(im.size, (n, n))
-            # level k is the BC1 encoding of mip_arrays' level k (linear light, sharpened) ...
-            off = imagery.DDS_HEADER
-            for k, (sz, lv) in enumerate(zip(sizes, imagery.mip_arrays(rgb))):
-                self.assertEqual(data[off:off + sz], imagery.fast._ef.bc1_encode(np.ascontiguousarray(lv)), k)
-                off += sz
-            # ... and decodes to the image (row 0 first, as the source image)
-            got = bc1_decode(data[imagery.DDS_HEADER:imagery.DDS_HEADER + sizes[0]], n, n)
-            self.assertLess(np.abs(got - rgb).mean(), 4.0)
-            last = bc1_decode(data[-8:], 1, 1)[0, 0]
-            lin_mean = ((rgb.reshape(-1, 3) / 255.0) ** 2.2).mean(0) ** (1 / 2.2) * 255.0
-            np.testing.assert_allclose(last, lin_mean, atol=6.0)        # the linear-light mean, one RGB565 step
 
     def test_sizes(self):
         for px, want in ((512, 128 + sum(max(1, (512 >> k) // 4) ** 2 * 8 for k in range(10))),

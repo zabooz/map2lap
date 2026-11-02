@@ -825,12 +825,6 @@ ROAD_MASK_MAX_TEXEL = 1.0       # m per texel of the mask
 ROAD_MASK_KINDS = ("paved", "cobble")
 
 
-def road_mask_name(texture):
-    """The road mask file beside a far tile's texture (far_<a>_<key>[_r<n>].dds -> far_<a>_<key>_road.dds)."""
-    import re
-    return re.sub(r"(_r\d+)?\.dds$", "_road.dds", texture)
-
-
 def road_mask(frame, x0, y0, size, px, surface, widths=None):
     """The built carriageways' coverage (px x px uint8, 255 on the road, antialiased) of a tile photo's square
     [x0, x0 + size]² (its gutter included: the mask lines up with it on UV0), or None (texels coarser than

@@ -137,23 +137,9 @@ MOD_PALETTE = "far_palette.png"
 FORMATS = ("cdae", "dae")
 
 # --- horizon mode (M1h, docs/V1_4_SPEC.md §3.6 "Radius: the real line-of-sight horizon") ---------
-# Heights are above sea level (the ellipsoid: the anchor frame's h0 is 0), never above the ground
-# under the player: the bulge drops a point by d²/2R' whatever the local ground.
-R_EARTH = 6371000.0             # m: the sphere the sky uses too (the mod sets ScatterSky.atmoPlanetRadius)
-REFRACTION_K = 0.13             # standard terrestrial refraction; the cull's effective radius is R' below.
-R_REFRACTED = R_EARTH / (1.0 - REFRACTION_K)    # 7323 km. The geometry (and the sky) have no refraction,
-                                                # so using R' only makes the cull generous (~7 % farther).
-HORIZON_MIN = RADIUS            # the disc is never smaller than today's radius, and nothing within it is culled
-HORIZON_MAX = 1500000.0         # radius cap (spec: raised from 700 km so planes see far; eyes up to ~40 km)
-HORIZON_MAX_LEVEL = 10          # L10 = 262 km, 4 km vertex spacing with 64 cells: a silhouette at 300+ km
 # Texture px of the coarse levels in horizon mode (a 256 px L9 is 512 m/px; at 300 km one screen
 # pixel is ~100 m, so the texture is never the limit); imagery.render picks the low source zoom.
 HORIZON_TEX = {8: 256, 9: 256, 10: 128}
-HORIZON_GRID_LEVEL = 6          # the zmax pyramid's base cell: one L6 node (16 384 m)
-HORIZON_DEM_ZOOM = 6            # the coarse DEM pass (z6: ~1 km pixels at 36° N) ...
-HORIZON_DEM_TILES = 64          # ... or coarser while the grid would need more DEM tiles than this
-HORIZON_BLOCK = 8               # DEM pixels per block maximum (a block is ~8 km at z6)
-Z_TOP = 8900.0                  # m: no terrain is higher (Everest 8849 m); sizes the grid an eye needs
 VISIBLE_MARGIN = 1.10           # the mod's LevelInfo.visibleDistance = radius * this (horizon.lua)
 
 
@@ -236,11 +222,6 @@ class Layout:
 V131 = Layout(32)           # the v1.3.1 mesh layout (the server's default; terrain mode: mesh=False)
 
 
-def k_default(level):
-    """K of the v1.3.1 layout (32 cells)."""
-    return V131.k(level)
-
-
 def level_size(level):
     """Tile edge (m) of a level: 256 * 2^L (64 m for L-2)."""
     return BASE * 2.0 ** level
@@ -257,26 +238,6 @@ def switch_distance(level, kfun=None, radii=None, min_level=0, layout=V131):
         if min_level <= m < level:
             d = max(d, r)
     return d
-
-
-def torque_split45(gx, gy):
-    """True where the Torque/BeamNG TerrainBlock splits square (gx, gy) (block-local indices,
-    gx east, gy north from the SW corner) along the SW-NE diagonal (x - y = 0); False: along
-    the SE-NW diagonal (x + y = 1).
-
-    Torque3D TerrainFile::_buildGridMap (Engine/source/terrain/terrFile.cpp, development
-    4c44642, ~line 213) sets for every level-0 (single) square
-        bool shouldSplit45 = ((squareX ^ squareY) & 1) == 0;  if (i == 0) split45 = shouldSplit45;
-    TerrainBlock::getHeight / getNormal (terrData.cpp ~721/772) and the collision convexes
-    (terrCollision.cpp ~440, ~842) evaluate the two triangles of a Split45 square as
-    x > y: (BL, BR, TR) / else (BL, TR, TL), and of other squares as x + y < 1: (BL, BR, TL) /
-    else (BR, TR, TL). The renderer's index buffer (terrCell.cpp ~649, `xTess == yTess`) uses
-    the same parity. Our blocks start at an even lattice index (cx - 1024 with cx a multiple
-    of 256 m is a multiple of 4 m; M4's 512² block: cx - 512 with cx a multiple of 128 m), and
-    L-2 tiles at multiples of 64 m, so the block-local
-    parity equals the parity of the world lattice index (x / 2 + y / 2) and of a tile's local
-    cell index (i + j): build_tile() and surface_at() split cell (i, j) on (i + j) even."""
-    return ((np.asarray(gx) ^ np.asarray(gy)) & 1) == 0
 
 
 @dataclass(frozen=True)
@@ -332,40 +293,6 @@ def tile_of(key):
 
 def overlaps(a, b):
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-
-
-class View:
-    """The camera for screen-space LOD (select's `view`, 2026-10-16): position (cx, cy) in the anchor frame and height
-    above the ground under the player (dz), pixels per radian of the screen (ppr = height px / (2 tan(vfov / 2))),
-    the pop size allowed (tau px) and err(node) -> the built tile's geometric error (m: how far its surface moves
-    when it splits into its children, farfield.build_tile) or None when not known."""
-
-    def __init__(self, cx, cy, dz, ppr, err, tau=None, reach=None, h=None, cells=64, cap=None):
-        self.cx, self.cy, self.dz, self.ppr, self.err, self.cells = cx, cy, max(0.0, dz), ppr, err, cells
-        self.cap = SSE_SPACING_CAP if cap is None else cap
-        self.tau = SSE_TAU_PX if tau is None else tau
-        self.reach = SSE_REACH if reach is None else reach
-        self.h = SSE_HYSTERESIS if h is None else h
-
-    def pixels(self, node, x0, y0, x1, y1):
-        """The node's split pop on screen (px), or None (error not known). On steep ground the vertical error is
-        mostly a sideways shift of about one grid spacing (a cliff's 300 m "error" is its face moving a few
-        metres), so it counts at most SSE_SPACING_CAP spacings."""
-        e = self.err(node)
-        if e is None:
-            return None
-        e = min(e, self.cap * (x1 - x0) / self.cells)
-        dxy = math.hypot(max(x0 - self.cx, 0.0, self.cx - x1), max(y0 - self.cy, 0.0, self.cy - y1))
-        return e * self.ppr / max(math.hypot(dxy, self.dz), 1.0)
-
-
-# Screen-space LOD (View): a node also splits while its tile's split would pop more than SSE_TAU_PX on screen, within
-# SSE_REACH times its distance-rule switch distance (at most ~2 levels finer than the distance rule: a cliff 30 km
-# away must not pull in thousands of tiles); a split node merges back once the pop is under SSE_TAU_PX / (1 + h).
-SSE_TAU_PX = 0.0       # off by default: in Yosemite 4 px cost 17 % fps and +36 % tiles for 25 % smaller pops (2026-10-16)
-SSE_REACH = 4.0
-SSE_HYSTERESIS = 0.5
-SSE_SPACING_CAP = 2.0
 
 
 def select(px, py, forced=(), prev_refined=frozenset(), kfun=None, h=HYSTERESIS,
@@ -445,113 +372,9 @@ def select(px, py, forced=(), prev_refined=frozenset(), kfun=None, h=HYSTERESIS,
     return out, refined
 
 
-# Load order (2026-10-16): tiles outside the camera's view cone count as VIEW_PENALTY times as far, so what is on
-# screen fills first after a teleport; the cone is half the horizontal field of view plus VIEW_MARGIN_DEG (at most
-# VIEW_MAX_DEG off the camera's heading).
-VIEW_PENALTY = float(os.environ.get("BNGE_VIEW_PENALTY", "3.0"))     # (env: experiments)
-VIEW_MARGIN_DEG = 15.0
-VIEW_MAX_DEG = 80.0
-ASPECT = 16 / 9
-
-
-def view_cone(cam):
-    """(x, y, unit forward fx, fy, cos of the cone's half angle) from a pose.cam dict, or None (no usable heading)."""
-    try:
-        x, y, fx, fy = float(cam["x"]), float(cam["y"]), float(cam["fx"]), float(cam["fy"])
-        fov = float(cam.get("fovDeg") or 60)
-    except (KeyError, TypeError, ValueError):
-        return None
-    n = math.hypot(fx, fy)
-    if not (n > 0.2 and all(map(math.isfinite, (x, y, fx, fy, fov)))):
-        return None                     # looking straight down / up: every direction counts
-    half = math.degrees(math.atan(math.tan(math.radians(fov) / 2) * ASPECT)) + VIEW_MARGIN_DEG
-    return x, y, fx / n, fy / n, math.cos(math.radians(min(half, VIEW_MAX_DEG)))
-
-
-def view_distance(t, cone, x, y):
-    """Distance of tile t from (x, y) for the load order: VIEW_PENALTY times as far outside the view cone (around the
-    camera always in view): view_distances of the one tile."""
-    return view_distances([t], cone, x, y)[0]
-
-
-def view_distances(tiles, cone, x, y):
-    """view_distance of every tile (a list), in Rust (earthfast.view_distances)."""
-    if cone is None:                    # no camera: exactly the distances (and tie order) of before
-        return [t.distance(x, y) for t in tiles]
-    if not tiles:
-        return []
-    fast.require(1, "view_distances")
-    bb = np.array([t.bbox for t in tiles], np.float64)
-    return fast._ef.view_distances(bb, float(x), float(y), list(cone) if cone else [], float(VIEW_PENALTY)).tolist()
-
-
-def nearest_first(tiles, x, y):
-    return sorted(tiles, key=lambda t: (t.distance(x, y), t.level, t.key))
-
-
 def diff(old, new):
     """Keys to add and to remove to go from tile set `old` to `new` (dicts or sets of keys)."""
     return [k for k in new if k not in old], [k for k in old if k not in new]
-
-
-def swap_groups(old, new, polys=None):
-    """LOD changes from key set `old` to `new` as swap groups: [(adds, removes)], each a
-    connected set of added and removed tiles that overlap (a parent and its descendants), so
-    both sides have the same footprint. Tiles that enter or leave the far radius have no
-    counterpart and form one-sided groups. Sorted lists, deterministic order.
-    Global tiles and pieces (select_global) join by their footprints: polys(key) -> the key's footprint polygon (flat
-    x, y list) in the anchor's world, or None (unknown: one-sided)."""
-    adds, removes = diff(old, new)
-    side = {k: 0 for k in adds}
-    side.update({k: 1 for k in removes})
-    by_node = {tile_of(k).node: k for k in side if not is_special_key(k)}
-    parent = {k: k for k in side}
-
-    def find(k):
-        while parent[k] != k:
-            parent[k] = parent[parent[k]]
-            k = parent[k]
-        return k
-
-    special = [k for k in side if is_special_key(k)]
-    if special and polys is not None:
-        keys, ps = [], []
-        for k in side:
-            p = polys(k) if is_special_key(k) else _square(tile_of(k).bbox)
-            if p is not None:
-                keys.append(k)
-                ps.append([float(v) for v in p])
-        fast.require(GLOBAL_NEED, "global far tiles")
-        for a, b in fast._ef.far_overlap_pairs(ps, [side[k] for k in keys], GLOBAL_MIN_AREA, GLOBAL_OVERLAP_REL):
-            ka, kb = keys[a], keys[b]
-            if is_special_key(ka) or is_special_key(kb):
-                parent[find(ka)] = find(kb)
-    for k in side:
-        if is_special_key(k):
-            continue
-        lvl, i, j = tile_of(k).node
-        while lvl < HORIZON_MAX_LEVEL:          # (no L10 node exists outside horizon mode)
-            lvl, i, j = lvl + 1, i >> 1, j >> 1
-            a = by_node.get((lvl, i, j))
-            if a is not None and side[a] != side[k]:
-                parent[find(k)] = find(a)
-    comps = {}
-    for k in side:
-        comps.setdefault(find(k), []).append(k)
-    groups = []
-    for ks in comps.values():
-        groups.append((sorted(k for k in ks if side[k] == 0), sorted(k for k in ks if side[k] == 1)))
-    groups.sort(key=lambda g: (g[0] or g[1])[0])
-    return groups
-
-
-def transform_bbox(src, dst, bb):
-    """Axis-aligned bbox (in dst's ENU plane) of a bbox given in src's ENU plane."""
-    x0, y0, x1, y1 = bb
-    xs = np.array([x0, x1, x0, x1, (x0 + x1) / 2])
-    ys = np.array([y0, y0, y1, y1, (y0 + y1) / 2])
-    e, n, _ = dst.ecef_to_enu(*src.enu_to_ecef(xs, ys, 0.0))
-    return (float(e.min()), float(n.min()), float(e.max()), float(n.max()))
 
 
 def zoom_for_level(layout, lat, level):
@@ -564,106 +387,15 @@ def skirt_depth(size, err=0.0):
 
 
 # --- global far tiles (geotiles phase 3b: docs/V1_4_SPEC.md 3.7 M6 on the geotiles grid) ------------------------
-# Far levels L >= GLOBAL_MIN_LEVEL are tiles of the Web-Mercator quadtree (key m<z>_<x>_<y>; earthfast farglobal.rs),
-# their geometry in each tile's own frame (geotiles.frame: the ENU plane at its centre, the world convention), their
-# texture the finished imagery over the tile's Mercator square: made once, the same for every anchor, placed into the
-# anchor's world by the mod (geotile.lua placement at the tile's pivot: rigid, |h - pivot| x D / R off horizontally,
-# under a pixel at the distances these tiles are drawn at), so a rebase builds and sends none of them again. A far level
-# L is the zoom global_zoom(lat) - (L - 3) (the edge within 0.7-1.4x of 256 * 2^L at the anchor's latitude); the
-# distance rule takes each tile's real size. The refined tiles of the finest global zoom (the Region) are filled by the
-# anchor's own quadtree (L <= 2: it tiles the anchor's plane exactly and meets the block bit for bit), its nodes across
-# the region's edge cut to each global tile they overlap (Piece: key <L>_<i>_<j>_c<z>_<x>_<y>, the node's mesh clipped
-# to the tile's quad in the anchor's world, skirts along the cut). Beyond GLOBAL_MAX_LAT the far field is the anchor's
-# quadtree as before (no Web Mercator there).
-GLOBAL_MIN_LEVEL = 3
 GLOBAL_MAX_LAT = 84.5          # deg: the selection's whole radius must stay within Web Mercator
-GLOBAL_MIN_AREA = 1e-3          # m^2: an overlap below this is a shared edge, not an overlap
-GLOBAL_OVERLAP_REL = 0.01      # ... and below this of the smaller footprint (the quads' straight edges off the curved parallels)
 GLOBAL_NEED = 109               # earthfast farglobal.rs
 GLOBAL_GEO_VERSION = 1          # bump: every global tile's cached geometry / texture is built again
 GLOBAL_PROTO = 1                # hello.globalFar: the mod places global far tiles (farfield.lua GLOBAL_FAR)
 
 
-def global_zoom(lat):
-    """The Web-Mercator zoom of far level GLOBAL_MIN_LEVEL at a latitude: its tiles' edge within [0.7, 1.4) x 2048 m."""
-    c = 40075016.686 * max(math.cos(math.radians(min(abs(float(lat)), demmod.MAX_LAT))), 1e-6)
-    return int(math.floor(math.log2(c / (0.7 * level_size(GLOBAL_MIN_LEVEL)))))
-
-
-def global_dem_zoom(z, cells):
-    """DEM zoom of a global tile of zoom z (Web-Mercator aligned: pixels half its vertex spacing at any latitude, so
-    neighbours of one zoom sample the same DEM along their shared edge)."""
-    return max(0, min(FAR_MAX_ZOOM, int(z) - int(round(math.log2(demmod.TILE / (2 * cells))))))
-
-
-def is_global_key(k):
-    return isinstance(k, str) and k[:1] == "m"
-
-
-def is_piece_key(k):
-    return isinstance(k, str) and "_c" in k
-
-
-def is_special_key(k):
-    """A global tile's or a piece's key (not a plain anchor quadtree node)."""
-    return is_global_key(k) or is_piece_key(k)
-
-
-def global_key(z, x, y):
-    return f"m{int(z)}_{int(x)}_{int(y)}"
-
-
-def parse_global(k):
-    """(z, x, y) of a global key, or None."""
-    if not is_global_key(k):
-        return None
-    try:
-        z, x, y = (int(v) for v in k[1:].split("_"))
-    except ValueError:
-        return None
-    return z, x, y
-
-
-def _square(bb):
-    x0, y0, x1, y1 = bb
-    return (x0, y0, x1, y0, x1, y1, x0, y1)
-
-
 def _poly_bbox(p):
     xs, ys = p[0::2], p[1::2]
     return (min(xs), min(ys), max(xs), max(ys))
-
-
-@dataclass(frozen=True, eq=False)
-class GTile:
-    """A global far tile: zoom z, (x, y), its far level, its quad (SW, SE, NE, NW at h = 0; flat) in the selecting
-    anchor's world and its real edge (m)."""
-    z: int
-    x: int
-    y: int
-    level: int
-    quad: tuple
-    size: float
-
-    @functools.cached_property
-    def key(self):
-        return global_key(self.z, self.x, self.y)
-
-    @property
-    def node(self):
-        return ("m", self.z, self.x, self.y)
-
-    @functools.cached_property
-    def bbox(self):
-        return _poly_bbox(self.quad)
-
-    @property
-    def poly(self):
-        return self.quad
-
-    def distance(self, x, y):
-        x0, y0, x1, y1 = self.bbox
-        return math.hypot(max(x0 - x, 0.0, x - x1), max(y0 - y, 0.0, y - y1))
 
 
 @dataclass(frozen=True, eq=False)
@@ -705,63 +437,6 @@ class Piece:
         return math.hypot(max(x0 - x, 0.0, x - x1), max(y0 - y, 0.0, y - y1))
 
 
-class Region:
-    """The refined tiles of the finest global zoom (far_global_select's regions): what the anchor's nodes fill."""
-
-    def __init__(self, z, regions):
-        self.tiles = [(int(z), int(x), int(y)) for x, y, _ in regions]
-        self.quads = [tuple(float(v) for v in q) for _, _, q in regions]
-        self.arr = np.ascontiguousarray(np.array(self.quads, np.float64).reshape(-1, 8))
-        xs, ys = self.arr[:, 0::2], self.arr[:, 1::2]
-        self.bbox = (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max()))
-
-    def cover(self, x0, y0, x1, y1):
-        """None: the box lies inside the region; []: outside it; else [(index, area, polygon)] of the tiles it
-        overlaps (it crosses the region's edge)."""
-        got = fast._ef.far_box_cover(self.arr, float(x0), float(y0), float(x1), float(y1), GLOBAL_MIN_AREA)
-        a = (x1 - x0) * (y1 - y0)
-        if sum(g[1] for g in got) >= a - max(1e-7 * a, GLOBAL_MIN_AREA * (1 + len(got))):
-            return None
-        return got
-
-
-def select_global(frame, px, py, zf, forced=(), prev_refined=frozenset(), kfun=None, h=HYSTERESIS, radius=RADIUS,
-                  max_level=MAX_LEVEL, hold=frozenset(), min_level=0, radii=None, layout=V131, disc=False,
-                  horizon=None, forced_level=0, view=None):
-    """select() with the levels from GLOBAL_MIN_LEVEL up as global tiles (GTile, Mercator zoom zf for level 3) and the
-    anchor's nodes (L <= 2, Tile / Piece) in the refined zoom-zf tiles. frame: the anchor's EnuFrame; the rest as
-    select(). Returns ({key: tile}, refined nodes: anchor (L, i, j) and global ("m", z, x, y))."""
-    fast.require(GLOBAL_NEED, "global far tiles")
-    kfun = kfun or layout.k
-    radii = NEAR_RADII[layout.cells] if radii is None else radii
-    gprev = [tuple(n[1:]) for n in prev_refined if len(n) == 4]
-    ghold = [tuple(n[1:]) for n in hold if len(n) == 4]
-    ks = [float(kfun(lvl)) if lvl >= 1 else 0.0 for lvl in range(max_level + 1)]
-    rmin = max([float(r) for m, r in radii.items() if m >= min_level] or [0.0])
-    hz = None
-    if horizon is not None:
-        g = horizon.grid
-        merc = getattr(g, "merc", None)
-        hz = (float(horizon.reach), float(HORIZON_MIN), float(R_REFRACTED), np.ascontiguousarray(g.base, np.float64),
-              float(g.half), float(level_size(HORIZON_GRID_LEVEL)),
-              (int(merc[0]), int(merc[1]), int(merc[2]), merc[3]) if merc is not None else None)
-    tiles, grefined, regions = fast._ef.far_global_select(
-        float(frame.lat0), float(frame.lon0), float(px), float(py), float(radius), bool(disc), int(zf), int(max_level),
-        ks, rmin, float(h), gprev, ghold, [tuple(float(v) for v in b) for b in forced], hz)
-    out = {}
-    for z, x, y, q, s in tiles:
-        t = GTile(int(z), int(x), int(y), GLOBAL_MIN_LEVEL + int(zf) - int(z), tuple(q), float(s))
-        out[t.key] = t
-    refined = {("m", int(z), int(x), int(y)) for z, x, y in grefined}
-    if regions:
-        aout, aref = select(px, py, forced, {n for n in prev_refined if len(n) == 3}, kfun, h, radius,
-                            GLOBAL_MIN_LEVEL - 1, {n for n in hold if len(n) == 3}, min_level, radii, layout, disc,
-                            None, forced_level, view, region=Region(zf, regions))
-        out.update(aout)
-        refined |= aref
-    return out, refined
-
-
 def global_frame_ll(z, x, y):
     """(lat, lon) of a global tile's frame (its centre)."""
     fast.require(GLOBAL_NEED, "global far tiles")
@@ -795,113 +470,7 @@ def build_global(dem, z, x, y, zoom, ref_zoom, layout=V131):
                  float(skirt), float(size))
 
 
-def clip_built(built, poly):
-    """The Built of a node cut to a convex polygon (flat x, y in the anchor's world): far_clip_mesh, the skirts along
-    the cut as deep as the node's."""
-    fast.require(GLOBAL_NEED, "global far tiles")
-    q = np.asarray(poly, np.float64).reshape(-1, 2) - np.asarray(built.pos[:2], np.float64)
-    P, nrm, uv, planar, tris = fast._ef.far_clip_mesh(
-        np.ascontiguousarray(built.positions, np.float64), np.ascontiguousarray(built.normals, np.float64),
-        np.ascontiguousarray(built.uvs, np.float64), np.ascontiguousarray(built.planar, np.float64),
-        np.ascontiguousarray(built.tris, np.int64), np.ascontiguousarray(q), float(built.skirt))
-    return replace(built, positions=P, normals=nrm, uvs=uv, planar=planar, tris=tris)
-
-
 # --- horizon mode (M1h) ------------------------------------------------------------------
-def horizon_distance(h, r=R_REFRACTED):
-    """Distance (m) from a point h m above sea level to its sea-level horizon, sqrt(2 R' h) (0 at or
-    below sea level). A point at height z is above the horizon of an eye at h within
-    horizon_distance(h) + horizon_distance(z)."""
-    return math.sqrt(2.0 * r * max(0.0, h))
-
-
-def horizon_extent(h_eye, margin=0.0):
-    """Half-size of the zmax grid an eye h_eye m above sea level needs: everything that can rise
-    above its horizon (terrain up to Z_TOP) within the radius cap, plus `margin` (how far the player
-    can be from the anchor), rounded up to whole L10 nodes (the pyramid's top level)."""
-    e = min(HORIZON_MAX, horizon_distance(h_eye) + horizon_distance(Z_TOP)) + margin
-    s = level_size(HORIZON_MAX_LEVEL)
-    return max(1, math.ceil(e / s)) * s
-
-
-class HorizonGrid:
-    """The highest terrain (m above sea level) under every quadtree node of levels >= HORIZON_GRID_LEVEL
-    over [-half, half]² of one anchor's plane (half: whole L10 nodes): base[j, i] for the L6 node
-    (i - n/2, j - n/2), and its 2x2 maximum pyramid up to HORIZON_MAX_LEVEL. Built once per anchor by
-    horizon_grid() (a coarse DEM pass), so a tile's zmax never depends on whether it was built."""
-
-    def __init__(self, half, base, zoom=None, merc=None):
-        self.half, self.zoom = float(half), zoom
-        # (zb, bx0, by0, maxima [rows, cols]): the highest DEM block of every Web-Mercator tile of zoom zb from
-        # (bx0, by0) (horizon_grid's mosaic: a block of `block` px of a 512 px DEM tile of zoom z is a tile of zoom
-        # z + log2(512 / block)): the global far tiles' cull, the same for every anchor (select_global)
-        self.merc = merc
-        base = np.asarray(base, np.float64)
-        n = base.shape[0]
-        if base.shape != (n, n) or n * level_size(HORIZON_GRID_LEVEL) != 2 * half or n % (
-                1 << (HORIZON_MAX_LEVEL - HORIZON_GRID_LEVEL)):
-            raise ValueError("the grid must cover [-half, half]² in whole L10 nodes")
-        self.levels = {HORIZON_GRID_LEVEL: base}
-        a = base
-        for lvl in range(HORIZON_GRID_LEVEL + 1, HORIZON_MAX_LEVEL + 1):
-            m = a.shape[0] // 2
-            a = a.reshape(m, 2, m, 2).max(axis=(1, 3))
-            self.levels[lvl] = a
-        self._edges = (np.arange(n) - n // 2) * level_size(HORIZON_GRID_LEVEL)     # west / south cell edges
-
-    @property
-    def base(self):
-        return self.levels[HORIZON_GRID_LEVEL]
-
-    def zmax(self, level, i, j):
-        """Highest terrain under node (level, i, j): a finer node takes its L6 ancestor's value; a node
-        outside the grid gets +inf (never culled: the disc ends inside the grid)."""
-        if level < HORIZON_GRID_LEVEL:
-            k = HORIZON_GRID_LEVEL - level
-            level, i, j = HORIZON_GRID_LEVEL, i >> k, j >> k
-        a = self.levels.get(level)
-        if a is None:
-            return math.inf
-        m = a.shape[0]
-        ii, jj = i + m // 2, j + m // 2
-        if 0 <= ii < m and 0 <= jj < m:
-            return float(a[jj, ii])
-        return math.inf
-
-    def radius(self, px, py, h_eye):
-        """(RADIUS, zmax_region) for an eye h_eye m above sea level at (px, py): zmax_region is the
-        highest L6 cell that rises above the eye's horizon (its nearest point within
-        sqrt(2R'h_eye) + sqrt(2R'z)), and RADIUS = clamp(sqrt(2R'h_eye) + sqrt(2R'zmax_region),
-        HORIZON_MIN, HORIZON_MAX) (spec §3.6: Whitney summit ~480-510 km, the per-tile cull trims the
-        rest; the Central Valley floor with the Sierra in sight ~290 km)."""
-        s = level_size(HORIZON_GRID_LEVEL)
-        e = self._edges
-        dx = np.maximum(np.maximum(e - px, 0.0), px - (e + s))
-        dy = np.maximum(np.maximum(e - py, 0.0), py - (e + s))
-        d = np.hypot(dx[None, :], dy[:, None])
-        reach = horizon_distance(h_eye)
-        z = self.base
-        vis = d <= reach + np.sqrt(2.0 * R_REFRACTED * np.maximum(z, 0.0))
-        zr = float(z[vis].max()) if vis.any() else 0.0
-        return min(max(reach + horizon_distance(zr), HORIZON_MIN), HORIZON_MAX), zr
-
-
-class Horizon:
-    """The per-node line-of-sight cull of one selection (M1h): an eye h_eye m above sea level and the
-    anchor's HorizonGrid. Within HORIZON_MIN everything is kept (today's far field near the player)."""
-
-    def __init__(self, eye, grid):
-        self.eye, self.grid = float(eye), grid
-        self.reach = horizon_distance(self.eye)
-
-    def keeps(self, level, i, j, d):
-        """Node (level, i, j) whose nearest point is d m from the eye (horizontally): kept while
-        d <= sqrt(2R'h_eye) + sqrt(2R'zmax_node). The bulge only: terrain in between can still hide
-        a kept node (the depth buffer handles that). Plane distances are a little longer than the arc
-        (2.8 km at 700 km), which R' more than makes up for."""
-        if d <= HORIZON_MIN:
-            return True
-        return d <= self.reach + horizon_distance(self.grid.zmax(level, i, j))
 
 
 def _merc(lat, lon, zoom):
@@ -912,77 +481,6 @@ def _merc(lat, lon, zoom):
     fx = (np.asarray(lon, np.float64) / 360.0 + 0.5) * w
     fy = (0.5 - np.arcsinh(np.tan(np.radians(lat))) / (2 * np.pi)) * w
     return fx, fy
-
-
-def dem_block_max(dem, zoom, x, y, block=HORIZON_BLOCK):
-    """Highest elevation in every block x block pixel square of DEM tile (zoom, x, y): a
-    (TILE / block)² array, row 0 north (dem.Dem.block_max). A DEM without block_max (the tests'
-    synthetic ones) is sampled twice per block and axis instead."""
-    if hasattr(dem, "block_max"):
-        return dem.block_max(zoom, x, y, block)
-    n = demmod.TILE // block
-    w = 2 ** zoom * demmod.TILE
-    f = (np.arange(2 * n) + 0.5) * (block / 2.0)
-    fx, fy = np.meshgrid(x * demmod.TILE + f, y * demmod.TILE + f)
-    lon = fx / w * 360.0 - 180.0
-    lat = np.degrees(np.arctan(np.sinh(np.pi * (1.0 - 2.0 * fy / w))))
-    a = np.asarray(dem.sample(lat, lon, zoom), np.float64)
-    return a.reshape(n, 2, n, 2).max(axis=(1, 3))
-
-
-def horizon_grid(frame, dem, half, zoom=HORIZON_DEM_ZOOM, block=HORIZON_BLOCK, cache=None):
-    """The HorizonGrid of an anchor frame over [-half, half]² (spec §3.6: zmax_region "from a coarse
-    DEM pass, cached per anchor"). Each L6 cell gets the highest DEM block maximum (block x block
-    pixels at `zoom`) touching the lat/lon box of its corners and edge midpoints, padded by one
-    block, so it is never below the DEM's highest pixel in the cell. The zoom drops below `zoom`
-    while the grid would need more than HORIZON_DEM_TILES DEM tiles. cache: {(zoom, x, y, block):
-    block maxima} shared between anchors (a rebase reuses it). Runs in a worker thread: DEM tiles
-    may be fetched."""
-    s = level_size(HORIZON_GRID_LEVEL)
-    n = int(round(2 * half / s))
-    e = (np.arange(2 * n + 1) - n) * (s / 2.0)
-    X, Y = np.meshgrid(e, e)                    # [j north, i east]: cell corners and edge midpoints
-    lat, lon, _ = frame.enu_to_geodetic(X, Y, 0.0)
-    nb = demmod.TILE // block
-    while True:
-        w = 2 ** zoom * demmod.TILE
-        fx, fy = _merc(lat, lon, zoom)
-        fx = fx - w * np.round((fx - fx[n, n]) / w)        # unwrapped around the anchor (antimeridian)
-        bx = np.floor(fx / block).astype(np.int64)
-        by = np.clip(np.floor(fy / block).astype(np.int64), 0, 2 ** zoom * nb - 1)
-        tx0, tx1 = int(bx.min() - 1) // nb, int(bx.max() + 1) // nb
-        ty0, ty1 = max(0, int(by.min() - 1) // nb), min(2 ** zoom - 1, int(by.max() + 1) // nb)
-        if (tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= HORIZON_DEM_TILES or zoom == 0:
-            break
-        zoom -= 1
-    keys = [(tx, ty) for ty in range(ty0, ty1 + 1) for tx in range(tx0, tx1 + 1)]
-    todo = [(zoom, tx % 2 ** zoom, ty) for tx, ty in keys
-            if cache is None or (zoom, tx % 2 ** zoom, ty, block) not in cache]
-    if todo and hasattr(dem, "tiles"):
-        dem.tiles(todo)                         # fetched concurrently, then read from its memory cache
-    m = np.empty(((ty1 - ty0 + 1) * nb, (tx1 - tx0 + 1) * nb))
-    for tx, ty in keys:
-        k = (zoom, tx % 2 ** zoom, ty, block)
-        a = cache.get(k) if cache is not None else None
-        if a is None:
-            a = dem_block_max(dem, *k)
-            if cache is not None:
-                cache[k] = a
-        m[(ty - ty0) * nb:(ty - ty0 + 1) * nb, (tx - tx0) * nb:(tx - tx0 + 1) * nb] = a
-    # per cell: the block range of its 3 x 3 points, padded by one block
-    bx, by = bx - tx0 * nb, by - ty0 * nb
-    views = [(bx[dj:dj + 2 * n:2, di:di + 2 * n:2], by[dj:dj + 2 * n:2, di:di + 2 * n:2])
-             for dj in range(3) for di in range(3)]
-    x0 = np.clip(np.minimum.reduce([v[0] for v in views]) - 1, 0, m.shape[1] - 1)
-    x1 = np.clip(np.maximum.reduce([v[0] for v in views]) + 1, 0, m.shape[1] - 1)
-    y0 = np.clip(np.minimum.reduce([v[1] for v in views]) - 1, 0, m.shape[0] - 1)
-    y1 = np.clip(np.maximum.reduce([v[1] for v in views]) + 1, 0, m.shape[0] - 1)
-    base = np.empty((n, n))
-    for cj in range(n):
-        for ci in range(n):
-            base[cj, ci] = m[y0[cj, ci]:y1[cj, ci] + 1, x0[cj, ci]:x1[cj, ci] + 1].max()
-    merc = (zoom + int(round(math.log2(nb))), tx0 * nb, ty0 * nb, np.ascontiguousarray(m, np.float64))
-    return HorizonGrid(half, base, zoom, merc)
 
 
 # --- colour ----------------------------------------------------------------------------
@@ -1267,36 +765,6 @@ def write_tile(path, frame, dem, tile, zoom, q=None, ref_zoom=None, fmt="cdae", 
     built = build_tile(frame, dem, tile, zoom, q, ref_zoom, layout=layout)
     write_built(path, built, fmt)
     return built
-
-
-def group_deltas(group_tiles):
-    """(dIn, dOut) of a swap group: how far the new surface rises above the old one at most,
-    and how far the old one lies above the new one, evaluated on the finest vertex grid of the
-    group (every vertex of both sides). group_tiles: (adds, removes), lists of (Tile, grid); a
-    grid's shape gives its tile's cell count."""
-    adds, removes = group_tiles
-    if not adds or not removes:
-        return 0.0, 0.0
-    adds = [(t, np.asarray(g, np.float64)) for t, g in adds]
-    removes = [(t, np.asarray(g, np.float64)) for t, g in removes]
-    sp = min(t.size / (g.shape[0] - 1) for t, g in adds + removes)
-    d_in = d_out = 0.0
-    for ta, ga in adds:
-        ab = ta.bbox
-        for tr, gr in removes:
-            rb = tr.bbox
-            x0, y0, x1, y1 = max(ab[0], rb[0]), max(ab[1], rb[1]), min(ab[2], rb[2]), min(ab[3], rb[3])
-            if x0 >= x1 or y0 >= y1:
-                continue
-            # The intersection of two quadtree tiles is the smaller one: aligned to sp.
-            X, Y = np.meshgrid(x0 + np.arange(int(round((x1 - x0) / sp)) + 1) * sp,
-                               y0 + np.arange(int(round((y1 - y0) / sp)) + 1) * sp)
-            z_new = surface_at(ga, ta.size / (ga.shape[0] - 1), X - ab[0], Y - ab[1])
-            z_old = surface_at(gr, tr.size / (gr.shape[0] - 1), X - rb[0], Y - rb[1])
-            dz = z_new - z_old
-            d_in = max(d_in, float(dz.max()))
-            d_out = max(d_out, float(-dz.min()))
-    return d_in, d_out
 
 
 if __name__ == "__main__":

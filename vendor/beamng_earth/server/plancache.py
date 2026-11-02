@@ -47,16 +47,6 @@ def _split(f, g):
     return np.split(f[g], np.cumsum(n)[:-1])
 
 
-def start_run(cache_dir):
-    """earthd, before its worker processes start: this run's id in the environment they inherit; old runs pruned."""
-    root = os.path.join(cache_dir, "plans")
-    prune(root)
-    if os.environ.get("BNGE_PLANCACHE") == "off":       # (debugging: each process plans its own, as before)
-        os.environ.pop(RUN_ENV, None)
-        return
-    os.environ[RUN_ENV] = f"{os.getpid()}_{int(time.time())}"
-
-
 FRAMES = "r10"          # the plans' frames: their planning regions' (geotiles.PLAN_Z), not an anchor's
 
 

@@ -224,8 +224,8 @@ UNDER_CLEAR_M = roadsmod.DECK_ROAD_CLEAR + ROAD_LIFT
 UNDER_GRADE = 0.06          # the dip's ramps
 UNDER_MAX_BRIDGE_M = 120.0  # only single short spans (both ends on the ground): a chain's inner ends are no abutments
 UNDER_MAX_DROP_M = 8.0      # never lowered more than this (bad data: rather a low bridge than a pit)
-UNDER_FLAT_M = 12.0         # m either side of the crossing kept at the dip's full depth (under_dip)
-UNDER_MAX_GRADE = 0.10      # a dip's ramp made steeper, up to this, to end inside its road part (under_dip)
+UNDER_FLAT_M = 12.0         # m either side of the crossing kept at the dip's full depth (underpass_offsets)
+UNDER_MAX_GRADE = 0.10      # a dip's ramp made steeper, up to this, to end inside its road part (underpass_offsets)
 UNDER_JOINT_FLAT_M = 12.0   # at a junction, every road takes the deepest dip within this of it ...
 UNDER_JOINT_FADE_M = 20.0   # ... blended back to its own over this
 # m around a cell's plans whose roads and spans its dips are solved on: the farthest a dip or a loose end reaches
@@ -3659,29 +3659,6 @@ def underpass_offsets(lines, requirements, queries=None):
                     UNDER_JOINT_FADE_M, 0.5], f64)
     out = fast._ef.underpass_offsets(xy, starts, req, qxy, qline, prm)
     return np.split(out, np.cumsum([len(q) for q in qs])[:-1])
-
-
-def under_dip(d, depth, room=(math.inf, math.inf)):
-    """m added (<= 0) to a road's heights d m (along it, signed) from where it crosses under an overpass, for a dip
-    depth m deep: flat under the deck (UNDER_FLAT_M either way), then back up on a cosine ramp whose steepest grade is
-    UNDER_GRADE (a V of straight UNDER_GRADE ramps was a 6 % kink at each end and at the bottom: at motorway speed a
-    jolt). room: m from the crossing to the road part's (start, end): a ramp that would run past it is made shorter,
-    up to UNDER_MAX_GRADE, so the dip ends inside the part (its next part, past a junction, is not lowered: a step).
-    None when that is too steep. Pure."""
-    d = np.asarray(d, np.float64)
-    run = depth * math.pi / (2 * UNDER_GRADE)
-    runs = []
-    for r in room:
-        avail = r - UNDER_FLAT_M
-        if avail >= run:
-            runs.append(run)
-        elif avail > 0 and depth * math.pi / (2 * avail) <= UNDER_MAX_GRADE:
-            runs.append(avail)
-        else:
-            return None
-    rr = np.where(d < 0, runs[0], runs[1])
-    u = np.clip((np.abs(d) - UNDER_FLAT_M) / np.maximum(rr, 1e-9), 0.0, 1.0)
-    return -depth * 0.5 * (1.0 + np.cos(math.pi * u))
 
 
 def approach_add(xy, at_end, lift, half, others=()):

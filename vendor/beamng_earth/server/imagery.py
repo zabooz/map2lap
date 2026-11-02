@@ -201,17 +201,6 @@ class ImageryError(IOError):
 _DEFERRED = (netfetch.Deferred, netfetch.PolicyDenied, netfetch.BudgetExceeded)
 
 
-def parse_chain(text):
-    """--imagery value -> tuple of source names, or None for 'off'."""
-    if text.strip().lower() == "off":
-        return None
-    chain = tuple(s.strip().lower() for s in text.split(",") if s.strip())
-    bad = [s for s in chain if s not in SOURCES]
-    if bad or not chain:
-        raise ValueError(f"unknown imagery source(s) {bad or text!r}; choose from {', '.join(SOURCES)} or off")
-    return chain
-
-
 def tone_lut(strength=1.0, lift=1.0):
     """Mild global tone curve as a 256-entry LUT (applied per channel, sRGB values).
 
@@ -1589,11 +1578,6 @@ def mip_arrays(rgb):
     return [rgb] + list(fast._ef.mip_levels(np.ascontiguousarray(rgb), _TO_LIN, float(MIP_SHARPEN)))
 
 
-def mip_chain(img):
-    """[level 0, 1, ...] PIL images down to 1 x 1 (mip_arrays)."""
-    return [Image.fromarray(a, "RGB") for a in mip_arrays(np.asarray(img.convert("RGB")))]
-
-
 _BC1_GPU_FAILED = False
 
 
@@ -1631,14 +1615,3 @@ def write_dds(path, rgb):
     return len(data)
 
 
-def read_dds_info(data):
-    """(width, height, mip count, fourcc, [level byte sizes]) of a DXT1 DDS (for tests/checks)."""
-    if data[:4] != DDS_MAGIC:
-        raise ValueError("not a DDS file")
-    size, flags, h, w, linear, depth, mips = struct.unpack_from("<7I", data, 4)
-    fourcc = data[84:88]
-    mips = mips if flags & DDSD_MIPMAPCOUNT else 1
-    sizes = []
-    for k in range(max(1, mips)):
-        sizes.append(dxt1_size(max(1, w >> k), max(1, h >> k)))
-    return w, h, mips, fourcc, sizes

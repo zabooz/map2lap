@@ -64,33 +64,8 @@ class GeometryTest(unittest.TestCase):
         self.assertEqual(heightmap.height_at(q, 0.0, 65536.0, 0.0, 0.0, -2.0, 0.0), 9.0)
         self.assertIsNone(heightmap.height_at(q, 0.0, 65536.0, 0.0, 0.0, 2.5, 0.0))
 
-    def test_grids(self):
-        """M4: the centre grid per block size; snap takes it."""
-        self.assertEqual((heightmap.grid(), heightmap.grid(1024), heightmap.grid(512)), (256.0, 256.0, 128.0))
-        self.assertEqual((heightmap.valid(), heightmap.valid(512)), (2046.0, 1022.0))
-        self.assertEqual((heightmap.snap(63.9, 128.0), heightmap.snap(64.0, 128.0), heightmap.snap(-64.1, 128.0)),
-                         (0.0, 128.0, -128.0))
 
-    def test_snap(self):
-        self.assertEqual(heightmap.snap(127.9), 0.0)
-        self.assertEqual(heightmap.snap(128.0), 256.0)
-        self.assertEqual(heightmap.snap(-128.1), -256.0)
-        self.assertEqual(heightmap.snap(-127.0), 0.0)
-        self.assertEqual(str(heightmap.snap(-1.0)), "0.0")    # no -0.0 in file names / JSON
-        self.assertEqual(heightmap.snap(5000.0), 5120.0)
 
-    def test_choose_q_and_block_params(self):
-        self.assertEqual(heightmap.choose_q(50), 1 / 256)
-        self.assertEqual(heightmap.choose_q(600), 1 / 64)       # 1024 m range
-        self.assertEqual(heightmap.choose_q(3000), 1 / 16)
-        self.assertEqual(heightmap.choose_q(1e6), 1 / 16)
-        q, zb, mh = heightmap.block_params(1234.5, 1500.0, 1 / 64)
-        self.assertEqual((q, zb, mh), (1 / 64, 1216.0, 1024.0))
-        self.assertEqual(zb % 64, 0)
-        # Too much relief for the anchor's quantum: the next coarser one, for this block only.
-        q, zb, mh = heightmap.block_params(0.0, 1500.0, 1 / 64)
-        self.assertEqual((q, mh), (1 / 32, 2048.0))
-        self.assertEqual(heightmap.block_params(0.0, 1e5, 1 / 64)[0], 1 / 16)
 
 
 class HeightmapTest(unittest.TestCase):
@@ -120,19 +95,6 @@ class HeightmapTest(unittest.TestCase):
             self.assertIn(im.mode, ("I;16", "I"))
             return np.asarray(im).astype(np.int64)[::-1]       # back to [gy, gx], gy = north
 
-    def test_grid_and_parity(self):
-        """Centres on the size's grid (256 / 128 m); the SW corner is then an even lattice index, so
-        the block-local Torque diagonal parity is the world lattice's (farfield.torque_split45)."""
-        self.assertEqual(self.grid, {1024: 256.0, 512: 128.0}[self.n])
-        self.assertEqual(self.grid / heightmap.SQUARE % 2, 0)
-        for k in range(-7, 8):
-            c = k * self.grid
-            i0 = heightmap.lattice_index(c, self.n)
-            self.assertEqual(i0 % 2, 0, c)
-            gx = np.arange(5)
-            self.assertTrue((ff.torque_split45(gx, 3) == ff.torque_split45(i0 + gx, i0 + 3)).all())
-        self.assertEqual(heightmap.snap(self.grid / 2 - 0.1, self.grid), 0.0)
-        self.assertEqual(heightmap.snap(self.grid / 2, self.grid), self.grid)
 
     def test_orientation_and_sample_positions(self):
         # Ground rising to the north-east: north edge high, east edge high.

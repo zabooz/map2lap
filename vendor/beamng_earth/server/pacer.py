@@ -14,28 +14,9 @@ functions and keep full speed).
 import threading
 import time
 
-DUTY = 1.0          # background analyses run at most this share of the time (1: unpaced, the library default)
 CLI_DUTY = 0.25     # earthd's --background-duty default
-SLICE_S = 0.05      # busy this long between sleeps (the sleeps are SLICE_S * (1 / duty - 1) or longer)
 
 _local = threading.local()
-
-
-def enable(duty=DUTY):
-    """Pace the calling thread from now on (duty >= 1: no pacing)."""
-    _local.duty = duty if duty < 1 else None
-    _local.t0 = time.perf_counter()
-
-
-def pace():
-    """Sleep if this (paced) thread has been busy for SLICE_S since its last sleep."""
-    duty = getattr(_local, "duty", None)
-    if duty is None:
-        return
-    busy = time.perf_counter() - _local.t0
-    if busy >= SLICE_S:
-        time.sleep(busy * (1.0 / duty - 1.0))
-        _local.t0 = time.perf_counter()
 
 
 def idle():
@@ -53,18 +34,6 @@ HOLD_MAX_S = 30.0
 
 _fg = [0]
 _fg_cv = threading.Condition()
-
-
-def foreground_begin():
-    with _fg_cv:
-        _fg[0] += 1
-
-
-def foreground_end():
-    with _fg_cv:
-        _fg[0] = max(0, _fg[0] - 1)
-        if _fg[0] == 0:
-            _fg_cv.notify_all()
 
 
 def hold(max_s=HOLD_MAX_S):

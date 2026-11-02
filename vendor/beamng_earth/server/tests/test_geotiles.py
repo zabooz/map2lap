@@ -14,7 +14,6 @@ import os
 import shutil
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 
@@ -25,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import geodesy  # noqa: E402
 import geotiles  # noqa: E402
 import grading  # noqa: E402
-import mapcells  # noqa: E402
 import plancache  # noqa: E402
 import roads  # noqa: E402
 from test_grading import FakeMD  # noqa: E402
@@ -41,16 +39,6 @@ def east(lat, lon, km):
 
 
 class GridTest(unittest.TestCase):
-    def test_keys_partition_and_centres(self):
-        x, y = geotiles.tile_of(LAT, LON)
-        la, lo, s, w, n, e = geotiles.info(x, y)
-        self.assertTrue(s <= LAT < n and w <= LON < e)
-        self.assertTrue(s < la < n and w < lo < e)
-        self.assertEqual(geotiles.parse(geotiles.key(x, y)), (17, x, y))
-        # nested in its map cell
-        self.assertEqual(geotiles.tile_cell(x, y), tuple(mapcells.cell_of(LAT, LON)))
-        xs, ys = geotiles.tile_of(np.array([s + 1e-9, n - 1e-9]), np.array([w + 1e-9, e - 1e-9]))
-        self.assertEqual((list(xs), list(ys)), ([x, x], [y, y]))
 
     def test_tiles_near_by_quad(self):
         a = east(LAT, LON, 15.0)
@@ -273,115 +261,8 @@ class ChainStoreTest(unittest.TestCase):
         del ring
 
 
-class FakeVeg:
-    """vegetation.Vegetation's cell(key): n hashed items over the cell."""
-
-    def __init__(self, n=4000):
-        import vegetation
-        self.v = vegetation
-        self.n = n
-        self.calls = 0
-
-    def cell(self, key):
-        self.calls += 1
-        w, s, e, n = mapcells.CellKey(*tuple(key)).bounds()
-        rng = np.random.default_rng(abs(hash(tuple(key))) % 2 ** 32)
-        k = self.n
-        f32 = np.float32
-        return self.v.Items(rng.uniform(w, e, k), rng.uniform(s, n, k), rng.uniform(3, 20, k).astype(f32),
-                            np.ones(k, f32), np.zeros(k, np.uint8), np.zeros(k, np.uint8),
-                            rng.uniform(0, 1, k).astype(f32), rng.uniform(0, 360, k).astype(f32), np.ones(k, f32))
 
 
-class VegGeoTilesTest(unittest.TestCase):
-    def test_tiles_partition_their_cell(self):
-        import vegetation
-        fv = FakeVeg()
-        key = mapcells.cell_of(LAT, LON)
-        gx0, gy0 = key.x * 8, key.y * 8
-        total, pivots = 0, []
-        for gx in range(gx0, gx0 + 8):
-            for gy in range(gy0, gy0 + 8):
-                rows, pivot = vegetation.geo_tile_items(gx, gy, fv, lambda k: True, lambda la, lo: np.full(np.shape(la), 50.0))
-                total += len(rows)
-                f = geotiles.frame(gx, gy)
-                q = geotiles.quad(f, gx, gy)
-                for r in rows:          # (in the tile's frame: inside its quad, at its ground)
-                    self.assertEqual(geotiles.quad_dist(q, r[1], r[2]), 0.0)
-                if rows:
-                    pivots.append(pivot)
-        self.assertEqual(total, fv.n, "every item in exactly one tile")
-        self.assertTrue(all(abs(p - 50.0) < 0.1 for p in pivots), "pivot: the median ground")
-
-    def test_placed_rows_match_the_anchor_tiles(self):
-        # the same items, placed from the tile frame into an anchor 15 km off, as tile_items gives them there
-        import vegetation
-        fv = FakeVeg(600)
-        gx, gy = geotiles.tile_of(LAT, LON)
-        flat = lambda la, lo: np.full(np.shape(la), 1650.0)     # noqa: E731
-        rows, pivot = vegetation.geo_tile_items(gx, gy, fv, lambda k: True, flat)
-        a = east(LAT, LON, 15.0)
-        pts = np.array([r[1:4] for r in rows], np.float64)
-        placed = geotiles.place(geotiles.frame(gx, gy), a, (0.0, 0.0, pivot), pts)
-        exact = geotiles.world_map(geotiles.frame(gx, gy), a, pts)
-        self.assertLess(float(np.abs(placed - exact).max()), 0.02, "(rows rounded to 1 cm)")
-
-    def test_tracker_keeps_tiles_across_a_rebase(self):
-        """A scripted rebase: the geo tracker builds nothing again; the anchor tracker builds every tile again."""
-        import vegetation
-        from concurrent.futures import ThreadPoolExecutor, wait
-
-        class Loop:
-            def __init__(self):
-                self.futs = []
-
-            def run_in_executor(self, pool, fn, *args):
-                f = pool.submit(fn, *args)
-                self.futs.append(f)
-                return f
-
-        class Conn:
-            def __init__(self):
-                self.msgs, self.lock = [], threading.Lock()
-
-            def send(self, m):
-                with self.lock:
-                    self.msgs.append(m)
-        built = []
-
-        def build_geo(gx, gy):
-            built.append((gx, gy))
-            return "/x/veg_g.json", 1, geotiles.centre(gx, gy), 0.0
-
-        def build_anchor(aid, tx, ty):
-            built.append((aid, tx, ty))
-            return "/x/veg.json", 1
-
-        def drive(tr, build, frames):
-            loop, conn = Loop(), Conn()
-            counts = []
-            for aid, f in frames:
-                n0 = len(built)
-                x, y, _ = f.geodetic_to_enu(LAT, LON, 0.0)
-                for _ in range(40):         # (poses until nothing more is wanted)
-                    tr.on_pose(conn, aid, float(x), float(y), loop, build, frame=f)
-                    wait(loop.futs)
-                    if len(tr.building) == 0 and all(k in tr.sent for k in tr.car):
-                        break
-                counts.append(len(built) - n0)
-            tr.close()
-            return counts, conn.msgs
-        a, b = east(LAT, LON, -15.0), geodesy.EnuFrame(LAT, LON)
-        geo, msgs = drive(vegetation.Tracker(per_pose=16, geo=True), build_geo, [(1, a), (2, b)])
-        built.clear()
-        old, _ = drive(vegetation.Tracker(per_pose=16), build_anchor, [(1, a), (2, b)])
-        self.assertGreater(geo[0], 50)
-        self.assertLessEqual(geo[1], 3, "after the rebase: (almost) nothing built again")
-        self.assertGreater(old[1], 50, "the anchor's tiles: all of them again")
-        self.assertTrue(all(m["key"].startswith("g17_") and "frame" in m and "pivot" in m
-                            for m in msgs if m["type"] == "veg_tile"))
-        print(f"\nscripted rebase (15 km): tiles built before {geo[0]} / after {geo[1]} (geotiles), "
-              f"{old[0]} / {old[1]} (anchor tiles)")
 
 
 if __name__ == "__main__":

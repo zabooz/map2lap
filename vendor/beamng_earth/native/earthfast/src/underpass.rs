@@ -90,7 +90,7 @@ fn clip01(v: f64) -> f64 {
 }
 
 enum Req {
-    // a part joined to nothing: grading.under_dip's ramps, made shorter (up to max_grade) to end inside it
+    // a part joined to nothing: flat, then cosine ramps, made shorter (up to max_grade) to end inside it
     Alone { sc: f64, depth: f64, r0: f64, r1: f64 },
     // a dip spreading along the joined roads: distances from the crossing to the nodes it reaches
     Joined { part: usize, sc: f64, depth: f64, run: f64, dist: HashMap<usize, f64> },

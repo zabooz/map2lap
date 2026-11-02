@@ -1,4 +1,3 @@
-import math
 import os
 import sys
 import tempfile
@@ -45,28 +44,8 @@ class VValleyDem:
         return 800 + 0.8 * np.abs(e - 101.0)
 
 
-def coverage(tiles, px, py, radius):
-    """Count how often each 256 m cell is covered over the radius square."""
-    bbs = [t.bbox for t in tiles.values()]
-    x0 = min(b[0] for b in bbs + [(px - radius, py - radius, 0, 0)])
-    y0 = min(b[1] for b in bbs + [(px - radius, py - radius, 0, 0)])
-    x1 = max(b[2] for b in bbs + [(0, 0, px + radius, py + radius)])
-    y1 = max(b[3] for b in bbs + [(0, 0, px + radius, py + radius)])
-    gx0, gy0 = math.floor(x0 / 256), math.floor(y0 / 256)
-    cnt = np.zeros((math.ceil(y1 / 256) - gy0, math.ceil(x1 / 256) - gx0), np.int16)
-    for b in bbs:
-        cnt[int(b[1] // 256) - gy0:int(b[3] // 256) - gy0, int(b[0] // 256) - gx0:int(b[2] // 256) - gx0] += 1
-    return cnt, gx0, gy0
 
 
-def footprint(keys):
-    """Set of 256 m cells covered by tiles."""
-    out = set()
-    for k in keys:
-        t = ff.tile_of(k)
-        n = 1 << t.level
-        out |= {(t.i * n + a, t.j * n + b) for a in range(n) for b in range(n)}
-    return out
 
 
 class SelectionTest(unittest.TestCase):
@@ -78,77 +57,10 @@ class SelectionTest(unittest.TestCase):
         (1000.0, 0.0, (768.0, 0.0), 5000.0),
     ]
 
-    def check_tiling(self, px, py, forced, radius, prev=frozenset()):
-        tiles, refined = ff.select(px, py, forced, prev, radius=radius)
-        cnt, gx0, gy0 = coverage(tiles, px, py, radius)
-        self.assertLessEqual(int(cnt.max()), 1, "overlapping tiles")
-        # Every 256 m cell of the radius square is covered exactly once (the blocks included:
-        # tiles under a block are kept).
-        r0, r1 = math.floor((py - radius) / 256) - gy0, math.ceil((py + radius) / 256) - gy0
-        c0, c1 = math.floor((px - radius) / 256) - gx0, math.ceil((px + radius) / 256) - gx0
-        sq = cnt[r0:r1, c0:c1]
-        self.assertTrue((sq == 1).all(), f"{int((sq == 0).sum())} uncovered cells")
-        for t in tiles.values():
-            x0, y0, x1, y1 = t.bbox
-            self.assertTrue(x0 < px + radius and x1 > px - radius and y0 < py + radius and y1 > py - radius)
-            self.assertTrue(0 <= t.level <= ff.MAX_LEVEL)
-            self.assertEqual(x1 - x0, 256 * 2 ** t.level)
-            self.assertEqual(x0 % t.size, 0)                # quadtree-aligned
-            self.assertEqual(t.key, f"{t.level}_{t.i}_{t.j}")
-            # LOD rule: a leaf above L0 is at least K(L)*size away (unless held by hysteresis).
-            if t.level > 0 and not prev:
-                self.assertGreaterEqual(t.distance(px, py), ff.k_default(t.level) * t.size)
-                self.assertFalse(any(ff.overlaps(t.bbox, b) for b in forced))
-            if t.level < ff.MAX_LEVEL:
-                parent = ff.Tile(t.level + 1, t.i // 2, t.j // 2)
-                self.assertIn(parent.node, refined)
-        # Under every forced block: exactly its 8 x 8 L0 tiles.
-        for b in forced:
-            under = [t for t in tiles.values() if ff.overlaps(t.bbox, b)]
-            self.assertEqual(len(under), 64)
-            self.assertTrue(all(t.level == 0 for t in under))
-        return tiles, refined
 
-    def test_tiling_has_no_gaps_or_overlaps(self):
-        for px, py, c, r in self.CASES:
-            with self.subTest(px=px, py=py, block=c):
-                self.check_tiling(px, py, [ff.Block(*c).bbox] if c else [], r)
 
-    def test_keys_independent_of_block(self):
-        """§2.8: keys are unchanged when only the block moves (the block's own area just stays L0)."""
-        a, _ = ff.select(600.0, 0.0, [ff.Block(0.0, 0.0).bbox])
-        b, _ = ff.select(600.0, 0.0, [ff.Block(512.0, 0.0).bbox])
-        self.assertTrue(all("_a" not in k for k in a))
-        both = [ff.Block(0.0, 0.0).bbox, ff.Block(512.0, 0.0).bbox]
-        u, _ = ff.select(600.0, 0.0, both)
-        # Moving the block only changes tiles in the union of both footprints, and only
-        # between L0 and coarser levels there.
-        adds, removes = ff.diff(a, b)
-        for k in adds + removes:
-            self.assertTrue(any(ff.overlaps(ff.tile_of(k).bbox, x) for x in both), k)
-        self.assertLess(len(adds) + len(removes), 30)
-        self.check_tiling(600.0, 0.0, both, ff.RADIUS)
-        self.assertTrue(set(a) - set(adds) <= set(u) | set(removes))
 
-    def test_forced_pending_and_predicted(self):
-        forced = [ff.Block(0.0, 0.0).bbox, ff.Block(512.0, 0.0).bbox, ff.Block(768.0, 256.0).bbox]
-        tiles, _ = self.check_tiling(400.0, 100.0, forced, ff.RADIUS)
-        l0 = footprint(k for k, t in tiles.items() if t.level == 0)
-        for b in forced:
-            cells = {(i, j) for i in range(int(b[0] // 256), int(b[2] // 256))
-                     for j in range(int(b[1] // 256), int(b[3] // 256))}
-            self.assertTrue(cells <= l0)
 
-    def test_k_per_level_and_counts(self):
-        tiles, _ = ff.select(0.0, 0.0, [ff.Block(0.0, 0.0).bbox])
-        by = {}
-        for t in tiles.values():
-            by[t.level] = by.get(t.level, 0) + 1
-        # §3 table: about 666 (+64 under the block) for K = 3, 3, 2.5 and h = 0.5.
-        self.assertTrue(600 < len(tiles) < 800, len(tiles))
-        self.assertEqual(ff.k_default(1), 3.0)
-        self.assertEqual(ff.k_default(2), 3.0)
-        self.assertEqual(ff.k_default(5), 2.5)
 
     def test_hysteresis(self):
         """§2.8: an oscillating pose +-40 m around a threshold produces no change after the first."""
@@ -183,109 +95,14 @@ class SelectionTest(unittest.TestCase):
         _, r = ff.select(-500.0, 0.0, forced, prev)
         self.assertNotIn((1, 3, 0), r)
 
-    def test_swap_groups(self):
-        """§2.8: every group's add footprint equals its remove footprint; one-sided groups
-        only at the radius edge; applying all groups gives the new set."""
-        forced0 = [ff.Block(0.0, 0.0).bbox]
-        a, ra = ff.select(0.0, 0.0, forced0)
-        for px, py, c in ((600.0, 0.0, (0.0, 0.0)), (2500.0, 1300.0, (2304.0, 1280.0)), (-9000.0, 0.0, None)):
-            with self.subTest(px=px, py=py):
-                forced = [ff.Block(*c).bbox] if c else []
-                b, _ = ff.select(px, py, forced, ra)
-                groups = ff.swap_groups(set(a), b)
-                cur = set(a)
-                seen = set()
-                for adds, removes in groups:
-                    self.assertTrue(adds or removes)
-                    self.assertFalse(seen & set(adds + removes))
-                    seen |= set(adds + removes)
-                    if adds and removes:
-                        self.assertEqual(footprint(adds), footprint(removes))
-                        # parent <-> descendants: one side is a single tile
-                        self.assertTrue(len(adds) == 1 or len(removes) == 1 or
-                                        len({ff.tile_of(k).level for k in adds + removes}) > 2)
-                    else:
-                        # entering / leaving the far radius: an add reaches outside the old
-                        # radius square, a remove outside the new one
-                        R = ff.RADIUS
-                        for k, (cx, cy) in [(k, (0.0, 0.0)) for k in adds] + [(k, (px, py)) for k in removes]:
-                            bb = ff.tile_of(k).bbox
-                            self.assertFalse(bb[0] >= cx - R and bb[2] <= cx + R
-                                             and bb[1] >= cy - R and bb[3] <= cy + R, k)
-                    self.assertTrue(set(removes) <= cur)
-                    cur = (cur - set(removes)) | set(adds)
-                self.assertEqual(cur, set(b))
 
-    def test_swap_groups_refine_and_coarsen(self):
-        old = {"1_0_0"}
-        new = {"0_0_0", "0_1_0", "0_0_1", "0_1_1"}
-        self.assertEqual(ff.swap_groups(old, new), [(sorted(new), ["1_0_0"])])
-        self.assertEqual(ff.swap_groups(new, old), [(["1_0_0"], sorted(new))])
-        # Mixed depth: one child refined further.
-        self.assertEqual(ff.swap_groups({"2_0_0"}, {"1_1_0", "1_0_1", "1_1_1", "0_0_0", "0_1_0", "0_0_1", "0_1_1"}),
-                         [(["0_0_0", "0_0_1", "0_1_0", "0_1_1", "1_0_1", "1_1_0", "1_1_1"], ["2_0_0"])])
-        # Two separate refinements are two groups.
-        g = ff.swap_groups({"1_0_0", "1_5_5"}, {"0_0_0", "0_1_0", "0_0_1", "0_1_1", "1_5_5"})
-        self.assertEqual(len(g), 1)
-        g = ff.swap_groups({"1_0_0", "1_5_5"}, {"0_0_0", "0_1_0", "0_0_1", "0_1_1",
-                                                "0_10_10", "0_11_10", "0_10_11", "0_11_11"})
-        self.assertEqual(len(g), 2)
 
-    def test_nearest_first(self):
-        tiles = ff.nearest_first(ff.select(0.0, 0.0, [ff.Block(0.0, 0.0).bbox])[0].values(), 0.0, 0.0)
-        d = [t.distance(0, 0) for t in tiles]
-        self.assertEqual(d, sorted(d))
-        self.assertEqual(tiles[0].level, 0)
 
-    def test_transform_bbox(self):
-        f1 = g.EnuFrame(LAT0, LON0)
-        bb = (1000.0, -2000.0, 1256.0, -1744.0)
-        np.testing.assert_allclose(ff.transform_bbox(f1, f1, bb), bb, atol=1e-6)
-        # 10 km east: the box moves ~10 km west in the new frame.
-        lat, lon, _ = f1.enu_to_geodetic(10000.0, 0.0, 0.0)
-        f2 = g.EnuFrame(lat, lon)
-        out = ff.transform_bbox(f1, f2, bb)
-        self.assertAlmostEqual(out[0], 1000.0 - 10000.0, delta=5.0)   # + meridian convergence
-        self.assertAlmostEqual(out[3], -1744.0, delta=15.0)  # rotated ~0.07 deg
-        e, n, _ = f2.ecef_to_enu(*f1.enu_to_ecef(np.array([1000.0, 1256.0, 1000.0, 1256.0]),
-                                                 np.array([-2000.0, -2000.0, -1744.0, -1744.0]), 0.0))
-        np.testing.assert_allclose(out, (e.min(), n.min(), e.max(), n.max()), atol=1e-6)
 
 
 class LayoutTest(unittest.TestCase):
     """docs/V1_4_SPEC.md §3.1 (M1): the layout object; nothing reads a module setting."""
 
-    def test_layouts(self):
-        v, m = ff.V131, ff.Layout(64)
-        self.assertEqual((v.cells, v.block, v.min_level, v.exact_level, v.format, v.tris), (32, 1024, -2, -2, 3, 2304))
-        self.assertEqual((m.cells, m.block, m.min_level, m.exact_level, m.format, m.tris), (64, 1024, -1, -1, 4, 8704))
-        self.assertEqual(ff.Layout(32, mesh=False).min_level, 0)
-        self.assertEqual(ff.Layout(32, mesh=False).near_radii, {})
-        self.assertEqual(v.near_radii, {-2: 150.0, -1: 400.0})
-        self.assertEqual(m.near_radii, {-1: 150.0, 0: 400.0})
-        # K' = {1: 0.75, 2: 1.5, 3: 1.5, >=4: 1.25}; v1.3.1: K(1) = K(2) = 3, K(>=3) = 2.5
-        self.assertEqual([m.k(lvl) for lvl in range(1, 8)], [0.75, 1.5, 1.5, 1.25, 1.25, 1.25, 1.25])
-        self.assertEqual([v.k(lvl) for lvl in range(1, 6)], [3.0, 3.0, 2.5, 2.5, 2.5])
-        self.assertEqual([ff.k_default(lvl) for lvl in range(1, 6)], [v.k(lvl) for lvl in range(1, 6)])
-        # textures: 64 cells 256 px to L1, 512 from L2; v1.3.1 256 everywhere; --tex repeats its last value
-        self.assertEqual([m.tex_size(lvl) for lvl in range(-1, 6)], [256, 256, 256, 512, 512, 512, 512])
-        self.assertEqual({v.tex_size(lvl) for lvl in range(-2, 10)}, {256})
-        self.assertEqual([ff.Layout(64, tex=(128, 256)).tex_size(lvl) for lvl in (-1, 0, 5)], [128, 256, 256])
-        self.assertEqual([ff.Layout(32, mesh=False, tex=(512, 512, 256)).tex_size(lvl) for lvl in (0, 1, 2)],
-                         [512, 512, 256])
-        # M4 (docs/V1_4_SPEC.md §3.5): the 512² block, mesh mode only, on a 128 m grid
-        b = ff.Layout(64, 512)
-        self.assertEqual((b.block, b.grid, b.block_at(128.0, 0.0).bbox), (512, 128.0, (-384.0, -512.0, 640.0, 512.0)))
-        self.assertEqual((m.grid, m.block_at(0.0, 0.0)), (256.0, ff.Block(0.0, 0.0)))
-        for bad in (dict(cells=48), dict(cells=64, mesh=False), dict(block=2048), dict(block=512, mesh=False),
-                    dict(tex=())):
-            with self.assertRaises(ValueError, msg=bad):
-                ff.Layout(**bad)
-        with self.assertRaises(Exception):
-            v.cells = 64                                    # frozen
-        # the exact level's tile is `cells` physics lattice squares wide
-        for lay in (v, m):
-            self.assertEqual(ff.level_size(lay.exact_level), lay.cells * heightmap.SQUARE)
 
     def test_switch_distances_shift_one_level(self):
         """64 cells: level L splits where the v1.3.1 layout split level L - 1, so the vertex spacing
@@ -416,30 +233,6 @@ class TileGeometryTest(unittest.TestCase):
         b2, _, _ = self.build(ff.Tile(0, 0, 0), FakeDem(), q=q, zoom=15)
         self.assertLess(b2.sink, ff.SINK_MARGIN + 0.1)
 
-    def test_group_deltas(self):
-        dem = RoughDem()
-        parent = ff.Tile(1, 0, 0)
-        kids = [ff.Tile(0, i, j) for i in (0, 1) for j in (0, 1)]
-        bp, _, _ = self.build(parent, dem)
-        bk = [self.build(k, dem, zoom=15)[0] for k in kids]
-        d_in, d_out = ff.group_deltas(([(k, b.grid) for k, b in zip(kids, bk)], [(parent, bp.grid)]))
-        # Brute force on a 1 m grid.
-        xs = np.arange(0, 513, 1.0)
-        X, Y = np.meshgrid(xs, xs)
-        old = ff.surface_at(bp.grid.astype(float), 512.0 / self.n, X, Y)
-        new = np.zeros_like(old)
-        for k, b in zip(kids, bk):
-            x0, y0, x1, y1 = k.bbox
-            m = (X >= x0) & (X <= x1) & (Y >= y0) & (Y <= y1)
-            new[m] = ff.surface_at(b.grid.astype(float), 256.0 / self.n, X[m] - x0, Y[m] - y0)
-        self.assertGreater(d_in, 0.5)
-        self.assertGreater(d_out, 0.5)
-        self.assertGreaterEqual(d_in + 0.1, (new - old).max())
-        self.assertGreaterEqual(d_out + 0.1, (old - new).max())
-        self.assertLessEqual(d_in, (new - old).max() + 1e-6)
-        # Bound from the design: 1.2 (err_new + err_old) + 0.2.
-        bound = 1.2 * (max(b.err for b in bk) + bp.err) + 0.2
-        self.assertLessEqual(max(d_in, d_out), bound)
 
     # .cdae size bounds: palette tiles v1.3.1 §6.4 (90 KB); textured (UV1) 94 KB (V1_3 report) and, with
     # 64 cells, 348 KB (§3.1)

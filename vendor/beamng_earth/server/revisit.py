@@ -33,9 +33,7 @@ SUBDIR = "revisit"
 CACHE_DIR = None            # the server's cache folder (blockworker._State, earthd.Server): stores without one at hand
 
 WHERE_DIR = "where"
-WHERE_KINDS = ("roads", "roadsg", "plans", "bldfar", "bldsky", "brfar", "fargeo", "far")    # (cellfacts: per cell, no place)
 NEAR_KINDS = ("roads", "roadsg", "plans")    # the drivable world (the road geotiles too); the others the distant view
-COMPACTED = threading.Event()           # set once compact() ran in this process (covermap reads the files after it)
 _where = {}                             # cache dir -> this process's open sidecar fd
 _START = int(time.time())
 
@@ -95,18 +93,6 @@ def _h(v):
     return hashlib.sha1(repr(v).encode()).hexdigest()[:8]
 
 
-def sig_current(row_sig, current):
-    """Was a sidecar row built with the current settings (current: {name: value}, world_signature())? Every setting the
-    row names must have the current value's hash; a row naming none is current."""
-    for part in row_sig.split(","):
-        if not part:
-            continue
-        name, _, h = part.partition("=")
-        if name not in current or _h(current[name]) != h:
-            return False
-    return True
-
-
 def where(lat, lon, s, w, n, e, settings):
     """store()'s where: the anchor (lat, lon), the item's box (degrees) and its sig()."""
     return (float(lat), float(lon), float(s), float(w), float(n), float(e), settings)
@@ -130,63 +116,6 @@ def _note(cache_dir, kind, k, wh):
         os.write(fd, line.encode("utf-8"))
     except Exception:
         pass
-
-
-def parse_where(line):
-    """A sidecar line -> (code, sig, kind, key, lat, lon, s, w, n, e), or None (a damaged one)."""
-    p = line.rstrip("\n").split("\t")
-    if len(p) != 10 or p[2] not in WHERE_KINDS:
-        return None
-    try:
-        return (p[0], p[1], p[2], p[3]) + tuple(float(v) for v in p[4:])
-    except ValueError:
-        return None
-
-
-def compact(cache_dir, before=None):
-    """The sidecar files last written before `before` (s; default now) folded into one: a line per item (the last),
-    only those whose zip is still there (the start-up prune removes the oldest). Run once at the server's start,
-    after the prune. Returns the lines kept. Sets COMPACTED."""
-    d = os.path.join(cache_dir, SUBDIR, WHERE_DIR)
-    before = time.time() if before is None else before
-    try:
-        names = sorted(n for n in os.listdir(d) if n.endswith(".tsv"))
-    except OSError:
-        COMPACTED.set()
-        return 0
-    try:
-        old, rows = [], {}
-        mine = f"{os.getpid()}_{_START}.tsv"
-        for n in names:
-            p = os.path.join(d, n)
-            try:
-                if n == mine or os.path.getmtime(p) >= before:
-                    continue                # (a process writing now)
-                with open(p, encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        r = parse_where(line)
-                        if r is not None:
-                            rows[(r[2], r[3])] = line if line.endswith("\n") else line + "\n"
-                old.append(p)
-            except OSError:
-                continue
-        if not old:
-            return 0
-        lines = [line for (kind, k), line in rows.items() if os.path.exists(_path(cache_dir, kind, k))]
-        out = os.path.join(d, f"c{os.getpid()}_{int(before)}.tsv")
-        tmp = out + ".tmp"
-        with open(tmp, "w", encoding="utf-8", newline="") as f:
-            f.writelines(lines)
-        os.replace(tmp, out)
-        for p in old:
-            if p != out:
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
-        return len(lines)
-    finally:
-        COMPACTED.set()
 
 
 def store(cache_dir, kind, k, blobs, extra=None, where=None):

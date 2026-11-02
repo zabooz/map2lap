@@ -10,7 +10,6 @@ they are compared as a set), same size."""
 import os
 import struct
 import sys
-import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -120,35 +119,7 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(cdae.packb(128.0), b"\xcc\x80")
         self.assertEqual(cdae.packb(0.1), b"\xca" + struct.pack(">f", 0.1))
 
-    def test_version_word_and_rejects(self):
-        with tempfile.TemporaryDirectory() as d:
-            pos, uv, tri = dae.grid(2, 1.0)
-            p = os.path.join(d, "x.cdae")
-            n = cdae.write(p, pos, tri, uvs=uv)
-            self.assertEqual(os.path.getsize(p), n)
-            self.assertFalse(os.path.exists(p + ".tmp"))
-            self.assertEqual(cdae.read_version(p), 0x007C001F)
-            with open(p, "rb") as f:
-                data = bytearray(f.read())
-            with self.assertRaises(cdae.CdaeError):
-                cdae.decode(bytes(data[:-3]))
-            data[0] = 30
-            with self.assertRaises(cdae.CdaeError):
-                cdae.decode(bytes(data))
 
-    def test_engine_version_scan(self):
-        with tempfile.TemporaryDirectory() as d:
-            self.assertIsNone(cdae.engine_version(d))
-            sub = os.path.join(d, "temp", "temp", "beamngearth", "s")
-            os.makedirs(sub)
-            pos, uv, tri = dae.grid(2, 1.0)
-            cdae.write(os.path.join(sub, "a.cdae"), pos, tri)
-            self.assertEqual(cdae.engine_version(d), cdae.VERSION_WORD)
-            with open(os.path.join(sub, "b.cdae"), "wb") as f:
-                f.write(struct.pack("<II", 0x007D0020, 0))
-            with open(os.path.join(sub, "c.cdae"), "wb") as f:
-                f.write(struct.pack("<II", 0x007D0020, 0))
-            self.assertEqual(cdae.engine_version(d), 0x007D0020)
 
     def test_uv2(self):
         pos, uv, tri = dae.grid(2, 1.0)

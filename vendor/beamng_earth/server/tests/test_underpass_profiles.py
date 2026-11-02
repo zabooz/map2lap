@@ -72,6 +72,21 @@ class UnderpassProfilesTest(TestCase):
         self.assertTrue(np.all(offset <= 0.0))
         self.assertLess(float(offset.min()), 0.0)
 
+    def test_a_dip_on_a_short_part_ends_inside_it_up_to_the_steepest_grade(self):
+        xy = line((-80, 0), (300, 0), spacing=1.0)
+        offset, = grading.underpass_offsets([xy], [(0, 80.0, 4.0)])
+        self.assertEqual(offset[0], 0.0, "the part's start: back up")
+        self.assertAlmostEqual(float(offset[80]), -4.0)
+        self.assertLessEqual(float(np.abs(np.diff(offset)).max()), grading.UNDER_MAX_GRADE + 1e-6)
+        self.assertGreater(float(np.abs(np.diff(offset[:80])).max()), grading.UNDER_GRADE, "made steeper to fit")
+
+    def test_a_part_too_short_for_the_steepest_grade_gets_a_shallower_dip(self):
+        xy = line((-20, 0), (300, 0), spacing=1.0)
+        offset, = grading.underpass_offsets([xy], [(0, 20.0, 4.0)])
+        self.assertEqual(offset[0], 0.0)
+        self.assertGreater(float(offset.min()), -4.0)
+        self.assertLessEqual(float(np.abs(np.diff(offset)).max()), grading.UNDER_MAX_GRADE + 1e-6)
+
     def test_full_clearance_interval_and_ramp_grade_are_preserved(self):
         xy = line((-600, 0), (600, 0), spacing=1.0)
         offset, = grading.underpass_offsets([xy], [(0, 600.0, 5.0)])

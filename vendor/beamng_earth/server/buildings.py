@@ -3871,14 +3871,6 @@ def far_lamps(frame, road_layers, x0, y0, size, built, ground, region=None, sq=2
 
 
 # ------------------------------------------------------------------------------------------- the skyline
-# Past the far buildings, a lighter ring out to SKY_SEND_M (the user, 2026-10-27: "see how far away we can render
-# buildings"): one mesh per SKY_UNIT x SKY_UNIT road tiles (1 km), only the buildings big enough to see that far
-# (SKY_MIN_H tall or SKY_MIN_AREA_M2 large), the lite mesh, the tallest first up to the 16-bit vertex budget. Far
-# buildings to 4.8 km as 256 m tiles cost +37 % frame time at Federal Hill (1129 objects, ~0.7 GB of meshes); a
-# skyline tile stands for 16 of them and holds a fraction of their buildings. The far buildings are sent for every
-# tile of a skyline square that comes within FAR_SEND_M (vegetation.Tracker group), and the mod shows a skyline tile
-# only while none of its squares' far buildings are there: no overlap, no hole.
-SKY_UNIT = 4
 SKY_SEND_M = float(os.environ.get("BNE_SKY_SEND_M", "4800"))
 SKY_DROP_M = SKY_SEND_M + 800.0
 SKY_PER_POSE = 2
@@ -3996,38 +3988,6 @@ def sky_items(frame, box, keys, md, ground, lamp_region=None, own=None):
     return picked, lamps
 
 
-def skyline_tile(frame, ux, uy, md, ground, out_dir, vfs_dir, aid, lamp_region=None):
-    """A skyline tile (render-only) written to the session folder: (vfs path of its JSON, building count) or None
-    when its cells are not at hand (fetched in the background: asked again later). Key (ux, uy): SKY_UNIT x SKY_UNIT
-    road tiles from road tile (ux * SKY_UNIT, uy * SKY_UNIT)."""
-    import json
-    import roads
-    x0, y0, _, _ = roads.tile_bbox(ux * SKY_UNIT, uy * SKY_UNIT)
-    x1, y1 = x0 + SKY_UNIT * roads.TILE, y0 + SKY_UNIT * roads.TILE
-    keys = sorted({k for i in range(SKY_UNIT) for j in range(SKY_UNIT)
-                   for k in roads.cells_of_tile(frame, ux * SKY_UNIT + i, uy * SKY_UNIT + j, margin=0.0)}, key=str)
-    got = sky_items(frame, (x0, y0, x1, y1), keys, md, ground, lamp_region)
-    if got is None:
-        return None
-    picked, lamps = got
-    mesh = _sky_mesh(picked) if picked else None
-    data = {"v": 1}
-    if mesh is not None:
-        shape = f"bldsky_{aid}_{ux}_{uy}.cdae"
-        if lamps:
-            data["lamps"] = lamps
-        write(os.path.join(out_dir, shape), mesh)
-        data["shape"] = f"{vfs_dir}/{shape}"
-        data["pos"] = [x0, y0, 0.0]
-    name = f"bldsky_{aid}_{ux}_{uy}.json"
-    path = os.path.join(out_dir, name)
-    tmp = staging.tmp_for(path)
-    with open(tmp, "w") as f:
-        f.write(json.dumps(data))
-    staging.replace(tmp, path)
-    return f"{vfs_dir}/{name}", len(picked) if mesh is not None else 0
-
-
 # ------------------------------------------------------------------------------------------- far bridges
 # The road bridges past the road tiles (their decks only came with the road tiles, ~0.8 km: a city's bridges were
 # gone beyond that): one render-only slab per road tile that has bridge decks, out to BRIDGE_FAR_SEND_M, from the same
@@ -4079,36 +4039,6 @@ def bridge_slabs(parts, origin, box=None, owners=None):
         UV = np.tile(np.asarray(SKY_UV, np.float64), (len(P), 1))
         out[None if owners is None else (int(gx), int(gy))] = (P, UV, T, np.full(len(T), mi, np.int64), MATERIALS, C)
     return out
-
-
-def far_bridge_tile(frame, tx, ty, md, bridges, out_dir, vfs_dir, aid):
-    """A far bridge tile (render-only) written to the session folder: (vfs path of its JSON, part count) or None when
-    its road cells are not at hand (fetched in the background: asked again later). bridges: the anchor's
-    roads.BridgeProfiles."""
-    import json
-    import roads
-    x0, y0, x1, y1 = roads.tile_bbox(tx, ty)
-    keys = roads.cells_of_tile(frame, tx, ty, margin=0.0)
-    if not all(md.has(k, "roads") for k in keys):
-        for k in keys:
-            md.prefetch(k, layers=("roads",))
-        return None
-    cells = [md.cell(k, layers=("roads",), kind="background").layers.get("roads") for k in keys]
-    parts = [(xy, z, float(spec.width)) for _fid, spec, xy, z, _lon in bridges.parts(cells, (x0, y0, x1, y1))]
-    mesh = bridge_slabs(parts, (x0, y0), box=(x0, y0, x1, y1)).get(None) if parts else None
-    data = {"v": 1}
-    if mesh is not None:
-        shape = f"brfar_{aid}_{tx}_{ty}.cdae"
-        write(os.path.join(out_dir, shape), mesh)
-        data["shape"] = f"{vfs_dir}/{shape}"
-        data["pos"] = [x0, y0, 0.0]
-    name = f"brfar_{aid}_{tx}_{ty}.json"
-    path = os.path.join(out_dir, name)
-    tmp = staging.tmp_for(path)
-    with open(tmp, "w") as f:
-        f.write(json.dumps(data))
-    staging.replace(tmp, path)
-    return f"{vfs_dir}/{name}", len(parts) if mesh is not None else 0
 
 
 # ------------------------------------------------------------------------------------------- the ground photo

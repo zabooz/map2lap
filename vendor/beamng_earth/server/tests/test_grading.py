@@ -8,7 +8,6 @@ import unittest.mock
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import geodesy  # noqa: E402
 import grading  # noqa: E402
 import mapcells  # noqa: E402
 import roads  # noqa: E402
@@ -1042,19 +1041,6 @@ class UnderpassHumpTest(unittest.TestCase):
         self.assertAlmostEqual(float(out[2]), 10.0 - 2.4, delta=0.1, msg="away from it as before")
 
 
-class UnderDipTest(unittest.TestCase):
-    def test_a_dip_ends_inside_its_road_part(self):
-        d = np.arange(-80.0, 300.1, 1.0)
-        free = grading.under_dip(d, 4.0)
-        self.assertAlmostEqual(float(free[d == 0][0]), -4.0)
-        self.assertLess(float(free[d == -80][0]), -0.5, "with room the ramp runs on past 80 m")
-        fit = grading.under_dip(d, 4.0, (80.0, 300.0))
-        self.assertAlmostEqual(float(fit[d == -80][0]), 0.0, places=9, msg="the part's start: back up")
-        self.assertAlmostEqual(float(fit[d == 0][0]), -4.0)
-        grade = np.abs(np.diff(fit[d <= 0]))
-        self.assertLessEqual(float(grade.max()), grading.UNDER_MAX_GRADE + 1e-6)
-        self.assertTrue(np.allclose(fit[d > 0], free[d > 0]), "the other side as before")
-        self.assertIsNone(grading.under_dip(d, 4.0, (20.0, 300.0)), "no room even at UNDER_MAX_GRADE")
 
 
 class UnderpassShortfallTest(unittest.TestCase):

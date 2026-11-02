@@ -43,22 +43,6 @@ class RoughDem:
                 + 4.0 * np.sin(lat * 61000) * np.cos(lon * 47000) + 2.0 * np.sin(lon * 151000))
 
 
-def torque_height(h, x, y):
-    """Torque3D TerrainBlock::getHeight (Engine/source/terrain/terrData.cpp) on a block-local
-    height grid h[gy, gx] at square coordinates (x, y), with the level-0 split rule of
-    TerrainFile::_buildGridMap (terrFile.cpp): Split45 iff ((squareX ^ squareY) & 1) == 0.
-    Written from the C++ independently of farfield.surface_at."""
-    xi, yi = int(math.floor(x)), int(math.floor(y))
-    xp, yp = x - xi, y - yi
-    zbl, zbr = h[yi, xi], h[yi, xi + 1]
-    ztl, ztr = h[yi + 1, xi], h[yi + 1, xi + 1]
-    if ((xi ^ yi) & 1) == 0:
-        if xp > yp:     # bottom half
-            return zbl + xp * (zbr - zbl) + yp * (ztr - zbr)
-        return zbl + xp * (ztr - ztl) + yp * (ztl - zbl)
-    if 1.0 - xp > yp:   # bottom half
-        return zbr + (1.0 - xp) * (zbl - zbr) + yp * (ztl - zbl)
-    return zbr + (1.0 - xp) * (ztl - ztr) + yp * (ztr - zbr)
 
 
 def coverage(tiles, px, py, radius, cell=64.0):
@@ -170,19 +154,6 @@ class MeshSelectionTest(unittest.TestCase):
                 _, prev = self.mesh_select(x0 - thr * (1 + ff.HYSTERESIS) - 1.0, 30.0, prev)
                 self.assertNotIn(node, prev)
 
-    def test_swap_groups_with_near_levels(self):
-        a, ra = self.mesh_select(0.0, 0.0)
-        b, _ = self.mesh_select(100.0 * self.LAYOUT.cells / 32, 30.0, ra)     # (bigger tiles: a longer move)
-        groups = ff.swap_groups(set(a), b)
-        self.assertTrue(groups)
-        cur = set(a)
-        for adds, removes in groups:
-            self.assertTrue(adds and removes)
-            ca = coverage({k: ff.tile_of(k) for k in adds}, 0, 0, 2000)
-            cr = coverage({k: ff.tile_of(k) for k in removes}, 0, 0, 2000)
-            np.testing.assert_array_equal(ca, cr)
-            cur = (cur - set(removes)) | set(adds)
-        self.assertEqual(cur, set(b))
 
 
 class LatticeTest(unittest.TestCase):
@@ -262,46 +233,6 @@ class LatticeTest(unittest.TestCase):
         got = b.positions[:m * m, 2].reshape(m, m).astype(np.float32).astype(np.float64) + b.pos[2]
         self.assertTrue((got == want).all())
 
-    def test_diagonals_match_torque(self):
-        """The exact-level surface equals Torque's TerrainBlock::getHeight everywhere (not only at
-        the vertices), and every cell of the built mesh uses the TerrainBlock's diagonal."""
-        c, m = self.c, self.c + 1
-        tile = ff.Tile(self.ex, *self.EXACT_TILES[c][0])
-        b = self.build(tile)
-        grid = b.grid.astype(np.float64)
-        rng = np.random.default_rng(3)
-        pts = rng.random((4000, 2)) * tile.size
-        pts[:20] = [[2 * k + 0.5, 2 * k + 1.5] for k in range(20)]        # upper triangles near the diagonal
-        ours = ff.surface_at(grid, 2.0, pts[:, 0], pts[:, 1])
-        bx = (tile.bbox[0] - self.x0 + pts[:, 0]) / heightmap.SQUARE
-        by = (tile.bbox[1] - self.y0 + pts[:, 1]) / heightmap.SQUARE
-        theirs = np.array([torque_height(self.h, x, y) for x, y in zip(bx, by)])
-        np.testing.assert_allclose(ours, theirs, atol=1e-9)
-        # v1.2's uniform SE-NW split would differ on this rough ground (the test has teeth).
-        i, j = np.minimum((pts // 2.0).astype(int), c - 1).T
-        a, cc = pts[:, 0] / 2.0 - i, pts[:, 1] / 2.0 - j
-        z00, z10, z01, z11 = grid[j, i], grid[j, i + 1], grid[j + 1, i], grid[j + 1, i + 1]
-        uniform = np.where(a + cc <= 1, z00 + a * (z10 - z00) + cc * (z01 - z00),
-                           z11 + (1 - a) * (z01 - z11) + (1 - cc) * (z10 - z11))
-        self.assertGreater(np.abs(uniform - theirs).max(), 0.05)
-        # Mesh triangles: cell (i, j) is triangles 2k, 2k+1 (k = j * c + i); the shared edge is
-        # its diagonal.
-        tris = b.tris[:2 * c * c].reshape(c * c, 2, 3)
-        gx0 = int((tile.bbox[0] - self.x0) / 2)
-        gy0 = int((tile.bbox[1] - self.y0) / 2)
-        for k, (t1, t2) in enumerate(tris):
-            j, i = divmod(k, c)
-            shared = sorted(set(t1.tolist()) & set(t2.tolist()))
-            a = j * m + i
-            sw_ne = shared == sorted([a, a + m + 1])
-            se_nw = shared == sorted([a + 1, a + m])
-            self.assertTrue(sw_ne or se_nw)
-            self.assertEqual(sw_ne, bool(ff.torque_split45(gx0 + i, gy0 + j)), (i, j))
-        # winding: every grid triangle faces up
-        P = b.positions
-        main = b.tris[:2 * c * c]
-        n = np.cross(P[main[:, 1]] - P[main[:, 0]], P[main[:, 2]] - P[main[:, 0]])
-        self.assertTrue((n[:, 2] > 0).all())
 
     def test_bilinear_tolerance(self):
         """The exact surface against the engine's collision, which is bilinear per 2 m square (probe

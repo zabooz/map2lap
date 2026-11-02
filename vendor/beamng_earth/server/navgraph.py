@@ -470,9 +470,6 @@ def region_near(db, lat, lon):
     return getattr(ap, "region", None) or None
 
 
-REBUILD_M = 400.0           # a new graph once the player is this far from the last one's centre
-
-
 def write(out_dir, vfs_dir, aid, serial, graph):
     """The graph as navgraph_<aid>_<serial>.json in the session folder; returns its vfs path."""
     import json
@@ -486,49 +483,3 @@ def write(out_dir, vfs_dir, aid, serial, graph):
     return f"{vfs_dir}/{name}"
 
 
-class Tracker:
-    """Per connection: builds a graph around the player when the anchor changes or the player moved
-    REBUILD_M from the last one's centre, one at a time, and announces it ("navgraph")."""
-
-    def __init__(self, rebuild_m=REBUILD_M):
-        self.rebuild_m = rebuild_m
-        self.aid = None
-        self.centre = None
-        self.building = False
-        self.serial = 0
-        self.pool = None        # one thread of its own (vegetation.Tracker: not behind other trackers' builds)
-
-    def close(self):
-        if self.pool is not None:
-            self.pool.shutdown(wait=False, cancel_futures=True)
-
-    def on_pose(self, conn, aid, x, y, loop, build):
-        """build(aid, x, y, serial) runs in a worker and returns (vfs path, nodes, edges) or None."""
-        if self.building:
-            return
-        if aid == self.aid and self.centre is not None and \
-                max(abs(x - self.centre[0]), abs(y - self.centre[1])) < self.rebuild_m:
-            return
-        self.building = True
-        self.serial += 1
-        serial = self.serial
-        if self.pool is None:
-            from concurrent.futures import ThreadPoolExecutor
-            self.pool = ThreadPoolExecutor(1, thread_name_prefix="navgraph")
-        fut = loop.run_in_executor(self.pool, build, aid, x, y, serial)
-        fut.add_done_callback(lambda f: self._built(conn, aid, (x, y), serial, f))
-
-    def _built(self, conn, aid, centre, serial, fut):
-        self.building = False
-        try:
-            res = fut.result()
-        except Exception as e:      # map data not at hand: the next pose asks again
-            import logging
-            logging.getLogger("earthd.navgraph").debug("navgraph %s: %s: %s", centre, type(e).__name__, e)
-            return
-        if res is None:
-            return
-        self.aid, self.centre = aid, centre
-        path, n, m = res
-        conn.send({"type": "navgraph", "anchorId": aid, "path": path, "cx": round(centre[0], 1),
-                   "cy": round(centre[1], 1), "nodes": n, "edges": m, "serial": serial})

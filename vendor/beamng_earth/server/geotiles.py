@@ -103,11 +103,6 @@ def quad(anchor, x, y, z=Z):
     return _ef().geo_tile_quad(float(anchor.lat0), float(anchor.lon0), int(z), int(x), int(y))
 
 
-def quad_dist(q, x, y):
-    """m from (x, y) to a quad (4, 2) (0 inside)."""
-    return float(_ef().geo_quad_dist(np.ascontiguousarray(q, np.float64), float(x), float(y)))
-
-
 def tiles_near(anchor, x, y, r, z=Z):
     """[(tx, ty, m)] of the tiles whose quad in anchor's world comes within r of (x, y), nearest first."""
     return _ef().geo_tiles_near(float(anchor.lat0), float(anchor.lon0), int(z), float(x), float(y), float(r))
@@ -195,12 +190,6 @@ def parent(x, y, z, pz):
     """The zoom-pz tile (pz <= z) a zoom-z tile lies under."""
     sh = int(z) - int(pz)
     return int(x) >> sh, int(y) >> sh
-
-
-def tile_cell(x, y, z=Z, cell_z=14):
-    """The map cell (z, x, y) a tile lies in (nested: zoom z >= cell_z)."""
-    sh = int(z) - int(cell_z)
-    return (int(cell_z), int(x) >> sh, int(y) >> sh)
 
 
 # --- road geotiles (phase 1c): a geotile as the road builders take a tile ------------------------------------------
