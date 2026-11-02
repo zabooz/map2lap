@@ -46,26 +46,21 @@ DIST = os.path.join(HERE, "dist")
 NAME = "Map2Lap"
 # developer-only parts (in the repository, not in the release)
 SKIP = ("tools/", ".gitignore", ".gitattributes", "AGENTS.md", "CLAUDE.md",
-        "vendor/beamng_earth/server/tests/",
-        "vendor/beamng_earth/native/", "vendor/beamng_earth/docs/", "vendor/beamng_earth/probes/",
-        "vendor/beamng_earth/mod/",     # (the BeamNG mod: the server only reads it in its own developer tools)
-        "vendor/beamng_earth/tools/", "vendor/beamng_earth/beammp/")
+        "vendor/beamng_earth/server/tests/", "vendor/beamng_earth/native/", "vendor/beamng_earth/tools/")
 # what only the other system needs
 ONLY = {"win": ("Start Map2Lap.bat", "vendor/beamng_earth/server/earthfast.pyd"),
         "linux": ("start.sh", "Map2Lap.desktop", "vendor/beamng_earth/server/earthfast.abi3.so")}
 EXECUTABLE = ("start.sh", "Map2Lap.desktop")     # (Linux: started by a double-click)
-# what Map2Lap reads from inside SKIP (the road signs' materials and lettering: make_obj.ROADSIDE)
-KEEP = ("vendor/beamng_earth/mod/beamng_earth/levels/beamng_earth/art/shapes/beamngEarth/roadside/",)
 TEXTURES = os.path.join("assets", "textures")
 
 
 def files(system):
-    """The project's files for system ("win", "linux"): tracked and new ones git doesn't ignore, without SKIP (but
-    with KEEP) and without the other system's ONLY."""
+    """The project's files for system ("win", "linux"): tracked and new ones git doesn't ignore, without SKIP and
+    without the other system's ONLY."""
     out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=HERE,
                          capture_output=True, check=True).stdout.decode("utf-8").split("\0")
     other = tuple(f for s, fs in ONLY.items() if s != system for f in fs)
-    return sorted(f for f in set(out) if f and (f.startswith(KEEP) or not f.startswith(SKIP)) and f not in other
+    return sorted(f for f in set(out) if f and not f.startswith(SKIP) and f not in other
                   and os.path.isfile(os.path.join(HERE, f)))
 
 

@@ -5,7 +5,7 @@ release's RG2014-3.10.zip), the FHWA Series E(Modified) alphabet of US guide sig
     python3 tools/build_sign_glyphs.py
 
 Writes server/sign_glyphs.json (per character: advance, bbox [l, t, r, b] in px from the pen on the baseline, uv
-[u0, v0, u1, v1] in the atlas) and the opacity atlas mod/.../roadside/sign_letters_o.data.png, read by the exit,
+[u0, v0, u1, v1] in the atlas) and the opacity atlas assets/roadside/sign_letters_o.data.png, read by the exit,
 overhead, merge and mile-marker meshes (server/exitsigns.py lettering()). Every character the font maps is packed in
 code point order on fixed-height shelves: the same font file and Pillow/FreeType give the same bytes. Runtime never
 renders text: it places atlas quads.
@@ -21,8 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONT = os.path.join(ROOT, "tools", "fonts", "RG2014EEM.ttf")
-ATLAS = os.path.join(ROOT, "mod", "beamng_earth", "levels", "beamng_earth", "art", "shapes", "beamngEarth",
-                     "roadside", "sign_letters_o.data.png")
+ATLAS = os.path.join(ROOT, "..", "..", "assets", "roadside", "sign_letters_o.data.png")
 METRICS = os.path.join(ROOT, "server", "sign_glyphs.json")
 SIZE = (2048, 1024)     # atlas px (width, height; powers of two)
 PX = 112                # font size px: the cap height is ~65 px

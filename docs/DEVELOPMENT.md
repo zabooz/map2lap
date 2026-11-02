@@ -163,7 +163,7 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
 | `tools/check_drive.py` | Drivability check: the route every 2 m (holes, jumps, terrain above the road), `--all-roads` |
 | `tools/measure.py`, `tools/test_tracks.json` | The test tracks (short routes around the spots worth driving: their route metres and track codes; `"long": true` ones only with `--long`) built up to the OBJ parts, nothing into AC (`--build`), or into AC to drive them (`--install`), the short ones three at a time, each build's log in `out/build_<name>.log`; the driving line measured (G at 100 km/h on the line and in the lanes, edges across, the whole carriageway across (the visible asphalt or deck: one side sunk or raised), bridge transitions) against their reference values. Measures any built track too |
 | `tools/portal.py` | A tunnel portal's heights from the code that decides them, at an AC point (a Track Debug mark): elevation, graded ground, floor and floor as drawn along its last metres and past it, the road plans there against the elevation, the tunnel's map range against the built part, the approaches the grader finds. Nothing is built |
-| `tools/update_beamng_earth.py` | Rebuild `earthfast` (`--build-native`) |
+| `tools/build_native.py` | Rebuild `earthfast` |
 | `tools/` | also `make_release.py`, `get_textures.py`, `compare_kn5.py`, `read_kn5.py`, `inspect_tiles.py` |
 
 ### BeamNG.Earth (`vendor/beamng_earth`)
@@ -174,7 +174,7 @@ Windows release's Python has it in `python312._pth` (a `._pth` adds no script fo
   `stable-x86_64-pc-windows-gnu` (no Visual Studio), `dlltool` = a copy of `llvm-ar.exe` as
   `%USERPROFILE%\.cargo\dlltool-llvm\dlltool.exe`; in `native/earthfast` `cargo build --release`,
   `target/release/earthfast.dll` → `server/earthfast.pyd` (stop the page first; or
-  `tools/update_beamng_earth.py --build-native`). The `.pyd` must match the Python version (3.12). No `std::env` in
+  `tools/build_native.py`). The `.pyd` must match the Python version (3.12). No `std::env` in
   the Rust code: reading environment variables crashed with this toolchain.
 - **The Linux build of it** (`server/earthfast.abi3.so`, for the Linux release) is built in WSL (Ubuntu 24.04,
   `build-essential` and rustup) from the same folder, with its own target folder so it doesn't mix with the Windows

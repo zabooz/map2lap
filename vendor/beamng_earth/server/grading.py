@@ -3297,8 +3297,7 @@ def grade_points(px, py, base, plans, lift=0.0):
     extra = {}
     if YL.any() or BW.any():                # (the junctions' and beside roads' give way, our own earthfast build)
         if getattr(fast._ef, "AC_EXPORT_YIELD", 0) < 4:
-            raise fast.NativeMissing("grade_points' junction rule needs our earthfast build "
-                                     "(tools/update_beamng_earth.py --build-native)")
+            raise fast.NativeMissing("grade_points' junction rule needs our earthfast build (tools/build_native.py)")
         extra = {"yl": np.ascontiguousarray(YL, np.uint8), "yield_fade": float(YIELD_FADE_M),
                  "bw": np.ascontiguousarray(BW, np.uint8), "beside_wider": float(BESIDE_WIDER_M),
                  "beside_from": float(BESIDE_LEVEL_FROM_M), "beside_to": float(BESIDE_LEVEL_TO_M),
@@ -3306,7 +3305,7 @@ def grade_points(px, py, base, plans, lift=0.0):
     if np.isfinite(PAST).any():             # (a road's line going on past its end onto a bridge: _past_segments)
         if getattr(fast._ef, "AC_EXPORT_PAST", 0) < 1:
             raise fast.NativeMissing("grade_points' road ends onto a bridge need our earthfast build "
-                                     "(tools/update_beamng_earth.py --build-native)")
+                                     "(tools/build_native.py)")
         extra["past"] = np.ascontiguousarray(PAST, f64)
     return fast._ef.grade_points(np.ascontiguousarray(px, f64), np.ascontiguousarray(py, f64),
                                  np.ascontiguousarray(base, f64), A, B, ZA, ZB, H, RH, RID, AB, CUT, BA, BB, float(lift),

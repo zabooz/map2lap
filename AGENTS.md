@@ -60,8 +60,8 @@ sidewalk, width, railway=abandoned, ...) come first. Where a number stays, give 
 tuned to make one place look right.
 
 **Fix the cause, in `vendor/beamng_earth` too.** Read what the BeamNG.Earth code intends at that place before
-changing it. It is our code now: change it directly, with tests. Don't merge upstream BeamNG.Earth wholesale
-(`tools/update_beamng_earth.py`); port single upstream changes by hand when they are wanted.
+changing it. It is our code now: change it directly, with tests. Don't merge upstream BeamNG.Earth wholesale; port
+single upstream changes by hand when they are wanted.
 
 **A rule for the driving surface** gets a comment at its place saying why, a unit test that fails without it, and a
 `measure.py --all --build` before and after.

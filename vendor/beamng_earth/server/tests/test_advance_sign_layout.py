@@ -124,7 +124,7 @@ class AdvanceLayoutTest(unittest.TestCase):
         from PIL import Image
         atlas=Image.open(build_sign_glyphs.ATLAS)
         self.assertEqual(atlas.tobytes(),image.tobytes())
-        folder=root/'mod/beamng_earth/levels/beamng_earth/art/shapes/beamngEarth/roadside'
+        folder=root.parents[1]/'assets'/'roadside'
         materials=json.loads((folder/'exit.materials.json').read_text())
         for name in ('bne_exit_letters','bne_guide_letters','bne_guide_letters_black'):
             self.assertTrue(materials[name]['alphaTest'])
