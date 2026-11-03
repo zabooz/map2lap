@@ -5,6 +5,7 @@ KNOWN one that passes again is reported so its entry can go.
 
     .venv\\Scripts\\python.exe tools\\check.py                      # unit tests and the kn5 build
     .venv\\Scripts\\python.exe tools\\check.py --fast               # unit tests only (the pre-commit hook)
+    .venv\\Scripts\\python.exe tools\\check.py --fast --times       # ... and the slowest test files and tests
     .venv\\Scripts\\python.exe tools\\check.py test_roads test_grading   # only these test files, no build
 
 Exit code 0: passed, 1: failed. The kn5 build goes into a temporary AC folder, so nothing in AC changes; its OBJ parts
@@ -51,16 +52,28 @@ def run_child(name):
     """Run one test file here (a child process) and print its failures as a last line RESULT <json>:
     {"run": n, "bad": {test id: "fail" / "error"}}."""
     import unittest
+
+    class Timed(unittest.TestResult):
+        def startTest(self, test):
+            self.t0 = time.perf_counter()
+            super().startTest(test)
+
+        def stopTest(self, test):
+            super().stopTest(test)
+            times[test.id()] = time.perf_counter() - self.t0
+
     os.chdir(TESTS)
     sys.path.insert(0, TESTS)
-    result = unittest.TestResult()
+    times = {}
+    result = Timed()
     unittest.defaultTestLoader.loadTestsFromName(name).run(result)
     bad = {t.id(): "fail" for t, _ in result.failures}
     bad.update({t.id(): "error" for t, _ in result.errors})
     bad.update({t.id(): "unexpected success" for t in result.unexpectedSuccesses})
     sys.stdout.flush()
     print("\nRESULT " + json.dumps({"run": result.testsRun, "bad": bad, "detail": {
-        t.id(): text.strip().splitlines()[-1] for t, text in result.failures + result.errors}}), flush=True)
+        t.id(): text.strip().splitlines()[-1] for t, text in result.failures + result.errors}, "times": times}),
+          flush=True)
 
 
 def run_file(name):
@@ -78,12 +91,16 @@ def run_file(name):
     return name, res, tail, time.perf_counter() - t0
 
 
-def unit_tests(names):
-    """Run the test files in parallel and print what's new; -> (passed, the KNOWN keys that passed again)."""
+def unit_tests(names, times=False):
+    """Run the test files in parallel and print what's new (times: the slowest files and tests too); -> (passed, the
+    KNOWN keys that passed again)."""
     jobs = max(1, min(len(names), (os.cpu_count() or 2) // 2))     # (tests use the native module's threads too)
     new, healed, n_run, t0 = [], [], 0, time.perf_counter()
+    file_s, test_s = {}, {}
     with ThreadPoolExecutor(jobs) as ex:
         for name, res, tail, took in ex.map(run_file, names):
+            file_s[name] = took
+            test_s.update((res or {}).get("times", {}))
             if res is None:
                 if name not in KNOWN:
                     new.append(f"{name}: crashed ({tail})")
@@ -100,6 +117,12 @@ def unit_tests(names):
         print("  NEW  " + line)
     for k in healed:
         print(f"  passes now, remove from KNOWN: {k}")
+    if times:
+        slow = sorted(file_s.items(), key=lambda x: -x[1])[:6]
+        print("Slowest files: " + ", ".join(f"{n} {s:.1f} s" for n, s in slow))
+        print("Slowest tests:")
+        for tid, s in sorted(test_s.items(), key=lambda x: -x[1])[:10]:
+            print(f"  {s:6.1f} s  {tid}")
     return not new, healed
 
 
@@ -141,6 +164,7 @@ def main():
     ap = argparse.ArgumentParser(description="unit tests and a kn5 build: pass or fail")
     ap.add_argument("files", nargs="*", help="only these test files (no build)")
     ap.add_argument("--fast", action="store_true", help="unit tests only")
+    ap.add_argument("--times", action="store_true", help="the slowest test files and tests too")
     ap.add_argument("--child", help=argparse.SUPPRESS)
     ap.add_argument("--build-child", nargs=2, help=argparse.SUPPRESS)
     a = ap.parse_args()
@@ -148,7 +172,7 @@ def main():
         return run_child(a.child)
     if a.build_child:
         return build_child(*a.build_child)
-    ok, _ = unit_tests(test_files(a.files, a.fast))
+    ok, _ = unit_tests(test_files(a.files, a.fast), a.times)
     if not (a.fast or a.files):
         ok = build_kn5(TRACK) and ok
     print("PASSED" if ok else "FAILED")

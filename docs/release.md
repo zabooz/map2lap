@@ -6,6 +6,9 @@
 (python.org's embeddable Python) and `dist\Map2Lap-<version>-linux-x64.tar.gz` (python-build-standalone with the packages'
 manylinux wheels), each with all packages, BeamNG.Earth and the textures. `tools/` and the tests stay out.
 
+`.venv\Scripts\python.exe tools\test_update.py --linux` then installs them over the last published release, as a user's
+"Install update" does (the old start script's own lines), and starts the result: run it before publishing.
+
 A GitHub release `v<version>` carries both as its assets under exactly these names: the page's update check and "Install
 update" look for the one of their system (`--target` of `gh release create` takes the full commit hash).
 

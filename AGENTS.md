@@ -30,7 +30,9 @@ by hand.
 - A build reads the source files live: keep `engine/` and `src/` unchanged while one runs.
 - Grading results are cached by a hash of the engine code, the native module and all `BNE_*` environment variables
   (`revisit.code_key`). Set `BNE_COLD=<any value>` to force a fresh run.
-- To prove a refactoring changes nothing, compare the files in `out/tracks/<name>/obj/parts/` before and after.
+- To prove a refactoring changes nothing: `tools\compare_parts.py save before` (the test tracks as built), the change,
+  `tools\measure.py --all --build`, `tools\compare_parts.py compare before` (0 differ, else the files and OBJ objects).
+- Which code a build really runs (before deleting code as unused): `tools\coverage.py run`, then `report`.
 
 ## Rules for a change
 
