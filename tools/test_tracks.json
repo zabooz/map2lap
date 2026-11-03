@@ -36,11 +36,12 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 320,
-   "over_05g_m": 9,
-   "lanes_over_05g_m": 35,
+   "over_05g_m": 8,
+   "lanes_over_05g_m": 21,
    "max_g": 2.88,
    "max_g_at_m": 150.0,
    "edges_m": 0,
@@ -100,6 +101,7 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 579,
@@ -152,16 +154,17 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 1,
-   "max_over_deck": 0.165,
+   "max_over_deck": 0.169,
    "length_m": 511,
    "over_05g_m": 3,
-   "lanes_over_05g_m": 12,
-   "max_g": 0.97,
+   "lanes_over_05g_m": 11,
+   "max_g": 0.91,
    "max_g_at_m": 313.0,
    "edges_m": 3,
    "transitions": 4,
-   "max_g_transition": 0.97,
+   "max_g_transition": 0.91,
    "warp_m": 26,
    "max_warp": 0.45,
    "max_warp_at_m": 244.0
@@ -204,6 +207,7 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 240,
@@ -264,6 +268,7 @@
    ]
   ],
   "reference": {
+   "off_road_m": 626,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 1245,
@@ -312,6 +317,7 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 919,
@@ -348,6 +354,7 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 1935,
@@ -456,19 +463,20 @@
    ]
   ],
   "reference": {
-   "over_deck_spots": 6,
+   "off_road_m": 0,
+   "over_deck_spots": 2,
    "max_over_deck": 0.128,
    "length_m": 12681,
-   "over_05g_m": 22,
-   "lanes_over_05g_m": 124,
+   "over_05g_m": 20,
+   "lanes_over_05g_m": 121,
    "max_g": 3.19,
    "max_g_at_m": 12551.0,
    "edges_m": 0,
    "transitions": 20,
-   "max_g_transition": 0.62,
-   "warp_m": 465,
+   "max_g_transition": 0.55,
+   "warp_m": 448,
    "max_warp": 0.18,
-   "max_warp_at_m": 7364.0
+   "max_warp_at_m": 7516.0
   },
   "long": true
  },
@@ -558,11 +566,12 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 13510,
-   "over_05g_m": 42,
-   "lanes_over_05g_m": 398,
+   "over_05g_m": 73,
+   "lanes_over_05g_m": 444,
    "max_g": 3.61,
    "max_g_at_m": 5223.0,
    "edges_m": 1,
@@ -606,6 +615,7 @@
    ]
   ],
   "reference": {
+   "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 580,
@@ -621,41 +631,86 @@
    "max_warp_at_m": 0.0
   }
  },
- "auckland_motorway_test": {
-  "title": "Auckland Motorway Test",
-  "about": "SH16, Auckland, New Zealand, south-eastbound (traffic on the left; longitude above latitude: the ground's road physics read the lon/lat boxes swapped there, the only test track where it shows): asphalt under the painted motorway, a bridge in the middle",
+ "auckland_interchange_test": {
+  "title": "Auckland Interchange Test",
+  "about": "SH16 at Waterview, Auckland, New Zealand (traffic on the left): four one-way carriageways of one name side by side, this one 0.8-1.1 m above the other direction's, a wall between them (mapped from 1232 m, the lidar's step before): each graded flat to the wall (grading.profiles._between_cuts); bridges of the interchange before it",
   "points": [
    [
-    -36.798466,
-    174.59873
+    -36.87164753286071,
+    174.69373226165771
    ],
    [
-    -36.803648,
-    174.604115
+    -36.871493041004165,
+    174.70916032791138
    ]
   ],
   "width": 100.0,
   "spots": [
    [
-    "130-750",
-    "the motorway before and after the bridge (599-645 m): asphalt under the painted road, not grass (measure: not road 0 m)"
+    "1088-1241",
+    "the motorway beside the other carriageway 1 m lower, no wall mapped (the lidar's step): no waves, no ramp at the side"
+   ],
+   [
+    "1241-1396",
+    "the same with the map's wall between them"
+   ],
+   [
+    "979-1058",
+    "onto and off a twin bridge between banked roads, a slip road merging at its start: on its line, tilted with the road"
    ]
   ],
   "reference": {
    "off_road_m": 0,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
-   "length_m": 750,
-   "over_05g_m": 0,
-   "lanes_over_05g_m": 0,
-   "max_g": 0.22,
-   "max_g_at_m": 599.0,
-   "edges_m": 0,
+   "length_m": 1396,
+   "over_05g_m": 1,
+   "lanes_over_05g_m": 9,
+   "max_g": 0.51,
+   "max_g_at_m": 974.0,
+   "edges_m": 1,
    "transitions": 2,
-   "max_g_transition": 0.22,
-   "warp_m": 0,
-   "max_warp": 0.02,
-   "max_warp_at_m": 606.0
+   "max_g_transition": 0.32,
+   "warp_m": 58,
+   "max_warp": 0.51,
+   "max_warp_at_m": 1049.0
+  }
+ },
+ "royal_view_road_test": {
+  "title": "Royal View Road Test",
+  "about": "Royal View Road, Te Atatu, Auckland, New Zealand (traffic on the left): a two-way street over a 33 m bridge with a service road at each end, meeting at right angles: real junction pads (roads.deck_pads), their rims on the road's cross slope",
+  "points": [
+   [
+    -36.857166,
+    174.642728
+   ],
+   [
+    -36.857098,
+    174.646116
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "244-298",
+    "the bridge with a junction pad at each end: 4.7 G on the line, ground 28 cm over the deck (open, not traced)"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 2,
+   "max_over_deck": 0.277,
+   "length_m": 487,
+   "over_05g_m": 38,
+   "lanes_over_05g_m": 51,
+   "max_g": 4.71,
+   "max_g_at_m": 286.0,
+   "edges_m": 0,
+   "transitions": 10,
+   "max_g_transition": 4.71,
+   "warp_m": 9,
+   "max_warp": 0.15,
+   "max_warp_at_m": 248.0
   }
  }
 }
