@@ -55,6 +55,8 @@ only inside functions at its end. Set a switch through the package (`roads.NAME 
 
 ## Read before you
 
+- read or name a word of this repo (tile, cell, part, plan, deck, server, ...): [GLOSSARY.md](GLOSSARY.md); keep it
+  current
 - change physics, materials or the kn5 writer: [docs/ac-rules.md](docs/ac-rules.md)
 - follow up a report or mark from AC: [docs/ac-reports.md](docs/ac-reports.md)
 - change the Rust module: [docs/rust.md](docs/rust.md)
