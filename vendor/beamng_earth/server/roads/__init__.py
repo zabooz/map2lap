@@ -52,8 +52,8 @@ from .walks import (
 )
 from .tiles import (
     BRIDGE_HEADROOM_MARGIN_M, DECK, DECK_CLEAR, DECK_MIN_DEPTH, DECK_ROAD_CLEAR, DECK_SPAN_RATIO, DECK_STEP,
-    MIN_BRIDGE_HEADROOM_M, _chunk, box_owns, cells_of_tile, lane_layout, lane_tags, split, tile_bbox, tile_distance,
-    tile_needs, tile_side, tiles_near
+    MIN_BRIDGE_HEADROOM_M, _chunk, box_gap, box_owns, cells_of_tile, lane_layout, lane_tags, split, tile_bbox,
+    tile_distance, tile_needs, tile_side, tiles_near
 )
 from .bridges import (
     AT_GRADE_M, BridgeProfiles, DECK_CLEAR_REACH_M, DECK_GRADE, DECK_MAX_GRADE, DECK_STEEP_GRADE, LIDAR_HEADROOM_M,
