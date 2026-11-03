@@ -9,6 +9,11 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
   (second difference: a slope doesn't count, a step does), -2..+2 m.
 - Across the carriageway: its whole width (the visible asphalt or deck around the line, up to WIDTH_MAX_M each side),
   where the driving surface under it lies more than EDGE_M off a straight line across (one side sunk or raised).
+- Ground over a deck: terrain points standing more than OVER_DECK_M above a deck over them, anywhere along the route: the
+  car rides the terrain there, a bump the deck's own shape doesn't show.
+
+--profile prints a stretch's surfaces apart: deck and ground per lane against the stretch's straight grade, and the line
+as ridden with its slope per metre. Above, "terrain 3.1 G" says only which surface was on top.
 
 The test tracks (test_tracks.json, named "<Place> Test") are short routes, each around the spots worth driving after a
 change to the driving surface (a junction, a bridge end, an underpass): their pins lie along the route, so OSRM routes
@@ -24,6 +29,7 @@ them. A build's log: out/build_<name>.log.
     .venv\\Scripts\\python.exe tools\\measure.py --long --build                     # ... the long ones
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --build              # one of them
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --from 70 --to 120   # a section, every spot
+    .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --profile --from 78 --to 118    # its surfaces apart
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --install            # into AC, to drive it
     .venv\\Scripts\\python.exe tools\\measure.py a2_test                            # any track built before
     ... --reference    save the values as the new reference in test_tracks.json (the state a change is compared with)
@@ -66,6 +72,11 @@ V = 100 / 3.6
 HOLE_CELL_M = 2.0       # m: the terrain's grid
 CLIMB_M = 0.6           # m between neighbouring cells a car drives over (30 %): past that a slope stops it (--holes)
 STAND_ON = ("1ROAD", "1GRASS", "1GRAVEL", "1KERB", FLOOR, "1WALL_tunnel", "1WALL_railcol", "nocol_road_asphalt")
+OVER_DECK_M = 0.02      # m a terrain point may stand over the deck over it: at a joint both lie on one height, within this
+OVER_DECK_NEAR_M = 1.0  # m: further above, it's a hillside beside a deck's other level, not this deck's ground
+OVER_DECK_GAP_M = 10.0  # m along the route between two bridges' points
+PROFILE_LANES = (-3.0, -2.0, 0.0, 2.0, 3.0)     # m across the route: a deck's whole carriageway
+PROFILE_RUN_UP_M = 150.0    # m of road before a stretch to start the line on: longer than the bridges a stretch starts on
 
 
 def _surfaces(track, box):
@@ -207,6 +218,128 @@ def _route(track):
     return np.loadtxt(path, skiprows=1)
 
 
+def over_deck(points, T3):
+    """The terrain points (n, 3: x, height, z) standing over a deck of triangles T3 (m, 3, 3): (k, 4) rows x, z, height
+    above the deck (m), height of the point, for those more than OVER_DECK_M and at most OVER_DECK_NEAR_M over the deck
+    nearest in height. Pure."""
+    if not len(points) or not len(T3):
+        return np.zeros((0, 4))
+    cells = {(int(a), int(b)) for a, b in np.floor(T3[:, :, [0, 2]].reshape(-1, 2) / CELL_M)}
+    near = {(a + i, b + j) for a, b in cells for i in (-1, 0, 1) for j in (-1, 0, 1)}
+    pk = np.floor(points[:, [0, 2]] / CELL_M).astype(np.int64)
+    points = points[[(int(a), int(b)) in near for a, b in pk]]
+    if not len(points):
+        return np.zeros((0, 4))
+    out = []
+    for q, (z, _d) in zip(points, _heights(T3, np.ones(len(T3), bool), points[:, 0], points[:, 2])):
+        if len(z):
+            over = q[1] - z
+            d = over[int(np.argmin(np.abs(over)))]
+            if OVER_DECK_M < d <= OVER_DECK_NEAR_M:
+                out.append((q[0], q[2], d, q[1]))
+    return np.array(out, np.float64).reshape(-1, 4)
+
+
+def over_deck_spots(rows, rx, rz, ss, s0=None, s1=None, gap=OVER_DECK_GAP_M):
+    """over_deck's rows by place on the route (points (rx, rz) at metres ss): [{"from", "to", "n", "over", "at", "off"}], a
+    spot per run of points with less than gap m between them, within s0..s1. "over": its highest (m), at "at" m, "off" m
+    off the line. Pure."""
+    if not len(rows):
+        return []
+    d = np.hypot(rows[:, 0, None] - rx[None], rows[:, 1, None] - rz[None])
+    k = d.argmin(1)
+    s, off = ss[k], d[np.arange(len(rows)), k]
+    keep = (s >= (-np.inf if s0 is None else s0)) & (s <= (np.inf if s1 is None else s1)) & (off <= WIDTH_MAX_M)
+    s, off, over = s[keep], off[keep], rows[keep, 2]
+    order = np.argsort(s)
+    s, off, over = s[order], off[order], over[order]
+    out = []
+    for run in np.split(np.arange(len(s)), np.flatnonzero(np.diff(s) >= gap) + 1) if len(s) else []:
+        i = run[int(over[run].argmax())]
+        out.append({"from": float(s[run[0]]), "to": float(s[run[-1]]), "n": len(run), "over": float(over[i]),
+                    "at": float(s[i]), "off": float(off[i])})
+    return out
+
+
+def _terrain_points(track, box):
+    """The terrain's vertices (n, 3) in box (x0, z0, x1, z1): its `*_ground_*` objects' alone (a bridge's parapets count
+    among the driving surfaces too, 80 cm over its deck)."""
+    out = []
+    for p in glob.glob(os.path.join(HERE, "out", "tracks", track, "obj", "parts", "t_*.obj")):
+        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
+            if "_ground_" in name and len(T):
+                v = P[np.unique(T)]
+                out.append(v[(v[:, 0] >= box[0]) & (v[:, 0] <= box[2]) & (v[:, 2] >= box[1]) & (v[:, 2] <= box[3])])
+    return np.unique(np.concatenate(out), axis=0) if out else np.zeros((0, 3))
+
+
+def _ground_over_deck(track, box, T3, D, route, S, s0, s1):
+    """over_deck_spots of track's terrain over the decks among the surfaces T3 (deck flags D) along route (metres S)."""
+    if not D.any():
+        return []
+    points = _terrain_points(track, box)
+    ss = np.arange(0.0, S[-1], 0.5)
+    return over_deck_spots(over_deck(points, T3[D]), np.interp(ss, S, route[:, 0]), np.interp(ss, S, route[:, 1]), ss,
+                           s0, s1)
+
+
+def pick_surface(hit, deck, near):
+    """Of a point's surfaces (_heights: heights, is deck) the deck's or the ground's nearest in height to near, or NaN. Pure."""
+    z, d = hit
+    z = z[d == deck]
+    return float(z[np.argmin(np.abs(z - near))]) if len(z) else float("nan")
+
+
+def report_profile(track, start, end, step=1.0):
+    """A stretch's surfaces apart: per lane deck and ground in cm against the straight grade between its ends (">": the
+    ground over the deck), then the line as ridden: its height, slope per metre, surface."""
+    route = _route(track)
+    S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
+    start, end = start or 0.0, min(end or S[-1], S[-1])
+    ss = np.arange(start, end + 1e-6, step)
+    px, pz = np.interp(ss, S, route[:, 0]), np.interp(ss, S, route[:, 1])
+    tx = np.interp(ss + 1, S, route[:, 0]) - np.interp(ss - 1, S, route[:, 0])
+    tz = np.interp(ss + 1, S, route[:, 1]) - np.interp(ss - 1, S, route[:, 1])
+    tn = np.maximum(np.hypot(tx, tz), 1e-9)
+    nx, nz = -tz / tn, tx / tn
+    # (the line ridden from a run-up: started on a deck, _lane would take what lies under it)
+    up = np.arange(max(start - PROFILE_RUN_UP_M, 0.0), start, step)
+    ux, uz = np.interp(up, S, route[:, 0]), np.interp(up, S, route[:, 1])
+    T3, D = _surfaces(track, (min(px.min(), ux.min(initial=px.min())) - 30, min(pz.min(), uz.min(initial=pz.min())) - 30,
+                              max(px.max(), ux.max(initial=px.max())) + 30, max(pz.max(), uz.max(initial=pz.max())) + 30))
+    hits = {w: _heights(T3, D, px + nx * w, pz + nz * w) for w in PROFILE_LANES}
+    line, is_deck = _lane(_heights(T3, D, ux, uz) + hits[0.0])
+    line, is_deck = line[len(up):], is_deck[len(up):]
+    ok = np.flatnonzero(np.isfinite(line))
+    if len(ok) < 2:
+        print(f"{track}: no surface along {start:.0f}-{end:.0f} m")
+        return
+    a, b = ok[0], ok[-1]
+    grade = line[a] + (line[b] - line[a]) * (ss - ss[a]) / (ss[b] - ss[a])
+    print(f"{track}, {start:.0f}-{end:.0f} m: grade {100 * (line[b] - line[a]) / (ss[b] - ss[a]):+.2f} %. Heights in cm "
+          f"against it, deck / ground per lane (m across the line; >: the ground over the deck by {OVER_DECK_M * 100:.0f} cm "
+          f"or more):")
+    print("       m " + "".join(f"{w:+16.0f}" for w in PROFILE_LANES))
+    for i, s in enumerate(ss):
+        cols = []
+        for w in PROFILE_LANES:
+            dk, gd = (pick_surface(hits[w][i], flag, grade[i]) for flag in (True, False))
+            over = np.isfinite(dk) and gd - dk > OVER_DECK_M and gd - dk <= OVER_DECK_NEAR_M
+            cols.append((f"{(dk - grade[i]) * 100:7.1f}" if np.isfinite(dk) else f"{'.':>7}")
+                        + (" >" if over else " /") + (f"{(gd - grade[i]) * 100:7.1f}" if np.isfinite(gd) else f"{'.':>7}"))
+        print(f"{s:8.1f} " + "".join(cols))
+    print("\nthe line as ridden: m, height against the grade (cm), slope (%), its change (%), surface")
+    last = None
+    for i in range(1, len(ss)):
+        if np.isnan(line[i]) or np.isnan(line[i - 1]):
+            continue
+        slope = 100 * (line[i] - line[i - 1]) / step
+        print(f"{ss[i]:8.1f} {(line[i] - grade[i]) * 100:7.1f} {slope:7.1f} "
+              + (f"{slope - last:+7.1f}" if last is not None else f"{'':7}")
+              + f"  {'deck' if is_deck[i] else 'ground'}")
+        last = slope
+
+
 def measure(track, start=None, end=None):
     route = _route(track)
     S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
@@ -239,7 +372,10 @@ def measure(track, start=None, end=None):
     edge = np.nan_to_num(np.abs(np.diff(H, 2, axis=0))).max(0) > EDGE_M
     warp, width = _across(T3, D, _paint(track, box), px, pz, nx, nz, h)
     worst = sorted(np.flatnonzero(ga > G_LIMIT), key=lambda k: -ga[k])
-    return {"length_m": round(float(S[-1])), "over_05g_m": int((ga > G_LIMIT).sum()),
+    spots = _ground_over_deck(track, box, T3, D, route, S, start, end)
+    return {"over_deck_spots": len(spots), "max_over_deck": round(max((u["over"] for u in spots), default=0.0), 3),
+            "_over_deck": spots,
+            "length_m": round(float(S[-1])), "over_05g_m": int((ga > G_LIMIT).sum()),
             "lanes_over_05g_m": int((gs > G_LIMIT).sum()),
             "max_g": round(float(ga.max()), 2), "max_g_at_m": float(ss[int(ga.argmax())]),
             "edges_m": int(edge.sum()), "transitions": len(trans),
@@ -282,6 +418,11 @@ def report(track, r, ref=None, everything=False):
         print("     at: " + ", ".join(f"{a:.0f}" if a == b else f"{a:.0f}-{b:.0f}" for a, b in rw[:n]) + " m"
               + (f" (+{len(rw) - n} more)" if n and len(rw) > n else ""))
     print(f"  bridge transitions: {r['transitions']}, strongest {r['max_g_transition']} G" + cmp("max_g_transition"))
+    print(f"  ground over a deck by more than {OVER_DECK_M * 100:.0f} cm: {r['over_deck_spots']} spots"
+          + cmp("over_deck_spots") + (f", most {r['max_over_deck'] * 100:.1f} cm" if r["over_deck_spots"] else ""))
+    for u in r["_over_deck"]:           # (always a fault: the deck's height is meant to be the surface there)
+        print(f"     {u['from']:7.0f}-{u['to']:.0f} m  GROUND OVER DECK: {u['n']} points, most {u['over'] * 100:.1f} cm at "
+              f"{u['at']:.0f} m, {u['off']:.1f} m off the line")
     n = None if everything else 8
     for s, gg, d in r["_worst"][:n]:
         print(f"     {s:7.0f} m  {gg:+6.2f} G  ({gg * 6.25:+6.1f} G at 250)  {'deck' if d else 'terrain'}")
@@ -471,6 +612,7 @@ def main():
     ap.add_argument("--to", dest="end", type=float)
     ap.add_argument("--reference", action="store_true", help="save the values as the new reference")
     ap.add_argument("--holes", action="store_true", help="only the gaps in the ground over the whole built area")
+    ap.add_argument("--profile", action="store_true", help="only the surfaces of --from..--to apart: deck and ground per lane")
     ap.add_argument("--build-one", help=argparse.SUPPRESS)      # (a child process: build this track, nothing else)
     ap.add_argument("--share", type=float, default=1.0, help=argparse.SUPPRESS)
     a = ap.parse_args()
@@ -493,6 +635,12 @@ def main():
     if a.holes:
         for t in tracks:
             report_holes(t)
+        return
+    if a.profile:
+        if a.start is None or a.end is None:
+            ap.error("--profile needs --from and --to")
+        for t in tracks:
+            report_profile(t, a.start, a.end)
         return
     part = a.start is not None or a.end is not None
     refs = {}

@@ -158,6 +158,9 @@ Custom Shaders Patch, the AC extension Map2Lap's tracks rely on (lights, `ext_co
 **Track Debug app**:
 Map2Lap's CSP app in AC: shows the route metre, marks spots, records drives.
 
+**Mark**:
+A spot saved from AC by the Track Debug app, with the 20 s of driving around it and a screenshot (`tools/mark.py` reads it).
+
 **Comic look**:
 Map2Lap's drawn style: textures painted in code, not photos.
 _Avoid_: toon, cartoon

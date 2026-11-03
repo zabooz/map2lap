@@ -20,13 +20,15 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
 
 ## Finding the cause
 
-1. `tools\from_debug.py <folder>` builds that track here with the route exactly as it was built (no OSRM) and says where
+1. `tools\mark.py [track]` reads the newest session with a mark: the passes, the hits, hanging axles, whether the car was
+   beside the road, and the `measure.py --profile` command for that stretch. The profile tells deck from ground.
+2. `tools\from_debug.py <folder>` builds that track here with the route exactly as it was built (no OSRM) and says where
    this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring tools).
-2. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
+3. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
    x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.
-3. See what was built there. A command-line build keeps `out/tracks/<name>/` (tiles, `obj/parts/t_<tx>_<ty>.obj`): the OBJ
+4. See what was built there. A command-line build keeps `out/tracks/<name>/` (tiles, `obj/parts/t_<tx>_<ty>.obj`): the OBJ
    parts name it (materials such as `nocol_walk_sidewalk`, `nocol_rail_rail`, `nocol_bld_fac`).
-4. Find out why, from the code that decided it: call the module on the map data around the spot (for example
+5. Find out why, from the code that decided it: call the module on the map data around the spot (for example
    `roads.road_specs` for a road's class, width and sidewalks, `railways.parts` for tracks) after
    `generator._init_worker(cache)`. At a tunnel portal, start with `tools\portal.py <track> <AC x> <AC z>`.
 

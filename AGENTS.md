@@ -23,7 +23,28 @@ by hand.
 - Once per clone: `git config core.hooksPath .githooks`; a commit with Python changes then runs `check.py --fast`.
 - Regression checks use only the tracks in `tools/test_tracks.json`. A new spot gets a new short track there.
 - `measure.py` numbers point at places. Whether a road drives better or worse is decided by driving it in AC.
-- A native crash (an access violation without a stack): `.venv\Scripts\python.exe tools\crash.py`.
+
+## Tools
+
+Look here first: a question below has its tool in `tools/`, and each tool's `--help` has its commands. A new tool gets its
+line here (`tests/test_tools.py`).
+
+| The question | The tool |
+|---|---|
+| A mark from AC: what did the car feel, where? | `mark.py [track]`, then `docs/ac-reports.md` |
+| Which surface is that bump, deck or ground? | `measure.py <track> --profile --from <m> --to <m>` |
+| A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
+| Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
+| A tunnel portal's heights | `portal.py <track> <AC x> <AC z>` |
+| The track of a report, built as its sender built it | `from_debug.py <session folder>` |
+| A stretch built again fast, with its profile | `stretch.py` |
+| Did a change leave the tracks as they were? | `compare_parts.py` (OBJ), `compare_kn5.py` (kn5) |
+| Which code does a build really run (before deleting code)? | `coverage.py` |
+| What did a build make: shapes per tile, a kn5's materials | `inspect_tiles.py`, `read_kn5.py` |
+| A native crash (an access violation without a stack) | `crash.py` |
+| Build the Rust module, read a DLL's imports | `build_native.py`, `pe_imports.py` |
+| Make a release, test its update | `make_release.py`, `test_update.py` |
+| The CC0 textures a clone lacks | `get_textures.py` |
 
 ## Builds
 
@@ -32,7 +53,6 @@ by hand.
   (`revisit.code_key`). Set `BNE_COLD=<any value>` to force a fresh run.
 - To prove a refactoring changes nothing: `tools\compare_parts.py save before` (the test tracks as built), the change,
   `tools\measure.py --all --build`, `tools\compare_parts.py compare before` (0 differ, else the files and OBJ objects).
-- Which code a build really runs (before deleting code as unused): `tools\coverage.py run`, then `report`.
 
 ## Rules for a change
 
