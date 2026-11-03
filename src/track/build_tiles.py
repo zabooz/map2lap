@@ -11,11 +11,11 @@ import os
 import sys
 import time
 
-from app.paths import ROOT, SERVER, SRC
-sys.path.insert(0, SERVER)
+from app.paths import ENGINE, ROOT, SRC
+sys.path.insert(0, ENGINE)
 if SRC not in sys.path:         # (after the chdir Python would no longer find our packages through "")
     sys.path.insert(1, SRC)
-os.chdir(SERVER)                # (earthfast.pyd and the server's relative paths)
+os.chdir(ENGINE)                # (earthfast.pyd and the engine's relative paths)
 
 import blockworker          # noqa: E402
 import roads as roadsmod    # noqa: E402

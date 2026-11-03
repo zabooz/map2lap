@@ -1,7 +1,7 @@
 # The Rust module `earthfast`
 
-The hot loops of grading and painting, in `vendor/beamng_earth/native/earthfast`. The repo holds the built module for both
-systems: `server/earthfast.pyd` (Windows) and `server/earthfast.abi3.so` (Linux release).
+The hot loops of grading and painting, in `native/earthfast`. The repo holds the built module for both systems:
+`engine/earthfast.pyd` (Windows) and `engine/earthfast.abi3.so` (Linux release).
 
 ## Rebuilding
 
@@ -9,14 +9,14 @@ Every change to the Rust code builds both files: a stale one gives the other sys
 the module's `VERSION` show which rules it has).
 
 ```bash
-cd vendor/beamng_earth/native/earthfast
+cd native/earthfast
 export PATH="$HOME/.cargo/dlltool-llvm:$HOME/.cargo/bin:$PATH"
 cargo build --release
-cp target/release/earthfast.dll ../../server/earthfast.pyd     # stop the generator page first: it locks the file
+cp target/release/earthfast.dll ../../engine/earthfast.pyd     # stop the generator page first: it locks the file
 
 # Linux, in WSL (Ubuntu-24.04) in the same folder; its own target folder keeps it apart from the Windows build
 CARGO_TARGET_DIR=~/earthfast-target cargo build --release --locked
-cp ~/earthfast-target/release/libearthfast.so ../../server/earthfast.abi3.so
+cp ~/earthfast-target/release/libearthfast.so ../../engine/earthfast.abi3.so
 ```
 
 `tools\build_native.py` does the Windows part and checks the new module has our grading rules.

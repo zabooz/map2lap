@@ -21,3 +21,6 @@ assets/textures/
 
 # A downloaded update on its way in (src/app/updater.py, "Start Map2Lap.bat")
 update/
+
+# The Rust module's build folder (tools/build_native.py)
+native/earthfast/target/

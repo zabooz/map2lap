@@ -9,7 +9,7 @@ packages from requirements.txt. Users unpack it and double-click "Start Map2Lap.
     .venv\\Scripts\\python.exe tools\\make_release.py [--win | --linux]
 
 Both are built on Windows. The Python has the same version as the one running this script: Windows python.org's
-embeddable package (vendor/beamng_earth/server/earthfast.pyd is built for it), Linux python-build-standalone with the
+embeddable package (engine/earthfast.pyd is built for it), Linux python-build-standalone with the
 packages' manylinux wheels (earthfast.abi3.so needs any Python >= 3.10). The Linux archive is written by tarfile
 itself: the Windows folder can't hold its symlinks and execute bits.
 """
@@ -46,10 +46,10 @@ DIST = os.path.join(HERE, "dist")
 NAME = "Map2Lap"
 # developer-only parts (in the repository, not in the release)
 SKIP = ("tools/", "docs/", ".gitignore", ".gitattributes", "AGENTS.md", "CLAUDE.md", "GLOSSARY.md",
-        "vendor/beamng_earth/server/tests/", "vendor/beamng_earth/native/", "vendor/beamng_earth/tools/")
+        "engine/tests/", "native/")
 # what only the other system needs
-ONLY = {"win": ("Start Map2Lap.bat", "vendor/beamng_earth/server/earthfast.pyd"),
-        "linux": ("start.sh", "Map2Lap.desktop", "vendor/beamng_earth/server/earthfast.abi3.so")}
+ONLY = {"win": ("Start Map2Lap.bat", "engine/earthfast.pyd"),
+        "linux": ("start.sh", "Map2Lap.desktop", "engine/earthfast.abi3.so")}
 EXECUTABLE = ("start.sh", "Map2Lap.desktop")     # (Linux: started by a double-click)
 TEXTURES = os.path.join("assets", "textures")
 

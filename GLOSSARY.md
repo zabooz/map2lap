@@ -9,10 +9,9 @@ grading and building code is based on BeamNG.Earth, a mod that streamed the real
 The local web page end users build and manage tracks with (`src/server.py`).
 _Avoid_: server, the page's server
 
-**server/**:
-The folder `vendor/beamng_earth/server/`: our roads, grading, buildings and scenery code. It serves nothing; the name
-is BeamNG.Earth's.
-_Avoid_: vendor code, the server
+**Engine**:
+The folder `engine/`: our roads, grading, buildings and scenery code, based on BeamNG.Earth's server folder.
+_Avoid_: server, vendor code, BeamNG code
 
 **earthd**:
 BeamNG.Earth's live server that fed the game while driving; removed. Older comments mean it by "the server".
@@ -131,7 +130,7 @@ The `measure.py` values a test track's build is compared with.
 Built tile results kept on disk, keyed by the code key; a later build of the same place reads them back.
 
 **Code key**:
-A hash of the `server/` code, the native module and the `BNE_*` environment variables; a new one makes the next build
+A hash of the `engine/` code, the native module and the `BNE_*` environment variables; a new one makes the next build
 cold.
 
 **Cold build**:
@@ -166,7 +165,7 @@ _Avoid_: toon, cartoon
 ## BeamNG.Earth
 
 **BeamNG.Earth**:
-The project `server/` is based on: a BeamNG.drive mod with a live server (earthd).
+The project `engine/` is based on: a BeamNG.drive mod with a live server (earthd).
 
 **The mod, the game**:
 In older comments: BeamNG.Earth's game mod and BeamNG.drive. Neither is part of Map2Lap.

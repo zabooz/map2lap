@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Map2Lap builds Assetto Corsa tracks from real roads, anywhere on earth. Windows first: Python 3.12 in `.venv`,
-PowerShell. `src/` is the import root (tools add it themselves). `vendor/beamng_earth` is our own code, based on
-BeamNG.Earth: change it directly and port single upstream changes by hand.
+PowerShell. `src/` is the import root (tools add it themselves). `engine/` (roads, grading, buildings), `native/` (the Rust
+module) and `tools/data/` are our own code, based on BeamNG.Earth: change them directly and port single upstream changes
+by hand.
 
 ## Check a change
 
@@ -25,8 +26,8 @@ BeamNG.Earth: change it directly and port single upstream changes by hand.
 
 ## Builds
 
-- A build reads the source files live: keep `server/` and `src/` unchanged while one runs.
-- Grading results are cached by a hash of the server code, the native module and all `BNE_*` environment variables
+- A build reads the source files live: keep `engine/` and `src/` unchanged while one runs.
+- Grading results are cached by a hash of the engine code, the native module and all `BNE_*` environment variables
   (`revisit.code_key`). Set `BNE_COLD=<any value>` to force a fresh run.
 - To prove a refactoring changes nothing, compare the files in `out/tracks/<name>/obj/parts/` before and after.
 
@@ -36,7 +37,7 @@ BeamNG.Earth: change it directly and port single upstream changes by hand.
   road widths and terrain. Before building, name the kinds of places it touches.
 - **Map data first.** OpenStreetMap and Overture tags (tunnel, bridge, layer, width, ...) come before thresholds. A number
   that stays gets a comment with its physical reason and where it would fail.
-- **Fix the cause,** in `vendor/beamng_earth` and in the Rust module too. Read what the code intends at that place first.
+- **Fix the cause,** in `engine/` and in the Rust module too. Read what the code intends at that place first.
 - **A driving-surface rule** gets a comment saying why, a test that fails without it, and `measure.py` before and after.
 - **Comments and docs say how it is now:** the rule and its reason, with a concrete example where that helps.
 - **Style:** short functions, docstrings that name the inputs and say "Pure." when there are no side effects.
@@ -50,7 +51,7 @@ BeamNG.Earth: change it directly and port single upstream changes by hand.
 
 ## Packages
 
-`roads/`, `grading/` and `buildings/` in `server/` are read by the package's name (`roads.portal_apron`). A name new to the
+`roads/`, `grading/` and `buildings/` in `engine/` are read by the package's name (`roads.portal_apron`). A name new to the
 outside goes into `__init__.py`. Parts call each other: a name read at import time is imported at a part's top, one read
 only inside functions at its end. Set a switch through the package (`roads.NAME = x`): that reaches every part's copy.
 

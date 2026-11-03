@@ -22,5 +22,5 @@ SOFTWARE.
 
 ---
 
-vendor/beamng_earth contains BeamNG.Earth, Copyright (c) 2026 TecnaGamer, under its own
-MIT License (vendor/beamng_earth/LICENSE), changed as part of Map2Lap.
+engine/, native/ and tools/data/ contain BeamNG.Earth, Copyright (c) 2026 TecnaGamer, under its own
+MIT License (LICENSE-BeamNG.Earth), changed as part of Map2Lap.

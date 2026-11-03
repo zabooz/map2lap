@@ -1,6 +1,6 @@
 Roadgeek 2014 Series EEM, version 3.1
 https://github.com/sammdot/roadgeek-fonts/releases/tag/3.1
-Used by tools/build_sign_glyphs.py to make sign_letters_o.data.png and server/sign_glyphs.json
+Used by tools/data/build_sign_glyphs.py to make sign_letters_o.data.png and engine/sign_glyphs.json
 (RG2014EEM.ttf is byte-identical to the one in that release's RG2014-3.10.zip).
 
 Copyright (c) 2015 Sammi De Guzman

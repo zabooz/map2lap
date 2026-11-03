@@ -17,11 +17,11 @@ from concurrent.futures import as_completed
 
 import numpy as np
 
-from app.paths import ROOT, SERVER, SRC
-sys.path.insert(0, SERVER)
+from app.paths import ENGINE, ROOT, SRC
+sys.path.insert(0, ENGINE)
 if SRC not in sys.path:         # (after the chdir Python would no longer find our packages through "")
     sys.path.insert(1, SRC)
-os.chdir(SERVER)
+os.chdir(ENGINE)
 
 import blockworker          # noqa: E402
 import buildings            # noqa: E402

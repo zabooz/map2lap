@@ -5,8 +5,8 @@ import json
 import os
 import sys
 
-SERVER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vendor", "beamng_earth", "server")
-sys.path.insert(0, SERVER)
+ENGINE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "engine")
+sys.path.insert(0, ENGINE)
 import cdae  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "out", "tiles")

@@ -92,5 +92,6 @@ Tracks you build contain this data; the attribution is written into each track's
 
 ## License
 
-[MIT](LICENSE). BeamNG.Earth in `vendor/beamng_earth` keeps its own MIT License. Map2Lap is a fan project and not
+[MIT](LICENSE). BeamNG.Earth's code in `engine/`, `native/` and `tools/data/` keeps its own
+[MIT License](LICENSE-BeamNG.Earth). Map2Lap is a fan project and not
 affiliated with Kunos Simulazioni, BeamNG GmbH or the BeamNG.Earth project.

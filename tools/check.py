@@ -9,7 +9,7 @@ KNOWN one that passes again is reported so its entry can go.
 
 Exit code 0: passed, 1: failed. The kn5 build goes into a temporary AC folder, so nothing in AC changes; its OBJ parts
 stay in out/tracks/check_<track> to compare against. It needs the map services (OSRM) like any build. A build's
-grading is cached (revisit.code_key): after a change to server/ the first one runs cold, a few minutes.
+grading is cached (revisit.code_key): after a change to engine/ the first one runs cold, a few minutes.
 """
 import argparse
 import json
@@ -21,7 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
-TESTS = os.path.join(HERE, "vendor", "beamng_earth", "server", "tests")
+TESTS = os.path.join(HERE, "engine", "tests")
 TRACK = "stausee_kreuzung_test"     # the shortest test track: a few tiles, under a minute when its grading is cached
 FILE_TIMEOUT_S = 900                # s per test file: the slowest take about a minute; past this it hangs
 BUILD_TIMEOUT_S = 1800

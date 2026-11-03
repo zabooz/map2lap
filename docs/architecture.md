@@ -1,6 +1,6 @@
 # How a build runs
 
-Map2Lap runs BeamNG.Earth's server code (`vendor/beamng_earth`, developed further here) without the game and writes the
+Map2Lap runs BeamNG.Earth's server code (`engine/`, developed further here) without the game and writes the
 result with its own kn5 writer: no Blender, no ksEditor.
 
 ```
