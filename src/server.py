@@ -468,6 +468,7 @@ if __name__ == "__main__":
     system.trust_windows_certificates()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
+    updater.drop_old()
     try:                                # (AC as Settings say)
         debugapp.sync(settings.ac_path(), settings.load()["debug_app"])
     except OSError:

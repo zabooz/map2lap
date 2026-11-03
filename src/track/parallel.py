@@ -44,8 +44,9 @@ def retry_locked(fn):
 
 
 def pool(n, initializer=None, initargs=()):
-    # (Not max_tasks_per_child: with it the pool hung under Python 3.12/Windows, tested. BeamNG.Earth keeps map and
-    # elevation data in memory per process: on 300 km each process grew from 0.9 to 1.35 GB, which is fine.)
+    # (Not max_tasks_per_child: with it the pool hung under Python 3.12/Windows, tested; 3.14 untried. BeamNG.Earth
+    # keeps map and elevation data in memory per process: on 300 km each process grew from 0.9 to 1.35 GB, which is
+    # fine.)
     # (spawn on Linux too, as on Windows: each worker starts clean and builds BeamNG.Earth's state in its initializer;
     # Linux' default fork would copy the parent's state and threads into it, and builds could differ between systems)
     return ProcessPoolExecutor(max_workers=n, initializer=initializer, initargs=initargs,

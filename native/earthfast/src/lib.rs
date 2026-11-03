@@ -23,7 +23,6 @@ mod cachemap;
 mod areacover;
 mod geotiles;
 mod geocontent;
-mod farcontent;
 mod sidewalks;
 mod roadz;
 mod fartex;
@@ -879,197 +878,6 @@ fn enu_to_geodetic<'py>(py: Python<'py>, e: PyReadonlyArray1<'py, f64>, n: PyRea
     (lat, lon, hgt)
     });
     (lat.into_pyarray(py), lon.into_pyarray(py), hgt.into_pyarray(py))
-}
-
-/// bc7.encode: BC7 mode-6 blocks (16 bytes each, row-major) of an (h, w, 3|4) uint8 image, edges padded by
-/// repetition. The same encoder as the numpy one: endpoints along the block's main axis (power iteration on the
-/// RGBA covariance), 7-bit endpoints with the best p-bit, indices by projection onto the quantised endpoints.
-const BC7_W: [f64; 16] = [0., 4., 9., 13., 17., 21., 26., 30., 34., 38., 43., 47., 51., 55., 60., 64.];
-
-fn bc7_quantise(e: [f64; 4], opaque: bool) -> ([i32; 4], i32) {
-    let mut best_q = [0i32; 4];
-    let mut best_p = 0;
-    let mut best_err = f64::INFINITY;
-    for p in 0..2 {
-        let mut q = [0i32; 4];
-        let mut err = 0.0;
-        for c in 0..4 {
-            q[c] = ((e[c] - p as f64) / 2.0).round_ties_even().clamp(0.0, 127.0) as i32;
-            err += (((q[c] << 1) | p) as f64 - e[c]).abs();
-        }
-        if err < best_err {
-            best_q = q;
-            best_p = p;
-            best_err = err;
-        }
-    }
-    if opaque {
-        for c in 0..4 {
-            best_q[c] = ((e[c] - 1.0) / 2.0).round_ties_even().clamp(0.0, 127.0) as i32;
-        }
-        best_q[3] = 127;
-        best_p = 1;
-    }
-    (best_q, best_p)
-}
-
-fn bc7_block(t: &[[i32; 4]; 16]) -> [u8; 16] {
-    let mut mean = [0f64; 4];
-    for k in 0..16 {
-        for c in 0..4 {
-            mean[c] += t[k][c] as f64;
-        }
-    }
-    for c in 0..4 {
-        mean[c] /= 16.0;
-    }
-    let mut d = [[0f64; 4]; 16];
-    for k in 0..16 {
-        for c in 0..4 {
-            d[k][c] = t[k][c] as f64 - mean[c];
-        }
-    }
-    let mut cov = [[0f64; 4]; 4];
-    for i in 0..4 {
-        for j in 0..4 {
-            let mut s = 0.0;
-            for k in 0..16 {
-                s += d[k][i] * d[k][j];
-            }
-            cov[i][j] = s;
-        }
-    }
-    let mut v = [0f64; 4];
-    let mut m = 0;
-    for i in 1..4 {
-        if cov[i][i] > cov[m][m] {
-            m = i;
-        }
-    }
-    v[m] = 1.0;
-    for _ in 0..4 {
-        let mut w = [0f64; 4];
-        for i in 0..4 {
-            for j in 0..4 {
-                w[i] += cov[i][j] * v[j];
-            }
-        }
-        let n = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2] + w[3] * w[3]).sqrt().max(1e-9);
-        for i in 0..4 {
-            v[i] = w[i] / n;
-        }
-    }
-    let (mut pmin, mut pmax) = (f64::INFINITY, f64::NEG_INFINITY);
-    for k in 0..16 {
-        let p = d[k][0] * v[0] + d[k][1] * v[1] + d[k][2] * v[2] + d[k][3] * v[3];
-        pmin = pmin.min(p);
-        pmax = pmax.max(p);
-    }
-    let opaque = t.iter().all(|x| x[3] == 255);
-    let mut lo = [0f64; 4];
-    let mut hi = [0f64; 4];
-    for c in 0..4 {
-        lo[c] = (mean[c] + v[c] * pmin).clamp(0.0, 255.0);
-        hi[c] = (mean[c] + v[c] * pmax).clamp(0.0, 255.0);
-    }
-    let (mut q0, mut p0) = bc7_quantise(lo, opaque);
-    let (mut q1, mut p1) = bc7_quantise(hi, opaque);
-    let mut e0 = [0i32; 4];
-    let mut e1 = [0i32; 4];
-    for c in 0..4 {
-        e0[c] = (q0[c] << 1) | p0;
-        e1[c] = (q1[c] << 1) | p1;
-    }
-    let mut axis = [0f64; 4];
-    let mut den = 0.0;
-    for c in 0..4 {
-        axis[c] = (e1[c] - e0[c]) as f64;
-        den += axis[c] * axis[c];
-    }
-    let den = den.max(1e-9);
-    let mut idx = [0u8; 16];
-    for k in 0..16 {
-        let mut dot = 0.0;
-        for c in 0..4 {
-            dot += (t[k][c] - e0[c]) as f64 * axis[c];
-        }
-        let f = dot / den * 64.0;
-        let mut bi = 0;
-        let mut be = f64::INFINITY;
-        for (w, wv) in BC7_W.iter().enumerate() {
-            let e = (f - wv).abs();
-            if e < be {
-                be = e;
-                bi = w;
-            }
-        }
-        idx[k] = bi as u8;
-    }
-    if idx[0] >= 8 {
-        std::mem::swap(&mut q0, &mut q1);
-        std::mem::swap(&mut p0, &mut p1);
-        for k in 0..16 {
-            idx[k] = 15 - idx[k];
-        }
-    }
-    let mut bits: u128 = 1 << 6;
-    let mut pos = 7;
-    let mut put = |v: u128, n: u32, pos: &mut u32| {
-        bits |= v << *pos;
-        *pos += n;
-    };
-    for c in 0..4 {
-        put(q0[c] as u128, 7, &mut pos);
-        put(q1[c] as u128, 7, &mut pos);
-    }
-    put(p0 as u128, 1, &mut pos);
-    put(p1 as u128, 1, &mut pos);
-    put(idx[0] as u128, 3, &mut pos);
-    for k in 1..16 {
-        put(idx[k] as u128, 4, &mut pos);
-    }
-    bits.to_le_bytes()
-}
-
-#[pyfunction]
-fn bc7_encode<'py>(py: Python<'py>, img: PyReadonlyArray3<'py, u8>) -> Bound<'py, PyBytes> {
-    let a = img.as_array();
-    let out = py.allow_threads(|| {
-    let (h, w, ch) = (a.shape()[0], a.shape()[1], a.shape()[2]);
-    let (nby, nbx) = ((h + 3) / 4, (w + 3) / 4);
-    let mut out = vec![0u8; nby * nbx * 16];
-    // block rows in bands across the cores (a 4096² base photo was 0.46 s on one, 2026-10-28)
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(8).min(nby.max(1));
-    let rows_per = (nby + threads - 1) / threads.max(1);
-    std::thread::scope(|sc| {
-    for (bi, band) in out.chunks_mut((rows_per * nbx * 16).max(16)).enumerate() {
-    let a = &a;
-    sc.spawn(move || {
-    let mut t = [[0i32; 4]; 16];
-    let by0 = bi * rows_per;
-    for by in by0..(by0 + rows_per).min(nby) {
-        for bx in 0..nbx {
-            for yy in 0..4 {
-                let y = (by * 4 + yy).min(h - 1);
-                for xx in 0..4 {
-                    let x = (bx * 4 + xx).min(w - 1);
-                    let k = yy * 4 + xx;
-                    for c in 0..4 {
-                        t[k][c] = if c < ch { a[[y, x, c]] as i32 } else { 255 };
-                    }
-                }
-            }
-            let blk = bc7_block(&t);
-            let o = ((by - by0) * nbx + bx) * 16;
-            band[o..o + 16].copy_from_slice(&blk);
-        }
-    }
-    });
-    }
-    });
-    out
-    });
-    PyBytes::new(py, &out)
 }
 
 /// roads.cut_outside's test: which points (n, 2) lie within half width hw[j] of a segment of blocker j. segs (m, 4)
@@ -2125,148 +1933,6 @@ fn contains_points<'py>(py: Python<'py>, ring: PyReadonlyArray2<'py, f64>, pts: 
         out[j] = c & 1 == 1;
     }
     out.into_pyarray(py)
-}
-
-fn rf_hash3(i: i64, j: i64, k: i64) -> f64 {
-    let mut x = (i as u64).wrapping_mul(0x9E3779B97F4A7C15) ^ (j as u64).wrapping_mul(0xC2B2AE3D27D4EB4F);
-    x ^= (k as u64).wrapping_mul(0x165667B19E3779F9);
-    x ^= x >> 31;
-    x = x.wrapping_mul(0xBF58476D1CE4E5B9);
-    x ^= x >> 29;
-    (x >> 11) as f64 / (1u64 << 53) as f64
-}
-
-fn rf_noise3(x: f64, y: f64, z: f64) -> f64 {
-    let (xi, yi, zi) = (x.floor(), y.floor(), z.floor());
-    let s = |f: f64| f * f * (3.0 - 2.0 * f);
-    let (fx, fy, fz) = (s(x - xi), s(y - yi), s(z - zi));
-    let (xi, yi, zi) = (xi as i64, yi as i64, zi as i64);
-    let mut out = 0.0;
-    for dx in 0..2 {
-        let wx = if dx == 1 { fx } else { 1.0 - fx };
-        for dy in 0..2 {
-            let wy = if dy == 1 { fy } else { 1.0 - fy };
-            for dz in 0..2 {
-                let wz = if dz == 1 { fz } else { 1.0 - fz };
-                out = out + wx * wy * wz * rf_hash3(xi + dx, yi + dy, zi + dz);
-            }
-        }
-    }
-    out
-}
-
-/// rockface.rock: the tile photo rgb (px, px, 3) with its steep texels drawn toward rock, or None when nothing is
-/// steep. U: the tile's height grid [j, i], origin (ux0, uy0), spacing usp. steep_a / steep_b: the slopes
-/// (rise / run) of STEEP_DEG; octaves (k, 2) (scale m, weight); m_lat / m_lon: metres per degree.
-#[pyfunction]
-#[allow(clippy::too_many_arguments)]
-fn rock<'py>(py: Python<'py>, rgb: PyReadonlyArray3<'py, u8>, u: PyReadonlyArray2<'py, f64>, x0: f64, y0: f64,
-             size: f64, ux0: f64, uy0: f64, usp: f64, lat: f64, lon: f64, m_lat: f64, m_lon: f64, steep_a: f64,
-             steep_b: f64, octaves: PyReadonlyArray2<'py, f64>, strata_m: f64, strata_w: f64,
-             tint: (f32, f32, f32), desat: f64, darken: f64) -> Option<Bound<'py, numpy::PyArray3<u8>>> {
-    let img = rgb.as_array();
-    let u = u.as_array();
-    let oct = octaves.as_array();
-    let res = py.allow_threads(|| {
-    let px = img.shape()[0];
-    let (ny, nx) = (u.nrows(), u.ncols());
-    let t = size / px as f64;
-    let c: Vec<f64> = (0..px).map(|k| (k as f64 + 0.5) * t).collect();
-    let xs: Vec<f64> = c.iter().map(|v| x0 + v).collect();
-    let ys: Vec<f64> = c.iter().map(|v| y0 + size - v).collect();
-    let fi: Vec<(usize, f64)> = xs.iter().map(|x| {
-        let f = ((x - ux0) / usp).clamp(0.0, nx as f64 - 1.000001);
-        let i0 = f.floor();
-        (i0 as usize, f - i0)
-    }).collect();
-    let fj: Vec<(usize, f64)> = ys.iter().map(|y| {
-        let f = ((y - uy0) / usp).clamp(0.0, ny as f64 - 1.000001);
-        let j0 = f.floor();
-        (j0 as usize, f - j0)
-    }).collect();
-    let mut h = vec![0.0f64; px * px];
-    for j in 0..px {
-        let (j0, wj) = fj[j];
-        for i in 0..px {
-            let (i0, wi) = fi[i];
-            h[j * px + i] = (u[[j0, i0]] * (1.0 - wi) + u[[j0, i0 + 1]] * wi) * (1.0 - wj)
-                + (u[[j0 + 1, i0]] * (1.0 - wi) + u[[j0 + 1, i0 + 1]] * wi) * wj;
-        }
-    }
-    // numpy.gradient(H, t): central inside, one-sided at the edges
-    let grad = |a: usize, b: usize, n: usize, f: &dyn Fn(usize) -> f64| -> f64 {
-        let _ = b;
-        if n < 2 {
-            0.0
-        } else if a == 0 {
-            (f(1) - f(0)) / t
-        } else if a == n - 1 {
-            (f(n - 1) - f(n - 2)) / t
-        } else {
-            (f(a + 1) - f(a - 1)) / (2.0 * t)
-        }
-    };
-    let mut slope = vec![0.0f64; px * px];
-    let mut kk = vec![0.0f64; px * px];
-    let mut any = false;
-    for j in 0..px {
-        for i in 0..px {
-            let gx = grad(i, 0, px, &|q| h[j * px + q]);
-            let gy = grad(j, 0, px, &|q| h[q * px + i]);
-            let sl = gx.hypot(gy);
-            let tt = ((sl - steep_a) / (steep_b - steep_a)).clamp(0.0, 1.0);
-            let k = tt * tt * (3.0 - 2.0 * tt);
-            slope[j * px + i] = sl;
-            kk[j * px + i] = k;
-            if k > 0.01 {
-                any = true;
-            }
-        }
-    }
-    if !any {
-        return None;
-    }
-    let wsum: f64 = (0..oct.nrows()).map(|o| oct[[o, 1]]).sum();
-    let mut out = img.to_owned();
-    let (one_m_desat, desat32, darken32) = ((1.0 - desat) as f32, desat as f32, darken as f32);
-    let lw = (0.299f32, 0.587f32, 0.114f32);
-    for j in 0..px {
-        for i in 0..px {
-            let q = j * px + i;
-            let k = kk[q];
-            if !(k > 0.01) {
-                continue;
-            }
-            let (hs, sl) = (h[q], slope[q]);
-            let ex = lon * m_lon + xs[i];
-            let nyv = lat * m_lat + ys[j];
-            let foot = t * sl.max(1.0);
-            let mut n = 0.0f64;
-            for o in 0..oct.nrows() {
-                let (scale, w) = (oct[[o, 0]], oct[[o, 1]]);
-                let a = (1.0 - 1.5 * foot / scale).clamp(0.0, 1.0) * w;
-                if a > 0.0 {
-                    n += a * (rf_noise3(ex / scale, nyv / scale, hs / scale) - 0.5);
-                }
-            }
-            n /= wsum;
-            let sa = (1.0 - 1.5 * foot / strata_m).clamp(0.0, 1.0);
-            let strata = sa * (2.0 * std::f64::consts::PI * hs / strata_m + 3.0 * n).sin() * strata_w;
-            let f = [img[[j, i, 0]] as f32 / 255.0, img[[j, i, 1]] as f32 / 255.0, img[[j, i, 2]] as f32 / 255.0];
-            let lum = f[0] * lw.0 + f[1] * lw.1 + f[2] * lw.2;
-            let tints = [tint.0, tint.1, tint.2];
-            let mult = 1.0 + 0.55 * n + strata;
-            for ch in 0..3 {
-                let rockc = (f[ch] * one_m_desat + lum * desat32) * tints[ch] * darken32;
-                let rc = rockc as f64 * mult;
-                let mixed = f[ch] as f64 * (1.0 - k) + rc * k;
-                out[[j, i, ch]] = (mixed * 255.0).round_ties_even().clamp(0.0, 255.0) as u8;
-            }
-        }
-    }
-    Some(out)
-    });
-    res.map(|o| o.into_pyarray(py))
 }
 
 /// The byte of imagery._to_srgb for a float32 in [0, 1]: rint(x ** (1 / 2.2) * 255).
@@ -5223,7 +4889,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(point_inside, m)?)?;
     m.add_function(wrap_pyfunction!(geodetic_to_enu, m)?)?;
     m.add_function(wrap_pyfunction!(enu_to_geodetic, m)?)?;
-    m.add_function(wrap_pyfunction!(bc7_encode, m)?)?;
     m.add_function(wrap_pyfunction!(inside_blockers, m)?)?;
     m.add_function(wrap_pyfunction!(densify, m)?)?;
     m.add_function(wrap_pyfunction!(measure_row, m)?)?;
@@ -5239,7 +4904,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(median_profile, m)?)?;
     m.add_function(wrap_pyfunction!(seg_dist_min, m)?)?;
     m.add_function(wrap_pyfunction!(contains_points, m)?)?;
-    m.add_function(wrap_pyfunction!(rock, m)?)?;
     m.add_function(wrap_pyfunction!(mip_levels, m)?)?;
     m.add_function(wrap_pyfunction!(srgb_monotonic, m)?)?;
     m.add_function(wrap_pyfunction!(loop_crossed, m)?)?;
@@ -5334,7 +4998,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(geocontent::cdae_shear, m)?)?;
     m.add_function(wrap_pyfunction!(geocontent::clip_segments_convex, m)?)?;
     m.add_function(wrap_pyfunction!(sidewalks::sidewalk_mesh, m)?)?;
-    m.add_function(wrap_pyfunction!(farcontent::bridge_slabs, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::tile_warp, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;

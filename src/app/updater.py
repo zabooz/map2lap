@@ -1,6 +1,6 @@
 """Install a newer release from GitHub (Settings → Version, "Install update").
 
-Map2Lap can't replace its own files while it runs (Windows locks python.exe, python312.dll and the .pyd modules), so
+Map2Lap can't replace its own files while it runs (Windows locks python.exe, python3x.dll and the .pyd modules), so
 the work is split: download() fetches this system's release archive (Windows' zip, Linux' tar.gz), checks it against
 the size and SHA-256 GitHub states for it and unpacks it into update/Map2Lap; the server then ends with RESTART, and
 "Start Map2Lap.bat" (start.sh) moves the new files in before it starts Python again. Linux would allow replacing them
@@ -23,14 +23,29 @@ READY = os.path.join(DIR, "ready")     # (written last: the start script install
 RESTART = 75                           # (exit code: the start script installs NEW and starts the server again)
 # the bundled Python of a release (tools/make_release.py): python.org's embeddable package, python-build-standalone
 PYTHON = "python/python.exe" if os.name == "nt" else "python/bin/python3"
+OLD_FOLDERS = (("vendor", "engine"),)     # (an older release's folder, the one that replaced it: drop_old)
 # idle downloading restarting error; done/total: bytes of the archive
 state = {"state": "idle", "done": 0, "total": 0, "error": None}
 
 
-def possible():
+def possible(root=ROOT):
     """Whether this folder updates itself: a release, with its bundled Python and no git checkout (a developer's
     folder gets new code through git)."""
-    return os.path.isfile(os.path.join(ROOT, PYTHON)) and not os.path.isdir(os.path.join(ROOT, ".git"))
+    return os.path.isfile(os.path.join(root, PYTHON)) and not os.path.isdir(os.path.join(root, ".git"))
+
+
+def drop_old(root=ROOT):
+    """On server start, in a release folder: remove the folders an older release had that this one replaced (the
+    install step replaces only the folders the new release has, so they stayed). Each goes only when its successor is
+    there: vendor/ (0.5.5 and before) is engine/ now. The names of the folders removed."""
+    if not possible(root):
+        return []
+    gone = []
+    for old, new in OLD_FOLDERS:
+        if os.path.isdir(os.path.join(root, old)) and os.path.isdir(os.path.join(root, new)):
+            shutil.rmtree(os.path.join(root, old), ignore_errors=True)
+            gone.append(old)
+    return gone
 
 
 def download(rel):
