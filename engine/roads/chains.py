@@ -79,6 +79,7 @@ class ChainView:
         self.specs_of, self.parts_of = cs.cls.specs_of, cs.cls.parts_of
 
     deck_bank = BridgeProfiles.deck_bank        # (in this frame, its plans_at)
+    road_bank = BridgeProfiles.road_bank
     plans_at = None
 
     def __getattr__(self, name):        # wet, infra_fn, raw, ends: the stores' settings (setup)

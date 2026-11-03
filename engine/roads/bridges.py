@@ -15,7 +15,7 @@ from .tiles import box_owns
 from .walks import densify
 from .decks import (
     AT_GRADE_M, AT_GRADE_REACH_M, BRIDGE_HEADROOM_MARGIN_M, DECK_CLEAR, DECK_CLEAR_REACH_M, DECK_DESIGN_GRADE,
-    DECK_MAX_GRADE, DECK_ROAD_CLEAR, DECK_ROAD_HALF, MIN_BRIDGE_HEADROOM_M, PIN_M, _EndJoin, _deck_beside,
+    DECK_MAX_GRADE, DECK_ROAD_CLEAR, DECK_ROAD_HALF, MERGE_TOUCH_M, MIN_BRIDGE_HEADROOM_M, PIN_M, _EndJoin, _deck_beside,
     _deck_crossings, _dedupe, _end_joins, _end_ons, _ground_pins, _joined_lines, bridge_profile_mode, deck_profile,
     water_clear
 )
@@ -133,7 +133,7 @@ def _deck_key(xy):
     return (len(xy), *np.round(xy[[0, -1]], 2).ravel().tolist())
 
 
-# The deck parts of single and twin bridges (_simple_chain), by their ends' lat / lon: a chain is
+# The deck parts that tilt (_tilting_parts: single and twin bridges), by their ends' lat / lon: a chain is
 # solved in its ChainStore's frame (geotiles.CHAIN_Z) and an anchor sees it through a ChainView, so no frame's
 # coordinates are a key. Process-wide: a chain another store adopts or a store evicted keeps its entry.
 SIMPLE_END_DEG = 5e-7       # deg (~5 cm): ends this near are the same part's
@@ -148,14 +148,14 @@ def _ends_of(frame, xy):
 
 
 def _simple_add(frame, lines):
-    """Note the parts lines (this frame) as a simple chain's."""
+    """Note the parts lines (this frame) as ones that tilt."""
     rows = [_ends_of(frame, ln) for ln in lines]
     with _simple_lock:
         _simple_ends.extend(rows)
 
 
 def _is_simple(frame, xy):
-    """Is deck part xy (this frame) a simple chain's (_simple_add, in whichever frame)?"""
+    """Does deck part xy (this frame) tilt (_simple_add, in whichever frame)?"""
     with _simple_lock:
         if not _simple_ends:
             return False
@@ -182,6 +182,41 @@ def _simple_chain(lines):
         return False
     da, db = xs[0][-1] - xs[0][0], xs[1][-1] - xs[1][0]
     return float(da @ db) / max(float(np.hypot(*da) * np.hypot(*db)), 1e-9) < SIMPLE_OPPOSITE_COS
+
+
+SURFACE_STEP_M = 2.0        # m between the points two parts are compared at (_tilting_parts)
+
+
+def _tilting_parts(lines, zs, widths):
+    """The parts of a chain (lines, their heights zs, widths) whose deck takes the cross slope of the roads at its ends
+    (deck_bank): those of a chain that is simple, else of each surface in it that is. A chain also holds what merely
+    crosses it: a twin bridge under two flyovers was four parts, no junction, and lay level between its banked approaches
+    (Waterview, Auckland: 12 cm at the lane's edge). Parts are one surface where their carriageways come within
+    MERGE_TOUCH_M in plan and less than LIDAR_HEADROOM_M in height: one that far over the other leaves room to drive under
+    it, so they share nothing. Pure."""
+    if _simple_chain(lines):
+        return list(lines)
+    n = len(lines)
+    pts = []
+    for ln, z in zip(lines, zs):
+        xy = np.asarray(ln, np.float64)[:, :2]
+        s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+        t = np.r_[np.arange(0.0, s[-1], SURFACE_STEP_M), s[-1]]
+        pts.append(np.c_[np.interp(t, s, xy[:, 0]), np.interp(t, s, xy[:, 1]), np.interp(t, s, z)])
+    group = list(range(n))
+    for a in range(n):
+        for b in range(a + 1, n):
+            plan = np.hypot(pts[a][:, 0, None] - pts[b][:, 0], pts[a][:, 1, None] - pts[b][:, 1])
+            high = np.abs(pts[a][:, 2, None] - pts[b][:, 2])
+            if ((plan <= (widths[a] + widths[b]) / 2 + MERGE_TOUCH_M) & (high < LIDAR_HEADROOM_M)).any():
+                ga, gb = group[a], group[b]
+                group = [ga if g == gb else g for g in group]
+    out = []
+    for g in sorted(set(group)):
+        surface = [lines[k] for k in range(n) if group[k] == g]
+        if _simple_chain(surface):
+            out += surface
+    return out
 
 
 def tangent_ends(s, z, g0, gL):
@@ -685,9 +720,8 @@ class BridgeProfiles:
             # filled players' consoles, TGForever Discord)
             log.debug("bridge clearance below %.1f m target: %s; abutment/grade or map constraints prevent full headroom",
                       MIN_BRIDGE_HEADROOM_M, [(comp[i], round(h, 2)) for i, h in deficits[:3]])
+        _simple_add(self.frame, _tilting_parts(lines, zs, [pool[k][0].width for k in comp]))
         simple = _simple_chain(lines)           # (a single deck or a twin bridge only)
-        if simple:
-            _simple_add(self.frame, lines)
         if head is not None and simple:     # on lidar: meeting its approaches' grades
             zs, laid = self._tangent(lines, zs, required + rails + water, deck_road_clear(depth, head))
             # a part laid between its real ends at their grades keeps that: a measured profile eased between them
@@ -921,6 +955,15 @@ class BridgeProfiles:
                 b = ends[0] + (ends[1] - ends[0]) * s / max(float(s[-1]), 1e-9)
         cache[key] = b
         return b
+
+    def road_bank(self, q, along):
+        """The cross slope (m per m toward the left of direction along (2,)) of the road ending at point q (2,)
+        (grading.end_bank, plans_at), or None: no plans, no road ends there."""
+        import grading
+        if self.plans_at is None:
+            return None
+        q = np.asarray(q, np.float64)[:2]
+        return grading.end_bank(self.plans_at(q[None]), q, np.asarray(along, np.float64)[:2])
 
     def _gap(self, lines, nav, depth=None):
         """Clearance requirements where the sea's depth knows no water but the inventory gives the bridge a

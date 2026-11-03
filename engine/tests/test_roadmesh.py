@@ -199,6 +199,34 @@ class TrimOverlapsTest(unittest.TestCase):
             np.testing.assert_allclose(r[0], ramp[0][0])
 
 
+    def test_a_trimmed_tilted_deck_turns_about_its_line(self):
+        """(Waterview, Auckland) twin decks 10.6 m apart, 15.2 m wide, so trimmed on one side, one 5 % across: on its line it
+        keeps its height (about the trimmed middle it stood 5.5 cm over its road at both ends)."""
+        def deck(y, z, bank, fid, x=(0.0, 25.0, 50.0, 75.0, 100.0)):
+            return {"m": "m", "w": 15.2, "tl": 10.0, "p": 20, "n": [[a, y, z] for a in x], "fixed": True, "deck": True,
+                    "fid": fid, "bank": bank}
+        east = deck(0.0, 100.0, [-0.05] * 5, "east")
+        west = deck(-10.6, 99.0, None, "west", (100.0, 75.0, 50.0, 25.0, 0.0))
+        (trimmed, _c), _w = roadmesh.trim_overlaps(roadmesh.ribbon_pairs([east]) + roadmesh.ribbon_pairs([west]))
+        off = roadmesh._row_off(east, trimmed[0], trimmed[1])
+        self.assertGreater(float(off.min()), 0.5, "its middle moved to its left, away from the twin")
+        P, T, _uv, mats, M = roadmesh.deck([east, west], (0.0, 0.0, 0.0))
+        top = T[M == mats.index(roadmesh.DECK_TOP)]
+
+        def height(x, y):
+            for a, b, c in P[top]:
+                d = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+                if abs(d) < 1e-9:
+                    continue
+                u = ((x - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (y - a[1])) / d
+                v = ((b[0] - a[0]) * (y - a[1]) - (x - a[0]) * (b[1] - a[1])) / d
+                z = a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2])
+                if u >= 0 and v >= 0 and u + v <= 1 and abs(z - 100.0) < 0.5:
+                    return float(z)
+            return None
+        self.assertAlmostEqual(height(50.0, 0.0), 100.0, places=2)
+        self.assertAlmostEqual(height(50.0, 4.0), 99.8, places=2, msg="its left, 5 % lower")
+
     def opposite(self, r):
         (left, right, v, m, layer, z), c = r
         return (right[::-1], left[::-1], v[::-1], m, layer, z[::-1]), c

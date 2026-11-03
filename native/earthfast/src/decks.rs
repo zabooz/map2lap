@@ -430,11 +430,13 @@ pub fn deck_end_on<'py>(py: Python<'py>, pts: PyReadonlyArray2<'py, f64>, poff: 
 /// within `reach` of the joint, each part a line (rows a..b of pts with heights z, starting at the joint) of half
 /// width half[k], sampled every `step` m (its two edges). Between the parts the map leaves open ground under the
 /// joint: a right turn's corner, the wedge where a ramp leaves, a narrower street's edge meeting a wider deck (Charles
-/// Street over I-83 in Baltimore: the AI cut the corner to the station's road over the cut, 2026-10-29). The hull's
-/// vertices (k, 3) counter-clockwise, each at the height of the edge point it is; empty when degenerate.
-pub fn pad_hull(parts: &[(Vec<[f64; 2]>, Vec<f64>, f64)], reach: f64, step: f64) -> Vec<[f64; 3]> {
+/// Street over I-83 in Baltimore: the AI cut the corner to the station's road over the cut, 2026-10-29). bank per point
+/// of a line: its cross slope toward its left, m per m (a level edge stood over a banked road's low side and under its
+/// high one). The hull's vertices (k, 3) counter-clockwise, each at the height of the edge point it is; empty when
+/// degenerate.
+pub fn pad_hull(parts: &[(Vec<[f64; 2]>, Vec<f64>, Vec<f64>, f64)], reach: f64, step: f64) -> Vec<[f64; 3]> {
     let mut pts: Vec<[f64; 3]> = Vec::new();
-    for (line, z, half) in parts {
+    for (line, z, bank, half) in parts {
         let n = line.len();
         if n < 2 {
             continue;
@@ -452,8 +454,9 @@ pub fn pad_hull(parts: &[(Vec<[f64; 2]>, Vec<f64>, f64)], reach: f64, step: f64)
             let (dx, dy) = ((line[v][0] - line[v - 1][0]) / seg, (line[v][1] - line[v - 1][1]) / seg);
             let p = [line[v - 1][0] + u * (line[v][0] - line[v - 1][0]), line[v - 1][1] + u * (line[v][1] - line[v - 1][1])];
             let zz = z[v - 1] + u * (z[v] - z[v - 1]);
-            pts.push([p[0] - dy * half, p[1] + dx * half, zz]);
-            pts.push([p[0] + dy * half, p[1] - dx * half, zz]);
+            let rise = (bank[v - 1] + u * (bank[v] - bank[v - 1])) * half;
+            pts.push([p[0] - dy * half, p[1] + dx * half, zz + rise]);      // (its left)
+            pts.push([p[0] + dy * half, p[1] - dx * half, zz - rise]);
             if t >= end {
                 break;
             }
@@ -485,17 +488,19 @@ pub fn pad_hull(parts: &[(Vec<[f64; 2]>, Vec<f64>, f64)], reach: f64, step: f64)
 }
 
 /// pad_hull for Python: pts (N, 2), z (N,), off (n + 1,) the parts' rows (each starting at the joint), half (n,),
-/// reach, step. (k, 3) the hull, counter-clockwise.
+/// reach, step, bank (N,) (None: all level). (k, 3) the hull, counter-clockwise.
 #[pyfunction]
+#[pyo3(signature = (pts, z, off, half, reach, step, bank=None))]
 pub fn deck_pad<'py>(py: Python<'py>, pts: PyReadonlyArray2<'py, f64>, z: PyReadonlyArray1<'py, f64>,
-                     off: PyReadonlyArray1<'py, i64>, half: PyReadonlyArray1<'py, f64>, reach: f64, step: f64)
-                     -> Bound<'py, PyArray2<f64>> {
+                     off: PyReadonlyArray1<'py, i64>, half: PyReadonlyArray1<'py, f64>, reach: f64, step: f64,
+                     bank: Option<PyReadonlyArray1<'py, f64>>) -> Bound<'py, PyArray2<f64>> {
     let (pts, z, off, half) = (pts.as_array(), z.as_array(), off.as_array(), half.as_array());
+    let bank = bank.as_ref().map(|b| b.as_array());
     let mut parts = Vec::new();
     for k in 0..off.len().saturating_sub(1) {
         let (a, b) = (off[k] as usize, off[k + 1] as usize);
         parts.push(((a..b).map(|v| [pts[[v, 0]], pts[[v, 1]]]).collect::<Vec<_>>(), (a..b).map(|v| z[v]).collect::<Vec<_>>(),
-                    half[k]));
+                    (a..b).map(|v| bank.as_ref().map_or(0.0, |s| s[v])).collect::<Vec<_>>(), half[k]));
     }
     let hull = pad_hull(&parts, reach, step.max(0.5));
     let flat: Vec<f64> = hull.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
@@ -559,9 +564,10 @@ mod tests {
     #[test]
     fn pad_covers_the_corner() {
         // a street north (half 5) and a ramp leaving north-east (half 1.75) from a joint at 10 m
-        let north = (vec![[0.0, 0.0], [0.0, 20.0]], vec![10.0, 10.0], 5.0);
-        let ne = (vec![[0.0, 0.0], [14.0, 14.0]], vec![10.0, 10.0], 1.75);
-        let south = (vec![[0.0, 0.0], [0.0, -20.0]], vec![10.0, 10.0], 4.0);
+        let flat = || vec![0.0, 0.0];
+        let north = (vec![[0.0, 0.0], [0.0, 20.0]], vec![10.0, 10.0], flat(), 5.0);
+        let ne = (vec![[0.0, 0.0], [14.0, 14.0]], vec![10.0, 10.0], flat(), 1.75);
+        let south = (vec![[0.0, 0.0], [0.0, -20.0]], vec![10.0, 10.0], flat(), 4.0);
         let hull = pad_hull(&[north, ne, south], 12.0, 2.0);
         assert!(hull.len() >= 4);
         let inside = |x: f64, y: f64| (0..hull.len()).all(|i| {
@@ -571,6 +577,15 @@ mod tests {
         assert!(inside(6.0, 3.0), "the corner between the street's edge and the ramp");
         assert!(!inside(20.0, 0.0));
         assert!(hull.iter().all(|p| (p[2] - 10.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn a_pad_s_edges_lie_on_a_banked_road_s() {
+        // a road going north, half 4, its left (west) side 5 % higher
+        let north = (vec![[0.0, 0.0], [0.0, 20.0]], vec![10.0, 10.0], vec![0.05, 0.05], 4.0);
+        let hull = pad_hull(&[north], 12.0, 2.0);
+        assert!(hull.iter().all(|p| (p[2] - (10.0 - 0.05 * p[0])).abs() < 1e-9), "{hull:?}");
+        assert!(hull.iter().any(|p| (p[2] - 10.2).abs() < 1e-9) && hull.iter().any(|p| (p[2] - 9.8).abs() < 1e-9));
     }
 
     #[test]

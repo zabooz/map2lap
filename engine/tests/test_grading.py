@@ -336,6 +336,34 @@ class RoadEndOntoBridgeTest(unittest.TestCase):
         self.assertAlmostEqual(float(got[0] - got[1]), 0.12, delta=0.01)
 
 
+class TiltingPartsTest(unittest.TestCase):
+    """roads._tilting_parts: which parts of a chain take their roads' cross slope. Heights: east-west twins at 100, what
+    crosses them over or at their height."""
+    TWIN = [np.array([[-30.0, 0.0], [30.0, 0.0]]), np.array([[30.0, -11.0], [-30.0, -11.0]])]
+
+    def tilting(self, others=(), z=106.0):
+        lines = self.TWIN + list(others)
+        zs = [np.full(len(ln), 100.0) for ln in self.TWIN] + [np.full(len(ln), z) for ln in others]
+        return roads._tilting_parts(lines, zs, [10.7] * len(lines))
+
+    def test_a_twin_bridge_under_flyovers_tilts_each_alone(self):
+        fly = [np.array([[-5.0, -80.0], [-5.0, 80.0]]), np.array([[20.0, 80.0], [20.0, -80.0]])]
+        self.assertEqual(len(self.tilting(fly)), 4, "the twin and the two flyovers: nothing shared")
+
+    def test_a_flyover_joining_them_at_their_height_keeps_them_level(self):
+        at_grade = [np.array([[-5.0, -80.0], [-5.0, 80.0]])]
+        self.assertEqual(self.tilting(at_grade, z=100.5), [], "crossing at one height: a junction, one surface")
+
+    def test_ramps_sharing_an_end_stay_level_a_part_apart_still_tilts(self):
+        ramps = [np.array([[0.0, 100.0], [50.0, 100.0]]), np.array([[50.0, 100.0], [100.0, 130.0]])]
+        got = roads._tilting_parts(ramps + self.TWIN[:1], [np.full(2, 100.0)] * 3, [7.0] * 3)
+        self.assertEqual(len(got), 1)
+        self.assertIs(got[0], self.TWIN[0])
+
+    def test_a_single_deck_or_a_twin_as_ever(self):
+        self.assertEqual(len(self.tilting()), 2)
+
+
 class DeckBankTest(unittest.TestCase):
     """roads.BridgeProfiles.deck_bank: the slopes of the roads ending at the deck's ends, run linearly between them."""
 
@@ -555,6 +583,40 @@ class GradePointsTest(unittest.TestCase):
         small = lambda n: np.interp(n, [-10.0, -6.25, -4.75, 0.0], [99.625, 99.625, 100.0, 100.0])    # noqa: E731
         profiles._between_cuts(FRAME, [east, west], self._ground(small), [])
         self.assertTrue(((east.cut[:, 3] > 6.0) & (east.cut[:, 3] < 8.25)).all(), "half way out")
+
+    def test_a_wall_goes_on_to_a_plan_s_end_on_a_bridge(self):
+        """(_on_to_bridge_ends) Waterview at 1055 m: the ground's step between the carriageways gone from their last
+        4 m under the bridge's end. Ending on the bridge the wall goes on to the end, so the other road's grading stays
+        off the lanes; ending on the ground, or with the other road gone by then, it stops where the step stops."""
+        from grading import profiles
+        step = lambda e, n: np.where(e > 96.0, 99.5, np.interp(n, [-10.0, -6.25, -4.75, 0.0], [98.9, 98.9, 100.0, 100.0]))    # noqa: E731
+
+        def elev(la, lo):
+            e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return step(np.asarray(e), np.asarray(n))
+        east, west = self._two_levels()
+        east.abut = (False, True)
+        profiles._between_cuts(FRAME, [east, west], elev, [])
+        self.assertTrue(np.allclose(east.cut[-1, 3], east.cut[-2, 3]), "on to its end on the bridge")
+        self.assertTrue(np.isnan(east.cut[0, 0]), "its other end and side untouched")
+        east, west = self._two_levels()
+        profiles._between_cuts(FRAME, [east, west], elev, [])
+        self.assertTrue(np.isnan(east.cut[-1, 3]) and np.isfinite(east.cut[-2, 3]), "an end on the ground: no")
+        east, west = self._two_levels()
+        east.abut = (False, True)
+        west.xy, west.z = west.xy[1:], west.z[1:]        # (west runs west: the east end's vertex gone)
+        profiles._between_cuts(FRAME, [east, west], elev, [])
+        self.assertTrue(np.isnan(east.cut[-1, 3]), "the other road gone by then: no")
+
+    def test_a_wall_goes_on_only_a_short_way(self):
+        """(_on_to_bridge_ends) no wall within SHARP_RUN_N segments of the end: the ground there had room to show one."""
+        from grading import profiles
+        put = np.array([1.0, 1.0, np.nan, np.nan, np.nan, np.nan])
+        got = profiles._on_to_bridge_ends(put, np.ones(6, bool), (False, True))
+        self.assertTrue(np.isnan(got[2:]).all())
+        put = np.array([1.0, 1.0, 1.0, 1.0, np.nan, np.nan])
+        got = profiles._on_to_bridge_ends(put, np.ones(6, bool), (False, True))
+        np.testing.assert_allclose(got, 1.0)
 
     def test_a_narrow_road_mapped_onto_a_wider_one_far_under_it_gives_way(self):
         """(BESIDE_LEVEL_*) a driveway mapped onto a secondary's carriageway, 3 m off its centre line and 1.5 m under

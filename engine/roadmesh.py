@@ -94,6 +94,23 @@ def _row_bank(c, mid):
     return b[j] + tj * (b[j + 1] - b[j])
 
 
+def _row_off(c, left, right):
+    """Each row of a deck chunk's ribbon: how far its middle lies off the chunk's line, m toward its left (k,). A deck's
+    height and cross slope are its line's, and trim_overlaps moves a ribbon's edges only: tilted about the trimmed middle,
+    a twin bridge's deck trimmed 1 m on one side stood 5.5 cm over its road at both ends, and rose and fell wherever the
+    trim changed along it (5 % across, Waterview, Auckland). Pure."""
+    mid = (left + right) / 2
+    u = (left - right) / np.maximum(np.hypot(*(left - right).T), 1e-9)[:, None]
+    n = np.asarray(c["n"], np.float64)[:, :2]
+    if len(n) < 2:
+        return np.zeros(len(mid))
+    a, d = n[:-1], np.diff(n, axis=0)
+    t = np.clip(((mid[:, None, :] - a[None]) * d[None]).sum(2) / np.maximum((d * d).sum(1), 1e-12)[None], 0.0, 1.0)
+    p = a[None] + t[..., None] * d[None]
+    j = np.argmin(np.hypot(*(mid[:, None, :] - p).transpose(2, 0, 1)), 1)
+    return ((mid - p[np.arange(len(mid)), j]) * u).sum(1)
+
+
 def _tilt_since(P, p0, mid, u, b):
     """The point arrays P[p0:] (one deck's slab, girders and parapets, relative to the origin)
     tilted about its centre rows mid (k, 2, same origin) by its cross slope b (k,) at their offset along u (k, 2, unit
@@ -400,7 +417,8 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         ctx = [(r, c) for r, c in ribbon_pairs(list(context)) if r[5] is not None]
         rbc = trim_overlaps(ribbon_pairs(chunks), ctx)
         rb = [r for r, _c in rbc]
-        tilts = [_row_bank(c, (r[0] + r[1]) / 2) if r[5] is not None else None for r, c in rbc]
+        tilts = [(_row_bank(c, (r[0] + r[1]) / 2), _row_off(c, r[0], r[1])) if r[5] is not None and c.get("bank") else None
+                 for r, c in rbc]
     polys = [c for c in chunks if c.get("poly")]
     if not rb and not polys:
         return None
@@ -421,9 +439,9 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         if fz is None:
             z = u[k0:k0 + 2 * k] + LIFT[layer] + lift
             k0 += 2 * k
-        elif tb is not None:                    # a tilted deck: its edges either side
+        elif tb is not None:                    # a tilted deck: its edges either side of its line (_row_off)
             hw = np.hypot(*(left - right).T) / 2
-            z = np.concatenate((fz + tb * hw, fz - tb * hw)) + LIFT[layer] + DECK_SKIN
+            z = np.concatenate((fz + tb[0] * (tb[1] + hw), fz + tb[0] * (tb[1] - hw))) + LIFT[layer] + DECK_SKIN
         else:                                   # on a deck: over its opaque concrete top
             z = np.concatenate((fz, fz)) + LIFT[layer] + DECK_SKIN
         if m not in mats:
@@ -740,8 +758,9 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
             T.append(bt_ + nv)
             M.append(np.full(len(bt_), side))
             nv += len(bp)
-        _tilt_since(P, p0, (left + right) / 2 - np.asarray(origin, np.float64)[:2], u,
-                    _row_bank(c, (left + right) / 2))
+        if c.get("bank"):                       # (about its line, not the trimmed middle: _row_off)
+            _tilt_since(P, p0, (left + right) / 2 - u * _row_off(c, left, right)[:, None] - np.asarray(origin, np.float64)[:2],
+                        u, _row_bank(c, (left + right) / 2))
     for p in _piers_clear(piers, rb):
         _pier(p, origin, P, T, UV, M, side)
         nv = sum(len(a) for a in P)

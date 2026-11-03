@@ -286,6 +286,86 @@ class JunctionPadTest(unittest.TestCase):
         with mock.patch.object(roads, "PAD_MIN_PARTS", 2):
             self.assertEqual(len(roads.deck_pads(decks, ground, box, lambda xy: np.full(len(xy), 22.0))), 1)
 
+    def merge(self, degrees, second_deck=False):
+        """A road going north onto a deck, a slip road merging with it at the joint from the south-west at degrees."""
+        Spec = type("S", (), {})
+        s = Spec()
+        s.width = 10.7
+        a = np.radians(degrees)
+        decks = [("bridge", s, np.c_[np.zeros(11), np.linspace(0, 40, 11)], np.full(11, 22.0))]
+        ground = [("road", s, np.c_[np.zeros(11), np.linspace(-60, 0, 11)], None),
+                  ("slip", s, np.c_[np.linspace(-40 * np.sin(a), 0, 11), np.linspace(-40 * np.cos(a), 0, 11)], None)]
+        if second_deck:
+            decks.append(("ramp", s, np.c_[np.linspace(0, 10, 6), np.linspace(0, 30, 6)], np.full(6, 22.0)))
+        return roads.deck_pads(decks, ground, (-50.0, -50.0, 50.0, 50.0), lambda xy: np.full(len(xy), 22.0))
+
+    def test_a_slip_road_merging_before_a_bridge_gets_no_pad(self):
+        """(Waterview, Auckland) one deck going on from two ground roads at a shallow angle: the ground between them
+        carries them. Wider, or with a second deck leaving there, it stays paved."""
+        self.assertEqual(self.merge(10.0), [])
+        self.assertEqual(len(self.merge(30.0)), 1, "a road leaving wide: a corner")
+        self.assertEqual(len(self.merge(10.0, second_deck=True)), 1, "a second deck: open under the wedge")
+
+    def with_grounds(self, *grounds):
+        """A deck going north from the joint, and ground roads [(id, line)], 10.4 m wide."""
+        Spec = type("S", (), {})
+        s = Spec()
+        s.width = 10.4
+        decks = [("bridge", s, np.c_[np.zeros(11), np.linspace(0, 40, 11)], np.full(11, 22.0))]
+        return roads.deck_pads(decks, [(f, s, ln, None) for f, ln in grounds], (-50.0, -50.0, 50.0, 50.0),
+                               lambda xy: np.full(len(xy), 22.0))
+
+    def test_a_stub_lying_inside_the_joint_is_no_carriageway(self):
+        """(Saint Lukes Road, Auckland) the deck's road goes on through 0.9 m of ground, both its ends at the joint: counted
+        twice it made a plain bridge end a junction."""
+        stub = ("stub", np.array([[0.0, -0.9], [0.0, 0.0]]))
+        road = ("road", np.c_[np.zeros(11), np.linspace(-60, -0.9, 11)])
+        self.assertEqual(self.with_grounds(stub, road), [])
+
+    def test_a_short_road_leaving_the_joint_still_counts(self):
+        """No shortest length: 3 m of road to the side lead somewhere, a real corner beside the street."""
+        road = ("road", np.c_[np.zeros(11), np.linspace(-60, 0, 11)])
+        short = ("short", np.array([[3.0, 0.0], [0.0, 0.0]]))
+        self.assertEqual(len(self.with_grounds(road, short)), 1)
+
+    def test_a_loop_coming_back_to_the_joint_counts_at_both_ends(self):
+        """Both ends at the joint, the road between them far from it: two carriageways, not a stub."""
+        a = np.radians(np.linspace(0.0, 360.0, 25))
+        loop = ("loop", np.c_[20.0 * np.sin(a) * -1.0, 20.0 * (np.cos(a) - 1.0)])
+        self.assertEqual(len(self.with_grounds(loop)), 1, "the deck and the loop's two ends: three")
+
+    def banked(self, road=None, deck=None):
+        """The junction with the street's (toward the left of its way out of the joint, south: east) and the north deck's
+        cross slope (toward its left as it runs, here toward the joint so south: east), the ne deck level."""
+        Spec = type("S", (), {})
+        def spec(w):
+            s = Spec()
+            s.width = w
+            return s
+        decks = [("north", spec(13.7), np.c_[np.zeros(11), np.linspace(40, 0, 11)], np.full(11, 22.0)),
+                 ("ne", spec(3.5), np.c_[np.linspace(0, 24, 11), np.linspace(0, 36, 11)], np.full(11, 22.0))]
+        ground = [("street", spec(10.4), np.c_[np.zeros(11), np.linspace(-60, 0, 11)], None)]
+        br = type("B", (), {"deck_bank": lambda self, xy, z: None if deck is None or xy[0, 1] != 40 else np.full(len(xy), deck),
+                            "road_bank": lambda self, q, along: road})()
+        return np.asarray(roads.deck_pads(decks, ground, (-50.0, -50.0, 50.0, 50.0), lambda xy: np.full(len(xy), 22.0),
+                                          bridges=br)[0][0])
+
+    def test_the_rim_follows_a_banked_road_or_deck(self):
+        """A rim level with the line's height stood over a banked road's low edge and under its high one."""
+        ring = self.banked(road=0.05)
+        arm = ring[ring[:, 1] < -2.0]
+        east, west = arm[arm[:, 0] > 0], arm[arm[:, 0] < 0]
+        np.testing.assert_allclose(east[:, 2], 22.0 + 0.05 * east[:, 0], atol=1e-6, err_msg="the street's left (east): up")
+        np.testing.assert_allclose(west[:, 2], 22.0 + 0.05 * west[:, 0], atol=1e-6, err_msg="its right: down")
+        ring = self.banked(deck=0.05)
+        arm = ring[(ring[:, 1] > 10.0) & (ring[:, 0] < 0)]
+        np.testing.assert_allclose(arm[:, 2], 22.0 + 0.05 * arm[:, 0], atol=1e-6, err_msg="the deck's bank, seen from its far end")
+        far = ring[ring[:, 1] < -2.0]
+        np.testing.assert_allclose(far[:, 2], 22.0, atol=1e-6, err_msg="the level street stays level")
+
+    def test_a_level_junction_s_rim_stays_as_it_was(self):
+        np.testing.assert_allclose(self.banked()[:, 2], 22.0, atol=1e-9)
+
     def test_owned_by_one_tile(self):
         self.assertEqual(self.pads(box=(10.0, 10.0, 60.0, 60.0)), [])
 

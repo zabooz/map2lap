@@ -194,7 +194,11 @@ PAD_REACH_M = 12.0
 PAD_STEP_M = 2.0
 PAD_JOIN_M = 0.75           # m: ends this near are one joint (_skew_decks' tolerance)
 PAD_GROUND_M = 1.0          # m: a ground road's end this near a joint goes on from it
-PAD_STRAIGHT_COS = -0.97    # two parts leaving a joint this straight need none
+# One deck that only goes on from the ground roads at its end, each this straight (14 degrees): a slip road merging with
+# the road just before a bridge. Nothing is open there: the wedge between them is the ground, which carries them, and the
+# pad lay across it level over a banked road (22 cm in the lanes at Waterview, Auckland). A road leaving wider, or a
+# second deck, has a corner or a gap to pave.
+PAD_STRAIGHT_COS = -0.97
 # A pad only where three or more carriageways meet (a junction): two are one road going on (a bridge in a bend onto
 # its own approach, or a way split on the bridge), at any angle; a pad there would lie just under the deck and the road
 # over metres, both colliding, and take a short bridge's parapets.
@@ -209,29 +213,60 @@ PAD_WALL_DROP_M = 1.0
 PAD_RIM_STEP_M = 1.0
 
 
-def deck_pads(decks, ground_roads, box, ground_fn, own=True):
+def _goes_straight_on(deck, grounds):
+    """Does deck line (k, 2, from its joint) go on within PAD_STRAIGHT_COS from each of grounds (lines from the same
+    joint), read over the pad's reach? Pure."""
+    def leaving(line):
+        s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
+        at = min(PAD_REACH_M, float(s[-1]))
+        v = np.array([np.interp(at, s, line[:, 0]), np.interp(at, s, line[:, 1])]) - line[0]
+        return v / max(float(np.hypot(*v)), 1e-9)
+    d = leaving(deck)
+    return all(float(d @ leaving(g)) < PAD_STRAIGHT_COS for g in grounds)
+
+
+def _pad_banks(parts, on_decks, bridges):
+    """Per part of a joint (line from the joint, heights, half, its bank or None; the first on_decks are decks) its cross
+    slope per vertex toward the line's left, or None (level): a deck's as given, a ground road's that of the road ending
+    at the joint (bridges.road_bank), level under 0.1 % as deck_bank. Pure given bridges."""
+    rb = getattr(bridges, "road_bank", None)
+    out = []
+    for k, (line, _z, _h, bank) in enumerate(parts):
+        if k >= on_decks and rb is not None:
+            b = rb(line[0], line[1] - line[0])
+            bank = None if b is None or abs(b) <= 1e-3 else np.full(len(line), float(b))
+        out.append(bank)
+    return out
+
+
+def deck_pads(decks, ground_roads, box, ground_fn, own=True, bridges=None):
     """[(ring (k, 3), centre (3,), walls [(pts (m, 3), out (m, 2))])] of the junction pads of the joints of decks
     [(fid, spec, xy (k, 2), z (k,))] (the bridge parts round tile box, as bridges.parts gives them) whose joint the box
     owns (own False: every joint, the parapets' test round the tile); ground_roads [(fid, spec, pts (k, 2+), _)] the
     ground carriageways near it (build_tile roads_out), the ground's heights ground_fn(xy) (the decks' abutments').
-    walls: the rim's railings (PAD_*). earthfast.deck_pad, deck_pad_rim. Pure given ground_fn."""
+    bridges: their deck_bank and road_bank, for the rim's heights (None: every part level). walls: the rim's railings
+    (PAD_*). earthfast.deck_pad, deck_pad_rim. Pure given ground_fn and bridges."""
     if not PADS_ON or not decks:
         return []
     import fast
-    fast.require(113, "deck_pad_rim")
+    fast.require(115, "deck_pad's bank")
     join = _EndJoin(PAD_JOIN_M)
     nodes, inc = [], {}
+    bb = getattr(bridges, "deck_bank", None)
     for fid, spec, xy, z in decks:
         xy = np.asarray(xy, np.float64)[:, :2]
         z = np.asarray(z, np.float64)
         if len(xy) < 2 or not np.isfinite(z).all():
             continue
+        b = bb(xy, z) if bb else None
         for at in (0, -1):
             nd = join(xy[at])
             if nd == len(nodes):
                 nodes.append(xy[at].copy())
             line, zz = (xy, z) if at == 0 else (xy[::-1], z[::-1])
-            inc.setdefault(nd, []).append((line, zz, spec.width / 2))
+            # (a bank is toward the left of the part's own direction: seen from its far end, the other way)
+            bank = None if b is None else (np.asarray(b, np.float64) if at == 0 else -np.asarray(b, np.float64)[::-1])
+            inc.setdefault(nd, []).append((line, zz, spec.width / 2, bank))
     out = []
     gl = [(np.asarray(pts, np.float64)[:, :2], spec.width / 2) for _fid, spec, pts, _ in ground_roads
           if spec is not None and len(pts) >= 2]
@@ -240,28 +275,30 @@ def deck_pads(decks, ground_roads, box, ground_fn, own=True):
         if own and not box_owns(box, float(q[0]), float(q[1])):
             continue
         parts = list(parts)
+        on_decks = len(parts)
         for line, half in gl:
+            # (a piece lying wholly inside the joint leaves it nowhere: the map split the road there, 0.9 m of Saint Lukes
+            # Road in Auckland counted twice, one end each, and made a plain bridge end a junction with a pad and rails)
+            if (np.hypot(*(line - q).T) < PAD_GROUND_M).all():
+                continue
             for at in (0, -1):
                 if np.hypot(*(line[at] - q)) < PAD_GROUND_M:
                     ln = line if at == 0 else line[::-1]
                     s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(ln, axis=0).T))]
                     keep = s <= PAD_REACH_M + 2 * PAD_STEP_M
                     ln = ln[keep] if keep.sum() >= 2 else ln[:2]
-                    parts.append((ln, np.asarray(ground_fn(ln), np.float64), half))
+                    parts.append((ln, np.asarray(ground_fn(ln), np.float64), half, None))
         if len(parts) < PAD_MIN_PARTS:
             continue
-        if len(parts) == 2:
-            d = []
-            for line, _z, _h in parts:
-                v = line[min(len(line) - 1, 1)] - line[0]
-                d.append(v / max(np.hypot(*v), 1e-9))
-            if float(np.dot(d[0], d[1])) < PAD_STRAIGHT_COS:
-                continue                        # (a deck going on straight: its own end, an abutment, no corner)
+        if on_decks == 1 and _goes_straight_on(parts[0][0], [p[0] for p in parts[1:]]):
+            continue
         pts = np.ascontiguousarray(np.concatenate([p[0] for p in parts]), np.float64)
         zz = np.ascontiguousarray(np.concatenate([p[1] for p in parts]), np.float64)
         off = np.r_[0, np.cumsum([len(p[0]) for p in parts])].astype(np.int64)
         halves = np.array([p[2] for p in parts], np.float64)
-        hull = np.asarray(fast._ef.deck_pad(pts, zz, off, halves + PAD_MARGIN_M, PAD_REACH_M, PAD_STEP_M), np.float64)
+        bank = np.ascontiguousarray(np.concatenate([np.zeros(len(p[0])) if b is None else b for p, b in
+                                                    zip(parts, _pad_banks(parts, on_decks, bridges))]), np.float64)
+        hull = np.asarray(fast._ef.deck_pad(pts, zz, off, halves + PAD_MARGIN_M, PAD_REACH_M, PAD_STEP_M, bank), np.float64)
         if len(hull) < 3:
             continue
         zc = float(np.mean([p[1][0] for p in parts]))

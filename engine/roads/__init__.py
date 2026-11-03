@@ -61,8 +61,8 @@ from .decks import (
 )
 from .bridges import (
     BridgeProfiles, DECK_MIN_DEPTH, DECK_SPAN_RATIO, DECK_STEP, LIDAR_HEADROOM_M, OBS_MAX_GRADE, PIER_ROAD_M,
-    TANGENT_TOL_M, _clearance_deficits, _crossings, _crossings_by, _deck_needs, _is_simple, _lift_tangent, deck_depth,
-    deck_road_clear, deck_split, geom_span, pier_sites, tangent_profile
+    TANGENT_TOL_M, _clearance_deficits, _crossings, _crossings_by, _deck_needs, _is_simple, _lift_tangent, _tilting_parts,
+    deck_depth, deck_road_clear, deck_split, geom_span, pier_sites, tangent_profile
 )
 from .chains import ChainStore, ChainView
 from .deckmesh import (

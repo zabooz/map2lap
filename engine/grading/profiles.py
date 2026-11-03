@@ -408,6 +408,23 @@ def _runs(ok, n):
     return out
 
 
+def _on_to_bridge_ends(put, beside, abut):
+    """Walls put (m,) per segment (NaN none), the nearest one carried over the segments between it and a plan's end onto
+    a bridge (abut (start, end)), where the other road still lies beside it (beside (m,)). The ground under a bridge's
+    end shows no step, so the wall stopped a segment short and that segment's grading ran over the other carriageway:
+    a 0.8 m dip 4 m long in its lanes (Waterview, Auckland). Fewer than SHARP_RUN_N segments only: that few could never
+    show a wall of their own. No wall before them, or the roads no longer side by side: nothing to carry on. Pure."""
+    out = np.array(put, np.float64, copy=True)
+    for at, step in ((0, 1), (len(out) - 1, -1)):
+        if not abut[0 if step > 0 else 1]:
+            continue
+        run = [at + step * i for i in range(min(SHARP_RUN_N, len(out)))]
+        near = next((i for i, s in enumerate(run) if np.isfinite(out[s])), None)
+        if near is not None and beside[run[:near]].all():
+            out[run[:near]] = out[run[near]]
+    return out
+
+
 def _between_cuts(frame, plans, elev, walls):
     """Sets Plan.cut's drops where a road has another road beside it (near enough for their gradings to meet) and a
     wall between them: walls' (lines (k, 2) in the frame, BETWEEN_WALL_CLASSES) first, else the raw ground elev(lat,
@@ -502,7 +519,7 @@ def _between_cuts(frame, plans, elev, walls):
         # before at half that: no jump along the road where a wall begins or the step grows)
         v = np.clip((rise - BESIDE_LEVEL_FROM_M / 2) / (BESIDE_LEVEL_FROM_M / 2), 0.0, 1.0)
         at = at + (1.0 - v * v * (3.0 - 2.0 * v)) * (off - BETWEEN_MIN_M - at)
-        put = np.where(np.isfinite(wall), wall, np.where(step, at, np.nan))
+        put = _on_to_bridge_ends(np.where(np.isfinite(wall), wall, np.where(step, at, np.nan)), np.isfinite(off), p.abut)
         put = np.where(np.isfinite(put), np.clip(put, BETWEEN_MIN_M, off - BETWEEN_MIN_M), np.nan)
         if not np.isfinite(put).any():
             continue
