@@ -493,6 +493,55 @@ class GradePointsTest(unittest.TestCase):
         own = np.abs(py) <= 2.0
         self.assertLess(np.abs(out[own] - 100.0).max(), 0.25, "its lanes nearer its own height than the wider's")
 
+    def _two_levels(self, low_z=98.9):
+        """SH16 at Waterview, Auckland: the eastbound carriageway's plan at 100 m, the westbound's 10 m south of it at
+        low_z, planned 18.5 m wide (four lanes and shoulders), both with a vertex every 4 m."""
+        x = np.arange(-100.0, 100.1, 4.0)
+        east = grading.Plan(np.c_[x, np.zeros(len(x))], np.full(len(x), 100.0), 6.33, road_half=5.33)
+        west = grading.Plan(np.c_[x[::-1], np.full(len(x), -10.0)], np.full(len(x), low_z), 10.25, road_half=9.25)
+        east.rid, west.rid = 1, 2
+        return east, west
+
+    def _ground(self, north):
+        """elev(lat, lon) of a ground whose height is north(y) (m north of FRAME's origin)."""
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return north(np.asarray(n))
+        return elev
+
+    def test_a_mapped_wall_between_two_levels_ends_both_gradings_at_it(self):
+        """(_between_cuts, BETWEEN_*) the map's wall 5.5 m south of the eastbound's line: both carriageways keep their
+        own height up to it (graded as one surface the westbound took the eastbound's lanes down: a ramp under them,
+        2-3.7 G in waves)."""
+        from grading import profiles
+        east, west = self._two_levels()
+        profiles._between_cuts(FRAME, [east, west], self._ground(lambda n: np.full(n.shape, 99.5)),
+                               [np.array([[-120.0, -5.5], [120.0, -5.5]])])
+        self.assertTrue(np.allclose(east.cut[:, 3], 5.5) and np.isnan(east.cut[:, 0]).all(), "the eastbound: on its right")
+        self.assertTrue(np.allclose(west.cut[:, 3], 4.5), "the westbound (running west): on its right too")
+        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-16.0, 5.1, 0.5))
+        px, py = px.ravel(), py.ravel()
+        out = grading.grade_points(px, py, np.full(len(px), 99.5), [east, west])
+        self.assertLess(np.abs(out[py >= -5.0] - 100.0).max(), 0.02, "the eastbound's lanes at its height up to the wall")
+        self.assertLess(np.abs(out[(py <= -6.0) & (py >= -14.0)] - 98.9).max(), 0.02, "the westbound's beyond it")
+
+    def test_the_grounds_step_between_two_levels_where_no_wall_is_mapped(self):
+        """(BETWEEN_*) no wall mapped: the raw ground's step between them (lidar: 1 m within 1.5 m, 5.5 m south of the
+        eastbound's line) is where both end; a gentle slope between them, or one level, cuts nothing."""
+        from grading import profiles
+        east, west = self._two_levels()
+        step = lambda n: np.interp(n, [-10.0, -6.25, -4.75, 0.0], [98.9, 98.9, 100.0, 100.0])    # noqa: E731
+        profiles._between_cuts(FRAME, [east, west], self._ground(step), [])
+        self.assertTrue(np.allclose(east.cut[:, 3], 5.5, atol=0.5), "the eastbound ends at the step")
+        self.assertTrue(np.allclose(west.cut[:, 3], 4.5, atol=0.5))
+        east, west = self._two_levels()
+        slope = lambda n: np.interp(n, [-10.0, 0.0], [98.9, 100.0])    # noqa: E731
+        profiles._between_cuts(FRAME, [east, west], self._ground(slope), [])
+        self.assertIsNone(east.cut, "a gentle slope between them: blended as ever")
+        east, west = self._two_levels(low_z=99.7)
+        profiles._between_cuts(FRAME, [east, west], self._ground(step), [np.array([[-120.0, -5.5], [120.0, -5.5]])])
+        self.assertIsNone(east.cut, "0.3 m apart: one level")
+
     def test_a_narrow_road_mapped_onto_a_wider_one_far_under_it_gives_way(self):
         """(BESIDE_LEVEL_*) a driveway mapped onto a secondary's carriageway, 3 m off its centre line and 1.5 m under
         it: the secondary keeps its height across its carriageway; 0.3 m under it the two blend as before."""

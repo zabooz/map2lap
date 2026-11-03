@@ -10,7 +10,7 @@ import mapcells
 import roads as roadsmod
 
 from .settings import (
-    ABUT_FILL_ON, APPROACH_ON, CHAIN_ON, CLIP_MARGIN_M, COARSE_EASE_ON, COARSE_MAX_SLOPE, COARSE_MAX_STEP_M,
+    ABUT_FILL_ON, APPROACH_ON, BETWEEN_ON, BETWEEN_WALL_CLASSES, CHAIN_ON, CLIP_MARGIN_M, COARSE_EASE_ON, COARSE_MAX_SLOPE, COARSE_MAX_STEP_M,
     COARSE_REACH_M, COARSE_SIGMA_M, CORNERS_ON, JUNCTION_SNAP_ON, LONG_PART_M, OVER_TUNNEL_SMALL_M, PLAN_SETS_MAX,
     PLAN_THREADS, RAIL_GRADE_ON, RAIL_TAG, RETRY_S, SPREAD_CELLS, TUNNEL_KEEP_IN_M, TUNNEL_KEEP_M, TUNNEL_TAG, T_MAX,
     UNDER_ON, UNGRADED, UNGRADED_MARGIN_M, log
@@ -130,6 +130,27 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
             self.opens.setdefault(key, opens)
             return self.cells[key]
 
+    def _walls(self, key):
+        """The mapped walls of cell key (BETWEEN_WALL_CLASSES) as lines (k, 2) in the frame; [] when none, or when they
+        could not be read (the walls between two roads at two levels then come from the ground alone:
+        profiles._between_cuts)."""
+        try:
+            f = self.md.cell(key, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
+        except Exception as e:
+            log.debug("grading: walls of %s: %s: %s", key, type(e).__name__, e)
+            return []
+        cls = None if f is None else f.attrs.get("class")
+        if cls is None or not len(f.kind):
+            return []
+        out = []
+        for i in np.flatnonzero(np.isin(np.asarray(cls).astype(str), BETWEEN_WALL_CLASSES)):
+            for part in f.parts(int(i)):
+                for ring in part:
+                    if len(ring) >= 2:
+                        e, n, _ = self.frame.geodetic_to_enu(ring[:, 1], ring[:, 0], 0.0)
+                        out.append(np.stack([np.asarray(e), np.asarray(n)], axis=1))
+        return out
+
     def _make_cell(self, key):
         """(plans, keeps, covers, opens) of cell key, or None when its roads could not be fetched."""
         try:
@@ -200,7 +221,9 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
             for j, (fid, part, cl, p) in enumerate(zip(ids, parts, clipped,
                                                        plan_roads(self.frame, parts, self.elev, abut, ext, pins,
                                                                   coarse=coarse, fine=fine, under=under,
-                                                                  obs=_with_lows(self._obs(key), lows)))):
+                                                                  obs=_with_lows(self._obs(key), lows),
+                                                                  walls=(lambda: self._walls(key)) if BETWEEN_ON
+                                                                  else None))):
                 if p is not None:
                     p.rid = road_id(fid)
                     if free is not None:

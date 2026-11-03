@@ -21,7 +21,9 @@ import roadmesh
 import roads
 
 LAT, LON = 41.10022, -105.06194
-NEAR_DEG = 2e-5     # ~2 m
+NEAR_DEG = 2e-4     # ~20 m: the nearest captured sample for points the 1.7.0 capture never asked for (the curve deck
+                    # profile's tangent points; the ground between two roads at two levels, grading.profiles
+                    # _between_cuts: the twin carriageways here get no wall, 2026-11-03), still real terrain
 FAR_M = 600.0       # m from the bridge past which a missing sample takes the nearest (the banking's joined roads reach
                     # further than the 1.7.0 capture; nothing there shapes these decks)
 # The decks and the road under them as Map2Lap builds them, which drive well in AC, plus a margin: a guard against them
@@ -59,9 +61,8 @@ class OttoBridgeTest(TestCase):
             keys = np.c_[np.rint(a.ravel() * 1e9).astype(np.int64),
                          np.rint(b.ravel() * 1e9).astype(np.int64),
                          np.full(a.size, 16, dtype=np.int64)]
-            # Missing queries fail explicitly; no synthetic terrain or network. (Exception: the curve deck profile
-            # looks at the ground up to its approaches' tangent points past each abutment, points the 1.7.0 capture
-            # never asked for: those take the nearest captured sample within NEAR_DEG, still real terrain.)
+            # Missing queries fail explicitly; no synthetic terrain or network. (Exception: points the 1.7.0 capture
+            # never asked for take the nearest captured sample within NEAR_DEG, still real terrain.)
             out = []
             for k in keys:
                 z = samples.get(tuple(k))

@@ -8,10 +8,10 @@ import numpy as np
 import roads as roadsmod
 
 from .settings import (
-    ABUT_FAR_M, ABUT_FILL_ON, ABUT_MAX_M, ABUT_MIN_FINE_M, ABUT_MIN_M, ABUT_NEAR_M, ABUT_SHORT_SAMPLES, ABUT_STEEP,
+    ABUT_FAR_M, ABUT_FILL_ON, ABUT_MAX_M, BESIDE_LEVEL_FROM_M, BETWEEN_MIN_M, BETWEEN_ON, BETWEEN_STEP_M, ABUT_MIN_FINE_M, ABUT_MIN_M, ABUT_NEAR_M, ABUT_SHORT_SAMPLES, ABUT_STEEP,
     ABUT_STEEP_FINE, CLASS_SIGMA_M, COARSE_SIDE_M, DIRT_MEDIAN_M, DIRT_SIGMA_M, MAJOR_CLASSES, MEDIAN_M, PROFILE_STEP,
     SHARP_GRADE, SHARP_LONE_MIN_M, SHARP_MIN_M, SHARP_ON, SHARP_REACH_M, SHARP_RUN_N, SHARP_STEP_M, SIGMA_M,
-    SIGMA_MAJOR_M, T_MAX, VERTEX_STEP
+    SIGMA_MAJOR_M, T_MAX, T_MIN, VERTEX_STEP
 )
 from .snap import shoulder
 
@@ -180,15 +180,16 @@ def _normals(xy):
 
 
 def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, coarse=False, fine=False, under=None,
-               obs=None):
+               obs=None, walls=None):
     """plan_road for many (lonlat, spec) parts with one elev call (its cost is per call); abut: per part (start, end)
     flags, the ends leading onto a bridge (fill_abutment); ext: per part (before, after), the lines (k, 2) in the frame
     from its start / end outward along the part the road goes on in (Grader._extensions), or None: their ground is in
     the part's profile smoothing; pins: per part (start, end) heights its ends are held at, or None (Grader._pins: a
     road ending on a more smoothed one meets it at its height); fine: the elevation is lidar
     (ABUT_*_FINE); obs(xy (m, 2), spec) -> measured heights (m,) of a
-    part's samples (NaN where none) or None: they stand in for the DEM's (roadz.py, on coarse elevation: Grader._obs).
-    Pure given elev and obs."""
+    part's samples (NaN where none) or None: they stand in for the DEM's (roadz.py, on coarse elevation: Grader._obs);
+    walls: the mapped walls' lines (k, 2) in the frame near the parts (or a function giving them), for the walls
+    between two roads at two levels (_between_cuts), or None: none of those. Pure given elev and obs."""
     if not parts:
         return []
     ll = np.concatenate([lonlat for lonlat, _ in parts])
@@ -292,8 +293,10 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
         out[i] = _plan(xy, zx, spec, ab, ext_, step_, bank_xy=bank_xy, bank_ext=bext, lidar_bank=lb, fine=fine,
                        under_deck=ud, ground=ground)
     if SHARP_ON and cuts:           # (cuts False: the profile alone, Grader._stronger_z)
-        _add_cuts(frame, [p if p is not None and sp.kind in roadsmod.BUILT else None
-                          for p, (_ll, sp) in zip(out, parts)], elev)
+        built = [p if p is not None and sp.kind in roadsmod.BUILT else None for p, (_ll, sp) in zip(out, parts)]
+        _add_cuts(frame, built, elev)
+        if BETWEEN_ON and walls is not None:
+            _between_cuts(frame, built, elev, walls)
     return out
 
 
@@ -372,6 +375,132 @@ def _add_cuts(frame, plans, elev):
                 cut[:, c] = np.minimum(cut[:, c], zmin + getattr(p, "max_wall", WALL_MAX_H_M))
             if np.isfinite(cut[:, 0]).any() or np.isfinite(cut[:, 3]).any():
                 p.cut = cut
+
+
+def _foot(mid, xy):
+    """Per point mid (k, 2) the nearest point on polyline xy (n, 2) (k, 2), whether it lies inside the line (not past an
+    end), and the line's unit direction there (k, 2); with the segment index and its parameter. Pure."""
+    a, ab = xy[:-1], np.diff(xy, axis=0)
+    l2 = np.maximum((ab * ab).sum(1), 1e-12)
+    t = ((mid[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None]
+    tc = np.clip(t, 0.0, 1.0)
+    f = a[None] + tc[..., None] * ab[None]
+    k = np.arange(len(mid))
+    j = np.hypot(*(f - mid[:, None, :]).transpose(2, 0, 1)).argmin(1)
+    inside = ~(((j == 0) & (t[k, j] < 0.0)) | ((j == len(ab) - 1) & (t[k, j] > 1.0)))
+    return f[k, j], inside, ab[j] / np.sqrt(l2[j])[:, None], j, tc[k, j]
+
+
+def _runs(ok, n):
+    """ok (m,) with the runs of fewer than n consecutive True set False. Pure."""
+    out = np.zeros(len(ok), bool)
+    i = 0
+    while i < len(ok):
+        if not ok[i]:
+            i += 1
+            continue
+        e = i
+        while e + 1 < len(ok) and ok[e + 1]:
+            e += 1
+        if e + 1 - i >= n:
+            out[i:e + 1] = True
+        i = e + 1
+    return out
+
+
+def _between_cuts(frame, plans, elev, walls):
+    """Sets Plan.cut's drops where a road has another road beside it at another level (BESIDE_LEVEL_FROM_M apart, near
+    enough for their gradings to meet) and a wall between them: walls' (lines (k, 2) in the frame, BETWEEN_WALL_CLASSES)
+    first, else the raw ground elev(lat, lon) between them stepping at SHARP_GRADE (BETWEEN_*). Each side of each
+    plan: the nearest such road. walls may be a function giving them: called only when such a pair is found (most map
+    cells have none: a cell's walls are another map layer to read). None entries skipped; nothing without the module's
+    wall ends (AC_EXPORT_WALL_ENDS)."""
+    import fast
+    if getattr(fast._ef, "AC_EXPORT_WALL_ENDS", 0) < 1:
+        return
+    f64 = np.float64
+    keep = [p for p in plans if p is not None and len(p.xy) >= 2]
+    if len(keep) < 2:
+        return
+    got = []
+
+    def wall_lines():               # (read once, when first needed)
+        if not got:
+            ws = walls() if callable(walls) else walls
+            got.append([np.asarray(w, f64)[:, :2] for w in (ws or ()) if len(w) >= 2])
+        return got[0]
+    cos_par = math.cos(math.radians(25.0))      # (parallel within: roads' DUAL_ANGLE_DEG)
+    jobs = []                                   # (plan, side column, segments, offsets of their other road, probes)
+    for p in keep:
+        xy, z = np.asarray(p.xy, f64)[:, :2], np.asarray(p.z, f64)
+        mid, zm = (xy[:-1] + xy[1:]) / 2, (z[:-1] + z[1:]) / 2
+        dirs = np.diff(xy, axis=0)
+        dirs = dirs / np.maximum(np.hypot(*dirs.T), 1e-12)[:, None]
+        nl = np.c_[-dirs[:, 1], dirs[:, 0]]
+        for side, c0 in ((1.0, 0), (-1.0, 3)):
+            nrm = nl * side
+            off = np.full(len(mid), np.inf)
+            zq = np.full(len(mid), np.nan)
+            for q in keep:
+                if q is p:
+                    continue
+                reach = p.half + q.half + T_MIN
+                b0, b1 = np.asarray(p.bbox, f64), np.asarray(q.bbox, f64)
+                if b1[0] > b0[2] + reach or b1[2] < b0[0] - reach or b1[1] > b0[3] + reach or b1[3] < b0[1] - reach:
+                    continue
+                qxy, qz = np.asarray(q.xy, f64)[:, :2], np.asarray(q.z, f64)
+                foot, inside, u, j, t = _foot(mid, qxy)
+                v = foot - mid
+                o = (v * nrm).sum(1)
+                along = np.abs((v * dirs).sum(1))
+                h = qz[j] + t * (qz[j + 1] - qz[j])
+                ok = (inside & (np.abs((u * dirs).sum(1)) >= cos_par) & (o > 2 * BETWEEN_MIN_M) & (along < VERTEX_STEP)
+                      & (o < reach) & (np.abs(h - zm) >= BESIDE_LEVEL_FROM_M) & (o < off))
+                off[ok], zq[ok] = o[ok], h[ok]
+            has = np.isfinite(off)
+            if not has.any():
+                continue
+            wall = np.full(len(mid), np.nan)
+            for w in wall_lines():      # (a mapped wall between them: the nearest)
+                foot, inside, u, _j, _t = _foot(mid, w)
+                v = foot - mid
+                o = (v * nrm).sum(1)
+                ok = (has & inside & (np.abs((u * dirs).sum(1)) >= cos_par) & (np.abs((v * dirs).sum(1)) < VERTEX_STEP)
+                      & (o > 0) & (o < off) & ~(o >= wall))
+                wall[ok] = o[ok]
+            seg = np.flatnonzero(has)
+            probes = [np.arange(BETWEEN_MIN_M, max(off[s] - BETWEEN_MIN_M, BETWEEN_MIN_M) + 1e-9, BETWEEN_STEP_M)
+                      for s in seg]
+            pts = [mid[s] + nrm[s] * o[:, None] for s, o in zip(seg, probes)]
+            jobs.append((p, c0, seg, off, zm, zq, wall, probes, pts))
+    if not jobs:
+        return
+    allp = np.concatenate([q for job in jobs for q in job[8]])
+    la, lo, _ = frame.enu_to_geodetic(allp[:, 0], allp[:, 1], 0.0)
+    g = np.asarray(elev(np.asarray(la), np.asarray(lo)), f64)
+    k = 0
+    for p, c0, seg, off, zm, zq, wall, probes, pts in jobs:
+        step = np.zeros(len(off), bool)
+        at = np.full(len(off), np.nan)
+        for s, o in zip(seg, probes):          # (the raw ground's step between the two levels)
+            gg = g[k:k + len(o)]
+            k += len(o)
+            frac = (gg - zm[s]) / (zq[s] - zm[s])
+            past = [np.flatnonzero(frac >= f) for f in (0.25, 0.5, 0.9)]
+            if any(len(x) == 0 for x in past) or frac[0] >= 0.25:
+                continue
+            o25, o50, o90 = (o[x[0]] for x in past)
+            if 0.65 * abs(zq[s] - zm[s]) / max(o90 - o25, BETWEEN_STEP_M) >= SHARP_GRADE:
+                step[s], at[s] = True, o50
+        step = _runs(step, SHARP_RUN_N)
+        put = np.where(np.isfinite(wall), wall, np.where(step, at, np.nan))
+        put = np.where(np.isfinite(put), np.clip(put, BETWEEN_MIN_M, off - BETWEEN_MIN_M), np.nan)
+        if not np.isfinite(put).any():
+            continue
+        cut = np.full((len(off), 6), np.nan) if p.cut is None else np.array(p.cut, f64, copy=True)
+        new = np.isfinite(put) & ~(cut[:, c0] <= put)       # (a nearer wall of its own stands)
+        cut[new, c0], cut[new, c0 + 1], cut[new, c0 + 2] = put[new], np.nan, np.nan
+        p.cut = cut
 
 
 def _point_along(line, d):

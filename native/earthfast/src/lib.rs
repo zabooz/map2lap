@@ -1343,6 +1343,14 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                         if d > far0 {
                             continue;       // (nothing below reaches this far: the box's corners)
                         }
+                        // (past a drop's wall the road ends, its carriageway and core too, as in pass 1: a wall between
+                        // two carriageways at two levels, the lower one's lanes planned wider than the wall's place,
+                        // made the upper one's own lanes count as on the lower's and give way, SH16 in Auckland)
+                        let beyond = cwall.is_finite() && !ctop.is_finite()
+                            && (qx * aby - qy * abx).abs() / l2.max(1e-24).sqrt() > cwall;
+                        if beyond {
+                            continue;
+                        }
                         if d - rh[s] < cdeep[idx] || (d <= rh[s] && carz[idx].is_nan()) {
                             cdeep[idx] = d - rh[s];
                             carz[idx] = target;
@@ -1426,7 +1434,11 @@ fn grade_points<'py>(py: Python<'py>, px: PyReadonlyArray1<'py, f64>, pyy: PyRea
                     // carriageway only: a step of 3-7 cm at the centre line wherever the grade or the bend changed, on a
                     // steep slope's road whose shelf the elevation data lacks, the Grossglockner road's Freiwand gallery)
                     let hs = if cwall.is_finite() { h[s].min(cwall) } else { h[s] };
-                    let drop = cwall.is_finite() && !ctop.is_finite() && side > cwall && ahead < side;
+                    // (and beyond the wall's line on another road's carriageway however far ahead of the segment: a
+                    // segment a few metres on, the point diagonally ahead of its end, pulled the other carriageway's
+                    // lanes beyond a wall between the two, SH16 in Auckland)
+                    let drop = cwall.is_finite() && !ctop.is_finite() && side > cwall
+                        && (ahead < side || (carid[idx] >= 0 && carid[idx] != rid[s]));
                     let wall = beff[idx] - target > wall_cut && ahead < side && ahead < wall_ahead;
                     let tt = if wall { wall_t } else { (slope_run * (target - beff[idx]).abs()).clamp(t_min, t_max) };
                     // a wall: flat on one terrain step behind it (no slope in front of its face), then up
@@ -5021,5 +5033,6 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("VERSION", 114)?;
     m.add("AC_EXPORT_YIELD", 4)?;      // (grade_points takes yl, yield_fade; 4: bw, beside_wider/from/to, tun)
     m.add("AC_EXPORT_PAST", 1)?;       // (grade_points takes past)
+    m.add("AC_EXPORT_WALL_ENDS", 1)?;  // (grade_points: a road's carriageway and core end at a drop's wall in pass 0 too)
     Ok(())
 }

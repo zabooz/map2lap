@@ -2,7 +2,7 @@
 import numpy as np
 
 from .settings import (
-    ABUT_NEAR_M, BLEND_R, BUCKET, CHAIN_JOIN_M, CORE_FADE_M, SEP_FROM_M, SEP_FULL_M, SEP_ON, SHARP_STEP_M, SIDE_FADE_M,
+    ABUT_NEAR_M, BESIDE_LEVEL_FROM_M, BESIDE_LEVEL_TO_M, BLEND_R, BUCKET, CHAIN_JOIN_M, CORE_FADE_M, SEP_FROM_M, SEP_FULL_M, SEP_ON, SHARP_STEP_M, SIDE_FADE_M,
     SLOPE_RUN, T_MAX, T_MIN, VERTEX_STEP, WALL_AHEAD_M, WALL_CUT_M, WALL_FLAT_M, WALL_T_M, YIELD_FADE_M,
     YIELD_GATE_FROM_M, YIELD_GATE_TO_M, YIELD_NEAR_M
 )
@@ -123,8 +123,6 @@ def _yield_strength(plans, box, nseg):
 # road's joining at that node: the side road's lanes there no longer came down to the primary, a 10 cm hump 6 m from
 # the node, 3.5 G at 100 km/h.
 BESIDE_WIDER_M = 0.5        # m: the other road's carriageway this much wider (half width) at least
-BESIDE_LEVEL_FROM_M = 0.5   # m apart: on its own carriageway it gives way from this ...
-BESIDE_LEVEL_TO_M = 1.0     # ... and fully from this
 BESIDE_STEP_M = 1.0         # m between the narrow road's samples
 
 

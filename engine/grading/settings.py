@@ -82,6 +82,22 @@ SHARP_RUN_N = 3             # consecutive plan vertices (VERTEX_STEP apart) a cu
 # Hillside roads' deeper cuttings keep their walls (WALL_MAX_H_M high at most)
 SHARP_LONE_MIN_M = 4.0
 SEP_FROM_M = 2.0
+# Two roads count as two levels from BESIDE_LEVEL_FROM_M apart (points.BESIDE_*: on its own carriageway a narrower road
+# gives way from this, fully from BESIDE_LEVEL_TO_M; nearer they blend as equals: a merging road, a divided road's two
+# carriageways at one level)
+BESIDE_LEVEL_FROM_M = 0.5
+BESIDE_LEVEL_TO_M = 1.0
+# Two roads side by side at two levels with a wall between them: each road's grading ends at the wall (Plan.cut, a drop
+# on that side: points.grade_points), flat up to it, the step at it, neither pulling the other's lanes. Graded as one
+# surface the two made a ramp ~8 m wide (the blend's weight by distance) under the upper one's lanes: SH16 at Waterview,
+# Auckland, two carriageways 10 m apart and 1.1 m apart in height, 2-3.7 G in waves. The wall: a mapped wall or
+# retaining wall between them (BETWEEN_WALL_CLASSES), else where the raw ground between them has made half its change,
+# at SHARP_GRADE or steeper over SHARP_RUN_N vertices (a gentler slope between them is ground the blend may keep: a
+# grass median). Never nearer either road's line than BETWEEN_MIN_M (a mapped line lies a metre or two off).
+BETWEEN_ON = os.environ.get("BNE_BETWEEN_WALLS", "on") != "off"
+BETWEEN_MIN_M = 1.75        # m: a carriageway keeps half a lane each side (roads' DUAL_MIN_W / 2)
+BETWEEN_STEP_M = 0.5        # m between the raw ground's samples across the gap
+BETWEEN_WALL_CLASSES = ["wall", "retaining_wall"]     # (Overture infrastructure, subtype barrier: OSM's barrier=)
 SEP_FULL_M = 4.0
 CORE_FADE_M = 2.0
 SIDE_FADE_M = 2.0           # m of (side - ahead) over which a segment counts as beside the point (ahead: its own road)
