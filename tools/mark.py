@@ -1,13 +1,15 @@
-"""What a mark from AC says: the drive around each mark of a Track Debug session (docs/ac-reports.md), by route metre.
+"""What a mark or a recorded drive from AC says: the drive around each mark of a Track Debug session, and its
+recorded drive (drive.csv), by route metre (docs/ac-reports.md).
 
-    .venv\\Scripts\\python.exe tools\\mark.py                        # the newest session with a mark
+    .venv\\Scripts\\python.exe tools\\mark.py                        # the newest session with a mark or a drive
     .venv\\Scripts\\python.exe tools\\mark.py rechberg               # ... of a track whose name holds this
     .venv\\Scripts\\python.exe tools\\mark.py "<session folder>"     # that session
     .venv\\Scripts\\python.exe tools\\mark.py rechberg --mark 2 --from 80 --to 120
 
-Per mark: its place and screenshot, the passes (a drive one way along the route), the hits (vertical G with the wheels'
-travel) and where an axle hung unloaded, each with the measure.py command for that stretch. A hit far off the line is
-marked: the car was beside the road there, so it says nothing about the road.
+Per mark and for the drive: its place and screenshot, the passes (a drive one way along the route), the hits (vertical
+G with the wheels' travel), where an axle hung unloaded, each with the measure.py command for that stretch, and the
+physics under the car (1ROAD, 1GRASS, ...: from the track's OBJ parts in out/tracks/<track>, when that build is there).
+A hit far off the line is marked: the car was beside the road there, so it says nothing about the road.
 """
 import argparse
 import csv
@@ -20,6 +22,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
 sys.path.insert(0, os.path.join(HERE, "src"))
 from app import settings, system  # noqa: E402
+import measure  # noqa: E402
 
 HIT_G = 0.75            # G vertical against the smooth ride: a 1 G landing is felt, a road's waves stay under this
 SOFT_G = 0.3            # G: a bump felt as a soft one: a 1.7 % kink at 90 km/h gave 0.42 G (a short bridge's joint)
@@ -32,6 +35,8 @@ TURN_M = 5.0            # m back along the route that end a pass (the route metr
 STAND_KMH = 1.0         # km/h: below this the car stands, which ends a pass too
 AROUND_M = 12.0         # m around a stretch for measure.py: the road before and after it
 WHEELS = ("susp_fl", "susp_fr", "susp_rl", "susp_rr")
+DRIVE = "drive.csv"     # a session's recorded drive ("Start recording" in the Track Debug app)
+REBUILT_S = 60.0        # s the OBJ parts may be newer than the session's build: past it the track was built again since
 
 
 def sessions_dir():
@@ -40,13 +45,14 @@ def sessions_dir():
 
 
 def find_session(what=None, root=None):
-    """The session folder: what itself if it is one, else the newest under root with a mark whose name holds what (any
-    with None), or None."""
+    """The session folder: what itself if it is one, else the newest under root with a mark or a recorded drive whose
+    name holds what (any with None), or None."""
     if what and os.path.isdir(what):
         return what
     root = root or sessions_dir()
     got = [d for d in glob.glob(os.path.join(root, "*")) if os.path.isdir(d)
-           and (not what or what.lower() in os.path.basename(d).lower()) and glob.glob(os.path.join(d, "mark_*.csv"))]
+           and (not what or what.lower() in os.path.basename(d).lower())
+           and (glob.glob(os.path.join(d, "mark_*.csv")) or os.path.exists(os.path.join(d, DRIVE)))]
     return max(got, key=lambda d: os.path.basename(d).rsplit("_", 2)[-2:]) if got else None
 
 
@@ -153,6 +159,44 @@ def track_of(folder):
     return os.path.basename(folder).rsplit("_", 2)[0]
 
 
+def under_car(track, rows):
+    """Per row the name of the object the car stands on in track's OBJ parts (the surface nearest the car's height), or
+    None when that build is not in out/tracks."""
+    if not rows or not measure.tile_files(track):
+        return None
+    x, z, y = (np.array([r[k] for r in rows]) for k in ("x", "z", "y"))
+    T3, _d, names = measure._surfaces(track, (x.min() - 5, z.min() - 5, x.max() + 5, z.max() + 5))
+    return measure.names_at(T3, names, x, z, y)
+
+
+def surface_runs(rows, names):
+    """The physics under the car along rows (names: under_car's): [(first row, last row, object)] per run of one object
+    (split parts as one), rows beside the road (off_m > BESIDE_M) left out: they end a run. Pure."""
+    out, last = [], None
+    for r, n in zip(rows, names):
+        n = measure.unsplit(n) if n else "nothing"
+        if r["off_m"] > BESIDE_M:
+            last = None
+            continue
+        if last is not None and out[-1][2] == n:
+            out[-1][1] = r
+        else:
+            out.append([r, r, n])
+        last = n
+    return [tuple(u) for u in out]
+
+
+def rebuilt_since(track, folder):
+    """Whether track's OBJ parts are newer than the build the session drove (map2lap.json's "built"), by REBUILT_S."""
+    import json
+    try:
+        with open(os.path.join(folder, "map2lap.json"), encoding="utf-8") as f:
+            built = float(json.load(f)["built"])
+    except (OSError, KeyError, ValueError):
+        return False
+    return max(os.path.getmtime(p) for p in measure.tile_files(track)) > built + REBUILT_S
+
+
 def _where(r):
     beside = "  BESIDE THE ROAD" if r["off_m"] > BESIDE_M else ""
     return f"route {r['route_m']:8.1f} m, {r['off_m']:4.1f} m off the line, {r['speed_kmh']:5.1f} km/h{beside}"
@@ -195,6 +239,23 @@ def report_mark(track, path, marks, start=None, end=None):
     if on_road:
         s = [r["route_m"] for r in on_road]
         print(f"  built there: tools\\measure.py {track} --profile --from {min(s) - AROUND_M:.0f} --to {max(s) + AROUND_M:.0f}")
+    report_surface(track, rows)
+
+
+def report_surface(track, rows):
+    """The physics under the car along rows, from track's OBJ parts."""
+    names = under_car(track, rows)
+    if names is None:
+        print(f"  under the car: no build of {track} in out/tracks (keep the build files, or tools\\from_debug.py)")
+        return
+    print("  under the car (the OBJ parts in out/tracks; beside the road left out):")
+    for a, b, n in surface_runs(rows, names):
+        flag = "" if measure.physics(n) == measure.ROAD else "   <-- not road"
+        print(f"    route {a['route_m']:8.1f} -> {b['route_m']:8.1f} m  {n}{flag}")
+    off = [(a, b) for a, b, n in surface_runs(rows, names) if measure.physics(n) != measure.ROAD]
+    if off:
+        print(f"  the physics along it: tools\\measure.py {track} --surface --from {min(a['route_m'] for a, _ in off) - AROUND_M:.0f} "
+              f"--to {max(b['route_m'] for _, b in off) + AROUND_M:.0f}")
 
 
 def main():
@@ -206,7 +267,7 @@ def main():
     a = ap.parse_args()
     folder = find_session(a.session)
     if folder is None:
-        sys.exit(f"no session with a mark for {a.session!r} in {sessions_dir()}")
+        sys.exit(f"no session with a mark or a drive for {a.session!r} in {sessions_dir()}")
     track = track_of(folder)
     print(f"session: {folder}")
     with open(os.path.join(folder, "info.txt"), encoding="utf-8") as f:
@@ -220,6 +281,11 @@ def main():
         n = int(os.path.basename(csv_path)[5:-4])
         if a.mark is None or a.mark == n:
             report_mark(track, csv_path, table.get(n), a.start, a.end)
+    drive = os.path.join(folder, DRIVE)
+    if a.mark is None and os.path.exists(drive):
+        report_mark(track, drive, None, a.start, a.end)
+    if measure.tile_files(track) and rebuilt_since(track, folder):
+        print(f"\nNOTE: out/tracks/{track} was built again after this session's build: it may differ from what was driven")
 
 
 if __name__ == "__main__":

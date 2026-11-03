@@ -63,17 +63,26 @@ class MarkTest(unittest.TestCase):
                      [row(0.42 + i * 0.02) for i in range(5)]
         self.assertEqual(mark.unloaded(one_sample), [])
 
-    def test_the_newest_session_of_a_track_with_a_mark_is_found(self):
+    def test_the_newest_session_of_a_track_with_a_mark_or_a_drive_is_found(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
-            for name, has_mark in (("rechberg_test_20261101_115118", True), ("rechberg_test_20261103_083656", True),
-                                   ("rechberg_test_20261103_090000", False), ("griffen_test_20261104_100000", True)):
+            for name, has in (("rechberg_test_20261101_115118", "mark_01.csv"), ("rechberg_test_20261103_083656", "mark_01.csv"),
+                              ("rechberg_test_20261103_090000", None), ("griffen_test_20261104_100000", "mark_01.csv"),
+                              ("henderson_20261103_112959", mark.DRIVE)):
                 os.makedirs(os.path.join(root, name))
-                if has_mark:
-                    open(os.path.join(root, name, "mark_01.csv"), "w").close()
+                if has:
+                    open(os.path.join(root, name, has), "w").close()
             self.assertEqual(os.path.basename(mark.find_session("rechberg", root)), "rechberg_test_20261103_083656")
             self.assertEqual(os.path.basename(mark.find_session(None, root)), "griffen_test_20261104_100000")
+            self.assertEqual(os.path.basename(mark.find_session("henderson", root)), "henderson_20261103_112959")
             self.assertIsNone(mark.find_session("stausee", root))
+
+    def test_the_surface_under_the_car_in_runs_beside_the_road_left_out(self):
+        rows = [row(0.0, s=100.0), row(1.0, s=110.0), row(2.0, s=120.0), row(3.0, s=130.0, off=9.0), row(4.0, s=140.0)]
+        names = ["1ROAD_ground_0_0", "1GRASS_ground_0_0", "1GRASS_ground_0_0_1", "1GRASS_ground_0_0", ""]
+        got = [(a["route_m"], b["route_m"], n) for a, b, n in mark.surface_runs(rows, names)]
+        self.assertEqual(got, [(100.0, 100.0, "1ROAD_ground_0_0"), (110.0, 120.0, "1GRASS_ground_0_0"),
+                               (140.0, 140.0, "nothing")])
 
 
 class OverDeckTest(unittest.TestCase):
@@ -105,6 +114,31 @@ class OverDeckTest(unittest.TestCase):
         rows = np.array([[100.0, 0.0, 0.05, 0.0], [300.0, 0.0, 0.03, 0.0]])
         ss = np.arange(0.0, 400.0, 0.5)
         self.assertEqual([u["from"] for u in measure.over_deck_spots(rows, ss, np.zeros(len(ss)), ss, 250.0, 350.0)], [300.0])
+
+
+class SurfaceTest(unittest.TestCase):
+    def test_a_tile_touches_a_box_within_its_reach(self):
+        # t_-22_15: x -5632..-5376, north 3840..4096, so z -4096..-3840
+        self.assertTrue(measure.tile_touches("t_-22_15.obj", (-5600, -3900, -5590, -3890)))
+        self.assertTrue(measure.tile_touches("t_-22_15.obj", (-5370, -3900, -5360, -3890)), "within its reach east")
+        self.assertFalse(measure.tile_touches("t_-22_15.obj", (-5000, -3900, -4990, -3890)))
+        self.assertFalse(measure.tile_touches("t_-22_15.obj", (-5600, -3700, -5590, -3690)), "south of it")
+
+    def test_split_parts_are_one_object_and_the_prefix_is_the_physics(self):
+        self.assertEqual(measure.unsplit("1GRASS_ground_-22_14_1"), "1GRASS_ground_-22_14")
+        self.assertEqual(measure.unsplit("1ROAD_deck_asphalt_-21_13"), "1ROAD_deck_asphalt_-21_13")
+        self.assertEqual(measure.physics("1GRASS_ground_-22_14"), "1GRASS")
+
+    def test_runs_of_equal_values(self):
+        self.assertEqual(measure.runs([1, 2, 3, 4], ["a", "a", "b", "a"]), [(1, 2, "a"), (3, 3, "b"), (4, 4, "a")])
+
+    def test_the_name_of_the_surface_nearest_in_height(self):
+        sq = lambda y: [[[0, y, 0], [10, y, 10], [10, y, 0]], [[0, y, 0], [0, y, 10], [10, y, 10]]]     # noqa: E731
+        T3 = np.array(sq(0.0) + sq(6.0), np.float64)
+        N = np.array(["1GRASS_ground"] * 2 + ["1ROAD_deck"] * 2, object)
+        got = measure.names_at(T3, N, np.array([5.0, 5.0, 5.0, 50.0]), np.array([5.0, 5.0, 5.0, 50.0]),
+                               np.array([0.1, 5.9, np.nan, 0.0]))
+        self.assertEqual(list(got), ["1GRASS_ground", "1ROAD_deck", "1ROAD_deck", ""])
 
 
 DUMP = '''Process 2388: "Map2Lap Worker.exe" "-c" "from multiprocessing.spawn import spawn_main"

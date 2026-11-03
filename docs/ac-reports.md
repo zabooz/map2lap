@@ -20,8 +20,11 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
 
 ## Finding the cause
 
-1. `tools\mark.py [track]` reads the newest session with a mark: the passes, the hits, hanging axles, whether the car was
-   beside the road, and the `measure.py --profile` command for that stretch. The profile tells deck from ground.
+1. `tools\mark.py [track]` reads the newest session with a mark or a recorded drive: the passes, the hits, hanging axles,
+   whether the car was beside the road, the physics under the car (1ROAD, 1GRASS, ... from `out/tracks/<track>`), and the
+   `measure.py --profile` / `--surface` commands for that stretch. The profile tells deck from ground; `--surface` which
+   physics lies under the line (the asphalt seen on the ground is only the terrain's texture: its object's prefix decides
+   the grip).
 2. `tools\from_debug.py <folder>` builds that track here with the route exactly as it was built (no OSRM) and says where
    this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring tools).
 3. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
