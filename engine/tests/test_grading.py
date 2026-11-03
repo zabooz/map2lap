@@ -1253,6 +1253,33 @@ class PastEndsTest(unittest.TestCase):
         self.assertAlmostEqual(out[0], 10.0, places=2)             # (on the plan: the road)
         np.testing.assert_allclose(out[1:], 3.0, atol=1e-6)         # (past its end: the stream bed)
 
+    def test_the_pack_of_the_other_plans_is_made_once_and_grades_the_same(self):
+        """(a pack takes a second on a busy map: made anew on every call, the A2's last tiles took minutes)"""
+        y = np.arange(-30.0, 31.0, 2.0)
+        under = grading.Plan(np.stack([0 * y + 60.0, y], 1), np.full(len(y), 4.0), 4.0, road_half=3.0)
+        under.rid = 2
+        plans = [self.approach((None, 0.0)), under]
+        px, py = np.array([49.0, 52.0, 55.0, 58.0]), np.array([0.0, 0.0, 5.0, 2.0])
+        base = np.full(len(px), 3.0)
+        pack = grading.PlanPack(plans)
+        out = grading.grade_points(px, py, base, pack)
+        alone = grading.regrade_past_ends(px, py, base, plans, out)
+        with unittest.mock.patch.object(grading.bridges, "PlanPack", wraps=grading.PlanPack) as made:
+            first = grading.regrade_past_ends(px, py, base, plans, out, 0.0, pack)
+            second = grading.regrade_past_ends(px, py, base, plans, out, 0.0, pack)
+        self.assertEqual(made.call_count, 1)
+        np.testing.assert_array_equal(first, alone)
+        np.testing.assert_array_equal(second, alone)
+
+    def test_no_other_plan_leaves_the_elevation(self):
+        plans = [self.approach((None, 0.0))]
+        px, py = np.array([52.0]), np.array([0.0])
+        base = np.full(1, 3.0)
+        pack = grading.PlanPack(plans)
+        for _ in range(2):
+            got = grading.regrade_past_ends(px, py, base, plans, grading.grade_points(px, py, base, pack), 0.0, pack)
+            np.testing.assert_allclose(got, 3.0)
+
     def test_without_the_cut_the_end_fills_under_the_deck(self):
         """(the cause: a point past a segment's end takes the end's height up to the core's half width)"""
         out = self.graded([self.approach((None, None))], np.array([52.0]), np.array([0.0]))

@@ -507,7 +507,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
         e, n, _ = self.frame.geodetic_to_enu(lat.ravel(), lon.ravel(), 0.0)
         e, n = np.asarray(e), np.asarray(n)
         out = grade_points(e, n, base.ravel(), pack, lift)
-        out = regrade_past_ends(e, n, base.ravel(), plans, out, lift)
+        out = regrade_past_ends(e, n, base.ravel(), plans, out, lift, pack)
         race = self._on_kept(e, n)
         if race is not None:                # (the terrain is a racetrack's surface)
             out[race] = base.ravel()[race]

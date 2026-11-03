@@ -237,6 +237,7 @@ class PlanPack:
     call, the plans' Python loop cost a Canton tile set ~1 s)."""
 
     def __init__(self, plans):
+        self.without = {}       # (frozenset of plan numbers -> the pack of the others: regrade_past_ends)
         rows = [(k, p) for k, p in enumerate(plans) if len(p.xy) >= 2]
         self.n = len(rows)
         if not self.n:

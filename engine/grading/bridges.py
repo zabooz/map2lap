@@ -11,7 +11,7 @@ from .settings import (
     SLOPE_RUN, T_MAX, UNDER_FLAT_M, UNDER_GRADE, UNDER_JOINT_FADE_M, UNDER_JOINT_FLAT_M, UNDER_MAX_DROP_M,
     UNDER_MAX_GRADE
 )
-from .points import _end_onward, grade_points
+from .points import PlanPack, _end_onward, grade_points
 
 
 def raisable_ends(plans):
@@ -79,11 +79,13 @@ def road_end_reader(g):
     return read
 
 
-def regrade_past_ends(px, py, base, plans, out, lift=0.0):
+def regrade_past_ends(px, py, base, plans, out, lift=0.0, pack=None):
     """out (grade_points of base at the points (px, py) under plans) with the points past an end whose grading stops
     (Plan.beyond: more than that many m ahead of the end, along its last segment, and nearest that end of all the
     plan's line, so a road bending back beside its own end keeps its ground) graded again without that plan, within
-    its reach (half width + T_MAX). Pure."""
+    its reach (half width + T_MAX). pack: the PlanPack of plans, which keeps the packs of the others: making one takes
+    a second on a busy map, and the same few groups come again on every call (the A2's last tiles spent minutes on it,
+    with every other process waiting). Pure but for what pack keeps."""
     px, py = np.asarray(px, np.float64), np.asarray(py, np.float64)
     out = np.array(out, np.float64, copy=True)
     drop = {}                   # point index -> the plans that stop short of it
@@ -120,9 +122,21 @@ def regrade_past_ends(px, py, base, plans, out, lift=0.0):
         groups.setdefault(frozenset(ks), []).append(j)
     for ks, js in groups.items():
         js = np.asarray(sorted(js))
-        rest = [p for k, p in enumerate(plans) if k not in ks]
-        out[js] = grade_points(px[js], py[js], np.asarray(base, np.float64)[js], rest, lift) if rest else             np.asarray(base, np.float64)[js]
+        rest = _others(plans, ks, pack)
+        out[js] = grade_points(px[js], py[js], np.asarray(base, np.float64)[js], rest, lift) if rest is not None else \
+            np.asarray(base, np.float64)[js]
     return out
+
+
+def _others(plans, ks, pack):
+    """The plans but those numbered ks as a PlanPack (pack, of all of them, keeps it), None for no plans."""
+    if pack is not None and ks in pack.without:
+        return pack.without[ks]
+    rest = [p for k, p in enumerate(plans) if k not in ks]
+    got = PlanPack(rest) if rest else None
+    if pack is not None:
+        pack.without[ks] = got
+    return got
 
 
 def bridge_chain(line, all_bridges):
