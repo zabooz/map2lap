@@ -554,5 +554,38 @@
    "max_warp": 9.11,
    "max_warp_at_m": 12999.0
   }
+ },
+ "rauma_test": {
+  "title": "Rauma Test",
+  "about": "Isterdalsvegen above Rauma, Norway: a primary road at 8 % crossing a falling stream the map draws as a river area, with no bridge on the road",
+  "points": [
+   [
+    62.4605284,
+    7.678208
+   ],
+   [
+    62.4599652,
+    7.6784458
+   ],
+   [
+    62.4587702,
+    7.679183
+   ],
+   [
+    62.4579632,
+    7.6771543
+   ],
+   [
+    62.4574708,
+    7.6750436
+   ]
+  ],
+  "width": 120.0,
+  "spots": [
+   [
+    "280-300",
+    "the stream across the road: no trench"
+   ]
+  ]
  }
 }

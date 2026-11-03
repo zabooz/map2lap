@@ -312,6 +312,9 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         except Exception as e:  # (like blockworker: rather without the vault raise than without the tile)
             log(f"Ground {tx},{ty}: arch raise: {type(e).__name__}: {e}")
     if depth is not None:
+        if g is not None and (depth > 0.0).any():
+            wet = depth.ravel() > 0.0
+            depth = water.off_roads(depth, gx, gy, g.plans(la[wet], lo[wet]), CELL)
         z = z - depth.ravel()
     u = np.asarray(frame.geodetic_to_enu(la, lo, z)[2], np.float64)
     if md is not None and g is not None:    # (under a single deck the ground follows it: it took its height from its road)

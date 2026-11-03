@@ -180,6 +180,29 @@ def _distance(water, steps):
     return dist
 
 
+def off_roads(depth, gx, gy, plans, cell=2.0):
+    """depth (n, n), the terrain's lowering at the vertices (gx, gy), with none within a cell of a road's carriageway on
+    the ground: a road that crosses or touches water with no bridge to carry it still has to be driven (a ford, a culvert
+    or a bridge the map doesn't tag, a road along a bank the map draws in the water). The lowering is the terrain above
+    the water's level, 6 m across a primary road where a stream falls through it (Isterdalsvegen, Norway). The cell's
+    margin keeps the terrain cells the carriageway lies on whole. A deck's span has no plan, so the water under a bridge
+    is lowered as ever; neither has its plan's way on under the deck (Plan.under) nor a tunnel's (under the water's bed).
+    plans: grading.Plans in the vertices' frame. Pure."""
+    wet = np.flatnonzero(depth.ravel() > 0.0)
+    out = depth.copy()
+    q = np.c_[gx.ravel()[wet], gy.ravel()[wet]]
+    keep = np.zeros(len(wet), bool)
+    for p in plans:
+        if getattr(p, "tunnel", False):
+            continue
+        under = getattr(p, "under", (False, False))
+        line = np.asarray(p.xy, np.float64)[int(bool(under[0])):len(p.xy) - int(bool(under[1]))]
+        half = getattr(p, "road_half", None) or p.half
+        keep |= roadsmod._line_gap(q, line)[0] <= half + cell
+    out.ravel()[wet[keep]] = 0.0
+    return out
+
+
 def water_tile(frame, md, raw_elev, tx, ty, cell=2.0):
     """(lowering per terrain vertex (n, n) [j, i] or None, water mesh (P, UV, T) in ENU or None,
     shore foam mesh (P, UV, T) or None)."""
