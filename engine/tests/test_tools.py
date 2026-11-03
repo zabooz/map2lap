@@ -12,6 +12,7 @@ ROOT = os.path.dirname(ENGINE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import heights  # noqa: E402
+import map_spot  # noqa: E402
 import mark  # noqa: E402
 import measure  # noqa: E402
 import watch_build as wb  # noqa: E402
@@ -159,6 +160,22 @@ class HeightsTest(unittest.TestCase):
         xy = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 5.0]])
         self.assertEqual(heights.arcs_from_ends(xy, np.array([4.0, 2.0])), (4.0, 11.0))
         self.assertEqual(heights.arcs_from_ends(xy, np.array([-3.0, 0.0])), (0.0, 15.0), "before its start: 0")
+
+
+class MapSpotTest(unittest.TestCase):
+    def test_the_spot_is_the_pictures_middle_and_north_is_up(self):
+        u, v = map_spot.to_px(np.array([100.0, 100.0, 160.0]), np.array([50.0, 110.0, 50.0]), (100.0, 50.0), 60.0)
+        self.assertEqual((float(u[0]), float(v[0])), (map_spot.PX / 2, map_spot.PX / 2))
+        self.assertEqual(float(v[1]), 0.0, "60 m north: the top edge")
+        self.assertEqual(float(u[2]), map_spot.PX, "60 m east: the right edge")
+
+    def test_a_line_moved_to_its_left(self):
+        got = map_spot.offset(np.array([[0.0, 0.0], [10.0, 0.0]]), 2.0)
+        self.assertTrue(np.allclose(got, [[0.0, 2.0], [10.0, 2.0]]))
+
+    def test_the_vertex_nearest_the_spot(self):
+        p, k = map_spot.nearest([np.array([[0.0, 0.0], [5.0, 0.0]]), np.array([[1.0, 1.0], [2.0, 2.0]])], (2.0, 1.8))
+        self.assertEqual((p[k].tolist()), [2.0, 2.0])
 
 
 DUMP = '''Process 2388: "Map2Lap Worker.exe" "-c" "from multiprocessing.spawn import spawn_main"

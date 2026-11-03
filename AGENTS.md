@@ -35,6 +35,7 @@ line here (`tests/test_tools.py`).
 | Drives like grass: which physics (1ROAD, 1GRASS) lies under the line? | `measure.py <track> --surface --from <m> --to <m>` |
 | Why is the ground at a spot road or grass: the map's roads there, each painting step | `ground_paint.py <track> <AC x> <AC z>` |
 | Why does the ground lie at that height: elevation, grading, water, each plan's share, the decks | `heights.py <track> --from <m> --to <m> [--plans] [--decks]` |
+| What does the spot look like: carriageways, names, drawn asphalt, the plans' widths (look first) | `map_spot.py <track> --route <m>`, then Read the PNG |
 | Which surface is that bump, deck or ground? | `measure.py <track> --profile --from <m> --to <m>` |
 | A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
 | Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
