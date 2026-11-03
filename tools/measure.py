@@ -589,7 +589,8 @@ def build_all(tracks, install, jobs):
             log = open(os.path.join(HERE, "out", f"build_{t}.log"), "w", encoding="utf-8")
             cmd = [named.exe("build"), os.path.abspath(__file__), "--build-one", t, "--share", str(1.0 / jobs)]
             run[t] = (subprocess.Popen(cmd + (["--install"] if install else []), stdout=log, stderr=subprocess.STDOUT,
-                                       cwd=HERE, env={**named.child_env(), "PYTHONIOENCODING": "utf-8"}), log)
+                                       cwd=HERE, env={**named.child_env(), "PYTHONIOENCODING": "utf-8",
+                                                      "PYTHONUNBUFFERED": "1"}), log)     # (the log live: watch_build.py)
         time.sleep(1.0)
         for t, (proc, log) in list(run.items()):
             if proc.poll() is not None:

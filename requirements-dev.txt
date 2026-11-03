@@ -1,0 +1,3 @@
+# For tools/watch_build.py only (where a build's time goes): not in the releases.
+psutil==7.2.2
+py-spy==0.4.3

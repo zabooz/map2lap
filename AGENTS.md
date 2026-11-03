@@ -39,6 +39,7 @@ line here (`tests/test_tools.py`).
 | The track of a report, built as its sender built it | `from_debug.py <session folder>` |
 | A stretch built again fast, with its profile | `stretch.py` |
 | Did a change leave the tracks as they were? | `compare_parts.py` (OBJ), `compare_kn5.py` (kn5) |
+| Why is a build slow: which step, what are the workers doing? | `watch_build.py`, then start the build |
 | Which code does a build really run (before deleting code)? | `coverage.py` |
 | What did a build make: shapes per tile, a kn5's materials | `inspect_tiles.py`, `read_kn5.py` |
 | A native crash (an access violation without a stack) | `crash.py` |

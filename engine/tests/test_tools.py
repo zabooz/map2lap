@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import mark  # noqa: E402
 import measure  # noqa: E402
+import watch_build as wb  # noqa: E402
 
 
 def row(t, s=100.0, kmh=50.0, vert=0.0, off=0.0, susp=(0.01, 0.01, 0.03, 0.03)):
@@ -104,6 +105,68 @@ class OverDeckTest(unittest.TestCase):
         rows = np.array([[100.0, 0.0, 0.05, 0.0], [300.0, 0.0, 0.03, 0.0]])
         ss = np.arange(0.0, 400.0, 0.5)
         self.assertEqual([u["from"] for u in measure.over_deck_spots(rows, ss, np.zeros(len(ss)), ss, 250.0, 350.0)], [300.0])
+
+
+DUMP = '''Process 2388: "Map2Lap Worker.exe" "-c" "from multiprocessing.spawn import spawn_main"
+Python v3.14.10 (Map2Lap Worker.exe)
+
+Thread 16784 (active+gil): "MainThread"
+    _yield_strength (grading\\\\points.py:95)
+    PlanPack.__init__ (grading\\\\points.py:279)
+    _process_worker (concurrent\\\\futures\\\\process.py:255)
+Thread 2452 (idle): "mapdata-layer_0"
+    _worker (concurrent\\\\futures\\\\thread.py:116)
+'''
+
+
+class WatchBuildTest(unittest.TestCase):
+    def test_processes_are_told_by_name_and_by_command_line(self):
+        self.assertEqual(wb.role("Map2Lap Worker.exe", ""), "worker")
+        self.assertEqual(wb.role("Map2Lap Server.exe", ""), "server")
+        self.assertEqual(wb.role("python.exe", "python -c from multiprocessing.spawn import spawn_main"), "worker")
+        self.assertEqual(wb.role("python.exe", r"python src\generator.py --name a"), "build")
+        self.assertEqual(wb.role("python.exe", r"python tools\measure.py --build-one a"), "build")
+        self.assertEqual(wb.role("python.exe", r"python tools\measure.py a --build"), None)
+        self.assertEqual(wb.role("brave.exe", "server.py"), None)
+
+    def test_a_dump_gives_the_main_threads_frames_innermost_first(self):
+        got = wb.parse_stack(DUMP)
+        self.assertEqual(got["state"], "active+gil")
+        self.assertEqual(got["frames"][0], ("_yield_strength", "points.py", 95))
+        self.assertEqual(len(got["frames"]), 3)
+        self.assertIsNone(wb.parse_stack("Error: no such process"))
+
+    def test_a_worker_waits_only_with_none_of_our_code_on_the_stack(self):
+        idle = [("SemLock.__enter__", "synchronize.py", 1), ("Queue.get", "queues.py", 2), ("_process_worker", "process.py", 3)]
+        self.assertTrue(wb.waiting(idle))
+        self.assertFalse(wb.waiting([("build", "ground.py", 300)] + idle))
+        self.assertFalse(wb.waiting([("build", "ground.py", 300)]))
+
+    def test_steps_start_at_their_first_line_and_the_last_builds_log_is_left_out(self):
+        lines = [(0.0, "a", "Done in 4.4 min"), (10.0, "b", "Calculating route (OSRM) ..."), (10.0, "b", "Building tiles with 31"),
+                 (50.0, "c", "Scenery with 31 processes"), (60.0, "d", "Scenery with 31 again"), (90.0, "e", "Done in 2.3 min")]
+        got = wb.steps(lines, 8.0)
+        self.assertEqual([(m[0], m[1]) for m in got], [("route", 10.0), ("tiles", 10.0), ("scenery", 50.0), ("done", 90.0)])
+        self.assertEqual(wb.step_at(got, 5.0), "before")
+        self.assertEqual(wb.step_at(got, 55.0), "scenery")
+
+    def test_the_slowest_tiles_come_first(self):
+        lines = [(0, "", "Tile 1/3 (1,2): 5.0 s"), (0, "", "Tile 2/3 (-4,5): 50.5 s"), (0, "", "no tile")]
+        self.assertEqual(wb.slowest_tiles(lines), [(50.5, (-4, 5), 2), (5.0, (1, 2), 1)])
+
+    def test_waiting_for_a_few_counts_only_with_many_workers_mostly_waiting(self):
+        tick = lambda n, busy, wait: {"workers": str(n), "workers_busy": str(busy), "workers_waiting": str(wait)}  # noqa: E731
+        ticks = [tick(31, 1, 30), tick(31, 31, 0), tick(4, 1, 3), tick(31, 2, 5)]
+        self.assertEqual(wb.few_running(ticks), 1)
+
+    def test_samples_are_counted_per_step(self):
+        idle = {"frames": [("Queue.get", "queues.py", 2)]}
+        work = {"frames": [("_beside_strength", "points.py", 159), ("apply", "planner.py", 510)]}
+        samples, incl, inner = wb.tally([("tiles", idle), ("tiles", work), ("scenery", work)])
+        self.assertEqual(samples["tiles"], 2)
+        self.assertEqual(incl["tiles"][wb.WAITING], 1)
+        self.assertEqual(incl["tiles"]["apply (planner.py)"], 1)
+        self.assertEqual(inner["scenery"]["_beside_strength (points.py:159)"], 1)
 
 
 class AgentsListTest(unittest.TestCase):
