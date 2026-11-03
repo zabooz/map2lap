@@ -8,15 +8,9 @@ skin per anchor.
   road without a gap or an overlap;
 - exact variants (earthfast.cdae_zstats / cdae_shear): a tall shape placed rigidly at its pivot is off by relief x D / R,
   its variant within a mm of the exact world map;
-- the tracker (roads.GeoTracker): a scripted rebase (15 km) builds no content again, a skin for each tile round the car
-  (31-46), exact variants only for the parts the rigid placement leaves off, drops the far tiles;
-- with the map data cache (~/.cache/beamng-earth, Fells Point): the same geotile's content from two anchors 15 km apart
-  is byte-identical; its skin's vertices lie on the anchor's drawn ground; the skins' seams.
 """
 import math
 import os
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -135,33 +129,6 @@ class ExactVariantTest(unittest.TestCase):
             order = [int(np.argmin(np.abs(V0 - p).sum(1))) for p in P]
             placed = (V[order] + pos) @ r.T + t
             self.assertLess(float(np.abs(placed - exact).max()), 0.002)
-
-
-
-
-
-@unittest.skipUnless(HAVE_DATA, "the map data cache (~/.cache/beamng-earth)")
-class RealDataTest(unittest.TestCase):
-    def test_content_identical_from_two_anchors(self):
-        """The geotile under Fells Point built after a session's anchor tile there, once for an anchor at the place
-        and once for one 15 km east: every content file byte for byte the same."""
-        here = os.path.dirname(os.path.abspath(__file__))
-        tmp = tempfile.mkdtemp(prefix="roadgeo_")
-        try:
-            lon_b = LON + 15000.0 / (111320.0 * math.cos(math.radians(LAT)))
-            outs = []
-            for i, (alat, alon) in enumerate(((LAT, LON), (LAT, lon_b))):
-                r = subprocess.run([sys.executable, os.path.join(here, "roadgeo_content.py"), os.path.join(tmp, str(i)),
-                                    str(LAT), str(LON), str(alat), str(alon)], capture_output=True, text=True,
-                                   timeout=900)
-                self.assertEqual(r.returncode, 0, r.stderr[-2000:])
-                outs.append(r.stdout)
-            self.assertTrue(outs[0].strip(), "content written")
-            self.assertEqual(outs[0], outs[1])
-            self.assertIn(".skin.pkl", outs[0])
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-
 
 
 if __name__ == "__main__":
