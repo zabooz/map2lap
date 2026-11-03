@@ -126,10 +126,13 @@ def _deck_tilt(center, bank, q):
 
 
 def under_deck_ground(q, z, parts, banks):
-    """Ground heights z (m,) at points q (m, 2) kept DECK_CLEAR under the deck parts over them, tilted by their banks:
-    parts [(xy (k, 2), z (k,), half width)], banks per part (k,) or None. Not within UNDER_DECK_END_M of a part's end: the
-    terrain cell across the joint carries the road. A deck takes its height from its road, so the ground follows it.
-    Pure."""
+    """Ground heights z (m,) at points q (m, 2) kept under the deck parts over them, tilted by their banks: parts [(xy
+    (k, 2), z (k,), half width)], banks per part (k,) or None. A deck takes its height from its road, so the ground
+    follows it: DECK_CLEAR under it, within UNDER_DECK_END_M of a part's end at most on its top, as the terrain cell
+    across the joint carries the road. Left over its top, that ground is what the car rides, whatever the deck's shape:
+    the grading's blend held one point 14 cm over a deck on an 8 % road, and a car at 40 km/h left the ground coming
+    down off it (the road to Heiligenblut). Only lowered, so ground under a deck's end stays as it is. Past a part's ends
+    is the road's own. Pure."""
     z = np.array(z, np.float64)
     q = np.asarray(q, np.float64).reshape(-1, 2)
     for (xy, zd, half), bank in zip(parts, banks):
@@ -144,9 +147,10 @@ def under_deck_ground(q, z, parts, banks):
         zq, off = _deck_tilt(xy, zd, q[near])
         arc, _o = _deck_tilt(xy, s, q[near])
         b = 0.0 if bank is None else _deck_tilt(xy, np.asarray(bank, np.float64), q[near])[0]
-        top = zq + b * np.clip(off, -half, half) - DECK_CLEAR
-        on = (np.abs(off) <= half + 1.0) & (arc >= UNDER_DECK_END_M) & (arc <= s[-1] - UNDER_DECK_END_M)
-        z[near[on]] = np.minimum(z[near[on]], top[on])
+        top = zq + b * np.clip(off, -half, half)
+        on = (np.abs(off) <= half + 1.0) & (arc > 0.0) & (arc < s[-1])      # (_deck_tilt: arc stops at a part's ends)
+        middle = (arc >= UNDER_DECK_END_M) & (arc <= s[-1] - UNDER_DECK_END_M)
+        z[near[on]] = np.minimum(z[near[on]], top[on] - np.where(middle[on], DECK_CLEAR, 0.0))
     return z
 
 

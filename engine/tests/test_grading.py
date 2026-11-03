@@ -271,14 +271,26 @@ class DeckFromItsRoadsTest(unittest.TestCase):
         self.assertAlmostEqual(grading.road_end([p], (0.0, 0.0), (-1.0, 0.0))[1], -0.08)
         self.assertIsNone(grading.road_end([p], (30.0, 0.0), (1.0, 0.0)))
 
-    def test_the_ground_stays_under_the_deck_but_for_the_cell_at_its_ends(self):
-        q = np.array([[1.0, 0.0], [10.0, 0.0], [10.0, 2.0], [10.0, 20.0], [19.0, 0.0]])
+    def test_the_ground_stays_under_the_deck_and_at_its_ends_on_its_top_at_most(self):
+        q = np.array([[1.0, 0.0], [10.0, 0.0], [10.0, 2.0], [10.0, 20.0], [self.XY[-1, 0] - 1.0, 0.0]])
         z = np.full(5, 200.0)
         deck = (self.XY, 100.0 + 0.08 * self.XY[:, 0], 3.0)
         out = roads.under_deck_ground(q, z, [deck], [None])
-        np.testing.assert_allclose(out, [200.0, 100.8 - roads.DECK_CLEAR, 100.8 - roads.DECK_CLEAR, 200.0, 200.0])
+        np.testing.assert_allclose(out, [100.08, 100.8 - roads.DECK_CLEAR, 100.8 - roads.DECK_CLEAR, 200.0,
+                                         100.0 + 0.08 * (self.XY[-1, 0] - 1.0)])
         low = roads.under_deck_ground(q, np.full(5, 50.0), [deck], [None])
         np.testing.assert_allclose(low, 50.0)
+
+    def test_a_point_over_a_deck_near_its_upper_end_is_brought_down_to_it(self):
+        deck = (self.XY, 100.0 + 0.08 * self.XY[:, 0], 3.0)
+        x = self.XY[-1, 0] - 1.9
+        got = roads.under_deck_ground(np.array([[x, 0.0]]), np.array([100.0 + 0.08 * x + 0.14]), [deck], [None])
+        np.testing.assert_allclose(got, [100.0 + 0.08 * x])
+
+    def test_the_road_past_a_decks_end_is_left_alone(self):
+        deck = (self.XY, 100.0 + 0.08 * self.XY[:, 0], 3.0)
+        q = np.array([[-1.0, 0.0], [self.XY[-1, 0] + 1.0, 0.0]])
+        np.testing.assert_allclose(roads.under_deck_ground(q, np.full(2, 200.0), [deck], [None]), 200.0)
 
 
 class RoadEndOntoBridgeTest(unittest.TestCase):
