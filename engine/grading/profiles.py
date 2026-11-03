@@ -85,7 +85,7 @@ class Plan:
     it lead onto a bridge at its (first, last) vertex (grade_points)."""
     # (free)
     __slots__ = ("xy", "z", "half", "bbox", "abut", "cut", "road_half", "rid", "max_wall", "bank", "free", "tunnel",
-                 "under", "beyond")
+                 "under", "beyond", "road")
 
     def __init__(self, xy, z, half, abut=(False, False), cut=None, road_half=None):
         self.xy, self.z, self.half, self.abut = xy, z, float(half), (bool(abut[0]), bool(abut[1]))
@@ -98,6 +98,8 @@ class Plan:
         self.bank = None                # (n,) its cross slope (m per m toward its left: a banked curve, bank) or None
         self.free = (False, False)      # does its (first, last) end give way (Grader._free_ends)
         self.tunnel = False             # a tunnel's own plan (TUNNEL_TAG: an open section, a mouth), another level
+        self.road = None                # (name, class) of the divided road it is a one-way carriageway of, or None
+                                        # (_plan_cell; grading.points._dual_caps)
         self.under = (False, False)     # does its (first, last) end go on under its deck (_under_deck)
         # (first, last): m past that end its grading stops, square across (an end going on under its deck as far as the
         # elevation under it is closed: past that the ground is the elevation's, regrade_past_ends), or None: it blends
@@ -544,6 +546,7 @@ def mapped_plan(p, fn):
     q.tunnel = getattr(p, "tunnel", False)
     q.under = getattr(p, "under", (False, False))
     q.beyond = getattr(p, "beyond", (None, None))
+    q.road = getattr(p, "road", None)
     return q
 
 
@@ -588,6 +591,7 @@ def trim_plan(p, box):
             q.max_wall = getattr(p, "max_wall", WALL_MAX_H_M)
             q.bank = pb
             q.tunnel = getattr(p, "tunnel", False)
+            q.road = getattr(p, "road", None)
             fr = getattr(p, "free", (False, False))     # (only the pieces with its own ends)
             q.free = (fr[0] and i == 0 and t0 == 0.0, fr[1] and j == n - 1 and t1 == 1.0)
             first, last = i == 0 and t0 == 0.0, j == n - 1 and t1 == 1.0
@@ -597,6 +601,16 @@ def trim_plan(p, box):
             out.append(q)
         i = j + 1
     return out
+
+
+def carriageway_of(spec, name):
+    """(name, class) of the divided road spec is a one-way carriageway of (roads.dual_carriageways gave it a median), or
+    None (two-way, not paired, no name): its plan and its other carriageway's stop between them (points._dual_caps).
+    Pure."""
+    nm = str(name or "").strip()
+    if spec is None or not spec.oneway or spec.median is None or not nm or nm == "None":
+        return None
+    return nm, spec.cls
 
 
 def road_id(fid):

@@ -169,6 +169,71 @@ def _beside_strength(plans, box, nseg):
     return np.round(out * 255.0).astype(np.uint8)
 
 
+# The two one-way carriageways of a divided road (Plan.road) each stop at the middle between their lines where their
+# plans reach over each other: their widths from the map (lanes and shoulders) can be wider than the gap between the
+# lines where these come together, at an interchange. Faded in with their height apart by BESIDE_LEVEL_* (at one level
+# they blend as equals as ever, so this changes nothing there). Without it SH16 in Auckland, its westbound carriageway
+# 18.5 m wide by four lanes and shoulders, 10 m beside the eastbound one and 1.1 m under it, took the eastbound's left
+# lanes down to its own height (_beside_strength: the narrower gives way where they lie apart): a 0.9 m ramp across the
+# lanes, 2-3.7 G in waves where the line crossed the ground's triangles. The middle is a guess where the map has no
+# barrier between them (the real wall stood 0.5 m nearer the wider one there).
+DUAL_PARALLEL_COS = 0.906   # cos 25 deg: parallel within this (roads' DUAL_ANGLE_DEG)
+DUAL_MEDIAN_M = 0.6         # m left between the two carriageways at the least (roads' DUAL_MIN_MEDIAN_M: a barrier)
+DUAL_MIN_HALF_M = 1.75      # m: a carriageway keeps half a lane each side (roads' DUAL_MIN_W)
+
+
+def _beside_line(mid, xy, z):
+    """Per point mid (k, 2) the distance to polyline xy (n, 2) with heights z (n,), the nearest segment's unit direction
+    (k, 2), whether the nearest point lies inside the line (not past an end) and the line's height there. Pure."""
+    a, ab = xy[:-1], np.diff(xy, axis=0)
+    l2 = np.maximum((ab * ab).sum(1), 1e-12)
+    t = ((mid[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None]
+    tc = np.clip(t, 0.0, 1.0)
+    d = np.hypot(*(a[None] + tc[..., None] * ab[None] - mid[:, None, :]).transpose(2, 0, 1))
+    k = np.arange(len(mid))
+    j = d.argmin(1)
+    inside = ~(((j == 0) & (t[k, j] < 0.0)) | ((j == len(ab) - 1) & (t[k, j] > 1.0)))
+    return d[k, j], ab[j] / np.sqrt(l2[j])[:, None], inside, z[j] + tc[k, j] * (z[j + 1] - z[j])
+
+
+def _dual_caps(plans, h, rh, nseg):
+    """h, rh (per segment of plans: PlanPack's half widths) with the carriageways of one divided road (Plan.road)
+    stopped at the middle between them where their plans overlap, faded in by their height apart (BESIDE_LEVEL_*).
+    Pure (new arrays)."""
+    f64 = np.float64
+    groups = {}
+    for n, p in enumerate(plans):
+        if getattr(p, "road", None) is not None:
+            groups.setdefault(p.road, []).append(n)
+    groups = [g for g in groups.values() if len(g) > 1]
+    if not groups:
+        return h, rh
+    h, rh = h.copy(), rh.copy()
+    s0 = np.r_[0, np.cumsum(nseg)]
+    for idx in groups:
+        for n in idx:
+            p = plans[n]
+            xy, z = np.asarray(p.xy, f64)[:, :2], np.asarray(p.z, f64)
+            mid, zm = (xy[:-1] + xy[1:]) / 2, (z[:-1] + z[1:]) / 2
+            dirs = np.diff(xy, axis=0)
+            dirs = dirs / np.maximum(np.hypot(*dirs.T), 1e-12)[:, None]
+            sl = slice(s0[n], s0[n + 1])
+            for m in idx:
+                q = plans[m]
+                if m == n or q.rid == p.rid:
+                    continue
+                d, u, inside, zq = _beside_line(mid, np.asarray(q.xy, f64)[:, :2], np.asarray(q.z, f64))
+                over = inside & (np.abs((u * dirs).sum(1)) >= DUAL_PARALLEL_COS) & (d < p.half + q.half)
+                if not over.any():
+                    continue
+                v = np.clip((np.abs(zm - zq) - BESIDE_LEVEL_FROM_M) / (BESIDE_LEVEL_TO_M - BESIDE_LEVEL_FROM_M), 0.0, 1.0)
+                w = np.where(over, v * v * (3.0 - 2.0 * v), 0.0)
+                lim = d / 2
+                h[sl] -= w * np.maximum(h[sl] - lim, 0.0)
+                rh[sl] -= w * np.maximum(rh[sl] - np.maximum(lim - DUAL_MEDIAN_M / 2, DUAL_MIN_HALF_M), 0.0)
+    return h, rh
+
+
 def _shared_nodes(p, q):
     """Arc positions (m from p's first point) of the nodes Plans p and q share: p's ends within CHAIN_JOIN_M of q's
     line, q's ends within CHAIN_JOIN_M of p's line. Pure."""
@@ -256,7 +321,8 @@ class PlanPack:
         self.ba, self.bb = np.ascontiguousarray(bk[ia]), np.ascontiguousarray(bk[ia + 1])
         self.h = np.repeat(np.array([p.half for _k, p in rows], f64), nseg)
         self.rh = np.repeat(np.array([getattr(p, "road_half", p.half) for _k, p in rows], f64), nseg)
-        rids = [getattr(p, "rid", -1) for _k, p in rows]
+        self.h, self.rh = _dual_caps([p for _k, p in rows], self.h, self.rh, nseg)
+        rids =[getattr(p, "rid", -1) for _k, p in rows]
         self.rid = np.repeat(np.array([r if r is not None and r >= 0 else 2 ** 40 + k
                                        for (k, _p), r in zip(rows, rids)], np.int64), nseg)
         s0 = np.r_[0, np.cumsum(nseg)]
