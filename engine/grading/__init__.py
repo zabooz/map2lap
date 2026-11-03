@@ -5,18 +5,22 @@ map data, the elevation and these rules.
 
 The parts, each importing only the ones above it (tests/test_part_order.py):
 
-    settings  the rules' numbers and switches
-    snap      where roads meet: ranks, junction heights, carriageways side by side
-    profiles  Plan and one road's profile: smoothing, cuts, banked curves, the ground under a bridge's end
-    points    grade_points, PlanPack: the heights at points from the plans in reach (earthfast)
-    bridges   a bridge's ends and approaches, ramps, what a road under it needs
-    planner   _Planner: all plans of a region, their bridges, tunnels and junctions
-    grader    PlanStore, Grader: plans shared and asked for heights
+    settings    the rules' numbers and switches
+    snap        where roads meet: ranks, junction heights, carriageways side by side
+    profiles    Plan and one road's profile: smoothing, cuts, banked curves, the ground under a bridge's end
+    points      grade_points, PlanPack: the heights at points from the plans in reach (earthfast)
+    bridges     a bridge's ends and approaches, ramps, what a road under it needs
+    ends        _Planner's: where a road's plan goes on (continuations, pins, free ends)
+    approaches  _Planner's: roads onto an overpass raised, roads under a short one lowered
+    abutments   _Planner's: how far a bridge's end is raised (approaches, a measured deck, water)
+    tunnels     _Planner's: tunnel sections, portals, the roads and decks over them, tunnels under water
+    planner     _Planner: all plans of a region, per map cell; it inherits the four above
+    grader      PlanStore, Grader: plans shared and asked for heights
 """
 import sys
 import types
 
-from . import settings, snap, profiles, points, bridges, planner, grader
+from . import settings, snap, profiles, points, bridges, ends, approaches, abutments, tunnels, planner, grader
 
 from .settings import (
     APPROACH_CAP_GRADE, APPROACH_GAP_M, APPROACH_GRADE, APPROACH_MARGIN_M, APPROACH_ON, CHAIN_ON, COARSE_EASE_ON,
@@ -45,7 +49,8 @@ class _Package(types.ModuleType):
     only here would change nothing and a test of it would pass without testing."""
 
     def __setattr__(self, name, value):
-        for part in (settings, snap, profiles, points, bridges, planner, grader,):
+        for part in (settings, snap, profiles, points, bridges, ends, approaches, abutments, tunnels, planner,
+                     grader,):
             if hasattr(part, name):
                 setattr(part, name, value)
         super().__setattr__(name, value)
