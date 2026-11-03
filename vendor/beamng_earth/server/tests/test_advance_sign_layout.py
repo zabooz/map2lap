@@ -1,6 +1,6 @@
 """Advance-panel arrows, destination layout, network shields and dedicated lettering."""
 from pathlib import Path
-import json,sys,unittest
+import importlib.util,json,sys,unittest
 from unittest.mock import patch
 import numpy as np
 sys.path[:0]=[str(Path(__file__).resolve().parents[1]),str(Path(__file__).resolve().parent)]
@@ -113,6 +113,7 @@ class AdvanceLayoutTest(unittest.TestCase):
             self.assertIsNotNone(mesh.result())
         self.assertEqual(exitsigns.guide_glyph('é')[0],exitsigns.lettering())
 
+    @unittest.skipUnless(importlib.util.find_spec('fontTools'),'fontTools (only build_sign_glyphs.py needs it) not installed')
     def test_atlas_is_the_bundled_font_regenerated_and_licensed(self):
         """tools/build_sign_glyphs.py from tools/fonts/RG2014EEM.ttf gives the committed metrics and atlas."""
         root=Path(__file__).resolve().parents[2]

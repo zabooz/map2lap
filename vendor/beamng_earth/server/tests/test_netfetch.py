@@ -303,7 +303,7 @@ class TransportTest(unittest.TestCase):
                 return b"ok"
 
         class Conn:
-            def __init__(self, netloc, timeout=None):
+            def __init__(self, netloc, timeout=None, context=None):    # (context: Windows' TLS, windows_ssl_context)
                 made.append(self)
                 self.sent = 0
 

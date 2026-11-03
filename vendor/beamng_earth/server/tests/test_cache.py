@@ -143,6 +143,9 @@ class LinkedCacheTest(unittest.TestCase):
             target = os.path.join(real, "1.webp")
             with open(target, "wb") as fh:
                 fh.write(b"x" * 10)
-            os.symlink(target, os.path.join(root, "dem", "z", "1.webp"))
+            try:
+                os.symlink(target, os.path.join(root, "dem", "z", "1.webp"))
+            except OSError as e:        # (Windows: only developer mode or an admin may make one, WinError 1314)
+                self.skipTest(f"no symlink here: {e}")
             self.assertFalse(cachemod._inside(os.path.join(root, "dem", "z", "1.webp"), root))
             self.assertTrue(cachemod._inside(os.path.join(root, "dem", "z", "2.webp"), root))

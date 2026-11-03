@@ -6,6 +6,7 @@ from unittest import TestCase, mock
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import geodesy
 import roads
 import roadmesh
 import test_approaches as approaches
@@ -117,7 +118,7 @@ class MinimumBridgeClearanceTest(TestCase):
         lower = np.array([[30.0, -50.0], [30.0, 50.0]])
         bp = object.__new__(roads.BridgeProfiles)
         bp._ground = flat
-        bp.frame = None
+        bp.frame = geodesy.EnuFrame(46.6, 14.6)     # (_solve notes a simple chain's ends in lat / lon)
         bp._water = lambda lines, nav, depth=None, channel=0.0: []
         key = ("short", 0)
         pool = {key: (mock.Mock(width=12.0), xy, 0.0, 1.0, len(xy))}

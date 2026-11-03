@@ -31,17 +31,8 @@ BUILD_TIMEOUT_S = 1800
 KNOWN = {
     "test_fast": "crashes: access violation (0xc0000005) in the native module; not traced",
     "test_imagery": "crashes: access violation (0xc0000005) in the native module; not traced",
-    "test_advance_sign_layout.AdvanceLayoutTest.test_atlas_is_the_bundled_font_regenerated_and_licensed":
-        "fontTools is not in .venv",
-    "test_bridge_clearance.MinimumBridgeClearanceTest.test_bridge_profiles_log_when_constraints_prevent_the_target":
-        "the test's frame is None (AttributeError: enu_to_geodetic); not traced",
-    "test_cache.LinkedCacheTest": "flaky: Windows lets only developer mode or admin make symlinks (WinError 1314)",
-    "test_netfetch.TransportTest": "the fake connection takes no `context` argument, which netfetch passes",
     "test_otto_bridge.OttoBridgeTest": "expects BeamNG.Earth's original bridge limits; girders 4.16 m over the road "
                                        "instead of 6 m may be a real bug (buildings' HEADROOM_M set twice)",
-    "test_overture_stac_bundle.BundleTest.test_every_layer_without_a_request":
-        "requests base/land's collection.json; not traced",
-    "test_us30_infrastructure.ActualUS30Test": "a cell key of its fixture is not found (KeyError); not traced",
 }
 # Test files that take minutes (they compute, no network): left out by --fast
 SLOW = ("test_mapdata",)

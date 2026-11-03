@@ -32,9 +32,14 @@ def captured(case):
                          np.arange(n+1, dtype=np.int64), np.arange(n+1, dtype=np.int64),
                          np.r_[0, np.cumsum(lengths)].astype(np.int64),
                          np.concatenate([w['lonlat'] for w in ways]), attrs=attrs, rules=tables)
+    # The land cover was captured at the points the code asked then (the ways' vertices); roads.URBAN_STEP_M now asks
+    # every 10 m along them: such a point gets the nearest captured point's answer (they lie 10-15 m apart).
+    keys = np.array([[int(a), int(b)] for a, b in (k.split(',') for k in case['cover'])], float) / 1e9
+    vals = np.array([bool(v) for v in case['cover'].values()])
     def cover(la, lo):
-        return np.array([case['cover'][f'{round(float(a)*1e9)},{round(float(b)*1e9)}']
-                         for a, b in zip(la, lo)], bool)
+        la, lo = np.asarray(la, float), np.asarray(lo, float)
+        d = (keys[None, :, 0] - la[:, None])**2 + ((keys[None, :, 1] - lo[:, None]) * np.cos(np.radians(la[:, None])))**2
+        return vals[d.argmin(1)]
     return f, cover
 
 
