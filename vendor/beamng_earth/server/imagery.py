@@ -1,5 +1,8 @@
 """Satellite imagery for the visual tiles.
 
+Kept for later: an AC build draws its ground and roofs in comic textures (src/scenery/ground.py, buildings) and runs
+none of this (farfield only imports it); it is the pipeline photo-textured ground or roofs would start from.
+
 Sources (all Web-Mercator XYZ, 256 px tiles, no key; verified):
   usgs     USGS The National Map ImageryOnly. Public domain. US only, z <= 16 (~1.9 m/px at 36 N).
            Outside its coverage it answers 404, or (at low zooms) a uniform white tile.

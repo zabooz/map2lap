@@ -1,4 +1,8 @@
-"""The ground photo, brick walks, footprints per map cell, a town's districts."""
+"""The ground photo, brick walks, footprints per map cell, a town's districts.
+
+The ground photo part (photo_mask, fill_photo: footprints filled from the ground around) is kept for later: an AC
+build paints comic ground and doesn't run it; photo-textured ground would.
+"""
 import math
 
 import numpy as np
