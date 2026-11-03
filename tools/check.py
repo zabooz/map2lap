@@ -28,11 +28,7 @@ BUILD_TIMEOUT_S = 1800
 
 # Failures that are there on main too: a test file, class or test id (all tests under it) -> why. An entry goes once
 # it passes; one starting "flaky:" fails only sometimes and is never reported as passing again.
-KNOWN = {
-    "test_fast": "crashes in earthfast.mesh_warp (access violation in safe Rust: likely the module's numpy interop; "
-                 "only imagery uses it, which AC builds don't run); to trace with the module's rebuild",
-    "test_imagery": "crashes in earthfast, as test_fast (imagery: kept for photo textures, not run by AC builds)",
-}
+KNOWN = {}
 # Test files that take minutes (they compute, no network): left out by --fast
 SLOW = ("test_mapdata",)
 
