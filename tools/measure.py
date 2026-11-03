@@ -17,8 +17,9 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
 
 --surface prints a stretch's physics: per run of metres the object under the line and the prefixes across it.
 
---profile prints a stretch's surfaces apart: deck and ground per lane against the stretch's straight grade, and the line
-as ridden with its slope per metre. Above, "terrain 3.1 G" says only which surface was on top.
+--profile prints a stretch's surfaces apart: deck (a junction pad marked) and ground per lane against the stretch's straight
+grade, and the line as ridden with its slope per metre. Above, "terrain 3.1 G" says only which surface was on top. --across
+sets its lanes, + right of the route (-8,-4,0,4,8: a wide road's edges).
 
 The test tracks (test_tracks.json, named "<Place> Test") are short routes, each around the spots worth driving after a
 change to the driving surface (a junction, a bridge end, an underpass): their pins lie along the route, so OSRM routes
@@ -352,9 +353,45 @@ def pick_surface(hit, deck, near):
     return float(z[np.argmin(np.abs(z - near))]) if len(z) else float("nan")
 
 
-def report_profile(track, start, end, step=1.0):
-    """A stretch's surfaces apart: per lane deck and ground in cm against the straight grade between its ends (">": the
-    ground over the deck), then the line as ridden: its height, slope per metre, surface."""
+def pad_triangles(T3, D):
+    """Which triangles (n, 3, 3) of the deck objects (D) are a junction pad's top: a piece of triangles joined at their
+    vertices that closes round one vertex, n triangles on n + 1 vertices (roadmesh's fan from its centre). A ribbon, or a
+    few of its triangles cut out by the box, never closes: three round a vertex have five. The OBJ names one object for
+    both. A pad the box cuts is not found. Pure."""
+    out = np.zeros(len(T3), bool)
+    idx = np.flatnonzero(D)
+    keys = {}
+    parent = list(range(len(idx)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    tri_keys = []
+    for t, tri in enumerate(T3[idx]):
+        ks = [tuple(np.round(v, 3)) for v in tri]
+        tri_keys.append(ks)
+        for k in ks:
+            if k in keys:
+                parent[find(t)] = find(keys[k])
+            else:
+                keys[k] = t
+    pieces = {}
+    for t in range(len(idx)):
+        pieces.setdefault(find(t), []).append(t)
+    for ts in pieces.values():
+        verts = [set(tri_keys[t]) for t in ts]
+        if len(ts) >= 3 and set.intersection(*verts) and len(set.union(*verts)) == len(ts) + 1:
+            out[idx[ts]] = True
+    return out
+
+
+def report_profile(track, start, end, step=1.0, across=PROFILE_LANES):
+    """A stretch's surfaces apart: per lane (across: m off the line, + right) deck and ground in cm against the straight
+    grade between its ends (">": the ground over the deck; "p": that deck surface is a junction pad), then the line as
+    ridden: its height, slope per metre, surface."""
+    across = tuple(sorted(set(across) | {0.0}))
     route = _route(track)
     S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
     start, end = start or 0.0, min(end or S[-1], S[-1])
@@ -369,7 +406,9 @@ def report_profile(track, start, end, step=1.0):
     ux, uz = np.interp(up, S, route[:, 0]), np.interp(up, S, route[:, 1])
     T3, D, _N = _surfaces(track, (min(px.min(), ux.min(initial=px.min())) - 30, min(pz.min(), uz.min(initial=pz.min())) - 30,
                               max(px.max(), ux.max(initial=px.max())) + 30, max(pz.max(), uz.max(initial=pz.max())) + 30))
-    hits = {w: _heights(T3, D, px + nx * w, pz + nz * w) for w in PROFILE_LANES}
+    hits = {w: _heights(T3, D, px + nx * w, pz + nz * w) for w in across}
+    P = pad_triangles(T3, D)
+    pad_hits = {w: _heights(T3, P, px + nx * w, pz + nz * w) for w in across}
     line, is_deck = _lane(_heights(T3, D, ux, uz) + hits[0.0])
     line, is_deck = line[len(up):], is_deck[len(up):]
     ok = np.flatnonzero(np.isfinite(line))
@@ -379,16 +418,21 @@ def report_profile(track, start, end, step=1.0):
     a, b = ok[0], ok[-1]
     grade = line[a] + (line[b] - line[a]) * (ss - ss[a]) / (ss[b] - ss[a])
     print(f"{track}, {start:.0f}-{end:.0f} m: grade {100 * (line[b] - line[a]) / (ss[b] - ss[a]):+.2f} %. Heights in cm "
-          f"against it, deck / ground per lane (m across the line; >: the ground over the deck by {OVER_DECK_M * 100:.0f} cm "
-          f"or more):")
-    print("       m " + "".join(f"{w:+16.0f}" for w in PROFILE_LANES))
+          f"against it, deck / ground per lane (m across the line, + right; >: the ground over the deck by "
+          f"{OVER_DECK_M * 100:.0f} cm or more; p: that deck surface is a junction pad):")
+    print("       m " + "".join(f"{w:+16g}" for w in across))
+
+    def on_pad(w, i, z):
+        return np.isfinite(z) and bool(pad_hits[w][i][1].size) and bool(
+            (np.abs(pad_hits[w][i][0][pad_hits[w][i][1]] - z) < 1e-6).any())
     for i, s in enumerate(ss):
         cols = []
-        for w in PROFILE_LANES:
+        for w in across:
             dk, gd = (pick_surface(hits[w][i], flag, grade[i]) for flag in (True, False))
             over = np.isfinite(dk) and gd - dk > OVER_DECK_M and gd - dk <= OVER_DECK_NEAR_M
             cols.append((f"{(dk - grade[i]) * 100:7.1f}" if np.isfinite(dk) else f"{'.':>7}")
-                        + (" >" if over else " /") + (f"{(gd - grade[i]) * 100:7.1f}" if np.isfinite(gd) else f"{'.':>7}"))
+                        + ("p" if on_pad(w, i, dk) else " ") + (">" if over else "/")
+                        + (f"{(gd - grade[i]) * 100:7.1f}" if np.isfinite(gd) else f"{'.':>7}"))
         print(f"{s:8.1f} " + "".join(cols))
     print("\nthe line as ridden: m, height against the grade (cm), slope (%), its change (%), surface")
     last = None
@@ -398,7 +442,7 @@ def report_profile(track, start, end, step=1.0):
         slope = 100 * (line[i] - line[i - 1]) / step
         print(f"{ss[i]:8.1f} {(line[i] - grade[i]) * 100:7.1f} {slope:7.1f} "
               + (f"{slope - last:+7.1f}" if last is not None else f"{'':7}")
-              + f"  {'deck' if is_deck[i] else 'ground'}")
+              + f"  {'pad' if on_pad(0.0, i, line[i]) else 'deck' if is_deck[i] else 'ground'}")
         last = slope
 
 
@@ -704,6 +748,7 @@ def main():
     ap.add_argument("--reference", action="store_true", help="save the values as the new reference")
     ap.add_argument("--holes", action="store_true", help="only the gaps in the ground over the whole built area")
     ap.add_argument("--profile", action="store_true", help="only the surfaces of --from..--to apart: deck and ground per lane")
+    ap.add_argument("--across", help="--profile's lanes: m off the line, + right, comma separated (default -3,-2,0,2,3)")
     ap.add_argument("--surface", action="store_true", help="only the physics of --from..--to: 1ROAD, 1GRASS, ... per run")
     ap.add_argument("--build-one", help=argparse.SUPPRESS)      # (a child process: build this track, nothing else)
     ap.add_argument("--share", type=float, default=1.0, help=argparse.SUPPRESS)
@@ -731,8 +776,9 @@ def main():
     if a.profile:
         if a.start is None or a.end is None:
             ap.error("--profile needs --from and --to")
+        across = tuple(float(v) for v in a.across.split(",")) if a.across else PROFILE_LANES
         for t in tracks:
-            report_profile(t, a.start, a.end)
+            report_profile(t, a.start, a.end, across=across)
         return
     if a.surface:
         for t in tracks:

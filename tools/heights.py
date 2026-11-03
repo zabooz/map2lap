@@ -16,8 +16,10 @@ Then the map's water and roads near the stretch (Overture / OpenStreetMap).
 
 --plans: per plan near the line (a road the grading lays, grading.Plan) how many cm the graded height changes without
 it (grade_points and regrade_past_ends without that plan): who pulls the ground where. Slow where many plans meet.
---decks: the deck parts the bridges make there (bridges.parts) and each terrain vertex within 3 m of the line: graded,
-built, the deck's top over it, its arc from each deck's two ends (under_deck_ground treats the end zones apart).
+--decks: the deck parts the bridges make there (bridges.parts): their tilt or why they lie level; what meets at each end,
+at what angle, and whether a junction pad is paved there (roads.deck_pads); and each terrain vertex within 3 m of the
+line: graded, built, the deck's top over it, its arc from each deck's two ends (under_deck_ground treats the end zones
+apart).
 """
 import argparse
 import json
@@ -124,6 +126,49 @@ class Spot:
         tiles = {tile_of(x, y) for x, y in zip(px, py)}
         return sorted({k for t in tiles for k in roads.cells_of_tile(self.frame, *t)})
 
+    def bridges(self):
+        """The bridge chains as a road tile sees them (blockworker.build_tile), deck tilts too."""
+        import blockworker
+        import grading
+        if not hasattr(self, "_bridges"):
+            def elev(la, lo):           # (as ground.build: the graded ground with ROAD_LIFT)
+                return self.graded(np.asarray(la, np.float64), np.asarray(lo, np.float64), grading.ROAD_LIFT)
+            self._bridges = blockworker._bridges(self.anc["aid"], self.frame, elev)
+            self._bridges.plans_at = lambda xy: self.g.plans(*self.lalo(xy[:, 0], xy[:, 1]))
+            self._bridges.cs.set_road_end(grading.road_end_reader(self.g))
+        return self._bridges
+
+    def road_cells(self, tx, ty):
+        """The map's road layer of each cell of tile (tx, ty)."""
+        import roads
+        return [self.s.md.cell(k, layers=("roads",), kind="demand").layers.get("roads")
+                for k in roads.cells_of_tile(self.frame, tx, ty)]
+
+    def ground_roads(self, tx, ty):
+        """The ground carriageways of tile (tx, ty)'s cells: [(fid, spec, line (k, 2), None)], as roads.deck_pads wants."""
+        import mapgeom
+        import roads
+        out, seen = [], set()
+        urban = self.s.surface.urban if self.s.surface else None
+        for f in self.road_cells(tx, ty):
+            if f is None:
+                continue
+            for i, spec in enumerate(roads.road_specs(f, urban, self.s.widths)):
+                fid = str(f.ids[i])
+                if spec is not None and fid not in seen:
+                    seen.add(fid)
+                    out += [(fid, spec, np.c_[mapgeom.enu_xy(f, self.frame, r)], None) for r in roads.ground_parts(f, i)]
+        return out
+
+    def decks_and_pads(self, tx, ty):
+        """Round tile (tx, ty), as build_tile: the deck parts [(fid, spec, xy (k, 2), z)] and their pads (roads.deck_pads)."""
+        import roads
+        box = roads.tile_bbox(tx, ty)
+        br = self.bridges()
+        got = br.parts(self.road_cells(tx, ty), (box[0] - 40, box[1] - 40, box[2] + 40, box[3] + 40))
+        parts = [(f, s, np.asarray(xy, np.float64)[:, :2], np.asarray(z, np.float64)) for f, s, xy, z, _l in got]
+        return parts, roads.deck_pads(parts, self.ground_roads(tx, ty), box, br._ground, own=False, bridges=br)
+
 
 def report_line(sp, ss, px, py):
     """The heights along the line, per metre."""
@@ -229,35 +274,69 @@ def report_plans(sp, ss, px, py):
               + "".join(f"{c[i]:+11.1f}" for c in cols))
 
 
+def joint_of(q, parts, grounds, join_m, ground_m):
+    """What meets at a deck's end q (2,): the decks' ids ending within join_m (parts: decks_and_pads') and per ground road
+    ending within ground_m of it (grounds: ground_roads') its id and its angle in degrees off straight on from the first
+    deck (0: it goes on in line with it). Pure."""
+    def leaving(line):
+        line = line if np.hypot(*(line[0] - q)) <= np.hypot(*(line[-1] - q)) else line[::-1]
+        s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
+        at = min(12.0, float(s[-1]))        # (the pad's reach: roads.deck_pads reads the angle so)
+        v = np.array([np.interp(at, s, line[:, 0]), np.interp(at, s, line[:, 1])]) - line[0]
+        return v / max(float(np.hypot(*v)), 1e-9)
+    near = lambda ln, m: min(np.hypot(*(ln[0] - q)), np.hypot(*(ln[-1] - q))) < m       # noqa: E731
+    on = [(f, xy) for f, _s, xy, _z in parts if near(xy, join_m)]
+    around = []
+    for f, _s, ln, _n in grounds:
+        if near(ln, ground_m):
+            a = float(np.degrees(np.arccos(np.clip(-leaving(on[0][1]) @ leaving(ln), -1.0, 1.0)))) if on else float("nan")
+            around.append((f, a))
+    return [f for f, _xy in on], around
+
+
 def report_decks(sp, ss, px, py):
-    """The deck parts near the line and the terrain vertices near it against the decks' tops."""
-    import blockworker
+    """The deck parts near the line with their tilt, their ends' joints and the pads there, and the terrain vertices near
+    it against the decks' tops."""
     import grading
     import roads
+    from roads import deckmesh
 
     def elev(la, lo):           # (as ground.build: the graded ground with ROAD_LIFT)
         return sp.graded(np.asarray(la, np.float64), np.asarray(lo, np.float64), grading.ROAD_LIFT)
-    bridges = blockworker._bridges(sp.anc["aid"], sp.frame, elev)
-    bridges.plans_at = lambda xy: sp.g.plans(*sp.lalo(xy[:, 0], xy[:, 1]))
-    bridges.cs.set_road_end(grading.road_end_reader(sp.g))
-    cell_fn = lambda key: sp.s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")   # noqa: E731
+    bridges = sp.bridges()
     decks = []
+    pads = []
     print("\ndeck parts within {:.0f} m of the line (bridges.parts):".format(DECK_NEAR_M))
     for tx, ty in sorted({tile_of(x, y) for x, y in zip(px, py)}):
-        cells = [cell_fn(k) for k in roads.cells_of_tile(sp.frame, tx, ty)]
-        for fid, spec, xy, zd, _l in bridges.parts(cells, roads.tile_bbox(tx, ty)):
-            xy, zd = np.asarray(xy, np.float64)[:, :2], np.asarray(zd, np.float64)
+        parts, tile_pads = sp.decks_and_pads(tx, ty)
+        grounds = sp.ground_roads(tx, ty)
+        pads += [p for p in tile_pads if not any(np.allclose(p[1], q[1]) for q in pads)]
+        for fid, spec, xy, zd in parts:
             if float(np.hypot(xy[:, 0, None] - px[None], xy[:, 1, None] - py[None]).min()) > DECK_NEAR_M:
                 continue
             if any(fid == d[0] and np.allclose(xy[0], d[1][0]) for d in decks):
                 continue        # (a part reaching into two tiles)
             length = float(np.hypot(*np.diff(xy, axis=0).T).sum())
+            bank = bridges.deck_bank(xy, zd)
+            tilt = f"cross slope {bank[0] * 100:+.1f} to {bank[-1] * 100:+.1f} % (toward its left)" if bank is not None else \
+                ("level across: no road's slope at its ends" if roads._is_simple(sp.frame, xy)
+                 else "level across: one surface with another part (roads._tilting_parts)")
             print(f"  {fid} ({spec.cls}, {spec.width:.1f} m wide): {length:.1f} m, AC ({xy[0, 0]:.1f}, {-xy[0, 1]:.1f}) "
-                  f"z {zd[0]:.3f} to ({xy[-1, 0]:.1f}, {-xy[-1, 1]:.1f}) z {zd[-1]:.3f}; simple "
-                  f"{roads._is_simple(sp.frame, xy)} (under_deck_ground lays only simple ones' ground)")
+                  f"z {zd[0]:.3f} to ({xy[-1, 0]:.1f}, {-xy[-1, 1]:.1f}) z {zd[-1]:.3f}; {tilt}")
+            for at, name in ((0, "start"), (-1, "end")):
+                on, around = joint_of(xy[at], parts, grounds, deckmesh.PAD_JOIN_M, deckmesh.PAD_GROUND_M)
+                has = any(np.hypot(*(np.asarray(p[1])[:2] - xy[at])) < deckmesh.PAD_JOIN_M for p in pads)
+                print(f"      {name}: decks {[str(f)[:8] for f in on]}, ground roads "
+                      f"{[(str(f)[:8], round(a, 1)) for f, a in around]} (degrees off straight on); pad {'YES' if has else 'no'}")
             decks.append((fid, xy))
     if not decks:
         print("  none")
+    for ring, centre, walls in pads:
+        ring = np.asarray(ring, np.float64)
+        if float(np.hypot(ring[:, 0, None] - px[None], ring[:, 1, None] - py[None]).min()) <= DECK_NEAR_M:
+            d = np.hypot(px - centre[0], py - centre[1])
+            print(f"  pad at the joint AC ({centre[0]:.1f}, {-centre[1]:.1f}), route {ss[int(d.argmin())]:.0f} m: {len(ring)} ring "
+                  f"points, z {ring[:, 2].min():.2f}-{ring[:, 2].max():.2f}, {len(walls)} rails")
     box = (px.min() - 10, -py.max() - 10, px.max() + 10, -py.min() + 10)
     T3, D, N = measure._surfaces(sp.track, box)
     ground = np.array(["_ground_" in n for n in N], bool)

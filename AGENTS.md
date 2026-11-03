@@ -31,12 +31,13 @@ line here (`tests/test_tools.py`).
 
 | The question | The tool |
 |---|---|
-| A mark or a recorded drive from AC: what did the car feel, on what, where? | `mark.py [track]`, then `docs/ac-reports.md` |
+| A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
 | Drives like grass: which physics (1ROAD, 1GRASS) lies under the line? | `measure.py <track> --surface --from <m> --to <m>` |
 | Why is the ground at a spot road or grass: the map's roads there, each painting step | `ground_paint.py <track> <AC x> <AC z>` |
 | Why does the ground lie at that height: elevation, grading, water, each plan's share, the decks | `heights.py <track> --from <m> --to <m> [--plans] [--decks]` |
 | What does the spot look like: carriageways, names, drawn asphalt, the plans' widths (look first) | `map_spot.py <track> --route <m>`, then Read the PNG |
-| Which surface is that bump, deck or ground? | `measure.py <track> --profile --from <m> --to <m>` |
+| Which surface is that bump: deck, junction pad or ground? At the lanes you ask for? | `measure.py <track> --profile --from <m> --to <m> [--across -8,-4,0,4,8]` |
+| Which bridge part is here: does it tilt or lie level and why, what meets at its ends, is a pad paved there and why? | `heights.py <track> --from <m> --to <m> --decks` |
 | A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
 | Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
 | A tunnel portal's heights | `portal.py <track> <AC x> <AC z>` |
@@ -66,6 +67,8 @@ line here (`tests/test_tools.py`).
 - **Map data first.** OpenStreetMap and Overture tags (tunnel, bridge, layer, width, ...) come before thresholds. A number
   that stays gets a comment with its physical reason and where it would fail.
 - **Fix the cause,** in `engine/` and in the Rust module too. Read what the code intends at that place first.
+- **Rust first.** Look for a driving-surface fault in the Rust module before Python, and fix it where it arises: a slower
+  rebuild or a locked `.pyd` is no reason for a Python workaround ([docs/rust.md](docs/rust.md)).
 - **A driving-surface rule** gets a comment saying why, a test that fails without it, and `measure.py` before and after.
 - **Comments and docs say how it is now:** the rule and its reason, with a concrete example where that helps.
 - **Style:** short functions, docstrings that name the inputs and say "Pure." when there are no side effects.

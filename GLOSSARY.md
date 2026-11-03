@@ -101,6 +101,11 @@ A bridge's driving surface.
 **Abutment**:
 The end of a bridge where it meets the ground.
 
+**Junction pad**:
+A paved plate under the roads where three or more carriageways meet at a deck's end (`roads.deck_pads`): the corner of a turn
+or the wedge where a ramp leaves, which the map leaves open over whatever lies below. In the OBJ it is part of the deck
+object; `measure.py --profile` marks it.
+
 **Approach**:
 The ground road leading onto an abutment or into a tunnel portal, ramped to meet it.
 _Avoid_: ramp, lead-in

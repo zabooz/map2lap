@@ -9,7 +9,9 @@ recorded drive (drive.csv), by route metre (docs/ac-reports.md).
 Per mark and for the drive: its place and screenshot, the passes (a drive one way along the route), the hits (vertical
 G with the wheels' travel), where an axle hung unloaded, each with the measure.py command for that stretch, and the
 physics under the car (1ROAD, 1GRASS, ...: from the track's OBJ parts in out/tracks/<track>, when that build is there).
-A hit far off the line is marked: the car was beside the road there, so it says nothing about the road.
+Each place's metres off the line have their side, + right of the route's direction (the track's route, from its data).
+A hit off the road is marked: the car was beside the road there, so it says nothing about the road (past 6 m off the
+line and not on road physics all the way across to the car; with no build in out/tracks, just past the 6 m).
 """
 import argparse
 import csv
@@ -98,6 +100,11 @@ def passes(rows):
     return [(rows[i], rows[j]) for i, j in out if j > i]
 
 
+def beside(r):
+    """Was the car of row r beside the road: what read_place found, else past BESIDE_M. Pure."""
+    return r.get("beside", r["off_m"] > BESIDE_M)
+
+
 def hits(rows, limit=HIT_G, gap=HIT_GAP_S):
     """The rows of the vertical peaks above limit G: per run of peaks (nearer than gap s) its strongest. Pure."""
     out = []
@@ -115,7 +122,7 @@ def hits(rows, limit=HIT_G, gap=HIT_GAP_S):
 
 def soft_hits(rows):
     """The SOFT_SHOWN strongest hits between SOFT_G and HIT_G on the road, by route order of time. Pure."""
-    got = [r for r in hits(rows, SOFT_G) if abs(r["acc_vert_g"]) < HIT_G and r["off_m"] <= BESIDE_M]
+    got = [r for r in hits(rows, SOFT_G) if abs(r["acc_vert_g"]) < HIT_G and not beside(r)]
     top = sorted(got, key=lambda r: -abs(r["acc_vert_g"]))[:SOFT_SHOWN]
     return sorted(top, key=lambda r: r["time_s"])
 
@@ -147,6 +154,44 @@ def stretch(rows, start=None, end=None):
     return [r for r in rows if (start is None or r["route_m"] >= start) and (end is None or r["route_m"] <= end)]
 
 
+def _foot(r, route):
+    """(AC x, z, direction x, z) of the line (route (n, 2) AC x, z) where row r is nearest it, within 10 m of its route_m,
+    a metre apart. Pure."""
+    S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
+    s = np.arange(max(r["route_m"] - 10.0, 0.0), min(r["route_m"] + 10.0, S[-1]) + 0.5, 1.0)
+    px, pz = np.interp(s, S, route[:, 0]), np.interp(s, S, route[:, 1])
+    j = int(np.argmin(np.hypot(px - r["x"], pz - r["z"])))
+    a, b = max(j - 1, 0), min(j + 1, len(s) - 1)
+    tx, tz = px[b] - px[a], pz[b] - pz[a]
+    tn = max(float(np.hypot(tx, tz)), 1e-9)
+    return float(px[j]), float(pz[j]), float(tx / tn), float(tz / tn)
+
+
+def sides(rows, route):
+    """Per row m off the line (route (n, 2) AC x, z), + right of its direction: the recorded off_m has no side. Pure."""
+    out = np.zeros(len(rows))
+    for i, r in enumerate(rows):
+        fx, fz, tx, tz = _foot(r, route)
+        out[i] = (r["x"] - fx) * (-tz) + (r["z"] - fz) * tx     # (AC x east, z south: right is (-tz, tx))
+    return out
+
+
+def on_one_road(names):
+    """Do the object names across from the line to the car (names_at's, from the line out) all have road physics, so the car
+    is on the road the line follows and not on another beside it (a median between them breaks it)? Pure."""
+    return all(measure.physics(n) == measure.ROAD for n in names)
+
+
+def same_road(r, foot, T3, names):
+    """Is the car of row r on the road the line follows: on_one_road every metre of the whole way from the line (foot:
+    _foot's) to it, a median in a road's first metres too, on the surfaces nearest the car's height (a flyover over the
+    lanes is not what it drives on; T3, names: measure._surfaces')? Pure."""
+    n = max(int(np.ceil(r["off_m"])) + 1, 2)
+    t = np.linspace(0.0, 1.0, n)
+    return on_one_road(measure.names_at(T3, names, foot[0] + t * (r["x"] - foot[0]), foot[1] + t * (r["z"] - foot[1]),
+                                        np.full(n, r["y"])))
+
+
 def track_of(folder):
     """The track's name from the session's info.txt, else from the folder's name."""
     try:
@@ -175,7 +220,7 @@ def surface_runs(rows, names):
     out, last = [], None
     for r, n in zip(rows, names):
         n = measure.unsplit(n) if n else "nothing"
-        if r["off_m"] > BESIDE_M:
+        if beside(r):
             last = None
             continue
         if last is not None and out[-1][2] == n:
@@ -198,14 +243,44 @@ def rebuilt_since(track, folder):
 
 
 def _where(r):
-    beside = "  BESIDE THE ROAD" if r["off_m"] > BESIDE_M else ""
-    return f"route {r['route_m']:8.1f} m, {r['off_m']:4.1f} m off the line, {r['speed_kmh']:5.1f} km/h{beside}"
+    flag = "  BESIDE THE ROAD" if beside(r) else ""
+    off = f"{r['side_m']:+5.1f} m off the line" if "side_m" in r else f"{r['off_m']:4.1f} m off the line"
+    return f"route {r['route_m']:8.1f} m, {off}, {r['speed_kmh']:5.1f} km/h{flag}"
+
+
+def read_place(track, rows):
+    """Each of rows gets side_m (sides: + right of the route) and beside (past BESIDE_M, and not on the road the line
+    follows: on_one_road across to the car, up to measure.WIDTH_MAX_M, in track's OBJ parts: a motorway's lanes reach
+    past BESIDE_M, its other carriageway lies beyond a median). As they were when the track has no route or no build here."""
+    try:
+        route = measure._route(track)
+    except (OSError, ValueError, IndexError):
+        return rows
+    if route is None or not len(route) or not rows:
+        return rows
+    for r, side in zip(rows, sides(rows, route)):
+        r["side_m"] = float(side)
+    if not measure.tile_files(track):
+        return rows
+    far = [r for r in rows if r["off_m"] > BESIDE_M]
+    for r in far:
+        r["beside"] = True
+    near = [r for r in far if r["off_m"] <= measure.WIDTH_MAX_M]
+    if not near:
+        return rows
+    x, z = np.array([r["x"] for r in near]), np.array([r["z"] for r in near])
+    T3, _d, names = measure._surfaces(track, (x.min() - 20, z.min() - 20, x.max() + 20, z.max() + 20))
+    for r in near:
+        r["beside"] = not same_road(r, _foot(r, route), T3, names)
+    for r in rows:
+        r.setdefault("beside", False)
+    return rows
 
 
 def report_mark(track, path, marks, start=None, end=None):
     """Print one mark: path its csv, marks its row of marks.csv or None."""
-    rows = read_rows(path)
-    print(f"\n{os.path.basename(path)}" + (f": marked at route {float(marks['route_m']):.1f} m, AC {marks['x']}, {marks['z']}, "
+    rows = read_place(track, read_rows(path))
+    print(f"\n{os.path.basename(path)}" +(f": marked at route {float(marks['route_m']):.1f} m, AC {marks['x']}, {marks['z']}, "
                                            f"{float(marks['speed_kmh']):.0f} km/h" if marks else ""))
     jpg = path[:-4] + ".jpg"
     if os.path.exists(jpg):
@@ -235,7 +310,7 @@ def report_mark(track, path, marks, start=None, end=None):
         print(f"    {a['time_s']:7.2f}-{b['time_s']:7.2f} s  {axle:5}  long {a['acc_long_g']:+5.2f}  {_where(a)}")
     if not hung:
         print("    none")
-    on_road = [r for r in got + soft if r["off_m"] <= BESIDE_M] + [a for _x, a, _b in hung if a["off_m"] <= BESIDE_M]
+    on_road = [r for r in got + soft if not beside(r)] + [a for _x, a, _b in hung if not beside(a)]
     if on_road:
         s = [r["route_m"] for r in on_road]
         print(f"  built there: tools\\measure.py {track} --profile --from {min(s) - AROUND_M:.0f} --to {max(s) + AROUND_M:.0f}")

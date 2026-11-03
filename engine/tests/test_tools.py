@@ -79,12 +79,70 @@ class MarkTest(unittest.TestCase):
             self.assertEqual(os.path.basename(mark.find_session("henderson", root)), "henderson_20261103_112959")
             self.assertIsNone(mark.find_session("stausee", root))
 
+    def test_a_row_s_side_of_the_line_right_is_plus(self):
+        route = np.array([[0.0, 0.0], [100.0, 0.0]])     # (going east along AC x: z south is its right)
+        rows = [dict(row(0.0, s=50.0), x=50.0, z=2.5), dict(row(1.0, s=60.0), x=60.0, z=-3.0)]
+        np.testing.assert_allclose(mark.sides(rows, route), [2.5, -3.0], atol=1e-9)
+        north = np.array([[0.0, 0.0], [0.0, -100.0]])    # (going north: -z; x east is its right)
+        np.testing.assert_allclose(mark.sides([dict(row(0.0, s=50.0), x=2.0, z=-50.0)], north), [2.0], atol=1e-9)
+
+    def road_and_grass(self, strips):
+        """Small triangles along AC x 30..70 at y 0: strips [(z from, z to, object name)]. (T3, names)"""
+        tris, names = [], []
+        for z0, z1, name in strips:
+            for x in np.arange(30.0, 70.0, 4.0):
+                for z in np.arange(z0, z1 - 1e-9, 1.0):
+                    a, b, c, d = [x, 0, z], [x + 4, 0, z], [x + 4, 0, z + 1], [x, 0, z + 1]
+                    tris += [[a, c, b], [a, d, c]]
+                    names += [name, name]
+        return np.array(tris, np.float64), np.array(names, object)
+
+    def test_a_median_anywhere_between_the_line_and_the_car_is_another_road(self):
+        """A motorway's median lies in the first metres: the other carriageway 10 m off, grass 3-5 m off."""
+        car = dict(row(0.0, s=50.0, off=10.0), x=50.0, y=0.0, z=10.0)
+        foot = (50.0, 0.0, 1.0, 0.0)
+        road, grass = "1ROAD_ground_0_0", "1GRASS_ground_0_0"
+        for strips, same in (([(-5, 3, road), (3, 5, grass), (5, 15, road)], False),
+                             ([(-5, 7, road), (7, 9, grass), (9, 15, road)], False),
+                             ([(-5, 15, road)], True)):
+            T3, names = self.road_and_grass(strips)
+            self.assertEqual(mark.same_road(car, foot, T3, names), same, strips)
+
+    def test_lanes_past_the_6_m_are_the_road_a_median_between_is_not(self):
+        self.assertTrue(mark.on_one_road(["1ROAD_deck_0", "1ROAD_ground_0_0"]))
+        self.assertFalse(mark.on_one_road(["1ROAD_deck_0", "1GRASS_ground_0_0", "1ROAD_ground_0_0"]))
+        self.assertFalse(mark.beside(dict(row(0.0, off=8.0), beside=False)), "read off the track: wide lanes")
+        self.assertTrue(mark.beside(row(0.0, off=8.0)), "not read: past BESIDE_M")
+
     def test_the_surface_under_the_car_in_runs_beside_the_road_left_out(self):
         rows = [row(0.0, s=100.0), row(1.0, s=110.0), row(2.0, s=120.0), row(3.0, s=130.0, off=9.0), row(4.0, s=140.0)]
         names = ["1ROAD_ground_0_0", "1GRASS_ground_0_0", "1GRASS_ground_0_0_1", "1GRASS_ground_0_0", ""]
         got = [(a["route_m"], b["route_m"], n) for a, b, n in mark.surface_runs(rows, names)]
         self.assertEqual(got, [(100.0, 100.0, "1ROAD_ground_0_0"), (110.0, 120.0, "1GRASS_ground_0_0"),
                                (140.0, 140.0, "nothing")])
+
+
+class PadTest(unittest.TestCase):
+    def test_a_fan_in_the_deck_object_is_a_pad_a_ribbon_is_not(self):
+        c = [5.0, 100.0, 5.0]
+        ring = [[0, 100, 0], [10, 100, 0], [10, 100, 10], [0, 100, 10]]
+        fan = [[c, ring[i], ring[(i + 1) % 4]] for i in range(4)]
+        ribbon = []
+        for x in (20.0, 25.0, 30.0):
+            ribbon += [[[x, 100, 0], [x + 5, 100, 0], [x + 5, 100, 8]], [[x, 100, 0], [x + 5, 100, 8], [x, 100, 8]]]
+        T3 = np.array(fan + ribbon, np.float64)
+        got = measure.pad_triangles(T3, np.ones(len(T3), bool))
+        self.assertEqual(got.tolist(), [True] * 4 + [False] * 6)
+        self.assertFalse(measure.pad_triangles(T3, np.zeros(len(T3), bool)).any(), "only in the deck objects")
+
+    def test_three_triangles_of_a_ribbon_cut_out_by_the_box_are_no_pad(self):
+        ribbon = []
+        for x in (0.0, 4.0, 8.0, 12.0):       # (as roadmesh's rows: (A, B, B1), (A, B1, A1))
+            A, A1, B, B1 = [x, 0, 0], [x + 4, 0, 0], [x, 0, 8], [x + 4, 0, 8]
+            ribbon += [[A, B, B1], [A, B1, A1]]
+        ribbon = np.array(ribbon, np.float64)
+        for a in range(len(ribbon) - 2):
+            self.assertFalse(measure.pad_triangles(ribbon[a:a + 3], np.ones(3, bool)).any(), a)
 
 
 class OverDeckTest(unittest.TestCase):
@@ -156,6 +214,18 @@ class HeightsTest(unittest.TestCase):
         self.assertEqual(heights.vertex_of(-5600.0, 3878.0, -22, 15), (19, 16))
         self.assertEqual(heights.vertex_of(-5600.9, 3878.9, -22, 15), (19, 16), "rounded to the nearest vertex")
 
+    def test_what_meets_at_a_deck_s_end(self):
+        deck = ("d", None, np.array([[0.0, 0.0], [0.0, 40.0]]), None)
+        other = ("x", None, np.array([[50.0, 50.0], [60.0, 60.0]]), None)
+        road = ("road", None, np.array([[0.0, -40.0], [0.0, 0.0]]), None)
+        a = np.radians(10.0)
+        slip = ("slip", None, np.array([[-40 * np.sin(a), -40 * np.cos(a)], [0.0, 0.0]]), None)
+        on, around = heights.joint_of(np.zeros(2), [deck, other], [road, slip, other], 0.75, 1.0)
+        self.assertEqual(on, ["d"])
+        self.assertEqual([f for f, _a in around], ["road", "slip"])
+        self.assertAlmostEqual(around[0][1], 0.0, places=3)
+        self.assertAlmostEqual(around[1][1], 10.0, places=3)
+
     def test_arcs_from_a_decks_ends(self):
         xy = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 5.0]])
         self.assertEqual(heights.arcs_from_ends(xy, np.array([4.0, 2.0])), (4.0, 11.0))
@@ -172,6 +242,24 @@ class MapSpotTest(unittest.TestCase):
     def test_a_line_moved_to_its_left(self):
         got = map_spot.offset(np.array([[0.0, 0.0], [10.0, 0.0]]), 2.0)
         self.assertTrue(np.allclose(got, [[0.0, 2.0], [10.0, 2.0]]))
+
+    def test_every_tile_of_a_wide_picture_the_middle_ones_too(self):
+        """(radius 300 m round a tile's middle: 3 by 3 tiles, the corners only left out the one at the spot)"""
+        c = 128.0 + 256 * 3
+        got = map_spot.tiles_in((c - 300.0, c - 300.0, c + 300.0, c + 300.0))
+        self.assertEqual(len(got), 9)
+        self.assertIn((3, 3), got)
+        self.assertEqual(map_spot.tiles_in((c - 80.0, c - 80.0, c + 80.0, c + 80.0)), [(3, 3)])
+
+    def test_labels_filtered_by_a_word(self):
+        self.assertTrue(map_spot.shown("SH16 motorway 15.2m fd52eb57", None))
+        self.assertTrue(map_spot.shown("SH16 motorway 15.2m fd52eb57", "x, FD52"))
+        self.assertFalse(map_spot.shown("SH16 motorway 15.2m fd52eb57", "9532d386"))
+
+    def test_another_radius_or_a_part_metre_is_another_picture(self):
+        self.assertEqual(map_spot.picture_name("t", "1000", 80.0), "map_t_1000_r80.png")
+        self.assertNotEqual(map_spot.picture_name("t", "1000", 80.0), map_spot.picture_name("t", "1000", 150.0))
+        self.assertEqual(f"{1052.5:g}", "1052.5", "--route's tag keeps its part metre")
 
     def test_the_vertex_nearest_the_spot(self):
         p, k = map_spot.nearest([np.array([[0.0, 0.0], [5.0, 0.0]]), np.array([[1.0, 1.0], [2.0, 2.0]])], (2.0, 1.8))

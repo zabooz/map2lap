@@ -1,6 +1,6 @@
 """A picture of a spot as our code sees it: the map's roads (Overture / OpenStreetMap) with their drawn asphalt, names,
 one-way arrows and bridges, the grading's plans with their widths, and the route with its metres. Built from the
-track's kept tiles (out/tracks/<track>) and today's map data cache; written to out/map_<track>_<m>.png.
+track's kept tiles (out/tracks/<track>) and today's map data cache; written to out/map_<track>_<m>_r<radius>.png.
 
     .venv\\Scripts\\python.exe tools\\map_spot.py <track> --route <m>             # around a route metre
     .venv\\Scripts\\python.exe tools\\map_spot.py <track> <AC x> <AC z>            # around a point
@@ -14,6 +14,7 @@ In the picture:
 - coloured outlines: each grading plan (grading.Plan) at its carriageway's half width (solid) and its core half width
   (dashed, the ground it levels): overlapping plans of different heights pull each other's ground;
   the plan's height at the spot is written at its line;
+- violet: the junction pads as paved (roads.deck_pads);
 - red: the route, with its metres every 50 m (100 m past a radius of 150).
 """
 import argparse
@@ -77,17 +78,26 @@ def nearest(parts, centre):
     return (best[1], best[2]) if best else (None, None)
 
 
-def draw_roads(draw, font, sp, centre, radius):
-    """The map's roads near centre: drawn asphalt, line, arrow, name; returns {plan rid: its road's label}."""
+def tiles_in(box):
+    """Every tile (tx, ty) a box (x0, y0, x1, y1) touches, those between its corners' too, in order. Pure."""
+    x0, y0 = heights.tile_of(box[0], box[1])
+    x1, y1 = heights.tile_of(box[2], box[3])
+    return [(tx, ty) for tx in range(x0, x1 + 1) for ty in range(y0, y1 + 1)]
+
+
+def shown(text, only):
+    """Is a label shown: only None, or a word of only (comma separated) in it, whatever its case? Pure."""
+    return only is None or any(w.strip().lower() in text.lower() for w in only.split(","))
+
+
+def draw_roads(draw, font, sp, centre, radius, only=None):
+    """The map's roads near centre: drawn asphalt, line, arrow, name (only: shown()); returns {plan rid: its road's label}."""
     import grading
     import mapgeom
     import roads
     s = PX / (2.0 * radius)
     box = (centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius)
-    tiles = {heights.tile_of(x, y) for x in (box[0], box[2]) for y in (box[1], box[3])}
-    tiles |= {(tx, ty) for tx in range(min(t[0] for t in tiles), max(t[0] for t in tiles) + 1)
-              for ty in range(min(t[1] for t in tiles), max(t[1] for t in tiles) + 1)}
-    keys = sorted({k for t in tiles for k in roads.cells_of_tile(sp.frame, *t)})
+    keys = sorted({k for t in tiles_in(box) for k in roads.cells_of_tile(sp.frame, *t)})
     seen, labels, of_rid = set(), [], {}
     for key in keys:
         f = sp.s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")
@@ -131,13 +141,14 @@ def draw_roads(draw, font, sp, centre, radius):
                 u, v = to_px(p[k, 0], p[k, 1], centre, radius)
                 labels.append((float(u), float(v), label))
     for u, v, text in labels:
-        if 0 <= u < PX and 0 <= v < PX:
+        if 0 <= u < PX and 0 <= v < PX and shown(text, only):
             draw.text((u + 4, v + 4), text, fill=(60, 60, 60), font=font)
     return of_rid
 
 
-def draw_plans(draw, font, sp, centre, radius, of_rid):
-    """The grading's plans near centre: carriageway half width solid, core half width dashed, height at the spot."""
+def draw_plans(draw, font, sp, centre, radius, of_rid, only=None):
+    """The grading's plans near centre: carriageway half width solid, core half width dashed, height at the spot (only:
+    shown())."""
     xs, ys = np.meshgrid(np.linspace(centre[0] - radius, centre[0] + radius, 9),
                          np.linspace(centre[1] - radius, centre[1] + radius, 9))
     plans = sp.g.plans(*sp.lalo(xs.ravel(), ys.ravel())) if sp.g is not None else []
@@ -151,9 +162,23 @@ def draw_plans(draw, font, sp, centre, radius, of_rid):
             _draw_line(draw, offset(xy, side * p.half), centre, radius, c, 1, dash=6)
         j = int(np.argmin(np.hypot(xy[:, 0] - centre[0], xy[:, 1] - centre[1])))
         u, v = to_px(xy[j, 0], xy[j, 1], centre, radius)
-        if 0 <= u < PX and 0 <= v < PX:
-            draw.text((float(u) + 4, float(v) - 16), f"plan {of_rid.get(p.rid, p.rid)}: z {p.z[j]:.2f}, "
-                      f"half {p.road_half:.2f} / {p.half:.2f}", fill=c, font=font)
+        text = f"plan {of_rid.get(p.rid, p.rid)}: z {p.z[j]:.2f}, half {p.road_half:.2f} / {p.half:.2f}"
+        if 0 <= u < PX and 0 <= v < PX and shown(text, only):
+            draw.text((float(u) + 4, float(v) - 16), text, fill=c, font=font)
+
+
+def draw_pads(draw, font, sp, centre, radius):
+    """The junction pads near centre as the tiles pave them (roads.deck_pads), in violet."""
+    seen = []
+    for t in tiles_in((centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius)):
+        for ring, c, _walls in sp.decks_and_pads(*t)[1]:
+            if any(np.allclose(c, q) for q in seen):
+                continue
+            seen.append(c)
+            ring = np.asarray(ring, np.float64)[:, :2]
+            _draw_line(draw, np.r_[ring, ring[:1]], centre, radius, (148, 0, 211), 3)
+            u, v = to_px(c[0], c[1], centre, radius)
+            draw.text((float(u) + 4, float(v) + 4), f"pad z {c[2]:.2f}", fill=(148, 0, 211), font=font)
 
 
 def draw_route(draw, font, track, centre, radius):
@@ -171,6 +196,11 @@ def draw_route(draw, font, track, centre, radius):
             draw.text((float(u) + 6, float(v) + 2), f"{m:.0f} m", fill=(220, 0, 0), font=font)
 
 
+def picture_name(track, tag, radius):
+    """The picture's file name: the same spot at another radius is another picture. Pure."""
+    return f"map_{track}_{tag}_r{radius:g}.png"
+
+
 def main():
     from PIL import Image, ImageDraw, ImageFont
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -179,12 +209,15 @@ def main():
     ap.add_argument("z", nargs="?", type=float, help="AC z")
     ap.add_argument("--route", type=float, help="a route metre instead of x and z")
     ap.add_argument("--radius", type=float, default=80.0, help="m around the spot (default 80)")
+    ap.add_argument("--output", help="the picture's path (default out/map_<track>_<spot>_r<radius>.png)")
+    ap.add_argument("--only", help="labels holding one of these words only, comma separated (a name, part of an id): at a "
+                                   "big interchange they cover the picture")
     a = ap.parse_args()
     if not os.path.exists(os.path.join(HERE, "out", "tracks", a.track, "tiles", "anchor.json")):
         sys.exit(f"no build of {a.track} in out/tracks (keep the build files, or tools\\from_debug.py)")
     if a.route is not None:
         _ss, px, py = heights.stretch(measure._route(a.track), a.route, a.route, 1.0)
-        centre, tag = (float(px[0]), float(py[0])), f"{a.route:.0f}"
+        centre, tag = (float(px[0]), float(py[0])), f"{a.route:g}"
     elif a.x is not None and a.z is not None:
         centre, tag = (a.x, -a.z), f"x{a.x:.0f}_z{a.z:.0f}"
     else:
@@ -194,11 +227,12 @@ def main():
     font = ImageFont.load_default(size=14)
     with tempfile.TemporaryDirectory() as tex:
         sp = heights.Spot(a.track, tex)
-        of_rid = draw_roads(draw, font, sp, centre, a.radius)
-        draw_plans(draw, font, sp, centre, a.radius, of_rid)
+        of_rid = draw_roads(draw, font, sp, centre, a.radius, a.only)
+        draw_plans(draw, font, sp, centre, a.radius, of_rid, a.only)
+        draw_pads(draw, font, sp, centre, a.radius)
     draw_route(draw, font, a.track, centre, a.radius)
     draw.text((10, 10), f"{a.track} at {tag}, {2 * a.radius:.0f} m across; north up", fill=(0, 0, 0), font=font)
-    out = os.path.join(HERE, "out", f"map_{a.track}_{tag}.png")
+    out = a.output or os.path.join(HERE, "out", picture_name(a.track, tag, a.radius))
     img.save(out)
     print(out)
 
