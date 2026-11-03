@@ -7,9 +7,10 @@ BeamNG.Earth: change it directly and port single upstream changes by hand.
 ## Check a change
 
 ```powershell
-# unit tests of what you touched, from the tests folder
-cd vendor\beamng_earth\server\tests
-..\..\..\..\.venv\Scripts\python.exe -m unittest test_roads test_grading
+# pass or fail: the unit tests (a process per file) and a kn5 build of a short test track
+.venv\Scripts\python.exe tools\check.py
+.venv\Scripts\python.exe tools\check.py --fast          # the unit tests only, ~15 s
+.venv\Scripts\python.exe tools\check.py test_roads      # some test files
 
 # the test tracks, built up to the OBJ parts and measured against their references
 .venv\Scripts\python.exe tools\measure.py --all --build
@@ -17,8 +18,8 @@ cd vendor\beamng_earth\server\tests
 .venv\Scripts\python.exe tools\measure.py <test track> --install    # into AC, to drive it
 ```
 
-- Tests are plain `unittest`, one process per file: a crash in the native module ends the whole run otherwise.
-- Some tests already fail: compare a failure against `main` before blaming your change.
+- Failures there before are in `KNOWN` of `tools/check.py`, each with its reason; any other failure fails the check.
+- Once per clone: `git config core.hooksPath .githooks`; a commit with Python changes then runs `check.py --fast`.
 - Regression checks use only the tracks in `tools/test_tracks.json`. A new spot gets a new short track there.
 - `measure.py` numbers point at places. Whether a road drives better or worse is decided by driving it in AC.
 

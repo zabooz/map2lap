@@ -1,0 +1,7 @@
+#!/bin/sh
+# The fast unit tests (tools/check.py --fast) before a commit that touches Python. Set up once per clone:
+#   git config core.hooksPath .githooks
+git diff --cached --name-only --diff-filter=ACMRD | grep -q '\.py$' || exit 0
+py=.venv/Scripts/python.exe
+[ -x "$py" ] || py=.venv/bin/python
+exec "$py" tools/check.py --fast
