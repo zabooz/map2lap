@@ -92,7 +92,9 @@ BESIDE_LEVEL_TO_M = 1.0
 # surface the two made a ramp ~8 m wide (the blend's weight by distance) under the upper one's lanes: SH16 at Waterview,
 # Auckland, two carriageways 10 m apart and 1.1 m apart in height, 2-3.7 G in waves. The wall: a mapped wall or
 # retaining wall between them (BETWEEN_WALL_CLASSES), else where the raw ground between them has made half its own
-# change (BESIDE_LEVEL_FROM_M at least, the way the two roads lie), over SHARP_RUN_N vertices, when it makes it within
+# change, over SHARP_RUN_N vertices, when it changes by BESIDE_LEVEL_FROM_M (faded in from half that: the wall moved out
+# toward the other road, no jump where a wall begins; the plans' heights at their lines don't decide: at Waterview their
+# cross slopes toward the wall hid a third of its 0.73 m, the wall switched on mid-way, a dip and a rise) within
 # T_MIN, the grading's narrowest transition (graded, it would smear the step over the lanes; the elevation data spreads a
 # 1 m wall over ~2 m at Waterview: 30 % on average, so no grade threshold: SHARP_GRADE is the 2 m cuttings'; a grass
 # median's slope over 10 m stays as the blend makes it). Never nearer either road's line than BETWEEN_MIN_M (a mapped

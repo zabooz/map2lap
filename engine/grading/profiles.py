@@ -409,9 +409,10 @@ def _runs(ok, n):
 
 
 def _between_cuts(frame, plans, elev, walls):
-    """Sets Plan.cut's drops where a road has another road beside it at another level (BESIDE_LEVEL_FROM_M apart, near
-    enough for their gradings to meet) and a wall between them: walls' (lines (k, 2) in the frame, BETWEEN_WALL_CLASSES)
-    first, else the raw ground elev(lat, lon) between them stepping within T_MIN (BETWEEN_*). Each side of each
+    """Sets Plan.cut's drops where a road has another road beside it (near enough for their gradings to meet) and a
+    wall between them: walls' (lines (k, 2) in the frame, BETWEEN_WALL_CLASSES) first, else the raw ground elev(lat,
+    lon) between them stepping by BESIDE_LEVEL_FROM_M within T_MIN, faded in from half that (BETWEEN_*). The ground
+    decides, not the plans' heights at their lines: their cross slopes toward a wall hid a third of its 0.73 m. Each side of each
     plan: the nearest such road. walls may be a function giving them: called only when such a pair is found (most map
     cells have none: a cell's walls are another map layer to read). None entries skipped; nothing without the module's
     wall ends (AC_EXPORT_WALL_ENDS)."""
@@ -455,7 +456,7 @@ def _between_cuts(frame, plans, elev, walls):
                 along = np.abs((v * dirs).sum(1))
                 h = qz[j] + t * (qz[j + 1] - qz[j])
                 ok = (inside & (np.abs((u * dirs).sum(1)) >= cos_par) & (o > 2 * BETWEEN_MIN_M) & (along < VERTEX_STEP)
-                      & (o < reach) & (np.abs(h - zm) >= BESIDE_LEVEL_FROM_M) & (o < off))
+                      & (o < reach) & (o < off))
                 off[ok], zq[ok] = o[ok], h[ok]
             has = np.isfinite(off)
             if not has.any():
@@ -482,11 +483,12 @@ def _between_cuts(frame, plans, elev, walls):
     for p, c0, seg, off, zm, zq, wall, probes, pts in jobs:
         step = np.zeros(len(off), bool)
         at = np.full(len(off), np.nan)
+        rise = np.zeros(len(off))
         for s, o in zip(seg, probes):          # (the raw ground's own step between the two roads)
             gg = g[k:k + len(o)]
             k += len(o)
             dg = gg[-1] - gg[0]
-            if len(o) < 2 or abs(dg) < BESIDE_LEVEL_FROM_M or dg * (zq[s] - zm[s]) <= 0:
+            if len(o) < 2 or abs(dg) < BESIDE_LEVEL_FROM_M / 2:
                 continue
             frac = (gg - gg[0]) / dg
             past = [np.flatnonzero(frac >= f) for f in (0.25, 0.5, 0.9)]
@@ -494,8 +496,12 @@ def _between_cuts(frame, plans, elev, walls):
                 continue
             o25, o50, o90 = (o[x[0]] for x in past)
             if (o90 - o25) / 0.65 < T_MIN:     # (sharper than the grading's narrowest transition: it would smear it)
-                step[s], at[s] = True, o50
+                step[s], at[s], rise[s] = True, o50, abs(dg)
         step = _runs(step, SHARP_RUN_N)
+        # (a step under BESIDE_LEVEL_FROM_M faded in: its wall moved out toward the other road, back to the blend as
+        # before at half that: no jump along the road where a wall begins or the step grows)
+        v = np.clip((rise - BESIDE_LEVEL_FROM_M / 2) / (BESIDE_LEVEL_FROM_M / 2), 0.0, 1.0)
+        at = at + (1.0 - v * v * (3.0 - 2.0 * v)) * (off - BETWEEN_MIN_M - at)
         put = np.where(np.isfinite(wall), wall, np.where(step, at, np.nan))
         put = np.where(np.isfinite(put), np.clip(put, BETWEEN_MIN_M, off - BETWEEN_MIN_M), np.nan)
         if not np.isfinite(put).any():

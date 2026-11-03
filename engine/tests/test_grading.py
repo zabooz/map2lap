@@ -538,9 +538,23 @@ class GradePointsTest(unittest.TestCase):
         slope = lambda n: np.interp(n, [-10.0, 0.0], [98.9, 100.0])    # noqa: E731
         profiles._between_cuts(FRAME, [east, west], self._ground(slope), [])
         self.assertIsNone(east.cut, "a gentle slope between them: blended as ever")
-        east, west = self._two_levels(low_z=99.7)
-        profiles._between_cuts(FRAME, [east, west], self._ground(step), [np.array([[-120.0, -5.5], [120.0, -5.5]])])
-        self.assertIsNone(east.cut, "0.3 m apart: one level")
+        east, west = self._two_levels()
+        profiles._between_cuts(FRAME, [east, west], self._ground(lambda n: np.full(n.shape, 100.0)), [])
+        self.assertIsNone(east.cut, "no step in the ground: blended as ever, whatever the plans' heights")
+
+    def test_the_grounds_step_decides_not_the_plans_heights_and_a_small_one_fades_in(self):
+        """(BETWEEN_*) Waterview at 1056 m: the plans 0.46 m apart at their lines, their cross slopes toward the wall
+        hiding the rest of its step (the ground 0.58 m apart between them): a wall at the step. A step of 0.375 m (half
+        way between half and all of BESIDE_LEVEL_FROM_M): its wall half way out toward the other road."""
+        from grading import profiles
+        east, west = self._two_levels(low_z=99.54)
+        cross = lambda n: np.interp(n, [-10.0, -8.0, -5.0, 0.0], [99.55, 99.27, 100.0, 99.82])    # noqa: E731
+        profiles._between_cuts(FRAME, [east, west], self._ground(cross), [])
+        self.assertTrue(np.allclose(east.cut[:, 3], 6.5, atol=0.75), "a wall at the ground's step")
+        east, west = self._two_levels()
+        small = lambda n: np.interp(n, [-10.0, -6.25, -4.75, 0.0], [99.625, 99.625, 100.0, 100.0])    # noqa: E731
+        profiles._between_cuts(FRAME, [east, west], self._ground(small), [])
+        self.assertTrue(((east.cut[:, 3] > 6.0) & (east.cut[:, 3] < 8.25)).all(), "half way out")
 
     def test_a_narrow_road_mapped_onto_a_wider_one_far_under_it_gives_way(self):
         """(BESIDE_LEVEL_*) a driveway mapped onto a secondary's carriageway, 3 m off its centre line and 1.5 m under
