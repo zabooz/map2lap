@@ -5,14 +5,42 @@ import numpy as np
 
 from .style import (
     BUILT, COBBLE, COBBLE_ALIASES, EDGE_LINE, GRAVEL, LANE_W, LANE_W_DEFAULT, LINK_LANE_M, LINK_M, MEASURE_MAX,
-    MEASURE_SKIP, ONEWAY_STYLE, OSM_LANES, OSM_WIDTH_M, PAVED, SIDEWALK_CLASSES, STYLE, Spec, UNPAVED,
-    URBAN_ARTERIAL
+    MEASURE_SKIP, ONEWAY_STYLE, OSM_LANES, OSM_WIDTH_M, PAVED, SIDEWALK_CLASSES, STYLE, Spec, UNPAVED, URBAN_ARTERIAL
 )
-from .levels import (
-    EDGE_STRIP_CLASS_M, EDGE_STRIP_M, MIN_PART, MOTORWAY_RURAL_M, PARKING_CLASSES, PARKING_M, SHOULDER_M,
-    URBAN_BESIDE_M, URBAN_BESIDE_SHARE, URBAN_BOTH_SHARE, URBAN_SHARE, URBAN_STEP_M, _beside, _even, _facts_load,
-    _facts_store, _osm, _rule_value, level_ranges, raw_level_ranges
-)
+from .tags import _facts_load, _facts_store, _osm, _rule_value, raw_level_ranges
+
+# Carriageway = driving width + parking lanes on city streets or paved edge strips on rural roads
+# (docs/research/2026-10-11-official-road-study.md §2: rural paved surface = AI width + 2-2.5 m;
+# West Coast USA's plain streets 12.5 m for 8 m of driving: ~2.3 m of parking each side). A width
+# rule, where Overture has one, is the carriageway already.
+PARKING_M = 2.3
+
+# Rural motorways: two lanes a direction (most rural Interstates and European motorways; every US Interstate was drawn
+# with three) between paved shoulders, the edge line along each; urban ones keep STYLE's three lanes.
+# Overture has no lane counts.
+MOTORWAY_RURAL_M = 7.4
+SHOULDER_M = 2.2
+PARKING_CLASSES = {"residential", "tertiary", "secondary", "unclassified", "living_street"}
+EDGE_STRIP_M = 1.0
+
+# ... by class where measured narrower: rural minor roads' paved width on the official aerials (PEMA 6-inch, Lancaster
+# County PA, 20 tertiary 6.4 m and 20 secondary 6.7 m against 8.5 and 9.5 drawn; NAIP, El Paso County CO, tertiary 7.2;
+# 2026-10-28, the user: "compare against high res satellite photos"): no strips on tertiary and unclassified roads,
+# narrow ones on secondaries
+EDGE_STRIP_CLASS_M = {"tertiary": 0.0, "unclassified": 0.0, "secondary": 0.25}
+URBAN_SHARE = 0.5               # a road is urban when this share of its vertices is built-up ...
+URBAN_BESIDE_M = 30.0           # ... and at least URBAN_BESIDE_SHARE of them have built-up land this far to one side:
+URBAN_BESIDE_SHARE = 0.2        # the land cover counts a wide road's own pavement as built-up, and the Eyre Highway
+                                # through Eucla (centre 94 %, beside it 3 %) got a town's footpaths, bins and hydrants
+                                # across the Nullarbor. Baltimore and Chicago keep every urban road.
+URBAN_BOTH_SHARE = 0.1          # a motorway or trunk needs built-up land on both
+                                # sides of this share of its vertices: a roadhouse beside the Eyre Highway (Eucla: one
+                                # side 33 %, the other 0 %) is no town
+URBAN_STEP_M = 10.0             # m between the points those shares are taken at (the land cover's pixel): shares of a
+                                # road's length, not of its vertices, which crowd where it bends and joins (a 762 m
+                                # primary through fields read 64 % built-up from the 9 of its 14 vertices in the
+                                # village at its end, 41 % along its length, and got curbs and sidewalks throughout)
+MIN_PART = 1e-3     # parts shorter than this share of a segment are dropped
 
 
 def surface_token(surface):
@@ -507,51 +535,31 @@ def _measured_widths(feats, specs, widths):
     return out
 
 
-def bridge_specs(feats):
-    """Per feature: the Spec of a road bridge (flag is_bridge, or level above ground; not a tunnel), else
-    None. No parking widths on bridges (urban False). Pure."""
-    got = feats.__dict__.get("_bridge_specs")      # remembered: cells stay decoded (mapdata)
-    if got is None:
-        got = feats.__dict__["_bridge_specs"] = _bridge_specs(feats)
-    return list(got)
+def _even(p, step):
+    """A line (lon/lat (k, 2)) as points every step m along it, its ends included. Pure."""
+    if len(p) < 2:
+        return p
+    m = np.array([111320.0 * math.cos(math.radians(float(p[:, 1].mean()))), 110540.0])   # m per degree
+    cum = np.r_[0.0, np.cumsum(np.hypot(*(np.diff(p, axis=0) * m).T))]
+    s = np.r_[np.arange(0.0, cum[-1], step), cum[-1]]
+    return np.c_[np.interp(s, cum, p[:, 0]), np.interp(s, cum, p[:, 1])]
 
 
-def tunnel_specs(feats):
-    """Per feature: the Spec of a road with a tunnel range, else None (as bridge_specs). Pure."""
-    got = feats.__dict__.get("_tunnel_specs")
-    if got is None:
-        got = feats.__dict__["_tunnel_specs"] = _bridge_specs(feats, "tunnel")
-    return list(got)
-
-
-def _bridge_specs(feats, want="bridge"):
-    out = []
-    rules = feats.rules
-    for i in range(len(feats)):
-        cls = str(feats.attrs["class"][i]) if "class" in feats.attrs else "unknown"
-        if str(feats.attrs.get("subtype", ["road"] * len(feats))[i]) != "road" or cls not in STYLE or unbuilt(feats, i):
-            out.append(None)
+def _beside(ll, counts, d):
+    """The points d m to the left and to the right of each vertex of the lines (lon/lat (n, 2), counts: the vertices of
+    each line in turn), square to the line there; a one-vertex line's are the vertex itself. Pure."""
+    left, right = np.empty_like(ll), np.empty_like(ll)
+    k = 0
+    for c in counts:
+        p = ll[k:k + c]
+        if c < 2:
+            left[k:k + c] = right[k:k + c] = p
+            k += c
             continue
-        # (the lengthened ranges: a bridge's range carried onto the road joined at its end (_skew_decks) is a deck
-        # too; with the raw ranges that stretch was neither deck nor ground, the deck's end lost its approach ramp
-        # and sat ~4.5 m low over BR-343 at Teresina)
-        if not any(k == want for _, _, k in (level_ranges(feats, i) if want == "bridge" else raw_level_ranges(feats, i))):
-            out.append(None)
-            continue
-        width = _rule_value(rules.get("width"), i)
-        rule_w = float(width) if width is not None and 1.0 <= float(width) <= 40.0 else None
-        # (OpenStreetMap's width and lane count, as _road_specs: a 4-lane bridge was drawn at its class's 8 m, one lane
-        # each way, Kommunalny Bridge in Perm by RiDexSS; tunnels too)
-        if rule_w is None:
-            rule_w = _osm(feats, "width", i, *OSM_WIDTH_M)
-        lanes = _osm(feats, "lanes", i, *OSM_LANES)
-        lanes = int(lanes) if lanes is not None else None
-        surf = _rule_value(rules.get("surface"), i)
-        kind = surface_kind(cls, surf)
-        ow = _rule_value(rules.get("oneway"), i) is not None
-        link = _rule_value(rules.get("subclass"), i) == "link"
-        if rule_w is None and link and lanes is None:
-            rule_w = LINK_M[1] if ow else LINK_M[2]
-        out.append(Spec(carriageway(cls, kind, False, rule_w, ow, lanes), kind, False, cls, ow,
-                        lanes=lanes, surf=surface_token(surf)))
-    return out
+        m = np.array([111320.0 * math.cos(math.radians(float(p[:, 1].mean()))), 110540.0])   # m per degree
+        t = np.gradient(p * m, axis=0)
+        t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
+        off = np.stack([-t[:, 1], t[:, 0]], axis=1) * d / m
+        left[k:k + c], right[k:k + c] = p + off, p - off
+        k += c
+    return left, right

@@ -9,18 +9,21 @@ import mapgeom
 import roadmesh
 
 from .style import log
-from .levels import NEAR_M, bridge_levels, bridge_parts, ground_parts
-from .specs import bridge_specs, road_specs
-from .decks import (
-    DECK_DESIGN_GRADE, DECK_ROAD_HALF, END_ON_STEP_M, GAP_DIP_M, GAP_LOW_M, GAP_SEA_M, NAV_RUN_M, PIN_M,
-    WATER_STEP_M, _EndJoin, _deck_beside, _dedupe, _end_joins, _end_ons, _ground_pins, _joined_lines,
-    bridge_profile_mode, deck_profile, water_clear
+from .specs import road_specs
+from .levels import NEAR_M, bridge_levels, bridge_parts, bridge_specs, ground_parts
+from .tiles import (
+    BRIDGE_HEADROOM_MARGIN_M, DECK_CLEAR, DECK_FULL_DEPTH, DECK_MIN_DEPTH, DECK_ROAD_CLEAR, DECK_SPAN_RATIO, DECK_STEP,
+    MIN_BRIDGE_HEADROOM_M, box_owns
 )
 from .walks import densify
-from .tiles import (
-    BRIDGE_HEADROOM_MARGIN_M, DECK_CLEAR, DECK_FULL_DEPTH, DECK_MIN_DEPTH, DECK_ROAD_CLEAR, DECK_SPAN_RATIO,
-    DECK_STEP, MIN_BRIDGE_HEADROOM_M, box_owns
+from .decks import (
+    AT_GRADE_M, AT_GRADE_REACH_M, DECK_CLEAR_REACH_M, DECK_DESIGN_GRADE, DECK_MAX_GRADE, DECK_ROAD_HALF, END_ON_STEP_M,
+    GAP_DIP_M, GAP_LOW_M, GAP_SEA_M, NAV_RUN_M, PIN_M, WATER_STEP_M, _EndJoin, _deck_beside, _deck_crossings, _dedupe,
+    _end_joins, _end_ons, _ground_pins, _joined_lines, bridge_profile_mode, deck_profile, water_clear
 )
+
+# a deck's end is on the ground where the graded ground at it is within this of it (else an end over the valley: a joint)
+DECK_BANK_ON_M = 0.3
 
 
 def deck_depth(span):
@@ -216,13 +219,7 @@ def geom_span(lines):
     return L / max(1, int(round(L / PIER_SPAN_M)))
 
 
-DECK_CLEAR_REACH_M = 20.0   # full headroom either side of a road crossing (matches approach fills' flat reach)
-DECK_GRADE = 0.05       # that requirement falls 5 % along the deck from the crossing
-DECK_MAX_GRADE = 0.06   # a deck climbs no steeper than this from an abutment
-DECK_STEEP_GRADE = 0.15  # ... nor, whatever ground the caps were raised to, than this over lower ground (no walls)
 CORNER_CONCRETE_M = 4.0  # m: a concrete street this close to a curb return fills its corner in concrete too
-AT_GRADE_M = 3.0        # m: a road crossing a deck within AT_GRADE_REACH_M of an abutment that cannot get this
-AT_GRADE_REACH_M = 12.0     # high over it is a junction at grade (the intersection a ramp starts from)
 CHAIN_CELLS = 12        # map cells read at most to close one bridge chain
 
 
@@ -281,17 +278,6 @@ def _crossings_by(lines, ground_lines):
                                                           np.ascontiguousarray(np.vstack(gp)), starts(gp)):
         out[g].append((pi, arc, np.array([x, y])))
     return out
-
-
-def _deck_crossings(lines):
-    """(i, j, arc on i, arc on j) where deck parts i < j cross (not at their end points). Pure."""
-    import fast
-    if not lines:
-        return []
-    fast.require(0, "deck_crossings")
-    pts = [np.asarray(ln, np.float64)[:, :2] for ln in lines]
-    starts = np.r_[0, np.cumsum([len(p) for p in pts])].astype(np.int64)
-    return fast._ef.deck_crossings(np.ascontiguousarray(np.vstack(pts)), starts)
 
 
 PIER_SPAN_M = 32.0      # m between a bridge's piers (a span), longer under a high deck: + PIER_SPAN_PER_M per m of height
@@ -1064,7 +1050,7 @@ class BridgeProfiles:
             tpiers = owner.piers.get(("truss", ck))
             depth = {k: owner.__dict__.get("depth", {}).get(k) for k in mine}
             extra = owner._adopt_extra(comp)
-        mp = ChainView.mapper(owner.frame, self.frame)
+        mp = _Mapper(owner.frame, self.frame)
         with self.lock:
             for k, (spec, xy, z, lon) in done.items():
                 if k in self.done:
@@ -1161,6 +1147,40 @@ class BridgeProfiles:
         return key[0]
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .chains import ChainView  # noqa: E402
-from .deckmesh import DECK_BANK_ON_M  # noqa: E402
+class _Mapper:
+    """Points of one frame's world in another's (geotiles.world_map), rigid parts by the rotation between them."""
+
+    def __init__(self, src, dst):
+        import geotiles
+        self.src, self.dst, self.same = src, dst, src.lat0 == dst.lat0 and src.lon0 == dst.lon0
+        self._gt = geotiles
+        if not self.same:
+            r, _t, _c = geotiles.placement(src, dst, (0.0, 0.0, 0.0))
+            self.r = r
+
+    def pts(self, p):
+        p = np.asarray(p, np.float64)
+        if self.same or not len(p):
+            return p.copy()
+        return self._gt.world_map(self.src, self.dst, p)
+
+    def dir2(self, ux, uy):
+        if self.same:
+            return ux, uy
+        v = self.r[:2, :2] @ np.array([ux, uy])
+        n = max(float(np.hypot(*v)), 1e-12)
+        return float(v[0] / n), float(v[1] / n)
+
+    def pier(self, q):
+        if self.same:
+            return q
+        x, y, ux, uy, zt, zb = q[:6]
+        a = self.pts(np.array([[x, y, zt], [x, y, zb]], np.float64))
+        ux, uy = self.dir2(ux, uy)
+        return (float(a[0, 0]), float(a[0, 1]), ux, uy, float(a[0, 2]), float(a[1, 2])) + tuple(q[6:])
+
+    def beam(self, b):
+        if self.same:
+            return b
+        a = self.pts(np.array([np.asarray(b[0], np.float64)[:3], np.asarray(b[1], np.float64)[:3]]))
+        return (a[0].copy(), a[1].copy()) + tuple(b[2:])

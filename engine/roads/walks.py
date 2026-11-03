@@ -7,8 +7,9 @@ from .style import (
     BUILT, CENTRE, CENTRE_CLASSES, EDGE_DECAL, EDGE_DECAL_AT, EDGE_LINE, EDGE_LINE_CLASSES, GUTTER, LANE_CLASSES,
     LANE_M, MAX_SPACING, SIDEWALK, SIDEWALK_CLASSES, SIMPLIFY_M, URBAN_ARTERIAL
 )
-from .levels import LANE_LINE, MIN_PIECE_M, PARKING_CLASSES, PARKING_M, WALK_STEP_M
-from .specs import edge_margin, motorway_shoulder, rural_motorway
+from .specs import PARKING_CLASSES, PARKING_M, edge_margin, motorway_shoulder, rural_motorway
+from .levels import LANE_LINE, MIN_PIECE_M, WALK_STEP_M
+from .tiles import lane_layout
 
 
 def centre_colour(lon):
@@ -578,7 +579,3 @@ def drape_walks(frame, elev, walks, ground=None):
         pts = pts.copy()
         pts[:, 2] = z
         wk["pts"] = densify(pts[sidewalks.simplify(pts, WALK_DRAPE_TOL_M)])
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .tiles import lane_layout  # noqa: E402

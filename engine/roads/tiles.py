@@ -7,8 +7,7 @@ import mapcells
 import roadmesh
 
 from .style import LANE_M, MAX_NODES, OVERLAP, TILE, URBAN_ARTERIAL
-from .levels import PARKING_CLASSES, PARKING_M
-from .specs import edge_margin
+from .specs import PARKING_CLASSES, PARKING_M, edge_margin
 
 
 def split(pts, n=MAX_NODES):
@@ -164,3 +163,13 @@ DECK_ROAD_CLEAR = MIN_BRIDGE_HEADROOM_M + BRIDGE_HEADROOM_MARGIN_M + roadmesh.DE
 DECK_FULL_DEPTH = roadmesh.DECK_DEPTH + roadmesh.GIRDER_D    # m of slab and girders under a long span's road
 DECK_MIN_DEPTH = 0.9    # m: the thinnest deck (a short slab bridge)
 DECK_SPAN_RATIO = 22.0  # a deck is its main span / this deep (girder bridges run span/20-25), DECK_MIN..FULL_DEPTH
+
+
+def _along(line, dist):
+    """The point dist along polyline line (k, 3) from its start (its end if shorter)."""
+    seg = np.hypot(*np.diff(line[:, :2], axis=0).T)
+    for i, L in enumerate(seg):
+        if dist <= L and L > 0:
+            return line[i] + (line[i + 1] - line[i]) * (dist / L)
+        dist -= L
+    return line[-1]

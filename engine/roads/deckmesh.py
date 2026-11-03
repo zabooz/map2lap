@@ -7,9 +7,9 @@ import mapgeom
 
 from .style import CONCRETE, EDGE_DECAL, GUTTER, LOOK, SIDEWALK, SIMPLIFY_Z_M, terrain_surface
 from .levels import bridge_parts
-from .decks import _EndJoin, _smooth_pinned, deck_heights
-from .walks import clip_polyline, densify, extras, simplify
 from .tiles import DECK, DECK_CLEAR, DECK_STEP, _chunk, box_owns, split
+from .walks import clip_polyline, densify, extras, simplify
+from .decks import _EndJoin, _smooth_pinned, deck_heights
 from .bridges import CORNER_CONCRETE_M
 
 
@@ -103,10 +103,6 @@ def _abutments(pts, ground_fn):
         return [(float(e[0]), float(e[1])) for e, gz in zip(ends, g) if e[2] - gz <= ABUT_GROUND_M]
     except Exception:
         return []
-
-
-# a deck's end is on the ground where the graded ground at it is within this of it (else an end over the valley: a joint)
-DECK_BANK_ON_M = 0.3
 
 
 def _deck_tilt(center, bank, q):

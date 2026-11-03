@@ -3,6 +3,12 @@ import logging
 import os
 from collections import namedtuple
 
+# surfaces that belong to the ground layer, not to a road decal: rock and grass are rough, mask-driven terrain
+# materials (gridmap v2 draws them exactly that way), so the mod paints their ground (surface.py) instead of laying
+# a smooth ribbon over it
+ROCKISH = frozenset({"rock", "rocky", "bedrock"})
+GRASSY = frozenset({"grass", "grass_paver"})
+
 log = logging.getLogger("earthd.roads")
 VERSION = 1
 TILE = 256.0            # m, tile side in the anchor frame
@@ -141,7 +147,3 @@ LANE_W = {"motorway": 3.6, "trunk": 3.5, "primary": 3.3, "secondary": 3.3, "tert
 LANE_W_DEFAULT = 3.0
 OSM_LANES = (1, 12)     # a lane count outside this is not believed
 OSM_WIDTH_M = (2.0, 40.0)
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .levels import GRASSY, ROCKISH  # noqa: E402

@@ -13,16 +13,17 @@ from .style import (
     BUILT, CENTRE, DRAIN, DRAIN_EVERY, DRAIN_IN, EDGE_DECAL, EDGE_DECAL_GAP_M, EDGE_LINE, GUTTER, LADDER_LINE_W,
     OVERLAP, ROADS_IN_GROUND, SIDEWALK, VERSION, look_of, terrain_surface
 )
-from .levels import CUT_MARGIN, NEAR_M, _rule_value, ground_parts
-from .specs import bridge_specs, is_ring, road_specs
+from .tags import _rule_value
+from .specs import is_ring, road_specs
+from .levels import CUT_MARGIN, NEAR_M, bridge_specs, ground_parts
+from .tiles import COVER_MARGIN_M, _along, _chunk, box_owns, lane_layout, lane_tags, split, tile_bbox
 from .walks import (
-    _on_level, clip_polyline, cut_outside, densify, drape_walks, extras, has_sidewalks, join_walk_ends,
-    offset_polyline, sidewalk_stop, simplify
+    _on_level, clip_polyline, cut_outside, densify, drape_walks, extras, has_sidewalks, join_walk_ends, offset_polyline,
+    sidewalk_stop, simplify
 )
-from .tiles import COVER_MARGIN_M, _chunk, box_owns, lane_layout, lane_tags, split, tile_bbox
+from .deckmesh import _bridge_chunks, _corner_look
 from .tunnels import _tunnel_chunks
 from .walls import _off_wall_tops, cliff_rows, retaining_walls
-from .deckmesh import _bridge_chunks, _corner_look
 
 
 def _on_box(p, box, eps=1e-6):
@@ -566,16 +567,6 @@ SOUND_PORTAL_UP = 2.0
 # closed one's (the outside cut off): recorded 2026-10-26
 SOUND_SHORT_TUNNEL_M = 120.0
 SOUND_BOX_M, SOUND_TURN, SOUND_DZ_M, SOUND_EXTEND_M = 60.0, math.radians(10.0), 1.0, 1.0
-
-
-def _along(line, dist):
-    """The point dist along polyline line (k, 3) from its start (its end if shorter)."""
-    seg = np.hypot(*np.diff(line[:, :2], axis=0).T)
-    for i, L in enumerate(seg):
-        if dist <= L and L > 0:
-            return line[i] + (line[i + 1] - line[i]) * (dist / L)
-        dist -= L
-    return line[-1]
 
 
 def sound_boxes(chunks):

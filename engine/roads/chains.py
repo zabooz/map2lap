@@ -9,7 +9,7 @@ import roadmesh
 
 from .levels import NEAR_M
 from .tiles import DECK_FULL_DEPTH, box_owns
-from .bridges import BridgeProfiles
+from .bridges import BridgeProfiles, _Mapper
 
 
 class ChainStore:
@@ -64,45 +64,6 @@ class ChainStore:
         return self.store_at(la, lo)
 
 
-class _Mapper:
-    """Points of one frame's world in another's (geotiles.world_map), rigid parts by the rotation between them."""
-
-    def __init__(self, src, dst):
-        import geotiles
-        self.src, self.dst, self.same = src, dst, src.lat0 == dst.lat0 and src.lon0 == dst.lon0
-        self._gt = geotiles
-        if not self.same:
-            r, _t, _c = geotiles.placement(src, dst, (0.0, 0.0, 0.0))
-            self.r = r
-
-    def pts(self, p):
-        p = np.asarray(p, np.float64)
-        if self.same or not len(p):
-            return p.copy()
-        return self._gt.world_map(self.src, self.dst, p)
-
-    def dir2(self, ux, uy):
-        if self.same:
-            return ux, uy
-        v = self.r[:2, :2] @ np.array([ux, uy])
-        n = max(float(np.hypot(*v)), 1e-12)
-        return float(v[0] / n), float(v[1] / n)
-
-    def pier(self, q):
-        if self.same:
-            return q
-        x, y, ux, uy, zt, zb = q[:6]
-        a = self.pts(np.array([[x, y, zt], [x, y, zb]], np.float64))
-        ux, uy = self.dir2(ux, uy)
-        return (float(a[0, 0]), float(a[0, 1]), ux, uy, float(a[0, 2]), float(a[1, 2])) + tuple(q[6:])
-
-    def beam(self, b):
-        if self.same:
-            return b
-        a = self.pts(np.array([np.asarray(b[0], np.float64)[:3], np.asarray(b[1], np.float64)[:3]]))
-        return (a[0].copy(), a[1].copy()) + tuple(b[2:])
-
-
 class ChainView:
     """An anchor's view of a ChainStore, with BridgeProfiles' / TunnelProfiles' read side (parts, open_parts,
     piers_in, beams_in, depth_of, _ground, heights, mouths, height, portal_ups, cap_m, mouth): the parts asked for in
@@ -118,7 +79,6 @@ class ChainView:
         self._piers = {}            # store region -> (version, mapped piers, mapped beams)
         self.specs_of, self.parts_of = cs.cls.specs_of, cs.cls.parts_of
 
-    mapper = staticmethod(lambda src, dst: _Mapper(src, dst))
     deck_bank = BridgeProfiles.deck_bank        # (in this frame, its plans_at)
     plans_at = None
 

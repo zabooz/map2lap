@@ -7,10 +7,11 @@ import numpy as np
 from .style import BUILT
 from .specs import carriageway
 from .walks import cut_outside, simplify
+from .decks import CONCRETE_WALL_CLASSES
 from .tunnels import (
-    CONCRETE_WALL_CLASSES, WALL_COPING_MIN_M, WALL_DIAG_M, WALL_EVEN_N, WALL_FOOT_M, WALL_FULL, WALL_GAP_N,
-    WALL_KEEP_M, WALL_MIN_N, WALL_OTHER_GAP_M, WALL_PROBE_M, WALL_SLAB_DZ, WALL_STEEP, WALL_STEEP_SPAN, WALL_STEP,
-    WALL_STEP_UP_M, WALL_TAPER_LOW_M, WALL_TAPER_M, WALL_THICK_MAX_M, WALL_THICK_MIN_M, WALL_TOP_M
+    WALL_COPING_MIN_M, WALL_DIAG_M, WALL_EVEN_N, WALL_FOOT_M, WALL_FULL, WALL_GAP_N, WALL_KEEP_M, WALL_MIN_N,
+    WALL_OTHER_GAP_M, WALL_PROBE_M, WALL_SLAB_DZ, WALL_STEEP, WALL_STEEP_SPAN, WALL_STEP, WALL_STEP_UP_M,
+    WALL_TAPER_LOW_M, WALL_TAPER_M, WALL_THICK_MAX_M, WALL_THICK_MIN_M, WALL_TOP_M
 )
 
 
@@ -481,11 +482,6 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
     return out
 
 
-TWIN_SHARE = 0.8        # a tunnel part beside another for this share of its length (their tubes overlapping) ...
-TWIN_DZ_M = 2.0         # ... with its floor within this of the other's: twin tubes, one tube round both (
-                        # the Route des Tamarins' two carriageways 9.5 m apart on Réunion, each an 11 m road in its own
-                        # tube, the tubes through each other's walls and portals)
-TWIN_STEP_M = 10.0
 # Two parts of one tunnel joined end to end are one road going on, never twins: the pieces of a tube split by its sections
 # (tunnel_sections: a 1 m low arch at the portal, then the full tube) or by the map (one way in two segments). Every point
 # of a short piece lies by the next one, so it passed as beside it, the long one became a twin's floor without a tube of

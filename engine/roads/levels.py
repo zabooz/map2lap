@@ -1,5 +1,4 @@
 """Which stretches of a road are bridges and tunnels: map tags, lidar, the rules between them."""
-import json
 import math
 import os
 import threading
@@ -8,23 +7,13 @@ import numpy as np
 
 import osmtags
 
-from .style import LINK_M, OSM_LANES, OSM_WIDTH_M, STYLE, log
+from .style import LINK_M, OSM_LANES, OSM_WIDTH_M, STYLE, Spec, log
+from .tags import _cell_load, _facts_store, _osm, _rule_value, raw_level_ranges
+from .specs import MIN_PART, carriageway, road_specs, surface_kind, surface_token, unbuilt
 
-
-def _osm(feats, name, i, lo=None, hi=None):
-    """OpenStreetMap's value `name` of feature i (osmtags.join's attrs column osm_<name>), or None (absent, not a number,
-    outside lo..hi)."""
-    col = feats.attrs.get("osm_" + name)
-    if col is None:
-        return None
-    try:
-        v = float(col[i])
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(v) or (lo is not None and v < lo) or (hi is not None and v > hi):
-        return None
-    return v
-
+# a road crossing a tunnel at a flatter angle counts as crossing at this sine (the reach along the tunnel is / the
+# sine: it would run away); the portals here and the covered sections (decks.py) read it
+TUNNEL_ROAD_MIN_SIN = 0.35
 
 LANE_LINE = {"m": "line_dashed_long", "tl": 12.0, "p": 6, "w": 0.12}     # West Coast USA's 3 m dash, 9 m gap
 CUT_MARGIN = 0.5                # m: a sidewalk / line stops this far outside a crossing road's carriageway
@@ -32,74 +21,7 @@ MIN_PIECE_M = 3.0               # shorter sidewalk / line pieces are dropped
 WALK_STEP_M = 1.0               # m the ground under a sidewalk may lie off the road's level: further, a cutting's wall or
                                 # a drop is there and the sidewalk stops (it was draped up a wall, Munich's McGraw-Graben)
 NEAR_M = 40.0                   # roads this far outside the tile still cut its sidewalks / lines
-# Carriageway = driving width + parking lanes on city streets or paved edge strips on rural roads
-# (docs/research/2026-10-11-official-road-study.md §2: rural paved surface = AI width + 2-2.5 m;
-# West Coast USA's plain streets 12.5 m for 8 m of driving: ~2.3 m of parking each side). A width
-# rule, where Overture has one, is the carriageway already.
-PARKING_M = 2.3
-# Rural motorways: two lanes a direction (most rural Interstates and European motorways; every US Interstate was drawn
-# with three) between paved shoulders, the edge line along each; urban ones keep STYLE's three lanes.
-# Overture has no lane counts.
-MOTORWAY_RURAL_M = 7.4
-SHOULDER_M = 2.2
-PARKING_CLASSES = {"residential", "tertiary", "secondary", "unclassified", "living_street"}
-EDGE_STRIP_M = 1.0
-# ... by class where measured narrower: rural minor roads' paved width on the official aerials (PEMA 6-inch, Lancaster
-# County PA, 20 tertiary 6.4 m and 20 secondary 6.7 m against 8.5 and 9.5 drawn; NAIP, El Paso County CO, tertiary 7.2;
-# 2026-10-28, the user: "compare against high res satellite photos"): no strips on tertiary and unclassified roads,
-# narrow ones on secondaries
-EDGE_STRIP_CLASS_M = {"tertiary": 0.0, "unclassified": 0.0, "secondary": 0.25}
 URBAN_CLASS = 50                # ESA WorldCover "built-up"
-URBAN_SHARE = 0.5               # a road is urban when this share of its vertices is built-up ...
-URBAN_BESIDE_M = 30.0           # ... and at least URBAN_BESIDE_SHARE of them have built-up land this far to one side:
-URBAN_BESIDE_SHARE = 0.2        # the land cover counts a wide road's own pavement as built-up, and the Eyre Highway
-                                # through Eucla (centre 94 %, beside it 3 %) got a town's footpaths, bins and hydrants
-                                # across the Nullarbor. Baltimore and Chicago keep every urban road.
-URBAN_BOTH_SHARE = 0.1          # a motorway or trunk needs built-up land on both
-                                # sides of this share of its vertices: a roadhouse beside the Eyre Highway (Eucla: one
-                                # side 33 %, the other 0 %) is no town
-URBAN_STEP_M = 10.0             # m between the points those shares are taken at (the land cover's pixel): shares of a
-                                # road's length, not of its vertices, which crowd where it bends and joins (a 762 m
-                                # primary through fields read 64 % built-up from the 9 of its 14 vertices in the
-                                # village at its end, 41 % along its length, and got curbs and sidewalks throughout)
-
-
-def _even(p, step):
-    """A line (lon/lat (k, 2)) as points every step m along it, its ends included. Pure."""
-    if len(p) < 2:
-        return p
-    m = np.array([111320.0 * math.cos(math.radians(float(p[:, 1].mean()))), 110540.0])   # m per degree
-    cum = np.r_[0.0, np.cumsum(np.hypot(*(np.diff(p, axis=0) * m).T))]
-    s = np.r_[np.arange(0.0, cum[-1], step), cum[-1]]
-    return np.c_[np.interp(s, cum, p[:, 0]), np.interp(s, cum, p[:, 1])]
-
-
-def _beside(ll, counts, d):
-    """The points d m to the left and to the right of each vertex of the lines (lon/lat (n, 2), counts: the vertices of
-    each line in turn), square to the line there; a one-vertex line's are the vertex itself. Pure."""
-    left, right = np.empty_like(ll), np.empty_like(ll)
-    k = 0
-    for c in counts:
-        p = ll[k:k + c]
-        if c < 2:
-            left[k:k + c] = right[k:k + c] = p
-            k += c
-            continue
-        m = np.array([111320.0 * math.cos(math.radians(float(p[:, 1].mean()))), 110540.0])   # m per degree
-        t = np.gradient(p * m, axis=0)
-        t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
-        off = np.stack([-t[:, 1], t[:, 0]], axis=1) * d / m
-        left[k:k + c], right[k:k + c] = p + off, p - off
-        k += c
-    return left, right
-
-
-def _rule_value(table, i):
-    """The value of the rule of feature i covering the largest share of it, or None."""
-    if table is None or len(table.feature) == 0:
-        return None
-    j = table.major(i)
-    return None if j < 0 else table.value[j]
 
 
 def level_ranges(feats, i):
@@ -131,77 +53,12 @@ def rule_level_ranges(feats, i):
     return list(got)
 
 
-def raw_level_ranges(feats, i):
-    """level_ranges as the map has them, before _skew_decks (road_specs reads these: _skew_decks needs the specs)."""
-    memo = feats.__dict__.setdefault("_raw_level_ranges", {})
-    got = memo.get(i)
-    if got is None:
-        _cell_ranges(feats, load_only=True)
-        got = memo.get(i)
-        if got is None:
-            got = memo[i] = _level_ranges(feats, i)
-    return list(got)
-
-
-# Per-cell facts shared by the server's processes and kept for the next run (the revisit cache: one file per cell and
-# kind, keyed by the cell, its map data versions and the code): a cell's road specs and level ranges, which every
-# process that draws or grades its roads made for itself (~0.2 s a city cell each; the terrain blocks', the road
-# tiles' and the AI graph's processes). Kept only when complete (revisit.faults unchanged).
-_FACTS_LOCK = threading.Lock()
-
-
-def _facts_key(feats, kind, extra):
-    cid = feats.__dict__.get("_bnge_cell")
-    import revisit
-    if cid is None or not revisit.ON or revisit.CACHE_DIR is None:
-        return None
-    return revisit.key("cellfacts", kind, cid, extra)
-
-
-def _facts_load(feats, kind, extra):
-    k = _facts_key(feats, kind, extra)
-    if k is None:
-        return None
-    import revisit
-    got = revisit.load(revisit.CACHE_DIR, "cellfacts", k)
-    if got is None or "facts.json" not in got[0]:
-        return None
-    try:
-        return json.loads(got[0]["facts.json"])
-    except ValueError:
-        return None
-
-
-def _facts_store(feats, kind, extra, data):
-    k = _facts_key(feats, kind, extra)
-    if k is None:
+def _cell_ranges(feats):
+    """Every feature's raw and lengthened level ranges into feats' memos: from the shared facts (_cell_load), or made
+    here and kept there."""
+    if not _cell_load(feats):
         return
-    import revisit
-    revisit.store(revisit.CACHE_DIR, "cellfacts", k, {"facts.json": json.dumps(data).encode("utf-8")})
-
-
-def _cell_ranges(feats, load_only=False):
-    """Every feature's raw and lengthened level ranges into feats' memos: from the shared facts, or (not load_only)
-    made here and kept there."""
     st = feats.__dict__
-    with _FACTS_LOCK:
-        if st.get("_ranges_state") is not None:
-            if load_only or st["_ranges_state"] != "loadable":
-                return
-        tried = st.get("_ranges_state")
-        st["_ranges_state"] = "busy"
-    if tried is None:
-        got = _facts_load(feats, "ranges", None)
-        if got is not None and len(got.get("raw", ())) == len(feats) and len(got.get("lvl", ())) == len(feats):
-            raw, lvl = st.setdefault("_raw_level_ranges", {}), st.setdefault("_level_ranges", {})
-            for i in range(len(feats)):
-                raw.setdefault(i, [tuple(r) for r in got["raw"][i]])
-                lvl.setdefault(i, [tuple(r) for r in got["lvl"][i]])
-            st["_ranges_state"] = "done"
-            return
-    if load_only:
-        st["_ranges_state"] = "loadable"        # (the eager build waits for level_ranges: road_specs reads the raw)
-        return
     import revisit
     f0 = revisit.faults()
     raw = [raw_level_ranges(feats, i) for i in range(len(feats))]
@@ -788,135 +645,6 @@ def _lidar_gaps(feats, i, rngs):
     return out
 
 
-def _level_ranges(feats, i):
-    """tag_level_ranges with the grade separations the map has no bridge for (gradesep.py: the cell's own, from its
-    roads and its neighbours'), where no range of the map's is, and its underpasses' tunnel ranges made ground."""
-    out = tag_level_ranges(feats, i)
-    hook = feats.__dict__.get("_bnge_gradesep")
-    extra = hook(feats).get(i) if hook is not None else None
-    if not extra:
-        return out
-    for a, b, _k in (r for r in extra if r[2] == "ground"):       # (an underpass: its tunnel range is ground)
-        cut = []
-        for fa, fb, k in out:
-            if k != "tunnel" or fb <= a or fa >= b:
-                cut.append((fa, fb, k))
-                continue
-            if fa < a - 1e-5:
-                cut.append((fa, a, k))
-            if fb > b + 1e-5:
-                cut.append((b, fb, k))
-        out = cut
-    add = []
-    for a, b, _k in (r for r in extra if r[2] == "bridge"):
-        for fa, fb, _ in out:
-            if fb <= a or fa >= b:
-                continue
-            if fa > a:
-                add.append((a, fa, "bridge"))
-            a = max(a, fb)
-            if a >= b:
-                break
-        if b - a > 1e-5:
-            add.append((a, b, "bridge"))
-    merged = []                                 # (touching bridge ranges joined: the map's fractions are float32s)
-    for a, b, k in sorted(out + add):
-        if merged and k == merged[-1][2] and a <= merged[-1][1] + 1e-5:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], b), k)
-        else:
-            merged.append((a, b, k))
-    return merged
-
-
-def tag_level_ranges(feats, i):
-    """Feature i's off-ground ranges as the map's flags and level rules have them (level_ranges, before gradesep)."""
-    got = {"flags": [], "level": []}
-    for name in ("flags", "level"):
-        t = feats.rules.get(name)
-        if t is None or len(t.feature) == 0:
-            continue
-        for j in t.rows(i):
-            v = t.value[j]
-            if name == "flags":
-                # (an avalanche gallery is a tunnel whose covered sections lie open on one side: TunnelProfiles,
-                # GALLERY_KIND; flagged by OSM alone, Overture calls it a plain road)
-                kind = "tunnel" if "is_tunnel" in str(v) or str(v) == osmtags.GALLERY_FLAG else \
-                    "bridge" if "is_bridge" in str(v) else None
-            else:
-                try:
-                    lv = float(v)
-                except (TypeError, ValueError):
-                    lv = 0.0
-                kind = "bridge" if lv > 0 else "tunnel" if lv < 0 else None
-            if kind is not None and t.end[j] > t.start[j]:
-                got[name].append((float(t.start[j]), float(t.end[j]), kind))
-    # the flags first; a level range only where no flag says otherwise (Tower Bridge: level 1 over 0.03-0.88 of its
-    # segment, flags bridge / tunnel (through a tower) / bridge / tunnel / bridge: merged, tunnel winning, the whole
-    # bridge was a tunnel, under water for most of it, and left out)
-    out = sorted(got["flags"])
-    for a, b, k in sorted(got["level"]):
-        for fa, fb, _ in out[:]:
-            if fb <= a or fa >= b:
-                continue
-            if fa > a:
-                out.append((a, fa, k))
-            a = max(a, fb)
-            if a >= b:
-                break
-        if a < b:
-            out.append((a, b, k))
-    out.sort()
-    merged = []                                 # overlapping ranges merged (a tunnel wins over a bridge); touching
-    for a, b, k in out:                         # ones of the same kind joined, of different kinds kept apart
-        if merged and (a < merged[-1][1] - 1e-9 or (a <= merged[-1][1] + 1e-9 and k == merged[-1][2])):
-            pa, pb, pk = merged[-1]
-            merged[-1] = (pa, max(pb, b), "tunnel" if "tunnel" in (pk, k) else "bridge")
-        else:
-            merged.append((a, b, k))
-    if len(merged) >= 3:                        # a short tunnel between two bridge ranges: a passage through a
-        L = _feature_length_m(feats, i)         # bridge's tower (Tower Bridge's): the bridge goes on
-        for n in range(1, len(merged) - 1):
-            a, b, k = merged[n]
-            if k == "tunnel" and (b - a) * L < PASSAGE_M and merged[n - 1][2] == "bridge" and \
-                    merged[n + 1][2] == "bridge" and abs(merged[n - 1][1] - a) < 1e-6 and abs(b - merged[n + 1][0]) < 1e-6:
-                merged[n] = (a, b, "bridge")
-        joined = []
-        for a, b, k in merged:
-            if joined and k == joined[-1][2] and a <= joined[-1][1] + 1e-9:
-                joined[-1] = (joined[-1][0], b, k)
-            else:
-                joined.append((a, b, k))
-        merged = joined
-    if sum(1 for _, _, k in merged if k == "tunnel") > 1:
-        # one tunnel, not several: Overture splits a tunnel's range (0.08-0.09, 0.10-0.13, 0.14-0.69 of the Fort
-        # McHenry Tunnel's segment), and each gap would be a few metres of ground road inside the mountain
-        L = _feature_length_m(feats, i)
-        joined = []
-        for a, b, k in merged:
-            if joined and k == "tunnel" and joined[-1][2] == "tunnel" and (a - joined[-1][1]) * L < TUNNEL_GAP_M:
-                joined[-1] = (joined[-1][0], b, "tunnel")
-            else:
-                joined.append((a, b, k))
-        merged = joined
-    return merged
-
-
-PASSAGE_M = 40.0        # m: a tunnel range this short between two bridge ranges is a passage through a tower
-TUNNEL_GAP_M = 30.0     # m: tunnel ranges of a segment this close together are one tunnel
-
-
-def _feature_length_m(feats, i):
-    """Length of feature i in metres (its rings, lon scaled by cos lat). Pure."""
-    total = 0.0
-    for part in feats.parts(i):
-        for ring in part:
-            r = np.asarray(ring, np.float64)
-            if len(r) >= 2:
-                c = math.cos(math.radians(float(np.mean(r[:, 1]))))
-                total += float(np.hypot(np.diff(r[:, 0]) * c, np.diff(r[:, 1])).sum()) * 111320.0
-    return total
-
-
 def sub_polyline(ring, a, b):
     """The part of a lon/lat polyline (k, >=2) between fractions a < b of its length (metres along it,
     lon scaled by cos lat). Pure."""
@@ -931,9 +659,6 @@ def sub_polyline(ring, a, b):
     pa = np.array([np.interp(sa, s, ring[:, d]) for d in range(ring.shape[1])])
     pb = np.array([np.interp(sb, s, ring[:, d]) for d in range(ring.shape[1])])
     return np.vstack([pa, inner, pb])
-
-
-MIN_PART = 1e-3     # parts shorter than this share of a segment are dropped
 
 
 def _parts_by_level(feats, i, want):
@@ -1121,13 +846,51 @@ def _clear_end(feats, i, rs, ring, at_start, half):
     return ring
 
 
-# surfaces that belong to the ground layer, not to a road decal: rock and grass are rough, mask-driven terrain
-# materials (gridmap v2 draws them exactly that way), so the mod paints their ground (surface.py) instead of laying
-# a smooth ribbon over it
-ROCKISH = frozenset({"rock", "rocky", "bedrock"})
-GRASSY = frozenset({"grass", "grass_paver"})
+def bridge_specs(feats):
+    """Per feature: the Spec of a road bridge (flag is_bridge, or level above ground; not a tunnel), else
+    None. No parking widths on bridges (urban False). Pure."""
+    got = feats.__dict__.get("_bridge_specs")      # remembered: cells stay decoded (mapdata)
+    if got is None:
+        got = feats.__dict__["_bridge_specs"] = _bridge_specs(feats)
+    return list(got)
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .specs import carriageway, road_specs, surface_kind, tunnel_specs, unbuilt  # noqa: E402
-from .decks import TUNNEL_ROAD_MIN_SIN  # noqa: E402
+def tunnel_specs(feats):
+    """Per feature: the Spec of a road with a tunnel range, else None (as bridge_specs). Pure."""
+    got = feats.__dict__.get("_tunnel_specs")
+    if got is None:
+        got = feats.__dict__["_tunnel_specs"] = _bridge_specs(feats, "tunnel")
+    return list(got)
+
+
+def _bridge_specs(feats, want="bridge"):
+    out = []
+    rules = feats.rules
+    for i in range(len(feats)):
+        cls = str(feats.attrs["class"][i]) if "class" in feats.attrs else "unknown"
+        if str(feats.attrs.get("subtype", ["road"] * len(feats))[i]) != "road" or cls not in STYLE or unbuilt(feats, i):
+            out.append(None)
+            continue
+        # (the lengthened ranges: a bridge's range carried onto the road joined at its end (_skew_decks) is a deck
+        # too; with the raw ranges that stretch was neither deck nor ground, the deck's end lost its approach ramp
+        # and sat ~4.5 m low over BR-343 at Teresina)
+        if not any(k == want for _, _, k in (level_ranges(feats, i) if want == "bridge" else raw_level_ranges(feats, i))):
+            out.append(None)
+            continue
+        width = _rule_value(rules.get("width"), i)
+        rule_w = float(width) if width is not None and 1.0 <= float(width) <= 40.0 else None
+        # (OpenStreetMap's width and lane count, as _road_specs: a 4-lane bridge was drawn at its class's 8 m, one lane
+        # each way, Kommunalny Bridge in Perm by RiDexSS; tunnels too)
+        if rule_w is None:
+            rule_w = _osm(feats, "width", i, *OSM_WIDTH_M)
+        lanes = _osm(feats, "lanes", i, *OSM_LANES)
+        lanes = int(lanes) if lanes is not None else None
+        surf = _rule_value(rules.get("surface"), i)
+        kind = surface_kind(cls, surf)
+        ow = _rule_value(rules.get("oneway"), i) is not None
+        link = _rule_value(rules.get("subclass"), i) == "link"
+        if rule_w is None and link and lanes is None:
+            rule_w = LINK_M[1] if ow else LINK_M[2]
+        out.append(Spec(carriageway(cls, kind, False, rule_w, ow, lanes), kind, False, cls, ow,
+                        lanes=lanes, surf=surface_token(surf)))
+    return out

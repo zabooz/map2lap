@@ -9,17 +9,24 @@ import mapgeom
 import roadmesh
 
 from .style import BUILT, EDGE_DECAL, GUTTER, SIDEWALK, SIMPLIFY_Z_M, log, look_of, terrain_surface
-from .levels import PORTAL_EXTEND_MAX_M, gallery_parts, ground_parts, tunnel_parts
-from .specs import road_specs, tunnel_specs
-from .decks import (
-    ARCH_SIZE_SKIP_M, FULL_DEEP_M, FULL_MIN_M, MAJOR_LOW_H, PORTAL_GROUND_M, PORTAL_LOOK_M, PORTAL_UP_MIN,
-    ROAD_CAP_GAP_M, ROAD_CAP_JOIN_M, ROAD_CAP_OVER_M, SECTION_MIN_M, TUNNEL_COVER, TUNNEL_LOW_H, TUNNEL_OPEN_COVER,
-    TUNNEL_SOIL_M, TUNNEL_WET_COVER_M, TUNNEL_WET_RUN_M, TUNNEL_WET_SHARE, UNDER_DECK, _EndJoin, cover_roads,
-    portal_cover
-)
+from .specs import road_specs
+from .levels import PORTAL_EXTEND_MAX_M, gallery_parts, ground_parts, tunnel_parts, tunnel_specs
+from .tiles import DECK_STEP, _along, _chunk, split
 from .walks import clip_polyline, densify, extras, simplify
-from .tiles import DECK_STEP, _chunk, split
+from .decks import (
+    ARCH_SIZE_SKIP_M, CONCRETE_WALL_CLASSES, FULL_DEEP_M, FULL_MIN_M, MAJOR_LOW_H, PORTAL_GROUND_M, PORTAL_LOOK_M,
+    PORTAL_UP_MIN, ROAD_CAP_GAP_M, ROAD_CAP_JOIN_M, ROAD_CAP_OVER_M, SECTION_MIN_M, TUNNEL_COVER, TUNNEL_LOW_H,
+    TUNNEL_OPEN_COVER, TUNNEL_SOIL_M, TUNNEL_WET_COVER_M, TUNNEL_WET_RUN_M, TUNNEL_WET_SHARE, UNDER_DECK, _EndJoin,
+    cover_roads, portal_cover
+)
 from .bridges import BridgeProfiles, OBS_BLEND_DG, OBS_BLEND_MIN_M
+from .deckmesh import _deck_look
+
+TWIN_SHARE = 0.8        # a tunnel part beside another for this share of its length (their tubes overlapping) ...
+TWIN_DZ_M = 2.0         # ... with its floor within this of the other's: twin tubes, one tube round both (
+                        # the Route des Tamarins' two carriageways 9.5 m apart on Réunion, each an 11 m road in its own
+                        # tube, the tubes through each other's walls and portals)
+TWIN_STEP_M = 10.0
 
 
 def tunnel_sections(s, g, open_cover=None, full_cover=None, min_m=SECTION_MIN_M):
@@ -1077,9 +1084,6 @@ WALL_TAPER_LOW_M = 0.6  # ... to this over the road
 WALL_SLAB_DZ = 0.8      # m the ground behind a wall may fall under its top before the top ends there ...
 WALL_COPING_MIN_M = 0.5  # ... at least its coping
 WALL_DIAG_M = 2.9       # the terrain lattice's diagonal (heightmap.SQUARE 2 m)
-# a major road's cutting is walled in concrete (Munich's McGraw-Graben, Mapillary), a smaller road's in stone
-# (Central Park's transverses)
-CONCRETE_WALL_CLASSES = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"}
 WALL_EVEN_N = 2         # a wall's top as deep as its deepest within this many WALL_STEPs either side
 WALL_STEP_UP_M = 0.5     # m the graded ground climbs over the road where a wall's face goes (short of the core's edge)
 WALL_KEEP_M = 1.2       # m: a wall goes on while the cut stays this deep (it starts at grading.WALL_CUT_M) ...
@@ -1271,9 +1275,3 @@ def _tunnel_chunks(tunnels, cells, exact, terrain_paint=True):
                             ch["portal"] = [isp(c[0, :2]), isp(c[-1, :2])]
                         out.append(ch)
     return out
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .walls import TWIN_DZ_M, TWIN_SHARE, TWIN_STEP_M  # noqa: E402
-from .deckmesh import _deck_look  # noqa: E402
-from .build import _along  # noqa: E402

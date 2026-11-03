@@ -4,6 +4,20 @@ import os
 
 import numpy as np
 
+from .levels import TUNNEL_ROAD_MIN_SIN
+from .tiles import DECK_CLEAR, DECK_ROAD_CLEAR
+
+DECK_CLEAR_REACH_M = 20.0   # full headroom either side of a road crossing (matches approach fills' flat reach)
+DECK_GRADE = 0.05       # that requirement falls 5 % along the deck from the crossing
+DECK_MAX_GRADE = 0.06   # a deck climbs no steeper than this from an abutment
+DECK_STEEP_GRADE = 0.15  # ... nor, whatever ground the caps were raised to, than this over lower ground (no walls)
+AT_GRADE_M = 3.0        # m: a road crossing a deck within AT_GRADE_REACH_M of an abutment that cannot get this
+AT_GRADE_REACH_M = 12.0     # high over it is a junction at grade (the intersection a ramp starts from)
+
+# a major road's cutting is walled in concrete (Munich's McGraw-Graben, Mapillary), a smaller road's in stone
+# (Central Park's transverses)
+CONCRETE_WALL_CLASSES = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"}
+
 
 class _EndJoin:
     """Line end points joined into nodes when within tol m of each other (the first point seen names the node; a later
@@ -1365,7 +1379,6 @@ MAJOR_LOW_H = 5.0       # m: ... on a major road (CONCRETE_WALL_CLASSES: road tu
 # underpass is its own embankment: the arch under one was 8 m long under 13 m of lanes, its mouths and terrain holes
 # in them (the A-7 near Málaga).
 TUNNEL_ROAD_CLEAR_M = 2.0
-TUNNEL_ROAD_MIN_SIN = 0.35
 TUNNEL_ROAD_REACH_M = 15.0
 # Under a road's bridge deck an open tunnel section plans no ground (its width and TUNNEL_ROAD_CLEAR_M past it), for
 # the grading only. Lidar has the bridges taken out, so a tunnel under a bridgehead can be open all along there; its
@@ -1484,9 +1497,12 @@ def tunnel_profile(lines, ground_fn):
     return out
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .tiles import DECK_CLEAR, DECK_ROAD_CLEAR  # noqa: E402
-from .bridges import (
-    AT_GRADE_M, AT_GRADE_REACH_M, DECK_CLEAR_REACH_M, DECK_GRADE, DECK_MAX_GRADE, DECK_STEEP_GRADE, _deck_crossings
-)  # noqa: E402
-from .tunnels import CONCRETE_WALL_CLASSES  # noqa: E402
+def _deck_crossings(lines):
+    """(i, j, arc on i, arc on j) where deck parts i < j cross (not at their end points). Pure."""
+    import fast
+    if not lines:
+        return []
+    fast.require(0, "deck_crossings")
+    pts = [np.asarray(ln, np.float64)[:, :2] for ln in lines]
+    starts = np.r_[0, np.cumsum([len(p) for p in pts])].astype(np.int64)
+    return fast._ef.deck_crossings(np.ascontiguousarray(np.vstack(pts)), starts)
