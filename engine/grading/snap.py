@@ -175,6 +175,3 @@ def _twin_trimmed(secs):
                 k = np.flatnonzero(keep)
                 out[cov[a]] = (fid, spec, np.asarray(xy)[k[0]:k[-1] + 1], np.asarray(z)[k[0]:k[-1] + 1], kind)
     return out
-
-
-_UNSET = object()

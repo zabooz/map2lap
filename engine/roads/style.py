@@ -3,6 +3,7 @@ import logging
 import os
 from collections import namedtuple
 
+
 # surfaces that belong to the ground layer, not to a road decal: rock and grass are rough, mask-driven terrain
 # materials (gridmap v2 draws them exactly that way), so the mod paints their ground (surface.py) instead of laying
 # a smooth ribbon over it

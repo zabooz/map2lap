@@ -10,17 +10,29 @@ import roadmesh
 
 from .style import log
 from .specs import road_specs
-from .levels import NEAR_M, bridge_levels, bridge_parts, bridge_specs, ground_parts
-from .tiles import (
-    BRIDGE_HEADROOM_MARGIN_M, DECK_CLEAR, DECK_FULL_DEPTH, DECK_MIN_DEPTH, DECK_ROAD_CLEAR, DECK_SPAN_RATIO, DECK_STEP,
-    MIN_BRIDGE_HEADROOM_M, box_owns
-)
+from .levels import bridge_levels, bridge_parts, bridge_specs, ground_parts
+from .tiles import box_owns
 from .walks import densify
 from .decks import (
-    AT_GRADE_M, AT_GRADE_REACH_M, DECK_CLEAR_REACH_M, DECK_DESIGN_GRADE, DECK_MAX_GRADE, DECK_ROAD_HALF, END_ON_STEP_M,
-    GAP_DIP_M, GAP_LOW_M, GAP_SEA_M, NAV_RUN_M, PIN_M, WATER_STEP_M, _EndJoin, _deck_beside, _deck_crossings, _dedupe,
-    _end_joins, _end_ons, _ground_pins, _joined_lines, bridge_profile_mode, deck_profile, water_clear
+    AT_GRADE_M, AT_GRADE_REACH_M, BRIDGE_HEADROOM_MARGIN_M, DECK_CLEAR, DECK_CLEAR_REACH_M, DECK_DESIGN_GRADE,
+    DECK_MAX_GRADE, DECK_ROAD_CLEAR, DECK_ROAD_HALF, MIN_BRIDGE_HEADROOM_M, PIN_M, _EndJoin, _deck_beside,
+    _deck_crossings, _dedupe, _end_joins, _end_ons, _ground_pins, _joined_lines, bridge_profile_mode, deck_profile,
+    water_clear
 )
+
+
+NEAR_M = 40.0                   # roads this far outside the tile still cut its sidewalks / lines
+DECK_STEP = 4.0         # m between deck profile points
+DECK_FULL_DEPTH = roadmesh.DECK_DEPTH + roadmesh.GIRDER_D    # m of slab and girders under a long span's road
+DECK_MIN_DEPTH = 0.9    # m: the thinnest deck (a short slab bridge)
+DECK_SPAN_RATIO = 22.0  # a deck is its main span / this deep (girder bridges run span/20-25), DECK_MIN..FULL_DEPTH
+END_ON_STEP_M = 0.3
+WATER_STEP_M = 16.0         # m between a wet run's clearance points
+NAV_RUN_M = 100.0           # a wet run this long takes the bridge's navigation clearance (NBI item 39)
+GAP_DIP_M = 2.0             # BridgeProfiles._gap: the chain's lowest ground this far under its highest end, ...
+GAP_LOW_M = 1.5             # ... the stretch within this of it is the water
+GAP_SEA_M = 1.0             # ... and at most this high (a river at sea level)
+
 
 # a deck's end is on the ground where the graded ground at it is within this of it (else an end over the valley: a joint)
 DECK_BANK_ON_M = 0.3
@@ -219,7 +231,6 @@ def geom_span(lines):
     return L / max(1, int(round(L / PIER_SPAN_M)))
 
 
-CORNER_CONCRETE_M = 4.0  # m: a concrete street this close to a curb return fills its corner in concrete too
 CHAIN_CELLS = 12        # map cells read at most to close one bridge chain
 
 

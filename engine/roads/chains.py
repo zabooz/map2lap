@@ -7,9 +7,8 @@ import numpy as np
 import mapgeom
 import roadmesh
 
-from .levels import NEAR_M
-from .tiles import DECK_FULL_DEPTH, box_owns
-from .bridges import BridgeProfiles, _Mapper
+from .tiles import box_owns
+from .bridges import BridgeProfiles, DECK_FULL_DEPTH, NEAR_M, _Mapper
 
 
 class ChainStore:

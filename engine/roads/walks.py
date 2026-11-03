@@ -8,8 +8,13 @@ from .style import (
     LANE_M, MAX_SPACING, SIDEWALK, SIDEWALK_CLASSES, SIMPLIFY_M, URBAN_ARTERIAL
 )
 from .specs import PARKING_CLASSES, PARKING_M, edge_margin, motorway_shoulder, rural_motorway
-from .levels import LANE_LINE, MIN_PIECE_M, WALK_STEP_M
 from .tiles import lane_layout
+
+
+LANE_LINE = {"m": "line_dashed_long", "tl": 12.0, "p": 6, "w": 0.12}     # West Coast USA's 3 m dash, 9 m gap
+MIN_PIECE_M = 3.0               # shorter sidewalk / line pieces are dropped
+WALK_STEP_M = 1.0               # m the ground under a sidewalk may lie off the road's level: further, a cutting's wall or
+                                # a drop is there and the sidewalk stops (it was draped up a wall, Munich's McGraw-Graben)
 
 
 def centre_colour(lon):

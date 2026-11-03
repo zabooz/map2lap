@@ -12,6 +12,7 @@ import mapgeom
 from .looks import _hash01
 from .styles import _area2, brick_share
 
+
 # Small towns of the arid West (Bishop, Moab: one-storey main streets with false fronts, ranch houses), told
 # from cities by the footprint share of the district around a tile (1 km: Bishop 0.14, Moab 0.11; Frederick
 # 0.22, Fells Point 0.27): a tile's own share cannot (a main-street block is as dense as a city's).

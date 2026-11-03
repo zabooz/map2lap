@@ -5,6 +5,7 @@ from .looks import FOUNDATION_M, PANEL, WALL_TINTS, _hash01
 from .styles import _area2
 from .mesh import _box, _box_tiled, _inside
 
+
 DRIVEWAY_W = 3.2            # m
 DRIVEWAY = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 19}     # a road tile chunk's look (roads.LOOK)
 

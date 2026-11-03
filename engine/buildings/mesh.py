@@ -13,6 +13,7 @@ from .looks import (
 )
 from .styles import _area2, oriented_box, roof_pitch, triangulate
 
+
 OVER_TUNNEL_CLEAR_M = 7.5   # (the tube's vault is roadmesh.TUNNEL_H = 6.8 m over the floor;: Eisenhower's
                             # east portal building closed the tunnel)
 
@@ -625,8 +626,3 @@ def _roof(m, spec, ring, z_eave, mat_idx):
               (-hw2 / ROOF_UV_M, 0), (hw2 / ROOF_UV_M, 0), (0, slope / ROOF_UV_M), rm)
         m.tri(at(-hl2, hw2, ze), at(-hl2, -hw2, ze), at(-r, 0, zr),
               (-hw2 / ROOF_UV_M, 0), (hw2 / ROOF_UV_M, 0), (0, slope / ROOF_UV_M), rm)
-
-
-# The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
-# vertices (the: slabs across a Fells Point street; dense tiles had up to 81k vertices).
-MAX_MESH_VERTS = 60000

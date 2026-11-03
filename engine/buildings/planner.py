@@ -13,8 +13,12 @@ from .looks import (
     ROW_CLASSES, RUIN_H, SHED_CLASSES, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES, STONE_FLOORS, STUCCO,
     TOWER_SHOP_FLOORS, US_WALL_TINTS, WALL_TINTS, WOOD_TINTS, _hash01, custom_look, parse_color
 )
-from .styles import ALPINE_HUT_M2, Spec, _area2, brick_share, oriented_box, region_style
-from .sites import GARAGE_TAG_CLASSES
+from .styles import Spec, _area2, brick_share, oriented_box, region_style
+
+ALPINE_HUT_M2 = 120.0        # an isolated building this small above the tree line (a summit shelter, a mountain hut) ...
+GARAGE_TAG_CLASSES = {"", "yes", "commercial", "garage", "garages", "parking", "parking_garage", "carport",
+                      "service", "transportation", "industrial", "retail"}     # (not the apartments on a car park podium)
+
 
 WEST_TOWN_ONE_STOREY = 0.75     # share of predicted one-storey buildings there
 FALSE_FRONT_M = 1.2             # m of parapet over a one-storey shop there

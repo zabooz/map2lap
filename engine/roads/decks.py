@@ -4,8 +4,20 @@ import os
 
 import numpy as np
 
+import roadmesh
+
 from .levels import TUNNEL_ROAD_MIN_SIN
-from .tiles import DECK_CLEAR, DECK_ROAD_CLEAR
+
+# Usable space below the lowest structural girder, not merely to the road surface.
+# Six metres accommodates tall road vehicles such as semi-trucks; unlimited-height
+# modded vehicles and raised equipment cannot have a finite universal guarantee.
+MIN_BRIDGE_HEADROOM_M = 6.0
+BRIDGE_HEADROOM_MARGIN_M = 0.15   # mesh simplification/float and vehicle clearance tolerance
+
+
+DECK_CLEAR = 0.05       # m a deck stays above the ground under it (no z-fighting where it rests on it)
+DECK_ROAD_CLEAR = MIN_BRIDGE_HEADROOM_M + BRIDGE_HEADROOM_MARGIN_M + roadmesh.DECK_DEPTH + roadmesh.GIRDER_D
+
 
 DECK_CLEAR_REACH_M = 20.0   # full headroom either side of a road crossing (matches approach fills' flat reach)
 DECK_GRADE = 0.05       # that requirement falls 5 % along the deck from the crossing
@@ -125,7 +137,6 @@ def _end_joins(lines, halves, ground_lines):
 # short deck rose 8 m in 6 m to its measured joint, a wall (the Springfield Interchange). Solved again with
 # that end at the other deck's height where they differ by more than END_ON_STEP_M (earthfast.deck_end_on).
 END_ON_MARGIN_M = 0.5
-END_ON_STEP_M = 0.3
 
 
 def _end_ons(lines, halves, levels, ground_lines):
@@ -425,11 +436,6 @@ WATER_CLEAR_MIN = 2.5
 WATER_CLEAR_MAX = 40.0
 WATER_CAUSEWAY_M = 1500.0
 WATER_CAUSEWAY_CLEAR = 5.0
-WATER_STEP_M = 16.0         # m between a wet run's clearance points
-NAV_RUN_M = 100.0           # a wet run this long takes the bridge's navigation clearance (NBI item 39)
-GAP_DIP_M = 2.0             # BridgeProfiles._gap: the chain's lowest ground this far under its highest end, ...
-GAP_LOW_M = 1.5             # ... the stretch within this of it is the water
-GAP_SEA_M = 1.0             # ... and at most this high (a river at sea level)
 
 
 def _curve_grade(lines, zs):
@@ -1347,32 +1353,7 @@ def _end_dists(lines, end_z, pins=None):
 TUNNEL_COVER = 8.0      # m from the floor up to the ground over it wanted inside a tunnel (the tube's 6.5 m and rock)
 TUNNEL_GRADE = 0.05     # a tunnel floor falls no steeper than this from a portal
 TUNNEL_STEP = 4.0       # m between tunnel profile points
-TUNNEL_WET_SHARE = 0.25 # a tunnel part with more of its points under water is left out (TunnelProfiles.wet)
-TUNNEL_WET_COVER_M = 60.0   # m: water this far over the chain's lower portal is no underwater tunnel's (_mark_drowned)
-TUNNEL_WET_RUN_M = 20.0 # ... and a tunnel chain passing under water this far away from its ends (_mark_drowned)
-TUNNEL_OPEN_COVER = 4.0 # m: a 'tunnel' whose ground nowhere rises this far over the straight line between its portals
-                        # is an underpass in the open (under a bridge the map does not draw as a deck over it): a road
-                        # on the ground, no tube, portals or holes (Central Park's 86th Street Transverse under its
-                        # park bridges got portal frames standing in the open). Between it
-                        # and TUNNEL_COVER: a low arch (a park's stone bridge over a sunken road, Central Park's West
-                        # Drive over the 86th Street Transverse: 3.4 m clearance under ~1.5 m of arch and soil):
-                        # straight between its portals, its tube as high as the ground over it allows (TUNNEL_SOIL_M
-                        # under it, at least TUNNEL_LOW_H), of stone (roadmesh.tunnel)
-PORTAL_LOOK_M = 12.0    # m inside a portal where the ground over it is read for its face's height ...
-PORTAL_GROUND_M = 0.5   # ... which reaches this far over that ground ...
-PORTAL_UP_MIN = 1.0     # ... and at least this far over the vault
 SECTION_MIN_M = 8.0     # m: a tunnel's covered sections and the open gaps between them at least this long
-FULL_MIN_M = 60.0       # a covered section reaching TUNNEL_COVER is a full tunnel (a rock tube) if it is this long or
-FULL_DEEP_M = 16.0      # has this much ground over it somewhere; shorter and shallower, an underpass under an embankment:
-                        # a low arch, the ground built up over it (a 31 m underpass under the E6 in Norway with 8.6 m of
-                        # embankment over it stood as a bare 6.8 m concrete tube on the ground beside the road)
-TUNNEL_SOIL_M = 1.0     # m of arch and soil kept over a low tunnel's vault
-ARCH_SIZE_SKIP_M = 5.0  # m at a low arch's mouths left out when its height is sized from the cover over it
-ROAD_CAP_JOIN_M = 20.0  # a road with an end this near a low arch's mouth joins it (its own road going on), not one over it
-ROAD_CAP_GAP_M = 0.5    # m a low arch's stone top stops short of a carriageway over its mouth ...
-ROAD_CAP_OVER_M = 1.0   # ... and its portal face reaches at most this far over that road
-TUNNEL_LOW_H = 3.6      # m: the lowest tube (floor to vault)
-MAJOR_LOW_H = 5.0       # m: ... on a major road (CONCRETE_WALL_CLASSES: road tunnels clear ~4.5 m, a truck ~4 m)
 # A covered section (a low arch or a tube) goes on along the tunnel until every ground road crossing over it within
 # TUNNEL_ROAD_REACH_M of its ends is covered, its carriageway and TUNNEL_ROAD_CLEAR_M past it (along the tunnel: / the
 # sine of the crossing angle, at least TUNNEL_ROAD_MIN_SIN). On lidar each carriageway of a divided motorway over an

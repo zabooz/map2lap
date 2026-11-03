@@ -15,15 +15,20 @@ from .style import (
 )
 from .tags import _rule_value
 from .specs import is_ring, road_specs
-from .levels import CUT_MARGIN, NEAR_M, bridge_specs, ground_parts
-from .tiles import COVER_MARGIN_M, _along, _chunk, box_owns, lane_layout, lane_tags, split, tile_bbox
+from .levels import bridge_specs, ground_parts
+from .tiles import _along, _chunk, box_owns, lane_layout, lane_tags, split, tile_bbox
 from .walks import (
     _on_level, clip_polyline, cut_outside, densify, drape_walks, extras, has_sidewalks, join_walk_ends, offset_polyline,
     sidewalk_stop, simplify
 )
+from .bridges import NEAR_M
 from .deckmesh import _bridge_chunks, _corner_look
 from .tunnels import _tunnel_chunks
 from .walls import _off_wall_tops, cliff_rows, retaining_walls
+
+
+CUT_MARGIN = 0.5                # m: a sidewalk / line stops this far outside a crossing road's carriageway
+COVER_MARGIN_M = 30.0   # m past the tile: the ground carriageways a deck's parapet is tested against (build_tile cover_out)
 
 
 def _on_box(p, box, eps=1e-6):

@@ -4,7 +4,6 @@ import math
 import numpy as np
 
 import mapcells
-import roadmesh
 
 from .style import LANE_M, MAX_NODES, OVERLAP, TILE, URBAN_ARTERIAL
 from .specs import PARKING_CLASSES, PARKING_M, edge_margin
@@ -116,9 +115,6 @@ def tile_needs(frame, tx, ty, buildings=True, widths=True, water_ring=0):
     return needs
 
 
-COVER_MARGIN_M = 30.0   # m past the tile: the ground carriageways a deck's parapet is tested against (build_tile cover_out)
-
-
 def lane_layout(spec):
     """(driving width m, lanes) of a road as its lane lines are painted (extras) and the AI drives it (navgraph): the
     carriageway less a town street's parking lanes or a rural road's edge strips (counted as lanes, every rural
@@ -149,20 +145,6 @@ def _chunk(look, w, c):
     if look.get("layer"):
         out["layer"] = look["layer"]
     return out
-
-
-DECK = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 20}      # bridge decks (roadmesh.deck)
-DECK_STEP = 4.0         # m between deck profile points
-DECK_CLEAR = 0.05       # m a deck stays above the ground under it (no z-fighting where it rests on it)
-# Usable space below the lowest structural girder, not merely to the road surface.
-# Six metres accommodates tall road vehicles such as semi-trucks; unlimited-height
-# modded vehicles and raised equipment cannot have a finite universal guarantee.
-MIN_BRIDGE_HEADROOM_M = 6.0
-BRIDGE_HEADROOM_MARGIN_M = 0.15   # mesh simplification/float and vehicle clearance tolerance
-DECK_ROAD_CLEAR = MIN_BRIDGE_HEADROOM_M + BRIDGE_HEADROOM_MARGIN_M + roadmesh.DECK_DEPTH + roadmesh.GIRDER_D
-DECK_FULL_DEPTH = roadmesh.DECK_DEPTH + roadmesh.GIRDER_D    # m of slab and girders under a long span's road
-DECK_MIN_DEPTH = 0.9    # m: the thinnest deck (a short slab bridge)
-DECK_SPAN_RATIO = 22.0  # a deck is its main span / this deep (girder bridges run span/20-25), DECK_MIN..FULL_DEPTH
 
 
 def _along(line, dist):

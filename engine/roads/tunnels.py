@@ -11,16 +11,39 @@ import roadmesh
 from .style import BUILT, EDGE_DECAL, GUTTER, SIDEWALK, SIMPLIFY_Z_M, log, look_of, terrain_surface
 from .specs import road_specs
 from .levels import PORTAL_EXTEND_MAX_M, gallery_parts, ground_parts, tunnel_parts, tunnel_specs
-from .tiles import DECK_STEP, _along, _chunk, split
+from .tiles import _along, _chunk, split
 from .walks import clip_polyline, densify, extras, simplify
-from .decks import (
-    ARCH_SIZE_SKIP_M, CONCRETE_WALL_CLASSES, FULL_DEEP_M, FULL_MIN_M, MAJOR_LOW_H, PORTAL_GROUND_M, PORTAL_LOOK_M,
-    PORTAL_UP_MIN, ROAD_CAP_GAP_M, ROAD_CAP_JOIN_M, ROAD_CAP_OVER_M, SECTION_MIN_M, TUNNEL_COVER, TUNNEL_LOW_H,
-    TUNNEL_OPEN_COVER, TUNNEL_SOIL_M, TUNNEL_WET_COVER_M, TUNNEL_WET_RUN_M, TUNNEL_WET_SHARE, UNDER_DECK, _EndJoin,
-    cover_roads, portal_cover
-)
-from .bridges import BridgeProfiles, OBS_BLEND_DG, OBS_BLEND_MIN_M
+from .decks import CONCRETE_WALL_CLASSES, SECTION_MIN_M, TUNNEL_COVER, UNDER_DECK, _EndJoin, cover_roads, portal_cover
+from .bridges import BridgeProfiles, DECK_STEP, OBS_BLEND_DG, OBS_BLEND_MIN_M
 from .deckmesh import _deck_look
+
+
+TUNNEL_WET_SHARE = 0.25 # a tunnel part with more of its points under water is left out (TunnelProfiles.wet)
+TUNNEL_WET_COVER_M = 60.0   # m: water this far over the chain's lower portal is no underwater tunnel's (_mark_drowned)
+TUNNEL_WET_RUN_M = 20.0 # ... and a tunnel chain passing under water this far away from its ends (_mark_drowned)
+TUNNEL_OPEN_COVER = 4.0 # m: a 'tunnel' whose ground nowhere rises this far over the straight line between its portals
+                        # is an underpass in the open (under a bridge the map does not draw as a deck over it): a road
+                        # on the ground, no tube, portals or holes (Central Park's 86th Street Transverse under its
+                        # park bridges got portal frames standing in the open). Between it
+                        # and TUNNEL_COVER: a low arch (a park's stone bridge over a sunken road, Central Park's West
+                        # Drive over the 86th Street Transverse: 3.4 m clearance under ~1.5 m of arch and soil):
+                        # straight between its portals, its tube as high as the ground over it allows (TUNNEL_SOIL_M
+                        # under it, at least TUNNEL_LOW_H), of stone (roadmesh.tunnel)
+PORTAL_LOOK_M = 12.0    # m inside a portal where the ground over it is read for its face's height ...
+PORTAL_GROUND_M = 0.5   # ... which reaches this far over that ground ...
+PORTAL_UP_MIN = 1.0     # ... and at least this far over the vault
+FULL_MIN_M = 60.0       # a covered section reaching TUNNEL_COVER is a full tunnel (a rock tube) if it is this long or
+FULL_DEEP_M = 16.0      # has this much ground over it somewhere; shorter and shallower, an underpass under an embankment:
+                        # a low arch, the ground built up over it (a 31 m underpass under the E6 in Norway with 8.6 m of
+                        # embankment over it stood as a bare 6.8 m concrete tube on the ground beside the road)
+TUNNEL_SOIL_M = 1.0     # m of arch and soil kept over a low tunnel's vault
+ARCH_SIZE_SKIP_M = 5.0  # m at a low arch's mouths left out when its height is sized from the cover over it
+ROAD_CAP_JOIN_M = 20.0  # a road with an end this near a low arch's mouth joins it (its own road going on), not one over it
+ROAD_CAP_GAP_M = 0.5    # m a low arch's stone top stops short of a carriageway over its mouth ...
+ROAD_CAP_OVER_M = 1.0   # ... and its portal face reaches at most this far over that road
+TUNNEL_LOW_H = 3.6      # m: the lowest tube (floor to vault)
+MAJOR_LOW_H = 5.0       # m: ... on a major road (CONCRETE_WALL_CLASSES: road tunnels clear ~4.5 m, a truck ~4 m)
+
 
 TWIN_SHARE = 0.8        # a tunnel part beside another for this share of its length (their tubes overlapping) ...
 TWIN_DZ_M = 2.0         # ... with its floor within this of the other's: twin tubes, one tube round both (
@@ -1068,33 +1091,6 @@ def spare_carriageways(mask, parts, cells, frame, cx, cy, square):
         if not oth.clear((x0 + ix * square, y0 + iy * square), None, HOLE_ROAD_MARGIN):
             out[iy, ix] = False
     return out
-
-
-WALL_STEP = 2.0         # m between a retaining wall's points
-WALL_PROBE_M = 1.0      # m beyond the cut's foot (grading.WALL_T_M) where the natural ground's height is read
-WALL_TOP_M = 0.15       # m the wall stands over the ground behind it
-WALL_FOOT_M = 0.3       # m it reaches under the road
-WALL_FULL = 0.9         # the graded ground this share of the way up to the natural ground behind a wall: its top ends
-                        # there ...
-WALL_THICK_MIN_M = 1.0  # ... at least this deep and at most WALL_THICK_MAX_M
-WALL_THICK_MAX_M = 3.5
-WALL_OTHER_GAP_M = 0.3  # m a wall's top keeps from another road's carriageway
-WALL_TAPER_M = 8.0      # m at each end of a wall over which it comes down ...
-WALL_TAPER_LOW_M = 0.6  # ... to this over the road
-WALL_SLAB_DZ = 0.8      # m the ground behind a wall may fall under its top before the top ends there ...
-WALL_COPING_MIN_M = 0.5  # ... at least its coping
-WALL_DIAG_M = 2.9       # the terrain lattice's diagonal (heightmap.SQUARE 2 m)
-WALL_EVEN_N = 2         # a wall's top as deep as its deepest within this many WALL_STEPs either side
-WALL_STEP_UP_M = 0.5     # m the graded ground climbs over the road where a wall's face goes (short of the core's edge)
-WALL_KEEP_M = 1.2       # m: a wall goes on while the cut stays this deep (it starts at grading.WALL_CUT_M) ...
-WALL_GAP_N = 3          # ... over gaps of up to this many WALL_STEPs, and none shorter than WALL_MIN_N (the cut's depth
-WALL_MIN_N = 3          # wavered round 2 m: stubs of wall with gaps, the 97th Street Transverse)
-# A wall stands only where the graded ground behind its face climbs at least this steeply (m per m, its median over
-# the wall; across WALL_STEEP_SPAN from 1 m in front of the face): the step the grading cut. A natural bank the
-# terrain already draws as a slope is no cutting: a 1.5 m concrete wall stood in front of a low eroded bank beside
-# US-163 in Utah (its ground rose 0.4-1.2 m per m; Munich's McGraw-Graben's cut walls 5-9, measured)
-WALL_STEEP = 2.0
-WALL_STEEP_SPAN = (-1.0, 6.0)
 
 
 def _one_road(fa, xa, fb, xb):

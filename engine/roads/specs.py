@@ -9,6 +9,7 @@ from .style import (
 )
 from .tags import _facts_load, _facts_store, _osm, _rule_value, raw_level_ranges
 
+
 # Carriageway = driving width + parking lanes on city streets or paved edge strips on rural roads
 # (docs/research/2026-10-11-official-road-study.md §2: rural paved surface = AI width + 2-2.5 m;
 # West Coast USA's plain streets 12.5 m for 8 m of driving: ~2.3 m of parking each side). A width

@@ -10,6 +10,7 @@ from .styles import oriented_box
 from .mesh import _inside
 from .garages import _clip_half
 
+
 ACROSS_W = 8.0              # m: a footprint at most this wide that a public road crosses (its long middle line) is a
                             # walkway or canopy over it (the 69th Street station's 3 m shelters stood across
                             # the Dan Ryan as brick walls; a road crossing one runs only its width inside it)
@@ -41,8 +42,6 @@ def tunnel_lines(frame, road_layers, x0, y0, margin=50.0, size=256.0):
 
 
 GARAGE_TAGS = ("multi-storey", "multistorey", "multi_storey", "multi-level")
-GARAGE_TAG_CLASSES = {"", "yes", "commercial", "garage", "garages", "parking", "parking_garage", "carport",
-                      "service", "transportation", "industrial", "retail"}     # (not the apartments on a car park podium)
 
 
 def garage_rings(frame, infra_layers, x0, y0, margin=50.0, size=256.0):
@@ -152,7 +151,6 @@ def _covers_garage(ring, garages):
     return False
 
 
-TUNNEL_THROUGH_M = 5.0      # a footprint a road tunnel runs into this far: its portal building, lifted over the tube
 PORTAL_SKIP_CLASSES = ("service",)     # tunnels that lift no building: a driveway, loading dock or covered drop-off
                             # under a building, which stands on the ground (a 15 m drive-through under an
                             # Oklahoma City church floated it 10 m up; in downtown Baltimore and Chicago 20 office and
@@ -473,6 +471,3 @@ def road_across(ring, lines, max_w=ACROSS_W):
         if np.any(ok & (t >= 0) & (t <= 1) & (s_ >= 0) & (s_ <= 1)):
             return True
     return False
-
-
-CENTRE_PREFILTER_M = 1.0       # m of slack for Features.outer_centres (cumulative sums: within ~1e-5 m of the exact mean)

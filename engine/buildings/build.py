@@ -9,10 +9,14 @@ from .looks import (
 )
 from .styles import _area2, oriented_box
 from .mesh import (
-    MAX_MESH_VERTS, Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _signs, _steeple, _stoop,
-    _walls, base_z, drawn_ring
+    Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _signs, _steeple, _stoop, _walls, base_z,
+    drawn_ring
 )
 from .garages import _parking_deck, deck_plan
+
+# The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
+# vertices (the: slabs across a Fells Point street; dense tiles had up to 81k vertices).
+MAX_MESH_VERTS = 60000
 
 
 def build(specs_and_ground, lite=False):
@@ -176,11 +180,6 @@ def _part_heights(a, i):
             return max(FLOOR_M, (float(nf) - f0) * FLOOR_M), mh
         return None
     return float(top) - mh, mh
-
-
-ROAD_THROUGH_M = 15.0       # a footprint that public roads run through this far is a structure over them
-OVER_ROAD_CLEAR_M = 5.5     # ... lifted this high (an expressway's or a station's slab over the streets: Baltimore's
-                            # 17,500 m2 one by I-83, the AI drove into its wall at 35 mph)
 
 
 def _concat(meshes):

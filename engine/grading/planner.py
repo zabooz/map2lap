@@ -20,7 +20,7 @@ from .settings import (
     UNDER_HUMP_RAIL_HALF_M, UNDER_HUMP_SIN_MIN, UNDER_HUMP_WIN_M, UNDER_MAX_BRIDGE_M, UNDER_MAX_DROP_M, UNDER_NEAR_M,
     UNDER_ON, UNDER_REACH_M, UNGRADED, UNGRADED_MARGIN_M, VERTEX_STEP, WATER_CURVE_M, WATER_LIFT_ON, WATER_MAX_LIFT, log
 )
-from .snap import _UNSET, _twin_trimmed, _with_lows, road_rank, shoulder, snap_junctions
+from .snap import _twin_trimmed, _with_lows, road_rank, shoulder, snap_junctions
 from .profiles import (
     BANK_DESIGN, BANK_ON, BANK_RUNOFF_M, BANK_SIGMA_M, BANK_STENCIL_M, Plan, _point_along, clip_polyline, mapped_plan,
     median_profile, plan_roads, profile_sigma, resample, road_id, smooth_profile, trim_plan, tunnel_plan
@@ -30,6 +30,8 @@ from .bridges import (
     _arc_on, _is_link, _never_raised, approach_add, bridge_chain, bridge_chain_ends_free, bridge_lifts, hump_dip,
     hump_height, junction_ends, raisable_ends, regrade_past_ends, underpass_offsets
 )
+
+_UNSET = object()
 
 
 class _Planner:

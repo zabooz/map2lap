@@ -11,10 +11,18 @@ from .places import castle_boxes, use_data, worship_boxes
 from .garages import DRIVEWAY, DRIVEWAY_W
 from .sites import bridge_lines, garage_rings, road_lines, support_rings, tunnel_lines, water_rings, way_lines
 from .photo import district_town
-from .tiles import (
-    BACK_ROAD_CLASSES, DOOR_OUT_M, DOOR_ROAD_M, G_DOOR, MAIN_STREET_CLASSES, MAIN_STREET_SETBACK_M, MAIN_STREET_SHOPS,
-    STOOP_SHARE, tile_buildings
-)
+from .tiles import tile_buildings
+
+DOOR_OUT_M = 0.09            # m the door model's origin stands off the wall: its panel is 6.9 cm behind the origin
+                             # (both Building Architect doors), so at 3 cm it was inside the wall, only the frame
+                             # showing (Fells Point)
+STOOP_SHARE = 0.8           # row houses with a front stoop (Baltimore's white marble steps)
+DOOR_ROAD_M = 30.0          # a front door on the wall facing the nearest road within this
+G_DOOR = "door"
+MAIN_STREET_CLASSES = {"primary", "secondary", "tertiary"}
+BACK_ROAD_CLASSES = {"service", "track", "path", "footway", "cycleway", "pedestrian", "steps", "alley"}
+MAIN_STREET_SETBACK_M = 7.0  # m from a main street's edge within which a front wall has a shopfront
+MAIN_STREET_SHOPS = 0.75     # the share of such buildings that do
 
 
 def doors(items, lines, x0, y0, drives=None):

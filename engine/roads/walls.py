@@ -8,11 +8,34 @@ from .style import BUILT
 from .specs import carriageway
 from .walks import cut_outside, simplify
 from .decks import CONCRETE_WALL_CLASSES
-from .tunnels import (
-    WALL_COPING_MIN_M, WALL_DIAG_M, WALL_EVEN_N, WALL_FOOT_M, WALL_FULL, WALL_GAP_N, WALL_KEEP_M, WALL_MIN_N,
-    WALL_OTHER_GAP_M, WALL_PROBE_M, WALL_SLAB_DZ, WALL_STEEP, WALL_STEEP_SPAN, WALL_STEP, WALL_STEP_UP_M,
-    WALL_TAPER_LOW_M, WALL_TAPER_M, WALL_THICK_MAX_M, WALL_THICK_MIN_M, WALL_TOP_M
-)
+
+
+WALL_STEP = 2.0         # m between a retaining wall's points
+WALL_PROBE_M = 1.0      # m beyond the cut's foot (grading.WALL_T_M) where the natural ground's height is read
+WALL_TOP_M = 0.15       # m the wall stands over the ground behind it
+WALL_FOOT_M = 0.3       # m it reaches under the road
+WALL_FULL = 0.9         # the graded ground this share of the way up to the natural ground behind a wall: its top ends
+                        # there ...
+WALL_THICK_MIN_M = 1.0  # ... at least this deep and at most WALL_THICK_MAX_M
+WALL_THICK_MAX_M = 3.5
+WALL_OTHER_GAP_M = 0.3  # m a wall's top keeps from another road's carriageway
+WALL_TAPER_M = 8.0      # m at each end of a wall over which it comes down ...
+WALL_TAPER_LOW_M = 0.6  # ... to this over the road
+WALL_SLAB_DZ = 0.8      # m the ground behind a wall may fall under its top before the top ends there ...
+WALL_COPING_MIN_M = 0.5  # ... at least its coping
+WALL_DIAG_M = 2.9       # the terrain lattice's diagonal (heightmap.SQUARE 2 m)
+WALL_EVEN_N = 2         # a wall's top as deep as its deepest within this many WALL_STEPs either side
+WALL_STEP_UP_M = 0.5     # m the graded ground climbs over the road where a wall's face goes (short of the core's edge)
+WALL_KEEP_M = 1.2       # m: a wall goes on while the cut stays this deep (it starts at grading.WALL_CUT_M) ...
+WALL_GAP_N = 3          # ... over gaps of up to this many WALL_STEPs, and none shorter than WALL_MIN_N (the cut's depth
+WALL_MIN_N = 3          # wavered round 2 m: stubs of wall with gaps, the 97th Street Transverse)
+
+# A wall stands only where the graded ground behind its face climbs at least this steeply (m per m, its median over
+# the wall; across WALL_STEEP_SPAN from 1 m in front of the face): the step the grading cut. A natural bank the
+# terrain already draws as a slope is no cutting: a 1.5 m concrete wall stood in front of a low eroded bank beside
+# US-163 in Utah (its ground rose 0.4-1.2 m per m; Munich's McGraw-Graben's cut walls 5-9, measured)
+WALL_STEEP = 2.0
+WALL_STEEP_SPAN = (-1.0, 6.0)
 
 
 def _wall_runs(cut):

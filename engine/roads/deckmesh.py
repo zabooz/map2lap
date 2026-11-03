@@ -7,10 +7,14 @@ import mapgeom
 
 from .style import CONCRETE, EDGE_DECAL, GUTTER, LOOK, SIDEWALK, SIMPLIFY_Z_M, terrain_surface
 from .levels import bridge_parts
-from .tiles import DECK, DECK_CLEAR, DECK_STEP, _chunk, box_owns, split
+from .tiles import _chunk, box_owns, split
 from .walks import clip_polyline, densify, extras, simplify
-from .decks import _EndJoin, _smooth_pinned, deck_heights
-from .bridges import CORNER_CONCRETE_M
+from .decks import DECK_CLEAR, _EndJoin, _smooth_pinned, deck_heights
+from .bridges import DECK_STEP
+
+
+DECK = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 20}      # bridge decks (roadmesh.deck)
+CORNER_CONCRETE_M = 4.0  # m: a concrete street this close to a curb return fills its corner in concrete too
 
 
 def _bridge_chunks(frame, bseen, elev, exact, bridges=None, cells=None):

@@ -11,16 +11,11 @@ from .style import LINK_M, OSM_LANES, OSM_WIDTH_M, STYLE, Spec, log
 from .tags import _cell_load, _facts_store, _osm, _rule_value, raw_level_ranges
 from .specs import MIN_PART, carriageway, road_specs, surface_kind, surface_token, unbuilt
 
+
 # a road crossing a tunnel at a flatter angle counts as crossing at this sine (the reach along the tunnel is / the
 # sine: it would run away); the portals here and the covered sections (decks.py) read it
 TUNNEL_ROAD_MIN_SIN = 0.35
 
-LANE_LINE = {"m": "line_dashed_long", "tl": 12.0, "p": 6, "w": 0.12}     # West Coast USA's 3 m dash, 9 m gap
-CUT_MARGIN = 0.5                # m: a sidewalk / line stops this far outside a crossing road's carriageway
-MIN_PIECE_M = 3.0               # shorter sidewalk / line pieces are dropped
-WALK_STEP_M = 1.0               # m the ground under a sidewalk may lie off the road's level: further, a cutting's wall or
-                                # a drop is there and the sidewalk stops (it was draped up a wall, Munich's McGraw-Graben)
-NEAR_M = 40.0                   # roads this far outside the tile still cut its sidewalks / lines
 URBAN_CLASS = 50                # ESA WorldCover "built-up"
 
 

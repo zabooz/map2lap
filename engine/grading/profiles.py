@@ -15,6 +15,7 @@ from .settings import (
 )
 from .snap import shoulder
 
+
 # Banked curves ("improve how roads generate"; BeamNG's Hero Road editor banks its curves, our
 # carriageways were graded level across): a motorway's or trunk's curve leans into its turn, the cross slope by the
 # design-speed rule e = BANK_E_MAX x min(1, r_min / R), r_min = v² / (127 (e_max + f)) of the class's design speed v
