@@ -23,6 +23,7 @@ by hand.
 - Once per clone: `git config core.hooksPath .githooks`; a commit with Python changes then runs `check.py --fast`.
 - Regression checks use only the tracks in `tools/test_tracks.json`. A new spot gets a new short track there.
 - `measure.py` numbers point at places. Whether a road drives better or worse is decided by driving it in AC.
+- A native crash (an access violation without a stack): `.venv\Scripts\python.exe tools\crash.py`.
 
 ## Builds
 

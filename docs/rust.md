@@ -33,6 +33,8 @@ info carry source paths) and puts a module in place only when it names no user, 
   versions without it (`libloading` 0.8.6, `parking_lot` 0.12.3 with `parking_lot_core` 0.9.10, `windows-sys` 0.59);
   after a `cargo update`, `build_native.py` refuses a module with such imports (`cargo tree -i windows-link` shows who
   brought it back).
+- **A native crash** (Python's faulthandler: "access violation", no C stack): `tools\crash.py` reads Windows' last error
+  report of python.exe and places the faulting address in the module (section, import slot, uncovered imports).
 - Environment variables are read on the Python side and passed in (one place for the `BNE_*` switches, which the cache
   key hashes).
 - Grading results are cached by a hash of the engine code and the module (`revisit.code_key`), so a change invalidates

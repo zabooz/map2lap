@@ -30,7 +30,7 @@ BUILD_TIMEOUT_S = 1800
 # it passes; one starting "flaky:" fails only sometimes and is never reported as passing again.
 KNOWN = {}
 # Test files that take minutes (they compute, no network): left out by --fast
-SLOW = ("test_mapdata",)
+SLOW = ("test_mapdata", "test_srgb")
 
 
 def test_files(names=None, fast=False):

@@ -31,10 +31,6 @@ class RequireTest(unittest.TestCase):
 
 @unittest.skipUnless(fast.AVAILABLE, "no earthfast binary for this platform (tools/build_native.py)")
 class FastTest(unittest.TestCase):
-    def test_srgb_monotonic(self):
-        # the Rust sRGB step (mip_levels) reads bytes from thresholds: exact only if the formula never decreases
-        self.assertTrue(fast._ef.srgb_monotonic())
-
     def test_any_within(self):
         rng = np.random.default_rng(14)
         for trial in range(80):
