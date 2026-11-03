@@ -315,6 +315,40 @@
    "max_warp_at_m": 487.0
   }
  },
+ "otto_bridge_test": {
+  "title": "Otto Bridge Test",
+  "about": "I-80 near Cheyenne, Wyoming, eastbound: the twin interstate bridges over Otto Road (US rules: mph, traffic on the right; the decks pinned by tests/test_otto_bridge.py)",
+  "points": [
+   [
+    41.098649,
+    -105.07213
+   ],
+   [
+    41.101956,
+    -105.051154
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "860-910",
+    "the bridge over Otto Road at motorway speed: drives well"
+   ]
+  ],
+  "reference": {
+   "length_m": 1935,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.16,
+   "max_g_at_m": 867.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.16,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 895.0
+  }
+ },
  "a2_voelkermarkt_test": {
   "title": "A2 Voelkermarkt Test",
   "about": "A2 near Völkermarkt, eastbound, 12.7 km: the motorway's bridges at Greuth, Korb, Rammersdorf (over a short tunnel, the one at ~3.7 km that P8 and P10 were made for) and the Sankt Agnes valley bridge, driven at motorway speed",

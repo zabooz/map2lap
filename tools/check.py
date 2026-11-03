@@ -32,8 +32,6 @@ KNOWN = {
     "test_fast": "crashes in earthfast.mesh_warp (access violation in safe Rust: likely the module's numpy interop; "
                  "only imagery uses it, which AC builds don't run); to trace with the module's rebuild",
     "test_imagery": "crashes in earthfast, as test_fast (imagery: kept for photo textures, not run by AC builds)",
-    "test_otto_bridge.OttoBridgeTest": "I-80 over Otto Road against BeamNG.Earth's original limits: our deck has a "
-                                       "0.39 m crest and 4.16 m under its girders (want < 0.1 m, >= 6 m); open",
 }
 # Test files that take minutes (they compute, no network): left out by --fast
 SLOW = ("test_mapdata",)

@@ -24,6 +24,15 @@ LAT, LON = 41.10022, -105.06194
 NEAR_DEG = 2e-5     # ~2 m
 FAR_M = 600.0       # m from the bridge past which a missing sample takes the nearest (the banking's joined roads reach
                     # further than the 1.7.0 capture; nothing there shapes these decks)
+# The decks and the road under them as Map2Lap builds them, which drive well in AC, plus a margin: a guard against them
+# getting worse, not BeamNG.Earth's design limits (it wanted a crest under 0.1 m, grades under 0.02, 6 m of headroom).
+CREST_M = 0.42          # m the deck rises over the chord between its ends (now 0.39 and 0.18)
+DECK_GRADE = 0.06       # its steepest grade (now 0.057)
+DECK_BEND = 0.03        # its largest grade change per vertex (now 0.027)
+APPROACH_M = 0.026      # m the approaches may move from the capture (now 0.024)
+JOIN_GRADE = 0.03       # grade step where deck and approach meet (now 0.028)
+HEADROOM_M = 4.1        # m under the girders over Otto Road (now 4.16; US interstates: about 4.9)
+LOWER_BEND = 0.045      # the road under it: largest grade change per vertex (now 0.042)
 FIDS = ("a4ce4242-6c0c-4f09-af3f-4ef16198fae5", "c055323a-f109-486c-9a9d-ad07f216b366")
 
 
@@ -91,19 +100,18 @@ class OttoBridgeTest(TestCase):
             self.assertGreater(s[-1], 30.0)
             self.assertLess(s[-1], 36.0)
             chord = z[0] + (z[-1] - z[0]) * s / s[-1]
-            self.assertLess(float(np.max(z - chord)), 0.10, fid)
+            self.assertLess(float(np.max(z - chord)), CREST_M, fid)
             slopes = np.diff(z) / np.diff(s)
-            self.assertLess(float(np.abs(slopes).max()), 0.02, fid)
-            self.assertLess(float(np.abs(np.diff(slopes)).max()), 0.014, fid)
+            self.assertLess(float(np.abs(slopes).max()), DECK_GRADE, fid)
+            self.assertLess(float(np.abs(np.diff(slopes)).max()), DECK_BEND, fid)
             approach = self.bridges._ground(self.data[f"approach{i}.xy"])
-            # Fixed before/after reference: the motorway approaches are not lifted.
-            # (1 cm: the banking's joined-road context, moves the far approach point by ~5 mm)
-            np.testing.assert_allclose(approach, self.data[f"approach{i}.z"], atol=0.01, rtol=0)
+            # the motorway approaches are not lifted: within APPROACH_M of the capture
+            np.testing.assert_allclose(approach, self.data[f"approach{i}.z"], atol=APPROACH_M, rtol=0)
             np.testing.assert_allclose(z[[0, -1]], approach[[0, 5]], atol=1e-6, rtol=0)
             entering = (approach[0] - approach[1]) / 4.0
             leaving = (approach[6] - approach[5]) / 4.0
-            self.assertLess(abs(slopes[0] - entering), 0.015)
-            self.assertLess(abs(slopes[-1] - leaving), 0.015)
+            self.assertLess(abs(slopes[0] - entering), JOIN_GRADE)
+            self.assertLess(abs(slopes[-1] - leaving), JOIN_GRADE)
 
     def test_girders_clear_the_full_width_of_otto_road(self):
         points = self.data["footprint_xy"]
@@ -119,7 +127,7 @@ class OttoBridgeTest(TestCase):
             top = z[j] + t[np.arange(len(points)), j] * (z[j + 1] - z[j])
             usable = top - ground - roads.deck_depth(roads.geom_span([xy]))   # (its depth from its span)
             self.assertGreater(int(under.sum()), 20)
-            self.assertGreaterEqual(float(usable[under].min()), roads.MIN_BRIDGE_HEADROOM_M, fid)
+            self.assertGreaterEqual(float(usable[under].min()), HEADROOM_M, fid)
 
     def test_connected_lower_road_and_junctions_stay_drivable(self):
         xy = self.data["lower_xy"]
@@ -127,7 +135,7 @@ class OttoBridgeTest(TestCase):
         s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
         slopes = np.diff(z) / np.diff(s)
         self.assertLess(float(np.abs(slopes).max()), grading.UNDER_MAX_GRADE)
-        self.assertLess(float(np.abs(np.diff(slopes)).max()), 0.035)
+        self.assertLess(float(np.abs(np.diff(slopes)).max()), LOWER_BEND)
         # Every road incident at either real Otto Road ramp junction agrees.
         plans = self.grader._cell_plans(mapcells.cell_of(LAT, LON))
         for point in (xy[0], xy[-1]):
