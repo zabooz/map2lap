@@ -11,6 +11,7 @@ ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(ENGINE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import heights  # noqa: E402
 import mark  # noqa: E402
 import measure  # noqa: E402
 import watch_build as wb  # noqa: E402
@@ -139,6 +140,25 @@ class SurfaceTest(unittest.TestCase):
         got = measure.names_at(T3, N, np.array([5.0, 5.0, 5.0, 50.0]), np.array([5.0, 5.0, 5.0, 50.0]),
                                np.array([0.1, 5.9, np.nan, 0.0]))
         self.assertEqual(list(got), ["1GRASS_ground", "1ROAD_deck", "1ROAD_deck", ""])
+
+
+class HeightsTest(unittest.TestCase):
+    def test_a_stretch_is_metres_and_points_east_and_north(self):
+        route = np.array([[0.0, 0.0], [100.0, 0.0], [100.0, -100.0]])     # (AC x, z: z = -north)
+        ss, px, py = heights.stretch(route, 90.0, 120.0, 10.0)
+        self.assertEqual(list(ss), [90.0, 100.0, 110.0, 120.0])
+        self.assertEqual(list(px), [90.0, 100.0, 100.0, 100.0])
+        self.assertEqual(list(py), [0.0, 0.0, 10.0, 20.0])
+
+    def test_the_tile_and_its_nearest_ground_vertex(self):
+        self.assertEqual(heights.tile_of(-5600.0, 3878.0), (-22, 15))
+        self.assertEqual(heights.vertex_of(-5600.0, 3878.0, -22, 15), (19, 16))
+        self.assertEqual(heights.vertex_of(-5600.9, 3878.9, -22, 15), (19, 16), "rounded to the nearest vertex")
+
+    def test_arcs_from_a_decks_ends(self):
+        xy = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 5.0]])
+        self.assertEqual(heights.arcs_from_ends(xy, np.array([4.0, 2.0])), (4.0, 11.0))
+        self.assertEqual(heights.arcs_from_ends(xy, np.array([-3.0, 0.0])), (0.0, 15.0), "before its start: 0")
 
 
 DUMP = '''Process 2388: "Map2Lap Worker.exe" "-c" "from multiprocessing.spawn import spawn_main"
