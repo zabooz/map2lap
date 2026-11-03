@@ -1959,18 +1959,34 @@ fn srgb_thresholds() -> &'static [f32; 255] {
     })
 }
 
-/// Whether srgb_byte never decreases over every float32 in [0, 1] (the thresholds' premise; a test calls it).
+/// Whether srgb_byte never decreases over every float32 in [0, 1] (the thresholds' premise; a test calls it). The
+/// ~1.07e9 floats in one run per thread, each run from the float before its first: ~50 s on one thread.
 #[pyfunction]
-fn srgb_monotonic() -> bool {
-    let mut prev = 0u8;
-    for b in 0..=1.0f32.to_bits() {
-        let v = srgb_byte(f32::from_bits(b));
-        if v < prev {
-            return false;
-        }
-        prev = v;
-    }
-    true
+fn srgb_monotonic(py: Python<'_>) -> bool {
+    py.allow_threads(|| {
+        let last = 1.0f32.to_bits();
+        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).clamp(1, 64) as u32;
+        let step = last / n + 1;
+        std::thread::scope(|sc| {
+            let runs: Vec<_> = (0..n)
+                .map(|k| {
+                    let (a, b) = (k * step, ((k + 1) * step).min(last + 1));       // (the bits [a, b))
+                    sc.spawn(move || {
+                        let mut prev = if a == 0 { 0u8 } else { srgb_byte(f32::from_bits(a - 1)) };
+                        for bits in a..b {
+                            let v = srgb_byte(f32::from_bits(bits));
+                            if v < prev {
+                                return false;
+                            }
+                            prev = v;
+                        }
+                        true
+                    })
+                })
+                .collect();
+            runs.into_iter().map(|h| h.join().unwrap_or(false)).fold(true, |all, ok| all && ok)
+        })
+    })
 }
 
 /// mip_levels' levels (fartex.rs dds_levels calls it too); img (h, w, 3 or 4).
