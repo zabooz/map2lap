@@ -37,6 +37,8 @@ lock, dialog_lock = threading.Lock(), threading.Lock()
 # The running build {name, clean, started, pid}: if the file is still there when the server starts, the server ended
 # in the middle of a build (console window closed), and tidy_interrupted tidies up
 MARK = os.path.join(ROOT, "out", "build_running.json")
+BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<name>): written only while "Keep build
+                            # files" is on, replaced by the next build of the track, deleted with the build files
 
 
 def log(msg):
@@ -44,9 +46,19 @@ def log(msg):
         job["log"].append(str(msg))
 
 
+def build_log(name, clean):
+    """The file a build's log goes into (BUILD_LOG), open for writing, or None while its files are not kept."""
+    if clean:
+        return None
+    work = os.path.join(ROOT, "out", "tracks", name)
+    os.makedirs(work, exist_ok=True)
+    return open(os.path.join(work, BUILD_LOG), "w", encoding="utf-8")
+
+
 def run_build(args, name, clean, started):
-    code, result = None, None
+    code, result, keep = None, None, None
     try:
+        keep = build_log(name, clean)
         p = subprocess.Popen([named.exe("build"), "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                              errors="replace", env={**named.child_env(), "PYTHONIOENCODING": "utf-8"}, **system.GROUP)
@@ -62,17 +74,24 @@ def run_build(args, name, clean, started):
                     job["progress"] = json.loads(line[len("PROGRESS "):])
             else:
                 log(line.rstrip())
+                if keep:
+                    keep.write(line)
+                    keep.flush()        # (to read while it runs)
         code = p.wait()
         with lock:
             job["ended"] = time.time()
     except Exception as e:      # (show errors on the page rather than ending the server)
         log(traceback.format_exc())
+        if keep:
+            keep.write(traceback.format_exc())
         with lock:
             job.update(state="error", error=str(e), ended=time.time())
         _unmark()
         return
     finally:
         running["proc"] = None
+        if keep:
+            keep.close()
     with lock:
         stopped = job["state"] == "stopping"
     if stopped:

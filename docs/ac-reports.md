@@ -29,7 +29,8 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
    this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring tools).
 3. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
    x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.
-4. See what was built there. A command-line build keeps `out/tracks/<name>/` (tiles, `obj/parts/t_<tx>_<ty>.obj`): the OBJ
+4. See what was built there. A command-line build, and one from the page with "Keep build files", keeps
+   `out/tracks/<name>/` (tiles, `obj/parts/t_<tx>_<ty>.obj`; from the page also its `build.log`): the OBJ
    parts name it (materials such as `nocol_walk_sidewalk`, `nocol_rail_rail`, `nocol_bld_fac`).
 5. Find out why, from the code that decided it: call the module on the map data around the spot (for example
    `roads.road_specs` for a road's class, width and sidewalks, `railways.parts` for tracks) after
