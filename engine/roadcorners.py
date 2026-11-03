@@ -218,7 +218,6 @@ def _rows(cells, specs, frame, bounds=None, anchor=True):
     out of the features' memo)."""
     import roads
     import mapgeom
-    import surface
     rows, seen, rings = [], set(), set()
     if bounds is not None:
         m = ROWS_MARGIN_M
@@ -226,19 +225,17 @@ def _rows(cells, specs, frame, bounds=None, anchor=True):
         if not anchor:          # (the box in lon / lat: the features' own boxes, kept with them)
             la, lo, _ = frame.enu_to_geodetic(np.array([bx0, bx1, bx0, bx1]), np.array([by0, by0, by1, by1]),
                                               np.zeros(4))
-            lbox = (float(np.min(lo)), float(np.max(lo)), float(np.min(la)), float(np.max(la)))
+            bx0, by0, bx1, by1 = float(np.min(lo)), float(np.min(la)), float(np.max(lo)), float(np.max(la))
     for f, fspecs in zip(cells, specs):
-        boxes = None if bounds is None else f.boxes(frame) if anchor else surface._lonlat_boxes(f)
+        boxes = None if bounds is None else f.boxes(frame) if anchor else roads._feature_boxes(f)
         rings |= ring_ids(f)
         for i, sp in enumerate(fspecs):
             fid = str(f.ids[i])
             if sp is None or fid in seen:
                 continue
             if boxes is not None:
-                b = boxes[i]
-                if anchor and (b[2] < bx0 or b[0] > bx1 or b[3] < by0 or b[1] > by1):
-                    continue
-                if not anchor and (b[1] < lbox[0] or b[0] > lbox[1] or b[3] < lbox[2] or b[2] > lbox[3]):
+                b = boxes[i]        # (min, min, max, max: east / north in frame, or lon / lat)
+                if b[2] < bx0 or b[0] > bx1 or b[3] < by0 or b[1] > by1:
                     continue
             seen.add(fid)
             for p in roads.ground_parts(f, i):

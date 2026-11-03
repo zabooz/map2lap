@@ -240,25 +240,6 @@ def grid_affine(lat, lon):
     return f
 
 
-def _lonlat_boxes(feats):
-    """(n, 4) lon min / max, lat min / max of each feature's coordinates (+-inf for none), kept with the feats."""
-    got = feats.__dict__.get("_lonlat_boxes")
-    if got is not None:
-        return got
-    n = len(feats)
-    got = np.empty((n, 4))
-    got[:, 0::2], got[:, 1::2] = np.inf, -np.inf
-    a = feats.coord_off[feats.ring_off[feats.part_off[:-1]]]
-    b = feats.coord_off[feats.ring_off[feats.part_off[1:]]]
-    rows = np.flatnonzero(b > a)
-    if len(rows):
-        ll = feats.lonlat
-        for col, (u, f) in enumerate([(0, np.minimum), (0, np.maximum), (1, np.minimum), (1, np.maximum)]):
-            got[rows, col] = mapgeom._reduce(f, ll[:, u], a[rows], b[rows])
-    feats.__dict__["_lonlat_boxes"] = got
-    return got
-
-
 ROAD_EDGE_M = 1.0    # m past a carriageway's edge its material reaches: a square whose centre is at most this far out
                      # is road (a 2 m square reaches back up to 1.4 m: at 0.5 a wheel 0.2 m inside a 9 m road's edge was
                      # on dirt; the grain beyond lies under the edge decal, roads.EDGE_DECAL)
@@ -319,8 +300,8 @@ def paint_roads(idx, lat, lon, feats_list, square, urban_fn=None, widths=None, e
         if feats is None or len(feats) == 0:
             continue
         specs = roadsmod.road_specs(feats, urban_fn, widths)
-        box = _lonlat_boxes(feats)
-        bc, br = to_px(box[:, [0, 1, 0, 1]], box[:, [2, 2, 3, 3]])     # the boxes' corners on the grid
+        box = roadsmod._feature_boxes(feats)                            # (lon0, lat0, lon1, lat1)
+        bc, br = to_px(box[:, [0, 2, 0, 2]], box[:, [1, 1, 3, 3]])     # the boxes' corners on the grid
         c_lo, c_hi, r_lo, r_hi = bc.min(1), bc.max(1), br.min(1), br.max(1)
         ids = feats.ids.tolist()
         for i in range(len(feats)):

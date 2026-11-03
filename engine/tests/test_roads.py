@@ -829,6 +829,20 @@ class PaintRoadsTest(unittest.TestCase):
         n = int((out9[:, 10] == sf.ASPHALT).sum())
         self.assertGreaterEqual(n * 2.0, 9.0, "a 9 m road painted at least 9 m wide (was 8)")
 
+    def test_painted_where_longitude_exceeds_latitude(self):
+        """Auckland's Northwestern Motorway (lon 174.6 > lat -36.8) drove as grass under its painted asphalt: the
+        bridge and tunnel code, run first, had kept the features' lon / lat boxes in one column order and paint_roads
+        read them in another. Where longitude exceeds latitude, that box lay off the grid for every road reaching past
+        it to the west or north. Here a road crosses the grid; the boxes are made first, as ground.build does."""
+        shift = np.array([174.6 - LON, -36.8 - LAT])
+        lat, lon = self.grid()
+        lat, lon = lat + shift[1], lon + shift[0]
+        f = features([[(-200, 0), (200, 0)]], ["residential"])
+        f.lonlat = f.lonlat + shift
+        roads._feature_boxes(f)
+        out = sf.paint_roads(np.full(lat.shape, sf.GRASS, np.uint8), lat, lon, [f], 2.0)
+        self.assertEqual(int(out[64, 10]), sf.ASPHALT)
+
     def test_cobbles_under_the_tyres(self):
         lat, lon = self.grid()
         f = features([[(-200, 0), (200, 0)]], ["residential"], surfaces=[(0, "paving_stones")])

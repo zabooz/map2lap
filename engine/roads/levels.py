@@ -79,7 +79,9 @@ SKEW_MIN_SIN = math.sin(math.radians(20.0))    # flatter crossings are taken as 
 
 
 def _feature_boxes(feats):
-    """(n, 4) lon/lat boxes (lon0, lat0, lon1, lat1) of the features, remembered on feats."""
+    """(n, 4) lon/lat boxes (lon0, lat0, lon1, lat1) of the features, remembered on feats: the one lon/lat box of a
+    feature, read by bridges, tunnels, rails, surface.paint_roads and roadcorners alike (two orders under one key once
+    painted Auckland's motorway as grass)."""
     got = feats.__dict__.get("_lonlat_boxes")
     if got is None:
         n = len(feats)
