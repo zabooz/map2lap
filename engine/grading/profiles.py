@@ -411,7 +411,7 @@ def _runs(ok, n):
 def _between_cuts(frame, plans, elev, walls):
     """Sets Plan.cut's drops where a road has another road beside it at another level (BESIDE_LEVEL_FROM_M apart, near
     enough for their gradings to meet) and a wall between them: walls' (lines (k, 2) in the frame, BETWEEN_WALL_CLASSES)
-    first, else the raw ground elev(lat, lon) between them stepping at SHARP_GRADE (BETWEEN_*). Each side of each
+    first, else the raw ground elev(lat, lon) between them stepping within T_MIN (BETWEEN_*). Each side of each
     plan: the nearest such road. walls may be a function giving them: called only when such a pair is found (most map
     cells have none: a cell's walls are another map layer to read). None entries skipped; nothing without the module's
     wall ends (AC_EXPORT_WALL_ENDS)."""
@@ -482,15 +482,18 @@ def _between_cuts(frame, plans, elev, walls):
     for p, c0, seg, off, zm, zq, wall, probes, pts in jobs:
         step = np.zeros(len(off), bool)
         at = np.full(len(off), np.nan)
-        for s, o in zip(seg, probes):          # (the raw ground's step between the two levels)
+        for s, o in zip(seg, probes):          # (the raw ground's own step between the two roads)
             gg = g[k:k + len(o)]
             k += len(o)
-            frac = (gg - zm[s]) / (zq[s] - zm[s])
+            dg = gg[-1] - gg[0]
+            if len(o) < 2 or abs(dg) < BESIDE_LEVEL_FROM_M or dg * (zq[s] - zm[s]) <= 0:
+                continue
+            frac = (gg - gg[0]) / dg
             past = [np.flatnonzero(frac >= f) for f in (0.25, 0.5, 0.9)]
-            if any(len(x) == 0 for x in past) or frac[0] >= 0.25:
+            if any(len(x) == 0 for x in past):
                 continue
             o25, o50, o90 = (o[x[0]] for x in past)
-            if 0.65 * abs(zq[s] - zm[s]) / max(o90 - o25, BETWEEN_STEP_M) >= SHARP_GRADE:
+            if (o90 - o25) / 0.65 < T_MIN:     # (sharper than the grading's narrowest transition: it would smear it)
                 step[s], at[s] = True, o50
         step = _runs(step, SHARP_RUN_N)
         put = np.where(np.isfinite(wall), wall, np.where(step, at, np.nan))

@@ -91,9 +91,12 @@ BESIDE_LEVEL_TO_M = 1.0
 # on that side: points.grade_points), flat up to it, the step at it, neither pulling the other's lanes. Graded as one
 # surface the two made a ramp ~8 m wide (the blend's weight by distance) under the upper one's lanes: SH16 at Waterview,
 # Auckland, two carriageways 10 m apart and 1.1 m apart in height, 2-3.7 G in waves. The wall: a mapped wall or
-# retaining wall between them (BETWEEN_WALL_CLASSES), else where the raw ground between them has made half its change,
-# at SHARP_GRADE or steeper over SHARP_RUN_N vertices (a gentler slope between them is ground the blend may keep: a
-# grass median). Never nearer either road's line than BETWEEN_MIN_M (a mapped line lies a metre or two off).
+# retaining wall between them (BETWEEN_WALL_CLASSES), else where the raw ground between them has made half its own
+# change (BESIDE_LEVEL_FROM_M at least, the way the two roads lie), over SHARP_RUN_N vertices, when it makes it within
+# T_MIN, the grading's narrowest transition (graded, it would smear the step over the lanes; the elevation data spreads a
+# 1 m wall over ~2 m at Waterview: 30 % on average, so no grade threshold: SHARP_GRADE is the 2 m cuttings'; a grass
+# median's slope over 10 m stays as the blend makes it). Never nearer either road's line than BETWEEN_MIN_M (a mapped
+# line lies a metre or two off).
 BETWEEN_ON = os.environ.get("BNE_BETWEEN_WALLS", "on") != "off"
 BETWEEN_MIN_M = 1.75        # m: a carriageway keeps half a lane each side (roads' DUAL_MIN_W / 2)
 BETWEEN_STEP_M = 0.5        # m between the raw ground's samples across the gap
