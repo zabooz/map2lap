@@ -72,7 +72,9 @@ py -3.12 -m venv .venv
 "Start Map2Lap.bat"            # Linux: python3.12 -m venv .venv, .venv/bin/python ..., ./start.sh
 ```
 
-How it works, tools and releases: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Assetto Corsa with CSP is found through Steam, or set it in the page's Settings. The map data cache (`cache\`, 20 GB by
+default) and the textures (`assets\textures\`, CC0 from ambientCG) stay out of git. How to work in the repo:
+[AGENTS.md](AGENTS.md).
 
 ## Credits
 

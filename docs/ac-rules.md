@@ -1,0 +1,87 @@
+# Assetto Corsa rules
+
+What AC requires of a track and where Map2Lap follows or leaves BeamNG.Earth. BeamNG.Earth's world is the base: rebuild
+it completely and hide nothing. Where AC differs (driving surfaces through mesh names, collision only through meshes, no
+terrain with holes, other shaders), deviate on purpose, with a short reason in the code.
+
+## Object names decide the physics
+
+| Prefix | Use | `surfaces.ini` |
+|---|---|---|
+| `1ROAD_ground_<tx>_<ty>`, `1ROAD_deck_…` | terrain under asphalt/cobbles; bridge and tunnel road | ROAD (0.98) |
+| `1GRAVEL_ground_…` | terrain with gravel/dust/rock | GRAVEL (0.75, damping, vibration) |
+| `1GRASS_ground_…` | other terrain | GRASS (0.60) |
+| `1KERB_walkcol_…` | kerbs/pavements, invisible collision | KERB (0.92) |
+| `1WALL_` | bridges, tunnels, retaining walls, gate posts, `bldcol`/`guardrailcol` (invisible); double-sided | stays undefined |
+| `nocol_` | markings, pavements, houses and rails (visible), guardrails, wires, water, foam, trees, distant view | – |
+
+## How the ground is built
+
+BeamNG.Earth (`blockworker.build`, `grading.Grader.apply`, `roads/`):
+- **You drive on the terrain:** levelled to road height under roads, plus `ROAD_LIFT` 4 cm, without gaps. Surface (grip)
+  per 2 m sample: `surface.classify` (land use, slope > 35° = rock), `paint_roads`, `paint_lots`.
+- **Roads are painted into the terrain** (`roads.ROADS_IN_GROUND`, the default). `BNGE_ROADS_IN_GROUND=0` draws asphalt as
+  a mesh of its own, with asphalt walls, zigzags and holes at seams: leave it on.
+- **Collision in its game mod:** `road` (markings) and `wire` visual only; `deck` (bridges and tunnel floor), `tunnel`
+  (tubes, portals, retaining walls), `rail` visible with collision; `walk`/`bld` visible, their collision is the invisible
+  copy `walkcol`/`bldcol`.
+- **Tunnels:** terrain holed only at the portals (`block_tunnel_holes`), raised over flat vaults (`block_arch_raise`);
+  inside you drive on the floor slab from `deck`; the portal frame hides the 2 m steps.
+
+For AC (`ground.py`, `make_obj.collision_prefix`):
+- One mesh for looks **and** physics per tile. Object name per cell by BeamNG.Earth's surface: asphalt/cobbles →
+  `1ROAD_ground_…`, gravel/dust/rock → `1GRAVEL_ground_…`, else `1GRASS_ground_…` (the sample in the SW corner).
+- A cell goes as soon as **one** of its corners is a tunnel hole.
+- Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px = 12.5 cm/px): comic ground, the roads on top in
+  BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`).
+- Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
+  as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);
+  `rail` likewise with `railcol`.
+- **Guardrails** (tile key `guardrails`; in game forest models with collision): comic models (`propsmesh.rails`) as
+  `nocol_guardrail_…`, plus one invisible vertical wall `1WALL_guardrailcol_…` per 3 m module.
+- **Smoother than BeamNG.Earth** where AC needs it (hard tyres and springs; BeamNG's soft body rolls over centimetre
+  bumps): junction ends give way, abutments and the ground under a deck's ends from the lidar, decks meeting their
+  approaches at their grade. Each rule's reason is in a comment at its place.
+
+## Coordinates
+
+- BeamNG.Earth: a local ENU frame around the anchor (x east, y north, z up). Anchor = middle of the route or area.
+- OBJ and kn5: Y up, `(x, z_enu, -y_enu)`. kn5 stores UV v negated (like ksEditor).
+
+## Traps
+
+- `WALL` stays undefined in `surfaces.ini`: defined, every wall turns into ground and you drive through it (Kunos:
+  `07WALL006`, no WALL key). Walls are double-sided, because BeamNG winds them inconsistently.
+- AC drives along **+Z** of the start point (`obj_to_kn5.empty`). Start slots move up to the first road on the route.
+- Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
+  `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
+- BeamNG/Torque winds triangles clockwise → flip them (`shape_parts`), else houses turn black.
+- `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
+- Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).
+- Scale textures down to the target resolution before sampling them (else a blotchy pattern: asphalt like cobbles).
+- Atlases keep an empty margin per image (`trees.PAD`): else billboard edges reach into the neighbouring image at small
+  mip levels, or through the repeat into their own bottom row (floating lines).
+- Alpha-tested billboards with up-pointing normals shadow themselves (stripes): trees use `ksPerPixelAT_NS`. Bushes carry
+  the ground's normal instead (`make_obj.ground_normals`), so they darken with a slope turned away from the sun.
+- The terrain casts no shadows (it shadowed itself: rings around the camera on the asphalt).
+- Unknown BeamNG materials become wall/concrete (`FALLBACK`); the build reports them → add them to `SURFACE`.
+- AC has no vertex colours: `make_obj.BLD_KINDS` gives each building material a comic texture per colour of BeamNG.Earth's
+  table, and `bld_split` turns the colour jitter into one of 3 brightness levels.
+- Road sign lettering: its texture is flipped, because the sign meshes' v runs the other way.
+- Realistic water instead of comic: `[Material_Water] Materials = water, Type = LAKE` in the track's `ext_config.ini`.
+
+## Limits
+
+- 65,535 vertices per mesh (16 bit indices) → objects are split (`_<k>`; split names from the front when reading).
+- AC loads the whole track at start; nothing streams. A 292 km route (±100 m): 2507 tiles, a 9.9 GB kn5, ~47 GB RAM while
+  loading. Beyond ~50 km from the anchor float32 gets coarse (~1–2 cm at 150–250 km).
+- The road surface is 2 m terrain triangles (like BeamNG): as even as there in tight curves, not smoother.
+
+## kn5 format (`kn5.py`)
+
+`sc6969`, int32 version (6) + int32 0; textures (active, name, bytes); materials (name, shader, blend, alpha test, depth
+mode, parameters {name, A, vec2, vec3, vec4}, texture maps); node tree: class 1 = matrix (16 floats, rows = axes, last row
+the position), class 2 = mesh (shadows, visible, transparent, vertices of 44 bytes pos/normal/uv/tangent, uint16 indices,
+material, layer, LOD, bounding sphere, renderable).
+
+CSP's Lua docs, matching the installed version: `assettocorsa\extension\internal\lua-sdk\<script type>\README.md`.

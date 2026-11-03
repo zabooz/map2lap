@@ -14,7 +14,7 @@ VENDOR = os.path.join(HERE, "vendor", "beamng_earth")
 NATIVE = os.path.join(VENDOR, "native", "earthfast")
 SERVER = os.path.join(VENDOR, "server")
 CARGO_BIN = os.path.join(os.path.expanduser("~"), ".cargo", "bin")
-DLLTOOL = os.path.join(os.path.expanduser("~"), ".cargo", "dlltool-llvm")     # (copy of llvm-ar.exe, docs/DEVELOPMENT.md)
+DLLTOOL = os.path.join(os.path.expanduser("~"), ".cargo", "dlltool-llvm")     # (copy of llvm-ar.exe, docs/rust.md)
 
 
 def build_native():

@@ -1,0 +1,41 @@
+# Following up a report from AC
+
+## What a session leaves
+
+The Track Debug app (generator page → Settings → Testing; `src/acapp/TrackDebug`, `app/debugapp.py`) shows the route metre,
+coordinates, G values and the build's versions. It keeps the last 15 s of the drive at 50 Hz. **F10** (in the window: any
+key or wheel button) or "Mark" saves a spot with those 15 s and the next 5 s, plus a screenshot; "Start recording" records
+the whole drive.
+
+Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
+
+| File | What |
+|---|---|
+| `info.txt` | the track's build, versions, track code and map data |
+| `marks.csv` | route metre, offset from the line, AC and lat/lon position per mark |
+| `mark_NN.csv` | the 15 s before and 5 s after a mark: G forces, suspension travel |
+| `mark_NN.jpg` | a screenshot |
+| `drive.csv` | the recorded drive |
+| `map2lap.json`, `map2lap_route.txt` | the track's settings and route |
+
+## Finding the cause
+
+1. `tools\from_debug.py <folder>` builds that track here with the route exactly as it was built (no OSRM) and says where
+   this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring tools).
+2. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
+   x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.
+3. See what was built there. A command-line build keeps `out/tracks/<name>/` (tiles, `obj/parts/t_<tx>_<ty>.obj`): the OBJ
+   parts name it (materials such as `nocol_walk_sidewalk`, `nocol_rail_rail`, `nocol_bld_fac`).
+4. Find out why, from the code that decided it: call the module on the map data around the spot (for example
+   `roads.road_specs` for a road's class, width and sidewalks, `railways.parts` for tracks) after
+   `generator._init_worker(cache)`. At a tunnel portal, start with `tools\portal.py <track> <AC x> <AC z>`.
+
+Tools for a spot: `tools\measure.py <track>` measures any built track,
+`tools\check_drive.py <track> --all-roads` finds holes, jumps and terrain above the road, `tools\stretch.py` rebuilds a
+stretch fast, and `--holes` on `measure.py` sorts the gaps in the ground by whether a car gets there.
+
+## Sharing a track
+
+A track code (`M2L1-…`, `app/trackcode.py`) holds a track's inputs: pins and corridor or area, title, track version. It
+holds no route: OSRM routes the pins again. A build stores its map data's versions (`generator.data_versions`) in
+`data/map2lap.json` beside the code.
