@@ -8,7 +8,7 @@ import os
 import time
 from concurrent.futures import ProcessPoolExecutor
 
-from app import system
+from app import named, system
 
 GB_PER_WORKER = 1.5        # (measured: ~0.9 GB per process with BeamNG.Earth's state, plus headroom for big tiles)
 SHARE = 1.0                # share of the logical cores (generator page: Settings, generator.py --cores)
@@ -49,5 +49,6 @@ def pool(n, initializer=None, initargs=()):
     # fine.)
     # (spawn on Linux too, as on Windows: each worker starts clean and builds BeamNG.Earth's state in its initializer;
     # Linux' default fork would copy the parent's state and threads into it, and builds could differ between systems)
-    return ProcessPoolExecutor(max_workers=n, initializer=initializer, initargs=initargs,
-                               mp_context=multiprocessing.get_context("spawn"))
+    ctx = multiprocessing.get_context("spawn")
+    named.use_for_workers(ctx)
+    return ProcessPoolExecutor(max_workers=n, initializer=initializer, initargs=initargs, mp_context=ctx)

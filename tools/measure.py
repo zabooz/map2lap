@@ -54,7 +54,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
 sys.path.insert(0, os.path.join(HERE, "src"))
-from app import settings, trackcode, version  # noqa: E402
+from app import named, settings, trackcode, version  # noqa: E402
 from track import obj_to_kn5  # noqa: E402
 
 TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
@@ -587,9 +587,9 @@ def build_all(tracks, install, jobs):
             t = todo.pop(0)
             print(f"building {t} ...", flush=True)
             log = open(os.path.join(HERE, "out", f"build_{t}.log"), "w", encoding="utf-8")
-            cmd = [sys.executable, os.path.abspath(__file__), "--build-one", t, "--share", str(1.0 / jobs)]
+            cmd = [named.exe("build"), os.path.abspath(__file__), "--build-one", t, "--share", str(1.0 / jobs)]
             run[t] = (subprocess.Popen(cmd + (["--install"] if install else []), stdout=log, stderr=subprocess.STDOUT,
-                                       cwd=HERE, env={**os.environ, "PYTHONIOENCODING": "utf-8"}), log)
+                                       cwd=HERE, env={**named.child_env(), "PYTHONIOENCODING": "utf-8"}), log)
         time.sleep(1.0)
         for t, (proc, log) in list(run.items()):
             if proc.poll() is not None:

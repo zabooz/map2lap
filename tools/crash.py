@@ -25,15 +25,18 @@ CODES = {0xC0000005: "access violation", 0xC00000FD: "stack overflow", 0xC000040
 NS = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
 
 
-def reports(n, app="python.exe"):
-    """The last n "Application Error" reports of app, newest first: [{time, module, path, code, offset}]."""
+APPS = ("python.exe", "map2lap server.exe", "map2lap build.exe", "map2lap worker.exe")     # (src/app/named.py)
+
+
+def reports(n, apps=APPS):
+    """The last n "Application Error" reports of apps, newest first: [{time, module, path, code, offset}]."""
     q = "*[System[Provider[@Name='Application Error'] and (EventID=1000)]]"
     r = subprocess.run(["wevtutil", "qe", "Application", f"/q:{q}", "/c:50", "/rd:true", "/f:xml"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     out = []
     for ev in ET.fromstring(f"<all>{r.stdout}</all>"):
         data = [d.text or "" for d in ev.findall("e:EventData/e:Data", NS)]
-        if len(data) < 12 or data[0].lower() != app:
+        if len(data) < 12 or data[0].lower() not in apps:
             continue
         out.append({"time": ev.find("e:System/e:TimeCreated", NS).get("SystemTime", "")[:19].replace("T", " "),
                     "module": data[3], "path": data[11], "code": int(data[6], 16), "offset": int(data[7], 16)})
@@ -77,7 +80,7 @@ def main():
     else:
         got = reports(a.n)
         if not got:
-            print("No error report of python.exe in the event log.")
+            print("No error report of Python or Map2Lap's processes in the event log.")
         for r in got:
             what = CODES.get(r["code"], "")
             print(f"{r['time']} UTC: {r['code']:#010x} {what} in {r['module']}, offset {r['offset']:#x}")

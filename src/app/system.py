@@ -117,7 +117,8 @@ def running(exe):
 
 
 def is_python(pid):
-    """Whether process pid still runs and is a Python (a build left over from an earlier server)."""
+    """Whether process pid still runs and is a Python, under its own name or ours (app.named): a build left over from an
+    earlier server."""
     if not WIN:
         try:
             with open(f"/proc/{int(pid)}/cmdline", "rb") as f:
@@ -126,7 +127,7 @@ def is_python(pid):
             return False
     out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, encoding="oem",
                          errors="replace").stdout
-    return str(pid) in out and "python" in out.lower()
+    return str(pid) in out and ("python" in out.lower() or "map2lap" in out.lower())
 
 
 def kill_tree(pid):

@@ -20,9 +20,14 @@ import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import generator
-from app import debugapp, mapcache, mytracks, settings, system, trackcode, updater, version
-from app.paths import ROOT, SRC
+from app import named
+
+if __name__ == "__main__":      # (before the engine loads: the python.exe left waiting stays small)
+    named.restart_as("server")
+
+import generator  # noqa: E402
+from app import debugapp, mapcache, mytracks, settings, system, trackcode, updater, version  # noqa: E402
+from app.paths import ROOT, SRC  # noqa: E402
 
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
@@ -42,9 +47,9 @@ def log(msg):
 def run_build(args, name, clean, started):
     code, result = None, None
     try:
-        p = subprocess.Popen([sys.executable, "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
+        p = subprocess.Popen([named.exe("build"), "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                             errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"}, **system.GROUP)
+                             errors="replace", env={**named.child_env(), "PYTHONIOENCODING": "utf-8"}, **system.GROUP)
         running["proc"] = p
         os.makedirs(os.path.dirname(MARK), exist_ok=True)
         with open(MARK, "w", encoding="utf-8") as f:

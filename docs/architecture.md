@@ -36,6 +36,8 @@ Settings, at most 61, at most free RAM / 1.5 GB). Processes rather than threads 
   materials and start points (`kn5.write_streamed`). All materials of the `.mtl` have fixed numbers.
 - Windows locks a cache file for a moment while another process replaces it: `parallel.retry_locked`.
 - Processes are not recycled (`max_tasks_per_child` hangs under Python 3.12, CPython gh-115634).
+- On Windows they run as `Map2Lap Worker.exe`, a build as `Map2Lap Build.exe`, the generator page as `Map2Lap Server.exe`:
+  named copies of python.exe (`app/named.py`), in `python/` or, with a venv, `out/python/`.
 
 ## Imports
 
