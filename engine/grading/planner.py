@@ -16,8 +16,7 @@ from .settings import (
     UNDER_ON, UNGRADED, UNGRADED_MARGIN_M, log
 )
 from .snap import _twin_trimmed, _with_lows, road_rank, snap_junctions
-from .profiles import (Plan, carriageway_of, clip_polyline, mapped_plan, plan_roads, road_id, trim_plan,
-                       tunnel_plan)
+from .profiles import Plan, clip_polyline, mapped_plan, plan_roads, road_id, trim_plan, tunnel_plan
 from .points import PlanPack, grade_points
 from .bridges import junction_ends, regrade_past_ends
 from .ends import _Ends
@@ -143,8 +142,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
         plans = []
         if feats is not None and len(feats):
             specs = roadsmod.road_specs(feats, None, self.widths)
-            names = feats.attrs.get("name")
-            parts, ids, clipped, roads_of = [], [], [], []
+            parts, ids, clipped = [], [], []
             box = self._clip_box(key)
             keeps = []
             for i in range(len(feats)):
@@ -162,7 +160,6 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                         parts.append((r, specs[i]))
                         ids.append(str(feats.ids[i]))
                         clipped.append(len(pieces) > 1 or r is not ring)
-                        roads_of.append(carriageway_of(specs[i], None if names is None else names[i]))
             pspecs = []
             abut = under = None
             if (ABUT_FILL_ON or APPROACH_ON) and parts:
@@ -206,7 +203,6 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                                                                   obs=_with_lows(self._obs(key), lows)))):
                 if p is not None:
                     p.rid = road_id(fid)
-                    p.road = roads_of[j]
                     if free is not None:
                         p.free = free[j]
                     plans.append((fid, p))

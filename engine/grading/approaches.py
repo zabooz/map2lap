@@ -67,7 +67,6 @@ class _Approaches:
                 np_.under = getattr(p, "under", (False, False))
                 np_.beyond = getattr(p, "beyond", (None, None))
                 np_.tunnel = getattr(p, "tunnel", False)
-                np_.road = getattr(p, "road", None)
                 plans[i] = (fid, np_)
 
     def _lower_underpasses(self, key, plans):
@@ -238,7 +237,6 @@ class _Approaches:
             np_.under = getattr(p, "under", (False, False))
             np_.beyond = getattr(p, "beyond", (None, None))
             np_.tunnel = getattr(p, "tunnel", False)
-            np_.road = getattr(p, "road", None)
             plans[n] = (fid, np_)
 
     def _ground_along(self, xy, arcs):

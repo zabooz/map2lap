@@ -493,41 +493,6 @@ class GradePointsTest(unittest.TestCase):
         own = np.abs(py) <= 2.0
         self.assertLess(np.abs(out[own] - 100.0).max(), 0.25, "its lanes nearer its own height than the wider's")
 
-    def test_a_divided_roads_carriageways_at_two_levels_keep_their_own_lanes(self):
-        """(_dual_caps) SH16, Auckland: the westbound carriageway's plan 18.5 m wide (four lanes, shoulders), its line 10 m
-        beside the eastbound's and 1.1 m under it. The eastbound's lanes within 2 m of its line keep their height (it
-        gave way to the wider: its left lanes 1.1 m down, a ramp under the wheels); another road's carriageway that
-        close still gives way. (Open: the blend between the two still spreads over ~8 m around the middle, its outer
-        lane 0.4 m low at 4 m off its line: a wall the ground can't make.)"""
-        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-2.0, 4.1, 0.5))
-        px, py = px.ravel(), py.ravel()
-
-        def pair(road):
-            east = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 6.33, road_half=5.33)
-            west = grading.Plan(np.array([[100.0, -10.0], [-100.0, -10.0]]), np.array([98.9, 98.9]), 10.25,
-                                road_half=9.25)
-            east.rid, west.rid = 1, 2
-            east.road, west.road = road, road
-            return [east, west]
-        base = np.full(len(px), 100.0)
-        out = grading.grade_points(px, py, base, pair(("Northwestern Motorway", "motorway")))
-        self.assertLess(np.abs(out - 100.0).max(), 0.1, "the eastbound's lanes at its own height")
-        other = grading.grade_points(px, py, base, pair(None))
-        self.assertGreater(np.abs(other - 100.0).max(), 0.5, "not one road's carriageways: gives way as before")
-
-    def test_a_divided_roads_carriageways_at_one_level_blend_as_before(self):
-        """(_dual_caps) the same two carriageways 0.3 m apart in height: nothing changes."""
-        px, py = np.meshgrid(np.arange(-20.0, 20.1, 1.0), np.arange(-12.0, 4.1, 0.5))
-        px, py = px.ravel(), py.ravel()
-        got = []
-        for road in (("A", "motorway"), None):
-            east = grading.Plan(np.array([[-100.0, 0.0], [100.0, 0.0]]), np.array([100.0, 100.0]), 6.33, road_half=5.33)
-            west = grading.Plan(np.array([[100.0, -10.0], [-100.0, -10.0]]), np.array([99.7, 99.7]), 10.25,
-                                road_half=9.25)
-            east.rid, west.rid, east.road, west.road = 1, 2, road, road
-            got.append(grading.grade_points(px, py, np.full(len(px), 100.0), [east, west]))
-        self.assertTrue(np.array_equal(got[0], got[1]))
-
     def test_a_narrow_road_mapped_onto_a_wider_one_far_under_it_gives_way(self):
         """(BESIDE_LEVEL_*) a driveway mapped onto a secondary's carriageway, 3 m off its centre line and 1.5 m under
         it: the secondary keeps its height across its carriageway; 0.3 m under it the two blend as before."""
