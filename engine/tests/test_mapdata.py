@@ -4,7 +4,7 @@ GeoParquet parsing through DuckDB, clipping, determinism (content digests indepe
 order, file order and row order), cache hits, netfetch request kinds, licences in the provenance.
 
 No network: synthetic sources from mapfixtures.py behind a fake netfetch transport. The Overture
-tests need duckdb and fsspec (engine/requirements.txt) and are skipped without them."""
+tests need duckdb and fsspec (requirements.txt) and are skipped without them."""
 import io
 import json
 import os
@@ -42,7 +42,7 @@ try:
     HAVE_DUCKDB = rangeread.NetfetchFS is not None
 except ImportError:
     HAVE_DUCKDB = False
-needs_duckdb = unittest.skipUnless(HAVE_DUCKDB, "duckdb / fsspec not installed (engine/requirements.txt)")
+needs_duckdb = unittest.skipUnless(HAVE_DUCKDB, "duckdb / fsspec not installed (requirements.txt)")
 REPO = Path(__file__).resolve().parents[2]
 
 

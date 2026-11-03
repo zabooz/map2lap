@@ -1,6 +1,5 @@
 """Point-in-polygon for numpy arrays (even-odd rule), in place of matplotlib.path.Path.contains_points:
-the server used matplotlib for nothing else, and the players' install (install.py: engine/requirements.txt)
-did not have it, so the server did not start from the release zip (2026-10-15).
+matplotlib is not among Map2Lap's packages (requirements.txt), and nothing else here needs it.
 
     Path(ring).contains_points(pts) -> bool array    ring: (N, 2) vertices, open or closed; pts: (M, 2)
 """

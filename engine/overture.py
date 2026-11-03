@@ -165,16 +165,16 @@ class ReleaseGone(OvertureError):
 
 
 class DuckDbMissing(OvertureError):
-    """duckdb / fsspec are not installed (pip install -r engine/requirements.txt)."""
+    """duckdb / fsspec are not installed (pip install -r requirements.txt)."""
 
 
 def _duckdb():
     try:
         import duckdb
     except ImportError as e:
-        raise DuckDbMissing("map data needs duckdb (pip install -r engine/requirements.txt)") from e
+        raise DuckDbMissing("map data needs duckdb (pip install -r requirements.txt)") from e
     if rangeread.NetfetchFS is None:
-        raise DuckDbMissing("map data needs fsspec (pip install -r engine/requirements.txt)")
+        raise DuckDbMissing("map data needs fsspec (pip install -r requirements.txt)")
     return duckdb
 
 
