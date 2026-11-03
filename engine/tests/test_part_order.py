@@ -6,7 +6,7 @@ import os
 import unittest
 
 ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-PACKAGES = ("roads",)
+PACKAGES = ("roads", "grading", "buildings")
 
 
 def order(pkg):

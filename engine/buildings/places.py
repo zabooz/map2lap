@@ -3,7 +3,14 @@ import numpy as np
 
 import mapgeom
 
-from .looks import SIGN_NAME_CHARS
+from .looks import (
+    BIG_BOX_M2, CHURCH_CLASSES, CHURCH_IOU, CLASS_SIGNS, HALL_PLACES, HOUSE_MAX_M2, INDUSTRIAL_CLASSES,
+    INVENTED_CLASSES, LAND_CLASSES, NO_SIGN_PLACES, OFFICE_PLACES, OFFICE_PLATES, OSM_KEYS_READ, PANEL_NAME_CHARS,
+    PANEL_PLAIN, PANEL_TINTS, PHARMACY_A, PHARMACY_CROSS, PLACE_NEAR_M, PLACE_SIGNS, PLATE_TINTS, PUBLIC_KINDS,
+    SHOP_PLACES, SIGN_NAME_CHARS, SIGN_NAME_CUT, SIGN_TINTS, WHOLE_PUBLIC, WORKS_PLACES, _hash01, log, osm_place
+)
+from .styles import _area2
+from .mesh import _inside
 
 
 def place_use(category, taxonomy):
@@ -366,14 +373,3 @@ def church_rings(rings, boxes):
         if iou.max() >= CHURCH_IOU:
             out.add(int(hit[int(np.argmax(iou))]))
     return out
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import (
-    BIG_BOX_M2, CHURCH_CLASSES, CHURCH_IOU, CLASS_SIGNS, HALL_PLACES, HOUSE_MAX_M2, INDUSTRIAL_CLASSES,
-    INVENTED_CLASSES, LAND_CLASSES, NO_SIGN_PLACES, OFFICE_PLACES, OFFICE_PLATES, OSM_KEYS_READ, PANEL_NAME_CHARS,
-    PANEL_PLAIN, PANEL_TINTS, PHARMACY_A, PHARMACY_CROSS, PLACE_NEAR_M, PLACE_SIGNS, PLATE_TINTS, PUBLIC_KINDS,
-    SHOP_PLACES, SIGN_NAME_CUT, SIGN_TINTS, WHOLE_PUBLIC, WORKS_PLACES, log, osm_place
-)  # noqa: E402
-from .styles import _area2, _hash01  # noqa: E402
-from .mesh import _inside  # noqa: E402

@@ -6,7 +6,15 @@ import numpy as np
 import fast
 import mapgeom
 
-from .build import ACROSS_W
+from .styles import oriented_box
+from .mesh import _inside
+from .garages import _clip_half
+
+ACROSS_W = 8.0              # m: a footprint at most this wide that a public road crosses (its long middle line) is a
+                            # walkway or canopy over it (the 69th Street station's 3 m shelters stood across
+                            # the Dan Ryan as brick walls; a road crossing one runs only its width inside it)
+THROUGH_CLASSES = {"motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified",
+                   "living_street"}
 
 
 def tunnel_lines(frame, road_layers, x0, y0, margin=50.0, size=256.0):
@@ -149,8 +157,6 @@ PORTAL_SKIP_CLASSES = ("service",)     # tunnels that lift no building: a drivew
                             # under a building, which stands on the ground (a 15 m drive-through under an
                             # Oklahoma City church floated it 10 m up; in downtown Baltimore and Chicago 20 office and
                             # garage blocks of up to 7,156 m2 stood 7.4-10.5 m up over loading-dock tunnels)
-OVER_TUNNEL_CLEAR_M = 7.5   # (the tube's vault is roadmesh.TUNNEL_H = 6.8 m over the floor;: Eisenhower's
-                            # east portal building closed the tunnel)
 
 
 def road_lines(frame, road_layers, x0, y0, margin=50.0, size=256.0):
@@ -470,10 +476,3 @@ def road_across(ring, lines, max_w=ACROSS_W):
 
 
 CENTRE_PREFILTER_M = 1.0       # m of slack for Features.outer_centres (cumulative sums: within ~1e-5 m of the exact mean)
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .build import THROUGH_CLASSES  # noqa: E402
-from .styles import oriented_box  # noqa: E402
-from .mesh import _inside  # noqa: E402
-from .garages import _clip_half  # noqa: E402

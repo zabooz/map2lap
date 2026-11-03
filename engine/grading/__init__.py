@@ -3,19 +3,20 @@
 Heights in a plan are absolute (raw elevation), ENU x, y in the planning frame. Deterministic: a pure function of the
 map data, the elevation and these rules.
 
+The parts, each importing only the ones above it (tests/test_part_order.py):
+
     settings  the rules' numbers and switches
-    profiles  Plan and one road's profile: smoothing, cuts, the ground under a bridge's end
-    banks     a road's cross slope in curves
     snap      where roads meet: ranks, junction heights, carriageways side by side
-    planner   _Planner: all plans of a region, their bridges, tunnels and junctions
-    grader    PlanStore, Grader, PlanPack: plans shared and asked for heights
-    points    grade_points: the heights at points from the plans in reach (earthfast)
+    profiles  Plan and one road's profile: smoothing, cuts, banked curves, the ground under a bridge's end
+    points    grade_points, PlanPack: the heights at points from the plans in reach (earthfast)
     bridges   a bridge's ends and approaches, ramps, what a road under it needs
+    planner   _Planner: all plans of a region, their bridges, tunnels and junctions
+    grader    PlanStore, Grader: plans shared and asked for heights
 """
 import sys
 import types
 
-from . import settings, planner, profiles, banks, snap, grader, points, bridges
+from . import settings, snap, profiles, points, bridges, planner, grader
 
 from .settings import (
     APPROACH_CAP_GRADE, APPROACH_GAP_M, APPROACH_GRADE, APPROACH_MARGIN_M, APPROACH_ON, CHAIN_ON, COARSE_EASE_ON,
@@ -24,20 +25,19 @@ from .settings import (
     TUNNEL_KEEP_IN_M, TUNNEL_TAG, T_MAX, T_MIN, UNDER_ANY_ON, UNDER_CLEAR_M, UNDER_FLAT_M, UNDER_GRADE,
     UNDER_MAX_DROP_M, UNDER_MAX_GRADE, UNGRADED, WALL_CUT_M, WALL_FLAT_M, WALL_T_M
 )
-from .planner import _Planner
-from .profiles import (
-    Plan, UNDER_DECK_FALL, UNDER_DECK_M, UNDER_DECK_MIN_M, WALL_MAX_H_CITY_M, WALL_MAX_H_M, _add_cuts, _plan,
-    _under_deck, bend_zone, clip_polyline, median_profile, plan_roads, profile_sigma, resample, smooth_profile,
-    tunnel_plan, wall_max_h
-)
-from .banks import BANK_DESIGN, BANK_E_MAX, BANK_ON, bank
 from .snap import _nearest_on, _twin_trimmed, _with_lows, shoulder, snap_junctions
-from .grader import Grader, PlanPack, PlanStore, road_id, trim_plan
-from .points import grade_points
-from .bridges import (
-    GradedDem, _never_raised, approach_add, bridge_lifts, end_bank, fill_abutment, junction_ends, raisable_ends,
-    regrade_past_ends, road_end, road_end_reader, underpass_offsets
+from .profiles import (
+    BANK_DESIGN, BANK_E_MAX, BANK_ON, Plan, UNDER_DECK_FALL, UNDER_DECK_M, UNDER_DECK_MIN_M, WALL_MAX_H_CITY_M,
+    WALL_MAX_H_M, _add_cuts, _plan, _under_deck, bank, bend_zone, clip_polyline, fill_abutment, median_profile,
+    plan_roads, profile_sigma, resample, road_id, smooth_profile, trim_plan, tunnel_plan, wall_max_h
 )
+from .points import PlanPack, grade_points
+from .bridges import (
+    GradedDem, _never_raised, approach_add, bridge_lifts, end_bank, junction_ends, raisable_ends, regrade_past_ends,
+    road_end, road_end_reader, underpass_offsets
+)
+from .planner import _Planner
+from .grader import Grader, PlanStore
 
 
 class _Package(types.ModuleType):
@@ -45,7 +45,7 @@ class _Package(types.ModuleType):
     only here would change nothing and a test of it would pass without testing."""
 
     def __setattr__(self, name, value):
-        for part in (settings, planner, profiles, banks, snap, grader, points, bridges,):
+        for part in (settings, snap, profiles, points, bridges, planner, grader,):
             if hasattr(part, name):
                 setattr(part, name, value)
         super().__setattr__(name, value)

@@ -5,7 +5,13 @@ import numpy as np
 
 import roads as roadsmod
 
-from .settings import PROFILE_STEP
+from .settings import (
+    APPROACH_CAP_GRADE, APPROACH_FLAT_M, APPROACH_GAP_M, APPROACH_GRADE, APPROACH_MARGIN_M, APPROACH_MAX_LIFT,
+    APPROACH_MAX_RUN, APPROACH_MIN_CROSS_M, APPROACH_MIN_LIFT, APPROACH_MIN_RUN, APPROACH_SKIP, CHAIN_JOIN_M, ROAD_LIFT,
+    SLOPE_RUN, T_MAX, UNDER_FLAT_M, UNDER_GRADE, UNDER_JOINT_FADE_M, UNDER_JOINT_FLAT_M, UNDER_MAX_DROP_M,
+    UNDER_MAX_GRADE
+)
+from .points import _end_onward, grade_points
 
 
 def raisable_ends(plans):
@@ -266,35 +272,6 @@ def bridge_lifts(line, all_bridges, ground_lines, z_at, chain=None, rail_lines=(
     return out
 
 
-def fill_abutment(z, at_end, step=PROFILE_STEP, fine=False):
-    """The raw profile z (a sample every step m) of a road leading onto a bridge at its first (at_end False) or last
-    sample, its last ABUT_NEAR_M filled up to the straight grade of the stretch from there to ABUT_FAR_M where they
-    fall at least ABUT_STEEP more steeply than it toward the bridge (ABUT_FILL_ON). A profile too short for that (a part
-    between a junction and a bridge, with no road going on straight past the junction) takes its half nearer the bridge
-    against the other, at least ABUT_SHORT_SAMPLES of them: on a side road's last 10 m, 1.5 m down the bank and then
-    level, the end stayed down the bank at 19 % and the deck with it.
-    fine: lidar, ABUT_*_FINE. Returns z itself when nothing is filled. Pure."""
-    min_m, steep = (ABUT_MIN_FINE_M, ABUT_STEEP_FINE) if fine else (ABUT_MIN_M, ABUT_STEEP)
-    z = np.asarray(z, np.float64)
-    p = z[::-1] if at_end else z
-    d = np.arange(len(p)) * step
-    near_m = ABUT_NEAR_M
-    far = (d >= near_m) & (d <= ABUT_FAR_M)
-    if far.sum() < 4:
-        near_m = float(d[-1]) / 2 if len(d) else 0.0
-        far = d >= near_m
-        if far.sum() < ABUT_SHORT_SAMPLES:
-            return z
-    b, a = np.polyfit(d[far], p[far], 1)
-    n = int((d < near_m).sum())
-    e = a + b * d[:n]
-    if e[0] - p[0] < min_m or (np.diff(p[:n + 1]) / step - b).max() < steep:
-        return z
-    q = p.copy()
-    q[:n] = np.minimum(np.maximum(p[:n], e), p[:n] + ABUT_MAX_M)
-    return q[::-1] if at_end else q
-
-
 def hump_height(arcs, z, sc):
     """m the ground z under a deck stands over the road's line through it: arcs/z are 7 samples
     before the deck's footprint, 7 after and the rest under it (Grader._under_hump). Pure."""
@@ -421,14 +398,3 @@ class GradedDem:
 
     def __getattr__(self, name):
         return getattr(self._dem, name)
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .settings import (
-    ABUT_FAR_M, ABUT_MAX_M, ABUT_MIN_FINE_M, ABUT_MIN_M, ABUT_NEAR_M, ABUT_SHORT_SAMPLES, ABUT_STEEP,
-    ABUT_STEEP_FINE, APPROACH_CAP_GRADE, APPROACH_FLAT_M, APPROACH_GAP_M, APPROACH_GRADE, APPROACH_MARGIN_M,
-    APPROACH_MAX_LIFT, APPROACH_MAX_RUN, APPROACH_MIN_CROSS_M, APPROACH_MIN_LIFT, APPROACH_MIN_RUN, APPROACH_SKIP,
-    CHAIN_JOIN_M, ROAD_LIFT, SLOPE_RUN, T_MAX, UNDER_FLAT_M, UNDER_GRADE, UNDER_JOINT_FADE_M, UNDER_JOINT_FLAT_M,
-    UNDER_MAX_DROP_M, UNDER_MAX_GRADE
-)  # noqa: E402
-from .points import _end_onward, grade_points  # noqa: E402

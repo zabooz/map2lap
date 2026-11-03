@@ -1,9 +1,8 @@
-"""A road tile's buildings (road_tile), their footprint share and centres; the ground photo's footprint margins."""
+"""A road tile's buildings as meshes (road_tile) and their centres."""
 
-
-def coverage(items, tile=256.0):
-    """The share of the tile (a square of side tile m: roads.tile_side) covered by building footprints."""
-    return sum(_area2(s.ring) / 2 for s, _, _ in items if (s.min_h or 0) <= 0.5) / (tile * tile)
+from .build import build_parts, collision_mesh
+from .tiles import collider_boxes
+from .doors import doors, road_tile_items
 
 
 def centres(items, tx, ty):
@@ -31,17 +30,3 @@ def road_tile(frame, tx, ty, md, ground, lines=None, props=None, items=None):
 
 
 # ------------------------------------------------------------------------------------------- the ground photo
-
-
-PHOTO_GROW_M = 1.5          # m a footprint is grown on the ground photo (edges, eaves) ...
-PHOTO_LEAN = 0.12           # ... plus this share of its height (the photo's lean of tall buildings), at most
-PHOTO_LEAN_MAX_M = 6.0      # ... this
-PHOTO_FILL_M = 12.0         # m: the blur that fills them from the ground around
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .build import collision_mesh  # noqa: E402
-from .styles import _area2  # noqa: E402
-from .mesh import build_parts  # noqa: E402
-from .tiles import collider_boxes  # noqa: E402
-from .doors import doors, road_tile_items  # noqa: E402

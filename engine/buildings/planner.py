@@ -3,6 +3,22 @@ import math
 
 import numpy as np
 
+from .looks import (
+    BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, BAND_PANEL, BAND_SASH, BAND_TALL, BARN_CLASSES, BARN_REDS, BIG_BOX_CLASSES,
+    BIG_BOX_M2, BRICK_TINTS, BRICK_WALL, BRIDGE_CLASSES, BRIDGE_PIER_M, CASTLE_FLOORS, CHURCH_CLASSES, COLOR_NAMES,
+    CONCRETE, ELEVATOR_CLASSES, ELEVATOR_MAX_M2, ELEVATOR_MIN_H, ELEVATOR_SLENDER, FACADE, FACADE_TINTS, FLOOR_M,
+    GARAGE_MIN_M2, GLASS_FLOORS, GROUND_FLOOR_SHOP_M, HOUSE_CLASSES, HOUSE_MAX_M2, INDUSTRIAL_CLASSES,
+    MASONRY_MATERIALS, METALWALL, MIDRISE_GLASS_OFFICE, OFFICE, OLD_TOWER_GLASS, PAINT_TINTS, PANEL, PITCH,
+    PYRAMID_MIN_M2, PYRAMID_PLINTH_M, PYRAMID_ROOF_SHARE, ROOF_FLAT, ROOF_METAL, ROOF_SHINGLE, ROOF_SLATE, ROOF_TINTS,
+    ROW_CLASSES, RUIN_H, SHED_CLASSES, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES, STONE_FLOORS, STUCCO,
+    TOWER_SHOP_FLOORS, US_WALL_TINTS, WALL_TINTS, WOOD_TINTS, _hash01, custom_look, parse_color
+)
+from .styles import ALPINE_HUT_M2, Spec, _area2, brick_share, oriented_box, region_style
+from .sites import GARAGE_TAG_CLASSES
+
+WEST_TOWN_ONE_STOREY = 0.75     # share of predicted one-storey buildings there
+FALSE_FRONT_M = 1.2             # m of parapet over a one-storey shop there
+
 
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
          alpine=False):
@@ -349,19 +365,3 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall,
                 windows=windows, steeple=church and area < 2500, porch=porch, cls=cls,
                 deck=garage and roof == "flat", pitch=style.pitch, castle=castle)
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import (
-    BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, BAND_PANEL, BAND_SASH, BAND_TALL, BARN_CLASSES, BARN_REDS,
-    BIG_BOX_CLASSES, BIG_BOX_M2, BRICK_TINTS, BRICK_WALL, BRIDGE_CLASSES, BRIDGE_PIER_M, CASTLE_FLOORS,
-    CHURCH_CLASSES, COLOR_NAMES, CONCRETE, ELEVATOR_CLASSES, ELEVATOR_MAX_M2, ELEVATOR_MIN_H, ELEVATOR_SLENDER,
-    FACADE, FACADE_TINTS, FLOOR_M, GARAGE_MIN_M2, GLASS_FLOORS, GROUND_FLOOR_SHOP_M, HOUSE_CLASSES, HOUSE_MAX_M2,
-    INDUSTRIAL_CLASSES, MASONRY_MATERIALS, METALWALL, MIDRISE_GLASS_OFFICE, OFFICE, OLD_TOWER_GLASS, PAINT_TINTS,
-    PANEL, PITCH, PYRAMID_MIN_M2, PYRAMID_PLINTH_M, PYRAMID_ROOF_SHARE, ROOF_FLAT, ROOF_METAL, ROOF_SHINGLE,
-    ROOF_SLATE, ROOF_TINTS, ROW_CLASSES, RUIN_H, SHED_CLASSES, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES,
-    STONE_FLOORS, STUCCO, TOWER_SHOP_FLOORS, US_WALL_TINTS, WALL_TINTS, WOOD_TINTS, custom_look, parse_color
-)  # noqa: E402
-from .styles import ALPINE_HUT_M2, Spec, _area2, _hash01, brick_share, oriented_box, region_style  # noqa: E402
-from .sites import GARAGE_TAG_CLASSES  # noqa: E402
-from .doors import FALSE_FRONT_M, WEST_TOWN_ONE_STOREY  # noqa: E402

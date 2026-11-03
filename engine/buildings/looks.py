@@ -1,5 +1,7 @@
 """Materials, tints, signs and the OSM places behind them."""
+import hashlib
 import logging
+
 
 log = logging.getLogger("earthd.buildings")
 FLOOR_M = 3.0               # m per storey (residential)
@@ -388,5 +390,7 @@ def osm_place(tags):
 LAND_CLASSES = {"industrial": "industrial", "works": "industrial", "retail": "retail", "commercial": "commercial"}
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .styles import _hash01  # noqa: E402
+def _hash01(*vals):
+    """A number in [0, 1) from the values (stable across runs and machines)."""
+    h = hashlib.blake2b(repr(vals).encode(), digest_size=8).digest()
+    return int.from_bytes(h, "little") / 2.0 ** 64

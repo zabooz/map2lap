@@ -5,6 +5,7 @@ import os
 
 import roads as roadsmod
 
+
 log = logging.getLogger("earthd.grading")
 VERSION = 2
 PROFILE_STEP = 2.0          # m between profile samples

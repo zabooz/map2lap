@@ -5,6 +5,17 @@ import numpy as np
 
 import fast
 
+from .looks import BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, CHURCH_CLASSES, METALWALL, _hash01
+from .mesh import PORCH_DECK_M, STOOP_H, _inside, door_ground, drawn_ring
+from .places import castle_boxes, use_data, worship_boxes
+from .garages import DRIVEWAY, DRIVEWAY_W
+from .sites import bridge_lines, garage_rings, road_lines, support_rings, tunnel_lines, water_rings, way_lines
+from .photo import district_town
+from .tiles import (
+    BACK_ROAD_CLASSES, DOOR_OUT_M, DOOR_ROAD_M, G_DOOR, MAIN_STREET_CLASSES, MAIN_STREET_SETBACK_M, MAIN_STREET_SHOPS,
+    STOOP_SHARE, tile_buildings
+)
+
 
 def doors(items, lines, x0, y0, drives=None):
     """Prop rows (trees.lua rows, group "door") of a front door per house: on the wall whose middle is
@@ -248,26 +259,5 @@ def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset(), cou
                                  + tuple(d[2:3]) for d in decks] if decks else None, skip=skip)
 
 
-TOWN_COVERAGE = 0.16        # a tile whose footprints cover less than this share is a town / suburb (heights)
-# Small towns of the arid West (Bishop, Moab: one-storey main streets with false fronts, ranch houses), told
-# from cities by the footprint share of the district around a tile (1 km: Bishop 0.14, Moab 0.11; Frederick
-# 0.22, Fells Point 0.27): a tile's own share cannot (a main-street block is as dense as a city's).
-DISTRICT_M = 1000.0
-WEST_TOWN_COVERAGE = 0.18
-WEST_TOWN_ONE_STOREY = 0.75     # share of predicted one-storey buildings there
-FALSE_FRONT_M = 1.2             # m of parapet over a one-storey shop there
 POLES_COVERAGE = 0.30       # ... and its streets get wired wooden poles (furniture; Ocean City's photos: poles
                             # everywhere; Fells Point's dense core ~0.45 keeps lamp posts)
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, CHURCH_CLASSES, METALWALL  # noqa: E402
-from .styles import _hash01  # noqa: E402
-from .places import castle_boxes, use_data, worship_boxes  # noqa: E402
-from .mesh import PORCH_DECK_M, _inside, door_ground, drawn_ring  # noqa: E402
-from .sites import bridge_lines, garage_rings, road_lines, support_rings, tunnel_lines, water_rings, way_lines  # noqa: E402
-from .tiles import (
-    BACK_ROAD_CLASSES, DOOR_OUT_M, DOOR_ROAD_M, DRIVEWAY, DRIVEWAY_W, G_DOOR, MAIN_STREET_CLASSES,
-    MAIN_STREET_SETBACK_M, MAIN_STREET_SHOPS, STOOP_H, STOOP_SHARE, tile_buildings
-)  # noqa: E402
-from .photo import district_town  # noqa: E402

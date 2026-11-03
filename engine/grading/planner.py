@@ -10,7 +10,26 @@ import numpy as np
 import mapcells
 import roads as roadsmod
 
-from .settings import CLIP_MARGIN_M
+from .settings import (
+    ABUT_FILL_ON, APPROACH_CELL_M, APPROACH_MAX_LIFT, APPROACH_MAX_RUN, APPROACH_MIN_CROSS_M, APPROACH_MIN_LIFT,
+    APPROACH_ON, APPROACH_SKIP, APPROACH_TOUCH_M, CHAIN_JOIN_M, CHAIN_LOOK_M, CHAIN_ON, CHAIN_TURN_DEG, CLIP_MARGIN_M,
+    COARSE_EASE_ON, COARSE_MAX_SLOPE, COARSE_MAX_STEP_M, COARSE_REACH_M, COARSE_SIGMA_M, CORNERS_ON, DIRT_MEDIAN_M,
+    ENU_CACHE_MAX, JUNCTION_SNAP_ON, LONG_PART_M, MEDIAN_M, MOUTH_PLAN_M, OBS_END_M, OBS_HALF_M, OVER_TUNNEL_SMALL_M,
+    PLAN_SETS_MAX, PLAN_THREADS, PROFILE_STEP, RAIL_GRADE_ON, RAIL_TAG, RETRY_S, ROAD_LIFT, SPREAD_CELLS,
+    TUNNEL_KEEP_IN_M, TUNNEL_KEEP_M, TUNNEL_TAG, T_MAX, UNDER_ANY_ON, UNDER_HUMP_EDGE_M, UNDER_HUMP_MIN_M,
+    UNDER_HUMP_RAIL_HALF_M, UNDER_HUMP_SIN_MIN, UNDER_HUMP_WIN_M, UNDER_MAX_BRIDGE_M, UNDER_MAX_DROP_M, UNDER_NEAR_M,
+    UNDER_ON, UNDER_REACH_M, UNGRADED, UNGRADED_MARGIN_M, VERTEX_STEP, WATER_CURVE_M, WATER_LIFT_ON, WATER_MAX_LIFT, log
+)
+from .snap import _UNSET, _twin_trimmed, _with_lows, road_rank, shoulder, snap_junctions
+from .profiles import (
+    BANK_DESIGN, BANK_ON, BANK_RUNOFF_M, BANK_SIGMA_M, BANK_STENCIL_M, Plan, _point_along, clip_polyline, mapped_plan,
+    median_profile, plan_roads, profile_sigma, resample, road_id, smooth_profile, trim_plan, tunnel_plan
+)
+from .points import PlanPack, grade_points
+from .bridges import (
+    _arc_on, _is_link, _never_raised, approach_add, bridge_chain, bridge_chain_ends_free, bridge_lifts, hump_dip,
+    hump_height, junction_ends, raisable_ends, regrade_past_ends, underpass_offsets
+)
 
 
 class _Planner:
@@ -1787,29 +1806,3 @@ class _Planner:
             fast._ef.over_tunnel(mask, ee, nn, np.ascontiguousarray(xy[:, :2], np.float64), float(hw),
                                  float(TUNNEL_KEEP_IN_M))
         return mask if mask.any() else None
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .settings import (
-    ABUT_FILL_ON, APPROACH_CELL_M, APPROACH_MAX_LIFT, APPROACH_MAX_RUN, APPROACH_MIN_CROSS_M, APPROACH_MIN_LIFT,
-    APPROACH_ON, APPROACH_SKIP, APPROACH_TOUCH_M, CHAIN_JOIN_M, CHAIN_LOOK_M, CHAIN_ON, CHAIN_TURN_DEG,
-    COARSE_EASE_ON, COARSE_MAX_SLOPE, COARSE_MAX_STEP_M, COARSE_REACH_M, COARSE_SIGMA_M, CORNERS_ON, DIRT_MEDIAN_M,
-    ENU_CACHE_MAX, JUNCTION_SNAP_ON, LONG_PART_M, MEDIAN_M, MOUTH_PLAN_M, OBS_END_M, OBS_HALF_M, OVER_TUNNEL_SMALL_M,
-    PLAN_SETS_MAX, PLAN_THREADS, PROFILE_STEP, RAIL_GRADE_ON, RAIL_TAG, RETRY_S, ROAD_LIFT, SPREAD_CELLS,
-    TUNNEL_KEEP_IN_M, TUNNEL_KEEP_M, TUNNEL_TAG, T_MAX, UNDER_ANY_ON, UNDER_HUMP_EDGE_M, UNDER_HUMP_MIN_M,
-    UNDER_HUMP_RAIL_HALF_M, UNDER_HUMP_SIN_MIN, UNDER_HUMP_WIN_M, UNDER_MAX_BRIDGE_M, UNDER_MAX_DROP_M, UNDER_NEAR_M,
-    UNDER_ON, UNDER_REACH_M, UNGRADED, UNGRADED_MARGIN_M, VERTEX_STEP, WATER_CURVE_M, WATER_LIFT_ON, WATER_MAX_LIFT,
-    log
-)  # noqa: E402
-from .profiles import (
-    Plan, _point_along, clip_polyline, median_profile, plan_roads, profile_sigma, resample, smooth_profile,
-    tunnel_plan
-)  # noqa: E402
-from .banks import BANK_DESIGN, BANK_ON, BANK_RUNOFF_M, BANK_SIGMA_M, BANK_STENCIL_M  # noqa: E402
-from .snap import _UNSET, _twin_trimmed, _with_lows, road_rank, shoulder, snap_junctions  # noqa: E402
-from .grader import PlanPack, mapped_plan, road_id, trim_plan  # noqa: E402
-from .points import grade_points  # noqa: E402
-from .bridges import (
-    _arc_on, _is_link, _never_raised, approach_add, bridge_chain, bridge_chain_ends_free, bridge_lifts, hump_dip,
-    hump_height, junction_ends, raisable_ends, regrade_past_ends, underpass_offsets
-)  # noqa: E402

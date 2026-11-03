@@ -1,6 +1,13 @@
 """grade_points: the heights at points from the plans in reach (earthfast)."""
 import numpy as np
 
+from .settings import (
+    ABUT_NEAR_M, BLEND_R, BUCKET, CHAIN_JOIN_M, CORE_FADE_M, SEP_FROM_M, SEP_FULL_M, SEP_ON, SHARP_STEP_M, SIDE_FADE_M,
+    SLOPE_RUN, T_MAX, T_MIN, VERTEX_STEP, WALL_AHEAD_M, WALL_CUT_M, WALL_FLAT_M, WALL_T_M, YIELD_FADE_M,
+    YIELD_GATE_FROM_M, YIELD_GATE_TO_M, YIELD_NEAR_M
+)
+from .profiles import UNDER_DECK_GRADE_M, UNDER_DECK_MIN_M
+
 
 def _end_onward(p, e):
     """Plan p's end e (0: first, 1: last) as the road's, before its way on under its deck (Plan.under): (the end's point
@@ -224,11 +231,99 @@ def grade_points(px, py, base, plans, lift=0.0):
                                  float(SIDE_FADE_M), float(SHARP_STEP_M), **extra)
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .settings import (
-    BLEND_R, BUCKET, CHAIN_JOIN_M, CORE_FADE_M, SEP_FROM_M, SEP_FULL_M, SEP_ON, SHARP_STEP_M, SIDE_FADE_M, SLOPE_RUN,
-    T_MAX, T_MIN, VERTEX_STEP, WALL_AHEAD_M, WALL_CUT_M, WALL_FLAT_M, WALL_T_M, YIELD_FADE_M, YIELD_GATE_FROM_M,
-    YIELD_GATE_TO_M, YIELD_NEAR_M
-)  # noqa: E402
-from .profiles import UNDER_DECK_GRADE_M, UNDER_DECK_MIN_M  # noqa: E402
-from .grader import PlanPack  # noqa: E402
+class PlanPack:
+    """Plans (a list, in grade_points' order) as grade_points takes them: every segment's arrays concatenated once, with
+    each plan's box; a call keeps the segments of the plans whose boxes meet its points', in the same order (built per
+    call, the plans' Python loop cost a Canton tile set ~1 s)."""
+
+    def __init__(self, plans):
+        rows = [(k, p) for k, p in enumerate(plans) if len(p.xy) >= 2]
+        self.n = len(rows)
+        if not self.n:
+            return
+        f64 = np.float64
+        npts = np.array([len(p.xy) for _k, p in rows], np.int64)
+        nseg = npts - 1
+        xy = np.concatenate([np.asarray(p.xy, f64)[:, :2] for _k, p in rows])
+        z = np.concatenate([np.asarray(p.z, f64) for _k, p in rows])
+        last = np.cumsum(npts) - 1
+        ia = np.delete(np.arange(len(xy)), last)            # each segment's first point (not a plan's last point)
+        self.a, self.b = np.ascontiguousarray(xy[ia]), np.ascontiguousarray(xy[ia + 1])
+        self.za, self.zb = np.ascontiguousarray(z[ia]), np.ascontiguousarray(z[ia + 1])
+        bk = np.concatenate([np.asarray(p.bank, f64) if getattr(p, "bank", None) is not None else np.zeros(len(p.xy))
+                             for _k, p in rows])
+        self.ba, self.bb = np.ascontiguousarray(bk[ia]), np.ascontiguousarray(bk[ia + 1])
+        self.h = np.repeat(np.array([p.half for _k, p in rows], f64), nseg)
+        self.rh = np.repeat(np.array([getattr(p, "road_half", p.half) for _k, p in rows], f64), nseg)
+        rids = [getattr(p, "rid", -1) for _k, p in rows]
+        self.rid = np.repeat(np.array([r if r is not None and r >= 0 else 2 ** 40 + k
+                                       for (k, _p), r in zip(rows, rids)], np.int64), nseg)
+        s0 = np.r_[0, np.cumsum(nseg)]
+        ab = np.zeros(int(s0[-1]), bool)
+        cut = np.full((int(s0[-1]), 6), np.nan)
+        for n, (_k, p) in enumerate(rows):
+            abut = getattr(p, "abut", (False, False))
+            if abut[0] or abut[1]:
+                arc = np.r_[0.0, np.cumsum(np.hypot(*np.diff(p.xy[:, :2], axis=0).T))]
+                if abut[0]:
+                    ab[s0[n]:s0[n + 1]] |= arc[:-1] < ABUT_NEAR_M
+                if abut[1]:
+                    ab[s0[n]:s0[n + 1]] |= arc[-1] - arc[1:] < ABUT_NEAR_M
+            c = getattr(p, "cut", None)
+            if c is not None:
+                cut[s0[n]:s0[n + 1]] = c
+        self.ab = ab.astype(np.uint8)
+        self.cut = cut
+        self.box = np.array([p.bbox for _k, p in rows], f64).reshape(-1, 4)
+        self.of = np.repeat(np.arange(self.n), nseg)
+        self.yl = _yield_strength([p for _k, p in rows], self.box, nseg)
+        self.bw = _beside_strength([p for _k, p in rows], self.box, nseg)
+        self.tun = np.repeat(np.array([getattr(p, "tunnel", False) for _k, p in rows], np.uint8), nseg)
+        self.past = np.full(int(s0[-1]), np.nan)
+        self._add_past([(n, p) for n, (_k, p) in enumerate(rows)])
+
+    def _add_past(self, rows):
+        """The segments of each road's line going on past its ends onto a bridge (_past_segments) added to the arrays.
+        rows: [(row number, Plan)]."""
+        f64 = np.float64
+        got = [(n, p, s) for n, p in rows for s in _past_segments(p)]
+        if not got:
+            return
+        one = {"h": lambda p: p.half, "rh": lambda p: getattr(p, "road_half", p.half)}
+        first = {int(n): int(i) for n, i in zip(*np.unique(self.of, return_index=True))}
+        at = np.array([first[n] for n, _p, _s in got], np.int64)
+        m = np.array([len(s[0]) for _n, _p, s in got], np.int64)
+        take = np.repeat(at, m)
+        self.a = np.ascontiguousarray(np.r_[self.a, np.concatenate([s[0] for _n, _p, s in got])])
+        self.b = np.ascontiguousarray(np.r_[self.b, np.concatenate([s[1] for _n, _p, s in got])])
+        self.za = np.r_[self.za, np.concatenate([s[2] for _n, _p, s in got])]
+        self.zb = np.r_[self.zb, np.concatenate([s[3] for _n, _p, s in got])]
+        self.ba = np.r_[self.ba, np.concatenate([np.full(len(s[0]), s[4], f64) for _n, _p, s in got])]
+        self.bb = np.r_[self.bb, np.concatenate([np.full(len(s[0]), s[4], f64) for _n, _p, s in got])]
+        for name, fn in one.items():
+            setattr(self, name, np.r_[getattr(self, name), np.repeat(np.array([fn(p) for _n, p, _s in got], f64), m)])
+        self.rid = np.r_[self.rid, self.rid[take]]
+        self.tun = np.r_[self.tun, self.tun[take]]
+        self.of = np.r_[self.of, self.of[take]]
+        self.ab = np.r_[self.ab, np.zeros(len(take), np.uint8)]
+        self.yl = np.r_[self.yl, np.zeros(len(take), np.uint8)]
+        self.bw = np.r_[self.bw, np.zeros(len(take), np.uint8)]
+        self.cut = np.r_[self.cut, np.full((len(take), 6), np.nan)]
+        self.past = np.r_[self.past, np.concatenate([s[5] for _n, _p, s in got])]
+
+    def near(self, x0, y0, x1, y1, with_yield=False):
+        """The segment arrays of the plans whose boxes meet (x0, y0, x1, y1), or None; with_yield: their yl, bw, tun and
+        past last too."""
+        if not self.n:
+            return None
+        bx = self.box
+        keep = ~((bx[:, 2] < x0) | (bx[:, 0] > x1) | (bx[:, 3] < y0) | (bx[:, 1] > y1))
+        if not keep.any():
+            return None
+        arrs = (self.a, self.b, self.za, self.zb, self.h, self.rh, self.rid, self.ab, self.cut, self.ba, self.bb)
+        if with_yield:
+            arrs = arrs + (self.yl, self.bw, self.tun, self.past)
+        if keep.all():
+            return arrs
+        sk = keep[self.of]
+        return tuple(np.ascontiguousarray(v[sk]) for v in arrs)

@@ -3,6 +3,17 @@ import numpy as np
 
 import fast
 
+from .looks import (
+    BRIDGE_CLASSES, FLOOR_M, FOUNDATION_M, GROUND_FLOOR_SHOP_M, LOOKS, MATERIALS, PANEL, SKIRT_LITE_M, SKIRT_M, STEEL,
+    STEEL_BAY_M, STEEL_LEG_MAX, STEEL_TOP_SHARE, _Looks
+)
+from .styles import _area2, oriented_box
+from .mesh import (
+    MAX_MESH_VERTS, Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _signs, _steeple, _stoop,
+    _walls, base_z, drawn_ring
+)
+from .garages import _parking_deck, deck_plan
+
 
 def build(specs_and_ground, lite=False):
     """The tile's mesh from [(Spec, ground z min, ground z max)] with rings in the tile's local frame:
@@ -170,21 +181,41 @@ def _part_heights(a, i):
 ROAD_THROUGH_M = 15.0       # a footprint that public roads run through this far is a structure over them
 OVER_ROAD_CLEAR_M = 5.5     # ... lifted this high (an expressway's or a station's slab over the streets: Baltimore's
                             # 17,500 m2 one by I-83, the AI drove into its wall at 35 mph)
-ACROSS_W = 8.0              # m: a footprint at most this wide that a public road crosses (its long middle line) is a
-                            # walkway or canopy over it (the 69th Street station's 3 m shelters stood across
-                            # the Dan Ryan as brick walls; a road crossing one runs only its width inside it)
-THROUGH_CLASSES = {"motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified",
-                   "living_street"}
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .looks import (
-    BRIDGE_CLASSES, FLOOR_M, FOUNDATION_M, GROUND_FLOOR_SHOP_M, LOOKS, MATERIALS, PANEL, SKIRT_LITE_M, SKIRT_M,
-    STEEL, STEEL_BAY_M, STEEL_LEG_MAX, STEEL_TOP_SHARE, _Looks
-)  # noqa: E402
-from .styles import _area2, oriented_box  # noqa: E402
-from .mesh import (
-    Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _signs, _steeple, _stoop, _walls,
-    base_z, drawn_ring
-)  # noqa: E402
-from .garages import _parking_deck, deck_plan  # noqa: E402
+def _concat(meshes):
+    """build() meshes (the same MATERIALS) as one."""
+    if len(meshes) == 1:
+        return meshes[0]
+    off = np.cumsum([0] + [len(m[0]) for m in meshes[:-1]])
+    return (np.concatenate([m[0] for m in meshes]), np.concatenate([m[1] for m in meshes]),
+            np.concatenate([m[2] + o for m, o in zip(meshes, off)]), np.concatenate([m[3] for m in meshes]),
+            meshes[0][4], np.concatenate([m[5] for m in meshes]))
+
+
+def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False):
+    """build() split into meshes of at most max_verts vertices each (whole buildings per mesh): a list, [] if empty.
+    Each building is built once (build draws them one by one) and the meshes joined. with_lod: each mesh carries the
+    lite mesh of its buildings as a 7th element (write: the shape's coarse detail)."""
+    parts, cur, cur_lite, n = [], [], [], 0
+
+    def flush():
+        if cur:
+            mesh = _concat(cur)
+            parts.append(mesh + (_concat(cur_lite) if cur_lite else None,) if with_lod and not lite else mesh)
+
+    for item in specs_and_ground:
+        one = build([item], lite)
+        if one is None:
+            continue
+        if cur and n + len(one[0]) > max_verts:
+            flush()
+            cur, cur_lite, n = [], [], 0
+        cur.append(one)
+        n += len(one[0])
+        if with_lod and not lite:
+            o = build([item], lite=True)
+            if o is not None:
+                cur_lite.append(o)
+    flush()
+    return parts

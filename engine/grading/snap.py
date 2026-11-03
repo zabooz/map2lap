@@ -3,6 +3,11 @@ import numpy as np
 
 import roads as roadsmod
 
+from .settings import (
+    COARSE_EASE_ON, JUNCTION_END_M, JUNCTION_MAX_M, JUNCTION_PARALLEL_DEG, JUNCTION_RANK, JUNCTION_REACH_M,
+    JUNCTION_TAPER_M, SHOULDER_M, SIDEWALK_MARGIN_M
+)
+
 
 def road_rank(spec):
     """Higher: the road that keeps its profile at a junction (snap_junctions); a link ranks just under its class."""
@@ -173,10 +178,3 @@ def _twin_trimmed(secs):
 
 
 _UNSET = object()
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .settings import (
-    COARSE_EASE_ON, JUNCTION_END_M, JUNCTION_MAX_M, JUNCTION_PARALLEL_DEG, JUNCTION_RANK, JUNCTION_REACH_M,
-    JUNCTION_TAPER_M, SHOULDER_M, SIDEWALK_MARGIN_M
-)  # noqa: E402

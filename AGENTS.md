@@ -52,8 +52,9 @@ by hand.
 ## Packages
 
 `roads/`, `grading/` and `buildings/` in `engine/` are read by the package's name (`roads.portal_apron`). A name new to the
-outside goes into `__init__.py`. Parts call each other: a name read at import time is imported at a part's top, one read
-only inside functions at its end. Set a switch through the package (`roads.NAME = x`): that reaches every part's copy.
+outside goes into `__init__.py`. A package's parts stand in one order, the `from . import` line of its `__init__.py`: a
+part imports only parts before it, at its top, so a name two parts read lives in the earlier one
+(`tests/test_part_order.py`). Set a switch through the package (`roads.NAME = x`): that reaches every part's copy.
 
 ## Read before you
 

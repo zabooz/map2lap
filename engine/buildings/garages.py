@@ -1,6 +1,14 @@
 """Parking structures: decks, ramps and what stands on a road's deck."""
 import numpy as np
 
+from .looks import FOUNDATION_M, PANEL, WALL_TINTS, _hash01
+from .styles import _area2
+from .mesh import _box, _box_tiled, _inside
+
+DRIVEWAY_W = 3.2            # m
+DRIVEWAY = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 19}     # a road tile chunk's look (roads.LOOK)
+
+
 # A parking structure you can drive into ("garage buildings ... are solid"): open storeys of
 # concrete decks on perimeter columns, a parapet round each upper deck, and a two-lane switchback ramp along the
 # longest wall (one lane up per storey, a U-turn landing at each end). Only where the ramp fits inside the footprint
@@ -309,10 +317,3 @@ def on_deck(ring, decks, ground):
     off = (r - p) @ np.array([-u[1], u[0]])            # (signed: a footprint across the lanes has corners both sides)
     inner = w / 2 - DECK_LANE_M
     return bool(off.min() < inner and off.max() > -inner), zd
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import FOUNDATION_M, PANEL, WALL_TINTS  # noqa: E402
-from .styles import _area2, _hash01  # noqa: E402
-from .mesh import _box, _box_tiled, _inside  # noqa: E402
-from .tiles import DRIVEWAY, DRIVEWAY_W  # noqa: E402

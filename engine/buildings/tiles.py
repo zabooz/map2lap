@@ -6,7 +6,23 @@ import numpy as np
 
 import mapgeom
 
-from .looks import INDUSTRIAL_CLASSES, SHED_CLASSES
+from .looks import (
+    BRIDGE_CLASSES, CHURCH_OVER, FLOOR_M, FOUNDATION_M, INDUSTRIAL_CLASSES, MIN_AREA_M2, SHED_CLASSES, STEEL_MATERIALS,
+    _hash01
+)
+from .styles import ALPINE_COVER, _area2, clean_ring, oriented_box, tree_line_m
+from .mesh import OVER_TUNNEL_CLEAR_M, _portal_lift
+from .places import castle_rings, church_rings, footprint_names, footprint_signs, footprint_uses, names_for, signs_for
+from .garages import deck_plan, on_deck
+from .sites import (
+    CENTRE_PREFILTER_M, TUNNEL_THROUGH_M, _covers_garage, _ml_false, _ml_steep, _on_support, _passages, road_across,
+    road_through
+)
+from .build import OVER_ROAD_CLEAR_M, ROAD_THROUGH_M, _part_heights, _shared_walls
+from .planner import plan
+from .photo import BRICK_WALK_COVERAGE
+
+TOWN_COVERAGE = 0.16        # a tile whose footprints cover less than this share is a town / suburb (heights)
 
 
 def _parts_index(f):
@@ -514,17 +530,6 @@ DOOR_OUT_M = 0.09            # m the door model's origin stands off the wall: it
                              # (both Building Architect doors), so at 3 cm it was inside the wall, only the frame
                              # showing (Fells Point)
 STOOP_SHARE = 0.8           # row houses with a front stoop (Baltimore's white marble steps)
-# A row house's marble stoop ("the steps model isnt good. Try and find one from the
-# offical maps"): built as the official maps' stair blocks are (West Coast USA's stairblock1, Italy's old stairs:
-# treads and risers up to a landing between stepped side walls); their own models carry race-track paint and logos
-STOOP_H = 0.54              # m: three steps up to the door (Fells Point's on Mapillary: low white marble
-STOOP_STEPS = 3             # steps, no side walls; ours were four between walls, big white blocks)
-STOOP_RISE = 0.18           # m a step (more of them where the street falls away from the house)
-STOOP_MAX_STEPS = 7
-STOOP_RISE_MAX = 0.23       # m: the steepest outdoor step
-STOOP_TREAD = 0.3           # m deep each step
-STOOP_LANDING = 0.6         # m deep the landing at the door
-STOOP_W = 1.3               # m wide the steps
 DOOR_ROAD_M = 30.0          # a front door on the wall facing the nearest road within this
 DOOR_CLASSES_SKIP = SHED_CLASSES | INDUSTRIAL_CLASSES
 G_DOOR = "door"
@@ -532,21 +537,3 @@ MAIN_STREET_CLASSES = {"primary", "secondary", "tertiary"}
 BACK_ROAD_CLASSES = {"service", "track", "path", "footway", "cycleway", "pedestrian", "steps", "alley"}
 MAIN_STREET_SETBACK_M = 7.0  # m from a main street's edge within which a front wall has a shopfront
 MAIN_STREET_SHOPS = 0.75     # the share of such buildings that do
-DRIVEWAY_W = 3.2            # m
-DRIVEWAY = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 19}     # a road tile chunk's look (roads.LOOK)
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import BRIDGE_CLASSES, CHURCH_OVER, FLOOR_M, FOUNDATION_M, MIN_AREA_M2, STEEL_MATERIALS  # noqa: E402
-from .build import OVER_ROAD_CLEAR_M, ROAD_THROUGH_M, _part_heights, _shared_walls  # noqa: E402
-from .styles import ALPINE_COVER, _area2, _hash01, clean_ring, oriented_box, tree_line_m  # noqa: E402
-from .places import castle_rings, church_rings, footprint_names, footprint_signs, footprint_uses, names_for, signs_for  # noqa: E402
-from .planner import plan  # noqa: E402
-from .mesh import _portal_lift  # noqa: E402
-from .garages import deck_plan, on_deck  # noqa: E402
-from .sites import (
-    CENTRE_PREFILTER_M, OVER_TUNNEL_CLEAR_M, TUNNEL_THROUGH_M, _covers_garage, _ml_false, _ml_steep, _on_support,
-    _passages, road_across, road_through
-)  # noqa: E402
-from .doors import TOWN_COVERAGE  # noqa: E402
-from .photo import BRICK_WALK_COVERAGE  # noqa: E402

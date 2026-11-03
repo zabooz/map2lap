@@ -1,11 +1,54 @@
-"""Plan and one road's profile: smoothing, cuts, the ground under a bridge's end."""
+"""Plan and one road's profile: smoothing, cuts, banked curves (a road's cross slope), the ground under a bridge's
+end."""
 import math
+import os
 
 import numpy as np
 
 import roads as roadsmod
 
-from .settings import PROFILE_STEP
+from .settings import (
+    ABUT_FAR_M, ABUT_FILL_ON, ABUT_MAX_M, ABUT_MIN_FINE_M, ABUT_MIN_M, ABUT_NEAR_M, ABUT_SHORT_SAMPLES, ABUT_STEEP,
+    ABUT_STEEP_FINE, CLASS_SIGMA_M, COARSE_SIDE_M, DIRT_MEDIAN_M, DIRT_SIGMA_M, MAJOR_CLASSES, MEDIAN_M, PROFILE_STEP,
+    SHARP_GRADE, SHARP_LONE_MIN_M, SHARP_MIN_M, SHARP_ON, SHARP_REACH_M, SHARP_RUN_N, SHARP_STEP_M, SIGMA_M,
+    SIGMA_MAJOR_M, T_MAX, VERTEX_STEP
+)
+from .snap import shoulder
+
+# Banked curves ("improve how roads generate"; BeamNG's Hero Road editor banks its curves, our
+# carriageways were graded level across): a motorway's or trunk's curve leans into its turn, the cross slope by the
+# design-speed rule e = BANK_E_MAX x min(1, r_min / R), r_min = v² / (127 (e_max + f)) of the class's design speed v
+# (km/h) and side friction f; a gentle bend (under 1 %) keeps level. It comes in over BANK_RUNOFF_M and fades out over
+# BANK_FADE_M where the road meets a bridge (a deck is level across) or ends without a road going on (a tunnel's
+# floor, a junction). The grading pass (grade_points) tilts the core across the carriageway by it.
+BANK_ON = os.environ.get("BNE_BANK", "on") != "off"
+BANK_E_MAX = 0.08
+BANK_DESIGN = {"motorway": (110.0, 0.10), "trunk": (90.0, 0.12)}     # km/h, side friction
+BANK_LINK = (60.0, 0.16)                                              # their slip roads
+
+# Sparse motorway map lines are straight chords, often ~100 m between vertices: a 12 m stencil saw each chord as level
+# and each corner as a tight bend, 8 % bank pulses (I-80, 41.41135, -105.83960; Discord 2026-10-28 and PR #410). The
+# curvature is the road's mean turning over this far either side (earthfast.bank_profile), its context the joined
+# roads' too (plan_roads bank_xy), then smoothed.
+BANK_STENCIL_M = 100.0      # 200 m baseline
+BANK_RUNOFF_M = 100.0       # full 8 % transition at <= 0.08 / 100 m away from ends
+BANK_FADE_M = 100.0         # smoothstep to level at a bridge / loose end; no deck-height changes
+BANK_SIGMA_M = 12.0         # remove discrete box-window steps in cross slope, not road elevation
+
+# Where the elevation is lidar (plan_roads fine: not dem.coarse_at) a motorway's or trunk's cross slope is the
+# elevation's own, read across its carriageway (BANK_LIDAR_SIDE of its half width either side of the centre line),
+# smoothed along it and held to BANK_E_MAX, instead of the design-speed rule; and it is not faded out where the road
+# meets a bridge (roads.BridgeProfiles.deck_bank tilts the deck the same way). A divided road in a curve keeps one
+# surface across both carriageways; graded level each about its own centre line, they lie apart over the median and
+# their decks overlap there as a step in the fast lane.
+BANK_LIDAR_SIDE = 0.6
+BANK_LIDAR_SIGMA_M = 10.0
+
+# ... read at five points across; a reading whose points do not lie on a line within BANK_LIDAR_RMS_M, or steeper than
+# BANK_E_MAX, is not the road's surface (an embankment's side, a bridge's abutment slope skewed under it, which would
+# tilt the road under the other carriageway's deck beside it): it takes its valid neighbours'; and the last ABUT_NEAR_M
+# before a bridge keep the slope from there
+BANK_LIDAR_RMS_M = 0.03
 
 
 def median_profile(z, step, width):
@@ -463,12 +506,175 @@ def _under_deck(xy, z, abut, half, ground=None):
     return xy, z, tuple(grow), tuple(opens)
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .settings import (
-    ABUT_FILL_ON, CLASS_SIGMA_M, COARSE_SIDE_M, DIRT_MEDIAN_M, DIRT_SIGMA_M, MAJOR_CLASSES, MEDIAN_M, SHARP_GRADE,
-    SHARP_LONE_MIN_M, SHARP_MIN_M, SHARP_ON, SHARP_REACH_M, SHARP_RUN_N, SHARP_STEP_M, SIGMA_M, SIGMA_MAJOR_M, T_MAX,
-    VERTEX_STEP
-)  # noqa: E402
-from .banks import _bank_lidar, _lidar_banks, bank  # noqa: E402
-from .snap import shoulder  # noqa: E402
-from .bridges import fill_abutment  # noqa: E402
+def fill_abutment(z, at_end, step=PROFILE_STEP, fine=False):
+    """The raw profile z (a sample every step m) of a road leading onto a bridge at its first (at_end False) or last
+    sample, its last ABUT_NEAR_M filled up to the straight grade of the stretch from there to ABUT_FAR_M where they
+    fall at least ABUT_STEEP more steeply than it toward the bridge (ABUT_FILL_ON). A profile too short for that (a part
+    between a junction and a bridge, with no road going on straight past the junction) takes its half nearer the bridge
+    against the other, at least ABUT_SHORT_SAMPLES of them: on a side road's last 10 m, 1.5 m down the bank and then
+    level, the end stayed down the bank at 19 % and the deck with it.
+    fine: lidar, ABUT_*_FINE. Returns z itself when nothing is filled. Pure."""
+    min_m, steep = (ABUT_MIN_FINE_M, ABUT_STEEP_FINE) if fine else (ABUT_MIN_M, ABUT_STEEP)
+    z = np.asarray(z, np.float64)
+    p = z[::-1] if at_end else z
+    d = np.arange(len(p)) * step
+    near_m = ABUT_NEAR_M
+    far = (d >= near_m) & (d <= ABUT_FAR_M)
+    if far.sum() < 4:
+        near_m = float(d[-1]) / 2 if len(d) else 0.0
+        far = d >= near_m
+        if far.sum() < ABUT_SHORT_SAMPLES:
+            return z
+    b, a = np.polyfit(d[far], p[far], 1)
+    n = int((d < near_m).sum())
+    e = a + b * d[:n]
+    if e[0] - p[0] < min_m or (np.diff(p[:n + 1]) / step - b).max() < steep:
+        return z
+    q = p.copy()
+    q[:n] = np.minimum(np.maximum(p[:n], e), p[:n] + ABUT_MAX_M)
+    return q[::-1] if at_end else q
+
+
+def mapped_plan(p, fn):
+    """Plan p with its vertices through fn (xy (n, 2) -> (n, 2): geotiles.world_xy_map); heights, widths, cuttings and
+    banking as they are (geodetic, or along / across the road)."""
+    q = Plan(fn(p.xy), p.z, p.half, p.abut, p.cut, p.road_half)
+    q.rid, q.max_wall, q.bank = p.rid, p.max_wall, getattr(p, "bank", None)
+    q.tunnel = getattr(p, "tunnel", False)
+    q.under = getattr(p, "under", (False, False))
+    q.beyond = getattr(p, "beyond", (None, None))
+    return q
+
+
+def trim_plan(p, box):
+    """The pieces of Plan p within box (x0, y0, x1, y1), or a convex polygon (k, 2): cut at its edges (earthfast.clip_segments), heights and
+    cuttings with them; an end not at p's own end leads onto no bridge. [Plan]."""
+    import fast
+    xy = np.ascontiguousarray(np.asarray(p.xy, np.float64)[:, :2])
+    if len(xy) < 2:
+        return [p]
+    if np.ndim(box) == 2:               # a convex polygon (a cell's quad: _Planner._clip_quad)
+        fast.require(104, "clip_segments_convex")
+        t = np.asarray(fast._ef.clip_segments_convex(xy, np.ascontiguousarray(box, np.float64)))
+    else:
+        fast.require(44, "clip_segments")
+        t = np.asarray(fast._ef.clip_segments(xy, tuple(float(v) for v in box)))
+    ok = np.isfinite(t[:, 0])
+    if ok.all() and (t[:, 0] == 0.0).all() and (t[:, 1] == 1.0).all():
+        return [p]
+    out, i, n = [], 0, len(ok)
+    while i < n:
+        if not ok[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and ok[j + 1] and t[j, 1] == 1.0 and t[j + 1, 0] == 0.0:
+            j += 1
+        t0, t1 = t[i, 0], t[j, 1]
+        a = xy[i] + (xy[i + 1] - xy[i]) * t0
+        b = xy[j] + (xy[j + 1] - xy[j]) * t1
+        za = p.z[i] + (p.z[i + 1] - p.z[i]) * t0
+        zb = p.z[j] + (p.z[j + 1] - p.z[j]) * t1
+        pxy = np.vstack([a, xy[i + 1:j + 1], b])
+        pz = np.r_[za, p.z[i + 1:j + 1], zb]
+        pb = getattr(p, "bank", None)
+        if pb is not None:
+            pb = np.r_[pb[i] + (pb[i + 1] - pb[i]) * t0, pb[i + 1:j + 1], pb[j] + (pb[j + 1] - pb[j]) * t1]
+        if np.hypot(*(pxy[-1] - pxy[0])) > 1e-6 or len(pxy) > 2:
+            q = Plan(pxy, pz, p.half, (p.abut[0] and i == 0 and t0 == 0.0, p.abut[1] and j == n - 1 and t1 == 1.0),
+                     None if p.cut is None else np.asarray(p.cut)[i:j + 1].copy(), p.road_half)
+            q.rid = getattr(p, "rid", -1)
+            q.max_wall = getattr(p, "max_wall", WALL_MAX_H_M)
+            q.bank = pb
+            q.tunnel = getattr(p, "tunnel", False)
+            fr = getattr(p, "free", (False, False))     # (only the pieces with its own ends)
+            q.free = (fr[0] and i == 0 and t0 == 0.0, fr[1] and j == n - 1 and t1 == 1.0)
+            first, last = i == 0 and t0 == 0.0, j == n - 1 and t1 == 1.0
+            un, by = getattr(p, "under", (False, False)), getattr(p, "beyond", (None, None))
+            q.under = (un[0] and first, un[1] and last)
+            q.beyond = (by[0] if first else None, by[1] if last else None)
+            out.append(q)
+        i = j + 1
+    return out
+
+
+def road_id(fid):
+    """A stable integer id of a map feature (grade_points: a road never gives way to itself, though each map cell
+    plans its own stretch of it: the Stelvio Pass's hairpins sank under their own other stretches)."""
+    import zlib
+    return zlib.crc32(str(fid).encode()) & 0x7FFFFFFF
+
+
+def bank(xy, spec, abut=(False, False), ext=(0, 0)):
+    """(n,) the cross slope of a road part's centreline xy (n, 2) (m per m toward its left), or None (not banked)."""
+    if not BANK_ON or spec.kind not in roadsmod.BUILT or spec.cls not in BANK_DESIGN or len(xy) < 3:
+        return None
+    v, f = BANK_LINK if getattr(spec, "link", False) else BANK_DESIGN[spec.cls]
+    r_min = v * v / (127.0 * (BANK_E_MAX + f))
+    import fast
+    fast.require(84, "bank_profile")
+    fade = [BANK_FADE_M if (abut[k] or not ext[k]) else 0.0 for k in (0, 1)]
+    b = np.asarray(fast._ef.bank_profile(np.ascontiguousarray(np.asarray(xy, np.float64)[:, :2]), float(BANK_E_MAX),
+                                         float(r_min), float(BANK_STENCIL_M), float(BANK_RUNOFF_M),
+                                         float(fade[0]), float(fade[1])), np.float64)
+    step = float(np.median(np.linalg.norm(np.diff(np.asarray(xy)[:, :2], axis=0), axis=1)))
+    if step > 0.0:
+        b = smooth_profile(b, step, BANK_SIGMA_M)  # pinned ends keep bridge abutments level
+    if fade[0]:
+        b[0] = 0.0
+    if fade[1]:
+        b[-1] = 0.0
+    return b if np.any(b != 0.0) else None
+
+
+def _lidar_banks(frame, elev, items):
+    """Per (centreline (n, 2), spec) the elevation's cross slope at each point (m per m toward its
+    left, as bank; NaN where the reading is not the road's surface: BANK_LIDAR_RMS_M, BANK_E_MAX), or None for a road
+    BANK_DESIGN does not bank. One elev call."""
+    pts, out, idx = [], [None] * len(items), []
+    f = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
+    for j, (xy, spec) in enumerate(items):
+        if spec.kind not in roadsmod.BUILT or spec.cls not in BANK_DESIGN or len(xy) < 3:
+            continue
+        xy = np.asarray(xy, np.float64)[:, :2]
+        t = np.gradient(xy, axis=0)
+        t /= np.maximum(np.hypot(t[:, 0], t[:, 1]), 1e-9)[:, None]
+        o = BANK_LIDAR_SIDE * max(float(getattr(spec, "width", 0.0) or 0.0), 2.0) / 2
+        left = np.c_[-t[:, 1], t[:, 0]] * o
+        pts += [xy + left * a for a in f]
+        idx.append((j, len(xy), o))
+    if not idx:
+        return out
+    P = np.concatenate(pts)
+    la, lo, _ = frame.enu_to_geodetic(P[:, 0], P[:, 1], 0.0)
+    z = np.asarray(elev(la, lo), np.float64)
+    k = 0
+    for j, n, o in idx:
+        Z = z[k:k + 5 * n].reshape(5, n)
+        k += 5 * n
+        w = f[:, None] * o
+        slope = ((w * (Z - Z.mean(0))).sum(0)) / (w * w).sum(0)
+        rms = np.sqrt(((Z - Z.mean(0) - slope * w) ** 2).mean(0))
+        out[j] = np.where((rms <= BANK_LIDAR_RMS_M) & (np.abs(slope) <= BANK_E_MAX), slope, np.nan)
+    return out
+
+
+def _bank_lidar(raw, step, abut, ext, xy):
+    """The measured cross slope raw (n,; NaN: no reading) filled from its valid neighbours,
+    smoothed along the road (BANK_LIDAR_SIGMA_M), held from ABUT_NEAR_M before a bridge to it, and faded to level over
+    BANK_FADE_M at an end with no road going on (not at a bridge: its deck takes it); None when level."""
+    b = np.asarray(raw, np.float64)
+    s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(np.asarray(xy, np.float64)[:, :2], axis=0).T))]
+    ok = np.isfinite(b)
+    if not ok.any():
+        return None
+    b = np.interp(s, s[ok], b[ok])
+    if step > 0.0 and len(b) >= 3:
+        b = smooth_profile(b, step, BANK_LIDAR_SIGMA_M)
+    for e, d in ((0, s), (1, s[-1] - s)):
+        if abut[e] and s[-1] > ABUT_NEAR_M:
+            b = np.where(d < ABUT_NEAR_M, np.interp(ABUT_NEAR_M if e == 0 else s[-1] - ABUT_NEAR_M, s, b), b)
+        elif not abut[e] and not ext[e]:
+            w = np.clip(d / BANK_FADE_M, 0.0, 1.0)
+            b = b * w * w * (3.0 - 2.0 * w)
+    return b if np.any(np.abs(b) > 1e-4) else None

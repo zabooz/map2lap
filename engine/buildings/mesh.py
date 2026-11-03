@@ -5,6 +5,29 @@ import numpy as np
 
 import fast
 
+from .looks import (
+    BANDS, BAND_SHOP, BLADE_CAP_M, BLADE_T, BLADE_W, CHURCH_CLASSES, CORNICE_DOWN_M, CORNICE_OUT_M, CORNICE_UP_M,
+    EAVE_M, FOUNDATION_M, GREEN_CROSS, GROUND_FLOOR_SHOP_M, HALL_CAP_M, HALL_CAP_SHARE, HALL_CLEAR_M, KEEP_SIDE, MERLON,
+    PANEL_CAP, PANEL_H, PITCH, PLATE_H, PLATE_TOP_M, PLATE_W, ROOF_SLATE, ROOF_UV_M, SHOP, SIDING_UV_M, SIGN_CAP,
+    SIGN_H, SIGN_MARGIN_M, SIGN_OUT, SIGN_SHOP_M, SIGN_TINTS, SYMBOL_IN_M, SYMBOL_M, TILE_PX_M, _hash01
+)
+from .styles import _area2, oriented_box, roof_pitch, triangulate
+
+OVER_TUNNEL_CLEAR_M = 7.5   # (the tube's vault is roadmesh.TUNNEL_H = 6.8 m over the floor;: Eisenhower's
+                            # east portal building closed the tunnel)
+
+# A row house's marble stoop ("the steps model isnt good. Try and find one from the
+# offical maps"): built as the official maps' stair blocks are (West Coast USA's stairblock1, Italy's old stairs:
+# treads and risers up to a landing between stepped side walls); their own models carry race-track paint and logos
+STOOP_H = 0.54              # m: three steps up to the door (Fells Point's on Mapillary: low white marble
+STOOP_STEPS = 3             # steps, no side walls; ours were four between walls, big white blocks)
+STOOP_RISE = 0.18           # m a step (more of them where the street falls away from the house)
+STOOP_MAX_STEPS = 7
+STOOP_RISE_MAX = 0.23       # m: the steepest outdoor step
+STOOP_TREAD = 0.3           # m deep each step
+STOOP_LANDING = 0.6         # m deep the landing at the door
+STOOP_W = 1.3               # m wide the steps
+
 
 class Mesh:
     """Positions, uvs, colours, triangles and their material index, appended to. A material is a token
@@ -607,56 +630,3 @@ def _roof(m, spec, ring, z_eave, mat_idx):
 # The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
 # vertices (the: slabs across a Fells Point street; dense tiles had up to 81k vertices).
 MAX_MESH_VERTS = 60000
-
-
-def _concat(meshes):
-    """build() meshes (the same MATERIALS) as one."""
-    if len(meshes) == 1:
-        return meshes[0]
-    off = np.cumsum([0] + [len(m[0]) for m in meshes[:-1]])
-    return (np.concatenate([m[0] for m in meshes]), np.concatenate([m[1] for m in meshes]),
-            np.concatenate([m[2] + o for m, o in zip(meshes, off)]), np.concatenate([m[3] for m in meshes]),
-            meshes[0][4], np.concatenate([m[5] for m in meshes]))
-
-
-def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False):
-    """build() split into meshes of at most max_verts vertices each (whole buildings per mesh): a list, [] if empty.
-    Each building is built once (build draws them one by one) and the meshes joined. with_lod: each mesh carries the
-    lite mesh of its buildings as a 7th element (write: the shape's coarse detail)."""
-    parts, cur, cur_lite, n = [], [], [], 0
-
-    def flush():
-        if cur:
-            mesh = _concat(cur)
-            parts.append(mesh + (_concat(cur_lite) if cur_lite else None,) if with_lod and not lite else mesh)
-
-    for item in specs_and_ground:
-        one = build([item], lite)
-        if one is None:
-            continue
-        if cur and n + len(one[0]) > max_verts:
-            flush()
-            cur, cur_lite, n = [], [], 0
-        cur.append(one)
-        n += len(one[0])
-        if with_lod and not lite:
-            o = build([item], lite=True)
-            if o is not None:
-                cur_lite.append(o)
-    flush()
-    return parts
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import (
-    BANDS, BAND_SHOP, BLADE_CAP_M, BLADE_T, BLADE_W, CHURCH_CLASSES, CORNICE_DOWN_M, CORNICE_OUT_M, CORNICE_UP_M,
-    EAVE_M, FOUNDATION_M, GREEN_CROSS, GROUND_FLOOR_SHOP_M, HALL_CAP_M, HALL_CAP_SHARE, HALL_CLEAR_M, KEEP_SIDE,
-    MERLON, PANEL_CAP, PANEL_H, PITCH, PLATE_H, PLATE_TOP_M, PLATE_W, ROOF_SLATE, ROOF_UV_M, SHOP, SIDING_UV_M,
-    SIGN_CAP, SIGN_H, SIGN_MARGIN_M, SIGN_OUT, SIGN_SHOP_M, SIGN_TINTS, SYMBOL_IN_M, SYMBOL_M, TILE_PX_M
-)  # noqa: E402
-from .build import build  # noqa: E402
-from .styles import _area2, _hash01, oriented_box, roof_pitch, triangulate  # noqa: E402
-from .sites import OVER_TUNNEL_CLEAR_M  # noqa: E402
-from .tiles import (
-    STOOP_H, STOOP_LANDING, STOOP_MAX_STEPS, STOOP_RISE, STOOP_RISE_MAX, STOOP_STEPS, STOOP_TREAD, STOOP_W
-)  # noqa: E402

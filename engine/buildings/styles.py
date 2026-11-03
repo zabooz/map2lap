@@ -1,17 +1,9 @@
 """A region's style: roofs, walls, heights."""
-import hashlib
-
 import numpy as np
 
 import fast
 
-from .looks import ROOF_METAL, ROOF_SHINGLE, ROOF_SLATE, SIDING, STUCCO
-
-
-def _hash01(*vals):
-    """A number in [0, 1) from the values (stable across runs and machines)."""
-    h = hashlib.blake2b(repr(vals).encode(), digest_size=8).digest()
-    return int.from_bytes(h, "little") / 2.0 ** 64
+from .looks import MAX_VERTS, PITCH, ROOF_METAL, ROOF_SHINGLE, ROOF_SLATE, SIDING, SIMPLIFY_M, STUCCO
 
 
 # ------------------------------------------------------------------------------------------- polygons
@@ -190,7 +182,3 @@ def tree_line_m(lat):
     """A rough tree line (m) by latitude: ~3,600 m to 32 deg, falling ~110 m per degree (the Alps at 46 deg ~2,050 m,
     Scandinavia at 60 deg ~520 m), sea level towards 70 deg. Pure."""
     return max(0.0, 3600.0 - 110.0 * max(0.0, abs(float(lat)) - 32.0))
-
-
-# (read inside functions only; here so that the parts can load each other)
-from .looks import MAX_VERTS, PITCH, SIMPLIFY_M  # noqa: E402

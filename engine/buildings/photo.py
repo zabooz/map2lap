@@ -1,4 +1,4 @@
-"""The ground photo, brick walks, footprints per map cell, a town's districts.
+"""The ground photo, brick walks, a tile's footprint share (coverage), footprints per map cell, a town's districts.
 
 The ground photo part (photo_mask, fill_photo: footprints filled from the ground around) is kept for later: an AC
 build paints comic ground and doesn't run it; photo-textured ground would.
@@ -8,6 +8,19 @@ import math
 import numpy as np
 
 import mapgeom
+
+from .looks import _hash01
+from .styles import _area2, brick_share
+
+# Small towns of the arid West (Bishop, Moab: one-storey main streets with false fronts, ranch houses), told
+# from cities by the footprint share of the district around a tile (1 km: Bishop 0.14, Moab 0.11; Frederick
+# 0.22, Fells Point 0.27): a tile's own share cannot (a main-street block is as dense as a city's).
+DISTRICT_M = 1000.0
+WEST_TOWN_COVERAGE = 0.18
+PHOTO_GROW_M = 1.5          # m a footprint is grown on the ground photo (edges, eaves) ...
+PHOTO_LEAN = 0.12           # ... plus this share of its height (the photo's lean of tall buildings), at most
+PHOTO_LEAN_MAX_M = 6.0      # ... this
+PHOTO_FILL_M = 12.0         # m: the blur that fills them from the ground around
 
 
 def photo_mask(frame, x0, y0, size, px, md):
@@ -204,7 +217,6 @@ def district_town(frame, tx, ty, md):
     return district_coverage(lat, lon, cells) < WEST_TOWN_COVERAGE
 
 
-# (read inside functions only; here so that the parts can load each other)
-from .styles import _hash01, brick_share  # noqa: E402
-from .doors import DISTRICT_M, WEST_TOWN_COVERAGE  # noqa: E402
-from .far import PHOTO_FILL_M, PHOTO_GROW_M, PHOTO_LEAN, PHOTO_LEAN_MAX_M, coverage  # noqa: E402
+def coverage(items, tile=256.0):
+    """The share of the tile (a square of side tile m: roads.tile_side) covered by building footprints."""
+    return sum(_area2(s.ring) / 2 for s, _, _ in items if (s.min_h or 0) <= 0.5) / (tile * tile)
