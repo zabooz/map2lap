@@ -620,5 +620,42 @@
    "max_warp": 0.0,
    "max_warp_at_m": 0.0
   }
+ },
+ "auckland_motorway_test": {
+  "title": "Auckland Motorway Test",
+  "about": "SH16, Auckland, New Zealand, south-eastbound (traffic on the left; longitude above latitude: the ground's road physics read the lon/lat boxes swapped there, the only test track where it shows): asphalt under the painted motorway, a bridge in the middle",
+  "points": [
+   [
+    -36.798466,
+    174.59873
+   ],
+   [
+    -36.803648,
+    174.604115
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "130-750",
+    "the motorway before and after the bridge (599-645 m): asphalt under the painted road, not grass (measure: not road 0 m)"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 750,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.22,
+   "max_g_at_m": 599.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.22,
+   "warp_m": 0,
+   "max_warp": 0.02,
+   "max_warp_at_m": 606.0
+  }
  }
 }
