@@ -45,7 +45,7 @@ LINUX_WHEELS = (*(a for i in range(17, 36) for a in ("--platform", f"manylinux_2
 DIST = os.path.join(HERE, "dist")
 NAME = "Map2Lap"
 # developer-only parts (in the repository, not in the release)
-SKIP = ("tools/", ".gitignore", ".gitattributes", "AGENTS.md", "CLAUDE.md",
+SKIP = ("tools/", "docs/", ".gitignore", ".gitattributes", "AGENTS.md", "CLAUDE.md",
         "vendor/beamng_earth/server/tests/",
         "vendor/beamng_earth/native/", "vendor/beamng_earth/docs/", "vendor/beamng_earth/probes/",
         "vendor/beamng_earth/mod/",     # (the BeamNG mod: the server only reads it in its own developer tools)
