@@ -312,14 +312,6 @@ class ServerSurfaceTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         st = blockworker._State(tmp.name, True, False, False, False, True, gas_stations=True)
         self.assertTrue(st.surface.gas_pads)
-        old, blockworker._s = getattr(blockworker, "_s", None), st
-        try:                            # (the server's pads for the block, taken in: build / base_photo fuel_pads)
-            blockworker._take_pads([("a", [FuelPadTest.ring(None, LAT, LON)])])
-            self.assertEqual(len(st.surface.fuel_pads(np.array([LAT]), np.array([LON]))), 1)
-            blockworker._take_pads([])          # (the server's switch off: nothing handed over, nothing painted)
-            self.assertEqual(st.surface.fuel_pads(np.array([LAT]), np.array([LON])), [])
-        finally:
-            blockworker._s = old
         st.surface.close()
         st = blockworker._State(tmp.name, True, False, False, False, True)
         self.assertFalse(st.surface.gas_pads)

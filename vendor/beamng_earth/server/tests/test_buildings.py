@@ -973,7 +973,6 @@ class BridgeStructureTest(unittest.TestCase):
         self.assertAlmostEqual(P[:, 2].max(), 12.0, places=3)
 
 
-
 class StoopTest(unittest.TestCase):
     def test_steps_reach_the_lowest_ground(self):
         # a row house on a street falling 1.5 m along it: its front steps go down to the lowest ground (they floated)
@@ -1031,7 +1030,6 @@ class TollBoothTest(unittest.TestCase):
         self.assertIsNone(bld.build([(island, 1.0, 1.2)]), "the island itself not built")
 
 
-
 class RoadLinesTest(unittest.TestCase):
     def test_a_road_with_a_bridge_in_it_keeps_its_ground_pieces(self):
         """A motorway segment with a short overpass in it (the A7): its pieces on the ground are public
@@ -1045,7 +1043,6 @@ class RoadLinesTest(unittest.TestCase):
         self.assertFalse(((xs > 110) & (xs < 120)).any(), "nothing on the bridge's stretch")
         ring = np.array([[20, 126.8], [35, 126.8], [35, 129.2], [20, 129.2], [20, 126.8]], np.float64)
         self.assertTrue(bld._ml_false(ring, [], [], lines), "a lorry-sized outline on its lanes: not a building")
-
 
 
 class SteepMachineLearnedTest(unittest.TestCase):
@@ -1065,42 +1062,6 @@ class SteepMachineLearnedTest(unittest.TestCase):
         self.assertFalse(bld._ml_steep(r, steep30, near), "30 deg beside a path: kept (a hut on the trail)")
         self.assertTrue(bld._ml_steep(r, steep40, near), "40 deg: out wherever it is")
         self.assertTrue(bld._ml_steep(r, steep30, []), "no ways at all")
-
-
-
-
-class FarLampTest(unittest.TestCase):
-    """The far and skyline tiles' street lamps (buildings.far_lamps: "extend the street and
-    window lights as far as the buildings render"): town streets in built-up squares, at the region's spacing; every
-    ramp; nothing in empty country."""
-
-    def test_far_lamps(self):
-        import furniture
-        from test_roads import features, rules, FRAME
-        f = features([[(-100, 50), (400, 50)], [(-100, 150), (400, 150)]], ["residential", "motorway"])
-        f.rules["subclass"] = rules([(1, "link")])
-        ground = lambda la, lo: np.zeros(np.shape(la))          # noqa: E731
-        lamps = bld.far_lamps(FRAME, [f], 0.0, 0.0, 256.0, {(0, 0)}, ground)
-        res = [p for p in lamps if abs(p[1] - 50) < 10]
-        ramp = [p for p in lamps if abs(p[1] - 150) < 10]
-        gaps = np.diff(sorted(p[0] for p in res))
-        self.assertTrue(np.allclose(gaps, furniture.LAMP_SPACING["residential"][0], atol=0.5), gaps)
-        self.assertTrue(all(p[2] == bld.FAR_LAMP_Z for p in lamps))
-        self.assertGreater(len(ramp), 3)
-        na = [p for p in bld.far_lamps(FRAME, [f], 0.0, 0.0, 256.0, {(0, 0)}, ground, "na") if abs(p[1] - 50) < 10]
-        self.assertLess(len(na), len(res), "North America: sparser")
-        empty = bld.far_lamps(FRAME, [f], 0.0, 0.0, 256.0, set(), ground)
-        self.assertEqual(empty, [], "no built-up square: none, the ramp's either (nothing to light past)")
-        country = bld.far_lamps(FRAME, [f], 0.0, 0.0, 256.0, {(5, 5)}, ground)
-        self.assertTrue(country and all(abs(p[1] - 150) < 10 for p in country), "elsewhere built-up: the ramp only")
-
-    def test_skyline_windows(self):
-        spec = bld.plan(rect(0, 0, 30, 20), {"class": "", "height": 30.0}, 0)
-        P, UV, T, M, mats, C = bld._sky_mesh([(spec, 0.0, 0.0)])
-        wall = mats.index(bld.SKY_WALL)
-        self.assertIn(wall, set(M.tolist()), "the walls take the night window map")
-        self.assertGreater(float(np.ptp(UV[:, 0])), 0.1, "spread along the walls")
-
 
 
 if __name__ == "__main__":

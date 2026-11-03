@@ -55,9 +55,7 @@ from .doors import (
     DISTRICT_M, FENCE_BACK_M, FENCE_CLEAR_M, FENCE_SEG_M, G_FENCE, POLES_COVERAGE, _front_fence, doors,
     road_tile_items
 )
-from .far import (
-    FAR_LAMP_Z, _sky_mesh, bridge_slabs, centres, coverage, far_items, far_lamps, far_tile, road_tile, sky_items
-)
+from .far import centres, coverage, road_tile
 from .photo import _cell_stats, brick_walks, district_coverage, fill_photo, photo_mask
 
 

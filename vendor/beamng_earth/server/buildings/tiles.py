@@ -528,12 +528,6 @@ STOOP_W = 1.3               # m wide the steps
 DOOR_ROAD_M = 30.0          # a front door on the wall facing the nearest road within this
 DOOR_CLASSES_SKIP = SHED_CLASSES | INDUSTRIAL_CLASSES
 G_DOOR = "door"
-FAR_SEND_M = float(os.environ.get("BNE_BLDFAR_SEND_M", "1600"))    # far building tiles (render-only, the lite mesh)
-                                                                    # sent within this (Euclidean: roads.tiles_near)
-FAR_DROP_M = float(os.environ.get("BNE_BLDFAR_DROP_M", str(FAR_SEND_M + 300)))     # ... dropped beyond
-FAR_PER_POSE = 4
-FAR_GEO = 1                 # the far geotiles' protocol (hello.farGeo, the mod's roads.lua M.FAR_GEO): far buildings,
-                            # skyline and far bridges in the global tiles' frames (blockworker.far_geo)
 MAIN_STREET_CLASSES = {"primary", "secondary", "tertiary"}
 BACK_ROAD_CLASSES = {"service", "track", "path", "footway", "cycleway", "pedestrian", "steps", "alley"}
 MAIN_STREET_SETBACK_M = 7.0  # m from a main street's edge within which a front wall has a shopfront

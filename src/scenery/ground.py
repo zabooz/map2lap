@@ -1,4 +1,4 @@
-"""Terrain of one tile like BeamNG.Earth's terrain block (blockworker.build), for AC: one mesh for looks and physics,
+"""Terrain of one tile like BeamNG.Earth's terrain block, for AC: one mesh for looks and physics,
 with the roads painted into the terrain (BeamNG.Earth's default since 22.10.2026, roads.ROADS_IN_GROUND).
 
 As in BeamNG.Earth:
@@ -295,7 +295,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     la, lo, _ = frame.enu_to_geodetic(gx.ravel(), gy.ravel(), 0.0)
     la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
 
-    def elev(la_, lo_):          # (blockworker.build: levelled with ROAD_LIFT, the physics)
+    def elev(la_, lo_):          # (levelled with ROAD_LIFT, the physics)
         z = blockworker.ground(frame, la_, lo_, dem.sample(la_, lo_, zoom))
         return g.apply(la_, lo_, z, gradingmod.ROAD_LIFT) if g is not None else z
 
@@ -339,7 +339,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         except Exception as e:
             log(f"Ground {tx},{ty}: tunnel holes: {type(e).__name__}: {e}")
 
-    # surface per sample like blockworker.build (land use, slope -> rock, roads, car parks)
+    # surface per sample like BeamNG.Earth's terrain block (land use, slope -> rock, roads, car parks)
     idx = np.full((n, n), surfacemod.GRASS, np.int64)
     feats, paths, opened = [], [], []
     if s.surface is not None:
@@ -394,7 +394,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     f = groundcover.macro(mx, my)
     img *= np.stack([_to_px(f[..., k]) for k in range(3)], -1)
     # Rock faces: steep slopes (ROCK_SLOPE) as comic rock with horizontal layers by height (on the face they lie
-    # across, like BeamNG.Earth's rockface.py in the distant view); before the roads, which stay on top
+    # across); before the roads, which stay on top
     tan = groundcover._box_blur(np.hypot(*np.gradient(keep["u"], CELL)), 2)   # (smoothed: the 2 m lidar frayed
     rw = np.clip((tan - ROCK_SLOPE[0]) / (ROCK_SLOPE[1] - ROCK_SLOPE[0]), 0.0, 1.0)  # the rock areas)
     if rw.max() > 0:

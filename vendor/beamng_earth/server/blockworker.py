@@ -1,16 +1,7 @@
-"""Physics-block builds in a process of their own.
-
-The server is one Python process: its threads share one interpreter lock, so while three far-tile workers
-built, a physics block took 3-10x longer than alone (land cover 1.4 s instead of 0.1 s), too long to follow a
-car at 58 m/s, where the 512² block moves every 2.2 s. This process builds the blocks the follow and the
-prefetch ask for on a core of its own. It keeps its own DEM reader, road plans (grading.Grader per anchor),
-street widths, height chunks and land-cover reader over the same disk caches. All of them are deterministic,
-so a block built here is the one the server would build (the far tiles, graded in the server process, agree
-with it).
-
-init(...) runs once in the process (ProcessPoolExecutor initializer); build(...), base_entry(...), base_photo(...) and
-far_geometry(...) (the far-tile workers, the same state) are its jobs. warm_q (a multiprocessing queue) carries the road cells to plan ahead of the player: (anchor id, lat,
-lon, [mapcells.CellKey]), the latest list replacing the earlier one.
+"""A tile worker process's state and jobs: the generator's pool (generator._init_worker) builds _State once per
+process; its jobs are the road tiles (_roads_tile), their signs (signs_tile) and the AI road graph (navgraph). The
+state keeps its own DEM reader, road plans (grading.Grader per anchor), street widths, height chunks and land-cover
+reader over the shared disk caches; all of them are deterministic, so every process builds the same tile.
 """
 import logging
 import os
@@ -20,7 +11,6 @@ import time
 import numpy as np
 
 import dem as demmod
-import farfield
 import furniture
 import geodesy
 import grading as gradingmod
@@ -30,9 +20,7 @@ import netfetch
 import plancache
 import roadwidth as roadwidthmod
 import seacarve as seacarvemod
-import staging
 import surface as surfacemod
-import terraincache
 
 log = logging.getLogger("earthd.blockworker")
 
@@ -44,7 +32,6 @@ class _State:
         self.cache_dir = cache_dir
         import revisit
         revisit.CACHE_DIR = cache_dir
-        self.imagery = None         # (its settings, imagery.Imagery from the disk alone): far_tile's textures
         net = netfetch.Fetcher(offline=offline)
         self.dem = demmod.Dem(os.path.join(cache_dir, "dem"), fetcher=net)
         import railways as _railways    # (coarse elevation: rail decks raised over the roads under them)
@@ -126,99 +113,6 @@ def ground(frame, la, lo, z):
     if _s.sea is not None:
         z = _s.sea.carve(la, lo, z)
     return z
-
-
-def _take_pads(fuel_pads):
-    """The server's gas station pads for this job's area (earthd.Server.block_fuel_pads) as this process's Surface's:
-    only these (none when the server's gas stations are switched off)."""
-    if getattr(_s, "surface", None) is not None and hasattr(_s.surface, "clear_fuel_pads"):
-        _s.surface.clear_fuel_pads()
-        _s.surface.add_fuel_pads(fuel_pads or ())
-
-
-def build(aid, lat, lon, hm_zoom, q, cx, cy, size, out_dir, name, ter_name=None, fuel_pads=None):
-    """Build and write the block (heightmap PNG name in out_dir, its surface masks beside it, and the
-    .ter ter_name if given). fuel_pads: the gas station pads around it (the server's: _take_pads). Returns the info
-    dict of earthd's make_heightmap (without seconds / zoom / base)."""
-    _take_pads(fuel_pads)
-    t0 = time.perf_counter()
-    g, chunks = _s.anchor(aid, lat, lon)
-    frame = geodesy.EnuFrame(lat, lon)
-    keep = {}
-    grade_s = [0.0]
-
-    def elev(la, lo):
-        z = ground(frame, la, lo, _s.dem.sample(la, lo, hm_zoom))
-        if g is None:
-            return z
-        t1 = time.perf_counter()
-        z = g.apply(la, lo, z, gradingmod.ROAD_LIFT)
-        grade_s[0] += time.perf_counter() - t1
-        return z
-    import roads as roadsmod
-    raw = lambda la, lo: ground(frame, la, lo, _s.dem.sample(la, lo, hm_zoom))     # noqa: E731
-    gen = elev
-    if ter_name is not None and getattr(_s, "md", None) is not None:
-        tun = tunnel_profiles(aid, frame, elev, g)
-        half = size * heightmap.SQUARE / 2
-        cell_fn = lambda key: _s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")   # noqa: E731
-
-        def gen(la, lo):        # the ground over the low arches raised over their vaults (roads.arch_raise)
-            return roadsmod.block_arch_raise(tun, cell_fn, frame, la, lo, elev(la, lo),
-                                             (cx - half, cy - half, cx + half, cy + half))
-    info = heightmap.generate(frame, gen, os.path.join(out_dir, name), cx, cy, q=q, size=size, keep=keep,
-                              chunks=chunks)
-    stages = {"heights": time.perf_counter() - t0, "grading": grade_s[0]}
-    idx = None
-    if _s.surface is not None:
-        t1 = time.perf_counter()
-        classes, complete = _s.surface.classes(keep["lat"], keep["lon"])
-        idx = surfacemod.classify(classes, keep["u"], heightmap.SQUARE, keep["lat"], keep["lon"])
-        if _s.sea is not None:          # under water: the bed (no grass growing through the surface)
-            idx[_s.sea.depth(keep["lat"], keep["lon"]) > WATER_BED_M] = surfacemod.MUD
-        road_feats, roads_complete = _s.surface.roads(keep["lat"], keep["lon"])
-        stages["landcover"] = time.perf_counter() - t1
-        t1 = time.perf_counter()
-        if road_feats:
-            before = idx
-            idx = surfacemod.paint_roads(idx, keep["lat"], keep["lon"], road_feats, heightmap.SQUARE,
-                                         _s.surface.urban, _s.widths, _open_tunnels(g, keep))
-            if not (idx != before).any():   # (drawn roads over it, none painted: Discord's gravel mountain roads)
-                import roads as roadsmod
-                la0, la1 = float(np.min(keep["lat"])), float(np.max(keep["lat"]))
-                lo0, lo1 = float(np.min(keep["lon"])), float(np.max(keep["lon"]))
-                over = n_ground = 0             # (points of roads with a spec in it; of those, with ground parts)
-                for f in road_feats:
-                    if f is None or not len(f):
-                        continue
-                    specs = roadsmod.road_specs(f, _s.surface.urban, _s.widths)
-                    for i in range(len(f)):
-                        if specs[i] is None:
-                            continue            # (paths, tracks ...: never painted)
-                        ll = np.concatenate([np.asarray(r)[:, :2] for part in f.parts(i) for r in part])
-                        n = int(((ll[:, 0] >= lo0) & (ll[:, 0] <= lo1) & (ll[:, 1] >= la0) & (ll[:, 1] <= la1)).sum())
-                        over += n
-                        n_ground += n if len(roadsmod.ground_parts(f, i)) else 0
-                if over:
-                    log.warning("block (%s, %s, %s): %d points of drawn roads in it (%d of them with ground parts) from "
-                                "%d cells, none painted", aid, cx, cy, over, n_ground, len(road_feats))
-        idx = (surfacemod.paint_lots(idx, keep["lat"], keep["lon"], _s.surface.lots(keep["lat"], keep["lon"]))
-            if hasattr(_s.surface, "lots") else idx)
-        if hasattr(_s.surface, "fuel_pads"):    # gas station forecourts (--gas-stations on)
-            idx = surfacemod.paint_pads(idx, keep["lat"], keep["lon"], _s.surface.fuel_pads(keep["lat"], keep["lon"]))
-        stages["roadPaint"] = time.perf_counter() - t1
-        info["layers"] = surfacemod.write_masks(idx[::-1], out_dir, name[:-4])
-        info["surfaceComplete"] = complete and roads_complete
-        info["roadsComplete"] = roads_complete
-    if ter_name is not None:
-        t1 = time.perf_counter()
-        idx = _tunnel_holes(aid, frame, elev, keep, cx, cy, idx, info, g)
-        info["ter"], mats = surfacemod.write_ter(out_dir, ter_name, keep["qgrid"], idx)
-        if mats is not None:          # the .ter's own material list (MATERIALS indices)
-            info["mats"] = mats
-        stages["ter"] = time.perf_counter() - t1
-    info["stages"] = stages
-    return info
 
 
 def _chain_store(name, cls, elev, setup=None):
@@ -306,19 +200,6 @@ def navgraph(aid, lat, lon, zoom, x, y, out_dir, vfs_dir, serial, left_hand, mph
     return path, len(graph["nodes"]), len(graph["edges"])
 
 
-def terrain_patch(aid, lat, lon, zoom, box, path):
-    """earthd.Server.build_terrain_patch here (road-tile pool): the collision patch of the ground over box under a
-    collision island off the terrain block (terrainpatch.py), the block's own ground (graded, lifted under roads)."""
-    import terrainpatch
-    g, _ = _s.anchor(aid, lat, lon)
-    frame = geodesy.EnuFrame(lat, lon)
-
-    def elev(la, lo):
-        z = ground(frame, la, lo, _s.dem.sample(la, lo, zoom))
-        return g.apply(la, lo, z, gradingmod.ROAD_LIFT) if g is not None else z
-    return terrainpatch.build(frame, elev, box, path)
-
-
 def signs_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, left_hand=False, mph=True, country=None):
     """signstream.build_tile here: the highway signs of a road tile the mod has, in a road
     process: its map cells are warm there. Returns (vfs path of the sign tile's JSON, number of meshes)."""
@@ -332,70 +213,6 @@ def signs_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, left_hand=False, m
     return signstream.build_tile(_s.md, frame, aid, tx, ty, elev, out_dir, vfs_dir,
                                  _s.surface.urban if _s.surface is not None else None, _s.widths, left_hand, mph,
                                  country)
-
-
-def _md_versions():
-    return _s.md.versions() if _s.md is not None else None
-
-
-def roadsmod_tile_bbox(tx, ty):
-    """A road tile's square (anchor frame, m): roads.tile_bbox."""
-    import roads as roadsmod
-    return roadsmod.tile_bbox(tx, ty)
-
-
-def _where_enu(lat, lon, x0, y0, x1, y1, **settings):
-    """revisit.where of an item over the box x0..x1, y0..y1 (m) of anchor lat / lon, built with these settings (the
-    names earthd.Server.world_signature gives); None when it cannot be had."""
-    import revisit
-    try:
-        f = geodesy.EnuFrame(lat, lon)
-        la, lo, _ = f.enu_to_geodetic(np.array([x0, x1, x0, x1], float), np.array([y0, y0, y1, y1], float),
-                                      np.zeros(4))
-        la, lo = np.asarray(la, float), np.asarray(lo, float)
-        return revisit.where(lat, lon, la.min(), lo.min(), la.max(), lo.max(), revisit.sig(**settings))
-    except Exception:
-        return None
-
-
-def _revisit_tile(kind, k, aid, tx, ty, out_dir, vfs_dir, name, build, extra_of, result_of, where=None):
-    """A tile written to out_dir as name (a JSON pointing to its shapes in vfs_dir) from the revisit cache (key k), or
-    built (build() -> its result) and kept there when complete (revisit.faults unchanged). extra_of(result): JSON data
-    kept with it; result_of(vfs path of name, that data): the result again on a hit. The session's names (vfs_dir, the
-    anchor id) are taken out of the kept files and put back."""
-    import revisit
-    mine = [(f"{vfs_dir}/", "@V@/"), (f"_{aid}_{tx}_{ty}", f"_@A@_{tx}_{ty}")]
-    got = revisit.load(_s.cache_dir, kind, k)
-    if got is not None:
-        blobs, extra = got
-        back = [(b, a) for a, b in reversed(mine)]
-        for g, data in blobs.items():
-            if g.endswith(".json"):
-                data = revisit.swap(data.decode("utf-8"), back).encode("utf-8")
-            _write_bytes(os.path.join(out_dir, revisit.swap(g, back)), data)
-        return result_of(f"{vfs_dir}/{name}", extra or {})
-    f0 = revisit.faults()
-    res = build()
-    if res is not None and revisit.ON and revisit.faults() == f0:     # (complete: nothing it read failed or was missing)
-        try:
-            with open(os.path.join(out_dir, name), encoding="utf-8") as f:
-                text = f.read()
-            blobs = {revisit.swap(name, mine): revisit.swap(text, mine).encode("utf-8")}
-            for n in revisit.shapes_in(text, vfs_dir):
-                with open(os.path.join(out_dir, n), "rb") as f:
-                    blobs[revisit.swap(n, mine)] = f.read()
-            revisit.store(_s.cache_dir, kind, k, blobs, extra_of(res), where=where)
-        except Exception as e:          # (not kept rather than no tile)
-            log.debug("revisit: %s tile %d_%d not kept: %s: %s", kind, tx, ty, type(e).__name__, e)
-    return res
-
-
-def _write_bytes(path, data):
-    """path written atomically (staging: the game sees only finished files)."""
-    tmp = staging.tmp_for(path)
-    with open(tmp, "wb") as f:
-        f.write(data)
-    staging.replace(tmp, path)
 
 
 # Phase 0 of the origin-independent tiles (geotiles): a road tile's stages timed. "content" stages make what does not
@@ -638,25 +455,6 @@ EXACT_TOL_COL_M = 0.03      # m a colliding part placed rigidly may be off befor
 EXACT_TOL_M = 0.10          # ... and a render-only part
 
 
-def _shape_info(path, pos, what):
-    """{shape, pos, pivot, relief, col} of a written content shape (earthfast.cdae_zstats: pivot the median height of
-    its vertices in the tile's frame, relief the farthest one from it)."""
-    import fast
-    import geotiles
-    fast.require(geotiles.NEED_CONTENT, "cdae_zstats")
-    with open(path, "rb") as f:
-        n, med, lo, hi = fast._ef.cdae_zstats(f.read())
-    oz = float(pos[2])
-    piv = oz + float(med) if n else oz
-    rel = max(abs(oz + float(hi) - piv), abs(piv - oz - float(lo))) if n else 0.0
-    return {"pivot": round(piv, 3), "relief": round(rel, 3)}
-
-
-def _content_hash(text, vfs_dir):
-    import hashlib
-    return hashlib.sha1(text.replace(f"{vfs_dir}/", "@V@/").encode("utf-8")).hexdigest()[:16]
-
-
 def _clip_mesh(mesh, origin, quad):
     """A mesh (positions relative to origin, tris, uvs, materials, tri material) cut to quad (4, 2: a geotile's, in the
     mesh's world; earthfast.clip_tris_convex), or None when nothing is left."""
@@ -749,27 +547,6 @@ def _open_tunnels(g, keep):
         return []
 
 
-def _tunnel_holes(aid, frame, elev, keep, cx, cy, idx, info, g=None):
-    """idx with the block's tunnel portals as holes (roads.block_tunnel_holes); info["tunnelHoles"]: how many."""
-    import roads as roadsmod
-    if getattr(_s, "md", None) is None:     # no map data (roads off): no tunnels
-        return idx
-    try:
-        holes = roadsmod.block_tunnel_holes(
-            tunnel_profiles(aid, frame, elev, g),
-            lambda key: _s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads"),
-            frame, keep, cx, cy, heightmap.SQUARE)
-    except Exception:                   # no holes rather than no block
-        log.exception("tunnel holes of block (%s, %s)", cx, cy)
-        return idx
-    if holes is None or not holes.any():
-        return idx
-    idx = np.zeros(holes.shape, np.uint8) if idx is None else idx
-    idx[holes] = heightmap.TER_HOLE
-    info["tunnelHoles"] = int(holes.sum())
-    return idx
-
-
 def tunnel_profiles(aid, frame, elev, g=None):
     """The anchor's view of this process's tunnel chains (road tiles and the blocks' terrain holes share them): their
     ground read at grading.PROFILE_ZOOM (raw; ends: graded), as in every other process."""
@@ -786,448 +563,8 @@ def tunnel_profiles(aid, frame, elev, g=None):
     return roadsmod.ChainView(_chain_store("tunnels", roadsmod.TunnelProfiles, elev, setup), frame)
 
 
-def far_buildings_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, lamp_region=None):
-    """earthd.Server.build_far_bld_tile here (road-tile pool): buildings.far_tile (from the revisit cache when built in
-    this anchor's place before)."""
-    import buildings as buildingsmod
-    import revisit
-    frame = geodesy.EnuFrame(lat, lon)
-    k = revisit.key("bldfar", round(float(lat), 7), round(float(lon), 7), zoom, tx, ty,
-                    _s.md.versions() if _s.md is not None else None, lamp_region)
-    return _revisit_tile("bldfar", k, aid, tx, ty, out_dir, vfs_dir, f"bldfar_{aid}_{tx}_{ty}.json",
-                         lambda: buildingsmod.far_tile(frame, tx, ty, _s.md,
-                                                       lambda la, lo: ground(frame, la, lo, _s.dem.sample(la, lo, zoom)),
-                                                       out_dir, vfs_dir, aid, lamp_region),
-                         lambda res: {"n": int(res[1])},
-                         lambda path, extra: (path, int(extra.get("n", 0))),
-                         _where_enu(lat, lon, *roadsmod_tile_bbox(tx, ty), md=_md_versions()))
-
-
-# --- far geotiles (phase 2): far buildings, the skyline and far bridges once per geotile ---------------------------
-# Each built in its own tile's frame (geotiles.FAR_Z / SKY_Z / BRIDGE_Z), with the rules and DEM zoom of its own place,
-# cached without an anchor in its key (revisit kinds "bldfar" / "bldsky" / "brfar", the key's first part "g"); the mod
-# keeps it across rebases and places it rigidly at its pivot (render-only: no skin, no exact variant).
-
-FAR_GEO = {"bldfar": "bf", "bldsky": "bs", "brfar": "bb"}       # kind -> its files' prefix (<prefix>_<key>[_<sub>])
-FAR_LAMP_ROUND = 1          # decimals of the lamps' coordinates
-
-
-def far_geo_zoom(kind):
-    """The geotile zoom of a far kind."""
-    import geotiles
-    return {"bldfar": geotiles.FAR_Z, "bldsky": geotiles.SKY_Z, "brfar": geotiles.BRIDGE_Z}[kind]
-
-
-def far_geo_names(kind, key):
-    """The session file names of far geotile key: {"json": ..., "shape": ...} (a far buildings or skyline tile's mesh);
-    a far bridge tile's pieces are <prefix>_<key>_<road geotile key>.cdae (far_geo_piece)."""
-    pre = FAR_GEO[kind]
-    return {"json": f"{pre}_{key}.json", "shape": f"{pre}_{key}.cdae"}
-
-
-def far_geo_piece(key, sub):
-    return f"{FAR_GEO['brfar']}_{key}_{sub}.cdae"
-
-
-def _lamps_by_geotile(frame, lamps):
-    """Far lamps [[x, y, z], ...] of frame's world as {road geotile key: {"pivot": m, "rows": [[x, y, z], ...]}}: each
-    in the geotile (geotiles.FAR_Z) its place lies in, in that tile's own frame (the mod's trees.lua places each group
-    there and with it at a rebase); pivot the median height of its rows."""
-    import geotiles
-    if not lamps:
-        return {}
-    p = np.asarray(lamps, np.float64).reshape(-1, 3)
-    la, lo, h = geotiles.world_to_geodetic(frame, p)
-    la, lo, h = np.asarray(la, np.float64), np.asarray(lo, np.float64), np.asarray(h, np.float64)
-    gx, gy = geotiles.tile_of(la, lo, geotiles.FAR_Z)
-    out = {}
-    for kx, ky in sorted({(int(a), int(b)) for a, b in zip(gx, gy)}):
-        sel = (gx == kx) & (gy == ky)
-        x, y, z = geotiles.geodetic_to_world(geotiles.frame(kx, ky, geotiles.FAR_Z), la[sel], lo[sel], h[sel])
-        rows = np.round(np.c_[np.asarray(x, np.float64), np.asarray(y, np.float64), np.asarray(z, np.float64)],
-                        FAR_LAMP_ROUND)
-        out[geotiles.key(kx, ky, geotiles.FAR_Z)] = {"pivot": round(float(np.median(rows[:, 2])), 2),
-                                                      "rows": rows.tolist()}
-    return out
-
-
-def _far_geo_build(kind, tile, gzoom, out_dir, vfs_dir, lamp_region):
-    """Far geotile tile's content written to out_dir: (JSON data, {what: file name} of its shapes, count) or None
-    when its cells are not at hand (asked again later)."""
-    import buildings as buildingsmod
-    import geotiles
-    import roads as roadsmod
-    frame = tile.frame
-    x0, y0, x1, y1 = tile.box
-
-    def raw(la, lo):
-        return ground(None, la, lo, _s.dem.sample(la, lo, gzoom))
-    data = {"v": 1, "key": tile.key, "frame": [float(frame.lat0), float(frame.lon0)]}
-    names = far_geo_names(kind, tile.key)
-    shapes = {}
-    if kind == "bldfar":
-        items, lamps, _box = buildingsmod.far_items(frame, tile, None, _s.md, raw, lamp_region)
-        mesh = buildingsmod.build(items, lite=True)
-        n = len(items)
-    elif kind == "bldsky":
-        keys = roadsmod.cells_of_tile(frame, tile, None, margin=0.0)
-        got = buildingsmod.sky_items(frame, (x0, y0, x1, y1), sorted(keys, key=str), _s.md, raw, lamp_region,
-                                     own=tile.box)
-        if got is None:
-            return None
-        picked, lamps = got
-        mesh = buildingsmod._sky_mesh(picked) if picked else None
-        n = len(picked) if mesh is not None else 0
-        if mesh is None:
-            lamps = []
-    else:                               # brfar: the slabs in a piece per road geotile under it
-        keys = roadsmod.cells_of_tile(frame, tile, None, margin=0.0)
-        if not all(_s.md.has(k, "roads") for k in keys):
-            for k in keys:
-                _s.md.prefetch(k, layers=("roads",))
-            return None
-        cells = [_s.md.cell(k, layers=("roads",), kind="background").layers.get("roads") for k in keys]
-
-        def far_setup(p):
-            sea = getattr(_s, "sea", None)
-            p.wet = sea.depth if sea is not None else None
-        # (the raw ground's chains of this DEM zoom: the same deck whatever the anchor or the order of the asks)
-        bridges = roadsmod.ChainView(_chain_store(f"far_bridges_{gzoom}", roadsmod.BridgeProfiles, raw, far_setup),
-                                     frame)
-        parts = [(xy, z, float(spec.width)) for _fid, spec, xy, z, _lon in bridges.parts(cells, (x0, y0, x1, y1))]
-        meshes = buildingsmod.bridge_slabs(parts, (x0, y0), owners=(frame, geotiles.FAR_Z, tile.z, tile.gx,
-                                                                   tile.gy)) if parts else {}
-        pieces = {}
-        for (gx, gy), m in sorted(meshes.items()):
-            sub = geotiles.key(gx, gy, geotiles.FAR_Z)
-            fname = far_geo_piece(tile.key, sub)
-            buildingsmod.write(os.path.join(out_dir, fname), m)
-            e = {"shape": f"{vfs_dir}/{fname}", "pos": [x0, y0, 0.0]}
-            e.update(_shape_info(os.path.join(out_dir, fname), e["pos"], "brfar"))
-            pieces[sub] = e
-            shapes[sub] = fname
-        if pieces:
-            data["parts"] = pieces
-        return data, shapes, len(parts) if pieces else 0
-    if mesh is not None:
-        buildingsmod.write(os.path.join(out_dir, names["shape"]), mesh)
-        data["shape"] = f"{vfs_dir}/{names['shape']}"
-        data["pos"] = [x0, y0, 0.0]
-        data.update(_shape_info(os.path.join(out_dir, names["shape"]), data["pos"], kind))
-        shapes["shape"] = names["shape"]
-    by = _lamps_by_geotile(frame, lamps)
-    if by:
-        data["lamps"] = by
-    return data, shapes, n
-
-
-def far_geo(kind, gx, gy, gzoom, out_dir, vfs_dir, lamp_region=None):
-    """earthd.Server.build_far_geo here (the far buildings' pool): far geotile (gx, gy) of kind ("bldfar": its far
-    buildings, the lite mesh of those road geotile (gx, gy) holds, and their streets' lamps; "bldsky": the skyline of a
-    SKY_Z square; "brfar": the bridge decks of a BRIDGE_Z square as a piece per road geotile under it), built in its own
-    frame (gzoom its DEM zoom, lamp_region its rules) or from the revisit cache (no anchor in the key). Written as
-    <prefix>_<key>.json (+ its shapes); returns (vfs path of the JSON, count, frame (lat, lon), pivot, {what: shape
-    file name}) or None when its cells are not at hand yet."""
-    import json
-    import geotiles
-    import revisit
-    z = far_geo_zoom(kind)
-    tile = geotiles.geobox(gx, gy, z)
-    names = far_geo_names(kind, tile.key)
-    k = revisit.key(kind, "g", tile.key, int(gzoom), _md_versions(), lamp_region)
-    frame_ll = (float(tile.frame.lat0), float(tile.frame.lon0))
-    got = revisit.load(_s.cache_dir, kind, k)
-    if got is not None:
-        blobs, extra = got
-        for name, data in blobs.items():
-            if name.endswith(".json"):
-                data = data.decode("utf-8").replace("@V@/", f"{vfs_dir}/").encode("utf-8")
-            _write_bytes(os.path.join(out_dir, name), data)
-        _far_geo_stats["hits"] += 1
-        return (f"{vfs_dir}/{names['json']}", int(extra.get("n", 0)), frame_ll, float(extra.get("pivot", 0.0)),
-                dict(extra.get("shapes") or {}))
-    f0 = revisit.faults()
-    res = _far_geo_build(kind, tile, gzoom, out_dir, vfs_dir, lamp_region)
-    if res is None:
-        return None
-    data, shapes, n = res
-    text = json.dumps(data, separators=(",", ":"), sort_keys=True)
-    data["h"] = _content_hash(text, vfs_dir)
-    text = json.dumps(data, separators=(",", ":"), sort_keys=True)
-    _write_bytes(os.path.join(out_dir, names["json"]), text.encode("utf-8"))
-    _far_geo_stats["built"] += 1
-    pivot = float(data.get("pivot", 0.0))
-    if revisit.ON and revisit.faults() == f0:     # (complete: nothing it read failed or was missing)
-        try:
-            blobs = {names["json"]: text.replace(f"{vfs_dir}/", "@V@/").encode("utf-8")}
-            for fname in shapes.values():
-                with open(os.path.join(out_dir, fname), "rb") as fh:
-                    blobs[fname] = fh.read()
-            s, w, nn, e = geotiles.info(gx, gy, z)[2:]
-            wh = revisit.where(*frame_ll, s, w, nn, e, revisit.sig(md=_md_versions()))
-            revisit.store(_s.cache_dir, kind, k, blobs, {"n": int(n), "pivot": pivot, "shapes": shapes}, where=wh)
-        except Exception as ex:          # (not kept rather than no tile)
-            log.debug("revisit: far geotile %s %s not kept: %s: %s", kind, tile.key, type(ex).__name__, ex)
-    return f"{vfs_dir}/{names['json']}", int(n), frame_ll, pivot, shapes
-
-
-_far_geo_stats = {"built": 0, "hits": 0}
-
-
-def base_entry(user_dir, base_vfs, ao_vfs, rgb, ao_value):
-    """terraincache.base_entry here (its BC7 encode is the base photo's main cost)."""
-    return terraincache.base_entry(user_dir, base_vfs, ao_vfs, rgb, ao_value)
-
-
-def far_geometry(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout):
-    """farfield.build_tile here (far-tile workers: the geometry, graded at levels <= 0 like the block, is
-    most of a far tile's cost; its texture is rendered in the server, where the imagery corrections live).
-    Returns the Built; one built in this anchor's place before comes from the revisit cache."""
-    import revisit
-    k = revisit.key("fargeo", *_far_key(lat, lon, tile, zoom, q, ref_zoom, with_sink, layout))
-    got = revisit.load(_s.cache_dir, "fargeo", k)
-    if got is not None:
-        return _built_from(got[0]["built.npz"], got[1])
-    f0 = revisit.faults()
-    built = _far_geometry(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout)
-    if revisit.ON and revisit.faults() == f0:
-        blob, meta = _built_blob(built)
-        revisit.store(_s.cache_dir, "fargeo", k, {"built.npz": blob}, meta,
-                      where=_where_enu(lat, lon, *tile.bbox, layout=repr(layout), md=_md_versions()))
-    return built
-
-
-def far_global_geometry(z, x, y, zoom, ref_zoom, layout):
-    """farfield.build_global here (a global far tile, geotiles phase 3b: in its own frame, the same for every anchor);
-    one built before (any anchor, any session) comes from the revisit cache."""
-    import revisit
-    k = revisit.key("fargeo", *_far_global_key(z, x, y, zoom, ref_zoom, layout))
-    got = revisit.load(_s.cache_dir, "fargeo", k)
-    if got is not None:
-        return _built_from(got[0]["built.npz"], got[1])
-    f0 = revisit.faults()
-    base = _s.dem
-    if _s.sea is not None:
-        base = seacarvemod.SeaDem(base, None)       # (carving stops at seacarve.CARVE_MAX_LEVEL < the global levels)
-    built = farfield.build_global(base, z, x, y, zoom, ref_zoom, layout)
-    if revisit.ON and revisit.faults() == f0:
-        blob, meta = _built_blob(built)
-        la, lo = farfield.global_frame_ll(z, x, y)
-        revisit.store(_s.cache_dir, "fargeo", k, {"built.npz": blob}, meta,
-                      where=_where_enu(la, lo, -built.size / 2, -built.size / 2, built.size / 2, built.size / 2,
-                                       layout=repr(layout), md=_md_versions()))
-    return built
-
-
-def _far_global_key(z, x, y, zoom, ref_zoom, layout):
-    """What a global far tile's geometry is built from (no anchor: the revisit key any anchor finds)."""
-    return ("m", farfield.GLOBAL_GEO_VERSION, int(z), int(x), int(y), zoom, ref_zoom, repr(layout),
-            _s.md.versions() if _s.md is not None else None, _s.sea is not None)
-
-
-def _far_key(lat, lon, tile, zoom, q, ref_zoom, with_sink, layout):
-    """What a far tile's geometry is built from (the revisit cache's key)."""
-    return (round(float(lat), 7), round(float(lon), 7), (tile.level, tile.i, tile.j), zoom,
-            None if q is None else float(q), ref_zoom, bool(with_sink), repr(layout),
-            _s.md.versions() if _s.md is not None else None, _s.sea is not None)
-
-
-def _built_blob(built):
-    """(npz bytes, meta) of a farfield.Built (_built_from reads them back)."""
-    import io
-    buf = io.BytesIO()
-    arrays = {n: getattr(built, n) for n in ("positions", "normals", "uvs", "planar", "tris")}
-    if built.grid is not None:
-        arrays["grid"] = built.grid
-    np.savez(buf, **arrays)
-    meta = {"pos": [float(v) for v in built.pos], "err": float(built.err),
-            "sink": None if built.sink is None else float(built.sink), "skirt": float(built.skirt),
-            "size": float(built.size)}
-    return buf.getvalue(), meta
-
-
-def _built_from(blob, meta):
-    import io
-    with np.load(io.BytesIO(blob)) as z:
-        a = {n: z[n] for n in z.files}
-    return farfield.Built(pos=list(meta["pos"]), positions=a["positions"], normals=a["normals"], uvs=a["uvs"],
-                          planar=a["planar"], tris=a["tris"], grid=a.get("grid"), err=meta["err"], sink=meta["sink"],
-                          skirt=meta["skirt"], size=meta["size"])
-
-
-def _far_geometry(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout):
-    g, _ = _s.anchor(aid, lat, lon)
-    frame = geodesy.EnuFrame(lat, lon)
-    base = _s.dem
-    if _s.sea is not None:
-        base = seacarvemod.SeaDem(base, _s.sea if tile.level <= seacarvemod.CARVE_MAX_LEVEL else None)
-    src = gradingmod.GradedDem(base, g) if (g is not None and tile.level <= 0) else base
-    return farfield.build_tile(frame, src, tile, zoom, q, ref_zoom, with_sink=with_sink,
-                               layout=layout)
-
-
-WORKER_IMAGERY_TILES = 96      # decoded imagery tiles a far-tile worker keeps (imagery.MEM_TILES: 512, the server's)
-
-
-def _imagery(tex):
-    """This process's imagery.Imagery for the server's chain settings (tex: chain, tone, leaf_on, season_mode): the
-    imagery tiles on disk alone (strict: a missing tile fails the render), or, for a compute-sharing helper
-    (tex["online"], peerwork.py), fetched as needed."""
-    import imagery as imagerymod
-    online = bool(tex.get("online"))
-    key = (tuple(tex["chain"]), tex["tone"], tex["leaf_on"], tex["season_mode"], online)
-    if _s.imagery is None or _s.imagery[0] != key:
-        im = imagerymod.Imagery(os.path.join(_s.cache_dir, "imagery"), key[0], fetch_workers=4 if online else 1,
-                                mem_tiles=WORKER_IMAGERY_TILES, tone=key[1],
-                                fetcher=netfetch.Fetcher(offline=not online), leaf_on=key[2], season_mode=key[3])
-        im.strict = not online
-        _s.imagery = (key, im)
-    return _s.imagery[1]
-
-
-def base_photo(lat, lon, x0, y0, size, px, tex, buildings, rock_zoom, path, cache, fuel_pads=None, out_px=None):
-    """earthd.Server.write_base here, for a server without its imagery analyses (a small machine): the block's base
-    photo from the imagery tiles on disk, its building footprints filled and its cliffs as rock, written to path
-    (PNG) and packed into the game's terrain texture cache (cache: terraincache.base_entry's arguments but the rgb).
-    Returns (rgb, sources used, lazy tiles still to come), or None when an imagery tile it needs is not on disk (the
-    server renders it, fetching what is missing). In the server process it ran 2 s alone but 8-11 s next to the
-    rest of the world's threads on a Steam Deck (one interpreter lock), and the next block waited for it. fuel_pads:
-    the gas station pads around it (_take_pads). px: the imagery's render size, out_px: the photo's (enlarged before
-    the roads are painted in: earthd.BASE_PX)."""
-    _take_pads(fuel_pads)
-    import imagery as imagerymod
-    import roads as roadsmod
-    import rockface as rockfacemod
-    import staging
-    from PIL import Image
-    import buildings as buildingsmod
-    im = _imagery(tex)
-    frame = geodesy.EnuFrame(lat, lon)
-    pending = set()
-    try:
-        rgb, used = im.render(frame, x0, y0, size, px, pending)
-    except imagerymod.ImageryError:
-        return None
-    rgb = np.asarray(rgb, np.uint8)
-    if buildings and _s.md is not None:
-        try:
-            mask = buildingsmod.photo_mask(frame, x0, y0, size, px, _s.md)
-            if mask is not None:
-                rgb = buildingsmod.fill_photo(rgb, mask, size, px)
-        except Exception as e:      # the photo stays as it is
-            log.info("base photo: building mask: %s", e)
-    import surface as surfacemod
-    if roadsmod.ROADS_IN_GROUND:          # (earthd.Server.write_base)
-        try:
-            rgb = surfacemod.unghost_square(rgb, frame, x0, y0, size, getattr(_s, "surface", None), _s.widths)
-        except Exception as e:      # the photo stays as it is
-            log.info("base photo: road ghosts: %s", e)
-    rgb = surfacemod.enlarge(rgb, out_px or px)
-    if roadsmod.ROADS_IN_GROUND:          # (earthd.Server.write_base)
-        try:
-            import surface as surfacemod
-            rgb = surfacemod.paint_square(rgb, frame, x0, y0, size, getattr(_s, "surface", None), _s.widths)
-        except Exception as e:      # the photo stays as it is
-            log.info("base photo: roads: %s", e)
-    try:            # (earthd.Server.write_base)
-        n = 65
-        xs = x0 + np.arange(n) * (size / (n - 1))
-        ys = y0 + np.arange(n) * (size / (n - 1))
-        _, U = heightmap.surface(frame, lambda la, lo: _s.dem.sample(la, lo, rock_zoom), xs, ys)
-        rgb = rockfacemod.rock(rgb, frame, x0, y0, size, U, x0, y0, size / (n - 1))
-    except Exception as e:
-        log.debug("base photo: rock faces: %s", e)
-    tmp = staging.tmp_for(path)
-    # stored, not deflated: the game reads the packed cache entry (terraincache), this file only if that is stale;
-    # level 1 was 0.15 s of a block photo on a Steam Deck, level 0 0.08 (3 MB, a session keeps a few)
-    with open(tmp, "wb") as f:
-        f.write(terraincache.stored_png(rgb))
-    staging.replace(tmp, path)
-    user_dir, base_vfs, ao_vfs, ao_value = cache
-    terraincache.base_entry(user_dir, base_vfs, ao_vfs, rgb, ao_value)
-    return rgb, used, pending
-
-
-def far_tile(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout, tex):
-    """far_geometry and the tile's texture here, written to tex["path"] (the server without its imagery analyses:
-    de-shadow and colour match off, a small machine). The texture from the imagery tiles on disk alone, the server's
-    chain (Imagery.strict): (Built, (texture bytes, sources used)), or (Built, None) when a tile it needs is not on
-    disk (the server renders it, fetching what is missing). On a Steam Deck the textures were most of the server
-    process's own CPU, one interpreter for every thread (55 s of a drive), and the far field waited on it. A tile
-    built in this anchor's place before (and its texture) comes from the revisit cache."""
-    import revisit
-    mask = tex.get("mask") if tex.get("mask") and tex["mask"][1] else None
-    k = revisit.key("far", *_far_key(lat, lon, tile, zoom, q, ref_zoom, with_sink, layout), tex["px"],
-                    mask[1] if mask else 0, tuple(tex["chain"]), tex["tone"], tex["leaf_on"], tex["season_mode"],
-                    bool(tex.get("online")), _s.widths is not None, _s.surface is not None)
-    got = revisit.load(_s.cache_dir, "far", k)
-    if got is not None:
-        blobs, extra = got
-        if mask and "mask.dds" in blobs:
-            _write_bytes(mask[0], blobs["mask.dds"])
-        _write_bytes(tex["path"], blobs["tex.dds"])
-        return _built_from(blobs["built.npz"], extra), (int(extra["tex_bytes"]), extra["used"])
-    f0 = revisit.faults()
-    built, got = _far_tile(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout, tex, mask)
-    if got is not None and revisit.ON and revisit.faults() == f0:
-        try:
-            blob, meta = _built_blob(built)
-            blobs = {"built.npz": blob}
-            with open(tex["path"], "rb") as f:
-                blobs["tex.dds"] = f.read()
-            if mask and os.path.exists(mask[0]):
-                with open(mask[0], "rb") as f:
-                    blobs["mask.dds"] = f.read()
-            meta.update(tex_bytes=int(got[0]), used={str(n): int(c) for n, c in (got[1] or {}).items()})
-            revisit.store(_s.cache_dir, "far", k, blobs, meta,
-                          where=_where_enu(lat, lon, *tile.bbox, layout=repr(layout), md=_md_versions(),
-                                           chain=tuple(tex["chain"]), tone=tex["tone"], leaf_on=tex["leaf_on"],
-                                           season_mode=tex["season_mode"]))
-        except Exception as e:          # (not kept rather than no tile)
-            log.debug("revisit: far tile %s not kept: %s: %s", (tile.level, tile.i, tile.j), type(e).__name__, e)
-    return built, got
-
-
-def _far_tile(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout, tex, mask):
-    import imagery as imagerymod
-    import rockface as rockfacemod
-    built = _far_geometry(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout)    # (its CPU counted here)
-    im = _imagery(tex)
-    frame = geodesy.EnuFrame(lat, lon)
-    x0, y0, _, _ = tile.bbox
-    px = tex["px"]
-    sq = imagerymod.gutter_square(x0, y0, tile.size, px)
-    try:
-        rgb, used = im.render(frame, *sq, px)
-    except imagerymod.ImageryError:
-        return built, None
-    if built.grid is not None:          # (earthd.Server.rock_faces)
-        try:
-            g = np.asarray(built.grid)
-            rgb = rockfacemod.rock(rgb, frame, *sq, g, x0, y0, tile.size / (g.shape[1] - 1))
-        except Exception as e:
-            log.debug("rock faces of %s: %s", tile.key, e)
-    import roads as roadsmod
-    if roadsmod.ROADS_IN_GROUND:          # (earthd.Server.road_faces)
-        try:
-            import surface as surfacemod
-            rgb = surfacemod.paint_square(rgb, frame, *sq, getattr(_s, "surface", None), _s.widths)
-        except Exception as e:
-            log.debug("road faces of %s: %s", tile.key, e)
-    if mask:                            # (earthd.Server.write_road_mask)
-        try:
-            import surface as surfacemod
-            m = surfacemod.road_mask(frame, *sq, mask[1], getattr(_s, "surface", None), _s.widths)
-            if m is not None:
-                imagerymod.write_dds(mask[0], np.repeat(m[..., None], 3, axis=2))
-        except Exception as e:
-            log.debug("road mask of %s: %s", tile.key, e)
-    return built, (imagerymod.write_dds(tex["path"], rgb), used)
-
-
 # --- CPU accounting ---------------------------------------------------------------------------------------------------
-# Each job's CPU seconds by kind, logged by the process every CPU_LOG_S at debug level ("worker <pid> cpu: ..."), so a
-# recorded session says which pool (road tiles, far buildings, far geometry, terrain blocks) the server's CPU went to.
+# Each job's CPU seconds by kind, logged by the process every CPU_LOG_S at debug level ("worker <pid> cpu: ...").
 CPU_LOG_S = 30.0
 _cpu = {}
 _cpu_logged = [time.monotonic()]
@@ -1257,13 +594,4 @@ def _accounted(fn):
     return run
 
 
-build = _accounted(build)
-terrain_patch = _accounted(terrain_patch)
-far_buildings_tile = _accounted(far_buildings_tile)
-far_geo = _accounted(far_geo)
-base_entry = _accounted(base_entry)
-far_geometry = _accounted(far_geometry)
-far_global_geometry = _accounted(far_global_geometry)
-far_tile = _accounted(far_tile)
-base_photo = _accounted(base_photo)
 navgraph = _accounted(navgraph)

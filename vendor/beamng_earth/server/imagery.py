@@ -427,8 +427,7 @@ DS_PENDING = "ds"
 class Imagery:
     disk = cachemod.NONE    # the server's cache.Cache (last use per file, the size cap); set by earthd
     # strict: a source that fails (offline: its tile not on disk) fails the render instead of the next source
-    # standing in, so a far-tile worker's texture (blockworker.far_tile, from the disk alone) is the one the server
-    # would render, or none (the server renders it)
+    # standing in
     strict = False
 
     def __init__(self, cache_dir, chain=DEFAULT_CHAIN, fetch_workers=FETCH_WORKERS, mem_tiles=None,
