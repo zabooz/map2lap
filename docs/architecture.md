@@ -40,7 +40,7 @@ Settings, at most 61, at most free RAM / 1.5 GB). Processes rather than threads 
 ## Imports
 
 `server.py` and `generator.py` find the packages in `src\` because Python puts a script's folder on its path; the tools add
-`src\` themselves; the Windows release's Python has it in `python312._pth` (a `._pth` adds no script folder).
+`src\` themselves; the Windows release's Python has it in `python314._pth` (a `._pth` adds no script folder).
 
 ## What each country gets
 

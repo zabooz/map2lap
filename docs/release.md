@@ -19,5 +19,5 @@ waitforexitandrun`, with the `STEAM_COMPAT_*` environment), with the Proton Stea
 (`compatdata/244210/config_info`). It starts Steam first and waits until it is signed in (on Linux its
 `logs/connection_log.txt`). `start.sh` and `Map2Lap.desktop` are `Start Map2Lap.bat`'s counterpart.
 
-To develop on Linux: `python3.12 -m venv .venv`, `.venv/bin/python -m pip install -r requirements.txt`, `./start.sh` (it takes
+To develop on Linux: `python3.14 -m venv .venv`, `.venv/bin/python -m pip install -r requirements.txt`, `./start.sh` (it takes
 `.venv` when there is no bundled Python).

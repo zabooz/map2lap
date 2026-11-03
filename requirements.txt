@@ -1,4 +1,4 @@
-# Map2Lap (Python 3.12, Windows). The same packages as engine/requirements.txt,
+# Map2Lap (Python 3.14, Windows). The same packages as engine/requirements.txt,
 # pinned to the versions Map2Lap is tested with.
 numpy==2.5.4
 pillow==13.0.0

@@ -67,8 +67,16 @@ def code_files(here):
     return sorted(out)
 
 
+def runtime():
+    """The Python and numpy versions: a new one can round the same sums differently (math, numpy's kernels), so built
+    items of another one are not reused."""
+    import platform
+    import numpy
+    return f"python {platform.python_version()} numpy {numpy.__version__}"
+
+
 def code_key():
-    """A hash of the server's source files and native module (once per process)."""
+    """A hash of the engine's source files and native module, the BNE_* switches and runtime() (once per process)."""
     with _lock:
         if not _code:
             here = os.path.dirname(os.path.abspath(__file__))
@@ -82,6 +90,7 @@ def code_key():
             for k in sorted(os.environ):                # (the build switches: BNE_*)
                 if k.startswith("BNE_") and k not in ("BNE_REVISIT", "BNE_REVISIT_MB", "BNE_REVISIT_SKIP"):
                     h.update(f"{k}={os.environ[k]}".encode())
+            h.update(runtime().encode())
             _code.append(h.hexdigest()[:16])
         return _code[0]
 

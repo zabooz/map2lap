@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Map2Lap builds Assetto Corsa tracks from real roads, anywhere on earth. Windows first: Python 3.12 in `.venv`,
+Map2Lap builds Assetto Corsa tracks from real roads, anywhere on earth. Windows first: Python 3.14 in `.venv`,
 PowerShell. `src/` is the import root (tools add it themselves). `engine/` (roads, grading, buildings), `native/` (the Rust
 module) and `tools/data/` are our own code, based on BeamNG.Earth: change them directly and port single upstream changes
 by hand.

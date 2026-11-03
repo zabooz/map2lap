@@ -33,11 +33,11 @@ from app import version  # noqa: E402
 PY_VERSION = "%d.%d.%d" % sys.version_info[:3]
 PY_URL = f"https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-embed-amd64.zip"
 # Linux' Python: python-build-standalone (astral-sh), the last build of PY_VERSION, checked against its SHA256SUMS;
-# the stripped one (with debug symbols libpython and python3.12 alone are 310 MB)
-PBS_TAG = "20250529"
+# the stripped one (with debug symbols libpython and the python binary alone are ~300 MB)
+PBS_TAG = "20261026"
 PBS_URL = (f"https://github.com/astral-sh/python-build-standalone/releases/download/{PBS_TAG}/"
            f"cpython-{PY_VERSION}+{PBS_TAG}-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz")
-PBS_SHA256 = {"3.12.10": "f50d08e0304b15d752b22932047135c1dc02f81977b284e51288be9d90627bca"}
+PBS_SHA256 = {"3.14.10": "4d3c16c59ed0802a3d1d34d8bce504b15ceeaff39d62dadecc6a9fa803412aed"}
 # the packages' wheels for Linux: glibc 2.17 up to 2.35, earthfast.abi3.so's (pip doesn't count down from the
 # newest itself: with only manylinux_2_35 it finds no numpy, whose wheels are manylinux_2_27/2_28)
 LINUX_WHEELS = (*(a for i in range(17, 36) for a in ("--platform", f"manylinux_2_{i}_x86_64")),

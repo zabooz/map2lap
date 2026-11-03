@@ -66,10 +66,10 @@ as the route is set); the other person pastes it into the same field under **New
 ## Development
 
 ```powershell
-py -3.12 -m venv .venv
+py -3.14 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe tools\get_textures.py
-"Start Map2Lap.bat"            # Linux: python3.12 -m venv .venv, .venv/bin/python ..., ./start.sh
+"Start Map2Lap.bat"            # Linux: python3.14 -m venv .venv, .venv/bin/python ..., ./start.sh
 ```
 
 Assetto Corsa with CSP is found through Steam, or set it in the page's Settings. The map data cache (`cache\`, 20 GB by
