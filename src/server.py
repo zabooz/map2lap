@@ -333,6 +333,34 @@ def clear_cache():
     return 200, {"bytes": size, "files": files, "freed": freed}
 
 
+def build_files_bytes():
+    """Bytes of the build files in out/tracks: what "Keep build files" (Settings) has kept, a build's while it runs."""
+    total = 0
+    for folder, _dirs, files in os.walk(os.path.join(ROOT, "out", "tracks")):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(folder, name))
+            except OSError:         # (gone in the meantime)
+                pass
+    return total
+
+
+def clear_build_files():
+    """Delete the build files (Settings), not during a build; the tracks in AC, the map data and the settings stay;
+    returns (HTTP code, response)."""
+    with lock:
+        if job["state"] in ("running", "stopping") or running["clearing"]:
+            return 409, {"error": "Not while a build is running"}
+        running["clearing"] = True
+    try:
+        shutil.rmtree(os.path.join(ROOT, "out", "tracks"), ignore_errors=True)
+        size = build_files_bytes()
+    finally:
+        with lock:
+            running["clearing"] = False
+    return 200, {"bytes": size}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -372,6 +400,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/cache":             # (counts every file: ~2 s for 170,000)
             size, files = mapcache.usage()
             self._send(200, {"bytes": size, "files": files})
+        elif self.path == "/api/buildfiles":
+            self._send(200, {"bytes": build_files_bytes()})
         else:
             self._send(404, {"error": "not found"})
 
@@ -450,6 +480,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":
                 self._send(*clear_cache())
+            elif self.path == "/api/buildfiles/clear":
+                self._send(*clear_build_files())
             elif self.path == "/api/update/install":
                 self._send(*install_update())
             elif self.path == "/api/stop":

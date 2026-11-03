@@ -38,10 +38,10 @@
   aside { position: relative; background: var(--panel); border-right: 1px solid var(--line); height: 100vh;
           display: flex; flex-direction: column; gap: 14px; padding: 18px; min-width: 0; }
   .head { position: relative; display: flex; align-items: center; gap: 10px; }
-  /* A newer Map2Lap on GitHub: over the head's right end on the name's line (the tagline below runs under it), so
-     nothing moves when it shows */
-  .update { position: absolute; right: 0; top: 1px; font-size: 11px; font-weight: 700;
-            letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 99px; text-decoration: none;
+  /* A newer Map2Lap on GitHub, opens Settings: over the head's right end on the name's line (the tagline below runs under
+     it), so nothing moves when it shows */
+  .update { position: absolute; right: 0; top: 1px; font-size: 11px; font-weight: 700; border: 0; cursor: pointer;
+            letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 99px;
             background: var(--ok-soft); color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
   .update:hover { background: var(--ok); color: var(--panel); }
   .mark { width: 30px; height: 30px; border-radius: 8px; flex: none;
@@ -229,7 +229,7 @@
   <div class="head">
     <div class="mark"></div>
     <div class="brand"><b>Map2Lap</b><span>Real roads for Assetto Corsa<span id="ver"></span></span></div>
-    <a id="update" class="update" target="_blank" rel="noopener" hidden></a>
+    <button id="update" class="update" hidden></button>
   </div>
 
   <nav class="tabs">
@@ -240,7 +240,10 @@
 
   <section id="settings" class="view" hidden>
     <div class="group">
-      <h3>Assetto Corsa</h3>
+      <h3>Installation</h3>
+      <div class="path-row ver-row"><span id="app-ver"></span><button id="upd-check">Check for updates</button></div>
+      <p id="upd-status" class="small"></p>
+      <div class="label-row"><span>Assetto Corsa folder</span></div>
       <div class="path-row"><input id="ac" type="text" spellcheck="false"><button id="browse">Browse …</button></div>
       <p id="ac-status" class="small"></p>
     </div>
@@ -269,20 +272,17 @@
       </div>
       <p class="small muted">Downloaded maps are kept, so the same area builds faster next time. Above the limit the
         oldest goes first.</p>
-      <label class="check"><input id="keep" type="checkbox"> Keep build files
-        <span class="muted">(troubleshooting, several GB)</span></label>
     </div>
     <div class="group">
       <h3>Testing</h3>
+      <label class="check"><input id="keep" type="checkbox"> Keep build files
+        <span class="muted">(troubleshooting, several GB)</span></label>
+      <div class="path-row ver-row"><span>Build files: <span class="val" id="files-val"></span></span>
+        <button id="files-clear">Delete</button></div>
       <label class="check"><input id="debug-app" type="checkbox"> Track Debug app in Assetto Corsa</label>
       <p class="small muted">A CSP app (in the app bar while driving): shows the metre along the route, <b>F10</b> (or a wheel button set in the app) marks
         a spot (with the drive around it and a screenshot), “Start recording” records the whole drive. Each session gets
         its own folder in Documents\Assetto Corsa\map2lap_debug – attach that folder to a bug report.</p>
-    </div>
-    <div class="group">
-      <h3>Version</h3>
-      <div class="path-row ver-row"><span id="app-ver"></span><button id="upd-check">Check for updates</button></div>
-      <p id="upd-status" class="small"></p>
     </div>
   </section>
 
@@ -447,7 +447,7 @@ function render() {
   $('play').disabled = run || !t || !t.kn5_bytes || playing || !acOk;
   $('play').textContent = playing ? 'Starting …' : '▶ Play';
   $('play').title = !acOk ? NO_AC : car ? `Practice with ${car}, the car you drove last` : 'Practice with the car you drove last';
-  $('cache-clear').disabled = run || clearing;
+  $('cache-clear').disabled = $('files-clear').disabled = run || clearing;
   let badge = ['Ready', ''], time = '', body;
   const result = ['done', 'error', 'stopped'].includes(st) && !selNewer;
   if (run) {
@@ -550,7 +550,7 @@ function setTab(t) {
   drawPick(false);
   render();
   if (t === 'mine') loadTracks();
-  if (t === 'set') { showCache(); loadCars(); }
+  if (t === 'set') { showCache(); showBuildFiles(); loadCars(); }
 }
 
 let carChoice = '', carsLoaded = false;
@@ -1064,6 +1064,29 @@ $('cache-clear').onclick = async () => {
   render();
   if (k === cacheAsk) $('cache-val').textContent = r.error ? '✗ ' + r.error : fmtBytes(r.bytes);
 };
+let filesAsk = 0, filesBytes = 0;
+function setBuildFiles(r) {
+  filesBytes = r && r.bytes !== undefined ? r.bytes : 0;
+  $('files-val').textContent = !r ? '' : r.error ? '✗ ' + r.error : fmtBytes(r.bytes);
+}
+async function showBuildFiles() {
+  const k = ++filesAsk;
+  $('files-val').textContent = 'counting …';
+  const r = await fetch('/api/buildfiles').then(r => r.json()).catch(() => null);
+  if (k === filesAsk) setBuildFiles(r);
+}
+$('files-clear').onclick = async () => {
+  const size = fmtBytes(filesBytes);
+  if (!confirm(`Delete the build files (${size})? Your tracks in Assetto Corsa, the map data and your settings stay.`)) return;
+  const k = ++filesAsk;
+  clearing = true;
+  render();
+  $('files-val').textContent = 'deleting …';
+  const r = await fetch('/api/buildfiles/clear', {method: 'POST'}).then(r => r.json()).catch(e => ({error: String(e)}));
+  clearing = false;
+  render();
+  if (k === filesAsk) setBuildFiles(r);
+};
 $('browse').onclick = async () => {
   const r = await fetch('/api/browse', {method: 'POST'}).then(r => r.json());
   if (r.error) {        // (Linux without a folder picker: the path is typed in)
@@ -1073,8 +1096,8 @@ $('browse').onclick = async () => {
 };
 fetch('/api/settings').then(r => r.json()).then(s => { showSettings(s); render(); if (!s.ac_ok) setTab('set'); });
 // the newest release on GitHub (the server asks once per run, "Check for updates" again): a newer one shows in the
-// head and under Settings → Version, which also says when it's up to date or GitHub can't be reached. A release
-// folder installs it itself: the button turns into "Install"
+// head, which opens Settings → Installation; that says too when it's up to date or GitHub can't be reached. A release
+// folder installs it itself: the button turns into "Install". Only "what's new" leads to GitHub, its release notes
 let updateTo = null;
 function showUpdate(u) {
   updateTo = u && u.newer && u.can_install ? u.version : null;
@@ -1092,13 +1115,13 @@ function showUpdate(u) {
   }
   const a = $('update');
   a.textContent = `v${u.version} available`;
-  a.href = u.url;
-  a.title = `Map2Lap ${u.version} is out (you have ${VERSION}): open its download page`;
+  a.title = `Map2Lap ${u.version} is out (you have ${VERSION}): open Settings`;
   a.hidden = false;
   s.innerHTML = `Map2Lap ${esc(u.version)} is out: <a href="${esc(u.url)}" target="_blank" rel="noopener">` +
-    (updateTo ? 'what’s new' : 'download it') + '</a>';
+    (updateTo ? 'what’s new' : 'what’s new and download') + '</a>';
   s.className = 'small';
 }
+$('update').onclick = () => { setTab('set'); $('app-ver').scrollIntoView({block: 'nearest'}); };
 const pause = ms => new Promise(ok => setTimeout(ok, ms));
 async function installUpdate() {
   if (!confirm(`Install Map2Lap ${updateTo}? Map2Lap restarts; your settings, tracks and map data stay.`)) return;
