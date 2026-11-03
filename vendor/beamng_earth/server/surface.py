@@ -1217,7 +1217,6 @@ class Surface:
         self._pending_layers = set()    # (key, layers) queued
         self._last = None           # (lat, lon) of the last prefetch
         self.gas_pads = False       # gas station forecourts painted asphalt (earthd --gas-stations on: fuel_pads)
-        self.extra_pads = None      # (lat, lon) -> more pads painted the same (airportgrade's runway_pads)
         self._fuel_pads = {}        # station id -> (rings [(lat (k,), lon (k,))], bbox), the last FUEL_PAD_STATIONS
 
     def close(self):
@@ -1350,15 +1349,8 @@ class Surface:
                     if a1 >= la0 and a0 <= la1 and b1 >= lo0 and b0 <= lo1]
 
     def fuel_pads(self, lat, lon):
-        """[(lat (k,), lon (k,))] of the kept pads within the points' bounding box (the painters'; never waits), and
-        extra_pads' (the runways)."""
-        out = [r for _, rings in self.fuel_pad_items(lat, lon) for r in rings]
-        if self.extra_pads is not None:
-            try:
-                out += self.extra_pads(np.asarray(lat, np.float64), np.asarray(lon, np.float64))
-            except Exception as e:      # (no runways rather than no ground)
-                log.debug("surface: extra pads: %s: %s", type(e).__name__, e)
-        return out
+        """[(lat (k,), lon (k,))] of the kept pads within the points' bounding box (the painters'; never waits)."""
+        return [r for _, rings in self.fuel_pad_items(lat, lon) for r in rings]
 
     def lots(self, lat, lon):
         """The "infrastructure" and "land_use" Features of the cells around the points that are cached

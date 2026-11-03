@@ -428,7 +428,7 @@ def _signals(arms, approaches, nodes, left_hand=False, ring=None, lines=(), sign
     return out
 
 
-# Road rules by country (ISO 3166-1 alpha-2; the nearest airport's, AirportDB: a stand-in until a border map)
+# Road rules by country (ISO 3166-1 alpha-2)
 LEFT_HAND = {"GB", "IE", "IM", "JE", "GG", "MT", "CY", "IN", "PK", "BD", "LK", "NP", "BT", "MV", "JP", "ID", "MY",
              "SG", "BN", "TH", "TL", "HK", "MO", "AU", "NZ", "PG", "FJ", "WS", "TO", "KI", "SB", "TV", "NR", "NU",
              "CK", "ZA", "NA", "BW", "ZW", "ZM", "MZ", "MW", "KE", "TZ", "UG", "LS", "SZ", "MU", "SC", "SH", "FK",
@@ -447,27 +447,6 @@ def road_rules(country):
     c = (country or "US").upper()
     return {"rightHandDrive": c in LEFT_HAND, "turnOnRed": c in TURN_ON_RED, "redYellow": c in RED_YELLOW,
             "country": c, "mph": c in MPH_COUNTRIES}
-
-
-def country_near(db, lat, lon):
-    """The country of the airport nearest (lat, lon) in airports.AirportDB db, or None."""
-    if db is None or not getattr(db, "runways", None):
-        return None
-    import airports
-    d = airports._hav(lat, lon, db._mid[:, 0], db._mid[:, 1])
-    rw = db.runways[int(np.argmin(d))]
-    ap = db.airports.get(rw.airport_ident)
-    return getattr(ap, "country", None) or getattr(rw, "country", None) or None
-
-
-def region_near(db, lat, lon):
-    """The ISO 3166-2 region (e.g. "US-CA") of the airport nearest (lat, lon) in airports.AirportDB db, or None."""
-    if db is None or not getattr(db, "runways", None):
-        return None
-    import airports
-    d = airports._hav(lat, lon, db._mid[:, 0], db._mid[:, 1])
-    ap = db.airports.get(db.runways[int(np.argmin(d))].airport_ident)
-    return getattr(ap, "region", None) or None
 
 
 def write(out_dir, vfs_dir, aid, serial, graph):

@@ -195,11 +195,6 @@ POLICIES = {
     "canelevation-dem.s3.ca-central-1.amazonaws.com": HostPolicy(rate=20.0, burst=40.0, max_conc=6, daily_budget=None,
                                                                  allow_prefetch=True, offline_ok=True, miss_ttl=None,
                                                                  binary=True, timeout=30.0, optional=True),
-    # OurAirports' nightly CSV dump on GitHub Pages (airports.py): two files (~3 MB gzipped) once a week,
-    # one request at a time, a hard cap well above a week's need; the copy on disk serves offline
-    "davidmegginson.github.io": HostPolicy(rate=0.2, burst=2.0, max_conc=1, daily_budget=20, daily_hard=40,
-                                           offline_ok=True, miss_ttl=None, binary=True, timeout=120.0,
-                                           max_attempts=2, base_delay=5.0),
     # Photon (komoot's OpenStreetMap geocoder, made for search-as-you-type; geocode.py): the map's search box,
     # debounced and cached; a modest rate, a daily cap (fair use of a free public service)
     "photon.komoot.io": HostPolicy(rate=2.0, burst=4.0, max_conc=1, daily_budget=2000, daily_hard=3000,
@@ -291,7 +286,6 @@ ROLES = {
         "land cover (ground materials, rocks, town streets); places not visited before get a plain ground meanwhile",
     "dataforgood-fb-data.s3.amazonaws.com": "the trees; places not visited before have none meanwhile",
     "gis.ngdc.noaa.gov": "sea depths; new coasts get a plain sloping sea floor meanwhile",
-    "davidmegginson.github.io": "the airport list; the copy on disk is used meanwhile",
     "data.openstreetmap.us": "road details from OpenStreetMap (lanes, widths, sidewalks); estimated meanwhile",
     "s3-us-west-2.amazonaws.com": "US lidar for bridge deck heights; estimated meanwhile",
     "nvdbapiles.atlas.vegvesen.no": "Norway's measured road, bridge and tunnel heights; estimated meanwhile",

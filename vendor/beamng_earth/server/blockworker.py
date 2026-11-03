@@ -40,8 +40,7 @@ _s = None       # this process's state (init)
 
 
 class _State:
-    def __init__(self, cache_dir, offline, roads, grading, road_widths, surface, airports=False, sea=False,
-                 gas_stations=False):
+    def __init__(self, cache_dir, offline, roads, grading, road_widths, surface, sea=False, gas_stations=False):
         self.cache_dir = cache_dir
         import revisit
         revisit.CACHE_DIR = cache_dir
@@ -50,9 +49,7 @@ class _State:
         self.dem = demmod.Dem(os.path.join(cache_dir, "dem"), fetcher=net)
         import railways as _railways    # (coarse elevation: rail decks raised over the roads under them)
         _railways.COARSE_AT = self.dem.coarse_at
-        # runways graded in (--airports on): the copy the server loaded, never refreshed here
-        self.airports = load_airports(cache_dir, self.dem) if airports else None
-        md = mapdatamod.MapData(cache_dir, fetcher=net) if (roads or surface or sea) else None
+        md =mapdatamod.MapData(cache_dir, fetcher=net) if (roads or surface or sea) else None
         if md is not None:
             md.dem = self.dem       # (gradesep's ground)
         # the sea's and the lakes' floors carved in (--sea on)
@@ -68,8 +65,6 @@ class _State:
         self.surface = surfacemod.Surface(md) if surface else None
         if self.surface is not None:    # gas station forecourts painted asphalt (--gas-stations on)
             self.surface.gas_pads = bool(gas_stations)
-            if self.airports is not None:   # ... and the runways
-                self.surface.extra_pads = self.airports.runway_pads
         self.graders = {}           # anchor id -> grading.Grader
         self.chunks = {}            # anchor id -> heightmap.ChunkCache
         self.bridges = {}           # (unused since the chain stores: _chain_store)
@@ -108,19 +103,6 @@ SIGNALS_MARGIN_M = 60.0         # m around a road tile its junctions' mapped tra
 WATER_BED_M = 0.05           # ground carved deeper than this under the water gets the bed layer (MUD)
 
 
-def load_airports(cache_dir, dem):
-    """An airportgrade.AirportGrader over the OurAirports copy in the cache (no download), or None."""
-    import airportgrade
-    import airports as airportsmod
-    try:
-        db = airportsmod.Store(cache_dir, netfetch.Fetcher(offline=True)).load(
-            max_age=float("inf"))
-    except (airportsmod.AirportsUnavailable, OSError, ValueError) as e:
-        log.warning("airports: no runway grading (%s)", e)
-        return None
-    return airportgrade.AirportGrader(db, dem)
-
-
 def _warm_loop():
     while True:
         with _s.cv:
@@ -140,10 +122,7 @@ def _warm_loop():
 
 
 def ground(frame, la, lo, z):
-    """The DEM heights z at (la, lo) shaped before the road grading: runways graded in (--airports on),
-    the sea floor carved in (--sea on)."""
-    if _s.airports is not None:
-        z = _s.airports.apply(la, lo, z)
+    """The DEM heights z at (la, lo) shaped before the road grading: the sea floor carved in (--sea on)."""
     if _s.sea is not None:
         z = _s.sea.carve(la, lo, z)
     return z
@@ -424,7 +403,7 @@ def _write_bytes(path, data):
 # parking, fuel, wells, sound); "skin" stages follow the anchor's 2 m lattice and height quantum (the draped road mesh,
 # plazas, sidewalks / walk collision in write_tile); "shared" are the stores both read (grading plans, chain profiles).
 TILE_STAGE_KIND = {"warm": "shared", "anchor": "shared", "profiles": "shared", "fuel": "content", "items": "content",
-                   "build_tile": "content", "rails": "content", "airports": "content", "doors_park": "content",
+                   "build_tile": "content", "rails": "content", "doors_park": "content",
                    "markings": "content", "guardrails": "content", "medians": "content", "mesh": "skin",
                    "plazas": "skin", "deck_mesh": "content", "tunnel_mesh": "content", "railways": "content",
                    "bld": "content", "powerlines": "content", "write": "skin"}
@@ -530,9 +509,6 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     mark("build_tile")
     chunks += railsmod.tile_chunks(frame, tx, ty, cells)     # railway and tram tracks on the ground
     mark("rails")
-    if _s.airports is not None:         # runway markings, drawn by the road mesh like the lane lines
-        chunks += _s.airports.tile_chunks(frame, tx, ty, elev, roadsmod.tile_bbox)
-    mark("airports")
     x0, y0, _, _ = box
     if items is not None:               # front doors and shopfronts, driveways into the road mesh
         drives = []
@@ -1030,7 +1006,7 @@ def far_global_geometry(z, x, y, zoom, ref_zoom, layout):
     if got is not None:
         return _built_from(got[0]["built.npz"], got[1])
     f0 = revisit.faults()
-    base = _s.airports.wrap(_s.dem) if _s.airports is not None else _s.dem
+    base = _s.dem
     if _s.sea is not None:
         base = seacarvemod.SeaDem(base, None)       # (carving stops at seacarve.CARVE_MAX_LEVEL < the global levels)
     built = farfield.build_global(base, z, x, y, zoom, ref_zoom, layout)
@@ -1046,14 +1022,14 @@ def far_global_geometry(z, x, y, zoom, ref_zoom, layout):
 def _far_global_key(z, x, y, zoom, ref_zoom, layout):
     """What a global far tile's geometry is built from (no anchor: the revisit key any anchor finds)."""
     return ("m", farfield.GLOBAL_GEO_VERSION, int(z), int(x), int(y), zoom, ref_zoom, repr(layout),
-            _s.md.versions() if _s.md is not None else None, _s.sea is not None, _s.airports is not None)
+            _s.md.versions() if _s.md is not None else None, _s.sea is not None)
 
 
 def _far_key(lat, lon, tile, zoom, q, ref_zoom, with_sink, layout):
     """What a far tile's geometry is built from (the revisit cache's key)."""
     return (round(float(lat), 7), round(float(lon), 7), (tile.level, tile.i, tile.j), zoom,
             None if q is None else float(q), ref_zoom, bool(with_sink), repr(layout),
-            _s.md.versions() if _s.md is not None else None, _s.sea is not None, _s.airports is not None)
+            _s.md.versions() if _s.md is not None else None, _s.sea is not None)
 
 
 def _built_blob(built):
@@ -1082,7 +1058,7 @@ def _built_from(blob, meta):
 def _far_geometry(aid, lat, lon, tile, zoom, q, ref_zoom, with_sink, layout):
     g, _ = _s.anchor(aid, lat, lon)
     frame = geodesy.EnuFrame(lat, lon)
-    base = _s.airports.wrap(_s.dem) if _s.airports is not None else _s.dem
+    base = _s.dem
     if _s.sea is not None:
         base = seacarvemod.SeaDem(base, _s.sea if tile.level <= seacarvemod.CARVE_MAX_LEVEL else None)
     src = gradingmod.GradedDem(base, g) if (g is not None and tile.level <= 0) else base

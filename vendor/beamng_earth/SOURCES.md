@@ -79,12 +79,11 @@ Baden-Wurttemberg (`owsproxy.lgl-bw.de`), Lower Saxony (`opendata.lgln.niedersac
 | Meta / WRI canopy heights | `dataforgood-fb-data.s3.amazonaws.com` | The trees: where each one stands and how tall it is, from a map of tree heights metre by metre (forests, gaps, clearings, street trees). | Places not visited before have no trees until it answers. | named |
 | NOAA NCEI bathymetry | `gis.ngdc.noaa.gov` | The depth of the sea along coasts (down to about 3 m detail along US coasts): the sea floor you can drive or sink into. | New coasts get a plain, evenly sloping sea floor. | named |
 
-## Railways, airports and other details
+## Railways and other details
 
 | Source | Address | What it builds | If it does not answer | Status line |
 |---|---|---|---|---|
 | BeamNG.Earth's weekly data (GitHub Pages) | `tecnagamer.github.io` | Built every week from the whole OpenStreetMap planet by this project: railway details (track gauge, electrification, disused and abandoned lines, level crossings and their barriers) and, in the US, the Federal Railroad Administration's list of the gates, lights and crossbucks at each level crossing. | Railways keep their basic class; level crossings get equipment by road size. | optional |
-| OurAirports | `davidmegginson.github.io` | Airports and their runways (position, length, width, surface), for paved runways and levelled airfields. Fetched about once a week. | The copy on disk is used. | named |
 
 ## Live services (used only when you use the feature)
 

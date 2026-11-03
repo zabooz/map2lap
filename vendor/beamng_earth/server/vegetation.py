@@ -681,7 +681,7 @@ def _no_items(as_json, lat, lon):
 
 def tile_items(frame, tx, ty, veg, cell_ready, elev, sea=None, as_json=False):
     """The items of anchor tile (tx, ty), each [group, x, y, z, yaw, scale, height, rank] in the anchor
-    frame, the ground z from elev(lat, lon) (the DEM shaped as the block's ground: runways, carved
+    frame, the ground z from elev(lat, lon) (the DEM shaped as the block's ground: carved
     water). None when a cell under it is not at hand yet (veg cells are built in the background)."""
     import roads as roadsmod
     x0, y0, x1, y1 = roadsmod.tile_bbox(tx, ty)

@@ -21,7 +21,7 @@ import time
 from app.paths import ROOT
 
 CACHE = os.path.join(ROOT, "cache")
-KEEP = {"netstats", "gravity", "airports"}      # never: the daily request budgets, one-off downloads (like cache.py)
+KEEP = {"netstats", "gravity"}      # never: the daily request budgets, one-off downloads (like cache.py)
 WHOLE = {"mapdata-mirror"}      # whole entries only (prune_mirror): removing a single file would break its entry
 LOW_WATER = 0.9
 FRESH_S = 600.0

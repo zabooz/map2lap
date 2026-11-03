@@ -12,8 +12,6 @@ Layout of the cache root (~/.cache/beamng-earth by default):
                       one is a miss, built or fetched again). Not used by earthd yet, so nothing
                       there is protected as this session's: the walk's mtime is its last use
   gravity/            counted, never evicted or cleared (the 145 MB EGM2008 model, downloaded once)
-  airports/           the same (airports.py: OurAirports' CSV files, ~17 MB, the last good copy kept for
-                      offline use; airports.py replaces it weekly and deletes the old generation itself)
   seacarve/ (its raw rasters) peercache/ roadwidth/   their own limits (seacarve.RAW_MB, peerwork.CACHE_BYTES,
                       roadwidth.STORE_MB), cut back at server start (prune_dir; their readers touch_once what they use)
   mapdata-mirror/ dem's mirror            their own limits, pruned by their writers (a process's first write too)
@@ -52,7 +50,7 @@ import time
 
 log = logging.getLogger("earthd.cache")
 
-KEPT = ("gravity", "airports")                              # counted only
+KEPT = ("gravity",)                                         # counted only
 GB = 1e9                    # the page's GB (decimal, as disk sizes are sold)
 LOW_WATER = 0.9             # evict down to this share of the cap
 READ_WAITS = (0.02, 0.05, 0.1, 0.25)   # s between the tries of a read held up on Windows (NoCache.read)
