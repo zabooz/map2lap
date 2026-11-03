@@ -194,6 +194,9 @@
   .group h3 { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
               color: var(--muted); }
   .group input[type=text], .group select, .group .path-row button { background: var(--panel); }
+  .bug-link { flex: none; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised);
+              color: inherit; font-weight: 600; text-align: center; text-decoration: none; }
+  .bug-link:hover { background: var(--panel); }
   .path-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
   .path-row button { padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised);
                      cursor: pointer; }
@@ -239,6 +242,7 @@
   </nav>
 
   <section id="settings" class="view" hidden>
+    <a class="bug-link" href="https://github.com/zabooz/map2lap/issues" target="_blank" rel="noopener">Found a bug?</a>
     <div class="group">
       <h3>Installation</h3>
       <div class="path-row ver-row"><span id="app-ver"></span><button id="upd-check">Check for updates</button></div>
