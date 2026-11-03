@@ -8,8 +8,8 @@ KNOWN one that passes again is reported so its entry can go.
     .venv\\Scripts\\python.exe tools\\check.py test_roads test_grading   # only these test files, no build
 
 Exit code 0: passed, 1: failed. The kn5 build goes into a temporary AC folder, so nothing in AC changes; its OBJ parts
-stay in out/tracks/check_<track> to compare against. It needs the map services (OSRM) like any build. A build's grading is cached (revisit.code_key): after a change to server/ the
-first one runs cold, a few minutes.
+stay in out/tracks/check_<track> to compare against. It needs the map services (OSRM) like any build. A build's
+grading is cached (revisit.code_key): after a change to server/ the first one runs cold, a few minutes.
 """
 import argparse
 import json
@@ -29,10 +29,11 @@ BUILD_TIMEOUT_S = 1800
 # Failures that are there on main too: a test file, class or test id (all tests under it) -> why. An entry goes once
 # it passes; one starting "flaky:" fails only sometimes and is never reported as passing again.
 KNOWN = {
-    "test_fast": "crashes: access violation (0xc0000005) in the native module; not traced",
-    "test_imagery": "crashes: access violation (0xc0000005) in the native module; not traced",
-    "test_otto_bridge.OttoBridgeTest": "expects BeamNG.Earth's original bridge limits; girders 4.16 m over the road "
-                                       "instead of 6 m may be a real bug (buildings' HEADROOM_M set twice)",
+    "test_fast": "crashes in earthfast.mesh_warp (access violation in safe Rust: likely the module's numpy interop; "
+                 "only imagery uses it, which AC builds don't run); to trace with the module's rebuild",
+    "test_imagery": "crashes in earthfast, as test_fast (imagery: kept for photo textures, not run by AC builds)",
+    "test_otto_bridge.OttoBridgeTest": "I-80 over Otto Road against BeamNG.Earth's original limits: our deck has a "
+                                       "0.39 m crest and 4.16 m under its girders (want < 0.1 m, >= 6 m); open",
 }
 # Test files that take minutes (they compute, no network): left out by --fast
 SLOW = ("test_mapdata",)
