@@ -33,6 +33,7 @@ line here (`tests/test_tools.py`).
 |---|---|
 | A mark or a recorded drive from AC: what did the car feel, on what, where? | `mark.py [track]`, then `docs/ac-reports.md` |
 | Drives like grass: which physics (1ROAD, 1GRASS) lies under the line? | `measure.py <track> --surface --from <m> --to <m>` |
+| Why is the ground at a spot road or grass: the map's roads there, each painting step | `ground_paint.py <track> <AC x> <AC z>` |
 | Which surface is that bump, deck or ground? | `measure.py <track> --profile --from <m> --to <m>` |
 | A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
 | Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
