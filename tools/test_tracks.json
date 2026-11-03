@@ -36,6 +36,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 320,
    "over_05g_m": 9,
    "lanes_over_05g_m": 35,
@@ -98,6 +100,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 579,
    "over_05g_m": 16,
    "lanes_over_05g_m": 26,
@@ -148,6 +152,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 1,
+   "max_over_deck": 0.165,
    "length_m": 511,
    "over_05g_m": 3,
    "lanes_over_05g_m": 12,
@@ -198,6 +204,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 240,
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
@@ -256,6 +264,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 1245,
    "over_05g_m": 9,
    "lanes_over_05g_m": 14,
@@ -302,6 +312,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 919,
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
@@ -336,6 +348,8 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 1935,
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
@@ -442,9 +456,11 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 6,
+   "max_over_deck": 0.128,
    "length_m": 12681,
    "over_05g_m": 22,
-   "lanes_over_05g_m": 122,
+   "lanes_over_05g_m": 124,
    "max_g": 3.19,
    "max_g_at_m": 12551.0,
    "edges_m": 0,
@@ -506,7 +522,7 @@
   "spots": [
    [
     "1644-1657",
-    "a short bridge, onto it 1.7 G (10 cm step)"
+    "a short bridge on an 8 % road, a stream free under it: drive down it too"
    ],
    [
     "3917-3944",
@@ -522,7 +538,7 @@
    ],
    [
     "6600-6687",
-    "a bridge, onto it 2.0 G (12 cm step)"
+    "a bridge along a slope"
    ],
    [
     "8513-8523",
@@ -534,7 +550,7 @@
    ],
    [
     "11267-11275",
-    "a short bridge"
+    "a short bridge in a bend, its stream still filled (open)"
    ],
    [
     "12962-13014",
@@ -542,14 +558,16 @@
    ]
   ],
   "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 13510,
-   "over_05g_m": 47,
-   "lanes_over_05g_m": 404,
+   "over_05g_m": 42,
+   "lanes_over_05g_m": 398,
    "max_g": 3.61,
    "max_g_at_m": 5223.0,
    "edges_m": 1,
    "transitions": 16,
-   "max_g_transition": 3.1,
+   "max_g_transition": 1.07,
    "warp_m": 53,
    "max_warp": 9.11,
    "max_warp_at_m": 12999.0
@@ -586,6 +604,21 @@
     "280-300",
     "the stream across the road: no trench"
    ]
-  ]
+  ],
+  "reference": {
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 580,
+   "over_05g_m": 7,
+   "lanes_over_05g_m": 71,
+   "max_g": 1.61,
+   "max_g_at_m": 288.0,
+   "edges_m": 0,
+   "transitions": 0,
+   "max_g_transition": 0.0,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 0.0
+  }
  }
 }
