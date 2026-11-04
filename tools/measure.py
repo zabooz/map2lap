@@ -64,7 +64,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
 sys.path.insert(0, os.path.join(HERE, "src"))
 from app import named, settings, trackcode, version  # noqa: E402
-from track import obj_to_kn5  # noqa: E402
+from track import obj_to_kn5, parallel  # noqa: E402
 
 TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
 BUILD_JOBS = 3          # short test tracks built at a time
@@ -88,8 +88,6 @@ PROFILE_LANES = (-3.0, -2.0, 0.0, 2.0, 3.0)     # m across the route: a deck's w
 IN_FRONT_M = 0.4        # m in front of a wall's cut line the ground is read (--walls): 0.3 m in front of its face
 IN_FRONT_OVER_M = 0.3   # m over the lower road's level: a tooth there, under it the road's own cross slope
 WALL_SAMPLE_M = 0.5     # m between those points
-MEASURE_JOBS = 8        # tracks measured side by side, one process each: 16 tracks 197 s alone, 106 s with 2, 76 s with 8 (the
-                        # longest track's own time is the floor), 2.9 GB at the peak (the A2 alone 1.2 GB)
 PROFILE_RUN_UP_M = 150.0   # m of road before a stretch to start the line on: longer than the bridges a stretch starts on
 TILE_M = 256.0          # m: a tile's side (roads.tile_bbox): t_<tx>_<ty>.obj covers x tx*256.., north ty*256.. (z = -north)
 TILE_REACH_M = 60.0     # m an object reaches past its tile: driving surfaces ~6, a building's collision wall 53 (Weblinger)
@@ -584,16 +582,16 @@ def measure(track, start=None, end=None):
             "_width": round(float(np.median(width[width > 0])), 1) if (width > 0).any() else 0.0}
 
 
-def measured(tracks, start=None, end=None, jobs=None):
-    """(track, its measure()) of each of tracks, in their order, as they come: side by side in processes of their own (MEASURE_JOBS)
-    when there are several, the printing stays in one place."""
-    jobs = min(jobs or MEASURE_JOBS, len(tracks))
+def measured(tracks, start=None, end=None):
+    """(track, its measure()) of each of tracks, in their order, as they come: side by side in processes of their own, as many as
+    the cores and the free RAM allow (parallel.workers: 16 tracks 197 s alone, 76 s with 8, 2.9 GB at the peak; the longest
+    track's own time is the floor), the printing stays in one place."""
+    jobs = parallel.workers(len(tracks))
     if jobs < 2:
         for t in tracks:
             yield t, measure(t, start, end)
         return
-    import concurrent.futures
-    with concurrent.futures.ProcessPoolExecutor(jobs) as ex:
+    with parallel.pool(jobs) as ex:
         yield from zip(tracks, ex.map(measure, tracks, [start] * len(tracks), [end] * len(tracks)))
 
 
