@@ -13,6 +13,7 @@ from .profiles import (
     BANK_DESIGN, BANK_ON, BANK_RUNOFF_M, BANK_SIGMA_M, BANK_STENCIL_M, _point_along, clip_polyline, plan_roads,
     profile_sigma, road_id
 )
+from .bridges import junction_ends
 
 
 class _Ends:
@@ -109,6 +110,27 @@ class _Ends:
             for j, i in enumerate(qs):
                 if off[j + 1] - off[j] >= 2:
                     out[i // 2][i % 2] = np.asarray(pts[off[j]:off[j + 1]])
+        return [tuple(o) for o in out]
+
+    def _onto_bridge(self, ext):
+        """plan_roads' onto of _extensions' ext: per part (before, after), does that extension end on a bridge's end, its road
+        not going on past there (junction_ends, as an own end: APPROACH_TOUCH_M)? Told at the extension's own far end from its
+        own cell's bridges and roads, so every cell that plans the part gets the same answer."""
+        out = [[False, False] for _ in ext]
+        who = [(j, end) for j, pair in enumerate(ext) for end in (0, 1) if pair[end] is not None and len(pair[end]) >= 2]
+        if not who:
+            return [tuple(o) for o in out]
+        far = np.asarray([ext[j][end][-1] for j, end in who], np.float64)
+        la, lo, _ = self.frame.enu_to_geodetic(far[:, 0], far[:, 1], 0.0)
+        la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
+        at = self._at_bridge_ends(far, la, lo, np.ones(len(who), bool))
+        for k in np.flatnonzero(at):
+            j, end = who[k]
+            cands = self._chain_cands(mapcells.cells_of(la[k:k + 1], lo[k:k + 1])[0])
+            lines = [ext[j][end]] + [c[0] for c in cands]
+            ask = np.zeros((len(lines), 2), bool)
+            ask[0, 1] = True
+            out[j][end] = not junction_ends(lines, [""] + [c[5] for c in cands], ask)[0, 1]
         return [tuple(o) for o in out]
 
     def _cand_arrays(self, key, cands):
@@ -231,8 +253,8 @@ class _Ends:
                 parts = [(part, asks[n][0][4]) for n, (part, _last, _whole) in zip(jobs, preps)]
                 ext = self._extensions(parts, [asks[n][0][5] for n in jobs])
                 plans = plan_roads(self.frame, parts, self.elev, None, ext, cuts=False,
-                                   coarse=COARSE_EASE_ON and self._coarse_ll(parts[0][0]),
-                                   obs=self._obs(None, parts[0][0]))
+                                   coarse=COARSE_EASE_ON and self._coarse_ll(parts[0][0]), fine=self._fine_ll(parts[0][0]),
+                                   obs=self._obs(None, parts[0][0]), onto=self._onto_bridge(ext))
                 for n, (part, last, whole), p in zip(jobs, preps, plans):
                     self._strong_keep(asks[n][0], keys[n], p, last, whole)
             except Exception as e:      # one at a time, each its own failure (_stronger_z)
@@ -289,9 +311,10 @@ class _Ends:
         try:
             part, last, whole = self._strong_part(cand, at_last)
             # (the profile alone: its cutting's walls cost most of a plan and no height)
-            p = plan_roads(self.frame, [(part, cand[4])], self.elev, None,
-                           self._extensions([(part, cand[4])], [cand[5]]), cuts=False,
-                           coarse=COARSE_EASE_ON and self._coarse_ll(part), obs=self._obs(None, part))[0]
+            ext = self._extensions([(part, cand[4])], [cand[5]])
+            p = plan_roads(self.frame, [(part, cand[4])], self.elev, None, ext, cuts=False,
+                           coarse=COARSE_EASE_ON and self._coarse_ll(part), fine=self._fine_ll(part),
+                           obs=self._obs(None, part), onto=self._onto_bridge(ext))[0]
             self._strong_keep(cand, k, p, last, whole)
         except Exception as e:      # not held rather than no grading
             log.debug("grading: pin height of %s: %s: %s", cand[5], type(e).__name__, e)

@@ -233,6 +233,90 @@ class ShortRoadOntoBridgeTest(unittest.TestCase):
         np.testing.assert_array_equal(grading.fill_abutment(z, True, fine=True), z)
 
 
+class ExtensionOntoBridgeTest(unittest.TestCase):
+    """A road split at a junction short of its bridge: its smoothing runs on over the junction, along the short part, down the
+    bank at the bridge's end. Filled, the road stays up (a 2 m hollow on Cap Corse)."""
+
+    SPEC = roads.Spec(8.0, "paved", False, "secondary")
+
+    def plan(self, bank=8.0, onto=True, ext_m=18.0, fine=True):
+        def elev(la, lo):       # level up to the bridge's end at 200 m + ext_m: the last 4 m drop bank m
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 100.0 - bank * np.clip((np.asarray(e) - (196.0 + ext_m)) / 4.0, 0.0, 1.0)
+        x = np.array([0.0, 200.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        part = (np.c_[lo, la], self.SPEC)
+        on = np.c_[np.arange(200.0, 200.1 + ext_m, 2.0), np.zeros(int(ext_m / 2) + 1)]
+        return grading.plan_roads(FRAME, [part], elev, ext=[(None, on)], cuts=False, fine=fine,
+                                  onto=[(False, onto)] if onto is not None else None)[0]
+
+    def test_the_bank_past_the_junction_doesn_t_draw_the_road_down(self):
+        self.assertLess(float(self.plan(onto=False).z[-1]), 99.0, "without the fill: down the bank")
+        self.assertGreater(float(self.plan().z[-1]), 99.8, "filled: at the road's height")
+
+    def test_the_part_on_to_the_bridge_is_met_at_one_height(self):
+        def elev(la, lo):
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 100.0 - 8.0 * np.clip((np.asarray(e) - 214.0) / 4.0, 0.0, 1.0)
+        x = np.array([200.0, 218.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        short = (np.c_[lo, la], self.SPEC)
+        back = np.c_[np.arange(200.0, -1.0, -4.0), np.zeros(51)]
+        own = grading.plan_roads(FRAME, [short], elev, abut=[(False, True)], ext=[(back, None)], cuts=False, fine=True)[0]
+        self.assertAlmostEqual(float(own.z[0]), float(self.plan().z[-1]), delta=0.1)
+
+    def test_a_bridge_with_no_falling_bank_changes_nothing(self):
+        np.testing.assert_array_equal(self.plan(bank=0.0).z, self.plan(bank=0.0, onto=None).z)
+
+    def test_no_word_about_the_extension_changes_nothing(self):
+        np.testing.assert_array_equal(self.plan(onto=None).z, self.plan(onto=False).z)
+
+    def test_an_extension_cut_short_of_the_bridge_is_not_filled(self):
+        reach = 3.0 * grading.profile_sigma(self.SPEC) + grading.PROFILE_STEP
+        long_m = float(2 * int((reach + 40.0) / 2))
+        np.testing.assert_array_equal(self.plan(ext_m=long_m).z, self.plan(ext_m=long_m, onto=False).z)
+
+
+class OntoBridgeAnswerTest(unittest.TestCase):
+    """_onto_bridge: whichever cell plans a part, told at the extension's far end."""
+
+    class Planner(grading.ends._Ends, grading.abutments._Abutments):
+        frame = FRAME
+
+        def __init__(self, bridge_ends, roads_there):
+            self.bridge_ends, self.roads_there = np.asarray(bridge_ends, np.float64).reshape(-1, 2), roads_there
+
+        def _cell_enu(self, home, ground=True):
+            return {"ends": self.bridge_ends}
+
+        def _chain_cands(self, key, feats=None, specs=None):
+            return [(np.asarray(xy, np.float64), 0.0, 0, None, None, fid) for fid, xy in self.roads_there]
+
+    LINE = np.array([[0.0, 0.0], [18.0, 0.0]])
+
+    def test_an_extension_ending_on_a_bridge_s_end(self):
+        got = self.Planner([[18.5, 0.0]], [("short", self.LINE)])._onto_bridge([(None, self.LINE)])
+        self.assertEqual(got, [(False, True)])
+
+    def test_no_bridge_there(self):
+        got = self.Planner([[80.0, 0.0]], [("short", self.LINE)])._onto_bridge([(None, self.LINE), (self.LINE, None)])
+        self.assertEqual(got, [(False, False), (False, False)])
+
+    def test_a_road_going_on_past_its_end_is_a_junction_not_the_bridge(self):
+        through = np.array([[18.0, -30.0], [18.0, 30.0]])
+        got = self.Planner([[18.5, 0.0]], [("short", self.LINE), ("through", through)])._onto_bridge([(None, self.LINE)])
+        self.assertEqual(got, [(False, False)])
+
+    def test_no_extensions_no_question(self):
+        self.assertEqual(self.Planner([], [])._onto_bridge([(None, None)]), [(False, False)])
+
+    def test_the_answer_doesn_t_depend_on_the_cell_asking(self):
+        """(far away from any cell: _abut_ends would filter it by the cell asking; here nobody asks by a cell)"""
+        far = self.LINE + [90000.0, 0.0]
+        got = self.Planner(far[-1:], [("short", far)])._onto_bridge([(None, far)])
+        self.assertEqual(got, [(False, True)])
+
+
 class DeckFromItsRoadsTest(unittest.TestCase):
     """A deck between two roads takes its ends' heights and grades from them, not from the ground; the ground follows."""
 

@@ -85,6 +85,12 @@ class _Abutments:
         touch = np.hypot(dla, dlo) <= APPROACH_CELL_M
         if ok is not None:
             touch &= ok
+        return self._at_bridge_ends(pe, la, lo, touch)
+
+    def _at_bridge_ends(self, pe, la, lo, ask):
+        """Which of the points pe (n, 2) at (la, lo), of those in ask (n,), are within APPROACH_TOUCH_M of a bridge's end in
+        their own cell: the same whichever cell asks."""
+        touch = ask.copy()
         homes = {}
         tj = np.flatnonzero(touch)
         for j, home in zip(tj.tolist(), mapcells.cells_of(la[tj], lo[tj])):

@@ -195,11 +195,12 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                                                abut.ravel()).reshape(-1, 2)
                 except Exception as e:      # no fills rather than no grading
                     log.debug("grading: abutments of %s: %s: %s", key, type(e).__name__, e)
-            ext = pins = free = None
+            ext = pins = free = onto = None
             if CHAIN_ON and parts:
                 try:
                     self._chain_cands(key, feats, specs)        # (this cell's own: its specs are at hand)
                     ext = self._extensions(parts, ids)
+                    onto = self._onto_bridge(ext)
                     pins = self._pins(parts, ids, ext)
                 except Exception as e:      # each part smoothed alone rather than no grading
                     log.debug("grading: road chains of %s: %s: %s", key, type(e).__name__, e)
@@ -221,7 +222,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
             for j, (fid, part, cl, p) in enumerate(zip(ids, parts, clipped,
                                                        plan_roads(self.frame, parts, self.elev, abut, ext, pins,
                                                                   coarse=coarse, fine=fine, under=under,
-                                                                  obs=_with_lows(self._obs(key), lows),
+                                                                  obs=_with_lows(self._obs(key), lows), onto=onto,
                                                                   walls=(lambda: self._walls(key)) if BETWEEN_ON
                                                                   else None))):
                 if p is not None:
@@ -388,6 +389,11 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
         """Is cell key's elevation known to be fine (a DEM that tells coarse_at, not coarse there)?"""
         dem = getattr(self, "dem", None) or getattr(self.md, "dem", None)
         return dem is not None and hasattr(dem, "coarse_at") and not self._coarse(key)
+
+    def _fine_ll(self, lonlat):
+        """_fine at the middle of a part's (lon, lat) points, as _coarse_ll."""
+        dem = getattr(self, "dem", None) or getattr(self.md, "dem", None)
+        return dem is not None and hasattr(dem, "coarse_at") and not self._coarse_ll(lonlat)
 
     def _coarse_ll(self, lonlat):
         """dem.coarse_at the middle of a part's (lon, lat) points (the pins' and chains' own plans sample as the cell's)."""
