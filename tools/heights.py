@@ -24,6 +24,11 @@ apart).
 tiles' parts built again in a temporary folder, the shared caches may fill), and whether the ground is cut there.
 --road <part of a name, or the start of an id>: a road other than the route: its plan's height, the ground built across
 it, its grade and lean, and the plans it lies on.
+--steps, with --road: that road's heights after each step of the planner against the elevation, and its pins (planned afresh,
+nothing read from or kept in the revisit cache): how a plan comes to lie off the ground.
+--at <AC x>,<AC z>, without --from and --to: one point of the ground: its elevation, what the grading makes of it, the same with a
+road's end's or a narrower road's giving way off (yl, bw), and per plan in reach its height there, the way to its carriageway, what
+it gives way by, its cut on that side, and the point's height without it.
 """
 import argparse
 import json
@@ -49,6 +54,8 @@ VERTEX_NEAR_M = 3.0     # m off the line a terrain vertex is listed (--decks)
 ROAD_OVER_M = 0.3       # m the ground across a road may stand over its middle unlisted (--road): over a crown or a lean, under a kerb's step
 WALL_NEAR_M = 30.0      # m off the stretch a road's segment is listed (--walls)
 ROAD_STEP_M = 2.0       # m along a road between its rows (--road): the terrain's cell
+STEPS_STEP_M = 4.0      # m along a road between its rows (--steps): a plan's vertices
+STEPS_SAME_M = 0.005    # m a step must change a plan's height to get a column (--steps): the table's last digit
 
 
 def stretch(route, start, end, step):
@@ -109,6 +116,24 @@ class Spot:
         """The height after the grading (geodetic), lift on the plans (grading.ROAD_LIFT: the physics' ground)."""
         z = self.elevation(la, lo)
         return np.asarray(self.g.apply(la, lo, z, lift), np.float64) if self.g is not None else z
+
+    def planner_at(self, la, lo):
+        """(the planner of the points (la, lo), its plans there, their PlanPack, the points in its frame e, n): as _Planner.apply
+        has them. Its own plans: the copies of Grader.plans have no Plan.free."""
+        pl = self.g.store.planners_of(la, lo)[0][0]
+        plans, pack = pl._plan_set(pl._keys(la, lo), False)
+        e, n, _ = pl.frame.geodetic_to_enu(la, lo, 0.0)
+        return pl, plans, pack, np.asarray(e, np.float64), np.asarray(n, np.float64)
+
+    def with_free(self, plans, la, lo):
+        """The copies plans (Grader.plans') with their Plan.free, from the planners' own (a free end gives way: grade_points). In place."""
+        free = {}
+        for pl, idx in self.g.store.planners_of(la, lo):
+            for p in pl._plan_set(pl._keys(la[idx], lo[idx]), False)[0]:
+                free[(p.rid, len(p.z), float(p.z[0]), float(p.z[-1]))] = getattr(p, "free", (False, False))
+        for p in plans:
+            p.free = free.get((p.rid, len(p.z), float(p.z[0]), float(p.z[-1])), (False, False))
+        return plans
 
     def up(self, la, lo, h):
         """Geodetic heights h as the frame's up (the OBJ parts' y)."""
@@ -246,6 +271,7 @@ def report_map(sp, px, py):
                           for k, t in f.rules.items() if k in ("flags", "level") for j in t.rows(i)]
                 ways.append(f"  road {str(f.ids[i])[:13]} {d:4.1f} m off: {specs[i].cls}, {specs[i].kind}, "
                             f"{specs[i].width:.1f} m wide; levels {levels or 'none'}")
+                ways.append("    " + str({k: str(v[i]) for k, v in f.attrs.items() if str(v[i]) not in ("", "None", "nan", "False")}))
     print("\nthe map there (Overture / OpenStreetMap):")
     print("\n".join(water + ways) if water or ways else "  no water, no road")
 
@@ -256,7 +282,7 @@ def report_plans(sp, ss, px, py):
     import roads
     la, lo = sp.lalo(px, py)
     base = sp.elevation(la, lo)
-    plans = sp.g.plans(la, lo) if sp.g is not None else []
+    plans = sp.with_free(sp.g.plans(la, lo), la, lo) if sp.g is not None else []
 
     def grade(ps):
         z = np.asarray(grading.grade_points(px, py, base, ps, 0.0), np.float64)
@@ -560,23 +586,177 @@ def _others_on(q, plans, rid, up=float):
     return " | ".join(out)
 
 
+def plan_at(p, s0, q, pack):
+    """What plan p (its first segment s0 in pack, a PlanPack) has to do with point q (2,): its nearest segment k, the way d to its
+    line, its height there, on which side of its way q lies, that segment's yl and bw (0-255) and cut on that side. Pure."""
+    xy = np.asarray(p.xy, np.float64)[:, :2]
+    a, ab = xy[:-1], np.diff(xy, axis=0)
+    t = np.clip(((q - a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-12), 0.0, 1.0)
+    d = np.hypot(*(a + t[:, None] * ab - q).T)
+    k = int(d.argmin())
+    z = np.asarray(p.z, np.float64)
+    left = float(ab[k, 0] * (q[1] - a[k, 1]) - ab[k, 1] * (q[0] - a[k, 0])) > 0.0
+    cut = getattr(p, "cut", None)
+    cut = np.full(3, np.nan) if cut is None else np.asarray(cut, np.float64)[k, :3] if left else np.asarray(cut, np.float64)[k, 3:6]
+    return {"k": k, "d": float(d[k]), "z": float(z[k] + t[k] * (z[k + 1] - z[k])), "left": left,
+            "yl": int(pack.yl[s0 + k]), "bw": int(pack.bw[s0 + k]), "cut": cut}
+
+
+def report_at(sp, x, z):
+    """One ground point at AC (x, z): the steps of its grading, then per plan in reach what it has to do with the point."""
+    import grading
+    from grading import points
+    la, lo = sp.lalo(np.array([x]), np.array([-z]))
+    _pl, plans, pack, e, n = sp.planner_at(la, lo)
+    base = sp.elevation(la, lo)
+    off = float(sp.up(la, lo, np.array([0.0]))[0])      # (a plan's heights are geodetic, the parts' the frame's)
+    rows = [p for p in plans if len(p.xy) >= 2]
+    s0 = np.r_[0, np.cumsum([len(p.xy) - 1 for p in rows])]
+
+    def grade():
+        return float(grading.grade_points(e, n, base, pack, 0.0)[0]) + off
+    now = grade()
+    yl, bw = pack.yl, pack.bw
+    try:
+        pack.yl = np.zeros_like(yl)
+        no_yl = grade()
+        pack.yl, pack.bw = yl, np.zeros_like(bw)
+        no_bw = grade()
+        pack.yl = np.zeros_like(yl)
+        no_both = grade()
+    finally:
+        pack.yl, pack.bw = yl, bw
+    print(f"AC {x:.1f}, {z:.1f}: elevation {float(base[0]) + off:.2f}, graded {now:.2f}, as the track gets it "
+          f"{float(sp.graded(la, lo, 0.0)[0]) + off:.2f} (past a road's stopped end, a racetrack, over a tunnel it differs)")
+    print(f"  with giving way off: a road's end's (yl) {no_yl:.2f}, a narrower road's (bw) {no_bw:.2f}, both {no_both:.2f}")
+    print(f"  {'plan':>8} {'half':>5} {'carr.':>5} {'way':>6} {'edge':>6} {'height':>8} {'side':>5} {'yl':>4} {'bw':>4} "
+          f"{'free':>14}  {'cut wall, top':>16}  without it")
+    q = np.array([float(e[0]), float(n[0])])
+    near = [(p, plan_at(p, s0[i], q, pack)) for i, p in enumerate(rows)]
+    for p, got in sorted((r for r in near if r[1]["d"] - r[0].half < grading.T_MAX), key=lambda r: r[1]["d"]):
+        rh = float(getattr(p, "road_half", p.half))
+        without = float(points.grade_points(e, n, base, [o for o in plans if o is not p], 0.0)[0]) + off
+        free = tuple(bool(v) for v in getattr(p, "free", (False, False)))
+        wall, top = got["cut"][:2]
+        print(f"  {str(p.rid)[-8:]:>8} {p.half:5.2f} {rh:5.2f} {got['d']:6.2f} {got['d'] - rh:+6.2f} {got['z'] + off:8.2f} "
+              f"{'left' if got['left'] else 'right':>5} {got['yl']:4d} {got['bw']:4d} {str(free):>14}  {wall:7.2f} {top + off:8.2f}  {without:.2f}")
+
+
+class PlanSteps:
+    """A plan's heights after each step of the planner: wraps the steps of grading.planner, rows kept per part (its road, its
+    first point), and the pins handed to plan_roads."""
+
+    def __init__(self):
+        self.rows, self.pins = {}, {}
+
+    def keep(self, tag, plans):
+        for p in plans:
+            p = p[1] if isinstance(p, tuple) else p
+            rid = getattr(p, "rid", None)
+            if rid is None:
+                continue
+            xy = np.asarray(p.xy, np.float64)[:, :2]
+            steps = self.rows.setdefault((rid, round(float(xy[0, 0]), 1), round(float(xy[0, 1]), 1)), [])
+            z = np.asarray(p.z, np.float64)
+            if not steps or len(steps[-1][2]) != len(z) or np.abs(steps[-1][2] - z).max() >= STEPS_SAME_M:
+                steps.append((tag, xy.copy(), z.copy()))
+
+    def install(self):
+        import revisit
+        from grading import ends, planner
+        revisit.ON = False                  # (a kept plan would skip the steps; nothing of this run is kept either)
+        os.environ.pop("BNGE_PLAN_RUN", None)
+        snap = planner.snap_junctions
+
+        def snapped(plans, specs):
+            self.keep("profile", plans)     # (each road's own, with its pins; the second call: changed by the steps between)
+            snap(plans, specs)
+            self.keep("snap", plans)
+        planner.snap_junctions = snapped
+        for name in ("_ease_coarse", "_lift_approaches", "_lower_underpasses"):
+            def step(me, key, plans, *a, _f=getattr(planner._Planner, name), _tag=name.strip("_"), **k):
+                got = _f(me, key, plans, *a, **k)
+                self.keep(_tag, plans)
+                return got
+            setattr(planner._Planner, name, step)
+        pins = ends._Ends._pins
+
+        def pinned(me, parts, ids, ext):
+            got = pins(me, parts, ids, ext)
+            for j, fid in enumerate(ids):
+                if got is not None and any(v is not None for v in got[j]):
+                    self.pins.setdefault(planner.road_id(fid), set()).add(tuple(None if v is None else round(float(v), 2) for v in got[j]))
+            return got
+        planner._Planner._pins = pinned
+
+
+def report_steps(sp, steps, text, px, py):
+    """Per part of the road near the stretch (steps: PlanSteps, installed before anything was planned): the elevation at its line
+    and its heights after each step that changed them, from its last point back, as a road's end usually is what a step moves."""
+    ids = road_ids(sp, text, px, py)
+    if not ids:
+        print(f"\nno road holding {text!r} near the stretch")
+        return
+    la, lo = sp.lalo(px, py)
+    pl, plans, _pack, e, n = sp.planner_at(la, lo)
+    off = float(sp.up(la[:1], lo[:1], np.array([0.0]))[0])
+    for rid, label in ids.items():
+        kept = [p for p in plans if p.rid == rid and np.hypot(e[:, None] - p.xy[:, 0], n[:, None] - p.xy[:, 1]).min() < ROAD_NEAR_M * 3]
+        print(f"\n{label}: pins (first end, last end; the stronger road's height there): {sorted(steps.pins.get(rid, []), key=str) or 'none'}")
+        for p in kept:
+            xy = np.asarray(p.xy, np.float64)[:, :2]
+            rows = [r for k, r in steps.rows.items()
+                    if k[0] == rid and np.hypot(xy[:, None, 0] - r[0][1][:, 0], xy[:, None, 1] - r[0][1][:, 1]).min() < 1.0]
+            if not rows:
+                print(f"  (no steps kept for its part from {np.round(xy[0], 1)}: planned by another region)")
+                continue
+            got = max(rows, key=lambda r: len(r[0][1]))
+            line = got[0][1]
+            s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(line, axis=0).T))]
+            a, b, _ = pl.frame.enu_to_geodetic(line[:, 0], line[:, 1], 0.0)
+            elev = np.asarray(pl.elev(np.asarray(a), np.asarray(b)), np.float64)
+            print(f"  part of {s[-1]:.0f} m, free {tuple(bool(v) for v in getattr(p, 'free', (False, False)))}; m from its last point")
+            print("      m elevation " + " ".join(f"{g[0][:10]:>10}" for g in got) + "  over elevation")
+            for m in np.arange(0.0, s[-1], STEPS_STEP_M):
+                at = s[-1] - m
+                zs = [float(np.interp(at, s, g[2])) for g in got]
+                z0 = float(np.interp(at, s, elev))
+                print(f"  {m:5.0f} {z0 + off:9.2f} " + " ".join(f"{v + off:10.2f}" for v in zs) + f"  {zs[-1] - z0:+7.2f}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("track")
-    ap.add_argument("--from", dest="start", type=float, required=True)
-    ap.add_argument("--to", dest="end", type=float, required=True)
+    ap.add_argument("--from", dest="start", type=float)
+    ap.add_argument("--to", dest="end", type=float)
+    ap.add_argument("--at", help="one ground point instead of a stretch: AC x,z")
+    ap.add_argument("--steps", action="store_true", help="with --road: its heights after each step of the planner, its pins")
     ap.add_argument("--step", type=float, default=1.0, help="m between the points along the line (default 1)")
     ap.add_argument("--plans", action="store_true", help="also each plan's share in the graded height")
     ap.add_argument("--decks", action="store_true", help="also the deck parts and the terrain vertices under them")
     ap.add_argument("--walls", action="store_true", help="also why a wall between two roads stands or not, per segment")
     ap.add_argument("--road", help="also this road near the stretch (part of its name, or the start of its id): profile and across")
     a = ap.parse_args()
+    if a.at is None and (a.start is None or a.end is None):
+        ap.error("--from and --to, or --at")
+    if a.steps and not a.road:
+        ap.error("--steps goes with --road")
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")     # (map names: Māori, Norwegian, ... on a cp1252 console)
     if not os.path.exists(os.path.join(HERE, "out", "tracks", a.track, "tiles", "anchor.json")):
         sys.exit(f"no build of {a.track} in out/tracks (keep the build files, or tools\\from_debug.py)")
+    if a.at is not None:
+        with tempfile.TemporaryDirectory() as tex:
+            report_at(Spot(a.track, tex), *(float(v) for v in a.at.split(",")))
+        return
     ss, px, py = stretch(measure._route(a.track), a.start, a.end, a.step)
+    steps = PlanSteps() if a.steps else None
+    if steps is not None:
+        steps.install()
     with tempfile.TemporaryDirectory() as tex:
         sp = Spot(a.track, tex)
+        if steps is not None:
+            report_steps(sp, steps, a.road, px, py)
+            return
         report_line(sp, ss, px, py)
         report_map(sp, px, py)
         if a.plans:

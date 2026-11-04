@@ -16,10 +16,12 @@ ROOT = os.path.dirname(ENGINE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import compare_parts  # noqa: E402
+import debug_stretch  # noqa: E402
 import heights  # noqa: E402
 import map_spot  # noqa: E402
 import mark  # noqa: E402
 import measure  # noqa: E402
+import spot  # noqa: E402
 import stability  # noqa: E402
 import surroundings  # noqa: E402
 import watch_build as wb  # noqa: E402
@@ -30,6 +32,73 @@ def row(t, s=100.0, kmh=50.0, vert=0.0, off=0.0, susp=(0.01, 0.01, 0.03, 0.03)):
     return {"time_s": t, "route_m": s, "off_m": off, "x": s, "y": 0.0, "z": 0.0, "speed_kmh": kmh, "acc_vert_g": vert,
             "acc_side_g": 0.0, "acc_long_g": 0.0, "susp_fl": susp[0], "susp_fr": susp[1], "susp_rl": susp[2],
             "susp_rr": susp[3]}
+
+
+class DebugStretchTest(unittest.TestCase):
+    XY = [[0.0, 0.0], [100.0, 0.0], [200.0, 0.0], [300.0, 0.0], [400.0, 0.0]]
+    LINE = [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0], [4.0, 40.0], [5.0, 50.0]]
+
+    def test_the_name_says_debug_and_where(self):
+        self.assertEqual(debug_stretch.stretch_name("heiligenblut_test", 13100.0, 13300.0), "heiligenblut_test_13200_debug")
+
+    def test_the_cut_ends_on_its_metres_with_the_run_off_behind(self):
+        line, end = debug_stretch.cut_line(self.XY, self.LINE, 50.0, 250.0, run_off=100.0)
+        np.testing.assert_allclose(line, [[1.5, 15.0], [2.0, 20.0], [3.0, 30.0], [3.5, 35.0], [4.0, 40.0], [4.5, 45.0]])
+        self.assertEqual(end, 3)
+
+    def test_at_the_route_s_end_there_is_no_run_off(self):
+        line, end = debug_stretch.cut_line(self.XY, self.LINE, 300.0, 400.0)
+        self.assertEqual((line, end), ([[4.0, 40.0], [5.0, 50.0]], 1))
+
+    def test_a_stretch_off_the_route_stops(self):
+        with self.assertRaises(SystemExit):
+            debug_stretch.cut_line(self.XY, self.LINE, 300.0, 500.0)
+
+
+class SpotTest(unittest.TestCase):
+    HEIGHTS = ("the map there (Overture / OpenStreetMap):\n"
+               "  road 839f9e08-7094  0.8 m off: residential, paved, 8.0 m wide; levels none\n"
+               "    {'name': 'x'}\n"
+               "  road 4b3a8ba3-7725  0.4 m off: secondary, paved, 8.0 m wide; levels [(0.1, 0.2, 'is_bridge')]\n")
+    STEPS = ("Chjassu f943c382: pins (first end, last end; the stronger road's height there): [(162.55, 142.72)]\n"
+             "  part of 147 m, free (False, True); m from its last point\n"
+             "      m elevation    profile       snap  over elevation\n"
+             "      0    146.36     142.72     146.33    -0.02\n"
+             "     12    147.49     146.44     149.31    +1.83\n"
+             "     68    156.15     154.88     154.88    -1.27\n")
+
+    def test_the_roads_nearest_first(self):
+        self.assertEqual(spot.roads_in(self.HEIGHTS), [("4b3a8ba3-7725", 0.4, "secondary, paved, 8.0 m wide"),
+                                                       ("839f9e08-7094", 0.8, "residential, paved, 8.0 m wide")])
+
+    def test_how_far_a_plan_leaves_the_elevation(self):
+        self.assertEqual(spot.off_elevation(self.STEPS), (1.83, 12, "[(162.55, 142.72)]"))
+        self.assertEqual(spot.off_elevation("no road"), (None, None, ""))
+
+
+class PointWhyTest(unittest.TestCase):
+    def test_a_plan_at_a_point(self):
+        import grading
+        p = grading.Plan(np.array([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]]), np.array([1.0, 2.0, 4.0]), 3.0, road_half=2.0)
+        p.rid = 1
+        p.cut = np.full((2, 6), np.nan)
+        p.cut[1, :2] = (2.5, 9.0)
+        pack = unittest.mock.Mock(yl=np.array([0, 255]), bw=np.array([255, 0]))
+        got = heights.plan_at(p, 0, np.array([15.0, 1.0]), pack)
+        self.assertEqual((got["k"], got["d"], got["z"], got["left"], got["yl"], got["bw"]), (1, 1.0, 3.0, True, 255, 0))
+        self.assertEqual(list(got["cut"][:2]), [2.5, 9.0])
+        self.assertFalse(heights.plan_at(p, 0, np.array([5.0, -1.0]), pack)["left"])
+
+    def test_steps_keep_only_what_changed(self):
+        import grading
+        p = grading.Plan(np.array([[0.0, 0.0], [10.0, 0.0]]), np.array([1.0, 2.0]), 3.0)
+        p.rid = 7
+        s = heights.PlanSteps()
+        s.keep("profile", [p])
+        s.keep("snap", [("fid", p)])
+        p.z = np.array([1.5, 2.0])
+        s.keep("lift", [p])
+        self.assertEqual([g[0] for g in s.rows[(7, 0.0, 0.0)]], ["profile", "lift"])
 
 
 class TileOrderTest(unittest.TestCase):
@@ -536,7 +605,36 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(got[0], "  t/t_0_0.obj:")
         self.assertIn("wall: 1 of 2 vertices moved", got[1])
         self.assertIn("height +0.000..+0.250", got[1])
-        self.assertIn("at AC x 1.0..1.0, z 3.0..3.0", got[1])
+        self.assertIn("at AC x 1.0..1.0, z 3.0..3.0", got[2])
+
+    def test_each_place_is_named_also_where_the_vertices_changed_in_number(self):
+        far = [[300.0, 5.0, 300.0], [301.0, 5.0, 300.0]]
+        was = {"a": np.array([[0.0, 1.0, 0.0], [1.0, 1.0, 0.0]] + far), "b": np.array(far), "c": np.array(far)}
+        now = {"a": np.array([[0.0, 1.0, 0.0], [1.0, 2.0, 0.0]] + far[:1]), "d": np.array(far)}
+        route = (np.array([[0.0, 0.0], [400.0, 0.0]]), np.array([0.0, 400.0]))
+        got = compare_parts.moved(was, now, ["a", "c", "d"], route)
+        self.assertEqual(got[0], "    a: 4 -> 3 vertices")
+        self.assertIn("at AC x 1.0..1.0, z 0.0..0.0, height 1.0..2.0: 2 points, route 1-1 m, 0 m off the line", got[1])
+        self.assertIn("at AC x 301.0..301.0, z 300.0..300.0", got[2], "two spots, two places")
+        self.assertEqual(got[3], "    c: gone")
+        self.assertIn("route 300-301 m, 300 m off the line", got[4])
+        self.assertEqual(got[5], "    d: new")
+
+    def test_places_touching_are_one_and_many_are_counted(self):
+        spots = np.array([[i * 100.0, 0.0, 0.0] for i in range(compare_parts.PLACES_SHOWN + 2)])
+        self.assertEqual(len(compare_parts.places(np.array([[1.0, 0.0, 1.0], [31.0, 0.0, 1.0], [61.0, 0.0, 1.0]]))), 1)
+        got = compare_parts.place_lines(spots)
+        self.assertEqual(len(got), compare_parts.PLACES_SHOWN + 1)
+        self.assertEqual(got[-1], "      and 2 more places")
+
+    def test_the_same_vertices_in_new_triangles_have_a_place(self):
+        one = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
+        turned = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 3 2\n"
+        as_lines = lambda text: text.encode().splitlines(True)
+        vs = compare_parts.vertices(as_lines(one))
+        got = compare_parts.moved(vs, vs, ["wall"], None, (compare_parts.triangles(as_lines(one)), compare_parts.triangles(as_lines(turned))))
+        self.assertEqual(got[0], "    wall: the same vertices, its other lines differ")
+        self.assertIn("at AC x 0.0..1.0, z 0.0..0.0, height 0.0..1.0: 6 points", got[1])
 
     def test_triangles_in_another_order_are_no_move(self):
         one = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 5 0 0\nv 6 0 0\nv 5 1 0\nf 1 2 3\nf 4 5 6\n"

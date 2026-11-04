@@ -1,7 +1,7 @@
 """Whether a change left the built tracks as they were: a snapshot (sha1) of every file a build leaves in
 out/tracks/<test track> (OBJ parts, textures, track.mtl, anchor.json without its code_key, ...), saved before the change and
-compared after: per OBJ object where a part differs, and what moved in it, read from the part as it was (or that only its
-triangles' order differs).
+compared after: per OBJ object where a part differs, what moved in it and where, each place by AC x, z, height and route metre,
+read from the part as it was (or that only its triangles' order differs).
 
     .venv\\Scripts\\python.exe tools\\compare_parts.py save before             # the short test tracks as built now
     (the change, then: tools\\measure.py --all --build)
@@ -33,6 +33,9 @@ import numpy as np
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(HERE, "out", "compare")
 TRACKS = os.path.join(HERE, "out", "tracks")
+PLACE_M = 30.0          # m: a grid's cell, changes in touching cells are one place (a tile is 256 m: two spots on it stay two)
+PLACES_SHOWN = 6        # places listed per object, the largest first
+ROUTE_SAMPLES = 64      # a place's points measured against the route, at most
 KEEP_THREADS = 8        # (the OBJ parts of a long track are 350 MB: zlib leaves the other threads to run)
 NEW_SHOWN = 5           # a track's new files named one by one, up to this many
 
@@ -233,24 +236,105 @@ def triangles(lines):
     return objs
 
 
-def moved(was, now, names):
-    """Per object of names, a line saying what moved from was to now ({name: (n, 3) vertices}, y the height). Pure."""
+def only_in_one(a, b):
+    """The points (m, 3) of a and b (n, 3) the other doesn't hold, to the mm: where they differ, in any order. Pure."""
+    def keys(pts):
+        return [r.tobytes() for r in np.round(pts, 3) + 0.0]        # (+ 0.0: -0.0 is 0.0)
+    ka, kb = keys(a), keys(b)
+    sa, sb = set(ka), set(kb)
+    return np.r_[a[[k not in sb for k in ka]].reshape(-1, 3), b[[k not in sa for k in kb]].reshape(-1, 3)]
+
+
+def places(pts):
+    """The points (n, 3; x, y the height, z) as groups, the largest first: touching PLACE_M cells make one. Pure."""
+    cells = {}
+    for i, c in enumerate(zip(*np.floor(pts[:, [0, 2]] / PLACE_M).astype(np.int64).T)):
+        cells.setdefault(c, []).append(i)
+    out, seen = [], set()
+    for c in cells:
+        if c in seen:
+            continue
+        seen.add(c)
+        todo, got = [c], []
+        while todo:
+            x, z = todo.pop()
+            got += cells[(x, z)]
+            for n in ((x + i, z + j) for i in (-1, 0, 1) for j in (-1, 0, 1)):
+                if n in cells and n not in seen:
+                    seen.add(n)
+                    todo.append(n)
+        out.append(pts[got])
+    return sorted(out, key=lambda g: (-len(g), g[:, 0].min(), g[:, 2].min()))
+
+
+def route_of(track):
+    """The route of a built track (n, 2; AC x, z) with its metres (n,), or None. Reads its anchor."""
+    try:
+        with open(os.path.join(TRACKS, track, "tiles", "anchor.json"), encoding="utf-8") as f:
+            xy = np.asarray(json.load(f).get("route") or [], np.float64)
+    except (OSError, ValueError):
+        return None
+    if len(xy) < 2:
+        return None
+    xz = np.c_[xy[:, 0], -xy[:, 1]]
+    return xz, np.r_[0.0, np.cumsum(np.hypot(*np.diff(xz, axis=0).T))]
+
+
+def on_route(route, pts):
+    """(from m, to m, m off the line at the nearest) of the points (n, 3) along route (route_of's). Pure."""
+    xz, s = route
+    q = pts[:: max(1, len(pts) // ROUTE_SAMPLES), :][:, [0, 2]]
+    a, ab = xz[:-1], np.diff(xz, axis=0)
+    t = np.clip(((q[:, None] - a[None]) * ab[None]).sum(2) / np.maximum((ab * ab).sum(1), 1e-12)[None], 0.0, 1.0)
+    d = np.hypot(*(a[None] + t[..., None] * ab[None] - q[:, None]).transpose(2, 0, 1))
+    k = d.argmin(1)
+    m = s[k] + t[np.arange(len(q)), k] * np.hypot(*ab[k].T)
+    return float(m.min()), float(m.max()), float(d.min())
+
+
+def place_lines(pts, route=None):
+    """A line per place of the points (n, 3): AC x, z, height, how many, route metres when route (route_of's). Pure."""
+    groups = places(pts) if len(pts) else []
+    lines = []
+    for g in groups[:PLACES_SHOWN]:
+        where = ""
+        if route is not None:
+            m0, m1, off = on_route(route, g)
+            where = f", route {m0:.0f}-{m1:.0f} m, {off:.0f} m off the line"
+        lines.append(f"      at AC x {g[:, 0].min():.1f}..{g[:, 0].max():.1f}, z {g[:, 2].min():.1f}..{g[:, 2].max():.1f}, height "
+                     f"{g[:, 1].min():.1f}..{g[:, 1].max():.1f}: {len(g)} points{where}")
+    if len(groups) > PLACES_SHOWN:
+        lines.append(f"      and {len(groups) - PLACES_SHOWN} more places")
+    return lines
+
+
+def triangle_points(ta, tb):
+    """The corners (n, 3) of the triangles only one of ta, tb (Counters, triangles') holds. Pure."""
+    corners = [c[0] for t in (ta - tb) + (tb - ta) for c in t[1]]
+    return np.array([[float(v) for v in c] for c in corners], np.float64).reshape(-1, 3)
+
+
+def moved(was, now, names, route=None, tris=({}, {})):
+    """Per object of names, a line saying what moved from was to now ({name: (n, 3) vertices}, y the height), then its places
+    (place_lines). tris: the two parts' triangles(), for an object whose vertices stayed. Pure."""
     lines = []
     for o in names:
         a, b = was.get(o), now.get(o)
         if a is None or b is None:
             lines.append(f"    {o}: {'new' if a is None else 'gone'}")
+            lines += place_lines(a if b is None else b, route)
         elif len(a) != len(b):
             lines.append(f"    {o}: {len(a)} -> {len(b)} vertices")
+            lines += place_lines(only_in_one(a, b), route)
         elif not len(a) or np.array_equal(a, b):
             lines.append(f"    {o}: the same vertices, its other lines differ")
+            lines += place_lines(triangle_points(tris[0].get(o, collections.Counter()), tris[1].get(o, collections.Counter())), route)
         else:
             d = b - a
             at = np.abs(d).max(axis=1) > 0
             lines.append(f"    {o}: {at.sum()} of {len(a)} vertices moved, x {d[:, 0].min():+.3f}..{d[:, 0].max():+.3f}, height "
-                         f"{d[:, 1].min():+.3f}..{d[:, 1].max():+.3f}, z {d[:, 2].min():+.3f}..{d[:, 2].max():+.3f} m, at AC x "
-                         f"{a[at, 0].min():.1f}..{a[at, 0].max():.1f}, z {a[at, 2].min():.1f}..{a[at, 2].max():.1f}, height "
-                         f"{a[at, 1].min():.1f}..{a[at, 1].max():.1f}")
+                         f"{d[:, 1].min():+.3f}..{d[:, 1].max():+.3f}, z {d[:, 2].min():+.3f}..{d[:, 2].max():+.3f} m")
+            lines += place_lines(np.r_[a[at], b[at]], route)
     return lines
 
 
@@ -266,13 +350,14 @@ def what_moved(old, new):
             was_lines = f.readlines()
         with open(os.path.join(TRACKS, t, "obj", "parts", fn), "rb") as f:
             now_lines = f.readlines()
-        if triangles(was_lines) == triangles(now_lines):
+        tris = triangles(was_lines), triangles(now_lines)
+        if tris[0] == tris[1]:
             lines.append(f"  {k}: the same triangles in another order")
             continue
         was, now = vertices(was_lines), vertices(now_lines)
         oa, ob = a["objects"], b["objects"]
         lines.append(f"  {k}:")
-        lines += moved(was, now, [o for o in sorted(set(oa) | set(ob)) if oa.get(o) != ob.get(o) and o])
+        lines += moved(was, now, [o for o in sorted(set(oa) | set(ob)) if oa.get(o) != ob.get(o) and o], route_of(t), tris)
     return lines
 
 

@@ -37,7 +37,7 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
    `generator._init_worker(cache)`. At a tunnel portal, start with `tools\portal.py <track> <AC x> <AC z>`.
 
 Tools for a spot (all of them: the table in AGENTS.md): `tools\measure.py <track>` measures any built track,
-`tools\heights.py <track> --from <m> --to <m>` says why the ground lies at that height (`--decks`, `--walls`, `--road`),
+`tools\heights.py <track> --from <m> --to <m>` says why the ground lies at that height (`--decks`, `--walls`, `--road`, `--road ... --steps`, `--at` for one point),
 `tools\map_spot.py <track> --route <m>` draws the spot's roads,
 `tools\check_drive.py <track> --all-roads` finds holes, jumps and terrain above the road, `tools\stretch.py` rebuilds a
 stretch fast, and `--holes` on `measure.py` sorts the gaps in the ground by whether a car gets there.

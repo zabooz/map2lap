@@ -78,6 +78,12 @@ Assetto Corsa's axes: x east, y up, z south (z = -north).
 A point the user sets on the map; the route runs through the pins in order.
 _Avoid_: waypoint, stop
 
+**Height pin**:
+A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`, `plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
+
+**Debug stretch**:
+The part of a track holding a bug, built into AC to drive it: `<track>_<route metre>_debug` (`tools/debug_stretch.py`). No test track, and deleted when the fix is in.
+
 **Route**:
 The road line OSRM finds through the pins, plus the run-off behind the end pin.
 
