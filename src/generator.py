@@ -30,6 +30,7 @@ import furniture            # noqa: E402  (from the BeamNG.Earth server, path fr
 import geodesy              # noqa: E402
 import navgraph             # noqa: E402
 import overture             # noqa: E402
+import revisit              # noqa: E402
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/"
 NOMINATIM = "https://nominatim.openstreetmap.org/"
@@ -352,11 +353,11 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     log(f"Tiles done in {time.perf_counter() - t0:.0f} s")
     anc = {"lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
            "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
-           "rules": rules}
+           "rules": rules, "title": title, "code_key": revisit.code_key()}
     if area:                # (without route and start: obj_to_kn5.start_empties takes the road nearest the anchor)
         anc["area"] = [float(v) for v in area]
     else:
-        anc.update(route=[list(xy0) for xy0 in xy.round(2).tolist()],
+        anc.update(route=[list(xy0) for xy0 in xy.round(2).tolist()], line=[list(p) for p in pts],
                    start={"x": float(xy[0, 0]), "y": float(xy[0, 1]), "heading": heading}, timing=timing)
     with open(os.path.join(tiles_dir, "anchor.json"), "w", encoding="utf-8") as f:
         json.dump(anc, f)
@@ -365,6 +366,42 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     n_obj, n_verts, tris, parts = make_obj.main(tiles_dir, obj_dir, log=log, progress=progress)
     if upto == "obj":
         return {"work": work}
+    return _finish(name, title, work, anc, xy, None if area else pts, parts, (n_obj, n_verts, tris), t_start, log, progress, clean,
+                   cache_gb)
+
+
+def finish_obj(name, title=None, log=print, progress=None):
+    """A build that stopped at the OBJ parts (build(upto="obj"), tools/measure.py --kn5) on into AC, the tiles' parts as they
+    are: distant view, gates, track folder, kn5. title: else the build's. Returns as build does."""
+    progress = progress or (lambda phase, done, total: None)
+    name = slug(name)
+    work = os.path.join(ROOT, "out", "tracks", name)
+    with open(os.path.join(work, "tiles", "anchor.json"), encoding="utf-8") as f:
+        anc = json.load(f)
+    area = anc.get("area")
+    if not area and "line" not in anc:
+        raise RuntimeError(f"{name} was built before anchor.json held the route as it came: build it again")
+    if anc.get("code_key") != revisit.code_key():
+        log(f"NOTE: the engine changed since {name}'s OBJ parts were built: they don't show it, only a build does")
+    xy = None if area else np.asarray(anc["route"], np.float64)
+    pts = None if area else anc["line"]
+    parts = [os.path.join(work, "obj", "parts", f"t_{tx}_{ty}.obj") for tx, ty in anc["tiles"]]
+    return _finish(name, title or anc.get("title") or name, work, anc, xy, pts, parts, (None, None, None), time.perf_counter(), log, progress, False,
+                   None)
+
+
+def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progress, clean, cache_gb):
+    """From the OBJ parts on: distant view, track folder, kn5. anc: the build's anchor.json; xy (n, 2): the route, pts its [lat,
+    lon] up to the end pin, None with an area; figures: (objects, vertices, triangles) for the result. Returns as build does."""
+    tiles_dir, obj_dir = (os.path.join(work, d) for d in ("tiles", "obj"))
+    tiles = [tuple(t) for t in anc["tiles"]]
+    lat0, lon0, width, length, points = anc["lat"], anc["lon"], anc["width"], anc["length_m"], anc["points"]
+    area, timing = anc.get("area"), anc.get("timing")
+    n_obj, n_verts, tris = figures
+    size = None
+    if area:
+        ce, cn, _ = geodesy.EnuFrame(lat0, lon0).geodetic_to_enu(np.array(area[::2]), np.array(area[1::2]), np.zeros(2))
+        size = (float(ce[1] - ce[0]), float(cn[1] - cn[0]))
     gate = gates.build(tiles_dir, obj_dir, log=log)     # (start and finish made visible; decides where the lines are: anchor.json)
     far = farview.build(tiles_dir, obj_dir, log=log, progress=progress)    # (only into the kn5: not into the minimap)
 

@@ -17,6 +17,7 @@ by hand.
 .venv\Scripts\python.exe tools\measure.py --all --build
 .venv\Scripts\python.exe tools\measure.py --long --build            # the long ones: minutes each
 .venv\Scripts\python.exe tools\measure.py <test track> --install    # into AC, to drive it
+.venv\Scripts\python.exe tools\measure.py <test track> --kn5        # the tiles' OBJ parts of --build on into AC, not built again
 ```
 
 - Failures there before are in `KNOWN` of `tools/check.py`, each with its reason; any other failure fails the check.
@@ -40,6 +41,8 @@ line here (`tests/test_tools.py`).
 | Which bridge part is here: does it tilt or lie level and why, what meets at its ends, is a pad paved there and why? | `heights.py <track> --from <m> --to <m> --decks` |
 | A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
 | Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
+| Why does a wall between two roads stand there or not: each test per segment; does ground stand in front of its cut line? | `heights.py <track> --from <m> --to <m> --walls`, `measure.py <track> --walls` |
+| A road beside the route: its profile, the ground across it, what it lies on | `heights.py <track> --from <m> --to <m> --road <name or id>` |
 | Does the land away from the roads lie where the elevation and the map say: hillsides gone, water on land, water walls, a map area that is no water? | `surroundings.py <track>`, then Read the PNG |
 | A tunnel portal's heights | `portal.py <track> <AC x> <AC z>` |
 | The track of a report, built as its sender built it | `from_debug.py <session folder>` |

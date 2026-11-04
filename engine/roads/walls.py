@@ -1,6 +1,7 @@
 """Parapets, cliffs and retaining walls."""
 import math
 import os
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -467,6 +468,45 @@ def _spans(keep):
     return out
 
 
+def _step_side(mid, d, n_out, off, off_top, half, plans, rid, fid, ground, others, decks, road_z, bends, faces):
+    """One side of a road's plan: per segment (mids (k, 2), unit directions d, unit normals n_out outward; off, off_top: Plan.cut's
+    columns) each test of _between_walls, or None with no step of two roads on that side (tools/heights.py --walls prints
+    them). Fields: there, n_out, off, base, low, high, top (the level of wall and cut), h, room, stands, on_deck, on_road, near_wall,
+    no_depth, bends, run (a wall stands), cut (the ground is cut). Pure given ground."""
+    import grading
+    there = np.isfinite(off) & np.isnan(off_top)
+    if not there.any():
+        return None
+    at = np.where(np.isfinite(off), off, 0.0)
+    base = mid + n_out * at[:, None]
+    low = ground(base - n_out * BETWEEN_LOW_M)
+    # (the upper level: at the road beside, whose edge bounds the step, no slope or third road behind it counts)
+    beside, its_half = _road_beside(mid, n_out, d, plans, rid)
+    back = np.where(np.isfinite(beside), np.minimum(np.maximum(at + BETWEEN_HIGH_M, beside - its_half + BETWEEN_EDGE_IN_M),
+                                                    beside), at + BETWEEN_HIGH_M)
+    high = ground(mid + n_out * back[:, None])
+    h = np.where(there, high - low, 0.0)
+    # (the room to the other road's carriageway, past this one's drawn edge)
+    steps = np.arange(half, half + BETWEEN_ROOM_M + 0.01, 0.5)
+    q = (mid[:, None, :] + n_out[:, None, :] * steps[None, :, None]).reshape(-1, 2)
+    hit = others.near(q, 0.0, skip=fid).reshape(len(mid), len(steps))
+    room = np.where(hit.any(axis=1), steps[np.argmax(hit, axis=1)] - half, np.inf)
+    stands = h >= np.maximum(room, 0.0) * BETWEEN_WALL_SLOPE
+    on_deck, on_road = _under_decks(base, road_z, decks), others.near(base, 0.0, skip=fid)
+    near_wall = np.zeros(len(mid), bool)
+    if len(faces):
+        near_wall = np.hypot(base[:, 0, None] - faces[:, 0], base[:, 1, None] - faces[:, 1]).min(axis=1) <= BETWEEN_NOT_TWICE_M
+    free = ~on_deck & ~on_road
+    step_runs = _wall_runs(np.where(stands, h, 0.0)) & free & ~bends & ~near_wall
+    no_depth = others.near(base + n_out * BETWEEN_THICK_MIN_M, 0.0, skip=fid)
+    # (on into a cutting's own step too, its height set: the same step of the same ground, Cap Corse's going on 2 m out)
+    steps_on = np.isfinite(off) & free & (high - low >= BETWEEN_CUT_MIN_M)
+    return SimpleNamespace(there=there, n_out=n_out, off=off, base=base, low=low, high=high, h=h, room=room, stands=stands,
+                           top=np.maximum(np.minimum(high, low + grading.WALL_MAX_H_CITY_M), low),     # (one level for both)
+                           on_deck=on_deck, on_road=on_road, near_wall=near_wall, no_depth=no_depth, bends=bends,
+                           run=step_runs & ~no_depth, cut=_runs_with(steps_on, step_runs))
+
+
 def _between_walls(frame, plans, roads, ground, exact, others, decks, made, cut_lines=None):
     """Retaining walls at the steps grading._between_cuts set between two roads at two levels, facing the lower road: where
     the step stands higher than the room between their carriageways (BETWEEN_WALL_SLOPE) and at least a cutting's height
@@ -498,46 +538,20 @@ def _between_walls(frame, plans, roads, ground, exact, others, decks, made, cut_
         bends = grading.bend_zone(mid)
         half = spec.width / 2
         for side, c0 in ((1.0, 0), (-1.0, 3)):
-            off = cut[:, c0]
-            there = np.isfinite(off) & np.isnan(cut[:, c0 + 1])
-            if not there.any():
+            t = _step_side(mid, d, nl * side, cut[:, c0], cut[:, c0 + 1], half, plans, rid, fid, ground, others, decks, road_z,
+                           bends, faces)
+            if t is None:
                 continue
-            n_out = nl * side
-            at = np.where(np.isfinite(off), off, 0.0)
-            base = mid + n_out * at[:, None]
-            low = ground(base - n_out * BETWEEN_LOW_M)
-            # (the upper level: at the road beside, whose edge bounds the step, no slope or third road behind it counts)
-            beside, its_half = _road_beside(mid, n_out, d, plans, rid)
-            back = np.where(np.isfinite(beside), np.minimum(np.maximum(at + BETWEEN_HIGH_M, beside - its_half + BETWEEN_EDGE_IN_M),
-                                                            beside), at + BETWEEN_HIGH_M)
-            high = ground(mid + n_out * back[:, None])
-            h = np.where(there, high - low, 0.0)
-            # (the room to the other road's carriageway, past this one's drawn edge)
-            steps = np.arange(half, half + BETWEEN_ROOM_M + 0.01, 0.5)
-            q = (mid[:, None, :] + n_out[:, None, :] * steps[None, :, None]).reshape(-1, 2)
-            hit = others.near(q, 0.0, skip=fid).reshape(len(mid), len(steps))
-            room = np.where(hit.any(axis=1), steps[np.argmax(hit, axis=1)] - half, np.inf)
-            stands = h >= np.maximum(room, 0.0) * BETWEEN_WALL_SLOPE
-            run = _wall_runs(np.where(stands, h, 0.0))
-            free = ~_under_decks(base, road_z, decks) & ~others.near(base, 0.0, skip=fid)
-            run &= free & ~bends
-            if len(faces):
-                gap = np.hypot(base[:, 0, None] - faces[:, 0], base[:, 1, None] - faces[:, 1]).min(axis=1)
-                run &= gap > BETWEEN_NOT_TWICE_M
-            step_runs = run.copy()
-            run &= ~others.near(base + n_out * BETWEEN_THICK_MIN_M, 0.0, skip=fid)
+            base, n_out, low, top = t.base, t.n_out, t.low, t.top
             inside = (base[:, 0] >= x0 - 2) & (base[:, 0] < x1 + 2) & (base[:, 1] >= y0 - 2) & (base[:, 1] < y1 + 2)
-            top = np.maximum(np.minimum(high, low + grading.WALL_MAX_H_CITY_M), low)     # (one level for the wall and the cut)
-            for sl in _spans(run & inside):
+            for sl in _spans(t.run & inside):
                 th = _clear_depth(base[sl], n_out[sl], np.full(sl.stop - sl.start, WALL_THICK_MAX_M), others, fid, skip=fid)
                 out.append({"base": base[sl], "top": top[sl] + WALL_TOP_M, "foot": low[sl] - WALL_FOOT_M,
                             "toward": -n_out[sl], "thick": np.clip(th, BETWEEN_THICK_MIN_M, WALL_COPING_MIN_M),
                             "concrete": spec.cls in CONCRETE_WALL_CLASSES, "rock": False, "road_z": low[sl],
                             "clear": th, "edge": mid[sl] + n_out[sl] * (half + CLIFF_EDGE_M)})
             if cut_lines is not None:
-                # (on into a cutting's own step too, its height set: the same step of the same ground, Cap Corse's going on 2 m out)
-                steps_on = np.isfinite(off) & free & (high - low >= BETWEEN_CUT_MIN_M)
-                for sl in _spans(_runs_with(steps_on, step_runs) & inside):
+                for sl in _spans(t.cut & inside):
                     cut_lines.append({"base": base[sl] + n_out[sl] * BETWEEN_CUT_IN_M, "low": low[sl], "high": top[sl],
                                       "toward": -n_out[sl]})
     return out

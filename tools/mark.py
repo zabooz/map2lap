@@ -7,7 +7,7 @@ recorded drive (drive.csv), by route metre (docs/ac-reports.md).
     .venv\\Scripts\\python.exe tools\\mark.py rechberg --mark 2 --from 80 --to 120
 
 Per mark and for the drive: its place and screenshot, the passes (a drive one way along the route), the hits (vertical
-G with the wheels' travel), where an axle hung unloaded, each with the measure.py command for that stretch, and the
+G with the wheels' travel, each with its route metre and AC x, z), where an axle hung unloaded, each with the measure.py command for that stretch, and the
 physics under the car (1ROAD, 1GRASS, ...: from the track's OBJ parts in out/tracks/<track>, when that build is there).
 Each place's metres off the line have their side, + right of the route's direction (the track's route, from its data).
 A hit off the road is marked: the car was beside the road there, so it says nothing about the road (past 6 m off the
@@ -245,7 +245,8 @@ def rebuilt_since(track, folder):
 def _where(r):
     flag = "  BESIDE THE ROAD" if beside(r) else ""
     off = f"{r['side_m']:+5.1f} m off the line" if "side_m" in r else f"{r['off_m']:4.1f} m off the line"
-    return f"route {r['route_m']:8.1f} m, {off}, {r['speed_kmh']:5.1f} km/h{flag}"
+    # (AC x, z: a route metre doesn't say which of two teeth 10 m apart a hit was; heights.py and the map read them)
+    return f"route {r['route_m']:8.1f} m, AC {r['x']:.1f}, {r['z']:.1f}, {off}, {r['speed_kmh']:5.1f} km/h{flag}"
 
 
 def read_place(track, rows):

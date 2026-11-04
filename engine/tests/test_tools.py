@@ -4,6 +4,7 @@ import glob
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -327,6 +328,58 @@ class WatchBuildTest(unittest.TestCase):
         self.assertEqual(incl["tiles"][wb.WAITING], 1)
         self.assertEqual(incl["tiles"]["apply (planner.py)"], 1)
         self.assertEqual(inner["scenery"]["_beside_strength (points.py:159)"], 1)
+
+
+class WallToolsTest(unittest.TestCase):
+    LINE = {"base": [[0.0, 0.0], [4.0, 0.0]], "low": [10.0, 10.0], "high": [13.0, 13.0], "toward": [[0.0, -1.0], [0.0, -1.0]]}
+
+    def test_a_hit_says_where_it_is_not_only_its_route_metre(self):
+        self.assertIn("AC 100.0, 0.0", mark._where(row(1.0)))
+
+    def test_the_points_in_front_lie_on_the_lower_side_each_place_once(self):
+        got = measure.in_front_points([self.LINE, self.LINE])
+        self.assertEqual(len(got), 8, "4 m every 0.5 m, a neighbour's piece doubled")
+        np.testing.assert_allclose(got[:, 1], measure.IN_FRONT_M, err_msg="AC z = -north: south of the line")
+        np.testing.assert_allclose(got[:, 2], 10.0)
+
+    def test_ground_standing_in_front_of_a_line_is_read_as_its_height(self):
+        """(a tooth: flat road, then a triangle reaching 3 m over it at x 2)"""
+        flat = np.array([[[-9.0, 10.0, -9.0], [9.0, 10.0, -9.0], [9.0, 10.0, 9.0]], [[-9.0, 10.0, -9.0], [9.0, 10.0, 9.0], [-9.0, 10.0, 9.0]]])
+        tooth = np.array([[[1.0, 11.0, 0.0], [3.0, 11.0, 0.0], [2.0, 13.0, 1.0]]])
+        pts = np.array([[0.5, 0.4, 10.0], [2.0, 0.4, 10.0]])
+        got = measure.ground_in_front(pts, np.r_[flat, tooth])
+        self.assertAlmostEqual(got[0], 0.0)
+        self.assertGreater(got[1], 0.3)
+        self.assertTrue(np.isnan(measure.highest_over(flat, 50.0, 50.0)))
+
+    def walls(self, **kw):
+        base = dict(run=[False], there=[True], off=[3.0], on_deck=[False], on_road=[False], bends=[False], near_wall=[False],
+                    no_depth=[False], stands=[True], h=[1.5], room=[2.5])
+        return SimpleNamespace(**{k: np.array(v) for k, v in {**base, **kw}.items()})
+
+    def test_a_wall_s_answer_names_the_test_that_refused_it(self):
+        for kw, what in ((dict(run=[True]), "wall"), (dict(there=[False]), "a cutting's"), (dict(there=[False], off=[np.nan]), "no step"),
+                         (dict(on_deck=[True]), "under a deck"), (dict(on_road=[True]), "carriageway"), (dict(bends=[True]), "bend"),
+                         (dict(near_wall=[True]), "wall near"), (dict(no_depth=[True]), "depth"),
+                         (dict(stands=[False]), "lower than the room: 1.50 under 2.5"), (dict(), "_wall_runs")):
+            self.assertIn(what, heights.wall_answer(self.walls(**kw), 0), kw)
+
+    def test_a_wall_s_answer_names_all_that_refused_it_the_step_first(self):
+        got = heights.wall_answer(self.walls(stands=[False], on_road=[True], bends=[True]), 0)
+        self.assertEqual(got, "lower than the room: 1.50 under 2.5 m; on a carriageway; tight bend")
+
+    def test_a_road_s_pieces_are_joined_end_to_end(self):
+        piece = lambda a, b: SimpleNamespace(xy=np.array([[a, 0.0], [b, 0.0]]), z=np.array([a, b]))     # noqa: E731
+        got = heights._chained([piece(4.0, 8.0), piece(0.0, 4.0), piece(20.0, 24.0)])
+        self.assertEqual(sorted(len(xy) for xy, _z in got), [2, 3])
+        joined = [(xy, z) for xy, z in got if len(xy) == 3][0]
+        np.testing.assert_allclose(joined[0][:, 0], [0.0, 4.0, 8.0])
+        np.testing.assert_allclose(joined[1], [0.0, 4.0, 8.0])
+
+    def test_the_other_plans_on_a_point_with_their_edge(self):
+        me = SimpleNamespace(rid="a", xy=np.array([[0.0, 0.0], [9.0, 0.0]]), z=np.array([1.0, 1.0]), half=2.0, road_half=2.0)
+        other = SimpleNamespace(rid="bbbb", xy=np.array([[0.0, 3.0], [9.0, 3.0]]), z=np.array([5.0, 5.0]), half=6.0, road_half=6.0)
+        self.assertEqual(heights._others_on(np.array([4.0, 0.0]), [me, other], "a"), "bbbb -3.0 z5.00")
 
 
 class SurroundingsTest(unittest.TestCase):

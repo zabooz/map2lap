@@ -20,6 +20,10 @@ it (grade_points and regrade_past_ends without that plan): who pulls the ground 
 at what angle, and whether a junction pad is paved there (roads.deck_pads); and each terrain vertex within 3 m of the
 line: graded, built, the deck's top over it, its arc from each deck's two ends (under_deck_ground treats the end zones
 apart).
+--walls: per segment of a road near the stretch why a wall between two roads stands or not, each of its tests (the road
+tiles' parts built again in a temporary folder, the shared caches may fill), and whether the ground is cut there.
+--road <part of a name, or the start of an id>: a road other than the route: its plan's height, the ground built across
+it, its grade and lean, and the plans it lies on.
 """
 import argparse
 import json
@@ -42,6 +46,8 @@ WATER_NEAR_M = 40.0     # m around the stretch water counts (a river's area may 
 PLAN_NEAR_M = 6.0       # m past a plan's half width it counts as near the line
 DECK_NEAR_M = 15.0      # m off the line a deck part counts
 VERTEX_NEAR_M = 3.0     # m off the line a terrain vertex is listed (--decks)
+WALL_NEAR_M = 30.0      # m off the stretch a road's segment is listed (--walls)
+ROAD_STEP_M = 2.0       # m along a road between its rows (--road): the terrain's cell
 
 
 def stretch(route, start, end, step):
@@ -365,6 +371,180 @@ def report_decks(sp, ss, px, py):
               f"{(V[i, 1] - gr[i]) * 100:+13.1f} {deck}  {arcs}")
 
 
+def wall_answer(t, k):
+    """What became of segment k of a road's side (roads.walls._step_side's t): "wall" (its run passed: a tile still draws only
+    its own piece of two points or more), or all that refused it, the step's own tests first. Pure."""
+    if t.run[k]:
+        return "wall"
+    if not t.there[k]:
+        return "no step of two roads: a cutting's" if np.isfinite(t.off[k]) else "no step"
+    why = [f"lower than the room: {t.h[k]:.2f} under {t.room[k]:.1f} m"] if not t.stands[k] else []
+    why += [what for no, what in ((t.on_deck[k], "under a deck"), (t.on_road[k], "on a carriageway"), (t.bends[k], "tight bend"),
+                                  (t.near_wall[k], "a cutting's wall near"), (t.no_depth[k], "no room for its depth")) if no]
+    return "; ".join(why) or "too low or short a run (_wall_runs)"
+
+
+def report_walls(sp, px, py):
+    """Each wall test per segment near the stretch (roads.walls._step_side as a road tile calls it): the tiles' road parts built
+    again into a temporary folder (the map and plan caches are the shared ones: they may fill, data may be fetched)."""
+    import blockworker
+    from roads import walls
+    real, rows = walls._between_walls, {}
+    tiles = sorted({tile_of(x, y) for x, y in zip(px, py)})
+
+    def wrapped(frame, plans, roads_, ground, exact, others, decks, made, cut_lines=None):
+        import grading
+        road_of = {grading.road_id(fid): (fid, spec) for fid, spec, _p, _x in roads_}
+        faces = [np.asarray(w["base"], np.float64) for w in made if not w.get("parapet")]
+        faces = np.concatenate(faces) if faces else np.zeros((0, 2))
+        for rid, xy, z, cut in walls._joined_plans(plans):
+            if rid not in road_of:
+                continue
+            fid, spec = road_of[rid]
+            if spec.kind not in walls.BUILT:
+                continue
+            mid = (xy[:-1] + xy[1:]) / 2
+            d = np.diff(xy, axis=0)
+            d /= np.maximum(np.hypot(*d.T), 1e-9)[:, None]
+            bends = grading.bend_zone(mid)
+            la, lo, _ = frame.enu_to_geodetic(mid[:, 0], mid[:, 1], np.zeros(len(mid)))
+            road_z = np.asarray(frame.geodetic_to_enu(la, lo, (z[:-1] + z[1:]) / 2)[2], np.float64)
+            for side, c0, label in ((1.0, 0, "left"), (-1.0, 3, "right")):
+                t = walls._step_side(mid, d, np.c_[-d[:, 1], d[:, 0]] * side, cut[:, c0], cut[:, c0 + 1], spec.width / 2, plans, rid, fid,
+                                     ground, others, decks, road_z, bends, faces)
+                if t is None:
+                    continue
+                # (a wall only where this tile draws it: its own piece, two points or more; a neighbour's answer may be the wall)
+                x0, y0, x1, y1 = exact
+                inside = (t.base[:, 0] >= x0 - 2) & (t.base[:, 0] < x1 + 2) & (t.base[:, 1] >= y0 - 2) & (t.base[:, 1] < y1 + 2)
+                drawn = np.zeros(len(mid), bool)
+                for sl in walls._spans(t.run & inside):
+                    drawn[sl] = True
+                for k in np.flatnonzero(np.isfinite(t.off) & (np.hypot(px[:, None] - mid[:, 0], py[:, None] - mid[:, 1]).min(axis=0) < WALL_NEAR_M)):
+                    answer = wall_answer(t, k)
+                    if answer == "wall" and not drawn[k]:
+                        answer = "no wall in this tile: passed, but off its box or a lone point"
+                    key = (str(rid)[-8:], label, *np.round(mid[k], 1))
+                    if key not in rows or answer == "wall":
+                        rows[key] = (t.base[k], t.off[k], t.low[k], t.high[k], answer, t.cut[k])
+        return real(frame, plans, roads_, ground, exact, others, decks, made, cut_lines)
+
+    rules = sp.anc["rules"]
+    walls._between_walls = wrapped
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            for tx, ty in tiles:
+                blockworker._roads_tile(sp.anc["aid"], sp.anc["lat"], sp.anc["lon"], sp.anc["dem_zoom"], tx, ty, out, "tiles", sidewalks=True,
+                                        lift=0.0, buildings=True, left_hand=rules["left_hand"], mph=rules["mph"], q=None, gas_stations=True,
+                                        buried=rules["buried"], lamp_region=rules["lamp_region"], country=rules["country"])
+    finally:
+        walls._between_walls = real
+    print("\nWalls between two roads near the stretch: per segment, a road's plan and side (AC x, z of the step)")
+    print("  road      side    AC x     AC z    off    low    high   cut  answer")
+    for (rid, label, _x, _y), (b, off, low, high, answer, cutting) in sorted(rows.items()):
+        print(f"  {rid} {label:5} {b[0]:8.1f} {-b[1]:8.1f} {off:5.2f} {low:7.2f} {high:7.2f}  {'cut' if cutting else '   '}  {answer}")
+    if not rows:
+        print("  none: no road has such a step here")
+
+
+def _chained(plans):
+    """A road's plan pieces (grading.trim_plan cuts them per map cell) joined end to end, each one's end to the next one's start, a
+    road running on one way: [(xy (n, 2), z (n,))]. Pure."""
+    rows = [(np.asarray(p.xy, np.float64)[:, :2], np.asarray(p.z, np.float64)) for p in plans if len(p.xy) >= 2]
+    out = []
+    while rows:
+        xy, z = rows.pop()
+        grew = True
+        while grew:
+            grew = False
+            for i, (x2, z2) in enumerate(rows):
+                if np.hypot(*(xy[-1] - x2[0])) < 0.5:
+                    xy, z, grew = np.r_[xy, x2[1:]], np.r_[z, z2[1:]], True
+                elif np.hypot(*(x2[-1] - xy[0])) < 0.5:
+                    xy, z, grew = np.r_[x2, xy[1:]], np.r_[z2, z[1:]], True
+                if grew:
+                    rows.pop(i)
+                    break
+        out.append((xy, z))
+    return out
+
+
+def road_ids(sp, text, px, py):
+    """{plan rid: label} of the roads in the map cells of the stretch's tiles whose name holds text or whose id starts with it."""
+    import grading
+    import roads
+    out = {}
+    for key in sp.cells(px, py):
+        f = sp.s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")
+        if f is None or not len(f.kind):
+            continue
+        names = f.attrs.get("name")
+        for i, fid in enumerate(f.ids):
+            nm = str(names[i]) if names is not None and str(names[i]) not in ("", "None") else ""
+            if str(fid).lower().startswith(text.lower()) or (nm and text.lower() in nm.lower()):
+                out[grading.road_id(str(fid))] = f"{nm} {str(fid)[:8]}".strip()
+    return out
+
+
+def report_road(sp, text, px, py):
+    """A road other than the route near the stretch: per ROAD_STEP_M along it its plan's height, the ground built across it, its
+    grade and lean, and the other plans on it (their carriageways' edge: + past it, - on it; their height)."""
+    ids = road_ids(sp, text, px, py)
+    if not ids:
+        print(f"\nno road holding {text!r} near the stretch")
+        return
+    la, lo = sp.lalo(px, py)
+    plans = [p for p in sp.g.plans(la, lo)]
+    box = (px.min() - ROAD_NEAR_M * 4, -py.max() - ROAD_NEAR_M * 4, px.max() + ROAD_NEAR_M * 4, -py.min() + ROAD_NEAR_M * 4)
+    T3, _d, names = measure._surfaces(sp.track, box)
+    T3 = T3[np.array(["_ground_" in n for n in names], bool)]
+    offs = (-4, -3, -2, -1, 0, 1, 2, 3, 4)
+    for rid, label in ids.items():
+        for xy, z in _chained([p for p in plans if p.rid == rid]):
+            if np.hypot(px[:, None] - xy[:, 0], py[:, None] - xy[:, 1]).min() > ROAD_NEAR_M * 3:
+                continue                    # (another road of that name, in the map cells around)
+            s = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+            print(f"\n{label}, plan half {[float(getattr(p, 'road_half', p.half)) for p in plans if p.rid == rid][0]:.1f} m, from AC {xy[0, 0]:.1f}, "
+                  f"{-xy[0, 1]:.1f}; + left of its way (m, the ground built)")
+            print("  along    AC x     AC z    plan " + " ".join(f"{o:+7d}" for o in offs) + "  grade%  lean%  other plans")
+            prev = None
+            for m in np.arange(0.0, s[-1], ROAD_STEP_M):
+                k = min(int(np.searchsorted(s, m, side="right")) - 1, len(xy) - 2)
+                t = (m - s[k]) / max(s[k + 1] - s[k], 1e-9)
+                q = xy[k] + t * (xy[k + 1] - xy[k])
+                if np.hypot(px - q[0], py - q[1]).min() > ROAD_NEAR_M * 3:
+                    prev = None
+                    continue
+                u = (xy[k + 1] - xy[k]) / max(float(np.hypot(*(xy[k + 1] - xy[k]))), 1e-9)
+                n = np.array([-u[1], u[0]])
+
+                def up(h, at=q):            # (a plan's heights are the raw elevation's, the parts' the frame's)
+                    return float(sp.up(*sp.lalo(np.array([at[0]]), np.array([at[1]])), np.array([h]))[0])
+                built = [measure.highest_over(T3, *((q + n * o)[0], -(q + n * o)[1])) for o in offs]
+                grade = "" if prev is None else f"{(built[4] - prev) / ROAD_STEP_M * 100:.0f}"
+                prev = built[4]
+                print(f"  {m:5.0f} {q[0]:8.1f} {-q[1]:8.1f} {up(z[k] + t * (z[k + 1] - z[k])):7.2f} " + " ".join(f"{b:7.2f}" for b in built)
+                      + f"  {grade:>6} {(built[6] - built[2]) / 4 * 100:6.0f}  " + _others_on(q, plans, rid, up))
+
+
+def _others_on(q, plans, rid, up=float):
+    """The other plans a point q (2,) lies near: their id's end, the way to their carriageway's edge, their height (through up).
+    Pure but for up."""
+    out = []
+    for p in plans:
+        if p.rid == rid:
+            continue
+        xy, z = np.asarray(p.xy, np.float64)[:, :2], np.asarray(p.z, np.float64)
+        ab = np.diff(xy, axis=0)
+        t = np.clip(((q - xy[:-1]) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-12), 0.0, 1.0)
+        d = np.hypot(*(xy[:-1] + t[:, None] * ab - q).T)
+        k = int(d.argmin())
+        gap = d[k] - float(getattr(p, "road_half", p.half))
+        if gap < ROAD_NEAR_M / 2:
+            out.append(f"{str(p.rid)[-4:]} {gap:+.1f} z{up(z[k] + t[k] * (z[k + 1] - z[k])):.2f}")
+    return " | ".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("track")
@@ -373,6 +553,8 @@ def main():
     ap.add_argument("--step", type=float, default=1.0, help="m between the points along the line (default 1)")
     ap.add_argument("--plans", action="store_true", help="also each plan's share in the graded height")
     ap.add_argument("--decks", action="store_true", help="also the deck parts and the terrain vertices under them")
+    ap.add_argument("--walls", action="store_true", help="also why a wall between two roads stands or not, per segment")
+    ap.add_argument("--road", help="also this road near the stretch (part of its name, or the start of its id): profile and across")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")     # (map names: Māori, Norwegian, ... on a cp1252 console)
     if not os.path.exists(os.path.join(HERE, "out", "tracks", a.track, "tiles", "anchor.json")):
@@ -386,6 +568,10 @@ def main():
             report_plans(sp, ss, px, py)
         if a.decks:
             report_decks(sp, ss, px, py)
+        if a.road:
+            report_road(sp, a.road, px, py)
+        if a.walls:
+            report_walls(sp, px, py)
 
 
 if __name__ == "__main__":
