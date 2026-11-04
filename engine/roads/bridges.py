@@ -440,7 +440,6 @@ class BridgeProfiles:
         self.done = {}                          # (fid, j) -> (spec, xy (k, 2), z (k,), lon)
         self.piers = {}                         # (fid, j) -> pier_sites of its deck
         self.trusses = {}                       # a chain's first part key -> its truss beams (bridgetypes)
-        self.depth = {}                         # (fid, j) -> m of slab and girders under its road (deck_depth)
         self.lock = threading.Lock()
 
     def _water(self, lines, nav=0.0, depth=None, channel=0.0):
@@ -659,7 +658,7 @@ class BridgeProfiles:
                 return sorted(comp)
 
     def _solve(self, comp, pool, ground):
-        """Deck heights of the chain comp (keys of pool)."""
+        """(deck heights of the chain comp (keys of pool), m of slab and girders under its road: deck_depth)."""
         lines = [pool[k][1] for k in comp]
         # (solved with its free ends that join another part's moved onto those joints: _end_joins; the heights are
         # per point, so the parts keep their own lines)
@@ -685,9 +684,7 @@ class BridgeProfiles:
         allxy = np.concatenate([np.asarray(ln, np.float64)[:, :2] for ln in lines])
         if not railways._coarse_here(self.frame, (*allxy.min(0), *allxy.max(0))):
             head = LIDAR_HEADROOM_M
-        dd = self.__dict__.setdefault("depth", {})
-        for k in comp:
-            dd[k] = DECK_FULL_DEPTH if depth is None else depth
+        drawn_depth = DECK_FULL_DEPTH if depth is None else depth
         try:
             channel = bridgetypes.nav_span(self.frame, lines) if nav > 0 else 0.0
         except Exception:
@@ -738,12 +735,12 @@ class BridgeProfiles:
             # a part laid between its real ends at their grades keeps that: a measured profile eased between them
             # (other data, another height reference) only humps it
             if all(laid):
-                return zs
+                return zs, drawn_depth
             obs = self._observed(comp, pool, lines, zs, pins=_ground_pins(lines, gl))
-            return [z if done else o for z, o, done in zip(zs, obs, laid)]
+            return [z if done else o for z, o, done in zip(zs, obs, laid)], drawn_depth
         if ons and not over:            # (final is the solve before _tangent)
-            return final
-        return self._observed(comp, pool, lines, zs, pins=_ground_pins(lines, gl))
+            return final, drawn_depth
+        return self._observed(comp, pool, lines, zs, pins=_ground_pins(lines, gl)), drawn_depth
 
     def _observed(self, comp, pool, lines, zs, level=1, pins=None):
         """The chain's deck heights where a source measured them (roadz.py: IGN BD TOPO, NVDB, US lidar), the solved
@@ -1064,7 +1061,7 @@ class BridgeProfiles:
                         return got
             except Exception as ex:         # (solved here rather than not at all)
                 log.debug("chain %s from its owner: %s: %s", key, type(ex).__name__, ex)
-        zs = self._solve(comp, pool, ground)
+        zs, depth = self._solve(comp, pool, ground)
         with self.lock:
             for k, z in zip(comp, zs):
                 spec, xy, lon = pool[k][:3]
@@ -1072,8 +1069,8 @@ class BridgeProfiles:
                 # the first solve of a part is kept, and what goes with it, unless this one saw more of it
                 if old is None or len(xy) > len(old[1]):
                     # (its depth with its heights, per part: one map road's bridges differ, and which of them a process
-                    # has solved is no reason for another's concrete to change)
-                    self.done[k] = (spec._replace(depth=self.__dict__.get("depth", {}).get(k)), xy, z, lon)
+                    # has solved, or another thread is solving, is no reason for this one's concrete to change)
+                    self.done[k] = (spec._replace(depth=depth), xy, z, lon)
                     self._commit(k, ground)
             chain = [(self.done[k][1], self.done[k][2], self.done[k][0].width) for k in comp
                      if k in self.done]
@@ -1095,8 +1092,8 @@ class BridgeProfiles:
         return [(float(la[0]), float(lo[0])), (float(la[1]), float(lo[1]))]
 
     def _adopt(self, owner, comp, pool):
-        """Chain comp solved by owner (from its first part), its parts, piers, trusses and depths taken into this
-        frame. False when owner's solve did not cover comp's parts."""
+        """Chain comp solved by owner (from its first part), its parts (their depths with them), piers and trusses taken into
+        this frame. False when owner's solve did not cover comp's parts."""
         first = min(comp)
         if owner._chain_of(first, self._ends_ll(pool[first][1]), adopt=False) is None:
             return False
@@ -1110,7 +1107,6 @@ class BridgeProfiles:
             ck = min(comp)
             beams = owner.trusses.get(ck)
             tpiers = owner.piers.get(("truss", ck))
-            depth = {k: owner.__dict__.get("depth", {}).get(k) for k in mine}
             extra = owner._adopt_extra(comp)
         mp = _Mapper(owner.frame, self.frame)
         with self.lock:
@@ -1120,8 +1116,6 @@ class BridgeProfiles:
                 xyz = mp.pts(np.c_[np.asarray(xy, np.float64)[:, :2], np.asarray(z, np.float64)])
                 self.done[k] = (spec, xyz[:, :2].copy(), xyz[:, 2].copy(), lon)
                 self.piers[k] = [mp.pier(q) for q in piers[k]]
-                if depth.get(k) is not None:
-                    self.__dict__.setdefault("depth", {})[k] = depth[k]
             if beams is not None and ck not in self.trusses:
                 self.trusses[ck] = [mp.beam(b) for b in beams]
                 self.piers[("truss", ck)] = [mp.pier(q) for q in (tpiers or [])]
@@ -1141,7 +1135,7 @@ class BridgeProfiles:
         lines = [ln for v in (ground or {}).values() for ln in v]
         try:
             self.piers[k] = pier_sites(np.asarray(xy, np.float64), np.asarray(z, np.float64), spec.width,
-                                       self._ground, lines, self._wet_at, self.__dict__.get("depth", {}).get(k))
+                                       self._ground, lines, self._wet_at, spec.depth)
         except Exception as ex:             # no piers rather than no bridge
             log.debug("piers of %s: %s: %s", k, type(ex).__name__, ex)
             self.piers[k] = []

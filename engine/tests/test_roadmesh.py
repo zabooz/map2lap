@@ -534,6 +534,31 @@ class BridgeProfilesTest(unittest.TestCase):
         depths(other, long_)
         self.assertEqual(depths(other, short), alone)
 
+    def test_a_decks_depth_and_piers_are_those_of_the_solve_it_keeps(self):
+        """Another thread solving a chain with the same part, its other depth, just before this one keeps its heights."""
+        import roads
+        from test_roads import features
+        flat = lambda la, lo: np.full(np.shape(la), 10.0)     # noqa: E731
+        f = features([[(-300, 0), (300, 0)]], ["primary"], levels=[(0, 1.0, 0.3, 0.7)], ids=["deck"])
+
+        class Overlapped(roads.BridgeProfiles):
+            def _solve(self, comp, pool, ground):
+                got = super()._solve(comp, pool, ground)
+                self._depth = lambda lines: 2.0
+                super()._solve(comp, pool, ground)
+                return got
+        bp = Overlapped(FRAME, lambda key: f, flat)
+        bp._depth = lambda lines: 1.0
+        real, piers = roads.bridges.pier_sites, []
+
+        def noted(*a, **k):
+            piers.append(a[-1])
+            return real(*a, **k)
+        with unittest.mock.patch.object(roads.bridges, "pier_sites", noted):
+            got = bp.parts([f], (-128, -128, 128, 128))
+        self.assertEqual([spec.depth for _fid, spec, _xy, _z, _lon in got], [1.0])
+        self.assertEqual(piers, [1.0])
+
     def test_lidar_headroom(self):
         """On lidar a deck over a street leaves LIDAR_HEADROOM_M (4 m) under it, not 6 m: lower than
         on the coarse model, still clear of the street."""
