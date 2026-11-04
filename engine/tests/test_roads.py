@@ -7,6 +7,7 @@ import sys
 import tempfile
 import math
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 import numpy as np
@@ -1211,6 +1212,26 @@ class RetainingWallTest(unittest.TestCase):
         self.assertTrue(step, "a cutting's step: a wall")
         bank = self._walls(lambda n: np.clip((n - edge + 1.0) / 3.0, 0.0, 1.0) * 3.0)
         self.assertFalse(bank, "a natural bank: no wall")
+
+
+class BridgeReachTest(unittest.TestCase):
+    def test_a_range_being_lengthened_is_not_read_half_made(self):
+        """(another planning thread asking meanwhile got the map's ranges as the lengthened ones: a road's end 10 m out on
+        its bridge, 5 m under it, on the A2 in 1 build of 15)"""
+        levels = roads.levels
+        f = features([[(-200, 0), (200, 0)], [(0, -100), (0, 100)]], ["motorway", "residential"], flags=[(0, "is_bridge", 0.49, 0.51)])
+        meanwhile = []
+        boxes = levels._feature_boxes
+
+        def asked_meanwhile(feats):
+            if not meanwhile:
+                meanwhile.append(None)
+                meanwhile[0] = levels._bridge_reach(feats, 0)["ranges"]
+            return boxes(feats)
+        with unittest.mock.patch.object(levels, "_feature_boxes", asked_meanwhile):
+            got = levels._bridge_reach(f, 0)["ranges"]
+        self.assertLess(got[0][0], 0.49, "the crossing under it lengthens it")
+        self.assertEqual(meanwhile[0], got)
 
 
 class WallBetweenRoadsTest(unittest.TestCase):

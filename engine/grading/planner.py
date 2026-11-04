@@ -13,7 +13,7 @@ from .settings import (
     ABUT_FILL_ON, APPROACH_ON, BETWEEN_ON, BETWEEN_WALL_CLASSES, CHAIN_ON, CLIP_MARGIN_M, COARSE_EASE_ON, COARSE_MAX_SLOPE, COARSE_MAX_STEP_M,
     COARSE_REACH_M, COARSE_SIGMA_M, CORNERS_ON, JUNCTION_SNAP_ON, LONG_PART_M, OVER_TUNNEL_SMALL_M, PLAN_SETS_MAX,
     PLAN_THREADS, RAIL_GRADE_ON, RAIL_TAG, RETRY_S, SPREAD_CELLS, TUNNEL_KEEP_IN_M, TUNNEL_KEEP_M, TUNNEL_TAG, T_MAX,
-    UNDER_ON, UNGRADED, UNGRADED_MARGIN_M, log
+    UNDER_ON, UNGRADED, UNGRADED_MARGIN_M, fell_back
 )
 from .snap import _twin_trimmed, _with_lows, road_rank, snap_junctions
 from .profiles import Plan, clip_polyline, mapped_plan, plan_roads, road_id, trim_plan, tunnel_plan
@@ -137,7 +137,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
         try:
             f = self.md.cell(key, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
         except Exception as e:
-            log.debug("grading: walls of %s: %s: %s", key, type(e).__name__, e)
+            fell_back("grading: walls of %s: %s: %s", key, type(e).__name__, e)
             return []
         cls = None if f is None else f.attrs.get("class")
         if cls is None or not len(f.kind):
@@ -156,7 +156,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
         try:
             feats = self.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")
         except Exception as e:      # no road data: ungraded (asked again after RETRY_S)
-            log.debug("grading: roads of %s: %s: %s", key, type(e).__name__, e)
+            fell_back("grading: roads of %s: %s: %s", key, type(e).__name__, e)
             with self.lock:
                 self.failed[key] = time.monotonic()
             return None
@@ -194,7 +194,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                     under = self._simple_abuts(np.stack([np.asarray(e), np.asarray(n)], axis=1),
                                                abut.ravel()).reshape(-1, 2)
                 except Exception as e:      # no fills rather than no grading
-                    log.debug("grading: abutments of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: abutments of %s: %s: %s", key, type(e).__name__, e)
             ext = pins = free = onto = None
             if CHAIN_ON and parts:
                 try:
@@ -203,12 +203,12 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                     onto = self._onto_bridge(ext)
                     pins = self._pins(parts, ids, ext)
                 except Exception as e:      # each part smoothed alone rather than no grading
-                    log.debug("grading: road chains of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: road chains of %s: %s: %s", key, type(e).__name__, e)
             if ext is not None:
                 try:
                     free = self._free_ends(parts, ids, ext)
                 except Exception as e:      # blended as equals rather than no grading
-                    log.debug("grading: free ends of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: free ends of %s: %s: %s", key, type(e).__name__, e)
             pclip = []
             pparts = []                         # (fid, spec, lon/lat ring) of each plan (roadcorners.grade_rows)
             coarse = COARSE_EASE_ON and self._coarse(key)
@@ -218,7 +218,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                 try:
                     lows = self._portal_lows(parts, key)
                 except Exception as e:      # the approaches as the ground has them rather than no grading
-                    log.debug("grading: tunnel approaches of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: tunnel approaches of %s: %s: %s", key, type(e).__name__, e)
             for j, (fid, part, cl, p) in enumerate(zip(ids, parts, clipped,
                                                        plan_roads(self.frame, parts, self.elev, abut, ext, pins,
                                                                   coarse=coarse, fine=fine, under=under,
@@ -237,22 +237,22 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                 try:
                     snap_junctions([p for _f, p in plans], pspecs)
                 except Exception as e:      # blended as before rather than no grading
-                    log.debug("grading: junctions of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: junctions of %s: %s: %s", key, type(e).__name__, e)
             if COARSE_EASE_ON and plans:
                 try:
                     self._ease_coarse(key, plans, pspecs)
                 except Exception as e:      # as they were rather than no grading
-                    log.debug("grading: coarse easing of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: coarse easing of %s: %s: %s", key, type(e).__name__, e)
             if APPROACH_ON and plans:
                 try:
                     self._lift_approaches(key, plans, pspecs)
                 except Exception as e:      # ungraded approaches rather than no grading
-                    log.debug("grading: approaches of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: approaches of %s: %s: %s", key, type(e).__name__, e)
             if UNDER_ON and plans:
                 try:
                     self._lower_underpasses(key, plans)
                 except Exception as e:      # as the data has it rather than no grading
-                    log.debug("grading: underpasses of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: underpasses of %s: %s: %s", key, type(e).__name__, e)
             if JUNCTION_SNAP_ON and plans and (APPROACH_ON or UNDER_ON):
                 # the side roads again, at their roads' heights after the approaches' lifts and the underpasses' dips
                 # (snapped before them, every alley along Baltimore's Haven Street stood up to 3.5 m over the street
@@ -260,7 +260,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                 try:
                     snap_junctions([p for _f, p in plans], pspecs)
                 except Exception as e:
-                    log.debug("grading: junctions after the dips of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: junctions after the dips of %s: %s: %s", key, type(e).__name__, e)
             if CORNERS_ON and plans:
                 # the rounded corners of curbless junctions (roadcorners.py): the ground under each graded to its roads'
                 # solved heights (trimmed to the cell's box with the roads' plans below)
@@ -272,7 +272,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                     plans.extend(corner_plans)
                     pclip.extend([True] * len(corner_plans))
                 except Exception as e:      # the roads' own grading rather than none
-                    log.debug("grading: road corners of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: road corners of %s: %s: %s", key, type(e).__name__, e)
             # a long road's piece (planned with CLIP_MARGIN_M of the road either side for its profile) kept only within
             # the cell's own box: every stretch of road in one cell's plans, once (overlapping pieces from neighbouring
             # cells counted a road up to 9 times, and every batch of points graded differently: patches of ground
@@ -290,7 +290,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
                         plans.append((RAIL_TAG + fid, p))
                         pclip.append(True)
                 except Exception as e:      # no rail grading rather than no grading
-                    log.debug("grading: railways of %s: %s: %s", key, type(e).__name__, e)
+                    fell_back("grading: railways of %s: %s: %s", key, type(e).__name__, e)
             # every plan only within the cell's own box, so each stretch of road is planned by one cell (its dips
             # made with every road around: _lower_underpasses); the tunnels' ends graded as before, a part shorter
             # than LONG_PART_M by all of it (TunnelProfiles.ends grades them by the roads' plans alone)
@@ -369,7 +369,7 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
             try:
                 return prov.observed(self.frame, xy, spec.width / 2, 0)
             except Exception as e:      # the DEM's rather than no grading
-                log.debug("grading: measured road heights: %s: %s", type(e).__name__, e)
+                fell_back("grading: measured road heights: %s: %s", type(e).__name__, e)
                 return None
         return obs
 

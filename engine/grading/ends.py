@@ -7,7 +7,7 @@ import mapcells
 import roads as roadsmod
 
 from .settings import (
-    CHAIN_JOIN_M, CHAIN_LOOK_M, CHAIN_TURN_DEG, CLIP_MARGIN_M, COARSE_EASE_ON, LONG_PART_M, PROFILE_STEP, UNGRADED, log
+    CHAIN_JOIN_M, CHAIN_LOOK_M, CHAIN_TURN_DEG, CLIP_MARGIN_M, COARSE_EASE_ON, LONG_PART_M, PROFILE_STEP, UNGRADED, fell_back
 )
 from .profiles import (
     BANK_DESIGN, BANK_ON, BANK_RUNOFF_M, BANK_SIGMA_M, BANK_STENCIL_M, _point_along, clip_polyline, plan_roads,
@@ -258,7 +258,7 @@ class _Ends:
                 for n, (part, last, whole), p in zip(jobs, preps, plans):
                     self._strong_keep(asks[n][0], keys[n], p, last, whole)
             except Exception as e:      # one at a time, each its own failure (_stronger_z)
-                log.debug("grading: pin heights at once: %s: %s", type(e).__name__, e)
+                fell_back("grading: pin heights at once: %s: %s", type(e).__name__, e)
         return [self._stronger_z(c, last) for c, last in asks]
 
     @staticmethod
@@ -283,7 +283,8 @@ class _Ends:
         return part, at_last, part is ring
 
     def _strong_keep(self, cand, k, p, at_last, whole):
-        """Keep a _stronger_z height (and the other end's, for a part planned whole)."""
+        """Keep a _stronger_z height (and the other end's, for a part planned whole); the height now kept for k: a thread
+        that failed (None) gives way to one that found it."""
         z, other = None, None
         if p is not None:
             z = float(p.z[-1] if at_last else p.z[0])
@@ -295,9 +296,12 @@ class _Ends:
         with self.lock:
             if len(memo) > 4096:
                 memo.clear()
-            memo.setdefault(k, z)
+            got = memo.get(k)
+            if got is None:
+                got = memo[k] = z
             if other is not None:
                 memo.setdefault(*other)
+            return got
 
     def _stronger_z(self, cand, at_last):
         """The planned height of a candidate part (_chain_cands') at its first or last point: its own plan (its chains,
@@ -315,10 +319,8 @@ class _Ends:
             p = plan_roads(self.frame, [(part, cand[4])], self.elev, None, ext, cuts=False,
                            coarse=COARSE_EASE_ON and self._coarse_ll(part), fine=self._fine_ll(part),
                            obs=self._obs(None, part), onto=self._onto_bridge(ext))[0]
-            self._strong_keep(cand, k, p, last, whole)
+            return self._strong_keep(cand, k, p, last, whole)
         except Exception as e:      # not held rather than no grading
-            log.debug("grading: pin height of %s: %s: %s", cand[5], type(e).__name__, e)
+            fell_back("grading: pin height of %s: %s: %s", cand[5], type(e).__name__, e)
             with self.lock:
-                memo[k] = None
-        with self.lock:
-            return memo.get(k)
+                return memo.setdefault(k, None)     # (another thread may have found it meanwhile)

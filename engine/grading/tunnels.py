@@ -7,7 +7,7 @@ import numpy as np
 import mapcells
 import roads as roadsmod
 
-from .settings import MOUTH_PLAN_M, TUNNEL_KEEP_M, TUNNEL_TAG, VERTEX_STEP, log
+from .settings import MOUTH_PLAN_M, TUNNEL_KEEP_M, TUNNEL_TAG, VERTEX_STEP, fell_back
 from .snap import _twin_trimmed, shoulder
 from .profiles import Plan, resample, tunnel_plan
 from .points import PlanPack, grade_points
@@ -94,7 +94,7 @@ class _Tunnels:
                 if st.wet is not None:
                     return st.drowned(key, ring)
             except Exception as e:      # (this frame's own then)
-                log.debug("grading: the chain store's drowned: %s: %s", type(e).__name__, e)
+                fell_back("grading: the chain store's drowned: %s: %s", type(e).__name__, e)
         return self._chains_for().drowned(key, ring)
 
     def _tunnel_sections(self, feats, key=None, road_plans=()):

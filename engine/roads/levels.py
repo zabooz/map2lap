@@ -155,14 +155,20 @@ def _structure_width(feats, i):
 def _bridge_reach(feats, i):
     """Bridge feature i's ranges lengthened over the ground roads crossing under them (SKEW_*), and how far past each
     end of the feature they would reach: {"ranges": [...], "over": [m past its start, m past its end]} (_skew_decks
-    puts that on the road joined there). Remembered on feats. Pure given feats."""
+    puts that on the road joined there). Remembered on feats, whole: a planning thread reading the map's ranges kept here
+    meanwhile took them for the lengthened ones, the road's end 10 m out on its bridge and 5 m under it, for that process
+    (the A2 in 1 build of 15). Pure given feats."""
     memo = feats.__dict__.setdefault("_bridge_reach", {})
     got = memo.get(i)
-    if got is not None:
-        return got
+    if got is None:
+        got = memo[i] = _bridge_reach_new(feats, i)
+    return got
+
+
+def _bridge_reach_new(feats, i):
+    """_bridge_reach of feature i, made. Pure given feats."""
     rngs = raw_level_ranges(feats, i)
     got = {"ranges": rngs, "over": [0.0, 0.0]}
-    memo[i] = got
     specs = road_specs(feats)
     up_w = specs[i].width if specs[i] is not None else _structure_width(feats, i)
     rings = [np.asarray(r, np.float64) for part in feats.parts(i) for r in part if len(r) >= 2]
@@ -217,8 +223,7 @@ def _bridge_reach(feats, i):
                 over[1] = max(over[1], hi_m - L)
             a, b = max(lo_m / L, prev, 0.0), min(hi_m / L, nxt, 1.0)
         out.append((a, b, k))
-    got = memo[i] = {"ranges": out, "over": over}
-    return got
+    return {"ranges": out, "over": over}
 
 
 # A tunnel's portal moved out past a ground road crossing over the tunnel's road at it (earthfast.tunnel_reach): its

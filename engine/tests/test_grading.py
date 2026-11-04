@@ -1267,6 +1267,57 @@ class GraderTest(unittest.TestCase):
         self.assertEqual(len(two), 2)
 
 
+class StrongerZThreadsTest(unittest.TestCase):
+    """A pin height asked by several plan threads at once: what one found is not lost to what another did meanwhile."""
+    CAND = (None, None, None, None, None, "road")
+
+    def planner(self):
+        p = grading._Planner(FRAME, None, None)
+        p._strong_key = lambda *a: "k"
+        p._strong_part = lambda *a: ("part", True, False)
+        p._extensions = lambda *a: None
+        p._coarse_ll = p._fine_ll = p._obs = p._onto_bridge = lambda *a: None
+        return p
+
+    def asked(self, p):
+        """p._stronger_z of a part whose plan ends at 6 m."""
+        plan = unittest.mock.Mock(z=np.array([5.0, 6.0]))
+        with unittest.mock.patch.object(grading.ends, "plan_roads", return_value=[plan]):
+            return p._stronger_z(self.CAND, True)
+
+    def test_a_late_failure_leaves_the_height_another_found(self):
+        p = self.planner()
+
+        def fails(*a):
+            p._strong_memo["k"] = 6.0
+            raise OSError("late")
+        p._strong_part = fails
+        with self.assertLogs("earthd.grading", "WARNING"):
+            self.assertEqual(p._stronger_z(self.CAND, True), 6.0)
+        self.assertEqual(p._strong_memo["k"], 6.0)
+
+    def test_a_height_found_after_another_failed_counts(self):
+        p = self.planner()
+
+        def failed_meanwhile(*a):
+            p._strong_memo["k"] = None
+            return "part", True, False
+        p._strong_part = failed_meanwhile
+        self.assertEqual(self.asked(p), 6.0)
+        self.assertEqual(p._strong_memo["k"], 6.0)
+
+    def test_the_memo_emptied_meanwhile_loses_no_height(self):
+        p = self.planner()
+        keep = p._strong_keep
+
+        def then_emptied(*a):
+            got = keep(*a)
+            p._strong_memo.clear()      # (another thread's _strong_keep, at the memo's limit)
+            return got
+        p._strong_keep = then_emptied
+        self.assertEqual(self.asked(p), 6.0)
+
+
 class ChainTest(unittest.TestCase):
     """A road split at a junction (BR-381): its parts are smoothed as one road."""
 
@@ -1282,6 +1333,18 @@ class ChainTest(unittest.TestCase):
         with unittest.mock.patch.object(grading, "CHAIN_ON", on):
             g = grading.Grader(FRAME, FakeMD(f), self.hill)
             return {fid: p for fid, p in g._cell_plans(mapcells.cell_of(LAT, LON))}
+
+    def test_a_plan_made_without_its_chains_says_so(self):
+        """(a road end that lost its abutment lay 5 m under its bridge, in one build of 15, and nothing said so)"""
+        import revisit
+        before = revisit.faults()
+        with unittest.mock.patch.object(grading._Planner, "_extensions", side_effect=OSError("locked")), \
+                self.assertLogs("earthd.grading", "WARNING") as said:
+            p = self.plans(True)
+        self.assertIn("road chains", said.output[0])
+        self.assertIn("locked", said.output[0])
+        self.assertGreater(revisit.faults(), before, "the build's results aren't kept")
+        self.assertEqual(set(p), {"id000", "id001", "id002"}, "the roads still get their plans")
 
     def test_the_parts_meet_at_one_height(self):
         p = self.plans(True)
