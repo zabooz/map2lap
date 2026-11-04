@@ -124,6 +124,7 @@ def _yield_strength(plans, box, nseg):
 # the node, 3.5 G at 100 km/h.
 BESIDE_WIDER_M = 0.5        # m: the other road's carriageway this much wider (half width) at least
 BESIDE_STEP_M = 1.0         # m between the narrow road's samples
+BOX_SLACK_M = 1e-6          # m a segment's box may miss and still be measured: far above a float's rounding at 1000 km
 
 
 def _beside_strength(plans, box, nseg):
@@ -149,22 +150,35 @@ def _beside_strength(plans, box, nseg):
         qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)    # (each sample's segment)
         near = np.zeros(len(t), bool)
         node = np.zeros(len(t), bool)
+        q0, q1 = q.min(axis=0), q.max(axis=0)
         for o in wider:
             op = plans[o]
             oxy = np.asarray(op.xy, f64)[:, :2]
-            a, ab = oxy[:-1], np.diff(oxy, axis=0)
-            l2 = np.maximum((ab * ab).sum(1), 1e-12)
-            u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)     # (samples, segments)
-            d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
             # (within reach: the narrow road's blend (its half and T_MAX) touches the wider one's carriageway)
             reach = rh[o] + p.half + T_MAX
-            near |= d.min(axis=1) < reach
+            at = _segments_near(oxy, q0 - reach, q1 + reach)
+            if len(at):
+                a, ab = oxy[at], oxy[at + 1] - oxy[at]
+                l2 = np.maximum((ab * ab).sum(1), 1e-12)
+                u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)     # (samples, segments)
+                d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
+                near |= d.min(axis=1) < reach
             for s in _shared_nodes(p, op):              # (a junction with it: blended as equals there)
                 node |= np.abs(t - s) < reach
         near &= ~node
         if near.any():
             out[s0[k] + np.unique(qseg[near])] = 1.0
     return np.round(out * 255.0).astype(np.uint8)
+
+
+def _segments_near(xy, lo, hi):
+    """The numbers of the segments of the line xy (n, 2) whose boxes meet the box (lo, hi), BOX_SLACK_M wider; all of them
+    when xy isn't finite, where only the full distances say what a segment does. Pure."""
+    if not np.isfinite(xy).all():
+        return np.arange(len(xy) - 1)
+    a, b = xy[:-1], xy[1:]
+    s0, s1 = np.minimum(a, b), np.maximum(a, b)
+    return np.flatnonzero(((s1 >= lo - BOX_SLACK_M) & (s0 <= hi + BOX_SLACK_M)).all(axis=1))
 
 
 def _shared_nodes(p, q):

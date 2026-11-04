@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import grading  # noqa: E402
 import mapcells  # noqa: E402
 import roads  # noqa: E402
+from grading import points  # noqa: E402
 from test_roads import features, rules, LAT, LON, FRAME  # noqa: E402
 
 
@@ -800,6 +801,131 @@ class GradePointsTest(unittest.TestCase):
         alone = grading.grade_points(px, py, base, [road])
         mine = (py >= -3.9) & (py <= 3.5)      # (the road's carriageway short of the trench's at 8 - 4.3 m)
         self.assertLess(np.abs(out[mine] - alone[mine]).max(), 1e-6, "its carriageway as without the trench")
+
+
+def beside_over_every_segment(plans, box, nseg):
+    """_beside_strength measuring each sample to every segment of every wider plan: what its choice of segments must not
+    change. Pure."""
+    f64 = np.float64
+    out = np.zeros(int(np.sum(nseg)), f64)
+    s0 = np.r_[0, np.cumsum(nseg)]
+    rh = np.array([p.road_half for p in plans], f64)
+    tun = np.array([p.tunnel for p in plans], bool)
+    for k, p in enumerate(plans):
+        if tun[k]:
+            continue
+        wider = np.flatnonzero(~tun & (rh >= rh[k] + points.BESIDE_WIDER_M) & (box[:, 0] <= box[k, 2]) & (box[:, 2] >= box[k, 0])
+                               & (box[:, 1] <= box[k, 3]) & (box[:, 3] >= box[k, 1]))
+        wider = [o for o in wider if plans[o].rid != p.rid]
+        if not wider:
+            continue
+        xy = np.asarray(p.xy, f64)[:, :2]
+        arc = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+        t = np.unique(np.r_[np.arange(0.0, arc[-1], points.BESIDE_STEP_M), arc[-1]])
+        q = np.c_[np.interp(t, arc, xy[:, 0]), np.interp(t, arc, xy[:, 1])]
+        qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)
+        near = np.zeros(len(t), bool)
+        node = np.zeros(len(t), bool)
+        for o in wider:
+            oxy = np.asarray(plans[o].xy, f64)[:, :2]
+            a, ab = oxy[:-1], np.diff(oxy, axis=0)
+            l2 = np.maximum((ab * ab).sum(1), 1e-12)
+            u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)
+            d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
+            reach = rh[o] + p.half + grading.T_MAX
+            near |= d.min(axis=1) < reach
+            for s in points._shared_nodes(p, plans[o]):
+                node |= np.abs(t - s) < reach
+        near &= ~node
+        if near.any():
+            out[s0[k] + np.unique(qseg[near])] = 1.0
+    return np.round(out * 255.0).astype(np.uint8)
+
+
+class BesideStrengthTest(unittest.TestCase):
+    """_beside_strength measures a narrow road's samples only to the segments that can come within reach: the same result
+    as to every segment, whatever the shapes."""
+
+    @staticmethod
+    def plan(xy, rid, half=3.0, road_half=2.0, tunnel=False):
+        xy = np.array(xy, np.float64)
+        p = grading.Plan(xy, np.full(len(xy), 100.0), half, road_half=road_half)
+        p.rid, p.tunnel = rid, tunnel
+        return p
+
+    def same(self, plans, box=None):
+        """Both results of plans (box: the plans' boxes where it isn't their own), once they are checked to be equal."""
+        box = np.array([p.bbox for p in plans], np.float64) if box is None else box
+        nseg = np.array([len(p.xy) - 1 for p in plans], np.int64)
+        got = points._beside_strength(plans, box, nseg)
+        want = beside_over_every_segment(plans, box, nseg)
+        self.assertEqual(got.dtype, want.dtype)
+        np.testing.assert_array_equal(got, want)
+        return got
+
+    def test_a_wider_road_whose_box_alone_comes_near(self):
+        """Its corner far off, its box around the narrow road: none of its segments is measured, nothing near."""
+        narrow = self.plan([[0, 0], [10, 0]], 1)
+        wide = self.plan([[-500, -500], [500, -500], [500, 500]], 2, 5.0, 4.0)
+        self.assertFalse(self.same([narrow, wide]).any())
+
+    def test_a_long_segment_crossing_with_its_ends_far_off(self):
+        narrow = self.plan([[0, -5], [0, 5]], 1)
+        wide = self.plan([[-1000, 0], [1000, 0]], 2, 5.0, 4.0)
+        np.testing.assert_array_equal(self.same([narrow, wide]), [255, 0])
+
+    def test_segments_of_no_length(self):
+        narrow = self.plan([[0, 8], [0, 8], [20, 8], [20, 8]], 1)
+        wide = self.plan([[-50, 0], [-50, 0], [50, 0], [50, 0]], 2, 5.0, 4.0)
+        self.assertTrue(self.same([narrow, wide])[:3].any())
+
+    def test_right_at_the_reach(self):
+        """reach 19 m (its road half 4, ours 3, T_MAX 12): a sample less than that away counts, one at it or past doesn't."""
+        for y, near in ((19.0 - 1e-9, True), (19.0, False), (19.0 + 1e-9, False), (19.0 + 1e-7, False), (19.0 + 1e-5, False)):
+            narrow = self.plan([[0, y], [10, y]], 1)
+            wide = self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0)
+            self.assertEqual(bool(self.same([narrow, wide])[0]), near, y)
+
+    def test_a_tunnel_and_the_same_road_dont_count(self):
+        narrow = self.plan([[0, 8], [20, 8]], 1)
+        for wide in (self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0, tunnel=True), self.plan([[-50, 0], [50, 0]], 1, 5.0, 4.0)):
+            self.assertFalse(self.same([narrow, wide]).any())
+
+    def test_one_neighbours_node_lifts_anothers_near(self):
+        """A runs beside the whole narrow road, B starts at the narrow road's first point: near B's node it blends as an
+        equal, also beside A, whichever comes first."""
+        narrow = self.plan([[0, 0], [10, 0], [60, 0], [90, 0]], 1)
+        a = self.plan([[-200, 8], [200, 8]], 2, 5.0, 4.0)
+        b = self.plan([[0, 0], [0, -200]], 3, 5.0, 4.0)
+        alone = self.same([narrow, a])
+        for plans in ([narrow, a, b], [narrow, b, a]):
+            got = self.same(plans)[:3]
+            self.assertFalse(got[0], "near the node")
+            self.assertTrue(got[-1], "away from it")
+        self.assertTrue(alone[0], "without B it gives way there")
+
+    def test_lines_that_arent_finite(self):
+        """A plan's box says it may be near, its line holds NaN or infinity: as measured to every segment."""
+        narrow = self.plan([[0, 8], [20, 8]], 1)
+        for bad in (np.nan, np.inf):
+            wide = self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0)
+            wide.xy = np.array([[-50.0, 0.0], [0.0, 0.0], [bad, 0.0], [5000.0, 0.0]])
+            box = np.array([narrow.bbox, (-70.0, -20.0, 70.0, 20.0)])
+            with np.errstate(invalid="ignore"):
+                self.same([narrow, wide], box)
+
+    def test_any_shapes(self):
+        """Random roads, near the frame's origin and 1000 km from it."""
+        rng = np.random.default_rng(7)
+        for run in range(150):
+            at = rng.choice([0.0, 1e6])
+            plans = []
+            for k in range(int(rng.integers(2, 7))):
+                n = int(rng.integers(2, 12))
+                xy = at + rng.uniform(-60, 60, 2) + np.cumsum(rng.normal(0, rng.choice([1.0, 15.0, 60.0]), (n, 2)), axis=0)
+                half = float(rng.uniform(2, 9))
+                plans.append(self.plan(xy, int(rng.integers(1, 5)), half, half - 1.0, tunnel=bool(rng.random() < 0.1)))
+            self.same(plans)
 
 
 class AbutmentTest(unittest.TestCase):
