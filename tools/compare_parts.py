@@ -32,6 +32,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(HERE, "out", "compare")
 TRACKS = os.path.join(HERE, "out", "tracks")
 KEEP_THREADS = 8        # (the OBJ parts of a long track are 350 MB: zlib leaves the other threads to run)
+NEW_SHOWN = 5           # a track's new files named one by one, up to this many
 
 
 def tracks(names=(), long=False):
@@ -148,6 +149,23 @@ def compare(old, new):
     return lines
 
 
+def folded(lines):
+    """compare's lines with each track's many new files as one line: --kn5 and --install leave textures and the distant view
+    beside the parts, thousands of files that say nothing about the change, and a --build clears them. Pure."""
+    new = {}
+    for line in lines:
+        if line.endswith(": new"):
+            new.setdefault(line.strip().split("/")[0], []).append(line)
+    out = []
+    for line in lines:
+        t = line.strip().split("/")[0]
+        if not line.endswith(": new") or len(new[t]) <= NEW_SHOWN:
+            out.append(line)
+        elif new[t][0] == line:
+            out.append(f"  {t}: {len(new[t])} new files, as {line.strip()[:-5]} (--kn5 and --install leave these: compare after a --build)")
+    return out
+
+
 def only(old, names, new):
     """The snapshot old cut to what this comparison asks: the tracks names, and the files beside the OBJ parts only if it
     holds them (a snapshot older than that holds the parts alone); (old, new) as cut. Pure."""
@@ -246,8 +264,9 @@ def main():
     names = sorted({k.split("/")[0] for k in old}) if not a.tracks else a.tracks
     old, new = only(old, names, snapshot(names))
     diff = compare(old, new)
-    print(f"{len(new)} files now, {len(old)} in {a.name}, {len(diff)} differ")
-    print("\n".join(diff + what_moved(old, new)))
+    fresh = sum(line.endswith(": new") for line in diff)
+    print(f"{len(new)} files now, {len(old)} in {a.name}, {len(diff) - fresh} differ" + (f", {fresh} new" if fresh else ""))
+    print("\n".join(folded(diff) + what_moved(old, new)))
     stale = not_this_code(names)
     if stale:
         print(f"NOT BUILT WITH THIS ENGINE CODE, these compare nothing new: {', '.join(stale)}")

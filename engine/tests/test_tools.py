@@ -474,6 +474,20 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(sorted(got), ["a/@y", "a/x.obj"])
         self.assertEqual(compare_parts.compare(got, new), [])
 
+    def test_a_tracks_many_new_files_are_one_line(self):
+        """(--kn5 leaves thousands of textures beside the parts: 3297 "differ" that said nothing)"""
+        many = [f"  a/@obj/textures/{i}.dds: new" for i in range(compare_parts.NEW_SHOWN + 1)]
+        got = compare_parts.folded(["  a/t_0_0.obj: changed", *many, "  b/@x: new"])
+        self.assertEqual(len(got), 3)
+        self.assertEqual(got[0], "  a/t_0_0.obj: changed", "a changed file stays")
+        self.assertIn(f"{len(many)} new files", got[1])
+        self.assertEqual(got[2], "  b/@x: new", "few are named")
+
+    def test_the_ground_over_a_roads_middle_says_where(self):
+        """(the table's AC x, z are the road's line: a peak 4 m beside it was reported at its line)"""
+        got = heights._over_middle(476, np.array([45.0, -75.0]), np.array([-1.0, 0.0]), (-4, 0, 4), [411.8, 411.8, 412.45])
+        self.assertEqual(got, ["    along 476 +4 at AC 41.00, 75.00: +65 cm"])
+
     def test_a_snapshot_of_the_parts_alone_isnt_told_of_every_other_file(self):
         _old, new = compare_parts.only({"a/x.obj": {"sha1": "1"}}, ["a"], {"a/x.obj": {"sha1": "1"}, "a/@y": {"sha1": "1"}})
         self.assertEqual(list(new), ["a/x.obj"])

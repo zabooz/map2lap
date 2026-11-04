@@ -46,6 +46,7 @@ WATER_NEAR_M = 40.0     # m around the stretch water counts (a river's area may 
 PLAN_NEAR_M = 6.0       # m past a plan's half width it counts as near the line
 DECK_NEAR_M = 15.0      # m off the line a deck part counts
 VERTEX_NEAR_M = 3.0     # m off the line a terrain vertex is listed (--decks)
+ROAD_OVER_M = 0.3       # m the ground across a road may stand over its middle unlisted (--road): over a crown or a lean, under a kerb's step
 WALL_NEAR_M = 30.0      # m off the stretch a road's segment is listed (--walls)
 ROAD_STEP_M = 2.0       # m along a road between its rows (--road): the terrain's cell
 
@@ -80,7 +81,8 @@ def arcs_from_ends(xy, q):
 
 
 class Spot:
-    """The engine set up for a track's kept tiles, as a scenery worker (make_obj._init_scenery)."""
+    """The engine set up for a track's kept tiles, as a scenery worker (make_obj._init_scenery; that also sets make_obj's
+    texture folder to tex, for this process: a later make_obj call in it reads and writes there)."""
 
     def __init__(self, track, tex):
         from track import make_obj
@@ -488,7 +490,8 @@ def road_ids(sp, text, px, py):
 
 def report_road(sp, text, px, py):
     """A road other than the route near the stretch: per ROAD_STEP_M along it its plan's height, the ground built across it, its
-    grade and lean, and the other plans on it (their carriageways' edge: + past it, - on it; their height)."""
+    grade and lean, and the other plans on it (their carriageways' edge: + past it, - on it; their height); then where the ground
+    across it stands over its middle (_over_middle), with the places: the table's AC x, z are its line's."""
     ids = road_ids(sp, text, px, py)
     if not ids:
         print(f"\nno road holding {text!r} near the stretch")
@@ -507,7 +510,7 @@ def report_road(sp, text, px, py):
             print(f"\n{label}, plan half {[float(getattr(p, 'road_half', p.half)) for p in plans if p.rid == rid][0]:.1f} m, from AC {xy[0, 0]:.1f}, "
                   f"{-xy[0, 1]:.1f}; + left of its way (m, the ground built)")
             print("  along    AC x     AC z    plan " + " ".join(f"{o:+7d}" for o in offs) + "  grade%  lean%  other plans")
-            prev = None
+            prev, over = None, []
             for m in np.arange(0.0, s[-1], ROAD_STEP_M):
                 k = min(int(np.searchsorted(s, m, side="right")) - 1, len(xy) - 2)
                 t = (m - s[k]) / max(s[k + 1] - s[k], 1e-9)
@@ -525,6 +528,18 @@ def report_road(sp, text, px, py):
                 prev = built[4]
                 print(f"  {m:5.0f} {q[0]:8.1f} {-q[1]:8.1f} {up(z[k] + t * (z[k + 1] - z[k])):7.2f} " + " ".join(f"{b:7.2f}" for b in built)
                       + f"  {grade:>6} {(built[6] - built[2]) / 4 * 100:6.0f}  " + _others_on(q, plans, rid, up))
+                over += _over_middle(m, q, n, offs, built)
+            if over:
+                print(f"  the ground over its middle by more than {ROAD_OVER_M * 100:.0f} cm:")
+                print("\n".join(over))
+
+
+def _over_middle(m, q, n, offs, built):
+    """A line per point across a road standing over the road's middle by more than ROAD_OVER_M: m along it, its offset, its AC
+    x, z, by how much. q, n (2,): the middle and the unit left, in the frame; built: the ground at offs, 0 the middle. Pure."""
+    mid = built[list(offs).index(0)]
+    return [f"    along {m:.0f} {o:+d} at AC {(q + n * o)[0]:.2f}, {-(q + n * o)[1]:.2f}: {(b - mid) * 100:+.0f} cm"
+            for o, b in zip(offs, built) if b - mid > ROAD_OVER_M]
 
 
 def _others_on(q, plans, rid, up=float):
