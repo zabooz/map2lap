@@ -66,8 +66,8 @@ line here (`tests/test_tools.py`).
   plans also stay in the revisit cache, under the code key; a plan made while something failed is read by the whole build too, and
   marks each reader's `revisit.fault`. Set by hand, that name stays with its folder, whose path holds no code: **the same name
   after a code change gives the old plans**.
-- The revisit cache (a map cell's facts; plans with that switch) is keyed by a hash of the engine code, the native module and
-  all `BNE_*` environment variables (`revisit.code_key`). `BNE_COLD=<a value not used before>` forces a fresh run, the same
+- The revisit cache (a map cell's facts and complete plans) is keyed by a hash of the engine code, the native module, the Python
+  and numpy versions and the `BNE_*` environment variables but the cache's own three (`revisit.code_key`). `BNE_COLD=<a value not used before>` forces a fresh run, the same
   value again reads what that run kept; `BNE_REVISIT=off` neither reads nor keeps anything.
 - `tools/measure.py` builds leave a trace in `out/trace/<track>` (`buildtrace.py`): the workers' tiles in order, each cell's plan
   with a hash, each fault. The same code can differ when a result hangs on what its process saw first; look there.

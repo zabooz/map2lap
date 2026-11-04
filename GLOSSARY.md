@@ -30,6 +30,10 @@ _Avoid_: tile
 A zoom-14 Web-Mercator square of map data (`mapcells`), fetched and cached as one piece.
 _Avoid_: cell, tile
 
+**Cut line**:
+The line just behind the face of a wall between two roads at two levels, along which the ground is cut (`scenery.wallcut`, a tile's
+in `tiles/wallcuts_<tx>_<ty>.json`).
+
 **Terrain cell**:
 One 2 m square of the terrain grid.
 _Avoid_: cell, pixel
@@ -96,10 +100,6 @@ The ground's height from the elevation data, before grading.
 One road's height profile: its centre line with a target height per vertex.
 _Avoid_: profile (used for bridges' and tunnels' too)
 
-**Build trace**:
-What a test track's last `measure.py` build did, in `out/trace/<track>` (`buildtrace.py`): for two builds of the same code
-that differ. Read with `tools/build_trace.py`.
-
 **Plan pack**:
 The plans around a spot as the grading reads them (`grading.PlanPack`). The same plans come again in many packs, leaving
 out a few each; what two plans give each other stays on the plan (`Plan.beside`).
@@ -124,6 +124,9 @@ A paved plate under the roads where three or more carriageways meet at a deck's 
 or the wedge where a ramp leaves, which the map leaves open over whatever lies below. In the OBJ it is part of the deck
 object; `measure.py --profile` marks it.
 
+**Pier**:
+A support under a bridge's deck, between its abutments: about one per span (`bridges.PIER_SPAN_M`).
+
 **Approach**:
 The ground road leading onto an abutment or into a tunnel portal, ramped to meet it.
 _Avoid_: ramp, lead-in
@@ -135,7 +138,7 @@ The mouth of a tunnel.
 A tunnel floor's height line: the lower convex hull of the ground along the tunnel and the road beyond its portals.
 
 **Chain**:
-Bridge or tunnel parts that follow on from each other, solved together once, across tiles.
+Bridge or tunnel parts that follow on from each other, solved together once per process, across tiles (`roads/chains.py`).
 
 ## Water
 
@@ -169,6 +172,22 @@ The coarse terrain around the corridor up to 40 km (`scenery/farview.py`, the OB
 no grading, no lowering. `measure.py --build` and `from_debug.py --upto obj` leave it out.
 _Avoid_: horizon, far terrain
 
+**Worker**:
+One process of a build's pool (`track/parallel.py`), running tiles, scenery, minimap and kn5 meshes: on Windows `Map2Lap Worker.exe`.
+_Avoid_: thread
+
+**Plan run**:
+The folder `cache/plans/<name>` a build's workers share their plans in (`plancache.one_run`, `BNGE_PLAN_RUN`); it goes after the
+build.
+
+**Fault**:
+Something a build may read failed, was not there yet, or a fallback stood in for it (`revisit.fault`): that build goes on, and what
+it made then stays out of the revisit cache.
+
+**Build trace**:
+What a test track's last `measure.py` build did, in `out/trace/<track>` (`buildtrace.py`): for two builds of the same code
+that differ. Read with `tools/build_trace.py`.
+
 **Kept build**:
 A build's files left in `out/tracks/<name>/` (tiles and OBJ parts): what the tools in `tools/` read.
 
@@ -184,11 +203,11 @@ there.
 The `measure.py` values a test track's build is compared with.
 
 **Revisit cache**:
-Built tile results kept on disk, keyed by the code key; a later build of the same place reads them back.
+A map cell's facts and complete plans kept on disk, keyed by the code key; a later build of the same place reads them back.
 
 **Code key**:
-A hash of the `engine/` code, the native module and the `BNE_*` environment variables; a new one makes the next build
-cold.
+A hash of the `engine/` code, the native module, the Python and numpy versions and the `BNE_*` environment variables but
+`BNE_REVISIT`, `BNE_REVISIT_MB` and `BNE_REVISIT_SKIP`; a new one makes the next build cold.
 
 **Cold build**:
 A build that finds nothing for its code key in the revisit cache and computes everything (`BNE_COLD` with a value not used

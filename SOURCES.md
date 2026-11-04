@@ -1,5 +1,7 @@
 # Data sources
 
+> Taken over from BeamNG.Earth and not rewritten for Map2Lap: it describes BeamNG.Earth's app, so not all of it holds here. Map2Lap's own credits: [README.md](README.md#credits).
+
 BeamNG.Earth builds the world around you from open data that the BeamNG.Earth server (the program the app starts
 on your PC) downloads as you drive. This page explains what each source does, when it is used, and what you see if
 it does not answer. Licences and the exact attribution each one asks for are in [CREDITS.md](CREDITS.md).

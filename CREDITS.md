@@ -1,5 +1,7 @@
 # Credits
 
+> Taken over from BeamNG.Earth and not rewritten for Map2Lap: it describes BeamNG.Earth's app, so not all of it holds here. Map2Lap's own credits: [README.md](README.md#credits).
+
 BeamNG.Earth is built on open data, open-source software and the work of many people. This file
 lists every data source, service, library, tool and reference the project uses or has used, with
 its licence and the attribution it asks for.
