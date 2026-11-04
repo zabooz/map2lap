@@ -133,6 +133,26 @@ class _Ends:
             out[j][end] = not junction_ends(lines, [""] + [c[5] for c in cands], ask)[0, 1]
         return [tuple(o) for o in out]
 
+    def _own_bridge_ends(self, parts, ids):
+        """plan_roads' abut of parts planned alone for a pin's height (_stronger_z): per part (first, last), does it end on a
+        bridge's end, its road not going on past there (junction_ends), as the plan of its own cell has it. Without it a part
+        split at a junction 20 m short of its bridge smoothed its node down the bank: a side road there was held 3.6 m under
+        the road it joins, and snap_junctions took that back over 40 m of it, up to 1.8 m over the ground and 20 % where the
+        ground climbs 11 % (Cap Corse). Told at each end's own cell, the same whichever cell asks."""
+        rings = [r for r, _sp in parts]
+        pe = np.array([[r[0], r[-1]] for r in rings], np.float64).reshape(-1, 2)
+        e, n, _ = self.frame.geodetic_to_enu(pe[:, 1], pe[:, 0], 0.0)
+        at = self._at_bridge_ends(np.stack([np.asarray(e), np.asarray(n)], axis=1), pe[:, 1], pe[:, 0], np.ones(len(pe), bool))
+        out = at.reshape(-1, 2)
+        for k in np.flatnonzero(at):
+            j, end = int(k) // 2, int(k) % 2
+            cands = self._chain_cands(mapcells.cells_of(pe[k:k + 1, 1], pe[k:k + 1, 0])[0])
+            lines = self._enu_lines([rings[j]]) + [c[0] for c in cands]
+            ask = np.zeros((len(lines), 2), bool)
+            ask[0, end] = True
+            out[j, end] = not junction_ends(lines, [ids[j]] + [c[5] for c in cands], ask)[0, end]
+        return [(bool(a), bool(b)) for a, b in out]
+
     def _cand_arrays(self, key, cands):
         """_chain_cands(key) as the Rust kernels take them (points, offsets, sigma class, road id), made once per cell."""
         memo = self.__dict__.setdefault("_cand_arrays_memo", {})
@@ -251,8 +271,9 @@ class _Ends:
             try:
                 preps = [self._strong_part(*asks[n]) for n in jobs]
                 parts = [(part, asks[n][0][4]) for n, (part, _last, _whole) in zip(jobs, preps)]
-                ext = self._extensions(parts, [asks[n][0][5] for n in jobs])
-                plans = plan_roads(self.frame, parts, self.elev, None, ext, cuts=False,
+                fids = [asks[n][0][5] for n in jobs]
+                ext = self._extensions(parts, fids)
+                plans = plan_roads(self.frame, parts, self.elev, self._own_bridge_ends(parts, fids), ext, cuts=False,
                                    coarse=COARSE_EASE_ON and self._coarse_ll(parts[0][0]), fine=self._fine_ll(parts[0][0]),
                                    obs=self._obs(None, parts[0][0]), onto=self._onto_bridge(ext))
                 for n, (part, last, whole), p in zip(jobs, preps, plans):
@@ -316,7 +337,7 @@ class _Ends:
             part, last, whole = self._strong_part(cand, at_last)
             # (the profile alone: its cutting's walls cost most of a plan and no height)
             ext = self._extensions([(part, cand[4])], [cand[5]])
-            p = plan_roads(self.frame, [(part, cand[4])], self.elev, None, ext, cuts=False,
+            p = plan_roads(self.frame, [(part, cand[4])], self.elev, self._own_bridge_ends([(part, cand[4])], [cand[5]]), ext, cuts=False,
                            coarse=COARSE_EASE_ON and self._coarse_ll(part), fine=self._fine_ll(part),
                            obs=self._obs(None, part), onto=self._onto_bridge(ext))[0]
             return self._strong_keep(cand, k, p, last, whole)

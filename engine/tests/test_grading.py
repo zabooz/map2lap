@@ -2,6 +2,7 @@
 roads, junctions blended, the plans made once per cell, and GradedDem as a drop-in DEM."""
 import os
 import sys
+import threading
 import unittest
 import unittest.mock
 
@@ -276,6 +277,48 @@ class ExtensionOntoBridgeTest(unittest.TestCase):
         reach = 3.0 * grading.profile_sigma(self.SPEC) + grading.PROFILE_STEP
         long_m = float(2 * int((reach + 40.0) / 2))
         np.testing.assert_array_equal(self.plan(ext_m=long_m).z, self.plan(ext_m=long_m, onto=False).z)
+
+
+class PinOverOwnBridgeEndTest(unittest.TestCase):
+    """_stronger_z: a part from a junction to its bridge, asked for its height at the junction, by the road going on west."""
+
+    class Planner(grading.ends._Ends, grading.abutments._Abutments):
+        frame = FRAME
+        elev = staticmethod(lambda la, lo: 100.0 - 0.3 * np.maximum(
+            np.asarray(FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))[0]) - 5.0, 0.0))
+        _coarse_ll = _obs = lambda *a: None
+        _fine_ll = lambda *a: True
+
+        def __init__(self, bridge_ends, through=None):
+            self.bridge_ends, self.through = np.asarray(bridge_ends, np.float64).reshape(-1, 2), through
+            self.lock = threading.Lock()
+
+        def _cell_enu(self, home, ground=True):
+            return {"ends": self.bridge_ends}
+
+        def _chain_cands(self, key, feats=None, specs=None):
+            return [(self.through, 0.0, 0, None, None, "through")] if self.through is not None else []
+
+        def _extensions(self, parts, ids):
+            return [(np.c_[np.arange(0.0, -61.0, -4.0), np.zeros(16)], None)]
+
+    SPEC = roads.Spec(8.0, "paved", False, "secondary")
+
+    def asked(self, bridge_ends, through=None):
+        x = np.array([0.0, 20.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        cand = (np.c_[x, 0 * x], 25.0, 1, np.c_[lo, la], self.SPEC, "part")
+        return self.Planner(bridge_ends, through)._stronger_z(cand, False)
+
+    def test_a_part_s_own_bank_doesn_t_pull_the_height_it_gives_a_side_road(self):
+        self.assertGreater(self.asked([[20.0, 0.0]]), 99.8)
+
+    def test_without_a_bridge_there_the_slope_is_the_road_s(self):
+        self.assertLess(self.asked([]), 99.0)
+
+    def test_a_road_going_on_past_that_end_is_no_bridge_s_end(self):
+        through = np.array([[20.0, -20.0], [20.0, 20.0]])
+        self.assertLess(self.asked([[20.0, 0.0]], through), 99.0)
 
 
 class OntoBridgeAnswerTest(unittest.TestCase):
@@ -1276,7 +1319,7 @@ class StrongerZThreadsTest(unittest.TestCase):
         p._strong_key = lambda *a: "k"
         p._strong_part = lambda *a: ("part", True, False)
         p._extensions = lambda *a: None
-        p._coarse_ll = p._fine_ll = p._obs = p._onto_bridge = lambda *a: None
+        p._coarse_ll = p._fine_ll = p._obs = p._onto_bridge = p._own_bridge_ends = lambda *a: None
         return p
 
     def asked(self, p):
