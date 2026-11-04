@@ -116,6 +116,11 @@ The 4 cm the physics ground is raised under roads (`ROAD_LIFT`); it is in the me
 **Deck**:
 A bridge's driving surface.
 
+**Deck depth**:
+How far a deck's slab and girders reach under its road, per bridge part (`Spec.depth`, `roads.deck_depth`): it sets the concrete's
+underside, the piers' tops and the clearance the deck keeps over what it crosses.
+_Avoid_: depth alone (the water's lowering is `depth` in the code too)
+
 **Abutment**:
 The end of a bridge where it meets the ground.
 
