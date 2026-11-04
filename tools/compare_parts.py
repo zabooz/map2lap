@@ -1,6 +1,7 @@
 """Whether a change left the built tracks as they were: a snapshot (sha1) of every file a build leaves in
 out/tracks/<test track> (OBJ parts, textures, track.mtl, anchor.json without its code_key, ...), saved before the change and
-compared after: per OBJ object where a part differs, and what moved in it, read from the part as it was.
+compared after: per OBJ object where a part differs, and what moved in it, read from the part as it was (or that only its
+triangles' order differs).
 
     .venv\\Scripts\\python.exe tools\\compare_parts.py save before             # the short test tracks as built now
     (the change, then: tools\\measure.py --all --build)
@@ -17,6 +18,7 @@ for a change the key can't see (a Python or package update) set BNE_REVISIT=off 
 hand (AGENTS.md, Builds).
 """
 import argparse
+import collections
 import glob
 import gzip
 import hashlib
@@ -204,6 +206,33 @@ def vertices(lines):
     return {k: np.array(v, np.float64).reshape(-1, 3) for k, v in out.items()}
 
 
+def triangles(lines):
+    """{object name: Counter of its triangles} of an OBJ's lines (bytes): each with its material and its corners (point, UV) from
+    the smallest on, as written, so the same drawing in another order gives the same. Pure."""
+    objs, pts, uvs, name, mat = {}, [], [], "", b""
+    for line in lines:
+        if line.startswith(b"v "):
+            pts.append(tuple(line.split()[1:4]))
+        elif line.startswith(b"vt "):
+            uvs.append(tuple(line.split()[1:3]))
+        elif line.startswith(b"usemtl "):
+            mat = line[7:].strip()
+        elif line.startswith(b"o "):
+            name = line[2:].strip().decode("utf-8", "replace")
+            objs[name] = collections.Counter()
+        elif line.startswith(b"f ") and name:
+            c = []
+            for v in line.split()[1:]:
+                q = v.split(b"/")
+                i, j = int(q[0]), int(q[1]) if len(q) > 1 and q[1] else 0
+                c.append((pts[i if i < 0 else i - 1], uvs[j if j < 0 else j - 1] if j else ()))
+            for k in range(1, len(c) - 1):
+                t = [c[0], c[k], c[k + 1]]
+                r = t.index(min(t))
+                objs[name][(mat, tuple(t[r:] + t[:r]))] += 1
+    return objs
+
+
 def moved(was, now, names):
     """Per object of names, a line saying what moved from was to now ({name: (n, 3) vertices}, y the height). Pure."""
     lines = []
@@ -234,9 +263,13 @@ def what_moved(old, new):
             continue
         t, fn = k.split("/", 1)
         with gzip.open(_kept(a["sha1"]), "rb") as f:
-            was = vertices(f)
+            was_lines = f.readlines()
         with open(os.path.join(TRACKS, t, "obj", "parts", fn), "rb") as f:
-            now = vertices(f)
+            now_lines = f.readlines()
+        if triangles(was_lines) == triangles(now_lines):
+            lines.append(f"  {k}: the same triangles in another order")
+            continue
+        was, now = vertices(was_lines), vertices(now_lines)
         oa, ob = a["objects"], b["objects"]
         lines.append(f"  {k}:")
         lines += moved(was, now, [o for o in sorted(set(oa) | set(ob)) if oa.get(o) != ob.get(o) and o])

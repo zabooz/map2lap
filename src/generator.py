@@ -351,7 +351,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     progress("tiles", 0, len(tiles))
     t0 = time.perf_counter()
     with parallel.pool(n, _init_worker, (os.path.join(ROOT, "cache"),)) as ex:
-        futs = [ex.submit(_tile_job, lat0, lon0, tx, ty, tiles_dir, rules) for tx, ty in tiles]
+        futs = [ex.submit(_tile_job, lat0, lon0, tx, ty, tiles_dir, rules)
+                for tx, ty in parallel.tile_order(tiles, os.environ.get(parallel.ORDER_ENV))]
         for i, fut in enumerate(as_completed(futs), 1):
             tx, ty, dt = fut.result()
             progress("tiles", i, len(tiles))

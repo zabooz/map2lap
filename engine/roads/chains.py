@@ -8,7 +8,7 @@ import mapgeom
 import roadmesh
 
 from .tiles import box_owns
-from .bridges import BridgeProfiles, NEAR_M, _Mapper
+from .bridges import BridgeProfiles, NEAR_M, _Mapper, beam_place, pier_place
 
 
 class ChainStore:
@@ -172,24 +172,22 @@ class ChainView:
     def piers_in(self, box):
         x0, y0, x1, y1 = box
         out, seen = [], set()
-        for st in self._stores():
-            for q in self._mapped_piers(st)[0]:
-                k = (round(q[0], 3), round(q[1], 3))
-                if box_owns(box, q[0], q[1]) and k not in seen:
-                    seen.add(k)
-                    out.append(q)
+        for q in sorted((q for st in self._stores() for q in self._mapped_piers(st)[0]), key=pier_place):
+            k = (round(q[0], 3), round(q[1], 3))
+            if box_owns(box, q[0], q[1]) and k not in seen:
+                seen.add(k)
+                out.append(q)
         return out
 
     def beams_in(self, box):
         x0, y0, x1, y1 = box
         out, seen = [], set()
-        for st in self._stores():
-            for b in self._mapped_piers(st)[1]:
-                mx, my = (b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2
-                k = (round(float(mx), 3), round(float(my), 3), round(float(b[0][2]), 3))
-                if box_owns(box, mx, my) and k not in seen:
-                    seen.add(k)
-                    out.append(b)
+        for b in sorted((b for st in self._stores() for b in self._mapped_piers(st)[1]), key=beam_place):
+            mx, my = (b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2
+            k = (round(float(mx), 3), round(float(my), 3), round(float(b[0][2]), 3))
+            if box_owns(box, mx, my) and k not in seen:
+                seen.add(k)
+                out.append(b)
         return out
 
     def _ground(self, xy):

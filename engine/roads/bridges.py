@@ -335,6 +335,17 @@ PIER_CHANNEL_CLEAR = 15.0   # no pier in water whose run wants this much clearan
 PIER_IN_WATER_M = 8.0   # m a pier in water reaches under its surface
 
 
+def pier_place(q):
+    """What a tile's piers are sorted by: their order is the deck mesh's triangles', and solved parts come in whatever order this
+    process met their chains. q: a pier (pier_sites). Pure."""
+    return tuple(q[:6])
+
+
+def beam_place(b):
+    """What a tile's truss beams are sorted by, for the same reason as pier_place. b: a beam (p, q, width, height). Pure."""
+    return (*map(float, b[0][:3]), *map(float, b[1][:3]))
+
+
 def pier_sites(xy, z, width, ground_fn, road_lines=(), wet_fn=None, depth=None):
     """The piers under a bridge deck (xy (k, 2), deck top z (k,), width m): [(x, y, ux, uy, z_top, z_bottom, width)],
     (ux, uy) along the deck, z_top under its girders (roadmesh.DECK_DEPTH + GIRDER_D), z_bottom in the ground (or
@@ -1179,19 +1190,19 @@ class BridgeProfiles:
             return [], []
 
     def beams_in(self, box):
-        """The truss beams (p, q, w, h) of the chains solved so far whose middle lies in box (each in one tile)."""
+        """The truss beams (p, q, w, h) of the chains solved so far whose middle lies in box (each in one tile), by beam_place."""
         x0, y0, x1, y1 = box
         with self.lock:
             allb = [b for v in self.trusses.values() for b in v]
-        return [b for b in allb if box_owns(box, (b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2)]
+        return sorted((b for b in allb if box_owns(box, (b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2)), key=beam_place)
 
     def piers_in(self, box):
         """The piers (pier_sites) of the parts solved so far standing in box (x0, y0, x1, y1): x0 <= x < x1, y0 <= y
-        < y1 (each in one tile)."""
+        < y1 (each in one tile), by pier_place."""
         x0, y0, x1, y1 = box
         with self.lock:
             allp = [p for v in self.piers.values() for p in v]
-        return [p for p in allp if box_owns(box, p[0], p[1])]
+        return sorted((p for p in allp if box_owns(box, p[0], p[1])), key=pier_place)
 
     @staticmethod
     def _part_id(key):

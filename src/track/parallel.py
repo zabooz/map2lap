@@ -5,6 +5,7 @@ initializer. The cache copes with that (writes go through a temporary file + os.
 """
 import multiprocessing
 import os
+import random
 import time
 from concurrent.futures import ProcessPoolExecutor
 
@@ -12,6 +13,7 @@ from app import named, system
 
 GB_PER_WORKER = 1.5        # (measured: ~0.9 GB per process with BeamNG.Earth's state, plus headroom for big tiles)
 SHARE = 1.0                # share of the logical cores (generator page: Settings, generator.py --cores)
+ORDER_ENV = "BNGE_TILE_ORDER"       # the order a build hands out its tiles, to test that it doesn't matter (tile_order)
 
 
 def workers(jobs=None):
@@ -25,6 +27,27 @@ def workers(jobs=None):
     if jobs is not None:
         n = min(n, max(1, jobs))
     return n
+
+
+def tile_order(tiles, how):
+    """tiles [(tx, ty)] in the order how: None or forward as they are, reverse, shuffle:<seed>, first:<tx>,<ty>, last:<tx>,<ty>.
+    A track must come out the same in any of them (tools/stability.py). Pure."""
+    tiles = list(tiles)
+    kind, _, arg = (how or "forward").partition(":")
+    if kind == "forward":
+        return tiles
+    if kind == "reverse":
+        return tiles[::-1]
+    if kind == "shuffle":
+        random.Random(int(arg)).shuffle(tiles)
+        return tiles
+    if kind in ("first", "last"):
+        one = tuple(int(v) for v in arg.split(","))
+        if one not in tiles:
+            raise ValueError(f"tile {arg} is not in this track")
+        rest = [t for t in tiles if t != one]
+        return [one] + rest if kind == "first" else rest + [one]
+    raise ValueError(f"no such tile order: {how}")
 
 
 LOCK_WAITS = (0.05, 0.2, 0.5, 1.0, 2.0)      # s between the attempts of retry_locked (~3.8 s in all)

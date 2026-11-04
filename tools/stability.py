@@ -6,6 +6,12 @@ for before a merge or a release, or when a build differed once; not while debugg
     .venv\\Scripts\\python.exe tools\\stability.py --rounds 5                  # BNE_REVISIT=off: planned anew each time
     .venv\\Scripts\\python.exe tools\\stability.py --rounds 5 --revisit        # what builds keep for each other in use
     .venv\\Scripts\\python.exe tools\\stability.py --rounds 3 --against before  # also against out/compare/before.json
+    ... --tracks a_track,another                        only these test tracks, one after the other
+    ... --workers 4                                     with so many workers (a big machine's build may hide what a small one's shows)
+    ... --orders forward,reverse,shuffle:1,first:7,5    one tile order per round (track.parallel.tile_order); --rounds: one of each
+
+--tracks, --workers and --orders build one track at a time, without measure.py's several side by side. A `first:` or `last:` tile
+must be in every track.
 
 Goes to out/stability/<start time>/. Stops before a round if the code changed or another build runs (cache/plans not empty): keep
 engine/ and src/ as they are and build nothing else. Exit 0: all rounds alike.
@@ -21,8 +27,10 @@ import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(HERE, "tools"), os.path.join(HERE, "engine")]
+sys.path.insert(0, os.path.join(HERE, "src"))
 import compare_parts as cp  # noqa: E402
 import revisit  # noqa: E402
+from track import parallel  # noqa: E402
 
 MIN_FREE_GB = 5
 TRACE = os.path.join(HERE, "out", "trace")
@@ -82,6 +90,32 @@ def build(d, env):
     return times, failed
 
 
+def build_each(d, env, names, share):
+    """names one after the other, with share of the cores; {track: seconds}, the tracks that failed."""
+    times, failed = {}, []
+    for t in names:
+        t0 = time.time()
+        with open(os.path.join(d, t + ".log"), "w", encoding="utf-8") as log:
+            if subprocess.run([sys.executable, os.path.join("tools", "measure.py"), "--build-one", t, "--share", str(share)], cwd=HERE,
+                              env={**env, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}, stdout=log,
+                              stderr=subprocess.STDOUT).returncode:
+                failed.append(t)
+        times[t] = round(time.time() - t0)
+    return times, failed
+
+
+def split_orders(text):
+    """The tile orders of --orders: "reverse,first:7,5,shuffle:1" -> ["reverse", "first:7,5", "shuffle:1"]; a tile's comma
+    belongs to it. Pure."""
+    out = []
+    for piece in text.split(","):
+        if piece.lstrip("-").isdigit() and out and out[-1].startswith(("first:", "last:")):
+            out[-1] += "," + piece
+        else:
+            out.append(piece)
+    return out
+
+
 def differs(old, snap, names):
     """(lines of what differs, what moved) of a round's snapshot against old."""
     a, b = cp.only(old, names, {k: v for k, v in snap.items() if k.split("/")[0] in names})
@@ -109,10 +143,15 @@ def keep_round(snap, name):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--rounds", type=int, default=5)
+    ap.add_argument("--rounds", type=int, help="default: one per order of --orders, else 5")
     ap.add_argument("--revisit", action="store_true", help="leave the revisit cache on (else BNE_REVISIT=off: planned anew each time)")
     ap.add_argument("--against", help="a compare_parts snapshot to compare each round with too")
+    ap.add_argument("--tracks", help="only these test tracks, with commas")
+    ap.add_argument("--workers", type=int, help="so many workers")
+    ap.add_argument("--orders", help="a tile order per round, with commas: forward, reverse, shuffle:<seed>, first:<tx>,<ty>, last:<tx>,<ty>")
     a = ap.parse_args()
+    orders = split_orders(a.orders) if a.orders else []
+    a.rounds = a.rounds or len(orders) or 5
     if os.environ.get("BNGE_PLAN_RUN"):
         sys.exit("BNGE_PLAN_RUN is set: the builds would read each other's plans")
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -125,7 +164,9 @@ def main():
     with open(os.path.join(root, "start.json"), "w", encoding="utf-8") as f:
         json.dump({**want, "revisit": a.revisit, "rounds": a.rounds, "runtime": revisit.runtime(),
                    "env": {k: v for k, v in sorted(env.items()) if k.startswith(("BNE_", "BNGE_"))}}, f, indent=1)
-    names = cp.tracks(long=True)
+    names = a.tracks.split(",") if a.tracks else cp.tracks(long=True)
+    one_by_one = a.tracks or a.workers or orders
+    share = a.workers / (os.cpu_count() or 2) if a.workers else 1.0
     against = None
     if a.against:
         with open(os.path.join(cp.OUT, a.against + ".json"), encoding="utf-8") as f:
@@ -139,7 +180,9 @@ def main():
         tag = f"r{r:02d}"
         d = os.path.join(root, tag)
         os.makedirs(d)
-        times, failed = build(d, env)
+        order = orders[(r - 1) % len(orders)] if orders else None
+        round_env = {**env, parallel.ORDER_ENV: order} if order else env
+        times, failed = build_each(d, round_env, names, share) if one_by_one else build(d, round_env)
         snap = cp.snapshot(names)
         rounds.append(track_digests(snap))
         shutil.copytree(TRACE, os.path.join(d, "trace"), dirs_exist_ok=True)
@@ -153,7 +196,7 @@ def main():
             with open(os.path.join(d, "compare.txt"), "w", encoding="utf-8") as f:
                 f.write("\n".join(["against the first round:", *lines, *moved, "against " + str(a.against) + ":", *also, *also_moved]))
         bad += bool(lines or failed)
-        print(f"{tag}: {times}, {len(snap)} files, {len(lines)} differ from the first round" +
+        print(f"{tag}{' ' + order if order else ''}: {times}, {len(snap)} files, {len(lines)} differ from the first round" +
               (f", {len(also)} from {a.against}" if against else "") + (f", FAILED: {failed}" if failed else ""), flush=True)
     with open(os.path.join(root, "versions.json"), "w", encoding="utf-8") as f:
         json.dump(versions(rounds), f, indent=1)

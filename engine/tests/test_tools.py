@@ -20,6 +20,7 @@ import heights  # noqa: E402
 import map_spot  # noqa: E402
 import mark  # noqa: E402
 import measure  # noqa: E402
+import stability  # noqa: E402
 import surroundings  # noqa: E402
 import watch_build as wb  # noqa: E402
 
@@ -29,6 +30,30 @@ def row(t, s=100.0, kmh=50.0, vert=0.0, off=0.0, susp=(0.01, 0.01, 0.03, 0.03)):
     return {"time_s": t, "route_m": s, "off_m": off, "x": s, "y": 0.0, "z": 0.0, "speed_kmh": kmh, "acc_vert_g": vert,
             "acc_side_g": 0.0, "acc_long_g": 0.0, "susp_fl": susp[0], "susp_fr": susp[1], "susp_rl": susp[2],
             "susp_rr": susp[3]}
+
+
+class TileOrderTest(unittest.TestCase):
+    TILES = [(0, 0), (1, 0), (2, 0), (3, 0)]
+
+    def test_each_order_holds_every_tile(self):
+        P = stability.parallel
+        self.assertEqual(P.tile_order(self.TILES, None), self.TILES)
+        self.assertEqual(P.tile_order(self.TILES, "forward"), self.TILES)
+        self.assertEqual(P.tile_order(self.TILES, "reverse"), self.TILES[::-1])
+        self.assertEqual(P.tile_order(self.TILES, "first:2,0")[0], (2, 0))
+        self.assertEqual(P.tile_order(self.TILES, "last:0,0")[-1], (0, 0))
+        got = P.tile_order(self.TILES, "shuffle:1")
+        self.assertEqual(got, P.tile_order(self.TILES, "shuffle:1"))
+        self.assertEqual(sorted(got), self.TILES)
+
+    def test_a_wrong_order_stops_the_build(self):
+        for how in ("sideways", "first:9,9"):
+            with self.assertRaises(ValueError):
+                stability.parallel.tile_order(self.TILES, how)
+
+    def test_orders_keep_a_tiles_comma(self):
+        self.assertEqual(stability.split_orders("forward,first:7,5,shuffle:1,last:-1,-2"),
+                         ["forward", "first:7,5", "shuffle:1", "last:-1,-2"])
 
 
 class MarkTest(unittest.TestCase):
@@ -512,6 +537,26 @@ class CompareTest(unittest.TestCase):
         self.assertIn("wall: 1 of 2 vertices moved", got[1])
         self.assertIn("height +0.000..+0.250", got[1])
         self.assertIn("at AC x 1.0..1.0, z 3.0..3.0", got[1])
+
+    def test_triangles_in_another_order_are_no_move(self):
+        one = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 5 0 0\nv 6 0 0\nv 5 1 0\nf 1 2 3\nf 4 5 6\n"
+        other = "o wall\nv 5 0 0\nv 6 0 0\nv 5 1 0\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\nf 5 6 4\n"
+        turned = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 5 0 0\nv 6 0 0\nv 5 1 0\nf 1 3 2\nf 4 5 6\n"
+        as_lines = lambda text: text.encode().splitlines(True)
+        self.assertEqual(compare_parts.triangles(as_lines(one)), compare_parts.triangles(as_lines(other)))
+        self.assertNotEqual(compare_parts.triangles(as_lines(one)), compare_parts.triangles(as_lines(turned)))
+        with tempfile.TemporaryDirectory() as root, unittest.mock.patch.object(compare_parts, "TRACKS", root), \
+                unittest.mock.patch.object(compare_parts, "OUT", os.path.join(root, "compare")):
+            self.tree(root)
+            part = os.path.join(root, "t", "obj", "parts", "t_0_0.obj")
+            with open(part, "w", encoding="utf-8") as f:
+                f.write(one)
+            old = compare_parts.snapshot(["t"])
+            compare_parts.keep(old)
+            with open(part, "w", encoding="utf-8") as f:
+                f.write(other)
+            got = compare_parts.what_moved(old, compare_parts.snapshot(["t"]))
+        self.assertEqual(got, ["  t/t_0_0.obj: the same triangles in another order"])
 
     def test_a_version_no_snapshot_names_is_dropped(self):
         with tempfile.TemporaryDirectory() as root, unittest.mock.patch.object(compare_parts, "TRACKS", root), \
