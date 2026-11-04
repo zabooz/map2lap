@@ -8,7 +8,7 @@ import mapgeom
 import roadmesh
 
 from .tiles import box_owns
-from .bridges import BridgeProfiles, DECK_FULL_DEPTH, NEAR_M, _Mapper
+from .bridges import BridgeProfiles, NEAR_M, _Mapper
 
 
 class ChainStore:
@@ -65,7 +65,7 @@ class ChainStore:
 
 class ChainView:
     """An anchor's view of a ChainStore, with BridgeProfiles' / TunnelProfiles' read side (parts, open_parts,
-    piers_in, beams_in, depth_of, _ground, heights, mouths, height, portal_ups, cap_m, mouth): the parts asked for in
+    piers_in, beams_in, _ground, heights, mouths, height, portal_ups, cap_m, mouth): the parts asked for in
     their regions' stores, their geometry mapped exactly into this frame's world (kept per part). prefer: another
     ChainStore whose chains, where solved already, are taken first (the AI graph and the far bridges take the road
     tiles' decks: one profile per chain)."""
@@ -191,13 +191,6 @@ class ChainView:
                     seen.add(k)
                     out.append(b)
         return out
-
-    def depth_of(self, fid):
-        ds = []
-        for st in self._stores():
-            with st.lock:
-                ds += [d for k, d in st.__dict__.get("depth", {}).items() if st._part_id(k) == fid and d is not None]
-        return max(ds) if ds else DECK_FULL_DEPTH
 
     def _ground(self, xy):
         xy = np.asarray(xy, np.float64)

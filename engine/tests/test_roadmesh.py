@@ -505,13 +505,34 @@ class BridgeProfilesTest(unittest.TestCase):
                      levels=[(0, 1.0, 0.2, 0.8), (1, 2.0, 0.2, 0.8)], ids=["low", "high"])
         flat = lambda la, lo: np.full(np.shape(la), 10.0)
         bp = roads.BridgeProfiles(FRAME, lambda key: f, flat)
-        got = {fid: (xy, z) for fid, spec, xy, z, lon in bp.parts([f], (-128, -128, 128, 128))}
-        lo_xy, lo_z = got["low"]
-        hi_xy, hi_z = got["high"]
+        got = {fid: (xy, z, spec) for fid, spec, xy, z, lon in bp.parts([f], (-128, -128, 128, 128))}
+        lo_xy, lo_z, _ = got["low"]
+        hi_xy, hi_z, hi_spec = got["high"]
         zl = lo_z[int(np.argmin(np.abs(lo_xy[:, 0])))]
         zh = hi_z[int(np.argmin(np.abs(hi_xy[:, 1])))]
         # (the upper deck's own depth: roads.deck_depth of its span)
-        self.assertGreaterEqual(zh - zl, roads.deck_road_clear(bp.depth_of("high")) - 0.6, (zl, zh))
+        self.assertGreaterEqual(zh - zl, roads.deck_road_clear(hi_spec.depth) - 0.6, (zl, zh))
+
+    def test_a_decks_depth_does_not_hang_on_what_was_solved_before(self):
+        """Two bridges on one map road, 20 m and 40 m: each its own depth, whichever tile came first (the concrete under an
+        A2 deck lay 38 cm lower in a third of the builds, when its process had built a tile of the road's other bridge)."""
+        import roads
+        from test_roads import features
+        flat = lambda la, lo: np.full(np.shape(la), 10.0)     # noqa: E731
+        short, long_ = (-2600, -50, -2560, 50), (2550, -50, 2590, 50)
+        f = features([[(-3000, 0), (3000, 0)]], ["primary"], levels=[(0, 1.0, 400 / 6000, 420 / 6000), (0, 1.0, 5550 / 6000, 5590 / 6000)],
+                     ids=["road"])
+
+        def depths(bp, box):
+            return {c["dd"] for c in roads.deckmesh._bridge_chunks(FRAME, None, flat, box, bp, [f]) if c.get("deck") and "dd" in c}
+        first = roads.BridgeProfiles(FRAME, lambda key: f, flat)
+        alone = depths(first, short)
+        self.assertEqual(len(alone), 1)
+        self.assertLess(max(alone), max(depths(first, long_)), "the longer span's deck is the deeper")
+        self.assertEqual(depths(first, short), alone)
+        other = roads.BridgeProfiles(FRAME, lambda key: f, flat)
+        depths(other, long_)
+        self.assertEqual(depths(other, short), alone)
 
     def test_lidar_headroom(self):
         """On lidar a deck over a street leaves LIDAR_HEADROOM_M (4 m) under it, not 6 m: lower than
@@ -525,9 +546,9 @@ class BridgeProfilesTest(unittest.TestCase):
 
         def solve():
             bp = roads.BridgeProfiles(FRAME, lambda key: f, flat)
-            got = {fid: (xy, z) for fid, spec, xy, z, lon in bp.parts([f], (-128, -128, 128, 128))}
-            xy, z = got["deck"]
-            return float(z[int(np.argmin(np.abs(xy[:, 0])))]), bp.depth_of("deck")
+            got = {fid: (xy, z, spec) for fid, spec, xy, z, lon in bp.parts([f], (-128, -128, 128, 128))}
+            xy, z, spec = got["deck"]
+            return float(z[int(np.argmin(np.abs(xy[:, 0])))]), spec.depth
         z_lidar, depth = solve()
         with unittest.mock.patch.object(railways, "COARSE_AT", lambda la, lo: True):
             z_coarse, _ = solve()

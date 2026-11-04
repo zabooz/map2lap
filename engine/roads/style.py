@@ -91,8 +91,9 @@ def look_of(spec):
     return LOOK[spec.kind]
 
 
-Spec = namedtuple("Spec", "width kind urban cls oneway walk dir kmh gap median lanes surf link sides",
-                  defaults=(False, 2.5, 0, None, None, None, None, None, False, None))   # median: m to the other carriageway's centre line
+Spec = namedtuple("Spec", "width kind urban cls oneway walk dir kmh gap median lanes surf link sides depth",
+                  defaults=(False, 2.5, 0, None, None, None, None, None, False, None, None))   # median: m to the other carriageway's centre line
+# (depth: a solved bridge part's slab and girders, m: BridgeProfiles keeps it with the part's heights; None elsewhere)
 # (sides: the sidewalk sides OpenStreetMap's sidewalk tag gives (_osm_sidewalks; walk_sides' +1 left / -1 right of the
 # geometry, () none), None where it has none: the class and land-cover rule, has_sidewalks)
 # (lanes: OpenStreetMap's lane count, both directions on a two-way road, None unknown: osmtags.py; surf: the surface

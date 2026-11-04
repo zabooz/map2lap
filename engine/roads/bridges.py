@@ -914,11 +914,6 @@ class BridgeProfiles:
             log.debug("deck span: %s: %s", type(ex).__name__, ex)
         return deck_depth(span if span > 0 else geom_span(lines))
 
-    def depth_of(self, fid):
-        """m of slab and girders under part fid's road (DECK_FULL_DEPTH when not solved here)."""
-        ds = [d for k, d in list(self.__dict__.get("depth", {}).items()) if self._part_id(k) == fid]
-        return max(ds) if ds else DECK_FULL_DEPTH
-
     plans_at = None     # plans_at(xy (k, 2)) -> the grading.Plans around those points of this frame (deck_bank)
 
     def deck_bank(self, xy, z):
@@ -1065,7 +1060,9 @@ class BridgeProfiles:
                 old = self.done.get(k)
                 # the first solve of a part is kept, and what goes with it, unless this one saw more of it
                 if old is None or len(xy) > len(old[1]):
-                    self.done[k] = (spec, xy, z, lon)
+                    # (its depth with its heights, per part: one map road's bridges differ, and which of them a process
+                    # has solved is no reason for another's concrete to change)
+                    self.done[k] = (spec._replace(depth=self.__dict__.get("depth", {}).get(k)), xy, z, lon)
                     self._commit(k, ground)
             chain = [(self.done[k][1], self.done[k][2], self.done[k][0].width) for k in comp
                      if k in self.done]
