@@ -47,6 +47,10 @@ A stretch of a road between its bridges and tunnels (`roads.ground_parts`); a br
 stretches on a bridge and in a tunnel.
 _Avoid_: part, segment
 
+**Level**:
+Two things: a road's `level` in the map, its layer over or under other roads (`roads/levels.py`), and a water level.
+_Avoid_: level alone where both can be meant
+
 ## Place
 
 **Anchor**:
@@ -119,10 +123,44 @@ A tunnel floor's height line: the lower convex hull of the ground along the tunn
 **Chain**:
 Bridge or tunnel parts that follow on from each other, solved together once, across tiles.
 
+## Water
+
+**Water area**:
+A polygon of the map's water layer (Overture `base/water`): a lake, a river's area, the sea. `scenery/water.py` lowers the
+ground under it and lays a water mesh on it.
+_Avoid_: lake for all of them
+
+**Water line**:
+A stream or river the map has only as a line: painted into the ground's texture, with no water mesh and no lowering.
+
+**Water level**:
+A water area's surface height in a tile: the 25th percentile of the raw elevation inside it; on a river it runs downhill
+with the bed.
+
+**Lowering**:
+How far a ground vertex goes down under a water area (`depth` in the code): past the shore a little, plus whatever of the
+ground stood above the water level.
+_Avoid_: depth outside the code
+
+**Water mesh**:
+The surface drawn on a water level: the objects `nocol_water_*`, and `nocol_foam_*` along the shore.
+
 ## Build
 
 **Build**:
 One run of the generator: route, tiles, scenery, distant view, kn5, into a track folder in AC.
+
+**Distant view**:
+The coarse terrain around the corridor up to 40 km (`scenery/farview.py`, the OBJ part `far.obj`). It uses the raw elevation:
+no grading, no lowering. `measure.py --build` and `from_debug.py --upto obj` leave it out.
+_Avoid_: horizon, far terrain
+
+**Kept build**:
+A build's files left in `out/tracks/<name>/` (tiles and OBJ parts): what the tools in `tools/` read.
+
+**Session**:
+The folder one run of the Track Debug app writes (`Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`): marks, recorded
+drive, the track's settings and route. `from_debug.py` builds a track from it.
 
 **Test track**:
 A route in `tools/test_tracks.json`, short or long, with its spots and reference values; regression checks run only

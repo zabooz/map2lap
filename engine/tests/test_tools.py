@@ -15,6 +15,7 @@ import heights  # noqa: E402
 import map_spot  # noqa: E402
 import mark  # noqa: E402
 import measure  # noqa: E402
+import surroundings  # noqa: E402
 import watch_build as wb  # noqa: E402
 
 
@@ -326,6 +327,64 @@ class WatchBuildTest(unittest.TestCase):
         self.assertEqual(incl["tiles"][wb.WAITING], 1)
         self.assertEqual(incl["tiles"]["apply (planner.py)"], 1)
         self.assertEqual(inner["scenery"]["_beside_strength (points.py:159)"], 1)
+
+
+class SurroundingsTest(unittest.TestCase):
+    N = surroundings.N
+
+    def grid(self, v=100.0):
+        return np.full((self.N, self.N), v)
+
+    def test_a_hillside_cut_down_away_from_a_road_is_lowered_beside_a_road_it_is_the_grading(self):
+        built, elev = self.grid(), self.grid()
+        built[10:20, 10:20] = 60.0
+        no_water = self.grid(np.nan)
+        cls, *_ = surroundings.classes(built, elev, no_water, np.zeros((self.N, self.N), bool))
+        self.assertEqual(cls[15, 15], surroundings.LOW)
+        cls, *_ = surroundings.classes(built, elev, no_water, np.ones((self.N, self.N), bool))
+        self.assertEqual(cls[15, 15], surroundings.FINE)
+
+    def test_water_lying_on_the_land_is_fine_on_a_hillside_it_is_not(self):
+        built, elev, water = self.grid(), self.grid(), self.grid(np.nan)
+        water[5, 5], water[6, 6] = 100.5, 140.0
+        cls, *_ = surroundings.classes(built, elev, water, np.zeros((self.N, self.N), bool))
+        self.assertEqual(cls[5, 5], surroundings.FINE)
+        self.assertEqual(cls[6, 6], surroundings.WET)
+
+    def test_a_step_the_terrain_doesn_t_have_counts_a_cliff_it_has_not(self):
+        built, elev = self.grid(), self.grid()
+        built[:, 50:] = 80.0
+        near = np.zeros((self.N, self.N), bool)
+        self.assertEqual(surroundings.classes(built, elev, self.grid(np.nan), near)[3], self.N)
+        self.assertEqual(surroundings.classes(built, built, self.grid(np.nan), near)[3], 0)
+
+    def test_two_steps_at_one_vertex_are_two(self):
+        built, elev = self.grid(), self.grid()
+        built[10, 10] = 80.0        # (a pit: four edges)
+        near = np.zeros((self.N, self.N), bool)
+        self.assertEqual(surroundings.classes(built, elev, self.grid(np.nan), near)[3], 4)
+
+    def test_two_tiles_apart_on_their_border_count_once(self):
+        a, b = self.grid(), self.grid(80.0)
+        self.assertEqual(surroundings.seam_steps({(0, 0): a, (1, 0): b}), self.N - 1)
+        self.assertEqual(surroundings.seam_steps({(0, 0): a, (0, 1): a.copy()}), 0)
+
+    def test_a_part_s_area_leaves_out_its_islands(self):
+        square = lambda s: np.array([[0.0, 0.0], [s, 0.0], [s, s], [0.0, s], [0.0, 0.0]])    # noqa: E731
+        self.assertEqual(surroundings.part_area([square(100.0)]), 10000.0)
+        self.assertEqual(surroundings.part_area([square(100.0), square(60.0)]), 6400.0)
+
+    def test_a_cape_is_not_flat_a_lake_is_a_river_may_fall(self):
+        self.assertTrue(surroundings.not_flat("cape", "physical", 340.0))
+        self.assertFalse(surroundings.not_flat("lake", "lake", 0.5))
+        self.assertFalse(surroundings.not_flat("river", "river", 400.0))
+
+    def test_a_sample_inside_a_ring_and_not_in_its_hole(self):
+        ring = np.array([[0.0, 0.0], [40.0, 0.0], [40.0, 40.0], [0.0, 40.0]])
+        hole = np.array([[16.0, 16.0], [24.0, 16.0], [24.0, 24.0], [16.0, 24.0]])
+        got = surroundings.inside([ring, hole], 0.0, 0.0, 4.0, 11, 11)
+        self.assertTrue(got[2, 2])
+        self.assertFalse(got[5, 5], "the hole: an island")
 
 
 class AgentsListTest(unittest.TestCase):
