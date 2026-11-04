@@ -627,6 +627,31 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(len(got), compare_parts.PLACES_SHOWN + 1)
         self.assertEqual(got[-1], "      and 2 more places")
 
+    def order_or_move(self, one, other):
+        """What moved() says of object wall from OBJ text one to other."""
+        as_lines = lambda text: text.encode().splitlines(True)
+        a, b = as_lines(one), as_lines(other)
+        return compare_parts.moved(compare_parts.vertices(a), compare_parts.vertices(b), ["wall"], None,
+                                   (compare_parts.triangles(a), compare_parts.triangles(b)))
+
+    def test_only_the_very_same_triangles_are_another_order(self):
+        one = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 5 0 0\nv 6 0 0\nv 5 1 0\nf 1 2 3\nf 4 5 6\n"
+        swapped = "o wall\nv 5 0 0\nv 6 0 0\nv 5 1 0\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\nf 4 5 6\n"
+        self.assertEqual(self.order_or_move(one, swapped), ["    wall: the same triangles in another order"])
+
+    def test_a_real_change_among_swapped_points_stays_a_move(self):
+        one = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 5 0 0\nv 6 0 0\nv 5 1 0\nf 1 2 3\nf 4 5 6\n"
+        for name, other in (("a tenth of a mm", "o wall\nv 5 0 0\nv 6 0 0\nv 5 1.0001 0\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\nf 4 5 6\n"),
+                            ("turned over", "o wall\nv 5 0 0\nv 6 0 0\nv 5 1 0\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 3 2\nf 4 5 6\n"),
+                            ("other corners", "o wall\nv 5 0 0\nv 6 0 0\nv 5 1 0\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 6\nf 4 5 3\n")):
+            got = self.order_or_move(one, other)
+            self.assertNotIn("another order", got[0], name)
+            self.assertIn("vertices moved", got[0], name)
+
+    def test_with_no_triangles_told_points_that_differ_are_a_move(self):
+        was, now = {"wall": np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])}, {"wall": np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])}
+        self.assertIn("vertices moved", compare_parts.moved(was, now, ["wall"])[0])
+
     def test_the_same_vertices_in_new_triangles_have_a_place(self):
         one = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
         turned = "o wall\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 3 2\n"

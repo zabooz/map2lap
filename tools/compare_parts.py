@@ -329,12 +329,17 @@ def moved(was, now, names, route=None, tris=({}, {})):
         elif not len(a) or np.array_equal(a, b):
             lines.append(f"    {o}: the same vertices, its other lines differ")
             lines += place_lines(triangle_points(tris[0].get(o, collections.Counter()), tris[1].get(o, collections.Counter())), route)
+        elif o in tris[0] and o in tris[1] and tris[0][o] == tris[1][o]:
+            # (every triangle as written: material, corners and UVs, to the last digit, none more or less often: a move of any size
+            # stays a move)
+            lines.append(f"    {o}: the same triangles in another order")
         else:
             d = b - a
             at = np.abs(d).max(axis=1) > 0
             lines.append(f"    {o}: {at.sum()} of {len(a)} vertices moved, x {d[:, 0].min():+.3f}..{d[:, 0].max():+.3f}, height "
                          f"{d[:, 1].min():+.3f}..{d[:, 1].max():+.3f}, z {d[:, 2].min():+.3f}..{d[:, 2].max():+.3f} m")
-            lines += place_lines(np.r_[a[at], b[at]], route)
+            only = only_in_one(a, b)        # (where they really differ: others may only have changed places in the file)
+            lines += place_lines(only if len(only) else np.r_[a[at], b[at]], route)
     return lines
 
 
