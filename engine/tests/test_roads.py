@@ -1316,6 +1316,49 @@ class WallBetweenRoadsTest(unittest.TestCase):
         off, _half = walls._road_beside(np.array([[100.0, 0.0]]), np.array([[0.0, 1.0]]), np.array([[1.0, 0.0]]), [], 1, 4.0)
         self.assertTrue(np.isinf(off[0]))
 
+    @staticmethod
+    def beside_for_every_mid(mid, n_out, d, plans, rid, half):
+        """_road_beside finding every mid's foot on every plan: what its choice of mids must not change. Pure."""
+        walls = roads.walls
+        cos_par = np.cos(np.radians(walls.BETWEEN_PARALLEL_DEG))
+        off, out_half = np.full(len(mid), np.inf), np.zeros(len(mid))
+        for q in plans:
+            if q.rid == rid or q.tunnel or len(q.xy) < 2:
+                continue
+            foot, on, u, _j, _t = grading._foot(mid, np.asarray(q.xy, np.float64)[:, :2])
+            v = foot - mid
+            o = (v * n_out).sum(1)
+            ok = (on & (np.abs((u * d).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d).sum(1)) < grading.VERTEX_STEP) & (o < off)
+                  & (o - q.road_half <= half + walls.BETWEEN_ROOM_M))
+            off[ok], out_half[ok] = o[ok], q.road_half
+        return off, out_half
+
+    def test_only_the_mids_in_reach_are_measured_with_the_same_result(self):
+        """Roads beside a road of any direction, near the frame's origin and 1000 km from it, the next plan nearer or not."""
+        rng = np.random.default_rng(5)
+        found = 0
+        for run in range(300):
+            at = rng.choice([0.0, 1e6])
+            turn = np.cumsum(rng.normal(0, 0.15, 40)) + rng.uniform(0, 2 * np.pi)
+            xy = at + np.cumsum(np.c_[np.cos(turn), np.sin(turn)] * 4.0, axis=0)
+            mid = (xy[:-1] + xy[1:]) / 2
+            d = np.diff(xy, axis=0)
+            d /= np.hypot(*d.T)[:, None]
+            n = np.c_[-d[:, 1], d[:, 0]] * rng.choice([-1.0, 1.0])
+            plans = []
+            for k in range(int(rng.integers(1, 6))):
+                i, j = sorted(rng.choice(len(xy), 2, replace=False))
+                side = rng.uniform(-30, 30)
+                line = xy[i:j + 1] + side * np.r_[n, n[-1:]][i:j + 1] + rng.normal(0, 0.3, (j + 1 - i, 2))
+                plans.append(SimpleNamespace(xy=line, rid=int(rng.integers(1, 4)), tunnel=bool(rng.random() < 0.1), half=4.0,
+                                             road_half=float(rng.uniform(1, 8))))
+            got = roads.walls._road_beside(mid, n, d, plans, 1, 4.0)
+            want = self.beside_for_every_mid(mid, n, d, plans, 1, 4.0)
+            np.testing.assert_array_equal(got[0], want[0])
+            np.testing.assert_array_equal(got[1], want[1])
+            found += int(np.isfinite(want[0]).sum())
+        self.assertGreater(found, 1000, "roads beside it found, or this tests nothing")
+
     def test_the_cut_goes_on_into_a_cutting_s_step_of_the_same_ground(self):
         """(the step between two roads turns into the upper road's cutting past the wall: a 5 m tooth 3 m from the line, Cap Corse)"""
         main, lane = self.plan("main", 0.0, 2.75), self.plan("lane", 8.0)

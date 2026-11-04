@@ -429,13 +429,20 @@ def _road_beside(mid, n_out, d, plans, rid, half):
     for q in plans:
         if q is None or q.rid == rid or getattr(q, "tunnel", False) or len(q.xy) < 2:
             continue
-        foot, on, u, _j, _t = grading._foot(mid, np.asarray(q.xy, np.float64)[:, :2])
-        v = foot - mid
-        o = (v * n_out).sum(1)
+        xy = np.asarray(q.xy, np.float64)[:, :2]
         its_half = getattr(q, "road_half", q.half)
-        ok = (on & (np.abs((u * d).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d).sum(1)) < grading.VERTEX_STEP) & (o < off)
-              & (o - its_half <= half + BETWEEN_ROOM_M))
-        off[ok], out_half[ok] = o[ok], its_half
+        # (only the mids that can have one: a foot counts within the reach across and VERTEX_STEP along, so at most their sum
+        # from a mid, with n_out and d at right angles. Measured for every mid, this was 18 % of a dense tile.)
+        reach = half + BETWEEN_ROOM_M + its_half + grading.VERTEX_STEP
+        at = np.flatnonzero(((mid >= xy.min(axis=0) - reach) & (mid <= xy.max(axis=0) + reach)).all(axis=1))
+        if not len(at):
+            continue
+        foot, on, u, _j, _t = grading._foot(mid[at], xy)
+        v = foot - mid[at]
+        o = (v * n_out[at]).sum(1)
+        ok = (on & (np.abs((u * d[at]).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d[at]).sum(1)) < grading.VERTEX_STEP)
+              & (o < off[at]) & (o - its_half <= half + BETWEEN_ROOM_M))
+        off[at[ok]], out_half[at[ok]] = o[ok], its_half
     return off, out_half
 
 
