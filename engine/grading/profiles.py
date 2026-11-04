@@ -85,7 +85,7 @@ class Plan:
     it lead onto a bridge at its (first, last) vertex (grade_points)."""
     # (free)
     __slots__ = ("xy", "z", "half", "bbox", "abut", "cut", "road_half", "rid", "max_wall", "bank", "free", "tunnel",
-                 "under", "beyond")
+                 "under", "beyond", "beside")
 
     def __init__(self, xy, z, half, abut=(False, False), cut=None, road_half=None):
         self.xy, self.z, self.half, self.abut = xy, z, float(half), (bool(abut[0]), bool(abut[1]))
@@ -103,6 +103,9 @@ class Plan:
         # elevation under it is closed: past that the ground is the elevation's, regrade_past_ends), or None: it blends
         # out round the end
         self.beyond = (None, None)
+        # what _beside_strength measured from it, for every pack: its samples and {wider Plan: masks} (points._beside_masks),
+        # or None. Its line and half width stay as they are: a changed road is a new Plan
+        self.beside = None
         pad = half + T_MAX
         self.bbox = (xy[:, 0].min() - pad, xy[:, 1].min() - pad, xy[:, 0].max() + pad, xy[:, 1].max() + pad)
 

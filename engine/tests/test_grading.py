@@ -927,6 +927,54 @@ class BesideStrengthTest(unittest.TestCase):
                 plans.append(self.plan(xy, int(rng.integers(1, 5)), half, half - 1.0, tunnel=bool(rng.random() < 0.1)))
             self.same(plans)
 
+    def test_what_a_plan_keeps_holds_for_every_pack(self):
+        """The same plans again in other sets and orders, as regrade_past_ends makes them: each set as measured anew, and
+        what's kept doesn't change."""
+        rng = np.random.default_rng(11)
+        pool = []
+        for k in range(14):
+            n = int(rng.integers(2, 10))
+            half = float(rng.uniform(2, 9))
+            xy = rng.uniform(-40, 40, 2) + np.cumsum(rng.normal(0, 15.0, (n, 2)), axis=0)
+            pool.append(self.plan(xy, k % 9, half, half - 1.0, tunnel=k == 3))
+        first = None
+        for run in range(120):
+            keep = rng.permutation(len(pool))[:int(rng.integers(2, len(pool) + 1))]
+            self.same([pool[k] for k in keep])
+            if run == 60:
+                first = [{o: (a.copy(), b.copy()) for o, (a, b) in p.beside[3].items()} for p in pool if p.beside]
+        kept = [p.beside[3] for p in pool if p.beside]
+        for old, now in zip(first, kept):
+            for o, (a, b) in old.items():
+                np.testing.assert_array_equal(now[o][0], a)
+                np.testing.assert_array_equal(now[o][1], b)
+                self.assertFalse(now[o][0].flags.writeable or now[o][1].flags.writeable)
+
+    def test_the_same_road_in_another_shape_is_measured_anew(self):
+        """A new Plan of the same road (rid, half width): its own masks, not the old one's."""
+        narrow = self.plan([[0, 8], [20, 8]], 1)
+        near = self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0)
+        far = self.plan([[-50, 500], [50, 500]], 2, 5.0, 4.0)
+        box = np.array([narrow.bbox, (-70.0, -20.0, 70.0, 20.0)])
+        self.assertTrue(self.same([narrow, near], box).any())
+        self.assertFalse(self.same([narrow, far], box).any())
+
+    def test_threads_on_the_same_plans(self):
+        """Two plan threads building packs of the same plans at once (Grader's planning pool): each pack as measured anew."""
+        from concurrent.futures import ThreadPoolExecutor
+        rng = np.random.default_rng(13)
+        pool = []
+        for k in range(40):
+            half = float(rng.uniform(2, 9))
+            xy = rng.uniform(-60, 60, 2) + np.cumsum(rng.normal(0, 20.0, (8, 2)), axis=0)
+            pool.append(self.plan(xy, k, half, half - 1.0))
+        box = np.array([p.bbox for p in pool], np.float64)
+        nseg = np.array([len(p.xy) - 1 for p in pool], np.int64)
+        want = beside_over_every_segment(pool, box, nseg)
+        with ThreadPoolExecutor(8) as ex:
+            for got in ex.map(lambda _i: points._beside_strength(pool, box, nseg), range(8)):
+                np.testing.assert_array_equal(got, want)
+
 
 class AbutmentTest(unittest.TestCase):
     """(the D1 near Presov): a motorway onto a bridge over a road in a cutting 8 m under it."""
