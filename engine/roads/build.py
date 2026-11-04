@@ -302,7 +302,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             return wexact[0] <= px < wexact[2] and wexact[1] <= py < wexact[3]
         return box_owns(own_box, px, py)
     if walls is not None:                       # retaining walls where a road is cut into the ground (roadmesh.tunnel)
-        tile_walls = retaining_walls(frame, roads, elev, exact, decks=decks_near)
+        tile_walls = retaining_walls(frame, roads, elev, exact, decks=decks_near,
+                                     plans_at=getattr(bridges, "plans_at", None))
         if props is None:                       # (no props here: stone)
             for w in tile_walls:
                 w["rock"] = False

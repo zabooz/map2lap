@@ -7,11 +7,13 @@ import sys
 import tempfile
 import math
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import geodesy  # noqa: E402
+import grading  # noqa: E402
 import mapgeom  # noqa: E402
 import roads  # noqa: E402
 import surface as sf  # noqa: E402
@@ -1209,3 +1211,83 @@ class RetainingWallTest(unittest.TestCase):
         self.assertTrue(step, "a cutting's step: a wall")
         bank = self._walls(lambda n: np.clip((n - edge + 1.0) / 3.0, 0.0, 1.0) * 3.0)
         self.assertFalse(bank, "a natural bank: no wall")
+
+
+class WallBetweenRoadsTest(unittest.TestCase):
+    """A main road along y = 0, a lane above it at y = 6, the grading's step between them at y = 2.75 (Plan.cut, no height:
+    _between_cuts). The stone wall there drew nothing: the wall test read the lane's flat top."""
+    MAIN = roads.Spec(8.0, "paved", False, "secondary")
+    LANE = roads.Spec(4.0, "paved", False, "service")
+
+    def plan(self, fid, y, cut_at=None, side=0, x=(0.0, 200.0)):
+        xs = np.arange(x[0], x[1] + 0.1, 4.0)
+        cut = np.full((len(xs) - 1, 6), np.nan)
+        if cut_at is not None:
+            cut[:, side] = cut_at
+        return SimpleNamespace(xy=np.c_[xs, np.full(len(xs), y)], z=np.full(len(xs), 10.0), cut=cut, rid=grading.road_id(fid), tunnel=False)
+
+    def walls(self, plans, step=3.0, width=0.5, at=2.75, lane_y=6.0, made=()):
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 10.0 + step * np.clip((np.asarray(n) - at) / width, 0.0, 1.0)
+        pts = lambda y: np.c_[np.arange(0.0, 201.0, 5.0), np.full(41, y), np.full(41, 10.0)]  # noqa: E731
+        rows = [("main", self.MAIN, pts(0.0), LON), ("lane", self.LANE, pts(lane_y), LON)]
+        return [w for w in roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0), plans_at=lambda xy: plans)
+                if "base" in w and not w.get("parapet")]
+
+    def test_a_step_between_two_roads_gets_its_wall_at_the_step_facing_the_lower(self):
+        got = self.walls([self.plan("main", 0.0, 2.75), self.plan("lane", 6.0, 3.25, 3)])
+        self.assertEqual(len(got), 1)
+        np.testing.assert_allclose(got[0]["base"][:, 1], 2.75, atol=0.01)
+        self.assertGreater(float(got[0]["top"].max()), 12.9, "up to the upper road")
+        self.assertLess(float(got[0]["toward"][:, 1].max()), 0.0, "its face toward the main road, to the south")
+
+    def test_the_wall_keeps_off_the_lane_above_it(self):
+        got = self.walls([self.plan("main", 0.0, 2.75)])[0]
+        self.assertLessEqual(float(got["thick"].max()), 6.0 - 2.0 - 2.75, "no top over the lane")
+
+    def test_a_slope_with_room_for_it_stays_the_terrain(self):
+        """(3 m over 8 m of room between two carriageways: a bank)"""
+        self.assertEqual(self.walls([self.plan("main", 0.0, 6.0)], width=6.0, at=4.5, lane_y=14.0), [])
+
+    def test_a_step_lower_than_a_cutting_gets_none(self):
+        """(SH16 at Waterview: 1.1 m, the map's own wall or none)"""
+        self.assertEqual(self.walls([self.plan("main", 0.0, 2.75)], step=1.1), [])
+
+    def test_the_upper_road_s_side_gets_none(self):
+        self.assertEqual(self.walls([self.plan("lane", 6.0, 3.25, 3)]), [])
+
+    def test_a_step_that_is_a_cutting_s_with_a_height_is_not_between_two_roads(self):
+        p = self.plan("main", 0.0, 2.75)
+        p.cut[:, 1] = 13.0
+        self.assertEqual(self.walls([p]), [])
+
+    def test_no_plans_no_such_wall(self):
+        def elev(la, lo):
+            return np.full(np.shape(la), 10.0)
+        rows = [("main", self.MAIN, np.c_[np.arange(0.0, 201.0, 5.0), np.zeros(41), np.full(41, 10.0)], LON)]
+        self.assertEqual(roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0)), [])
+
+    def test_a_road_cut_in_two_by_a_map_cell_has_one_wall_without_a_dip_at_the_cut(self):
+        whole = self.walls([self.plan("main", 0.0, 2.75)])[0]
+        cut = self.walls([self.plan("main", 0.0, 2.75, x=(100.0, 200.0)), self.plan("main", 0.0, 2.75, x=(0.0, 100.0))])[0]
+        np.testing.assert_allclose(cut["top"], whole["top"], atol=1e-6)
+
+    def test_a_tile_gets_only_its_own_stretch_and_neighbours_agree(self):
+        p = self.plan("main", 0.0, 2.75, x=(0.0, 400.0))
+
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 10.0 + 3.0 * np.clip((np.asarray(n) - 2.75) / 0.5, 0.0, 1.0)
+        rows = [("main", self.MAIN, np.c_[np.arange(0.0, 401.0, 5.0), np.zeros(81), np.full(81, 10.0)], LON),
+                ("lane", self.LANE, np.c_[np.arange(0.0, 401.0, 5.0), np.full(81, 6.0), np.full(81, 10.0)], LON)]
+        west = [w for w in roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0), plans_at=lambda xy: [p]) if not w.get("parapet")]
+        east = [w for w in roads.retaining_walls(FRAME, rows, elev, (256.0, -128.0, 512.0, 128.0), plans_at=lambda xy: [p]) if not w.get("parapet")]
+        self.assertLess(float(west[0]["base"][:, 0].max()), 260.0)
+        self.assertGreater(float(east[0]["base"][:, 0].min()), 250.0)
+        a = dict(zip(np.round(west[0]["base"][:, 0], 3), west[0]["top"]))
+        b = dict(zip(np.round(east[0]["base"][:, 0], 3), east[0]["top"]))
+        shared = set(a) & set(b)
+        self.assertTrue(shared, "they overlap")
+        for x in shared:
+            self.assertAlmostEqual(a[x], b[x], places=6)
