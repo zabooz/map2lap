@@ -37,5 +37,5 @@ info carry source paths) and puts a module in place only when it names no user, 
   report of python.exe and places the faulting address in the module (section, import slot, uncovered imports).
 - Environment variables are read on the Python side and passed in (one place for the `BNE_*` switches, which the cache
   key hashes).
-- Grading results are cached by a hash of the engine code and the module (`revisit.code_key`), so a change invalidates
-  them by itself.
+- The revisit cache is keyed by a hash of the engine code and the module (`revisit.code_key`), so a change invalidates it
+  by itself; a run's plan folder (`BNGE_PLAN_RUN`) is not: AGENTS.md, Builds.
