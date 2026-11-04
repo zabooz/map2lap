@@ -13,7 +13,7 @@ import os
 import shutil
 import struct
 import sys
-from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
@@ -543,7 +543,13 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
     n = parallel.workers(len(tiles))
     log(f"Scenery with {n} processes ...")
     objects, nv, tris, unknown = 0, 0, {}, set()
-    with parallel.pool(n, _init_scenery, (tiles_dir, tex_dir)) as ex:
+    with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
+        anc = json.load(f)
+    region = buildings.region_style(anc["lat"], anc["lon"]).name
+    # (beside the workers: no worker reads what it makes, and after them its ~9 s were the whole machine waiting)
+    with ThreadPoolExecutor(1) as beside, parallel.pool(n, _init_scenery, (tiles_dir, tex_dir)) as ex:
+        mtl = beside.submit(write_mtl, os.path.join(out_dir, "track.mtl"), tex_dir,
+                            [f"ground_{tx}_{ty}" for tx, ty in tiles], shutters=region in SHUTTER_REGIONS)
         futs = [ex.submit(_scenery_job, tx, ty, p) for (tx, ty), p in zip(tiles, parts)]
         for k, fut in enumerate(as_completed(futs), 1):
             o, v, t, u, msgs = fut.result()
@@ -557,11 +563,7 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
                 progress("scenery", k, len(tiles))
             if k == len(tiles) or k % max(1, len(tiles) // 20) == 0:
                 log(f"Scenery: tile {k}/{len(tiles)}")
-    with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
-        anc = json.load(f)
-    region = buildings.region_style(anc["lat"], anc["lon"]).name
-    write_mtl(os.path.join(out_dir, "track.mtl"), tex_dir, [f"ground_{tx}_{ty}" for tx, ty in tiles],
-              shutters=region in SHUTTER_REGIONS)
+        mtl.result()
     log(f"Scenery: {objects} objects, {nv:,} vertices")
     log("Triangles: " + ", ".join(f"{k} {v:,}" for k, v in tris.items()))
     if unknown:

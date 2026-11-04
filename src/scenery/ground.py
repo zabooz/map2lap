@@ -250,10 +250,13 @@ def _paint_paths(idx, paths, x0, y0):
 def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
     """img with the segments (m, 4) in pixels, half widths hws (pixels), look (ROAD_LOOKS number per segment)
     painted in, anti-aliased. worn: the roads' patches and cracks (WEAR) and a dirt track's grass strip."""
+    white = np.array([(255.0, 255.0, 255.0, 1.0)], np.float32)
     for k, (name, (texname, rep, bright)) in enumerate(ROAD_LOOKS.items()):
-        colors = np.array([(255.0, 255.0, 255.0, 1.0 if j == k else 0.0) for j in range(len(ROAD_LOOKS))],
-                          np.float32)
-        alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws, look, colors)[..., 0]
+        sel = look == k
+        if not sel.any():
+            continue
+        one = np.zeros(int(sel.sum()), np.uint8)
+        alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs[sel], hws[sel], one, white)[..., 0]
         if not alpha.any():
             continue
         am = alpha > 0
@@ -266,8 +269,8 @@ def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
         w = (alpha[am] / 255.0)[:, None]
         img[am] = img[am] * (1 - w) + road * w
         if worn and name == "dirt":      # grass strip between the wheel tracks
-            alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws * TRACK_GRASS,
-                                         look, colors)[..., 0]
+            alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs[sel], hws[sel] * TRACK_GRASS,
+                                         one, white)[..., 0]
             am = alpha > 0
             grass = _sample(_texture(os.path.join(gc_dir, "gc_meadow.png"), int(round(TERRAIN_UV_M / sp))),
                             wx[am], wy[am], TERRAIN_UV_M)
@@ -391,10 +394,13 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     mats = groundcover.materials(frame, md, tx, ty, GC_PX_M)           # [j, i], j northwards
     mi = np.clip(((wx - x0) / GC_PX_M).astype(np.int64), 0, mats.shape[1] - 1)
     mj = np.clip(((wy - y0) / GC_PX_M).astype(np.int64), 0, mats.shape[0] - 1)
-    pm = mats[mj, mi]
+    names, ids = np.unique(mats, return_inverse=True)        # (numbers: comparing names per pixel took 40 % of a tile)
+    pm = ids.reshape(mats.shape)[mj, mi]
     img = np.zeros((TEX_PX, TEX_PX, 3), np.float32)
-    for name in np.unique(pm):
-        m = pm == name
+    for k, name in enumerate(names):
+        m = pm == k
+        if not m.any():
+            continue
         img[m] = _sample(_texture(os.path.join(gc_dir, f"{name}.png"), int(round(TERRAIN_UV_M / sp))), wx[m], wy[m],
                          TERRAIN_UV_M)
     # large-scale colour variation (groundcover.macro) on the ground, not on the roads: computed per 1 m, smoothed
