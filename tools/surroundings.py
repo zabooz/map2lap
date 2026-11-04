@@ -72,7 +72,9 @@ def ground_and_water(objs, tx, ty):
         r = np.rint((-P[:, 2] - ty * TILE_M) / CELL_M).astype(np.int64)
         ok = (c >= 0) & (c < N) & (r >= 0) & (r < N)
         if not is_water:
-            built[r[ok], c[ok]] = P[ok, 1]
+            # (the lattice's vertices alone: a cell cut along a wall has more, on the step's two levels, scenery.wallcut)
+            on = (np.abs(P[:, 0] - tx * TILE_M - c * CELL_M) < 1e-2) & (np.abs(-P[:, 2] - ty * TILE_M - r * CELL_M) < 1e-2)
+            built[r[ok & on], c[ok & on]] = P[ok & on, 1]
             continue
         np.add.at(wsum, (r[ok], c[ok]), P[ok, 1])
         np.add.at(wnum, (r[ok], c[ok]), 1.0)

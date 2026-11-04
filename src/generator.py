@@ -226,6 +226,9 @@ def _tile_job(lat0, lon0, tx, ty, tiles_dir, rules):
     with open(os.path.join(tiles_dir, f"fuelpads_{tx}_{ty}.json"), "w", encoding="utf-8") as f:
         json.dump([[sid, [[np.asarray(la).tolist(), np.asarray(lo).tolist()] for la, lo in rings]]
                    for sid, rings in res[2]], f)
+    # the lines along its walls between two roads: make_obj cuts the ground there (scenery.wallcut)
+    with open(os.path.join(tiles_dir, f"wallcuts_{tx}_{ty}.json"), "w", encoding="utf-8") as f:
+        json.dump([{k: np.asarray(w[k]).tolist() for k in ("base", "low", "high", "toward")} for w in res[3]], f)
     try:                        # (optional scenery: a sign tile that fails leaves the road tile)
         parallel.retry_locked(lambda: blockworker.signs_tile(
             build_tiles.AID, lat0, lon0, build_tiles.DEM_ZOOM, tx, ty, tiles_dir, "tiles", rules["left_hand"],

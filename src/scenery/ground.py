@@ -28,10 +28,11 @@ import mapgeom
 import roads as roadsmod
 import surface as surfacemod
 
-from scenery import groundcover, leisure, water
+from scenery import groundcover, leisure, wallcut, water
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
+LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
 TEX_PX = 2048                   # pixels per tile edge (12.5 cm); TODO long routes: ksMultilayer (mask + detail)
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
@@ -285,9 +286,10 @@ def _wear(rgb, x, y, amount):
     return rgb
 
 
-def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print):
-    """Terrain of the tile (tx, ty): returns (P (n*n, 3) ENU, UV (n*n, 2), {AC prefix: triangles}, texture file).
-    depth (n, n): lowering under water (water.water_tile) or None."""
+def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=()):
+    """Terrain of the tile (tx, ty): returns (P (n*n + m, 3) ENU: the lattice, then the vertices of the cells cut along walls,
+    UV likewise (n*n + m, 2), {AC prefix: triangles}, texture file). depth (n, n): lowering under water (water.water_tile) or
+    None; walls: the cut lines along the walls between two roads (wallcut.cut)."""
     s = blockworker._s
     x0, y0, x1, y1 = roadsmod.tile_bbox(tx, ty)
     n = int(round((x1 - x0) / CELL)) + 1
@@ -371,11 +373,16 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     # roadmesh.PORTAL_FRAME)
     open_ = ~(holes[:-1, :-1] | holes[1:, :-1] | holes[:-1, 1:] | holes[1:, 1:]).ravel()
     surf = np.array([SURF_AC.get(int(k), "1GRASS") for k in idx[:-1, :-1].ravel()], object)
+    # (the cells along a wall between two roads apart: a step at its face, not the lattice's ramp in front of it)
+    along = wallcut.cut(keep["u"], x0, y0, CELL, walls, open_)
+    drawn = open_.copy()
+    drawn[along.cells] = False
     groups = {}
     for pre in np.unique(surf[open_]):
-        m = open_ & (surf == pre)
-        groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]]]
-    UV = np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0) / TILE]
+        m = drawn & (surf == pre)
+        groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]], along.T[surf[along.cells[along.owner]] == pre]]
+    P = np.r_[np.c_[P[:, :2], along.u.ravel()], along.P]
+    UV = np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE]
 
     # looks: comic ground, the roads on top
     sp = TILE / TEX_PX

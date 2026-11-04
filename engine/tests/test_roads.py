@@ -1224,7 +1224,9 @@ class WallBetweenRoadsTest(unittest.TestCase):
         cut = np.full((len(xs) - 1, 6), np.nan)
         if cut_at is not None:
             cut[:, side] = cut_at
-        return SimpleNamespace(xy=np.c_[xs, np.full(len(xs), y)], z=np.full(len(xs), 10.0), cut=cut, rid=grading.road_id(fid), tunnel=False)
+        half = (self.MAIN if fid == "main" else self.LANE).width / 2
+        return SimpleNamespace(xy=np.c_[xs, np.full(len(xs), y)], z=np.full(len(xs), 10.0), cut=cut, rid=grading.road_id(fid), tunnel=False,
+                               half=half + 1.0, road_half=half)
 
     def walls(self, plans, step=3.0, width=0.5, at=2.75, lane_y=6.0, made=()):
         def elev(la, lo):
@@ -1245,6 +1247,69 @@ class WallBetweenRoadsTest(unittest.TestCase):
     def test_the_wall_keeps_off_the_lane_above_it(self):
         got = self.walls([self.plan("main", 0.0, 2.75)])[0]
         self.assertLessEqual(float(got["thick"].max()), 6.0 - 2.0 - 2.75, "no top over the lane")
+
+    def cuts(self, plans, step=3.0, width=0.5, at=2.75, lane_y=6.0):
+        """The lines the ground is cut along, beside the walls."""
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 10.0 + step * np.clip((np.asarray(n) - at) / width, 0.0, 1.0)
+        pts = lambda y: np.c_[np.arange(0.0, 201.0, 5.0), np.full(41, y), np.full(41, 10.0)]  # noqa: E731
+        rows = [("main", self.MAIN, pts(0.0), LON), ("lane", self.LANE, pts(lane_y), LON)]
+        out = []
+        roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0), plans_at=lambda xy: plans, cut_lines=out)
+        return out
+
+    def test_with_a_lane_right_behind_it_only_the_step_stays_no_wall_on_the_lane(self):
+        """(the upper carriageway 0.1 m behind the face: the top reached 0.5 m into it)"""
+        p = [self.plan("main", 0.0, 2.75)]
+        self.assertEqual(self.walls(p, lane_y=4.85), [], "no room for a wall's depth")
+        self.assertTrue(self.cuts(p, lane_y=4.85), "the ground's step all the same")
+
+    def test_its_top_keeps_off_the_lane_as_deep_as_the_room_is(self):
+        got = self.walls([self.plan("main", 0.0, 2.75)], lane_y=5.05)[0]
+        self.assertLessEqual(float(got["thick"].max()), 0.3)
+
+    def test_the_ground_is_cut_inside_the_wall_at_its_levels(self):
+        """(scenery.wallcut, in another process: the wall as decided here)"""
+        p = [self.plan("main", 0.0, 2.75)]
+        wall, cut = self.walls(p)[0], self.cuts(p)[0]
+        self.assertGreater(float(cut["base"][:, 1].min()), 2.75, "behind the face")
+        self.assertLess(float(cut["base"][:, 1].max()), 2.75 + float(wall["thick"].min()), "inside its body")
+        np.testing.assert_allclose(cut["low"], 10.0, atol=0.01)
+        np.testing.assert_allclose(cut["high"], 13.0, atol=0.01)
+        np.testing.assert_allclose(cut["toward"], wall["toward"])
+
+    def test_the_top_stays_on_the_upper_level_to_the_wall_s_ends(self):
+        """(lowered at its ends the upper ground stood over it, a skirt of bare ground on top)"""
+        got = self.walls([self.plan("main", 0.0, 2.75)])[0]
+        np.testing.assert_allclose(got["top"], 13.0 + roads.walls.WALL_TOP_M, atol=0.01)
+
+    def test_the_upper_level_is_read_at_the_road_beside_not_just_behind_the_step(self):
+        """(a step a metre or more short of the upper road, still climbing 1.5 m behind it: 1.56 m read of a 5 m step, no wall,
+        a tooth at the road's edge, Cap Corse)"""
+        main, lane = self.plan("main", 0.0, 2.75), self.plan("lane", 9.0, 3.25, 3)
+        got = self.walls([main, lane], step=5.0, width=4.0, lane_y=9.0)
+        self.assertEqual(len(got), 1)
+        np.testing.assert_allclose(got[0]["top"], 15.0 + roads.walls.WALL_TOP_M, atol=0.01)
+        self.assertEqual(self.walls([main], step=5.0, width=4.0, lane_y=9.0), [], "without its plan: read 1.5 m behind it, a slope")
+
+    def test_the_cut_goes_on_into_a_cutting_s_step_of_the_same_ground(self):
+        """(the step between two roads turns into the upper road's cutting past the wall: a 5 m tooth 3 m from the line, Cap Corse)"""
+        main, lane = self.plan("main", 0.0, 2.75), self.plan("lane", 8.0)
+        main.cut[25:, 0], main.cut[25:, 1] = 6.0, 15.0
+        wall, cut = self.walls([main, lane], step=8.0, width=8.0, lane_y=8.0)[0], self.cuts([main, lane], step=8.0, width=8.0, lane_y=8.0)[0]
+        self.assertLess(float(wall["base"][:, 0].max()), 101.0)
+        self.assertGreater(float(cut["base"][:, 0].max()), 190.0)
+
+    def test_past_a_wall_s_end_the_step_goes_on_being_cut(self):
+        """(a wall stops at a tight bend, say, the step doesn't: no ramp coming back in front of the road)"""
+        p = [self.plan("main", 0.0, 2.75)]
+        real = grading.bend_zone
+        self.addCleanup(setattr, grading, "bend_zone", real)
+        grading.bend_zone = lambda mid: np.asarray(mid)[:, 0] > 100.0
+        wall, cut = self.walls(p)[0], self.cuts(p)[0]
+        self.assertLess(float(wall["base"][:, 0].max()), 101.0)
+        self.assertGreater(float(cut["base"][:, 0].max()), 190.0)
 
     def test_a_slope_with_room_for_it_stays_the_terrain(self):
         """(3 m over 8 m of room between two carriageways: a bank)"""

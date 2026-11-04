@@ -34,6 +34,12 @@ _Avoid_: cell, tile
 One 2 m square of the terrain grid.
 _Avoid_: cell, pixel
 
+**Cut cell**:
+A terrain cell the cut line of a wall between two roads crosses, drawn apart (`scenery.wallcut`): the lower road's level up to
+the line just behind the wall's face, the upper's behind it, an upright skirt between them, not the grid's ramp in front of the
+wall.
+_Avoid_: patch
+
 **OBJ part**:
 One file in `out/tracks/<name>/obj/parts/`, a tile's geometry before the kn5 (`t_<tx>_<ty>.obj`).
 _Avoid_: part

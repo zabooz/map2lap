@@ -517,9 +517,13 @@ def _init_scenery(tiles_dir, tex_dir):
     if pads:
         blockworker._s.surface.gas_pads = True
         blockworker._s.surface.add_fuel_pads(pads)
+    walls = []                  # walls between two roads of all tiles (generator._tile_job): a tile's piece ends past its border
+    for p in glob.glob(os.path.join(tiles_dir, "wallcuts_*.json")):
+        with open(p, encoding="utf-8") as f:
+            walls += json.load(f)
     veg = vegetation.Vegetation(blockworker._s.md, os.path.join(ROOT, "cache"))
     veg.dem = dem               # (rocks by slope)
-    _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir)
+    _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir, walls=walls)
 
 
 def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
@@ -586,8 +590,8 @@ def _scenery_tile(tx, ty, part_path):
     gmat = f"ground_{tx}_{ty}"
     P, UV, ggroups, _ = ground.build(frame, anc["aid"], tx, ty, _ctx["g"], blockworker._s.dem, anc["dem_zoom"],
                                      depth, blockworker._s.md, TEX_SRC, _ctx["tex_dir"],
-                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log)
-    grid = P                    # (the terrain vertices: the bushes' normals, ground_normals)
+                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"])
+    grid = P[:ground.LATTICE ** 2]      # (the terrain's lattice: the bushes' normals, ground_normals)
     for pre, T in ggroups.items():
         obj.add(f"{pre}_ground_{tx}_{ty}", gmat, P, UV, T)
         tris[pre] = tris.get(pre, 0) + len(T)
