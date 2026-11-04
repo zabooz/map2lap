@@ -13,8 +13,8 @@ snapshot names it). Build the tracks before saving: a snapshot holds what out/tr
 change compares against that older state. So compare fails on a track whose code_key isn't the engine's now, however
 equal its files: measure.py --all doesn't build the long ones. That key doesn't see src/, only engine/ and the native module.
 A build plans anew, and what the revisit cache keeps is keyed by the code (revisit.code_key), so "after" builds anew by itself;
-for a change the key can't see (a Python or package update) set BNE_REVISIT=off for the build, and no BNGE_PLAN_RUN
-(AGENTS.md, Builds).
+for a change the key can't see (a Python or package update) set BNE_REVISIT=off for the build, and no BNGE_PLAN_RUN by
+hand (AGENTS.md, Builds).
 """
 import argparse
 import glob

@@ -96,6 +96,10 @@ The ground's height from the elevation data, before grading.
 One road's height profile: its centre line with a target height per vertex.
 _Avoid_: profile (used for bridges' and tunnels' too)
 
+**Plan pack**:
+The plans around a spot as the grading reads them (`grading.PlanPack`). The same plans come again in many packs, leaving
+out a few each; what two plans give each other stays on the plan (`Plan.beside`).
+
 **Grading**:
 Making the ground follow the plans: roads level and smooth, the ground around them blended in.
 
@@ -183,7 +187,8 @@ A hash of the `engine/` code, the native module and the `BNE_*` environment vari
 cold.
 
 **Cold build**:
-A build that finds nothing for its code key in the revisit cache and computes everything (`BNE_COLD` forces one).
+A build that finds nothing for its code key in the revisit cache and computes everything (`BNE_COLD` with a value not used
+before forces one, `BNE_REVISIT=off` every time).
 _Avoid_: fresh build, clean build
 
 **Track code**:

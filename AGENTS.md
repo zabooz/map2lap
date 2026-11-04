@@ -59,9 +59,11 @@ line here (`tests/test_tools.py`).
 ## Builds
 
 - A build reads the source files live: keep `engine/` and `src/` unchanged while one runs.
-- A build plans the roads anew each time, so the same code built twice takes as long: plans are kept only with
-  `BNGE_PLAN_RUN=<name>` set, and nothing sets it today (`plancache.for_grader`). They are then read from `cache/plans/<name>`
-  first, whose path holds no code: **the same name after a code change gives the old plans**, so a new name per code.
+- A build's processes share their plans: `generator.build` sets `BNGE_PLAN_RUN` to a new name, the first process to plan a map
+  cell writes it to `cache/plans/<name>`, the others read it, and the folder goes after the build (`plancache.one_run`). Complete
+  plans also stay in the revisit cache, under the code key; a plan made while something failed is read by the whole build too, and
+  marks each reader's `revisit.fault`. Set by hand, that name stays with its folder, whose path holds no code: **the same name
+  after a code change gives the old plans**.
 - The revisit cache (a map cell's facts; plans with that switch) is keyed by a hash of the engine code, the native module and
   all `BNE_*` environment variables (`revisit.code_key`). `BNE_COLD=<a value not used before>` forces a fresh run, the same
   value again reads what that run kept; `BNE_REVISIT=off` neither reads nor keeps anything.
