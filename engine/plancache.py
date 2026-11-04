@@ -10,15 +10,20 @@ writes it here; the others read it, or wait while one is planning it (a lock fil
 
 The files: <cache>/plans/<run>/<signature>/<z>_<x>_<y>.npz, the arrays as npz (no pickle) and the
 rest as JSON (Spec as its fields). One server run's own (RUN_ENV, set by earthd before its workers start): a plan made
-while some elevation was missing stays out of the next run. A stale lock (xproc.STALE_S: a process that died planning)
+while some elevation was missing stays out of the next run, and this run's others read it too, with that mark: one plan
+per cell, not a step at the seam between two processes' tiles. A stale lock (xproc.STALE_S: a process that died planning)
 is taken over; a wait longer than WAIT_S plans the cell here as before; a process waits only for a planner at least as
 favoured as itself (xproc.once). Old runs' folders go at server start (prune).
+
+A build is one run of its own (one_run): planning a cell in each of its 31 processes was 33 % of the tile phase, 20 % of the
+scenery (A2 52 -> 32 s).
 """
 import json
 import os
 import shutil
 import threading
 import time
+from contextlib import contextmanager
 
 import numpy as np
 
@@ -45,6 +50,25 @@ def _split(f, g):
     if not len(n):
         return []
     return np.split(f[g], np.cumsum(n)[:-1])
+
+
+@contextmanager
+def one_run(cache_dir):
+    """While it lasts, the processes started share their plans, under a new name: a run's folder doesn't know the code, so
+    the same name after a code change would give the old plans. The folder goes after; one left by a stopped build goes with
+    KEEP_S, at the next. A name set from outside (RUN_ENV) stays, with its folder."""
+    if os.environ.get(RUN_ENV):
+        yield
+        return
+    root = os.path.join(cache_dir, "plans")
+    prune(root)
+    name = f"{os.getpid()}_{time.time_ns()}"
+    os.environ[RUN_ENV] = name
+    try:
+        yield
+    finally:
+        del os.environ[RUN_ENV]
+        shutil.rmtree(os.path.join(root, name), ignore_errors=True)
 
 
 FRAMES = "r10"          # the plans' frames: their planning regions' (geotiles.PLAN_Z), not an anchor's
@@ -106,6 +130,9 @@ class PlanCache:
         covers = list(zip(lists["v"], meta["covers"]))
         opens = [(xy, Spec(**{**sp, "sides": tuple(sp["sides"]) if sp.get("sides") is not None else None}))
                  for xy, sp in zip(lists["o"], meta["opens"])]   # (JSON gave sides back as a list)
+        if meta.get("fault"):
+            import revisit
+            revisit.fault()
         with self._lock:
             self.stats["read"] += 1
         return plans, keeps, covers, opens
@@ -137,10 +164,12 @@ class PlanCache:
             return None
         return io.BytesIO(got[0]["plans.npz"])
 
-    def store(self, key, plans, keeps, covers, opens, persist=False):
+    def store(self, key, plans, keeps, covers, opens, persist=False, fault=False):
         """Write cell key's plans for the run's other processes; persist: also into the revisit cache (complete plans:
-        nothing they read failed or was missing, Grader._plan_cell)."""
-        meta = {"plans": [{"fid": fid, "half": p.half, "abut": list(p.abut), "road_half": p.road_half,
+        nothing they read failed or was missing, Grader._plan_cell); fault: something failed or was missing while they
+        were made, so each process reading them marks that too (revisit.fault), as the one that made them did."""
+        meta = {"fault": bool(fault),
+                "plans": [{"fid": fid, "half": p.half, "abut": list(p.abut), "road_half": p.road_half,
                            "rid": int(p.rid), "max_wall": float(p.max_wall), "cut": p.cut is not None,
                            "bank": getattr(p, "bank", None) is not None,
                            "free": [bool(v) for v in getattr(p, "free", (False, False))],

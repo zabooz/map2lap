@@ -75,6 +75,33 @@ class PlanCacheTest(unittest.TestCase):
         self.grader(md).apply(la, lo, np.zeros(50))
         self.assertGreater(md.calls, 0, "planned again: the last run's plans were not complete")
 
+    def test_a_plan_made_with_a_fault_says_so_to_who_reads_it(self):
+        import revisit
+        f = features([[(-300, 20), (300, 20)]], ["residential"])
+        la, lo, _ = FRAME.enu_to_geodetic(np.linspace(-200, 200, 50), np.linspace(-30, 60, 50), 0.0)
+
+        def faulty(la_, lo_):
+            revisit.fault()
+            return 10.0 + 0.0 * np.asarray(la_)
+        a = grading.Grader(FRAME, FakeMD(f), faulty)
+        a.shared = plancache.for_grader(self.dir, a, None, None)
+        za = a.apply(la, lo, np.zeros(50))
+        md = FakeMD(f)
+        b = self.grader(md)                     # (another process: its own Grader over the same cache)
+        f0 = revisit.faults()
+        zb = b.apply(la, lo, np.zeros(50))
+        self.assertEqual(md.calls, 0, "the one plan of this run, read")
+        self.assertTrue(np.array_equal(za, zb))
+        self.assertGreater(revisit.faults(), f0)
+
+    def test_a_sound_plan_not_kept_says_nothing(self):
+        """(not kept can mean only that another thread of its process met a fault: revisit.faults is process wide)"""
+        import revisit
+        plancache.PlanCache(self.dir, "s").store(KEY, [], [], [], [], persist=False)
+        f0 = revisit.faults()
+        self.assertEqual(plancache.PlanCache(self.dir, "s").load(KEY), ([], [], [], []))
+        self.assertEqual(revisit.faults(), f0)
+
     def test_no_run_no_cache(self):
         os.environ.pop(plancache.RUN_ENV, None)
         self.assertIsNone(plancache.for_grader(self.dir, self.grader(FakeMD(None), False), None, None))
@@ -132,6 +159,49 @@ class PlanCacheTest(unittest.TestCase):
             os.utime(os.path.join(root, d), (old, old))
         self.assertEqual(plancache.prune(root), 1)
         self.assertEqual(os.listdir(root), ["new"], "a run still writing (its newest folder) is kept")
+
+
+class OneRunTest(unittest.TestCase):
+    """A build's processes share their plans, under a name of their own, and leave nothing behind."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        was = os.environ.pop(plancache.RUN_ENV, None)
+        self.addCleanup(lambda: os.environ.__setitem__(plancache.RUN_ENV, was) if was else os.environ.pop(plancache.RUN_ENV, None))
+
+    def test_a_new_name_per_build_its_folder_gone_after(self):
+        names = []
+        for _ in range(2):
+            with plancache.one_run(self.dir):
+                names.append(os.environ[plancache.RUN_ENV])
+                os.makedirs(os.path.join(self.dir, "plans", names[-1]))
+            self.assertNotIn(plancache.RUN_ENV, os.environ)
+            self.assertEqual(os.listdir(os.path.join(self.dir, "plans")), [])
+        self.assertNotEqual(*names)
+
+    def test_a_failed_build_leaves_nothing_either(self):
+        with self.assertRaises(ValueError), plancache.one_run(self.dir):
+            os.makedirs(os.path.join(self.dir, "plans", os.environ[plancache.RUN_ENV]))
+            raise ValueError
+        self.assertNotIn(plancache.RUN_ENV, os.environ)
+        self.assertEqual(os.listdir(os.path.join(self.dir, "plans")), [])
+
+    def test_a_name_set_by_hand_stays_with_its_folder(self):
+        os.environ[plancache.RUN_ENV] = "mine"
+        with plancache.one_run(self.dir):
+            self.assertEqual(os.environ[plancache.RUN_ENV], "mine")
+            os.makedirs(os.path.join(self.dir, "plans", "mine"))
+        self.assertEqual(os.environ[plancache.RUN_ENV], "mine")
+        self.assertEqual(os.listdir(os.path.join(self.dir, "plans")), ["mine"])
+
+    def test_what_a_stopped_build_left_goes_at_a_later_one(self):
+        left = os.path.join(self.dir, "plans", "stopped")
+        os.makedirs(left)
+        old = time.time() - plancache.KEEP_S - 60
+        os.utime(left, (old, old))
+        with plancache.one_run(self.dir):
+            self.assertFalse(os.path.exists(left))
 
 
 if __name__ == "__main__":

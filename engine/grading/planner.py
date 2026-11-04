@@ -118,7 +118,8 @@ class _Planner(_Ends, _Approaches, _Abutments, _Tunnels):
             if got is None:
                 return []
             if mine:        # (kept for later visits too when complete: nothing it read failed or was missing)
-                self.shared.store(key, *got, persist=revisit.faults() == f0)
+                sound = revisit.faults() == f0
+                self.shared.store(key, *got, persist=sound, fault=not sound)
         finally:
             if mine:
                 self.shared.release(key)

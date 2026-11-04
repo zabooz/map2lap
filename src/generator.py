@@ -30,6 +30,7 @@ import furniture            # noqa: E402  (from the BeamNG.Earth server, path fr
 import geodesy              # noqa: E402
 import navgraph             # noqa: E402
 import overture             # noqa: E402
+import plancache            # noqa: E402
 import revisit              # noqa: E402
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/"
@@ -265,6 +266,12 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
     centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/stretch.py: no distant view, kn5 or
     track folder; nothing goes into AC); returns {"work": the work folder}."""
+    with plancache.one_run(os.path.join(ROOT, "cache")):
+        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line)
+
+
+def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line):
+    """build, its processes sharing their plans."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
     points = [(lat, wrap_lon(lon)) for lat, lon in points or ()]
