@@ -27,6 +27,7 @@ from contextlib import contextmanager
 
 import numpy as np
 
+import buildtrace
 import xproc
 
 WAIT_S = 90.0
@@ -133,6 +134,7 @@ class PlanCache:
         if meta.get("fault"):
             import revisit
             revisit.fault()
+        buildtrace.plan("plan_read" if isinstance(src, str) else "plan_kept", key, src)
         with self._lock:
             self.stats["read"] += 1
         return plans, keeps, covers, opens
@@ -194,6 +196,7 @@ class PlanCache:
             with open(tmp, "wb") as fh:
                 np.savez(fh, **arrays)
             os.replace(tmp, p)
+            buildtrace.plan("plan_made", key, p, "fault" if fault else "")
             if persist and self.persist is not None:
                 import revisit
                 with open(p, "rb") as fh:

@@ -10,6 +10,7 @@ import time
 
 import numpy as np
 
+import buildtrace
 import dem as demmod
 import furniture
 import geodesy
@@ -250,6 +251,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     it). g: the frame's grading.Grader view (None: no grading); q: the height quantum the sidewalks' curbs are put on
     (None: the ground as it is: a geotile's content); rkey: the railways' ground cache key; centre (lat, lon): the
     place's (the brick pavement's region). skin_margin, walks_raw: roads.build_tile's (a geotile's skin pieces)."""
+    buildtrace.note("tile", str(tile))
     import parking as parkingmod
     import rails as railsmod
     import roadmesh as roadmeshmod

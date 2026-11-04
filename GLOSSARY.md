@@ -96,6 +96,10 @@ The ground's height from the elevation data, before grading.
 One road's height profile: its centre line with a target height per vertex.
 _Avoid_: profile (used for bridges' and tunnels' too)
 
+**Build trace**:
+What a test track's last `measure.py` build did, in `out/trace/<track>` (`buildtrace.py`): for two builds of the same code
+that differ. Read with `tools/build_trace.py`.
+
 **Plan pack**:
 The plans around a spot as the grading reads them (`grading.PlanPack`). The same plans come again in many packs, leaving
 out a few each; what two plans give each other stays on the plan (`Plan.beside`).

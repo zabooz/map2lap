@@ -49,6 +49,8 @@ line here (`tests/test_tools.py`).
 | A stretch built again fast, with its profile | `stretch.py` |
 | Did a change leave the tracks as they were, and if not, what moved? | `compare_parts.py` (all a build leaves up to the OBJ), `compare_kn5.py` (kn5) |
 | Why is a build slow: which step, what are the workers doing? | `watch_build.py`, then start the build |
+| Why did this build differ from another: which worker built a tile after which, each cell's plan, each fault? | `build_trace.py <track> [--tile x,y]` |
+| Does the same code build the same, round after round (minutes a round: before a merge or a release)? | `stability.py` |
 | Which code does a build really run (before deleting code)? | `coverage.py` |
 | What did a build make: shapes per tile, a kn5's materials | `inspect_tiles.py`, `read_kn5.py` |
 | A native crash (an access violation without a stack) | `crash.py` |
@@ -67,6 +69,8 @@ line here (`tests/test_tools.py`).
 - The revisit cache (a map cell's facts; plans with that switch) is keyed by a hash of the engine code, the native module and
   all `BNE_*` environment variables (`revisit.code_key`). `BNE_COLD=<a value not used before>` forces a fresh run, the same
   value again reads what that run kept; `BNE_REVISIT=off` neither reads nor keeps anything.
+- `tools/measure.py` builds leave a trace in `out/trace/<track>` (`buildtrace.py`): the workers' tiles in order, each cell's plan
+  with a hash, each fault. The same code can differ when a result hangs on what its process saw first; look there.
 - To prove a refactoring changes nothing: `tools\compare_parts.py save before` (the test tracks as built), the change,
   `tools\measure.py --all --build`, `tools\compare_parts.py compare before` (0 differ, else the files, OBJ objects and what
   moved; it fails on a track not built with this engine code: `--all` leaves out the long ones, `--long` builds those).

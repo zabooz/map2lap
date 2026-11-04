@@ -57,6 +57,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 
 import numpy as np
@@ -779,8 +780,12 @@ def code(entry):
 def build_one(test, t, install, share):
     """Build test track t (into AC with install, else up to the OBJ parts) with share of the cores."""
     import generator
+    import buildtrace       # (engine/ is on the path through generator)
     from track import parallel
     parallel.SHARE = share
+    trace = os.path.join(HERE, "out", "trace", t)      # (why this build differed from another: tools/build_trace.py)
+    shutil.rmtree(trace, ignore_errors=True)
+    os.environ[buildtrace.ENV] = trace
     if install:
         generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
     else:
