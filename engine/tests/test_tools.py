@@ -1,9 +1,12 @@
 """The tools in tools/ an agent reads a report with: what they conclude from their numbers. Every tool is named in AGENTS.md,
 the list an agent looks in first."""
 import glob
+import json
 import os
 import sys
+import tempfile
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 import numpy as np
@@ -12,6 +15,7 @@ ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(ENGINE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import compare_parts  # noqa: E402
 import heights  # noqa: E402
 import map_spot  # noqa: E402
 import mark  # noqa: E402
@@ -438,6 +442,76 @@ class SurroundingsTest(unittest.TestCase):
         got = surroundings.inside([ring, hole], 0.0, 0.0, 4.0, 11, 11)
         self.assertTrue(got[2, 2])
         self.assertFalse(got[5, 5], "the hole: an island")
+
+
+class CompareTest(unittest.TestCase):
+    def tree(self, root, track="t", anchor=None):
+        """A built track under root: one OBJ part, a texture, an anchor."""
+        os.makedirs(os.path.join(root, track, "obj", "parts"))
+        os.makedirs(os.path.join(root, track, "obj", "textures"))
+        os.makedirs(os.path.join(root, track, "tiles"))
+        with open(os.path.join(root, track, "obj", "parts", "t_0_0.obj"), "w", encoding="utf-8") as f:
+            f.write("o wall\nv 1 2 3\nv 4 5 6\nf 1 2 1\n")
+        with open(os.path.join(root, track, "obj", "textures", "a.png"), "wb") as f:
+            f.write(b"png")
+        with open(os.path.join(root, track, "tiles", "anchor.json"), "w", encoding="utf-8") as f:
+            json.dump(anchor or {"lat": 1.0, "code_key": "x"}, f)
+
+    def test_a_texture_and_the_anchor_count_but_the_anchors_code_key_doesnt(self):
+        with tempfile.TemporaryDirectory() as root, unittest.mock.patch.object(compare_parts, "TRACKS", root):
+            self.tree(root)
+            snap = compare_parts.snapshot(["t"])
+            self.assertEqual(sorted(snap), ["t/@obj/textures/a.png", "t/@tiles/anchor.json", "t/t_0_0.obj"])
+            anchor = os.path.join(root, "t", "tiles", "anchor.json")
+            json.dump({"lat": 1.0, "code_key": "y"}, open(anchor, "w", encoding="utf-8"))
+            self.assertEqual(compare_parts.compare(snap, compare_parts.snapshot(["t"])), [])
+            json.dump({"lat": 2.0, "code_key": "y"}, open(anchor, "w", encoding="utf-8"))
+            self.assertEqual(compare_parts.compare(snap, compare_parts.snapshot(["t"])), ["  t/@tiles/anchor.json: changed"])
+
+    def test_tracks_not_asked_for_arent_missing(self):
+        old = {"a/x.obj": {"sha1": "1"}, "a/@y": {"sha1": "1"}, "b/x.obj": {"sha1": "2"}}
+        got, new = compare_parts.only(old, ["a"], {"a/x.obj": {"sha1": "1"}, "a/@y": {"sha1": "1"}})
+        self.assertEqual(sorted(got), ["a/@y", "a/x.obj"])
+        self.assertEqual(compare_parts.compare(got, new), [])
+
+    def test_a_snapshot_of_the_parts_alone_isnt_told_of_every_other_file(self):
+        _old, new = compare_parts.only({"a/x.obj": {"sha1": "1"}}, ["a"], {"a/x.obj": {"sha1": "1"}, "a/@y": {"sha1": "1"}})
+        self.assertEqual(list(new), ["a/x.obj"])
+
+    def test_a_track_built_with_other_code_is_named(self):
+        import revisit
+        with tempfile.TemporaryDirectory() as root, unittest.mock.patch.object(compare_parts, "TRACKS", root):
+            self.tree(root, "old", {"code_key": "x"})
+            self.tree(root, "now", {"code_key": revisit.code_key()})
+            self.assertEqual(compare_parts.not_this_code(["old", "now", "unbuilt"]), ["old"])
+
+    def test_what_moved_is_read_from_the_part_as_it_was(self):
+        with tempfile.TemporaryDirectory() as root, unittest.mock.patch.object(compare_parts, "TRACKS", root), \
+                unittest.mock.patch.object(compare_parts, "OUT", os.path.join(root, "compare")):
+            self.tree(root)
+            old = compare_parts.snapshot(["t"])
+            compare_parts.keep(old)
+            with open(os.path.join(root, "t", "obj", "parts", "t_0_0.obj"), "w", encoding="utf-8") as f:
+                f.write("o wall\nv 1 2.25 3\nv 4 5 6\nf 1 2 1\n")
+            got = compare_parts.what_moved(old, compare_parts.snapshot(["t"]))
+        self.assertEqual(got[0], "  t/t_0_0.obj:")
+        self.assertIn("wall: 1 of 2 vertices moved", got[1])
+        self.assertIn("height +0.000..+0.250", got[1])
+        self.assertIn("at AC x 1.0..1.0, z 3.0..3.0", got[1])
+
+    def test_a_version_no_snapshot_names_is_dropped(self):
+        with tempfile.TemporaryDirectory() as root, unittest.mock.patch.object(compare_parts, "TRACKS", root), \
+                unittest.mock.patch.object(compare_parts, "OUT", os.path.join(root, "compare")):
+            self.tree(root)
+            snap = compare_parts.snapshot(["t"])
+            os.makedirs(os.path.join(root, "compare", "kept"))
+            old = os.path.join(root, "compare", "kept", "dead.gz")
+            open(old, "wb").close()
+            with open(os.path.join(root, "compare", "s.json"), "w", encoding="utf-8") as f:
+                json.dump(snap, f)
+            compare_parts.keep(snap)
+            self.assertFalse(os.path.exists(old))
+            self.assertTrue(os.path.exists(compare_parts._kept(snap["t/t_0_0.obj"]["sha1"])))
 
 
 class AgentsListTest(unittest.TestCase):

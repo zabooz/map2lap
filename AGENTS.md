@@ -47,7 +47,7 @@ line here (`tests/test_tools.py`).
 | A tunnel portal's heights | `portal.py <track> <AC x> <AC z>` |
 | The track of a report, built as its sender built it | `from_debug.py <session folder>` |
 | A stretch built again fast, with its profile | `stretch.py` |
-| Did a change leave the tracks as they were? | `compare_parts.py` (OBJ), `compare_kn5.py` (kn5) |
+| Did a change leave the tracks as they were, and if not, what moved? | `compare_parts.py` (all a build leaves up to the OBJ), `compare_kn5.py` (kn5) |
 | Why is a build slow: which step, what are the workers doing? | `watch_build.py`, then start the build |
 | Which code does a build really run (before deleting code)? | `coverage.py` |
 | What did a build make: shapes per tile, a kn5's materials | `inspect_tiles.py`, `read_kn5.py` |
@@ -66,7 +66,8 @@ line here (`tests/test_tools.py`).
   all `BNE_*` environment variables (`revisit.code_key`). `BNE_COLD=<a value not used before>` forces a fresh run, the same
   value again reads what that run kept; `BNE_REVISIT=off` neither reads nor keeps anything.
 - To prove a refactoring changes nothing: `tools\compare_parts.py save before` (the test tracks as built), the change,
-  `tools\measure.py --all --build`, `tools\compare_parts.py compare before` (0 differ, else the files and OBJ objects).
+  `tools\measure.py --all --build`, `tools\compare_parts.py compare before` (0 differ, else the files, OBJ objects and what
+  moved; it fails on a track not built with this engine code: `--all` leaves out the long ones, `--long` builds those).
 
 ## Rules for a change
 
