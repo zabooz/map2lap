@@ -124,11 +124,22 @@ def _surfaces(track, box):
     """Triangles (n, 3, 3) of the driving surfaces in box (x0, z0, x1, z1), per triangle: is it a bridge deck, and its
     object's name. (A tunnel's floor slab counts by its top faces: without it the lane in a tube read the hill over it,
     30 G spikes.)"""
-    tris, deck, names = [], [], []
+    return _track_parts(track, box)[0]
+
+
+def _track_parts(track, box):
+    """All that a track's measuring needs from its OBJ parts in box (x0, z0, x1, z1), in one read of each file (reading them is
+    most of a short track's measuring): (_surfaces' three, _paint's, _terrain_points'). Only these are kept of a file."""
+    tris, deck, names, paint, ground = [], [], [], [], []
     for p in tile_files(track, box):
         for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
             d = name.startswith("1ROAD_deck")
             floor = name.startswith(FLOOR)
+            if name.startswith(PAINT):
+                paint.append(_in_box(P[T], box))
+            if "_ground_" in name and len(T):
+                v = P[np.unique(T)]
+                ground.append(v[(v[:, 0] >= box[0]) & (v[:, 0] <= box[2]) & (v[:, 2] >= box[1]) & (v[:, 2] <= box[3])])
             if "_ground_" not in name and not d and not floor:
                 continue
             t = P[T]
@@ -140,22 +151,16 @@ def _surfaces(track, box):
             tris.append(t[keep])
             deck.append(np.full(int(keep.sum()), d))
             names.append(np.full(int(keep.sum()), name, object))
-    if not tris:
-        return np.zeros((0, 3, 3)), np.zeros(0, bool), np.zeros(0, object)
-    return np.concatenate(tris), np.concatenate(deck), np.concatenate(names)
+    surfaces = (np.concatenate(tris), np.concatenate(deck), np.concatenate(names)) if tris else \
+        (np.zeros((0, 3, 3)), np.zeros(0, bool), np.zeros(0, object))
+    return (surfaces, np.concatenate(paint) if paint else np.zeros((0, 3, 3)),
+            np.unique(np.concatenate(ground), axis=0) if ground else np.zeros((0, 3)))
 
 
-def _paint(track, box):
-    """Triangles (n, 3, 3) of the visible carriageway (PAINT) in box (x0, z0, x1, z1)."""
-    tris = []
-    for p in tile_files(track, box):
-        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
-            if not name.startswith(PAINT):
-                continue
-            t = P[T]
-            c = t.mean(1)
-            tris.append(t[(c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])])
-    return np.concatenate(tris) if tris else np.zeros((0, 3, 3))
+def _in_box(t, box):
+    """The triangles t (n, 3, 3) whose middles lie in box (x0, z0, x1, z1). Pure."""
+    c = t.mean(1)
+    return t[(c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])]
 
 
 def _across(T3, D, P3, px, pz, nx, nz, h):
@@ -372,23 +377,11 @@ def report_walls(track):
               f"{float(np.hypot(route[k, 0] - x, route[k, 1] - z)):.1f} m off the line")
 
 
-def _terrain_points(track, box):
-    """The terrain's vertices (n, 3) in box (x0, z0, x1, z1): its `*_ground_*` objects' alone (a bridge's parapets count
-    among the driving surfaces too, 80 cm over its deck)."""
-    out = []
-    for p in tile_files(track, box):
-        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
-            if "_ground_" in name and len(T):
-                v = P[np.unique(T)]
-                out.append(v[(v[:, 0] >= box[0]) & (v[:, 0] <= box[2]) & (v[:, 2] >= box[1]) & (v[:, 2] <= box[3])])
-    return np.unique(np.concatenate(out), axis=0) if out else np.zeros((0, 3))
-
-
-def _ground_over_deck(track, box, T3, D, route, S, s0, s1):
-    """over_deck_spots of track's terrain over the decks among the surfaces T3 (deck flags D) along route (metres S)."""
+def _ground_over_deck(points, T3, D, route, S, s0, s1):
+    """over_deck_spots of the terrain's vertices points (n, 3: its `*_ground_*` objects' alone: a bridge's parapets count among the
+    driving surfaces too, 80 cm over its deck) over the decks among the surfaces T3 (deck flags D) along route (metres S)."""
     if not D.any():
         return []
-    points = _terrain_points(track, box)
     ss = np.arange(0.0, S[-1], 0.5)
     return over_deck_spots(over_deck(points, T3[D]), np.interp(ss, S, route[:, 0]), np.interp(ss, S, route[:, 1]), ss,
                            s0, s1)
@@ -551,7 +544,7 @@ def measure(track, start=None, end=None):
     tn = np.maximum(np.hypot(tx, tz), 1e-9)
     nx, nz = -tz / tn, tx / tn
     box = (px.min() - 30, pz.min() - 30, px.max() + 30, pz.max() + 30)
-    T3, D, N = _surfaces(track, box)
+    (T3, D, N), paint, terrain = _track_parts(track, box)
     qx = np.concatenate([px + nx * w for w in ACROSS_M])
     qz = np.concatenate([pz + nz * w for w in ACROSS_M])
     hits = _heights(T3, D, qx, qz)
@@ -570,9 +563,9 @@ def measure(track, start=None, end=None):
     gs = np.zeros(n)                                    # per metre the strongest G of the lanes
     gs[2:-2] = np.nan_to_num(np.abs(H[:, 4:] - 2 * H[:, 2:-2] + H[:, :-4])).max(0) / 4.0 * V ** 2 / 9.81
     edge = np.nan_to_num(np.abs(np.diff(H, 2, axis=0))).max(0) > EDGE_M
-    warp, width = _across(T3, D, _paint(track, box), px, pz, nx, nz, h)
+    warp, width = _across(T3, D, paint, px, pz, nx, nz, h)
     worst = sorted(np.flatnonzero(ga > G_LIMIT), key=lambda k: -ga[k])
-    spots = _ground_over_deck(track, box, T3, D, route, S, start, end)
+    spots = _ground_over_deck(terrain, T3, D, route, S, start, end)
     kind = [physics(k) for k in names_at(T3, N, px, pz, h)]
     return {"off_road_m": sum(1 for k in kind if k and k != ROAD),
             "_off_road": [(a, b, v) for a, b, v in runs(ss, kind) if v and v != ROAD],"over_deck_spots": len(spots), "max_over_deck": round(max((u["over"] for u in spots), default=0.0), 3),
