@@ -63,7 +63,8 @@ line here (`tests/test_tools.py`).
   `BNGE_PLAN_RUN=<name>` set, and nothing sets it today (`plancache.for_grader`). They are then read from `cache/plans/<name>`
   first, whose path holds no code: **the same name after a code change gives the old plans**, so a new name per code.
 - The revisit cache (a map cell's facts; plans with that switch) is keyed by a hash of the engine code, the native module and
-  all `BNE_*` environment variables (`revisit.code_key`). `BNE_COLD=<any value>` forces a fresh run.
+  all `BNE_*` environment variables (`revisit.code_key`). `BNE_COLD=<a value not used before>` forces a fresh run, the same
+  value again reads what that run kept; `BNE_REVISIT=off` neither reads nor keeps anything.
 - To prove a refactoring changes nothing: `tools\compare_parts.py save before` (the test tracks as built), the change,
   `tools\measure.py --all --build`, `tools\compare_parts.py compare before` (0 differ, else the files and OBJ objects).
 

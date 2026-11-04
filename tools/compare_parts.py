@@ -9,7 +9,7 @@ parts, saved before the change and compared after, per OBJ object ("o" block) wh
 Snapshots go to out/compare/<name>.json. Build the tracks before saving: a snapshot holds what out/tracks has, and a
 track not built since an older change compares against that older state. A build plans anew, and what the revisit cache
 keeps is keyed by the code (revisit.code_key), so "after" builds anew by itself; for a change the key can't see (a Python or
-package update) set BNE_COLD=<any value> for the build, and no BNGE_PLAN_RUN (AGENTS.md, Builds).
+package update) set BNE_REVISIT=off for the build, and no BNGE_PLAN_RUN (AGENTS.md, Builds).
 """
 import argparse
 import hashlib
