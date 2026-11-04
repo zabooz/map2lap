@@ -399,7 +399,7 @@ def water_rings(frame, water_layers, x0, y0, margin=50.0, size=256.0):
     for f in water_layers:
         if f is None or len(f.kind) == 0:
             continue
-        for i in np.flatnonzero(f.kind == 3):
+        for i in np.flatnonzero(mapgeom.water_areas(f)):
             for part in f.parts(i):
                 if not part or len(part[0]) < 4:
                     continue

@@ -522,6 +522,19 @@ def _reduce(ufunc, v, a, b):
     return ufunc.reduceat(v, a)
 
 
+# Overture's water layer holds land too: OSM's natural=cape comes as subtype physical, class cape, where it is mapped as an
+# area a whole peninsula (Cap Corse: 23 km2, up to 400 m high). Land is named here, not all of physical: its bays and straits
+# are water.
+LAND_CLASSES = ("cape",)
+
+
+def water_areas(feats):
+    """Per feature of a water layer (Features) whether it is a water area: a polygon, and not land (LAND_CLASSES). Pure."""
+    areas = feats.kind == POLYGON
+    cls = feats.attrs.get("class")
+    return areas if cls is None else areas & ~np.isin(cls.astype(str), LAND_CLASSES)
+
+
 def enu_xy(feats, frame, ring):
     """(e, n) of a lon/lat ring in frame: sliced from feats.xy_in(frame) when the ring is a view of feats.lonlat
     (feats.parts' rings), else converted. Point by point the same numbers either way."""

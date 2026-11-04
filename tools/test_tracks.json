@@ -712,5 +712,41 @@
    "max_warp": 0.15,
    "max_warp_at_m": 248.0
   }
+ },
+ "cap_corse_test": {
+  "title": "Cap Corse Test",
+  "about": "The coast road below Morsiglia, Corsica, France: the map's water layer holds the whole peninsula as a cape, and a map cell's border crosses here. Land must stay land: no water on the hillside, no water wall across the road",
+  "points": [
+   [
+    42.925053,
+    9.365437
+   ],
+   [
+    42.9243817,
+    9.363292
+   ],
+   [
+    42.9238153,
+    9.3636249
+   ]
+  ],
+  "width": 150.0,
+  "spots": [],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 369,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 8,
+   "max_g": 0.35,
+   "max_g_at_m": 2.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.35,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 1.0
+  }
  }
 }

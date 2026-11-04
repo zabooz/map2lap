@@ -10,6 +10,7 @@ ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ENGINE)
 sys.path.insert(0, os.path.join(ENGINE, "..", "src"))
 
+import geodesy  # noqa: E402
 from scenery import water  # noqa: E402
 
 
@@ -60,6 +61,48 @@ class OffRoadsTest(unittest.TestCase):
     def test_the_input_is_left_as_it_was(self):
         water.off_roads(self.depth, self.gx, self.gy, [plan(self.road)])
         self.assertEqual(self.at(self.depth, 20, 20), 6.0)
+
+
+class Area:
+    """A water layer with one polygon over tile (0, 0) of frame: mapgeom.Features' fields water.py reads."""
+
+    def __init__(self, frame, subtype, cls):
+        c = np.array([[-300.0, -300.0], [600.0, -300.0], [600.0, 600.0], [-300.0, 600.0], [-300.0, -300.0]])
+        la, lo, _ = frame.enu_to_geodetic(c[:, 0], c[:, 1], 0.0)
+        self.ring = np.c_[lo, la]
+        self.kind = np.array([3], np.uint8)
+        self.attrs = {"subtype": np.array([subtype]), "class": np.array([cls])}
+
+    def __len__(self):
+        return 1
+
+    def parts(self, i):
+        return [[self.ring]]
+
+
+class LandInTheWaterLayerTest(unittest.TestCase):
+    """Overture files a cape under water: taken as water, a hillside went down to its water level, up to 202 m (Cap Corse)."""
+
+    def tile(self, subtype, cls):
+        frame = geodesy.EnuFrame(42.9, 9.35)
+        layer = Area(frame, subtype, cls)
+        md = SimpleNamespace(cell=lambda key, layers, kind: SimpleNamespace(layers={"water": layer}))
+
+        def hill(la, lo):           # (100 m up over the tile, northwards)
+            return (np.asarray(la, np.float64) - 42.9) * 111000.0 * 100.0 / 256.0
+        return water.water_tile(frame, md, hill, 0, 0)
+
+    def test_a_cape_is_land(self):
+        depth, surface, foam = self.tile("physical", "cape")
+        self.assertIsNone(depth, "no lowering")
+        self.assertIsNone(surface, "no water on it")
+        self.assertIsNone(foam)
+
+    def test_the_water_around_it_stays_water(self):
+        for subtype, cls in (("physical", "bay"), ("ocean", "ocean"), ("lake", "lake"), ("river", "river")):
+            depth, surface, _foam = self.tile(subtype, cls)
+            self.assertGreater(float(depth.max()), 0.0, cls)
+            self.assertIsNotNone(surface, cls)
 
 
 if __name__ == "__main__":

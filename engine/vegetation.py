@@ -28,14 +28,16 @@ import numpy as np
 import fast
 
 import mapcells
+import mapgeom
 import pacer
 import staging
 
 log = logging.getLogger("earthd.vegetation")
 
-VERSION = 18          # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
+VERSION = 19          # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
                       # drawn widths and sidewalks kept clear; 17: BC's lidar canopy heights, mapdata's canopy layer 2;
-                      # 18: the rounded junction corners kept clear, roadcorners.py)
+                      # 18: the rounded junction corners kept clear, roadcorners.py; 19: land in the water layer
+                      # bears trees, mapgeom.water_areas)
 TREE_MIN_M = 3.0
 CROWN_SPACING = 0.5          # tops kept this many crown radii apart (0.8 looked sparse)
 BUSH_MIN_M = 1.0
@@ -310,7 +312,8 @@ class Vegetation:
                     log.debug("vegetation: neighbour %s: %s", kk, e)
                     continue
                 _mask_polys(c2.layers.get("buildings"), blocked, chm, 1.0)
-                _mask_polys(c2.layers.get("water"), blocked, chm, 0.0, kind=3)
+                wet = c2.layers.get("water")
+                _mask_polys(wet, blocked, chm, 0.0, select=None if wet is None else mapgeom.water_areas(wet))
                 _mask_roads(c2.layers.get("roads"), road, chm, specs=self._specs, walks=True)
                 _mask_roads(c2.layers.get("roads"), curb, chm, push, clear=TREE_PIT_M, specs=self._specs)
                 road_cells.append(c2.layers.get("roads"))
