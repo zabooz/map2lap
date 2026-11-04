@@ -1293,6 +1293,29 @@ class WallBetweenRoadsTest(unittest.TestCase):
         np.testing.assert_allclose(got[0]["top"], 15.0 + roads.walls.WALL_TOP_M, atol=0.01)
         self.assertEqual(self.walls([main], step=5.0, width=4.0, lane_y=9.0), [], "without its plan: read 1.5 m behind it, a slope")
 
+    def test_a_road_far_off_is_not_beside_it(self):
+        """(a road across a valley, parallel and 390 m off: the upper level read there, 189 m over the road, Heiligenblut)"""
+        main, far = self.plan("main", 0.0, 2.75), self.plan("lane", 40.0)
+        self.assertEqual(self.walls([main, far], step=30.0, width=40.0), [], "read 1.5 m behind the step: 1.1 m, no wall")
+
+    def test_a_road_within_the_room_s_reach_is_beside_it_one_past_it_not(self):
+        walls = roads.walls
+        xy = np.array([[0.0, 0.0], [200.0, 0.0]])
+        mid, d, n = np.array([[100.0, 0.0]]), np.array([[1.0, 0.0]]), np.array([[0.0, 1.0]])
+        reach = 4.0 + walls.BETWEEN_ROOM_M + 2.0            # (its half, the room, the other's half)
+        for y, found in ((6.0, True), (reach, True), (reach + 0.1, False)):
+            q = SimpleNamespace(xy=xy + (0.0, y), z=np.zeros(2), rid=2, tunnel=False, half=3.0, road_half=2.0)
+            off, half = walls._road_beside(mid, n, d, [q], 1, 4.0)
+            self.assertEqual(bool(np.isfinite(off[0])), found, y)
+            if found:
+                self.assertAlmostEqual(off[0], y)
+                self.assertEqual(half[0], 2.0)
+
+    def test_with_no_road_beside_the_level_is_read_just_behind_the_step(self):
+        walls = roads.walls
+        off, _half = walls._road_beside(np.array([[100.0, 0.0]]), np.array([[0.0, 1.0]]), np.array([[1.0, 0.0]]), [], 1, 4.0)
+        self.assertTrue(np.isinf(off[0]))
+
     def test_the_cut_goes_on_into_a_cutting_s_step_of_the_same_ground(self):
         """(the step between two roads turns into the upper road's cutting past the wall: a 5 m tooth 3 m from the line, Cap Corse)"""
         main, lane = self.plan("main", 0.0, 2.75), self.plan("lane", 8.0)

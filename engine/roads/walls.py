@@ -418,22 +418,25 @@ def _joined_plans(plans):
     return out
 
 
-def _road_beside(mid, n_out, d, plans, rid):
-    """Per segment (mids (k, 2), unit normals n_out outward, unit directions d) the road beside it on that side, as
-    grading._between_cuts finds it, the nearest parallel plan of another road: (the distance to its line, inf when none; its
-    carriageway's half width). Pure."""
+def _road_beside(mid, n_out, d, plans, rid, half):
+    """Per segment (mids (k, 2), unit normals n_out outward, unit directions d) of a road of drawn half width half, the road beside
+    it on that side, as grading._between_cuts finds it: the nearest parallel plan of another road whose edge lies within
+    BETWEEN_ROOM_M of its edge, the reach of the room's test (a road 390 m off across a valley was "beside" it, and the upper level
+    read there: 189 m at Heiligenblut): (the distance to its line, inf when none; its carriageway's half width). Pure."""
     import grading
     cos_par = math.cos(math.radians(BETWEEN_PARALLEL_DEG))
-    off, half = np.full(len(mid), np.inf), np.zeros(len(mid))
+    off, out_half = np.full(len(mid), np.inf), np.zeros(len(mid))
     for q in plans:
         if q is None or q.rid == rid or getattr(q, "tunnel", False) or len(q.xy) < 2:
             continue
         foot, on, u, _j, _t = grading._foot(mid, np.asarray(q.xy, np.float64)[:, :2])
         v = foot - mid
         o = (v * n_out).sum(1)
-        ok = on & (np.abs((u * d).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d).sum(1)) < grading.VERTEX_STEP) & (o < off)
-        off[ok], half[ok] = o[ok], getattr(q, "road_half", q.half)
-    return off, half
+        its_half = getattr(q, "road_half", q.half)
+        ok = (on & (np.abs((u * d).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d).sum(1)) < grading.VERTEX_STEP) & (o < off)
+              & (o - its_half <= half + BETWEEN_ROOM_M))
+        off[ok], out_half[ok] = o[ok], its_half
+    return off, out_half
 
 
 def _runs_with(mask, seed):
@@ -481,7 +484,7 @@ def _step_side(mid, d, n_out, off, off_top, half, plans, rid, fid, ground, other
     base = mid + n_out * at[:, None]
     low = ground(base - n_out * BETWEEN_LOW_M)
     # (the upper level: at the road beside, whose edge bounds the step, no slope or third road behind it counts)
-    beside, its_half = _road_beside(mid, n_out, d, plans, rid)
+    beside, its_half = _road_beside(mid, n_out, d, plans, rid, half)
     back = np.where(np.isfinite(beside), np.minimum(np.maximum(at + BETWEEN_HIGH_M, beside - its_half + BETWEEN_EDGE_IN_M),
                                                     beside), at + BETWEEN_HIGH_M)
     high = ground(mid + n_out * back[:, None])
@@ -565,7 +568,7 @@ def retaining_walls(frame, roads, elev, exact, decks=(), plans_at=None, cut_line
     (its ground is graded to the road), nor under a bridge deck (decks: the deck chunks near the tile; the ground beside
     a motorway under an overpass is its abutment's fill, and the wall rose through the deck, the user's report on the
     Bruce Highway). Central Park's 86th Street Transverse between its stone walls (
-   ). plans_at(xy (n, 2)): the grading's plans around the points, for the walls between two roads (_between_walls), or
+    plans_at(xy (n, 2)): the grading's plans around the points, for the walls between two roads (_between_walls), or
     None: none of those; cut_lines: _between_walls'. Pure given elev and plans_at."""
     import grading
     import roadmesh
