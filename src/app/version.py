@@ -12,8 +12,8 @@ versions existed have none and count as old. Small changes go in the third place
 """
 import os
 
-VERSION = "0.5.6"
-TRACK_VERSION = "0.5.6"
+VERSION = "0.5.7"
+TRACK_VERSION = "0.5.7"
 REPO_URL = "https://github.com/zabooz/map2lap"
 CONTACT = "no.keyboard.press.any.key.to.continue@proton.me"
 # (the User-Agent for OSRM and Nominatim: their usage policies ask for an app name and a way to reach its maker)
