@@ -2,6 +2,7 @@
 roads, junctions blended, the plans made once per cell, and GradedDem as a drop-in DEM."""
 import os
 import sys
+import threading
 import unittest
 import unittest.mock
 
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import grading  # noqa: E402
 import mapcells  # noqa: E402
 import roads  # noqa: E402
+from grading import points  # noqa: E402
 from test_roads import features, rules, LAT, LON, FRAME  # noqa: E402
 
 
@@ -231,6 +233,132 @@ class ShortRoadOntoBridgeTest(unittest.TestCase):
     def test_too_short_to_say_stays(self):
         z = np.array([100.0, 99.0, 98.0])
         np.testing.assert_array_equal(grading.fill_abutment(z, True, fine=True), z)
+
+
+class ExtensionOntoBridgeTest(unittest.TestCase):
+    """A road split at a junction short of its bridge: its smoothing runs on over the junction, along the short part, down the
+    bank at the bridge's end. Filled, the road stays up (a 2 m hollow on Cap Corse)."""
+
+    SPEC = roads.Spec(8.0, "paved", False, "secondary")
+
+    def plan(self, bank=8.0, onto=True, ext_m=18.0, fine=True):
+        def elev(la, lo):       # level up to the bridge's end at 200 m + ext_m: the last 4 m drop bank m
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 100.0 - bank * np.clip((np.asarray(e) - (196.0 + ext_m)) / 4.0, 0.0, 1.0)
+        x = np.array([0.0, 200.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        part = (np.c_[lo, la], self.SPEC)
+        on = np.c_[np.arange(200.0, 200.1 + ext_m, 2.0), np.zeros(int(ext_m / 2) + 1)]
+        return grading.plan_roads(FRAME, [part], elev, ext=[(None, on)], cuts=False, fine=fine,
+                                  onto=[(False, onto)] if onto is not None else None)[0]
+
+    def test_the_bank_past_the_junction_doesn_t_draw_the_road_down(self):
+        self.assertLess(float(self.plan(onto=False).z[-1]), 99.0, "without the fill: down the bank")
+        self.assertGreater(float(self.plan().z[-1]), 99.8, "filled: at the road's height")
+
+    def test_the_part_on_to_the_bridge_is_met_at_one_height(self):
+        def elev(la, lo):
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 100.0 - 8.0 * np.clip((np.asarray(e) - 214.0) / 4.0, 0.0, 1.0)
+        x = np.array([200.0, 218.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        short = (np.c_[lo, la], self.SPEC)
+        back = np.c_[np.arange(200.0, -1.0, -4.0), np.zeros(51)]
+        own = grading.plan_roads(FRAME, [short], elev, abut=[(False, True)], ext=[(back, None)], cuts=False, fine=True)[0]
+        self.assertAlmostEqual(float(own.z[0]), float(self.plan().z[-1]), delta=0.1)
+
+    def test_a_bridge_with_no_falling_bank_changes_nothing(self):
+        np.testing.assert_array_equal(self.plan(bank=0.0).z, self.plan(bank=0.0, onto=None).z)
+
+    def test_no_word_about_the_extension_changes_nothing(self):
+        np.testing.assert_array_equal(self.plan(onto=None).z, self.plan(onto=False).z)
+
+    def test_an_extension_cut_short_of_the_bridge_is_not_filled(self):
+        reach = 3.0 * grading.profile_sigma(self.SPEC) + grading.PROFILE_STEP
+        long_m = float(2 * int((reach + 40.0) / 2))
+        np.testing.assert_array_equal(self.plan(ext_m=long_m).z, self.plan(ext_m=long_m, onto=False).z)
+
+
+class PinOverOwnBridgeEndTest(unittest.TestCase):
+    """_stronger_z: a part from a junction to its bridge, asked for its height at the junction, by the road going on west."""
+
+    class Planner(grading.ends._Ends, grading.abutments._Abutments):
+        frame = FRAME
+        elev = staticmethod(lambda la, lo: 100.0 - 0.3 * np.maximum(
+            np.asarray(FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))[0]) - 5.0, 0.0))
+        _coarse_ll = _obs = lambda *a: None
+        _fine_ll = lambda *a: True
+
+        def __init__(self, bridge_ends, through=None):
+            self.bridge_ends, self.through = np.asarray(bridge_ends, np.float64).reshape(-1, 2), through
+            self.lock = threading.Lock()
+
+        def _cell_enu(self, home, ground=True):
+            return {"ends": self.bridge_ends}
+
+        def _chain_cands(self, key, feats=None, specs=None):
+            return [(self.through, 0.0, 0, None, None, "through")] if self.through is not None else []
+
+        def _extensions(self, parts, ids):
+            return [(np.c_[np.arange(0.0, -61.0, -4.0), np.zeros(16)], None)]
+
+    SPEC = roads.Spec(8.0, "paved", False, "secondary")
+
+    def asked(self, bridge_ends, through=None):
+        x = np.array([0.0, 20.0])
+        la, lo, _ = FRAME.enu_to_geodetic(x, 0 * x, 0.0)
+        cand = (np.c_[x, 0 * x], 25.0, 1, np.c_[lo, la], self.SPEC, "part")
+        return self.Planner(bridge_ends, through)._stronger_z(cand, False)
+
+    def test_a_part_s_own_bank_doesn_t_pull_the_height_it_gives_a_side_road(self):
+        self.assertGreater(self.asked([[20.0, 0.0]]), 99.8)
+
+    def test_without_a_bridge_there_the_slope_is_the_road_s(self):
+        self.assertLess(self.asked([]), 99.0)
+
+    def test_a_road_going_on_past_that_end_is_no_bridge_s_end(self):
+        through = np.array([[20.0, -20.0], [20.0, 20.0]])
+        self.assertLess(self.asked([[20.0, 0.0]], through), 99.0)
+
+
+class OntoBridgeAnswerTest(unittest.TestCase):
+    """_onto_bridge: whichever cell plans a part, told at the extension's far end."""
+
+    class Planner(grading.ends._Ends, grading.abutments._Abutments):
+        frame = FRAME
+
+        def __init__(self, bridge_ends, roads_there):
+            self.bridge_ends, self.roads_there = np.asarray(bridge_ends, np.float64).reshape(-1, 2), roads_there
+
+        def _cell_enu(self, home, ground=True):
+            return {"ends": self.bridge_ends}
+
+        def _chain_cands(self, key, feats=None, specs=None):
+            return [(np.asarray(xy, np.float64), 0.0, 0, None, None, fid) for fid, xy in self.roads_there]
+
+    LINE = np.array([[0.0, 0.0], [18.0, 0.0]])
+
+    def test_an_extension_ending_on_a_bridge_s_end(self):
+        got = self.Planner([[18.5, 0.0]], [("short", self.LINE)])._onto_bridge([(None, self.LINE)])
+        self.assertEqual(got, [(False, True)])
+
+    def test_no_bridge_there(self):
+        got = self.Planner([[80.0, 0.0]], [("short", self.LINE)])._onto_bridge([(None, self.LINE), (self.LINE, None)])
+        self.assertEqual(got, [(False, False), (False, False)])
+
+    def test_a_road_going_on_past_its_end_is_a_junction_not_the_bridge(self):
+        through = np.array([[18.0, -30.0], [18.0, 30.0]])
+        got = self.Planner([[18.5, 0.0]], [("short", self.LINE), ("through", through)])._onto_bridge([(None, self.LINE)])
+        self.assertEqual(got, [(False, False)])
+
+    def test_no_extensions_no_question(self):
+        self.assertEqual(self.Planner([], [])._onto_bridge([(None, None)]), [(False, False)])
+
+    def test_the_answer_doesn_t_depend_on_the_cell_asking(self):
+        """(far away from any cell: _abut_ends would filter it by the cell asking; here nobody asks by a cell)"""
+        far = self.LINE + [90000.0, 0.0]
+        got = self.Planner(far[-1:], [("short", far)])._onto_bridge([(None, far)])
+        self.assertEqual(got, [(False, True)])
 
 
 class DeckFromItsRoadsTest(unittest.TestCase):
@@ -718,6 +846,179 @@ class GradePointsTest(unittest.TestCase):
         self.assertLess(np.abs(out[mine] - alone[mine]).max(), 1e-6, "its carriageway as without the trench")
 
 
+def beside_over_every_segment(plans, box, nseg):
+    """_beside_strength measuring each sample to every segment of every wider plan: what its choice of segments must not
+    change. Pure."""
+    f64 = np.float64
+    out = np.zeros(int(np.sum(nseg)), f64)
+    s0 = np.r_[0, np.cumsum(nseg)]
+    rh = np.array([p.road_half for p in plans], f64)
+    tun = np.array([p.tunnel for p in plans], bool)
+    for k, p in enumerate(plans):
+        if tun[k]:
+            continue
+        wider = np.flatnonzero(~tun & (rh >= rh[k] + points.BESIDE_WIDER_M) & (box[:, 0] <= box[k, 2]) & (box[:, 2] >= box[k, 0])
+                               & (box[:, 1] <= box[k, 3]) & (box[:, 3] >= box[k, 1]))
+        wider = [o for o in wider if plans[o].rid != p.rid]
+        if not wider:
+            continue
+        xy = np.asarray(p.xy, f64)[:, :2]
+        arc = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+        t = np.unique(np.r_[np.arange(0.0, arc[-1], points.BESIDE_STEP_M), arc[-1]])
+        q = np.c_[np.interp(t, arc, xy[:, 0]), np.interp(t, arc, xy[:, 1])]
+        qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)
+        near = np.zeros(len(t), bool)
+        node = np.zeros(len(t), bool)
+        for o in wider:
+            oxy = np.asarray(plans[o].xy, f64)[:, :2]
+            a, ab = oxy[:-1], np.diff(oxy, axis=0)
+            l2 = np.maximum((ab * ab).sum(1), 1e-12)
+            u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)
+            d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
+            reach = rh[o] + p.half + grading.T_MAX
+            near |= d.min(axis=1) < reach
+            for s in points._shared_nodes(p, plans[o]):
+                node |= np.abs(t - s) < reach
+        near &= ~node
+        if near.any():
+            out[s0[k] + np.unique(qseg[near])] = 1.0
+    return np.round(out * 255.0).astype(np.uint8)
+
+
+class BesideStrengthTest(unittest.TestCase):
+    """_beside_strength measures a narrow road's samples only to the segments that can come within reach: the same result
+    as to every segment, whatever the shapes."""
+
+    @staticmethod
+    def plan(xy, rid, half=3.0, road_half=2.0, tunnel=False):
+        xy = np.array(xy, np.float64)
+        p = grading.Plan(xy, np.full(len(xy), 100.0), half, road_half=road_half)
+        p.rid, p.tunnel = rid, tunnel
+        return p
+
+    def same(self, plans, box=None):
+        """Both results of plans (box: the plans' boxes where it isn't their own), once they are checked to be equal."""
+        box = np.array([p.bbox for p in plans], np.float64) if box is None else box
+        nseg = np.array([len(p.xy) - 1 for p in plans], np.int64)
+        got = points._beside_strength(plans, box, nseg)
+        want = beside_over_every_segment(plans, box, nseg)
+        self.assertEqual(got.dtype, want.dtype)
+        np.testing.assert_array_equal(got, want)
+        return got
+
+    def test_a_wider_road_whose_box_alone_comes_near(self):
+        """Its corner far off, its box around the narrow road: none of its segments is measured, nothing near."""
+        narrow = self.plan([[0, 0], [10, 0]], 1)
+        wide = self.plan([[-500, -500], [500, -500], [500, 500]], 2, 5.0, 4.0)
+        self.assertFalse(self.same([narrow, wide]).any())
+
+    def test_a_long_segment_crossing_with_its_ends_far_off(self):
+        narrow = self.plan([[0, -5], [0, 5]], 1)
+        wide = self.plan([[-1000, 0], [1000, 0]], 2, 5.0, 4.0)
+        np.testing.assert_array_equal(self.same([narrow, wide]), [255, 0])
+
+    def test_segments_of_no_length(self):
+        narrow = self.plan([[0, 8], [0, 8], [20, 8], [20, 8]], 1)
+        wide = self.plan([[-50, 0], [-50, 0], [50, 0], [50, 0]], 2, 5.0, 4.0)
+        self.assertTrue(self.same([narrow, wide])[:3].any())
+
+    def test_right_at_the_reach(self):
+        """reach 19 m (its road half 4, ours 3, T_MAX 12): a sample less than that away counts, one at it or past doesn't."""
+        for y, near in ((19.0 - 1e-9, True), (19.0, False), (19.0 + 1e-9, False), (19.0 + 1e-7, False), (19.0 + 1e-5, False)):
+            narrow = self.plan([[0, y], [10, y]], 1)
+            wide = self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0)
+            self.assertEqual(bool(self.same([narrow, wide])[0]), near, y)
+
+    def test_a_tunnel_and_the_same_road_dont_count(self):
+        narrow = self.plan([[0, 8], [20, 8]], 1)
+        for wide in (self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0, tunnel=True), self.plan([[-50, 0], [50, 0]], 1, 5.0, 4.0)):
+            self.assertFalse(self.same([narrow, wide]).any())
+
+    def test_one_neighbours_node_lifts_anothers_near(self):
+        """A runs beside the whole narrow road, B starts at the narrow road's first point: near B's node it blends as an
+        equal, also beside A, whichever comes first."""
+        narrow = self.plan([[0, 0], [10, 0], [60, 0], [90, 0]], 1)
+        a = self.plan([[-200, 8], [200, 8]], 2, 5.0, 4.0)
+        b = self.plan([[0, 0], [0, -200]], 3, 5.0, 4.0)
+        alone = self.same([narrow, a])
+        for plans in ([narrow, a, b], [narrow, b, a]):
+            got = self.same(plans)[:3]
+            self.assertFalse(got[0], "near the node")
+            self.assertTrue(got[-1], "away from it")
+        self.assertTrue(alone[0], "without B it gives way there")
+
+    def test_lines_that_arent_finite(self):
+        """A plan's box says it may be near, its line holds NaN or infinity: as measured to every segment."""
+        narrow = self.plan([[0, 8], [20, 8]], 1)
+        for bad in (np.nan, np.inf):
+            wide = self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0)
+            wide.xy = np.array([[-50.0, 0.0], [0.0, 0.0], [bad, 0.0], [5000.0, 0.0]])
+            box = np.array([narrow.bbox, (-70.0, -20.0, 70.0, 20.0)])
+            with np.errstate(invalid="ignore"):
+                self.same([narrow, wide], box)
+
+    def test_any_shapes(self):
+        """Random roads, near the frame's origin and 1000 km from it."""
+        rng = np.random.default_rng(7)
+        for run in range(150):
+            at = rng.choice([0.0, 1e6])
+            plans = []
+            for k in range(int(rng.integers(2, 7))):
+                n = int(rng.integers(2, 12))
+                xy = at + rng.uniform(-60, 60, 2) + np.cumsum(rng.normal(0, rng.choice([1.0, 15.0, 60.0]), (n, 2)), axis=0)
+                half = float(rng.uniform(2, 9))
+                plans.append(self.plan(xy, int(rng.integers(1, 5)), half, half - 1.0, tunnel=bool(rng.random() < 0.1)))
+            self.same(plans)
+
+    def test_what_a_plan_keeps_holds_for_every_pack(self):
+        """The same plans again in other sets and orders, as regrade_past_ends makes them: each set as measured anew, and
+        what's kept doesn't change."""
+        rng = np.random.default_rng(11)
+        pool = []
+        for k in range(14):
+            n = int(rng.integers(2, 10))
+            half = float(rng.uniform(2, 9))
+            xy = rng.uniform(-40, 40, 2) + np.cumsum(rng.normal(0, 15.0, (n, 2)), axis=0)
+            pool.append(self.plan(xy, k % 9, half, half - 1.0, tunnel=k == 3))
+        first = None
+        for run in range(120):
+            keep = rng.permutation(len(pool))[:int(rng.integers(2, len(pool) + 1))]
+            self.same([pool[k] for k in keep])
+            if run == 60:
+                first = [{o: (a.copy(), b.copy()) for o, (a, b) in p.beside[3].items()} for p in pool if p.beside]
+        kept = [p.beside[3] for p in pool if p.beside]
+        for old, now in zip(first, kept):
+            for o, (a, b) in old.items():
+                np.testing.assert_array_equal(now[o][0], a)
+                np.testing.assert_array_equal(now[o][1], b)
+                self.assertFalse(now[o][0].flags.writeable or now[o][1].flags.writeable)
+
+    def test_the_same_road_in_another_shape_is_measured_anew(self):
+        """A new Plan of the same road (rid, half width): its own masks, not the old one's."""
+        narrow = self.plan([[0, 8], [20, 8]], 1)
+        near = self.plan([[-50, 0], [50, 0]], 2, 5.0, 4.0)
+        far = self.plan([[-50, 500], [50, 500]], 2, 5.0, 4.0)
+        box = np.array([narrow.bbox, (-70.0, -20.0, 70.0, 20.0)])
+        self.assertTrue(self.same([narrow, near], box).any())
+        self.assertFalse(self.same([narrow, far], box).any())
+
+    def test_threads_on_the_same_plans(self):
+        """Two plan threads building packs of the same plans at once (Grader's planning pool): each pack as measured anew."""
+        from concurrent.futures import ThreadPoolExecutor
+        rng = np.random.default_rng(13)
+        pool = []
+        for k in range(40):
+            half = float(rng.uniform(2, 9))
+            xy = rng.uniform(-60, 60, 2) + np.cumsum(rng.normal(0, 20.0, (8, 2)), axis=0)
+            pool.append(self.plan(xy, k, half, half - 1.0))
+        box = np.array([p.bbox for p in pool], np.float64)
+        nseg = np.array([len(p.xy) - 1 for p in pool], np.int64)
+        want = beside_over_every_segment(pool, box, nseg)
+        with ThreadPoolExecutor(8) as ex:
+            for got in ex.map(lambda _i: points._beside_strength(pool, box, nseg), range(8)):
+                np.testing.assert_array_equal(got, want)
+
+
 class AbutmentTest(unittest.TestCase):
     """(the D1 near Presov): a motorway onto a bridge over a road in a cutting 8 m under it."""
 
@@ -1009,6 +1310,57 @@ class GraderTest(unittest.TestCase):
         self.assertEqual(len(two), 2)
 
 
+class StrongerZThreadsTest(unittest.TestCase):
+    """A pin height asked by several plan threads at once: what one found is not lost to what another did meanwhile."""
+    CAND = (None, None, None, None, None, "road")
+
+    def planner(self):
+        p = grading._Planner(FRAME, None, None)
+        p._strong_key = lambda *a: "k"
+        p._strong_part = lambda *a: ("part", True, False)
+        p._extensions = lambda *a: None
+        p._coarse_ll = p._fine_ll = p._obs = p._onto_bridge = p._own_bridge_ends = lambda *a: None
+        return p
+
+    def asked(self, p):
+        """p._stronger_z of a part whose plan ends at 6 m."""
+        plan = unittest.mock.Mock(z=np.array([5.0, 6.0]))
+        with unittest.mock.patch.object(grading.ends, "plan_roads", return_value=[plan]):
+            return p._stronger_z(self.CAND, True)
+
+    def test_a_late_failure_leaves_the_height_another_found(self):
+        p = self.planner()
+
+        def fails(*a):
+            p._strong_memo["k"] = 6.0
+            raise OSError("late")
+        p._strong_part = fails
+        with self.assertLogs("earthd.grading", "WARNING"):
+            self.assertEqual(p._stronger_z(self.CAND, True), 6.0)
+        self.assertEqual(p._strong_memo["k"], 6.0)
+
+    def test_a_height_found_after_another_failed_counts(self):
+        p = self.planner()
+
+        def failed_meanwhile(*a):
+            p._strong_memo["k"] = None
+            return "part", True, False
+        p._strong_part = failed_meanwhile
+        self.assertEqual(self.asked(p), 6.0)
+        self.assertEqual(p._strong_memo["k"], 6.0)
+
+    def test_the_memo_emptied_meanwhile_loses_no_height(self):
+        p = self.planner()
+        keep = p._strong_keep
+
+        def then_emptied(*a):
+            got = keep(*a)
+            p._strong_memo.clear()      # (another thread's _strong_keep, at the memo's limit)
+            return got
+        p._strong_keep = then_emptied
+        self.assertEqual(self.asked(p), 6.0)
+
+
 class ChainTest(unittest.TestCase):
     """A road split at a junction (BR-381): its parts are smoothed as one road."""
 
@@ -1024,6 +1376,18 @@ class ChainTest(unittest.TestCase):
         with unittest.mock.patch.object(grading, "CHAIN_ON", on):
             g = grading.Grader(FRAME, FakeMD(f), self.hill)
             return {fid: p for fid, p in g._cell_plans(mapcells.cell_of(LAT, LON))}
+
+    def test_a_plan_made_without_its_chains_says_so(self):
+        """(a road end that lost its abutment lay 5 m under its bridge, in one build of 15, and nothing said so)"""
+        import revisit
+        before = revisit.faults()
+        with unittest.mock.patch.object(grading._Planner, "_extensions", side_effect=OSError("locked")), \
+                self.assertLogs("earthd.grading", "WARNING") as said:
+            p = self.plans(True)
+        self.assertIn("road chains", said.output[0])
+        self.assertIn("locked", said.output[0])
+        self.assertGreater(revisit.faults(), before, "the build's results aren't kept")
+        self.assertEqual(set(p), {"id000", "id001", "id002"}, "the roads still get their plans")
 
     def test_the_parts_meet_at_one_height(self):
         p = self.plans(True)

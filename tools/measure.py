@@ -38,6 +38,8 @@ them. A build's log: out/build_<name>.log.
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --profile --from 78 --to 118    # its surfaces apart
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --surface --from 78 --to 118    # its physics (1ROAD, 1GRASS)
     .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --install            # into AC, to drive it
+    .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --kn5                # the tiles' parts of --build on into AC, not built again
+    .venv\\Scripts\\python.exe tools\\measure.py rechberg_test --walls              # ground in front of its walls' cut lines
     .venv\\Scripts\\python.exe tools\\measure.py a2_test                            # any track built before
     ... --reference    save the values as the new reference in test_tracks.json (the state a change is compared with)
     .venv\\Scripts\\python.exe tools\\measure.py griffen_bruecke_test --holes       # the gaps in the ground, whole corridor
@@ -55,6 +57,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 
 import numpy as np
@@ -62,7 +65,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
 sys.path.insert(0, os.path.join(HERE, "src"))
 from app import named, settings, trackcode, version  # noqa: E402
-from track import obj_to_kn5  # noqa: E402
+from track import obj_to_kn5, parallel  # noqa: E402
 
 TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
 BUILD_JOBS = 3          # short test tracks built at a time
@@ -83,7 +86,10 @@ OVER_DECK_M = 0.02      # m a terrain point may stand over the deck over it: at 
 OVER_DECK_NEAR_M = 1.0  # m: further above, it's a hillside beside a deck's other level, not this deck's ground
 OVER_DECK_GAP_M = 10.0  # m along the route between two bridges' points
 PROFILE_LANES = (-3.0, -2.0, 0.0, 2.0, 3.0)     # m across the route: a deck's whole carriageway
-PROFILE_RUN_UP_M = 150.0    # m of road before a stretch to start the line on: longer than the bridges a stretch starts on
+IN_FRONT_M = 0.4        # m in front of a wall's cut line the ground is read (--walls): 0.3 m in front of its face
+IN_FRONT_OVER_M = 0.3   # m over the lower road's level: a tooth there, under it the road's own cross slope
+WALL_SAMPLE_M = 0.5     # m between those points
+PROFILE_RUN_UP_M = 150.0   # m of road before a stretch to start the line on: longer than the bridges a stretch starts on
 TILE_M = 256.0          # m: a tile's side (roads.tile_bbox): t_<tx>_<ty>.obj covers x tx*256.., north ty*256.. (z = -north)
 TILE_REACH_M = 60.0     # m an object reaches past its tile: driving surfaces ~6, a building's collision wall 53 (Weblinger)
 ROAD = "1ROAD"          # the physics prefix of a road (AC's surfaces.ini; docs/ac-rules.md)
@@ -119,11 +125,22 @@ def _surfaces(track, box):
     """Triangles (n, 3, 3) of the driving surfaces in box (x0, z0, x1, z1), per triangle: is it a bridge deck, and its
     object's name. (A tunnel's floor slab counts by its top faces: without it the lane in a tube read the hill over it,
     30 G spikes.)"""
-    tris, deck, names = [], [], []
+    return _track_parts(track, box)[0]
+
+
+def _track_parts(track, box):
+    """All that a track's measuring needs from its OBJ parts in box (x0, z0, x1, z1), in one read of each file (reading them is
+    most of a short track's measuring): (_surfaces' three, _paint's, _terrain_points'). Only these are kept of a file."""
+    tris, deck, names, paint, ground = [], [], [], [], []
     for p in tile_files(track, box):
         for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
             d = name.startswith("1ROAD_deck")
             floor = name.startswith(FLOOR)
+            if name.startswith(PAINT):
+                paint.append(_in_box(P[T], box))
+            if "_ground_" in name and len(T):
+                v = P[np.unique(T)]
+                ground.append(v[(v[:, 0] >= box[0]) & (v[:, 0] <= box[2]) & (v[:, 2] >= box[1]) & (v[:, 2] <= box[3])])
             if "_ground_" not in name and not d and not floor:
                 continue
             t = P[T]
@@ -135,22 +152,16 @@ def _surfaces(track, box):
             tris.append(t[keep])
             deck.append(np.full(int(keep.sum()), d))
             names.append(np.full(int(keep.sum()), name, object))
-    if not tris:
-        return np.zeros((0, 3, 3)), np.zeros(0, bool), np.zeros(0, object)
-    return np.concatenate(tris), np.concatenate(deck), np.concatenate(names)
+    surfaces = (np.concatenate(tris), np.concatenate(deck), np.concatenate(names)) if tris else \
+        (np.zeros((0, 3, 3)), np.zeros(0, bool), np.zeros(0, object))
+    return (surfaces, np.concatenate(paint) if paint else np.zeros((0, 3, 3)),
+            np.unique(np.concatenate(ground), axis=0) if ground else np.zeros((0, 3)))
 
 
-def _paint(track, box):
-    """Triangles (n, 3, 3) of the visible carriageway (PAINT) in box (x0, z0, x1, z1)."""
-    tris = []
-    for p in tile_files(track, box):
-        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
-            if not name.startswith(PAINT):
-                continue
-            t = P[T]
-            c = t.mean(1)
-            tris.append(t[(c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])])
-    return np.concatenate(tris) if tris else np.zeros((0, 3, 3))
+def _in_box(t, box):
+    """The triangles t (n, 3, 3) whose middles lie in box (x0, z0, x1, z1). Pure."""
+    c = t.mean(1)
+    return t[(c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])]
 
 
 def _across(T3, D, P3, px, pz, nx, nz, h):
@@ -301,23 +312,77 @@ def over_deck_spots(rows, rx, rz, ss, s0=None, s1=None, gap=OVER_DECK_GAP_M):
     return out
 
 
-def _terrain_points(track, box):
-    """The terrain's vertices (n, 3) in box (x0, z0, x1, z1): its `*_ground_*` objects' alone (a bridge's parapets count
-    among the driving surfaces too, 80 cm over its deck)."""
+def wall_lines(track):
+    """The cut lines along track's walls between two roads and on past their ends (scenery.wallcut's lines, from its build's
+    tiles), each tile's piece."""
     out = []
-    for p in tile_files(track, box):
-        for name, (_m, P, _UV, T) in obj_to_kn5.read_obj(p).items():
-            if "_ground_" in name and len(T):
-                v = P[np.unique(T)]
-                out.append(v[(v[:, 0] >= box[0]) & (v[:, 0] <= box[2]) & (v[:, 2] >= box[1]) & (v[:, 2] <= box[3])])
-    return np.unique(np.concatenate(out), axis=0) if out else np.zeros((0, 3))
+    for p in sorted(glob.glob(os.path.join(HERE, "out", "tracks", track, "tiles", "wallcuts_*.json"))):
+        with open(p, encoding="utf-8") as f:
+            out += json.load(f)
+    return out
 
 
-def _ground_over_deck(track, box, T3, D, route, S, s0, s1):
-    """over_deck_spots of track's terrain over the decks among the surfaces T3 (deck flags D) along route (metres S)."""
+def in_front_points(lines):
+    """Points IN_FRONT_M in front of the lines, every WALL_SAMPLE_M along them, each place once: (n, 3) rows AC x, AC z, the lower
+    road's level. Pure."""
+    seen = {}
+    for w in lines:
+        b, lo, tw = (np.asarray(w[k], np.float64) for k in ("base", "low", "toward"))
+        for k in range(len(b) - 1):
+            seg = float(np.hypot(*(b[k + 1] - b[k])))
+            for t in np.arange(WALL_SAMPLE_M / 2, seg, WALL_SAMPLE_M) / max(seg, 1e-9):
+                q = b[k] + t * (b[k + 1] - b[k]) + tw[k] * IN_FRONT_M
+                seen.setdefault(tuple(np.round(q, 1)), (q[0], -q[1], lo[k] + t * (lo[k + 1] - lo[k])))
+    return np.array(list(seen.values()), np.float64).reshape(-1, 3)
+
+
+def highest_over(T3, x, z):
+    """The highest of triangles T3 (n, 3, 3) over the point AC x, z, or NaN. Pure."""
+    a, b, c = T3[:, 0], T3[:, 1], T3[:, 2]
+    d = (b[:, 2] - c[:, 2]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 2] - c[:, 2])
+    ok = np.abs(d) > 1e-9
+    a, b, c, d = a[ok], b[ok], c[ok], d[ok]
+    l1 = ((b[:, 2] - c[:, 2]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (z - c[:, 2])) / d
+    l2 = ((c[:, 2] - a[:, 2]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (z - c[:, 2])) / d
+    l3 = 1.0 - l1 - l2
+    m = (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
+    return float((l1[m] * a[m, 1] + l2[m] * b[m, 1] + l3[m] * c[m, 1]).max()) if m.any() else float("nan")
+
+
+def ground_in_front(points, T3):
+    """Per point of in_front_points how far the ground T3 stands over the lower road's level (m). Pure."""
+    lo, hi = T3.min(axis=1), T3.max(axis=1)
+    return np.array([highest_over(T3[(lo[:, 0] <= x) & (hi[:, 0] >= x) & (lo[:, 2] <= z) & (hi[:, 2] >= z)], x, z) - low
+                     for x, z, low in points])
+
+
+def report_walls(track):
+    """Where ground stands in front of the cut lines along track's walls between two roads: teeth the cut didn't take
+    (scenery.wallcut). The highest ground over each point, so a bank or a road over it counts; a cutting's walls have no such line."""
+    points = in_front_points(wall_lines(track))
+    if not len(points):
+        print(f"{track}: no walls between two roads")
+        return
+    box = (points[:, 0].min() - 8, points[:, 1].min() - 8, points[:, 0].max() + 8, points[:, 1].max() + 8)
+    T3, D, names = _surfaces(track, box)
+    over = ground_in_front(points, T3[np.array(["_ground_" in n for n in names], bool)])
+    bad = np.nan_to_num(over) > IN_FRONT_OVER_M
+    print(f"{track}: {len(points) * WALL_SAMPLE_M:.1f} m of cut lines along walls, ground over {IN_FRONT_OVER_M} m in front of them on "
+          f"{bad.sum() * WALL_SAMPLE_M:.1f} m" + (f", most {np.nanmax(over[bad]):.2f} m" if bad.any() else "")
+          + (f"; no ground read on {np.isnan(over).sum() * WALL_SAMPLE_M:.1f} m" if np.isnan(over).any() else ""))
+    route = _route(track)
+    S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
+    for x, z, o in zip(points[bad, 0], points[bad, 1], over[bad]):
+        k = int(np.argmin(np.hypot(route[:, 0] - x, route[:, 1] - z)))
+        print(f"     AC {x:7.1f}, {z:7.1f}  {o:5.2f} m over the road's level, route {S[k]:.0f} m, "
+              f"{float(np.hypot(route[k, 0] - x, route[k, 1] - z)):.1f} m off the line")
+
+
+def _ground_over_deck(points, T3, D, route, S, s0, s1):
+    """over_deck_spots of the terrain's vertices points (n, 3: its `*_ground_*` objects' alone: a bridge's parapets count among the
+    driving surfaces too, 80 cm over its deck) over the decks among the surfaces T3 (deck flags D) along route (metres S)."""
     if not D.any():
         return []
-    points = _terrain_points(track, box)
     ss = np.arange(0.0, S[-1], 0.5)
     return over_deck_spots(over_deck(points, T3[D]), np.interp(ss, S, route[:, 0]), np.interp(ss, S, route[:, 1]), ss,
                            s0, s1)
@@ -480,7 +545,7 @@ def measure(track, start=None, end=None):
     tn = np.maximum(np.hypot(tx, tz), 1e-9)
     nx, nz = -tz / tn, tx / tn
     box = (px.min() - 30, pz.min() - 30, px.max() + 30, pz.max() + 30)
-    T3, D, N = _surfaces(track, box)
+    (T3, D, N), paint, terrain = _track_parts(track, box)
     qx = np.concatenate([px + nx * w for w in ACROSS_M])
     qz = np.concatenate([pz + nz * w for w in ACROSS_M])
     hits = _heights(T3, D, qx, qz)
@@ -499,9 +564,9 @@ def measure(track, start=None, end=None):
     gs = np.zeros(n)                                    # per metre the strongest G of the lanes
     gs[2:-2] = np.nan_to_num(np.abs(H[:, 4:] - 2 * H[:, 2:-2] + H[:, :-4])).max(0) / 4.0 * V ** 2 / 9.81
     edge = np.nan_to_num(np.abs(np.diff(H, 2, axis=0))).max(0) > EDGE_M
-    warp, width = _across(T3, D, _paint(track, box), px, pz, nx, nz, h)
+    warp, width = _across(T3, D, paint, px, pz, nx, nz, h)
     worst = sorted(np.flatnonzero(ga > G_LIMIT), key=lambda k: -ga[k])
-    spots = _ground_over_deck(track, box, T3, D, route, S, start, end)
+    spots = _ground_over_deck(terrain, T3, D, route, S, start, end)
     kind = [physics(k) for k in names_at(T3, N, px, pz, h)]
     return {"off_road_m": sum(1 for k in kind if k and k != ROAD),
             "_off_road": [(a, b, v) for a, b, v in runs(ss, kind) if v and v != ROAD],"over_deck_spots": len(spots), "max_over_deck": round(max((u["over"] for u in spots), default=0.0), 3),
@@ -516,6 +581,19 @@ def measure(track, start=None, end=None):
             "_worst": [(float(ss[k]), round(float(g[k]), 2), bool(isd[k])) for k in worst],
             "_edges": ss[edge], "_trans": trans, "_warp": ss[warp > EDGE_M],
             "_width": round(float(np.median(width[width > 0])), 1) if (width > 0).any() else 0.0}
+
+
+def measured(tracks, start=None, end=None):
+    """(track, its measure()) of each of tracks, in their order, as they come: side by side in processes of their own, as many as
+    the cores and the free RAM allow (parallel.workers: 16 tracks 197 s alone, 76 s with 8, 2.9 GB at the peak; the longest
+    track's own time is the floor), the printing stays in one place."""
+    jobs = parallel.workers(len(tracks))
+    if jobs < 2:
+        for t in tracks:
+            yield t, measure(t, start, end)
+        return
+    with parallel.pool(jobs) as ex:
+        yield from zip(tracks, ex.map(measure, tracks, [start] * len(tracks), [end] * len(tracks)))
 
 
 def _ranges(m):
@@ -702,8 +780,12 @@ def code(entry):
 def build_one(test, t, install, share):
     """Build test track t (into AC with install, else up to the OBJ parts) with share of the cores."""
     import generator
+    import buildtrace       # (engine/ is on the path through generator)
     from track import parallel
     parallel.SHARE = share
+    trace = os.path.join(HERE, "out", "trace", t)      # (why this build differed from another: tools/build_trace.py)
+    shutil.rmtree(trace, ignore_errors=True)
+    os.environ[buildtrace.ENV] = trace
     if install:
         generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
     else:
@@ -750,7 +832,9 @@ def main():
     ap.add_argument("--profile", action="store_true", help="only the surfaces of --from..--to apart: deck and ground per lane")
     ap.add_argument("--across", help="--profile's lanes: m off the line, + right, comma separated (default -3,-2,0,2,3)")
     ap.add_argument("--surface", action="store_true", help="only the physics of --from..--to: 1ROAD, 1GRASS, ... per run")
-    ap.add_argument("--build-one", help=argparse.SUPPRESS)      # (a child process: build this track, nothing else)
+    ap.add_argument("--walls", action="store_true", help="only where ground stands in front of the cut lines along walls between two roads")
+    ap.add_argument("--kn5", action="store_true", help="the tiles' OBJ parts as built (--build) on into AC: distant view, gates and kn5 made, no tile built again")
+    ap.add_argument("--build-one", help=argparse.SUPPRESS)     # (a child process: build this track, nothing else)
     ap.add_argument("--share", type=float, default=1.0, help=argparse.SUPPRESS)
     a = ap.parse_args()
     with open(TEST_TRACKS, encoding="utf-8") as f:
@@ -769,6 +853,14 @@ def main():
         short = [t for t in tracks if not test[t].get("long")]
         build_all(short, a.install, min(BUILD_JOBS, len(short)))
         build_all([t for t in tracks if test[t].get("long")], a.install, 1)
+    if a.kn5:
+        import generator
+        for t in tracks:
+            generator.finish_obj(t, test.get(t, {}).get("title"))
+    if a.walls:
+        for t in tracks:
+            report_walls(t)
+        return
     if a.holes:
         for t in tracks:
             report_holes(t)
@@ -786,8 +878,7 @@ def main():
         return
     part = a.start is not None or a.end is not None
     refs = {}
-    for t in tracks:
-        r = measure(t, a.start, a.end)
+    for t, r in measured(tracks, a.start, a.end):
         if t in test:
             print(f"\n{test[t]['about']}\n  code {code(test[t])}", end="")
             for m, what in test[t].get("spots", ()):

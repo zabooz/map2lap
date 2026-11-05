@@ -85,7 +85,7 @@ class Plan:
     it lead onto a bridge at its (first, last) vertex (grade_points)."""
     # (free)
     __slots__ = ("xy", "z", "half", "bbox", "abut", "cut", "road_half", "rid", "max_wall", "bank", "free", "tunnel",
-                 "under", "beyond")
+                 "under", "beyond", "beside")
 
     def __init__(self, xy, z, half, abut=(False, False), cut=None, road_half=None):
         self.xy, self.z, self.half, self.abut = xy, z, float(half), (bool(abut[0]), bool(abut[1]))
@@ -103,6 +103,9 @@ class Plan:
         # elevation under it is closed: past that the ground is the elevation's, regrade_past_ends), or None: it blends
         # out round the end
         self.beyond = (None, None)
+        # what _beside_strength measured from it, for every pack: its samples and {wider Plan: masks} (points._beside_masks),
+        # or None. Its line and half width stay as they are: a changed road is a new Plan
+        self.beside = None
         pad = half + T_MAX
         self.bbox = (xy[:, 0].min() - pad, xy[:, 1].min() - pad, xy[:, 0].max() + pad, xy[:, 1].max() + pad)
 
@@ -180,7 +183,7 @@ def _normals(xy):
 
 
 def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, coarse=False, fine=False, under=None,
-               obs=None, walls=None):
+               obs=None, walls=None, onto=None):
     """plan_road for many (lonlat, spec) parts with one elev call (its cost is per call); abut: per part (start, end)
     flags, the ends leading onto a bridge (fill_abutment); ext: per part (before, after), the lines (k, 2) in the frame
     from its start / end outward along the part the road goes on in (Grader._extensions), or None: their ground is in
@@ -189,7 +192,8 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
     (ABUT_*_FINE); obs(xy (m, 2), spec) -> measured heights (m,) of a
     part's samples (NaN where none) or None: they stand in for the DEM's (roadz.py, on coarse elevation: Grader._obs);
     walls: the mapped walls' lines (k, 2) in the frame near the parts (or a function giving them), for the walls
-    between two roads at two levels (_between_cuts), or None: none of those. Pure given elev and obs."""
+    between two roads at two levels (_between_cuts), or None: none of those; onto: per part (before, after), does that
+    extension end on a bridge's end (Grader._onto_bridge), or None: none does. Pure given elev and obs."""
     if not parts:
         return []
     ll = np.concatenate([lonlat for lonlat, _ in parts])
@@ -207,21 +211,23 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
         if len(xy) < 2:
             prof.append(None)
             continue
-        side, bank_side = [], []
+        side, bank_side, whole = [], [], []
         for out in (ext[j] if ext is not None else (None, None)):
             if out is None or len(out) < 2:
                 side.append(np.zeros((0, 2)))
                 bank_side.append(np.zeros((0, 2)))
+                whole.append(False)
             else:                       # (from the node outward; the node is the part's own end sample)
                 bank_side.append(resample(np.asarray(out, np.float64), step)[0][1:])
                 # Extra bank geometry must not change longitudinal DEM sampling
                 # or the bridge solver's established approach/underpass profiles.
                 reach = 3.0 * profile_sigma(spec) + PROFILE_STEP
                 arc = np.r_[0., np.cumsum(np.linalg.norm(np.diff(out, axis=0), axis=1))]
+                whole.append(bool(arc[-1] <= reach + 1e-8))
                 if arc[-1] > reach + 1e-8:
                     out = np.vstack([np.asarray(out)[arc < reach], _point_along(out, reach)])
                 side.append(resample(np.asarray(out, np.float64), step)[0][1:])
-        prof.append((xy, side[0][::-1], side[1], step, bank_side[0][::-1], bank_side[1]))
+        prof.append((xy, side[0][::-1], side[1], step, bank_side[0][::-1], bank_side[1], whole))
     pts = [np.concatenate([b, xy, a]) for xy, b, a, *_ in (p for p in prof if p is not None)]
     if not pts:
         return [None] * len(parts)
@@ -244,7 +250,7 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
         if pr is None:
             out.append(None)
             continue
-        xy, before, after, step, bank_before, bank_after = pr
+        xy, before, after, step, bank_before, bank_after, whole = pr
         nb, na = len(before), len(after)
         zx = zall[k:k + nb + len(xy) + na]
         k += nb + len(xy) + na
@@ -266,6 +272,15 @@ def plan_roads(frame, parts, elev, abut=None, ext=None, pins=None, cuts=True, co
             for at_end in (False, True):
                 if ab[int(at_end)]:
                     zx = fill_abutment(zx, at_end, fine=fine)   # (fine)
+        if onto is not None and ABUT_FILL_ON:
+            # An extension that runs on to a bridge's end has that bank in its last samples, as an own end has: filled the
+            # same, they stay in the smoothing so the parts still meet. Left in, a road split at a junction 18 m short of its
+            # bridge ended 3.3 m under the junction, a 2 m hollow over 30 m (a stream 8 m down, Cap Corse). Not when the
+            # extension is cut short of the bridge (whole): fill_abutment takes its last sample for the bridge's end; part of
+            # the bank can stay in the samples of one that ends just past its reach.
+            for at_end, n in ((False, nb), (True, na)):
+                if n and whole[int(at_end)] and onto[j][int(at_end)]:
+                    zx = fill_abutment(zx, at_end, fine=fine)
         pin = pins[j] if pins is not None else (None, None)
         if pin[0] is not None and not nb and not ab[0]:     # (the end sample held: the smoothing keeps an end's height)
             zx = zx.copy()

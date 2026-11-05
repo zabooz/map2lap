@@ -13,7 +13,7 @@ terrain with holes, other shaders), deviate on purpose, with a short reason in t
 | `1GRASS_ground_…` | other terrain | GRASS (0.60) |
 | `1KERB_walkcol_…` | kerbs/pavements, invisible collision | KERB (0.92) |
 | `1WALL_` | bridges, tunnels, retaining walls, gate posts, `bldcol`/`guardrailcol` (invisible); double-sided | stays undefined |
-| `nocol_` | markings, pavements, houses and rails (visible), guardrails, wires, water, foam, trees, distant view | – |
+| `nocol_` | markings, pavements, houses and rails (visible), guardrails, wires, water, foam, trees, bushes, distant view | – |
 
 ## How the ground is built
 
@@ -32,6 +32,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - One mesh for looks **and** physics per tile. Object name per cell by BeamNG.Earth's surface: asphalt/cobbles →
   `1ROAD_ground_…`, gravel/dust/rock → `1GRAVEL_ground_…`, else `1GRASS_ground_…` (the sample in the SW corner).
 - A cell goes as soon as **one** of its corners is a tunnel hole.
+- A wall between two roads cuts the cells along its cut line apart (`scenery/wallcut.py`): a step at the wall's face. A cut cell
+  stays in its cell's object, by the same sample.
 - Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px = 12.5 cm/px): comic ground, the roads on top in
   BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`).
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible

@@ -469,7 +469,7 @@ class TunnelProfiles(BridgeProfiles):
         return self.frame.geodetic_to_enu(la, lo, np.asarray(self.ends(la, lo), np.float64))[2]
 
     def _solve(self, comp, pool, ground):
-        """Per part: the floor (the hull of the ungraded ground, its ends at the roads' graded height at its portals,
+        """(its parts' floors, None: a tunnel has no deck's depth). Per part: the floor (the hull of the ungraded ground, its ends at the roads' graded height at its portals,
         where the approaches arrive) and its sections; a low arch's tube under the thin part of the cover over its
         middle (a 20th percentile of the middle 60 %, less TUNNEL_SOIL_M; sized from the most, the ground came down
         into it and was cut away, a bare stone vault), a full tunnel's roadmesh.TUNNEL_H."""
@@ -544,7 +544,7 @@ class TunnelProfiles(BridgeProfiles):
                 subs[n] = (kd, th, ups, mouths, caps)
             self._tls.staged[k] = (secs, subs)
             out.append(floor)
-        return out
+        return out, None
 
     def _observed_floor(self, k, pool, xy, s, floor, secs, joints=(False, False)):
         """floor with each covered section (kind 1 / 2) at the measured height where a source has one (roadz.py,

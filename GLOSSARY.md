@@ -30,9 +30,19 @@ _Avoid_: tile
 A zoom-14 Web-Mercator square of map data (`mapcells`), fetched and cached as one piece.
 _Avoid_: cell, tile
 
+**Cut line**:
+The line just behind the face of a wall between two roads at two levels, along which the ground is cut (`scenery.wallcut`, a tile's
+in `tiles/wallcuts_<tx>_<ty>.json`).
+
 **Terrain cell**:
 One 2 m square of the terrain grid.
 _Avoid_: cell, pixel
+
+**Cut cell**:
+A terrain cell the cut line of a wall between two roads crosses, drawn apart (`scenery.wallcut`): the lower road's level up to
+the line just behind the wall's face, the upper's behind it, an upright skirt between them, not the grid's ramp in front of the
+wall.
+_Avoid_: patch
 
 **OBJ part**:
 One file in `out/tracks/<name>/obj/parts/`, a tile's geometry before the kn5 (`t_<tx>_<ty>.obj`).
@@ -46,6 +56,10 @@ _Avoid_: part, submodule
 A stretch of a road between its bridges and tunnels (`roads.ground_parts`); a bridge part and a tunnel part are the
 stretches on a bridge and in a tunnel.
 _Avoid_: part, segment
+
+**Level**:
+Two things: a road's `level` in the map, its layer over or under other roads (`roads/levels.py`), and a water level.
+_Avoid_: level alone where both can be meant
 
 ## Place
 
@@ -63,6 +77,14 @@ Assetto Corsa's axes: x east, y up, z south (z = -north).
 **Pin**:
 A point the user sets on the map; the route runs through the pins in order.
 _Avoid_: waypoint, stop
+
+**Height pin**:
+A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`, `plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
+
+**Cheap bushes**: billboards on painted shrubland that no map measures (`scenery/bushes.py`, objects `nocol_bush_<tx>_<ty>`): noise gives them groups, gaps and now and then a row; near only and without shadows. The bushes the canopy data finds stay `nocol_trees_bush_`.
+
+**Debug stretch**:
+The part of a track holding a bug, built into AC to drive it: `<track>_<route metre>_debug` (`tools/debug_stretch.py`). No test track, and deleted when the fix is in.
 
 **Route**:
 The road line OSRM finds through the pins, plus the run-off behind the end pin.
@@ -86,6 +108,10 @@ The ground's height from the elevation data, before grading.
 One road's height profile: its centre line with a target height per vertex.
 _Avoid_: profile (used for bridges' and tunnels' too)
 
+**Plan pack**:
+The plans around a spot as the grading reads them (`grading.PlanPack`). The same plans come again in many packs, leaving
+out a few each; what two plans give each other stays on the plan (`Plan.beside`).
+
 **Grading**:
 Making the ground follow the plans: roads level and smooth, the ground around them blended in.
 
@@ -98,6 +124,11 @@ The 4 cm the physics ground is raised under roads (`ROAD_LIFT`); it is in the me
 **Deck**:
 A bridge's driving surface.
 
+**Deck depth**:
+How far a deck's slab and girders reach under its road, per bridge part (`Spec.depth`, `roads.deck_depth`): it sets the concrete's
+underside, the piers' tops and the clearance the deck keeps over what it crosses.
+_Avoid_: depth alone (the water's lowering is `depth` in the code too)
+
 **Abutment**:
 The end of a bridge where it meets the ground.
 
@@ -105,6 +136,9 @@ The end of a bridge where it meets the ground.
 A paved plate under the roads where three or more carriageways meet at a deck's end (`roads.deck_pads`): the corner of a turn
 or the wedge where a ramp leaves, which the map leaves open over whatever lies below. In the OBJ it is part of the deck
 object; `measure.py --profile` marks it.
+
+**Pier**:
+A support under a bridge's deck, between its abutments: about one per span (`bridges.PIER_SPAN_M`).
 
 **Approach**:
 The ground road leading onto an abutment or into a tunnel portal, ramped to meet it.
@@ -117,12 +151,62 @@ The mouth of a tunnel.
 A tunnel floor's height line: the lower convex hull of the ground along the tunnel and the road beyond its portals.
 
 **Chain**:
-Bridge or tunnel parts that follow on from each other, solved together once, across tiles.
+Bridge or tunnel parts that follow on from each other, solved together once per process, across tiles (`roads/chains.py`).
+
+## Water
+
+**Water area**:
+A polygon of the map's water layer (Overture `base/water`): a lake, a river's area, the sea. `scenery/water.py` lowers the
+ground under it and lays a water mesh on it.
+_Avoid_: lake for all of them
+
+**Water line**:
+A stream or river the map has only as a line: painted into the ground's texture, with no water mesh and no lowering.
+
+**Water level**:
+A water area's surface height in a tile: the 25th percentile of the raw elevation inside it; on a river it runs downhill
+with the bed.
+
+**Lowering**:
+How far a ground vertex goes down under a water area (`depth` in the code): past the shore a little, plus whatever of the
+ground stood above the water level.
+_Avoid_: depth outside the code
+
+**Water mesh**:
+The surface drawn on a water level: the objects `nocol_water_*`, and `nocol_foam_*` along the shore.
 
 ## Build
 
 **Build**:
 One run of the generator: route, tiles, scenery, distant view, kn5, into a track folder in AC.
+
+**Distant view**:
+The coarse terrain around the corridor up to 40 km (`scenery/farview.py`, the OBJ part `far.obj`). It uses the raw elevation:
+no grading, no lowering. `measure.py --build` and `from_debug.py --upto obj` leave it out.
+_Avoid_: horizon, far terrain
+
+**Worker**:
+One process of a build's pool (`track/parallel.py`), running tiles, scenery, minimap and kn5 meshes: on Windows `Map2Lap Worker.exe`.
+_Avoid_: thread
+
+**Plan run**:
+The folder `cache/plans/<name>` a build's workers share their plans in (`plancache.one_run`, `BNGE_PLAN_RUN`); it goes after the
+build.
+
+**Fault**:
+Something a build may read failed, was not there yet, or a fallback stood in for it (`revisit.fault`): that build goes on, and what
+it made then stays out of the revisit cache.
+
+**Build trace**:
+What a test track's last `measure.py` build did, in `out/trace/<track>` (`buildtrace.py`): for two builds of the same code
+that differ. Read with `tools/build_trace.py`.
+
+**Kept build**:
+A build's files left in `out/tracks/<name>/` (tiles and OBJ parts): what the tools in `tools/` read.
+
+**Session**:
+The folder one run of the Track Debug app writes (`Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`): marks, recorded
+drive, the track's settings and route. `from_debug.py` builds a track from it.
 
 **Test track**:
 A route in `tools/test_tracks.json`, short or long, with its spots and reference values; regression checks run only
@@ -132,14 +216,15 @@ there.
 The `measure.py` values a test track's build is compared with.
 
 **Revisit cache**:
-Built tile results kept on disk, keyed by the code key; a later build of the same place reads them back.
+A map cell's facts and complete plans kept on disk, keyed by the code key; a later build of the same place reads them back.
 
 **Code key**:
-A hash of the `engine/` code, the native module and the `BNE_*` environment variables; a new one makes the next build
-cold.
+A hash of the `engine/` code, the native module, the Python and numpy versions and the `BNE_*` environment variables but
+`BNE_REVISIT`, `BNE_REVISIT_MB` and `BNE_REVISIT_SKIP`; a new one makes the next build cold.
 
 **Cold build**:
-A build that finds nothing for its code key in the revisit cache and computes everything (`BNE_COLD` forces one).
+A build that finds nothing for its code key in the revisit cache and computes everything (`BNE_COLD` with a value not used
+before forces one, `BNE_REVISIT=off` every time).
 _Avoid_: fresh build, clean build
 
 **Track code**:

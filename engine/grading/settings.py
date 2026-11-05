@@ -7,6 +7,15 @@ import roads as roadsmod
 
 
 log = logging.getLogger("earthd.grading")
+
+
+def fell_back(what, *args):
+    """A plan goes on without what just failed ("no fill rather than no grading"): a road end that lost its abutment lay
+    5 m under its bridge. So the build says so (what, args: a log message), and its results aren't kept (revisit.fault)."""
+    import revisit
+    log.warning(what, *args)
+    revisit.fault()
+
 VERSION = 2
 PROFILE_STEP = 2.0          # m between profile samples
 SIGMA_M = 12.0              # m, profile smoothing of built roads

@@ -244,6 +244,19 @@ class ChainStoreTest(unittest.TestCase):
         own = roads.BridgeProfiles(FRAME, lambda key: f, flat_elev).parts([f], (-100, -100, 100, 100))[0]
         np.testing.assert_allclose(np.interp(xa[:, 0], own[2][:, 0], own[3]), za, atol=2e-3)
 
+    def test_a_tiles_piers_and_beams_keep_one_order_whichever_chain_was_solved_first(self):
+        """The deck mesh's triangles follow them: a tile came out in two orders, by what its process had solved before."""
+        xs, box = (30.0, 10.0, 20.0), (0.0, 0.0, 100.0, 100.0)
+        for order in (1, -1):
+            cs = roads.ChainStore(roads.BridgeProfiles, lambda key: None, flat_elev)
+            st = cs.store_at(LAT, LON)
+            st.piers = {("part", x): [(x, 5.0, 1.0, 0.0, 10.0, 0.0, 8.0)] for x in xs[::order]}
+            st.trusses = {("chain", x): [(np.array([x, 5.0, 10.0]), np.array([x + 2.0, 5.0, 10.0]), 0.3, 0.3)]
+                          for x in xs[::order]}
+            for read in (st, roads.ChainView(cs, st.frame)):
+                self.assertEqual([q[0] for q in read.piers_in(box)], [10.0, 20.0, 30.0])
+                self.assertEqual([float(b[0][0]) for b in read.beams_in(box)], [10.0, 20.0, 30.0])
+
     def test_chain_across_stores_solved_by_its_owner(self):
         f = overpass()
         cs = roads.ChainStore(roads.BridgeProfiles, lambda key: f, flat_elev)

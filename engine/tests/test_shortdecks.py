@@ -67,7 +67,7 @@ class DepthTest(unittest.TestCase):
         spec = roads.Spec(*([None] * len(roads.Spec._fields)))._replace(
             width=10.0, kind="paved", urban=False, cls="primary", surf="asphalt", sides=0, walk=False, lanes=2,
             oneway=False, gap=0.0, median=0.0, link=False, dir=0, kmh=50)
-        out = roads._deck_chunks([("a", spec, pts, -82.6)], (-50, -50, 50, 50), None, {"a": 1.0})
+        out = roads._deck_chunks([("a", spec._replace(depth=1.0), pts, -82.6)], (-50, -50, 50, 50))
         decks = [c for c in out if c.get("deck") and not c.get("ctx")]
         self.assertTrue(decks)
         self.assertTrue(all(c["dd"] == 1.0 for c in decks))

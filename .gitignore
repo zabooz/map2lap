@@ -1,3 +1,6 @@
+# This machine's agent files
+.claude/
+
 # Python
 .venv/
 __pycache__/

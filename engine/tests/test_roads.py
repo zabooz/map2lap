@@ -7,11 +7,14 @@ import sys
 import tempfile
 import math
 import unittest
+import unittest.mock
+from types import SimpleNamespace
 
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import geodesy  # noqa: E402
+import grading  # noqa: E402
 import mapgeom  # noqa: E402
 import roads  # noqa: E402
 import surface as sf  # noqa: E402
@@ -1209,3 +1212,234 @@ class RetainingWallTest(unittest.TestCase):
         self.assertTrue(step, "a cutting's step: a wall")
         bank = self._walls(lambda n: np.clip((n - edge + 1.0) / 3.0, 0.0, 1.0) * 3.0)
         self.assertFalse(bank, "a natural bank: no wall")
+
+
+class BridgeReachTest(unittest.TestCase):
+    def test_a_range_being_lengthened_is_not_read_half_made(self):
+        """(another planning thread asking meanwhile got the map's ranges as the lengthened ones: a road's end 10 m out on
+        its bridge, 5 m under it, on the A2 in 1 build of 15)"""
+        levels = roads.levels
+        f = features([[(-200, 0), (200, 0)], [(0, -100), (0, 100)]], ["motorway", "residential"], flags=[(0, "is_bridge", 0.49, 0.51)])
+        meanwhile = []
+        boxes = levels._feature_boxes
+
+        def asked_meanwhile(feats):
+            if not meanwhile:
+                meanwhile.append(None)
+                meanwhile[0] = levels._bridge_reach(feats, 0)["ranges"]
+            return boxes(feats)
+        with unittest.mock.patch.object(levels, "_feature_boxes", asked_meanwhile):
+            got = levels._bridge_reach(f, 0)["ranges"]
+        self.assertLess(got[0][0], 0.49, "the crossing under it lengthens it")
+        self.assertEqual(meanwhile[0], got)
+
+
+class WallBetweenRoadsTest(unittest.TestCase):
+    """A main road along y = 0, a lane above it at y = 6, the grading's step between them at y = 2.75 (Plan.cut, no height:
+    _between_cuts). The stone wall there drew nothing: the wall test read the lane's flat top."""
+    MAIN = roads.Spec(8.0, "paved", False, "secondary")
+    LANE = roads.Spec(4.0, "paved", False, "service")
+
+    def plan(self, fid, y, cut_at=None, side=0, x=(0.0, 200.0)):
+        xs = np.arange(x[0], x[1] + 0.1, 4.0)
+        cut = np.full((len(xs) - 1, 6), np.nan)
+        if cut_at is not None:
+            cut[:, side] = cut_at
+        half = (self.MAIN if fid == "main" else self.LANE).width / 2
+        return SimpleNamespace(xy=np.c_[xs, np.full(len(xs), y)], z=np.full(len(xs), 10.0), cut=cut, rid=grading.road_id(fid), tunnel=False,
+                               half=half + 1.0, road_half=half)
+
+    def walls(self, plans, step=3.0, width=0.5, at=2.75, lane_y=6.0, made=()):
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 10.0 + step * np.clip((np.asarray(n) - at) / width, 0.0, 1.0)
+        pts = lambda y: np.c_[np.arange(0.0, 201.0, 5.0), np.full(41, y), np.full(41, 10.0)]  # noqa: E731
+        rows = [("main", self.MAIN, pts(0.0), LON), ("lane", self.LANE, pts(lane_y), LON)]
+        return [w for w in roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0), plans_at=lambda xy: plans)
+                if "base" in w and not w.get("parapet")]
+
+    def test_a_step_between_two_roads_gets_its_wall_at_the_step_facing_the_lower(self):
+        got = self.walls([self.plan("main", 0.0, 2.75), self.plan("lane", 6.0, 3.25, 3)])
+        self.assertEqual(len(got), 1)
+        np.testing.assert_allclose(got[0]["base"][:, 1], 2.75, atol=0.01)
+        self.assertGreater(float(got[0]["top"].max()), 12.9, "up to the upper road")
+        self.assertLess(float(got[0]["toward"][:, 1].max()), 0.0, "its face toward the main road, to the south")
+
+    def test_the_wall_keeps_off_the_lane_above_it(self):
+        got = self.walls([self.plan("main", 0.0, 2.75)])[0]
+        self.assertLessEqual(float(got["thick"].max()), 6.0 - 2.0 - 2.75, "no top over the lane")
+
+    def cuts(self, plans, step=3.0, width=0.5, at=2.75, lane_y=6.0):
+        """The lines the ground is cut along, beside the walls."""
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 10.0 + step * np.clip((np.asarray(n) - at) / width, 0.0, 1.0)
+        pts = lambda y: np.c_[np.arange(0.0, 201.0, 5.0), np.full(41, y), np.full(41, 10.0)]  # noqa: E731
+        rows = [("main", self.MAIN, pts(0.0), LON), ("lane", self.LANE, pts(lane_y), LON)]
+        out = []
+        roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0), plans_at=lambda xy: plans, cut_lines=out)
+        return out
+
+    def test_with_a_lane_right_behind_it_only_the_step_stays_no_wall_on_the_lane(self):
+        """(the upper carriageway 0.1 m behind the face: the top reached 0.5 m into it)"""
+        p = [self.plan("main", 0.0, 2.75)]
+        self.assertEqual(self.walls(p, lane_y=4.85), [], "no room for a wall's depth")
+        self.assertTrue(self.cuts(p, lane_y=4.85), "the ground's step all the same")
+
+    def test_its_top_keeps_off_the_lane_as_deep_as_the_room_is(self):
+        got = self.walls([self.plan("main", 0.0, 2.75)], lane_y=5.05)[0]
+        self.assertLessEqual(float(got["thick"].max()), 0.3)
+
+    def test_the_ground_is_cut_inside_the_wall_at_its_levels(self):
+        """(scenery.wallcut, in another process: the wall as decided here)"""
+        p = [self.plan("main", 0.0, 2.75)]
+        wall, cut = self.walls(p)[0], self.cuts(p)[0]
+        self.assertGreater(float(cut["base"][:, 1].min()), 2.75, "behind the face")
+        self.assertLess(float(cut["base"][:, 1].max()), 2.75 + float(wall["thick"].min()), "inside its body")
+        np.testing.assert_allclose(cut["low"], 10.0, atol=0.01)
+        np.testing.assert_allclose(cut["high"], 13.0, atol=0.01)
+        np.testing.assert_allclose(cut["toward"], wall["toward"])
+
+    def test_the_top_stays_on_the_upper_level_to_the_wall_s_ends(self):
+        """(lowered at its ends the upper ground stood over it, a skirt of bare ground on top)"""
+        got = self.walls([self.plan("main", 0.0, 2.75)])[0]
+        np.testing.assert_allclose(got["top"], 13.0 + roads.walls.WALL_TOP_M, atol=0.01)
+
+    def test_the_upper_level_is_read_at_the_road_beside_not_just_behind_the_step(self):
+        """(a step a metre or more short of the upper road, still climbing 1.5 m behind it: 1.56 m read of a 5 m step, no wall,
+        a tooth at the road's edge, Cap Corse)"""
+        main, lane = self.plan("main", 0.0, 2.75), self.plan("lane", 9.0, 3.25, 3)
+        got = self.walls([main, lane], step=5.0, width=4.0, lane_y=9.0)
+        self.assertEqual(len(got), 1)
+        np.testing.assert_allclose(got[0]["top"], 15.0 + roads.walls.WALL_TOP_M, atol=0.01)
+        self.assertEqual(self.walls([main], step=5.0, width=4.0, lane_y=9.0), [], "without its plan: read 1.5 m behind it, a slope")
+
+    def test_a_road_far_off_is_not_beside_it(self):
+        """(a road across a valley, parallel and 390 m off: the upper level read there, 189 m over the road, Heiligenblut)"""
+        main, far = self.plan("main", 0.0, 2.75), self.plan("lane", 40.0)
+        self.assertEqual(self.walls([main, far], step=30.0, width=40.0), [], "read 1.5 m behind the step: 1.1 m, no wall")
+
+    def test_a_road_within_the_room_s_reach_is_beside_it_one_past_it_not(self):
+        walls = roads.walls
+        xy = np.array([[0.0, 0.0], [200.0, 0.0]])
+        mid, d, n = np.array([[100.0, 0.0]]), np.array([[1.0, 0.0]]), np.array([[0.0, 1.0]])
+        reach = 4.0 + walls.BETWEEN_ROOM_M + 2.0            # (its half, the room, the other's half)
+        for y, found in ((6.0, True), (reach, True), (reach + 0.1, False)):
+            q = SimpleNamespace(xy=xy + (0.0, y), z=np.zeros(2), rid=2, tunnel=False, half=3.0, road_half=2.0)
+            off, half = walls._road_beside(mid, n, d, [q], 1, 4.0)
+            self.assertEqual(bool(np.isfinite(off[0])), found, y)
+            if found:
+                self.assertAlmostEqual(off[0], y)
+                self.assertEqual(half[0], 2.0)
+
+    def test_with_no_road_beside_the_level_is_read_just_behind_the_step(self):
+        walls = roads.walls
+        off, _half = walls._road_beside(np.array([[100.0, 0.0]]), np.array([[0.0, 1.0]]), np.array([[1.0, 0.0]]), [], 1, 4.0)
+        self.assertTrue(np.isinf(off[0]))
+
+    @staticmethod
+    def beside_for_every_mid(mid, n_out, d, plans, rid, half):
+        """_road_beside finding every mid's foot on every plan: what its choice of mids must not change. Pure."""
+        walls = roads.walls
+        cos_par = np.cos(np.radians(walls.BETWEEN_PARALLEL_DEG))
+        off, out_half = np.full(len(mid), np.inf), np.zeros(len(mid))
+        for q in plans:
+            if q.rid == rid or q.tunnel or len(q.xy) < 2:
+                continue
+            foot, on, u, _j, _t = grading._foot(mid, np.asarray(q.xy, np.float64)[:, :2])
+            v = foot - mid
+            o = (v * n_out).sum(1)
+            ok = (on & (np.abs((u * d).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d).sum(1)) < grading.VERTEX_STEP) & (o < off)
+                  & (o - q.road_half <= half + walls.BETWEEN_ROOM_M))
+            off[ok], out_half[ok] = o[ok], q.road_half
+        return off, out_half
+
+    def test_only_the_mids_in_reach_are_measured_with_the_same_result(self):
+        """Roads beside a road of any direction, near the frame's origin and 1000 km from it, the next plan nearer or not."""
+        rng = np.random.default_rng(5)
+        found = 0
+        for run in range(300):
+            at = rng.choice([0.0, 1e6])
+            turn = np.cumsum(rng.normal(0, 0.15, 40)) + rng.uniform(0, 2 * np.pi)
+            xy = at + np.cumsum(np.c_[np.cos(turn), np.sin(turn)] * 4.0, axis=0)
+            mid = (xy[:-1] + xy[1:]) / 2
+            d = np.diff(xy, axis=0)
+            d /= np.hypot(*d.T)[:, None]
+            n = np.c_[-d[:, 1], d[:, 0]] * rng.choice([-1.0, 1.0])
+            plans = []
+            for k in range(int(rng.integers(1, 6))):
+                i, j = sorted(rng.choice(len(xy), 2, replace=False))
+                side = rng.uniform(-30, 30)
+                line = xy[i:j + 1] + side * np.r_[n, n[-1:]][i:j + 1] + rng.normal(0, 0.3, (j + 1 - i, 2))
+                plans.append(SimpleNamespace(xy=line, rid=int(rng.integers(1, 4)), tunnel=bool(rng.random() < 0.1), half=4.0,
+                                             road_half=float(rng.uniform(1, 8))))
+            got = roads.walls._road_beside(mid, n, d, plans, 1, 4.0)
+            want = self.beside_for_every_mid(mid, n, d, plans, 1, 4.0)
+            np.testing.assert_array_equal(got[0], want[0])
+            np.testing.assert_array_equal(got[1], want[1])
+            found += int(np.isfinite(want[0]).sum())
+        self.assertGreater(found, 1000, "roads beside it found, or this tests nothing")
+
+    def test_the_cut_goes_on_into_a_cutting_s_step_of_the_same_ground(self):
+        """(the step between two roads turns into the upper road's cutting past the wall: a 5 m tooth 3 m from the line, Cap Corse)"""
+        main, lane = self.plan("main", 0.0, 2.75), self.plan("lane", 8.0)
+        main.cut[25:, 0], main.cut[25:, 1] = 6.0, 15.0
+        wall, cut = self.walls([main, lane], step=8.0, width=8.0, lane_y=8.0)[0], self.cuts([main, lane], step=8.0, width=8.0, lane_y=8.0)[0]
+        self.assertLess(float(wall["base"][:, 0].max()), 101.0)
+        self.assertGreater(float(cut["base"][:, 0].max()), 190.0)
+
+    def test_past_a_wall_s_end_the_step_goes_on_being_cut(self):
+        """(a wall stops at a tight bend, say, the step doesn't: no ramp coming back in front of the road)"""
+        p = [self.plan("main", 0.0, 2.75)]
+        real = grading.bend_zone
+        self.addCleanup(setattr, grading, "bend_zone", real)
+        grading.bend_zone = lambda mid: np.asarray(mid)[:, 0] > 100.0
+        wall, cut = self.walls(p)[0], self.cuts(p)[0]
+        self.assertLess(float(wall["base"][:, 0].max()), 101.0)
+        self.assertGreater(float(cut["base"][:, 0].max()), 190.0)
+
+    def test_a_slope_with_room_for_it_stays_the_terrain(self):
+        """(3 m over 8 m of room between two carriageways: a bank)"""
+        self.assertEqual(self.walls([self.plan("main", 0.0, 6.0)], width=6.0, at=4.5, lane_y=14.0), [])
+
+    def test_a_step_lower_than_a_cutting_gets_none(self):
+        """(SH16 at Waterview: 1.1 m, the map's own wall or none)"""
+        self.assertEqual(self.walls([self.plan("main", 0.0, 2.75)], step=1.1), [])
+
+    def test_the_upper_road_s_side_gets_none(self):
+        self.assertEqual(self.walls([self.plan("lane", 6.0, 3.25, 3)]), [])
+
+    def test_a_step_that_is_a_cutting_s_with_a_height_is_not_between_two_roads(self):
+        p = self.plan("main", 0.0, 2.75)
+        p.cut[:, 1] = 13.0
+        self.assertEqual(self.walls([p]), [])
+
+    def test_no_plans_no_such_wall(self):
+        def elev(la, lo):
+            return np.full(np.shape(la), 10.0)
+        rows = [("main", self.MAIN, np.c_[np.arange(0.0, 201.0, 5.0), np.zeros(41), np.full(41, 10.0)], LON)]
+        self.assertEqual(roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0)), [])
+
+    def test_a_road_cut_in_two_by_a_map_cell_has_one_wall_without_a_dip_at_the_cut(self):
+        whole = self.walls([self.plan("main", 0.0, 2.75)])[0]
+        cut = self.walls([self.plan("main", 0.0, 2.75, x=(100.0, 200.0)), self.plan("main", 0.0, 2.75, x=(0.0, 100.0))])[0]
+        np.testing.assert_allclose(cut["top"], whole["top"], atol=1e-6)
+
+    def test_a_tile_gets_only_its_own_stretch_and_neighbours_agree(self):
+        p = self.plan("main", 0.0, 2.75, x=(0.0, 400.0))
+
+        def elev(la, lo):
+            _e, n, _ = FRAME.geodetic_to_enu(np.asarray(la), np.asarray(lo), np.zeros(np.shape(la)))
+            return 10.0 + 3.0 * np.clip((np.asarray(n) - 2.75) / 0.5, 0.0, 1.0)
+        rows = [("main", self.MAIN, np.c_[np.arange(0.0, 401.0, 5.0), np.zeros(81), np.full(81, 10.0)], LON),
+                ("lane", self.LANE, np.c_[np.arange(0.0, 401.0, 5.0), np.full(81, 6.0), np.full(81, 10.0)], LON)]
+        west = [w for w in roads.retaining_walls(FRAME, rows, elev, (0.0, -128.0, 256.0, 128.0), plans_at=lambda xy: [p]) if not w.get("parapet")]
+        east = [w for w in roads.retaining_walls(FRAME, rows, elev, (256.0, -128.0, 512.0, 128.0), plans_at=lambda xy: [p]) if not w.get("parapet")]
+        self.assertLess(float(west[0]["base"][:, 0].max()), 260.0)
+        self.assertGreater(float(east[0]["base"][:, 0].min()), 250.0)
+        a = dict(zip(np.round(west[0]["base"][:, 0], 3), west[0]["top"]))
+        b = dict(zip(np.round(east[0]["base"][:, 0], 3), east[0]["top"]))
+        shared = set(a) & set(b)
+        self.assertTrue(shared, "they overlap")
+        for x in shared:
+            self.assertAlmostEqual(a[x], b[x], places=6)

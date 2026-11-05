@@ -5,7 +5,8 @@ map changed since.
 
     .venv\\Scripts\\python.exe tools\\from_debug.py "<Documents>\\Assetto Corsa\\map2lap_debug\\<track>_<time>"
     ... --name my_copy        the track's folder name in AC (default: <track>_debug)
-    ... --upto obj            only up to the OBJ parts in out\\tracks\\<name> (measure.py, check_drive.py read them)
+    ... --upto obj            only up to the OBJ parts in out\\tracks\\<name> (measure.py, check_drive.py read them); no
+                              distant view: no far.obj (farview.build makes it, a full build does)
 """
 import argparse
 import csv

@@ -28,12 +28,16 @@ Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m tr
 ## Parallel (`track/parallel.py`)
 
 Tiles, scenery, minimap and kn5 meshes run per tile in a `ProcessPoolExecutor` (cores − 1 processes or the share set in
-Settings, at most 61, at most free RAM / 1.5 GB). Processes rather than threads because BeamNG.Earth's state
+Settings, on Windows at most 61, at most free RAM / 1.5 GB). Processes rather than threads because BeamNG.Earth's state
 (`blockworker._s`) is global: every process builds it in its initializer.
 
+- The workers share their plans: the first to plan a map cell writes it, the others read it (`plancache.one_run`, AGENTS.md
+  under Builds). Two builds of the same code that differ: `tools/build_trace.py`, round after round: `tools/stability.py`.
 - OBJ faces use **relative (negative) indices**: part files can be concatenated without renumbering.
 - kn5: every process writes its mesh nodes as bytes to `obj/kn5_parts/<k>.bin`, the main process writes the header, textures,
   materials and start points (`kn5.write_streamed`). All materials of the `.mtl` have fixed numbers.
+- The materials and their textures (`make_obj.write_mtl`) are made in a thread beside the scenery's processes, which read
+  nothing it makes.
 - Windows locks a cache file for a moment while another process replaces it: `parallel.retry_locked`.
 - Processes are not recycled (`max_tasks_per_child` hangs under Python 3.12, CPython gh-115634).
 - On Windows they run as `Map2Lap Worker.exe`, a build as `Map2Lap Build.exe`, the generator page as `Map2Lap Server.exe`:

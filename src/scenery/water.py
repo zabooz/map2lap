@@ -114,7 +114,7 @@ def _rings(frame, layers, x0, y0, size):
         if f is None or len(f.kind) == 0:
             continue
         sub, cls = f.attrs.get("subtype"), f.attrs.get("class")
-        for i in np.flatnonzero(f.kind == 3):
+        for i in np.flatnonzero(mapgeom.water_areas(f)):
             basin = cls is not None and str(cls[i]) in BASINS
             flowing = (sub is not None and str(sub[i]) in FLOWING) or (cls is not None and str(cls[i]) in FLOWING)
             for part in f.parts(i):

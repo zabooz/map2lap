@@ -83,6 +83,18 @@ class FakeMapData:
 
 
 class VegetationTest(unittest.TestCase):
+    def test_trees_stand_on_a_cape_not_in_a_lake(self):
+        """The water layer holds land too (mapgeom.LAND_CLASSES): Cap Corse had no tree on 23 km2."""
+        md = FakeMapData()
+        ring = [md.lonlat(90, 90), md.lonlat(90, 110), md.lonlat(110, 110), md.lonlat(110, 90), md.lonlat(90, 90)]
+        ring = [(float(a), float(b)) for a, b in ring]
+        counts = {}
+        for cls in ("cape", "lake"):
+            md.cd.layers["water"] = Feats(3, [ring], [cls])
+            it = veg.Vegetation(md, None).cell(KEY)
+            counts[cls] = int((it.kind == veg.KIND_TREE).sum())
+        self.assertEqual(counts, {"cape": 2, "lake": 1})
+
     def test_one_tree_per_free_crown(self):
         md = FakeMapData()
         it = veg.Vegetation(md, None).cell(KEY)

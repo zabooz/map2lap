@@ -121,9 +121,11 @@ def _yield_strength(plans, box, nseg):
 # and the ends that run onto another road give way by YIELD_*. Giving way there too, a primary going on from a trunk's
 # end dropped out on the trunk's carriageway (a round cap reaching past its end over the junction) and on a wider side
 # road's joining at that node: the side road's lanes there no longer came down to the primary, a 10 cm hump 6 m from
-# the node, 3.5 G at 100 km/h.
-BESIDE_WIDER_M = 0.5        # m: the other road's carriageway this much wider (half width) at least
+# the node, 3.5 G at 100 km/h. What two plans give each other depends on them alone, so a plan keeps it (Plan.beside): a
+# dense A2 tile made 99 packs of nearly the same 396 plans, without that 98 % of the measuring done before.
+BESIDE_WIDER_M = 0.5       # m: the other road's carriageway this much wider (half width) at least
 BESIDE_STEP_M = 1.0         # m between the narrow road's samples
+BOX_SLACK_M = 1e-6          # m a segment's box may miss and still be measured: far above a float's rounding at 1000 km
 
 
 def _beside_strength(plans, box, nseg):
@@ -142,29 +144,62 @@ def _beside_strength(plans, box, nseg):
         wider = [o for o in wider if plans[o].rid != p.rid]
         if not wider:
             continue
-        xy = np.asarray(p.xy, f64)[:, :2]
-        arc = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
-        t = np.unique(np.r_[np.arange(0.0, arc[-1], BESIDE_STEP_M), arc[-1]])
-        q = np.c_[np.interp(t, arc, xy[:, 0]), np.interp(t, arc, xy[:, 1])]
-        qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)    # (each sample's segment)
+        t, q, qseg, pairs = p.beside if p.beside is not None else _beside_samples(p)
         near = np.zeros(len(t), bool)
         node = np.zeros(len(t), bool)
         for o in wider:
             op = plans[o]
-            oxy = np.asarray(op.xy, f64)[:, :2]
-            a, ab = oxy[:-1], np.diff(oxy, axis=0)
-            l2 = np.maximum((ab * ab).sum(1), 1e-12)
-            u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)     # (samples, segments)
-            d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
-            # (within reach: the narrow road's blend (its half and T_MAX) touches the wider one's carriageway)
-            reach = rh[o] + p.half + T_MAX
-            near |= d.min(axis=1) < reach
-            for s in _shared_nodes(p, op):              # (a junction with it: blended as equals there)
-                node |= np.abs(t - s) < reach
+            masks = pairs.get(op)
+            if masks is None:
+                masks = pairs[op] = _beside_masks(p, op, t, q)
+            near |= masks[0]
+            node |= masks[1]
         near &= ~node
         if near.any():
             out[s0[k] + np.unique(qseg[near])] = 1.0
     return np.round(out * 255.0).astype(np.uint8)
+
+
+def _beside_samples(p):
+    """Plan p's Plan.beside, set: its samples' arc positions and points, each one's segment, an empty {} for its pairs."""
+    xy = np.asarray(p.xy, np.float64)[:, :2]
+    arc = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]
+    t = np.unique(np.r_[np.arange(0.0, arc[-1], BESIDE_STEP_M), arc[-1]])
+    q = np.c_[np.interp(t, arc, xy[:, 0]), np.interp(t, arc, xy[:, 1])]
+    qseg = np.clip(np.searchsorted(arc, t, side="right") - 1, 0, len(xy) - 2)
+    p.beside = (t, q, qseg, {})
+    return p.beside
+
+
+def _beside_masks(p, op, t, q):
+    """Per sample (t, q) of the narrow Plan p: (within reach of the wider Plan op, near a node they share). Read-only: every
+    pack holding the two reads the same ones. Pure."""
+    # (within reach: the narrow road's blend (its half and T_MAX) touches the wider one's carriageway)
+    reach = getattr(op, "road_half", op.half) + p.half + T_MAX
+    near = np.zeros(len(t), bool)
+    node = np.zeros(len(t), bool)
+    oxy = np.asarray(op.xy, np.float64)[:, :2]
+    at = _segments_near(oxy, q.min(axis=0) - reach, q.max(axis=0) + reach)
+    if len(at):
+        a, ab = oxy[at], oxy[at + 1] - oxy[at]
+        l2 = np.maximum((ab * ab).sum(1), 1e-12)
+        u = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / l2[None], 0.0, 1.0)     # (samples, segments)
+        d = np.hypot(*(a[None] + u[..., None] * ab[None] - q[:, None, :]).transpose(2, 0, 1))
+        near = d.min(axis=1) < reach
+    for s in _shared_nodes(p, op):              # (a junction with it: blended as equals there)
+        node |= np.abs(t - s) < reach
+    near.flags.writeable = node.flags.writeable = False
+    return near, node
+
+
+def _segments_near(xy, lo, hi):
+    """The numbers of the segments of the line xy (n, 2) whose boxes meet the box (lo, hi), BOX_SLACK_M wider; all of them
+    when xy isn't finite, where only the full distances say what a segment does. Pure."""
+    if not np.isfinite(xy).all():
+        return np.arange(len(xy) - 1)
+    a, b = xy[:-1], xy[1:]
+    s0, s1 = np.minimum(a, b), np.maximum(a, b)
+    return np.flatnonzero(((s1 >= lo - BOX_SLACK_M) & (s0 <= hi + BOX_SLACK_M)).all(axis=1))
 
 
 def _shared_nodes(p, q):

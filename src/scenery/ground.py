@@ -28,10 +28,11 @@ import mapgeom
 import roads as roadsmod
 import surface as surfacemod
 
-from scenery import groundcover, leisure, water
+from scenery import groundcover, leisure, wallcut, water
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
+LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
 TEX_PX = 2048                   # pixels per tile edge (12.5 cm); TODO long routes: ksMultilayer (mask + detail)
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
@@ -249,10 +250,13 @@ def _paint_paths(idx, paths, x0, y0):
 def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
     """img with the segments (m, 4) in pixels, half widths hws (pixels), look (ROAD_LOOKS number per segment)
     painted in, anti-aliased. worn: the roads' patches and cracks (WEAR) and a dirt track's grass strip."""
+    white = np.array([(255.0, 255.0, 255.0, 1.0)], np.float32)
     for k, (name, (texname, rep, bright)) in enumerate(ROAD_LOOKS.items()):
-        colors = np.array([(255.0, 255.0, 255.0, 1.0 if j == k else 0.0) for j in range(len(ROAD_LOOKS))],
-                          np.float32)
-        alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws, look, colors)[..., 0]
+        sel = look == k
+        if not sel.any():
+            continue
+        one = np.zeros(int(sel.sum()), np.uint8)
+        alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs[sel], hws[sel], one, white)[..., 0]
         if not alpha.any():
             continue
         am = alpha > 0
@@ -265,8 +269,8 @@ def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
         w = (alpha[am] / 255.0)[:, None]
         img[am] = img[am] * (1 - w) + road * w
         if worn and name == "dirt":      # grass strip between the wheel tracks
-            alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs, hws * TRACK_GRASS,
-                                         look, colors)[..., 0]
+            alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs[sel], hws[sel] * TRACK_GRASS,
+                                         one, white)[..., 0]
             am = alpha > 0
             grass = _sample(_texture(os.path.join(gc_dir, "gc_meadow.png"), int(round(TERRAIN_UV_M / sp))),
                             wx[am], wy[am], TERRAIN_UV_M)
@@ -285,9 +289,10 @@ def _wear(rgb, x, y, amount):
     return rgb
 
 
-def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print):
-    """Terrain of the tile (tx, ty): returns (P (n*n, 3) ENU, UV (n*n, 2), {AC prefix: triangles}, texture file).
-    depth (n, n): lowering under water (water.water_tile) or None."""
+def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=()):
+    """Terrain of the tile (tx, ty): returns (P (n*n + m, 3) ENU: the lattice, then the vertices of the cells cut along walls,
+    UV likewise (n*n + m, 2), {AC prefix: triangles}, texture file). depth (n, n): lowering under water (water.water_tile) or
+    None; walls: the cut lines along the walls between two roads (wallcut.cut)."""
     s = blockworker._s
     x0, y0, x1, y1 = roadsmod.tile_bbox(tx, ty)
     n = int(round((x1 - x0) / CELL)) + 1
@@ -371,11 +376,16 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     # roadmesh.PORTAL_FRAME)
     open_ = ~(holes[:-1, :-1] | holes[1:, :-1] | holes[:-1, 1:] | holes[1:, 1:]).ravel()
     surf = np.array([SURF_AC.get(int(k), "1GRASS") for k in idx[:-1, :-1].ravel()], object)
+    # (the cells along a wall between two roads apart: a step at its face, not the lattice's ramp in front of it)
+    along = wallcut.cut(keep["u"], x0, y0, CELL, walls, open_)
+    drawn = open_.copy()
+    drawn[along.cells] = False
     groups = {}
     for pre in np.unique(surf[open_]):
-        m = open_ & (surf == pre)
-        groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]]]
-    UV = np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0) / TILE]
+        m = drawn & (surf == pre)
+        groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]], along.T[surf[along.cells[along.owner]] == pre]]
+    P = np.r_[np.c_[P[:, :2], along.u.ravel()], along.P]
+    UV = np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE]
 
     # looks: comic ground, the roads on top
     sp = TILE / TEX_PX
@@ -384,10 +394,13 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     mats = groundcover.materials(frame, md, tx, ty, GC_PX_M)           # [j, i], j northwards
     mi = np.clip(((wx - x0) / GC_PX_M).astype(np.int64), 0, mats.shape[1] - 1)
     mj = np.clip(((wy - y0) / GC_PX_M).astype(np.int64), 0, mats.shape[0] - 1)
-    pm = mats[mj, mi]
+    names, ids = np.unique(mats, return_inverse=True)        # (numbers: comparing names per pixel took 40 % of a tile)
+    pm = ids.reshape(mats.shape)[mj, mi]
     img = np.zeros((TEX_PX, TEX_PX, 3), np.float32)
-    for name in np.unique(pm):
-        m = pm == name
+    for k, name in enumerate(names):
+        m = pm == k
+        if not m.any():
+            continue
         img[m] = _sample(_texture(os.path.join(gc_dir, f"{name}.png"), int(round(TERRAIN_UV_M / sp))), wx[m], wy[m],
                          TERRAIN_UV_M)
     # large-scale colour variation (groundcover.macro) on the ground, not on the roads: computed per 1 m, smoothed

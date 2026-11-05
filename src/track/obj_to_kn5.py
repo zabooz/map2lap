@@ -75,6 +75,7 @@ VIEW = (
     ("nocol_graves", 300.0, 0),
     ("nocol_bld_", 2000.0, 1), ("1WALL_", 2000.0, 1), ("1GRAVEL_rail", 2000.0, 0),
     ("nocol_trees", 1200.0, 1), ("nocol_rocks", 600.0, 1),
+    ("nocol_bush", 350.0, 0),                   # cheap bushes (bushes.py): thousands a tile, near only, no shadow cascades
     ("nocol_road_", 400.0, 0), ("nocol_tunnel_paint", 400.0, 0), ("nocol_walk_", 400.0, 0),
     ("nocol_wire", 400.0, 0), ("nocol_rail_wood", 400.0, 0), ("nocol_rail_rail", 400.0, 0),
     ("nocol_rail_ballast", 2000.0, 0), ("nocol_rail_", 2000.0, 1), ("nocol_foam", 400.0, 0),

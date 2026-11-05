@@ -10,6 +10,7 @@ import time
 
 import numpy as np
 
+import buildtrace
 import dem as demmod
 import furniture
 import geodesy
@@ -250,6 +251,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     it). g: the frame's grading.Grader view (None: no grading); q: the height quantum the sidewalks' curbs are put on
     (None: the ground as it is: a geotile's content); rkey: the railways' ground cache key; centre (lat, lon): the
     place's (the brick pavement's region). skin_margin, walks_raw: roads.build_tile's (a geotile's skin pieces)."""
+    buildtrace.note("tile", str(tile))
     import parking as parkingmod
     import rails as railsmod
     import roadmesh as roadmeshmod
@@ -300,6 +302,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         town = buildingsmod.coverage(items, side) < buildingsmod.POLES_COVERAGE
     mark("items")
     rwalls = []
+    rcuts = []                          # the lines the ground is cut along at walls between two roads (roads.retaining_walls)
     rgalleries = []                     # the avalanche galleries' roofs (roads.tile_galleries)
     ctx = []
     cell_fn = lambda key: _s.md.cell(key, layers=("roads",), kind="demand").layers.get("roads")   # noqa: E731
@@ -317,7 +320,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
                                  props=props, lines=lines, wires=wires, town=town, park=park,
                                  left_hand=left_hand, mph=mph, buried=buried, lamp_region=lamp_region, country=country,
                                  structures=buildingsmod.centres(items, tx, ty) if items else (),
-                                 tunnels=tunnels, walls=rwalls, galleries=rgalleries,
+                                 tunnels=tunnels, walls=rwalls, wall_cuts=rcuts, galleries=rgalleries,
                                  ground=lambda x, y: roadmeshmod.drawn_ground(frame, drawn, np.c_[x, y], q),
                                  terrain_paint=getattr(_s, "surface", None) is not None, cover_out=cover, marks=marks,
                                  roads_out=near_roads, aisles_out=aisles, skin_margin=skin_margin, walks_raw=walks_raw,
@@ -381,6 +384,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
                                parapets=parapets, low_parapet_decks=low_parapet_decks, pads=pads)
     mark("deck_mesh")
     P.tmesh = roadmeshmod.tunnel(chunks, (x0, y0, 0.0), rwalls, rgalleries)
+    P.wall_cuts = rcuts
     mark("tunnel_mesh")
     import railways
     rcells = [cell_fn(k) for k in roadsmod.cells_of_tile(frame, tx, ty, railways.REACH_M)]
@@ -444,7 +448,7 @@ def _roads_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, sidewalks, lift, 
     out = roadsmod.write_tile(out_dir, vfs_dir, aid, tx, ty, P.chunks, P.walks if sidewalks else None, mesh, P.dmesh,
                               P.bld, P.props, P.wires, P.park, tunnel_mesh=P.tmesh, fuel=P.fuel, rail_mesh=P.rmesh,
                               guardrail_rows=P.guardrail_rows, garage_sound=P.garage_sound,
-                              wells=P.wells, footprints=P.footprints) + (P.fuel_pads,)
+                              wells=P.wells, footprints=P.footprints) + (P.fuel_pads, P.wall_cuts)
     mark("write")
     return out
 

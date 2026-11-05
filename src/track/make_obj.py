@@ -13,7 +13,7 @@ import os
 import shutil
 import struct
 import sys
-from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
@@ -29,7 +29,7 @@ import cdae                 # noqa: E402
 import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
-from scenery import cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
+from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
 from track import parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
@@ -517,9 +517,13 @@ def _init_scenery(tiles_dir, tex_dir):
     if pads:
         blockworker._s.surface.gas_pads = True
         blockworker._s.surface.add_fuel_pads(pads)
+    walls = []                  # walls between two roads of all tiles (generator._tile_job): a tile's piece ends past its border
+    for p in glob.glob(os.path.join(tiles_dir, "wallcuts_*.json")):
+        with open(p, encoding="utf-8") as f:
+            walls += json.load(f)
     veg = vegetation.Vegetation(blockworker._s.md, os.path.join(ROOT, "cache"))
     veg.dem = dem               # (rocks by slope)
-    _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir)
+    _ctx.update(anc=anc, tiles_dir=tiles_dir, frame=frame, elev=elev, raw=raw, veg=veg, g=g, tex_dir=tex_dir, walls=walls)
 
 
 def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
@@ -539,7 +543,13 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
     n = parallel.workers(len(tiles))
     log(f"Scenery with {n} processes ...")
     objects, nv, tris, unknown = 0, 0, {}, set()
-    with parallel.pool(n, _init_scenery, (tiles_dir, tex_dir)) as ex:
+    with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
+        anc = json.load(f)
+    region = buildings.region_style(anc["lat"], anc["lon"]).name
+    # (beside the workers: no worker reads what it makes, and after them its ~9 s were the whole machine waiting)
+    with ThreadPoolExecutor(1) as beside, parallel.pool(n, _init_scenery, (tiles_dir, tex_dir)) as ex:
+        mtl = beside.submit(write_mtl, os.path.join(out_dir, "track.mtl"), tex_dir,
+                            [f"ground_{tx}_{ty}" for tx, ty in tiles], shutters=region in SHUTTER_REGIONS)
         futs = [ex.submit(_scenery_job, tx, ty, p) for (tx, ty), p in zip(tiles, parts)]
         for k, fut in enumerate(as_completed(futs), 1):
             o, v, t, u, msgs = fut.result()
@@ -553,11 +563,7 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
                 progress("scenery", k, len(tiles))
             if k == len(tiles) or k % max(1, len(tiles) // 20) == 0:
                 log(f"Scenery: tile {k}/{len(tiles)}")
-    with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
-        anc = json.load(f)
-    region = buildings.region_style(anc["lat"], anc["lon"]).name
-    write_mtl(os.path.join(out_dir, "track.mtl"), tex_dir, [f"ground_{tx}_{ty}" for tx, ty in tiles],
-              shutters=region in SHUTTER_REGIONS)
+        mtl.result()
     log(f"Scenery: {objects} objects, {nv:,} vertices")
     log("Triangles: " + ", ".join(f"{k} {v:,}" for k, v in tris.items()))
     if unknown:
@@ -586,8 +592,8 @@ def _scenery_tile(tx, ty, part_path):
     gmat = f"ground_{tx}_{ty}"
     P, UV, ggroups, _ = ground.build(frame, anc["aid"], tx, ty, _ctx["g"], blockworker._s.dem, anc["dem_zoom"],
                                      depth, blockworker._s.md, TEX_SRC, _ctx["tex_dir"],
-                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log)
-    grid = P                    # (the terrain vertices: the bushes' normals, ground_normals)
+                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"])
+    grid = P[:ground.LATTICE ** 2]      # (the terrain's lattice: the bushes' normals, ground_normals)
     for pre, T in ggroups.items():
         obj.add(f"{pre}_ground_{tx}_{ty}", gmat, P, UV, T)
         tris[pre] = tris.get(pre, 0) + len(T)
@@ -742,6 +748,14 @@ def _scenery_tile(tx, ty, part_path):
     if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees keep "up"
         obj.add(f"nocol_trees_bush_{tx}_{ty}", "trees", *bmesh, N=ground_normals(grid, x0, y0, bmesh[0]))
         tris["trees"] = tris.get("trees", 0) + len(bmesh[2])
+    try:                        # cheap bushes in groups on shrubland (bushes.py), lit like the ground too
+        cheap = trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings)
+        cmesh = trees.billboards(cheap, wet, zone)
+        if cmesh is not None:
+            obj.add(f"nocol_bush_{tx}_{ty}", "trees", *cmesh, N=ground_normals(grid, x0, y0, cmesh[0]))
+            tris["trees"] = tris.get("trees", 0) + len(cmesh[2])
+    except Exception as e:      # (rather without them than without the tile)
+        log(f"Cheap bushes, tile {tx},{ty}: {type(e).__name__}: {e}")
     for prefix, mesh in rocks.meshes(items, wet).items():     # boulders (rocks.py)
         obj.add(f"{prefix}_rocks_{tx}_{ty}", rocks.MATERIAL, *mesh)
         tris["rocks"] = tris.get("rocks", 0) + len(mesh[2])

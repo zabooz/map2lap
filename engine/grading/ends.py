@@ -7,12 +7,13 @@ import mapcells
 import roads as roadsmod
 
 from .settings import (
-    CHAIN_JOIN_M, CHAIN_LOOK_M, CHAIN_TURN_DEG, CLIP_MARGIN_M, COARSE_EASE_ON, LONG_PART_M, PROFILE_STEP, UNGRADED, log
+    CHAIN_JOIN_M, CHAIN_LOOK_M, CHAIN_TURN_DEG, CLIP_MARGIN_M, COARSE_EASE_ON, LONG_PART_M, PROFILE_STEP, UNGRADED, fell_back
 )
 from .profiles import (
     BANK_DESIGN, BANK_ON, BANK_RUNOFF_M, BANK_SIGMA_M, BANK_STENCIL_M, _point_along, clip_polyline, plan_roads,
     profile_sigma, road_id
 )
+from .bridges import junction_ends
 
 
 class _Ends:
@@ -110,6 +111,47 @@ class _Ends:
                 if off[j + 1] - off[j] >= 2:
                     out[i // 2][i % 2] = np.asarray(pts[off[j]:off[j + 1]])
         return [tuple(o) for o in out]
+
+    def _onto_bridge(self, ext):
+        """plan_roads' onto of _extensions' ext: per part (before, after), does that extension end on a bridge's end, its road
+        not going on past there (junction_ends, as an own end: APPROACH_TOUCH_M)? Told at the extension's own far end from its
+        own cell's bridges and roads, so every cell that plans the part gets the same answer."""
+        out = [[False, False] for _ in ext]
+        who = [(j, end) for j, pair in enumerate(ext) for end in (0, 1) if pair[end] is not None and len(pair[end]) >= 2]
+        if not who:
+            return [tuple(o) for o in out]
+        far = np.asarray([ext[j][end][-1] for j, end in who], np.float64)
+        la, lo, _ = self.frame.enu_to_geodetic(far[:, 0], far[:, 1], 0.0)
+        la, lo = np.asarray(la, np.float64), np.asarray(lo, np.float64)
+        at = self._at_bridge_ends(far, la, lo, np.ones(len(who), bool))
+        for k in np.flatnonzero(at):
+            j, end = who[k]
+            cands = self._chain_cands(mapcells.cells_of(la[k:k + 1], lo[k:k + 1])[0])
+            lines = [ext[j][end]] + [c[0] for c in cands]
+            ask = np.zeros((len(lines), 2), bool)
+            ask[0, 1] = True
+            out[j][end] = not junction_ends(lines, [""] + [c[5] for c in cands], ask)[0, 1]
+        return [tuple(o) for o in out]
+
+    def _own_bridge_ends(self, parts, ids):
+        """plan_roads' abut of parts planned alone for a pin's height (_stronger_z): per part (first, last), does it end on a
+        bridge's end, its road not going on past there (junction_ends), as the plan of its own cell has it. Without it a part
+        split at a junction 20 m short of its bridge smoothed its node down the bank: a side road there was held 3.6 m under
+        the road it joins, and snap_junctions took that back over 40 m of it, up to 1.8 m over the ground and 20 % where the
+        ground climbs 11 % (Cap Corse). Told at each end's own cell, the same whichever cell asks."""
+        rings = [r for r, _sp in parts]
+        pe = np.array([[r[0], r[-1]] for r in rings], np.float64).reshape(-1, 2)
+        e, n, _ = self.frame.geodetic_to_enu(pe[:, 1], pe[:, 0], 0.0)
+        at = self._at_bridge_ends(np.stack([np.asarray(e), np.asarray(n)], axis=1), pe[:, 1], pe[:, 0], np.ones(len(pe), bool))
+        out = at.reshape(-1, 2)
+        for k in np.flatnonzero(at):
+            j, end = int(k) // 2, int(k) % 2
+            cands = self._chain_cands(mapcells.cells_of(pe[k:k + 1, 1], pe[k:k + 1, 0])[0])
+            lines = self._enu_lines([rings[j]]) + [c[0] for c in cands]
+            ask = np.zeros((len(lines), 2), bool)
+            ask[0, end] = True
+            out[j, end] = not junction_ends(lines, [ids[j]] + [c[5] for c in cands], ask)[0, end]
+        return [(bool(a), bool(b)) for a, b in out]
 
     def _cand_arrays(self, key, cands):
         """_chain_cands(key) as the Rust kernels take them (points, offsets, sigma class, road id), made once per cell."""
@@ -229,14 +271,15 @@ class _Ends:
             try:
                 preps = [self._strong_part(*asks[n]) for n in jobs]
                 parts = [(part, asks[n][0][4]) for n, (part, _last, _whole) in zip(jobs, preps)]
-                ext = self._extensions(parts, [asks[n][0][5] for n in jobs])
-                plans = plan_roads(self.frame, parts, self.elev, None, ext, cuts=False,
-                                   coarse=COARSE_EASE_ON and self._coarse_ll(parts[0][0]),
-                                   obs=self._obs(None, parts[0][0]))
+                fids = [asks[n][0][5] for n in jobs]
+                ext = self._extensions(parts, fids)
+                plans = plan_roads(self.frame, parts, self.elev, self._own_bridge_ends(parts, fids), ext, cuts=False,
+                                   coarse=COARSE_EASE_ON and self._coarse_ll(parts[0][0]), fine=self._fine_ll(parts[0][0]),
+                                   obs=self._obs(None, parts[0][0]), onto=self._onto_bridge(ext))
                 for n, (part, last, whole), p in zip(jobs, preps, plans):
                     self._strong_keep(asks[n][0], keys[n], p, last, whole)
             except Exception as e:      # one at a time, each its own failure (_stronger_z)
-                log.debug("grading: pin heights at once: %s: %s", type(e).__name__, e)
+                fell_back("grading: pin heights at once: %s: %s", type(e).__name__, e)
         return [self._stronger_z(c, last) for c, last in asks]
 
     @staticmethod
@@ -261,7 +304,8 @@ class _Ends:
         return part, at_last, part is ring
 
     def _strong_keep(self, cand, k, p, at_last, whole):
-        """Keep a _stronger_z height (and the other end's, for a part planned whole)."""
+        """Keep a _stronger_z height (and the other end's, for a part planned whole); the height now kept for k: a thread
+        that failed (None) gives way to one that found it."""
         z, other = None, None
         if p is not None:
             z = float(p.z[-1] if at_last else p.z[0])
@@ -273,9 +317,12 @@ class _Ends:
         with self.lock:
             if len(memo) > 4096:
                 memo.clear()
-            memo.setdefault(k, z)
+            got = memo.get(k)
+            if got is None:
+                got = memo[k] = z
             if other is not None:
                 memo.setdefault(*other)
+            return got
 
     def _stronger_z(self, cand, at_last):
         """The planned height of a candidate part (_chain_cands') at its first or last point: its own plan (its chains,
@@ -289,13 +336,12 @@ class _Ends:
         try:
             part, last, whole = self._strong_part(cand, at_last)
             # (the profile alone: its cutting's walls cost most of a plan and no height)
-            p = plan_roads(self.frame, [(part, cand[4])], self.elev, None,
-                           self._extensions([(part, cand[4])], [cand[5]]), cuts=False,
-                           coarse=COARSE_EASE_ON and self._coarse_ll(part), obs=self._obs(None, part))[0]
-            self._strong_keep(cand, k, p, last, whole)
+            ext = self._extensions([(part, cand[4])], [cand[5]])
+            p = plan_roads(self.frame, [(part, cand[4])], self.elev, self._own_bridge_ends([(part, cand[4])], [cand[5]]), ext, cuts=False,
+                           coarse=COARSE_EASE_ON and self._coarse_ll(part), fine=self._fine_ll(part),
+                           obs=self._obs(None, part), onto=self._onto_bridge(ext))[0]
+            return self._strong_keep(cand, k, p, last, whole)
         except Exception as e:      # not held rather than no grading
-            log.debug("grading: pin height of %s: %s: %s", cand[5], type(e).__name__, e)
+            fell_back("grading: pin height of %s: %s: %s", cand[5], type(e).__name__, e)
             with self.lock:
-                memo[k] = None
-        with self.lock:
-            return memo.get(k)
+                return memo.setdefault(k, None)     # (another thread may have found it meanwhile)

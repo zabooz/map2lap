@@ -1,6 +1,7 @@
 """Parapets, cliffs and retaining walls."""
 import math
 import os
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -36,6 +37,26 @@ WALL_MIN_N = 3          # wavered round 2 m: stubs of wall with gaps, the 97th S
 # US-163 in Utah (its ground rose 0.4-1.2 m per m; Munich's McGraw-Graben's cut walls 5-9, measured)
 WALL_STEEP = 2.0
 WALL_STEEP_SPAN = (-1.0, 6.0)
+
+# A step between two roads at two levels (grading._between_cuts) gets a wall where it can't be a slope: loose ground stands
+# at about 1:1 at most, so a step higher than the room between the carriageways has something holding it up. A wider gap
+# can be a real bank, walled or not, and stays the terrain's (a mapped wall there too: the map doesn't say how high it is)
+BETWEEN_WALL_SLOPE = 1.0
+BETWEEN_LOW_M = 0.75        # m in front of the step the lower road's level is read (less: the grading's transition) ...
+BETWEEN_HIGH_M = 1.5        # ... and behind it the upper's, at least: 1.5 m behind a step that lies a metre or two short of the
+                            # upper road the ground is still climbing (Cap Corse: 1.56 m read of a 5 m step, so no wall)
+BETWEEN_EDGE_IN_M = 0.5     # ... at the road beside it this far onto its carriageway, on its own level
+BETWEEN_PARALLEL_DEG = 25.0 # the road beside runs parallel within this (as grading._between_cuts finds it)
+BETWEEN_ROOM_M = 12.0       # m past a road's edge another carriageway is looked for
+BETWEEN_NOT_TWICE_M = 1.5   # m: a cutting's own wall this near stands there already
+BETWEEN_THICK_MIN_M = 0.2   # m a wall stands deep at least: with less room before another carriageway none stands there, only
+                            # the ground's step. Its top covers no strip (the ground is cut inside it, scenery.wallcut), so
+                            # WALL_COPING_MIN_M at most
+BETWEEN_CUT_IN_M = 0.1      # m behind the face the ground is cut: inside the thinnest wall's body, so the skirt doesn't stand
+                            # in the face (the lattice's cells draw the line straight: a few cm off it)
+BETWEEN_CUT_MIN_M = 0.5     # m a step goes on being cut past its wall's end: no ramp coming back in front of the road (a wall
+                            # ends at a bend, say, while the step goes on: a tooth at the road's edge). Bare there, a hard look
+JOIN_PIECES_M = 0.5         # m: two pieces of a road's plan this close are one (grading.trim_plan cuts on a line)
 
 
 def _wall_runs(cut):
@@ -213,16 +234,16 @@ def _on_carriageways(pts, others, gap):
     return segs.near(pts, gap)
 
 
-def _clear_depth(base, out, depth, others, own):
+def _clear_depth(base, out, depth, others, own, skip=None):
     """Per point of a wall's face line base (k, 2): how far (up to depth (k,)) out from it along out (k, 2) stays off
     every other road's carriageway in others {fid: (centreline (m, 2), half width)} or a _Segs of them (less
-    WALL_OTHER_GAP_M). Pure."""
+    WALL_OTHER_GAP_M); skip: a road's fid left out (a wall standing on its own road's drawn width). Pure."""
     segs = others if isinstance(others, _Segs) else _Segs(others)
     steps = np.arange(0.5, float(np.max(depth)) + 0.51, 0.5)
     q = (base[:, None, :] + out[:, None, :] * steps[None, :, None]).reshape(-1, 2)
     # (its own road too: a hairpin's other leg; the face stands past its own carriageway, so the stretch beside it
     # never hits)
-    hit = segs.near(q, WALL_OTHER_GAP_M).reshape(len(base), len(steps))
+    hit = segs.near(q, WALL_OTHER_GAP_M, skip=skip).reshape(len(base), len(steps))
     first = np.where(hit.any(axis=1), steps[np.argmax(hit, axis=1)] - 0.5, np.inf)
     return np.minimum(np.asarray(depth, np.float64), np.maximum(first, 0.0))
 
@@ -368,7 +389,185 @@ def _cut_behind(base, out_n, z, ground):
     return bool(np.median(rise) >= WALL_STEEP)
 
 
-def retaining_walls(frame, roads, elev, exact, decks=()):
+def _joined_plans(plans):
+    """The plans of each road with its pieces (grading.trim_plan cuts them per map cell) joined end to end where they meet:
+    [(rid, xy (n, 2), z (n,), cut (n - 1, 6))], only plans with a cut. A wall's run and taper must not end where a map cell
+    does. Pure."""
+    by_road = {}
+    for p in plans:
+        if getattr(p, "cut", None) is not None and not getattr(p, "tunnel", False) and len(p.xy) >= 2:
+            by_road.setdefault(p.rid, []).append((np.asarray(p.xy, np.float64)[:, :2], np.asarray(p.z, np.float64),
+                                                  np.asarray(p.cut, np.float64)))
+    out = []
+    for rid, rows in by_road.items():
+        rows = sorted(rows, key=lambda r: tuple(r[0][0]))
+        while rows:
+            xy, z, cut = rows.pop(0)
+            grew = True
+            while grew:
+                grew = False
+                for i, (x2, z2, c2) in enumerate(rows):
+                    if np.hypot(*(xy[-1] - x2[0])) < JOIN_PIECES_M:
+                        xy, z, cut, grew = np.r_[xy, x2[1:]], np.r_[z, z2[1:]], np.r_[cut, c2], True
+                    elif np.hypot(*(x2[-1] - xy[0])) < JOIN_PIECES_M:
+                        xy, z, cut, grew = np.r_[x2, xy[1:]], np.r_[z2, z[1:]], np.r_[c2, cut], True
+                    if grew:
+                        rows.pop(i)
+                        break
+            out.append((rid, xy, z, cut))
+    return out
+
+
+def _road_beside(mid, n_out, d, plans, rid, half):
+    """Per segment (mids (k, 2), unit normals n_out outward, unit directions d) of a road of drawn half width half, the road beside
+    it on that side, as grading._between_cuts finds it: the nearest parallel plan of another road whose edge lies within
+    BETWEEN_ROOM_M of its edge, the reach of the room's test (a road 390 m off across a valley was "beside" it, and the upper level
+    read there: 189 m at Heiligenblut): (the distance to its line, inf when none; its carriageway's half width). Pure."""
+    import grading
+    cos_par = math.cos(math.radians(BETWEEN_PARALLEL_DEG))
+    off, out_half = np.full(len(mid), np.inf), np.zeros(len(mid))
+    for q in plans:
+        if q is None or q.rid == rid or getattr(q, "tunnel", False) or len(q.xy) < 2:
+            continue
+        xy = np.asarray(q.xy, np.float64)[:, :2]
+        its_half = getattr(q, "road_half", q.half)
+        # (only the mids that can have one: a foot counts within the reach across and VERTEX_STEP along, so at most their sum
+        # from a mid, with n_out and d at right angles. Measured for every mid, this was 18 % of a dense tile.)
+        reach = half + BETWEEN_ROOM_M + its_half + grading.VERTEX_STEP
+        at = np.flatnonzero(((mid >= xy.min(axis=0) - reach) & (mid <= xy.max(axis=0) + reach)).all(axis=1))
+        if not len(at):
+            continue
+        foot, on, u, _j, _t = grading._foot(mid[at], xy)
+        v = foot - mid[at]
+        o = (v * n_out[at]).sum(1)
+        ok = (on & (np.abs((u * d[at]).sum(1)) >= cos_par) & (o > 0) & (np.abs((v * d[at]).sum(1)) < grading.VERTEX_STEP)
+              & (o < off[at]) & (o - its_half <= half + BETWEEN_ROOM_M))
+        off[at[ok]], out_half[at[ok]] = o[ok], its_half
+    return off, out_half
+
+
+def _runs_with(mask, seed):
+    """mask (k,) with only its runs that hold a point of seed (k,). Pure."""
+    out, i = np.zeros(len(mask), bool), 0
+    while i < len(mask):
+        if not mask[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(mask) and mask[j + 1]:
+            j += 1
+        if seed[i:j + 1].any():
+            out[i:j + 1] = True
+        i = j + 1
+    return out
+
+
+def _spans(keep):
+    """The slices of keep's (k,) runs of two points or more. Pure."""
+    out, i = [], 0
+    while i < len(keep):
+        if not keep[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(keep) and keep[j + 1]:
+            j += 1
+        if j > i:
+            out.append(slice(i, j + 1))
+        i = j + 1
+    return out
+
+
+def _step_side(mid, d, n_out, off, off_top, half, plans, rid, fid, ground, others, decks, road_z, bends, faces):
+    """One side of a road's plan: per segment (mids (k, 2), unit directions d, unit normals n_out outward; off, off_top: Plan.cut's
+    columns) each test of _between_walls, or None with no step of two roads on that side (tools/heights.py --walls prints
+    them). Fields: there, n_out, off, base, low, high, top (the level of wall and cut), h, room, stands, on_deck, on_road, near_wall,
+    no_depth, bends, run (a wall stands), cut (the ground is cut). Pure given ground."""
+    import grading
+    there = np.isfinite(off) & np.isnan(off_top)
+    if not there.any():
+        return None
+    at = np.where(np.isfinite(off), off, 0.0)
+    base = mid + n_out * at[:, None]
+    low = ground(base - n_out * BETWEEN_LOW_M)
+    # (the upper level: at the road beside, whose edge bounds the step, no slope or third road behind it counts)
+    beside, its_half = _road_beside(mid, n_out, d, plans, rid, half)
+    back = np.where(np.isfinite(beside), np.minimum(np.maximum(at + BETWEEN_HIGH_M, beside - its_half + BETWEEN_EDGE_IN_M),
+                                                    beside), at + BETWEEN_HIGH_M)
+    high = ground(mid + n_out * back[:, None])
+    h = np.where(there, high - low, 0.0)
+    # (the room to the other road's carriageway, past this one's drawn edge)
+    steps = np.arange(half, half + BETWEEN_ROOM_M + 0.01, 0.5)
+    q = (mid[:, None, :] + n_out[:, None, :] * steps[None, :, None]).reshape(-1, 2)
+    hit = others.near(q, 0.0, skip=fid).reshape(len(mid), len(steps))
+    room = np.where(hit.any(axis=1), steps[np.argmax(hit, axis=1)] - half, np.inf)
+    stands = h >= np.maximum(room, 0.0) * BETWEEN_WALL_SLOPE
+    on_deck, on_road = _under_decks(base, road_z, decks), others.near(base, 0.0, skip=fid)
+    near_wall = np.zeros(len(mid), bool)
+    if len(faces):
+        near_wall = np.hypot(base[:, 0, None] - faces[:, 0], base[:, 1, None] - faces[:, 1]).min(axis=1) <= BETWEEN_NOT_TWICE_M
+    free = ~on_deck & ~on_road
+    step_runs = _wall_runs(np.where(stands, h, 0.0)) & free & ~bends & ~near_wall
+    no_depth = others.near(base + n_out * BETWEEN_THICK_MIN_M, 0.0, skip=fid)
+    # (on into a cutting's own step too, its height set: the same step of the same ground, Cap Corse's going on 2 m out)
+    steps_on = np.isfinite(off) & free & (high - low >= BETWEEN_CUT_MIN_M)
+    return SimpleNamespace(there=there, n_out=n_out, off=off, base=base, low=low, high=high, h=h, room=room, stands=stands,
+                           top=np.maximum(np.minimum(high, low + grading.WALL_MAX_H_CITY_M), low),     # (one level for both)
+                           on_deck=on_deck, on_road=on_road, near_wall=near_wall, no_depth=no_depth, bends=bends,
+                           run=step_runs & ~no_depth, cut=_runs_with(steps_on, step_runs))
+
+
+def _between_walls(frame, plans, roads, ground, exact, others, decks, made, cut_lines=None):
+    """Retaining walls at the steps grading._between_cuts set between two roads at two levels, facing the lower road: where
+    the step stands higher than the room between their carriageways (BETWEEN_WALL_SLOPE) and at least a cutting's height
+    (_wall_runs). The step lies where the plan says, not where the walls of a cutting are looked for: past the road's core,
+    it would be on the upper road already, and _cut_behind would read that road's flat lanes (Cap Corse: a stone wall
+    between a main road and the lane climbing beside it drew nothing). Its top follows the upper level to its ends, the
+    ground cut along it to the same level: a top lowered at the ends left the ground standing over it. plans: the plans around
+    in frame; roads: the tile's [(fid, spec, pts, _)]; ground(P (n, 2)): the graded ground's height; made: the walls so far,
+    none doubled; cut_lines: a list that gets the lines the ground is cut along (scenery.wallcut: dicts of base (n, 2), low,
+    high (n,), toward (n, 2)), the step on past a wall's ends too. Pure given ground."""
+    import grading
+    x0, y0, x1, y1 = exact
+    road_of = {grading.road_id(fid): (fid, spec) for fid, spec, _p, _x in roads}
+    faces = [np.asarray(w["base"], np.float64) for w in made if not w.get("parapet")]
+    faces = np.concatenate(faces) if faces else np.zeros((0, 2))
+    out = []
+    for rid, xy, z, cut in _joined_plans(plans):
+        if rid not in road_of or not (np.isfinite(cut[:, [0, 3]]) & np.isnan(cut[:, [1, 4]])).any():
+            continue
+        fid, spec = road_of[rid]
+        if spec.kind not in BUILT:
+            continue
+        mid, zm = (xy[:-1] + xy[1:]) / 2, (z[:-1] + z[1:]) / 2
+        d = np.diff(xy, axis=0)
+        d /= np.maximum(np.hypot(*d.T), 1e-9)[:, None]
+        nl = np.c_[-d[:, 1], d[:, 0]]
+        la, lo, _ = frame.enu_to_geodetic(mid[:, 0], mid[:, 1], np.zeros(len(mid)))
+        road_z = np.asarray(frame.geodetic_to_enu(la, lo, zm)[2], np.float64)
+        bends = grading.bend_zone(mid)
+        half = spec.width / 2
+        for side, c0 in ((1.0, 0), (-1.0, 3)):
+            t = _step_side(mid, d, nl * side, cut[:, c0], cut[:, c0 + 1], half, plans, rid, fid, ground, others, decks, road_z,
+                           bends, faces)
+            if t is None:
+                continue
+            base, n_out, low, top = t.base, t.n_out, t.low, t.top
+            inside = (base[:, 0] >= x0 - 2) & (base[:, 0] < x1 + 2) & (base[:, 1] >= y0 - 2) & (base[:, 1] < y1 + 2)
+            for sl in _spans(t.run & inside):
+                th = _clear_depth(base[sl], n_out[sl], np.full(sl.stop - sl.start, WALL_THICK_MAX_M), others, fid, skip=fid)
+                out.append({"base": base[sl], "top": top[sl] + WALL_TOP_M, "foot": low[sl] - WALL_FOOT_M,
+                            "toward": -n_out[sl], "thick": np.clip(th, BETWEEN_THICK_MIN_M, WALL_COPING_MIN_M),
+                            "concrete": spec.cls in CONCRETE_WALL_CLASSES, "rock": False, "road_z": low[sl],
+                            "clear": th, "edge": mid[sl] + n_out[sl] * (half + CLIFF_EDGE_M)})
+            if cut_lines is not None:
+                for sl in _spans(t.cut & inside):
+                    cut_lines.append({"base": base[sl] + n_out[sl] * BETWEEN_CUT_IN_M, "low": low[sl], "high": top[sl],
+                                      "toward": -n_out[sl]})
+    return out
+
+
+def retaining_walls(frame, roads, elev, exact, decks=(), plans_at=None, cut_lines=None):
     """Stone retaining walls along the ground roads cut deeper than grading.WALL_CUT_M into the ground (the grading
     leaves the ground at its natural height right behind them): [dict(base (k, 2) the wall's face line, top (k,),
     foot (k,), toward (k, 2) unit vectors to the road)] of the walls in the tile box `exact`. The edge of the road's
@@ -376,7 +575,8 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
     (its ground is graded to the road), nor under a bridge deck (decks: the deck chunks near the tile; the ground beside
     a motorway under an overpass is its abutment's fill, and the wall rose through the deck, the user's report on the
     Bruce Highway). Central Park's 86th Street Transverse between its stone walls (
-   ). Pure given elev."""
+    plans_at(xy (n, 2)): the grading's plans around the points, for the walls between two roads (_between_walls), or
+    None: none of those; cut_lines: _between_walls'. Pure given elev and plans_at."""
     import grading
     import roadmesh
     x0, y0, x1, y1 = exact
@@ -502,6 +702,9 @@ def retaining_walls(frame, roads, elev, exact, decks=()):
                                                                    others, fid),
                             "edge": xy[sl] + out_n[sl] * (rh + CLIFF_EDGE_M)})
             i = j + 1
+    if plans_at is not None:
+        lines = np.concatenate([np.asarray(pts, np.float64)[:, :2] for _f, _s, pts, _x in roads if len(pts) >= 2])
+        out.extend(_between_walls(frame, plans_at(lines), roads, ground, exact, others, decks, out, cut_lines))
     return out
 
 

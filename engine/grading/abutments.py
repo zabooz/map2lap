@@ -11,7 +11,7 @@ import roads as roadsmod
 
 from .settings import (
     APPROACH_CELL_M, APPROACH_MAX_LIFT, APPROACH_MAX_RUN, APPROACH_MIN_LIFT, APPROACH_TOUCH_M, DIRT_MEDIAN_M,
-    ENU_CACHE_MAX, MEDIAN_M, OBS_END_M, OBS_HALF_M, WATER_CURVE_M, WATER_LIFT_ON, WATER_MAX_LIFT, log
+    ENU_CACHE_MAX, MEDIAN_M, OBS_END_M, OBS_HALF_M, WATER_CURVE_M, WATER_LIFT_ON, WATER_MAX_LIFT, fell_back
 )
 from .snap import shoulder
 from .profiles import profile_sigma
@@ -32,7 +32,7 @@ class _Abutments:
         try:
             z = prov.observed(self.frame, bridge, OBS_HALF_M, 1)
         except Exception as e:
-            log.debug("grading: measured deck at %s: %s: %s", xy, type(e).__name__, e)
+            fell_back("grading: measured deck at %s: %s: %s", xy, type(e).__name__, e)
             return None
         if z is None:
             return None
@@ -85,6 +85,12 @@ class _Abutments:
         touch = np.hypot(dla, dlo) <= APPROACH_CELL_M
         if ok is not None:
             touch &= ok
+        return self._at_bridge_ends(pe, la, lo, touch)
+
+    def _at_bridge_ends(self, pe, la, lo, ask):
+        """Which of the points pe (n, 2) at (la, lo), of those in ask (n,), are within APPROACH_TOUCH_M of a bridge's end in
+        their own cell: the same whichever cell asks."""
+        touch = ask.copy()
         homes = {}
         tj = np.flatnonzero(touch)
         for j, home in zip(tj.tolist(), mapcells.cells_of(la[tj], lo[tj])):
@@ -128,7 +134,7 @@ class _Abutments:
         try:
             res = self._end_lift_calc(np.asarray(xy, np.float64))
         except Exception as e:      # no ramp rather than no grading
-            log.debug("grading: approach at %s: %s: %s", k, type(e).__name__, e)
+            fell_back("grading: approach at %s: %s: %s", k, type(e).__name__, e)
         with self.lock:
             return self.end_cache.setdefault(k, res)
 
@@ -371,5 +377,5 @@ class _Abutments:
             reach = np.asarray(need) - roadsmod.DECK_DESIGN_GRADE * np.maximum(d - roadsmod.DECK_ROAD_HALF - WATER_CURVE_M, 0.0)
             return max(0.0, float(reach.max() - z_at(np.asarray(xy, np.float64)[None, :2])[0]))
         except Exception as e:      # no fill rather than no grading
-            log.debug("grading: water lift: %s: %s", type(e).__name__, e)
+            fell_back("grading: water lift: %s: %s", type(e).__name__, e)
             return 0.0

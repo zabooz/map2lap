@@ -161,8 +161,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                buried=0.0, lamp_region=None, country=None,
                walls=None, deck_context=None, ground=None, terrain_paint=True, cover_out=None, walk_cuts=(),
                signals=None, marks=None, roads_out=None, skin_margin=0.0, walks_raw=None, galleries=None,
-               aisles_out=None):
-    """The chunks of one tile. cells: the mapgeom.Features of the "roads" layer of every cell touching
+               aisles_out=None, wall_cuts=None):
+    """The chunks of one tile. wall_cuts: a list that gets the lines the ground is cut along (retaining_walls' cut_lines). cells: the mapgeom.Features of the "roads" layer of every cell touching
     the tile; elev(lat, lon) -> metres (the DEM); urban_fn: as road_specs. Features in several cells are
     taken once (by id). The carriageways, then each road's sidewalks / gutters / markings (extras), cut
     where another road's carriageway crosses them. walks: a list that gets the sidewalk runs (dicts
@@ -302,7 +302,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             return wexact[0] <= px < wexact[2] and wexact[1] <= py < wexact[3]
         return box_owns(own_box, px, py)
     if walls is not None:                       # retaining walls where a road is cut into the ground (roadmesh.tunnel)
-        tile_walls = retaining_walls(frame, roads, elev, exact, decks=decks_near)
+        tile_walls = retaining_walls(frame, roads, elev, exact, decks=decks_near,
+                                     plans_at=getattr(bridges, "plans_at", None), cut_lines=wall_cuts)
         if props is None:                       # (no props here: stone)
             for w in tile_walls:
                 w["rock"] = False

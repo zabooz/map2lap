@@ -712,5 +712,164 @@
    "max_warp": 0.15,
    "max_warp_at_m": 248.0
   }
+ },
+ "cap_corse_test": {
+  "title": "Cap Corse Test",
+  "about": "The coast road below Morsiglia, Corsica, France: the map's water layer holds the whole peninsula as a cape, and a map cell's border crosses here. Land must stay land: no water on the hillside, no water wall across the road",
+  "points": [
+   [
+    42.925053,
+    9.365437
+   ],
+   [
+    42.9243817,
+    9.363292
+   ],
+   [
+    42.9238153,
+    9.3636249
+   ]
+  ],
+  "width": 150.0,
+  "spots": [],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 369,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 8,
+   "max_g": 0.35,
+   "max_g_at_m": 2.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.35,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 1.0
+  }
+ },
+ "cap_corse_bruecke_test": {
+  "title": "Cap Corse Bruecke Test",
+  "about": "A secondary road on Corsica, France, over a short bridge across a stream, with a junction 18 m past the bridge's end: the road beyond the junction must not dip toward the bank at the bridge (it dipped 2 m over 30 m)",
+  "points": [
+   [
+    42.9095195,
+    9.35327
+   ],
+   [
+    42.9085361,
+    9.3532201
+   ],
+   [
+    42.9086579,
+    9.3517959
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "100-180",
+    "the junction past the bridge: no hollow in the road"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 240,
+   "over_05g_m": 6,
+   "lanes_over_05g_m": 48,
+   "max_g": 1.16,
+   "max_g_at_m": 119.0,
+   "edges_m": 15,
+   "transitions": 2,
+   "max_g_transition": 1.16,
+   "warp_m": 0,
+   "max_warp": 0.01,
+   "max_warp_at_m": 118.0
+  }
+ },
+ "a2_bruecke_3740_test": {
+  "title": "A2 Bruecke 3740 Test",
+  "about": "A stretch of the A2 test track near Voelkermarkt, Austria, at a junction close to a bridge's end: a road's smoothing must not run down the bank past the junction",
+  "points": [
+   [
+    46.6774533,
+    14.59393
+   ],
+   [
+    46.6780796,
+    14.5956635
+   ],
+   [
+    46.6784951,
+    14.5975259
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "120-180",
+    "the road beside the junction, raised 10 cm by the fill"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 300,
+   "over_05g_m": 1,
+   "lanes_over_05g_m": 51,
+   "max_g": 0.6,
+   "max_g_at_m": 147.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.31,
+   "warp_m": 0,
+   "max_warp": 0.09,
+   "max_warp_at_m": 105.0
+  }
+ },
+ "a2_bruecke_11952_test": {
+  "title": "A2 Bruecke 11952 Test",
+  "about": "A stretch of the A2 test track near Voelkermarkt, Austria, at a junction close to a bridge's end: a road's smoothing must not run down the bank past the junction",
+  "points": [
+   [
+    46.6871514,
+    14.6966245
+   ],
+   [
+    46.6876826,
+    14.6984257
+   ],
+   [
+    46.6882877,
+    14.7001783
+   ]
+  ],
+  "width": 100.0,
+  "spots": [
+   [
+    "130-170",
+    "the junction, raised 38 cm by the fill"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 450,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 0,
+   "max_g": 0.2,
+   "max_g_at_m": 209.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.2,
+   "warp_m": 0,
+   "max_warp": 0.0,
+   "max_warp_at_m": 188.0
+  }
  }
 }

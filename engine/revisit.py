@@ -26,6 +26,8 @@ import threading
 import time
 import zipfile
 
+import buildtrace
+
 ON = os.environ.get("BNE_REVISIT", "on") != "off"
 SKIP = {k for k in os.environ.get("BNE_REVISIT_SKIP", "").split(",") if k}     # kinds left out (tests: "roads,far")
 MAX_MB = float(os.environ.get("BNE_REVISIT_MB", "2000"))      # the cache's size, cut back at start (earthd)
@@ -45,6 +47,7 @@ _lock = threading.Lock()
 def fault():
     """Something a build may read failed or was not there yet: builds running now are not kept."""
     _faults[0] += 1
+    buildtrace.fault()
 
 
 def faults():

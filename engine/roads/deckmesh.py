@@ -25,10 +25,8 @@ def _bridge_chunks(frame, bseen, elev, exact, bridges=None, cells=None):
     if bridges is not None:
         got = [(fid, spec, np.c_[xy, z], lon) for fid, spec, xy, z, lon in bridges.parts(cells, exact)
                if np.isfinite(z).all()]
-        dd = getattr(bridges, "depth_of", None)
         bb = getattr(bridges, "deck_bank", None)
-        return _deck_chunks(got, exact, bridges._ground, {d[0]: dd(d[0]) for d in got} if dd else None,
-                            [bb(p[:, :2], p[:, 2]) if bb else None for _f, _spec, p, _l in got])
+        return _deck_chunks(got, exact, bridges._ground, [bb(p[:, :2], p[:, 2]) if bb else None for _f, _spec, p, _l in got])
     if not bseen:
         return []
     parts = []                                  # (fid, spec, xy (k, 2), lon)
@@ -345,7 +343,7 @@ def pad_inside(pads, xy, shrink=0.3):
     return out
 
 
-def _deck_chunks(decks, exact, ground_fn=None, depths=None, banks=None):
+def _deck_chunks(decks, exact, ground_fn=None, banks=None):
     """Deck + line chunks of bridge parts [(fid, spec, pts (k, 3), lon)] clipped to the box `exact`, and their decks
     within DECK_CONTEXT_M of it as "ctx" chunks (not drawn: build_tile's caller hands them to roadmesh.deck).
     ground_fn(xy) -> heights: a part's ends on the ground are its abutments (each deck chunk's "abut" points: the
@@ -383,8 +381,8 @@ def _deck_chunks(decks, exact, ground_fn=None, depths=None, banks=None):
                     ch = _chunk({**_deck_look(spec), "deck": True}, spec.width, c)
                     tilt(ch, i, pts, True)
                     ch.update(fixed=True, deck=True, fid=fid, ctx=True)
-                    if depths and fid in depths:
-                        ch["dd"] = round(float(depths[fid]), 3)
+                    if spec.depth is not None:
+                        ch["dd"] = round(float(spec.depth), 3)
                     out.append(ch)
     for i, (fid, spec, pts, lon) in enumerate(decks):
         lines = [({**_deck_look(spec), "deck": True}, spec.width, pts)]
@@ -401,8 +399,8 @@ def _deck_chunks(decks, exact, ground_fn=None, depths=None, banks=None):
                         if look.get("deck"):
                             ch["deck"] = True
                             ch["fid"] = fid             # (roadmesh.deck: no parapet between parts side by side)
-                            if depths and fid in depths:
-                                ch["dd"] = round(float(depths[fid]), 3)     # (roadmesh.deck: its slab and girders)
+                            if spec.depth is not None:
+                                ch["dd"] = round(float(spec.depth), 3)      # (roadmesh.deck: its slab and girders)
                             if abut.get(fid):
                                 ch["abut"] = abut[fid]
                         out.append(ch)
