@@ -255,13 +255,14 @@ def _cypress(rng):
 
 
 def _olive(rng):
-    """Olive: short, gnarled grey trunk, loose silvery grey-green crown."""
+    """Olive: short, gnarled grey trunk, loose silvery grey-green crown; only a little lighter than the other trees (at 128
+    the crown glowed nearly white in the sun, its trunk pink)."""
     img, d, cx = _canvas()
     H = SPRITE_H
     for off in (-14, 12):                               # two twisted stems
         pts = [(cx + off * (1 - t) + 10 * math.sin(t * 5 + off), H - 1 - t * H * 0.42) for t in [k / 8 for k in range(9)]]
-        d.line(pts, fill=(118, 104, 88, 255), width=16, joint="curve")
-    _dabs(d, rng, 300, cx, H * 0.4, SPRITE_W * 0.46, H * 0.22, (8, 18), 128, (0.74, 0.64), light=0.35)
+        d.line(pts, fill=(88, 78, 66, 255), width=16, joint="curve")
+    _dabs(d, rng, 300, cx, H * 0.4, SPRITE_W * 0.46, H * 0.22, (8, 18), 90, (0.74, 0.64), light=0.35)
     return img
 
 

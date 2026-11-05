@@ -376,10 +376,12 @@ FIELD_LOOKS = [((132, 178, 76), (112, 160, 64), (96, 140, 56)),      # young gre
 # --- more WorldCover classes ---
 
 def _shrub(rng):
-    """Shrubland: meadow with dark dabs of bushes."""
-    img = _base((104, 150, 64))
-    _strokes(img, rng, [(84, 132, 54), (122, 170, 78)], 600, (5, 10), 2, angle=math.pi / 2)
-    _dots(img, rng, [(60, 104, 48), (70, 116, 52), (54, 94, 44)], 140, (8, 20))
+    """Shrubland: a calm green darker than a meadow, its patches only a soft tone apart. The bushes stand on it as objects
+    (trees): dark dabs in the texture read as spots across a whole hillside, repeating every 8 m."""
+    img = _base((92, 136, 60))
+    _dots(img, rng, [(86, 128, 56), (98, 144, 64)], 260, (6, 16))
+    _strokes(img, rng, [(80, 122, 52), (104, 150, 68)], 700, (5, 10), 2, angle=math.pi / 2)
+    _dots(img, rng, [(78, 118, 50), (84, 126, 54)], 70, (6, 14))
     return img
 
 
