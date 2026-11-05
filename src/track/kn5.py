@@ -64,17 +64,25 @@ class Reader:
         return r
 
 
-def read(path):
-    r = Reader(open(path, "rb").read())
-    assert r.raw(6) == b"sc6969", "not a kn5"
-    version = r.take("<i")
-    extra = r.take("<i") if version > 5 else None
-    textures = []
-    for _ in range(r.take("<i")):
-        active = r.take("<i")
-        name = r.string()
-        size = r.take("<i")
-        textures.append((name, active, r.raw(size)))
+class FileReader:
+    """Reader on an open file: skips the bytes it is not asked for (scan)."""
+
+    def __init__(self, f):
+        self.f = f
+
+    def take(self, fmt):
+        v = struct.unpack(fmt, self.f.read(struct.calcsize(fmt)))
+        return v if len(v) > 1 else v[0]
+
+    def string(self):
+        return self.f.read(self.take("<i")).decode("utf-8", "replace")
+
+    def skip(self, n):
+        self.f.seek(n, 1)
+
+
+def _materials(r):
+    """The file's materials [Material], r (a Reader or FileReader) at their count."""
     materials = []
     for _ in range(r.take("<i")):
         name, shader = r.string(), r.string()
@@ -86,6 +94,69 @@ def read(path):
         for _ in range(r.take("<i")):
             maps.append((r.string(), r.take("<i"), r.string()))
         materials.append(Material(name, shader, blend, at, depth, props, maps))
+    return materials
+
+
+def scan(path):
+    """Where everything lies in the kn5 at path, without loading its textures and meshes (a long track's kn5: 9.9 GB):
+    {"textures": [(name, offset, size)], "materials": [Material], "meshes": [{name, material, offset, vertices, indices,
+    lod_in, lod_out, center, radius, renderable}], "points": {name: matrix}}. A mesh's offset is its vertices', its
+    index count (int32) and indices follow them. Points: the nodes with a matrix and no children (AC_START_0, ...)."""
+    textures, meshes, points = [], [], {}
+    with open(path, "rb") as f:
+        r = FileReader(f)
+        assert f.read(6) == b"sc6969", "not a kn5"
+        if r.take("<i") > 5:
+            r.take("<i")
+        for _ in range(r.take("<i")):
+            r.take("<i")
+            name, size = r.string(), r.take("<i")
+            textures.append((name, f.tell(), size))
+            r.skip(size)
+        materials = _materials(r)
+
+        def node():
+            cls, name = r.take("<i"), r.string()
+            nchildren = r.take("<i")
+            r.take("<B")
+            if cls == 1:
+                matrix = r.take("<16f")
+                if not nchildren:
+                    points[name] = matrix
+            elif cls == 2:
+                r.skip(3)
+                nv = r.take("<i")
+                offset = f.tell()
+                r.skip(nv * VERTEX.itemsize)
+                ni = r.take("<i")
+                r.skip(ni * 2)
+                material = r.take("<i")
+                r.take("<i")
+                lod_in, lod_out = r.take("<f"), r.take("<f")
+                center, radius = r.take("<3f"), r.take("<f")
+                meshes.append({"name": name, "material": material, "offset": offset, "vertices": nv, "indices": ni,
+                               "lod_in": lod_in, "lod_out": lod_out, "center": center, "radius": radius,
+                               "renderable": r.take("<B")})
+            else:
+                raise ValueError(f"node class {cls} ({name}) not supported")
+            for _ in range(nchildren):
+                node()
+        node()
+    return {"textures": textures, "materials": materials, "meshes": meshes, "points": points}
+
+
+def read(path):
+    r = Reader(open(path, "rb").read())
+    assert r.raw(6) == b"sc6969", "not a kn5"
+    version = r.take("<i")
+    extra = r.take("<i") if version > 5 else None
+    textures = []
+    for _ in range(r.take("<i")):
+        active = r.take("<i")
+        name = r.string()
+        size = r.take("<i")
+        textures.append((name, active, r.raw(size)))
+    materials = _materials(r)
 
     def node():
         cls = r.take("<i")

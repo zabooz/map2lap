@@ -2,8 +2,8 @@
 
 Set points on the OpenStreetMap map, look at the route (OSRM), choose the corridor width and the name, build the
 track; or an area instead of a route. "My tracks": build the tracks built before again with the current release
-(mytracks), as a copy, delete them, play them. Settings (settings.py): AC folder, Play car, CPU share, map data cache
-limit (mapcache), keep build files.
+(mytracks), as a copy, delete them, play them. "Editor": a built track in 3D (trackview). The page: web/, built from ui/. Settings
+(settings.py): AC folder, Play car, CPU share, map data cache limit (mapcache), keep build files.
 Only one build at a time. It runs as a process of its own (generator.py): Stop ends it with its worker processes,
 and every build uses the current code (a running server would otherwise build with the code from its start).
 
@@ -11,6 +11,7 @@ and every build uses the current code (a running server would otherwise build wi
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ import time
 import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote
 
 from app import named
 
@@ -26,7 +28,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
     named.restart_as("server")
 
 import generator  # noqa: E402
-from app import debugapp, mapcache, mytracks, settings, system, trackcode, updater, version  # noqa: E402
+from app import debugapp, mapcache, mytracks, settings, system, trackcode, trackview, updater, version  # noqa: E402
 from app.paths import ROOT, SRC  # noqa: E402
 
 PORT = 8800
@@ -39,6 +41,11 @@ lock, dialog_lock = threading.Lock(), threading.Lock()
 MARK = os.path.join(ROOT, "out", "build_running.json")
 BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<name>): written only while "Keep build
                             # files" is on, replaced by the next build of the track, deleted with the build files
+EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+))")
+IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
+WEB = os.path.join(SRC, "web")      # the page as built from ui/ (bun run build)
+WEB_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+             ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml"}
 
 
 def log(msg):
@@ -306,6 +313,20 @@ def play(name):
     return 200, {"ok": True}
 
 
+def has_build_files(name):
+    """Whether the track name's build files are kept (out/tracks/<name>/tiles: what the tools set the engine up from)."""
+    return os.path.isdir(os.path.join(ROOT, "out", "tracks", name, "tiles"))
+
+
+def web_file(path, web=WEB):
+    """The page's file for the URL path, or None (nothing outside the folder web). Pure."""
+    rel = "index.html" if path == "/" else unquote(path.split("?")[0]).lstrip("/")
+    file = os.path.normpath(os.path.join(web, rel))
+    if not file.startswith(os.path.normpath(web) + os.sep) or not os.path.isfile(file):
+        return None
+    return file
+
+
 def install_update():
     """Settings → "Install update": the newest release is downloaded in the background (updater), then the server ends
     for "Start Map2Lap.bat" (start.sh) to put it in and start it again; not during a build; returns (HTTP code,
@@ -393,10 +414,29 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or b"{}")
 
+    def _editor(self, match):
+        """The Editor tab's asking for a track's index, a mesh's or a texture's bytes (trackview)."""
+        name, kind, i, revision = generator.slug(match[1]), match[2], match[3], match[4]
+        ac = settings.ac_path()
+        try:
+            if kind == "mesh":
+                self._send(200, trackview.mesh_bytes(ac, name, int(i), revision), "application/octet-stream")
+            elif kind == "texture":
+                tex, data = trackview.texture_bytes(ac, name, int(i), revision)
+                self._send(200, data, IMAGE_TYPES.get(os.path.splitext(tex)[1].lower(), "application/octet-stream"))
+            else:
+                self._send(200, trackview.index(ac, name))
+        except (trackview.NotOurs, IndexError):
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+        except ConnectionError:             # (the page asked for another track meanwhile)
+            pass
+
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            with open(os.path.join(SRC, "web", "index.html"), "rb") as f:
-                self._send(200, f.read(), "text/html; charset=utf-8")
+        editor = EDITOR_PATH.fullmatch(self.path)
+        if editor:
+            self._editor(editor)
         elif self.path == "/api/status":
             with lock:
                 st = dict(job)
@@ -405,7 +445,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/settings":
             self._send(200, settings_view())
         elif self.path == "/api/tracks":
-            self._send(200, {"tracks": mytracks.listing(settings.ac_path()), "car": play_car()[1]})
+            tracks = [{**t, "build_files": has_build_files(t["name"])} for t in mytracks.listing(settings.ac_path())]
+            self._send(200, {"tracks": tracks, "car": play_car()[1]})
         elif self.path == "/api/cars":
             last = last_car()
             self._send(200, {"cars": cars(), "last": car_name(last) if last else None})
@@ -422,7 +463,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/buildfiles":
             self._send(200, {"bytes": build_files_bytes()})
         else:
-            self._send(404, {"error": "not found"})
+            file = web_file(self.path)
+            if file is None:
+                return self._send(404, {"error": "not found"})
+            with open(file, "rb") as f:
+                self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
         try:

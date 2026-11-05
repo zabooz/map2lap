@@ -1,8 +1,8 @@
 """Settings of the generator page: settings.json next to this script (not in git).
 
     ac_path  Assetto Corsa folder the tracks go into; None: found through Steam (find_ac)
-    clean    delete the temporary build data afterwards (generator.clean_up; on the page the inverse checkbox
-             "Keep build files", off by default)
+    clean    delete the build files afterwards (generator.clean_up; on the page the inverse checkbox "Keep build files",
+             on by default: changing a track in the Editor will build on them)
     cores    % of the logical cores used for a build (parallel.SHARE)
     cache_gb size limit of the map data cache in GB, 0: none (mapcache.trim)
     car      car for "Play" (folder under content/cars); None: the one driven last (race.ini, server.play_car)
@@ -15,7 +15,7 @@ from app import system
 from app.paths import ROOT
 
 FILE = os.path.join(ROOT, "settings.json")
-DEFAULTS = {"ac_path": None, "clean": True, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
+DEFAULTS = {"ac_path": None, "clean": False, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
             "car": None, "debug_app": False}
 
 

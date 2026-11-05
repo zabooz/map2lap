@@ -1,0 +1,211 @@
+"""The Editor tab's view of a kn5: kn5.scan finds what kn5.read finds, trackview hands out the visible meshes' bytes. The
+server hands out only the page's own files."""
+import json
+import os
+import struct
+import sys
+import tempfile
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from unittest import mock
+
+import numpy as np
+
+ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
+
+import server  # noqa: E402
+from app import mytracks, settings, trackview  # noqa: E402
+from track import kn5  # noqa: E402
+
+IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
+START = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 5.0, 6.0, 7.0, 1.0)
+
+
+def mesh(name, n, material=0, renderable=1):
+    v = np.zeros(n, kn5.VERTEX)
+    v["pos"][:, 0] = np.arange(n)
+    return kn5.Node(2, name, 1, vertices=v, indices=np.arange(n, dtype="<u2"), material=material, lod_out=100.0,
+                    bs_center=(1.0, 2.0, 3.0), bs_radius=4.0, renderable=renderable)
+
+
+class TrackViewTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ac, self.name = tmp.name, "t"
+        root = os.path.join(self.ac, "content", "tracks", self.name)
+        os.makedirs(os.path.join(root, "data"))
+        with open(os.path.join(root, mytracks.FILE), "w", encoding="utf-8") as f:
+            json.dump({}, f)
+        materials = [kn5.Material("trees", "ksPerPixelAT", 0, 1, 0, [("ksAmbient", 0.4, (0, 0), (0, 0, 0), (0, 0, 0, 0)),
+                                                                     ("ksDiffuse", 0.3, (0, 0), (0, 0, 0), (0, 0, 0, 0)),
+                                                                     ("ksAlphaRef", 0.5, (0, 0), (0, 0, 0), (0, 0, 0, 0))],
+                                  [("txDiffuse", 0, "a.png")])]
+        tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
+        tree.children = [mesh("1ROAD_x", 3), mesh("1WALL_col", 4, renderable=0), mesh("nocol_y", 5),
+                         kn5.Node(1, "AC_START_0", 1, matrix=START)]
+        self.path = os.path.join(root, self.name + ".kn5")
+        kn5.write(self.path, [("a.png", b"PNGDATA"), ("b.dds", b"DDS")], materials, tree)
+
+    def test_scan_finds_what_read_finds(self):
+        read, scan = kn5.read(self.path), kn5.scan(self.path)
+        self.assertEqual([t[0] for t in read["textures"]], [t[0] for t in scan["textures"]])
+        self.assertEqual(read["materials"], scan["materials"])
+        whole = [n for n, _d in kn5.walk(read["root"]) if n.cls == 2]
+        self.assertEqual([n.name for n in whole], [m["name"] for m in scan["meshes"]])
+        with open(self.path, "rb") as f:
+            for n, m in zip(whole, scan["meshes"]):
+                f.seek(m["offset"])
+                self.assertEqual(n.vertices.tobytes(), f.read(m["vertices"] * kn5.VERTEX.itemsize))
+                self.assertEqual(len(n.indices), struct.unpack("<i", f.read(4))[0])
+                self.assertEqual(n.indices.tobytes(), f.read(m["indices"] * 2))
+
+    def test_index_leaves_out_invisible_meshes_and_finds_the_start(self):
+        got = trackview.index(self.ac, self.name)
+        self.assertEqual(["1ROAD_x", "nocol_y"], [m["name"] for m in got["meshes"]])
+        self.assertEqual([0, 2], [m["i"] for m in got["meshes"]])     # (the file's numbers: what mesh_bytes asks for)
+        self.assertEqual((5.0, 6.0, 7.0), got["start"]["pos"])
+        self.assertEqual((0.0, 0.0, 1.0), got["start"]["forward"])
+        self.assertEqual({"name": "trees", "shader": "ksPerPixelAT", "texture": "a.png", "alpha_ref": 0.5, "blend": False}, {
+            k: v for k, v in got["materials"][0].items() if k != "bright"})
+        self.assertAlmostEqual(0.7, got["materials"][0]["bright"], places=5)
+        json.dumps(got)     # (goes to the page)
+
+    def test_billboards_count_on_over_their_parts_tile_by_tile(self):
+        trees, other = kn5.Material("trees", "", 0, 0, 0, [], []), kn5.Material("road", "", 0, 0, 0, [], [])
+        part = lambda name, material, faces: {"name": name, "material": material, "indices": faces * 3}    # noqa: E731
+        meshes = [part("nocol_trees_-1_0", 0, 16), part("nocol_trees_-1_0_1", 0, 8), part("nocol_trees_2_3", 0, 8),
+                  part("nocol_trees_bush_-1_0", 0, 8), part("1ROAD_ground_-1_0", 1, 8)]
+        self.assertEqual({0: 0, 1: 16, 2: 0, 3: 0}, trackview._first_faces(meshes, [trees, other]))
+
+    def test_the_route_and_its_anchor(self):
+        root = os.path.join(self.ac, "content", "tracks", self.name)
+        self.assertEqual((None, []), trackview._route(root))
+        with open(os.path.join(root, "data", "map2lap_route.txt"), "w", encoding="utf-8") as f:
+            f.write("anchor 42.5 9.25\n1.5 -2.5\n3.0 4.0\n")
+        self.assertEqual(([42.5, 9.25], [[1.5, -2.5], [3.0, 4.0]]), trackview._route(root))
+        got = trackview.index(self.ac, self.name)
+        self.assertEqual([42.5, 9.25], got["anchor"])
+        self.assertIn("olive", got["atlas"]["sprites"])
+
+    def test_a_mesh_and_a_texture_come_as_in_the_file(self):
+        revision = trackview.index(self.ac, self.name)["revision"]
+        b = trackview.mesh_bytes(self.ac, self.name, 2, revision)
+        self.assertEqual(5 * kn5.VERTEX.itemsize + 4 + 5 * 2, len(b))
+        self.assertEqual([0.0, 1.0, 2.0, 3.0, 4.0], np.frombuffer(b, kn5.VERTEX, 5)["pos"][:, 0].tolist())
+        self.assertEqual(("b.dds", b"DDS"), trackview.texture_bytes(self.ac, self.name, 1, revision))
+
+    def test_numbers_from_an_older_file_are_refused(self):
+        revision = trackview.index(self.ac, self.name)["revision"]
+        with open(self.path, "ab") as f:        # (a build replaced it: mesh 2 could be anything now)
+            f.write(b"more")
+        with self.assertRaises(trackview.Unreadable):
+            trackview.mesh_bytes(self.ac, self.name, 2, revision)
+        with self.assertRaises(trackview.Unreadable):
+            trackview.texture_bytes(self.ac, self.name, 1, revision)
+
+    def test_a_file_changing_while_it_is_read_is_refused(self):
+        revision = trackview.index(self.ac, self.name)["revision"]
+        real, seen = os.fstat, []
+
+        def changed(fd):
+            seen.append(fd)
+            st = real(fd)
+            return mock.Mock(st_mtime_ns=st.st_mtime_ns + 1, st_size=st.st_size)
+        with mock.patch("app.trackview.os.fstat", changed), self.assertRaises(trackview.Unreadable):
+            trackview.mesh_bytes(self.ac, self.name, 2, revision)
+        self.assertTrue(seen)
+
+    def test_a_file_cut_off_by_a_build_is_unreadable_not_a_crash(self):
+        size = os.path.getsize(self.path)
+        for keep in (3, 40, size // 2, size - 1):
+            with open(self.path, "r+b") as f:
+                f.truncate(keep)
+            with self.assertRaises(trackview.Unreadable, msg=keep):
+                trackview.index(self.ac, self.name)
+
+    def test_only_map2lap_tracks(self):
+        os.remove(os.path.join(self.ac, "content", "tracks", self.name, mytracks.FILE))
+        with self.assertRaises(trackview.NotOurs):
+            trackview.index(self.ac, self.name)
+
+
+class EditorRequestsTest(TrackViewTest):
+    """What the page gets over HTTP: an unreadable or changed file is an answer, not a dropped connection."""
+
+    def setUp(self):
+        super().setUp()
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        self.url = f"http://127.0.0.1:{srv.server_address[1]}/api/editor/{self.name}"
+        patch = mock.patch.object(server.settings, "ac_path", return_value=self.ac)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def get(self, path):
+        try:
+            with urllib.request.urlopen(self.url + path) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    def test_a_mesh_with_its_revision(self):
+        code, body = self.get("/index")
+        self.assertEqual(200, code)
+        code, body = self.get(f"/mesh/2?r={json.loads(body)['revision']}")
+        self.assertEqual((200, 5 * kn5.VERTEX.itemsize + 4 + 5 * 2), (code, len(body)))
+
+    def test_a_changed_file_and_a_cut_off_one_answer_409(self):
+        revision = json.loads(self.get("/index")[1])["revision"]
+        with open(self.path, "r+b") as f:
+            f.truncate(40)
+        self.assertEqual(409, self.get("/index")[0])
+        self.assertEqual(409, self.get(f"/mesh/2?r={revision}")[0])
+        self.assertIn("error", json.loads(self.get("/index")[1]))
+
+    def test_a_mesh_number_not_there_answers_404(self):
+        revision = json.loads(self.get("/index")[1])["revision"]
+        self.assertEqual(404, self.get(f"/mesh/99?r={revision}")[0])
+
+    def test_a_mesh_without_a_revision_is_no_request(self):
+        self.assertEqual(404, self.get("/mesh/2")[0])
+
+
+class BuildFilesTest(unittest.TestCase):
+    def test_kept_by_default_for_the_editor(self):
+        self.assertFalse(settings.DEFAULTS["clean"])
+
+    def test_a_track_has_them_with_its_tiles(self):
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(server, "ROOT", root):
+            self.assertFalse(server.has_build_files("t"))
+            os.makedirs(os.path.join(root, "out", "tracks", "t", "tiles"))
+            self.assertTrue(server.has_build_files("t"))
+
+
+class WebFileTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.web = os.path.join(tmp.name, "web")
+        os.makedirs(os.path.join(self.web, "sub"))
+        for rel in (("index.html",), ("sub", "a.js")):
+            open(os.path.join(self.web, *rel), "w").close()
+        open(os.path.join(tmp.name, "secret.txt"), "w").close()
+
+    def test_the_page_and_its_parts(self):
+        self.assertEqual(os.path.join(self.web, "index.html"), server.web_file("/", self.web))
+        self.assertEqual(os.path.join(self.web, "sub", "a.js"), server.web_file("/sub/a.js?x=1", self.web))
+
+    def test_nothing_else(self):
+        for path in ("/../secret.txt", "/%2e%2e/secret.txt", "/sub/../../secret.txt", "/none.js", "/sub"):
+            self.assertIsNone(server.web_file(path, self.web), path)
+
+
+if __name__ == "__main__":
+    unittest.main()
