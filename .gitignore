@@ -27,3 +27,6 @@ update/
 
 # The Rust module's build folder (tools/build_native.py)
 native/earthfast/target/
+
+# The Editor tab's packages (ui/: bun install)
+ui/node_modules/

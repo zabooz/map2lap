@@ -1,0 +1,9 @@
+/* Search results: fixed under the field (the stop list would clip it) */
+.drop { position: fixed; z-index: 2000; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px;
+        display: flex; flex-direction: column; }
+.drop button { border: 0; background: none; text-align: left; padding: 7px 9px; border-radius: 7px; cursor: pointer;
+               font-size: 12.5px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
+               -webkit-box-orient: vertical; flex: none; }
+.drop button:hover, .drop button.on { background: var(--raised); }
+.drop p { margin: 0; padding: 7px 9px; font-size: 12.5px; color: var(--muted); }

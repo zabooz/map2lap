@@ -1,0 +1,50 @@
+/* Sidebar: fixed sections, only the log grows */
+.sidebar { position: relative; background: var(--panel); border-right: 1px solid var(--line); height: 100vh;
+           display: flex; flex-direction: column; gap: 14px; padding: 18px; min-width: 0; }
+.head { position: relative; display: flex; align-items: center; gap: 10px; }
+/* Settings: the gear at the head's right end */
+.gear { position: relative; flex: none; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none;
+        color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.gear:hover { color: var(--text); background: var(--raised); }
+.gear.on { color: var(--accent); background: var(--accent-soft); }
+.gear.warn::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%;
+                    background: var(--accent); }
+/* A newer Map2Lap on GitHub, opens Settings: left of the gear on the name's line (the tagline below runs under
+   it), so nothing moves when it shows */
+.update { position: absolute; right: 40px; top: 1px; font-size: 11px; font-weight: 700; border: 0; cursor: pointer;
+          letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 99px;
+          background: var(--ok-soft); color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+.update:hover { background: var(--ok); color: var(--panel); }
+.mark { width: 30px; height: 30px; border-radius: 8px; flex: none;
+        background: repeating-conic-gradient(var(--text) 0 25%, var(--panel) 0 50%) 0 0 / 10px 10px;
+        box-shadow: inset 0 0 0 2px var(--text); }
+.brand { flex: 1; min-width: 0; }
+.brand b { display: block; font-size: 18px; letter-spacing: -.01em; }
+.brand span { color: var(--muted); font-size: 12px; }
+
+.count { font-size: 11px; font-weight: 700; min-width: 18px; padding: 1px 6px; border-radius: 99px;
+         background: var(--raised); border: 1px solid var(--line); color: var(--muted); }
+.count.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+/* New track and My tracks: the list lies over the space of the form, as tall as it: the log gets the free space. In a low
+   window this gives way first, its content scrolls: the card and the buttons stay whole */
+.panes { position: relative; flex: 0 1 auto; min-height: 0; display: flex; }
+
+.actions { flex: none; display: grid; grid-template-columns: 1fr; gap: 8px; }
+.actions button { height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised);
+                  cursor: pointer; font-weight: 600; }
+.actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.actions button.danger { background: var(--panel); border-color: var(--accent); color: var(--accent); }
+.actions button:disabled { opacity: .45; cursor: default; }
+.actions.mine { grid-template-columns: 1fr 1fr 1fr; }
+.actions button.playAct { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+/* The map with a floating hint */
+.main { position: relative; min-width: 0; }
+.hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 500; max-width: min(560px, 90%);
+        background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 99px;
+        padding: 8px 16px; box-shadow: var(--shadow); font-size: 13px; text-align: center; pointer-events: none; }
+
+@media (max-width: 760px) {
+  .main { grid-row: 1; height: 50vh; }
+  .sidebar { grid-row: 2; height: auto; border-right: 0; }
+}

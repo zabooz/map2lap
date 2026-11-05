@@ -1,0 +1,4 @@
+/* The 3D view over the map (the map underneath keeps its place) */
+.scene { position: absolute; inset: 0; z-index: 1500; background: var(--bg); overflow: hidden; }
+.view { position: absolute; inset: 0; }
+.view canvas { display: block; outline: none; }

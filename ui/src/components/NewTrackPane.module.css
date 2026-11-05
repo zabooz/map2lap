@@ -1,0 +1,30 @@
+/* Scrolls in a low window. Its scrollbar has its place in the sidebar's padding, always: the form's width never changes */
+.pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+        scrollbar-gutter: stable; margin-right: -14px; padding-right: 4px; }
+.pane > * { flex: none; }
+.off { visibility: hidden; }     /* (keeps its height: nothing below moves) */
+
+.seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; background: var(--raised);
+       border: 1px solid var(--line); border-radius: 10px; }
+.seg button { border: 0; background: none; padding: 7px 8px; border-radius: 7px; cursor: pointer; color: var(--muted);
+              font-weight: 600; }
+.seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
+
+/* Route and area versions on top of each other: the taller one sets the height, so switching doesn't jump */
+.stack { display: grid; }
+.stack > * { grid-area: 1 / 1; }
+.stack > [hidden] { display: flex !important; visibility: hidden; }
+.block { display: flex; flex-direction: column; gap: 14px; }
+
+/* The route's points: the first is the start, the last the finish; from three on the list scrolls */
+.stops { max-height: 126px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.stop { flex: none; display: flex; gap: 6px; }
+.stop input { flex: 1; min-width: 0; }
+.stop .tag { flex: none; align-self: center; width: 22px; height: 22px; border-radius: 50%; display: grid;
+             place-items: center; font-size: 11px; font-weight: 700; background: var(--line); color: var(--muted); }
+.stop .tag.start { background: #26a654; color: #fff; }       /* (the colours of the START / FINISH banners) */
+.stop .tag.finish { background: #e0243a; color: #fff; }
+.stop .tag svg { display: block; }
+.stop .x { flex: none; width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 9px;
+           background: var(--raised); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
+.stop .x:hover { color: var(--accent); border-color: var(--accent); }

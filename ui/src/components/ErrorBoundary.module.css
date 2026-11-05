@@ -1,0 +1,1 @@
+.failed { position: absolute; inset: 0; z-index: 1500; background: var(--bg); overflow: hidden; display: flex; }

@@ -46,7 +46,7 @@ DIST = os.path.join(HERE, "dist")
 NAME = "Map2Lap"
 # developer-only parts (in the repository, not in the release)
 SKIP = ("tools/", "docs/", ".githooks/", ".gitignore", ".gitattributes", "AGENTS.md", "CLAUDE.md", "GLOSSARY.md",
-        "engine/tests/", "native/")
+        "engine/tests/", "native/", "ui/")
 # what only the other system needs
 ONLY = {"win": ("Start Map2Lap.bat", "engine/earthfast.pyd"),
         "linux": ("start.sh", "Map2Lap.desktop", "engine/earthfast.abi3.so")}

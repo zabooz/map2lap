@@ -1,0 +1,31 @@
+/* A popup over the whole page, groups as cards */
+.back { position: fixed; inset: 0; z-index: 1800; background: rgba(0, 0, 0, .45); display: grid;
+        place-items: center; padding: 16px; }
+.dialog { width: min(480px, 100%); height: min(680px, 100%); display: flex; flex-direction: column; gap: 12px;
+          padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+          box-shadow: var(--shadow); }
+.dialog .tabs { flex: none; margin-bottom: 0; }
+.tab { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.head { display: flex; justify-content: space-between; align-items: center; flex: none; font-size: 16px; }
+.close { width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted);
+         cursor: pointer; font-size: 22px; line-height: 1; }
+.close:hover { color: var(--text); background: var(--raised); }
+.group { border: 1px solid var(--line); border-radius: 12px; background: var(--raised); padding: 12px 14px;
+         display: flex; flex-direction: column; gap: 8px; flex: none; }
+.group h3 { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+            color: var(--muted); }
+.group input[type=text], .group select, .group .pathRow button { background: var(--panel); }
+.bugLink { flex: none; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised);
+           color: inherit; font-weight: 600; text-align: center; text-decoration: none; }
+.bugLink:hover { background: var(--panel); }
+.pathRow { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.pathRow button { padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised);
+                  cursor: pointer; }
+.pathRow button:disabled { opacity: .45; cursor: default; }
+.good { color: var(--ok); }
+.fault { color: var(--accent); font-weight: 600; }
+.verRow { min-height: 38px; }
+.verRow span { align-self: center; font-weight: 600; }
+.releaseNote { min-height: 1.4em; }     /* (empty while asking: the card doesn't shrink) */
+.check { display: flex; gap: 9px; align-items: center; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); }

@@ -1,0 +1,32 @@
+{
+  "name": "map2lap-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run dev.ts",
+    "build": "bun run build.ts",
+    "check": "tsc --noEmit && eslint src && bun test",
+    "e2e": "bun run build && bun --bun x playwright test --project=chrome",
+    "e2e:all": "bun run build && bun --bun x playwright test"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-leaflet": "5.0.0",
+    "three": "0.187.0",
+    "three-mesh-bvh": "0.9.18"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/bun": "1.2.20",
+    "@types/leaflet": "1.9",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.187.0",
+    "eslint": "9",
+    "eslint-plugin-react-hooks": "7",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8"
+  }
+}

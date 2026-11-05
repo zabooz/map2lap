@@ -1,0 +1,9 @@
+/* A track code field: the route's or area's to copy, or one pasted (New track); the picked track's in the card.
+   A field like the others, its copy button inside it */
+.wrap { position: relative; flex: 1; min-width: 0; }
+.wrap input { padding-right: 38px; text-overflow: ellipsis; }
+.copy { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 30px; height: 30px;
+        border: 0; border-radius: 7px; background: none; color: var(--muted); cursor: pointer; display: grid;
+        place-items: center; }
+.copy:not(:disabled):hover { color: var(--accent); background: var(--line); }
+.copy:disabled { opacity: .35; cursor: default; }

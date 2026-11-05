@@ -1,0 +1,2 @@
+.map { position: absolute; inset: 0; }
+.handle { background: #fff; border: 2px solid var(--accent); border-radius: 3px; cursor: move; }

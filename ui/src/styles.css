@@ -1,0 +1,68 @@
+/* The whole page's: colours, base rules, the building blocks several components share. A component's own look lives in its
+   <name>.module.css beside it. */
+#root { display: contents; }
+
+:root {
+  --bg: #eef0f3; --panel: #ffffff; --raised: #f6f7f9; --text: #14171c; --muted: #687080; --line: #e2e5ea;
+  --accent: #e0243a; --accent-ink: #ffffff; --accent-soft: #fde9ec; --ok: #168a4a; --ok-soft: #e4f5ec;
+  --warn: #b45309; --warn-soft: #fdf1e3; --scroll: #c9ced6; --shadow: 0 10px 30px rgba(20, 23, 28, .16);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1014; --panel: #171a20; --raised: #1e222a; --text: #e8eaee; --muted: #9aa2b1; --line: #2b303a;
+    --accent: #ff4a5c; --accent-ink: #ffffff; --accent-soft: #3a1c22; --ok: #3ecf7e; --ok-soft: #173326;
+    --warn: #f59e0b; --warn-soft: #3a2a14; --scroll: #3a404c; --shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  }
+}
+/* Scrollbars: thin and round, in the page's colours (Firefox: width and colour only) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 99px; border: 3px solid transparent;
+                            background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; } }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg);
+       color: var(--text); display: grid; grid-template-columns: 360px 1fr; }
+button, input, select { font: inherit; color: inherit; }
+
+/* Fields */
+input[type=text] { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px;
+                   background: var(--raised); }
+input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
+select { height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised); }
+select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.label-row { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; font-size: 13px; }
+.label-row .val { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
+
+/* Tabs: the page's and the settings', sharing the whole width */
+.tabs { display: flex; border-bottom: 1px solid var(--line); margin-bottom: -2px; }
+.tabs button { flex: 1; border: 0; background: none; padding: 0 0 9px; margin-bottom: -1px; cursor: pointer; font-weight: 600;
+               color: var(--muted); border-bottom: 2px solid transparent; display: flex; gap: 6px; align-items: center;
+               justify-content: center; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+/* A tab's content below the head of the sidebar */
+.view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+
+/* A quiet button along a whole field */
+.add-stop { flex: none; height: 34px; border: 1px dashed var(--line); border-radius: 9px; background: none;
+            color: var(--muted); cursor: pointer; font-weight: 600; font-size: 12.5px; }
+.add-stop:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+.add-stop:disabled { opacity: .55; cursor: default; }
+.add-stop.clear { border-style: solid; border-color: var(--accent); color: var(--accent); }
+.add-stop.clear:not(:disabled):hover { background: var(--accent-soft); }
+
+/* Text */
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; margin: 0; }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.empty { margin: auto; text-align: center; color: var(--muted); max-width: 240px; }
+
+@media (max-width: 760px) {
+  body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; }
+}

@@ -1,0 +1,9 @@
+.pane { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.track { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); padding: 8px 11px;
+         cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; flex: none; }
+.track:hover { border-color: var(--muted); }
+.track.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.track b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.track small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.track .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.track .old { color: var(--warn); font-weight: 600; }

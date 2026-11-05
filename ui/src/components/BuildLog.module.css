@@ -1,0 +1,10 @@
+.head { flex: none; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-weight: 600;
+        margin-bottom: -8px; }
+/* (at least three lines and its padding, however low the window) */
+.log { flex: 3 1 0; min-height: 72px; margin: 0; padding: 10px; background: var(--raised); border: 1px solid var(--line);
+       border-radius: 10px; font: 11.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap;
+       overflow: auto; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .log { min-height: 160px; }
+}

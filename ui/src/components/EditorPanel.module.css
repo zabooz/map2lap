@@ -1,0 +1,2 @@
+.track { width: 100%; }
+.status { min-height: 1.4em; }     /* (what is loading in a line of its own: nothing moves) */
