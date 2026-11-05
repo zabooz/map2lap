@@ -9,7 +9,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(1, str(Path(__file__).resolve().parents[2] / "src"))
-from scenery import groundcover, trees  # noqa: E402
+from scenery import bushes, groundcover, trees  # noqa: E402
+from track import obj_to_kn5  # noqa: E402
 
 LUMA = (0.3, 0.59, 0.11)
 TILE_PX = 64                # the pixels a ground texture's repeat gets on a tile (ground: 8 m at 12.5 cm)
@@ -45,6 +46,55 @@ class OliveTest(unittest.TestCase):
         # (its crown at 114 against the others' 60-67 came out nearly white in AC's sun)
         self.assertLess(crown_brightness(trees._olive), 90)
         self.assertGreater(crown_brightness(trees._olive), crown_brightness(trees._linden))
+
+
+class CheapBushesTest(unittest.TestCase):
+    FREE = np.ones((128, 128), bool)
+
+    def in_cells(self, m=32.0):
+        """Bushes per m square over 12 x 12 free tiles."""
+        x, y = [], []
+        for tx in range(-6, 6):
+            for ty in range(-6, 6):
+                a, b, *_ = bushes.scatter(tx * 256.0, ty * 256.0, 256.0, self.FREE, 2.0)
+                x.append(a)
+                y.append(b)
+        x, y = np.concatenate(x), np.concatenate(y)
+        return np.histogram2d(x, y, bins=int(3072 / m), range=[[-1536, 1536], [-1536, 1536]])[0]
+
+    def test_they_stand_in_groups_with_gaps_not_evenly(self):
+        # (spread evenly they read as spots again; a random even spread has a variance about its mean)
+        c = self.in_cells()
+        self.assertGreater(c.var() / c.mean(), 4.0)
+        self.assertGreater((c == 0).mean(), 0.1)
+        self.assertGreater(c.max(), 3 * c.mean())
+
+    def test_a_tile_gets_a_budget_of_a_few_thousand(self):
+        n = [len(bushes.scatter(tx * 256.0, 0.0, 256.0, self.FREE, 2.0)[0]) for tx in range(-20, 20)]
+        self.assertLess(max(n), 5000)       # (8 triangles each; the tile's other vegetation: up to 48,000)
+        self.assertGreater(np.mean(n), 800)
+
+    def test_they_stand_only_where_free(self):
+        free = np.zeros((128, 128), bool)
+        free[40:80, 40:80] = True
+        x, y, *_ = bushes.scatter(0.0, 0.0, 256.0, free, 2.0)
+        self.assertGreater(len(x), 0)
+        self.assertTrue(free[(y / 2.0).astype(int), (x / 2.0).astype(int)].all())
+
+    def test_a_tile_border_splits_no_bush_and_the_build_repeats(self):
+        left = bushes.scatter(0.0, 0.0, 256.0, self.FREE, 2.0)
+        right = bushes.scatter(256.0, 0.0, 256.0, self.FREE, 2.0)
+        whole = bushes.scatter(0.0, 0.0, 512.0, np.ones((128, 256), bool), 2.0)
+        self.assertEqual(len(left[0]) + len(right[0]), len(whole[0]))
+        for a, b in zip(left, bushes.scatter(0.0, 0.0, 256.0, self.FREE, 2.0)):
+            np.testing.assert_array_equal(a, b)
+
+    def test_dry_country_is_thinner(self):
+        some = lambda share: sum(len(bushes.scatter(t * 256.0, 0.0, 256.0, self.FREE, 2.0, share)[0]) for t in range(-9, 9))    # noqa: E731
+        self.assertLess(some(bushes.ZONE_SHARE["desert"]), 0.4 * some(1.0))
+
+    def test_they_are_near_only_and_cast_no_shadow(self):
+        self.assertEqual(obj_to_kn5.view("nocol_bush_3_12"), (350.0, 0))
 
 
 if __name__ == "__main__":

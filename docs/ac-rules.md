@@ -13,7 +13,7 @@ terrain with holes, other shaders), deviate on purpose, with a short reason in t
 | `1GRASS_ground_…` | other terrain | GRASS (0.60) |
 | `1KERB_walkcol_…` | kerbs/pavements, invisible collision | KERB (0.92) |
 | `1WALL_` | bridges, tunnels, retaining walls, gate posts, `bldcol`/`guardrailcol` (invisible); double-sided | stays undefined |
-| `nocol_` | markings, pavements, houses and rails (visible), guardrails, wires, water, foam, trees, distant view | – |
+| `nocol_` | markings, pavements, houses and rails (visible), guardrails, wires, water, foam, trees, bushes, distant view | – |
 
 ## How the ground is built
 

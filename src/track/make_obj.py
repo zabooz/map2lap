@@ -29,7 +29,7 @@ import cdae                 # noqa: E402
 import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
-from scenery import cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
+from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
 from track import parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
@@ -748,6 +748,14 @@ def _scenery_tile(tx, ty, part_path):
     if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees keep "up"
         obj.add(f"nocol_trees_bush_{tx}_{ty}", "trees", *bmesh, N=ground_normals(grid, x0, y0, bmesh[0]))
         tris["trees"] = tris.get("trees", 0) + len(bmesh[2])
+    try:                        # cheap bushes in groups on shrubland (bushes.py), lit like the ground too
+        cheap = trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings)
+        cmesh = trees.billboards(cheap, wet, zone)
+        if cmesh is not None:
+            obj.add(f"nocol_bush_{tx}_{ty}", "trees", *cmesh, N=ground_normals(grid, x0, y0, cmesh[0]))
+            tris["trees"] = tris.get("trees", 0) + len(cmesh[2])
+    except Exception as e:      # (rather without them than without the tile)
+        log(f"Cheap bushes, tile {tx},{ty}: {type(e).__name__}: {e}")
     for prefix, mesh in rocks.meshes(items, wet).items():     # boulders (rocks.py)
         obj.add(f"{prefix}_rocks_{tx}_{ty}", rocks.MATERIAL, *mesh)
         tris["rocks"] = tris.get("rocks", 0) + len(mesh[2])
