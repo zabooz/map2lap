@@ -25,6 +25,36 @@ by hand.
 - Regression checks use only the tracks in `tools/test_tracks.json`. A new spot gets a new short track there.
 - `measure.py` numbers point at places. Whether a road drives better or worse is decided by driving it in AC.
 
+## The page
+
+The generator page is React and TypeScript in `ui/`, built with Bun into `src/web`. `src/web` is committed: the server hands
+it out, users need no Bun. Change `ui/`, never `src/web`, and build before a commit.
+
+```powershell
+cd ui; bun install --frozen-lockfile  # once per clone, with the committed dependency versions
+bun run dev                   # http://localhost:3000, changes show as files are saved; needs the server on 8800
+bun run check                 # types, React's hook rules and the page's tests
+bun run build                 # into src/web
+bun run e2e                   # the browser tests in Chrome (Playwright, ui/e2e), ~1 min
+bun run e2e:all               # also in Edge, Firefox and WebKit; once per machine: bunx playwright install
+```
+
+The browser tests run against `ui/e2e/server.py`: the real server with an AC folder, settings and small tracks of its own, and
+stand-ins for builds, AC, updates, map data and the net. They test that things work, not where they sit; only the 3D view is
+tested down to the pixel (`render.e2e.ts`). `--update-snapshots` takes new reference images after a wanted change of its look.
+
+- Function components and hooks; state lives where it is used, what can be worked out from it is worked out while rendering.
+- An effect only talks to something outside React (server, Leaflet, three.js) and cleans up after itself (`StrictMode` is on).
+- Leaflet through react-leaflet, three.js in `ui/src/editor/view.ts`: camera and mesh data stay outside React; only the hover
+  information enters React state.
+- A component's look lives in its `<name>.module.css` beside it (`bun run check` compares the two); `ui/src/styles.css` holds only
+  colours, base rules and what several components share. No style by element name or id: a global `aside` rule reached into
+  everything that used the tag.
+
+The Editor currently views and inspects installed tracks; geometry editing is not available yet. "Keep build files" is on
+by default for the planned editing tools; viewing uses only the kn5. Its memory limit is an estimate: nearest meshes load
+first, parts or textures above the limit stay out. Browser tests use four workers because software 3D shares the CPU.
+
 ## Tools
 
 Look here first: a question below has its tool in `tools/`, and each tool's `--help` has its commands. A new tool gets its

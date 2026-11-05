@@ -9,6 +9,10 @@ grading and building code is based on BeamNG.Earth, a mod that streamed the real
 The local web page end users build and manage tracks with (`src/server.py`).
 _Avoid_: server, the page's server
 
+**Editor**:
+The generator page's tab that shows and inspects a built track in 3D, from its kn5 (`app/trackview.py`, `ui/src/editor`).
+Geometry editing is not available yet.
+
 **Engine**:
 The folder `engine/`: our roads, grading, buildings and scenery code, based on BeamNG.Earth's server folder.
 _Avoid_: server, vendor code, BeamNG code

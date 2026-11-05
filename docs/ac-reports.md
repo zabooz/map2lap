@@ -2,7 +2,7 @@
 
 ## What a session leaves
 
-The Track Debug app (generator page → Settings → Testing; `src/acapp/TrackDebug`, `app/debugapp.py`) shows the route metre,
+The Track Debug app (generator page → Settings → Map2Lap → Testing; `src/acapp/TrackDebug`, `app/debugapp.py`) shows the route metre,
 coordinates, G values and the build's versions. It keeps the last 15 s of the drive at 50 Hz. **F10** (in the window: any
 key or wheel button) or "Mark" saves a spot with those 15 s and the next 5 s, plus a screenshot; "Start recording" records
 the whole drive.
@@ -29,7 +29,8 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
    this Map2Lap or its map data differ from the sender's (`--upto obj`: only the OBJ parts, for the measuring tools).
 3. Find the spot. The route metre is the same count in `measure.py` (`--from/--to`) and `check_drive.py`. AC coordinates:
    x east, z = −north, y up; the anchor is in the track's `data/map2lap_route.txt`.
-4. See what was built there. A command-line build, and one from the page with "Keep build files", keeps
+4. See what was built there. A command-line build, and one from the page with "Keep build files" (on by default under
+   Settings → Editor → Build files), keeps
    `out/tracks/<name>/` (tiles, `obj/parts/t_<tx>_<ty>.obj`; from the page also its `build.log`): the OBJ
    parts name it (materials such as `nocol_walk_sidewalk`, `nocol_rail_rail`, `nocol_bld_fac`).
 5. Find out why, from the code that decided it: call the module on the map data around the spot (for example

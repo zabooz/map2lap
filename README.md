@@ -39,8 +39,16 @@ Steam. Before the first track:
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
 - **My tracks:** rebuild a track with the latest version, build a copy, delete it, or **▶ Play** it straight away.
+- **Editor:** inspect a built track in 3D. Fly with W A S D, orbit with the left mouse button, look around by holding
+  the wheel, move with the right mouse button and zoom with the wheel. Point at a surface, tree or building to see its
+  material, physics and position. Changing the track's geometry is not available yet.
 
 Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
+
+Build files are kept by default. Under **Settings → Editor → Build files** you can turn that off or delete them to
+recover disk space. Viewing a track in the Editor needs only the installed track; planned editing tools will need its
+build files. The Editor's memory limit is under **Settings → Editor → 3D view**; when reached, some parts or textures
+stay out of the preview.
 
 ## Troubleshooting
 
@@ -55,7 +63,7 @@ Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 | A build fails | See the build log. Usually the map data couldn't be downloaded: check the connection and try again. |
 | A new track is missing in Content Manager | Restart Content Manager. |
 
-Found a broken road or bridge? Please open an issue with the coordinates. Easiest: **Settings → Testing → Track Debug
+Found a broken road or bridge? Please open an issue with the coordinates. Easiest: **Settings → Map2Lap → Testing → Track Debug
 app**, press **F10** at the spot while driving and attach that session's folder from
 `Documents\Assetto Corsa\map2lap_debug` (the marks, the drive around each, a screenshot of each, and what it takes to
 build the same track again).
@@ -75,6 +83,19 @@ py -3.14 -m venv .venv
 Assetto Corsa with CSP is found through Steam, or set it in the page's Settings. The map data cache (`cache\`, 20 GB by
 default) and the textures (`assets\textures\`, CC0 from ambientCG) stay out of git. How to work in the repo:
 [AGENTS.md](AGENTS.md).
+
+The generator page's source is React and TypeScript in `ui/`; its built files in `src/web` are committed and shipped
+in releases. Running Map2Lap needs no Bun. To change the page, install Bun and, from `ui/`, run:
+
+```powershell
+bun install --frozen-lockfile
+bun run dev                   # http://localhost:3000; start Map2Lap on port 8800 too
+bun run check                 # TypeScript, ESLint and unit tests
+bun run e2e                   # builds src/web and tests the page in Chrome
+```
+
+`bun run build` rebuilds `src/web` without browser tests. Commit it together with the `ui/` changes. Browser setup and
+the other browsers: [AGENTS.md](AGENTS.md#the-page).
 
 ## Credits
 

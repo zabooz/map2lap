@@ -13,7 +13,7 @@ server.py (generator page) ─► generator.py (its own process per build)
    → make_track_folder.py: surfaces.ini, ext_config.ini (+ water animation), map.png with the route, ui
    → obj_to_kn5.py: part OBJs → mesh nodes → .kn5 straight into the track folder
    → data/map2lap.json (settings for "Rebuild"), tidy the map data cache (mapcache.py), delete the work folder
-     out/tracks/<name> unless "Keep build files" is on
+     out/tracks/<name> unless "Keep build files" is on (the page's default)
 ```
 
 A build from the command line keeps its work folder:
@@ -24,6 +24,22 @@ A build from the command line keeps its work folder:
 ```
 
 Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m track.kn5 <file.kn5>`.
+
+## Generator page and Editor
+
+The page is React and TypeScript in `ui/`, built with Bun into the committed `src/web` files. `server.py` serves these
+and the `/api/` endpoints. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
+The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.
+
+`app/trackview.py` scans an installed Map2Lap track's kn5 with `track.kn5.scan`: offsets, sizes, materials and start points,
+without loading all meshes or textures into memory. The page requests their bytes separately, with the file's revision;
+a changed or partially written file returns HTTP 409. The viewer loads nearby meshes first, counts memory against its
+configured limit and disposes meshes and textures when the track changes. The limit estimates RAM and GPU use; it does
+not include all browser overhead. Meshes and textures above it stay out of the preview.
+
+The Editor currently views and inspects tracks. Planned editing tools will use the kept build files; viewing needs only
+the installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
+turn that off or delete them. Existing saved preferences stay in effect.
 
 ## Parallel (`track/parallel.py`)
 
