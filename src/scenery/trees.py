@@ -480,6 +480,15 @@ def tile_trees(frame, tx, ty, veg, elev, wet=None, extra=()):
     return billboards(items, wet, tile_zone(frame, items))
 
 
+def look_of(style, name, zone, z, rank):
+    """(sprite, width / height) of an item of group name at altitude z: one of style's (STYLE with its zone's, by the item's random
+    value; every third conifer high up in temperate and boreal zones a larch). Pure."""
+    looks = style.get(name, style["deciduous"])
+    if name == "conifer" and zone in ("temperate", "boreal") and z > LARCH_FROM_M and int(rank * 7919) % 3 == 0:
+        looks = LARCH
+    return looks[int(rank * 1000) % len(looks)]
+
+
 def billboards(items, wet=None, zone="temperate"):
     """Crossed billboards for (group name, x, y, z, rotation, height, random value) in the climate zone (zone());
     (P, UV, T) or None."""
@@ -488,11 +497,7 @@ def billboards(items, wet=None, zone="temperate"):
     for name, x, y, z, yaw, height, rank in items:
         if name in SKIP or (wet is not None and wet(x, y)):
             continue
-        looks = style.get(name, style["deciduous"])
-        if (name == "conifer" and zone in ("temperate", "boreal") and z > LARCH_FROM_M
-                and int(rank * 7919) % 3 == 0):
-            looks = LARCH
-        sprite, ratio = looks[int(rank * 1000) % len(looks)]
+        sprite, ratio = look_of(style, name, zone, z, rank)
         k = SPRITES.index(sprite)
         col, row = k % COLS, k // COLS
         h = max(0.8, float(height))

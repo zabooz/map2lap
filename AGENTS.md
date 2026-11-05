@@ -33,7 +33,8 @@ line here (`tests/test_tools.py`).
 | The question | The tool |
 |---|---|
 | A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
-| All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface | `spot.py <track> --route <m>` |
+| All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface, vegetation | `spot.py <track> --route <m>` |
+| What grows at a spot and why it looks so: climate zone, land cover, ground painted, the map's areas, trees and bushes by sprite, the tile's cap | `plants.py <track> --route <m>` |
 | The part of a long track that holds a bug, built into AC to drive it, a test track's not to be taken for | `debug_stretch.py <track> <from m> <to m>` |
 | Drives like grass: which physics (1ROAD, 1GRASS) lies under the line? | `measure.py <track> --surface --from <m> --to <m>` |
 | Why is the ground at a spot road or grass: the map's roads there, each painting step | `ground_paint.py <track> <AC x> <AC z>` |

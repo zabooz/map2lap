@@ -4,7 +4,8 @@ by side with their outputs kept to read.
     .venv\\Scripts\\python.exe tools\\spot.py <track> --route <m>               # 40 m either side
     .venv\\Scripts\\python.exe tools\\spot.py <track> --route <m> --reach 80
 
-In the folder: map.png (map_spot.py: read it first), heights.txt (heights.py --plans: elevation, grading, water, the map's roads with
+In the folder: map.png (map_spot.py: read it first), vegetation.txt (plants.py: what grows there, the ground painted, the tile's cap),
+heights.txt (heights.py --plans: elevation, grading, water, the map's roads with
 their tags, each plan's share), decks.txt (--decks), walls.txt (--walls), surface.txt, profile.txt and measure.txt (measure.py), and per
 road near the spot road_<id>.txt (--road: its profile, the ground across it) and steps_<id>.txt (--road --steps: its pins and each
 step of the planner against the elevation). Printed: the folder, each road and how far its plan leaves the elevation there.
@@ -66,6 +67,7 @@ def main():
     roads = roads_in(first)
     jobs = [("map.txt", "map_spot.py", t, "--route", str(a.route), "--output", os.path.join(out, "map.png")),
             ("decks.txt", "heights.py", t, *stretch, "--decks"), ("walls.txt", "heights.py", t, *stretch, "--walls"),
+            ("vegetation.txt", "plants.py", t, "--route", str(a.route)),
             ("measure.txt", "measure.py", t, *stretch), ("surface.txt", "measure.py", t, *stretch, "--surface"),
             ("profile.txt", "measure.py", t, *stretch, "--profile")]
     for rid, _off, _what in roads:

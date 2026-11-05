@@ -1,5 +1,6 @@
 """The tools in tools/ an agent reads a report with: what they conclude from their numbers. Every tool is named in AGENTS.md,
 the list an agent looks in first."""
+import collections
 import glob
 import json
 import os
@@ -21,6 +22,7 @@ import heights  # noqa: E402
 import map_spot  # noqa: E402
 import mark  # noqa: E402
 import measure  # noqa: E402
+import plants  # noqa: E402
 import spot  # noqa: E402
 import stability  # noqa: E402
 import surroundings  # noqa: E402
@@ -74,6 +76,17 @@ class SpotTest(unittest.TestCase):
     def test_how_far_a_plan_leaves_the_elevation(self):
         self.assertEqual(spot.off_elevation(self.STEPS), (1.83, 12, "[(162.55, 142.72)]"))
         self.assertEqual(spot.off_elevation("no road"), (None, None, ""))
+
+
+class PlantsTest(unittest.TestCase):
+    def test_a_share_is_of_all_counted_with_its_total(self):
+        self.assertEqual(plants.shares(collections.Counter(a=3, b=1)), "a 75 %, b 25 % (of 4)")
+        self.assertEqual(plants.shares(collections.Counter()), "nothing")
+
+    def test_built_items_each_by_its_own_object(self):
+        faces = ["f 1 2 3"] * 8
+        lines = ["o nocol_bush_1_2", *faces, "o nocol_trees_bush_1_2", *faces, *faces, "o nocol_trees_1_2", *faces, "o 1ROAD_ground_1_2", *faces]
+        self.assertEqual(plants.built_items(lines), {"cheap bushes": 1, "measured bushes": 2, "trees": 1})
 
 
 class PointWhyTest(unittest.TestCase):
