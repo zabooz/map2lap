@@ -116,8 +116,8 @@ def _same(info):
 
 
 def listing(ac_path):
-    """The tracks with settings, most recently built first: each {name, kn5_bytes, outdated, current_copy, edited, ...the
-    settings but the Editor's recipe}. outdated: older track version than this release's and no copy of the same track is current
+    """The tracks with settings, most recently built or saved in the Editor first: each {name, kn5_bytes, outdated, current_copy, edited,
+    saved (the Editor's last Save, None for a build), ...the settings but the Editor's recipe}. outdated: older track version than this release's and no copy of the same track is current
     (an old build next to a new copy no longer counts as old, it only shows its version); current_copy: that copy's title; edited:
     saved in the Editor: its own work from then on, so never old, no build can take its place and it is no current copy of a build."""
     tracks = os.path.join(ac_path, "content", "tracks")
@@ -134,8 +134,9 @@ def listing(ac_path):
             continue
         kn5 = os.path.join(d, name + ".kn5")
         recipe = info.pop("edits", None)
+        edited = bool(isinstance(recipe, dict) and recipe.get("source"))
         out.append({**info, "name": name, "kn5_bytes": os.path.getsize(kn5) if os.path.exists(kn5) else None,
-                    "edited": bool(isinstance(recipe, dict) and recipe.get("source"))})
+                    "edited": edited, "saved": recipe.get("saved") if edited else None})
     current = {}
     for t in out:
         t["track_version"] = t.get("track_version", t.get("version"))
@@ -148,4 +149,4 @@ def listing(ac_path):
         old = version.outdated(t["track_version"]) and not t["edited"]
         t["current_copy"] = current.get(_same(t)) if old else None
         t["outdated"] = old and t["current_copy"] is None
-    return sorted(out, key=lambda t: -(t.get("built") or 0))
+    return sorted(out, key=lambda t: -(t["saved"] or t.get("built") or 0))

@@ -13,6 +13,7 @@ export interface Track {
   kn5_bytes: number | null;
   build_files: boolean;
   edited?: boolean;             // saved in the Editor: never built again in its place, never old
+  saved?: number | null;        // the Editor's last Save, seconds
   draft?: number;
   outdated: boolean;
   current_copy: string | null;

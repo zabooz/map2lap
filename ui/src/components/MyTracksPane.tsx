@@ -21,7 +21,7 @@ export function MyTracksPane({tracks, group, pick, onGroup, onPick}: {tracks: Tr
         {shown.length ? shown.map(t => (
           <button key={t.name} className={`${styles.track}${t.name === pick ? ` ${styles.on}` : ""}`} onClick={() => onPick(t)}>
             <b>{t.title}</b>
-            <span className={styles.when}>{fmtDate(t.built)}</span>
+            <span className={styles.when}>{fmtDate(t.saved ?? t.built)}</span>
             <small>
               {t.area ? "Area" : "Route"} {fmtSize(t)} · {t.outdated
                 ? <span className={styles.old}>{versionTag(t)} – old</span> : versionTag(t)}

@@ -90,7 +90,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
   if (t) {
     const badge: Shown["badge"] = !t.kn5_bytes ? ["No track file", "bad"] : t.edited ? ["Edited", "ok"]
       : t.outdated ? ["Old version", "warn"] : [t.area ? "Area" : "Route", "ok"];
-    return {badge, time: fmtDate(t.built), body: <PickedTrack track={t} version={a.version} />};
+    return {badge, time: fmtDate(t.saved ?? t.built), body: <PickedTrack track={t} version={a.version} />};
   }
   if (a.tab === "mine") {
     return {badge: ["Ready", ""], body: a.hasTracks ? big("Pick a track", a.group === "edited" ? "Choose one from the list to edit it." : "Choose one from the list to rebuild it.")

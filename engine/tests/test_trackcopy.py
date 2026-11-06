@@ -386,6 +386,19 @@ class SaveTest(Base):
             self.assertIn("saved in the Editor", answer["error"])
             run.assert_not_called()
 
+    def test_the_list_goes_by_the_last_save_of_an_edited_track(self):
+        self.edits(["t_0_0#0"])
+        trackcopy.save(self.ac, "t", copy_to="copy")
+        newer = os.path.join(self.ac, "content", "tracks", "newer")
+        os.makedirs(os.path.join(newer, "data"))
+        mytracks.save(newer, {"title": "Newer", "points": [[1, 2], [3, 4]], "built": 2000})
+        info = mytracks.load(os.path.dirname(self.own("copy")))
+        mytracks.save(os.path.dirname(self.own("copy")), {**info, "built": 1000, "edits": {**info["edits"], "saved": 3000}})
+        mytracks.save(self.root, {**mytracks.load(self.root), "built": 4000})
+        listed = mytracks.listing(self.ac)
+        self.assertEqual(["t", "copy", "newer"], [t["name"] for t in listed])
+        self.assertEqual([None, 3000, None], [t["saved"] for t in listed])
+
     def test_the_generator_itself_refuses_to_replace_a_saved_track(self):
         self.edits(["t_0_0#0"])
         with (mock.patch.object(generator.make_track_folder, "AC", self.ac), mock.patch.object(generator.plancache, "one_run"),
