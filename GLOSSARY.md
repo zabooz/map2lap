@@ -29,6 +29,10 @@ Writes a track as its edit list says (`app/trackcopy.py`), in its place or as a 
 build. Its map2lap.json then holds the **recipe** ("edits": the source, the ids and sorts, the kn5 it wrote, when). A track
 saved so stands under "Edited" in My tracks: its own work, no build replaces it. _Avoid_: modded track, rebuild (that is a build from the map).
 
+**Height change** (Editor):
+A raster of how far the ground moves at each of its points, in whole mm, on the ground's 2 m lattice, 0 at its edge (`app/trackheights.py`). It
+is part of the draft and the recipe. Save adds up all of them over the track's source, so an undo or a second Save never adds to what is there.
+
 **Source**:
 A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`
 (`app/tracksource.py`), shared by its copies: the Editor shows it, so whatever was deleted can come back. It counts while the track's

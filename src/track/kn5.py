@@ -4,11 +4,15 @@
 """
 import struct
 import sys
+from collections import namedtuple
 from dataclasses import dataclass, field
 
 import numpy as np
 
 VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("uv", "<f4", 2), ("tangent", "<f4", 3)])
+# What a Save changes of a file's meshes: vertices {mesh number: all its vertices as they are to be}, grow {mesh number: how much its
+# bounding sphere needs to grow by}, points {name of a point: its matrix}.
+Moved = namedtuple("Moved", "vertices grow points")
 
 
 @dataclass
@@ -155,11 +159,12 @@ def _copy_bytes(source, target, n):
         n -= len(piece)
 
 
-def without_faces(path, out, going):
+def without_faces(path, out, going, change=None):
     """A copy of the kn5 at path at out without some triangles: going {mesh number (as scan's): bool per triangle, True what goes}.
     A mesh left with none is left out. What doesn't change is copied as it stands, so the rest stays the same to the byte and a 10 GB
     file never lies in memory; a changed mesh keeps only the vertices it still uses, and its bounding sphere: a little too big does no
-    harm. Returns {mesh number: its new number, None if left out}."""
+    harm. change: a Moved, of the file's numbers before anything goes. Returns {mesh number: its new number, None if left out}."""
+    change = change or Moved({}, {}, {})
     scan_ = scan(path)
     moved, number = {}, 0
     for i, m in enumerate(scan_["meshes"]):
@@ -189,22 +194,24 @@ def without_faces(path, out, going):
         g.write(struct.pack("<i", cls) + _s(name) + struct.pack("<iB", children - left, active) + struct.pack("<16f", *matrix))
         mesh = -1
         for _ in range(children):
-            mesh = _copy_child(f, g, r, mesh, moved, going, scan_)
+            mesh = _copy_child(f, g, r, mesh, moved, going, scan_, change)
     return moved
 
 
-def _copy_child(f, g, r, mesh, moved, going, scan_):
-    """The root's next child from f to g: a mesh without its triangles that go. Returns the number of the last mesh passed."""
+def _copy_child(f, g, r, mesh, moved, going, scan_, change):
+    """The root's next child from f to g: a mesh without its triangles that go, as change moved it. Returns the number of the last mesh
+    passed."""
     start = f.tell()
     cls = r.take("<i")
-    r.string()
+    name = r.string()
     assert r.take("<i") == 0, "only the root of a kn5 of ours has children"
     r.take("<B")
     if cls == 1:
-        r.skip(64)
-        end = f.tell()
+        matrix_at = f.tell()
         f.seek(start)
-        _copy_bytes(f, g, end - start)
+        _copy_bytes(f, g, matrix_at - start)
+        matrix = f.read(64)
+        g.write(struct.pack("<16f", *change.points[name]) if name in change.points else matrix)
         return mesh
     assert cls == 2, f"node class {cls} not supported"
     mesh += 1
@@ -216,7 +223,7 @@ def _copy_child(f, g, r, mesh, moved, going, scan_):
     gone = going.get(mesh)
     if moved[mesh] is None:
         f.seek(vertices_at + size + tail_size)
-    elif gone is None:
+    elif gone is None and mesh not in change.vertices:
         f.seek(start)
         _copy_bytes(f, g, vertices_at - start + size + tail_size)
     else:
@@ -224,14 +231,20 @@ def _copy_child(f, g, r, mesh, moved, going, scan_):
         _copy_bytes(f, g, vertices_at - start)
         f.read(4)
         vertices = np.frombuffer(f.read(m["vertices"] * VERTEX.itemsize), dtype=VERTEX)
+        vertices = change.vertices.get(mesh, vertices)
         f.read(4)
-        faces = np.frombuffer(f.read(m["indices"] * 2), dtype=np.uint16).reshape(-1, 3)[~gone]
-        used, inverse = np.unique(faces.ravel(), return_inverse=True)
+        faces = np.frombuffer(f.read(m["indices"] * 2), dtype=np.uint16).reshape(-1, 3)
+        if gone is not None:
+            faces = faces[~gone]
+        used, inverse = np.unique(faces.ravel(), return_inverse=True) if gone is not None else (np.arange(len(vertices)), faces.ravel())
         g.write(struct.pack("<i", len(used)))
         g.write(vertices[used].tobytes())
         g.write(struct.pack("<i", len(inverse)))
         g.write(inverse.astype("<u2").tobytes())
-        _copy_bytes(f, g, tail_size)
+        tail = bytearray(f.read(tail_size))
+        if mesh in change.grow:
+            struct.pack_into("<f", tail, 4 + 4 + 8 + 12, m["radius"] + change.grow[mesh])
+        g.write(tail)
     return mesh
 
 

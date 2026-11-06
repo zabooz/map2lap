@@ -34,10 +34,15 @@ def state_of(path):
     return f"{st.st_mtime_ns}-{st.st_size}"
 
 
+def kind_of(name):
+    """A mesh's kind: the first word after its AC prefix, without a number. Pure."""
+    return name.split("_")[1].rstrip("0123456789") if "_" in name else name
+
+
 def problem(name, has_owners):
     """What is wrong with a mesh about to be added, or None: not entered above, or listed without saying whose its triangles are.
     Pure."""
-    word = name.split("_")[1].rstrip("0123456789") if "_" in name else name
+    word = kind_of(name)
     if word in TRACK or word in COUNTED or any(f"{mark}_" in name for mark in OF_THE_TRACK):
         return None
     if word not in LISTED:

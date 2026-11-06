@@ -59,6 +59,8 @@ the sort the build wrote: all cars, all benches; never all houses), out of its v
 with its kn5 filtered, no build), in its place or as a copy; the kn5 as it was is kept as the track's source (`app/tracksource.py`,
 `out/sources`; a first Save in place keeps the old file by a hardlink, one file with the track's only while that Save runs), which the
 Editor shows from then on, so what was deleted can come back.
+A height change (`app/trackheights.py`, so far with no tool on the page) moves the ground of the kn5 and what lies along it, vertex by vertex; single
+objects move whole, wires go from pole to pole; water stays, and one that reaches a deck or a railway is refused. A new kind of mesh is sorted there too (`test_trackheights.py` stops on one that isn't).
 Which triangles make up an object: `track/objectlist.py`, written by the build (parked cars, houses with their signs and doors,
 street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes by their count of triangles). Every mesh
 a build adds is entered there as listed, counted or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.

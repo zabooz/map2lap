@@ -1,7 +1,8 @@
 """Save in the Editor: a track as its draft (trackedits) says, written from its source (tracksource), in its place or as a copy: its
-whole folder, its kn5 without those objects' triangles, collision and the backs of walls too. No build: the geometry of everything else
-is the same to the byte. Its map2lap.json holds the recipe ("edits": source, ids, sorts, the kn5 written), so the Editor shows the
-source and whatever was deleted can come back. A build of the track from the map starts from its map data again and has none of this.
+whole folder, its kn5 without those objects' triangles, collision and the backs of walls too, and with its height changes
+(trackheights). No build: the geometry of everything else is the same to the byte. Its map2lap.json holds the recipe ("edits": source,
+ids, sorts, height changes, the kn5 written), so the Editor shows the source and whatever was changed can come back. No build from the
+map replaces such a track (generator, server); a copy built from its route has none of this.
 """
 import contextlib
 import os
@@ -11,7 +12,7 @@ import time
 
 import numpy as np
 
-from app import mytracks, trackedits, tracksource, trackview
+from app import mytracks, trackedits, trackheights, tracksource, trackview
 from track import kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -219,9 +220,9 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"]
+    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"]
     if not (changed or source or copy_to):
-        raise Refused("Nothing to save: nothing is deleted")
+        raise Refused("Nothing to save: nothing is changed")
     objects = trackview.list_of(path)
     # (the first Save: the track as it is, kept before anything is written. Replaced, its file itself can stay as that; a copy leaves
     # the track in its place, which needs a source of its own)
@@ -239,6 +240,11 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     folder = os.path.dirname(own)
     path = tracksource.kn5_of(source) if source else own
     _check_room(os.path.dirname(folder), os.path.getsize(path), not (source or tracksource.exists(tracksource.id_of(name, own))))
+    scan = kn5.scan(path)
+    try:                            # (before a source is made: refused, nothing is left behind)
+        heights = trackheights.moved(path, scan, objects, edits["heights"]) if edits["heights"] else None
+    except trackheights.InTheWay as e:
+        raise Refused(str(e)) from e
     if source is None:
         source = tracksource.make(ac, name, own, objects)
         path = tracksource.kn5_of(source)
@@ -248,15 +254,15 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     if copy_to and os.path.exists(target):
         raise Refused(f"A track called {copy_to} is there already")
     shutil.rmtree(temporary, ignore_errors=True)        # (left by a Map2Lap that ended halfway)
-    going, seen = faces_left_out(path, kn5.scan(path), objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
+    going, seen = faces_left_out(path, scan, objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
                                  trackview._atlas(), edits["object_sorts"])
     try:
         _copy_folder(folder, temporary, {name + ".kn5", objectlist.FILE})
         new_kn5 = os.path.join(temporary, new + ".kn5")
-        moved = kn5.without_faces(path, new_kn5, going)
-        objectlist.write(new_kn5, objectlist.after_filter(objects, moved, going, seen))
+        moved = kn5.without_faces(path, new_kn5, going, heights)
+        objectlist.write(new_kn5, objectlist.after_filter(trackheights.list_moved(objects, edits["heights"]), moved, going, seen))
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
-                  "object_sorts": edits["object_sorts"], "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
+                  "object_sorts": edits["object_sorts"], "heights": edits["heights"], "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)

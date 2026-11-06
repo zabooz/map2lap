@@ -1,5 +1,5 @@
-"""What the Editor tab changed on a built track, its draft: for now the objects it leaves out, single or all of a sort.
-It lies in out/edits, so nothing of a track's folder changes until Save writes it (trackcopy), and holds for one state of the kn5 the
+"""What the Editor tab changed on a built track, its draft: the objects it leaves out, single or all of a sort, and the height changes
+it makes (trackheights). It lies in out/edits, so nothing of a track's folder changes until Save writes it (trackcopy), and holds for one state of the kn5 the
 Editor shows (trackview.served, "base"): an object's id is its number in that file, its position only a check for later. Built again,
 the list stays but is not applied: the numbers may mean other trees now, and a neighbour must never go in the place of the one that
 was picked. No file: the track's recipe, what its last Save was made of, while that counts (trackview.recipe); a saved empty list stays
@@ -12,7 +12,7 @@ import re
 import tempfile
 import threading
 
-from app import mytracks, trackview
+from app import mytracks, trackheights, trackview
 
 SCHEMA = 1
 MAX_BYTES = 16 * 1024 * 1024        # about 150,000 objects: far more than anyone clicks away, far less than fills the memory
@@ -70,13 +70,14 @@ def changes(ac, name):
 
 
 def _parts(stored):
-    """A list's ids, sorts and object sorts. Pure."""
-    return [d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ())
+    """A list's ids, sorts, object sorts and height changes, by all they hold. Pure."""
+    return ([d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ()),
+            [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())])
 
 
 def _count(stored):
-    """How many changes a list holds: each object, each sort. Pure."""
-    return len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ()))
+    """How many changes a list holds: each object, each sort, each height change. Pure."""
+    return len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
 
 
 def _names(value):
@@ -89,11 +90,12 @@ def _well_formed(d):
     return (isinstance(d, dict) and d.get("schema") == SCHEMA and type(d.get("revision")) is int
             and "base" in d and isinstance(d["base"], (str, type(None))) and isinstance(d.get("deleted"), list)
             and all(isinstance(i, dict) and isinstance(i.get("id"), str) and isinstance(i.get("position"), list) for i in d["deleted"])
-            and _names(d.get("sorts", [])) and _names(d.get("object_sorts", [])))
+            and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
+            and trackheights.problems(d.get("heights", [])) is None)
 
 
 def _stored(path, saved=None):
-    """The list in the file: {"base", "revision", "deleted", "sorts", "object_sorts"}. None there: the recipe saved, or an empty one.
+    """The list in the file: {"base", "revision", "deleted", "sorts", "object_sorts", "heights"}. None there: the recipe saved, or an empty one.
     Not readable as a list: an empty one that says "broken", it is not overwritten without being asked."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -102,8 +104,10 @@ def _stored(path, saved=None):
             return d
     except FileNotFoundError:
         if saved:
+            if trackheights.problems(saved.get("heights", [])):     # (a map2lap.json edited by hand: nothing to act on)
+                return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
-                    "object_sorts": saved["object_sorts"]}
+                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", [])}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -119,9 +123,9 @@ def _old(stored, revision):
 
 def load(ac, name):
     """The list for the page: "base" the served kn5's revision now, "revision" to send back with a save, "deleted", "sorts" (of trees
-    and bushes) and "object_sorts" (of listed objects) what holds for it, "outdated" how many changes don't, "saved" what the last
-    Save was made of while that counts (the page tells by it whether the track is as the list: "at", the ids and sorts),
-    else None."""
+    and bushes), "object_sorts" (of listed objects) and "heights" what holds for it, "outdated" how many changes don't, "saved" what the
+    last Save was made of while that counts (the page tells by it whether the track is as the list: "at", the ids and sorts, the
+    height changes' ids), else None."""
     path = _file(ac, name)
     revision = trackview.deletable(ac, name)[0]
     saved = trackview.recipe(ac, name)
@@ -129,9 +133,11 @@ def load(ac, name):
     same = s["base"] == revision
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
             "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
+            "heights": s.get("heights", []) if same else [],
             "outdated": _old(s, revision), "saved": saved and {
                 "at": saved["saved"], "deleted": [d["id"] for d in saved["deleted"]],
-                "sorts": saved["sorts"], "object_sorts": saved["object_sorts"]}}
+                "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
+                "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else []}}
 
 
 def _checked(deleted, counts):
@@ -162,6 +168,14 @@ def _checked_sorts(sorts, known, what):
     return sorts
 
 
+def _checked_heights(heights):
+    """What the page sent as height changes, if there is no problem with them. Pure."""
+    wrong = trackheights.problems(heights)
+    if wrong:
+        raise Invalid(f"no height changes: {wrong}")
+    return heights
+
+
 def _write(path, content):
     """content into the file at path, whole or not at all: a build or a crash never leaves half a list."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -178,8 +192,8 @@ def _write(path, content):
 
 
 def save(ac, name, body):
-    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "id", "unanswered"} instead of the one on disk, if it
-    was made from that one and for this kn5 (else Conflict). "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
+    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "id", "unanswered"} instead of the one on disk,
+    if it was made from that one and for this kn5 (else Conflict). No "heights": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
     of them, the page's revision is only behind by an answer lost on the way (or a page closing with a save under way). An outdated
     or broken list goes only by an empty one, asked for. Returns the new revision."""
     if not isinstance(body, dict):
@@ -197,9 +211,10 @@ def save(ac, name, body):
         deleted = _checked(body.get("deleted"), counts)
         sorts = _checked_sorts(body.get("sorts") or [], trackview.sprites(), "trees")
         object_sorts = _checked_sorts(body.get("object_sorts") or [], listed_sorts, "objects")
-        if not known or ((deleted or sorts or object_sorts) and _old(s, revision)):
+        heights = _checked_heights(body["heights"]) if "heights" in body else s.get("heights", []) if s["base"] == revision else []
+        if not known or ((deleted or sorts or object_sorts or heights) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
-                      "object_sorts": object_sorts})
+                      "object_sorts": object_sorts, "heights": heights})
     return new

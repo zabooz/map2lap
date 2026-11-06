@@ -47,8 +47,8 @@ furniture, signs, rocks, fences, gas stations, leisure grounds) on tracks built 
 so the others keep their numbers; the list, a draft (`app/trackedits.py`, `out/edits/<track>.json`), is saved a moment after each
 change, written whole, and refused when another tab or a build changed the track since it was read. It holds for one state of
 the kn5 shown. Save in the Editor (`app/trackcopy.py`) writes the track from it, in its place or as a copy: the folder copied to a
-hidden temp folder, the kn5 without those triangles (`kn5.without_faces`: what doesn't change is copied as it stands), the object
-list fitted to it, the recipe in its map2lap.json, then moved into place (refused while AC holds the kn5). No build. The first Save
+hidden temp folder, the kn5 without those triangles and with its height changes (`kn5.without_faces`, `trackheights.moved`: what doesn't
+change is copied as it stands), the object list fitted to it, the recipe in its map2lap.json, then moved into place (refused while AC holds the kn5). No build. The first Save
 keeps the kn5 as it was as the track's source (`app/tracksource.py`, `out/sources`): the Editor shows the source while the recipe
 counts (`trackview.served`), so what was deleted can come back after any Save. In its place on one disk the old file itself becomes
 the source (a hardlink until the old folder goes, taken back if the Save fails), which needs no room for a copy; a new track leaves the

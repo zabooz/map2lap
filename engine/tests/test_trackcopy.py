@@ -386,6 +386,101 @@ class SaveTest(Base):
             self.assertIn("saved in the Editor", answer["error"])
             run.assert_not_called()
 
+    # (1 m up on all but its edge, from x -10 to 110 and z -10 to 10: over this track's ground and over the spheres its meshes say they have)
+    UP = {"id": "up", "x": -10, "z": -10, "nx": 61, "nz": 11, "mm": [1000 if 0 < i % 61 < 60 and 61 <= i < 610 else 0 for i in range(671)]}
+
+    def lift(self, *ops):
+        now = trackedits.load(self.ac, "t")
+        trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": f"h{now['revision']}", "deleted": now["deleted"],
+                                       "sorts": now["sorts"], "object_sorts": now["object_sorts"], "heights": list(ops)})
+
+    def ground(self, name="t"):
+        return self.meshes(kn5.read(self.own(name))["root"])["1ROAD_ground_0_0"].vertices["pos"][:, 1]
+
+    def test_a_height_change_is_saved_with_what_was_deleted_and_a_second_save_adds_nothing(self):
+        before = self.ground()
+        self.lift(self.UP)
+        self.edits(["t_0_0#0"])                 # (the page's list of deletions alone leaves it in)
+        self.assertEqual(["up"], [h["id"] for h in trackedits.load(self.ac, "t")["heights"]])
+        trackcopy.save(self.ac, "t")
+        np.testing.assert_allclose(self.ground(), before + 1.0, atol=1e-4)
+        self.assertEqual({11.0, 12.0}, self.cars())
+        self.assertEqual(0, trackedits.changes(self.ac, "t"))
+        self.assertEqual(["up"], trackedits.load(self.ac, "t")["saved"]["heights"])
+        trackcopy.save(self.ac, "t")
+        np.testing.assert_allclose(self.ground(), before + 1.0, atol=1e-4)
+
+    def test_undone_and_saved_a_height_change_is_gone_to_the_byte(self):
+        before = self.ground()
+        self.lift(self.UP)
+        trackcopy.save(self.ac, "t")
+        self.lift()
+        self.assertEqual(1, trackedits.changes(self.ac, "t"))
+        trackcopy.save(self.ac, "t")
+        np.testing.assert_array_equal(self.ground(), before)
+
+    def test_a_copy_takes_its_height_changes_along(self):
+        before = self.ground()
+        self.lift(self.UP)
+        trackcopy.save(self.ac, "t", copy_to="t_up")
+        np.testing.assert_allclose(self.ground("t_up"), before + 1.0, atol=1e-4)
+        np.testing.assert_array_equal(self.ground(), before)
+        self.assertEqual(["up"], [h["id"] for h in trackedits.load(self.ac, "t_up")["heights"]])
+
+    def test_a_change_on_a_bridge_leaves_the_track_and_the_disk_as_they_were(self):
+        self.lift(self.UP)
+        state = objectlist.state_of(self.kn5)
+        with mock.patch.object(trackcopy.trackheights, "moved", side_effect=trackcopy.trackheights.InTheWay("A bridge")):
+            with self.assertRaisesRegex(trackcopy.Refused, "A bridge"):
+                trackcopy.save(self.ac, "t")
+        self.assertEqual(state, objectlist.state_of(self.kn5))
+        self.assertEqual(["t"], os.listdir(os.path.dirname(self.root)))
+
+    def test_a_copy_refused_for_its_heights_leaves_no_source_behind(self):
+        self.lift(self.UP)
+        with mock.patch.object(trackcopy.trackheights, "moved", side_effect=trackcopy.trackheights.InTheWay("A bridge")):
+            with self.assertRaises(trackcopy.Refused):
+                trackcopy.save(self.ac, "t", copy_to="t_up")
+        self.assertFalse(os.path.exists(tracksource.root()) and os.listdir(tracksource.root()))
+        self.assertFalse(os.path.exists(os.path.dirname(self.own("t_up"))))
+
+    def test_a_raster_changed_under_its_id_counts_as_a_change(self):
+        self.lift(self.UP)
+        trackcopy.save(self.ac, "t")
+        self.assertEqual(0, trackedits.changes(self.ac, "t"))
+        self.lift({**self.UP, "mm": [2 * v for v in self.UP["mm"]]})
+        self.assertGreater(trackedits.changes(self.ac, "t"), 0)
+
+    def test_a_draft_on_disk_with_a_height_change_twice_is_no_list_to_act_on(self):
+        self.lift(self.UP)
+        path = trackedits.path_of("t")
+        with open(path, encoding="utf-8") as f:
+            draft = json.load(f)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({**draft, "heights": [self.UP, self.UP]}, f)
+        now = trackedits.load(self.ac, "t")
+        self.assertEqual(([], 1), (now["heights"], now["outdated"]))
+
+    def test_a_recipe_edited_by_hand_is_no_list_to_act_on(self):
+        self.lift(self.UP)
+        trackcopy.save(self.ac, "t")
+        os.remove(trackedits.path_of("t")) if os.path.exists(trackedits.path_of("t")) else None
+        info = mytracks.load(self.root)
+        state = objectlist.state_of(self.kn5)
+        mytracks.save(self.root, {**info, "edits": {**info["edits"], "heights": [{"id": "bad"}]}})
+        self.assertEqual(state, objectlist.state_of(self.kn5))
+        now = trackedits.load(self.ac, "t")
+        self.assertEqual(([], 1, []), (now["heights"], now["outdated"], now["saved"]["heights"]))
+
+    def test_a_draft_refuses_a_height_change_it_can_not_hold(self):
+        now = trackedits.load(self.ac, "t")
+        for wrong in ([{"id": "x"}], "no list", [{"id": "up", "x": 80, "z": 0, "nx": 3, "nz": 3, "mm": [1] * 9}]):
+            with self.assertRaises(trackedits.Invalid):
+                trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x", "deleted": [], "heights": wrong})
+        good = {"id": "up", "x": 80, "z": 0, "nx": 3, "nz": 3, "mm": [0, 0, 0, 0, 1, 0, 0, 0, 0]}
+        with self.assertRaisesRegex(trackedits.Invalid, "twice"):
+            trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x", "deleted": [], "heights": [good, good]})
+
     def test_the_list_goes_by_the_last_save_of_an_edited_track(self):
         self.edits(["t_0_0#0"])
         trackcopy.save(self.ac, "t", copy_to="copy")
