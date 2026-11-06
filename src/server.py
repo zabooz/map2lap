@@ -29,7 +29,9 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
     named.restart_as("server")
 
 import generator  # noqa: E402
-from app import (debugapp, mapcache, mytracks, settings, system, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
+import numpy as np  # noqa: E402
+
+from app import (debugapp, mapcache, mytracks, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
                  trackview, updater, version)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -47,6 +49,7 @@ EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
 BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush(/preview)?")
+BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -564,6 +567,41 @@ class Handler(BaseHTTPRequestHandler):
         except trackview.Unreadable:
             self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
 
+    def _band(self, name, what):
+        """The Editor's smooth tool (trackband). what: "way": where the road goes between the page's points, {"line": [[x, y, z], ...], "width"};
+        "preview": what its height change changes (trackedits.preview); None: that change, as _brush answers. 409: it can't be, for the
+        reason it says."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can change a track"})
+        if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+            self.close_connection = True    # (its body stays unread)
+            return self._send(413, {"error": "No band"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            base = body.get("base")
+            path, scan = trackview._scan_of(ac, name, base)
+            road = trackband.road_cells(path, base)
+            moved = trackedits.moved_now(ac, name, base)
+            if what == "way":
+                line, width = trackband.way(road, body.get("points"))
+                ys = trackband.road_heights(path, scan, moved, line)
+                return self._send(200, {"line": np.c_[line[:, 0], ys, line[:, 1]].round(3).tolist(), "width": round(width, 1)})
+            op = trackband.change_of(path, scan, moved, road, body.get("points"), body.get("width"), body.get("strength"), secrets.token_hex(8))
+            if what == "preview":
+                return self._send(200, trackedits.preview(ac, name, base, op), "application/octet-stream")
+            objects = trackview.list_of(path)
+            trackedits.remember_meshes(op["id"], sorted(trackheights.moved(path, scan, objects, [op]).vertices))
+            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, objects, op)})
+        except (ValueError, AttributeError) as e:
+            self._send(400, {"error": str(e)})
+        except (trackband.Refused, trackheights.InTheWay) as e:
+            self._send(409, {"error": str(e)})
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+
     def do_PUT(self):
         edits = EDITS_PATH.fullmatch(self.path)
         if not edits:
@@ -632,6 +670,9 @@ class Handler(BaseHTTPRequestHandler):
         brush = BRUSH_PATH.fullmatch(self.path)
         if brush:
             return self._brush(brush[1], bool(brush[2]))
+        band = BAND_PATH.fullmatch(self.path)
+        if band:
+            return self._band(band[1], band[2])
         try:
             body = self._body()
             if self.path == "/api/route":
