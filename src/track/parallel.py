@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 from app import named, system
 
-GB_PER_WORKER = 1.5        # (measured: ~0.9 GB per process with BeamNG.Earth's state, plus headroom for big tiles)
+GB_PER_WORKER = 2.0        # (measured on a 307 km track of 2433 tiles, 31 workers: at most 55 GB together, 1.78 GB each; ~0.9 GB on a short one)
 SHARE = 1.0                # share of the logical cores (generator page: Settings, generator.py --cores)
 ORDER_ENV = "BNGE_TILE_ORDER"       # the order a build hands out its tiles, to test that it doesn't matter (tile_order)
 
@@ -68,7 +68,7 @@ def retry_locked(fn):
 
 def pool(n, initializer=None, initargs=()):
     # (Not max_tasks_per_child: with it the pool hung under Python 3.12/Windows, tested; 3.14 untried. BeamNG.Earth
-    # keeps map and elevation data in memory per process: on 300 km each process grew from 0.9 to 1.35 GB, which is
+    # keeps map and elevation data in memory per process: on 300 km each process grows from 0.9 to about 1.8 GB (GB_PER_WORKER), which is
     # fine.)
     # (spawn on Linux too, as on Windows: each worker starts clean and builds BeamNG.Earth's state in its initializer;
     # Linux' default fork would copy the parent's state and threads into it, and builds could differ between systems)
