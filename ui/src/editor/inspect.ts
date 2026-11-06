@@ -12,6 +12,18 @@ export interface Atlas {
 }
 
 /** Whether bytes more stay within a limit of gb. */
+/** What meshes take up in x and z, each as far as its sphere reaches. None: anywhere. Pure. */
+export function trackArea(meshes: {center: number[]; radius: number}[]) {
+  const area = {minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity};
+  for (const {center: [x, , z], radius} of meshes) {
+    area.minX = Math.min(area.minX, x - radius);
+    area.maxX = Math.max(area.maxX, x + radius);
+    area.minZ = Math.min(area.minZ, z - radius);
+    area.maxZ = Math.max(area.maxZ, z + radius);
+  }
+  return meshes.length ? area : {minX: -Infinity, maxX: Infinity, minZ: -Infinity, maxZ: Infinity};
+}
+
 /** The items sorted by how far from the point each begins, the nearest last: pop gives it without another look at the rest. Pure. */
 export function nearestLast<T extends {center: number[]; radius: number}>(items: T[], at: number[]) {
   const begins = new Map(items.map(m => [m, Math.hypot(m.center[0] - at[0], m.center[1] - at[1], m.center[2] - at[2]) - m.radius]));

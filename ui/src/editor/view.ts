@@ -5,7 +5,7 @@ import * as THREE from "three";
 import {DDSLoader} from "three/addons/loaders/DDSLoader.js";
 import {acceleratedRaycast, MeshBVH} from "three-mesh-bvh";
 import {DEFAULT_CONTROLS, NORMAL_SPEED, type Controls} from "./controls";
-import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt,
+import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
 
 /** What the mouse points at (the hover box). */
@@ -106,21 +106,24 @@ const FETCH_TRIES = 3, FETCH_WAIT_MS = 500;     // one part of 66,000 cut off on
 const COPIES = 2;
 const VIEW_M = 300000;              // far plane: the distant terrain reaches 40 km around a route of up to 500 km
 const START_BACK_M = 45, START_UP_M = 22;   // the first view: behind and above the start
-const GROUND = /^(1ROAD|1GRASS|1GRAVEL)_ground|^nocol_far/;     // the meshes the view stays above
+const GROUND = /^(1ROAD|1GRASS|1GRAVEL)_ground|^1ROAD_deck|^nocol_water|^nocol_far/;   // the meshes the view stays above: over a river's surface, not its bed
 const FAR = /^nocol_far/;
 const ABOVE_GROUND_M = 1.5;
 const LOOK_RAD_PER_PX = 0.004;      // the wheel held: how far the view turns per pixel dragged
 const LOOK_DOWN_MIN_RAD = 0.02;     // the view stays this far below the horizon and this far from straight down (there it would flip)
 const TURN_REACH = 10;              // the wheel held turns around the ground in the view's middle, at most this many times the height away
 const TURN_REACH_MIN_M = 200;       // (flat over a plain that is many km: the camera would sweep across the country)
+const AREA_MARGIN_M = 1000;         // how far beyond the track's meshes the view's middle goes (the camera can stand further out, to look back)
 const MIDDLE_BUTTON = 1, MIDDLE_HELD = 4, RIGHT_BUTTON = 2, RIGHT_HELD = 2;     // (a mouse event's button; its buttons)
 // The wheel: one notch goes this share of the way to what the mouse points at, so it feels the same from 10 m and from 10 km.
 const ZOOM_STEP = 0.15;
 const NOTCH_PX = 100, NOTCH_LINES = 3, MOST_NOTCHES = 3;    // (a notch's deltaY in pixels, in lines; one event of a fast wheel at most)
 const NEAREST_M = 1;                // the wheel goes no nearer than this
+const ZOOM_REACH = 5;               // a notch counts from at most this many times the height: terrain far off at the horizon is no km's jump
 const ZOOM_EASE_S = 0.1;            // a notch glides: most of its way within this time, the view doesn't jump
 const ZOOM_DONE = 0.002;            // (notches left that no eye sees)
 const HIGHEST_MIN_M = 1000;         // the highest the camera goes: the track as a whole in view, at least this
+const HIGHEST_MAX_M = 80000;        // ... at most this: the distant terrain, shown up to about 100 km (obj_to_kn5.VIEW), stays in sight
 // Moving: m/s per m above the ground, so a close look creeps and an overview crosses the track; within these limits.
 const FLY_PER_M = 2.0, FLY_MIN_M_S = 24, FLY_MAX_M_S = 6000;
 const FLY_MAX_STEP_S = 0.1;         // (a slow frame moves no further than this)
@@ -180,17 +183,6 @@ function speedUpRays(mesh: THREE.Mesh) {
   mesh.raycast = acceleratedRaycast;
   performance.measure("map2lap.bvh", {start: started, detail: bytes});
   return bytes;
-}
-
-/** The highest the camera goes over a track of these meshes: all of it in view, the distant terrain not counted. Pure. */
-function highestOver(meshes: MeshInfo[]) {
-  let span = 0;
-  const near = meshes.filter(m => !FAR.test(m.name));
-  for (const k of [0, 2]) {
-    const ends = near.map(m => [m.center[k] - m.radius, m.center[k] + m.radius]);
-    span = Math.max(span, ends.reduce((most, e) => Math.max(most, e[1]), -Infinity) - ends.reduce((least, e) => Math.min(least, e[0]), Infinity));
-  }
-  return Math.min(VIEW_M / 2, Math.max(HIGHEST_MIN_M, span));
 }
 
 const meshBytes = (m: MeshInfo) => m.vertices * FLOATS_PER_VERTEX * 4 + 4 + m.indices * 2;
@@ -289,6 +281,8 @@ export class TrackView {
   private height = 0;                   // m above the ground, from the last ground query
   private clearance = START_UP_M;       // m above the ground it was left at: moving keeps to it
   private highest = HIGHEST_MIN_M;      // m above the ground it can go
+  private area = trackArea([]);         // where the middle of its view can lie, x and z
+  private lastGround = 0;               // the height of the last ground found under it: where none is, that counts as the ground
   private zoomLeft = 0;                 // notches of the wheel still to glide, towards zoomAim
   private zoomAim = new THREE.Vector3();
   private host: HTMLElement;
@@ -623,9 +617,9 @@ export class TrackView {
       this.zoomLeft = 0;
       last = {x: e.clientX, y: e.clientY};
       const c = this.camera.position, look = this.camera.getWorldDirection(new THREE.Vector3());
-      const most = Math.max(TURN_REACH_MIN_M, this.height * TURN_REACH);
-      reach = Math.min(most, this.groundAlong(c, look)?.distance ?? most);
+      reach = Math.max(NEAREST_M, Math.min(this.reachOfLook(), this.groundAlong(c, look)?.distance ?? this.wayDown(look)));
       pivot = c.clone().addScaledVector(look, reach);
+      this.intoArea(pivot);
     });
     el.addEventListener("pointermove", e => {
       if (!last) return;
@@ -644,44 +638,48 @@ export class TrackView {
 
   /** Right drag: the ground under the mouse stays under it. The right click for the menu is clicks'. */
   private grabGround(el: HTMLElement) {
-    let plane: THREE.Plane | null = null, grabbed = new THREE.Vector3();
-    const at = new THREE.Vector3();
+    let plane: THREE.Plane | null = null;
+    const at = new THREE.Vector3(), grabbed = new THREE.Vector3();
     el.addEventListener("pointerdown", e => {
       if (e.button !== RIGHT_BUTTON) return;
       this.zoomLeft = 0;
       this.picker.setFromCamera(screenPoint(e, el), this.camera);
-      const {ray} = this.picker, hit = this.groundAlong(ray.origin, ray.direction);
-      grabbed = hit?.point.clone() ?? this.camera.position.clone().setY(this.camera.position.y - this.height);
-      plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -grabbed.y);
+      const {ray} = this.picker, height = this.groundAlong(ray.origin, ray.direction)?.point.y ?? this.lastGround;
+      plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -height);
+      if (!ray.intersectPlane(plane, grabbed)) plane = null;      // (the sky: nothing to take along)
     });
-    el.addEventListener("pointermove", e => {
-      if (!plane) return;
-      if (!(e.buttons & RIGHT_HELD)) {
-        plane = null;
-        return;
-      }
+    const follow = (e: PointerEvent, on: THREE.Plane) => {
       this.picker.setFromCamera(screenPoint(e, el), this.camera);
-      if (!this.picker.ray.intersectPlane(plane, at) || at.distanceTo(this.camera.position) > 2 * this.highest) return;   // (at the horizon)
+      if (!this.picker.ray.intersectPlane(on, at) || at.distanceTo(this.camera.position) > 2 * this.highest) return;   // (at the horizon)
       this.camera.position.x += grabbed.x - at.x;
       this.camera.position.z += grabbed.z - at.z;
       this.settle();
       this.clearance = this.height;
       this.moved();
+    };
+    el.addEventListener("pointermove", e => {
+      if (!plane) return;
+      if (e.buttons & RIGHT_HELD) follow(e, plane);
+      else plane = null;
     });
     el.addEventListener("pointerup", e => {
-      if (e.button === RIGHT_BUTTON) plane = null;
+      if (e.button !== RIGHT_BUTTON) return;
+      if (plane) follow(e, plane);      // (where it was let go: a browser under load merges the last moves into this)
+      plane = null;
     });
   }
 
   /** The wheel: nearer to what the mouse points at or back from it, by a share of the way (ZOOM_STEP); the view keeps its direction.
-      Nothing there (the sky): the height counts as the way. */
+      The mouse on the sky: the way the view looks, never upwards. */
   private zoomWheel(el: HTMLElement) {
     el.addEventListener("wheel", e => {
       e.preventDefault();
       if (!this.data || this.held) return;      // (a button held: that drag goes by the camera as it was)
       this.mouse = screenPoint(e, el);
-      const way = this.hit()?.distance ?? Math.max(this.height, NEAREST_M), {ray} = this.picker;
-      this.zoomAim.copy(ray.origin).addScaledVector(ray.direction, way);
+      const hit = this.hit(), {ray} = this.picker, c = this.camera.position;
+      const direction = hit || ray.direction.y < 0 ? ray.direction : this.camera.getWorldDirection(new THREE.Vector3());
+      const way = Math.min(hit?.distance ?? this.wayDown(direction), Math.max(this.height, NEAREST_M) * ZOOM_REACH);
+      this.zoomAim.copy(c).addScaledVector(direction, Math.max(way, NEAREST_M));
       const px = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY / NOTCH_LINES * NOTCH_PX : e.deltaY;
       this.zoomLeft += THREE.MathUtils.clamp(px / NOTCH_PX, -MOST_NOTCHES, MOST_NOTCHES) * this.settings.zoom / NORMAL_SPEED;
     }, {passive: false});
@@ -689,6 +687,10 @@ export class TrackView {
 
   /** The part of the notches left that falls into seconds, along the line to what they aim at: that stays under the mouse. */
   private glideZoom(seconds: number) {
+    if (this.zoomLeft > 0 && this.height >= this.highest) {      // (at the top: on, it would only slide sideways)
+      this.zoomLeft = 0;
+      return;
+    }
     let notches = this.zoomLeft * (1 - Math.exp(-seconds / ZOOM_EASE_S));
     if (Math.abs(this.zoomLeft - notches) < ZOOM_DONE) notches = this.zoomLeft;
     this.zoomLeft -= notches;
@@ -1000,13 +1002,15 @@ export class TrackView {
     // (the height from the last frame's query: one ground query a frame, the costliest thing here)
     const speed = Math.min(FLY_MAX_M_S, Math.max(FLY_MIN_M_S, this.height * FLY_PER_M));
     c.add(way.normalize().multiplyScalar(speed * this.settings.fly / NORMAL_SPEED * seconds));
+    this.keepInArea();
     const ground = this.groundBelow();
     if (ground !== null) c.y += (ground + this.clearance - c.y) * (1 - Math.exp(-seconds / FOLLOW_GROUND_S));
     this.settle(ground);
     this.moved();
   }
 
-  /** The camera reach away from pivot, its view turned by yaw to the left and tilted by pitch upwards (rad) and still on it. */
+  /** The camera reach away from pivot, its view turned by yaw to the left and tilted by pitch upwards (rad). It may stand beyond the
+      area (pivot lies in it); where a height limit keeps it from going all the way the view still turns, pivot then off its middle. */
   private turn(pivot: THREE.Vector3, reach: number, yaw: number, pitch: number) {
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const s = new THREE.Spherical().setFromVector3(look);
@@ -1015,7 +1019,7 @@ export class TrackView {
     look.setFromSpherical(s);
     const c = this.camera.position;
     c.copy(pivot).addScaledVector(look, -reach);
-    this.settle();
+    this.keepHeight(this.groundBelow());
     this.clearance = this.height;
     this.camera.lookAt(c.clone().add(look));
     this.moved();
@@ -1033,12 +1037,52 @@ export class TrackView {
     return this.groundAlong(new THREE.Vector3(c.x, c.y + VIEW_M, c.z), new THREE.Vector3(0, -1, 0))?.point.y ?? null;
   }
 
-  /** The camera within its heights over ground (from below, the ground is not drawn: a hillside would turn into empty sky). */
-  private settle(ground = this.groundBelow()) {
+  /** How far along direction, which goes down, the height of the last ground lies. */
+  private wayDown(direction: THREE.Vector3) {
+    return Math.max(this.camera.position.y - this.lastGround, 0) / -direction.y;
+  }
+
+  /** How far ahead the point counts that the view turns around: at a flat look over a plain that is many km. */
+  private reachOfLook() {
+    return Math.max(TURN_REACH_MIN_M, this.height * TURN_REACH);
+  }
+
+  /** point moved into the area, x and z. */
+  private intoArea(point: THREE.Vector3) {
+    const {minX, maxX, minZ, maxZ} = this.area;
+    point.x = THREE.MathUtils.clamp(point.x, minX - AREA_MARGIN_M, maxX + AREA_MARGIN_M);
+    point.z = THREE.MathUtils.clamp(point.z, minZ - AREA_MARGIN_M, maxZ + AREA_MARGIN_M);
+  }
+
+  /** The camera moved as far as the middle of its view lies beyond the area: that is what can't leave, not the camera, which may have
+      to stand beyond it to look back at the track. */
+  private keepInArea() {
+    const c = this.camera.position, look = this.camera.getWorldDirection(new THREE.Vector3());
+    const middle = c.clone().addScaledVector(look, Math.min(this.wayDown(look), this.reachOfLook())), within = middle.clone();
+    this.intoArea(within);
+    c.x += within.x - middle.x;
+    c.z += within.z - middle.z;
+  }
+
+  /** The camera within the area and its heights over the ground, known or looked up. */
+  private settle(known?: number | null) {
+    this.keepInArea();
+    this.keepHeight(known === undefined ? this.groundBelow() : known);
+  }
+
+  /** The camera within its heights over the ground (from below, the ground is not drawn: a hillside would turn into empty sky). */
+  private keepHeight(ground: number | null) {
+    if (ground !== null) this.lastGround = ground;
     const c = this.camera.position;
-    if (ground === null) return;
-    c.y = THREE.MathUtils.clamp(c.y, ground + ABOVE_GROUND_M, ground + this.highest);
-    this.height = c.y - ground;
+    c.y = THREE.MathUtils.clamp(c.y, this.lastGround + ABOVE_GROUND_M, this.lastGround + this.highest);
+    this.height = c.y - this.lastGround;
+  }
+
+  /** Back to the first view, behind the start. */
+  home() {
+    if (!this.data) return;
+    this.placeCamera(this.data);
+    this.moved();
   }
 
   /** The camera was moved: what is shown and what the mouse points at are to be looked at again. */
@@ -1213,7 +1257,10 @@ export class TrackView {
     this.camera.lookAt(at);
     this.camera.updateMatrixWorld();
     this.clearance = this.height = START_UP_M;
+    this.lastGround = at.y;
     this.zoomLeft = 0;
-    this.highest = highestOver(data.meshes);
+    this.area = trackArea(data.meshes.filter(m => !FAR.test(m.name)));
+    const {minX, maxX, minZ, maxZ} = this.area;
+    this.highest = Math.min(HIGHEST_MAX_M, Math.max(HIGHEST_MIN_M, maxX - minX, maxZ - minZ));
   }
 }

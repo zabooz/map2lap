@@ -1,6 +1,11 @@
 import {expect, test} from "bun:test";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, idsOfSorts, kindOf, latLonOf, nearestLast, objectAt, objectIndex, physicsOf, routeMetre,
-        sortName, sortOf, spriteAt, takenAlong, tileOf, type ObjectList} from "./inspect";
+        sortName, sortOf, spriteAt, takenAlong, tileOf, trackArea, type ObjectList} from "./inspect";
+
+test("the camera's area: what the meshes take up, each by its sphere; none: no limit", () => {
+  expect(trackArea([{center: [10, 5, -20], radius: 2}, {center: [-30, 0, 40], radius: 1}])).toEqual({minX: -31, maxX: 12, minZ: -22, maxZ: 41});
+  expect(trackArea([]).maxX).toBe(Infinity);
+});
 
 test("the queue: the nearest comes last, a large mesh counts from its edge; the list given stays", () => {
   const far = {center: [100, 0, 0], radius: 1}, near = {center: [10, 0, 0], radius: 1}, large = {center: [50, 0, 0], radius: 45};

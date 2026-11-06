@@ -230,6 +230,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
       <div id="edit-history" className={styles.history}>
         <button type="button" disabled={!state.canUndo || !editable} onClick={then(() => edits.undo())}>↶ Undo</button>
         <button type="button" disabled={!state.canRedo || !editable} onClick={then(() => edits.redo())}>↷ Redo</button>
+        <button type="button" title="Back to the first view, behind the start" onClick={then(() => view.home())}>⌂ Start</button>
       </div>
       {menu && (
         <ViewMenu at={menu} mark={editable ? markLabel : null} canDelete={!!removable && editable} onClose={closeMenu}

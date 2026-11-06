@@ -38,7 +38,8 @@ memory against its configured limit and disposes meshes and textures when the tr
 it does not include all browser overhead. Meshes and textures above it stay out of the preview; `tools/editor_memory.py` says what a
 track takes. A long track is tens of thousands of requests: GETs share kept connections (HTTP/1.1), and a part cut off on its way is
 asked for again. The camera moves as in a building game, level over the ground (`view.ts`), with no state kept between moves that
-could lie far off: what it turns around or zooms towards is looked up each time.
+could lie far off: what it turns around or zooms towards is looked up each time. The middle of its view stays within the track's meshes plus a margin (the camera may stand beyond, to look back), it stays
+below a height the distant terrain can be seen from; where no ground lies under it, the last one found counts.
 
 The Editor views and inspects tracks and leaves out single objects: trees and bushes on any track, by their count of
 triangles; what the build lists (`track/objectlist.py`: cars, houses with their signs and doors, poles with their wires, street

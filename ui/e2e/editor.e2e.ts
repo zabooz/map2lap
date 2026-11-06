@@ -184,6 +184,67 @@ test("zoomed below where the ground comes later: when it comes the camera is ove
   await expect(box(page)).toBeVisible();        // (from below, the ground isn't there for the mouse)
 });
 
+test("the camera stays by the track: W and the wheel lead nowhere, Start brings it back", async ({page}) => {
+  test.slow();
+  await openEditor(page);
+  const c = await centre(scene(page));
+  await page.mouse.move(100, 500);
+  const start = await stillView(page);
+  await scene(page).focus();
+  await page.keyboard.down("w");
+  await page.waitForTimeout(3000);                                // (a time by nature: how long the key is held)
+  await page.keyboard.up("w");
+  await page.mouse.move(c.x, c.y + 300);
+  for (let k = 0; k < 30; k++) await page.mouse.wheel(0, 300);
+  await stillView(page);
+  await page.mouse.move(c.x - 2, c.y + 300);
+  await page.mouse.move(c.x, c.y + 300);
+  await expect(box(page)).toBeVisible();          // (the map still there, under it)
+  await page.locator("#edit-history").getByRole("button", {name: "Start"}).click();
+  await page.mouse.move(100, 500);
+  await expect.poll(async () => (await stillView(page)).equals(start)).toBe(true);
+});
+
+test("at the edge of the area the view still turns, with the camera going beyond it", async ({page}) => {
+  test.slow();
+  await openEditor(page);
+  const c = await centre(scene(page));
+  await scene(page).focus();
+  await page.keyboard.down("w");
+  await page.waitForTimeout(4000);                                // (a time by nature: how long the key is held)
+  await page.keyboard.up("w");
+  await page.mouse.move(100, 500);
+  const before = await stillView(page);
+  await dragMouse(page, c, {x: c.x + 200, y: c.y}, "middle");
+  await page.mouse.move(100, 500);
+  expect((await stillView(page)).equals(before)).toBe(false);
+});
+
+test("the sky: a right drag from it moves nothing, the wheel on it goes the way the view looks, not up", async ({page}) => {
+  await openEditor(page);
+  const c = await centre(scene(page));
+  await dragMouse(page, c, {x: c.x, y: c.y - 100}, "middle");     // (nearly level: the view's upper part above the horizon)
+  const sky = {x: c.x, y: c.y - 300}, near = {x: c.x, y: c.y + 100};
+  await page.mouse.move(100, 500);
+  const before = await stillView(page);
+  await page.mouse.move(sky.x, sky.y);
+  await page.mouse.down({button: "right"});
+  await page.mouse.move(sky.x + 60, sky.y + 10, {steps: 4});
+  await page.mouse.up({button: "right"});
+  await page.mouse.move(100, 500);
+  expect((await stillView(page)).equals(before)).toBe(true);
+  await page.mouse.move(near.x - 2, near.y);
+  await page.mouse.move(near.x, near.y);
+  await expect(box(page)).toContainText(/Camera/);
+  const away = await awayOf(page);
+  await page.mouse.move(sky.x, sky.y);
+  await page.mouse.wheel(0, -300);
+  await stillView(page);
+  await page.mouse.move(near.x - 2, near.y);
+  await page.mouse.move(near.x, near.y);
+  await expect.poll(() => awayOf(page)).toBeLessThan(away);
+});
+
 test("the camera goes no higher than the track in view", async ({page}) => {
   await openEditor(page);
   const c = await hoverCentre(page);
