@@ -35,7 +35,7 @@ cd ui; bun install --frozen-lockfile  # once per clone, with the committed depen
 bun run dev                   # http://localhost:3000, changes show as files are saved; needs the server on 8800
 bun run check                 # types, React's hook rules and the page's tests
 bun run build                 # into src/web
-bun run e2e                   # the browser tests in Chrome (Playwright, ui/e2e), ~1 min
+bun run e2e                   # builds, then the browser tests in Chrome (Playwright, ui/e2e), ~2 min; `playwright test` alone runs on the src/web as last built
 bun run e2e:all               # also in Edge, Firefox and WebKit; once per machine: bunx playwright install
 ```
 
@@ -51,9 +51,17 @@ tested down to the pixel (`render.e2e.ts`). `--update-snapshots` takes new refer
   colours, base rules and what several components share. No style by element name or id: a global `aside` rule reached into
   everything that used the tag.
 
-The Editor currently views and inspects installed tracks; geometry editing is not available yet. "Keep build files" is on
-by default for the planned editing tools; viewing uses only the kn5. Its memory limit is an estimate: nearest meshes load
-first, parts or textures above the limit stay out. Browser tests use four workers because software 3D shares the CPU.
+The Editor views and inspects installed tracks and takes single objects, or all of a sort (trees by their image, listed objects by
+the sort the build wrote: all cars, all benches; never all houses), out of its view. What it took out is a draft in
+`out/edits/<track>.json` (`app/trackedits.py`), for one state of the kn5 shown. Save writes the track (`app/trackcopy.py`: the folder
+with its kn5 filtered, no build), in its place or as a copy; the kn5 as it was is kept as the track's source (`app/tracksource.py`,
+`out/sources`; a first Save in place keeps the old file by a hardlink, one file with the track's only while that Save runs), which the
+Editor shows from then on, so what was deleted can come back.
+Which triangles make up an object: `track/objectlist.py`, written by the build (parked cars, houses with their signs and doors,
+street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes by their count of triangles). Every mesh
+a build adds is entered there as listed, counted or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.
+"Keep build files" is on by default for the planned editing tools; viewing uses only the kn5. Its memory limit is an estimate: nearest meshes load
+first, parts or textures above the limit stay out. Browser tests use twelve workers because software 3D shares the CPU.
 
 ## Tools
 

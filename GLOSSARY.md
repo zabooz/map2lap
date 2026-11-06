@@ -13,6 +13,35 @@ _Avoid_: server, the page's server
 The generator page's tab that shows and inspects a built track in 3D, from its kn5 (`app/trackview.py`, `ui/src/editor`).
 Geometry editing is not available yet.
 
+**Object list**:
+The build's list of a track's single objects: `data/map2lap_objects.json` beside the kn5 (`track/objectlist.py`). Meshes stay merged
+per tile and material; the list says which triangles of them make up each object, also across meshes, and what belongs to what
+(a house's sign and door, a pole's lamp and wires). Every mesh a build adds is entered there. An object's id: `t_<x>_<y>#<number>`; a tree's or bush's, told apart by its count of triangles on any
+track: `<its mesh>#<number>`.
+
+**Sort**:
+An object's finest name, what "delete all" in the Editor goes by. A listed object's is in the object list beside its **kind**, the coarse name
+the page shows (kind `street furniture`, sort `bench`; a prop row's group, a sign's stream, else the kind; lists of older builds have none:
+their kind). A tree's or bush's is its image of the atlas (`trees.SPRITES`).
+
+**Save** (Editor):
+Writes a track as its edit list says (`app/trackcopy.py`), in its place or as a copy, its kn5 filtered from its **source**, without a
+build. Its map2lap.json then holds the **recipe** ("edits": the source, the ids and sorts, the kn5 it wrote, when). A track
+saved so is "edited" in My tracks. _Avoid_: modded track, rebuild (that is a build from the map).
+
+**Source**:
+A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`
+(`app/tracksource.py`), shared by its copies: the Editor shows it, so whatever was deleted can come back. It counts while the track's
+kn5 is the one its recipe wrote (`trackview.served`); built again, or the source lost, the track's own kn5 is shown. A first Save in
+place on one disk makes the old file itself the source (a hardlink, alone once the old folder goes), else it is a copy. It belongs to one
+AC folder: another one's tidying leaves it.
+
+**Edit list**:
+What the Editor changed on a track, its draft: `out/edits/<track>.json` (`app/trackedits.py`), for one state of the kn5 the Editor shows (the
+list's "base"). So far the objects it leaves out, each by its id with its position as a check, and whole sorts of trees ("sorts") and of
+listed objects ("object_sorts"), each a rule, not ids. Built again, the list stays but is not applied ("outdated"). No file: the
+recipe, while it counts.
+
 **Engine**:
 The folder `engine/`: our roads, grading, buildings and scenery code, based on BeamNG.Earth's server folder.
 _Avoid_: server, vendor code, BeamNG code

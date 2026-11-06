@@ -33,12 +33,29 @@ The Editor's three.js code loads on the first visit to its tab; camera and mesh 
 
 `app/trackview.py` scans an installed Map2Lap track's kn5 with `track.kn5.scan`: offsets, sizes, materials and start points,
 without loading all meshes or textures into memory. The page requests their bytes separately, with the file's revision;
-a changed or partially written file returns HTTP 409. The viewer loads nearby meshes first, counts memory against its
-configured limit and disposes meshes and textures when the track changes. The limit estimates RAM and GPU use; it does
-not include all browser overhead. Meshes and textures above it stay out of the preview.
+a changed or partially written file returns HTTP 409. The viewer loads nearby meshes first (six at a time, twelve textures), counts
+memory against its configured limit and disposes meshes and textures when the track changes. The limit estimates RAM and GPU use;
+it does not include all browser overhead. Meshes and textures above it stay out of the preview; `tools/editor_memory.py` says what a
+track takes. A long track is tens of thousands of requests: GETs share kept connections (HTTP/1.1), and a part cut off on its way is
+asked for again. The camera moves as in a building game, level over the ground (`view.ts`), with no state kept between moves that
+could lie far off: what it turns around or zooms towards is looked up each time.
 
-The Editor currently views and inspects tracks. Planned editing tools will use the kept build files; viewing needs only
-the installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
+The Editor views and inspects tracks and leaves out single objects: trees and bushes on any track, by their count of
+triangles; what the build lists (`track/objectlist.py`: cars, houses with their signs and doors, poles with their wires, street
+furniture, signs, rocks, fences, gas stations, leisure grounds) on tracks built with the list. A left out one's triangles shrink to a point,
+so the others keep their numbers; the list, a draft (`app/trackedits.py`, `out/edits/<track>.json`), is saved a moment after each
+change, written whole, and refused when another tab or a build changed the track since it was read. It holds for one state of
+the kn5 shown. Save in the Editor (`app/trackcopy.py`) writes the track from it, in its place or as a copy: the folder copied to a
+hidden temp folder, the kn5 without those triangles (`kn5.without_faces`: what doesn't change is copied as it stands), the object
+list fitted to it, the recipe in its map2lap.json, then moved into place (refused while AC holds the kn5). No build. The first Save
+keeps the kn5 as it was as the track's source (`app/tracksource.py`, `out/sources`): the Editor shows the source while the recipe
+counts (`trackview.served`), so what was deleted can come back after any Save. In its place on one disk the old file itself becomes
+the source (a hardlink until the old folder goes, taken back if the Save fails), which needs no room for a copy; a new track leaves the
+original installed, so its source is a true copy. A Save, a build and a deletion never run at once
+(`trackcopy`'s lock, asked under the server's). Building a saved track again starts from the map and has none of it: the page
+warns, and a new track from the map whose name would replace it is refused; sources no track of their AC folder names go at the next
+start, and none while that folder isn't there. Planned editing tools will use the kept build files; viewing needs only the
+installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
 turn that off or delete them. Existing saved preferences stay in effect.
 
 ## Parallel (`track/parallel.py`)

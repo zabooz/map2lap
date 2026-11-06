@@ -39,9 +39,15 @@ Steam. Before the first track:
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
 - **My tracks:** rebuild a track with the latest version, build a copy, delete it, or **▶ Play** it straight away.
-- **Editor:** inspect a built track in 3D. Fly with W A S D, orbit with the left mouse button, look around by holding
-  the wheel, move with the right mouse button and zoom with the wheel. Point at a surface, tree or building to see its
-  material, physics and position. Changing the track's geometry is not available yet.
+- **Editor:** inspect a built track in 3D. Move over the ground with W A S D or by dragging with the right mouse button, zoom
+  with the wheel, turn and tilt by holding it. Point at a surface, tree or building to see its
+  material, physics and position. Click an object, such as a tree, a parked car, a house, a sign or a fence, and press Delete to take it out of the view, Ctrl+Z brings it
+back (a track built before this version: build it again for everything but trees and bushes);
+right-click it to mark all of its sort (all parked cars, all benches) and delete them at once. Changes are kept by themselves;
+**Save** writes the track (the first time it asks: in its place, or as a new track with a name of your choice),
+**▾** saves it as a new track, and **▶ Play** saves if needed and drives it. What was deleted can be brought back after any Save.
+Building the track again from the map brings back what was deleted. All keys: Settings → Editor. A Save needs room on the disk for the
+track's file once more, a new track twice: tens of GB for a track of hundreds of km.
 
 Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 
