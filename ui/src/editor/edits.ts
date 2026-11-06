@@ -16,12 +16,24 @@ export interface Recipe {
   deleted: string[];
   sorts: string[];
   objectSorts: string[];
+  heights: string[];            // (the height changes' ids)
+}
+
+/** A change of the ground's height, a raster of whole mm (src/app/trackheights.py). The server makes it: it isn't looked into here. */
+export interface HeightChange {
+  id: string;
+  x: number;
+  z: number;
+  nx: number;
+  nz: number;
+  mm: number[];
 }
 
 export interface EditState {
   removed: Removed[];
   sorts: string[];              // whole sorts of trees and bushes left out: a rule, a long track's trees wouldn't fit a list of ids
   objectSorts: string[];        // whole sorts of listed objects left out (all parked cars, all benches), the same way
+  heights: HeightChange[];
   recipe: Recipe | null;        // null: never saved, or built again since
   canUndo: boolean;
   canRedo: boolean;
@@ -40,8 +52,8 @@ const TRACK_CHANGED = "This track was built again: the view shows the build befo
 
 type Send = (url: string, options?: RequestInit) => Promise<Response>;
 
-type Edits = Pick<EditState, "removed" | "sorts" | "objectSorts">;
-const NONE: Edits = {removed: [], sorts: [], objectSorts: []};
+type Edits = Pick<EditState, "removed" | "sorts" | "objectSorts" | "heights">;
+const NONE: Edits = {removed: [], sorts: [], objectSorts: [], heights: []};
 
 const same = (a: Iterable<string>, b: Iterable<string>) => {
   const x = new Set(a), y = new Set(b);
@@ -51,20 +63,24 @@ const same = (a: Iterable<string>, b: Iterable<string>) => {
 /** Whether the track is as these edits say: saved, and nothing changed since. Pure. */
 export function isCurrent(state: EditState) {
   const r = state.recipe;
-  return !!r && same(state.removed.map(d => d.id), r.deleted) && same(state.sorts, r.sorts) && same(state.objectSorts, r.objectSorts);
+  return !!r && same(state.removed.map(d => d.id), r.deleted) && same(state.sorts, r.sorts) && same(state.objectSorts, r.objectSorts)
+    && same(state.heights.map(h => h.id), r.heights);
 }
 
 /** Undo and redo of a track saved as a copy, for the copy's edits to take over (handOver). */
 let handed: {name: string; edits: Edits; past: Edits[]; future: Edits[]} | null = null;
 
 const sameEdits = (a: Edits, b: Edits) =>
-  same(a.removed.map(d => d.id), b.removed.map(d => d.id)) && same(a.sorts, b.sorts) && same(a.objectSorts, b.objectSorts);
+  same(a.removed.map(d => d.id), b.removed.map(d => d.id)) && same(a.sorts, b.sorts) && same(a.objectSorts, b.objectSorts)
+  && same(a.heights.map(h => h.id), b.heights.map(h => h.id));
 
 /** The edits of the track name. start() reads them, stop() saves what is left; subscribe and state as useSyncExternalStore wants
     them. bind() says which state of the track file the view shows: the numbers in a list only mean anything for one, so nothing can
     be changed while the two differ. */
 export class TrackEdits {
   private now: EditState = {...NONE, recipe: null, canUndo: false, canRedo: false, save: "loading", outdated: 0, error: null};
+  private onMeshes: (meshes: number[], revision: number) => void = () => {};
+  private turns: Promise<unknown> = Promise.resolve();
   private past: Edits[] = [];
   private future: Edits[] = [];
   private base: string | null = null;       // the state of the file the server's list is of
@@ -94,7 +110,30 @@ export class TrackEdits {
   /** The track was saved as these edits say. */
   markSaved() {
     const e = this.edits();
-    this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), sorts: e.sorts, objectSorts: e.objectSorts}});
+    this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), sorts: e.sorts, objectSorts: e.objectSorts,
+                       heights: e.heights.map(h => h.id)}});
+  }
+
+  /** action once all before it are done. Strokes on their way to the server go on in the order they were made, and what comes after
+      one waits for it: an undo takes back the stroke just made, a Save writes it, however late its answer comes. */
+  inTurn(action: () => unknown) {
+    this.turns = this.turns.then(action).catch(() => {});
+    return this.turns;
+  }
+
+  /** Done when all that is in turn now is: from outside a turn only, a turn waiting for this would wait for itself. */
+  settled() {
+    return this.turns;
+  }
+
+  /** The state of the track file the view shows, null: none yet. */
+  boundRevision() {
+    return this.bound;
+  }
+
+  /** onMeshes gets each answer's meshes the server now hands out otherwise, and the revision of its list. Not state: two answers in a row must both arrive. */
+  setOnMeshes(onMeshes: (meshes: number[], revision: number) => void) {
+    this.onMeshes = onMeshes;
   }
 
   /** The track was saved as the copy name: its edits, read anew, take over undo and redo if they are these. */
@@ -156,7 +195,7 @@ export class TrackEdits {
       this.base = d.base;
       this.revision = d.revision;
       const edits = {removed: d.deleted as Removed[], sorts: (d.sorts ?? []) as string[],
-                     objectSorts: (d.object_sorts ?? []) as string[]};
+                     objectSorts: (d.object_sorts ?? []) as string[], heights: (d.heights ?? []) as HeightChange[]};
       const taken = handed?.name === this.name && sameEdits(handed.edits, edits) ? handed : null;
       handed = null;
       this.past = taken?.past ?? [];
@@ -164,7 +203,7 @@ export class TrackEdits {
       this.onServer = edits;
       this.unanswered = [];
       const s = d.saved;
-      const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts} : null;
+      const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts, heights: s.heights ?? []} : null;
       this.set({...edits, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
       this.compare();
     } catch (e) {
@@ -206,9 +245,14 @@ export class TrackEdits {
     if (!this.now.objectSorts.includes(sort)) this.change({...this.edits(), objectSorts: [...this.now.objectSorts, sort]});
   }
 
+  /** A stroke of the brush, as the server made it. */
+  addHeight(change: HeightChange) {
+    this.change({...this.edits(), heights: [...this.now.heights, change]});
+  }
+
   /** Whether anything is changed. */
   changed() {
-    return this.now.removed.length > 0 || this.now.sorts.length > 0 || this.now.objectSorts.length > 0;
+    return this.now.removed.length > 0 || this.now.sorts.length > 0 || this.now.objectSorts.length > 0 || this.now.heights.length > 0;
   }
 
   /** All changes taken back, as one step that can be undone. */
@@ -217,7 +261,7 @@ export class TrackEdits {
   }
 
   private edits(): Edits {
-    return {removed: this.now.removed, sorts: this.now.sorts, objectSorts: this.now.objectSorts};
+    return {removed: this.now.removed, sorts: this.now.sorts, objectSorts: this.now.objectSorts, heights: this.now.heights};
   }
 
   /** The changes kept from an older build are given up. */
@@ -252,14 +296,16 @@ export class TrackEdits {
   }
 
   private apply(edits: Edits) {
+    // (a height change at once: the view shows it by what the server hands out, deleting is shown here and can wait for more)
+    const after = edits.heights === this.now.heights ? SAVE_AFTER_MS : 0;
     this.set({...edits, canUndo: this.past.length > 0, canRedo: this.future.length > 0, save: "waiting", error: null});
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.flush(), SAVE_AFTER_MS);
+    this.timer = setTimeout(() => void this.flush(), after);
   }
 
   private isSaved() {
     return this.now.removed === this.onServer?.removed && this.now.sorts === this.onServer?.sorts
-      && this.now.objectSorts === this.onServer?.objectSorts;
+      && this.now.objectSorts === this.onServer?.objectSorts && this.now.heights === this.onServer?.heights;
   }
 
   private async flush(leaving = false) {
@@ -271,7 +317,7 @@ export class TrackEdits {
     if ((this.sending && !leaving) || this.now.save === "stuck" || this.isSaved() || this.bound === null) return;
     const edits = this.edits(), number = ++this.sent, id = `${Date.now()}-${number}-${Math.random().toString(36).slice(2, 10)}`;
     const body = JSON.stringify({base: this.bound, revision: this.revision, deleted: edits.removed, sorts: edits.sorts,
-                                 object_sorts: edits.objectSorts, id, unanswered: this.unanswered.map(u => u.id)});
+                                 object_sorts: edits.objectSorts, heights: edits.heights, id, unanswered: this.unanswered.map(u => u.id)});
     this.unanswered = [...this.unanswered, {id, number}].slice(-MAX_UNANSWERED);
     this.sending = true;
     this.set({save: "saving"});
@@ -281,8 +327,8 @@ export class TrackEdits {
       const d = await r.json().catch(() => ({}));
       if (number >= this.sent) this.sending = false;
       if (number < this.answered) return;       // (a newer save got through already)
-      if (r.status === 409 || r.status === 400 || r.status === 404) {
-        // (409: another tab or a build. 400, 404: the same request can't ever go through, trying again helps nothing.)
+      if ([400, 404, 409, 413].includes(r.status)) {
+        // (409: another tab or a build. 400, 404, 413: the same request can't ever go through, trying again helps nothing.)
         this.sending = false;
         return this.set({save: "stuck", error: r.status === 409 ? CHANGED_ELSEWHERE : (d.error ?? `${r.status}`)});
       }
@@ -291,6 +337,7 @@ export class TrackEdits {
       this.revision = d.revision;
       this.onServer = edits;
       this.unanswered = this.unanswered.filter(u => u.number > number);
+      this.onMeshes(d.meshes ?? [], d.revision);
       if (!this.isSaved()) return void this.flush(leaving);
       if (!this.sending) this.set({save: "saved", error: null});
     } catch (e) {

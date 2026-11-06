@@ -168,14 +168,25 @@ def objects(ac, name):
     return list_of(served(ac, name)[0])
 
 
-def list_of(path):
-    """The object list beside the kn5 at path, if it is of that state of the file; else {}."""
+@functools.lru_cache(maxsize=2)
+def _list_read(list_path, kn5_state, _list_state):
+    """The object list in the file, if it is of that state of its kn5; else {}. Not to be changed: the next one asking gets the same."""
     try:
-        with open(os.path.join(os.path.dirname(path), objectlist.FILE), encoding="utf-8") as f:
+        with open(list_path, encoding="utf-8") as f:
             d = json.load(f)
-        fits = d["schema"] == objectlist.SCHEMA and d["kn5"] == objectlist.state_of(path) and objectlist.well_formed(d["objects"])
+        fits = d["schema"] == objectlist.SCHEMA and d["kn5"] == kn5_state and objectlist.well_formed(d["objects"])
         return d["objects"] if fits else {}
     except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def list_of(path):
+    """The object list beside the kn5 at path, if it is of that state of the file; else {}. Read once per state: each stroke of the brush
+    asks, and a long track's list is large."""
+    list_path = os.path.join(os.path.dirname(path), objectlist.FILE)
+    try:
+        return _list_read(list_path, objectlist.state_of(path), objectlist.state_of(list_path))
+    except OSError:
         return {}
 
 
@@ -221,11 +232,15 @@ def _scan_of(ac, name, revision):
     return path, s
 
 
-def mesh_bytes(ac, name, i, revision):
-    """Mesh i of the scan as in the file: its vertices (kn5.VERTEX), the index count (int32), its indices (uint16)."""
+def mesh_bytes(ac, name, i, revision, moved=None):
+    """Mesh i of the scan as in the file: its vertices (kn5.VERTEX), the index count (int32), its indices (uint16). moved: a kn5.Moved
+    its vertices are as it says."""
     path, s = _scan_of(ac, name, revision)
     m = s["meshes"][i]
-    return _read(path, m["offset"], m["vertices"] * VERTEX_BYTES + 4 + m["indices"] * 2, revision)
+    data = _read(path, m["offset"], m["vertices"] * VERTEX_BYTES + 4 + m["indices"] * 2, revision)
+    if moved and i in moved.vertices:
+        return moved.vertices[i].tobytes() + data[m["vertices"] * VERTEX_BYTES:]
+    return data
 
 
 def texture_bytes(ac, name, i, revision):

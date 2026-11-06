@@ -6,6 +6,9 @@
                                cursor: pointer; }
 .bar button:not(:disabled):hover, .history button:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
 .bar button:disabled, .history button:disabled { opacity: 0.45; cursor: default; }
+.bar button.on { color: var(--accent); border-color: var(--accent); }
+.number { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; color: var(--muted); white-space: nowrap; }
+.number input { width: 56px; height: 26px; padding: 0 4px; font-size: 12px; }
 .split { display: inline-flex; }
 .split button:first-child { border-radius: 7px 0 0 7px; }
 .split button:last-child { border-radius: 0 7px 7px 0; border-left: 0; padding: 0 6px; }

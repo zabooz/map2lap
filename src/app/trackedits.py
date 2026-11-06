@@ -20,6 +20,9 @@ NAME = re.compile(r"[a-z0-9_]+")    # (generator.slug's names; another name is r
 ID = re.compile(r"([\w-]+)#(\d+)")
 MAX_ID, MAX_UNANSWERED = 64, 64
 _saving = threading.Lock()          # (the server answers in threads: reading the revision and writing belong together)
+_now_lock, _now = threading.Lock(), {}      # (moved_now's last answer)
+_meshes_of = {}                     # (remember_meshes: a height change's id: the meshes it moves)
+MAX_REMEMBERED = 4096               # (more than a day's strokes; forgotten, they are reckoned again)
 
 
 class Invalid(Exception):
@@ -168,6 +171,36 @@ def _checked_sorts(sorts, known, what):
     return sorts
 
 
+def moved_now(ac, name, revision):
+    """What the height changes of the track's draft move in its served kn5 in that revision (a kn5.Moved), None for nothing: the Editor
+    shows each mesh as it will be, so the view and Save have one reckoning. Kept while the draft's file and the recipe stay as they
+    are: a long track's 66,000 meshes each ask."""
+    path, saved = _file(ac, name), trackview.recipe(ac, name)
+    try:
+        st = os.stat(path)
+        state = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        state = None
+    key = (name, revision, state, saved and saved["kn5"])
+    with _now_lock:
+        if _now.get("key") != key:
+            s = _stored(path, saved)
+            heights = s.get("heights", []) if s["base"] == revision else []
+            _now.update(key=key, moved=_moved_or_none(ac, name, revision, heights))
+        return _now["moved"]
+
+
+def _moved_or_none(ac, name, revision, heights):
+    """What heights move; None for none, or when they can't be applied: Save says why."""
+    if not heights:
+        return None
+    path, scan = trackview._scan_of(ac, name, revision)
+    try:
+        return trackheights.moved(path, scan, trackview.list_of(path), heights)
+    except trackheights.InTheWay:
+        return None
+
+
 def _checked_heights(heights):
     """What the page sent as height changes, if there is no problem with them. Pure."""
     wrong = trackheights.problems(heights)
@@ -191,11 +224,48 @@ def _write(path, content):
         raise
 
 
+def remember_meshes(id_, meshes):
+    """The meshes a height change moves, known from making it: saving it needn't reckon them again."""
+    with _now_lock:
+        if len(_meshes_of) > MAX_REMEMBERED:
+            _meshes_of.clear()
+        _meshes_of[id_] = meshes
+
+
+def _meshes_between(ac, name, revision, before, after):
+    """The numbers of the meshes the height changes that are in only one of the lists before and after move, and the road lines they
+    reach: the ones to show anew."""
+    now = {h["id"] for h in after}
+    different = [h for h in after if h["id"] not in {b["id"] for b in before}] + [h for h in before if h["id"] not in now]
+    out = set()
+    if not different:
+        return []
+    path, scan = trackview._scan_of(ac, name, revision)
+    out.update(trackheights.lines_reached(scan, trackheights.Field(different)))
+    for h in different:
+        with _now_lock:
+            known = _meshes_of.get(h["id"])
+        if known is None:
+            try:
+                known = sorted(trackheights.moved(path, scan, trackview.list_of(path), [h]).vertices)
+            except trackheights.InTheWay:
+                known = []
+            remember_meshes(h["id"], known)
+        out.update(known)
+    return sorted(out)
+
+
 def save(ac, name, body):
+    """save_telling, its new revision."""
+    return save_telling(ac, name, body)["revision"]
+
+
+def save_telling(ac, name, body):
     """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "id", "unanswered"} instead of the one on disk,
     if it was made from that one and for this kn5 (else Conflict). No "heights": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
     of them, the page's revision is only behind by an answer lost on the way (or a page closing with a save under way). An outdated
-    or broken list goes only by an empty one, asked for. Returns the new revision."""
+    or broken list goes only by an empty one, asked for. Returns {"revision": the new one, "meshes": the numbers of those it changed
+    the height changes of, for the view to fetch anew}."""
     if not isinstance(body, dict):
         raise Invalid("no list")
     path = _file(ac, name)
@@ -217,4 +287,5 @@ def save(ac, name, body):
         new = s["revision"] + 1
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
                       "object_sorts": object_sorts, "heights": heights})
-    return new
+        before = s.get("heights", []) if s["base"] == revision else []
+    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, heights)}

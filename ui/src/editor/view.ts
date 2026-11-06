@@ -52,6 +52,12 @@ export interface MenuAt {
   height: number;
 }
 
+/** The brush as it is set: its size on the ground, and which way it goes unless Shift turns it round. */
+export interface Brush {
+  radius: number;
+  lower: boolean;
+}
+
 /** All of a sort framed: a listed one's sort, or (tree) an atlas image. */
 export interface Marked {
   sort: string;
@@ -140,6 +146,12 @@ const IN_THE_LIST = /^(?!.*_sub_).*(_cars_|_bld|_props_|_wire_|_pylon_|_rocks_|_
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
+const LEFT_BUTTON = 0, LEFT_HELD = 1;
+const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
+const STROKE_STEP_M = 1;            // a stroke's points this far apart at least: half the ground's lattice, however many events a mouse sends
+const RING_POINTS = 64;
+const RING_UP_M = 0.15;             // (the stroke's line over the ground it runs on)
+const RAISE_COLOUR = "#ff8a1f", LOWER_COLOUR = "#2f8bff";
 
 /** fn, its time to read in the browser's performance tools under name (only the last one is kept). */
 function timed<T>(name: string, fn: () => T) {
@@ -246,6 +258,19 @@ async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: number) {
   return t;
 }
 
+/** How far from centre a sphere has to reach to hold a box: to its farthest corner, not only to its two named ones. Pure. */
+export function reachOfBox(centre: readonly number[], low: readonly number[], high: readonly number[]) {
+  return Math.hypot(...centre.map((c, axis) => Math.max(Math.abs(low[axis] - c), Math.abs(high[axis] - c))));
+}
+
+/** The geometry's sphere from its box, around the centre the file says, never smaller than the file says: a height change can move a mesh past it. */
+function fitSphere(g: THREE.BufferGeometry, info: MeshInfo) {
+  g.computeBoundingBox();
+  const box = g.boundingBox!;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(...info.center),
+                                      Math.max(info.radius, reachOfBox(info.center, box.min.toArray(), box.max.toArray())));
+}
+
 function makeGeometry(info: MeshInfo, buf: ArrayBuffer) {
   const g = new THREE.BufferGeometry();
   const v = new THREE.InterleavedBuffer(new Float32Array(buf, 0, info.vertices * FLOATS_PER_VERTEX), FLOATS_PER_VERTEX);
@@ -254,10 +279,9 @@ function makeGeometry(info: MeshInfo, buf: ArrayBuffer) {
   g.setAttribute("uv", new THREE.InterleavedBufferAttribute(v, 2, 6));
   const skip = info.vertices * FLOATS_PER_VERTEX * 4 + 4;
   g.setIndex(new THREE.BufferAttribute(new Uint16Array(buf, skip, info.indices), 1));
-  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(...info.center), info.radius);
   // (a ray then skips most meshes without looking at their triangles: a ground query from about 4.5 to 2.8 ms; the sphere
   // alone lets through every tile a long ray passes near)
-  g.computeBoundingBox();
+  fitSphere(g, info);
   return g;
 }
 
@@ -315,6 +339,16 @@ export class TrackView {
   private named: {ids: string[]; objectSorts: Set<string>} = {ids: [], objectSorts: new Set()};    // (as setRemoved was told)
   private listedOut = new Map<number, Piece[]>();       // what of the listed objects left out lies in each mesh, for one loading later
   private billboardsOut = new Map<string, string[]>();  // the trees and bushes left out by id, by the base of their meshes, the same
+  private trackName = "";
+  private heightsVersion = 0;           // a new number: the server hands out other meshes than a request on its way will bring
+  private onViewFailed: (text: string | null) => void = () => {};
+  private draft = 0;                    // the draft's revision on the server
+  private refreshes = oneByOne(PARALLEL);
+  private brush: Brush | null = null;
+  private onStroke: (points: [number, number][], lower: boolean) => void = () => {};
+  private ring: THREE.LineLoop | null = null;
+  private strokeLine: THREE.Line | null = null;
+  private stroke: {points: [number, number][]; line: THREE.Vector3[]; lower: boolean} | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -333,6 +367,7 @@ export class TrackView {
     this.flyKeys(this.renderer.domElement);
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
+    this.strokes(this.renderer.domElement);
     this.resizing = new ResizeObserver(() => this.resize());
     this.resizing.observe(host);
     this.renderer.setAnimationLoop(() => this.frame());
@@ -542,6 +577,8 @@ export class TrackView {
     this.loading = new AbortController();
     const {signal} = this.loading;
     this.clear();
+    this.trackName = name;
+    this.onViewFailed(null);
     this.dirty = true;
     this.onHover(null);
     this.onPick(null);
@@ -591,9 +628,11 @@ export class TrackView {
           return;
         }
         this.usedBytes += COPIES * meshBytes(info);
-        const buf = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}`, signal);
+        const asked = this.heightsVersion;
+        const buf = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}&d=${this.draft}`, signal);
         if (mine !== this.token) return;
         this.addMesh(name, data, info, buf);
+        if (asked !== this.heightsVersion) void this.refresh(info.i);      // (changed on its way)
         done++;
         say(`Loading: ${done} of ${total} parts`);
       }
@@ -722,12 +761,174 @@ export class TrackView {
     });
   }
 
+  /** The brush set, or none: while it is, the left button paints instead of picking. */
+  setBrush(brush: Brush | null) {
+    const was = this.brush;
+    this.brush = brush;
+    if (!brush) {
+      this.cancelStroke();
+      if (this.ring) {
+        this.scene.remove(this.ring);
+        this.ring.geometry.dispose();
+        this.ring = null;
+      }
+    } else {
+      if (!was) this.unpick();
+      this.onHover(null);
+      this.placeRing(this.brushAt(), false);
+    }
+    this.dirty = true;
+  }
+
+  /** onStroke gets a stroke when it ends: its places [AC x, AC z] on the ground and whether it lowers. */
+  setStroke(onStroke: (points: [number, number][], lower: boolean) => void) {
+    this.onStroke = onStroke;
+  }
+
+  /** The stroke under way is dropped; whether there was one. */
+  cancelStroke() {
+    if (!this.stroke) return false;
+    this.stroke = null;
+    this.drawStroke();
+    return true;
+  }
+
+  /** The meshes by number the server now hands out otherwise (it says which: only it knows what moves with a change), its list in that
+      revision: those loaded are fetched anew. The changes aren't reckoned here: there is one reckoning, the server's, which Save uses too. */
+  refreshMeshes(meshes: number[], revision: number) {
+    this.draft = revision;
+    if (!meshes.length) return;
+    this.heightsVersion++;
+    for (const i of meshes) void this.refresh(i);
+  }
+
+  /** onViewFailed gets what went wrong when the view can't show a change that was made, null when that is over. */
+  setViewFailed(onViewFailed: (text: string | null) => void) {
+    this.onViewFailed = onViewFailed;
+  }
+
+  /** Mesh number i fetched again, as the server hands it out now. Only the last answer per mesh counts. */
+  private async refresh(i: number) {
+    const mine = this.token, {signal} = this.loading, m = this.byNumber.get(i);
+    if (!m || !this.data) return;
+    const asked = m.userData.asked = (m.userData.asked ?? 0) + 1;
+    try {
+      const buf = await this.refreshes(() => fetchBytes(
+        `/api/editor/${encodeURIComponent(this.trackName)}/mesh/${i}?r=${this.data!.revision}&d=${this.draft}`, signal));
+      if (mine === this.token && m.userData.asked === asked) this.takeVertices(m, buf);
+    } catch (e) {
+      // (another track was asked for: nothing to say. Else the picture is behind what is kept: it mustn't look as if it were up to date)
+      if (mine === this.token && !signal.aborted && m.userData.asked === asked) this.onViewFailed((e as Error).message);
+    }
+  }
+
+  /** The mesh's vertices from bytes as a mesh is handed out; its triangles stay, with what is left out of them. */
+  private takeVertices(m: THREE.Mesh, buf: ArrayBuffer) {
+    const g = m.geometry, info = m.userData.info as MeshInfo;
+    const data = (g.getAttribute("position") as THREE.InterleavedBufferAttribute).data;
+    data.array.set(new Float32Array(buf, 0, info.vertices * FLOATS_PER_VERTEX));
+    data.needsUpdate = true;
+    fitSphere(g, info);
+    g.boundsTree?.refit();
+    if (this.marked) this.markDue = true;
+    this.dirty = true;
+    this.hoverDue = true;
+  }
+
+  /** The ground under the mouse if a stroke can go on it, else null. */
+  private brushAt() {
+    if (!this.mouse || !this.data) return null;
+    this.picker.setFromCamera(this.mouse, this.camera);
+    const {ray} = this.picker, hit = this.groundAlong(ray.origin, ray.direction);
+    return hit && BRUSHED.test(hit.object.name) ? hit.point : null;
+  }
+
+  /** The ring on the ground, of the brush's true size, in the colour of the way it goes; hidden over what it can't paint. */
+  private placeRing(at: THREE.Vector3 | null, turned: boolean) {
+    if (!this.brush) return;
+    if (!this.ring) {
+      const points = Array.from({length: RING_POINTS}, (_, k) => {
+        const angle = k / RING_POINTS * 2 * Math.PI;
+        return new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+      });
+      this.ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({depthTest: false, transparent: true}));
+      this.ring.renderOrder = 10;
+      this.ring.frustumCulled = false;
+      this.scene.add(this.ring);
+    }
+    this.ring.visible = !!at;
+    if (at) {
+      this.ring.position.copy(at);
+      this.ring.scale.setScalar(this.brush.radius);
+      (this.ring.material as THREE.LineBasicMaterial).color.set(this.brush.lower !== turned ? LOWER_COLOUR : RAISE_COLOUR);
+    }
+    this.dirty = true;
+  }
+
+  /** The line of the stroke under way: what it paints shows when it ends. */
+  private drawStroke() {
+    if (this.strokeLine) {
+      this.scene.remove(this.strokeLine);
+      this.strokeLine.geometry.dispose();
+      this.strokeLine = null;
+    }
+    if (this.stroke) {
+      const colour = this.stroke.lower ? LOWER_COLOUR : RAISE_COLOUR;
+      this.strokeLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(this.stroke.line),
+                                       new THREE.LineBasicMaterial({color: colour, depthTest: false, transparent: true}));
+      this.strokeLine.renderOrder = 10;
+      this.strokeLine.frustumCulled = false;
+      this.scene.add(this.strokeLine);
+    }
+    this.dirty = true;
+  }
+
+  /** The left button with the brush set: pressed on the ground a stroke starts, a move adds to it, let go it ends, a click is a stamp. */
+  private strokes(el: HTMLElement) {
+    const add = (at: THREE.Vector3) => {
+      const s = this.stroke!;
+      s.points.push([at.x, at.z]);
+      s.line.push(at.clone().setY(at.y + RING_UP_M));
+      this.drawStroke();
+    };
+    el.addEventListener("pointerdown", e => {
+      if (!this.brush || e.button !== LEFT_BUTTON) return;
+      this.mouse = screenPoint(e, el);
+      const at = this.brushAt();
+      if (!at) return;
+      this.stroke = {points: [], line: [], lower: this.brush.lower !== e.shiftKey};
+      add(at);
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener("pointermove", e => {
+      if (!this.brush) return;
+      this.mouse = screenPoint(e, el);
+      const at = this.brushAt();
+      this.placeRing(at, e.shiftKey);
+      const last = this.stroke?.points.at(-1);
+      if (at && last && e.buttons & LEFT_HELD && Math.hypot(at.x - last[0], at.z - last[1]) >= STROKE_STEP_M) add(at);
+    });
+    el.addEventListener("pointerup", e => {
+      if (!this.stroke || e.button !== LEFT_BUTTON) return;
+      const {points, lower} = this.stroke;
+      this.cancelStroke();
+      this.onStroke(points, lower);
+    });
+    el.addEventListener("pointercancel", () => this.cancelStroke());
+    el.addEventListener("pointerleave", () => {
+      if (this.ring && !this.stroke) {
+        this.ring.visible = false;
+        this.dirty = true;
+      }
+    });
+  }
+
   /** A press and release without moving (away and back is a drag too): the left button picks what is under the mouse, the right one picks it and asks for its
-      menu (a right drag moves the view, as before). */
+      menu (a right drag moves the view, as before). With the brush set the left button is the brush's. */
   private clicks(el: HTMLElement) {
     let from: {x: number; y: number; button: number} | null = null;
     el.addEventListener("pointerdown", e => {
-      from = e.button === 0 || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
+      from = (e.button === 0 && !this.brush) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
     });
     el.addEventListener("pointermove", e => {
       if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_PX) from = null;
@@ -883,7 +1084,7 @@ export class TrackView {
 
   /** What the mouse points at now, told to onHover. */
   private hover() {
-    if (!this.mouse || !this.data) return;
+    if (!this.mouse || !this.data || this.brush) return;     // (the brush shows its ring instead)
     const hit = timed("map2lap.hover", () => this.hit());
     this.onHover(hit ? this.describe(hit) : null);
   }

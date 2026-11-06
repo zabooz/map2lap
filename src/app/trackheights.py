@@ -4,14 +4,15 @@ undo or a second Save never adds or subtracts anything.
 
 The whole change at a place is the sum of the rasters over it, so the same place in x and z gets the same change in every mesh: the
 seams of tiles and of ROAD, GRAVEL and GRASS stay shut, and a cut line in the ground keeps its step. What goes with the ground:
-  - FOLLOW: what lies along it, each vertex by the change at its own place (a kerb, a fence, a wall: a vertical edge stays vertical);
+  - FOLLOW: what lies along it, each vertex by the change at its own place (a kerb, a fence, a wall: a vertical edge stays vertical),
+    what lies right on it a little higher where its long edges would run under the hill (ON_THE_GROUND);
   - wires: from pole to pole, by the change of the two poles they hang on;
   - single objects move whole by the change at their place, by the object list or as billboards: a house or a bench doesn't bend;
   - STAY: water and the distant view keep their height;
   - IN_THE_WAY: a change that reaches a bridge deck, a tunnel floor or a railway is refused: those hold their own heights, and a railway's
     mesh holds its bridges' plates and piers too, which its name doesn't tell from a track on the ground (railways.py).
 """
-from collections import namedtuple
+import math
 
 import numpy as np
 
@@ -23,7 +24,16 @@ MAX_POINTS = 1 << 20        # 2 km by 2 km at STEP: more than a change of a road
 MAX_MM = 100_000            # a change of 100 m is no correction any more; no real road needs one
 MAX_ID = 64
 NOTHING_M = 1e-6            # what changes that cancel out leave of floats: far under what a kn5's float32 holds at a track's heights (30 µm at 400 m)
+MIN_RADIUS_M, MAX_RADIUS_M = 3.0, 500.0     # a brush: below 3 m the 2 m lattice has no points to show its shape with; 500 m is a hillside
+MIN_SOFT = 0.1              # its soft share of the radius: a brush with no soft edge would be a wall on the lattice
+MAX_STROKE_POINTS = 5000    # (a mouse's points of a stroke; the view takes one per metre or so: kilometres of it)
+MAX_PLACE_M = 1e7           # how far from a track's anchor a place can lie: a quarter of the earth, more than any track (NaN falls out here too)
+STANDING_REACH_M = 50.0     # how far from an object's place its triangles are looked for: half the size of a big building; a bigger one only goes unnamed
+MAX_LIFT_M = 0.5            # how far a road's line goes up over a bulge at most: it has no collision, but further up, at the far end of a long edge, it is seen to float
+SAG_STEP_M = 0.25           # how often along an edge the bulge is looked at: a raster's top lies at its points, this finds it to within 2 cm on a slope of 15 %
+LINE_EDGE_M = 50.0          # how far past a change a line's edge can carry a lift: the longest measured is 22.5 m (Auckland); a longer one could jump at a tile's border
 FOLLOW = {"ground", "road", "walk", "walkcol", "tunnel", "guardrail", "guardrailcol", "gate", "fence", "fencecol", "wire"}
+ON_THE_GROUND = {"road"}    # (lying on it by a few cm, with no collision: _sag. A kerb's visible mesh and its collision have edges of their own: lifted, they would part)
 STAY = {"water", "foam", "far"}
 IN_THE_WAY = {"deck", "rail", "railcol"}
 
@@ -61,20 +71,48 @@ def problems(ops):
     return "a height change twice" if len({op["id"] for op in ops}) != len(ops) else None
 
 
+def _box(op):
+    """A height change's extent [x0, z0, x1, z1]. Pure."""
+    return [op["x"], op["z"], op["x"] + (op["nx"] - 1) * STEP, op["z"] + (op["nz"] - 1) * STEP]
+
+
+def _groups(ops):
+    """The height changes in groups, each small enough for one raster: [[its extent, its changes], ...]. So 300 strokes on a stretch are
+    looked up once, not 300 times over every vertex (10 ms each on Heiligenblut, nearly 3 s for each click). Pure."""
+    out = []
+    for op in ops:
+        box = _box(op)
+        for group in out:
+            x0, z0, x1, z1 = (min(group[0][0], box[0]), min(group[0][1], box[1]), max(group[0][2], box[2]), max(group[0][3], box[3]))
+            if ((x1 - x0) // STEP + 1) * ((z1 - z0) // STEP + 1) <= MAX_POINTS:
+                group[0] = [x0, z0, x1, z1]
+                group[1].append(op)
+                break
+        else:
+            out.append([box, [op]])
+    return out
+
+
 class Field:
-    """The sum of height changes [problem's form, each without a problem]."""
+    """The sum of height changes [problem's form, each without a problem]. Those of a group add up in whole mm: nothing is left of what
+    cancels out."""
 
     def __init__(self, ops):
+        self.boxes = np.array([_box(op) for op in ops], np.float64).reshape(-1, 4)
         self.rasters = []
-        for op in ops:
-            d = np.array(op["mm"], np.float64).reshape(op["nz"], op["nx"]) / 1000.0
+        for (x0, z0, x1, z1), group in _groups(ops):
+            mm = np.zeros(((z1 - z0) // STEP + 1, (x1 - x0) // STEP + 1), np.int64)
+            for op in group:
+                i, j = (op["x"] - x0) // STEP, (op["z"] - z0) // STEP
+                mm[j:j + op["nz"], i:i + op["nx"]] += np.array(op["mm"], np.int64).reshape(op["nz"], op["nx"])
+            d = mm / 1000.0
             along_z, along_x = np.gradient(d, STEP)
-            self.rasters.append((op["x"], op["z"], d, along_x, along_z))
+            self.rasters.append((x0, z0, d, along_x, along_z))
 
     def reaches(self, centre, radius):
-        """Whether a sphere (centre x, y, z; a mesh's) can touch a raster. Pure."""
-        return any(x - radius <= centre[0] <= x + (d.shape[1] - 1) * STEP + radius and z - radius <= centre[2] <= z + (d.shape[0] - 1) * STEP + radius
-                   for x, z, d, _ax, _az in self.rasters)
+        """Whether a sphere (centre x, y, z; a mesh's) can touch one of the changes. Pure."""
+        b = self.boxes
+        return bool(((b[:, 0] - radius <= centre[0]) & (centre[0] <= b[:, 2] + radius) & (b[:, 1] - radius <= centre[2]) & (centre[2] <= b[:, 3] + radius)).any())
 
     def at(self, x, z):
         """(the change, its slope along x, along z) at those places, arrays: linear between a raster's points, 0 outside. The slope is
@@ -138,6 +176,55 @@ def _followed(vertices, field):
     vertices["pos"][:, 1] = vertices["pos"][:, 1].astype(np.float64) + d
     vertices["normal"][touched], vertices["tangent"][touched] = normal[touched], tangent[touched]
     return float(np.abs(d).max())
+
+
+def _sag(vertices, faces, field):
+    """Per vertex how far up it has to go so its triangles' edges don't run under the ground: a road's line has its points far apart, on
+    a hill the ground bulges up between them and the line would vanish in it. How far the change along an edge lies over the straight
+    line between its ends, every SAG_STEP_M on it, at most MAX_LIFT_M. Pure."""
+    edges = faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2)
+    if not len(edges):
+        return np.zeros(len(vertices))
+    a, b = vertices["pos"][edges[:, 0]].astype(np.float64), vertices["pos"][edges[:, 1]].astype(np.float64)
+    ends = field.at(a[:, 0], a[:, 2])[0], field.at(b[:, 0], b[:, 2])[0]
+    places = np.maximum(np.ceil(np.hypot(b[:, 0] - a[:, 0], b[:, 2] - a[:, 2]) / SAG_STEP_M).astype(np.int64), 1)
+    edge = np.repeat(np.arange(len(edges)), places)
+    t = (np.arange(len(edge)) - np.repeat(np.r_[0, np.cumsum(places)[:-1]], places) + 0.5) / places[edge]
+    at = a[edge] + (b[edge] - a[edge]) * t[:, None]
+    over = np.zeros(len(edges))
+    np.maximum.at(over, edge, field.at(at[:, 0], at[:, 2])[0] - (ends[0][edge] + (ends[1][edge] - ends[0][edge]) * t))
+    lift = np.zeros(len(vertices))
+    np.maximum.at(lift, edges[:, 0], np.minimum(over, MAX_LIFT_M))
+    np.maximum.at(lift, edges[:, 1], np.minimum(over, MAX_LIFT_M))
+    lift[lift < NOTHING_M] = 0.0
+    return lift
+
+
+def lines_reached(scan, field):
+    """The numbers of the meshes of road lines a field can lift or lower: how far they go up isn't a sum over the changes, so one change
+    can take back what another's bulge lifted, and a mesh it doesn't move by itself still looks different. Pure."""
+    return [i for i, m in enumerate(scan["meshes"])
+            if objectlist.kind_of(m["name"]) in ON_THE_GROUND and field.reaches(m["center"], m["radius"] + LINE_EDGE_M)]
+
+
+def _line_lifts(mesh, scan, field):
+    """{mesh number: per vertex how far up (_sag)}, of the road lines the field reaches, where any go up. Vertices at one place go together,
+    also across meshes: a line goes on over a tile's border, and it mustn't jump there."""
+    found = [(i, mesh(i)[0], _sag(*mesh(i), field)) for i in lines_reached(scan, field)]
+    if not any(lift.any() for _i, _v, lift in found):
+        return {}
+    _same, place = np.unique(np.rint(np.concatenate([v["pos"] for _i, v, _lift in found]).astype(np.float64) * 1000).astype(np.int64),
+                             axis=0, return_inverse=True)
+    place = place.ravel()
+    most = np.zeros(place.max() + 1)
+    np.maximum.at(most, place, np.concatenate([lift for _i, _v, lift in found]))
+    out, start = {}, 0
+    for i, vertices, _lift in found:
+        lift = most[place[start:start + len(vertices)]]
+        start += len(vertices)
+        if lift.any():
+            out[i] = lift
+    return out
 
 
 def _object_changes(entry, field):
@@ -228,10 +315,10 @@ def moved(path, scan, objects, ops):
         return meshes[i]
 
     with open(path, "rb") as f:
-        wires = _wire_changes(mesh, scan, objects, field)
+        wires, lifts = _wire_changes(mesh, scan, objects, field), _line_lifts(mesh, scan, field)
         for i, m in enumerate(scan["meshes"]):
             kind = objectlist.kind_of(m["name"])
-            if i not in wires and not field.reaches(m["center"], m["radius"]):
+            if i not in wires and i not in lifts and not field.reaches(m["center"], m["radius"]):
                 continue
             if kind in IN_THE_WAY:
                 if _reached(field, *mesh(i)):
@@ -242,6 +329,9 @@ def moved(path, scan, objects, ops):
             elif kind in FOLLOW:
                 changed = mesh(i)[0].copy()
                 largest = _followed(changed, field)
+                if i in lifts:
+                    changed["pos"][:, 1] = changed["pos"][:, 1].astype(np.float64) + lifts[i]
+                    largest = (largest or 0.0) + float(lifts[i].max())
                 if i in wires:
                     hung = ~np.isnan(wires[i])
                     changed["pos"][hung, 1] = mesh(i)[0]["pos"][hung, 1].astype(np.float64) + wires[i][hung]
@@ -259,6 +349,64 @@ def moved(path, scan, objects, ops):
         if d:
             points[name] = (*matrix[:13], matrix[13] + d, *matrix[14:])
     return kn5.Moved(vertices, grow, points)
+
+
+def brush(points, radius, soft, mm, id_):
+    """The height change of a brush's stroke along points [[AC x, AC z], ...], one for a single stamp: mm at most, wherever the stroke
+    passed within radius of a place, down to 0 at radius; soft: the share of radius that goes down softly. The most, not the sum, of
+    what its points give: going over a place twice, or a mouse sending more events, doesn't heap it up. ValueError for what can't be
+    one. Pure."""
+    if not (isinstance(points, list) and 0 < len(points) <= MAX_STROKE_POINTS):
+        raise ValueError("No stroke")
+    if not all(isinstance(p, list) and len(p) == 2 and all(type(v) in (int, float) and abs(v) <= MAX_PLACE_M for v in p) for p in points):
+        raise ValueError("No stroke")
+    if not (type(radius) in (int, float) and MIN_RADIUS_M <= radius <= MAX_RADIUS_M and type(soft) in (int, float) and MIN_SOFT <= soft <= 1):
+        raise ValueError("No brush of that size")
+    if not (type(mm) is int and 0 < abs(mm) <= MAX_MM):
+        raise ValueError("No height")
+    at = np.array(points, np.float64)
+    x0 = int(math.floor((at[:, 0].min() - radius) / STEP)) * STEP - STEP
+    z0 = int(math.floor((at[:, 1].min() - radius) / STEP)) * STEP - STEP
+    nx = (int(math.ceil((at[:, 0].max() + radius) / STEP)) * STEP + STEP - x0) // STEP + 1
+    nz = (int(math.ceil((at[:, 1].max() + radius) / STEP)) * STEP + STEP - z0) // STEP + 1
+    if nx * nz > MAX_POINTS:
+        raise ValueError("This stroke is too long: make it in parts")
+    x, z = np.meshgrid(x0 + STEP * np.arange(nx, dtype=np.float64), z0 + STEP * np.arange(nz, dtype=np.float64))
+    way = np.full(x.shape, np.inf)
+    for a, b in zip(at, at[1:] if len(at) > 1 else at):
+        i0, i1 = int((min(a[0], b[0]) - radius - x0) // STEP), int((max(a[0], b[0]) + radius - x0) // STEP) + 2
+        j0, j1 = int((min(a[1], b[1]) - radius - z0) // STEP), int((max(a[1], b[1]) + radius - z0) // STEP) + 2
+        px, pz = x[j0:j1, i0:i1] - a[0], z[j0:j1, i0:i1] - a[1]
+        along = b - a
+        t = np.clip((px * along[0] + pz * along[1]) / max(float(along @ along), 1e-12), 0, 1)
+        way[j0:j1, i0:i1] = np.minimum(way[j0:j1, i0:i1], np.hypot(px - t * along[0], pz - t * along[1]))
+    t = np.clip((way - radius * (1 - soft)) / (radius * soft), 0, 1)
+    raster = np.rint(mm * (1 - t * t * (3 - 2 * t))).astype(np.int64)
+    return {"id": id_, "x": x0, "z": z0, "nx": int(nx), "nz": int(nz), "mm": raster.ravel().tolist()}
+
+
+def standing(path, scan, objects, op):
+    """How many single objects stay where they stand though the height change op reaches some of their triangles: an object moves by
+    the change at its own place, and that lies outside it. For a line on the page: a big house at the edge of a change."""
+    field, count = Field([op]), 0
+    x0, z0 = op["x"] - STANDING_REACH_M, op["z"] - STANDING_REACH_M
+    x1, z1 = op["x"] + (op["nx"] - 1) * STEP + STANDING_REACH_M, op["z"] + (op["nz"] - 1) * STEP + STANDING_REACH_M
+    meshes = {}
+    with open(path, "rb") as f:
+        for entry in objects.values():
+            changes = _object_changes(entry, field)
+            for k, at in enumerate(entry["at"]):
+                if changes[k] or entry["parents"][k] >= 0 or not (x0 <= at[0] <= x1 and z0 <= at[2] <= z1):
+                    continue
+                for i, first, n in entry["faces"][k]:
+                    if objectlist.kind_of(scan["meshes"][i]["name"]) in FOLLOW:
+                        continue
+                    if i not in meshes:
+                        meshes[i] = _mesh(f, scan["meshes"][i])
+                    if _reached(field, meshes[i][0], meshes[i][1][first:first + n]):
+                        count += 1
+                        break
+    return count
 
 
 def list_moved(objects, ops):

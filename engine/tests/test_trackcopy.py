@@ -436,6 +436,63 @@ class SaveTest(Base):
         self.assertEqual(state, objectlist.state_of(self.kn5))
         self.assertEqual(["t"], os.listdir(os.path.dirname(self.root)))
 
+    def served_ground(self):
+        now = trackedits.load(self.ac, "t")
+        i = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "1ROAD_ground_0_0")
+        data = trackview.mesh_bytes(self.ac, "t", i, now["base"], trackedits.moved_now(self.ac, "t", now["base"]))
+        count = kn5.scan(self.kn5)["meshes"][i]["vertices"]
+        return np.frombuffer(data[:count * kn5.VERTEX.itemsize], dtype=kn5.VERTEX)["pos"][:, 1]
+
+    def test_the_view_gets_what_the_draft_says_and_save_writes_the_same(self):
+        before = self.served_ground().copy()
+        self.lift(self.UP)
+        np.testing.assert_allclose(self.served_ground(), before + 1.0, atol=1e-4)
+        self.lift()
+        np.testing.assert_array_equal(self.served_ground(), before)
+        self.lift(self.UP)
+        trackcopy.save(self.ac, "t")
+        np.testing.assert_array_equal(self.served_ground(), self.ground())
+        self.lift()
+        np.testing.assert_array_equal(self.served_ground(), before)       # (the source's, with the draft's empty list)
+
+    def test_the_view_keeps_what_moved_for_all_its_meshes_until_the_draft_changes(self):
+        self.lift(self.UP)
+        now = trackedits.load(self.ac, "t")
+        first = trackedits.moved_now(self.ac, "t", now["base"])
+        self.assertIs(first, trackedits.moved_now(self.ac, "t", now["base"]))
+        self.lift({**self.UP, "id": "other"})
+        self.assertIsNot(first, trackedits.moved_now(self.ac, "t", now["base"]))
+
+    def told(self, *ops):
+        now = trackedits.load(self.ac, "t")
+        return trackedits.save_telling(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": f"h{now['revision']}", "deleted": now["deleted"],
+                                                      "sorts": now["sorts"], "object_sorts": now["object_sorts"], "heights": list(ops)})
+
+    def test_saving_a_change_names_the_meshes_it_moves_and_only_for_what_changed(self):
+        ground = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "1ROAD_ground_0_0")
+        told = self.told(self.UP)
+        self.assertIn(ground, told["meshes"])
+        self.assertEqual([], self.told(self.UP)["meshes"])      # (the same again: nothing to show)
+        self.assertIn(ground, self.told()["meshes"])            # (taken back)
+
+    def test_a_change_made_by_the_brush_isnt_reckoned_again_on_saving(self):
+        trackedits.remember_meshes("known", [7])
+        with mock.patch.object(trackedits.trackheights, "moved", side_effect=AssertionError("reckoned again")):
+            self.assertEqual([7], self.told({**self.UP, "id": "known"})["meshes"])
+
+    def test_a_change_names_the_road_lines_it_reaches_though_it_moves_them_not_by_itself(self):
+        """Lowering can take back what another's bulge lifted: the line looks different with no move of its own."""
+        with mock.patch.object(trackedits.trackheights, "lines_reached", return_value=[3]):
+            trackedits.remember_meshes("lower", [])
+            self.assertEqual([3], self.told({**self.UP, "id": "lower"})["meshes"])
+
+    def test_a_change_that_cant_be_applied_leaves_the_view_as_the_file(self):
+        self.lift(self.UP)
+        before = trackedits.load(self.ac, "t")["base"]
+        with mock.patch.object(trackedits.trackheights, "moved", side_effect=trackedits.trackheights.InTheWay("A bridge")):
+            self.lift({**self.UP, "id": "other"})
+            self.assertIsNone(trackedits.moved_now(self.ac, "t", before))
+
     def test_a_copy_refused_for_its_heights_leaves_no_source_behind(self):
         self.lift(self.UP)
         with mock.patch.object(trackcopy.trackheights, "moved", side_effect=trackcopy.trackheights.InTheWay("A bridge")):

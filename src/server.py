@@ -12,6 +12,7 @@ and every build uses the current code (a running server would otherwise build wi
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -28,7 +29,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
     named.restart_as("server")
 
 import generator  # noqa: E402
-from app import (debugapp, mapcache, mytracks, settings, system, trackcode, trackcopy, trackedits, tracksource,  # noqa: E402
+from app import (debugapp, mapcache, mytracks, settings, system, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
                  trackview, updater, version)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -42,9 +43,10 @@ lock, dialog_lock = threading.Lock(), threading.Lock()
 MARK = os.path.join(ROOT, "out", "build_running.json")
 BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<name>): written only while "Keep build
                             # files" is on, replaced by the next build of the track, deleted with the build files
-EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+))")
+EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?)")     # (d: the draft's revision the page asks after)
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
+BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -468,7 +470,8 @@ class Handler(BaseHTTPRequestHandler):
         ac = settings.ac_path()
         try:
             if kind == "mesh":
-                self._send(200, trackview.mesh_bytes(ac, name, int(i), revision), "application/octet-stream")
+                moved = trackedits.moved_now(ac, name, revision)
+                self._send(200, trackview.mesh_bytes(ac, name, int(i), revision, moved), "application/octet-stream")
             elif kind == "texture":
                 tex, data = trackview.texture_bytes(ac, name, int(i), revision)
                 self._send(200, data, IMAGE_TYPES.get(os.path.splitext(tex)[1].lower(), "application/octet-stream"))
@@ -533,6 +536,32 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             self._send(500, {"error": str(e)})
 
+    def _brush(self, name):
+        """A stroke of the Editor's brush as a height change, with all of it looked at, loaded in the view or not: {"height": what the
+        page puts into its draft, "standing": objects that stay where they stand}. Nothing is kept here. 409: it can't be applied, for
+        the reason it says."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can change a track"})
+        ac = settings.ac_path()
+        if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+            self.close_connection = True    # (its body stays unread)
+            return self._send(413, {"error": "This stroke is too long: make it in parts"})
+        try:
+            body = self._body()
+            op = trackheights.brush(body.get("points"), body.get("radius"), body.get("soft"), body.get("mm"), secrets.token_hex(8))
+            path, scan = trackview._scan_of(ac, generator.slug(name), body.get("base"))
+            objects = trackview.list_of(path)
+            trackedits.remember_meshes(op["id"], sorted(trackheights.moved(path, scan, objects, [op]).vertices))
+            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, objects, op)})
+        except (ValueError, AttributeError) as e:
+            self._send(400, {"error": str(e)})
+        except trackheights.InTheWay as e:
+            self._send(409, {"error": str(e)})
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+
     def do_PUT(self):
         edits = EDITS_PATH.fullmatch(self.path)
         if not edits:
@@ -553,7 +582,7 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
         except ValueError:
             return self._send(400, {"error": "No list of changes"})
-        self._edits_answer(lambda: {"revision": trackedits.save(settings.ac_path(), edits[1], body)})
+        self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
@@ -598,6 +627,9 @@ class Handler(BaseHTTPRequestHandler):
         save = SAVE_PATH.fullmatch(self.path)
         if save:
             return self._save_track(save[1])
+        brush = BRUSH_PATH.fullmatch(self.path)
+        if brush:
+            return self._brush(brush[1])
         try:
             body = self._body()
             if self.path == "/api/route":

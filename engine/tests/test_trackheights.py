@@ -118,6 +118,56 @@ class RasterTest(unittest.TestCase):
         self.assertIn("edge", trackheights.problems([raster(), {**raster(id_="b"), "mm": [1] + [0] * 120}]))
 
 
+class BrushTest(unittest.TestCase):
+    def stroke(self, points=((10.0, 10.0),), radius=10.0, soft=0.5, mm=1000):
+        return trackheights.brush([list(p) for p in points], radius, soft, mm, "s")
+
+    def heights(self, op, *places):
+        x, z = zip(*places)
+        return trackheights.Field([op]).at(np.array(x, float), np.array(z, float))[0]
+
+    def test_a_stamp_has_its_height_inside_and_nothing_from_its_radius_on(self):
+        op = self.stroke()
+        self.assertIsNone(trackheights.problem(op))
+        np.testing.assert_allclose(self.heights(op, (10, 10), (14, 10), (20, 10), (24, 10)), [1, 1, 0, 0], atol=1e-3)
+        self.assertGreater(float(self.heights(op, (17, 10))[0]), 0.05)     # (and softly between)
+        self.assertLess(float(self.heights(op, (17, 10))[0]), 0.95)
+
+    def test_it_goes_down_too(self):
+        self.assertAlmostEqual(-0.5, float(self.heights(self.stroke(mm=-500), (10, 10))[0]))
+
+    def test_its_raster_lies_on_the_lattice_whatever_the_mouse_gave(self):
+        op = self.stroke(points=((10.37, -7.91),))
+        self.assertEqual((0, 0), (op["x"] % trackheights.STEP, op["z"] % trackheights.STEP))
+        self.assertIsNone(trackheights.problem(op))
+
+    def test_more_points_on_the_same_way_and_going_over_it_twice_change_nothing(self):
+        """A slow computer or a fast mouse makes no other hill: not a mm more where it passed twice."""
+        few = self.stroke(points=((0.0, 10.0), (40.0, 10.0)))
+        many = self.stroke(points=[(float(x), 10.0) for x in range(41)])
+        twice = self.stroke(points=((0.0, 10.0), (40.0, 10.0), (0.0, 10.0)))
+        self.assertEqual(few["mm"], many["mm"])
+        self.assertEqual(few["mm"], twice["mm"])
+        self.assertEqual(1000, max(few["mm"]))
+
+    def test_all_along_a_stroke_the_same_height(self):
+        op = self.stroke(points=((0.0, 10.0), (40.0, 10.0)))
+        np.testing.assert_allclose(self.heights(op, (0, 10), (20, 10), (40, 10)), 1.0, atol=1e-3)
+        self.assertAlmostEqual(0.0, float(self.heights(op, (20, 21))[0]))
+
+    def test_what_is_no_stroke_or_no_brush(self):
+        for kwargs in ({"radius": 2.0}, {"radius": 501.0}, {"radius": "x"}, {"soft": 0.0}, {"soft": 1.5}, {"mm": 0}, {"mm": 1_000_000}, {"mm": 1.5}):
+            with self.assertRaises(ValueError, msg=kwargs):
+                self.stroke(**kwargs)
+        for points in ([], "x", [[1.0]], [["a", "b"]], [[float("nan"), 0.0]], [[0.0, 0.0]] * 5001, [[10 ** 400, 0.0]], [[1e20, 1e20]], [[float("inf"), 0.0]]):
+            with self.assertRaises(ValueError, msg=str(points)[:30]):
+                trackheights.brush(points, 10.0, 0.5, 1000, "s")
+
+    def test_a_stroke_too_long_for_a_raster_says_so(self):
+        with self.assertRaisesRegex(ValueError, "too long"):
+            self.stroke(points=((0.0, 0.0), (3000.0, 3000.0)))
+
+
 class MovedTest(Base):
     def test_the_ground_follows_x_z_uv_and_triangles_stay(self):
         points = [(10.0, 100.0, 10.0), (12.0, 100.0, 10.0), (10.0, 100.0, 12.0), (50.0, 100.0, 50.0), (51.0, 100.0, 50.0), (50.0, 100.0, 51.0)]
@@ -129,6 +179,73 @@ class MovedTest(Base):
         np.testing.assert_array_equal(before.vertices["pos"][:, [0, 2]], after.vertices["pos"][:, [0, 2]])
         np.testing.assert_array_equal(before.vertices["uv"], after.vertices["uv"])
         np.testing.assert_array_equal(before.indices, after.indices)
+
+    def test_a_road_line_with_long_edges_stays_over_the_hill(self):
+        """Its points far apart, each on the ground: between them the ground bulges up. Seen on a real track: the line had a gap on the hill."""
+        field_op = plateau(x=0, z=0, nx=31, nz=11)
+        line = [(10.0, 100.0, 10.0), (30.0, 100.0, 10.0), (30.0, 100.0, 11.0)]      # (the long edge from x 10 to x 30, over x 0 to 60)
+        mm = np.zeros((11, 31), np.int64)
+        mm[1:-1, 11:-1] = 0
+        for i in range(1, 30):
+            mm[1:-1, i] = int(1000 * np.sin(np.pi * i / 30))     # (a hill along x: its top at x 30)
+        op = {**field_op, "mm": mm.ravel().tolist()}
+        self.write(mesh("nocol_road_0_0", 0, line))
+        ys = self.apply([op])[0]["nocol_road_0_0"].vertices["pos"][:, 1]
+        field = trackheights.Field([op])
+        ends = field.at(np.array([10.0, 30.0]), np.array([10.0, 10.0]))[0]
+        for t in (0.25, 0.5, 0.75):
+            ground = 100.0 + float(field.at(np.array(10.0 + 20.0 * t), np.array(10.0))[0])
+            self.assertGreaterEqual(ys[0] + (ys[1] - ys[0]) * t, ground - 1e-3, t)
+        self.assertGreater(ys[0], 100.0 + ends[0] + 0.01)       # (it took more than the change at its own place)
+
+    def test_only_a_line_goes_up_over_a_hill_a_kerb_and_its_collision_stay_together(self):
+        line = [(1.0, 100.0, 10.0), (19.0, 100.0, 10.0), (10.0, 100.0, 11.0)]
+        for kind, up in (("road", True), ("walk", False), ("walkcol", False), ("ground", False), ("fence", False)):
+            with self.subTest(kind):
+                self.write(mesh(f"nocol_{kind}_0_0", 0, line))
+                ys = self.apply([plateau()])[0][f"nocol_{kind}_0_0"].vertices["pos"][:, 1]
+                self.assertEqual(up, bool(ys[0] > 100.5 + 1e-3))
+
+    def test_a_long_line_goes_over_a_narrow_hill_and_no_further_than_its_most(self):
+        """A change of 3 m at x 10 under an edge of 80 m: three places along the edge would miss it. Far off it shouldn't float a metre either."""
+        self.write(mesh("nocol_road_0_0", 0, [(-30.0, 100.0, 10.0), (50.0, 100.0, 10.0), (50.0, 100.0, 11.0)]))
+        ys = self.apply([raster(peak=2000)])[0]["nocol_road_0_0"].vertices["pos"][:, 1]
+        np.testing.assert_allclose(ys[0], 100.0 + trackheights.MAX_LIFT_M, atol=1e-4)
+
+    def test_a_line_stays_over_the_very_top_of_a_narrow_hill(self):
+        """A raster's top lies at its point: places half way between points miss it (a line at 72.5 mm over a hill of 100)."""
+        self.write(mesh("nocol_road_0_0", 0, [(6.0, 100.0, 10.0), (14.0, 100.0, 10.0), (14.0, 100.0, 10.5)]))
+        ys = self.apply([raster(peak=100)])[0]["nocol_road_0_0"].vertices["pos"][:, 1]
+        self.assertGreater(float((ys[0] + ys[1]) / 2), 100.09)     # (to within SAG_STEP_M's half on this slope of 5 %: 6 mm)
+
+    def test_vertices_at_one_place_go_up_together_also_in_two_meshes(self):
+        """A line goes on over a tile's border: one mesh's long edge over the hill, the next one's short and off it. It mustn't jump there."""
+        long_edge = [(-30.0, 100.0, 10.0), (50.0, 100.0, 10.0), (50.0, 100.0, 11.0)]
+        short_edge = [(50.0, 100.0, 10.0), (52.0, 100.0, 10.0), (52.0, 100.0, 11.0)]
+        self.write(mesh("nocol_road_0_0", 0, long_edge), mesh("nocol_road_1_0", 0, short_edge))
+        out = self.apply([raster(peak=2000)])[0]
+        self.assertEqual(out["nocol_road_0_0"].vertices["pos"][1, 1], out["nocol_road_1_0"].vertices["pos"][0, 1])
+        self.assertGreater(float(out["nocol_road_1_0"].vertices["pos"][0, 1]), 100.0)
+        self.assertEqual(100.0, float(out["nocol_road_1_0"].vertices["pos"][1, 1]))     # (only what lies at that place)
+
+    def test_a_line_a_change_can_lift_or_lower_is_named_though_it_moves_nothing_by_itself(self):
+        self.write(mesh("nocol_road_0_0", 0, [(0.0, 100.0, 0.0)] * 3, radius=1.0), mesh("nocol_road_9_9", 0, [(900.0, 100.0, 900.0)] * 3, radius=1.0))
+        scan = kn5.scan(self.path)
+        scan["meshes"][1]["center"] = (900.0, 100.0, 900.0)
+        self.assertEqual([0], trackheights.lines_reached(scan, trackheights.Field([plateau()])))
+
+    def test_three_hundred_strokes_on_a_stretch_are_one_raster_and_cancel_out_exactly(self):
+        ops = [raster(x=2 * k, id_=f"u{k}", peak=100) for k in range(300)] + [raster(x=2 * k, id_=f"d{k}", peak=-100) for k in range(300)]
+        field = trackheights.Field(ops)
+        self.assertEqual(1, len(field.rasters))
+        self.assertTrue((field.rasters[0][2] == 0).all())
+
+    def test_changes_far_apart_are_two_rasters_a_long_track_has_no_room_for_one(self):
+        field = trackheights.Field([raster(), raster(x=100000, z=100000, id_="b")])
+        self.assertEqual(2, len(field.rasters))
+        self.assertAlmostEqual(1.0, float(field.at(100010.0, 100010.0)[0]))
+        self.assertTrue(field.reaches((100010.0, 0.0, 100010.0), 1.0))
+        self.assertFalse(field.reaches((50000.0, 0.0, 50000.0), 1.0))
 
     def test_every_kind_along_the_ground_bends_with_it(self):
         points = [(float(x), 100.0, 10.0) for x in (0, 1, 2)]
@@ -300,6 +417,15 @@ class MovedTest(Base):
         out = self.apply([plateau()], going={0: np.array([True, False])})[0]["1ROAD_ground_0_0"]
         np.testing.assert_allclose(out.vertices["pos"][:, 0], [11, 12, 13])
         np.testing.assert_allclose(out.vertices["pos"][:, 1], 101, atol=1e-4)
+
+    def test_an_object_reached_by_a_change_but_standing_outside_it_is_named(self):
+        big = [(9.0, 100.0, 10.0), (60.0, 100.0, 10.0), (60.0, 105.0, 10.0)]        # (it reaches in, its place lies outside)
+        small = [(50.0, 100.0, 50.0), (51.0, 100.0, 50.0), (50.0, 101.0, 50.0)]
+        inside = [(10.0, 100.0, 10.0), (11.0, 100.0, 10.0), (10.0, 101.0, 10.0)]
+        self.write(mesh("nocol_bld_0_0", 0, big + small + inside))
+        objects = {"t_0_0": {"kinds": ["house"] * 3, "at": [[40.0, 100.0, 10.0], [50.0, 100.0, 50.0], [10.0, 100.0, 10.0]], "parents": [-1, -1, -1],
+                             "faces": [[[0, 0, 1]], [[0, 1, 1]], [[0, 2, 1]]], "with": {}}}
+        self.assertEqual(1, trackheights.standing(self.path, kn5.scan(self.path), objects, plateau()))
 
     def test_the_list_says_where_objects_are_now(self):
         objects = {"t_0_0": {"at": [[10.0, 100.0, 10.0], [1.0, 100.0, 10.0], [50.0, 7.0, 50.0]], "parents": [-1, 0, -1]},
