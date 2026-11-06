@@ -94,10 +94,11 @@ def report(track, x, z):
     print(f"the map's areas on the tile: {shares(kinds)}")
     print(f"their OSM tags (land_use only): {dict(tags.most_common()) or 'none'}")
     cap = vegetation.TILE_ROWS_MAX
-    kept = trees.tile_items(frame, tx, ty, veg, lambda a, b: np.zeros(len(a)))
+    elev = make_obj._ctx["elev"]        # (the build's heights: high up a conifer can be a larch)
+    kept = trees.tile_items(frame, tx, ty, veg, elev)
     vegetation.TILE_ROWS_MAX = 10 ** 9
     try:
-        whole = trees.tile_items(frame, tx, ty, veg, lambda a, b: np.zeros(len(a)))
+        whole = trees.tile_items(frame, tx, ty, veg, elev)
     finally:
         vegetation.TILE_ROWS_MAX = cap
     print(f"the canopy data's items on the tile: {len(kept):,} of {len(whole):,} kept by the cap of {cap:,}")
