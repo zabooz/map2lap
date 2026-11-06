@@ -14,7 +14,7 @@ export async function get<T>(url: string): Promise<T | null> {
 /** The answer to a POST of body; a failed connection as {error}. */
 export async function post<T = object>(url: string, body?: unknown): Promise<WithError<Partial<T>>> {
   try {
-    const r = await fetch(url, {method: "POST", body: body === undefined ? undefined : JSON.stringify(body)});
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: body === undefined ? undefined : JSON.stringify(body)});
     return (await r.json()) as WithError<Partial<T>>;
   } catch (e) {
     return {error: String(e)} as WithError<Partial<T>>;

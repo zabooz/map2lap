@@ -13,7 +13,6 @@ import sys
 import tempfile
 import threading
 import time
-from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 
 import numpy as np
@@ -24,10 +23,11 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 os.chdir(REPO)
 
 import generator  # noqa: E402
+import furniture  # noqa: E402
 import server  # noqa: E402
 from app import mapcache, mytracks, settings, system, updater, version  # noqa: E402
-from scenery import trees  # noqa: E402
-from track import kn5  # noqa: E402
+from scenery import cars, trees  # noqa: E402
+from track import kn5, objectlist  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="map2lap_e2e_")
 AC = os.path.join(TMP, "ac")
@@ -97,9 +97,72 @@ def billboards(name, mat, items):
     return mesh(name, mat, pos, [(0, 1, 0)] * len(pos), tex, np.arange(len(pos)))
 
 
-def make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True):
+RESET_TRIES, RESET_WAIT_S = 100, 0.05
+
+
+def parked_car(number, mat):
+    """A car of cars.py on the road ahead of the start, as make_obj and obj_to_kn5 leave it: three vertices a triangle, each
+    triangle a second time turned round. (its mesh, its entry in the track's list.)"""
+    placed = []
+    p, uv, t = cars.build([[128.0, 40.0, 0.0, 90.0]], fill=[1.0], placed=placed)
+    t = np.r_[t, t[:, ::-1]]
+    corners = t.ravel()
+    pos = np.c_[p[corners, 0], p[corners, 2], -p[corners, 1]]
+    tex = np.c_[uv[corners, 0], -uv[corners, 1]]
+    x, y, z, faces = placed[0]
+    entry = {"kinds": ["car"], "at": [[x, z, -y]], "parents": [-1], "faces": [objectlist.pieces_of(0, faces, [[(number, faces * 2)]], True)]}
+    return mesh("1WALL_cars_0_0", mat, pos, [(0, 1, 0)] * len(pos), tex, np.arange(len(pos))), entry
+
+
+def box_faces(x0, x1, y0, y1, z0, z1):
+    """The corners of a box's 12 triangles in AC's frame, each triangle's corners in turn."""
+    c = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+    quads = ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+    return [c[k] for q in quads for k in (q[0], q[1], q[2], q[0], q[2], q[3])]
+
+
+def house_with_sign(number, mat):
+    """A house ahead of the start with a sign on its front, one mesh as make_obj leaves it: each triangle a second time turned round,
+    the sign's triangles in the fields of the road's texture that are not the house's. (its mesh, its entry in the track's list.)"""
+    house, sign = box_faces(120.0, 136.0, 0.0, 12.0, -68.0, -58.0), box_faces(124.0, 132.0, 6.0, 9.0, -57.9, -57.7)
+    front = house + sign
+    back = [p for k in range(0, len(front), 3) for p in reversed(front[k:k + 3])]
+    uv = [(0.25, 0.25)] * len(house) + [(0.75, 0.75)] * len(sign)
+    tex = uv + [p for k in range(0, len(uv), 3) for p in reversed(uv[k:k + 3])]
+    faces = len(house) // 3, len(sign) // 3
+    nodes = [[(number, 2 * sum(faces))]]
+    entry = {"kinds": ["house", "house sign"], "at": [[128.0, 0.0, -63.0], [128.0, 6.0, -57.8]], "parents": [-1, 0],
+             "faces": [objectlist.pieces_of(0, faces[0], nodes, True), objectlist.pieces_of(faces[0], sum(faces), nodes, True)]}
+    return mesh("1WALL_bld_fac_00_1_0_0", mat, front + back, [(0, 1, 0)] * len(tex), tex, np.arange(len(tex))), entry
+
+
+def pole_with_wires(number, mat, two=False):
+    """A pole beside the road ahead of the start, and a span of wires from it across the road, as a build leaves them; two: a pole at
+    the span's other end too, which shares it. (its two meshes, its entry in the track's list.)"""
+    pole = box_faces(119.8, 120.2, 0.0, 8.0, -60.2, -59.8)
+    faces = len(pole) // 3
+    front = pole + (box_faces(139.8, 140.2, 0.0, 8.0, -60.2, -59.8) if two else [])
+    node = mesh("1WALL_props_0_0", mat, front + [p for k in range(0, len(front), 3) for p in reversed(front[k:k + 3])],
+                [(0, 1, 0)] * (2 * len(front)), [(0.25, 0.25)] * (2 * len(front)), np.arange(2 * len(front)))
+    line = np.array([(120.0 + 2.0 * k, 60.0, 8.0) for k in range(11)])      # (x east, y north, z up)
+    p, t, uv = furniture.wire_mesh([line], (0.0, 0.0, 0.0))
+    corners = t.ravel()
+    wire = mesh("nocol_wire_wire_0_0", mat, np.c_[p[corners, 0], p[corners, 2], -p[corners, 1]], [(0, 1, 0)] * len(corners),
+                np.c_[uv[corners, 0], -uv[corners, 1]], np.arange(len(corners)))
+    nodes = [[(number, len(front) * 2 // 3)]]
+    poles = [objectlist.pieces_of(0, faces, nodes, True)] + ([objectlist.pieces_of(faces, 2 * faces, nodes, True)] if two else [])
+    span = f"t_0_0#{len(poles)}"
+    entry = {"kinds": ["power pole"] * len(poles) + ["power line"], "sorts": ["pole"] * len(poles) + ["power line"],     # (the car's and the house's: as older lists, none)
+             "at": [[120.0, 0.0, -60.0]] + ([[140.0, 0.0, -60.0]] if two else []) + [[130.0, 8.0, -60.0]], "parents": [-1] * (len(poles) + 1),
+             "faces": [*poles, [[number + 1, 0, len(t)]]], "with": {str(k): [span] for k in range(len(poles))}}
+    return [node, wire], entry
+
+
+def make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
-    north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing)."""
+    north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
+    car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
+    power pole with a span of wires, listed ("two": a pole at each end of the span, which they share)."""
     root = os.path.join(AC, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     with open(ATLAS, "rb") as f:
@@ -114,7 +177,23 @@ def make_track(name, title, files=True, built=None, track_version=None, north=42
     tree.children = [ground("1ROAD_ground_0_0", 0, 0.0, -TILE), ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
                      *([billboards("nocol_trees_0_0", 2, items)] if with_trees else []),
                      ground("nocol_far_1", 3, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
+    listed = {}
+    if car:
+        materials.append(material("cars", "ground_far.dds"))
+        node, entry = parked_car(sum(c.cls == 2 for c in tree.children), len(materials) - 1)
+        tree.children.insert(-1, node)
+        if car == "listed":
+            listed["t_0_0"] = entry
+    if house:
+        node, entry = house_with_sign(sum(c.cls == 2 for c in tree.children), 0)
+        tree.children.insert(-1, node)
+        listed["t_0_0"] = entry
+    if pole:
+        nodes, entry = pole_with_wires(sum(c.cls == 2 for c in tree.children), 0, pole == "two")
+        tree.children[-1:-1] = nodes
+        listed["t_0_0"] = entry
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
+    objectlist.write(os.path.join(root, name + ".kn5"), listed)
     with open(os.path.join(root, "data", "map2lap_route.txt"), "w", encoding="utf-8") as f:
         f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n128 0\n128 -250\n")
     current = track_version or version.TRACK_VERSION
@@ -127,6 +206,17 @@ def make_track(name, title, files=True, built=None, track_version=None, north=42
             f.write(b"x" * 2000000)
 
 
+def remove_tree(path):
+    """path gone. A request of the test before can still hold one of its files (Windows then refuses to delete it): what stayed
+    behind would meet the next test as its own. Not gone after a while: that test can't start clean, so it says so."""
+    for _ in range(RESET_TRIES):
+        shutil.rmtree(path, ignore_errors=True)
+        if not os.path.exists(path):
+            return
+        time.sleep(RESET_WAIT_S)
+    raise RuntimeError(f"still there: {path}")
+
+
 def fill():
     """Everything as new: the tracks, a car, the settings."""
     calls.clear()
@@ -135,7 +225,7 @@ def fill():
     server.job.update(state="idle", log=[], result=None, error=None, progress=None, started=None, ended=None)
     server.running.update(proc=None, clearing=False)
     for d in (AC, os.path.join(TMP, "out")):
-        shutil.rmtree(d, ignore_errors=True)
+        remove_tree(d)
     os.makedirs(os.path.join(AC, "content", "cars", "car_a", "skins", "default"))
     os.makedirs(os.path.join(AC, "content", "cars", "car_a", "ui"))
     with open(os.path.join(AC, "content", "cars", "car_a", "ui", "ui_car.json"), "w", encoding="utf-8") as f:
@@ -217,6 +307,10 @@ class Handler(server.Handler):
     def do_GET(self):
         if self.path == "/__test/calls":
             return self._send(200, calls)
+        if self.path.startswith("/__test/meshes?name="):    # (what the track's own kn5 holds, as AC reads it: the Editor shows its source)
+            name = generator.slug(self.path.split("=", 1)[1])
+            tracks = kn5.read(os.path.join(AC, "content", "tracks", name, name + ".kn5"))
+            return self._send(200, {m.name: len(m.indices) // 3 for m in kn5.walk_meshes(tracks["root"])})
         super().do_GET()
 
     def do_POST(self):
@@ -228,7 +322,8 @@ class Handler(server.Handler):
         elif self.path == "/__test/release":
             release.update(body)
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)
-            make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True))
+            make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True), car=body.get("car"), house=body.get("house", False),
+                       pole=body.get("pole", False))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:
@@ -236,7 +331,7 @@ class Handler(server.Handler):
         self._send(200, {"ok": True})
 
 
-class Quiet(ThreadingHTTPServer):
+class Quiet(server.Server):
     def handle_error(self, request, client_address):
         """(a test ended while its page still asked: nothing to report)"""
 

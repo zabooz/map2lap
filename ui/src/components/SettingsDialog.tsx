@@ -179,6 +179,25 @@ function ControlsGroup({controls, onChange}: {controls: Controls; onChange: (c: 
   );
 }
 
+// (what ui/src/editor/view.ts and EditTools.tsx answer to)
+const KEYS: [string, string][] = [
+  ["W A S D", "Move over the ground, at the same height"], ["Right drag", "Take the ground along"],
+  ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["Click", "Pick an object"],
+  ["Right click", "Its menu: Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
+  ["Esc", "End a marking, close the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
+];
+
+/** The Editor's keys and mouse, while the 3D view has the focus (a click into it). */
+function Keys() {
+  return (
+    <Group title="Keys and mouse">
+      <table id="editor-keys" className={styles.keys}>
+        <tbody>{KEYS.map(([key, what]) => <tr key={key}><th><kbd>{key}</kbd></th><td>{what}</td></tr>)}</tbody>
+      </table>
+    </Group>
+  );
+}
+
 /** What the 3D view shows and how much memory it may take. */
 function View3D({controls, onChange}: {controls: Controls; onChange: (c: Controls) => void}) {
   return (
@@ -256,6 +275,7 @@ export function SettingsDialog({settings, release, busy, controls, onControls, o
           <Testing settings={settings} />
         </div>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "editor"}>
+          <Keys />
           <ControlsGroup controls={controls} onChange={onControls} />
           <BuildFiles settings={settings} busy={busy} />
           <View3D controls={controls} onChange={onControls} />

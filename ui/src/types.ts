@@ -11,6 +11,8 @@ export interface Track {
   version?: string;
   kn5_bytes: number | null;
   build_files: boolean;
+  edited?: boolean;             // saved in the Editor: a build from the map brings back what was deleted
+  draft?: number;
   outdated: boolean;
   current_copy: string | null;
   area: Box | null;

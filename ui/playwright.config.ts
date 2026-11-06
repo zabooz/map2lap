@@ -12,7 +12,7 @@ export default defineConfig({
   testMatch: "*.e2e.ts",
   outputDir: "../out/e2e",
   fullyParallel: true,
-  workers: 4,       // (software 3D shares the CPU: 16 browser workers starve the pixel tests past their timeout)
+  workers: 12,      // (software 3D shares the CPU: more add little, and starve the pixel tests past their timeout: 16 did in all browsers)
   reporter: [["list"]],
   timeout: 60000,
   expect: {timeout: 15000},

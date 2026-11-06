@@ -12,6 +12,12 @@ export interface Atlas {
 }
 
 /** Whether bytes more stay within a limit of gb. */
+/** The items sorted by how far from the point each begins, the nearest last: pop gives it without another look at the rest. Pure. */
+export function nearestLast<T extends {center: number[]; radius: number}>(items: T[], at: number[]) {
+  const begins = new Map(items.map(m => [m, Math.hypot(m.center[0] - at[0], m.center[1] - at[1], m.center[2] - at[2]) - m.radius]));
+  return [...items].sort((a, b) => begins.get(b)! - begins.get(a)!);
+}
+
 export function fits(used: number, bytes: number, gb: number) {
   return used + bytes <= gb * 1024 ** 3;
 }
@@ -71,6 +77,119 @@ export function billboardOf(face: number, firstFace: number) {
 /** The faces of billboard number k within a part: [first, end), clipped to the part's faces. */
 export function billboardFaces(k: number, firstFace: number, faces: number): [number, number] {
   return [Math.max(0, k * FACES_PER_BILLBOARD - firstFace), Math.min(faces, (k + 1) * FACES_PER_BILLBOARD - firstFace)];
+}
+
+/** The build's list of a tile's single objects (src/track/objectlist.py). */
+export interface ObjectList {
+  kinds: string[];
+  sorts?: string[];                         // each one's finest name (a bench, a stop sign); not in older builds' lists: its kind
+  at: [number, number, number][];
+  parents: number[];                        // the object each belongs to, deleted with it; -1: none
+  with?: Record<string, string[]>;          // what else goes with an object, by its number: a pole's wires, in any tile
+  faces: [number, number, number][][];      // per object: [mesh number, first triangle, triangles], ...
+}
+
+const KIND_NAMES: Record<string, string> = {car: "Parked car", house: "Building", "house sign": "Building sign", door: "Door",
+                                            "road sign": "Road sign", "town sign": "Town sign", "street furniture": "Street furniture",
+                                            "power line": "Power line", "power pole": "Power pole", fence: "Fence", rock: "Rock",
+                                            "gas station": "Gas station", pool: "Pool", playground: "Playground equipment",
+                                            "sports goal": "Sports goal", grave: "Grave", tower: "Tower", fountain: "Fountain"};
+
+/** A kind of the list as the page says it. Pure. */
+export const kindName = (kind: string) => KIND_NAMES[kind] ?? kind;
+
+// (the groups of scenery/propsmesh.py, sort_of; the streams of make_obj.SIGN_KINDS)
+const SORT_NAMES: Record<string, string> = {bench: "Bench", bin: "Bin", hydrant: "Hydrant", streetlight: "Street light",
+                                            polelamp: "Lamp on a pole", signal: "Traffic light", "level crossing": "Level crossing",
+                                            stop: "Stop sign", giveway: "Give way sign", speedk50: "Speed limit 50",
+                                            speedk60: "Speed limit 60", speedk80: "Speed limit 80", speedk100: "Speed limit 100",
+                                            pole: "Power pole", pylon: "Pylon", substation: "Substation part", exits: "Exit sign",
+                                            mileposts: "Milepost", merges: "Merge sign", speeds: "Speed sign", towns: "Town sign"};
+
+/** A sort of the list as the page says it: a kind's name where the sort is just its kind. Pure. */
+export const sortName = (sort: string) => SORT_NAMES[sort] ?? kindName(sort);
+
+/** Sorts never deleted all at once (objectlist.NOT_ALL): a click would take a whole street. */
+export const NOT_ALL = new Set(["house"]);
+
+/** The sort of object k of a tile's list. Pure. */
+export const sortOf = (list: ObjectList, k: number) => list.sorts?.[k] ?? list.kinds[k];
+
+/** The ids of all objects of the sorts. Pure. */
+export function idsOfSorts(lists: Record<string, ObjectList>, sorts: Set<string>) {
+  const out: string[] = [];
+  if (!sorts.size) return out;
+  for (const [tile, list] of Object.entries(lists)) {
+    list.kinds.forEach((_, k) => { if (sorts.has(sortOf(list, k))) out.push(`${tile}#${k}`); });
+  }
+  return out;
+}
+
+/** The ids and all they take along, by childrenOf's belonging. Pure. */
+export function takenAlong(ids: Iterable<string>, belonging: Map<string, string[]>) {
+  const out = new Set<string>(), queue = [...ids];
+  while (queue.length) {
+    const id = queue.pop()!;
+    if (out.has(id)) continue;
+    out.add(id);
+    queue.push(...(belonging.get(id) ?? []));
+  }
+  return out;
+}
+
+/** How many objects of sort the whole track still shows: those with triangles (a saved track's own list keeps the numbers of what it left
+    out, without any) that nothing in going takes. Pure. */
+export function countOfSort(lists: Record<string, ObjectList>, sort: string, going: Set<string>) {
+  let n = 0;
+  for (const [tile, list] of Object.entries(lists)) {
+    list.kinds.forEach((_, k) => { if (sortOf(list, k) === sort && list.faces[k].length && !going.has(`${tile}#${k}`)) n++; });
+  }
+  return n;
+}
+
+/** The objects that belong to others: their ids by the id of the one they belong to. Pure. */
+export function childrenOf(lists: Record<string, ObjectList>) {
+  const out = new Map<string, string[]>();
+  for (const [tile, list] of Object.entries(lists)) {
+    list.parents.forEach((parent, k) => {
+      if (parent < 0) return;
+      const id = `${tile}#${parent}`;
+      if (!out.has(id)) out.set(id, []);
+      out.get(id)!.push(`${tile}#${k}`);
+    });
+    for (const [number, ids] of Object.entries(list.with ?? {})) {
+      const id = `${tile}#${number}`;
+      out.set(id, [...(out.get(id) ?? []), ...ids]);
+    }
+  }
+  return out;
+}
+
+/** Where each object lies, to look up by triangle: per mesh number its pieces sorted by first triangle. Pure. */
+export function objectIndex(lists: Record<string, ObjectList>) {
+  const index = new Map<number, {from: number; end: number; id: string}[]>();
+  for (const [base, list] of Object.entries(lists)) {
+    list.faces.forEach((pieces, k) => {
+      for (const [mesh, from, count] of pieces) {
+        if (!index.has(mesh)) index.set(mesh, []);
+        index.get(mesh)!.push({from, end: from + count, id: `${base}#${k}`});
+      }
+    });
+  }
+  for (const pieces of index.values()) pieces.sort((a, b) => a.from - b.from);
+  return index;
+}
+
+/** The id of the object that triangle face of a mesh belongs to, from its pieces sorted by first triangle, or null. Pure. */
+export function objectAt(pieces: {from: number; end: number; id: string}[] | undefined, face: number) {
+  let low = 0, high = (pieces?.length ?? 0) - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1, piece = pieces![middle];
+    if (face < piece.from) high = middle - 1;
+    else if (face >= piece.end) low = middle + 1;
+    else return piece.id;
+  }
+  return null;
 }
 
 /** The image of the atlas under a uv as the kn5 stores it (v negated: make_obj, kn5), or null. */

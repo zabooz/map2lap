@@ -28,4 +28,8 @@
 .verRow span { align-self: center; font-weight: 600; }
 .releaseNote { min-height: 1.4em; }     /* (empty while asking: the card doesn't shrink) */
 .check { display: flex; gap: 9px; align-items: center; cursor: pointer; }
+.keys { border-collapse: collapse; font-size: 12px; }
+.keys th { padding: 3px 12px 3px 0; text-align: left; font-weight: 400; white-space: nowrap; vertical-align: top; }
+.keys td { padding: 3px 0; color: var(--muted); }
+.keys kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); font: inherit; }
 .check input { width: 16px; height: 16px; accent-color: var(--accent); }

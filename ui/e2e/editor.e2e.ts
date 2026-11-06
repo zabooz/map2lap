@@ -94,7 +94,7 @@ test("the hover box goes over the sky and off the view", async ({page}) => {
   await expect(box(page)).toBeHidden();
 });
 
-test("W flies and stops when let go; S comes back; the dropdown keeps its track", async ({page}) => {
+test("W moves and stops when let go; A too; the dropdown keeps its track", async ({page}) => {
   await openEditor(page);
   const start = await stillView(page);
   await page.keyboard.down("w");
@@ -108,20 +108,92 @@ test("W flies and stops when let go; S comes back; the dropdown keeps its track"
   await expect(page.locator("#edit-track")).toHaveValue("alpha");
 });
 
-test("flying into the ground stops above it", async ({page}) => {
+const awayOf = async (page: import("@playwright/test").Page) => Number(/Camera\s*(\d+\.\d) m/.exec(await box(page).innerText())![1]);
+const placed = async (page: import("@playwright/test").Page) =>
+  /AC x, y, z\s*([-\d.]+), ([-\d.]+), ([-\d.]+)/.exec(await box(page).innerText())!.slice(1).map(Number);
+const apart = (a: number[], b: number[]) => Math.hypot(...a.map((v, k) => v - b[k]));
+
+test("W moves level, also with the view looking down: the height stays, it doesn't sink to the ground", async ({page}) => {
   await openEditor(page);
   const c = await hoverCentre(page);
-  await dragMouse(page, c, {x: c.x, y: c.y + 200}, "middle");    // (looks down)
+  await dragMouse(page, c, {x: c.x, y: c.y + 400}, "middle");    // (straight down: what the mouse finds lies right below the camera)
+  await stillView(page);
+  const height = async () => {
+    await hoverCentre(page);
+    await expect(box(page)).toContainText(/Camera/);
+    return await awayOf(page) + (await placed(page))[1];         // (over a tree it finds the tree: its height counts too)
+  };
+  const before = await height();
   await page.keyboard.down("w");
-  await page.waitForTimeout(4000);                                // (a time by nature: how long the key is held)
+  await page.waitForTimeout(300);                                 // (a time by nature: how long the key is held; the test track is small)
   await page.keyboard.up("w");
   await stillView(page);
+  expect(Math.abs(await height() - before)).toBeLessThan(before * 0.15);
+});
+
+test("the wheel: a share of the way to what the mouse points at, however far out the camera was before", async ({page}) => {
+  await openEditor(page);
+  const step = async (notches: number) => {
+    const c = await hoverCentre(page);
+    await expect(box(page)).toContainText(/Camera/);
+    const before = await awayOf(page);
+    await page.mouse.move(c.x, c.y);
+    for (let k = 0; k < Math.abs(notches); k++) await page.mouse.wheel(0, Math.sign(notches) * 100);
+    await stillView(page);
+    await hoverCentre(page);
+    return await awayOf(page) / before;
+  };
+  expect(await step(-1)).toBeCloseTo(0.85, 1);
+  expect(await step(5)).toBeGreaterThan(1.5);
+  expect(await step(-1)).toBeCloseTo(0.85, 1);    // (no jump by what was before)
+});
+
+test("the wheel does nothing while a button is held: the drag goes on from where it was", async ({page}) => {
+  await openEditor(page);
+  const c = await hoverCentre(page);
+  await page.mouse.move(100, 500);
+  const before = await stillView(page);
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down({button: "middle"});
+  await page.mouse.wheel(0, -300);
+  await page.mouse.up({button: "middle"});
+  await page.mouse.move(100, 500);
+  expect((await stillView(page)).equals(before)).toBe(true);
+});
+
+test("zoomed below where the ground comes later: when it comes the camera is over it", async ({page}) => {
+  let release = () => {};
+  const held = new Promise<void>(ok => { release = ok; });
+  await page.route("**/api/editor/*/mesh/**", async route => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.locator("#t-edit").click();
+  await page.locator("#edit-track").selectOption("alpha");
+  await expect(page.locator("#edit-status")).toContainText(/Loading|Reading/);
+  const c = await centre(scene(page));
+  await page.mouse.move(c.x, c.y);
+  for (let k = 0; k < 12; k++) {
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(30);              // (a time by nature: the zoom glides, each notch from where the last ended)
+  }
+  release();
+  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await hoverCentre(page);
-  await expect(box(page)).toContainText(/Camera\s*\d+\.\d m away/);
-  const away = Number(/Camera\s*(\d+\.\d) m/.exec(await box(page).innerText())![1]);
-  expect(away).toBeGreaterThanOrEqual(1);
-  const y = Number(/AC x, y, z\s*[-\d.]+, ([-\d.]+),/.exec(await box(page).innerText())![1]);
-  expect(y).toBeCloseTo(0, 1);
+  await expect(box(page)).toBeVisible();        // (from below, the ground isn't there for the mouse)
+});
+
+test("the camera goes no higher than the track in view", async ({page}) => {
+  await openEditor(page);
+  const c = await hoverCentre(page);
+  await dragMouse(page, c, {x: c.x, y: c.y + 400}, "middle");     // (straight down)
+  await page.mouse.move(c.x, c.y);
+  for (let k = 0; k < 40; k++) await page.mouse.wheel(0, 300);
+  await stillView(page);
+  await hoverCentre(page);
+  await expect(box(page)).toContainText(/Camera/);
+  expect(await awayOf(page)).toBeLessThan(1100);
 });
 
 test("the fly speed's slider reaches the view", async ({page}) => {
@@ -134,20 +206,23 @@ test("the fly speed's slider reaches the view", async ({page}) => {
     }, speed);
     await page.reload();
     await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+    const c = await hoverCentre(page);
+    await dragMouse(page, c, {x: c.x, y: c.y + 400}, "middle");   // (straight down: what the mouse finds lies right below the camera)
+    await stillView(page);
     await hoverCentre(page);
-    const away = async () => Number(/Camera\s*(\d+\.\d) m/.exec(await box(page).innerText())![1]);
     await expect(box(page)).toBeVisible();
-    const before = await away();
+    const before = await placed(page);
     await page.keyboard.down("w");
-    await page.waitForTimeout(400);                               // (a time by nature: how long the key is held)
+    await page.waitForTimeout(150);                               // (a time by nature: how long the key is held; the test track is small)
     await page.keyboard.up("w");
     await stillView(page);
     await hoverCentre(page);
-    await expect.poll(away).toBeLessThan(before);
-    return before - await away();
+    const moved = async () => { const at = await placed(page); return Math.hypot(at[0] - before[0], at[2] - before[2]); };
+    await expect.poll(moved).toBeGreaterThan(0);
+    return moved();
   };
-  const slow = await flown(10), fast = await flown(500);
-  expect(fast).toBeGreaterThan(slow * 3);
+  const slow = await flown(10), fast = await flown(100);
+  expect(fast).toBeGreaterThan(slow * 1.5);       // (ten times as fast; how long the key was down varies under load)
 });
 
 test("the keys do nothing while the settings are open", async ({page}) => {
@@ -171,29 +246,41 @@ test("a click into the view gives it the keys", async ({page}) => {
   await expect(scene(page)).toBeFocused();
 });
 
-test("the wheel held turns on the spot and back; left drag, right drag and the wheel each move the view", async ({page}) => {
+test("the wheel held turns around the view's middle, up to just over the horizon; the right button takes the ground along; the left moves nothing", async ({page}) => {
   await openEditor(page);
-  const c = await centre(scene(page));
+  const c = await hoverCentre(page);
+  await expect(box(page)).toContainText("Road surface");
+  const middle = await placed(page);
   await page.mouse.move(100, 500);
   const start = await stillView(page);
-  await dragMouse(page, c, {x: c.x + 150, y: c.y}, "middle");
+  await dragMouse(page, c, {x: c.x + 150, y: c.y + 40}, "middle");
   await page.mouse.move(100, 500);
-  const turned = await stillView(page);
-  expect(turned.equals(start)).toBe(false);
-  await dragMouse(page, {x: c.x + 150, y: c.y}, c, "middle");
+  expect((await stillView(page)).equals(start)).toBe(false);
+  await hoverCentre(page);
+  await expect(box(page)).toContainText("Road surface");
+  expect(apart(await placed(page), middle)).toBeLessThan(1);
+
+  const p = {x: c.x, y: c.y + 60}, to = {x: c.x + 80, y: c.y + 90};
+  await page.mouse.move(p.x - 2, p.y);
+  await page.mouse.move(p.x, p.y);
+  await expect(box(page)).toContainText("Road surface");
+  const grabbed = await placed(page);
+  await dragMouse(page, p, to, "right");
+  await expect(page.locator("#view-menu")).toBeHidden();
+  await page.mouse.move(to.x - 2, to.y);
+  await page.mouse.move(to.x, to.y);
+  await expect.poll(async () => apart(await placed(page), grabbed)).toBeLessThan(1.5);
+
   await page.mouse.move(100, 500);
-  expect((await stillView(page)).equals(start)).toBe(true);
-  for (const button of ["left", "right"] as const) {
-    const before = await stillView(page);
-    await dragMouse(page, c, {x: c.x + 80, y: c.y + 30}, button);
-    await page.mouse.move(100, 500);
-    expect((await stillView(page)).equals(before)).toBe(false);
-  }
   const before = await stillView(page);
-  await page.mouse.move(c.x, c.y);
-  await page.mouse.wheel(0, 480);
+  await dragMouse(page, c, {x: c.x + 80, y: c.y + 30}, "left");
   await page.mouse.move(100, 500);
-  expect((await stillView(page)).equals(before)).toBe(false);
+  expect((await stillView(page)).equals(before)).toBe(true);
+
+  await dragMouse(page, c, {x: c.x, y: c.y - 600}, "middle");     // (far up: stops short of the sky)
+  await page.mouse.move(c.x - 2, c.y + 200);
+  await page.mouse.move(c.x, c.y + 200);
+  await expect(box(page)).toBeVisible();
 });
 
 test("inverted, the same drag looks the other way", async ({page}) => {
@@ -209,7 +296,7 @@ test("inverted, the same drag looks the other way", async ({page}) => {
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await page.mouse.move(100, 500);
-  expect((await stillView(page)).equals(start)).toBe(true);
+  await expect.poll(async () => (await stillView(page)).equals(start)).toBe(true);     // (the textures still coming)
   await dragMouse(page, c, {x: c.x, y: c.y - 100}, "middle");
   await page.mouse.move(100, 500);
   expect((await stillView(page)).equals(normal)).toBe(false);

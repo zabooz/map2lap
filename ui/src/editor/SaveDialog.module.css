@@ -1,0 +1,12 @@
+/* "Save as new track": a popup over the whole page */
+.back { position: fixed; inset: 0; z-index: 1800; background: rgba(0, 0, 0, .45); display: grid; place-items: center; padding: 16px; }
+.dialog { width: min(440px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 18px; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); font-size: 13px; }
+.field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+.field input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--text); }
+.buttons { display: flex; justify-content: flex-end; gap: 6px; }
+.buttons button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); cursor: pointer; }
+.buttons button:not(:disabled):hover { border-color: var(--accent); }
+.buttons button:disabled { opacity: .45; cursor: default; }
+.buttons .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.note { margin: 0; color: var(--muted); font-size: 12px; }

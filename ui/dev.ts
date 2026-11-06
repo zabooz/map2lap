@@ -12,8 +12,9 @@ Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     // (the body whole: a stream would come without the Content-Length server.py reads it by)
-    const body = request.method === "POST" ? await request.arrayBuffer() : undefined;
-    return fetch(SERVER + url.pathname + url.search, {method: request.method, body});
+    const body = ["POST", "PUT"].includes(request.method) ? await request.arrayBuffer() : undefined;
+    const headers = {"Content-Type": request.headers.get("Content-Type") ?? ""};
+    return fetch(SERVER + url.pathname + url.search, {method: request.method, headers, body});
   },
 });
 console.log("Map2Lap's page: http://localhost:3000");

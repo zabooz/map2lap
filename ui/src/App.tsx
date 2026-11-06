@@ -83,9 +83,20 @@ export function App() {
 
   const onGo = () => {
     if (busy) void build.stop();
-    else if (mine) { if (pick) void start("/api/rebuild", {name: pick}); }
+    else if (mine) {
+      const chosen = tracks.find(t => t.name === pick), made = chosen?.edited;
+      const warning = made ? "This track was saved in the Editor.\n\nBuilding it again makes it new from the map: what was deleted in it comes back. Go on?"
+        : chosen?.draft ? `This track has ${chosen.draft} unsaved ${chosen.draft === 1 ? "change" : "changes"} in the Editor.\n\nThey no longer fit a new build and stay out until you give them up. Go on?` : null;
+      if (pick && (!warning || confirm(warning))) void start("/api/rebuild", {name: pick, drop_edits: Boolean(made)});
+    }
     else void start("/api/build", track.buildBody());
   };
+
+  /** Saved in the Editor: the list again (a title or a copy new), and a copy shown once it is in it. */
+  const onSaved = useCallback(async (name: string) => {
+    await reload();
+    setEditTrack(name);
+  }, [reload, setEditTrack]);
 
   const deletePicked = async () => {
     if (!picked || !confirm(`Delete “${picked.title}”?\n\nIt is removed from Assetto Corsa. This cannot be undone.`)) return;
@@ -174,8 +185,9 @@ export function App() {
         {editorSeen && (
           <ErrorBoundary message="The 3D view could not start">
             <Suspense fallback={null}>
-              <EditorScene name={shownEditTrack} built={editing?.built ?? null} visible={tab === "edit"} controls={controls}
-                           onStatus={setEditStatus} />
+              <EditorScene name={shownEditTrack} title={editing?.title ?? ""} taken={tracks.filter(t => t !== editing).map(t => t.title)}
+                           built={editing?.built ?? null} visible={tab === "edit"} controls={controls}
+                           onStatus={setEditStatus} onSaved={onSaved} />
             </Suspense>
           </ErrorBoundary>
         )}

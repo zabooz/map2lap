@@ -1,5 +1,13 @@
 import {expect, test} from "bun:test";
-import {billboardFaces, billboardOf, kindOf, latLonOf, physicsOf, routeMetre, spriteAt, tileOf} from "./inspect";
+import {billboardFaces, billboardOf, childrenOf, countOfSort, idsOfSorts, kindOf, latLonOf, nearestLast, objectAt, objectIndex, physicsOf, routeMetre,
+        sortName, sortOf, spriteAt, takenAlong, tileOf, type ObjectList} from "./inspect";
+
+test("the queue: the nearest comes last, a large mesh counts from its edge; the list given stays", () => {
+  const far = {center: [100, 0, 0], radius: 1}, near = {center: [10, 0, 0], radius: 1}, large = {center: [50, 0, 0], radius: 45};
+  const items = [near, far, large];
+  expect(nearestLast(items, [0, 0, 0])).toEqual([far, near, large]);
+  expect(items).toEqual([near, far, large]);
+});
 
 test("a tile from AC's x and z: z is minus north", () => {
   expect(tileOf(10, -10)).toEqual([0, 0]);
@@ -32,6 +40,46 @@ test("a billboard goes on over the parts of its tile", () => {
   expect(billboardFaces(1, 0, 100)).toEqual([8, 16]);
   expect(billboardFaces(2708, 21666, 100)).toEqual([0, 6]);
   expect(billboardFaces(2708, 21660, 10)).toEqual([4, 10]);
+});
+
+test("a triangle's object: over all its pieces, fronts and backs, in any mesh; none between them", () => {
+  const index = objectIndex({
+    cars: {kinds: ["car", "car"], at: [[0, 0, 0], [1, 1, 1]], parents: [-1, -1], faces: [[[5, 0, 10], [5, 30, 10]], [[5, 10, 10], [5, 40, 5], [6, 0, 5]]]},
+  });
+  const in5 = index.get(5);
+  expect(objectAt(in5, 0)).toBe("cars#0");
+  expect(objectAt(in5, 9)).toBe("cars#0");
+  expect(objectAt(in5, 10)).toBe("cars#1");
+  expect(objectAt(in5, 35)).toBe("cars#0");
+  expect(objectAt(in5, 44)).toBe("cars#1");
+  expect(objectAt(in5, 20)).toBeNull();
+  expect(objectAt(in5, 45)).toBeNull();
+  expect(objectAt(index.get(6), 4)).toBe("cars#1");
+  expect(objectAt(index.get(7), 0)).toBeNull();
+});
+
+test("what belongs to an object, by tile", () => {
+  const list = {kinds: ["house", "house sign", "door", "car"], at: [], parents: [-1, 0, 0, -1], faces: []};
+  const children = childrenOf({t_0_0: list});
+  expect(children.get("t_0_0#0")).toEqual(["t_0_0#1", "t_0_0#2"]);
+  expect(children.get("t_0_0#3")).toBeUndefined();
+  const withWires = childrenOf({t_0_0: {...list, with: {3: ["t_1_0#7"]}}});
+  expect(withWires.get("t_0_0#3")).toEqual(["t_1_0#7"]);
+});
+
+test("all of a sort: by the finest name, or the kind in an older list; what still stands is counted", () => {
+  const poles: ObjectList = {kinds: ["power pole", "power pole", "street furniture"], sorts: ["pole", "pole", "bench"], at: [],
+                             parents: [-1, -1, -1], faces: [[[0, 0, 1]], [[0, 1, 1]], [[0, 2, 1]]], with: {0: ["t_1_0#0"], 1: ["t_1_0#0"]}};
+  const wires: ObjectList = {kinds: ["power line"], at: [], parents: [-1], faces: [[[1, 0, 1]]]};
+  const lists = {t_0_0: poles, t_1_0: wires};
+  expect([sortOf(poles, 2), sortOf(wires, 0)]).toEqual(["bench", "power line"]);
+  expect([sortName("bench"), sortName("power line"), sortName("speedk50")]).toEqual(["Bench", "Power line", "Speed limit 50"]);
+  expect(idsOfSorts(lists, new Set(["pole"]))).toEqual(["t_0_0#0", "t_0_0#1"]);
+  // (pole A deleted alone: the span the two share goes with it, pole B still stands)
+  const going = takenAlong(["t_0_0#0"], childrenOf(lists));
+  expect([...going].sort()).toEqual(["t_0_0#0", "t_1_0#0"]);
+  expect([countOfSort(lists, "pole", going), countOfSort(lists, "power line", going)]).toEqual([1, 0]);
+  expect(countOfSort({t_0_0: {...poles, faces: [[], [[0, 1, 1]], []]}}, "pole", new Set())).toBe(1);   // (left out of a saved track's own kn5)
 });
 
 test("an atlas image from a uv as the kn5 stores it", () => {

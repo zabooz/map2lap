@@ -12,6 +12,15 @@ test("the car is saved", async ({page}) => {
   await expect.poll(async () => (await saved(page)).car).toBe(null);
 });
 
+test("the Editor's keys and mouse are listed under Editor", async ({page}) => {
+  await page.goto("/");
+  await openSettings(page, "Editor");
+  const keys = page.locator("#editor-keys");
+  for (const row of ["W A S D Move over the ground, at the same height", "Right click Its menu: Mark all of its sort, Delete", "Ctrl+Z Undo", "Ctrl+S Save the track"]) {
+    await expect(keys.getByRole("row", {name: row, exact: true})).toBeVisible();
+  }
+});
+
 test("the CPU share is saved when let go, its line follows", async ({page}) => {
   await page.goto("/");
   await openSettings(page, "Map2Lap");
@@ -91,20 +100,20 @@ test("the controls' sliders are kept over a reload, Reset brings the defaults", 
   await openSettings(page, "Editor");
   const reset = page.getByRole("button", {name: "Reset to defaults"});
   await expect(reset).toBeDisabled();
-  for (const label of ["Fly (W A S D)", "Look around (hold the wheel)", "Orbit (left drag)", "Move (right drag)", "Zoom (wheel)"]) {
-    await expect(page.getByLabel(label)).toHaveValue("100");
-    await page.getByLabel(label).fill("250");
+  for (const label of ["Move (W A S D)", "Turn and tilt (hold the wheel)", "Zoom (wheel)"]) {
+    await expect(page.getByLabel(label)).toHaveValue("50");
+    await page.getByLabel(label).fill("80");
   }
-  await page.getByLabel("Memory limit").fill("8");
+  await page.getByLabel("Memory limit").fill("16");
   await page.getByLabel("Invert up and down").check();
   await page.reload();
   await openSettings(page, "Editor");
-  await expect(page.getByLabel("Fly (W A S D)")).toHaveValue("250");
-  await expect(page.getByLabel("Memory limit")).toHaveValue("8");
+  await expect(page.getByLabel("Move (W A S D)")).toHaveValue("80");
+  await expect(page.getByLabel("Memory limit")).toHaveValue("16");
   await expect(page.getByLabel("Invert up and down")).toBeChecked();
   await page.getByRole("button", {name: "Reset to defaults"}).click();
-  await expect(page.getByLabel("Fly (W A S D)")).toHaveValue("100");
-  await expect(page.getByLabel("Memory limit")).toHaveValue("4");
+  await expect(page.getByLabel("Move (W A S D)")).toHaveValue("50");
+  await expect(page.getByLabel("Memory limit")).toHaveValue("8");
   await expect(page.getByLabel("Invert up and down")).not.toBeChecked();
 });
 
@@ -113,5 +122,5 @@ test("broken stored controls give the defaults", async ({page}) => {
   await page.evaluate(() => localStorage.setItem("map2lap.controls", "broken{"));
   await page.reload();
   await openSettings(page, "Editor");
-  await expect(page.getByLabel("Fly (W A S D)")).toHaveValue("100");
+  await expect(page.getByLabel("Move (W A S D)")).toHaveValue("50");
 });

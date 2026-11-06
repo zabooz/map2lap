@@ -8,8 +8,8 @@ function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;
 }
 
-/** The box at the view's top right: what the mouse points at and where. A single object has an id only for trees and bushes
-    so far: the track file holds the rest merged per tile, by material. */
+/** The box at the view's top right: what the mouse points at and where. A single object has an id if it can be told apart: the
+    track file holds meshes merged per tile, by material. */
 export function HoverBox({hovered: h}: {hovered: Hovered | null}) {
   if (!h) return null;
   const b = h.billboard;
@@ -17,7 +17,7 @@ export function HoverBox({hovered: h}: {hovered: Hovered | null}) {
     <div id="hover-box" className={styles.box}>
       <h4>{h.kind}{h.sprite && ` · ${h.sprite}`}</h4>
       <dl>
-        {b && <Row label="ID">{h.object}#{b.number}</Row>}
+        {h.id && <Row label="ID">{h.id}</Row>}
         {b?.height != null && <Row label="Height">{fixed(b.height, 1)} m</Row>}
         {b?.width != null && <Row label="Width">{fixed(b.width, 1)} m</Row>}
         {b?.foot && <Row label="Stands at">{fixed(b.foot[0], 1)}, {fixed(b.foot[1], 1)}</Row>}
@@ -39,7 +39,7 @@ export function HoverBox({hovered: h}: {hovered: Hovered | null}) {
         {h.latLon && <Row label="Lat, lon">{fixed(h.latLon[0], 6)}, {fixed(h.latLon[1], 6)}</Row>}
         <Row label="Camera">{fixed(h.distance, 1)} m away</Row>
       </dl>
-      {!b && <p>This object has no ID of its own yet: the track file merges it with others per tile.</p>}
+      {!h.id && <p>This object has no ID of its own yet: the track file merges it with others per tile.</p>}
     </div>
   );
 }

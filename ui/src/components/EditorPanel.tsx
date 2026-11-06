@@ -15,11 +15,13 @@ export function EditorPanel({tracks, choice, status, onChoose}: {tracks: Track[]
       </div>
       <p id="edit-status" className={`small muted ${styles.status}`}>{status}</p>
       {tracks.some(t => t.name === choice && !t.build_files) && (
-        <p id="edit-note" className="small muted">This track’s build files are gone. You can look at it, but editing it will
+        <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
           need them: build it again under My tracks.</p>
       )}
-      <p className="small muted">W A S D fly where you look, hold the wheel and drag to look around on the spot. Left drag
-        orbits the view, right drag moves it, the wheel zooms towards the mouse.</p>
+      <p className="small muted">Click an object, such as a tree, a parked car, a house, a sign, a fence or a power line, and press Delete to take it out, Ctrl+Z brings it back. Right-click it to
+        mark all of its sort. Changes are kept by themselves; Save writes the track for Assetto Corsa, ▾ saves it as a new track.
+        What was deleted can be brought back after any Save.</p>
+      <p className="small muted">W A S D move, the right mouse button takes the ground along, the wheel zooms, held it turns: all keys under Settings → Editor.</p>
     </section>
   );
 }

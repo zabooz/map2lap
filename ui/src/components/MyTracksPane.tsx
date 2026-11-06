@@ -14,7 +14,7 @@ export function MyTracksPane({tracks, pick, onPick}: {tracks: Track[]; pick: str
           <span className={styles.when}>{fmtDate(t.built)}</span>
           <small>
             {t.area ? "Area" : "Route"} {fmtSize(t)} · {t.outdated
-              ? <span className={styles.old}>{versionTag(t)} – old</span> : versionTag(t)}
+              ? <span className={styles.old}>{versionTag(t)} – old</span> : versionTag(t)}{t.edited && " · edited"}
           </small>
         </button>
       )) : <p className="empty">No tracks yet. Build one under “New track”.</p>}

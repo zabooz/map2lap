@@ -1,5 +1,6 @@
 // What the 3D view draws, down to the pixel: a road texture of four fields (server.py's ROAD_FIELDS) tells from a pixel's colour
 // which part of the image lies there, so a mirrored or turned texture can't pass; the rest against known colours and references.
+import {join} from "node:path";
 import type {Page} from "@playwright/test";
 import {centre, dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
 
@@ -8,7 +9,7 @@ const SKY_TOLERANCE = 3;        // (of 255: rounding between browsers)
 const FIELDS = [["red", "green"], ["blue", "yellow"]];
 const FIELD_MARGIN = 0.1;       // of the image: what lies nearer a field's edge is blended with its neighbour (8 x 8 pixels)
 // (threshold: Playwright's 0.2 lets a whole picture lit far too bright pass; the same software graphics draw the same pixels)
-const REFERENCE = {threshold: 0.02, maxDiffPixelRatio: 0.002};
+const REFERENCE = {threshold: 0.02, maxDiffPixelRatio: 0.002, stylePath: join(import.meta.dirname, "view-alone.css")};
 const AWAY = {x: 100, y: 500};  // (the mouse off the view: no hover box in the picture)
 
 type Colour = number[];
@@ -57,6 +58,7 @@ async function hovered(page: Page, x: number, y: number) {
 }
 
 test("the road's texture lies the right way round: each pixel shows the field of the image its uv says", async ({page}) => {
+  test.slow();                          // (a hundred points, each asked until the box stands still)
   await openEditor(page);
   await page.mouse.move(AWAY.x, AWAY.y);
   const view = (await scene(page).boundingBox())!;
@@ -95,6 +97,7 @@ test("the sky has its colour, the grass is green, the road is no grass", async (
 });
 
 test("a tree shows where the mouse finds one, and through its empty parts lies what is behind it", async ({page, backend}) => {
+  test.slow();                          // (a hundred points, each asked until the box stands still)
   await backend.post("/__test/rebuild", {name: "beta", title: "Beta Test", trees: false});
   await openEditor(page, "beta");       // (the same view without trees)
   await page.mouse.move(AWAY.x, AWAY.y);

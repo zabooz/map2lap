@@ -1,0 +1,8 @@
+/* The right-click menu over the view: a layer the size of the view catches a click beside it */
+.back { position: absolute; inset: 0; z-index: 5; }
+.menu { position: absolute; min-width: 180px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line);
+        border-radius: 9px; background: var(--panel); box-shadow: var(--shadow); font-size: 12px; }
+.menu button { height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: inherit; text-align: left;
+               cursor: pointer; white-space: nowrap; }
+.menu button:not(:disabled):hover { background: var(--raised); color: var(--accent); }
+.menu button:disabled { opacity: .45; cursor: default; }

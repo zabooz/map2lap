@@ -10,7 +10,7 @@ test("nothing stored or something broken: the defaults", () => {
 });
 
 test("a stored value stays, the others take their defaults", () => {
-  expect(parseControls('{"fly": 250, "invertLook": true}')).toEqual({...DEFAULT_CONTROLS, fly: 250, invertLook: true});
+  expect(parseControls('{"fly": 80, "invertLook": true}')).toEqual({...DEFAULT_CONTROLS, fly: 80, invertLook: true});
 });
 
 test("a value out of range comes back into it", () => {
