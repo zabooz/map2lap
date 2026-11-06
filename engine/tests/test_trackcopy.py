@@ -486,6 +486,57 @@ class SaveTest(Base):
             trackedits.remember_meshes("lower", [])
             self.assertEqual([3], self.told({**self.UP, "id": "lower"})["meshes"])
 
+    def preview(self, op):
+        """What trackedits.preview answers: {mesh number: {vertex: [y, normal x, y, z]}}."""
+        data = trackedits.preview(self.ac, "t", trackedits.load(self.ac, "t")["base"], op)
+        words = np.frombuffer(data, "<u4")
+        out, at = {}, 1
+        for _ in range(words[0]):
+            i, n = int(words[at]), int(words[at + 1])
+            values = np.frombuffer(data, "<f4", n * 4, (at + 2 + n) * 4).reshape(n, 4)
+            out[i] = {int(v): row for v, row in zip(words[at + 2:at + 2 + n], values)}
+            at += 2 + n + n * 4
+        return out
+
+    def test_a_stroke_under_way_names_only_what_it_changes_and_keeps_nothing(self):
+        ground = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "1ROAD_ground_0_0")
+        before = self.served_ground().copy()
+        out = self.preview(self.UP)
+        self.assertEqual(sorted(out[ground]), list(range(len(before))))
+        np.testing.assert_allclose([out[ground][v][0] for v in sorted(out[ground])], before + 1.0, atol=1e-4)
+        np.testing.assert_array_equal(self.served_ground(), before)
+        self.assertEqual([], trackedits.load(self.ac, "t")["heights"])
+
+    def test_a_stroke_under_way_goes_on_top_of_what_the_draft_holds_and_names_what_it_adds(self):
+        ground = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "1ROAD_ground_0_0")
+        before = self.served_ground().copy()
+        self.lift(self.UP)
+        out = self.preview({**self.UP, "id": "more"})
+        np.testing.assert_allclose([out[ground][v][0] for v in sorted(out[ground])], before + 2.0, atol=1e-4)
+        self.assertEqual({}, self.preview({"id": "nothing", "x": 80, "z": -10, "nx": 3, "nz": 3, "mm": [0] * 9}))
+
+    def test_a_stroke_under_way_that_takes_all_of_a_change_back_shows_it_gone(self):
+        ground = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "1ROAD_ground_0_0")
+        before = self.served_ground().copy()
+        self.lift(self.UP)
+        out = self.preview({**self.UP, "id": "back", "mm": [-v for v in self.UP["mm"]]})
+        np.testing.assert_allclose([out[ground][v][0] for v in sorted(out[ground])], before, atol=1e-4)
+
+    def test_the_draft_and_what_it_moves_are_read_as_one(self):
+        self.lift(self.UP)
+        base = trackedits.load(self.ac, "t")["base"]
+        heights, moved = trackedits._heights_and_moved(self.ac, "t", base)
+        self.assertEqual(["up"], [h["id"] for h in heights])
+        self.assertIsNotNone(moved)
+        self.lift()
+        heights, moved = trackedits._heights_and_moved(self.ac, "t", base)
+        self.assertEqual(([], None), (heights, moved))
+
+    def test_a_stroke_under_way_that_cant_be_applied_says_so(self):
+        with mock.patch.object(trackedits.trackheights, "moved", side_effect=trackedits.trackheights.InTheWay("A bridge")):
+            with self.assertRaisesRegex(trackedits.trackheights.InTheWay, "A bridge"):
+                self.preview(self.UP)
+
     def test_a_change_that_cant_be_applied_leaves_the_view_as_the_file(self):
         self.lift(self.UP)
         before = trackedits.load(self.ac, "t")["base"]

@@ -119,53 +119,106 @@ class RasterTest(unittest.TestCase):
 
 
 class BrushTest(unittest.TestCase):
-    def stroke(self, points=((10.0, 10.0),), radius=10.0, soft=0.5, mm=1000):
-        return trackheights.brush([list(p) for p in points], radius, soft, mm, "s")
+    def stroke(self, samples=((10.0, 10.0, 0.0),), radius=10.0, soft=0.5, mm=1000, speed=1000):
+        return trackheights.brush([list(s) for s in samples], radius, soft, mm, speed, "s")
 
     def heights(self, op, *places):
         x, z = zip(*places)
         return trackheights.Field([op]).at(np.array(x, float), np.array(z, float))[0]
 
-    def test_a_stamp_has_its_height_inside_and_nothing_from_its_radius_on(self):
+    def test_a_click_gives_its_height_inside_and_nothing_from_its_radius_on(self):
         op = self.stroke()
         self.assertIsNone(trackheights.problem(op))
         np.testing.assert_allclose(self.heights(op, (10, 10), (14, 10), (20, 10), (24, 10)), [1, 1, 0, 0], atol=1e-3)
         self.assertGreater(float(self.heights(op, (17, 10))[0]), 0.05)     # (and softly between)
         self.assertLess(float(self.heights(op, (17, 10))[0]), 0.95)
 
-    def test_it_goes_down_too(self):
+    def test_it_goes_down_too_also_while_held(self):
         self.assertAlmostEqual(-0.5, float(self.heights(self.stroke(mm=-500), (10, 10))[0]))
+        held = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, 1.25)), mm=-500, speed=300)
+        self.assertAlmostEqual(-0.8, float(self.heights(held, (10, 10))[0]), places=2)
 
     def test_its_raster_lies_on_the_lattice_whatever_the_mouse_gave(self):
-        op = self.stroke(points=((10.37, -7.91),))
+        op = self.stroke(samples=((10.37, -7.91, 0.0),))
         self.assertEqual((0, 0), (op["x"] % trackheights.STEP, op["z"] % trackheights.STEP))
         self.assertIsNone(trackheights.problem(op))
 
-    def test_more_points_on_the_same_way_and_going_over_it_twice_change_nothing(self):
-        """A slow computer or a fast mouse makes no other hill: not a mm more where it passed twice."""
-        few = self.stroke(points=((0.0, 10.0), (40.0, 10.0)))
-        many = self.stroke(points=[(float(x), 10.0) for x in range(41)])
-        twice = self.stroke(points=((0.0, 10.0), (40.0, 10.0), (0.0, 10.0)))
-        self.assertEqual(few["mm"], many["mm"])
-        self.assertEqual(few["mm"], twice["mm"])
-        self.assertEqual(1000, max(few["mm"]))
+    def test_a_press_as_short_as_a_click_is_one_height(self):
+        held = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, trackheights.HOLD_AFTER_S)))
+        self.assertEqual(self.stroke()["mm"], held["mm"])
 
-    def test_all_along_a_stroke_the_same_height(self):
-        op = self.stroke(points=((0.0, 10.0), (40.0, 10.0)))
-        np.testing.assert_allclose(self.heights(op, (0, 10), (20, 10), (40, 10)), 1.0, atol=1e-3)
-        self.assertAlmostEqual(0.0, float(self.heights(op, (20, 21))[0]))
+    def test_held_it_grows_by_its_speed_not_by_its_height(self):
+        """A fine click and quick building: the user's 5 cm and 30 cm a second."""
+        for seconds, metres in ((1.0, 0.35), (3.0, 0.95)):
+            op = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, trackheights.HOLD_AFTER_S + seconds)), mm=50, speed=300)
+            self.assertAlmostEqual(metres, float(self.heights(op, (10, 10))[0]), places=2)
+
+    def test_with_no_speed_holding_does_nothing_more(self):
+        op = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, 9.0)), speed=0)
+        self.assertEqual(self.stroke()["mm"], op["mm"])
+
+    def test_how_the_time_is_cut_up_makes_no_other_hill(self):
+        """A slow computer or a fast mouse: not a mm of difference where the ring stood."""
+        one = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, 2.25)))
+        many = self.stroke(samples=[(10.0, 10.0, 0.0)] + [(10.0, 10.0, 0.05)] * 45)
+        self.assertEqual(one["mm"], many["mm"])
+
+    def test_how_a_way_is_cut_up_makes_no_other_hill(self):
+        """The first moment of a press lies on the way too: one sample or a hundred on the same way in the same second."""
+        one = self.stroke(samples=((0.0, 10.0, 0.0), (100.0, 10.0, 1.0)), radius=5.0, mm=1, speed=1000)
+        many = self.stroke(samples=[(0.0, 10.0, 0.0)] + [(float(x), 10.0, 0.01) for x in range(1, 101)], radius=5.0, mm=1, speed=1000)
+        places = [(x, 10) for x in (10, 20, 30, 50, 80)]
+        np.testing.assert_allclose(self.heights(one, *places), self.heights(many, *places), atol=0.004)
+        self.assertLess(float(self.heights(one, (10, 10))[0]), 0.01)      # (the first quarter second is the click's: the ring passed here in it)
+        self.assertGreater(float(self.heights(one, (50, 10))[0]), 0.05)
+
+    def test_tiny_shares_add_up_not_lost_to_rounding(self):
+        op = self.stroke(samples=[(10.0, 10.0, 0.0)] + [(10.0, 10.0, 0.001)] * 3000, mm=1, speed=1)     # (each 0.001 mm)
+        self.assertEqual(4, max(op["mm"]))     # (1 for the click, 2.75 by the time held: rounded once, at the end)
+
+    def test_a_place_the_ring_left_stops_growing_and_time_stood_stays_where_it_stood(self):
+        op = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, 1.25), (200.0, 10.0, 0.0), (200.0, 10.0, 5.0)))
+        self.assertAlmostEqual(2.0, float(self.heights(op, (10, 10))[0]), places=2)
+        self.assertAlmostEqual(5.0, float(self.heights(op, (200, 10))[0]), places=2)
+        self.assertAlmostEqual(0.0, float(self.heights(op, (100, 10))[0]))
+
+    def test_standing_after_a_way_adds_to_the_end_not_to_the_way(self):
+        moved = ((0.0, 10.0, 0.0), (0.0, 10.0, 0.25), (100.0, 10.0, 1.0))
+        op = self.stroke(samples=moved + ((100.0, 10.0, 3.0),), radius=5.0, mm=1, speed=1000)
+        alone = self.stroke(samples=moved, radius=5.0, mm=1, speed=1000)
+        np.testing.assert_allclose(self.heights(op, (30, 10), (50, 10), (70, 10)), self.heights(alone, (30, 10), (50, 10), (70, 10)), atol=0.002)
+        self.assertGreater(float(self.heights(op, (100, 10))[0]), 3.0)
+
+    def test_time_on_a_way_is_spread_along_it(self):
+        op = self.stroke(samples=((0.0, 10.0, 0.0), (0.0, 10.0, trackheights.HOLD_AFTER_S), (100.0, 10.0, 10.0)), radius=5.0)
+        middle = self.heights(op, (30, 10), (50, 10), (70, 10))
+        self.assertLess(float(np.ptp(middle)), 0.03)       # (the same all along)
+        self.assertGreater(float(middle[0]), 0.2)
+
+    def test_a_long_stroke_costs_by_its_way_not_by_its_samples(self):
+        """A big brush moving for a minute: thousands of stamps of 250,000 points each would make every answer take seconds."""
+        stamps = list(trackheights._stamps(np.array([[0.0, 0.0, 0.0]] + [[float(k), 0.0, 0.05] for k in range(1, 1001)]), 125.0))
+        self.assertLess(len(stamps), 10)
+        self.assertAlmostEqual(49.75, sum(s for _x, _z, s in stamps), places=6)     # (and all of its time, but the click's first moment)
+
+    def test_it_never_goes_past_what_a_raster_can_hold(self):
+        op = self.stroke(samples=((10.0, 10.0, 0.0), (10.0, 10.0, 3600.0), (10.0, 10.0, 3600.0)), mm=trackheights.MAX_MM, speed=trackheights.MAX_MM)
+        self.assertEqual(trackheights.MAX_MM, max(op["mm"]))
+        self.assertIsNone(trackheights.problem(op))
 
     def test_what_is_no_stroke_or_no_brush(self):
-        for kwargs in ({"radius": 2.0}, {"radius": 501.0}, {"radius": "x"}, {"soft": 0.0}, {"soft": 1.5}, {"mm": 0}, {"mm": 1_000_000}, {"mm": 1.5}):
+        for kwargs in ({"radius": 2.0}, {"radius": 501.0}, {"radius": "x"}, {"soft": 0.0}, {"soft": 1.5}, {"mm": 0}, {"mm": 1_000_000}, {"mm": 1.5},
+                       {"speed": -1}, {"speed": 1.5}, {"speed": None}, {"speed": 1_000_000}):
             with self.assertRaises(ValueError, msg=kwargs):
                 self.stroke(**kwargs)
-        for points in ([], "x", [[1.0]], [["a", "b"]], [[float("nan"), 0.0]], [[0.0, 0.0]] * 5001, [[10 ** 400, 0.0]], [[1e20, 1e20]], [[float("inf"), 0.0]]):
-            with self.assertRaises(ValueError, msg=str(points)[:30]):
-                trackheights.brush(points, 10.0, 0.5, 1000, "s")
+        for samples in ([], "x", None, [[1.0]], [[1.0, 2.0]], [["a", "b", "c"]], [[float("nan"), 0.0, 0.0]], [[0.0, 0.0, 0.0]] * 5001, [[10 ** 400, 0.0, 0.0]],
+                        [[1e20, 1e20, 0.0]], [[float("inf"), 0.0, 0.0]], [[0.0, 0.0, -1.0]], [[0.0, 0.0, float("nan")]], [[0.0, 0.0, 1e9]]):
+            with self.assertRaises(ValueError, msg=str(samples)[:30]):
+                trackheights.brush(samples, 10.0, 0.5, 1000, 1000, "s")
 
     def test_a_stroke_too_long_for_a_raster_says_so(self):
         with self.assertRaisesRegex(ValueError, "too long"):
-            self.stroke(points=((0.0, 0.0), (3000.0, 3000.0)))
+            self.stroke(samples=((0.0, 0.0, 0.0), (3000.0, 3000.0, 0.1)))
 
 
 class MovedTest(Base):

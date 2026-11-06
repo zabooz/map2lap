@@ -42,6 +42,7 @@ export interface Picked {
   sprite: string | null;
   sort: string | null;
   position: [number, number, number];
+  left: boolean;                // (by the left button, not for a menu)
 }
 
 /** Where a right click asks for its menu: in the view's pixels, with the view's size. */
@@ -51,6 +52,9 @@ export interface MenuAt {
   width: number;
   height: number;
 }
+
+/** Where the brush's ring was: AC x, AC z, seconds since the sample before. */
+export type Sample = [number, number, number];
 
 /** The brush as it is set: its size on the ground, and which way it goes unless Shift turns it round. */
 export interface Brush {
@@ -146,11 +150,14 @@ const IN_THE_LIST = /^(?!.*_sub_).*(_cars_|_bld|_props_|_wire_|_pylon_|_rocks_|_
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
-const LEFT_BUTTON = 0, LEFT_HELD = 1;
+const LEFT_BUTTON = 0;
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
-const STROKE_STEP_M = 1;            // a stroke's points this far apart at least: half the ground's lattice, however many events a mouse sends
+const SAMPLE_EVERY_MS = 50;         // where the ring is, this often while the mouse is held: finer than a hand moves it, and it counts the time where it stands
+const SAME_PLACE_M = 0.25;          // a sample this near the last one counts as standing there: a long hold on one spot stays one sample
+const MOST_SAMPLES = 5000;          // (trackheights.MAX_STROKE_POINTS)
+const PREVIEW_EVERY_MS = 200;       // how often a stroke under way is asked for: at most one at a time, what is newest when it is answered goes next
+const FIELDS_PER_CHANGE = 4;        // (trackedits.preview: y and the normal)
 const RING_POINTS = 64;
-const RING_UP_M = 0.15;             // (the stroke's line over the ground it runs on)
 const RAISE_COLOUR = "#ff8a1f", LOWER_COLOUR = "#2f8bff";
 
 /** fn, its time to read in the browser's performance tools under name (only the last one is kept). */
@@ -258,6 +265,15 @@ async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: number) {
   return t;
 }
 
+/** A stroke's samples with the ring at x, z for seconds more: on a way from the last place, or standing there, which goes on one sample. Pure but for samples. */
+export function addSample(samples: Sample[], x: number, z: number, seconds: number) {
+  const last = samples.at(-1)!, before = samples.at(-2);
+  if (samples.length >= MOST_SAMPLES) last[2] += seconds;     // (minutes of moving: the rest of its time where it got to)
+  else if (Math.hypot(x - last[0], z - last[1]) >= SAME_PLACE_M) samples.push([x, z, seconds]);
+  else if (before && before[0] === last[0] && before[1] === last[1]) last[2] += seconds;
+  else samples.push([last[0], last[1], seconds]);
+}
+
 /** How far from centre a sphere has to reach to hold a box: to its farthest corner, not only to its two named ones. Pure. */
 export function reachOfBox(centre: readonly number[], low: readonly number[], high: readonly number[]) {
   return Math.hypot(...centre.map((c, axis) => Math.max(Math.abs(low[axis] - c), Math.abs(high[axis] - c))));
@@ -345,10 +361,13 @@ export class TrackView {
   private draft = 0;                    // the draft's revision on the server
   private refreshes = oneByOne(PARALLEL);
   private brush: Brush | null = null;
-  private onStroke: (points: [number, number][], lower: boolean) => void = () => {};
+  private onStroke: (samples: Sample[], lower: boolean) => void = () => {};
+  private askPreview: (samples: Sample[], lower: boolean) => Promise<ArrayBuffer | string | null> = () => Promise.resolve(null);
+  private onStrokeRefused: (why: string) => void = () => {};
+  private onBrushWheel: (what: "radius" | "height", by: number) => void = () => {};
   private ring: THREE.LineLoop | null = null;
-  private strokeLine: THREE.Line | null = null;
-  private stroke: {points: [number, number][]; line: THREE.Vector3[]; lower: boolean} | null = null;
+  private stroke: {samples: Sample[]; lower: boolean; at: number; timer: ReturnType<typeof setInterval>; asked: number; asking: boolean; look: string} | null = null;
+  private previewed = new Set<number>();    // the meshes that show a stroke under way: fetched anew when it is taken over or dropped
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -713,6 +732,10 @@ export class TrackView {
   private zoomWheel(el: HTMLElement) {
     el.addEventListener("wheel", e => {
       e.preventDefault();
+      if (this.brush && (e.ctrlKey || e.altKey)) {
+        if (e.deltaY) this.onBrushWheel(e.altKey ? "height" : "radius", e.deltaY < 0 ? 1 : -1);
+        return;
+      }
       if (!this.data || this.held) return;      // (a button held: that drag goes by the camera as it was)
       this.mouse = screenPoint(e, el);
       const hit = this.hit(), {ray} = this.picker, c = this.camera.position;
@@ -780,26 +803,101 @@ export class TrackView {
     this.dirty = true;
   }
 
-  /** onStroke gets a stroke when it ends: its places [AC x, AC z] on the ground and whether it lowers. */
-  setStroke(onStroke: (points: [number, number][], lower: boolean) => void) {
+  /** onStroke gets a stroke when it ends: where the ring was and for how long, and whether it lowers. askPreview gets it while it lasts,
+      and answers with what it changes so far (trackedits.preview), or why it can't be: then it ends there, onStrokeRefused gets that;
+      null: no answer this time. */
+  setStroke(onStroke: (samples: Sample[], lower: boolean) => void, askPreview: (samples: Sample[], lower: boolean) => Promise<ArrayBuffer | string | null>,
+            onStrokeRefused: (why: string) => void) {
     this.onStroke = onStroke;
+    this.askPreview = askPreview;
+    this.onStrokeRefused = onStrokeRefused;
   }
 
-  /** The stroke under way is dropped; whether there was one. */
+  /** The stroke under way is dropped, the meshes back as they were; whether there was one. */
   cancelStroke() {
     if (!this.stroke) return false;
+    clearInterval(this.stroke.timer);
     this.stroke = null;
-    this.drawStroke();
+    this.takeBackPreview();
     return true;
+  }
+
+  /** What shows of a stroke under way goes: it won't come. */
+  takeBackPreview() {
+    const shown = [...this.previewed];
+    this.previewed.clear();
+    for (const i of shown) void this.refresh(i);
+  }
+
+  /** The ring's place now noted, and if it is time the stroke asked for as it is. */
+  private sample() {
+    const s = this.stroke;
+    if (!s || !this.mouse) return;
+    const now = performance.now(), seconds = (now - s.at) / 1000, last = s.samples.at(-1)!;
+    s.at = now;
+    // (the mouse and the camera still: it stands where it stood, however the ground grows up towards the camera under the ray)
+    const look = `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`;
+    if (look === s.look) addSample(s.samples, last[0], last[1], seconds);
+    else {
+      const at = this.brushAt();
+      s.look = look;
+      this.placeRing(at, s.lower !== this.brush?.lower);
+      if (at) addSample(s.samples, at.x, at.z, seconds);    // (off the ground it paints nothing, and its time doesn't count)
+    }
+    if (!s.asking && now - s.asked >= PREVIEW_EVERY_MS) {
+      s.asking = true;
+      s.asked = now;
+      void this.askPreview(s.samples.map(x => [...x] as Sample), s.lower).then(answer => {
+        s.asking = false;
+        if (this.stroke !== s) return;      // (an answer about a stroke that is over says nothing about the next one)
+        if (typeof answer === "string") {
+          this.cancelStroke();
+          this.onStrokeRefused(answer);
+        } else if (answer) this.showPreview(answer);
+      }, () => { s.asking = false; });
+    }
+  }
+
+  /** The answer to askPreview into the meshes loaded, on the vertices it names. */
+  private showPreview(buf: ArrayBuffer) {
+    const head = new Uint32Array(buf);
+    let word = 1;
+    for (let mesh = 0; mesh < head[0]; mesh++) {
+      const i = head[word], count = head[word + 1], numbers = head.subarray(word + 2, word + 2 + count);
+      const values = new Float32Array(buf, (word + 2 + count) * 4, count * FIELDS_PER_CHANGE);
+      word += 2 + count + count * FIELDS_PER_CHANGE;
+      const m = this.byNumber.get(i);
+      if (!m) continue;
+      const data = (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data, array = data.array;
+      for (let k = 0; k < count; k++) {
+        const v = numbers[k] * FLOATS_PER_VERTEX, c = k * FIELDS_PER_CHANGE;
+        array[v + 1] = values[c];
+        array[v + 3] = values[c + 1];
+        array[v + 4] = values[c + 2];
+        array[v + 5] = values[c + 3];
+      }
+      data.needsUpdate = true;
+      fitSphere(m.geometry, m.userData.info as MeshInfo);
+      m.geometry.boundsTree?.refit();
+      this.previewed.add(i);
+    }
+    this.dirty = true;
+  }
+
+  /** onBrushWheel gets the wheel over the view with the brush set and Ctrl (its radius) or Alt (its height) held: a notch up, 1, down, -1. */
+  setBrushWheel(onBrushWheel: (what: "radius" | "height", by: number) => void) {
+    this.onBrushWheel = onBrushWheel;
   }
 
   /** The meshes by number the server now hands out otherwise (it says which: only it knows what moves with a change), its list in that
       revision: those loaded are fetched anew. The changes aren't reckoned here: there is one reckoning, the server's, which Save uses too. */
   refreshMeshes(meshes: number[], revision: number) {
     this.draft = revision;
-    if (!meshes.length) return;
+    const all = new Set([...meshes, ...this.previewed]);    // (what showed the stroke, whether or not the server names it)
+    this.previewed.clear();
+    if (!all.size) return;
     this.heightsVersion++;
-    for (const i of meshes) void this.refresh(i);
+    for (const i of all) void this.refresh(i);
   }
 
   /** onViewFailed gets what went wrong when the view can't show a change that was made, null when that is over. */
@@ -865,54 +963,36 @@ export class TrackView {
     this.dirty = true;
   }
 
-  /** The line of the stroke under way: what it paints shows when it ends. */
-  private drawStroke() {
-    if (this.strokeLine) {
-      this.scene.remove(this.strokeLine);
-      this.strokeLine.geometry.dispose();
-      this.strokeLine = null;
-    }
-    if (this.stroke) {
-      const colour = this.stroke.lower ? LOWER_COLOUR : RAISE_COLOUR;
-      this.strokeLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(this.stroke.line),
-                                       new THREE.LineBasicMaterial({color: colour, depthTest: false, transparent: true}));
-      this.strokeLine.renderOrder = 10;
-      this.strokeLine.frustumCulled = false;
-      this.scene.add(this.strokeLine);
-    }
-    this.dirty = true;
-  }
-
   /** The left button with the brush set: pressed on the ground a stroke starts, a move adds to it, let go it ends, a click is a stamp. */
   private strokes(el: HTMLElement) {
-    const add = (at: THREE.Vector3) => {
-      const s = this.stroke!;
-      s.points.push([at.x, at.z]);
-      s.line.push(at.clone().setY(at.y + RING_UP_M));
-      this.drawStroke();
-    };
     el.addEventListener("pointerdown", e => {
       if (!this.brush || e.button !== LEFT_BUTTON) return;
       this.mouse = screenPoint(e, el);
       const at = this.brushAt();
       if (!at) return;
-      this.stroke = {points: [], line: [], lower: this.brush.lower !== e.shiftKey};
-      add(at);
+      const now = performance.now();
+      this.stroke = {samples: [[at.x, at.z, 0]], lower: this.brush.lower !== e.shiftKey, at: now, asked: now, asking: false,
+                     look: `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`, timer: setInterval(() => this.sample(), SAMPLE_EVERY_MS)};
       el.setPointerCapture(e.pointerId);
     });
+    for (const type of ["keydown", "keyup"] as const) {     // (Alt with the wheel: alone, some browsers then go to their menu)
+      el.addEventListener(type, e => {
+        if (this.brush && e.key === "Alt") e.preventDefault();
+      });
+    }
     el.addEventListener("pointermove", e => {
       if (!this.brush) return;
       this.mouse = screenPoint(e, el);
-      const at = this.brushAt();
-      this.placeRing(at, e.shiftKey);
-      const last = this.stroke?.points.at(-1);
-      if (at && last && e.buttons & LEFT_HELD && Math.hypot(at.x - last[0], at.z - last[1]) >= STROKE_STEP_M) add(at);
+      if (!this.stroke) this.placeRing(this.brushAt(), e.shiftKey);       // (held: the samples move it)
     });
     el.addEventListener("pointerup", e => {
       if (!this.stroke || e.button !== LEFT_BUTTON) return;
-      const {points, lower} = this.stroke;
-      this.cancelStroke();
-      this.onStroke(points, lower);
+      this.mouse = screenPoint(e, el);
+      this.sample();
+      const {samples, lower, timer} = this.stroke;
+      clearInterval(timer);
+      this.stroke = null;
+      this.onStroke(samples, lower);
     });
     el.addEventListener("pointercancel", () => this.cancelStroke());
     el.addEventListener("pointerleave", () => {
@@ -956,7 +1036,7 @@ export class TrackView {
     this.mark(bounds);
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
     const picked = {id: hovered.id, afterBuild: !hovered.id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
-                    sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number]};
+                    sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON};
     this.onPick(picked);
     return picked;
   }

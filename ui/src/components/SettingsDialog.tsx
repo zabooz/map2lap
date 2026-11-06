@@ -184,7 +184,9 @@ const KEYS: [string, string][] = [
   ["W A S D", "Move over the ground, at the same height"], ["Right drag", "Take the ground along"],
   ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["Click", "Pick an object"],
   ["Right click", "Its menu: Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
-  ["Esc", "End a marking, close the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
+  ["B", "The brush: on and off"], ["Ctrl+Wheel, Alt+Wheel", "The brush's radius, its height"], ["Shift", "The brush the other way"],
+  ["X", "Click deletes: on and off"],
+  ["Esc", "End a marking, a stroke or a tool, close the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
 ];
 
 /** The Editor's keys and mouse, while the 3D view has the focus (a click into it). */

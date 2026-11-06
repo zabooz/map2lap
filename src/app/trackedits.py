@@ -12,6 +12,8 @@ import re
 import tempfile
 import threading
 
+import numpy as np
+
 from app import mytracks, trackheights, trackview
 
 SCHEMA = 1
@@ -175,6 +177,12 @@ def moved_now(ac, name, revision):
     """What the height changes of the track's draft move in its served kn5 in that revision (a kn5.Moved), None for nothing: the Editor
     shows each mesh as it will be, so the view and Save have one reckoning. Kept while the draft's file and the recipe stay as they
     are: a long track's 66,000 meshes each ask."""
+    return _heights_and_moved(ac, name, revision)[1]
+
+
+def _heights_and_moved(ac, name, revision):
+    """The height changes of the track's draft for that revision and what they move, of one state of it: read apart, a save between the two
+    would make them disagree."""
     path, saved = _file(ac, name), trackview.recipe(ac, name)
     try:
         st = os.stat(path)
@@ -186,8 +194,34 @@ def moved_now(ac, name, revision):
         if _now.get("key") != key:
             s = _stored(path, saved)
             heights = s.get("heights", []) if s["base"] == revision else []
-            _now.update(key=key, moved=_moved_or_none(ac, name, revision, heights))
-        return _now["moved"]
+            _now.update(key=key, heights=heights, moved=_moved_or_none(ac, name, revision, heights))
+        return _now["heights"], _now["moved"]
+
+
+def preview(ac, name, revision, op):
+    """What a stroke under way, the height change op, changes in the meshes as they are handed out now, for the view while the mouse is
+    held: little-endian uint32 and float32, so a browser reads them as they lie. Its count of meshes, then per mesh: its number, its count
+    of vertices, their numbers, per vertex y and normal. Only what differs: a click's hundreds of points, not a tile's megabytes.
+    InTheWay if it can't be applied. Nothing is kept."""
+    heights, now = _heights_and_moved(ac, name, revision)
+    kn5_path, scan = trackview._scan_of(ac, name, revision)
+    after = trackheights.moved(kn5_path, scan, trackview.list_of(kn5_path), heights + [op])
+
+    def vertices_in(moved, i):
+        if moved and i in moved.vertices:
+            return moved.vertices[i]
+        return np.frombuffer(trackview.mesh_bytes(ac, name, i, revision)[:scan["meshes"][i]["vertices"] * trackheights.kn5.VERTEX.itemsize],
+                             dtype=trackheights.kn5.VERTEX)
+
+    parts = []
+    # (also what only the state now moves: a stroke that takes all of a change back leaves that mesh as in the file)
+    for i in sorted(set(after.vertices) | set(now.vertices if now else ())):
+        before, vertices = vertices_in(now, i), vertices_in(after, i)
+        differ = np.flatnonzero((vertices["pos"][:, 1] != before["pos"][:, 1]) | (vertices["normal"] != before["normal"]).any(axis=1))
+        if len(differ):
+            values = np.c_[vertices["pos"][differ, 1], vertices["normal"][differ]].astype("<f4")
+            parts.append(np.array([i, len(differ)], "<u4").tobytes() + differ.astype("<u4").tobytes() + values.tobytes())
+    return np.array([len(parts)], "<u4").tobytes() + b"".join(parts)
 
 
 def _moved_or_none(ac, name, revision, heights):

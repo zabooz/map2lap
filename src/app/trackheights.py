@@ -26,7 +26,10 @@ MAX_ID = 64
 NOTHING_M = 1e-6            # what changes that cancel out leave of floats: far under what a kn5's float32 holds at a track's heights (30 µm at 400 m)
 MIN_RADIUS_M, MAX_RADIUS_M = 3.0, 500.0     # a brush: below 3 m the 2 m lattice has no points to show its shape with; 500 m is a hillside
 MIN_SOFT = 0.1              # its soft share of the radius: a brush with no soft edge would be a wall on the lattice
-MAX_STROKE_POINTS = 5000    # (a mouse's points of a stroke; the view takes one per metre or so: kilometres of it)
+MAX_STROKE_POINTS = 5000    # (a stroke's samples; the view takes up to 20 a second where the ring moves, and sums them where it stands: minutes of it)
+MAX_SAMPLE_S = 3600.0       # (an hour between two samples is no stroke)
+HOLD_AFTER_S = 0.25         # a press this short is a click, one height: what a hand takes to let go, a double click's half
+STAMP_SHARE = 0.25          # time along a way is spread on stamps this share of the radius apart: closer than a soft edge can show
 MAX_PLACE_M = 1e7           # how far from a track's anchor a place can lie: a quarter of the earth, more than any track (NaN falls out here too)
 STANDING_REACH_M = 50.0     # how far from an object's place its triangles are looked for: half the size of a big building; a bigger one only goes unnamed
 MAX_LIFT_M = 0.5            # how far a road's line goes up over a bulge at most: it has no collision, but further up, at the far end of a long edge, it is seen to float
@@ -351,37 +354,83 @@ def moved(path, scan, objects, ops):
     return kn5.Moved(vertices, grow, points)
 
 
-def brush(points, radius, soft, mm, id_):
-    """The height change of a brush's stroke along points [[AC x, AC z], ...], one for a single stamp: mm at most, wherever the stroke
-    passed within radius of a place, down to 0 at radius; soft: the share of radius that goes down softly. The most, not the sum, of
-    what its points give: going over a place twice, or a mouse sending more events, doesn't heap it up. ValueError for what can't be
-    one. Pure."""
-    if not (isinstance(points, list) and 0 < len(points) <= MAX_STROKE_POINTS):
-        raise ValueError("No stroke")
-    if not all(isinstance(p, list) and len(p) == 2 and all(type(v) in (int, float) and abs(v) <= MAX_PLACE_M for v in p) for p in points):
+def _well_sampled(samples):
+    """Whether what the page sent is a stroke: [[AC x, AC z, seconds since the one before], ...]. Pure."""
+    return (isinstance(samples, list) and 0 < len(samples) <= MAX_STROKE_POINTS
+            and all(isinstance(s, list) and len(s) == 3 and all(type(v) in (int, float) for v in s)
+                    and abs(s[0]) <= MAX_PLACE_M and abs(s[1]) <= MAX_PLACE_M and 0 <= s[2] <= MAX_SAMPLE_S for s in samples))
+
+
+def _stamps(at, spacing):
+    """Where a stroke's time went: (x, z, seconds) for at, an array of samples [x, z, seconds on the way from the sample before]: past the
+    first HOLD_AFTER_S, wherever the ring was then, one stamp each spacing of way, and one where it stood. By time and way alone, so how the
+    samples cut them up makes no difference, and a long stroke costs by its way, not by the mouse's events. Pure."""
+    before_hold, carried, gone = HOLD_AFTER_S, 0.0, 0.0
+    for a, b in zip(at, at[1:]):
+        seconds = b[2]
+        if before_hold and before_hold >= seconds:
+            before_hold -= seconds
+            continue
+        start = a[:2] + (b[:2] - a[:2]) * (before_hold / seconds if seconds else 0.0)
+        seconds -= before_hold
+        before_hold = 0.0
+        way = float(np.hypot(*(b[:2] - start)))
+        if not way:                 # (it stands here: what it did on the way before ends now)
+            if gone:
+                yield start[0], start[1], carried
+                carried, gone = 0.0, 0.0
+            carried += seconds
+            continue
+        if carried and not gone:    # (it stood here, and leaves)
+            yield start[0], start[1], carried
+            carried = 0.0
+        done = 0.0
+        while gone + way - done >= spacing:
+            done += spacing - gone
+            place = start + (b[:2] - start) * (done / way)
+            yield place[0], place[1], carried + seconds * (spacing - gone) / way
+            carried, gone = 0.0, 0.0
+        gone += way - done
+        carried += seconds * (way - done) / way
+    if carried:
+        yield at[-1, 0], at[-1, 1], carried
+
+
+def brush(samples, radius, soft, mm, speed, id_):
+    """The height change of a brush's stroke: where its ring was, and for how long ([[AC x, AC z, seconds on the way from the sample before], ...]).
+    The press gives mm once, a click no more; held longer than HOLD_AFTER_S, speed mm a second more (the way mm goes) wherever the
+    ring is then, by the time it was there: a place it left stops growing, and more events or a slower computer make no other hill. Down to 0 at
+    radius; soft: the share of radius that goes down softly. Added up unrounded, so tiny shares aren't lost. ValueError for what can't be one. Pure."""
+    if not _well_sampled(samples):
         raise ValueError("No stroke")
     if not (type(radius) in (int, float) and MIN_RADIUS_M <= radius <= MAX_RADIUS_M and type(soft) in (int, float) and MIN_SOFT <= soft <= 1):
         raise ValueError("No brush of that size")
     if not (type(mm) is int and 0 < abs(mm) <= MAX_MM):
         raise ValueError("No height")
-    at = np.array(points, np.float64)
+    if not (type(speed) is int and 0 <= speed <= MAX_MM):
+        raise ValueError("No speed")
+    at = np.array(samples, np.float64)
     x0 = int(math.floor((at[:, 0].min() - radius) / STEP)) * STEP - STEP
     z0 = int(math.floor((at[:, 1].min() - radius) / STEP)) * STEP - STEP
     nx = (int(math.ceil((at[:, 0].max() + radius) / STEP)) * STEP + STEP - x0) // STEP + 1
     nz = (int(math.ceil((at[:, 1].max() + radius) / STEP)) * STEP + STEP - z0) // STEP + 1
     if nx * nz > MAX_POINTS:
         raise ValueError("This stroke is too long: make it in parts")
-    x, z = np.meshgrid(x0 + STEP * np.arange(nx, dtype=np.float64), z0 + STEP * np.arange(nz, dtype=np.float64))
-    way = np.full(x.shape, np.inf)
-    for a, b in zip(at, at[1:] if len(at) > 1 else at):
-        i0, i1 = int((min(a[0], b[0]) - radius - x0) // STEP), int((max(a[0], b[0]) + radius - x0) // STEP) + 2
-        j0, j1 = int((min(a[1], b[1]) - radius - z0) // STEP), int((max(a[1], b[1]) + radius - z0) // STEP) + 2
-        px, pz = x[j0:j1, i0:i1] - a[0], z[j0:j1, i0:i1] - a[1]
-        along = b - a
-        t = np.clip((px * along[0] + pz * along[1]) / max(float(along @ along), 1e-12), 0, 1)
-        way[j0:j1, i0:i1] = np.minimum(way[j0:j1, i0:i1], np.hypot(px - t * along[0], pz - t * along[1]))
-    t = np.clip((way - radius * (1 - soft)) / (radius * soft), 0, 1)
-    raster = np.rint(mm * (1 - t * t * (3 - 2 * t))).astype(np.int64)
+    total = np.zeros((nz, nx))
+
+    def stamp(px, pz, amount):
+        i0, i1 = int((px - radius - x0) // STEP), int((px + radius - x0) // STEP) + 2
+        j0, j1 = int((pz - radius - z0) // STEP), int((pz + radius - z0) // STEP) + 2
+        gx, gz = np.meshgrid(x0 + STEP * np.arange(i0, i1, dtype=np.float64), z0 + STEP * np.arange(j0, j1, dtype=np.float64))
+        t = np.clip((np.hypot(gx - px, gz - pz) - radius * (1 - soft)) / (radius * soft), 0, 1)
+        total[j0:j1, i0:i1] += amount * (1 - t * t * (3 - 2 * t))
+
+    stamp(at[0, 0], at[0, 1], float(mm))
+    if speed:
+        for px, pz, seconds in _stamps(at, radius * STAMP_SHARE):
+            if seconds:
+                stamp(px, pz, math.copysign(speed, mm) * seconds)
+    raster = np.clip(np.rint(total), -MAX_MM, MAX_MM).astype(np.int64)
     return {"id": id_, "x": x0, "z": z0, "nx": int(nx), "nz": int(nz), "mm": raster.ravel().tolist()}
 
 

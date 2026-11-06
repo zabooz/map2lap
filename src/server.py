@@ -46,7 +46,7 @@ BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<n
 EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?)")     # (d: the draft's revision the page asks after)
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
-BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush")
+BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush(/preview)?")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -536,10 +536,10 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             self._send(500, {"error": str(e)})
 
-    def _brush(self, name):
+    def _brush(self, name, under_way=False):
         """A stroke of the Editor's brush as a height change, with all of it looked at, loaded in the view or not: {"height": what the
-        page puts into its draft, "standing": objects that stay where they stand}. Nothing is kept here. 409: it can't be applied, for
-        the reason it says."""
+        page puts into its draft, "standing": objects that stay where they stand}; under_way: the mouse still held, what it changes so far
+        (trackedits.preview). Nothing is kept here. 409: it can't be applied, for the reason it says."""
         if not self._own_page():
             return self._send(403, {"error": "Only the page itself can change a track"})
         ac = settings.ac_path()
@@ -548,8 +548,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(413, {"error": "This stroke is too long: make it in parts"})
         try:
             body = self._body()
-            op = trackheights.brush(body.get("points"), body.get("radius"), body.get("soft"), body.get("mm"), secrets.token_hex(8))
+            op = trackheights.brush(body.get("samples"), body.get("radius"), body.get("soft"), body.get("mm"), body.get("speed"), secrets.token_hex(8))
             path, scan = trackview._scan_of(ac, generator.slug(name), body.get("base"))
+            if under_way:
+                return self._send(200, trackedits.preview(ac, generator.slug(name), body["base"], op), "application/octet-stream")
             objects = trackview.list_of(path)
             trackedits.remember_meshes(op["id"], sorted(trackheights.moved(path, scan, objects, [op]).vertices))
             self._send(200, {"height": op, "standing": trackheights.standing(path, scan, objects, op)})
@@ -629,7 +631,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._save_track(save[1])
         brush = BRUSH_PATH.fullmatch(self.path)
         if brush:
-            return self._brush(brush[1])
+            return self._brush(brush[1], bool(brush[2]))
         try:
             body = self._body()
             if self.path == "/api/route":

@@ -5,14 +5,19 @@ import {isCurrent, TrackEdits, type EditState, type HeightChange} from "./edits"
 import styles from "./EditTools.module.css";
 import {NOT_ALL, sortName} from "./inspect";
 import {SaveDialog} from "./SaveDialog";
-import type {Marked, MenuAt, Picked, TrackView} from "./view";
+import type {Marked, MenuAt, Picked, Sample, TrackView} from "./view";
 import {ViewMenu} from "./ViewMenu";
 
 const count = (n: number) => `${n} ${n === 1 ? "object" : "objects"} deleted`;
 const heightCount = (n: number) => `${n} height ${n === 1 ? "change" : "changes"}`;
 const standingText = (n: number) => `${n} ${n === 1 ? "object stands" : "objects stand"} at the edge of it and stayed where ${n === 1 ? "it is" : "they are"}: its place lies outside.`;
 const CM_TO_MM = 10;
-const FIRST_BRUSH = {radius: 15, height: 50, soft: 70, lower: false};     // (m, cm, % of the radius)
+const FIRST_BRUSH = {radius: 5, height: 5, speed: 30, soft: 25, lower: false};      // (m, cm, cm a second held, % of the radius)
+const MIN_RADIUS = 3, MAX_RADIUS = 500, MIN_HEIGHT = 1, MAX_HEIGHT = 10000;     // (trackheights: its brush; 100 m)
+const WHEEL_SHARE = 0.1;            // a notch of the wheel changes the brush by this share, at least a step: the same feel at 5 m and at 200 m
+/** value a notch of the wheel up or down (by: 1 or -1), within those limits. Pure. */
+const stepped = (value: number, by: number, step: number, least: number, most: number) =>
+  Math.min(most, Math.max(least, Math.round(value + by * Math.max(step, value * WHEEL_SHARE))));
 const isChanged = (s: EditState) => s.removed.length > 0 || s.sorts.length > 0 || s.objectSorts.length > 0 || s.heights.length > 0;
 /** Never saved here, nothing changed: nothing to save, as a file just opened. Pure. */
 const isAsBuilt = (s: EditState) => !isChanged(s) && !s.recipe;
@@ -39,14 +44,25 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
   const [marked, setMarked] = useState<Marked | null>(null);
   const [asking, setAsking] = useState<{play: boolean} | null>(null);     // (play: AC starts once it is saved)
   const [saving, setSaving] = useState<{busy: boolean; text: string | null}>({busy: false, text: null});
-  const [brushOn, setBrushOn] = useState(false);
+  const [tool, setTool] = useState<"brush" | "delete" | null>(null);    // (delete: each click deletes what is under it)
   const [brush, setBrush] = useState(FIRST_BRUSH);
   const [brushNote, setBrushNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
   const {starting, play} = usePlay();
   const editable = edits.canEdit();
   const current = isCurrent(state);
-  const painting = brushOn && editable;
+  const painting = tool === "brush" && editable;
+  const deleting = tool === "delete" && editable;
+
+  /** What a click picked; with "click deletes" on, gone at once. */
+  const onPicked = useEffectEvent((p: Picked | null) => {
+    setPicked(p);
+    setMarked(null);
+    if (deleting && p?.id && p.left) {
+      edits.remove([{id: p.id, position: p.position}]);
+      view.unpick();
+    }
+  });
 
   useEffect(() => {
     void edits.start();
@@ -59,10 +75,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
   }, [edits]);
 
   useEffect(() => {
-    view.setPick(p => {
-      setPicked(p);
-      setMarked(null);
-    });
+    view.setPick(p => onPicked(p));
     view.setMenu(setMenu);
     view.setIndexed(revision => edits.bind(revision));
     return () => {
@@ -89,27 +102,53 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
     };
   }, [view, edits]);
 
+  useEffect(() => { view.setBrush(painting ? {radius: brush.radius, lower: brush.lower} : null); },
+            [view, painting, brush.radius, brush.lower]);
+
+  useEffect(() => () => view.setBrush(null), [view]);
+
+  const brushWheel = useEffectEvent((what: "radius" | "height", by: number) => {
+    setBrush(b => (what === "radius" ? {...b, radius: stepped(b.radius, by, 1, MIN_RADIUS, MAX_RADIUS)}
+                                     : {...b, height: stepped(b.height, by, 1, MIN_HEIGHT, MAX_HEIGHT)}));
+  });
+
   useEffect(() => {
-    view.setBrush(painting ? {radius: brush.radius, lower: brush.lower} : null);
-    return () => view.setBrush(null);
-  }, [view, painting, brush.radius, brush.lower]);
+    view.setBrushWheel((what, by) => brushWheel(what, by));
+    return () => view.setBrushWheel(() => {});
+  }, [view]);
+
+  /** What the server makes a stroke of goes by these, with where the ring was and for how long. */
+  const strokeBody = (samples: Sample[], lower: boolean) => ({
+    samples, base: edits.boundRevision(), radius: brush.radius, soft: brush.soft / 100,
+    mm: Math.round(brush.height * CM_TO_MM) * (lower ? -1 : 1), speed: Math.round(brush.speed * CM_TO_MM)});
 
   /** A stroke made, as the server makes it into a height change with all of it looked at, loaded in the view or not. */
-  const stroked = useEffectEvent((points: [number, number][], lower: boolean) => {
-    const set = {radius: brush.radius, soft: brush.soft / 100, mm: Math.round(brush.height * CM_TO_MM) * (lower ? -1 : 1)};
+  const stroked = useEffectEvent((samples: Sample[], lower: boolean) => {
+    const body = strokeBody(samples, lower);
     void edits.inTurn(async () => {
-      const r = await post<{height: HeightChange; standing: number}>(`/api/editor/${encodeURIComponent(name)}/brush`,
-                                                                     {points, base: edits.boundRevision(), ...set});
-      if (r.error || !r.height) return setBrushNote(`Not changed: ${r.error ?? "no answer"}`);
-      if (!edits.canEdit()) return setBrushNote("Not changed: this track can't be changed now");
-      edits.addHeight(r.height);
+      const r = await post<{height: HeightChange; standing: number}>(`/api/editor/${encodeURIComponent(name)}/brush`, body);
+      const failed = r.error || !r.height ? r.error ?? "no answer" : edits.canEdit() ? null : "this track can't be changed now";
+      if (failed) {
+        view.takeBackPreview();
+        return setBrushNote(`Not changed: ${failed}`);
+      }
+      edits.addHeight(r.height!);
       setBrushNote(r.standing ? standingText(r.standing) : null);
     });
   });
 
+  /** A stroke under way, as far as it has come: what it changes, or why it can't be; null: no answer this time. */
+  const askPreview = useEffectEvent(async (samples: Sample[], lower: boolean) => {
+    const r = await fetch(`/api/editor/${encodeURIComponent(name)}/brush/preview`,
+                          {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(strokeBody(samples, lower))}).catch(() => null);
+    if (!r) return null;
+    if (r.ok) return r.arrayBuffer().catch(() => null);
+    return String((await r.json().catch(() => null))?.error ?? r.status);
+  });
+
   useEffect(() => {
-    view.setStroke((points, lower) => stroked(points, lower));
-    return () => view.setStroke(() => {});
+    view.setStroke((samples, lower) => stroked(samples, lower), (samples, lower) => askPreview(samples, lower), why => setBrushNote(`Not changed: ${why}`));
+    return () => view.setStroke(() => {}, () => Promise.resolve(null), () => {});
   }, [view]);
 
   const removable = picked?.id ? {id: picked.id, position: picked.position} : null;
@@ -220,9 +259,11 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
     else if (e.key === "Escape") {
       setMenu(null);
       setMarked(null);
-      if (!view.cancelStroke()) setBrushOn(false);      // (a stroke under way goes first, then the brush)
+      if (!view.cancelStroke()) setTool(null);          // (a stroke under way goes first, then the tool)
       view.focus();
-    } else if (control && key === "z") {
+    } else if (!control && key === "b") setTool(tool === "brush" ? null : "brush");
+    else if (!control && key === "x") setTool(tool === "delete" ? null : "delete");
+    else if (control && key === "z") {
       void edits.inTurn(() => (e.shiftKey ? edits.redo() : edits.undo()));
     } else if (control && key === "y") void edits.inTurn(() => edits.redo());
     else if (control && key === "s") void save();
@@ -246,7 +287,9 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
           <button type="button" disabled={(!removable && !marked) || !editable} onClick={then(remove)}>Delete</button>
           <button type="button" disabled={!changed || !editable} onClick={then(() => void edits.inTurn(() => edits.discard()))}>Discard</button>
           <button type="button" id="edit-brush" className={painting ? styles.on : ""} aria-pressed={painting} disabled={!editable}
-                  title="Raise or lower the ground: drag over it (Esc ends it)" onClick={then(() => { setBrushOn(!brushOn); setBrushNote(null); })}>Brush</button>
+                  title="Raise or lower the ground: click or drag over it (B; Esc ends it)" onClick={then(() => { setTool(tool === "brush" ? null : "brush"); setBrushNote(null); })}>Brush</button>
+          <button type="button" id="edit-click-deletes" className={deleting ? styles.on : ""} aria-pressed={deleting} disabled={!editable}
+                  title="Each click deletes what is under it, Ctrl+Z brings it back (X; Esc ends it)" onClick={then(() => setTool(tool === "delete" ? null : "delete"))}>Click deletes</button>
           <span className={styles.split}>
             <button type="button" id="edit-save" title="Write this track for Assetto Corsa (Ctrl+S)" disabled={!canSave} onClick={then(() => void save())}>Save</button>
             <button type="button" id="edit-save-more" aria-label="Save as new track" title="Save as new track …"
@@ -259,15 +302,18 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
         </div>
         {painting && (
           <div id="edit-brush-set" className={styles.row}>
-            <button type="button" className={brush.lower ? "" : styles.on} aria-pressed={!brush.lower} onClick={then(() => setBrush({...brush, lower: false}))}>Raise</button>
-            <button type="button" className={brush.lower ? styles.on : ""} aria-pressed={brush.lower} onClick={then(() => setBrush({...brush, lower: true}))}>Lower</button>
-            <label className={styles.number}>Height <input type="number" min={1} max={10000} step={5} value={brush.height}
+            <button type="button" className={brush.lower ? "" : styles.on} aria-pressed={!brush.lower} title="The brush raises the ground (Shift: the other way)"
+                    onClick={then(() => setBrush({...brush, lower: false}))}>Raise</button>
+            <button type="button" className={brush.lower ? styles.on : ""} aria-pressed={brush.lower} title="The brush lowers the ground (Shift: the other way)"
+                    onClick={then(() => setBrush({...brush, lower: true}))}>Lower</button>
+            <label className={styles.number} title="How far one click moves the ground, at its middle (Alt + wheel)">Height <input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} value={brush.height}
                    onChange={e => setBrush({...brush, height: e.target.valueAsNumber || 0})} /> cm</label>
-            <label className={styles.number}>Radius <input type="number" min={3} max={500} value={brush.radius}
+            <label className={styles.number} title="How fast the ground goes on moving while the button is held, where the ring is">Speed <input type="number" min={0} max={MAX_HEIGHT} step={5} value={brush.speed}
+                   onChange={e => setBrush({...brush, speed: e.target.valueAsNumber || 0})} /> cm/s</label>
+            <label className={styles.number} title="How far the brush reaches, the ring on the ground (Ctrl + wheel)">Radius <input type="number" min={MIN_RADIUS} max={MAX_RADIUS} value={brush.radius}
                    onChange={e => setBrush({...brush, radius: e.target.valueAsNumber || 0})} /> m</label>
-            <label className={styles.number}>Soft edge <input type="number" min={10} max={100} step={10} value={brush.soft}
+            <label className={styles.number} title="How much of the radius fades out softly: 100 % a round hill, 10 % a flat top with a steep edge">Soft edge <input type="number" min={10} max={100} step={10} value={brush.soft}
                    onChange={e => setBrush({...brush, soft: e.target.valueAsNumber || 0})} /> %</label>
-            <span className={styles.state}>Shift: the other way</span>
           </div>
         )}
         {brushNote && <p id="edit-brush-note" className={styles.line}>{brushNote}</p>}
