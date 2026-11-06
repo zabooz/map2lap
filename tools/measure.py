@@ -67,6 +67,8 @@ sys.path.insert(0, os.path.join(HERE, "src"))
 from app import named, settings, trackcode, version  # noqa: E402
 from track import obj_to_kn5, parallel  # noqa: E402
 
+os.environ["MAP2LAP_STRICT"] = "1"     # (a mesh not entered in track.objectlist stops a build here, at a user's it is a line in the log)
+
 TEST_TRACKS = os.path.join(HERE, "tools", "test_tracks.json")
 BUILD_JOBS = 3          # short test tracks built at a time
 ROUTE_FILES = ("map2lap_route.txt", "ac_export_route.txt")     # (data/ of the track; the second: older builds)

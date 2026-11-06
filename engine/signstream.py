@@ -14,6 +14,7 @@ import time
 
 import numpy as np
 
+import cdae
 import highwaysigns
 import mergesigns
 import roadmesh
@@ -32,6 +33,20 @@ def shape_files(aid, tx, ty):
     return {kind: f'{kind}_{aid}_{tx}_{ty}.cdae' for kind in KINDS}
 
 
+def write_parts(path, mesh):
+    """Which vertices of the sign shape at path, written from mesh, are which sign, beside it, for the track's list of objects
+    (src/track/objectlist.py): in the order the shape file holds its vertices (cdae.vertex_order), runs of [sign, how many vertices]."""
+    p, t, _, materials, tri_materials = mesh
+    sign = np.zeros(len(p), np.int64)
+    for k, (start, end) in enumerate(zip(mesh.starts, list(mesh.starts[1:]) + [len(p)])):
+        sign[start:end] = k
+    used = sign[cdae.vertex_order(t, tri_materials, len(materials))]
+    begin = np.r_[0, np.flatnonzero(used[1:] != used[:-1]) + 1]
+    runs = [[int(used[a]), int(b - a)] for a, b in zip(begin, np.r_[begin[1:], len(used)])]
+    with open(os.path.splitext(path)[0] + '.objects.json', 'w', encoding='utf-8') as f:
+        json.dump({'runs': runs}, f)
+
+
 def write_tile(out_dir, vfs_dir, aid, tx, ty, meshes):
     x, y, _, _ = roads.tile_bbox(tx, ty)
     data = {'v': roads.VERSION, 'chunks': []}
@@ -40,6 +55,8 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, meshes):
             continue
         name = shape_files(aid, tx, ty)[kind]
         roadmesh.write(os.path.join(out_dir, name), mesh)
+        if getattr(mesh, 'starts', None):
+            write_parts(os.path.join(out_dir, name), mesh)
         data[kind] = {'shape': f'{vfs_dir}/{name}', 'pos': [x, y, 0.]}
     # An empty replacement is intentional: it retires signs from an older index.
     name = f'signs_{aid}_{tx}_{ty}.json'

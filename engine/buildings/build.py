@@ -19,10 +19,10 @@ from .garages import _parking_deck, deck_plan
 MAX_MESH_VERTS = 60000
 
 
-def build(specs_and_ground, lite=False):
+def build(specs_and_ground, lite=False, marks=None):
     """The tile's mesh from [(Spec, ground z min, ground z max)] with rings in the tile's local frame:
     (positions, uvs, tris, tri material indices, MATERIALS) or None if empty. lite (far tiles): no
-    cornices, whole walls instead of one quad per bay."""
+    cornices, whole walls instead of one quad per bay. marks: a list that gets Mesh.marks."""
     m = Mesh()
     for spec, gmin, gmax in specs_and_ground:
         if spec.cls == "toll_booth":        # a stock prop (toll_booth_rows)
@@ -67,6 +67,9 @@ def build(specs_and_ground, lite=False):
             _signs(m, spec, ring, z_top, mat_idx, base_z(spec, gmin, gmax) + mh, z_eave, names)
         if plates and not lite and (spec.plate is not None or spec.sign is not None):
             _plates(m, spec, ring, base_z(spec, gmin, gmax) + mh, z_eave, mat_idx, bands=spec.sign is not None)
+        m.mark(None)
+    if marks is not None:
+        marks.extend(m.marks)
     if m.n == 0:
         return None
     P, UV, T, M, C = m.arrays()
@@ -109,15 +112,18 @@ def _steel_frame(m, spec, gmin, mat, lite=False, legs_only=False):
                 _box(m, c + v * sy * (hw - t), u, hl - 2 * t, b, z - b, z + b, mat)
 
 
-def collision_mesh(specs_and_ground):
+def collision_mesh(specs_and_ground, starts=None):
     """The tile's buildings for physics only: one quad per wall and a flat lid at the eaves (pitched roofs on their
     oriented box), parking decks as drawn; (positions, uvs, tris, tri materials, MATERIALS, colours) or None.
     The drawn mesh (windows a quad per bay and floor, cornices, signs) cost the game's collision rebuild ~30 ms of
-    a 40 ms rebuild in Fells Point, every few seconds while driving; this one is ~1/20 of its triangles."""
+    a 40 ms rebuild in Fells Point, every few seconds while driving; this one is ~1/20 of its triangles. starts: a list that gets
+    the vertices so far at each building, for the track's list."""
     m = Mesh()
     tok = (MATERIALS.index(PANEL), (128, 128, 128, 255))
     zero = (0.0, 0.0)
     for spec, gmin, gmax in specs_and_ground:
+        if starts is not None:
+            starts.append(m.n)
         if spec.cls in BRIDGE_CLASSES:          # its legs (the decks run between them)
             _steel_frame(m, spec, gmin, tok, True, legs_only=True)
             continue
@@ -192,24 +198,39 @@ def _concat(meshes):
             meshes[0][4], np.concatenate([m[5] for m in meshes]))
 
 
-def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False):
+def _listed(k, item, start, marks):
+    """What the track's list of objects needs of building number k of the tile: its first vertex in its mesh, where it stands, its
+    footprint, what its marks say; a bridge's parts are no house and can't be deleted for now ("house" False). Pure."""
+    spec, gmin, _gmax = item
+    ring = np.asarray(spec.ring, np.float64)
+    mid = ring.mean(axis=0)
+    return {"item": k, "start": start, "house": not str(spec.cls or "").startswith("bridge"), "at": [round(float(mid[0]), 3), round(float(mid[1]), 3), round(float(gmin), 3)],
+            "marks": [[start + v, what] for v, what in marks]}
+
+
+def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False, objects=None):
     """build() split into meshes of at most max_verts vertices each (whole buildings per mesh): a list, [] if empty.
     Each building is built once (build draws them one by one) and the meshes joined. with_lod: each mesh carries the
-    lite mesh of its buildings as a 7th element (write: the shape's coarse detail)."""
-    parts, cur, cur_lite, n = [], [], [], 0
+    lite mesh of its buildings as a 7th element (write: the shape's coarse detail). objects: a list that gets per mesh its
+    buildings as _listed says them."""
+    parts, cur, cur_lite, n, listed = [], [], [], 0, []
 
     def flush():
         if cur:
             mesh = _concat(cur)
             parts.append(mesh + (_concat(cur_lite) if cur_lite else None,) if with_lod and not lite else mesh)
+            if objects is not None:
+                objects.append(listed[:])
 
-    for item in specs_and_ground:
-        one = build([item], lite)
+    for k, item in enumerate(specs_and_ground):
+        marks = []
+        one = build([item], lite, marks)
         if one is None:
             continue
         if cur and n + len(one[0]) > max_verts:
             flush()
-            cur, cur_lite, n = [], [], 0
+            cur, cur_lite, n, listed = [], [], 0, []
+        listed.append(_listed(k, item, n, marks))
         cur.append(one)
         n += len(one[0])
         if with_lod and not lite:

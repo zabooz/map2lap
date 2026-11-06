@@ -695,11 +695,15 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
             what = "bld" if k == 0 else f"bld{k + 1}"
             shape = f"bld_{aid}_{tx}_{ty}.cdae" if k == 0 else f"bld_{aid}_{tx}_{ty}_{k + 1}.cdae"
             buildings.write(os.path.join(out_dir, shape), mesh)
+            if len(bld) > 3:
+                buildings.write_objects(os.path.join(out_dir, shape), mesh, bld[3][k])
             data[what] = {"shape": f"{vfs_dir}/{shape}", "pos": [x0, y0, 0.0]}
             boxes[what] = bld[1]
         if len(bld) > 2 and bld[2] is not None:     # the lean physics-only mesh (the drawn ones then only render)
             shape = f"bldcol_{aid}_{tx}_{ty}.cdae"
             buildings.write(os.path.join(out_dir, shape), bld[2], collision_only=True)
+            if len(bld) > 4:
+                buildings.write_objects(os.path.join(out_dir, shape), bld[2], [{"item": k, "start": s} for k, s in enumerate(bld[4])])
             data["bldcol"] = {"shape": f"{vfs_dir}/{shape}", "pos": [x0, y0, 0.0]}
             boxes["bldcol"] = bld[1]
     if boxes:
@@ -708,9 +712,11 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
         import cdae
         import furniture
         x0, y0, _, _ = tile_bbox(tx, ty)
-        wm = furniture.wire_mesh(wires, (x0, y0, 0.0))
+        starts = []
+        wm = furniture.wire_mesh(wires, (x0, y0, 0.0), starts)
         if wm is not None:
             shape = f"wire_{aid}_{tx}_{ty}.cdae"
+            furniture.write_wire_objects(os.path.join(out_dir, shape), wm, furniture.wire_spans(wires, starts))
             cdae.write(os.path.join(out_dir, shape), wm[0], wm[1], uvs=wm[2], material="bne_wire", object_name="wires")
             data["wire"] = {"shape": f"{vfs_dir}/{shape}", "pos": [x0, y0, 0.0]}
     if props:                       # furniture.place's rows: Forest items (trees.lua), groups by index

@@ -1,4 +1,5 @@
 """tile_buildings, toll plazas, a tile's files."""
+import json
 import os
 import math
 
@@ -530,6 +531,28 @@ def write(path, mesh, collision_only=False):
                               "colors": Cl})]
     return cdae.write(path, P, T, uvs=UV, material=mats, tri_materials=M, object_name="buildings", colors=C,
                       collision_only=collision_only, lods=lods)
+
+
+def write_objects(path, mesh, listed):
+    """What the track's list of objects needs of the building shape at path, written from mesh, in a file beside it
+    (src/track/objectlist.py). listed: its buildings as build_parts says them. Saved: the buildings, the pieces they are made of
+    ([building's number, None or "sign"]) and, in the order the shape file holds its vertices (cdae.vertex_order), runs of [piece,
+    how many vertices]."""
+    import cdae
+    P, T, M, mats = mesh[0], mesh[2], mesh[3], mesh[4]
+    piece, pieces = np.full(len(P), -1, np.int64), []
+    for b, end in zip(listed, [b["start"] for b in listed[1:]] + [len(P)]):
+        marks = [(b["start"], None)] + [tuple(m) for m in b.get("marks", ())]
+        for (start, what), stop in zip(marks, [m[0] for m in marks[1:]] + [end]):
+            if start < stop:
+                piece[start:stop] = len(pieces)
+                pieces.append([b["item"], what])
+    used = piece[cdae.vertex_order(T, M, len(list(mats)))]
+    starts = np.r_[0, np.flatnonzero(used[1:] != used[:-1]) + 1]
+    runs = [[int(used[a]), int(b - a)] for a, b in zip(starts, np.r_[starts[1:], len(used)])]
+    keep = ("item", "house", "at")
+    with open(os.path.splitext(path)[0] + ".objects.json", "w", encoding="utf-8") as f:
+        json.dump({"buildings": [{k: b[k] for k in keep if k in b} for b in listed], "pieces": pieces, "runs": runs}, f)
 
 
 DOOR_CLASSES_SKIP = SHED_CLASSES | INDUSTRIAL_CLASSES

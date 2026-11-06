@@ -319,7 +319,7 @@ def _kind(cls, tags, ground, wild, fid):
     return kind, None
 
 
-def build(frame, md, tx, ty, elev, urban=None, widths=None):
+def build(frame, md, tx, ty, elev, urban=None, widths=None, marks=None):
     """(visible mesh, collision mesh) of the tile's fences, walls and hedges, each None when there are none; elev(lat,
     lon): the visible ground's height."""
     x0, y0, x1, y1 = roadsmod.tile_bbox(tx, ty)
@@ -370,6 +370,8 @@ def build(frame, md, tx, ty, elev, urban=None, widths=None):
         return [str(m)[:8] if str(m).startswith("gc_field") else str(m) for m in mats[j[inside], i[inside]]]
 
     for cls, fid, tags, r in lines:
+        if marks is not None:           # (per fence the vertices so far of both meshes, for the track's list of objects)
+            marks.append((len(deco.P), len(col.P)))
         # the surroundings: the ground SIDE_M to both sides along the line, the nearest road
         d = np.diff(r, axis=0)
         L = np.hypot(d[:, 0], d[:, 1])

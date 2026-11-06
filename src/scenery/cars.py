@@ -178,9 +178,10 @@ def fill_shares(rows, rings=(), classes=()):
     return out
 
 
-def build(rows, ground=None, fill=None):
+def build(rows, ground=None, fill=None, placed=None):
     """Mesh (P, UV, T) of the parked cars on the spots rows, or None. ground(x, y) -> z arrays: the ground the cars
-    stand on (else each spot's own z). fill: per row the share of such spots with a car (fill_shares), else FILL's."""
+    stand on (else each spot's own z). fill: per row the share of such spots with a car (fill_shares), else FILL's.
+    placed: a list that gets (x, y, z of its lowest point, triangles up to and with it) of each car (track.objectlist)."""
     cars = []
     for k, r in enumerate(rows):
         x, y, z, heading = (float(v) for v in r[:4])
@@ -194,7 +195,7 @@ def build(rows, ground=None, fill=None):
     if not cars:
         return None
     P, UV, T = [], [], []
-    n = 0
+    n = faces = 0
     for x, y, z, a, shape, color in cars:
         lp, luv, lt = _model(shape, color)
         c, s = math.cos(a), math.sin(a)
@@ -215,4 +216,7 @@ def build(rows, ground=None, fill=None):
         UV.append(luv)
         T.append(lt + n)
         n += len(lp)
+        faces += len(lt)
+        if placed is not None:
+            placed.append((x, y, float(np.min(base + lp[:, 2])), faces))
     return np.concatenate(P), np.concatenate(UV), np.concatenate(T)

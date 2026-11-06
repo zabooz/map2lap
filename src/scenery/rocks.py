@@ -60,9 +60,9 @@ def _variants(seed=11):
 _SHAPES = None
 
 
-def meshes(items, wet=None):
+def meshes(items, wet=None, places=None):
     """{AC prefix: (P, UV, T)} of the rocks among items (group name, x, y, z, rotation, size, random value), ENU:
-    "1WALL" the big ones (they collide), "nocol" the small ones."""
+    "1WALL" the big ones (they collide), "nocol" the small ones. places: a dict that gets {AC prefix: [(x, y, z) of each rock]}."""
     global _SHAPES
     if _SHAPES is None:
         _SHAPES = _variants()
@@ -78,6 +78,8 @@ def meshes(items, wet=None):
         P = np.c_[x + q[:, 0] * ca - q[:, 1] * sa, y + q[:, 0] * sa + q[:, 1] * ca, z - SINK * FLAT * s + q[:, 2]]
         UV = np.c_[(P[:, 0] + P[:, 1]) / UV_M, P[:, 2] / UV_M]
         out.setdefault("1WALL" if s >= COLLIDE_M else "nocol", []).append((P, UV))
+        if places is not None:
+            places.setdefault("1WALL" if s >= COLLIDE_M else "nocol", []).append((x, y, z))
     res = {}
     for prefix, parts in out.items():
         n = len(parts[0][0])

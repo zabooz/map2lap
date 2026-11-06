@@ -145,6 +145,104 @@ def scan(path):
     return {"textures": textures, "materials": materials, "meshes": meshes, "points": points}
 
 
+def _copy_bytes(source, target, n):
+    """n bytes on from source to target, in pieces: a long track's kn5 doesn't fit into memory."""
+    while n > 0:
+        piece = source.read(min(n, 16 << 20))
+        if not piece:
+            raise ValueError("kn5 cut off")
+        target.write(piece)
+        n -= len(piece)
+
+
+def without_faces(path, out, going):
+    """A copy of the kn5 at path at out without some triangles: going {mesh number (as scan's): bool per triangle, True what goes}.
+    A mesh left with none is left out. What doesn't change is copied as it stands, so the rest stays the same to the byte and a 10 GB
+    file never lies in memory; a changed mesh keeps only the vertices it still uses, and its bounding sphere: a little too big does no
+    harm. Returns {mesh number: its new number, None if left out}."""
+    scan_ = scan(path)
+    moved, number = {}, 0
+    for i, m in enumerate(scan_["meshes"]):
+        gone = going.get(i)
+        left_out = gone is not None and len(gone) and gone.all()
+        moved[i] = None if left_out else number
+        number += 0 if left_out else 1
+    with open(path, "rb") as f, open(out, "wb") as g:
+        r = FileReader(f)
+        assert f.read(6) == b"sc6969", "not a kn5"
+        if r.take("<i") > 5:
+            r.take("<i")
+        for _ in range(r.take("<i")):
+            r.take("<i")
+            r.string()
+            r.skip(r.take("<i"))
+        _materials(r)
+        head = f.tell()
+        f.seek(0)
+        _copy_bytes(f, g, head)
+        cls, name = r.take("<i"), r.string()
+        children = r.take("<i")
+        active = r.take("<B")
+        assert cls == 1, "the kn5's root is a node with a matrix"
+        matrix = r.take("<16f")
+        left = sum(1 for i in moved if moved[i] is None)
+        g.write(struct.pack("<i", cls) + _s(name) + struct.pack("<iB", children - left, active) + struct.pack("<16f", *matrix))
+        mesh = -1
+        for _ in range(children):
+            mesh = _copy_child(f, g, r, mesh, moved, going, scan_)
+    return moved
+
+
+def _copy_child(f, g, r, mesh, moved, going, scan_):
+    """The root's next child from f to g: a mesh without its triangles that go. Returns the number of the last mesh passed."""
+    start = f.tell()
+    cls = r.take("<i")
+    r.string()
+    assert r.take("<i") == 0, "only the root of a kn5 of ours has children"
+    r.take("<B")
+    if cls == 1:
+        r.skip(64)
+        end = f.tell()
+        f.seek(start)
+        _copy_bytes(f, g, end - start)
+        return mesh
+    assert cls == 2, f"node class {cls} not supported"
+    mesh += 1
+    r.skip(3)
+    m = scan_["meshes"][mesh]
+    vertices_at = f.tell()
+    size = 4 + m["vertices"] * VERTEX.itemsize + 4 + m["indices"] * 2
+    tail_size = 4 + 4 + 8 + 16 + 1      # (material, layer, lod in and out, centre and radius, renderable)
+    gone = going.get(mesh)
+    if moved[mesh] is None:
+        f.seek(vertices_at + size + tail_size)
+    elif gone is None:
+        f.seek(start)
+        _copy_bytes(f, g, vertices_at - start + size + tail_size)
+    else:
+        f.seek(start)
+        _copy_bytes(f, g, vertices_at - start)
+        f.read(4)
+        vertices = np.frombuffer(f.read(m["vertices"] * VERTEX.itemsize), dtype=VERTEX)
+        f.read(4)
+        faces = np.frombuffer(f.read(m["indices"] * 2), dtype=np.uint16).reshape(-1, 3)[~gone]
+        used, inverse = np.unique(faces.ravel(), return_inverse=True)
+        g.write(struct.pack("<i", len(used)))
+        g.write(vertices[used].tobytes())
+        g.write(struct.pack("<i", len(inverse)))
+        g.write(inverse.astype("<u2").tobytes())
+        _copy_bytes(f, g, tail_size)
+    return mesh
+
+
+def walk_meshes(node):
+    """All mesh nodes under node. Pure."""
+    out = [node] if node.cls == 2 else []
+    for child in node.children:
+        out += walk_meshes(child)
+    return out
+
+
 def read(path):
     r = Reader(open(path, "rb").read())
     assert r.raw(6) == b"sc6969", "not a kn5"

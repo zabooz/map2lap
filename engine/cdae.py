@@ -416,6 +416,13 @@ def _sorted_tris(tris, tri_materials, nmat):
     return T[np.argsort(TM, kind="stable")], np.sort(TM, kind="stable")
 
 
+def vertex_order(tris, tri_materials, nmat):
+    """Which vertex of the mesh given to encode each vertex in the file is: it numbers them by first use of its sorted triangles."""
+    T, _ = _sorted_tris(tris, tri_materials, nmat)
+    fast.require(74, "first_use")
+    return np.asarray(fast._ef.first_use(np.ascontiguousarray(T, np.int64), int(np.asarray(tris).max()) + 1)[0])
+
+
 LOD_TOP_SIZE = 2.0          # px: the size of the one (or the last, coarsest) detail level, as the engine's own files
 
 

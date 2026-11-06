@@ -30,7 +30,7 @@ import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
 from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
-from track import parallel  # noqa: E402
+from track import objectlist, parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
 OUT = os.path.join(ROOT, "out", "obj")
@@ -181,14 +181,25 @@ class Obj:
     standard: the worker processes' tile part files can simply be concatenated."""
 
     def __init__(self, path, header=True):
+        self.path = path
+        self.listed = objectlist.TileList()    # (the tile's single objects)
+        self.problems = []
         self.f = open(path, "w", encoding="utf-8")
         if header:
             self.f.write("mtllib track.mtl\n")
         self.nv = 0
         self.objects = 0
 
-    def add(self, name, mat, P, UV, T, N=None):
-        """N: normals per vertex (ENU) or None (obj_to_kn5 makes them)."""
+    def add(self, name, mat, P, UV, T, N=None, owners=None):
+        """N: normals per vertex (ENU) or None (obj_to_kn5 makes them). owners: whose each triangle is, a number from self.listed
+        or -1 for no one's."""
+        fault = objectlist.problem(name, owners is not None)
+        if fault and os.environ.get(objectlist.STRICT):
+            raise ValueError(fault)
+        if fault:
+            self.problems.append(fault)
+        if owners is not None:
+            self.listed.note(name, owners)
         for s in range(0, len(T), MAX_VERTS // 3):          # (triangles per part: at most MAX_VERTS vertices)
             t = T[s:s + MAX_VERTS // 3]
             used, inv = np.unique(t.ravel(), return_inverse=True)
@@ -207,6 +218,124 @@ class Obj:
 
     def close(self):
         self.f.close()
+        self.listed.save(self.path)
+
+
+def _buildings_listed(objects, data, shapes, tiles_dir):
+    """The tile's buildings and their signs as new objects: ({what: the owner of each vertex of that shape}, {building's number: object}).
+    shapes: [(what, its parts)], data: the tile's road data. A shape without its file beside it (buildings.write_objects): as a
+    track built before them."""
+    sides = {what: objectlist.load_side(os.path.join(tiles_dir, os.path.basename(data[what]["shape"])))
+             for what, parts in shapes if what.startswith("bld") and parts}
+    numbers = {}
+    for what, side in sides.items():
+        x0, y0, _ = data[what]["pos"]
+        for b in side.get("buildings", ()):
+            if b.get("house"):
+                numbers[b["item"]] = objects.new("house", b["at"][0] + x0, b["at"][1] + y0, b["at"][2])
+    owners = {}
+    for what, parts in shapes:
+        side = sides.get(what)
+        if not side or not side.get("runs") or sum(n for _, n in side["runs"]) != len(parts[0][1]):
+            continue
+        P = parts[0][1]
+        piece = np.repeat([k for k, _ in side["runs"]], [n for _, n in side["runs"]])
+        vertex = np.full(len(P), -1, np.int64)
+        for k, (item, kind) in enumerate(side["pieces"]):
+            at = piece == k
+            house = numbers.get(item, -1)
+            if kind == "sign" and house >= 0 and at.any():
+                mid = P[at].mean(axis=0)
+                vertex[at] = objects.new("house sign", mid[0], mid[1], P[at, 2].min(), parent=house)
+            else:
+                vertex[at] = house
+        owners[what] = vertex
+    return owners, numbers
+
+
+def _wires_listed(objects, data, shapes, tiles_dir):
+    """The tile's spans of wires as new objects: {"wire": the owner of each vertex of that shape}, or {}."""
+    for what, parts in shapes:
+        if what != "wire" or not parts:
+            continue
+        side = objectlist.load_side(os.path.join(tiles_dir, os.path.basename(data[what]["shape"])))
+        if not side or sum(n for _, n in side["runs"]) != len(parts[0][1]):
+            return {}
+        numbers = []
+        for span in side["spans"]:
+            a, b = span["from"], span["to"]
+            numbers.append(objects.new("power line", (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2))
+            objects.spans[numbers[-1]] = [a, b, span["on"]]
+        return {what: np.repeat([numbers[k] for k, _ in side["runs"]], [n for _, n in side["runs"]])}
+    return {}
+
+
+LEISURE_KINDS = {"nocol_pool": "pool", "nocol_play": "playground", "nocol_sport": "sports goal", "nocol_graves": "grave",
+                 "1WALL_tower": "tower", "1WALL_fountain": "fountain"}
+
+
+def _marked(objects, kind, mesh, starts):
+    """Each object of mesh that starts at a vertex of starts as a new object, where it stands: whose each vertex is. Pure but for
+    objects."""
+    P, vertex = mesh[0], np.full(len(mesh[0]), -1, np.int64)
+    for start, end in zip(starts, list(starts[1:]) + [len(P)]):
+        if start < end:
+            at = P[start:end]
+            vertex[start:end] = objects.new(kind, at[:, 0].mean(), at[:, 1].mean(), at[:, 2].min())
+    return vertex
+
+
+def _marked_in_two(objects, kind, marks, first, second):
+    """As _marked for objects in two meshes at once (a part of them with collision): marks [(vertices so far of first, of second)]. Whose
+    each vertex is of each mesh."""
+    meshes = [first, second]
+    sizes = [0 if m is None else len(m[0]) for m in meshes]
+    owners = [np.full(n, -1, np.int64) for n in sizes]
+    for (a, b), (a_end, b_end) in zip(marks, marks[1:] + [tuple(sizes)]):
+        points = [m[0][s:e] for m, s, e in zip(meshes, (a, b), (a_end, b_end)) if m is not None and s < e]
+        if points:
+            at = np.concatenate(points)
+            number = objects.new(kind, at[:, 0].mean(), at[:, 1].mean(), at[:, 2].min())
+            owners[0][a:a_end], owners[1][b:b_end] = number, number
+    return owners
+
+
+def _signs_listed(objects, kind, sort, P, side):
+    """Each sign of a shape as a new object: whose each vertex is. sort: its stream (SIGN_KINDS). side: signstream.write_parts'; not
+    there: no one's."""
+    vertex = np.full(len(P), -1, np.int64)
+    runs = (side or {}).get("runs")
+    if not runs or sum(n for _, n in runs) != len(P):
+        return vertex
+    sign = np.repeat([k for k, _ in runs], [n for _, n in runs])
+    for k in np.unique(sign):
+        at = P[sign == k]
+        vertex[sign == k] = objects.new(kind, at[:, 0].mean(), at[:, 1].mean(), at[:, 2].min(), sort=sort)
+    return vertex
+
+
+def _props_listed(objects, groups, rows, marks, solid, deco, houses):
+    """Each prop row that drew something as a new object, a door as its house's (its row says which: doors.doors; houses: {building's
+    number on the tile: object}), a pole's lamp as that pole's (the same place); (the owner of each vertex of solid, of deco)."""
+    solid_n, deco_n = (0 if m is None else len(m[0]) for m in (solid, deco))
+    of_solid, of_deco = np.full(solid_n, -1, np.int64), np.full(deco_n, -1, np.int64)
+    poles = {}
+    for (k, a, b), (_, a_end, b_end) in zip(marks, marks[1:] + [(0, solid_n, deco_n)]):
+        if a == a_end and b == b_end:
+            continue
+        group, row = groups[rows[k][0]], rows[k]
+        kind, (x, y, z) = propsmesh.kind_of(group), row[1:4]
+        parent = -1
+        if kind == "door" and len(row) > 8:
+            parent = houses.get(row[8], -1)
+        elif group == "polelamp":
+            parent = poles.get((x, y), -1)
+        number = objects.new(kind, x, y, z, parent=parent, sort=propsmesh.sort_of(group))
+        if kind == "power pole":
+            objects.poles[number] = [x, y, group]
+            poles[(x, y)] = number
+        of_solid[a:a_end], of_deco[b:b_end] = number, number
+    return of_solid, of_deco
 
 
 def shape_parts(path, pos):
@@ -612,47 +741,55 @@ def _scenery_tile(tx, ty, part_path):
             j = min(depth.shape[0] - 1, max(0, int(round((y - y0) / CELL))))
             return d[j, i] > 0
     road_xy = []                # road points of the tile (street light arms point to the nearest one)
+    vertex_owners, houses = _buildings_listed(obj.listed, data, shapes, tiles_dir)
+    vertex_owners.update(_wires_listed(obj.listed, data, shapes, tiles_dir))
     for what, parts_ in shapes:
         groups = {}
+        vertex = vertex_owners.get(what)
         for bname, P, UV, T, C in parts_:
             if what == "road":  # (markings: the road itself is terrain texture now)
                 road_xy.append(P[np.unique(T), :2])
             if bname in BLD_KINDS:
                 for mat, t in bld_split(P, T, C, BLD_KINDS[bname][0]).items():
-                    groups.setdefault(("1WALL", mat), []).append((P, UV, t))
+                    groups.setdefault(("1WALL", mat), []).append((P, UV, t, vertex))
                 continue
             if bname in WALL_SOURCE:
                 for mat, t in wall_split(P, T, WALL_SOURCE[bname]).items():
-                    groups.setdefault((SURFACE[bname][0], mat), []).append((P, UV, t))
+                    groups.setdefault((SURFACE[bname][0], mat), []).append((P, UV, t, vertex))
                 continue
             if bname not in SURFACE:
                 unknown.add(bname)
             surf, mat = SURFACE.get(bname, FALLBACK)
             key = (surf, mat)
-            groups.setdefault(key, []).append((P, UV, T))
+            groups.setdefault(key, []).append((P, UV, T, vertex))
         for (surf, mat), parts in groups.items():
-            P = np.concatenate([p for p, _, _ in parts])
-            UV = np.concatenate([uv for _, uv, _ in parts])
-            off = np.cumsum([0] + [len(p) for p, _, _ in parts[:-1]])
-            T = np.concatenate([t + o for (_, _, t), o in zip(parts, off)])
+            P = np.concatenate([p for p, _, _, _ in parts])
+            UV = np.concatenate([uv for _, uv, _, _ in parts])
+            off = np.cumsum([0] + [len(p) for p, _, _, _ in parts[:-1]])
+            T = np.concatenate([t + o for (_, _, t, _), o in zip(parts, off)])
             prefix = collision_prefix(what, surf, data)
-            obj.add(f"{prefix}_{what}_{mat}_{tx}_{ty}", mat, P, UV, T)
+            owners = np.concatenate([v for *_, v in parts])[T[:, 0]] if vertex is not None else None
+            obj.add(f"{prefix}_{what}_{mat}_{tx}_{ty}", mat, P, UV, T, owners=owners)
             tris[prefix] = tris.get(prefix, 0) + len(T)
 
     street_trees = []           # street furniture (propsmesh.py): poles/street lights/sign posts with collision
     if data.get("props"):
         try:
+            marks = []
             solid, deco, street_trees = propsmesh.build(
                 data["props"]["groups"], data["props"]["items"],
-                np.concatenate(road_xy) if road_xy else None)
-            for prefix, mesh in (("1WALL", solid), ("nocol", deco)):
+                np.concatenate(road_xy) if road_xy else None, marks)
+            of_solid, of_deco = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, houses)
+            for prefix, mesh, vertex in (("1WALL", solid, of_solid), ("nocol", deco, of_deco)):
                 if mesh is not None:
-                    obj.add(f"{prefix}_props_{tx}_{ty}", "props", *mesh)
+                    obj.add(f"{prefix}_props_{tx}_{ty}", "props", *mesh, owners=vertex[mesh[2][:, 0]])
                     tris["props"] = tris.get("props", 0) + len(mesh[2])
-            solid, deco = propsmesh.pylons(data["props"]["groups"], data["props"]["items"])  # high-voltage pylons
-            for prefix, mesh in (("1WALL", solid), ("nocol", deco)):
+            marks = []
+            solid, deco = propsmesh.pylons(data["props"]["groups"], data["props"]["items"], marks)  # high-voltage pylons
+            of_solid, of_deco = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, houses)
+            for prefix, mesh, vertex in (("1WALL", solid, of_solid), ("nocol", deco, of_deco)):
                 if mesh is not None:
-                    obj.add(f"{prefix}_pylon_{tx}_{ty}", "props", *mesh)
+                    obj.add(f"{prefix}_pylon_{tx}_{ty}", "props", *mesh, owners=vertex[mesh[2][:, 0]])
                     tris["pylons"] = tris.get("pylons", 0) + len(mesh[2])
         except Exception as e:
             log(f"Street furniture, tile {tx},{ty}: {type(e).__name__}: {e}")
@@ -673,27 +810,34 @@ def _scenery_tile(tx, ty, part_path):
             sgroups = {}
             for kind in SIGN_KINDS:
                 if kind in sdata:
-                    for bname, P, UV, T, C in shape_parts(os.path.join(tiles_dir, os.path.basename(
-                            sdata[kind]["shape"])), sdata[kind]["pos"]):
+                    shape = os.path.join(tiles_dir, os.path.basename(sdata[kind]["shape"]))
+                    vertex = None
+                    for bname, P, UV, T, C in shape_parts(shape, sdata[kind]["pos"]):
+                        if vertex is None:
+                            vertex = _signs_listed(obj.listed, "town sign" if kind == "towns" else "road sign", kind, P,
+                                                   objectlist.load_side(shape))
                         if bname not in MATERIALS:
                             unknown.add(bname)
                             continue
-                        sgroups.setdefault(bname, []).append((P, UV, T))
+                        sgroups.setdefault(bname, []).append((P, UV, T, vertex))
             for mat, parts in sgroups.items():
-                P = np.concatenate([p for p, _, _ in parts])
-                UV = np.concatenate([uv for _, uv, _ in parts])
-                off = np.cumsum([0] + [len(p) for p, _, _ in parts[:-1]])
-                T = np.concatenate([t + o for (_, _, t), o in zip(parts, off)])
-                obj.add(f"nocol_signs_{mat}_{tx}_{ty}", mat, P, UV, T)
+                P = np.concatenate([p for p, _, _, _ in parts])
+                UV = np.concatenate([uv for _, uv, _, _ in parts])
+                off = np.cumsum([0] + [len(p) for p, _, _, _ in parts[:-1]])
+                T = np.concatenate([t + o for (_, _, t, _), o in zip(parts, off)])
+                owners = np.concatenate([v for *_, v in parts])[T[:, 0]]
+                obj.add(f"nocol_signs_{mat}_{tx}_{ty}", mat, P, UV, T, owners=owners)
                 tris["signs"] = tris.get("signs", 0) + len(T)
         except Exception as e:
             log(f"Road signs, tile {tx},{ty}: {type(e).__name__}: {e}")
     try:                        # fences, walls and hedges from OSM (fences.py), standing on our ground
+        marks = []
         deco, col = fences.build(frame, blockworker._s.md, tx, ty, elev, blockworker._s.surface.urban,
-                                 blockworker._s.widths)
-        for name, mesh in ((f"nocol_fence_{tx}_{ty}", deco), (f"1WALL_fencecol_{tx}_{ty}", col)):
+                                 blockworker._s.widths, marks)
+        of_deco, of_col = _marked_in_two(obj.listed, "fence", marks, deco, col)
+        for name, mesh, vertex in ((f"nocol_fence_{tx}_{ty}", deco, of_deco), (f"1WALL_fencecol_{tx}_{ty}", col, of_col)):
             if mesh is not None:
-                obj.add(name, fences.MATERIAL, *mesh)
+                obj.add(name, fences.MATERIAL, *mesh, owners=vertex[mesh[2][:, 0]])
                 tris["fences"] = tris.get("fences", 0) + len(mesh[2])
         if data.get("props"):   # the substations' chain link (BeamNG.Earth powerlines.py)
             deco, col = fences.substation_fence(data["props"]["groups"], data["props"]["items"])
@@ -705,10 +849,12 @@ def _scenery_tile(tx, ty, part_path):
         log(f"Fences, tile {tx},{ty}: {type(e).__name__}: {e}")
     if data.get("fuel"):        # gas stations (BeamNG.Earth gasstations.py, propsmesh.fuel)
         try:
-            solid, deco = propsmesh.fuel(data["fuel"])
-            for prefix, mesh in (("1WALL", solid), ("nocol", deco)):
+            marks = []
+            solid, deco = propsmesh.fuel(data["fuel"], marks)
+            of_solid, of_deco = _marked_in_two(obj.listed, "gas station", marks, solid, deco)
+            for prefix, mesh, vertex in (("1WALL", solid, of_solid), ("nocol", deco, of_deco)):
                 if mesh is not None:
-                    obj.add(f"{prefix}_fuel_{tx}_{ty}", "props", *mesh)
+                    obj.add(f"{prefix}_fuel_{tx}_{ty}", "props", *mesh, owners=vertex[mesh[2][:, 0]])
                     tris["fuel"] = tris.get("fuel", 0) + len(mesh[2])
         except Exception as e:
             log(f"Gas stations, tile {tx},{ty}: {type(e).__name__}: {e}")
@@ -719,16 +865,21 @@ def _scenery_tile(tx, ty, part_path):
         z = np.array([elev(float(a), float(b)) for a, b in zip(np.atleast_1d(la), np.atleast_1d(lo))])
         return frame.geodetic_to_enu(la, lo, z)[2]
     try:                        # pools, playgrounds, graves, silos, tanks, masts (leisure.py), standing on our ground
-        for prefix, mesh in leisure.build(frame, blockworker._s.md, tx, ty, on_ground, rings).items():
-            obj.add(f"{prefix}_{tx}_{ty}", leisure.MATERIAL, *mesh)
+        marks = {}
+        for prefix, mesh in leisure.build(frame, blockworker._s.md, tx, ty, on_ground, rings, marks).items():
+            vertex = _marked(obj.listed, LEISURE_KINDS[prefix], mesh, marks.get(prefix, []))
+            obj.add(f"{prefix}_{tx}_{ty}", leisure.MATERIAL, *mesh, owners=vertex[mesh[2][:, 0]])
             tris["leisure"] = tris.get("leisure", 0) + len(mesh[2])
     except Exception as e:
         log(f"Leisure grounds, tile {tx},{ty}: {type(e).__name__}: {e}")
     if data.get("park"):        # parked cars on BeamNG.Earth's parking spots (cars.py), standing on our ground
         try:
-            mesh = cars.build(data["park"], on_ground, cars.fill_shares(data["park"], rings, rclasses))
+            placed = []
+            mesh = cars.build(data["park"], on_ground, cars.fill_shares(data["park"], rings, rclasses), placed)
             if mesh is not None:
-                obj.add(f"1WALL_cars_{tx}_{ty}", cars.MATERIAL, *mesh)
+                owners = np.repeat([obj.listed.new("car", x, y, z) for x, y, z, _ in placed],
+                                   np.diff([0] + [end for *_, end in placed]))
+                obj.add(f"1WALL_cars_{tx}_{ty}", cars.MATERIAL, *mesh, owners=owners)
                 tris["cars"] = tris.get("cars", 0) + len(mesh[2])
         except Exception as e:
             log(f"Parked cars, tile {tx},{ty}: {type(e).__name__}: {e}")
@@ -756,10 +907,13 @@ def _scenery_tile(tx, ty, part_path):
             tris["trees"] = tris.get("trees", 0) + len(cmesh[2])
     except Exception as e:      # (rather without them than without the tile)
         log(f"Cheap bushes, tile {tx},{ty}: {type(e).__name__}: {e}")
-    for prefix, mesh in rocks.meshes(items, wet).items():     # boulders (rocks.py)
-        obj.add(f"{prefix}_rocks_{tx}_{ty}", rocks.MATERIAL, *mesh)
+    places = {}
+    for prefix, mesh in rocks.meshes(items, wet, places).items():     # boulders (rocks.py)
+        numbers = [obj.listed.new("rock", x, y, z) for x, y, z in places[prefix]]
+        obj.add(f"{prefix}_rocks_{tx}_{ty}", rocks.MATERIAL, *mesh, owners=np.repeat(numbers, len(mesh[2]) // len(numbers)))
         tris["rocks"] = tris.get("rocks", 0) + len(mesh[2])
     obj.close()
+    msgs += obj.problems
     return obj.objects, obj.nv, tris, unknown, msgs
 
 

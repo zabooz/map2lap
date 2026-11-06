@@ -26,6 +26,7 @@ CELL = 128
  SIGNAL_HEAD, XBUCK_EU, XBUCK_US, RR_FLASH, STRIPES, FUEL_SIGN, PUMP_FACE, CANOPY) = range(24)
 SPEED = {"speedk50": S50, "speedk60": S60, "speedk80": S80, "speedk100": S100}
 SKIP = {"lamplens", "lampglow", "fence"}
+POWER_POLES = {"pole", "pylon"}     # (wires end at them: make_obj, objectlist.linked)
 TREES = {"deciduous", "conifer"}
 
 
@@ -228,11 +229,14 @@ def _pylon(solid, deco, x, y, z, yaw):
         deco.beam(corner(PYLON_BODY, sa, sl), o + (0.0, 0.0, PYLON_TOP), 0.06, METAL)
 
 
-def pylons(groups, rows):
+def pylons(groups, rows, marks=None):
     """(collision mesh: the legs, visible mesh without collision) of the high-voltage pylons and the substations' parts
-    among the props rows; separate from the other furniture because they are visible further away (obj_to_kn5.VIEW)."""
+    among the props rows; separate from the other furniture because they are visible further away (obj_to_kn5.VIEW). marks: as
+    build's."""
     solid, deco = Builder(), Builder()
-    for row in rows:
+    for k, row in enumerate(rows):
+        if marks is not None:
+            marks.append((k, len(solid.P), len(deco.P)))
         g = groups[row[0]]
         if g == "pylon":
             _pylon(solid, deco, *row[1:4], math.radians(row[4]))
@@ -316,10 +320,12 @@ def _pump(solid, deco, x, y, z, yaw):
     _plate(deco, x, y, z + 0.15, yaw, 0.88, 1.74, PUMP_FACE, -0.26)
 
 
-def fuel(records):
+def fuel(records, marks=None):
     """(collision mesh, visible mesh without collision) of the gas stations' records (roads.write_tile "fuel")."""
     solid, deco = Builder(), Builder()
     for rec in records:
+        if marks is not None:           # (per station the vertices so far of both meshes, for the track's list of objects)
+            marks.append((len(solid.P), len(deco.P)))
         for pr in rec.get("props", ()):
             shape = pr["shape"].lower()
             x, y, z = pr["pos"]
@@ -367,10 +373,30 @@ def _toward(x, y, road_xy):
     return math.atan2(d[i, 1], d[i, 0])
 
 
-def build(groups, rows, road_xy=None):
-    """(collision mesh, visible mesh without collision, street tree rows [x, y, z, yaw, h, rank])."""
+def kind_of(group):
+    """What a prop row's group is, for the track's list of objects. Pure."""
+    if group == "door":
+        return "door"
+    if group in POWER_POLES:
+        return "power pole"
+    return "road sign" if group in SPEED or group in ("stop", "giveway") else "street furniture"
+
+
+def sort_of(group):
+    """The finest name of a prop row's group, for deleting all of one sort: the group, a level crossing's parts and a substation's
+    as one. Pure."""
+    if group.startswith(("rrcross", "rrflash", "rrgate")):
+        return "level crossing"
+    return "substation" if group in SUBSTATION else group
+
+
+def build(groups, rows, road_xy=None, marks=None):
+    """(collision mesh, visible mesh without collision, street tree rows [x, y, z, yaw, h, rank]). marks: a list that gets per row
+    (its number, the vertices so far of the first mesh, of the second)."""
     solid, deco, street_trees = Builder(), Builder(), []
-    for row in rows:
+    for k, row in enumerate(rows):
+        if marks is not None:
+            marks.append((k, len(solid.P), len(deco.P)))
         g = groups[row[0]]
         x, y, z, yaw_deg, scale, h, rank = row[1:8]
         yaw = math.radians(yaw_deg)

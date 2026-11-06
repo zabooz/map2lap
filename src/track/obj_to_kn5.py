@@ -17,7 +17,7 @@ import sys
 
 import numpy as np
 
-from track import kn5, parallel
+from track import kn5, objectlist, parallel
 
 # Material values (set in AC by eye): ambient and sun balanced so the shadow sides are not too dark and the sunlit
 # sides not too bright
@@ -426,10 +426,12 @@ START_NEAR_M = 1000.0      # road objects this close to the start of the route (
 
 def _part_chunk(path, chunk_path, mat_index, near_xz):
     """Mesh nodes of an OBJ (part) file as finished kn5 bytes to chunk_path (worker process); returns (nodes, vertices,
-    road objects near one of the points near_xz for the grid slots and the finish line; all if near_xz is None)."""
+    road objects near one of the points near_xz for the grid slots and the finish line; all if near_xz is None, its list of
+    single objects with node numbers from this chunk's start: objectlist)."""
     normals = {}
     objs = read_obj(path, normals)
     n_nodes = n_verts = 0
+    nodes_of = {}
     with open(chunk_path, "wb") as f:
         for name, (m, P, UV, T) in objs.items():
             if name.startswith("1WALL"):    # double-sided: AC only collides with the front, and BeamNG.Earth's
@@ -443,14 +445,16 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
                     nd.renderable, nd.cast_shadows = 0, 0
                 for b in kn5.node_bytes(nd):
                     f.write(b)
+                nodes_of.setdefault(name, []).append((n_nodes, len(nd.indices) // 3))
                 n_nodes, n_verts = n_nodes + 1, n_verts + len(nd.vertices)
+    objects = objectlist.chunk_objects(path, nodes_of)
     roads = {}
     for k, v in objs.items():
         if k.startswith(("1ROAD_", "1GRAVEL_")):
             P = v[1]
             if near_xz is None or any((np.hypot(P[:, 0] - x, P[:, 2] - z) < START_NEAR_M).any() for x, z in near_xz):
                 roads[k] = v
-    return n_nodes, n_verts, roads
+    return n_nodes, n_verts, roads, objects
 
 
 def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
@@ -485,7 +489,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
     n_nodes = sum(r[0] for r in results)
     n_verts = sum(r[1] for r in results)
     objs = {}
-    for _, _, roads in results:
+    for _, _, roads, _ in results:
         objs.update(roads)
     # JPG as DDS (dds_bc1); PNG (alpha: trees, furniture, water) stays
     jpgs = sorted({mtl[m] for m in used if mtl[m].lower().endswith(".jpg")})
@@ -525,6 +529,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         kn5.write_streamed(kn5_path, textures, materials, root, chunks, n_nodes)
     finally:
         shutil.rmtree(chunk_dir, ignore_errors=True)
+    objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]))
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "
         f"start at {base[0]:.1f} {base[1]:.1f} {base[2]:.1f})")
     return kn5_path

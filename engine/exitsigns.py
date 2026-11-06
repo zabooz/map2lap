@@ -882,8 +882,23 @@ class Mesh:
         return np.asarray(self.p), np.asarray(self.t), np.asarray(self.uv), materials, np.asarray(self.mi)
 
 
+class SignMesh(tuple):
+    """A sign mesh as roadmesh.write wants it, which also knows each sign's first vertex (starts: signstream.write_parts)."""
+    starts = ()
+
+
+def with_starts(mesh, starts):
+    """mesh as a SignMesh, or None. Pure."""
+    if mesh is None:
+        return None
+    out = SignMesh(mesh)
+    out.starts = list(starts)
+    return out
+
+
 def build(signs, origin):
-    mesh = Mesh(origin)
+    mesh, starts = Mesh(origin), []
     for sign in signs:
+        starts.append(len(mesh.p))
         mesh.panel(sign)
-    return mesh.result()
+    return with_starts(mesh.result(), starts)

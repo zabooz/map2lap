@@ -52,7 +52,7 @@ def doors(items, lines, x0, y0, drives=None):
     L2 = np.maximum((D * D).sum(1), 1e-12)
     rows = []
     others = [(spec, spec.ring + np.array([x0, y0])) for spec, _, _ in items if (spec.min_h or 0.0) <= 0.5]
-    for spec, gmin, gmax in items:
+    for number, (spec, gmin, gmax) in enumerate(items):
         no_door = False
         if spec.plain or spec.floors >= 7 or spec.band in (BAND_OFFICE, BAND_OFFICE2) or spec.wall:
             if not spec.wall or spec.plain or spec.floors >= 7:
@@ -138,7 +138,7 @@ def doors(items, lines, x0, y0, drives=None):
         base = gd + (STOOP_H if spec.stoop else 0.0) + (PORCH_DECK_M if spec.porch else 0.0)   # (the deck / stoop)
         rows.append([G_DOOR, round(float(p[0]), 2), round(float(p[1]), 2), round(base, 2),
                      round(math.degrees(math.atan2(d[1], d[0])) % 360.0, 1), 1.0, 2.2,
-                     round(_hash01(spec.seed, "dv"), 3)])
+                     round(_hash01(spec.seed, "dv"), 3), number])       # (number: its building in items, for the track's list)
     return rows
 
 

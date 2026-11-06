@@ -350,6 +350,8 @@ def build_tile(frame, tx, ty, elev, context, md, decks=(), left_hand=False):
     z = np.asarray(frame.geodetic_to_enu(la, lo, h)[2], np.float64).ravel()
     m = _Mesh((box[0], box[1], 0.0))
     data = exitsigns.lettering()
+    starts = []
     for (p, tx_, ty_, lines), zz in zip(posts, z):
+        starts.append(len(m.P))
         sign_mesh(m, data, p[0], p[1], zz, tx_, ty_, lines, left_hand)
-    return m.arrays()
+    return exitsigns.with_starts(m.arrays(), starts)

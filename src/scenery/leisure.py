@@ -737,19 +737,24 @@ def _in_box(p, box):
     return box[0] <= p[0] < box[2] and box[1] <= p[1] < box[3]
 
 
-def build(frame, md, tx, ty, ground, blockers):
+def build(frame, md, tx, ty, ground, blockers, marks=None):
     """{object prefix: mesh (P, UV, T)} of tile (tx, ty) in the anchor frame: "nocol_pool", "nocol_play",
     "nocol_sport", "nocol_graves", "1WALL_tower", "1WALL_fountain" (only those with something in them). ground(x, y) -> heights (arrays);
     blockers: the buildings as drawn (rings) round the tile."""
     box = roadsmod.tile_bbox(tx, ty)
     blockers = [np.asarray(r, float).reshape(-1, 2) for r in (blockers or ())]
     out = {}
+    marks = {} if marks is None else marks      # (per object prefix each object's first vertex, for the track's list of objects)
+
+    def mark(prefix, builder):
+        marks.setdefault(prefix, []).append(len(builder.P))
 
     b = Builder()
     for f, i, cls, parts in _features(frame, md, tx, ty, "water", water.BASINS):
         ring = _outer(parts)
         if ring is None or not _in_box(_centre(parts), box) or _area(ring) > water.BASIN_MAX_M2:
             continue
+        mark("nocol_pool", b)
         pool(b, ring, ground, TILE if cls == "swimming_pool" else STONE)
     out["nocol_pool"] = b.mesh()
 
@@ -760,6 +765,7 @@ def build(frame, md, tx, ty, ground, blockers):
         fid = str(f.ids[i])
         for x, y, dev, col, yaw in play_spots(parts[0], blockers, fid):
             z = float(ground(np.array([x]), np.array([y]))[0])
+            mark("nocol_play", b)
             DEVICES[dev](b, _frame(x, y, z, yaw), yaw, col)
     out["nocol_play"] = b.mesh()
 
@@ -768,6 +774,7 @@ def build(frame, md, tx, ty, ground, blockers):
         for kind, x, y, facing, w, h in pitch_layout(cls, sport, tags, rings)[1]:
             if _in_box((x, y), box):
                 z = float(ground(np.array([x]), np.array([y]))[0])
+                mark("nocol_sport", b)
                 (_goal if kind == "goal" else _hoop)(b, float(x), float(y), z, facing, w, h)
     out["nocol_sport"] = b.mesh()
 
@@ -784,6 +791,7 @@ def build(frame, md, tx, ty, ground, blockers):
         xy = np.array([(s[0], s[1]) for s in spots])
         zs = np.asarray(ground(xy[:, 0], xy[:, 1]), float)
         for (x, y, yaw, h), z in zip(spots, zs):
+            mark("nocol_graves", b)
             _grave(b, x, y, float(z), yaw, h)
     out["nocol_graves"] = b.mesh()
 
@@ -797,6 +805,7 @@ def build(frame, md, tx, ty, ground, blockers):
         height = float(f.attrs["height"][i]) if f.attrs.get("height") is not None else math.nan
         if cls in ("silo", "storage_tank"):
             ring = _outer(parts) if f.kind[i] == 3 else None
+            mark("1WALL_tower", b)
             _tank(b, cls, ring, (ring.mean(0) if ring is not None else c), height, ground, tags)
             continue
         h = height if np.isfinite(height) and height > 0 else MAST_H[cls]
@@ -810,6 +819,7 @@ def build(frame, md, tx, ty, ground, blockers):
             near = min(pitches, key=lambda q: math.hypot(q[0] - c[0], q[1] - c[1]), default=None)
             if near is not None and math.hypot(near[0] - c[0], near[1] - c[1]) <= LIGHT_REACH_M:
                 yaw = math.atan2(near[1] - c[1], near[0] - c[0])
+        mark("1WALL_tower", b)
         _mast(b, cls, float(c[0]), float(c[1]), z, h, tags, yaw)
     out["1WALL_tower"] = b.mesh()
 
@@ -823,6 +833,7 @@ def build(frame, md, tx, ty, ground, blockers):
         if kind in FLAT_FOUNTAINS:
             continue
         z = float(ground(np.array([c[0]]), np.array([c[1]]))[0])
+        mark("1WALL_fountain", b)
         if cls == "fountain" and kind not in PEDESTALS:
             ring = _outer(parts) if f.kind[i] == 3 else None
             fountain(b, ring, c if ring is None else ring.mean(0), ground)

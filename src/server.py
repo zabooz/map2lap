@@ -28,7 +28,8 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
     named.restart_as("server")
 
 import generator  # noqa: E402
-from app import debugapp, mapcache, mytracks, settings, system, trackcode, trackview, updater, version  # noqa: E402
+from app import (debugapp, mapcache, mytracks, settings, system, trackcode, trackcopy, trackedits, tracksource,  # noqa: E402
+                 trackview, updater, version)
 from app.paths import ROOT, SRC  # noqa: E402
 
 PORT = 8800
@@ -42,6 +43,10 @@ MARK = os.path.join(ROOT, "out", "build_running.json")
 BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<name>): written only while "Keep build
                             # files" is on, replaced by the next build of the track, deleted with the build files
 EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+))")
+EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
+SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
 WEB = os.path.join(SRC, "web")      # the page as built from ui/ (bun run build)
 WEB_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -188,6 +193,8 @@ def start_build(name, title, points, width, area):
     with lock:
         if job["state"] in ("running", "stopping"):
             return 409, {"error": "A build is already running"}
+        if trackcopy.busy():            # (asked under the lock a Save asks about builds under: never both at once)
+            return 409, {"error": "A track is being saved in the Editor: wait for it, then try again"}
         if running["clearing"]:
             return 409, {"error": "The map data is being cleared, try again in a moment"}
         if updater.state["state"] in ("downloading", "restarting"):
@@ -205,17 +212,23 @@ def delete_track(name):
     root = os.path.join(settings.ac_path(), "content", "tracks", name)
     if not name or not os.path.exists(os.path.join(root, mytracks.FILE)):
         return 404, {"error": "That is not a Map2Lap track"}
-    with lock:
-        if job["state"] in ("running", "stopping"):
-            return 409, {"error": "Not while a build is running"}
-    gone = root + ".deleting"
-    shutil.rmtree(gone, ignore_errors=True)         # (left over from an earlier attempt)
     try:
-        os.rename(root, gone)
-    except OSError:
-        return 409, {"error": "Could not delete it: close Assetto Corsa (or Content Manager's preview) and try again"}
-    shutil.rmtree(gone, ignore_errors=True)
-    shutil.rmtree(os.path.join(ROOT, "out", "tracks", name), ignore_errors=True)
+        with trackcopy.alone():
+            with lock:
+                if job["state"] in ("running", "stopping"):
+                    return 409, {"error": "Not while a build is running"}
+            gone = root + ".deleting"
+            shutil.rmtree(gone, ignore_errors=True)         # (left over from an earlier attempt)
+            try:
+                os.rename(root, gone)
+            except OSError:
+                return 409, {"error": "Could not delete it: close Assetto Corsa (or Content Manager's preview) and try again"}
+            shutil.rmtree(gone, ignore_errors=True)
+            trackedits.clear(name)
+            shutil.rmtree(os.path.join(ROOT, "out", "tracks", name), ignore_errors=True)
+            tracksource.tidy(settings.ac_path())            # (its source, if no copy names it)
+    except trackcopy.Busy:
+        return 409, {"error": "A track is being saved in the Editor: wait for it, then try again"}
     return 200, {"ok": True}
 
 
@@ -401,12 +414,23 @@ def clear_build_files():
     return 200, {"bytes": size}
 
 
+class Server(ThreadingHTTPServer):
+    # (the 5 of socketserver: a burst finds the queue full, and Windows refuses the connection: the page's "Failed to fetch")
+    request_queue_size = 128
+
+
 class Handler(BaseHTTPRequestHandler):
+    # (connections kept: the Editor asks for a long track's 66,000 parts, each on a connection of its own would leave a port waiting
+    # for minutes, of the 16,000 Windows has for them)
+    protocol_version = "HTTP/1.1"
+
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        if self.command != "GET":       # (a request refused can leave its body unread: the next one would start in it)
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(data)
 
@@ -433,10 +457,86 @@ class Handler(BaseHTTPRequestHandler):
         except ConnectionError:             # (the page asked for another track meanwhile)
             pass
 
+    def _edits_answer(self, work):
+        """The answer of work() on a track's edits: 200 with its result, or what went wrong."""
+        try:
+            self._send(200, work())
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackedits.Invalid as e:
+            self._send(400, {"error": str(e)})
+        except (trackedits.Conflict, trackview.Unreadable):
+            self._send(409, {"error": "The track or its changes changed: read them again"})
+        except OSError as e:
+            self._send(500, {"error": str(e)})
+
+    def _own_page(self):
+        """Whether a request can only come from the page itself: another site can't send this type without asking first (no
+        answer to that here), nor reach this server under another name."""
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+        return host in LOCAL_HOSTS and (self.headers.get("Content-Type") or "").startswith("application/json")
+
+    def _save_track(self, name):
+        """Save in the Editor (trackcopy.save): the track name in its place, or (copy) as a new one; the answer comes when it is
+        written."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can save a track"})
+        if not trackedits.NAME.fullmatch(name):
+            return self._send(404, {"error": "This track has no track file (build it again)"})
+        try:
+            body = self._body()
+            copy, revision = bool(body.get("copy")), body.get("revision")
+            title = (body.get("title") or "").strip()[:TITLE_MAX] or None
+        except (ValueError, AttributeError):
+            return self._send(400, {"error": "No request"})
+
+        def may_start():
+            with lock:
+                if job["state"] in ("running", "stopping"):
+                    raise trackcopy.Refused("A build is running: wait for it, then try again")
+        ac = settings.ac_path()
+        if copy and (not title or title in (t["title"] for t in mytracks.listing(ac))):     # (a tab's list can be older than this)
+            return self._send(409, {"error": "A new track needs a name no track has"})
+        copy_to = mytracks.free_name(ac, generator.slug(title)) if copy else None
+        try:
+            self._send(200, trackcopy.save(ac, name, copy_to, title, revision, may_start))
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackcopy.Busy:
+            self._send(409, {"error": "A track is being saved already"})
+        except (trackcopy.Refused, trackedits.Invalid) as e:
+            self._send(409, {"error": str(e)})
+        except OSError as e:
+            self._send(500, {"error": str(e)})
+
+    def do_PUT(self):
+        edits = EDITS_PATH.fullmatch(self.path)
+        if not edits:
+            return self._send(404, {"error": "not found"})
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can save changes"})
+        try:
+            size = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            size = -1
+        if size < 0:
+            self.close_connection = True
+            return self._send(400, {"error": "No list of changes"})
+        if size > trackedits.MAX_BYTES:
+            self.close_connection = True    # (its body stays unread)
+            return self._send(413, {"error": "Too many changes"})
+        try:
+            body = json.loads(self.rfile.read(size))
+        except ValueError:
+            return self._send(400, {"error": "No list of changes"})
+        self._edits_answer(lambda: {"revision": trackedits.save(settings.ac_path(), edits[1], body)})
+
     def do_GET(self):
-        editor = EDITOR_PATH.fullmatch(self.path)
+        editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
+        elif edits:
+            self._edits_answer(lambda: trackedits.load(settings.ac_path(), edits[1]))
         elif self.path == "/api/status":
             with lock:
                 st = dict(job)
@@ -445,7 +545,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/settings":
             self._send(200, settings_view())
         elif self.path == "/api/tracks":
-            tracks = [{**t, "build_files": has_build_files(t["name"])} for t in mytracks.listing(settings.ac_path())]
+            ac = settings.ac_path()
+            tracks = [{**t, "build_files": has_build_files(t["name"]), "draft": trackedits.changes(ac, t["name"])} for t in mytracks.listing(ac)]
             self._send(200, {"tracks": tracks, "car": play_car()[1]})
         elif self.path == "/api/cars":
             last = last_car()
@@ -470,6 +571,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
+        save = SAVE_PATH.fullmatch(self.path)
+        if save:
+            return self._save_track(save[1])
         try:
             body = self._body()
             if self.path == "/api/route":
@@ -526,6 +630,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(409, {"error": str(e)})
             elif self.path == "/api/build":
                 name = generator.slug(body.get("name") or "route")
+                info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
+                if ((info or {}).get("edits") or {}).get("source"):      # (two titles can give one name)
+                    return self._send(409, {"error": f"A track saved in the Editor is called “{info['title']}”: choose another name"})
                 self._send(*start_build(name, body.get("title") or name, [tuple(p) for p in body.get("points") or []],
                                         body.get("width", 100), body.get("area")))   # (area: [south, west, north, east])
             elif self.path == "/api/rebuild":           # a track from "My tracks" with its settings,
@@ -534,6 +641,8 @@ class Handler(BaseHTTPRequestHandler):
                 if info is None:
                     return self._send(404, {"error": "No saved build settings for this track"})
                 title = info["title"]
+                if (info.get("edits") or {}).get("source") and not body.get("copy") and not body.get("drop_edits"):
+                    return self._send(409, {"error": "This track was saved in the Editor"})
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], info.get("width"),
@@ -567,8 +676,12 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     system.trust_windows_certificates()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    srv = Server(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
+    try:
+        trackcopy.tidy(settings.ac_path() or "")
+    except OSError:
+        pass                            # (AC folder not reachable: the next try makes its own room)
     updater.drop_old()
     try:                                # (AC as Settings say)
         debugapp.sync(settings.ac_path(), settings.load()["debug_app"])

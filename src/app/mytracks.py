@@ -9,7 +9,8 @@ have the file: while their work folder is still there (out/tracks/<name>/tiles/a
      "width": m or None, "area": [S, W, N, E] or None, "length_m", "area_m": [east, north] or None, "tiles",
      "built": Unix time, "line": [[lat, lon], ...] or None, "route_end": the end pin's index in the route
      (data/map2lap_route.txt) or None, "data": {"overture": release, "osm": the tags file's ETag} (generator.
-     data_versions), "code": its track code (trackcode; listing fills it in for builds without one)}
+     data_versions), "code": its track code (trackcode; listing fills it in for builds without one), "edits": what the Editor's
+     last Save of it was made of (trackcopy.save), none on a build}
 """
 import json
 import os
@@ -92,6 +93,15 @@ def copy_name(ac_path, name, title):
     return f"{name}_{k}", f"{title} ({k})"
 
 
+def free_name(ac_path, name):
+    """name, or name_2, name_3 ...: the first no track and no work folder has (Save as copy in the Editor)."""
+    k, new = 1, name
+    while os.path.exists(os.path.join(ac_path, "content", "tracks", new)) or os.path.exists(os.path.join(ROOT, "out", "tracks", new)):
+        k += 1
+        new = f"{name}_{k}"
+    return new
+
+
 def _same(info):
     """Key for "the same track" (route with width, or area; copies and originals share it)."""
     if info.get("area"):
@@ -100,12 +110,15 @@ def _same(info):
 
 
 def listing(ac_path):
-    """The tracks with settings, most recently built first: each {name, kn5_bytes, outdated, current_copy, ...the
-    settings}. outdated: older track version than this release's and no copy of the same track is current (an old build next to a new
-    copy no longer counts as old, it only shows its version); current_copy: that copy's title."""
+    """The tracks with settings, most recently built first: each {name, kn5_bytes, outdated, current_copy, edited, ...the
+    settings but the Editor's recipe}. outdated: older track version than this release's and no copy of the same track is current
+    (an old build next to a new copy no longer counts as old, it only shows its version); current_copy: that copy's title; edited:
+    saved in the Editor (a build from the map brings back what was deleted)."""
     tracks = os.path.join(ac_path, "content", "tracks")
     out = []
     for name in os.listdir(tracks) if os.path.isdir(tracks) else []:
+        if name.startswith("."):        # (a new track not whole yet: trackcopy)
+            continue
         d = os.path.join(tracks, name)
         if not (os.path.exists(os.path.join(d, FILE)) or
                 os.path.exists(os.path.join(ROOT, "out", "tracks", name, "tiles", "anchor.json"))):
@@ -114,7 +127,9 @@ def listing(ac_path):
         if info is None:
             continue
         kn5 = os.path.join(d, name + ".kn5")
-        out.append({**info, "name": name, "kn5_bytes": os.path.getsize(kn5) if os.path.exists(kn5) else None})
+        recipe = info.pop("edits", None)
+        out.append({**info, "name": name, "kn5_bytes": os.path.getsize(kn5) if os.path.exists(kn5) else None,
+                    "edited": bool(isinstance(recipe, dict) and recipe.get("source"))})
     current = {}
     for t in out:
         t["track_version"] = t.get("track_version", t.get("version"))

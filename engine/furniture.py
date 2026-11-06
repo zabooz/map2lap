@@ -9,6 +9,8 @@ Each road's lamps sit at fixed distances along the road from its first vertex wi
 road's id, so every tile (and every anchor) puts them in the same places (ROADMAP "deterministic
 generation"). Pure.
 """
+import json
+import os
 import hashlib
 import math
 
@@ -165,15 +167,62 @@ def wire_lines(poles):
     return out
 
 
-def wire_mesh(lines, origin):
+SPAN_ARMS_M = (2.0, 14.0)   # how far apart a span's wires end: on a pole's cross-arm (WIRE_ARMS), on a pylon's (powerlines.ARMS)
+
+
+def wire_spans(lines, starts):
+    """The spans of wire_mesh's lines, for the track's list of objects: the wires next to each other in lines that start and end
+    together are one span between two poles; a pylon's are the ones with a width of their own (powerlines.tile_lines). starts:
+    wire_mesh's first vertices per line. [{"start": first vertex, "from", "to": (x, y, z), the mean of its wires' ends, on a cross-arm
+    the pole itself, "on": "pole" or "pylon"}]. Pure."""
+    import powerlines
+    most = {False: len(WIRE_ARMS), True: len(powerlines.ARMS)}    # (two lines side by side stay two spans: no more wires than a pole has arms)
+    spans, group, on_pylons = [], [], None
+
+    def close():
+        if group:
+            spans[-1]["from"] = [round(float(v), 2) for v in np.mean([a for a, _ in group], axis=0)]
+            spans[-1]["to"] = [round(float(v), 2) for v in np.mean([b for _, b in group], axis=0)]
+
+    for k, start in enumerate(starts):
+        pylon = isinstance(lines[k], tuple)
+        line, near = (lines[k][0], SPAN_ARMS_M[1]) if pylon else (lines[k], SPAN_ARMS_M[0])
+        a, b = line[0], line[-1]
+        if (not group or pylon != on_pylons or len(group) >= most[pylon] or np.hypot(*(a - group[0][0])[:2]) > near
+                or np.hypot(*(b - group[0][1])[:2]) > near):
+            close()
+            spans.append({"start": start, "on": "pylon" if pylon else "pole"})
+            group, on_pylons = [], pylon
+        group.append((a, b))
+    close()
+    return spans
+
+
+def write_wire_objects(path, wire_mesh_, spans):
+    """What the track's list of objects needs of the wire shape at path, in a file beside it (src/track/objectlist.py): the spans
+    and, in the order the shape file holds its vertices (cdae.vertex_order), runs of [span, how many vertices]."""
+    import cdae
+    n, span = len(wire_mesh_[0]), np.zeros(len(wire_mesh_[0]), np.int64)
+    for k, (s, end) in enumerate(zip(spans, [s["start"] for s in spans[1:]] + [n])):
+        span[s["start"]:end] = k
+    used = span[cdae.vertex_order(wire_mesh_[1], None, 1)]
+    begin = np.r_[0, np.flatnonzero(used[1:] != used[:-1]) + 1]
+    runs = [[int(used[a]), int(b - a)] for a, b in zip(begin, np.r_[begin[1:], len(used)])]
+    with open(os.path.splitext(path)[0] + ".objects.json", "w", encoding="utf-8") as f:
+        json.dump({"spans": [{k: s[k] for k in ("from", "to", "on")} for s in spans], "runs": runs}, f)
+
+
+def wire_mesh(lines, origin, starts=None):
     """A mesh of the wires (each its points, or (points, half width): WIRE_R when not given): two crossed ribbons per
-    segment (seen from any side): (positions, tris, uvs)."""
+    segment (seen from any side): (positions, tris, uvs). starts: a list that gets each line's first vertex."""
     P, T = [], []
     ox, oy, oz = origin
     for line in lines:
         line, r = line if isinstance(line, tuple) else (line, WIRE_R)
         if len(P) + 8 * (len(line) - 1) > WIRE_VERTS_MAX:       # (8 vertices a segment; the rest left out)
             break
+        if starts is not None:
+            starts.append(len(P))
         for a, b in zip(line[:-1], line[1:]):
             d = b - a
             L = float(np.linalg.norm(d))

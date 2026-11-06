@@ -268,9 +268,11 @@ class Mesh(exitsigns.Mesh):
 
 
 def build(signs,origin):
-    mesh=Mesh(origin)
-    for sign in signs:mesh.panel(sign)
-    return mesh.result()
+    mesh,starts=Mesh(origin),[]
+    for sign in signs:
+        starts.append(len(mesh.p))
+        mesh.panel(sign)
+    return exitsigns.with_starts(mesh.result(),starts)
 
 
 def build_tile(frame,tx,ty,cells,elev,chunks=(),urban=None,widths=None,left_hand=False,context=None):

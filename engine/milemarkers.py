@@ -359,7 +359,8 @@ class Mesh(exitsigns.Mesh):
 
 
 def build(signs, origin):
-    mesh = Mesh(origin)
+    mesh, starts = Mesh(origin), []
     for sign in signs:
+        starts.append(len(mesh.p))
         mesh.panel(sign)
-    return mesh.result()
+    return exitsigns.with_starts(mesh.result(), starts)

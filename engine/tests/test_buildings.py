@@ -611,7 +611,8 @@ class DoorTest(unittest.TestCase):
         road = (np.array([(-50.0, -6.0), (50.0, -6.0)]), 4.0)        # south of the house
         rows = bld.doors([(spec, 0.0, 0.0)], [road], 0.0, 0.0)
         self.assertEqual(len(rows), 1)
-        g, x, y, z, yaw, sc, h, r = rows[0]
+        g, x, y, z, yaw, sc, h, r, house = rows[0]
+        self.assertEqual(0, house)
         self.assertEqual(g, "door")
         self.assertAlmostEqual(y, -bld.DOOR_OUT_M, places=2)            # on the south wall (its panel just out of it)
         self.assertAlmostEqual(yaw, 0.0)                               # the wall runs +x

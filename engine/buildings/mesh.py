@@ -38,6 +38,11 @@ class Mesh:
     def __init__(self):
         self.P, self.UV, self.C, self.T, self.M = [], [], [], [], []
         self.n = 0
+        self.marks = []             # [(vertices so far, what comes from there on)]: a building's signs, for the track's list
+
+    def mark(self, what):
+        """What is added from now on is what (None: the building again)."""
+        self.marks.append((self.n, what))
 
     def quad(self, a, b, c, d, uva, uvb, uvc, uvd, mat):
         """Corners counter-clockwise seen from outside."""
@@ -213,6 +218,7 @@ def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None, names=None, e
     (names, else spec.names) on the first bands, one each. A hall with a name, or top (an office building's name with
     no door to put it at): one panel in the middle instead, its name in letters up to HALL_CAP_M, between
     HALL_CLEAR_M over its floor and the eave (z_eave)."""
+    m.mark("sign")
     edge = spec.sign if edge is None else edge
     a, b = ring[edge], ring[(edge + 1) % len(ring)]
     L = float(math.hypot(*(b - a)))
@@ -246,6 +252,7 @@ def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None, names=None, e
             c = a + d * ((t + t1) / 2) + out * (SIGN_OUT / 2)
             ci = int(_hash01(spec.seed, 'signc', k) * len(SIGN_TINTS))
             z0, z1 = z_top - 0.15 - SIGN_H, z_top - 0.15
+            m.mark("sign")
             _box(m, c, d, (t1 - t) / 2 - 0.15, SIGN_OUT / 2, z0, z1, mat_idx[f"sign|{ci}"])
             if n < len(names):
                 _lettering(m, names[n], c + out * (SIGN_OUT / 2), d, out, (z0 + z1) / 2, SIGN_H * SIGN_CAP,
@@ -275,6 +282,7 @@ def _plates(m, spec, ring, base, z_eave, mat_idx, bands=False):
     corners = [first, L - first]
     plates = []
     for shape, text, tint in spec.plates:
+        m.mark("sign")
         if shape == "panel" and not bands:
             if spec.floors > 1:
                 z_mid = base + (WIN_SILL + WIN_H + gf + WIN_SILL) / 2
@@ -335,6 +343,7 @@ def _plates(m, spec, ring, base, z_eave, mat_idx, bands=False):
     along = min(max(along, PLATE_W / 2 + 0.2), L - PLATE_W / 2 - 0.2)
     c = a + d * along + out * 0.015
     for i, (text, tint) in enumerate(plates):
+        m.mark("sign")
         z1 = base + PLATE_TOP_M - i * (PLATE_H + 0.06)
         _box(m, c, d, PLATE_W / 2, 0.015, z1 - PLATE_H, z1, mat_idx[f"sign|{tint}"])
         _lettering(m, text, c + out * 0.015, d, out, z1 - PLATE_H / 2, PLATE_H * 0.4, PLATE_W - 0.1,

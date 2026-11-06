@@ -23,10 +23,11 @@ def road_tile(frame, tx, ty, md, ground, lines=None, props=None, items=None):
         items = road_tile_items(frame, tx, ty, md, ground)
     if props is not None and lines:
         props.extend(doors(items, lines, x0, y0))
-    meshes = build_parts(items, with_lod=True)
+    objects, starts = [], []
+    meshes = build_parts(items, with_lod=True, objects=objects)
     if not meshes:
         return None
-    return meshes, collider_boxes(items, x0, y0), collision_mesh(items)
+    return meshes, collider_boxes(items, x0, y0), collision_mesh(items, starts), objects, starts
 
 
 # ------------------------------------------------------------------------------------------- the ground photo

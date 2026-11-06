@@ -21,6 +21,8 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+os.environ["MAP2LAP_STRICT"] = "1"     # (a mesh not entered in track.objectlist stops a build here, at a user's it is a line in the log)
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # (the project folder)
 TESTS = os.path.join(HERE, "engine", "tests")
 TRACK = "stausee_kreuzung_test"     # the shortest test track: a few tiles, under a minute when its grading is cached

@@ -206,8 +206,13 @@ def build_tile(frame, tx, ty, elev, context, decks=(), left_hand=False, mph=True
     n = len(signs)
     table = np.column_stack([signs[:, 0:2], z[:n], z[n:], signs[:, 2:4], signs[:, 4:6], signs[:, 8]])
     cp, glyph, cap = _glyphs()
-    p, t, uv, mi = fast._ef.speed_sign_mesh(np.ascontiguousarray(table), int(face), cp, glyph, cap,
-                                            [float(box[0]), float(box[1]), 0.0])
-    if not len(t):
+    # (sign by sign, joined: the same mesh as all at once, and it is known where each one starts)
+    parts = [fast._ef.speed_sign_mesh(np.ascontiguousarray(table[k:k + 1]), int(face), cp, glyph, cap,
+                                      [float(box[0]), float(box[1]), 0.0]) for k in range(n)]
+    parts = [part for part in parts if len(part[1])]
+    if not parts:
         return None
-    return p, t, uv, MATERIALS, mi
+    starts = np.cumsum([0] + [len(part[0]) for part in parts[:-1]])
+    p, uv, mi = np.concatenate([part[0] for part in parts]), np.concatenate([part[2] for part in parts]), np.concatenate([part[3] for part in parts])
+    t = np.concatenate([part[1] + start for part, start in zip(parts, starts)])
+    return exitsigns.with_starts((p, t, uv, MATERIALS, mi), starts.tolist())
