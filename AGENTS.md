@@ -88,6 +88,7 @@ line here (`tests/test_tools.py`).
 | Does the same code build the same, round after round (minutes a round: before a merge or a release)? | `stability.py` |
 | Which code does a build really run (before deleting code)? | `coverage.py` |
 | What did a build make: shapes per tile, a kn5's materials | `inspect_tiles.py`, `read_kn5.py` |
+| What does a track take of the Editor's memory limit: meshes by kind, textures, how far each limit reaches | `editor_memory.py <track>` |
 | A native crash (an access violation without a stack) | `crash.py` |
 | Build the Rust module, read a DLL's imports | `build_native.py`, `pe_imports.py` |
 | Make a release, test its update | `make_release.py`, `test_update.py` |

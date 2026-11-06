@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import compare_parts  # noqa: E402
 import debug_stretch  # noqa: E402
+import editor_memory  # noqa: E402
 import heights  # noqa: E402
 import map_spot  # noqa: E402
 import mark  # noqa: E402
@@ -707,6 +708,37 @@ class CompareTest(unittest.TestCase):
             compare_parts.keep(snap)
             self.assertFalse(os.path.exists(old))
             self.assertTrue(os.path.exists(compare_parts._kept(snap["t/t_0_0.obj"]["sha1"])))
+
+
+class EditorMemoryTest(unittest.TestCase):
+    MATERIALS = [{"texture": "a"}, {"texture": "b"}]
+    SIZES = {"a": 100, "b": 1000}
+
+    @staticmethod
+    def mesh(name="1WALL_bld_fac_00_1_0_0", x=0.0, material=0, vertices=10):
+        return {"name": name, "center": [x, 0.0, 0.0], "radius": 1.0, "material": material, "vertices": vertices, "indices": 0}
+
+    def test_a_mesh_s_kind_is_its_name_without_its_numbers(self):
+        self.assertEqual("1WALL_bld", editor_memory.kind_of("1WALL_bld_fac_00_1_0_0"))
+        self.assertEqual("nocol_trees", editor_memory.kind_of("nocol_trees_0_0"))
+        self.assertEqual("1ROAD_ground", editor_memory.kind_of("1ROAD_ground_-3_7"))
+
+    def test_the_kinds_add_up_the_largest_first(self):
+        kinds = editor_memory.by_kind([self.mesh("nocol_a_1"), self.mesh("nocol_b_1", vertices=100), self.mesh("nocol_a_2")])
+        self.assertEqual(["nocol_b", "nocol_a"], list(kinds))
+        self.assertEqual(2, kinds["nocol_a"][0])
+
+    def test_a_texture_too_large_stays_out_and_the_meshes_go_on(self):
+        meshes = [self.mesh(x=0.0), self.mesh(x=10.0)]
+        limit = 2 * sum(map(editor_memory.mesh_bytes, meshes))
+        self.assertEqual(2, editor_memory.reach(meshes, self.MATERIALS, {"a": limit}, [0.0, 0.0, 0.0], limit)[0])
+
+    def test_a_limit_takes_the_nearest_with_their_textures_twice(self):
+        meshes = [self.mesh(x=100.0), self.mesh(x=0.0), self.mesh(x=10.0, material=1)]
+        one = 2 * editor_memory.mesh_bytes(meshes[0])
+        self.assertEqual((1, 0.0), editor_memory.reach(meshes, self.MATERIALS, self.SIZES, [0.0, 0.0, 0.0], one + 200))
+        self.assertEqual((2, 9.0), editor_memory.reach(meshes, self.MATERIALS, self.SIZES, [0.0, 0.0, 0.0], 2 * one + 200))
+        self.assertEqual(3, editor_memory.reach(meshes, self.MATERIALS, self.SIZES, [0.0, 0.0, 0.0], 3 * one + 2200)[0])
 
 
 class AgentsListTest(unittest.TestCase):
