@@ -4,6 +4,7 @@ export type LatLon = [number, number];
 export type Box = [number, number, number, number];
 export type Tab = "new" | "mine" | "edit";
 export type Mode = "route" | "area";
+export type TrackGroup = "built" | "edited";
 
 export interface Track {
   name: string;
@@ -11,7 +12,7 @@ export interface Track {
   version?: string;
   kn5_bytes: number | null;
   build_files: boolean;
-  edited?: boolean;             // saved in the Editor: a build from the map brings back what was deleted
+  edited?: boolean;             // saved in the Editor: never built again in its place, never old
   draft?: number;
   outdated: boolean;
   current_copy: string | null;

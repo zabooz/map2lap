@@ -1,5 +1,8 @@
-import type {Track} from "../types";
+import type {Track, TrackGroup} from "../types";
 import styles from "./EditorPanel.module.css";
+import {groupOf} from "./MyTracksPane";
+
+const GROUPS: readonly (readonly [TrackGroup, string])[] = [["built", "Built"], ["edited", "Edited"]];
 
 /** The Editor tab's sidebar: the track to show, what is loading (a line of its own: nothing moves), how the view moves. */
 export function EditorPanel({tracks, choice, status, onChoose}: {tracks: Track[]; choice: string; status: string;
@@ -10,11 +13,18 @@ export function EditorPanel({tracks, choice, status, onChoose}: {tracks: Track[]
         <div className="label-row"><span>Track</span></div>
         <select id="edit-track" className={styles.track} aria-label="Track" value={choice} onChange={e => onChoose(e.target.value)}>
           <option value="">Choose a track</option>
-          {tracks.filter(t => t.kn5_bytes).map(t => <option key={t.name} value={t.name}>{t.title || t.name}</option>)}
+          {GROUPS.map(([group, label]) => {
+            const shown = tracks.filter(t => t.kn5_bytes && groupOf(t) === group);
+            return shown.length > 0 && (
+              <optgroup key={group} label={label}>
+                {shown.map(t => <option key={t.name} value={t.name}>{t.title || t.name}</option>)}
+              </optgroup>
+            );
+          })}
         </select>
       </div>
       <p id="edit-status" className={`small muted ${styles.status}`}>{status}</p>
-      {tracks.some(t => t.name === choice && !t.build_files) && (
+      {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
         <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
           need them: build it again under My tracks.</p>
       )}

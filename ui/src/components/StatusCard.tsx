@@ -1,7 +1,7 @@
 import type {ReactNode} from "react";
 import {fmtBytes, fmtDate, fmtSize, fmtTime} from "../format";
 import {MAX_KM, type Selection} from "../hooks/useNewTrack";
-import type {BuildStatus, Mode, Tab, Track} from "../types";
+import type {BuildStatus, Mode, Tab, Track, TrackGroup} from "../types";
 import {CodeField} from "./CodeField";
 import {TrashIcon} from "./icons";
 import styles from "./StatusCard.module.css";
@@ -45,7 +45,7 @@ const big = (title: ReactNode, note: ReactNode) => (
 /** A picked track's lines. */
 function PickedTrack({track: t, version}: {track: Track; version: string}) {
   const was = t.version ? `Map2Lap ${t.version}` : "an earlier Map2Lap";
-  const built = t.outdated ? `Built with ${was}, now ${version}.`
+  const built = t.edited ? `Built with ${was}, then edited.` : t.outdated ? `Built with ${was}, now ${version}.`
     : t.current_copy ? `Built with ${was}; “${t.current_copy}” is the current build.` : `Built with ${was}, up to date.`;
   return (
     <>
@@ -60,7 +60,7 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
 }
 
 /** What the card shows: a build's progress or result, the picked track, or what is selected. Pure. */
-function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: Mode; picked: Track | undefined;
+function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: Mode; group: TrackGroup; picked: Track | undefined;
                      selection: Selection | null; width: number; hasTracks: boolean; version: string; playButton: (name: string) => ReactNode}): Shown {
   const {status: s, picked: t, selection: sel} = a;
   if (s.state === "running" || s.state === "stopping") {
@@ -88,13 +88,14 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
             body: big("Build stopped", "Nothing half-built was left in Assetto Corsa.")};
   }
   if (t) {
-    const badge: Shown["badge"] = !t.kn5_bytes ? ["No track file", "bad"] : t.outdated ? ["Old version", "warn"]
-      : [t.area ? "Area" : "Route", "ok"];
+    const badge: Shown["badge"] = !t.kn5_bytes ? ["No track file", "bad"] : t.edited ? ["Edited", "ok"]
+      : t.outdated ? ["Old version", "warn"] : [t.area ? "Area" : "Route", "ok"];
     return {badge, time: fmtDate(t.built), body: <PickedTrack track={t} version={a.version} />};
   }
   if (a.tab === "mine") {
-    return {badge: ["Ready", ""], body: a.hasTracks ? big("Pick a track", "Choose one from the list to rebuild it.")
-                                                    : big("No tracks yet", "Tracks you build show up here.")};
+    return {badge: ["Ready", ""], body: a.hasTracks ? big("Pick a track", a.group === "edited" ? "Choose one from the list to edit it." : "Choose one from the list to rebuild it.")
+      : a.group === "edited" ? big("No edited tracks yet", "Tracks you save in the Editor show up here.")
+      : big("No tracks yet", "Tracks you build show up here.")};
   }
   if (sel?.kind === "route") {
     return {badge: sel.ok ? ["Route", "ok"] : ["Too long", "bad"], body: big(`${sel.km.toFixed(2)} km`,
@@ -121,11 +122,12 @@ export function PlayButton({title, disabled, starting, onClick}: {title: string;
   );
 }
 
-/** The picked track's code, with delete beside it. */
-export function CardCode({code, onDelete}: {code: string; onDelete: () => void}) {
+/** The picked track's code, with delete beside it. code null: delete alone, in its place (an edited track: a code would only build it
+    without its edits). */
+export function CardCode({code, onDelete}: {code: string | null; onDelete: () => void}) {
   return (
     <div id="card-code" className={styles.code}>
-      <CodeField code={code} />
+      {code !== null && <CodeField code={code} />}
       <button className={styles.icon} title="Delete track" aria-label="Delete track" onClick={onDelete}><TrashIcon /></button>
     </div>
   );

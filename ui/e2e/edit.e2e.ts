@@ -1,6 +1,6 @@
 // Deleting trees and bushes in the Editor: picked by a click, gone at once, saved by itself, back by undo.
 import type {Page} from "@playwright/test";
-import {button, centre, dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
+import {button, card, centre, dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
 
 const AWAY = {x: 100, y: 500};              // (the mouse off the view: no hover box in the picture)
 const NEAR_TREE = "nocol_trees_0_0#1";
@@ -313,7 +313,7 @@ test("two poles share a span: it stays out while one of them does, and comes bac
   await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
 });
 
-test("a parked car on an older build says to build it again, a tree there can still be deleted", async ({page, backend}) => {
+test("a parked car on an older build says a new build can delete it, a tree there can still be deleted", async ({page, backend}) => {
   await openEditor(page);
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "older"});
   await page.reload();
@@ -321,7 +321,7 @@ test("a parked car on an older build says to build it again, a tree there can st
   const at = await findCar(page);
   await expect(box(page)).toContainText("no ID of its own");
   await page.mouse.click(at.x, at.y);
-  await expect(page.locator("#edit-picked")).toHaveText("Parked car: build this track again to delete it");
+  await expect(page.locator("#edit-picked")).toHaveText("Parked car: only a new build can delete it");
   await expect(button(page, "Delete")).toBeDisabled();
   await deleteTree(page);
 });
@@ -638,6 +638,14 @@ test("the name left as it is, a new track gets its (copy) by itself", async ({pa
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
   await expect(page.locator("#edit-track")).toHaveValue("alpha_test_copy");
   await expect(page.locator("#edit-track option:checked")).toHaveText(/Alpha Test \(copy\)/);
+  await page.locator("#t-mine").click();
+  const list = page.locator("#pane-mine button");
+  await expect(list.filter({hasText: "Alpha Test"})).toHaveText([/^Alpha Test(?! \(copy\))/]);     // (the original is still a build)
+  await button(page, "Edited").click();
+  await list.filter({hasText: "Alpha Test (copy)"}).click();
+  await card(page).getByRole("button", {name: "Delete track"}).click();
+  await expect(list).toHaveCount(0);
+  await expect(card(page)).toContainText("No edited tracks yet");
 });
 
 test("nothing changed: Play starts the track at once, nothing asked", async ({page}) => {
@@ -703,33 +711,51 @@ test("a change that can't be kept: Save says so and writes nothing", async ({pag
   expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees);
 });
 
-test("My tracks says edited, and warns before a build from the map loses anything", async ({page}) => {
+test("a track saved in the Editor stands under Edited: it opens and can be copied, no build replaces it", async ({page, backend}) => {
   await openEditor(page);
   await deleteTree(page);
   await saveTrack(page);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  const asked: string[] = [];
-  page.removeAllListeners("dialog");
-  page.on("dialog", d => { asked.push(d.message()); void d.dismiss(); });
-  await page.locator("#t-mine").click();
-  const edited = page.locator("#pane-mine button", {hasText: "Alpha Test"});
-  await expect(edited).toContainText("· edited");
+  await expect(page.locator('#edit-track optgroup[label="Edited"] option')).toHaveText(["Alpha Test"]);
+  await Promise.all([page.waitForResponse("**/api/tracks"), page.locator("#t-mine").click()]);
+  const alpha = page.locator("#pane-mine button", {hasText: "Alpha Test"});
+  await expect(alpha).toHaveCount(0);
+  await button(page, "Edited").click();
+  await alpha.click();
+  await expect(card(page)).toContainText("then edited");
+  await expect(card(page).getByRole("textbox", {name: "Track code"})).toHaveCount(0);     // (a code builds the track without its edits)
+  await expect(card(page).getByRole("button", {name: "Delete track"})).toBeVisible();
+  await expect(page.locator("#go")).toHaveText("Edit");
+  for (const data of [{name: "alpha"}, {name: "alpha", drop_edits: true}]) {     // (nor by asking the server)
+    expect((await page.request.post("/api/rebuild", {data})).status()).toBe(409);
+  }
   const same = await page.request.post("/api/build", {data: {name: "alpha", title: "Alpha", points: [[42.9, 9.36], [42.902, 9.36]], width: 100}});
   expect(same.status()).toBe(409);              // (a new track of the same name doesn't replace it)
   expect(((await same.json()) as {error: string}).error).toContain("choose another name");
-  await edited.click();
   await page.locator("#go").click();
-  await expect.poll(() => asked.length).toBe(1);
-  expect(asked[0]).toContain("what was deleted in it comes back");
-  await page.locator("#t-edit").click();
-  await page.locator("#edit-track").selectOption("beta");
+  await expect(page.locator("#edit-track")).toHaveValue("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+
+  await page.locator("#t-mine").click();
+  await alpha.click();
+  await button(page, "Build as copy").click();
+  await expect.poll(backend.calls).toContainEqual(["build", "alpha_2", "Alpha Test (2)"]);
+  await expect(card(page)).toContainText("Installed in Assetto Corsa.");
+  await expect(page.locator("#pane-mine button", {hasText: "Alpha Test (2)"})).toBeVisible();      // (a build: under Built)
+  await expect(page.locator("#go")).toHaveText("Rebuild");
+});
+
+test("a track with unsaved changes stays under Built, and warns before a build", async ({page}) => {
+  await openEditor(page, "beta");
   await deleteTree(page);
+  const asked: string[] = [];
+  page.removeAllListeners("dialog");
+  page.on("dialog", d => { asked.push(d.message()); void d.dismiss(); });
   await Promise.all([page.waitForResponse("**/api/tracks"), page.locator("#t-mine").click()]);     // (the list with its count of changes)
   await page.locator("#pane-mine button", {hasText: "Beta Test"}).click();
   await page.locator("#go").click();
-  await expect.poll(() => asked.length).toBe(2);
-  expect(asked[1]).toContain("1 unsaved change");
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toContain("1 unsaved change");
 });
 
 test("the road can't be deleted: it says so, Delete does nothing", async ({page}) => {

@@ -14,7 +14,7 @@ ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
 import generator  # noqa: E402,F401  (sets the engine's path)
-from app import mytracks, trackcopy, trackedits, tracksource, trackview  # noqa: E402
+from app import mytracks, trackcopy, trackedits, tracksource, trackview, version  # noqa: E402
 from track import kn5, objectlist  # noqa: E402
 
 IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
@@ -374,6 +374,29 @@ class SaveTest(Base):
         self.assertEqual({"t"}, set(names))
         self.assertTrue(names["t"]["edited"])
         self.assertNotIn("edits", names["t"])
+
+    def test_a_build_asked_for_before_a_save_ended_doesnt_replace_the_track(self):
+        import server
+        self.edits(["t_0_0#0"])
+        trackcopy.save(self.ac, "t")       # (between the page's request and the start of its build)
+        with (mock.patch.object(server.settings, "ac_path", return_value=self.ac), mock.patch.object(server.settings, "is_ac", return_value=True),
+              mock.patch.dict(server.job, state="idle"), mock.patch.object(server, "run_build") as run):
+            code, answer = server.start_build("t", "Tee", [(1, 2), (3, 4)], 100, None)
+            self.assertEqual((409, "idle"), (code, server.job["state"]))
+            self.assertIn("saved in the Editor", answer["error"])
+            run.assert_not_called()
+
+    def test_an_edited_track_is_never_old_and_no_current_copy_of_a_build(self):
+        self.edits(["t_0_0#0"])
+        trackcopy.save(self.ac, "t")
+        old = os.path.join(self.ac, "content", "tracks", "old")
+        os.makedirs(os.path.join(old, "data"))
+        mytracks.save(old, {"title": "Old", "points": [[1, 2], [3, 4]], "width": 100, "version": "0.1", "track_version": "0.1"})
+        built_long_ago = {t["name"]: t for t in mytracks.listing(self.ac)}["t"]
+        self.assertEqual((False, None), (built_long_ago["outdated"], built_long_ago["current_copy"]))
+        mytracks.save(self.root, {**mytracks.load(self.root), "track_version": version.TRACK_VERSION})
+        beside = {t["name"]: t for t in mytracks.listing(self.ac)}["old"]
+        self.assertEqual((True, None), (beside["outdated"], beside["current_copy"]))
 
     def test_an_overwrite_with_the_file_in_use_leaves_the_track_whole(self):
         self.edits(["t_0_0#0"])

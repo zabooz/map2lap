@@ -146,7 +146,7 @@ function BuildFiles({settings: s, busy}: {settings: ReturnType<typeof useSetting
       <div className={`${styles.pathRow} ${styles.verRow}`}>
         <span>All build files: <span className="val">{files.line}</span></span>
         <button disabled={busy || files.clearing} onClick={() => {
-          if (confirm(`Delete the build files (${fmtBytes(files.bytes ?? 0)})? Your tracks in Assetto Corsa, the map data and your settings stay. To edit a track later, build it again.`)) {
+          if (confirm(`Delete the build files (${fmtBytes(files.bytes ?? 0)})? Your tracks in Assetto Corsa, the map data and your settings stay. A track under Built gets them back when it is built again.`)) {
             void files.clear("deleting …");
           }
         }}>Delete</button>

@@ -29,7 +29,7 @@
        -webkit-box-orient: vertical; }
 
 /* The picked track's code under it, with delete beside it */
-.code { display: flex; gap: 6px; flex: none; }
+.code { display: flex; justify-content: flex-end; gap: 6px; flex: none; }
 .code input { height: 34px; background: var(--panel); }
 .code .icon { flex: none; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px;
               background: var(--panel); color: var(--muted); cursor: pointer; display: grid; place-items: center; }

@@ -186,6 +186,15 @@ def settings_view():
             "threads": os.cpu_count() or 2, "version": version.VERSION}
 
 
+def saved_in_editor(name):
+    """The answer (HTTP code, response) to a build that would replace the track name, saved in the Editor: its own work, which no
+    build takes the place of. None for any other name. Two titles can give one name."""
+    info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
+    if ((info or {}).get("edits") or {}).get("source"):
+        return 409, {"error": f"A track saved in the Editor is called “{info['title']}”: a build can't replace it, choose another name"}
+    return None
+
+
 def start_build(name, title, points, width, area):
     """Start a build (new and rebuild); returns (HTTP code, response)."""
     if not settings.is_ac(settings.ac_path()):
@@ -206,6 +215,10 @@ def start_build(name, title, points, width, area):
             return 409, {"error": "A build is already running"}
         if trackcopy.busy():            # (asked under the lock a Save asks about builds under: never both at once)
             return 409, {"error": "A track is being saved in the Editor: wait for it, then try again"}
+        # (here too, not before the lock: a Save that ended since the request was made would be replaced)
+        saved = saved_in_editor(name)
+        if saved:
+            return saved
         if running["clearing"]:
             return 409, {"error": "The map data is being cleared, try again in a moment"}
         if updater.state["state"] in ("downloading", "restarting"):
@@ -641,9 +654,6 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(409, {"error": str(e)})
             elif self.path == "/api/build":
                 name = generator.slug(body.get("name") or "route")
-                info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
-                if ((info or {}).get("edits") or {}).get("source"):      # (two titles can give one name)
-                    return self._send(409, {"error": f"A track saved in the Editor is called “{info['title']}”: choose another name"})
                 self._send(*start_build(name, body.get("title") or name, [tuple(p) for p in body.get("points") or []],
                                         body.get("width", 100), body.get("area")))   # (area: [south, west, north, east])
             elif self.path == "/api/rebuild":           # a track from "My tracks" with its settings,
@@ -652,8 +662,6 @@ class Handler(BaseHTTPRequestHandler):
                 if info is None:
                     return self._send(404, {"error": "No saved build settings for this track"})
                 title = info["title"]
-                if (info.get("edits") or {}).get("source") and not body.get("copy") and not body.get("drop_edits"):
-                    return self._send(409, {"error": "This track was saved in the Editor"})
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], info.get("width"),

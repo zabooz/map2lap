@@ -6,6 +6,9 @@ import {CodeField} from "./CodeField";
 import {CodeIcon} from "./icons";
 import styles from "./NewTrackPane.module.css";
 import {SearchField} from "./SearchField";
+import {Seg} from "./Seg";
+
+const MODES: readonly (readonly [Mode, string])[] = [["route", "Route"], ["area", "Area"]];
 
 /** One field of the route: start, a stop or the finish. */
 function StopRow({index, last, point, onPick, onRemove, onLeaveEmpty, autoFocus}: {
@@ -84,12 +87,9 @@ export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: 
                                                          onMove: (move: MapMove) => void}) {
   const {mode, width} = track;
   const nothing = busy || (!track.points.length && !track.area);       // (nothing to clear: quiet)
-  const seg = (m: Mode, text: string) => (
-    <button className={mode === m ? styles.on : ""} onClick={() => track.setMode(m)}>{text}</button>
-  );
   return (
     <div className={`${styles.pane}${off ? ` ${styles.off}` : ""}`}>
-      <div className={styles.seg}>{seg("route", "Route")}{seg("area", "Area")}</div>
+      <Seg choices={MODES} value={mode} onChoose={track.setMode} />
       <div className="field">
         <div className="label-row"><span>Track name</span></div>
         <input id="title" type="text" value={track.title} spellCheck={false} aria-label="Track name"

@@ -38,7 +38,9 @@ Steam. Before the first track:
 - **A complete world:** terrain, roads, bridges, tunnels, buildings, street furniture, guardrails, pylons, rivers and
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
-- **My tracks:** rebuild a track with the latest version, build a copy, delete it, or **▶ Play** it straight away.
+- **My tracks:** under **Built**, rebuild a track with the latest version, build a copy, delete it, or **▶ Play** it straight
+  away. Tracks saved in the Editor stand under **Edited**: open them again, build a new copy from the map, delete them or play
+  them; no build replaces them.
 - **Editor:** inspect a built track in 3D. Move over the ground with W A S D or by dragging with the right mouse button, zoom
   with the wheel, turn and tilt by holding it. Point at a surface, tree or building to see its
   material, physics and position. Click an object, such as a tree, a parked car, a house, a sign or a fence, and press Delete to take it out of the view, Ctrl+Z brings it
@@ -74,8 +76,9 @@ app**, press **F10** at the spot while driving and attach that session's folder 
 `Documents\Assetto Corsa\map2lap_debug` (the marks, the drive around each, a screenshot of each, and what it takes to
 build the same track again).
 
-To share a track, copy its **track code** from the status card (under **My tracks**, or under **New track** as soon
-as the route is set); the other person pastes it into the same field under **New track** and builds it.
+To share a track, copy its **track code** from the status card (under **My tracks → Built**, or under **New track** as
+soon as the route is set); the other person pastes it into the same field under **New track** and builds it. A track under
+**Edited** has no code: a code holds the route, not the edits.
 
 ## Development
 

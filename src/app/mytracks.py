@@ -113,7 +113,7 @@ def listing(ac_path):
     """The tracks with settings, most recently built first: each {name, kn5_bytes, outdated, current_copy, edited, ...the
     settings but the Editor's recipe}. outdated: older track version than this release's and no copy of the same track is current
     (an old build next to a new copy no longer counts as old, it only shows its version); current_copy: that copy's title; edited:
-    saved in the Editor (a build from the map brings back what was deleted)."""
+    saved in the Editor: its own work from then on, so never old, no build can take its place and it is no current copy of a build."""
     tracks = os.path.join(ac_path, "content", "tracks")
     out = []
     for name in os.listdir(tracks) if os.path.isdir(tracks) else []:
@@ -136,10 +136,10 @@ def listing(ac_path):
         if not t.get("code") and (t.get("area") or len(t.get("points") or []) >= 2):
             t["code"] = trackcode.encode(t)
     for t in out:
-        if not version.outdated(t["track_version"]) and t["kn5_bytes"]:
+        if not version.outdated(t["track_version"]) and t["kn5_bytes"] and not t["edited"]:
             current.setdefault(_same(t), t["title"])
     for t in out:
-        old = version.outdated(t["track_version"])
+        old = version.outdated(t["track_version"]) and not t["edited"]
         t["current_copy"] = current.get(_same(t)) if old else None
         t["outdated"] = old and t["current_copy"] is None
     return sorted(out, key=lambda t: -(t.get("built") or 0))

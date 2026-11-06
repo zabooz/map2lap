@@ -27,7 +27,7 @@ their kind). A tree's or bush's is its image of the atlas (`trees.SPRITES`).
 **Save** (Editor):
 Writes a track as its edit list says (`app/trackcopy.py`), in its place or as a copy, its kn5 filtered from its **source**, without a
 build. Its map2lap.json then holds the **recipe** ("edits": the source, the ids and sorts, the kn5 it wrote, when). A track
-saved so is "edited" in My tracks. _Avoid_: modded track, rebuild (that is a build from the map).
+saved so stands under "Edited" in My tracks: its own work, no build replaces it. _Avoid_: modded track, rebuild (that is a build from the map).
 
 **Source**:
 A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`

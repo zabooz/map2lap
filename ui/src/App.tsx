@@ -5,7 +5,7 @@ import {BuildLog} from "./components/BuildLog";
 import {EditorPanel} from "./components/EditorPanel";
 import {ErrorBoundary} from "./components/ErrorBoundary";
 import {GearIcon} from "./components/icons";
-import {MyTracksPane} from "./components/MyTracksPane";
+import {groupOf, MyTracksPane} from "./components/MyTracksPane";
 import {NewTrackPane} from "./components/NewTrackPane";
 import {SettingsDialog} from "./components/SettingsDialog";
 import {CardCode, PlayButton, StatusCard} from "./components/StatusCard";
@@ -18,11 +18,12 @@ import {useRelease} from "./hooks/useRelease";
 import {useSettings} from "./hooks/useSettings";
 import {useStored} from "./hooks/useStored";
 import {useTracks} from "./hooks/useTracks";
-import type {Tab, Track} from "./types";
+import type {Tab, Track, TrackGroup} from "./types";
 
 const EditorScene = lazy(() => import("./editor/EditorScene"));
 
 const TABS: readonly Tab[] = ["new", "mine", "edit"];
+const GROUPS: readonly TrackGroup[] = ["built", "edited"];
 
 const NO_AC = "Assetto Corsa not found: choose its folder under Settings";
 const HINTS: Record<string, string> = {
@@ -35,6 +36,7 @@ const HINTS: Record<string, string> = {
 export function App() {
   const [tab, setTab] = useStored<Tab>("map2lap.tab", "new", TABS);
   const [editorSeen, setEditorSeen] = useState(tab === "edit");
+  const [group, setGroup] = useStored<TrackGroup>("map2lap.myTracks", "built", GROUPS);
   const [editTrack, setEditTrack] = useStored<string>("map2lap.editTrack", "");
   const [editStatus, setEditStatus] = useState("");
   const [settingsChoice, setSettingsOpen] = useState<boolean | null>(null);    // null: opened or closed by nobody yet
@@ -62,7 +64,7 @@ export function App() {
   const settingsOpen = settingsChoice ?? !acOk;        // (no AC folder: the settings open by themselves)
 
   const mine = tab === "mine", {busy, status} = build;
-  const picked = mine ? tracks.find(t => t.name === pick) : undefined;
+  const picked = mine ? tracks.find(t => t.name === pick && groupOf(t) === group) : undefined;
   const editing = tracks.find(t => t.name === editTrack && t.kn5_bytes);      // (deleted meanwhile: none)
   const shownEditTrack = editing ? editTrack : "";
   const result = ["done", "error", "stopped"].includes(status.state) && showResult;
@@ -79,15 +81,18 @@ export function App() {
   const start = async (url: string, body: unknown) => {
     const refused = await build.start(url, body);
     if (refused && /Settings/.test(refused)) setSettingsOpen(true);
+    return refused;
   };
 
   const onGo = () => {
     if (busy) void build.stop();
+    else if (picked?.edited) {
+      setEditTrack(picked.name);
+      chooseTab("edit");
+    }
     else if (mine) {
-      const chosen = tracks.find(t => t.name === pick), made = chosen?.edited;
-      const warning = made ? "This track was saved in the Editor.\n\nBuilding it again makes it new from the map: what was deleted in it comes back. Go on?"
-        : chosen?.draft ? `This track has ${chosen.draft} unsaved ${chosen.draft === 1 ? "change" : "changes"} in the Editor.\n\nThey no longer fit a new build and stay out until you give them up. Go on?` : null;
-      if (pick && (!warning || confirm(warning))) void start("/api/rebuild", {name: pick, drop_edits: Boolean(made)});
+      const warning = picked?.draft ? `This track has ${picked.draft} unsaved ${picked.draft === 1 ? "change" : "changes"} in the Editor.\n\nThey no longer fit a new build and stay out until you give them up. Go on?` : null;
+      if (picked && (!warning || confirm(warning))) void start("/api/rebuild", {name: picked.name});
     }
     else void start("/api/build", track.buildBody());
   };
@@ -109,8 +114,8 @@ export function App() {
   };
 
   const goDisabled = status.state === "stopping" || (!busy && (!acOk || !(mine ? picked : track.selection?.ok)));
-  const goText = busy ? (status.state === "stopping" ? "Stopping …" : "Stop build") : mine ? "Rebuild" : "Build track";
-  const goTitle = busy ? undefined : !acOk ? NO_AC : mine ? "Build it again with this version and replace it" : undefined;
+  const goText = busy ? (status.state === "stopping" ? "Stopping …" : "Stop build") : !mine ? "Build track" : group === "edited" ? "Edit" : "Rebuild";
+  const goTitle = busy ? undefined : !acOk ? NO_AC : !mine ? undefined : group === "edited" ? "Open it in the Editor" : "Build it again with this version and replace it";
 
   const playButton = (name: string) => (
     <PlayButton title={playTitle} disabled={!acOk || starting} starting={starting} onClick={() => void play(name)} />
@@ -153,20 +158,22 @@ export function App() {
         <div id="work" className="view" hidden={tab === "edit"}>
           <div className={styles.panes}>
             <NewTrackPane track={track} off={tab !== "new"} busy={busy} onMove={setMove} />
-            {mine && <MyTracksPane tracks={tracks} pick={pick} onPick={pickTrack} />}
+            {mine && <MyTracksPane tracks={tracks} group={group} pick={pick} onGroup={setGroup} onPick={pickTrack} />}
           </div>
 
-          <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} picked={picked}
-                      selection={track.selection} width={track.width} hasTracks={tracks.length > 0} version={version}
+          <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
+                      selection={track.selection} width={track.width} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
                       playButton={playButton} footer={!busy && !result && picked && (
-            <CardCode code={picked.code ?? ""} onDelete={() => void deletePicked()} />
+            <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deletePicked()} />
           )} />
 
           <div id="actions" className={`${styles.actions}${mine ? ` ${styles.mine}` : ""}`}>
             {mine && (
               <button title={acOk ? "Keep this track and build a new one next to it" : NO_AC}
                       disabled={busy || !picked || !acOk}
-                      onClick={() => { if (pick) void start("/api/rebuild", {name: pick, copy: true}); }}>Build as copy</button>
+                      onClick={() => {      // (the new one is a build: it will stand under Built)
+                        if (pick) void start("/api/rebuild", {name: pick, copy: true}).then(refused => { if (!refused) setGroup("built"); });
+                      }}>Build as copy</button>
             )}
             <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
             {mine && (

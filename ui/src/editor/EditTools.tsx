@@ -210,7 +210,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
         {picked && !marked && (
           <p id="edit-picked" className={styles.line}>
             {picked.kind}{picked.sprite && ` · ${picked.sprite}`}{sort && sortName(sort) !== picked.kind && ` · ${sortName(sort)}`}
-            {!picked.id && (picked.afterBuild ? ": build this track again to delete it" : ": can't be deleted yet")}
+            {!picked.id && (picked.afterBuild ? ": only a new build can delete it" : ": can't be deleted yet")}
           </p>
         )}
         {saving.text && <p id="edit-made" className={styles.line}>{saving.text}</p>}

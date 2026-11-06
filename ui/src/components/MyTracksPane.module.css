@@ -1,4 +1,5 @@
-.pane { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.pane { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; }
+.list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
 .track { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); padding: 8px 11px;
          cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; flex: none; }
 .track:hover { border-color: var(--muted); }

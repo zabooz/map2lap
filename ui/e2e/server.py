@@ -276,6 +276,9 @@ def start_build(name, title, points, width, area):
         return 400, {"error": "Set a start and a finish, or draw an area"}
     if server.job["state"] in ("running", "stopping"):
         return 409, {"error": "A build is already running"}
+    saved = server.saved_in_editor(name)
+    if saved:
+        return saved
     calls.append(["build", name, title])
     stopped.clear()
     server.running["proc"] = SimpleNamespace(pid=0)

@@ -4,12 +4,6 @@
 .pane > * { flex: none; }
 .off { visibility: hidden; }     /* (keeps its height: nothing below moves) */
 
-.seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; background: var(--raised);
-       border: 1px solid var(--line); border-radius: 10px; }
-.seg button { border: 0; background: none; padding: 7px 8px; border-radius: 7px; cursor: pointer; color: var(--muted);
-              font-weight: 600; }
-.seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
-
 /* Route and area versions on top of each other: the taller one sets the height, so switching doesn't jump */
 .stack { display: grid; }
 .stack > * { grid-area: 1 / 1; }
