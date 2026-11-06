@@ -96,6 +96,7 @@ def run_build(args, name, clean, started):
         log(traceback.format_exc())
         if keep:
             keep.write(traceback.format_exc())
+        _tidy_failed(name, clean, started)
         with lock:
             job.update(state="error", error=str(e), ended=time.time())
         _unmark()
@@ -115,6 +116,7 @@ def run_build(args, name, clean, started):
         with lock:
             job.update(state="done", result=result)
     else:
+        _tidy_failed(name, clean, started)
         with lock:
             job.update(state="error", error=f"the generator ended with exit code {code} (see the log)")
     _unmark()
@@ -142,6 +144,15 @@ def tidy(name, clean, started, say=log):
     if os.path.isdir(root) and touched and not done:
         shutil.rmtree(root, ignore_errors=True)
         say("Incomplete track removed from AC")
+
+
+def _tidy_failed(name, clean, started):
+    """A failed build leaves as little as a stopped one (a full disk: the half track and, unless kept, the work folder take the room);
+    its own failing changes nothing about what the page says."""
+    try:
+        tidy(name, clean, started)
+    except OSError as e:
+        log(f"Could not tidy up: {e}")
 
 
 def tidy_interrupted():

@@ -49,5 +49,40 @@ class BuildFilesTest(unittest.TestCase):
         self.assertEqual(server.build_files_bytes(), 0)
 
 
+class FailedBuildTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+        self.half = os.path.join(self.root, "ac", "content", "tracks", "t")
+        self.work = os.path.join(self.root, "out", "tracks", "t")
+        for folder in (self.half, self.work):
+            os.makedirs(folder)
+        failing = mock.Mock(stdout=[], pid=1, wait=mock.Mock(return_value=1))
+        for patch in (mock.patch.object(server, "ROOT", self.root), mock.patch.dict(server.job, state="running", log=[]),
+                      mock.patch.object(server, "MARK", os.path.join(self.root, "out", "mark.json")),
+                      mock.patch.object(server.settings, "ac_path", return_value=os.path.join(self.root, "ac")),
+                      mock.patch.object(server.subprocess, "Popen", return_value=failing)):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_its_half_track_goes_and_its_work_folder_unless_kept(self):
+        server.run_build([], "t", False, 0.0)
+        self.assertEqual("error", server.job["state"])
+        self.assertFalse(os.path.exists(self.half))
+        self.assertTrue(os.path.exists(self.work))      # (Keep build files on)
+        os.makedirs(self.half)
+        server.run_build([], "t", True, 0.0)
+        self.assertFalse(os.path.exists(self.half))
+        self.assertFalse(os.path.exists(self.work))
+
+    def test_a_whole_track_of_a_build_before_stays(self):
+        with open(os.path.join(self.half, "t.kn5"), "wb"):
+            pass
+        os.utime(os.path.join(self.half, "t.kn5"), (1000.0, 1000.0))
+        server.run_build([], "t", True, 2000.0)
+        self.assertTrue(os.path.exists(os.path.join(self.half, "t.kn5")))
+
+
 if __name__ == "__main__":
     unittest.main()
