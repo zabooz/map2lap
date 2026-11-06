@@ -28,6 +28,7 @@ blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
 import furniture            # noqa: E402  (from the BeamNG.Earth server, path from build_tiles)
 import geodesy              # noqa: E402
+import borders  # noqa: E402
 import navgraph             # noqa: E402
 import overture             # noqa: E402
 import plancache            # noqa: E402
@@ -111,6 +112,8 @@ def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M):
 
 
 _places, _countries, _codes, _asked, _ask_lock = {}, {}, {}, [0.0], threading.Lock()
+COUNTRIES = os.path.join(ROOT, "cache", "countries.json")
+OWN_RULES = {"HK": "CN", "MO": "CN", "VI": "US"}    # a territory driving on the other side than the country Nominatim names
 
 
 def place(lat, lon):
@@ -135,16 +138,52 @@ def place(lat, lon):
         return _places[key]
 
 
-def road_rules(lat, lon):
-    """BeamNG.Earth's road rules at the anchor from its country (ISO code from Nominatim, as place()): driving on the
-    left, limits in mph, the share of low-voltage lines underground (fewer poles), the street lamps' spacing and the
-    country itself (road markings, speed-limit sign faces). Unknown (Nominatim not reachable): right-hand traffic,
-    km/h."""
+def _stored_countries():
+    """The countries Nominatim named so far: {"<lat>,<lon>" to 3 places: [ISO code, region]}."""
+    try:
+        with open(COUNTRIES, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _store_country(key, code):
+    """code stays for the next build at this spot, written whole (builds run side by side)."""
+    os.makedirs(os.path.dirname(COUNTRIES), exist_ok=True)
+    temporary = f"{COUNTRIES}.{os.getpid()}"
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump({**_stored_countries(), key: list(code)}, f)
+    os.replace(temporary, COUNTRIES)
+
+
+def country_at(lat, lon):
+    """(ISO code, region) at (lat, lon), for road rules that hang on it, traffic on the left or in mph. Nominatim first, once per
+    spot: OpenStreetMap's borders are the finer (1 km from a border, 3 % of 150 points got other rules from the borders we carry).
+    Not reached or no country named: borders.at, so a failed request never gives a track rules of no country; (None, None) only
+    out at sea. Nominatim names the mother country of a territory with its own traffic rules (OWN_RULES): the borders tell."""
+    key = (round(lat, 3), round(lon, 3))
+    stored = _stored_countries().get(f"{key[0]},{key[1]}")
+    if stored:
+        return tuple(stored)
+    local = borders.at(lat, lon)
     try:
         place(lat, lon)
-        country, region = _codes.get((round(lat, 3), round(lon, 3)), (None, None))
+        code = _codes.get(key, (None, None))
     except Exception:
-        country = region = None
+        return local
+    if not code[0]:
+        return local
+    if OWN_RULES.get(local[0]) == code[0]:
+        code = local
+    _store_country(f"{key[0]},{key[1]}", code)
+    return code
+
+
+def road_rules(lat, lon):
+    """BeamNG.Earth's road rules at the anchor from its country (country_at): driving on the left, limits in mph, the share of
+    low-voltage lines underground (fewer poles), the street lamps' spacing and the country itself (road markings, speed-limit
+    sign faces). No country there: right-hand traffic, km/h."""
+    country, region = country_at(lat, lon)
     if country is None:
         return {"country": None, "left_hand": False, "mph": False, "buried": 0.0, "lamp_region": None}
     r = navgraph.road_rules(country)

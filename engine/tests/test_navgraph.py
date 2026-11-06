@@ -159,6 +159,8 @@ class RulesTest(unittest.TestCase):
         self.assertTrue(navgraph.road_rules("GB")["redYellow"])
         self.assertFalse(navgraph.road_rules("DE")["rightHandDrive"])
         self.assertTrue(navgraph.road_rules("JP")["rightHandDrive"])
+        for territory in ("CC", "CX", "NF", "TK"):      # (Australia's and New Zealand's islands)
+            self.assertTrue(navgraph.road_rules(territory)["rightHandDrive"], territory)
         self.assertFalse(navgraph.road_rules(None)["rightHandDrive"], "unknown: US rules")
 
 
