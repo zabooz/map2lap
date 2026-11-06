@@ -5,6 +5,7 @@ import {isCurrent, TrackEdits, type EditState, type HeightChange} from "./edits"
 import styles from "./EditTools.module.css";
 import {NOT_ALL, sortName} from "./inspect";
 import {SaveDialog} from "./SaveDialog";
+import {useBand} from "./useBand";
 import type {Marked, MenuAt, Picked, Sample, TrackView} from "./view";
 import {ViewMenu} from "./ViewMenu";
 
@@ -53,6 +54,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
   const current = isCurrent(state);
   const painting = tool === "brush" && editable;
   const deleting = tool === "delete" && editable;
+  const band = useBand({name, view, edits, enabled: tool === null && editable, revision: state.keptRevision, onNote: setBrushNote});
 
   /** What a click picked; with "click deletes" on, gone at once. */
   const onPicked = useEffectEvent((p: Picked | null) => {
@@ -63,6 +65,27 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
       view.unpick();
     }
   });
+
+  /** With no tool on, a click on the road marks a band: A, B, a point in between; on grass or the sky the marking goes. */
+  const onClicked = useEffectEvent((p: Picked | null) => {
+    if (tool !== null || !editable) return;
+    if (p?.road) {
+      setPicked(null);
+      band.click(p.road[0], p.road[1]);
+    } else if (!p?.id) band.clear();
+  });
+
+  useEffect(() => {
+    view.setClicked(p => onClicked(p));
+    return () => view.setClicked(() => {});
+  }, [view]);
+
+  useEffect(() => { view.setWheelTaken(band.line !== null && tool === null); }, [view, band.line, tool]);
+
+  useEffect(() => {
+    if (tool !== null) band.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- (a tool taken up ends the marking; band is new each time)
+  }, [tool]);
 
   useEffect(() => {
     void edits.start();
@@ -108,6 +131,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
   useEffect(() => () => view.setBrush(null), [view]);
 
   const brushWheel = useEffectEvent((what: "radius" | "height", by: number) => {
+    if (tool === null) return band.wheel(what, by);
     setBrush(b => (what === "radius" ? {...b, radius: stepped(b.radius, by, 1, MIN_RADIUS, MAX_RADIUS)}
                                      : {...b, height: stepped(b.height, by, 1, MIN_HEIGHT, MAX_HEIGHT)}));
   });
@@ -129,7 +153,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
       const r = await post<{height: HeightChange; standing: number}>(`/api/editor/${encodeURIComponent(name)}/brush`, body);
       const failed = r.error || !r.height ? r.error ?? "no answer" : edits.canEdit() ? null : "this track can't be changed now";
       if (failed) {
-        view.takeBackPreview();
+        view.dropPreview();
         return setBrushNote(`Not changed: ${failed}`);
       }
       edits.addHeight(r.height!);
@@ -254,14 +278,15 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
       if (control && key === "s") e.preventDefault();
       return;
     }
-    if (e.key !== "Escape" && (e.target as HTMLElement).tagName === "INPUT") return;      // (a brush's number keeps its own keys)
+    if (e.key !== "Escape" && e.key !== "Enter" && (e.target as HTMLElement).tagName === "INPUT") return;      // (a tool's number keeps its own keys)
     if (e.key === "Delete") remove();
     else if (e.key === "Escape") {
       setMenu(null);
       setMarked(null);
-      if (!view.cancelStroke()) setTool(null);          // (a stroke under way goes first, then the tool)
+      if (!view.cancelStroke() && !band.cancel()) setTool(null);     // (a stroke under way goes first, a marking, then the tool)
       view.focus();
-    } else if (!control && key === "b") setTool(tool === "brush" ? null : "brush");
+    } else if (e.key === "Enter" && band.apply()) view.focus();
+    else if (!control && key === "h") setTool(tool === "brush" ? null : "brush");
     else if (!control && key === "x") setTool(tool === "delete" ? null : "delete");
     else if (control && key === "z") {
       void edits.inTurn(() => (e.shiftKey ? edits.redo() : edits.undo()));
@@ -287,7 +312,7 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
           <button type="button" disabled={(!removable && !marked) || !editable} onClick={then(remove)}>Delete</button>
           <button type="button" disabled={!changed || !editable} onClick={then(() => void edits.inTurn(() => edits.discard()))}>Discard</button>
           <button type="button" id="edit-brush" className={painting ? styles.on : ""} aria-pressed={painting} disabled={!editable}
-                  title="Raise or lower the ground: click or drag over it (B; Esc ends it)" onClick={then(() => { setTool(tool === "brush" ? null : "brush"); setBrushNote(null); })}>Brush</button>
+                  title="Raise or lower the ground: click, or hold and move (H; Esc ends it)" onClick={then(() => { setTool(tool === "brush" ? null : "brush"); setBrushNote(null); })}>Elevation</button>
           <button type="button" id="edit-click-deletes" className={deleting ? styles.on : ""} aria-pressed={deleting} disabled={!editable}
                   title="Each click deletes what is under it, Ctrl+Z brings it back (X; Esc ends it)" onClick={then(() => setTool(tool === "delete" ? null : "delete"))}>Click deletes</button>
           <span className={styles.split}>
@@ -314,6 +339,21 @@ export function EditTools({name, title, taken, view, scene, reopen, onSaved}: {
                    onChange={e => setBrush({...brush, radius: e.target.valueAsNumber || 0})} /> m</label>
             <label className={styles.number} title="How much of the radius fades out softly: 100 % a round hill, 10 % a flat top with a steep edge">Soft edge <input type="number" min={10} max={100} step={10} value={brush.soft}
                    onChange={e => setBrush({...brush, soft: e.target.valueAsNumber || 0})} /> %</label>
+          </div>
+        )}
+        {band.points.length === 1 && <p id="edit-band" className={styles.line}>A is set: click B further along the road (Esc drops it).</p>}
+        {band.points.length > 1 && (
+          <div id="edit-band" className={styles.row}>
+            {band.line && (
+              <>
+                <b className={styles.toolName}>Smooth</b>
+                <label className={styles.number} title="From short waves only, the hills stay, up to a calm line from A to B (Alt + wheel)">Strength <input type="number" min={0} max={100} step={5} value={band.strength}
+                       onChange={e => band.setStrength(e.target.valueAsNumber || 0)} /> %</label>
+                <label className={styles.number} title="How wide the band is: at first the road's own (Ctrl + wheel)">Width <input type="number" min={3} max={60} value={Math.round(band.width)}
+                       onChange={e => band.setWidth(e.target.valueAsNumber || null)} /> m</label>
+              </>
+            )}
+            <span className={styles.state}>Enter takes it, Esc drops it. A click on the road adds a pin: drag it, right-click takes it away</span>
           </div>
         )}
         {brushNote && <p id="edit-brush-note" className={styles.line}>{brushNote}</p>}

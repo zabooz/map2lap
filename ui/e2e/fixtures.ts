@@ -7,7 +7,7 @@ import {test as base, expect, type Locator, type Page} from "@playwright/test";
 const REPO = join(import.meta.dirname, "..", "..");
 const PYTHON = process.platform === "win32" ? join(REPO, ".venv", "Scripts", "python.exe") : join(REPO, ".venv", "bin", "python");
 
-interface Backend {
+export interface Backend {
   url: string;
   post: (path: string, body?: object) => Promise<void>;
   calls: () => Promise<unknown[][]>;

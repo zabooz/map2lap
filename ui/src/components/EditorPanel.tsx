@@ -31,7 +31,7 @@ export function EditorPanel({tracks, choice, status, onChoose}: {tracks: Track[]
       <p className="small muted">Click an object, such as a tree, a parked car, a house, a sign, a fence or a power line, and press Delete to take it out, Ctrl+Z brings it back. Right-click it to
         mark all of its sort. Changes are kept by themselves; Save writes the track for Assetto Corsa, ▾ saves it as a new track.
         What was deleted can be brought back after any Save.</p>
-      <p className="small muted">B: the brush raises or lowers the ground, with the road and what stands on it: a click by its height, held more and more where the ring is, each one Ctrl+Z. X: each click deletes what is under it.</p>
+      <p className="small muted">H: Elevation raises or lowers the ground, with the road and what stands on it: a click by its height, held more and more where the ring is, each one Ctrl+Z. X: each click deletes what is under it. Two clicks on the road mark a stretch of it, and Smooth evens it out; further clicks add pins that say which way it goes.</p>
       <p className="small muted">W A S D move, the right mouse button takes the ground along, the wheel zooms, held it turns: all keys under Settings → Editor.</p>
     </section>
   );

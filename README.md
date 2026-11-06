@@ -38,9 +38,13 @@ Steam. Before the first track:
 - **A complete world:** terrain, roads, bridges, tunnels, buildings, street furniture, guardrails, pylons, rivers and
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
-- **Brush (Editor, B):** raise or lower the ground, with the road and what stands on it: a click by its height, held more and more
+- **Elevation (Editor, H):** raise or lower the ground, with the road and what stands on it: a click by its height, held more and more
   where the ring is, Shift the other way, Ctrl or Alt with the wheel for its radius or height; each is one undo. Save writes it into the
   track without a build. A change that reaches a bridge, a tunnel or a railway is refused. **X:** each click deletes what is under it.
+- **Smooth (Editor):** two clicks on the road mark a stretch, and a band follows it, up to a wall and not over it; further clicks add pins
+  that say which way it goes, to drag or take away with a right click. Smooth evens it out, from short waves to a calm curve by its strength,
+  and it goes on from the road's slope beyond with no edge; set the clicks before and behind the bad part. A bank or a side road beside it stays
+  as it stood to the road.
 - **My tracks:** under **Built**, rebuild a track with the latest version, build a copy, delete it, or **▶ Play** it straight
   away. Tracks saved in the Editor stand under **Edited**: open them again, build a new copy from the map, delete them or play
   them; no build replaces them.

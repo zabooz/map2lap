@@ -34,6 +34,7 @@ export interface EditState {
   sorts: string[];              // whole sorts of trees and bushes left out: a rule, a long track's trees wouldn't fit a list of ids
   objectSorts: string[];        // whole sorts of listed objects left out (all parked cars, all benches), the same way
   heights: HeightChange[];
+  keptRevision: number;         // the list's revision on the server: a new one, what is reckoned from it holds no more
   recipe: Recipe | null;        // null: never saved, or built again since
   canUndo: boolean;
   canRedo: boolean;
@@ -78,7 +79,7 @@ const sameEdits = (a: Edits, b: Edits) =>
     them. bind() says which state of the track file the view shows: the numbers in a list only mean anything for one, so nothing can
     be changed while the two differ. */
 export class TrackEdits {
-  private now: EditState = {...NONE, recipe: null, canUndo: false, canRedo: false, save: "loading", outdated: 0, error: null};
+  private now: EditState = {...NONE, keptRevision: 0, recipe: null, canUndo: false, canRedo: false, save: "loading", outdated: 0, error: null};
   private onMeshes: (meshes: number[], revision: number) => void = () => {};
   private turns: Promise<unknown> = Promise.resolve();
   private past: Edits[] = [];
@@ -204,7 +205,7 @@ export class TrackEdits {
       this.unanswered = [];
       const s = d.saved;
       const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts, heights: s.heights ?? []} : null;
-      this.set({...edits, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
+      this.set({...edits, keptRevision: d.revision, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
       this.compare();
     } catch (e) {
       if (asked === this.asked) this.set({save: "stuck", error: (e as Error).message});
@@ -338,6 +339,7 @@ export class TrackEdits {
       this.onServer = edits;
       this.unanswered = this.unanswered.filter(u => u.number > number);
       this.onMeshes(d.meshes ?? [], d.revision);
+      this.set({keptRevision: d.revision});
       if (!this.isSaved()) return void this.flush(leaving);
       if (!this.sending) this.set({save: "saved", error: null});
     } catch (e) {

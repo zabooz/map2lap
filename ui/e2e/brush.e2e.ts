@@ -279,11 +279,11 @@ test("the brush held: what a stroke that is over was refused says nothing about 
   await expect(page.locator("#edit-brush-note")).toBeHidden();
 });
 
-test("B turns the brush on and off, Ctrl and Alt with the wheel set its radius and height", async ({page}) => {
+test("H turns the brush on and off, Ctrl and Alt with the wheel set its radius and height", async ({page}) => {
   await openEditor(page);
   const c = await centre(scene(page));
   await page.mouse.move(c.x, c.y + 40);
-  await page.keyboard.press("b");
+  await page.keyboard.press("h");
   const set = page.locator("#edit-brush-set");
   await expect(set).toBeVisible();
   await expect(set.getByLabel("Radius")).toHaveValue("5");
@@ -309,7 +309,7 @@ test("B turns the brush on and off, Ctrl and Alt with the wheel set its radius a
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, -100);                                  // (the view doesn't zoom)
   await page.keyboard.up("Control");
-  await page.keyboard.press("b");
+  await page.keyboard.press("h");
   await expect(set).toBeHidden();
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
 });
@@ -333,7 +333,7 @@ test("X: each click deletes what is under it, what can't go stays, a right click
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await page.keyboard.press("Control+z");
   await expect(page.locator("#edit-count")).toBeHidden();
-  await page.keyboard.press("b");                                   // (one tool at a time)
+  await page.keyboard.press("h");                                   // (one tool at a time)
   await expect(page.locator("#edit-click-deletes")).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator("#edit-brush")).toHaveAttribute("aria-pressed", "true");
 });

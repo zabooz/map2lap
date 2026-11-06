@@ -184,8 +184,8 @@ const KEYS: [string, string][] = [
   ["W A S D", "Move over the ground, at the same height"], ["Right drag", "Take the ground along"],
   ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["Click", "Pick an object"],
   ["Right click", "Its menu: Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
-  ["B", "The brush: on and off"], ["Ctrl+Wheel, Alt+Wheel", "The brush's radius, its height"], ["Shift", "The brush the other way"],
-  ["X", "Click deletes: on and off"],
+  ["H", "Elevation: on and off"], ["Ctrl+Wheel, Alt+Wheel", "Elevation: radius, height; a marked road: width, strength"], ["Shift", "Elevation the other way"],
+  ["X", "Click deletes: on and off"], ["Click on the road", "Mark it: A, then B"], ["Enter", "Take what a marked road shows"],
   ["Esc", "End a marking, a stroke or a tool, close the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
 ];
 

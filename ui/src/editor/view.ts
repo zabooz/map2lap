@@ -43,6 +43,7 @@ export interface Picked {
   sort: string | null;
   position: [number, number, number];
   left: boolean;                // (by the left button, not for a menu)
+  road: [number, number] | null;    // (AC x, z, if it is the road itself: asphalt, with nothing on it)
 }
 
 /** Where a right click asks for its menu: in the view's pixels, with the view's size. */
@@ -52,6 +53,9 @@ export interface MenuAt {
   width: number;
   height: number;
 }
+
+/** A place in the world: AC x, height, AC z. */
+export type Place = [number, number, number];
 
 /** Where the brush's ring was: AC x, AC z, seconds since the sample before. */
 export type Sample = [number, number, number];
@@ -152,6 +156,11 @@ const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar:
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
 const LEFT_BUTTON = 0;
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
+const ROAD = /^1ROAD_ground/;       // what a click marks a band on (trackband: the road is this)
+const BAND_COLOUR = "#27d3c3";
+const BAND_UP_M = 0.3;              // (the band's lines over the road)
+const PIN_PX = 14;                  // a band's pin on the screen, and how near the mouse has to be to take it
+const MARK_M = 1.5;                 // (the cross at A, until there is a band)
 const SAMPLE_EVERY_MS = 50;         // where the ring is, this often while the mouse is held: finer than a hand moves it, and it counts the time where it stands
 const SAME_PLACE_M = 0.25;          // a sample this near the last one counts as standing there: a long hold on one spot stays one sample
 const MOST_SAMPLES = 5000;          // (trackheights.MAX_STROKE_POINTS)
@@ -274,6 +283,26 @@ export function addSample(samples: Sample[], x: number, z: number, seconds: numb
   else samples.push([last[0], last[1], seconds]);
 }
 
+/** The band's lines as flat x, y, z pairs: its two edges along line, its ends across, a little over the road. Pure. */
+export function bandLines(line: Place[], width: number) {
+  const out: number[] = [], half = width / 2;
+  const side = (k: number) => {
+    const a = line[Math.max(0, k - 1)], b = line[Math.min(line.length - 1, k + 1)], l = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1;
+    return [(b[2] - a[2]) / l * half, (a[0] - b[0]) / l * half];
+  };
+  const left = (k: number) => { const [dx, dz] = side(k); return [line[k][0] + dx, line[k][1] + BAND_UP_M, line[k][2] + dz]; };
+  const right = (k: number) => { const [dx, dz] = side(k); return [line[k][0] - dx, line[k][1] + BAND_UP_M, line[k][2] - dz]; };
+  for (let k = 0; k + 1 < line.length; k++) out.push(...left(k), ...left(k + 1), ...right(k), ...right(k + 1));
+  out.push(...left(0), ...right(0), ...left(line.length - 1), ...right(line.length - 1));
+  return out;
+}
+
+/** A cross at a place, as flat x, y, z pairs. Pure. */
+function crossLines([x, y, z]: Place) {
+  const up = y + BAND_UP_M;
+  return [x - MARK_M, up, z, x + MARK_M, up, z, x, up, z - MARK_M, x, up, z + MARK_M];
+}
+
 /** How far from centre a sphere has to reach to hold a box: to its farthest corner, not only to its two named ones. Pure. */
 export function reachOfBox(centre: readonly number[], low: readonly number[], high: readonly number[]) {
   return Math.hypot(...centre.map((c, axis) => Math.max(Math.abs(low[axis] - c), Math.abs(high[axis] - c))));
@@ -367,7 +396,19 @@ export class TrackView {
   private onBrushWheel: (what: "radius" | "height", by: number) => void = () => {};
   private ring: THREE.LineLoop | null = null;
   private stroke: {samples: Sample[]; lower: boolean; at: number; timer: ReturnType<typeof setInterval>; asked: number; asking: boolean; look: string} | null = null;
-  private previewed = new Set<number>();    // the meshes that show a stroke under way: fetched anew when it is taken over or dropped
+  private previewed = new Set<number>();    // the meshes that show a preview: fetched anew when it is taken over
+  private underPreview = new Map<number, Map<number, [number, number, number, number]>>();  // per such mesh what its vertices were: y and normal
+  private previewShown = new Map<number, {numbers: Uint32Array; values: Float32Array}>();   // the preview in place, per mesh: it goes on again over what is fetched
+  private wheelTaken = false;           // Ctrl and Alt with the wheel are the tool's
+  private marking: ((x: number, z: number) => void) | null = null;
+  private pins: Place[] = [];
+  private pinMarks: THREE.Points | null = null;
+  private pinTexture: THREE.CanvasTexture | null = null;
+  private dragged: {pin: number; x: number; y: number; from: Place} | null = null;
+  private onPinMoved: (pin: number, x: number, z: number) => void = () => {};
+  private onPinTaken: (pin: number) => void = () => {};
+  private onClicked: (picked: Picked | null) => void = () => {};
+  private band: THREE.LineSegments | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -386,6 +427,7 @@ export class TrackView {
     this.flyKeys(this.renderer.domElement);
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
+    this.dragPins(this.renderer.domElement);
     this.strokes(this.renderer.domElement);
     this.resizing = new ResizeObserver(() => this.resize());
     this.resizing.observe(host);
@@ -732,7 +774,7 @@ export class TrackView {
   private zoomWheel(el: HTMLElement) {
     el.addEventListener("wheel", e => {
       e.preventDefault();
-      if (this.brush && (e.ctrlKey || e.altKey)) {
+      if ((this.brush || this.wheelTaken) && (e.ctrlKey || e.altKey)) {
         if (e.deltaY) this.onBrushWheel(e.altKey ? "height" : "radius", e.deltaY < 0 ? 1 : -1);
         return;
       }
@@ -822,11 +864,177 @@ export class TrackView {
     return true;
   }
 
-  /** What shows of a stroke under way goes: it won't come. */
+  /** The vertices a preview changed as they were. It can show less than the one before, so nothing of that may stay. */
   takeBackPreview() {
+    for (const [i, vertices] of this.underPreview) {
+      const m = this.byNumber.get(i);
+      if (!m) continue;
+      const data = (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data, array = data.array;
+      for (const [number, was] of vertices) {
+        const v = number * FLOATS_PER_VERTEX;
+        array[v + 1] = was[0];
+        array[v + 3] = was[1];
+        array[v + 4] = was[2];
+        array[v + 5] = was[3];
+      }
+      data.needsUpdate = true;
+      fitSphere(m.geometry, m.userData.info as MeshInfo);
+      m.geometry.boundsTree?.refit();
+      this.previewed.delete(i);
+      this.dirty = true;
+    }
+    this.underPreview.clear();
+    this.previewShown.clear();
+  }
+
+  /** What a preview shows stays until the server hands out the meshes: it is being taken over. */
+  keepPreview() {
+    this.underPreview.clear();
+    this.previewShown.clear();
+  }
+
+  /** ... it wasn't: they are fetched as they are. */
+  dropPreview() {
     const shown = [...this.previewed];
     this.previewed.clear();
     for (const i of shown) void this.refresh(i);
+  }
+
+  /** Whether Ctrl and Alt with the wheel go to setBrushWheel's: a band is marked. */
+  setWheelTaken(taken: boolean) {
+    this.wheelTaken = taken;
+  }
+
+  /** onClicked gets what the left button clicked, null for nothing there: picked already, and what a marking goes by. */
+  setClicked(onClicked: (picked: Picked | null) => void) {
+    this.onClicked = onClicked;
+  }
+
+  /** While a band is being marked: marking gets where the mouse is on the road, as often as the hover box would. */
+  setMarking(marking: ((x: number, z: number) => void) | null) {
+    this.marking = marking;
+  }
+
+  /** The height of the ground at x, z, or the last one known. */
+  heightOfGround(x: number, z: number) {
+    return this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0))?.point.y ?? this.lastGround;
+  }
+
+  /** The band along line, its width in m on the road; one place: a cross, null: none. */
+  drawBand(line: Place[] | null, width: number) {
+    if (this.band) {
+      this.scene.remove(this.band);
+      this.band.geometry.dispose();
+      (this.band.material as THREE.Material).dispose();
+      this.band = null;
+    }
+    this.dirty = true;
+    if (!line?.length) return;
+    const lines = line.length === 1 ? crossLines(line[0]) : bandLines(line, width);
+    this.band = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(lines, 3)),
+                                       new THREE.LineBasicMaterial({color: BAND_COLOUR, depthTest: false, transparent: true}));
+    this.band.renderOrder = 10;
+    this.band.frustumCulled = false;
+    this.scene.add(this.band);
+  }
+
+  /** The pins of a band where they are, as round marks of one size whatever the distance; each can be dragged and taken away (setPinned). None: []. */
+  drawPins(pins: Place[]) {
+    this.pins = pins;
+    this.dragged = null;
+    if (this.pinMarks) {
+      this.scene.remove(this.pinMarks);
+      this.pinMarks.geometry.dispose();
+      (this.pinMarks.material as THREE.Material).dispose();
+      this.pinMarks = null;
+    }
+    this.dirty = true;
+    if (!pins.length) {
+      this.renderer.domElement.style.cursor = "";      // (none left to say it over)
+      return;
+    }
+    this.pinMarks = new THREE.Points(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(pins.flatMap(([x, y, z]) => [x, y + BAND_UP_M, z]), 3)),
+                                     new THREE.PointsMaterial({color: BAND_COLOUR, size: PIN_PX, sizeAttenuation: false, map: this.pinImage(), alphaTest: 0.5, depthTest: false, transparent: true}));
+    this.pinMarks.renderOrder = 11;
+    this.pinMarks.frustumCulled = false;
+    this.scene.add(this.pinMarks);
+  }
+
+  /** A round mark with a light middle, made once. */
+  private pinImage() {
+    if (this.pinTexture) return this.pinTexture;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 32;
+    const c = canvas.getContext("2d")!;
+    c.fillStyle = "#ffffff";
+    c.beginPath();
+    c.arc(16, 16, 15, 0, 2 * Math.PI);
+    c.fill();
+    this.pinTexture = new THREE.CanvasTexture(canvas);
+    return this.pinTexture;
+  }
+
+  /** moved gets a pin's number and where it was dragged to, taken the number of one a right click took away. */
+  setPinned(moved: (pin: number, x: number, z: number) => void, taken: (pin: number) => void) {
+    this.onPinMoved = moved;
+    this.onPinTaken = taken;
+  }
+
+  /** The number of the pin under the mouse, -1: none. */
+  private pinAt(e: MouseEvent, el: HTMLElement) {
+    const r = el.getBoundingClientRect(), at = new THREE.Vector3();
+    let best = -1, least = PIN_PX;
+    this.pins.forEach(([x, y, z], k) => {
+      at.set(x, y + BAND_UP_M, z).project(this.camera);
+      const apart = Math.hypot((at.x + 1) / 2 * r.width + r.left - e.clientX, (1 - at.y) / 2 * r.height + r.top - e.clientY);
+      if (at.z < 1 && apart < least) {
+        least = apart;
+        best = k;
+      }
+    });
+    return best;
+  }
+
+  /** A pin held no more without a place to go: back where it was, as the page has it. */
+  private dropDragged() {
+    const held = this.dragged;
+    this.dragged = null;
+    if (!held || !this.pinMarks) return;
+    this.pins[held.pin] = held.from;
+    const [x, y, z] = held.from;
+    (this.pinMarks.geometry.getAttribute("position") as THREE.BufferAttribute).setXYZ(held.pin, x, y + BAND_UP_M, z).needsUpdate = true;
+    this.dirty = true;
+  }
+
+  /** The left button on a pin takes it along over the ground; let go, it says where. Under the mouse the pointer says that it can. */
+  private dragPins(el: HTMLElement) {
+    el.addEventListener("pointerdown", e => {
+      if (e.button !== LEFT_BUTTON || this.brush) return;
+      const pin = this.pinAt(e, el);
+      if (pin < 0) return;
+      this.dragged = {pin, x: e.clientX, y: e.clientY, from: this.pins[pin]};
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener("pointermove", e => {
+      if (!this.dragged) {
+        if (this.pins.length) el.style.cursor = this.pinAt(e, el) >= 0 ? "grab" : "";
+        return;
+      }
+      this.mouse = screenPoint(e, el);
+      const at = this.brushAt();
+      if (!at || !this.pinMarks) return;
+      this.pins[this.dragged.pin] = [at.x, at.y, at.z];
+      (this.pinMarks.geometry.getAttribute("position") as THREE.BufferAttribute).setXYZ(this.dragged.pin, at.x, at.y + BAND_UP_M, at.z).needsUpdate = true;
+      this.dirty = true;
+    });
+    el.addEventListener("pointerup", e => {
+      const held = this.dragged;
+      if (!held || e.button !== LEFT_BUTTON) return;
+      if (Math.hypot(e.clientX - held.x, e.clientY - held.y) < CLICK_PX) return this.dropDragged();     // (a click with a shaky hand)
+      this.dragged = null;
+      this.onPinMoved(held.pin, this.pins[held.pin][0], this.pins[held.pin][2]);
+    });
+    el.addEventListener("pointercancel", () => this.dropDragged());
   }
 
   /** The ring's place now noted, and if it is time the stroke asked for as it is. */
@@ -858,30 +1066,41 @@ export class TrackView {
     }
   }
 
-  /** The answer to askPreview into the meshes loaded, on the vertices it names. */
-  private showPreview(buf: ArrayBuffer) {
+  /** What trackedits.preview answered into the meshes loaded, on the vertices it names, instead of the preview before. */
+  showPreview(buf: ArrayBuffer) {
+    this.takeBackPreview();
     const head = new Uint32Array(buf);
     let word = 1;
     for (let mesh = 0; mesh < head[0]; mesh++) {
-      const i = head[word], count = head[word + 1], numbers = head.subarray(word + 2, word + 2 + count);
-      const values = new Float32Array(buf, (word + 2 + count) * 4, count * FIELDS_PER_CHANGE);
+      const i = head[word], count = head[word + 1];
+      this.previewShown.set(i, {numbers: head.subarray(word + 2, word + 2 + count),
+                                values: new Float32Array(buf, (word + 2 + count) * 4, count * FIELDS_PER_CHANGE)});
       word += 2 + count + count * FIELDS_PER_CHANGE;
-      const m = this.byNumber.get(i);
-      if (!m) continue;
-      const data = (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data, array = data.array;
-      for (let k = 0; k < count; k++) {
-        const v = numbers[k] * FLOATS_PER_VERTEX, c = k * FIELDS_PER_CHANGE;
-        array[v + 1] = values[c];
-        array[v + 3] = values[c + 1];
-        array[v + 4] = values[c + 2];
-        array[v + 5] = values[c + 3];
-      }
-      data.needsUpdate = true;
-      fitSphere(m.geometry, m.userData.info as MeshInfo);
-      m.geometry.boundsTree?.refit();
-      this.previewed.add(i);
+      this.laidOver(i);
     }
     this.dirty = true;
+  }
+
+  /** The preview in place, on mesh number i if it is loaded, noting what it covers. */
+  private laidOver(i: number) {
+    const shown = this.previewShown.get(i), m = this.byNumber.get(i);
+    if (!shown || !m) return;
+    const {numbers, values} = shown;
+    const data = (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data, array = data.array;
+    const under = new Map<number, [number, number, number, number]>();
+    this.underPreview.set(i, under);
+    for (let k = 0; k < numbers.length; k++) {
+      const v = numbers[k] * FLOATS_PER_VERTEX, c = k * FIELDS_PER_CHANGE;
+      under.set(numbers[k], [array[v + 1], array[v + 3], array[v + 4], array[v + 5]]);
+      array[v + 1] = values[c];
+      array[v + 3] = values[c + 1];
+      array[v + 4] = values[c + 2];
+      array[v + 5] = values[c + 3];
+    }
+    data.needsUpdate = true;
+    fitSphere(m.geometry, m.userData.info as MeshInfo);
+    m.geometry.boundsTree?.refit();
+    this.previewed.add(i);
   }
 
   /** onBrushWheel gets the wheel over the view with the brush set and Ctrl (its radius) or Alt (its height) held: a notch up, 1, down, -1. */
@@ -893,8 +1112,9 @@ export class TrackView {
       revision: those loaded are fetched anew. The changes aren't reckoned here: there is one reckoning, the server's, which Save uses too. */
   refreshMeshes(meshes: number[], revision: number) {
     this.draft = revision;
-    const all = new Set([...meshes, ...this.previewed]);    // (what showed the stroke, whether or not the server names it)
-    this.previewed.clear();
+    // (a preview taken over: what showed it, whether or not the server names it. One still in place goes on again over what comes: takeVertices)
+    const all = new Set(this.previewShown.size ? meshes : [...meshes, ...this.previewed]);
+    if (!this.previewShown.size) this.previewed.clear();
     if (!all.size) return;
     this.heightsVersion++;
     for (const i of all) void this.refresh(i);
@@ -926,8 +1146,10 @@ export class TrackView {
     const data = (g.getAttribute("position") as THREE.InterleavedBufferAttribute).data;
     data.array.set(new Float32Array(buf, 0, info.vertices * FLOATS_PER_VERTEX));
     data.needsUpdate = true;
+    this.underPreview.delete(info.i);       // (what it covered is no more: what lies under it is what just came)
     fitSphere(g, info);
     g.boundsTree?.refit();
+    this.laidOver(info.i);
     if (this.marked) this.markDue = true;
     this.dirty = true;
     this.hoverDue = true;
@@ -992,6 +1214,7 @@ export class TrackView {
       const {samples, lower, timer} = this.stroke;
       clearInterval(timer);
       this.stroke = null;
+      this.keepPreview();
       this.onStroke(samples, lower);
     });
     el.addEventListener("pointercancel", () => this.cancelStroke());
@@ -1008,15 +1231,19 @@ export class TrackView {
   private clicks(el: HTMLElement) {
     let from: {x: number; y: number; button: number} | null = null;
     el.addEventListener("pointerdown", e => {
-      from = (e.button === 0 && !this.brush) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
+      // (a press on a pin is the pin's: it is dragged, a right click takes it away)
+      from = (e.button === 0 && !this.brush && this.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
     });
     el.addEventListener("pointermove", e => {
       if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_PX) from = null;
     });
     el.addEventListener("pointerup", e => {
-      if (from && e.button === from.button) {
+      const pin = from?.button === 2 && e.button === 2 ? this.pinAt(e, el) : -1;
+      if (pin >= 0) this.onPinTaken(pin);
+      else if (from && e.button === from.button) {
         const picked = this.pick(e, el), r = el.getBoundingClientRect();
         if (e.button === 2 && picked) this.onMenu({x: e.clientX - r.left, y: e.clientY - r.top, width: r.width, height: r.height});
+        if (e.button === LEFT_BUTTON) this.onClicked(picked);
       }
       from = null;
     });
@@ -1036,7 +1263,8 @@ export class TrackView {
     this.mark(bounds);
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
     const picked = {id: hovered.id, afterBuild: !hovered.id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
-                    sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON};
+                    sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
+                    road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null};
     this.onPick(picked);
     return picked;
   }
@@ -1165,6 +1393,10 @@ export class TrackView {
   /** What the mouse points at now, told to onHover. */
   private hover() {
     if (!this.mouse || !this.data || this.brush) return;     // (the brush shows its ring instead)
+    if (this.marking) {
+      const at = this.brushAt();
+      if (at) this.marking(at.x, at.z);
+    }
     const hit = timed("map2lap.hover", () => this.hit());
     this.onHover(hit ? this.describe(hit) : null);
   }
@@ -1507,6 +1739,7 @@ export class TrackView {
       this.parts.get(info.base)!.push(m);
     }
     this.byNumber.set(info.i, m);
+    this.laidOver(info.i);
     for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(m, piece, true);
     if (info.base !== null && info.base !== undefined) {
       for (const id of this.billboardsOut.get(info.base) ?? []) {

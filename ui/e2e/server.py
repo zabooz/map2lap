@@ -75,17 +75,22 @@ def mesh(name, mat, pos, normal, uv, indices):
                     bs_radius=float(np.linalg.norm(p - center, axis=1).max()), renderable=1)
 
 
-def ground(name, mat, x0, z0, size=TILE, y=0.0):
-    """A flat square from (x0, z0) on, its triangles facing up, as the ground's."""
-    n, step = GRID + 1, size / GRID
-    pos = [(x0 + i * step, y, z0 + j * step) for j in range(n) for i in range(n)]
-    uv = [(i / GRID, -j / GRID) for j in range(n) for i in range(n)]
+def ground(name, mat, x0, z0, size=TILE, y=0.0, grid=GRID, height=None):
+    """A flat square from (x0, z0) on, its triangles facing up, as the ground's; grid: cells a side; height(z): how high, instead of y."""
+    n, step = grid + 1, size / grid
+    pos = [(x0 + i * step, height(z0 + j * step) if height else y, z0 + j * step) for j in range(n) for i in range(n)]
+    uv = [(i / grid, -j / grid) for j in range(n) for i in range(n)]
     tri = []
-    for j in range(GRID):
-        for i in range(GRID):
+    for j in range(grid):
+        for i in range(grid):
             a, b, c, d = j * n + i, (j + 1) * n + i, j * n + i + 1, (j + 1) * n + i + 1
             tri += [a, b, c, c, b, d]
     return mesh(name, mat, pos, [(0, 1, 0)] * len(pos), uv, tri)
+
+
+def hill_at(z):
+    """A hill of 3 m across the road, ahead of the start, as the smooth tool's tests want to take away."""
+    return 3.0 * math.exp(-((z + 80.0) / 18.0) ** 2)
 
 
 def billboards(name, mat, items):
@@ -158,11 +163,12 @@ def pole_with_wires(number, mat, two=False):
     return [node, wire], entry
 
 
-def make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False):
+def make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
-    power pole with a span of wires, listed ("two": a pole at each end of the span, which they share)."""
+    power pole with a span of wires, listed ("two": a pole at each end of the span, which they share). hill: the road tile on the
+    2 m lattice of a real build, with a hill across it."""
     root = os.path.join(AC, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     with open(ATLAS, "rb") as f:
@@ -174,7 +180,8 @@ def make_track(name, title, files=True, built=None, track_version=None, north=42
     # (x, north, up, yaw, height, random value; the second stands on the road ahead of the start)
     items = [("deciduous", 40.0, 200.0, 0.0, 0.0, 12.0, 0.1), ("deciduous", 128.0, 130.0, 0.0, 0.0, 30.0, 0.1)]
     tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
-    tree.children = [ground("1ROAD_ground_0_0", 0, 0.0, -TILE), ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
+    road = ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=int(TILE / 2), height=hill_at) if hill else ground("1ROAD_ground_0_0", 0, 0.0, -TILE)
+    tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
                      *([billboards("nocol_trees_0_0", 2, items)] if with_trees else []),
                      ground("nocol_far_1", 3, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
     listed = {}
@@ -326,7 +333,7 @@ class Handler(server.Handler):
             release.update(body)
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)
             make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True), car=body.get("car"), house=body.get("house", False),
-                       pole=body.get("pole", False))
+                       pole=body.get("pole", False), hill=body.get("hill", False))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

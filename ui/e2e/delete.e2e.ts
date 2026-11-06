@@ -387,10 +387,11 @@ test("a tree deleted by itself stays out when its sort comes back", async ({page
   await expect.poll(async () => (await picture(page)).equals(one)).toBe(true);
 });
 
-test("the road can't be deleted: it says so, Delete does nothing", async ({page}) => {
+test("the road can't be deleted: with click deletes it says so, Delete does nothing", async ({page}) => {
   await openEditor(page);
   const before = await picture(page);
   const c = await centre(scene(page));
+  await page.keyboard.press("x");
   await page.mouse.click(c.x, c.y);
   await expect(page.locator("#edit-picked")).toContainText("Road surface: can't be deleted yet");
   await expect(button(page, "Delete")).toBeDisabled();

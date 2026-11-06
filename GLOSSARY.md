@@ -11,7 +11,7 @@ _Avoid_: server, the page's server
 
 **Editor**:
 The generator page's tab that shows and inspects a built track in 3D, from its kn5 (`app/trackview.py`, `ui/src/editor`).
-Geometry editing is not available yet.
+It takes objects out and changes the ground's height (**Height change**); what is saved stays in the track file, a build makes new ones.
 
 **Object list**:
 The build's list of a track's single objects: `data/map2lap_objects.json` beside the kn5 (`track/objectlist.py`). Meshes stay merged
@@ -32,6 +32,10 @@ saved so stands under "Edited" in My tracks: its own work, no build replaces it.
 **Height change** (Editor):
 A raster of how far the ground moves at each of its points, in whole mm, on the ground's 2 m lattice, 0 at its edge (`app/trackheights.py`). It
 is part of the draft and the recipe. Save adds up all of them over the track's source, so an undo or a second Save never adds to what is there.
+
+**Band** (Editor):
+A marked stretch of road, A to B by two clicks, following the road surface (`app/trackband.py`, `ui/src/editor/useBand.ts`); what a tool such as Smooth
+works on. Its **own road** is the 1ROAD that stands to its line as a road can across: a bank or a side road at another level beside it is not, and goes along.
 
 **Source**:
 A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`

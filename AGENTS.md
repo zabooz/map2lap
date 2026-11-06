@@ -59,7 +59,8 @@ the sort the build wrote: all cars, all benches; never all houses), out of its v
 with its kn5 filtered, no build), in its place or as a copy; the kn5 as it was is kept as the track's source (`app/tracksource.py`,
 `out/sources`; a first Save in place keeps the old file by a hardlink, one file with the track's only while that Save runs), which the
 Editor shows from then on, so what was deleted can come back.
-The brush makes a height change on the server (`app/trackheights.py`, a raster the draft holds; while held, what it changes so far comes back without being kept): it moves the ground of the kn5 and what lies along it, vertex by vertex; single
+Two clicks on the road mark a band that follows it, by the road surface and its heights alone, not over a wall (`app/trackband.py`, `ui/src/editor/useBand.ts`; further clicks are pins, `pins.ts`), for the tools that work on a stretch: Smooth so far.
+Elevation (the brush, H) and those tools make a height change on the server (`app/trackheights.py`, a raster the draft holds; while it is under way, what it changes so far comes back without being kept): it moves the ground of the kn5 and what lies along it, vertex by vertex; single
 objects move whole, wires go from pole to pole; water stays, and one that reaches a deck or a railway is refused. Saving the draft names the meshes that moved; the view fetches those anew from the server, which hands them out as the
 draft says, so the view and Save have one reckoning and the page none of its own. A new kind of mesh is sorted there too (`test_trackheights.py` stops on one that isn't).
 Which triangles make up an object: `track/objectlist.py`, written by the build (parked cars, houses with their signs and doors,
