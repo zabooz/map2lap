@@ -294,6 +294,13 @@ def area_tiles(x0, y0, x1, y1):
             for tx in range(math.floor(x0 / t), math.ceil(x1 / t))]
 
 
+def _refuse_saved(name):
+    """RuntimeError if the track name in AC was saved in the Editor: every way a build goes into AC asks here, the tools' too."""
+    title = mytracks.saved_in_editor(make_track_folder.AC, name)
+    if title is not None:
+        raise RuntimeError(f"{name} was saved in the Editor as “{title}”: a build would replace it. Delete it, or build under another name")
+
+
 def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
           line=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
@@ -304,7 +311,10 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
     centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/stretch.py: no distant view, kn5 or
-    track folder; nothing goes into AC); returns {"work": the work folder}."""
+    track folder; nothing goes into AC); returns {"work": the work folder}. RuntimeError, before any work, if it would
+    replace a track saved in the Editor."""
+    if not upto:
+        _refuse_saved(slug(name))
     with plancache.one_run(os.path.join(ROOT, "cache")):
         return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line)
 
@@ -419,9 +429,11 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
 
 def finish_obj(name, title=None, log=print, progress=None):
     """A build that stopped at the OBJ parts (build(upto="obj"), tools/measure.py --kn5) on into AC, the tiles' parts as they
-    are: distant view, gates, track folder, kn5. title: else the build's. Returns as build does."""
+    are: distant view, gates, track folder, kn5. title: else the build's. Returns as build does. RuntimeError if it would
+    replace a track saved in the Editor."""
     progress = progress or (lambda phase, done, total: None)
     name = slug(name)
+    _refuse_saved(name)
     work = os.path.join(ROOT, "out", "tracks", name)
     with open(os.path.join(work, "tiles", "anchor.json"), encoding="utf-8") as f:
         anc = json.load(f)

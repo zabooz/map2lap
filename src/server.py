@@ -189,10 +189,10 @@ def settings_view():
 def saved_in_editor(name):
     """The answer (HTTP code, response) to a build that would replace the track name, saved in the Editor: its own work, which no
     build takes the place of. None for any other name. Two titles can give one name."""
-    info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
-    if ((info or {}).get("edits") or {}).get("source"):
-        return 409, {"error": f"A track saved in the Editor is called “{info['title']}”: a build can't replace it, choose another name"}
-    return None
+    title = mytracks.saved_in_editor(settings.ac_path(), name)
+    if title is None:
+        return None
+    return 409, {"error": f"A track saved in the Editor is called “{title}”: a build can't replace it, choose another name"}
 
 
 def start_build(name, title, points, width, area):

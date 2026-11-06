@@ -13,7 +13,7 @@ import numpy as np
 ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
-import generator  # noqa: E402,F401  (sets the engine's path)
+import generator  # noqa: E402  (sets the engine's path)
 from app import mytracks, trackcopy, trackedits, tracksource, trackview, version  # noqa: E402
 from track import kn5, objectlist  # noqa: E402
 
@@ -385,6 +385,21 @@ class SaveTest(Base):
             self.assertEqual((409, "idle"), (code, server.job["state"]))
             self.assertIn("saved in the Editor", answer["error"])
             run.assert_not_called()
+
+    def test_the_generator_itself_refuses_to_replace_a_saved_track(self):
+        self.edits(["t_0_0#0"])
+        with (mock.patch.object(generator.make_track_folder, "AC", self.ac), mock.patch.object(generator.plancache, "one_run"),
+              mock.patch.object(generator, "_build") as chain):
+            chain.side_effect = lambda *a: "built"
+            self.assertEqual("built", generator.build([(1, 2), (3, 4)], 100, "t"))      # (not saved yet: a build like any)
+            chain.reset_mock()
+            trackcopy.save(self.ac, "t")
+            for into_ac in (lambda: generator.build([(1, 2), (3, 4)], 100, "T"), lambda: generator.finish_obj("t")):
+                with self.assertRaisesRegex(RuntimeError, "saved in the Editor as “Tee”"):
+                    into_ac()
+            chain.assert_not_called()
+            self.assertEqual("built", generator.build([(1, 2), (3, 4)], 100, "t", upto="obj"))      # (nothing goes into AC)
+            self.assertEqual("built", generator.build([(1, 2), (3, 4)], 100, "other"))
 
     def test_an_edited_track_is_never_old_and_no_current_copy_of_a_build(self):
         self.edits(["t_0_0#0"])

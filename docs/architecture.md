@@ -54,7 +54,8 @@ counts (`trackview.served`), so what was deleted can come back after any Save. I
 the source (a hardlink until the old folder goes, taken back if the Save fails), which needs no room for a copy; a new track leaves the
 original installed, so its source is a true copy. A Save, a build and a deletion never run at once
 (`trackcopy`'s lock, asked under the server's). A saved track is its own work from then on, under Edited in My tracks: a build of its
-name is refused, asked under the same lock (`server.saved_in_editor`), and Build as copy makes a new track from the map, which has none
+name is refused, by the server under the same lock and by `generator.build` and `finish_obj` for the tools too (`mytracks.saved_in_editor`;
+OBJ parts alone stay allowed, they don't go into AC), and Build as copy makes a new track from the map, which has none
 of the edits; sources no track of their AC folder names go at the next
 start, and none while that folder isn't there. Planned editing tools will use the kept build files; viewing needs only the
 installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can

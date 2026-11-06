@@ -84,6 +84,12 @@ def _from_work(track_dir):
             "built": os.path.getmtime(kn5) if os.path.exists(kn5) else None, "line": line}
 
 
+def saved_in_editor(ac_path, name):
+    """The title of the track name if it was saved in the Editor (its own work: no build takes its place), else None."""
+    info = load(os.path.join(ac_path, "content", "tracks", name))
+    return info["title"] if ((info or {}).get("edits") or {}).get("source") else None
+
+
 def copy_name(ac_path, name, title):
     """Name and title for "Build as copy": name_2, "Title (2)" (the next free number, no work folder either)."""
     k = 2
