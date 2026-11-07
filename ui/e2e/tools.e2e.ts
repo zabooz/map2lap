@@ -46,7 +46,7 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   await openEditor(page);
   await keysOnView(page);
   expect(await pressed(page, "#edit-select")).toBe("true");
-  for (const [key, id] of [["r", "#edit-road"], ["x", "#edit-click-deletes"], ["c", "#edit-camera"], ["h", "#edit-elevation"], ["t", "#edit-smooth"]]) {
+  for (const [key, id] of [["r", "#edit-road"], ["x", "#edit-click-deletes"], ["k", "#edit-camera"], ["c", "#edit-copy"], ["h", "#edit-elevation"], ["t", "#edit-smooth"]]) {
     await page.keyboard.press(key);
     await expect(page.locator(id)).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("#edit-select")).toHaveAttribute("aria-pressed", "false");
@@ -169,12 +169,15 @@ test("Mark road's left button picks nothing, its right click on an object still 
   await expect(page.locator("#edit-picked")).toContainText("Tree");
 });
 
-test("Camera: C shows its bar and moves nothing; Shift with the wheel goes along the track and back, Ctrl its height, Alt its speed", async ({page, backend}) => {
+test("Camera: K shows its bar and moves nothing; Shift with the wheel goes along the track and back, Ctrl its height, Alt its speed", async ({page, backend}) => {
   await onHill(page, backend);
   await page.mouse.move(AWAY.x, AWAY.y);
   const first = await picture(page);
   await keysOnView(page);
   await page.keyboard.press("c");
+  await expect(page.locator("#edit-copy")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(CAMERA_BAR)).toHaveCount(0);
+  await page.keyboard.press("k");
   const bar = page.locator(CAMERA_BAR);
   await expect(bar).toContainText("Along the track");
   expect((await picture(page)).equals(first)).toBe(true);
@@ -199,7 +202,7 @@ test("Camera: Ride goes by itself and Pause stands, at the end it stops and star
   await page.mouse.move(AWAY.x, AWAY.y);
   const first = await picture(page);
   await keysOnView(page);
-  await page.keyboard.press("c");
+  await page.keyboard.press("k");
   const bar = page.locator(CAMERA_BAR), ride = page.locator("#edit-ride");
   const metre = async () => Number(/(\d+) m/.exec(await bar.innerText())![1]);
   await ride.click();
@@ -235,7 +238,7 @@ test("Camera: Ride goes by itself and Pause stands, at the end it stops and star
 test("Camera: W A S D, the plain wheel and the right button leave the track, Esc and another tool end it; the camera stays", async ({page, backend}) => {
   const {c} = await onHill(page, backend);
   await keysOnView(page);
-  await page.keyboard.press("c");
+  await page.keyboard.press("k");
   const ride = page.locator("#edit-ride"), bar = page.locator(CAMERA_BAR);
   const riding = async () => {
     await ride.click();
@@ -254,7 +257,7 @@ test("Camera: W A S D, the plain wheel and the right button leave the track, Esc
   await page.keyboard.press("Escape");
   await expect(bar).toBeHidden();
 
-  await page.keyboard.press("c");
+  await page.keyboard.press("k");
   await riding();
   await page.keyboard.press("Escape");
   await expect(bar).toBeHidden();
@@ -264,7 +267,7 @@ test("Camera: W A S D, the plain wheel and the right button leave the track, Esc
   await page.waitForTimeout(400);
   expect((await picture(page)).equals(left)).toBe(true);
 
-  await page.keyboard.press("c");
+  await page.keyboard.press("k");
   await riding();
   await page.keyboard.press("h");
   await expect(bar).toBeHidden();
@@ -278,7 +281,7 @@ test("Camera: a track with no route says so", async ({page}) => {
   });
   await openEditor(page);
   await keysOnView(page);
-  await page.keyboard.press("c");
+  await page.keyboard.press("k");
   const bar = page.locator(CAMERA_BAR);
   await expect(bar).toContainText("no route");
   await wheelWith(page, ["Shift"], -100);

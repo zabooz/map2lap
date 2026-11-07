@@ -260,14 +260,11 @@ test("the camera goes no higher than the track in view", async ({page}) => {
 
 test("the fly speed's slider reaches the view", async ({page}) => {
   const flown = async (speed: number) => {
-    await page.goto("/");
-    await page.evaluate(s => {
-      localStorage.setItem("map2lap.controls", JSON.stringify({fly: s}));
-      localStorage.setItem("map2lap.tab", "edit");
-      localStorage.setItem("map2lap.editTrack", "alpha");
-    }, speed);
-    await page.reload();
-    await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+    await openEditor(page);
+    await openSettings(page, "Editor");
+    await page.getByLabel("Move (W A S D)").fill(String(speed));
+    await page.getByRole("button", {name: "Close settings"}).click();
+    await scene(page).focus();
     const c = await hoverCentre(page);
     await dragMouse(page, c, {x: c.x, y: c.y + 400}, "middle");   // (straight down: what the mouse finds lies right below the camera)
     await stillView(page);

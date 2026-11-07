@@ -25,6 +25,10 @@ class Unreadable(Exception):
     """The kn5 can't be read now, or is no more the one asked about: a build is writing it, or has replaced it."""
 
 
+class CopiesChanged(Unreadable):
+    """The generated mesh layout is obsolete; the view needs the current copy index."""
+
+
 def _revision(stat):
     """Which state of a file a stat result is of. Pure."""
     return f"{stat.st_mtime_ns}-{stat.st_size}"
@@ -116,7 +120,7 @@ def _first_faces(meshes, materials):
     one can lie across two. Pure."""
     seen, out = {}, {}
     for i, m in enumerate(meshes):
-        if materials[m["material"]].name == ATLAS_MATERIAL:
+        if materials[m["material"]].name == ATLAS_MATERIAL and "_copy_" not in m["name"]:
             base = _base(m["name"])
             out[i] = seen.get(base, 0)
             seen[base] = out[i] + m["indices"] // 3
@@ -145,16 +149,19 @@ def index(ac, name):
     atlas, as JSON for the page. A mesh's "i" asks for its bytes (mesh_bytes), with "revision": the numbers hold for this
     state of the file only. Our kn5 hold all meshes in the world's frame: the one parent's matrix is the identity
     (obj_to_kn5)."""
-    path, s, revision = _scanned(ac, name)
+    path, _s, revision = _scanned(ac, name)
+    from app import trackedits
+    _path, s, listed = trackedits.context(ac, name, revision)
     first = _first_faces(s["meshes"], s["materials"])
     meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
-               "first_face": first.get(i), "base": _base(m["name"]) if i in first else None}
+               "first_face": first.get(i), "base": _base(m["name"]) if i in first else None, "copy": bool(m.get("copy"))}
               for i, m in enumerate(s["meshes"]) if m["renderable"]]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
     return {"revision": revision, "meshes": meshes, "materials": [_material(m) for m in s["materials"]],
             "textures": [{"name": t[0], "size": t[2]} for t in s["textures"]], "start": _start(s["points"].get(START)),
-            "anchor": anchor, "route": route, "atlas": _atlas(), "objects": objects(ac, name)}
+            "anchor": anchor, "route": route, "atlas": _atlas(), "objects": listed, "draft": s.get("draft", 0),
+            "copy_revision": s.get("copy_key", "")}
 
 
 def sprites():
@@ -165,7 +172,22 @@ def sprites():
 def objects(ac, name):
     """The build's list of the track's single objects (track.objectlist): {a tile: {"kinds", "sorts" (not in older builds'), "at",
     "parents", "faces"}}; empty for a track built before it, or when the list isn't of this state of the kn5. Of the served kn5."""
-    return list_of(served(ac, name)[0])
+    from app import trackedits
+    _path, _s, revision = _scanned(ac, name)
+    return trackedits.context(ac, name, revision)[2]
+
+
+def copy_index(ac, name):
+    """Only generated mesh metadata and copied object lists: a copy change need not resend a long track's source index."""
+    from app import trackedits
+    _path, _scan, revision = _scanned(ac, name)
+    _path, scan, listed = trackedits.context(ac, name, revision)
+    meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
+               "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
+               "first_face": None, "base": None, "copy": True}
+              for i, m in enumerate(scan["meshes"]) if m.get("copy") and m["renderable"]]
+    return {"revision": revision, "draft": scan.get("draft", 0), "copy_revision": scan.get("copy_key", ""), "meshes": meshes,
+            "objects": {key: value for key, value in listed.items() if key.startswith("copy_")}}
 
 
 @functools.lru_cache(maxsize=2)
@@ -199,15 +221,22 @@ def deletable(ac, name):
     """(the kn5's revision, {what an id starts with: (how many single objects it holds, their kind or a list of each one's)}, the
     sorts of listed objects that can go all at once): the build's list, and the billboards, which are told apart by their count of
     triangles on any track."""
-    _path, s, revision = _scanned(ac, name)
+    from app import trackedits
+    _path, _s, revision = _scanned(ac, name)
+    _path, s, listed = trackedits.context(ac, name, revision)
+    counts, sorts = counts_of(s, listed)
+    return revision, counts, sorts
+
+
+def counts_of(s, listed):
+    """Objects in a scan and its list, counted billboards first, authoritative listed ids last. Pure."""
     faces = {}
     for m in s["meshes"]:
-        if s["materials"][m["material"]].name == ATLAS_MATERIAL:
+        if s["materials"][m["material"]].name == ATLAS_MATERIAL and "_copy_" not in m["name"]:
             faces[_base(m["name"])] = faces.get(_base(m["name"]), 0) + m["indices"] // 3
     counts = {base: (n // FACES_PER_BILLBOARD, _billboard_kind(base)) for base, n in faces.items()}
-    listed = objects(ac, name)
     counts.update({base: (len(o["at"]), o["kinds"]) for base, o in listed.items()})
-    return revision, counts, objectlist.all_sorts(listed)
+    return counts, objectlist.all_sorts(listed)
 
 
 def _read(path, offset, size, revision):
@@ -232,12 +261,21 @@ def _scan_of(ac, name, revision):
     return path, s
 
 
-def mesh_bytes(ac, name, i, revision, moved=None):
+def mesh_bytes(ac, name, i, revision, moved=None, draft=None, copy_revision=None):
     """Mesh i of the scan as in the file: its vertices (kn5.VERTEX), the index count (int32), its indices (uint16). moved: a kn5.Moved
     its vertices are as it says."""
-    path, s = _scan_of(ac, name, revision)
+    from app import trackedits
+    path, s, _objects = trackedits.context(ac, name, revision)
+    if copy_revision is not None and copy_revision != s.get("copy_key", ""):
+        raise CopiesChanged("The copied objects changed")
     m = s["meshes"][i]
-    data = _read(path, m["offset"], m["vertices"] * VERTEX_BYTES + 4 + m["indices"] * 2, revision)
+    if m.get("copy") and copy_revision is None and draft is not None and draft != s.get("draft"):
+        raise Unreadable("the copied objects changed")
+    if "data" in m:
+        vertices, faces = m["data"]
+        data = vertices.tobytes() + struct.pack("<i", faces.size) + faces.tobytes()
+    else:
+        data = _read(path, m["offset"], m["vertices"] * VERTEX_BYTES + 4 + m["indices"] * 2, revision)
     if moved and i in moved.vertices:
         return moved.vertices[i].tobytes() + data[m["vertices"] * VERTEX_BYTES:]
     return data

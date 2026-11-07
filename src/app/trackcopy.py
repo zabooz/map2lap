@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 
-from app import mytracks, placement, trackedits, trackheights, trackplace, tracksource, trackview
+from app import mytracks, placement, trackcopies, trackedits, trackheights, trackplace, tracksource, trackview
 from track import kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -49,10 +49,8 @@ def _sorts_of(path, meshes, first_faces, atlas):
     with open(path, "rb") as f:
         for i, first in first_faces.items():
             m = meshes[i]
-            f.seek(m["offset"])
-            uv = np.frombuffer(f.read(m["vertices"] * kn5.VERTEX.itemsize), dtype=kn5.VERTEX)["uv"]
-            f.read(4)
-            faces = np.frombuffer(f.read(m["indices"] * 2), dtype=np.uint16).reshape(-1, 3)
+            vertices, faces = kn5.mesh_arrays(f, m)
+            uv = vertices["uv"]
             mid = uv[faces].mean(axis=1)
             col = np.floor((mid[:, 0] - np.floor(mid[:, 0])) * atlas["cols"]).astype(np.int64)
             row = np.floor((mid[:, 1] - np.floor(mid[:, 1])) * atlas["rows"]).astype(np.int64)
@@ -78,6 +76,8 @@ def faces_left_out(path, scan, objects, deleted, sorts, atlas, object_sorts=()):
         going.setdefault(i, np.zeros(scan["meshes"][i]["indices"] // 3, bool))[a:b] = True
 
     belonging, seen, queue = _belonging(objects), set(), list(deleted)
+    queue += [f"{tile}#{k}" for tile, entry in objects.items() for k, kind in enumerate(entry["kinds"])
+              if kind in ("tree", "bush") and objectlist.sorts_of(entry)[k] in sorts]
     if object_sorts:        # (those that are there: a saved track's own list keeps the numbers of what it left out, without triangles)
         wanted = set(object_sorts)
         queue += [f"{tile}#{k}" for tile, entry in objects.items()
@@ -199,11 +199,11 @@ def _disk(folder):
     return os.stat(folder).st_dev
 
 
-def _check_room(tracks, size, source_too):
+def _check_room(tracks, size, source_too, extra=0):
     """Refused unless a kn5 of size bytes fits once more in the folder tracks, and (source_too: a source is to be copied) once more
     where the sources lie: two disks when AC was moved, one that holds both then."""
     needs, at = {}, {}
-    for folder, room in ((tracks, size * ROOM_FACTOR), (mytracks.ROOT, size if source_too else 0)):
+    for folder, room in ((tracks, (size + extra) * ROOM_FACTOR), (mytracks.ROOT, size if source_too else 0)):
         disk = _disk(folder)
         needs[disk], at[disk] = needs.get(disk, 0) + room, folder
     if any(shutil.disk_usage(at[disk]).free < room for disk, room in needs.items()):
@@ -220,7 +220,7 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"]
+    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"]
     if not (changed or source or copy_to):
         raise Refused("Nothing to save: nothing is changed")
     objects = trackview.list_of(path)
@@ -239,14 +239,19 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     """The track written as edits say, from its source, its id (None: none yet, one is copied now). What save returns."""
     folder = os.path.dirname(own)
     path = tracksource.kn5_of(source) if source else own
-    _check_room(os.path.dirname(folder), os.path.getsize(path), not (source or tracksource.exists(tracksource.id_of(name, own))))
-    scan = kn5.scan(path)
+    source_objects = objects
+    source_scan = kn5.scan(path)
+    scan, objects = trackcopies.build(path, source_scan, objects, edits["copies"])
+    added = scan["meshes"][len(source_scan["meshes"]):]
+    # The source needs no new textures; every appended node has 53 fixed bytes, its length-prefixed name, vertices and indices.
+    extra = sum(53 + len(kn5._s(m["name"])) + m["vertices"] * kn5.VERTEX.itemsize + m["indices"] * 2 for m in added)
+    _check_room(os.path.dirname(folder), os.path.getsize(path), not (source or tracksource.exists(tracksource.id_of(name, own))), extra)
     try:                            # (before a source is made: refused, nothing is left behind)
         change = trackplace.changed(path, scan, objects, edits["heights"], edits["placed"])
     except trackheights.InTheWay as e:
         raise Refused(str(e)) from e
     if source is None:
-        source = tracksource.make(ac, name, own, objects)
+        source = tracksource.make(ac, name, own, source_objects)
         path = tracksource.kn5_of(source)
     info, new = mytracks.load(folder), copy_to or name
     title = title or info["title"]
@@ -259,11 +264,11 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     try:
         _copy_folder(folder, temporary, {name + ".kn5", objectlist.FILE})
         new_kn5 = os.path.join(temporary, new + ".kn5")
-        moved = kn5.without_faces(path, new_kn5, going, change)
+        moved = kn5.without_faces(path, new_kn5, going, change, added)
         now_at = trackheights.list_moved(placement.list_placed(objects, edits["placed"]), edits["heights"])
         objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
-                  "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"],
+                  "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"],
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)

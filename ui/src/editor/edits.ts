@@ -1,6 +1,7 @@
 // What was changed on a track in the Editor, with undo, kept on the server a moment after each change (src/app/trackedits.py).
 // No three.js, no React: the view and the toolbar each read it.
 import {isUnplaced, type Placement} from "./placing";
+import {copyKeys, type ObjectCopy} from "./copying";
 
 export interface Removed {
   id: string;
@@ -19,6 +20,7 @@ export interface Recipe {
   objectSorts: string[];
   heights: string[];            // (the height changes' ids)
   placed: Placement[];
+  copies?: ObjectCopy[];
 }
 
 /** A change of the ground's height, a raster of whole mm (src/app/trackheights.py). The server makes it: it isn't looked into here. */
@@ -37,6 +39,7 @@ export interface EditState {
   objectSorts: string[];        // whole sorts of listed objects left out (all parked cars, all benches), the same way
   heights: HeightChange[];
   placed: Placement[];          // single objects placed anew (src/app/placement.py), each once
+  copies: ObjectCopy[];
   keptRevision: number;         // the list's revision on the server: a new one, what is reckoned from it holds no more
   recipe: Recipe | null;        // null: never saved, or built again since
   canUndo: boolean;
@@ -57,8 +60,8 @@ const TRACK_CHANGED = "This track was built again: the view shows the build befo
 
 type Send = (url: string, options?: RequestInit) => Promise<Response>;
 
-type Edits = Pick<EditState, "removed" | "sorts" | "objectSorts" | "heights" | "placed">;
-const NONE: Edits = {removed: [], sorts: [], objectSorts: [], heights: [], placed: []};
+type Edits = Pick<EditState, "removed" | "sorts" | "objectSorts" | "heights" | "placed" | "copies">;
+const NONE: Edits = {removed: [], sorts: [], objectSorts: [], heights: [], placed: [], copies: []};
 
 const same = (a: Iterable<string>, b: Iterable<string>) => {
   const x = new Set(a), y = new Set(b);
@@ -72,7 +75,8 @@ const placedKeys = (placed: Placement[]) => placed.map(p => [p.id, p.x, p.y, p.z
 export function isCurrent(state: EditState) {
   const r = state.recipe;
   return !!r && same(state.removed.map(d => d.id), r.deleted) && same(state.sorts, r.sorts) && same(state.objectSorts, r.objectSorts)
-    && same(state.heights.map(h => h.id), r.heights) && same(placedKeys(state.placed), placedKeys(r.placed));
+    && same(state.heights.map(h => h.id), r.heights) && same(placedKeys(state.placed), placedKeys(r.placed))
+    && same(copyKeys(state.copies), copyKeys(r.copies ?? []));
 }
 
 /** Undo and redo of a track saved as a copy, for the copy's edits to take over (handOver). */
@@ -80,7 +84,7 @@ let handed: {name: string; edits: Edits; past: Edits[]; future: Edits[]} | null 
 
 const sameEdits = (a: Edits, b: Edits) =>
   same(a.removed.map(d => d.id), b.removed.map(d => d.id)) && same(a.sorts, b.sorts) && same(a.objectSorts, b.objectSorts)
-  && same(a.heights.map(h => h.id), b.heights.map(h => h.id)) && same(placedKeys(a.placed), placedKeys(b.placed));
+  && same(a.heights.map(h => h.id), b.heights.map(h => h.id)) && same(placedKeys(a.placed), placedKeys(b.placed)) && same(copyKeys(a.copies), copyKeys(b.copies));
 
 /** The edits of the track name. start() reads them, stop() saves what is left; subscribe and state as useSyncExternalStore wants
     them. bind() says which state of the track file the view shows: the numbers in a list only mean anything for one, so nothing can
@@ -120,7 +124,7 @@ export class TrackEdits {
   markSaved() {
     const e = this.edits();
     this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), sorts: e.sorts, objectSorts: e.objectSorts,
-                       heights: e.heights.map(h => h.id), placed: e.placed}});
+                       heights: e.heights.map(h => h.id), placed: e.placed, copies: e.copies}});
   }
 
   /** action once all before it are done. Strokes on their way to the server go on in the order they were made, and what comes after
@@ -204,7 +208,7 @@ export class TrackEdits {
       this.base = d.base;
       this.revision = d.revision;
       const edits = {removed: d.deleted as Removed[], sorts: (d.sorts ?? []) as string[], objectSorts: (d.object_sorts ?? []) as string[],
-                     heights: (d.heights ?? []) as HeightChange[], placed: (d.placed ?? []) as Placement[]};
+                     heights: (d.heights ?? []) as HeightChange[], placed: (d.placed ?? []) as Placement[], copies: (d.copies ?? []) as ObjectCopy[]};
       const taken = handed?.name === this.name && sameEdits(handed.edits, edits) ? handed : null;
       handed = null;
       this.past = taken?.past ?? [];
@@ -212,7 +216,7 @@ export class TrackEdits {
       this.onServer = edits;
       this.unanswered = [];
       const s = d.saved;
-      const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? []} : null;
+      const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? [], copies: s.copies ?? []} : null;
       this.set({...edits, keptRevision: d.revision, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
       this.compare();
     } catch (e) {
@@ -259,6 +263,11 @@ export class TrackEdits {
     this.change({...this.edits(), heights: [...this.now.heights, change]});
   }
 
+  /** A new instance, as one undoable step; its source remains ready for the next click. */
+  addCopy(copy: ObjectCopy) {
+    this.change({...this.edits(), copies: [...this.now.copies, copy]});
+  }
+
   /** Objects placed anew, each instead of how it was placed before; one placed as built is left out. join: a key, the change goes with the
       last one into one step to undo if that had the same key and came a moment ago (the notches of a wheel). */
   place(items: Placement[], join?: string) {
@@ -276,7 +285,7 @@ export class TrackEdits {
   /** Whether anything is changed. */
   changed() {
     return this.now.removed.length > 0 || this.now.sorts.length > 0 || this.now.objectSorts.length > 0 || this.now.heights.length > 0
-      || this.now.placed.length > 0;
+      || this.now.placed.length > 0 || this.now.copies.length > 0;
   }
 
   /** All changes taken back, as one step that can be undone. */
@@ -285,7 +294,7 @@ export class TrackEdits {
   }
 
   private edits(): Edits {
-    return {removed: this.now.removed, sorts: this.now.sorts, objectSorts: this.now.objectSorts, heights: this.now.heights, placed: this.now.placed};
+    return {removed: this.now.removed, sorts: this.now.sorts, objectSorts: this.now.objectSorts, heights: this.now.heights, placed: this.now.placed, copies: this.now.copies};
   }
 
   /** The changes kept from an older build are given up. */
@@ -324,7 +333,7 @@ export class TrackEdits {
 
   private apply(edits: Edits) {
     // (a height change or a placement at once: the view shows it by what the server hands out, deleting is shown here and can wait for more)
-    const after = edits.heights === this.now.heights && edits.placed === this.now.placed ? SAVE_AFTER_MS : 0;
+    const after = edits.heights === this.now.heights && edits.placed === this.now.placed && edits.copies === this.now.copies ? SAVE_AFTER_MS : 0;
     this.set({...edits, canUndo: this.past.length > 0, canRedo: this.future.length > 0, save: "waiting", error: null});
     clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.flush(), after);
@@ -332,7 +341,7 @@ export class TrackEdits {
 
   private isSaved() {
     return this.now.removed === this.onServer?.removed && this.now.sorts === this.onServer?.sorts
-      && this.now.objectSorts === this.onServer?.objectSorts && this.now.heights === this.onServer?.heights && this.now.placed === this.onServer?.placed;
+      && this.now.objectSorts === this.onServer?.objectSorts && this.now.heights === this.onServer?.heights && this.now.placed === this.onServer?.placed && this.now.copies === this.onServer?.copies;
   }
 
   private async flush(leaving = false) {
@@ -344,7 +353,7 @@ export class TrackEdits {
     if ((this.sending && !leaving) || this.now.save === "stuck" || this.isSaved() || this.bound === null) return;
     const edits = this.edits(), number = ++this.sent, id = `${Date.now()}-${number}-${Math.random().toString(36).slice(2, 10)}`;
     const body = JSON.stringify({base: this.bound, revision: this.revision, deleted: edits.removed, sorts: edits.sorts,
-                                 object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, id, unanswered: this.unanswered.map(u => u.id)});
+                                 object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, copies: edits.copies, id, unanswered: this.unanswered.map(u => u.id)});
     this.unanswered = [...this.unanswered, {id, number}].slice(-MAX_UNANSWERED);
     this.sending = true;
     this.set({save: "saving"});

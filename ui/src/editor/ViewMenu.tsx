@@ -1,14 +1,16 @@
 import styles from "./ViewMenu.module.css";
 import type {MenuAt} from "./view";
 
-const WIDTH = 230, HEIGHT = 160;    // (about the menu's size: it opens left of or above the click where it wouldn't fit)
+const WIDTH = 230, HEIGHT = 230;    // (about the menu's size: it opens left of or above the click where it wouldn't fit)
 
 /** What a right click on an object offers, where it was clicked, kept within the view. onSmooth: it was on a marked stretch of road, else null. mark: "Mark all …" or null
     (houses, what can't be deleted). A click beside it closes it. */
-export function ViewMenu({at, mark, canDelete, onSmooth, onMark, onDelete, onClose}: {
+export function ViewMenu({at, mark, canDelete, onMove, onDuplicate, onSmooth, onMark, onDelete, onClose}: {
   at: MenuAt;
   mark: string | null;
   canDelete: boolean;
+  onMove: (() => void) | null;
+  onDuplicate: (() => void) | null;
   onSmooth: (() => void) | null;
   onMark: () => void;
   onDelete: () => void;
@@ -24,6 +26,8 @@ export function ViewMenu({at, mark, canDelete, onSmooth, onMark, onDelete, onClo
         {onSmooth && <button type="button" role="menuitem" onClick={then(onSmooth)}>Smooth</button>}
         <button type="button" role="menuitem" disabled title="Comes later">Replace…</button>
         <button type="button" role="menuitem" disabled title="Comes later">Edit…</button>
+        <button type="button" role="menuitem" disabled={!onMove} onClick={then(() => onMove?.())}>Move</button>
+        <button type="button" role="menuitem" disabled={!onDuplicate} onClick={then(() => onDuplicate?.())}>Duplicate</button>
         {mark && <button type="button" role="menuitem" onClick={then(onMark)}>{mark}</button>}
         <button type="button" role="menuitem" disabled={!canDelete} onClick={then(onDelete)}>Delete</button>
       </div>

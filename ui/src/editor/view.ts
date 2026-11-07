@@ -7,6 +7,7 @@ import {DDSLoader} from "three/addons/loaders/DDSLoader.js";
 import {acceleratedRaycast, MeshBVH} from "three-mesh-bvh";
 import {DEFAULT_CONTROLS, NORMAL_SPEED, type Controls} from "./controls";
 import {nudgeVertices, STILL, type Nudge, type Placement} from "./placing";
+import type {CopyPose} from "./copying";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
@@ -81,6 +82,7 @@ export interface Marked {
 }
 
 interface MeshInfo {
+  copy?: boolean;
   i: number;
   name: string;
   material: number;
@@ -104,6 +106,8 @@ interface MaterialInfo {
 }
 
 interface TrackIndex {
+  draft?: number;
+  copy_revision?: string;
   revision: string;             // the state of the file its numbers hold for
   meshes: MeshInfo[];
   materials: MaterialInfo[];
@@ -253,7 +257,11 @@ async function fetchBytes(url: string, signal: AbortSignal, tries = FETCH_TRIES)
     await new Promise(ok => setTimeout(ok, FETCH_WAIT_MS));
     return fetchBytes(url, signal, tries - 1);
   }
-  throw new Error((await r.json().catch(() => null))?.error ?? `${url}: ${r.status}`);
+  throw new MeshFetchError(r.status, (await r.json().catch(() => null))?.error ?? `${url}: ${r.status}`);
+}
+
+class MeshFetchError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
 }
 
 /** Jobs through this run at most most at a time, the others wait their turn. */
@@ -353,6 +361,14 @@ function makeGeometry(info: MeshInfo, buf: ArrayBuffer) {
 
 /** three.js in the element host, showing one track. dispose() ends it. */
 export class TrackView {
+  private copyVersion = 0;
+  private copyLoading: AbortController | null = null;
+  private copyStamp: number[] = [];
+  private groundVersion = 0;
+  private copyGhost: THREE.Group | null = null;
+  private copyFoot = new THREE.Vector3();
+  private copyPose: CopyPose = {turn: 0, y: 0, scale: 1};
+  private onCopyPlace: ((at: [number, number, number]) => void) | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
@@ -415,7 +431,6 @@ export class TrackView {
   private trackName = "";
   private heightsVersion = 0;           // a new number: the server hands out other meshes than a request on its way will bring
   private onViewFailed: (text: string | null) => void = () => {};
-  private draft = 0;                    // the draft's revision on the server
   private refreshes = oneByOne(PARALLEL);
   private brush: Brush | null = null;
   private onStroke: (samples: Sample[], turned: boolean) => void = () => {};
@@ -438,9 +453,11 @@ export class TrackView {
   private onClicked: (picked: Picked | null) => void = () => {};
   private band: THREE.LineSegments | null = null;
   private moveTool = false;             // Move is on: a press picks, a drag takes what is picked along
-  private onMoved: (ids: string[], x: number, z: number) => void = () => {};
+  private onMoved: (objects: {id: string; x: number; y: number; z: number}[]) => void = () => {};
   private placed = new Map<string, Placement>();        // how the draft places objects now (setPlaced)
-  private dragging: {ids: string[]; plane: THREE.Plane; from: THREE.Vector3; x: number; y: number; grabbed: Grabbed[]; pivots: Map<string, number[]>; way: THREE.Vector3} | null = null;
+  private pendingPivots = new Map<string, number[]>();   // a released drag already shown, before its canonical placement arrives
+  private dragging: {ids: string[]; plane: THREE.Plane; from: THREE.Vector3; x: number; y: number; grabbed: Grabbed[]; pivots: Map<string, number[]>;
+    ground: Map<string, number | null>; rises: Map<string, number>; way: THREE.Vector3} | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -529,7 +546,8 @@ export class TrackView {
       the others keep their numbers. What goes is what any of them takes along: a span two poles share stays out while one does. */
   setRemoved(ids: string[], sorts: string[] = [], objectSorts: string[] = []) {
     this.named = {ids, objectSorts: new Set(objectSorts)};
-    const wanted = this.wanted(), wantedSorts = new Set(sorts);
+    const wantedSorts = new Set(sorts);
+    const wanted = new Set([...ids, ...idsOfSorts(this.data?.objects ?? {}, new Set([...objectSorts, ...sorts]))]);
     const sortsChanged = sorts.length !== this.removedSorts.size || sorts.some(sort => !this.removedSorts.has(sort));
     let back = false;
     for (const id of this.removed) {
@@ -556,7 +574,7 @@ export class TrackView {
 
   /** The ids to leave out: those named, and the listed objects of the sorts named. */
   private wanted(named = this.named) {
-    return new Set([...named.ids, ...idsOfSorts(this.data?.objects ?? {}, named.objectSorts)]);
+    return new Set([...named.ids, ...idsOfSorts(this.data?.objects ?? {}, named.objectSorts), ...idsOfSorts(this.data?.objects ?? {}, this.removedSorts)]);
   }
 
   /** listedOut and billboardsOut for what is left out now: a whole sort of a long track is thousands of objects, too many to look
@@ -631,17 +649,20 @@ export class TrackView {
       const info = mesh.userData.info as MeshInfo;
       for (const [k, from] of this.billboardsOf(mesh)) if (this.spriteOf(mesh, from) === sprite) seen.add(`${info.base}#${k}`);
     }
+    for (const id of idsOfSorts(this.data?.objects ?? {}, new Set([sprite]))) {
+      if (!this.removed.has(id) && this.shownBounds(this.piecesOf(id))) seen.add(id);
+    }
     return seen.size;
   }
 
   /** All triangles of an object and what belongs to it that are known by now: a billboard's in the parts of its mesh loaded so
       far. */
-  private piecesOf(id: string): Piece[] {
+  private piecesOf(id: string, withChildren = true): Piece[] {
     const at = id.lastIndexOf("#"), base = id.slice(0, at), number = Number(id.slice(at + 1));
     const listed = this.data?.objects?.[base]?.faces[number];
     if (listed) {
       return [...listed.map(([mesh, from, count]) => ({mesh, from, end: from + count})),
-              ...(this.belonging.get(id) ?? []).flatMap(child => this.piecesOf(child))];
+              ...(withChildren ? (this.belonging.get(id) ?? []).flatMap(child => this.piecesOf(child)) : [])];
     }
     return (this.parts.get(base) ?? []).map(part => {
       const info = part.userData.info as MeshInfo, [from, end] = billboardFaces(number, info.first_face!, info.indices / 3);
@@ -709,9 +730,11 @@ export class TrackView {
     this.onIndexed(data.revision);
     this.placeCamera(data);
     this.renderer.domElement.focus({preventScroll: true});     // (W A S D work at once, not in the track's dropdown)
-    let queue = nearestLast<MeshInfo>(data.meshes, this.camera.position.toArray());
+    // Generated geometry has its own cancellable loader. Original MeshInfos never change when a copy is added or undone.
+    const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data) : Promise.resolve();
+    let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy), this.camera.position.toArray());
     let sortedAt = this.camera.position.clone(), sortedWhen = performance.now();
-    const total = queue.length;
+    const total = data.meshes.length;
     let done = 0;
     const worker = async () => {
       while (queue.length && mine === this.token) {
@@ -721,6 +744,7 @@ export class TrackView {
           sortedWhen = performance.now();
         }
         const info = queue.pop()!;
+        if (this.byNumber.has(info.i)) continue;
         if (!fits(this.usedBytes, COPIES * meshBytes(info), this.settings.memoryGb)) {
           this.overLimit = true;
           queue.length = 0;
@@ -728,7 +752,7 @@ export class TrackView {
         }
         this.usedBytes += COPIES * meshBytes(info);
         const asked = this.heightsVersion;
-        const buf = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}&d=${this.draft}`, signal);
+        const buf = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}`, signal);
         if (mine !== this.token) return;
         this.addMesh(name, data, info, buf);
         if (asked !== this.heightsVersion) void this.refresh(info.i);      // (changed on its way)
@@ -737,6 +761,7 @@ export class TrackView {
       }
     };
     await Promise.all(Array.from({length: PARALLEL}, worker));
+    await copied;
     if (mine !== this.token) return;
     await Promise.all(this.textures);
     if (mine !== this.token) return;
@@ -947,8 +972,8 @@ export class TrackView {
     this.wheelTaken = taken;
   }
 
-  /** Move on or off; onMoved gets what was dragged and how far, in x and z, when it is let go. Off, a drag under way goes back. */
-  setMove(on: boolean, onMoved: (ids: string[], x: number, z: number) => void) {
+  /** Move on or off; onMoved gets each object's displacement, including the change of ground height. Off cancels a drag. */
+  setMove(on: boolean, onMoved: (objects: {id: string; x: number; y: number; z: number}[]) => void) {
     this.onMoved = onMoved;
     if (on === this.moveTool) return;
     this.moveTool = on;
@@ -961,6 +986,18 @@ export class TrackView {
   /** How the draft places objects now: where each one's place is, to turn and scale it around. */
   setPlaced(placed: Placement[]) {
     this.placed = new Map(placed.map(p => [p.id, p]));
+    for (const [id, at] of this.pendingPivots) {
+      const split = id.lastIndexOf("#"), base = this.data?.objects?.[id.slice(0, split)]?.at[Number(id.slice(split + 1))];
+      const p = this.placed.get(id);
+      if (base && Math.abs(base[0] + (p?.x ?? 0) - at[0]) < 0.002 && Math.abs(base[2] + (p?.z ?? 0) - at[2]) < 0.002) this.pendingPivots.delete(id);
+    }
+  }
+
+  /** A drag that could not be accepted returns to the server's kept geometry, including any drag made while it was pending. */
+  rejectMove(ids: string[]) {
+    for (const id of ids) this.pendingPivots.delete(id);
+    if (this.dragging?.ids.some(id => ids.includes(id))) this.dropDrag();
+    this.refreshMeshes([]);
   }
 
   /** The object an object belongs to, at the top (a house for its sign and door); a tree or bush: itself. */
@@ -986,6 +1023,8 @@ export class TrackView {
   /** Where an object stands now, what it is turned and scaled around (placement.py): a listed one's place as the draft moved it; a tree's or
       bush's the middle of its foot. */
   private pivotOf(id: string) {
+    const pending = this.pendingPivots.get(id);
+    if (pending) return pending;
     const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
     if (list) {
       const [x, y, z] = list.at[Number(id.slice(at + 1))], p = this.placed.get(id);
@@ -1058,7 +1097,12 @@ export class TrackView {
   /** The vertices of grabbed shown as taken up and moved the way dragged so far. */
   private dragOn(grabbed: Grabbed[]) {
     const d = this.dragging!;
-    this.nudgeGrabbed(grabbed, d.pivots, () => ({...STILL, x: d.way.x, z: d.way.z}));
+    for (const id of d.ids) {
+      const [x, , z] = d.pivots.get(id)!, before = d.ground.get(id);
+      const after = this.groundAt(x + d.way.x, z + d.way.z);
+      d.rises.set(id, before != null && after != null ? after - before : 0);
+    }
+    this.nudgeGrabbed(grabbed, d.pivots, id => ({...STILL, x: d.way.x, y: d.rises.get(id) ?? 0, z: d.way.z}));
   }
 
   /** A drag under way goes back, nothing moved. */
@@ -1077,7 +1121,7 @@ export class TrackView {
   }
 
   /** With Move on, the left button pressed picks what is under the mouse (Shift: adds it); held and moved, it takes all that is picked along
-      over the ground, level at the height of the one under the mouse; let go, onMoved says how far. */
+      over the ground, keeping each one's clearance; let go, onMoved says how far. */
   private moves(el: HTMLElement) {
     el.addEventListener("pointerdown", e => {
       if (!this.moveTool || this.brush || e.button !== LEFT_BUTTON) return;
@@ -1089,7 +1133,8 @@ export class TrackView {
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pivots.get(picked.id)![1]), from = new THREE.Vector3();
       this.picker.setFromCamera(screenPoint(e, el), this.camera);
       if (!this.picker.ray.intersectPlane(plane, from)) return;
-      this.dragging = {ids, plane, from, x: e.clientX, y: e.clientY, grabbed: this.grab(ids), pivots, way: new THREE.Vector3()};
+      const ground = new Map(ids.map(id => { const [x, , z] = pivots.get(id)!; return [id, this.groundAt(x, z)]; }));
+      this.dragging = {ids, plane, from, x: e.clientX, y: e.clientY, grabbed: this.grab(ids), pivots, ground, rises: new Map(), way: new THREE.Vector3()};
       el.setPointerCapture(e.pointerId);
     });
     el.addEventListener("pointermove", e => {
@@ -1109,7 +1154,13 @@ export class TrackView {
       if (!d || e.button !== LEFT_BUTTON) return;
       this.dragging = null;
       el.style.cursor = "grab";
-      if (d.way.lengthSq()) this.onMoved(d.ids, d.way.x, d.way.z);
+      if (d.way.lengthSq()) {
+        for (const id of d.ids) {
+          const [x, y, z] = d.pivots.get(id)!;
+          this.pendingPivots.set(id, [x + d.way.x, y + (d.rises.get(id) ?? 0), z + d.way.z]);
+        }
+        this.onMoved(d.ids.map(id => ({id, x: d.way.x, y: d.rises.get(id) ?? 0, z: d.way.z})));
+      }
     });
     el.addEventListener("pointercancel", () => this.dropDrag());
   }
@@ -1126,7 +1177,12 @@ export class TrackView {
 
   /** The height of the ground at x, z, or the last one known. */
   heightOfGround(x: number, z: number) {
-    return this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0))?.point.y ?? this.lastGround;
+    return this.groundAt(x, z) ?? this.lastGround;
+  }
+
+  /** The ground under an object, null outside the loaded terrain: moving there preserves its current height. */
+  private groundAt(x: number, z: number) {
+    return this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0))?.point.y ?? null;
   }
 
   /** The band along line, its width in m on the road; one place: a cross, null: none. */
@@ -1319,14 +1375,159 @@ export class TrackView {
 
   /** The meshes by number the server now hands out otherwise (it says which: only it knows what moves with a change), its list in that
       revision: those loaded are fetched anew. The changes aren't reckoned here: there is one reckoning, the server's, which Save uses too. */
-  refreshMeshes(meshes: number[], revision: number) {
-    this.draft = revision;
+  refreshMeshes(meshes: number[]) {
+    if (meshes.includes(-1)) void this.syncCopies();
     // (a preview taken over: what showed it, whether or not the server names it. One still in place goes on again over what comes: takeVertices)
     const all = new Set(this.previewShown.size ? meshes : [...meshes, ...this.previewed]);
     if (!this.previewShown.size) this.previewed.clear();
     if (!all.size) return;
     this.heightsVersion++;
-    for (const i of all) void this.refresh(i);
+    for (const i of all) if (i >= 0) void this.refresh(i);
+  }
+
+  /** Reload only generated meshes and object ids, keeping the camera and the source track's meshes. */
+  private async syncCopies(initial?: TrackIndex, retries = 2): Promise<void> {
+    const mine = this.token, asked = ++this.copyVersion;
+    this.copyLoading?.abort();
+    this.copyLoading = new AbortController();
+    const signal = AbortSignal.any([this.loading.signal, this.copyLoading.signal]);
+    try {
+      let data = initial;
+      if (!data) {
+        const r = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/copies`, {signal});
+        const answer = await r.json();
+        if (!r.ok) throw new MeshFetchError(r.status, answer.error ?? "Could not load the copied objects");
+        data = answer as TrackIndex;
+      }
+      if (mine !== this.token || asked !== this.copyVersion) return;
+      if (data.revision !== this.data?.revision) throw new Error("The track changed");
+      const added = data.meshes.filter(info => info.copy);
+      const replacing = this.meshes.filter(m => (m.userData.info as MeshInfo).copy);
+      const wasBytes = replacing.reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0);
+      const newBytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
+      if (!fits(this.usedBytes - wasBytes, newBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
+      const heightAsked = this.heightsVersion, jobs = oneByOne(PARALLEL), revision = data.revision, tag = data.copy_revision ?? "";
+      const buffers = await Promise.all(added.map(info => jobs(() => {
+        signal.throwIfAborted();
+        return fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/mesh/${info.i}?r=${revision}&c=${tag}`, signal);
+      })));
+      if (mine !== this.token || asked !== this.copyVersion) return;
+      if (!fits(this.usedBytes - wasBytes, newBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
+      for (const mesh of replacing) {
+        const info = mesh.userData.info as MeshInfo;
+        this.scene.remove(mesh);
+        mesh.geometry.boundsTree = undefined;
+        mesh.geometry.dispose();
+        this.byNumber.delete(info.i);
+        this.usedBytes -= COPIES * meshBytes(info);
+      }
+      this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).copy);
+      const sourceObjects = Object.fromEntries(Object.entries(this.data.objects).filter(([key]) => !key.startsWith("copy_")));
+      const copyObjects = Object.fromEntries(Object.entries(data.objects).filter(([key]) => key.startsWith("copy_")));
+      this.data = {...this.data, copy_revision: tag, draft: data.draft,
+        meshes: [...this.data.meshes.filter(info => !info.copy), ...added], objects: {...sourceObjects, ...copyObjects}};
+      // Only copied lists changed. Keep the source's piece/parent indexes, which can contain millions of entries.
+      for (const [key, pieces] of this.objectPieces) if (pieces[0]?.id.startsWith("copy_")) this.objectPieces.delete(key);
+      for (const [key, value] of objectIndex(copyObjects)) this.objectPieces.set(key, value);
+      for (const key of this.belonging.keys()) if (key.startsWith("copy_")) this.belonging.delete(key);
+      for (const [key, value] of childrenOf(copyObjects)) this.belonging.set(key, value);
+      this.removed = this.wanted();
+      this.noteListedOut();
+      added.forEach((info, k) => {
+        const bytes = COPIES * meshBytes(info);
+        this.usedBytes += bytes;
+        this.addMesh(this.trackName, this.data!, info, buffers[k]);
+        if (heightAsked !== this.heightsVersion) void this.refresh(info.i);
+      });
+      for (const id of [...this.picks.keys()]) {
+        const [base, k] = id.split("#");
+        if (base.startsWith("copy_") && !copyObjects[base]?.faces[Number(k)]?.length) this.dropPick(id);
+      }
+      this.reframePicks();
+      this.onViewFailed(null);
+      this.dirty = true;
+      this.hoverDue = true;
+    } catch (e) {
+      if (mine !== this.token || asked !== this.copyVersion || signal.aborted) return;
+      if (e instanceof MeshFetchError && e.status === 409 && retries > 0) return this.syncCopies(undefined, retries - 1);
+      this.onViewFailed((e as Error).message);
+    }
+  }
+
+  /** A translucent source follows the mouse; each left click places another independent instance. */
+  setCopy(source: string | null, place: ((at: [number, number, number]) => void) | null, foot?: number[]) {
+    if (this.copyGhost) {
+      this.scene.remove(this.copyGhost);
+      for (const child of this.copyGhost.children as THREE.Mesh[]) {
+        child.geometry.dispose();
+        (child.material as THREE.Material).dispose();
+      }
+    }
+    this.copyGhost = null;
+    this.copyStamp = [];
+    this.onCopyPlace = place;
+    if (!source || !place) { this.dirty = true; return; }
+    const group = new THREE.Group();
+    group.matrixAutoUpdate = false;
+    const ids = [...takenAlong([source], this.belonging)].filter(id => this.canMove(id));
+    for (const id of ids) for (const piece of this.piecesOf(id, false)) {
+      const m = this.byNumber.get(piece.mesh);
+      if (!m) continue;
+      const indices = m.geometry.getIndex()!.array;
+      const shown: number[] = [];
+      for (let k = piece.from * 3; k < piece.end * 3; k += 3) {
+        if (indices[k] !== indices[k + 1] && indices[k + 1] !== indices[k + 2] && indices[k] !== indices[k + 2]) shown.push(indices[k], indices[k + 1], indices[k + 2]);
+      }
+      if (!shown.length) continue;
+      const part = m.geometry.clone();
+      part.setIndex(shown);
+      const geometry = part.toNonIndexed();
+      part.dispose();
+      const material = (m.material as THREE.Material).clone();
+      material.transparent = true;
+      material.opacity = 0.5;
+      material.depthWrite = false;
+      group.add(new THREE.Mesh(geometry, material));
+    }
+    const box = new THREE.Box3().setFromObject(group), pivot = this.pivotOf(source);
+    if (box.isEmpty()) return;
+    this.copyFoot.set(foot?.[0] ?? pivot[0], foot?.[1] ?? box.min.y, foot?.[2] ?? pivot[2]);
+    this.copyGhost = group;
+    this.scene.add(group);
+    this.followCopy();
+  }
+
+  /** Extra turn, height over the ground and size for the next copies, around their foot. */
+  setCopyPose(pose: CopyPose) {
+    this.copyPose = {turn: pose.turn, y: pose.y, scale: pose.scale};
+    this.followCopy();
+  }
+
+  private copyAt(): [number, number, number] | null {
+    if (!this.mouse) return null;
+    this.picker.setFromCamera(this.mouse, this.camera);
+    const hit = this.groundAlong(this.picker.ray.origin, this.picker.ray.direction);
+    return hit ? hit.point.toArray() as [number, number, number] : null;
+  }
+
+  private followCopy() {
+    if (!this.copyGhost || !this.shown) return;
+    const c = this.camera, p = c.position, q = c.quaternion;
+    const stamp = [this.mouse?.x ?? Infinity, this.mouse?.y ?? Infinity, p.x, p.y, p.z, q.x, q.y, q.z, q.w, c.aspect, c.fov,
+      this.copyPose.turn, this.copyPose.y, this.copyPose.scale, this.groundVersion, this.held ? 1 : 0];
+    if (stamp.every((v, k) => v === this.copyStamp[k])) return;
+    this.copyStamp = stamp;
+    const at = this.copyAt();
+    this.copyGhost.visible = !!at && !this.held;
+    if (at) {
+      const {turn, y, scale} = this.copyPose;
+      this.copyGhost.matrix.makeTranslation(at[0], at[1] + y, at[2])
+        .multiply(new THREE.Matrix4().makeRotationY(turn * Math.PI / 180))
+        .multiply(new THREE.Matrix4().makeScale(scale, scale, scale))
+        .multiply(new THREE.Matrix4().makeTranslation(-this.copyFoot.x, -this.copyFoot.y, -this.copyFoot.z));
+      this.copyGhost.matrixWorldNeedsUpdate = true;
+    }
+    this.dirty = true;
   }
 
   /** onViewFailed gets what went wrong when the view can't show a change that was made, null when that is over. */
@@ -1341,17 +1542,21 @@ export class TrackView {
     const asked = m.userData.asked = (m.userData.asked ?? 0) + 1;
     try {
       const buf = await this.refreshes(() => fetchBytes(
-        `/api/editor/${encodeURIComponent(this.trackName)}/mesh/${i}?r=${this.data!.revision}&d=${this.draft}`, signal));
-      if (mine === this.token && m.userData.asked === asked) this.takeVertices(m, buf);
+        `/api/editor/${encodeURIComponent(this.trackName)}/mesh/${i}?r=${this.data!.revision}${(m.userData.info as MeshInfo).copy ? `&c=${this.data!.copy_revision ?? ""}` : ""}`, signal));
+      if (mine === this.token && m.userData.asked === asked && this.byNumber.get(i) === m) this.takeVertices(m, buf);
     } catch (e) {
       // (another track was asked for: nothing to say. Else the picture is behind what is kept: it mustn't look as if it were up to date)
-      if (mine === this.token && !signal.aborted && m.userData.asked === asked) this.onViewFailed((e as Error).message);
+      if (mine === this.token && !signal.aborted && m.userData.asked === asked && this.byNumber.get(i) === m) {
+        if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).copy) void this.syncCopies();
+        else this.onViewFailed((e as Error).message);
+      }
     }
   }
 
   /** The mesh's vertices from bytes as a mesh is handed out; its triangles stay, with what is left out of them. */
   private takeVertices(m: THREE.Mesh, buf: ArrayBuffer) {
     const g = m.geometry, info = m.userData.info as MeshInfo;
+    if (GROUND.test(info.name)) this.groundVersion++;
     const data = (g.getAttribute("position") as THREE.InterleavedBufferAttribute).data;
     data.array.set(new Float32Array(buf, 0, info.vertices * FLOATS_PER_VERTEX));
     data.needsUpdate = true;
@@ -1454,6 +1659,13 @@ export class TrackView {
       const pin = from?.button === 2 && e.button === 2 ? this.pinAt(e, el) : -1;
       if (pin >= 0) this.onPinTaken(pin);
       else if (from && e.button === from.button) {
+        if (e.button === LEFT_BUTTON && this.onCopyPlace) {
+          this.mouse = screenPoint(e, el);
+          const at = this.copyAt();
+          if (at) this.onCopyPlace(at);
+          from = null;
+          return;
+        }
         const picked = this.pick(e, el), r = el.getBoundingClientRect();
         if (e.button === 2 && picked) this.onMenu({x: e.clientX - r.left, y: e.clientY - r.top, width: r.width, height: r.height});
         if (e.button === LEFT_BUTTON) this.onClicked(picked);
@@ -1564,7 +1776,7 @@ export class TrackView {
         byId.set(id, [...(byId.get(id) ?? []), {mesh: info.i, from, end}]);
       }
     }
-    return [...byId.values()].map(pieces => this.shownBounds(pieces)).filter(box => box !== null);
+    return [...byId.values()].map(pieces => this.shownBounds(pieces)).filter(box => box !== null).concat(this.listedOf(sprite));
   }
 
   /** The room the pieces take that are loaded and not left out, or null. */
@@ -1686,11 +1898,12 @@ export class TrackView {
     const listed = objectAt(this.objectPieces.get(info.i), face);
     const tile = listed ? data.objects[listed.slice(0, listed.lastIndexOf("#"))] : null;
     const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
+    const tree = isBillboard || !!tile && ["tree", "bush"].includes(tile.kinds[k]);
     return {
-      id: number !== null ? `${info.base}#${number}` : listed,
+      id: listed ?? (number !== null ? `${info.base}#${number}` : null),
       kind: listed ? kindName(tile!.kinds[k]) : kindOf(info.name),
-      sprite: isBillboard && uv ? spriteAt(data.atlas, uv[0], uv[1]) : null,
-      sort: listed ? sortOf(tile!, k) : null,
+      sprite: tree && uv ? spriteAt(data.atlas, uv[0], uv[1]) : null,
+      sort: listed && !tree ? sortOf(tile!, k) : null,
       object: info.name,
       physics: physicsOf(info.name),
       material: material.name,
@@ -1972,6 +2185,7 @@ export class TrackView {
     if (this.shown && this.flying.size) this.fly(seconds);
     if (this.shown && this.zoomLeft) this.glideZoom(seconds);
     if (!this.shown) return;
+    this.followCopy();
     if (this.dirty) {
       this.dirty = false;
       for (const m of this.meshes) {  // the distances AC shows each mesh at (trees, bushes, furniture go far away)
@@ -1994,6 +2208,9 @@ export class TrackView {
   }
 
   private clear() {
+    this.setCopy(null, null);
+    this.copyVersion++;
+    this.copyLoading?.abort();
     this.stopRide();
     for (const m of this.meshes) {
       this.scene.remove(m);
@@ -2019,6 +2236,7 @@ export class TrackView {
     this.alphaOf.clear();
     this.parts.clear();
     this.byNumber.clear();
+    this.pendingPivots.clear();
     this.objectPieces = new Map();
     this.belonging = new Map();
     this.forgetPicks();
@@ -2082,6 +2300,7 @@ export class TrackView {
   }
 
   private addMesh(name: string, data: TrackIndex, info: MeshInfo, buf: ArrayBuffer) {
+    if (this.byNumber.has(info.i)) return;
     const m = new THREE.Mesh(makeGeometry(info, buf), this.material(name, data, info.material));
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
@@ -2102,6 +2321,7 @@ export class TrackView {
     }
     if (this.marked) this.markDue = true;
     if (GROUND.test(info.name)) {
+      this.groundVersion++;
       this.usedBytes += speedUpRays(m);
       this.grounds.push(m);
       const box = m.geometry.boundingBox!, c = this.camera.position;

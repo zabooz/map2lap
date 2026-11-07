@@ -38,6 +38,7 @@ export function EditNotes({state, edits, view, note, viewFailed, saveFailed, mar
       {state.heights.length > 0 && <p id="edit-heights" className={styles.line}>{heightCount(state.heights.length)}</p>}
       {state.placed.length > 0 && <p id="edit-placed" className={styles.line}>{placedCount(state.placed.length)}</p>}
       {state.removed.length > 0 && <p id="edit-count" className={styles.line}>{count(state.removed.length)}</p>}
+      {state.copies.length > 0 && <p id="edit-copies" className={styles.line}>{state.copies.length} {state.copies.length === 1 ? "copy" : "copies"}</p>}
       {(state.sorts.length > 0 || state.objectSorts.length > 0) && (
         <p id="edit-sorts" className={styles.line}>All deleted: {[...state.sorts, ...state.objectSorts.map(sortName)].join(", ")}</p>
       )}

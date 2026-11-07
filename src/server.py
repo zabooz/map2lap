@@ -45,10 +45,13 @@ lock, dialog_lock = threading.Lock(), threading.Lock()
 MARK = os.path.join(ROOT, "out", "build_running.json")
 BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<name>): written only while "Keep build
                             # files" is on, replaced by the next build of the track, deleted with the build files
-EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?)")     # (d: the draft's revision the page asks after)
+EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?(?:&c=[a-f0-9]*)?)")
+COPIES_PATH = re.compile(r"/api/editor/([^/]+)/copies")
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
 BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush(/preview)?")
+COPY_PATH = re.compile(r"/api/editor/([^/]+)/copy")
+MOVE_PATH = re.compile(r"/api/editor/([^/]+)/move")
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
@@ -474,7 +477,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if kind == "mesh":
                 moved = trackedits.moved_now(ac, name, revision)
-                self._send(200, trackview.mesh_bytes(ac, name, int(i), revision, moved), "application/octet-stream")
+                draft = int(self.path.split("&d=", 1)[1].split("&", 1)[0]) if "&d=" in self.path else None
+                copy_revision = self.path.rsplit("&c=", 1)[1] if "&c=" in self.path else None
+                self._send(200, trackview.mesh_bytes(ac, name, int(i), revision, moved, draft, copy_revision), "application/octet-stream")
             elif kind == "texture":
                 tex, data = trackview.texture_bytes(ac, name, int(i), revision)
                 self._send(200, data, IMAGE_TYPES.get(os.path.splitext(tex)[1].lower(), "application/octet-stream"))
@@ -482,6 +487,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, trackview.index(ac, name))
         except (trackview.NotOurs, IndexError):
             self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.CopiesChanged:
+            self._send(409, {"error": "The copied objects changed; refreshing their view"})
         except trackview.Unreadable:
             self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
         except ConnectionError:             # (the page asked for another track meanwhile)
@@ -552,11 +559,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             op = trackheights.brush(body.get("samples"), body.get("radius"), body.get("soft"), body.get("mm"), body.get("speed"), secrets.token_hex(8))
-            path, scan = trackview._scan_of(ac, generator.slug(name), body.get("base"))
+            path, scan, objects = trackedits.context(ac, generator.slug(name), body.get("base"))
             if under_way:
                 return self._send(200, trackedits.preview(ac, generator.slug(name), body["base"], op), "application/octet-stream")
             trackedits.remember_meshes(ac, generator.slug(name), body["base"], op)
-            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, trackview.list_of(path), op)})
+            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, objects, op)})
         except (ValueError, AttributeError) as e:
             self._send(400, {"error": str(e)})
         except trackheights.InTheWay as e:
@@ -626,6 +633,8 @@ class Handler(BaseHTTPRequestHandler):
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
+        elif (copies := COPIES_PATH.fullmatch(self.path)):
+            self._edits_answer(lambda: trackview.copy_index(settings.ac_path(), generator.slug(copies[1])))
         elif edits:
             self._edits_answer(lambda: trackedits.load(settings.ac_path(), edits[1]))
         elif self.path == "/api/status":
@@ -662,6 +671,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
+        move = MOVE_PATH.fullmatch(self.path)
+        if move:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can move an object"})
+            if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+                self.close_connection = True
+                return self._send(413, {"error": "No objects to move"})
+            return self._edits_answer(lambda: trackedits.grounded(settings.ac_path(), move[1], self._body()))
+        copy = COPY_PATH.fullmatch(self.path)
+        if copy:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can copy an object"})
+            if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+                self.close_connection = True
+                return self._send(413, {"error": "No object to copy"})
+            return self._edits_answer(lambda: trackedits.copy_template(settings.ac_path(), copy[1], self._body()))
         save = SAVE_PATH.fullmatch(self.path)
         if save:
             return self._save_track(save[1])

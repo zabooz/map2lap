@@ -122,25 +122,26 @@ def scan(path):
         def node():
             cls, name = r.take("<i"), r.string()
             nchildren = r.take("<i")
-            r.take("<B")
+            active = r.take("<B")
             if cls == 1:
                 matrix = r.take("<16f")
                 if not nchildren:
                     points[name] = matrix
             elif cls == 2:
-                r.skip(3)
+                cast_shadows, visible, transparent = r.take("<BBB")
                 nv = r.take("<i")
                 offset = f.tell()
                 r.skip(nv * VERTEX.itemsize)
                 ni = r.take("<i")
                 r.skip(ni * 2)
                 material = r.take("<i")
-                r.take("<i")
+                layer = r.take("<i")
                 lod_in, lod_out = r.take("<f"), r.take("<f")
                 center, radius = r.take("<3f"), r.take("<f")
                 meshes.append({"name": name, "material": material, "offset": offset, "vertices": nv, "indices": ni,
                                "lod_in": lod_in, "lod_out": lod_out, "center": center, "radius": radius,
-                               "renderable": r.take("<B")})
+                               "renderable": r.take("<B"), "active": active, "cast_shadows": cast_shadows,
+                               "visible": visible, "transparent": transparent, "layer": layer})
             else:
                 raise ValueError(f"node class {cls} ({name}) not supported")
             for _ in range(nchildren):
@@ -159,15 +160,17 @@ def _copy_bytes(source, target, n):
         n -= len(piece)
 
 
-def without_faces(path, out, going, change=None):
+def without_faces(path, out, going, change=None, added=()):
     """A copy of the kn5 at path at out without some triangles: going {mesh number (as scan's): bool per triangle, True what goes}.
     A mesh left with none is left out. What doesn't change is copied as it stands, so the rest stays the same to the byte and a 10 GB
     file never lies in memory; a changed mesh keeps only the vertices it still uses, and its bounding sphere: a little too big does no
-    harm. change: a Moved, of the file's numbers before anything goes. Returns {mesh number: its new number, None if left out}."""
+    harm. change: a Moved, of the file's numbers before anything goes. added: draft meshes with mesh_arrays data, numbered after
+    the source meshes, subject to the same filtering and changes. Returns {mesh number: its new number, None if left out}."""
     change = change or Moved({}, {}, {})
     scan_ = scan(path)
     moved, number = {}, 0
-    for i, m in enumerate(scan_["meshes"]):
+    all_meshes = scan_["meshes"] + list(added)
+    for i, m in enumerate(all_meshes):
         gone = going.get(i)
         left_out = gone is not None and len(gone) and gone.all()
         moved[i] = None if left_out else number
@@ -190,12 +193,35 @@ def without_faces(path, out, going, change=None):
         active = r.take("<B")
         assert cls == 1, "the kn5's root is a node with a matrix"
         matrix = r.take("<16f")
-        left = sum(1 for i in moved if moved[i] is None)
-        g.write(struct.pack("<i", cls) + _s(name) + struct.pack("<iB", children - left, active) + struct.pack("<16f", *matrix))
+        left = sum(1 for i in range(len(scan_["meshes"])) if moved[i] is None)
+        extra = sum(moved[i] is not None for i in range(len(scan_["meshes"]), len(all_meshes)))
+        g.write(struct.pack("<i", cls) + _s(name) + struct.pack("<iB", children - left + extra, active) + struct.pack("<16f", *matrix))
         mesh = -1
         for _ in range(children):
             mesh = _copy_child(f, g, r, mesh, moved, going, scan_, change)
+        for i, info in enumerate(added, len(scan_["meshes"])):
+            if moved[i] is None:
+                continue
+            vertices, faces = mesh_arrays(f, info)
+            vertices = change.vertices.get(i, vertices)
+            if i in going:
+                faces = faces[~going[i]]
+            used, inverse = np.unique(faces.ravel(), return_inverse=True)
+            node = Node(2, info["name"], info["active"], vertices=vertices[used], indices=inverse,
+                        **{k: info[k] for k in ("material", "layer", "cast_shadows", "visible", "transparent", "lod_in", "lod_out", "renderable")},
+                        bs_center=info["center"], bs_radius=info["radius"] + change.grow.get(i, 0))
+            g.writelines(node_bytes(node))
     return moved
+
+
+def mesh_arrays(f, info):
+    """Vertices (a copy to change) and triangles from an open kn5 or an added draft mesh."""
+    if "data" in info:
+        return info["data"][0].copy(), info["data"][1]
+    f.seek(info["offset"])
+    vertices = np.frombuffer(f.read(info["vertices"] * VERTEX.itemsize), dtype=VERTEX).copy()
+    f.read(4)
+    return vertices, np.frombuffer(f.read(info["indices"] * 2), dtype="<u2").reshape(-1, 3)
 
 
 def _copy_child(f, g, r, mesh, moved, going, scan_, change):

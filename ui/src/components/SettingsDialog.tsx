@@ -187,12 +187,13 @@ function ControlsGroup({controls, onChange}: {controls: Controls; onChange: (c: 
 
 // (what ui/src/editor/view.ts and EditTools.tsx answer to)
 const KEYS: [string, string][] = [
-  ["W A S D", "Move over the ground, at the same height"], ["C", "Camera: on and off; go along the track by the wheel or riding by itself"], ["Home", "Reset the camera: back to the first view, behind the start"], ["Right drag", "Take the ground along"],
+  ["W A S D", "Move over the ground, at the same height"], ["K", "Camera: on and off; go along the track by the wheel or riding by itself"], ["Home", "Reset the camera: back to the first view, behind the start"], ["Right drag", "Take the ground along"],
   ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["V", "Select: a click picks an object"], ["Shift+Click", "Select: add one to what is picked, or take it out again"],
-  ["Right click", "Its menu: Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
+  ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
   ["R", "Mark road: on and off; a click on the road sets A, then B"], ["T", "Smooth: on and off"], ["Enter", "Take what Smooth shows"],
   ["M", "Move: on and off; a drag takes what is picked along"],
-  ["H", "Elevation: on and off"], ["Shift", "A tool's first option, shown at the bottom of the view: Elevation the other way"], ["Shift+Wheel", "Smooth: strength; Camera: along the track; Move: turn"], ["Ctrl+Wheel", "The next option: Elevation's radius, Smooth's width, Camera's height, Move's height"], ["Alt+Wheel", "The next: Elevation's height, Camera's speed, Move's size"], ["Ctrl+Alt+Wheel", "The next: Elevation's soft edge"],
+  ["C", "Copy: pick an object, then click to place more copies; Esc ends it"],
+  ["H", "Elevation: on and off"], ["Shift", "A tool's first option, shown at the bottom of the view: Elevation the other way"], ["Shift+Wheel", "Smooth: strength; Camera: along the track; Move/Copy: turn"], ["Ctrl+Wheel", "The next option: Elevation's radius, Smooth's width, Camera's height, Move/Copy's height"], ["Alt+Wheel", "The next: Elevation's height, Camera's speed, Move/Copy's size"], ["Ctrl+Alt+Wheel", "The next: Elevation's soft edge"],
   ["X", "Delete what is picked, or all that is marked; with nothing picked: each click deletes, on and off"],
   ["Esc", "Back to Select: ends a stroke, a marking or a tool, closes the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Shift+Z, Ctrl+Y", "Redo"], ["Ctrl+S", "Save the track"],
 ];

@@ -43,6 +43,11 @@ draft and the recipe, always from the source; height changes go after it, by whe
 A marked stretch of road, A to B by two clicks, following the road surface (`app/trackband.py`, `ui/src/editor/useBand.ts`); what a tool such as Smooth
 works on. Its **own road** is the 1ROAD that stands to its line as a road can across: a bank or a side road at another level beside it is not, and goes along.
 
+**Object copy** (Editor):
+An independent instance kept in the draft and recipe as source object ids with frozen poses (`app/trackcopies.py`), with its own
+`copy_<id>#<member>` ids. Its geometry is bundled by tile, surface prefix, kind, material and mesh flags, generated for the view and appended by Save;
+a house carries its children and collision, a copied pole has no wires.
+
 **Brush** (Editor):
 The round thing on the ground a tool works with: its ring, radius, soft edge, strokes as a click or held and moved (`ui/src/editor/useBrush.ts`). What a stroke does is the tool's:
 Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a smaller ring can stand between the points of the ground's 2 m lattice and move nothing.

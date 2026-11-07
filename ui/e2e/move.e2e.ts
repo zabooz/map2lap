@@ -1,5 +1,5 @@
 // Move in the Editor: an object dragged over the ground, turned, raised and sized by the wheel, kept in the draft, back by undo and Reset.
-import {dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
+import {centre, dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
 import {NEAR_TREE, VIEW_ALONE, findTitled, findTree, picture, saved, stored} from "./edit-helpers";
 
 interface Placed {
@@ -18,6 +18,31 @@ const asItIs = async (page: Parameters<typeof stored>[0]) => {
 };
 
 const placed = async (page: Parameters<typeof stored>[0]) => ((await stored(page)) as unknown as {placed: Placed[]}).placed;
+
+test("Move in the context menu keeps the clicked house picked and opens its controls", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", house: true});
+  await openEditor(page);
+  const house = await findTitled(page, "Building");
+  await page.mouse.click(house.x, house.y, {button: "right"});
+  await page.getByRole("menuitem", {name: "Move", exact: true}).click();
+  await expect(page.locator("#view-menu")).toBeHidden();
+  await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#edit-picked")).toContainText("Building");
+  await expect(page.locator("#edit-move-set")).toBeVisible();
+  await page.locator("#edit-move-set").getByLabel("Height").fill("100");
+  await saved(page);
+  expect(await placed(page)).toEqual([{id: "t_0_0#0", x: 0, y: 1, z: 0, turn: 0, scale: 1}]);
+  await page.mouse.click(house.x, house.y, {button: "right"});
+  await page.getByRole("menuitem", {name: "Move", exact: true}).click();
+  await expect(page.locator("#edit-move-set")).toBeVisible(); // Taking up Move again must not toggle it off.
+});
+
+test("Move in the context menu is disabled for terrain", async ({page}) => {
+  await openEditor(page);
+  const at = await centre(scene(page));
+  await page.mouse.click(at.x, at.y, {button: "right"});
+  await expect(page.getByRole("menuitem", {name: "Move", exact: true})).toBeDisabled();
+});
 
 test("M takes up Move; a tree dragged goes where it is let go, kept in the draft; undo puts it back to the pixel", async ({page}) => {
   await openEditor(page);
@@ -102,4 +127,111 @@ test("a number typed in the bar places what is picked at once", async ({page, ba
   await page.locator("#edit-move-set").getByLabel("Turn").fill("90");
   await saved(page);
   expect((await placed(page))[0]).toMatchObject({id: "t_0_0#0", turn: 90});
+});
+
+test("Move follows a slope and keeps a raised object's clearance, including after another drag", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true});
+  await openEditor(page);
+  await page.locator("#edit-move").click();
+  const at = await findTree(page);
+  await page.mouse.click(at.x, at.y);
+  await page.locator("#edit-move-set").getByLabel("Height").fill("200");
+  await scene(page).focus();
+  await saved(page);
+  const before = await picture(page);
+  const raised = await findTree(page);
+  await dragMouse(page, raised, {x: raised.x + 25, y: raised.y + 65});
+  await saved(page);
+  const hill = (z: number) => { // The fixture's ground is a 2 m grid; the hit is on its linear interpolation.
+    const a = Math.floor(z / 2) * 2, t = (z - a) / 2;
+    const h = (p: number) => 3 * Math.exp(-(((p + 80) / 18) ** 2));
+    return h(a) * (1 - t) + h(a + 2) * t;
+  };
+  const [first] = await placed(page);
+  expect(Math.abs(first.z)).toBeGreaterThan(5);
+  expect(Math.abs(hill(-130 + first.z) - hill(-130))).toBeGreaterThan(0.1);
+  expect(first.y).toBeCloseTo(2 + hill(-130 + first.z) - hill(-130), 2);
+  // A second drag starts at the moved tree; scan its former screen position after the vertical shift.
+  let again: {x: number; y: number} | undefined;
+  for (let up = -30; up <= 120; up += 10) {
+    const p = {x: raised.x + 25, y: raised.y + 65 - up};
+    await page.mouse.move(p.x, p.y);
+    if (await expect(page.locator("#hover-box")).toContainText(NEAR_TREE, {timeout: 200}).then(() => true, () => false)) { again = p; break; }
+  }
+  expect(again).toBeDefined();
+  await dragMouse(page, again!, {x: again!.x + 20, y: again!.y + 20});
+  await saved(page);
+  const [second] = await placed(page);
+  expect(second.y).toBeCloseTo(2 + hill(-130 + second.z) - hill(-130), 2);
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  expect((await placed(page))[0]).toMatchObject({y: 2, x: 0, z: 0});
+  await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
+});
+
+test("Move over edited terrain keeps the preview's height when the server takes it over", async ({page}) => {
+  const pictureOfDrag = async () => {
+    await stillView(page);
+    return scene(page).screenshot({style: `${VIEW_ALONE.style} #hover-box { visibility: hidden; }`});
+  };
+  await openEditor(page);
+  // A planar height edit spans the entire drag, so its old and new heights are predictably different.
+  await page.evaluate(async () => {
+    const draft = await (await fetch("/api/editor/alpha/edits")).json();
+    const nx = 129, nz = 129;
+    const mm = Array.from({length: nx * nz}, (_, k) => {
+      const x = k % nx, z = Math.floor(k / nx);
+      return x && z && x < nx - 1 && z < nz - 1 ? z * 20 : 0;
+    });
+    const result = await fetch("/api/editor/alpha/edits", {method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({base: draft.base, revision: draft.revision, id: "terrain-fixture", deleted: [],
+        heights: [{id: "slope", x: 0, z: -256, nx, nz, mm}]})});
+    if (!result.ok) throw new Error(await result.text());
+  });
+  await page.reload();
+  await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
+  await page.locator("#edit-move").click();
+  const tree = await findTree(page);
+  await page.mouse.click(tree.x, tree.y);
+  await page.locator("#edit-move-set").getByLabel("Height").fill("200");
+  await scene(page).focus();
+  await saved(page);
+  const at = await findTree(page);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 25, at.y + 65, {steps: 8});
+  const preview = await pictureOfDrag();
+  const answer = page.waitForResponse(r => r.url().endsWith("/api/editor/alpha/move") && r.request().method() === "POST");
+  await page.mouse.up();
+  const response = await answer;
+  expect(response.ok()).toBe(true);
+  const proposed = response.request().postDataJSON().placed[0];
+  const actual = (await response.json()).placed[0];
+  expect(Math.abs(proposed.y - actual.y)).toBeGreaterThan(0.1);
+  expect(actual.y).toBeCloseTo(2, 2);
+  await saved(page);
+  try {
+    await expect.poll(async () => {
+      const after = await pictureOfDrag();
+      return page.evaluate(async ([a, b]) => {
+        const pixels = async (encoded: string) => {
+          const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${encoded}`)).blob());
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.width; canvas.height = bitmap.height;
+          const context = canvas.getContext("2d")!;
+          context.drawImage(bitmap, 0, 0); bitmap.close();
+          return context.getImageData(0, 0, canvas.width, canvas.height).data;
+        };
+        const [before, after] = await Promise.all([pixels(a), pixels(b)]);
+        let different = 0;
+        for (let k = 0; k < before.length; k += 4) {
+          if ([0, 1, 2].some(c => Math.abs(before[k + c] - after[k + c]) > 3)) different++;
+        }
+        return different / (before.length / 4);
+      }, [preview.toString("base64"), after.toString("base64")]);
+    }).toBeLessThanOrEqual(0.0001); // Placements round to mm: allow edge rounding in 0.01% of pixels (20x tighter than render references).
+  } finally {
+    await test.info().attach("drag-preview", {body: preview, contentType: "image/png"});
+    await test.info().attach("after-move", {body: await pictureOfDrag(), contentType: "image/png"});
+  }
 });

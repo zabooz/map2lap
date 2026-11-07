@@ -1,7 +1,8 @@
-import {useCallback, useEffect, useEffectEvent, useState, useSyncExternalStore, type RefObject} from "react";
+import {useCallback, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
 import {BandOptions} from "./BandOptions";
 import {CameraOptions, useCamera} from "./Camera";
+import {CopyTool} from "./Copy";
 import {TrackEdits, type EditState} from "./edits";
 import {EditNotes} from "./EditNotes";
 import {ElevationOptions, useElevation} from "./Elevation";
@@ -12,12 +13,12 @@ import {SaveDialog} from "./SaveDialog";
 import {FileButtons, TOOLS, ToolPanel, type Tool} from "./ToolPanel";
 import {useBand} from "./useBand";
 import {useSave} from "./useSave";
-import type {Marked, MenuAt, Picked, TrackView} from "./view";
+import type {Marked, MenuAt, Picked, TrackView, WheelKeys} from "./view";
 import {ViewMenu} from "./ViewMenu";
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
-    those hosts: V, R, X, C, M, H, T, Home, Delete, Esc, Enter, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
+    those hosts: V, R, X, K, M, H, T, Home, Delete, Esc, Enter, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). */
 export function EditTools({name, title, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, elevationSpeed, reopen, onSaved}: {
   name: string;
@@ -39,8 +40,11 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [menu, setMenu] = useState<MenuAt | null>(null);
   const [marked, setMarked] = useState<Marked | null>(null);
   const [tool, setTool] = useState<Tool>("select");
+  const [copyTake, setCopyTake] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
+  const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
+  const setCopyWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { copyWheel.current = wheel; }, []);
   const editable = edits.canEdit();
   const elevating = tool === "elevation" && editable;
   const deleting = tool === "delete" && editable;
@@ -51,7 +55,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, previewing: smoothing, revision: state.keptRevision, onNote: setNote});
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
-  const move = useMove({view, edits, state, enabled: moving, picked, onNote: setNote});
+  const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
 
   /** What a click picked; with Delete on, gone at once; Mark road's left button picks nothing. */
   const onPicked = useEffectEvent((p: Picked | null) => {
@@ -76,7 +80,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     return () => view.setClicked(() => {});
   }, [view]);
 
-  useEffect(() => { view.setWheelTaken((band.line !== null && smoothing) || tool === "camera" || moving); }, [view, band.line, smoothing, tool, moving]);
+  useEffect(() => { view.setWheelTaken((band.line !== null && smoothing) || tool === "camera" || tool === "copy" || moving); }, [view, band.line, smoothing, tool, moving]);
 
   useEffect(() => { view.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
 
@@ -115,7 +119,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   }, [view, marked]);
 
   useEffect(() => {
-    edits.setOnMeshes((meshes, revision) => view.refreshMeshes(meshes, revision));
+    edits.setOnMeshes(meshes => view.refreshMeshes(meshes));
     view.setViewFailed(setViewFailed);
     return () => {
       edits.setOnMeshes(() => {});
@@ -126,6 +130,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const toolWheel = useEffectEvent((keys: Parameters<typeof elevation.wheel>[0], by: number) => {
     if (tool === "camera") camera.wheel(keys, by);
     else if (tool === "move") move.wheel(keys, by);
+    else if (tool === "copy") copyWheel.current(keys, by);
     else if (tool === "smooth") band.wheel(keys, by);
     else elevation.wheel(keys, by);
   });
@@ -137,7 +142,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
 
   /** The list read again, and if it is of another build than the view shows, the track too. */
   const readAgain = async () => {
-    const meshesOf = (s: EditState) => JSON.stringify([s.heights.map(h => h.id), s.placed]);
+    const meshesOf = (s: EditState) => JSON.stringify([s.heights.map(h => h.id), s.placed, s.copies]);
     const shown = meshesOf(state);
     await edits.start();
     if (edits.viewBehind() || meshesOf(edits.state()) !== shown) reopen();     // (the meshes as the list it read says)
@@ -215,8 +220,11 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       {marking && <BandOptions band={band} smoothing={smoothing} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && <MoveOptions move={move} view={view} />}
+      {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} />}
       {menu && (
         <ViewMenu at={menu} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
+                  onMove={editable && picked?.id && view.canMove(picked.id) ? () => { setTool("move"); setNote(null); view.focus(); } : null}
+                  onDuplicate={editable && picked?.id && view.canMove(picked.id) ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null}
                   onSmooth={clickedOnBand ? () => { setTool("smooth"); setNote(null); view.focus(); } : null}
                   onMark={() => { setMarked(sort ? {sort, tree: false} : {sort: tree!, tree: true}); view.focus(); }}
                   onDelete={() => { remove(); view.focus(); }} />

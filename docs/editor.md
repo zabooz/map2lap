@@ -37,10 +37,30 @@ turn that off or delete them. Existing saved preferences stay in effect.
 ## Tools and changes
 
 Its buttons stand in the sidebar by groups (`ui/src/editor/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Discard all), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Discard all asks before taking back every edit, including previously saved edits, as one undoable step; Save writes the restored track. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
-Camera (C) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
-Move (M) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
+Camera (K) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
+Move (M, or Move in the context menu) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
 (`app/placement.py`), written into the kn5 by `app/trackplace.py` before the height changes; the view shows it at once and takes the server's
 meshes when they come.
+Dragging keeps each object's height above the terrain, including a height set by hand; the ground is sampled under its pivot,
+without tilting the object or flattening a slope. When the terrain has height edits, `/move` subtracts their old-to-new difference
+from the placement, since Save applies them afterwards. Outside loaded terrain the drag keeps its height.
+Copy (C, or Duplicate in the context menu) keeps one source ready: each left click places another instance, Esc ends it.
+Once its template is ready, the source is no longer selected: X switches to Delete and leaves the original intact.
+Right-clicking another object keeps that template; Choose another or Duplicate explicitly takes a new source. A placement
+clicked before leaving Copy still completes, as one undoable edit.
+Its preview and placed copies rest their foot on the clicked ground. Turn, Height and Size in its options apply to each new copy,
+by number or Shift/Ctrl/Alt + wheel, as with Move; Height is the clearance above the clicked ground, Size relative to the frozen source.
+`app/trackcopies.py` keeps source member ids and frozen poses in the draft and recipe, with independent `copy_<id>#<member>` ids;
+houses take their children and collision, a copied pole has no wires. Generated meshes extend the index and object list without
+reloading the source meshes or moving the camera; Save appends the same geometry, bundled by tile, kind, material and mesh flags
+and split before AC's vertex limit. Placements and then height changes apply to copies too; Undo, Redo and Discard include them.
+The validated draft context is cached by the source, draft, recipe and object-list file states. Copy geometry has a separate
+SHA-256 revision: unrelated draft changes cannot invalidate its layout. `/copies` returns only generated mesh metadata and
+copied object lists; their cancellable loader is separate from the source queue and retries an obsolete manifest. Its indexes
+retain the source entries. The server keeps one generated manifest (up to two million vertices); height-query cache keys hold
+only its digest. The preview updates when its pointer, camera, pose or ground changes, and uses the server's complete foot
+anchor, including hidden collision. Pending drags keep their displayed pivots until canonical placements arrive; a failed
+drag restores the kept meshes.
 With Mark road or Smooth on, two clicks on the road mark a band that follows it, by the road surface and its heights alone, not over a wall (`app/trackband.py`, `ui/src/editor/useBand.ts`; further clicks are pins, `pins.ts`), for the tools that work on a stretch: Smooth so far.
 Elevation (H: the round brush of `useBrush.ts`, which a tool gives what a stroke does) and those tools make a height change on the server (`app/trackheights.py`, a raster the draft holds; while it is under way, what it changes so far comes back without being kept): it moves the ground of the kn5 and what lies along it, vertex by vertex; single
 objects move whole, wires go from pole to pole; water stays, and one that reaches a deck or a railway is refused. Saving the draft names the meshes that moved; the view fetches those anew from the server, which hands them out as the

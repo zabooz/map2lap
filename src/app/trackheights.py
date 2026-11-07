@@ -138,10 +138,7 @@ class Field:
 
 def _mesh(f, m):
     """A mesh's vertices (a copy to change) and triangles."""
-    f.seek(m["offset"])
-    vertices = np.frombuffer(f.read(m["vertices"] * kn5.VERTEX.itemsize), dtype=kn5.VERTEX).copy()
-    f.read(4)
-    return vertices, np.frombuffer(f.read(m["indices"] * 2), dtype="<u2").reshape(-1, 3)
+    return kn5.mesh_arrays(f, m)
 
 
 def _reached(field, vertices, faces):

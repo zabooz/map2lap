@@ -1,6 +1,7 @@
 // Move: houses, trees, street furniture taken along by dragging, turned, raised and sized by the wheel (M). The view shows it at once, the
 // server's meshes take its place when they come (src/app/trackplace.py): one reckoning, the one Save uses too.
 import {useEffect, useEffectEvent} from "react";
+import {post} from "../api";
 import type {EditState, TrackEdits} from "./edits";
 import {between, nudged, unplaced, type Nudge, type Placement} from "./placing";
 import {thenView, ToolAction, ToolNumber, ToolOptions} from "./ToolOptions";
@@ -10,7 +11,7 @@ const TURN_STEP = 5, HEIGHT_STEP = 0.1, SIZE_STEP = 1.05;      // a notch of the
 const CM = 100, PERCENT = 100;
 
 /** Move on view. enabled: the tool is on. picked: what is picked now. onNote: what to say, null for nothing. */
-export function useMove({view, edits, state, enabled, picked, onNote}: {view: TrackView; edits: TrackEdits; state: EditState; enabled: boolean; picked: Picked | null;
+export function useMove({name, view, edits, state, enabled, picked, onNote}: {name: string; view: TrackView; edits: TrackEdits; state: EditState; enabled: boolean; picked: Picked | null;
                                                                          onNote: (text: string | null) => void}) {
   const ids = enabled ? (picked?.all ?? []).map(p => p.id).filter(id => view.canMove(id)) : [];
   const now = (id: string) => edits.placementOf(id) ?? unplaced(id);
@@ -19,18 +20,41 @@ export function useMove({view, edits, state, enabled, picked, onNote}: {view: Tr
   /** Each of ids changed by its own placement now, at once in the view; join: the notches of the wheel that go into one step to undo. */
   const change = (to: (p: Placement) => Placement, join?: string) => {
     if (!ids.length || !edits.canEdit()) return;
-    const placed = ids.map(id => to(now(id)));
-    placed.forEach((p, k) => view.nudge([ids[k]], between(now(ids[k]), p)));
-    edits.place(placed, join && `${join} ${ids.join()}`);
+    void edits.inTurn(() => {
+      if (!edits.canEdit()) return;
+      const placed = ids.map(id => to(now(id)));
+      placed.forEach((p, k) => view.nudge([ids[k]], between(now(ids[k]), p)));
+      edits.place(placed, join && `${join} ${ids.join()}`);
+    });
   };
 
-  const moved = useEffectEvent((dragged: string[], x: number, z: number) => {
-    if (edits.canEdit()) edits.place(dragged.map(id => nudged(now(id), {x, z})));
-    onNote(null);
+  const moved = useEffectEvent((dragged: {id: string; x: number; y: number; z: number}[]) => {
+    const ids = dragged.map(p => p.id);
+    if (!edits.canEdit()) return view.rejectMove(ids);
+    if (!state.heights.length) {
+      edits.place(dragged.map(({id, ...by}) => nudged(now(id), by)));
+      onNote(null);
+      return;
+    }
+    void edits.inTurn(async () => {
+      let accepted = false;
+      try {
+        if (!edits.canEdit()) return;
+        edits.saveNow();
+        const revision = await edits.saved();
+        if (revision === null || !edits.canEdit()) return;
+        const placed = dragged.map(({id, ...by}) => nudged(now(id), by));
+        const r = await post<{placed: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/move`, {base: edits.boundRevision(), revision, placed});
+        if (r.error || !r.placed) onNote(r.error ?? "Could not move the objects");
+        else if (edits.canEdit()) { edits.place(r.placed); accepted = true; onNote(null); }
+      } finally {
+        if (!accepted) view.rejectMove(ids);
+      }
+    });
   });
 
   useEffect(() => {
-    view.setMove(enabled, (dragged, x, z) => moved(dragged, x, z));
+    view.setMove(enabled, dragged => moved(dragged));
     return () => view.setMove(false, () => {});
   }, [view, enabled]);
 
@@ -43,7 +67,7 @@ export function useMove({view, edits, state, enabled, picked, onNote}: {view: Tr
     setTurn: (degrees: number) => set("turn", degrees),
     setHeight: (cm: number) => set("y", cm / CM),
     setSize: (percent: number) => set("scale", percent / PERCENT),
-    reset: () => { if (ids.length && edits.canEdit()) edits.place(ids.map(unplaced)); },
+    reset: () => { void edits.inTurn(() => { if (ids.length && edits.canEdit()) edits.place(ids.map(unplaced)); }); },
     /** A notch of the wheel over the view, with those keys held: its numbers as they stand in the bar. */
     wheel: (keys: WheelKeys, notch: number) => {
       if (!ids.length) return onNote("Pick an object first: click it, Shift + click adds more");

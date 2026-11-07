@@ -5,7 +5,8 @@ A placement {"id", "x", "y", "z", "turn", "scale"} scales an object by scale and
 place (seen from above counter-clockwise, east to north), then moves it by x, y, z metres (AC: east, up, minus north). Its place: where
 the build put it (track.objectlist's "at", the middle of its foot); a tree's or bush's the middle of its foot, by its corners. What
 belongs to an object (a house's sign and door) goes with it, and can be placed by itself too: first its own placement, then its owner's.
-Its height stays as placed: no rule puts it on the ground, a slope under a house moved there is Elevation's.
+The Move tool adds the change of ground height while dragging, retaining its clearance; this transform keeps that chosen height.
+A slope under a house moved there is Elevation's.
 """
 import math
 
