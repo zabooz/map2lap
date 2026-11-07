@@ -7,15 +7,16 @@ import {HoverBox} from "./HoverBox";
 import {TrackView, type Hovered} from "./view";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
-    source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. toolsHost, notesHost: where in the sidebar its tools are drawn.
+    source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
     onStatus gets what is loading; onSaved the track saved, by its name (a copy: another one). */
-export default function EditorScene({name, title, taken, built, visible, controls, toolsHost, notesHost, onStatus, onSaved}: {
+export default function EditorScene({name, title, taken, built, visible, controls, fileHost, toolsHost, notesHost, onStatus, onSaved}: {
   name: string;
   title: string;
   taken: string[];
   built: number | null;
   visible: boolean;
   controls: Controls;
+  fileHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
   onStatus: (text: string) => void;
@@ -42,7 +43,7 @@ export default function EditorScene({name, title, taken, built, visible, control
   return (
     <div id="scene" className={styles.scene} hidden={!visible} ref={scene}>
       <div className={styles.view} ref={host} />
-      {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} taken={taken} view={view} scene={scene} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
+      {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} taken={taken} view={view} scene={scene} fileHost={fileHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
                                   reopen={() => void view.open(name, onStatus)} onSaved={onSaved} />}
       <HoverBox hovered={hovered} />
     </div>

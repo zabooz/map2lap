@@ -9,22 +9,23 @@ import {MoveOptions, useMove} from "./Move";
 import {NOT_ALL, sortName} from "./inspect";
 import {onBand} from "./pins";
 import {SaveDialog} from "./SaveDialog";
-import {TOOLS, ToolPanel, type Tool} from "./ToolPanel";
+import {FileButtons, TOOLS, ToolPanel, type Tool} from "./ToolPanel";
 import {useBand} from "./useBand";
 import {useSave} from "./useSave";
 import type {Marked, MenuAt, Picked, TrackView} from "./view";
 import {ViewMenu} from "./ViewMenu";
 
-/** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (ToolPanel in toolsHost), what is to be said below them (EditNotes in
-    notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
+/** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
+    to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
     those hosts: V, R, X, C, M, H, T, Home, Delete, Esc, Enter, Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z, Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). */
-export function EditTools({name, title, taken, view, scene, toolsHost, notesHost, elevationSpeed, reopen, onSaved}: {
+export function EditTools({name, title, taken, view, scene, fileHost, toolsHost, notesHost, elevationSpeed, reopen, onSaved}: {
   name: string;
   title: string;
   taken: string[];
   view: TrackView;
   scene: RefObject<HTMLDivElement | null>;
+  fileHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
   elevationSpeed: number;
@@ -194,17 +195,17 @@ export function EditTools({name, title, taken, view, scene, toolsHost, notesHost
   });
 
   useEffect(() => {
-    const on = [scene.current!, toolsHost, notesHost], listen = (e: KeyboardEvent) => keys(e);
+    const on = [scene.current!, fileHost, toolsHost, notesHost], listen = (e: KeyboardEvent) => keys(e);
     for (const el of on) el?.addEventListener("keydown", listen);
     return () => { for (const el of on) el?.removeEventListener("keydown", listen); };
-  }, [scene, toolsHost, notesHost]);
+  }, [scene, fileHost, toolsHost, notesHost]);
 
   const clickedOnBand = tool === "road" && !!band.line && !!picked && onBand(band.line, band.width, picked.position[0], picked.position[2]);
 
   return (
     <>
-      {toolsHost && createPortal(
-        <ToolPanel state={state} edits={edits} view={view} saving={saving} tool={tool} onTool={t => { takeUp(t); setNote(null); }} />, toolsHost)}
+      {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} />, fileHost)}
+      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} />, toolsHost)}
       {notesHost && createPortal(
         <EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={marking && !picked?.id ? null : picked} sort={sort}
                    markedName={marked && (marked.tree ? marked.sort : sortName(marked.sort))} reopen={reopen} readAgain={() => void readAgain()} />, notesHost)}

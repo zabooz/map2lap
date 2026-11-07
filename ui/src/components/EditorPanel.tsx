@@ -5,16 +5,16 @@ import {groupOf} from "./MyTracksPane";
 
 const GROUPS: readonly (readonly [TrackGroup, string])[] = [["built", "Built"], ["edited", "Edited"]];
 
-/** The Editor tab's sidebar: the track to show, what is loading (a line of its own: nothing moves), the places the 3D view's tools are drawn into (toolsRef, notesRef:
-    there while the page is, hidden with the tab, as the view keeps its state), how it all works. */
-export function EditorPanel({tracks, choice, status, hidden, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: string; hidden: boolean;
-                                                                                             toolsRef: Ref<HTMLDivElement>; notesRef: Ref<HTMLDivElement>;
-                                                                                             onChoose: (name: string) => void}) {
+/** The Editor tab's sidebar: File with the track to show, what is loading (a line of its own: nothing moves) and its Save and Play, the places the 3D view's buttons
+    are drawn into (fileRef, toolsRef, notesRef: there while the page is, hidden with the tab, as the view keeps its state), how it all works. */
+export function EditorPanel({tracks, choice, status, hidden, fileRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: string; hidden: boolean;
+                                                                                                      fileRef: Ref<HTMLDivElement>; toolsRef: Ref<HTMLDivElement>;
+                                                                                                      notesRef: Ref<HTMLDivElement>; onChoose: (name: string) => void}) {
   return (
     <section id="editor" className="view" hidden={hidden}>
       <div className={styles.scroll}>
-        <div className="field">
-          <div className="label-row"><span>Track</span></div>
+        <section className={styles.file}>
+          <h3 className={styles.title}>File</h3>
           <select id="edit-track" className={styles.track} aria-label="Track" value={choice} onChange={e => onChoose(e.target.value)}>
             <option value="">Choose a track</option>
             {GROUPS.map(([group, label]) => {
@@ -26,12 +26,13 @@ export function EditorPanel({tracks, choice, status, hidden, toolsRef, notesRef,
               );
             })}
           </select>
-        </div>
-        <p id="edit-status" className={`small muted ${styles.status}`}>{status}</p>
-        {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
-          <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
-            need them: build it again under My tracks.</p>
-        )}
+          <p id="edit-status" className={`small muted ${styles.status}`}>{status}</p>
+          {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
+            <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
+              need them: build it again under My tracks.</p>
+          )}
+          <div ref={fileRef} />
+        </section>
         <div ref={toolsRef} />
         <details id="edit-help" className={styles.help}>
           <summary className={styles.helpTitle}>Help</summary>

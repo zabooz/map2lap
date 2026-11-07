@@ -59,7 +59,7 @@ the sort the build wrote: all cars, all benches; never all houses), out of its v
 with its kn5 filtered, no build), in its place or as a copy; the kn5 as it was is kept as the track's source (`app/tracksource.py`,
 `out/sources`; a first Save in place keeps the old file by a hardlink, one file with the track's only while that Save runs), which the
 Editor shows from then on, so what was deleted can come back.
-Its buttons stand in the sidebar by groups (`ui/src/editor/ToolPanel.tsx`; a portal, their state stays by the view in `EditTools.tsx`), one tool on at a time, Esc back to Select. What the tool on can be set to stands in a bar over the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
+Its buttons stand in the sidebar by groups (`ui/src/editor/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play), General (Undo, Redo, Discard, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. What the tool on can be set to stands in a bar over the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
 Camera (C) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
 Move (M) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
 (`app/placement.py`), written into the kn5 by `app/trackplace.py` before the height changes; the view shows it at once and takes the server's

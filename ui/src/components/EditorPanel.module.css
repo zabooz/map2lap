@@ -1,3 +1,5 @@
+.file { display: flex; flex-direction: column; gap: 6px; }
+.title { margin: 0; font-size: 13px; font-weight: 600; }
 .track { width: 100%; }
 .status { min-height: 1.4em; }     /* (what is loading in a line of its own: nothing moves) */
 /* The tools scroll on a small window, what is to be said stays below them */
