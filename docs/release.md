@@ -3,7 +3,7 @@
 ## Making a release
 
 Before packaging a page change, run `bun install --frozen-lockfile`, `bun run check` and `bun run e2e:all` from `ui/`
-(browser setup: [AGENTS.md](../AGENTS.md#the-page)). The browser command builds `src/web`; commit those files with the
+(browser setup: [ui/AGENTS.md](../ui/AGENTS.md)). The browser command builds `src/web`; commit those files with the
 `ui/` source. Without browser tests, `bun run build` does the build alone. The archives include `src/web` and leave `ui/`
 and its dependencies out: users need no Bun.
 

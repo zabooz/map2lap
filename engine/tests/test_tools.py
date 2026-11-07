@@ -1,5 +1,5 @@
-"""The tools in tools/ an agent reads a report with: what they conclude from their numbers. Every tool is named in AGENTS.md,
-the list an agent looks in first."""
+"""The tools in tools/ an agent reads a report with: what they conclude from their numbers. Every tool is named in tools/README.md,
+the catalogue linked from AGENTS.md."""
 import collections
 import glob
 import json
@@ -741,9 +741,9 @@ class EditorMemoryTest(unittest.TestCase):
         self.assertEqual(3, editor_memory.reach(meshes, self.MATERIALS, self.SIZES, [0.0, 0.0, 0.0], 3 * one + 2200)[0])
 
 
-class AgentsListTest(unittest.TestCase):
-    def test_every_tool_is_named_in_agents_md(self):
-        with open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8") as f:
+class ToolListTest(unittest.TestCase):
+    def test_every_tool_is_named_in_the_catalogue(self):
+        with open(os.path.join(ROOT, "tools", "README.md"), encoding="utf-8") as f:
             text = f.read()
         missing = [os.path.basename(p) for p in glob.glob(os.path.join(ROOT, "tools", "*.py"))
                    if os.path.basename(p) not in text]

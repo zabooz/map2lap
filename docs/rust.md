@@ -38,4 +38,4 @@ info carry source paths) and puts a module in place only when it names no user, 
 - Environment variables are read on the Python side and passed in (one place for the `BNE_*` switches, which the cache
   key hashes).
 - The revisit cache is keyed by a hash of the engine code and the module (`revisit.code_key`), so a change invalidates it
-  by itself; a run's plan folder (`BNGE_PLAN_RUN`) is not: AGENTS.md, Builds.
+  by itself; a run's plan folder (`BNGE_PLAN_RUN`) is not: [architecture.md, Build caches](architecture.md#build-caches-and-comparisons).

@@ -37,7 +37,7 @@ Every session writes `Documents\Assetto Corsa\map2lap_debug\<track>_<time>\`:
    `roads.road_specs` for a road's class, width and sidewalks, `railways.parts` for tracks) after
    `generator._init_worker(cache)`. At a tunnel portal, start with `tools\portal.py <track> <AC x> <AC z>`.
 
-Tools for a spot (all of them: the table in AGENTS.md): `tools\measure.py <track>` measures any built track,
+Tools for a spot (all of them: the [tool catalogue](../tools/README.md)): `tools\measure.py <track>` measures any built track,
 `tools\heights.py <track> --from <m> --to <m>` says why the ground lies at that height (`--decks`, `--walls`, `--road`, `--road ... --steps`, `--at` for one point),
 `tools\map_spot.py <track> --route <m>` draws the spot's roads, `tools\plants.py <track> --route <m>` says what grows there,
 `tools\check_drive.py <track> --all-roads` finds holes, jumps and terrain above the road, `tools\stretch.py` rebuilds a

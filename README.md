@@ -113,7 +113,7 @@ bun run e2e                   # builds src/web and tests the page in Chrome
 ```
 
 `bun run build` rebuilds `src/web` without browser tests. Commit it together with the `ui/` changes. Browser setup and
-the other browsers: [AGENTS.md](AGENTS.md#the-page).
+the other browsers: [ui/AGENTS.md](ui/AGENTS.md).
 
 ## Credits
 
