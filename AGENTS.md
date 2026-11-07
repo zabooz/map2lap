@@ -49,6 +49,8 @@ Commands, browser-test requirements and React/CSS rules: [ui/AGENTS.md](ui/AGENT
 
 ## Rules for a change
 
+- **Use TDD.** Write a test for the behavior, run it and confirm it fails before implementing the change; then make it pass
+  and refactor with the tests green.
 - **Think worldwide.** A rule acts on every road, path and building in the built area and must hold in other countries,
   road widths and terrain. Before building, name the kinds of places it touches.
 - **Map data first.** OpenStreetMap and Overture tags (tunnel, bridge, layer, width, ...) come before thresholds. A number
