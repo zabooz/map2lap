@@ -37,6 +37,13 @@ is part of the draft and the recipe. Save adds up all of them over the track's s
 A marked stretch of road, A to B by two clicks, following the road surface (`app/trackband.py`, `ui/src/editor/useBand.ts`); what a tool such as Smooth
 works on. Its **own road** is the 1ROAD that stands to its line as a road can across: a bank or a side road at another level beside it is not, and goes along.
 
+**Brush** (Editor):
+The round thing on the ground a tool works with: its ring, radius, soft edge, strokes as a click or held and moved (`ui/src/editor/useBrush.ts`). What a stroke does is the tool's:
+Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a smaller ring can stand between the points of the ground's 2 m lattice and move nothing.
+
+**Tool options** (Editor):
+The bar over the view with what the tool on can be set to (`ui/src/editor/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
+
 **Source**:
 A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`
 (`app/tracksource.py`), shared by its copies: the Editor shows it, so whatever was deleted can come back. It counts while the track's

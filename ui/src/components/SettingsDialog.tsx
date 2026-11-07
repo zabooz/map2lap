@@ -1,6 +1,6 @@
 import {useEffect, useState, type ReactNode} from "react";
 import {get, post} from "../api";
-import {DEFAULT_CONTROLS, MEMORY_RANGE, SPEED_RANGE, SPEEDS, type Controls} from "../editor/controls";
+import {DEFAULT_CONTROLS, ELEVATION_SPEED_RANGE, MEMORY_RANGE, SPEED_RANGE, SPEEDS, type Controls} from "../editor/controls";
 import {fmtBytes} from "../format";
 import type {useRelease} from "../hooks/useRelease";
 import type {useSettings} from "../hooks/useSettings";
@@ -168,6 +168,12 @@ function ControlsGroup({controls, onChange}: {controls: Controls; onChange: (c: 
                  onChange={e => onChange({...controls, [name]: +e.target.value})} />
         </div>
       ))}
+      <div className="field">
+        <div className="label-row"><span>Elevation while held</span><span className="val">{controls.elevationSpeed} cm/s</span></div>
+        <input id="control-elevation-speed" type="range" min={ELEVATION_SPEED_RANGE[0]} max={ELEVATION_SPEED_RANGE[1]} step={ELEVATION_SPEED_RANGE[2]}
+               value={controls.elevationSpeed} aria-label="Elevation while held"
+               onChange={e => onChange({...controls, elevationSpeed: +e.target.value})} />
+      </div>
       <label className={styles.check}>
         <input id="control-invert" type="checkbox" checked={controls.invertLook}
                onChange={e => onChange({...controls, invertLook: e.target.checked})} /> Invert up and down when looking around
@@ -181,12 +187,13 @@ function ControlsGroup({controls, onChange}: {controls: Controls; onChange: (c: 
 
 // (what ui/src/editor/view.ts and EditTools.tsx answer to)
 const KEYS: [string, string][] = [
-  ["W A S D", "Move over the ground, at the same height"], ["Right drag", "Take the ground along"],
-  ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["Click", "Pick an object"],
+  ["W A S D", "Move over the ground, at the same height"], ["C", "Camera: on and off; go along the track by the wheel or riding by itself"], ["Home", "Reset the camera: back to the first view, behind the start"], ["Right drag", "Take the ground along"],
+  ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["V", "Select: a click picks an object"], ["Shift+Click", "Select: add one to what is picked, or take it out again"],
   ["Right click", "Its menu: Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
-  ["H", "Elevation: on and off"], ["Ctrl+Wheel, Alt+Wheel", "Elevation: radius, height; a marked road: width, strength"], ["Shift", "Elevation the other way"],
-  ["X", "Click deletes: on and off"], ["Click on the road", "Mark it: A, then B"], ["Enter", "Take what a marked road shows"],
-  ["Esc", "End a marking, a stroke or a tool, close the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
+  ["R", "Mark road: on and off; a click on the road sets A, then B"], ["T", "Smooth: on and off"], ["Enter", "Take what Smooth shows"],
+  ["H", "Elevation: on and off"], ["Shift", "A tool's first option, shown at the bottom of the view: Elevation the other way"], ["Shift+Wheel", "Smooth: strength; Camera: along the track"], ["Ctrl+Wheel", "The next option: Elevation's radius, Smooth's width, Camera's height"], ["Alt+Wheel", "The next: Elevation's height, Camera's speed"], ["Ctrl+Alt+Wheel", "The next: Elevation's soft edge"],
+  ["X", "Delete what is picked, or all that is marked; with nothing picked: each click deletes, on and off"],
+  ["Esc", "Back to Select: ends a stroke, a marking or a tool, closes the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
 ];
 
 /** The Editor's keys and mouse, while the 3D view has the focus (a click into it). */

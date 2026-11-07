@@ -1,5 +1,5 @@
 // The Editor's draft: kept by itself, over a new build, in two tabs, when a save fails; where its keys count.
-import {button, expect, openEditor, test} from "./fixtures";
+import {expect, openEditor, test} from "./fixtures";
 import {NEAR_TREE, deleteTree, findTree, picture, saved, stored} from "./edit-helpers";
 
 test("built again, older changes stay but are not applied, and nothing is mixed with them", async ({page, backend}) => {
@@ -14,7 +14,7 @@ test("built again, older changes stay but are not applied, and nothing is mixed 
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y);
-  await expect(button(page, "Delete")).toBeDisabled();
+  await expect(page.locator("#edit-click-deletes")).toBeDisabled();
   expect((await stored(page)).outdated).toBe(1);
   await page.getByRole("button", {name: "Give up"}).click();
   await expect(page.locator("#edit-outdated")).toBeHidden();
@@ -22,7 +22,7 @@ test("built again, older changes stay but are not applied, and nothing is mixed 
   expect((await stored(page)).outdated).toBe(0);
   const next = await findTree(page);
   await page.mouse.click(next.x, next.y);
-  await expect(button(page, "Delete")).toBeEnabled();
+  await expect(page.locator("#edit-click-deletes")).toBeEnabled();
 });
 
 test("built again under an open view: nothing is saved for a track not shown; reading again brings the new build", async ({page, backend}) => {
@@ -56,7 +56,7 @@ test("two tabs: the second one's save is refused instead of overwriting the firs
   await other.mouse.click(at.x, at.y);
   await other.keyboard.press("Delete");
   await expect(other.locator("#edit-stuck")).toContainText("changed elsewhere");
-  await expect(button(other, "Delete")).toBeDisabled();
+  await expect(other.locator("#edit-click-deletes")).toBeDisabled();
   await other.getByRole("button", {name: "Read again"}).click();
   await expect(other.locator("#edit-stuck")).toBeHidden();
   await expect(other.locator("#edit-count")).toHaveText("1 object deleted");

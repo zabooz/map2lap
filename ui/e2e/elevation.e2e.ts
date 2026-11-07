@@ -1,13 +1,13 @@
-// The Editor's brush: a click, held, its keys, strokes on their way; and X, where each click deletes.
-import {button, centre, expect, openEditor, scene, test} from "./fixtures";
+// Elevation, the Editor's brush: a click, held, its keys, strokes on their way; and X, where each click deletes.
+import {button, centre, expect, openEditor, openSettings, scene, test} from "./fixtures";
 import {box, brushStroke, deleteTree, findTree, heights, picture, saveTrack, saved} from "./edit-helpers";
 
 test("the brush: a stroke raises the ground with what stands there, shows at once, Ctrl+Z takes it back whole", async ({page}) => {
   await openEditor(page);
   const before = await picture(page);
-  await page.locator("#edit-brush").click();
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("40");
-  await page.locator("#edit-brush-set").getByLabel("Height").fill("300");
+  await page.locator("#edit-elevation").click();
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("40");
+  await page.locator("#edit-elevation-set").getByLabel("Height").fill("300");
   await brushStroke(page);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await saved(page);
@@ -22,9 +22,9 @@ test("the brush: a stroke raises the ground with what stands there, shows at onc
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
 });
 
-test("the brush: Shift or Lower goes down, Esc drops a stroke under way and then ends the brush", async ({page}) => {
+test("the brush: Shift or Lower goes down, Esc drops a stroke under way and ends the brush", async ({page}) => {
   await openEditor(page);
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   await button(page, "Lower").click();
   await brushStroke(page);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
@@ -45,33 +45,32 @@ test("the brush: Shift or Lower goes down, Esc drops a stroke under way and then
   await page.keyboard.press("Escape");
   await page.mouse.up();
   await expect(page.locator("#edit-heights")).toHaveText("2 height changes");
-  await expect(page.locator("#edit-brush-set")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#edit-brush-set")).toBeHidden();
+  await expect(page.locator("#edit-elevation-set")).toBeHidden();
+  await expect(page.locator("#edit-select")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the brush: keys in its numbers stay there, a click on the sky is no stroke, what it can't be is said", async ({page}) => {
   await openEditor(page);
   await deleteTree(page);
-  await page.locator("#edit-brush").click();
-  const radius = page.locator("#edit-brush-set").getByLabel("Radius");
+  await page.locator("#edit-elevation").click();
+  const radius = page.locator("#edit-elevation-set").getByLabel("Radius");
   await radius.fill("2");
   await radius.press("Delete");
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await scene(page).click({position: {x: 5, y: 5}});        // (the sky, above the horizon)
   await page.waitForTimeout(100);
   await expect(page.locator("#edit-heights")).toBeHidden();
-  await radius.fill("2");
+  await radius.fill("1");
   await brushStroke(page);
-  await expect(page.locator("#edit-brush-note")).toContainText("Not changed: No brush of that size");
+  await expect(page.locator("#edit-tool-note")).toContainText("Not changed: No brush of that size");
   await expect(page.locator("#edit-heights")).toBeHidden();
 });
 
 test("the brush: a stroke is saved with the track, comes back after a reload, Save writes it, Discard takes it", async ({page}) => {
   await openEditor(page);
-  await page.locator("#edit-brush").click();
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("40");
-  await page.locator("#edit-brush-set").getByLabel("Height").fill("300");
+  await page.locator("#edit-elevation").click();
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("40");
+  await page.locator("#edit-elevation-set").getByLabel("Height").fill("300");
   await brushStroke(page);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await saved(page);
@@ -93,7 +92,7 @@ test("the brush: a stroke is saved with the track, comes back after a reload, Sa
 
 test("the brush: a stroke on its way when Discard is pressed goes too, and strokes keep their order", async ({page}) => {
   await openEditor(page);
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   await brushStroke(page);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await saved(page);
@@ -134,7 +133,7 @@ test("the brush: a stroke on its way goes into a Save", async ({page}) => {
     await new Promise(ok => setTimeout(ok, 400));
     await route.fulfill({response: r});
   });
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   await brushStroke(page);
   await page.keyboard.press("Control+s");            // (as it looks now nothing is to be saved: the stroke is still on its way)
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
@@ -154,7 +153,7 @@ test("the brush: Play waits for a stroke on its way, and saves it first", async 
     await new Promise(ok => setTimeout(ok, 400));
     await route.fulfill({response: r});
   });
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   await brushStroke(page);
   await page.locator("#edit-play").click();
   await expect.poll(backend.calls).toContainEqual(["play", "alpha"]);
@@ -169,7 +168,7 @@ test("the brush: a stroke on its way when the track is left isn't lost", async (
     await new Promise(ok => setTimeout(ok, 400));
     await route.fulfill({response: r});
   });
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   await brushStroke(page);
   await page.locator("#edit-track").selectOption("beta");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
@@ -181,10 +180,10 @@ test("the brush: a stroke on its way when the track is left isn't lost", async (
 
 test("the brush: only what the server names is fetched again, and what can't be fetched is said", async ({page}) => {
   await openEditor(page);
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   const asked: string[] = [];
   page.on("request", r => { if (/\/mesh\/\d+\?/.test(r.url())) asked.push(r.url()); });
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("3");
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("3");
   await brushStroke(page);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await saved(page);
@@ -205,10 +204,12 @@ test("the brush: only what the server names is fetched again, and what can't be 
 test("the brush held: it grows while held and shows it, letting go is one undo step, Esc takes it all back", async ({page}) => {
   await openEditor(page);
   const before = await picture(page);
-  await page.locator("#edit-brush").click();
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("60");
-  await page.locator("#edit-brush-set").getByLabel("Height").fill("500");
-  await page.locator("#edit-brush-set").getByLabel("Speed").fill("300");
+  await openSettings(page, "Editor");
+  await page.locator("#control-elevation-speed").fill("300");
+  await page.keyboard.press("Escape");
+  await page.locator("#edit-elevation").click();
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("60");
+  await page.locator("#edit-elevation-set").getByLabel("Height").fill("500");
   const c = await centre(scene(page));
   const answers: number[] = [];
   page.on("response", r => { if (r.url().endsWith("/brush/preview")) answers.push(r.status()); });
@@ -243,11 +244,11 @@ test("the brush held: it grows while held and shows it, letting go is one undo s
 test("the brush held on what can't be changed: it ends there and says why", async ({page}) => {
   await openEditor(page);
   await page.route("**/brush/preview", r => r.fulfill({status: 409, json: {error: "A bridge, a tunnel or a railway lies in the change"}}));
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   const c = await centre(scene(page));
   await page.mouse.move(c.x, c.y + 40);
   await page.mouse.down();
-  await expect(page.locator("#edit-brush-note")).toContainText("A bridge, a tunnel or a railway");
+  await expect(page.locator("#edit-tool-note")).toContainText("A bridge, a tunnel or a railway");
   await page.mouse.up();
   await page.waitForTimeout(100);
   await expect(page.locator("#edit-heights")).toBeHidden();
@@ -264,19 +265,20 @@ test("the brush held: what a stroke that is over was refused says nothing about 
     }
     return route.continue();
   });
-  await page.locator("#edit-brush").click();
+  await page.locator("#edit-elevation").click();
   const c = await centre(scene(page));
   await page.mouse.move(c.x, c.y + 40);
   await page.mouse.down();
   await expect.poll(() => holding !== null).toBe(true);
   await page.keyboard.press("Escape");
   await page.mouse.up();
+  await page.keyboard.press("h");
   await page.mouse.down();
   holding!();
   await page.waitForTimeout(300);
   await page.mouse.up();
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
-  await expect(page.locator("#edit-brush-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toBeHidden();
 });
 
 test("H turns the brush on and off, Ctrl and Alt with the wheel set its radius and height", async ({page}) => {
@@ -284,26 +286,28 @@ test("H turns the brush on and off, Ctrl and Alt with the wheel set its radius a
   const c = await centre(scene(page));
   await page.mouse.move(c.x, c.y + 40);
   await page.keyboard.press("h");
-  const set = page.locator("#edit-brush-set");
+  const set = page.locator("#edit-elevation-set");
   await expect(set).toBeVisible();
   await expect(set.getByLabel("Radius")).toHaveValue("5");
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, -100);
   await page.keyboard.up("Control");
-  await expect(set.getByLabel("Radius")).toHaveValue("6");
+  await expect(set.getByLabel("Radius")).toHaveValue("5.5");
   await page.keyboard.down("Control");
-  await page.mouse.wheel(0, 100);
-  await page.mouse.wheel(0, 100);
-  await page.mouse.wheel(0, 100);
-  await page.mouse.wheel(0, 100);
+  for (let k = 0; k < 8; k++) await page.mouse.wheel(0, 100);
   await page.keyboard.up("Control");
-  await expect(set.getByLabel("Radius")).toHaveValue("3");          // (no smaller: the ground's lattice has nothing to show less with)
+  await expect(set.getByLabel("Radius")).toHaveValue("2");          // (no smaller: a ring could stand between the ground's points and move nothing)
   await page.keyboard.down("Alt");
   await page.mouse.wheel(0, -100);
   await page.keyboard.up("Alt");
   await expect(set.getByLabel("Height")).toHaveValue("6");
-  await expect(set.getByLabel("Speed")).toHaveValue("30");
   await expect(set.getByLabel("Soft edge")).toHaveValue("25");
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Alt");
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Alt");
+  await page.keyboard.up("Control");
+  await expect(set.getByLabel("Soft edge")).toHaveValue("30");
   const before = await picture(page);
   await page.mouse.move(c.x, c.y + 40);
   await page.keyboard.down("Control");
@@ -335,14 +339,14 @@ test("X: each click deletes what is under it, what can't go stays, a right click
   await expect(page.locator("#edit-count")).toBeHidden();
   await page.keyboard.press("h");                                   // (one tool at a time)
   await expect(page.locator("#edit-click-deletes")).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator("#edit-brush")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#edit-elevation")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the brush: while it is on, a click picks nothing", async ({page}) => {
   await openEditor(page);
   const at = await findTree(page);
-  await page.locator("#edit-brush").click();
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("3");
+  await page.locator("#edit-elevation").click();
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("3");
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toBeHidden();
   await expect(box(page)).toBeHidden();

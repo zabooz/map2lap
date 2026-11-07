@@ -1,5 +1,5 @@
 import {expect, test} from "bun:test";
-import {DEFAULT_CONTROLS, MEMORY_RANGE, parseControls, SPEED_RANGE} from "./controls";
+import {DEFAULT_CONTROLS, ELEVATION_SPEED_RANGE, MEMORY_RANGE, parseControls, SPEED_RANGE} from "./controls";
 import {decodedBytes, fits} from "./inspect";
 
 test("nothing stored or something broken: the defaults", () => {
@@ -19,6 +19,8 @@ test("a value out of range comes back into it", () => {
   expect(parseControls('{"memoryGb": 100000}').memoryGb).toBe(MEMORY_RANGE[1]);
   expect(parseControls('{"memoryGb": 0}').memoryGb).toBe(MEMORY_RANGE[0]);
   expect(parseControls('{"memoryGb": 8}').memoryGb).toBe(8);
+  expect(parseControls('{"elevationSpeed": 100000}').elevationSpeed).toBe(ELEVATION_SPEED_RANGE[1]);
+  expect(parseControls('{"elevationSpeed": 0}').elevationSpeed).toBe(0);        // (allowed: only the click counts)
 });
 
 test("a memory limit: what fits, and what is left once the limit is reached", () => {

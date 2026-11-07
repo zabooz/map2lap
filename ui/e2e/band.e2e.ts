@@ -7,6 +7,7 @@ import {AWAY, heights, picture, saved} from "./edit-helpers";
 async function onHill(page: Page, backend: Backend) {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, trees: false});
   await openEditor(page);
+  await page.locator("#edit-smooth").click();
   const c = await centre(scene(page));
   return {a: {x: c.x, y: c.y + 236}, b: {x: c.x, y: c.y - 261}, c};     // (z -20 and -130 by the camera's view: the hill's top lies at -80)
 }
@@ -63,12 +64,12 @@ test("what is shown follows the draft: an undo under a band reckons it again, Es
   const before = await picture(page);
   await page.locator("#scene canvas").focus();
   await page.keyboard.press("h");
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("20");
-  await page.locator("#edit-brush-set").getByLabel("Height").fill("200");
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("20");
+  await page.locator("#edit-elevation-set").getByLabel("Height").fill("200");
   await page.mouse.click(c.x, c.y);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await saved(page);
-  await page.keyboard.press("h");
+  await page.keyboard.press("t");
   let holding: (() => void) | null = null, held = false;
   await page.route("**/band/preview", async route => {
     if (!held) {
@@ -93,7 +94,7 @@ test("what is shown follows the draft: an undo under a band reckons it again, Es
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
 });
 
-test("a click on grass or the sky ends a marking, a click on the road with another tool on makes none", async ({page, backend}) => {
+test("a click on grass or the sky ends a marking, a click on the road with a tool that does not mark makes none", async ({page, backend}) => {
   const {a, b} = await onHill(page, backend);
   await page.mouse.click(a.x, a.y);
   await expect(page.locator("#edit-band")).toBeVisible();
@@ -103,12 +104,12 @@ test("a click on grass or the sky ends a marking, a click on the road with anoth
   await page.mouse.click(b.x, b.y);
   await expect(strength(page)).toBeVisible();
   await page.locator("#scene canvas").focus();
-  await page.keyboard.press("h");                   // (a tool taken up ends it)
+  await page.keyboard.press("x");                   // (a tool taken up ends it)
   await expect(page.locator("#edit-band")).toBeHidden();
   await page.mouse.click(a.x, a.y);
   await expect(page.locator("#edit-band")).toBeHidden();
-  await page.keyboard.press("h");
-  await page.keyboard.press("x");
+  await expect(page.locator("#edit-picked")).toContainText("can't be deleted yet");
+  await page.keyboard.press("v");
   await page.mouse.click(a.x, a.y);
   await expect(page.locator("#edit-band")).toBeHidden();
   await expect(page.locator("#edit-picked")).toContainText("can't be deleted yet");
@@ -119,12 +120,12 @@ test("no road between the clicks: it says so, and A stays", async ({page, backen
   await page.route("**/band/way", r => r.fulfill({status: 409, json: {error: "No road found between these points"}}));
   await page.mouse.click(a.x, a.y);
   await page.mouse.click(b.x, b.y);
-  await expect(page.locator("#edit-brush-note")).toContainText("No road found");
+  await expect(page.locator("#edit-tool-note")).toContainText("No road found");
   await expect(page.locator("#edit-band")).toContainText("A is set");
   await page.unroute("**/band/way");
   await page.mouse.click(b.x, b.y);
   await expect(strength(page)).toBeVisible();
-  await expect(page.locator("#edit-brush-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toBeHidden();
 });
 
 test("a point in between that finds no road goes by itself: A and B stay", async ({page, backend}) => {
@@ -136,9 +137,9 @@ test("a point in between that finds no road goes by itself: A and B stay", async
     return asked.length === 1 ? r.fulfill({status: 409, json: {error: "No road found"}}) : r.continue();
   });
   await page.mouse.click(c.x, c.y);
-  await expect(page.locator("#edit-brush-note")).toContainText("No road found");
+  await expect(page.locator("#edit-tool-note")).toContainText("No road found");
   await page.waitForTimeout(300);
-  await expect(page.locator("#edit-brush-note")).toContainText("No road found");     // (it stays: back to A and B asks for nothing, which would clear it)
+  await expect(page.locator("#edit-tool-note")).toContainText("No road found");     // (it stays: back to A and B asks for nothing, which would clear it)
   expect(asked).toEqual([3]);
   let sent: number | null = null;
   page.on("request", r => { if (r.url().endsWith("/band/preview")) sent = (r.postDataJSON() as {points: unknown[]}).points.length; });
@@ -150,11 +151,11 @@ test("Enter goes from the draft with an undo on its way in it, not from before",
   const {a, b, c} = await onHill(page, backend);
   await page.locator("#scene canvas").focus();
   await page.keyboard.press("h");
-  await page.locator("#edit-brush-set").getByLabel("Radius").fill("20");
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("20");
   await page.mouse.click(c.x, c.y);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await saved(page);
-  await page.keyboard.press("h");
+  await page.keyboard.press("t");
   await mark(page, a, b);
   let letGo: () => void = () => {};
   const held = new Promise<void>(ok => { letGo = ok; });
@@ -189,11 +190,11 @@ test("Enter while the way to a new pin is asked for takes nothing yet, and says 
   await page.mouse.click(c.x, c.y);
   await page.locator("#scene canvas").focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator("#edit-brush-note")).toContainText("still being found");
+  await expect(page.locator("#edit-tool-note")).toContainText("still being found");
   await expect(strength(page)).toBeVisible();
   expect(taken).toBe(0);
   letGo();
-  await expect(page.locator("#edit-brush-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toBeHidden();
   await page.locator("#scene canvas").focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
@@ -203,14 +204,14 @@ test("a preview the server can't answer takes back what was shown and says so", 
   const {a, b} = await onHill(page, backend);
   await mark(page, a, b);
   await strength(page).fill("0");
-  await expect(page.locator("#edit-brush-note")).toContainText("smooth here already");
+  await expect(page.locator("#edit-tool-note")).toContainText("smooth here already");
   await page.waitForTimeout(300);
   const none = await picture(page);                 // (the band with no change shown)
   await strength(page).fill("100");
   await expect.poll(async () => (await picture(page)).equals(none)).toBe(false);
   await page.route("**/band/preview", r => r.abort());
   await strength(page).fill("50");
-  await expect(page.locator("#edit-brush-note")).toContainText("No preview");
+  await expect(page.locator("#edit-tool-note")).toContainText("No preview");
   await expect.poll(async () => (await picture(page)).equals(none)).toBe(true);
 });
 
@@ -236,7 +237,7 @@ test("pins: a click adds one where it lies along the band, dragged it moves, a c
   await expect.poll(() => pointsSent.length).toBe(2);
   expect(last()).toHaveLength(3);
   expect(last()[1]).not.toEqual(middle);
-  await expect(page.locator("#edit-brush-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toBeHidden();
 
   await page.mouse.click(c.x, c.y + 60, {button: "right"});
   await expect.poll(() => pointsSent.length).toBe(3);
@@ -252,7 +253,7 @@ test("a pin's drag the browser breaks off puts it back where the band goes by it
   page.on("request", r => { if (r.url().endsWith("/band/way")) sent.push((r.postDataJSON() as {points: unknown[]}).points); });
   await page.mouse.click(c.x, c.y);
   await expect.poll(() => sent.length).toBe(1);
-  await expect(page.locator("#edit-brush-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toBeHidden();
   await page.mouse.move(c.x, c.y);
   await page.mouse.down();
   await page.mouse.move(c.x, c.y + 60, {steps: 4});
@@ -313,7 +314,7 @@ test("taking A or B away leaves the other as A, taking that too leaves nothing",
   await expect(page.locator("#edit-band")).toBeHidden();
 });
 
-test("Ctrl and Alt with the wheel set a marked road's width and strength", async ({page, backend}) => {
+test("Shift and Ctrl with the wheel set a marked road's strength and width: its first two options", async ({page, backend}) => {
   const {a, b} = await onHill(page, backend);
   await mark(page, a, b);
   const band = page.locator("#edit-band");
@@ -323,9 +324,9 @@ test("Ctrl and Alt with the wheel set a marked road's width and strength", async
   await page.mouse.wheel(0, 100);
   await page.keyboard.up("Control");
   await expect(band.getByLabel("Width")).toHaveValue(String(width - 1));
-  await page.keyboard.down("Alt");
+  await page.keyboard.down("Shift");
   await page.mouse.wheel(0, -100);
-  await page.keyboard.up("Alt");
+  await page.keyboard.up("Shift");
   await expect(strength(page)).toHaveValue("55");
 });
 
@@ -334,5 +335,5 @@ test("the button says Elevation, and H is its key", async ({page}) => {
   await expect(button(page, "Elevation")).toBeVisible();
   await page.locator("#scene canvas").focus();
   await page.keyboard.press("h");
-  await expect(page.locator("#edit-brush-set")).toBeVisible();
+  await expect(page.locator("#edit-elevation-set")).toBeVisible();
 });

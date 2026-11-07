@@ -1,2 +1,9 @@
 .track { width: 100%; }
 .status { min-height: 1.4em; }     /* (what is loading in a line of its own: nothing moves) */
+/* The tools scroll on a small window, what is to be said stays below them */
+.scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.notes { flex: none; max-height: 25vh; overflow-y: auto; }
+.notes:empty { display: none; }
+.help { padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.helpTitle { cursor: pointer; font-weight: 600; }
+.helpText { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }

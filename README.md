@@ -39,9 +39,11 @@ Steam. Before the first track:
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
 - **Elevation (Editor, H):** raise or lower the ground, with the road and what stands on it: a click by its height, held more and more
-  where the ring is, Shift the other way, Ctrl or Alt with the wheel for its radius or height; each is one undo. Save writes it into the
-  track without a build. A change that reaches a bridge, a tunnel or a railway is refused. **X:** each click deletes what is under it.
-- **Smooth (Editor):** two clicks on the road mark a stretch, and a band follows it, up to a wall and not over it; further clicks add pins
+  where the ring is, Shift the other way, Ctrl, Alt or both with the wheel for its radius, height or soft edge; each is one undo. Save writes it
+  into the track without a build. A change that reaches a bridge, a tunnel or a railway is refused. **X:** deletes what is picked (Shift + click picks
+  more), or with nothing picked each click deletes what is under it.
+- **Camera (Editor, C):** go along the track by Shift and the wheel, or let it ride by itself, to look it over and find what to correct.
+- **Smooth (Editor, T):** with Mark road (R) or Smooth on, two clicks on the road mark a stretch, and a band follows it, up to a wall and not over it; further clicks add pins
   that say which way it goes, to drag or take away with a right click. Smooth evens it out, from short waves to a calm curve by its strength,
   and it goes on from the road's slope beyond with no edge; set the clicks before and behind the bad part. A bank or a side road beside it stays
   as it stood to the road.

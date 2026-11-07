@@ -8,7 +8,6 @@ test("a click picks a tree, Delete takes it away at once, the mouse finds what s
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toContainText("Tree · ");
-  await expect(button(page, "Delete")).toBeEnabled();
   await page.keyboard.press("Delete");
   await page.mouse.move(AWAY.x, AWAY.y);
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
@@ -225,7 +224,8 @@ test("a parked car on an older build says a new build can delete it, a tree ther
   await expect(box(page)).toContainText("no ID of its own");
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toHaveText("Parked car: only a new build can delete it");
-  await expect(button(page, "Delete")).toBeDisabled();
+  await page.keyboard.press("Delete");
+  await expect(page.locator("#edit-count")).toBeHidden();
   await deleteTree(page);
 });
 
@@ -267,7 +267,7 @@ test("the right-click menu: Replace and Edit greyed, Mark all frames and deletes
   await expect(page.getByRole("menuitem", {name: "Delete"})).toBeEnabled();
   await page.getByRole("menuitem", {name: /^Mark all /}).click();
   await expect(page.locator("#view-menu")).toBeHidden();
-  await expect(page.locator("#edit-marked")).toContainText("marked: Delete deletes them all");
+  await expect(page.locator("#edit-marked")).toContainText("marked: X or Delete deletes them all");
   await page.mouse.move(AWAY.x, AWAY.y);
   const framed = await picture(page);
   expect(framed.equals(before)).toBe(false);
@@ -394,7 +394,6 @@ test("the road can't be deleted: with click deletes it says so, Delete does noth
   await page.keyboard.press("x");
   await page.mouse.click(c.x, c.y);
   await expect(page.locator("#edit-picked")).toContainText("Road surface: can't be deleted yet");
-  await expect(button(page, "Delete")).toBeDisabled();
   await page.keyboard.press("Delete");
   await page.mouse.move(AWAY.x, AWAY.y);
   await expect(page.locator("#edit-count")).toBeHidden();

@@ -206,8 +206,13 @@ class BrushTest(unittest.TestCase):
         self.assertEqual(trackheights.MAX_MM, max(op["mm"]))
         self.assertIsNone(trackheights.problem(op))
 
+    def test_the_smallest_ring_tells_wherever_it_is_clicked(self):
+        for x, z in ((11.0, 11.0), (10.0, 10.0), (10.1, 11.9), (10.9, 11.2)):      # (a cell's middle the worst: each corner 1.41 m off)
+            self.assertEqual(500, max(self.stroke(samples=((x, z, 0.0),), radius=trackheights.MIN_RADIUS_M, soft=0.25, mm=500, speed=0)["mm"]), (x, z))
+            self.assertGreaterEqual(max(self.stroke(samples=((x, z, 0.0),), radius=trackheights.MIN_RADIUS_M, soft=1.0, mm=500, speed=0)["mm"]), 100, (x, z))
+
     def test_what_is_no_stroke_or_no_brush(self):
-        for kwargs in ({"radius": 2.0}, {"radius": 501.0}, {"radius": "x"}, {"soft": 0.0}, {"soft": 1.5}, {"mm": 0}, {"mm": 1_000_000}, {"mm": 1.5},
+        for kwargs in ({"radius": 1.9}, {"radius": 501.0}, {"radius": "x"}, {"soft": 0.0}, {"soft": 1.5}, {"mm": 0}, {"mm": 1_000_000}, {"mm": 1.5},
                        {"speed": -1}, {"speed": 1.5}, {"speed": None}, {"speed": 1_000_000}):
             with self.assertRaises(ValueError, msg=kwargs):
                 self.stroke(**kwargs)

@@ -5,7 +5,7 @@ import {useEffect, useEffectEvent, useState} from "react";
 import {post} from "../api";
 import type {HeightChange, TrackEdits} from "./edits";
 import {MAX_PINS, withPin, type Pin} from "./pins";
-import type {Place, TrackView} from "./view";
+import type {Place, TrackView, WheelKeys} from "./view";
 
 const PREVIEW_AFTER_MS = 60;        // a slider's quick moves go in one request
 const WIDTH_STEP = 1, MIN_WIDTH = 3, MAX_WIDTH = 60;       // (trackband: a band's)
@@ -16,10 +16,10 @@ interface Way {
   width?: number;
 }
 
-/** The band on the track name. enabled: no other tool has the left button. revision: the draft's on the server: what is shown is reckoned from it, a new one and it is
-    reckoned again. onNote: what to say, null for nothing. */
-export function useBand({name, view, edits, enabled, revision, onNote}: {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; revision: number;
-                                                                         onNote: (text: string | null) => void}) {
+/** The band on the track name. enabled: no other tool has the left button. previewing: Smooth is on, what it would do is shown. revision: the draft's on the server: what is
+    shown is reckoned from it, a new one and it is reckoned again. onNote: what to say, null for nothing. */
+export function useBand({name, view, edits, enabled, previewing, revision, onNote}: {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; previewing: boolean; revision: number;
+                                                                                     onNote: (text: string | null) => void}) {
   const [points, setPoints] = useState<Pin[]>([]);
   const [good, setGood] = useState<Pin[]>([]);                        // (the points of the band shown: back to these when a click fails)
   const [line, setLine] = useState<Place[] | null>(null);
@@ -123,7 +123,7 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
   }, [view]);
 
   useEffect(() => {
-    if (!line) {
+    if (!line || !previewing) {
       view.takeBackPreview();
       return;
     }
@@ -149,7 +149,7 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- (as above)
-  }, [view, line, shownWidth, strength, revision, edits]);
+  }, [view, line, previewing, shownWidth, strength, revision, edits]);
 
   /** The change as it is shown goes into the draft, one undo step; the band is done. It goes from the draft with all before it in it, on the server: an undo on its way
       is to be reckoned with. While the way to a new pin is still asked for, what is shown is not what is marked: not yet. */
@@ -183,18 +183,12 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
       setPoints(withPin(points, line, x, z));
       onNote(null);
     },
-    /** Esc: the marking goes; whether there was one. */
-    cancel: () => {
-      if (!points.length) return false;
-      clear();
-      return true;
-    },
     setWidth,
     setStrength,
-    /** A notch of the wheel over the view: Ctrl the width, Alt the strength. */
-    wheel: (what: "radius" | "height", by: number) => {
-      if (what === "radius") setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(shownWidth) + by * WIDTH_STEP)));
-      else setStrength(s => Math.min(100, Math.max(0, s + by * STRENGTH_STEP)));
+    /** A notch of the wheel over the view, with those keys held: its numbers as they stand in the bar. */
+    wheel: (keys: WheelKeys, by: number) => {
+      if (keys === "shift") setStrength(s => Math.min(100, Math.max(0, s + by * STRENGTH_STEP)));
+      else if (keys === "ctrl") setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(shownWidth) + by * WIDTH_STEP)));
     },
   };
 }

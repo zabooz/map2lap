@@ -200,7 +200,8 @@ test("the camera stays by the track: W and the wheel lead nowhere, Start brings 
   await page.mouse.move(c.x - 2, c.y + 300);
   await page.mouse.move(c.x, c.y + 300);
   await expect(box(page)).toBeVisible();          // (the map still there, under it)
-  await page.locator("#edit-history").getByRole("button", {name: "Start"}).click();
+  await scene(page).focus();
+  await page.keyboard.press("Home");
   await page.mouse.move(100, 500);
   await expect.poll(async () => (await stillView(page)).equals(start)).toBe(true);
 });

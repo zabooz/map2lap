@@ -6,6 +6,7 @@ export interface Controls {
   zoom: number;         // the wheel
   invertLook: boolean;  // the wheel held: dragging up looks down
   memoryGb: number;     // what the 3D view may take for a track, about (view.ts counts it)
+  elevationSpeed: number;   // cm a second: how fast Elevation goes on moving the ground while the button is held
 }
 
 export type SpeedName = "fly" | "look" | "zoom";
@@ -14,9 +15,10 @@ export const NORMAL_SPEED = 50;    // the slider's value that means the view's s
 
 // Memory: 8 GB hold a track of about 4 GB (each mesh and texture counts about twice: view.ts). A browser tab's own limit is
 // not known here and differs per machine: a setting too high for the machine ends in a crashed tab, so it is the user's call.
-export const DEFAULT_CONTROLS: Controls = {fly: NORMAL_SPEED, look: NORMAL_SPEED, zoom: NORMAL_SPEED, invertLook: false, memoryGb: 8};
+export const DEFAULT_CONTROLS: Controls = {fly: NORMAL_SPEED, look: NORMAL_SPEED, zoom: NORMAL_SPEED, invertLook: false, memoryGb: 8, elevationSpeed: 30};
 export const SPEED_RANGE = [10, 100, 10] as const;     // % from, to, step: a fifth of the normal speed for a close look, twice across a track
 export const MEMORY_RANGE = [1, 32, 1] as const;       // GB from, to, step
+export const ELEVATION_SPEED_RANGE = [0, 300, 5] as const;   // cm a second from, to, step: at 0 a held button adds nothing to the click
 export const SPEEDS: {name: SpeedName; label: string}[] = [
   {name: "fly", label: "Move (W A S D)"},
   {name: "look", label: "Turn and tilt (hold the wheel)"},
@@ -38,5 +40,7 @@ export function parseControls(text: string | null): Controls {
   if (typeof got.invertLook === "boolean") out.invertLook = got.invertLook;
   const memory = got.memoryGb;
   if (typeof memory === "number" && Number.isFinite(memory)) out.memoryGb = Math.min(MEMORY_RANGE[1], Math.max(MEMORY_RANGE[0], memory));
+  const speed = got.elevationSpeed;
+  if (typeof speed === "number" && Number.isFinite(speed)) out.elevationSpeed = Math.min(ELEVATION_SPEED_RANGE[1], Math.max(ELEVATION_SPEED_RANGE[0], speed));
   return out;
 }

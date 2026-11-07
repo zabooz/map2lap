@@ -1,0 +1,18 @@
+/* The Editor's buttons in the sidebar, by groups */
+.tools { display: flex; flex-direction: column; gap: 14px; font-size: 13px; }
+.group { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.title { margin: 0; font-size: 13px; font-weight: 600; }
+.row { display: flex; gap: 4px; }
+.row > button, .split { flex: 1; }
+.tools button { height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
+.tools button:not(:disabled):hover { color: var(--accent); border-color: var(--accent); }
+.tools button:disabled { opacity: 0.45; cursor: default; }
+.tools button.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+/* One tool at a time, each with its key */
+.picker { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.picker button { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.key { color: var(--muted); font-size: 11px; }
+.split { display: flex; }
+.split button:first-child { flex: 1; border-radius: 7px 0 0 7px; }
+.split button:last-child { border-radius: 0 7px 7px 0; border-left: 0; padding: 0 8px; }
+.state { min-height: 1.4em; color: var(--muted); }     /* (one line kept: nothing moves when it says something) */

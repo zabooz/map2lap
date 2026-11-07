@@ -1,0 +1,6 @@
+/* What is to be said: in a place of its own below the tools, which may scroll */
+.notes { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.notes:empty { display: none; }
+.notes button { height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
+.notes button:hover { color: var(--accent); border-color: var(--accent); }
+.line { margin: 0; color: var(--muted); }

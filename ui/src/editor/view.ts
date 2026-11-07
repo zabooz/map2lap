@@ -5,6 +5,7 @@ import * as THREE from "three";
 import {DDSLoader} from "three/addons/loaders/DDSLoader.js";
 import {acceleratedRaycast, MeshBVH} from "three-mesh-bvh";
 import {DEFAULT_CONTROLS, NORMAL_SPEED, type Controls} from "./controls";
+import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
 
@@ -44,6 +45,7 @@ export interface Picked {
   position: [number, number, number];
   left: boolean;                // (by the left button, not for a menu)
   road: [number, number] | null;    // (AC x, z, if it is the road itself: asphalt, with nothing on it)
+  all: {id: string; position: [number, number, number]}[];      // (what can be deleted of all that is picked now, this one and those Shift added to it)
 }
 
 /** Where a right click asks for its menu: in the view's pixels, with the view's size. */
@@ -60,11 +62,15 @@ export type Place = [number, number, number];
 /** Where the brush's ring was: AC x, AC z, seconds since the sample before. */
 export type Sample = [number, number, number];
 
-/** The brush as it is set: its size on the ground, and which way it goes unless Shift turns it round. */
+/** The brush as it is set: its size on the ground, the colour of its ring as it is and with Shift held. */
 export interface Brush {
   radius: number;
-  lower: boolean;
+  colour: string;
+  turnedColour: string;
 }
+
+/** What is held with the wheel over the view for a tool to take it. */
+export type WheelKeys = "shift" | "ctrl" | "alt" | "ctrlAlt";
 
 /** All of a sort framed: a listed one's sort, or (tree) an atlas image. */
 export interface Marked {
@@ -141,6 +147,11 @@ const HIGHEST_MAX_M = 80000;        // ... at most this: the distant terrain, sh
 // Moving: m/s per m above the ground, so a close look creeps and an overview crosses the track; within these limits.
 const FLY_PER_M = 2.0, FLY_MIN_M_S = 24, FLY_MAX_M_S = 6000;
 const FLY_MAX_STEP_S = 0.1;         // (a slow frame moves no further than this)
+const RIDE_AHEAD_M = 30, RIDE_TURN_S = 0.6;     // the ride looks at the route this far ahead and turns towards it this slowly: through a bend, not with each of its corners
+const RIDE_TILT = 0.12;             // down from level by this share: the road ahead in the picture, and still the horizon
+const RIDE_GLIDE_S = 0.15, RIDE_GLIDE_DONE_M = 0.05;      // a notch of the wheel along the route glides there this fast: no jump, and it can be followed
+const RIDE_SETTLED = 1e-6, RIDE_SETTLED_M = 0.01;         // (its look, in the square of a unit vector's way, and its height: come to rest, under what can be seen)
+const RIDE_TELL_EVERY_MS = 100;     // how often the page hears how far it is: a number to read, not to re-render with each frame
 const FOLLOW_GROUND_S = 0.3;        // moving, the camera's height follows the ground this slowly: hills pass under it, no bumps
 const FLY_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);     // (by place on the keyboard: the same on every layout)
 const HOVER_EVERY_MS = 60;          // how often the mouse's target is looked up: the box follows, the view stays smooth
@@ -167,7 +178,6 @@ const MOST_SAMPLES = 5000;          // (trackheights.MAX_STROKE_POINTS)
 const PREVIEW_EVERY_MS = 200;       // how often a stroke under way is asked for: at most one at a time, what is newest when it is answered goes next
 const FIELDS_PER_CHANGE = 4;        // (trackedits.preview: y and the normal)
 const RING_POINTS = 64;
-const RAISE_COLOUR = "#ff8a1f", LOWER_COLOUR = "#2f8bff";
 
 /** fn, its time to read in the browser's performance tools under name (only the last one is kept). */
 function timed<T>(name: string, fn: () => T) {
@@ -356,6 +366,12 @@ export class TrackView {
   private zoomAim = new THREE.Vector3();
   private host: HTMLElement;
   private flying = new Set<string>();   // the fly keys held
+  private ride: {metre: number; metres: number[]; left: number; moving: boolean} | null = null;    // the camera on the route: how far it is, the metres still to glide, whether it rides by itself
+  private rideSpeed = 0;                // m a second
+  private rideHeight = 0;               // m above the ground
+  private rideTold = 0;                 // when the page last heard how far it is
+  private onRideMoving: (moving: boolean) => void = () => {};
+  private onRideMetre: (metre: number | null) => void = () => {};
   private lastFrame = 0;
   private settings = DEFAULT_CONTROLS;
   private data: TrackIndex | null = null;
@@ -374,7 +390,8 @@ export class TrackView {
   private lastMark = 0;
   private markEvery = MARK_EVERY_MS;
   private onIndexed: (revision: string | null) => void = () => {};
-  private pickedBox: THREE.Box3Helper | null = null;
+  private picks = new Map<string, {box: THREE.Box3Helper; picked: Picked}>();   // (by id, as they were picked, each with its frame)
+  private adding = false;               // Shift with the left button adds to what is picked
   private parts = new Map<string, THREE.Mesh[]>();      // a tile's billboard meshes by their base name
   private byNumber = new Map<number, THREE.Mesh>();     // the loaded meshes by number
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
@@ -390,12 +407,12 @@ export class TrackView {
   private draft = 0;                    // the draft's revision on the server
   private refreshes = oneByOne(PARALLEL);
   private brush: Brush | null = null;
-  private onStroke: (samples: Sample[], lower: boolean) => void = () => {};
-  private askPreview: (samples: Sample[], lower: boolean) => Promise<ArrayBuffer | string | null> = () => Promise.resolve(null);
+  private onStroke: (samples: Sample[], turned: boolean) => void = () => {};
+  private askPreview: (samples: Sample[], turned: boolean) => Promise<ArrayBuffer | string | null> = () => Promise.resolve(null);
   private onStrokeRefused: (why: string) => void = () => {};
-  private onBrushWheel: (what: "radius" | "height", by: number) => void = () => {};
+  private onToolWheel: (keys: WheelKeys, by: number) => void = () => {};
   private ring: THREE.LineLoop | null = null;
-  private stroke: {samples: Sample[]; lower: boolean; at: number; timer: ReturnType<typeof setInterval>; asked: number; asking: boolean; look: string} | null = null;
+  private stroke: {samples: Sample[]; turned: boolean; at: number; timer: ReturnType<typeof setInterval>; asked: number; asking: boolean; look: string} | null = null;
   private previewed = new Set<number>();    // the meshes that show a preview: fetched anew when it is taken over
   private underPreview = new Map<number, Map<number, [number, number, number, number]>>();  // per such mesh what its vertices were: y and normal
   private previewShown = new Map<number, {numbers: Uint32Array; values: Float32Array}>();   // the preview in place, per mesh: it goes on again over what is fetched
@@ -482,8 +499,13 @@ export class TrackView {
 
   /** What was picked is no more. */
   unpick() {
-    this.mark(null);
+    this.forgetPicks();
     this.onPick(null);
+  }
+
+  /** Whether Shift with the left button adds to what is picked, or takes one out again; else it is a click like any. */
+  setAdding(adding: boolean) {
+    this.adding = adding;
   }
 
   /** The objects with these ids ("<mesh as built>#<number>"), the trees and bushes of sorts and the listed objects of objectSorts
@@ -774,10 +796,14 @@ export class TrackView {
   private zoomWheel(el: HTMLElement) {
     el.addEventListener("wheel", e => {
       e.preventDefault();
-      if ((this.brush || this.wheelTaken) && (e.ctrlKey || e.altKey)) {
-        if (e.deltaY) this.onBrushWheel(e.altKey ? "height" : "radius", e.deltaY < 0 ? 1 : -1);
+      // (Shift with the wheel is Smooth's: the brush has it for its way. Some browsers make it a sideways wheel: deltaX)
+      const keys: WheelKeys | null = e.ctrlKey && e.altKey ? "ctrlAlt" : e.altKey ? "alt" : e.ctrlKey ? "ctrl" : e.shiftKey && this.wheelTaken ? "shift" : null;
+      if ((this.brush || this.wheelTaken) && keys) {
+        const notch = e.deltaY || e.deltaX;
+        if (notch) this.onToolWheel(keys, notch < 0 ? 1 : -1);
         return;
       }
+      this.stopRide();
       if (!this.data || this.held) return;      // (a button held: that drag goes by the camera as it was)
       this.mouse = screenPoint(e, el);
       const hit = this.hit(), {ray} = this.picker, c = this.camera.position;
@@ -845,10 +871,10 @@ export class TrackView {
     this.dirty = true;
   }
 
-  /** onStroke gets a stroke when it ends: where the ring was and for how long, and whether it lowers. askPreview gets it while it lasts,
+  /** onStroke gets a stroke when it ends: where the ring was and for how long, and whether Shift was held when it began. askPreview gets it while it lasts,
       and answers with what it changes so far (trackedits.preview), or why it can't be: then it ends there, onStrokeRefused gets that;
       null: no answer this time. */
-  setStroke(onStroke: (samples: Sample[], lower: boolean) => void, askPreview: (samples: Sample[], lower: boolean) => Promise<ArrayBuffer | string | null>,
+  setStroke(onStroke: (samples: Sample[], turned: boolean) => void, askPreview: (samples: Sample[], turned: boolean) => Promise<ArrayBuffer | string | null>,
             onStrokeRefused: (why: string) => void) {
     this.onStroke = onStroke;
     this.askPreview = askPreview;
@@ -900,7 +926,7 @@ export class TrackView {
     for (const i of shown) void this.refresh(i);
   }
 
-  /** Whether Ctrl and Alt with the wheel go to setBrushWheel's: a band is marked. */
+  /** Whether Shift, Ctrl and Alt with the wheel go to setToolWheel's: a band is marked for Smooth, or Camera is on. */
   setWheelTaken(taken: boolean) {
     this.wheelTaken = taken;
   }
@@ -1049,13 +1075,13 @@ export class TrackView {
     else {
       const at = this.brushAt();
       s.look = look;
-      this.placeRing(at, s.lower !== this.brush?.lower);
+      this.placeRing(at, s.turned);
       if (at) addSample(s.samples, at.x, at.z, seconds);    // (off the ground it paints nothing, and its time doesn't count)
     }
     if (!s.asking && now - s.asked >= PREVIEW_EVERY_MS) {
       s.asking = true;
       s.asked = now;
-      void this.askPreview(s.samples.map(x => [...x] as Sample), s.lower).then(answer => {
+      void this.askPreview(s.samples.map(x => [...x] as Sample), s.turned).then(answer => {
         s.asking = false;
         if (this.stroke !== s) return;      // (an answer about a stroke that is over says nothing about the next one)
         if (typeof answer === "string") {
@@ -1103,9 +1129,9 @@ export class TrackView {
     this.previewed.add(i);
   }
 
-  /** onBrushWheel gets the wheel over the view with the brush set and Ctrl (its radius) or Alt (its height) held: a notch up, 1, down, -1. */
-  setBrushWheel(onBrushWheel: (what: "radius" | "height", by: number) => void) {
-    this.onBrushWheel = onBrushWheel;
+  /** onToolWheel gets the wheel over the view with the brush set or the wheel taken, and those keys held: a notch up, 1, down, -1. */
+  setToolWheel(onToolWheel: (keys: WheelKeys, by: number) => void) {
+    this.onToolWheel = onToolWheel;
   }
 
   /** The meshes by number the server now hands out otherwise (it says which: only it knows what moves with a change), its list in that
@@ -1163,7 +1189,7 @@ export class TrackView {
     return hit && BRUSHED.test(hit.object.name) ? hit.point : null;
   }
 
-  /** The ring on the ground, of the brush's true size, in the colour of the way it goes; hidden over what it can't paint. */
+  /** The ring on the ground, of the brush's true size, in its colour (turned: with Shift held); hidden over what it can't paint. */
   private placeRing(at: THREE.Vector3 | null, turned: boolean) {
     if (!this.brush) return;
     if (!this.ring) {
@@ -1180,7 +1206,7 @@ export class TrackView {
     if (at) {
       this.ring.position.copy(at);
       this.ring.scale.setScalar(this.brush.radius);
-      (this.ring.material as THREE.LineBasicMaterial).color.set(this.brush.lower !== turned ? LOWER_COLOUR : RAISE_COLOUR);
+      (this.ring.material as THREE.LineBasicMaterial).color.set(turned ? this.brush.turnedColour : this.brush.colour);
     }
     this.dirty = true;
   }
@@ -1193,13 +1219,13 @@ export class TrackView {
       const at = this.brushAt();
       if (!at) return;
       const now = performance.now();
-      this.stroke = {samples: [[at.x, at.z, 0]], lower: this.brush.lower !== e.shiftKey, at: now, asked: now, asking: false,
+      this.stroke = {samples: [[at.x, at.z, 0]], turned: e.shiftKey, at: now, asked: now, asking: false,
                      look: `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`, timer: setInterval(() => this.sample(), SAMPLE_EVERY_MS)};
       el.setPointerCapture(e.pointerId);
     });
     for (const type of ["keydown", "keyup"] as const) {     // (Alt with the wheel: alone, some browsers then go to their menu)
       el.addEventListener(type, e => {
-        if (this.brush && e.key === "Alt") e.preventDefault();
+        if ((this.brush || this.wheelTaken) && e.key === "Alt") e.preventDefault();
       });
     }
     el.addEventListener("pointermove", e => {
@@ -1211,11 +1237,11 @@ export class TrackView {
       if (!this.stroke || e.button !== LEFT_BUTTON) return;
       this.mouse = screenPoint(e, el);
       this.sample();
-      const {samples, lower, timer} = this.stroke;
+      const {samples, turned, timer} = this.stroke;
       clearInterval(timer);
       this.stroke = null;
       this.keepPreview();
-      this.onStroke(samples, lower);
+      this.onStroke(samples, turned);
     });
     el.addEventListener("pointercancel", () => this.cancelStroke());
     el.addEventListener("pointerleave", () => {
@@ -1255,18 +1281,38 @@ export class TrackView {
     this.mouse = screenPoint(e, el);
     const hit = this.hit();
     const hovered = hit ? this.describe(hit) : null;
+    const adding = this.adding && e.shiftKey && e.button === LEFT_BUTTON, id = hovered?.id ?? null;
     if (!hovered) {
-      this.unpick();
+      if (!adding) this.unpick();
       return null;
     }
-    const bounds = hovered.id ? this.boundsOf(hovered.id) : null;
-    this.mark(bounds);
+    if (adding && !id) return null;     // (nothing to add: what is picked stays)
+    if (adding && this.picks.has(id!)) return this.dropPick(id!);
+    if (!adding && !(e.button !== LEFT_BUTTON && id && this.picks.has(id))) this.forgetPicks();     // (a right click on one of them keeps them: its menu is for them all)
+    const bounds = id ? this.boundsOf(id) : null;
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
-    const picked = {id: hovered.id, afterBuild: !hovered.id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
-                    sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
-                    road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null};
+    const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
+                            sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
+                            road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: []};
+    if (id && bounds) this.picks.set(id, {box: this.picks.get(id)?.box ?? this.frameOf(bounds), picked});
+    picked.all = this.allPicked();
     this.onPick(picked);
     return picked;
+  }
+
+  /** What can be deleted of all that is picked now. */
+  private allPicked() {
+    return [...this.picks.values()].map(({picked}) => ({id: picked.id!, position: picked.position}));
+  }
+
+  /** The picked one id out again: what was picked before it is what is spoken of, or nothing is left. */
+  private dropPick(id: string) {
+    this.removeFrame(this.picks.get(id)!.box);
+    this.picks.delete(id);
+    const last = [...this.picks.values()].at(-1)?.picked ?? null;
+    if (last) last.all = this.allPicked();
+    this.onPick(last && {...last});
+    return last;
   }
 
   /** onMenu gets where a right click asks for the picked object's menu, in the view's pixels, with the view's size. */
@@ -1345,19 +1391,25 @@ export class TrackView {
     return box.isEmpty() ? null : box;
   }
 
-  /** A frame around bounds, none for null. */
-  private mark(bounds: THREE.Box3 | null) {
-    if (this.pickedBox) {
-      this.scene.remove(this.pickedBox);
-      this.pickedBox.dispose();
-      this.pickedBox = null;
-    }
-    if (bounds) {
-      this.pickedBox = new THREE.Box3Helper(bounds, new THREE.Color(PICKED_COLOUR));
-      (this.pickedBox.material as THREE.LineBasicMaterial).depthTest = false;     // (seen through what stands before it)
-      this.scene.add(this.pickedBox);
-    }
+  /** A frame around bounds. */
+  private frameOf(bounds: THREE.Box3) {
+    const box = new THREE.Box3Helper(bounds, new THREE.Color(PICKED_COLOUR));
+    (box.material as THREE.LineBasicMaterial).depthTest = false;     // (seen through what stands before it)
+    this.scene.add(box);
     this.dirty = true;
+    return box;
+  }
+
+  private removeFrame(box: THREE.Box3Helper) {
+    this.scene.remove(box);
+    box.dispose();
+    this.dirty = true;
+  }
+
+  /** Nothing is picked any more, in the view. */
+  private forgetPicks() {
+    for (const {box} of this.picks.values()) this.removeFrame(box);
+    this.picks.clear();
   }
 
   /** The room an object takes, over all its triangles that are loaded. */
@@ -1490,10 +1542,14 @@ export class TrackView {
       doesn't keep it moving. */
   private flyKeys(el: HTMLElement) {
     el.tabIndex = 0;
-    el.addEventListener("pointerdown", () => el.focus({preventScroll: true}));
+    el.addEventListener("pointerdown", e => {
+      el.focus({preventScroll: true});
+      if (e.button !== LEFT_BUTTON) this.stopRide();     // (the right button and the wheel held move the camera: a click can be made on the way)
+    });
     el.addEventListener("keydown", e => {
       if (!FLY_KEYS.has(e.code) || e.ctrlKey || e.metaKey || e.altKey) return;
       e.preventDefault();
+      this.stopRide();
       this.flying.add(e.code);
     });
     el.addEventListener("keyup", e => this.flying.delete(e.code));
@@ -1594,8 +1650,112 @@ export class TrackView {
   /** Back to the first view, behind the start. */
   home() {
     if (!this.data) return;
+    this.ride = null;
+    this.onRideMoving(false);
     this.placeCamera(this.data);
     this.moved();
+    this.tellRideMetre();
+  }
+
+  /** How the camera goes along the route: in m a second when it rides by itself, m above the ground. */
+  setRide(speed: number, height: number) {
+    this.rideSpeed = speed;
+    this.rideHeight = height;
+  }
+
+  /** onMoving gets whether it rides by itself now, onMetre how far along the route it or the place nearest it is, null: there is no route. */
+  setRideWatch(onMoving: (moving: boolean) => void, onMetre: (metre: number | null) => void) {
+    this.onRideMoving = onMoving;
+    this.onRideMetre = onMetre;
+  }
+
+  /** Tells the metre of the place on the route nearest the camera. */
+  tellRideMetre() {
+    const c = this.camera.position;
+    this.onRideMetre(routeMetre(this.data?.route ?? [], c.x, c.z)?.metre ?? null);
+  }
+
+  /** The way the camera looks at metre of the route: at the route ahead, at its end the way it came, a little down. */
+  private rideLook(metre: number, metres: number[]) {
+    const route = this.data!.route, [x, z] = placeOnRoute(route, metres, metre), [ax, az] = placeOnRoute(route, metres, metre + RIDE_AHEAD_M);
+    const [bx, bz] = placeOnRoute(route, metres, metre - RIDE_AHEAD_M);
+    const way = ax !== x || az !== z ? new THREE.Vector3(ax - x, 0, az - z) : new THREE.Vector3(x - bx, 0, z - bz);
+    return way.normalize().setY(-RIDE_TILT).normalize();
+  }
+
+  /** The camera on the route, put at the place nearest it if it isn't, or null if there is none to go along (an area has none). */
+  private onRoute() {
+    if (this.ride) return this.ride;
+    const route = this.data?.route ?? [], c = this.camera.position;
+    const metres = routeMetres(route), metre = routeMetre(route, c.x, c.z)?.metre;
+    if (metre === undefined || !metres[metres.length - 1]) return null;
+    this.flying.clear();
+    this.zoomLeft = 0;
+    this.ride = {metre, metres, left: 0, moving: false};
+    [c.x, c.z] = placeOnRoute(route, metres, metre);
+    const ground = this.groundBelow();
+    if (ground !== null) this.lastGround = ground;
+    c.y = this.lastGround + this.rideHeight;
+    this.keepHeight(ground);
+    this.camera.lookAt(c.clone().add(this.rideLook(metre, metres)));
+    this.moved();
+    this.onRideMetre(metre);
+    return this.ride;
+  }
+
+  /** The camera that many metres further along the route, gliding there; whether there is a route. */
+  rideBy(metres: number) {
+    const ride = this.onRoute();
+    if (ride) ride.left += metres;
+    return !!ride;
+  }
+
+  /** It rides by itself from where it is, from the start again if that is the route's end, or stops doing so, on the route; whether there is a route. */
+  toggleRide() {
+    const ride = this.onRoute();
+    if (!ride) return false;
+    if (!ride.moving && ride.metre >= ride.metres[ride.metres.length - 1]) ride.metre = 0;
+    ride.moving = !ride.moving;
+    this.onRideMoving(ride.moving);
+    return true;
+  }
+
+  /** The camera is off the route, if it was on it: it stays where it is, at that height. */
+  stopRide() {
+    if (!this.ride) return;
+    this.ride = null;
+    this.clearance = this.height;
+    this.onRideMoving(false);
+    this.tellRideMetre();
+  }
+
+  /** The camera seconds further along the route, over hills as the keys do, its look coming round to the route ahead. Standing and settled nothing is asked of the ground. */
+  private rideOn(seconds: number) {
+    const ride = this.ride!, {metres} = ride, end = metres[metres.length - 1], c = this.camera.position, now = performance.now();
+    const glide = Math.abs(ride.left) < RIDE_GLIDE_DONE_M ? ride.left : ride.left * (1 - Math.exp(-seconds / RIDE_GLIDE_S));
+    const was = ride.metre;
+    ride.left -= glide;
+    ride.metre = THREE.MathUtils.clamp(was + glide + (ride.moving ? this.rideSpeed * seconds : 0), 0, end);
+    if (ride.metre <= 0 || ride.metre >= end) ride.left = 0;
+    if (ride.moving && ride.metre >= end) {
+      ride.moving = false;
+      this.onRideMoving(false);
+    }
+    const look = this.camera.getWorldDirection(new THREE.Vector3()), wanted = this.rideLook(ride.metre, metres);
+    const going = ride.metre !== was, turning = look.distanceToSquared(wanted) > RIDE_SETTLED, rising = Math.abs(c.y - this.lastGround - this.rideHeight) > RIDE_SETTLED_M;
+    if (!going && !turning && !rising) return;
+    if (going || rising) {
+      [c.x, c.z] = placeOnRoute(this.data!.route, metres, ride.metre);
+      const ground = this.groundBelow();
+      if (ground !== null) c.y += (ground + this.rideHeight - c.y) * (1 - Math.exp(-seconds / FOLLOW_GROUND_S));
+      this.keepHeight(ground);
+    }
+    this.camera.lookAt(c.clone().add(look.lerp(wanted, 1 - Math.exp(-seconds / RIDE_TURN_S))));
+    this.moved();
+    if (now - this.rideTold >= RIDE_TELL_EVERY_MS || !ride.left && !ride.moving) {     // (often enough to read, and the place it comes to rest at)
+      this.rideTold = now;
+      this.onRideMetre(ride.metre);
+    }
   }
 
   /** The camera was moved: what is shown and what the mouse points at are to be looked at again. */
@@ -1617,6 +1777,7 @@ export class TrackView {
   private frame() {                 // (drawn only when something changed)
     const now = performance.now(), seconds = Math.min(FLY_MAX_STEP_S, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
+    if (this.shown && this.ride) this.rideOn(seconds);
     if (this.shown && this.flying.size) this.fly(seconds);
     if (this.shown && this.zoomLeft) this.glideZoom(seconds);
     if (!this.shown) return;
@@ -1642,6 +1803,7 @@ export class TrackView {
   }
 
   private clear() {
+    this.stopRide();
     for (const m of this.meshes) {
       this.scene.remove(m);
       m.geometry.boundsTree = undefined;
@@ -1668,7 +1830,7 @@ export class TrackView {
     this.byNumber.clear();
     this.objectPieces = new Map();
     this.belonging = new Map();
-    this.mark(null);
+    this.forgetPicks();
   }
 
   private texture(name: string, data: TrackIndex, i: number) {

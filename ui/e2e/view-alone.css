@@ -1,2 +1,2 @@
 /* A reference picture is of the 3D view, not of what lies over it */
-#edit-bar, #edit-history { visibility: hidden; }
+[data-tool-options] { visibility: hidden; }
