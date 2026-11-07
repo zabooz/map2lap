@@ -1,9 +1,9 @@
-"""What the Editor tab changed on a built track, its draft: the objects it leaves out, single or all of a sort, and the height changes
-it makes (trackheights). It lies in out/edits, so nothing of a track's folder changes until Save writes it (trackcopy), and holds for one state of the kn5 the
-Editor shows (trackview.served, "base"): an object's id is its number in that file, its position only a check for later. Built again,
-the list stays but is not applied: the numbers may mean other trees now, and a neighbour must never go in the place of the one that
-was picked. No file: the track's recipe, what its last Save was made of, while that counts (trackview.recipe); a saved empty list stays
-empty.
+"""What the Editor tab changed on a built track, its draft: the objects it leaves out, single or all of a sort, the objects it places anew
+(placement, trackplace) and the height changes it makes (trackheights). It lies in out/edits, so nothing of a track's folder changes
+until Save writes it (trackcopy), and holds for one state of the kn5 the Editor shows (trackview.served, "base"): an object's id is its
+number in that file, its position only a check for later. Built again, the list stays but is not applied: the numbers may mean other
+trees now, and a neighbour must never go in the place of the one that was picked. No file: the track's recipe, what its last Save was
+made of, while that counts (trackview.recipe); a saved empty list stays empty.
 """
 import json
 import math
@@ -14,7 +14,7 @@ import threading
 
 import numpy as np
 
-from app import mytracks, trackheights, trackview
+from app import mytracks, placement, trackheights, trackplace, trackview
 
 SCHEMA = 1
 MAX_BYTES = 16 * 1024 * 1024        # about 150,000 objects: far more than anyone clicks away, far less than fills the memory
@@ -23,7 +23,7 @@ ID = re.compile(r"([\w-]+)#(\d+)")
 MAX_ID, MAX_UNANSWERED = 64, 64
 _saving = threading.Lock()          # (the server answers in threads: reading the revision and writing belong together)
 _now_lock, _now = threading.Lock(), {}      # (moved_now's last answer)
-_meshes_of = {}                     # (remember_meshes: a height change's id: the meshes it moves)
+_meshes_of = {}                     # (remember_meshes: a height change's id and the placements it was made under: the meshes it moves)
 MAX_REMEMBERED = 4096               # (more than a day's strokes; forgotten, they are reckoned again)
 
 
@@ -74,15 +74,21 @@ def changes(ac, name):
     return sum(len(set(a) ^ set(b)) for a, b in zip(_parts(s), _parts(saved)))
 
 
+def _placements(stored):
+    """A list's placements, each by all it holds. Pure."""
+    return [tuple(p[k] for k in ("id",) + placement.FIELDS) for p in stored.get("placed", ())]
+
+
 def _parts(stored):
-    """A list's ids, sorts, object sorts and height changes, by all they hold. Pure."""
+    """A list's ids, sorts, object sorts, height changes and placements, by all they hold. Pure."""
     return ([d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ()),
-            [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())])
+            [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored))
 
 
 def _count(stored):
-    """How many changes a list holds: each object, each sort, each height change. Pure."""
-    return len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
+    """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
+    return (len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
+            + len(stored.get("placed", ())))
 
 
 def _names(value):
@@ -96,11 +102,12 @@ def _well_formed(d):
             and "base" in d and isinstance(d["base"], (str, type(None))) and isinstance(d.get("deleted"), list)
             and all(isinstance(i, dict) and isinstance(i.get("id"), str) and isinstance(i.get("position"), list) for i in d["deleted"])
             and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
-            and trackheights.problems(d.get("heights", [])) is None)
+            and trackheights.problems(d.get("heights", [])) is None and placement.problems(d.get("placed", [])) is None)
 
 
 def _stored(path, saved=None):
-    """The list in the file: {"base", "revision", "deleted", "sorts", "object_sorts", "heights"}. None there: the recipe saved, or an empty one.
+    """The list in the file: {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "placed"}. None there: the recipe saved, or an
+    empty one.
     Not readable as a list: an empty one that says "broken", it is not overwritten without being asked."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -109,10 +116,10 @@ def _stored(path, saved=None):
             return d
     except FileNotFoundError:
         if saved:
-            if trackheights.problems(saved.get("heights", [])):     # (a map2lap.json edited by hand: nothing to act on)
+            if trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", [])):     # (a map2lap.json edited by hand: nothing to act on)
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
-                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", [])}
+                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", [])}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -128,9 +135,9 @@ def _old(stored, revision):
 
 def load(ac, name):
     """The list for the page: "base" the served kn5's revision now, "revision" to send back with a save, "deleted", "sorts" (of trees
-    and bushes), "object_sorts" (of listed objects) and "heights" what holds for it, "outdated" how many changes don't, "saved" what the
-    last Save was made of while that counts (the page tells by it whether the track is as the list: "at", the ids and sorts, the
-    height changes' ids), else None."""
+    and bushes), "object_sorts" (of listed objects), "heights" and "placed" what holds for it, "outdated" how many changes don't, "saved"
+    what the last Save was made of while that counts (the page tells by it whether the track is as the list: "at", the ids and sorts, the
+    height changes' ids, the placements), else None."""
     path = _file(ac, name)
     revision = trackview.deletable(ac, name)[0]
     saved = trackview.recipe(ac, name)
@@ -138,11 +145,12 @@ def load(ac, name):
     same = s["base"] == revision
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
             "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
-            "heights": s.get("heights", []) if same else [],
+            "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [],
             "outdated": _old(s, revision), "saved": saved and {
                 "at": saved["saved"], "deleted": [d["id"] for d in saved["deleted"]],
                 "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
-                "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else []}}
+                "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else [],
+                "placed": saved.get("placed", []) if not s.get("broken") else []}}
 
 
 def _checked(deleted, counts):
@@ -174,15 +182,15 @@ def _checked_sorts(sorts, known, what):
 
 
 def moved_now(ac, name, revision):
-    """What the height changes of the track's draft move in its served kn5 in that revision (a kn5.Moved), None for nothing: the Editor
-    shows each mesh as it will be, so the view and Save have one reckoning. Kept while the draft's file and the recipe stay as they
-    are: a long track's 66,000 meshes each ask."""
-    return _heights_and_moved(ac, name, revision)[1]
+    """What the placements and height changes of the track's draft move in its served kn5 in that revision (a kn5.Moved), None for
+    nothing: the Editor shows each mesh as it will be, so the view and Save have one reckoning. Kept while the draft's file and the recipe
+    stay as they are: a long track's 66,000 meshes each ask."""
+    return _heights_and_moved(ac, name, revision)[2]
 
 
 def _heights_and_moved(ac, name, revision):
-    """The height changes of the track's draft for that revision and what they move, of one state of it: read apart, a save between the two
-    would make them disagree."""
+    """(the height changes of the track's draft for that revision, its placements, what they move), of one state of it: read apart, a save
+    between them would make them disagree."""
     path, saved = _file(ac, name), trackview.recipe(ac, name)
     try:
         st = os.stat(path)
@@ -194,8 +202,9 @@ def _heights_and_moved(ac, name, revision):
         if _now.get("key") != key:
             s = _stored(path, saved)
             heights = s.get("heights", []) if s["base"] == revision else []
-            _now.update(key=key, heights=heights, moved=_moved_or_none(ac, name, revision, heights))
-        return _now["heights"], _now["moved"]
+            placed = s.get("placed", []) if s["base"] == revision else []
+            _now.update(key=key, heights=heights, placed=placed, moved=_moved_or_none(ac, name, revision, heights, placed))
+        return _now["heights"], _now["placed"], _now["moved"]
 
 
 def preview(ac, name, revision, op):
@@ -203,9 +212,9 @@ def preview(ac, name, revision, op):
     held: little-endian uint32 and float32, so a browser reads them as they lie. Its count of meshes, then per mesh: its number, its count
     of vertices, their numbers, per vertex y and normal. Only what differs: a click's hundreds of points, not a tile's megabytes.
     InTheWay if it can't be applied. Nothing is kept."""
-    heights, now = _heights_and_moved(ac, name, revision)
+    heights, placed, now = _heights_and_moved(ac, name, revision)
     kn5_path, scan = trackview._scan_of(ac, name, revision)
-    after = trackheights.moved(kn5_path, scan, trackview.list_of(kn5_path), heights + [op])
+    after = trackplace.changed(kn5_path, scan, trackview.list_of(kn5_path), heights + [op], placed)
 
     def vertices_in(moved, i):
         if moved and i in moved.vertices:
@@ -224,15 +233,32 @@ def preview(ac, name, revision, op):
     return np.array([len(parts)], "<u4").tobytes() + b"".join(parts)
 
 
-def _moved_or_none(ac, name, revision, heights):
-    """What heights move; None for none, or when they can't be applied: Save says why."""
-    if not heights:
+def _moved_or_none(ac, name, revision, heights, placed):
+    """What placed and then heights move; None for none. Heights that can't be applied: only what placed moves, Save says why."""
+    if not (heights or placed):
         return None
     path, scan = trackview._scan_of(ac, name, revision)
+    objects = trackview.list_of(path)
     try:
-        return trackheights.moved(path, scan, trackview.list_of(path), heights)
+        return trackplace.changed(path, scan, objects, heights, placed)
     except trackheights.InTheWay:
-        return None
+        return trackplace.moved(path, scan, objects, placed) if placed else None
+
+
+def _checked_placed(placed, counts):
+    """What the page sent as placements, if there is no problem with them: each of an object that is there, a span of wires never by
+    itself. Pure."""
+    wrong = placement.problems(placed)
+    if wrong:
+        raise Invalid(f"no placements: {wrong}")
+    for p in placed:
+        match = ID.fullmatch(p["id"])
+        if not match or int(match[2]) >= counts.get(match[1], (0,))[0]:
+            raise Invalid(f"no object to place: {p['id'][:80]}")
+        kind = counts[match[1]][1]
+        if (kind[int(match[2])] if isinstance(kind, list) else kind) in placement.NOT_ALONE:
+            raise Invalid(f"a span goes where its poles go: {p['id']}")
+    return placed
 
 
 def _checked_heights(heights):
@@ -258,34 +284,57 @@ def _write(path, content):
         raise
 
 
-def remember_meshes(id_, meshes):
-    """The meshes a height change moves, known from making it: saving it needn't reckon them again."""
+def _placed_key(placed):
+    """The placements as a key. Pure."""
+    return tuple(sorted(_placements({"placed": placed})))
+
+
+def _meshes_of_height(path, scan, objects, placed, op, refuse=False):
+    """The meshes the height change op moves with the objects where placed puts them, as known from before or reckoned now. refuse:
+    InTheWay if it can't be applied, else it moves none."""
+    key = (op["id"], _placed_key(placed))
     with _now_lock:
-        if len(_meshes_of) > MAX_REMEMBERED:
-            _meshes_of.clear()
-        _meshes_of[id_] = meshes
+        known = _meshes_of.get(key)
+    if known is None:
+        try:
+            known = sorted(trackheights.moved(path, scan, placement.list_placed(objects, placed), [op],
+                                              trackplace.moved(path, scan, objects, placed)).vertices)
+        except trackheights.InTheWay:
+            if refuse:
+                raise
+            known = []
+        with _now_lock:
+            if len(_meshes_of) > MAX_REMEMBERED:
+                _meshes_of.clear()
+            _meshes_of[key] = known
+    return known
+
+
+def remember_meshes(ac, name, revision, op):
+    """The meshes the height change op moves on the track as its draft places its objects now, reckoned while it is made: saving it needn't
+    reckon them again. InTheWay if it can't be applied (trackheights.moved)."""
+    path, scan = trackview._scan_of(ac, name, revision)
+    _meshes_of_height(path, scan, trackview.list_of(path), _heights_and_moved(ac, name, revision)[1], op, refuse=True)
 
 
 def _meshes_between(ac, name, revision, before, after):
-    """The numbers of the meshes the height changes that are in only one of the lists before and after move, and the road lines they
-    reach: the ones to show anew."""
-    now = {h["id"] for h in after}
-    different = [h for h in after if h["id"] not in {b["id"] for b in before}] + [h for h in before if h["id"] not in now]
-    out = set()
-    if not different:
+    """The numbers of the meshes to show anew: what the height changes that are in only one of the lists before and after move, and the
+    road lines they reach; the objects placed otherwise in the two, and what goes with them. before, after: {"heights", "placed"}."""
+    now = {h["id"] for h in after["heights"]}
+    different = ([h for h in after["heights"] if h["id"] not in {b["id"] for b in before["heights"]}]
+                 + [h for h in before["heights"] if h["id"] not in now])
+    placed_then, placed_now = (set(_placements({"placed": d["placed"]})) for d in (before, after))
+    moving = {p[0] for p in placed_then ^ placed_now}
+    if not (different or moving):
         return []
     path, scan = trackview._scan_of(ac, name, revision)
-    out.update(trackheights.lines_reached(scan, trackheights.Field(different)))
+    objects, out = trackview.list_of(path), set()
+    if moving:
+        out.update(trackplace.meshes_of(scan, objects, moving))
+    if different:
+        out.update(trackheights.lines_reached(scan, trackheights.Field(different)))
     for h in different:
-        with _now_lock:
-            known = _meshes_of.get(h["id"])
-        if known is None:
-            try:
-                known = sorted(trackheights.moved(path, scan, trackview.list_of(path), [h]).vertices)
-            except trackheights.InTheWay:
-                known = []
-            remember_meshes(h["id"], known)
-        out.update(known)
+        out.update(_meshes_of_height(path, scan, objects, after["placed"] if h["id"] in now else before["placed"], h))
     return sorted(out)
 
 
@@ -295,11 +344,11 @@ def save(ac, name, body):
 
 
 def save_telling(ac, name, body):
-    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "id", "unanswered"} instead of the one on disk,
-    if it was made from that one and for this kn5 (else Conflict). No "heights": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
+    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "placed", "id", "unanswered"} instead of the one
+    on disk, if it was made from that one and for this kn5 (else Conflict). No "heights" or "placed": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
     of them, the page's revision is only behind by an answer lost on the way (or a page closing with a save under way). An outdated
     or broken list goes only by an empty one, asked for. Returns {"revision": the new one, "meshes": the numbers of those it changed
-    the height changes of, for the view to fetch anew}."""
+    the height changes or placements of, for the view to fetch anew}."""
     if not isinstance(body, dict):
         raise Invalid("no list")
     path = _file(ac, name)
@@ -316,10 +365,12 @@ def save_telling(ac, name, body):
         sorts = _checked_sorts(body.get("sorts") or [], trackview.sprites(), "trees")
         object_sorts = _checked_sorts(body.get("object_sorts") or [], listed_sorts, "objects")
         heights = _checked_heights(body["heights"]) if "heights" in body else s.get("heights", []) if s["base"] == revision else []
-        if not known or ((deleted or sorts or object_sorts or heights) and _old(s, revision)):
+        placed = _checked_placed(body["placed"], counts) if "placed" in body else s.get("placed", []) if s["base"] == revision else []
+        if not known or ((deleted or sorts or object_sorts or heights or placed) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
-                      "object_sorts": object_sorts, "heights": heights})
-        before = s.get("heights", []) if s["base"] == revision else []
-    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, heights)}
+                      "object_sorts": object_sorts, "heights": heights, "placed": placed})
+        same = s["base"] == revision
+        before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else []}
+    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, {"heights": heights, "placed": placed})}

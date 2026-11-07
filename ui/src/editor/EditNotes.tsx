@@ -6,6 +6,7 @@ import type {Picked, TrackView} from "./view";
 
 const count = (n: number) => `${n} ${n === 1 ? "object" : "objects"} deleted`;
 const heightCount = (n: number) => `${n} height ${n === 1 ? "change" : "changes"}`;
+const placedCount = (n: number) => `${n} ${n === 1 ? "object" : "objects"} moved`;
 
 /** What is to be said, in a place of its own below the tools. note: of the tool on. viewFailed: why the view is behind. saveFailed: why a Save wrote nothing. markedName: of the sort
     all of which is marked. picked: what was clicked, sort: the sort that can be marked of it. reopen: the track loaded again. readAgain: the list read again. */
@@ -35,6 +36,7 @@ export function EditNotes({state, edits, view, note, viewFailed, saveFailed, mar
         </p>
       )}
       {state.heights.length > 0 && <p id="edit-heights" className={styles.line}>{heightCount(state.heights.length)}</p>}
+      {state.placed.length > 0 && <p id="edit-placed" className={styles.line}>{placedCount(state.placed.length)}</p>}
       {state.removed.length > 0 && <p id="edit-count" className={styles.line}>{count(state.removed.length)}</p>}
       {(state.sorts.length > 0 || state.objectSorts.length > 0) && (
         <p id="edit-sorts" className={styles.line}>All deleted: {[...state.sorts, ...state.objectSorts.map(sortName)].join(", ")}</p>

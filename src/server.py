@@ -555,9 +555,8 @@ class Handler(BaseHTTPRequestHandler):
             path, scan = trackview._scan_of(ac, generator.slug(name), body.get("base"))
             if under_way:
                 return self._send(200, trackedits.preview(ac, generator.slug(name), body["base"], op), "application/octet-stream")
-            objects = trackview.list_of(path)
-            trackedits.remember_meshes(op["id"], sorted(trackheights.moved(path, scan, objects, [op]).vertices))
-            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, objects, op)})
+            trackedits.remember_meshes(ac, generator.slug(name), body["base"], op)
+            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, trackview.list_of(path), op)})
         except (ValueError, AttributeError) as e:
             self._send(400, {"error": str(e)})
         except trackheights.InTheWay as e:
@@ -590,9 +589,8 @@ class Handler(BaseHTTPRequestHandler):
             op = trackband.change_of(path, scan, moved, road, body.get("points"), body.get("width"), body.get("strength"), secrets.token_hex(8))
             if what == "preview":
                 return self._send(200, trackedits.preview(ac, name, base, op), "application/octet-stream")
-            objects = trackview.list_of(path)
-            trackedits.remember_meshes(op["id"], sorted(trackheights.moved(path, scan, objects, [op]).vertices))
-            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, objects, op)})
+            trackedits.remember_meshes(ac, name, base, op)
+            self._send(200, {"height": op, "standing": trackheights.standing(path, scan, trackview.list_of(path), op)})
         except (ValueError, AttributeError) as e:
             self._send(400, {"error": str(e)})
         except (trackband.Refused, trackheights.InTheWay) as e:

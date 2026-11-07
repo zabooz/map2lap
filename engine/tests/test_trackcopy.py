@@ -475,15 +475,20 @@ class SaveTest(Base):
         self.assertEqual([], self.told(self.UP)["meshes"])      # (the same again: nothing to show)
         self.assertIn(ground, self.told()["meshes"])            # (taken back)
 
+    def remember(self, op, meshes):
+        """The brush made op, which moves those meshes."""
+        with mock.patch.object(trackedits.trackheights, "moved", return_value=kn5.Moved(dict.fromkeys(meshes), {}, {})):
+            trackedits.remember_meshes(self.ac, "t", trackedits.load(self.ac, "t")["base"], op)
+
     def test_a_change_made_by_the_brush_isnt_reckoned_again_on_saving(self):
-        trackedits.remember_meshes("known", [7])
+        self.remember({**self.UP, "id": "known"}, [7])
         with mock.patch.object(trackedits.trackheights, "moved", side_effect=AssertionError("reckoned again")):
             self.assertEqual([7], self.told({**self.UP, "id": "known"})["meshes"])
 
     def test_a_change_names_the_road_lines_it_reaches_though_it_moves_them_not_by_itself(self):
         """Lowering can take back what another's bulge lifted: the line looks different with no move of its own."""
         with mock.patch.object(trackedits.trackheights, "lines_reached", return_value=[3]):
-            trackedits.remember_meshes("lower", [])
+            self.remember({**self.UP, "id": "lower"}, [])
             self.assertEqual([3], self.told({**self.UP, "id": "lower"})["meshes"])
 
     def preview(self, op):
@@ -525,12 +530,11 @@ class SaveTest(Base):
     def test_the_draft_and_what_it_moves_are_read_as_one(self):
         self.lift(self.UP)
         base = trackedits.load(self.ac, "t")["base"]
-        heights, moved = trackedits._heights_and_moved(self.ac, "t", base)
-        self.assertEqual(["up"], [h["id"] for h in heights])
+        heights, placed, moved = trackedits._heights_and_moved(self.ac, "t", base)
+        self.assertEqual((["up"], []), ([h["id"] for h in heights], placed))
         self.assertIsNotNone(moved)
         self.lift()
-        heights, moved = trackedits._heights_and_moved(self.ac, "t", base)
-        self.assertEqual(([], None), (heights, moved))
+        self.assertEqual(([], [], None), trackedits._heights_and_moved(self.ac, "t", base))
 
     def test_a_stroke_under_way_that_cant_be_applied_says_so(self):
         with mock.patch.object(trackedits.trackheights, "moved", side_effect=trackedits.trackheights.InTheWay("A bridge")):
@@ -876,6 +880,87 @@ class SaveTest(Base):
         with trackcopy._making:
             with self.assertRaises(trackcopy.Busy):
                 trackcopy.save(self.ac, "t")
+
+
+class PlaceTest(Base):
+    HOUSE = "t_0_0#3"
+
+    def told(self, *placed):
+        """The draft with those placements, as the page saves it: what the answer tells."""
+        now = trackedits.load(self.ac, "t")
+        return trackedits.save_telling(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": f"p{now['revision']}",
+                                                      "deleted": now["deleted"], "sorts": now["sorts"], "object_sorts": now["object_sorts"],
+                                                      "placed": list(placed)})
+
+    @staticmethod
+    def placement(id_=HOUSE, **change):
+        return {"id": id_, "x": 0.0, "y": 0.0, "z": 0.0, "turn": 0.0, "scale": 1.0, **change}
+
+    def house(self, name="t"):
+        """The x of the house's collision, of the house and its sign, of its door, as saved."""
+        meshes = self.meshes(kn5.read(self.own(name))["root"])
+        return [sorted(set(self.xs(meshes[n]))) for n in ("1WALL_bldcol_0_0", "nocol_bld_0_0", "nocol_only_0_0")]
+
+    def test_a_house_goes_with_its_collision_sign_and_door_and_a_second_save_adds_nothing(self):
+        self.told(self.placement(x=5.0))
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([[25.0], [25.0, 26.0], [35.0]], self.house())
+        self.assertEqual({10.0, 11.0, 12.0}, self.cars())
+        self.assertEqual(0, trackedits.changes(self.ac, "t"))
+        self.assertEqual([self.placement(x=5.0)], trackedits.load(self.ac, "t")["saved"]["placed"])
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([[25.0], [25.0, 26.0], [35.0]], self.house())
+
+    def test_taken_back_and_saved_it_stands_where_it_was_built(self):
+        self.told(self.placement(x=5.0))
+        trackcopy.save(self.ac, "t")
+        self.told()
+        self.assertEqual(1, trackedits.changes(self.ac, "t"))
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([[20.0], [20.0, 21.0], [30.0]], self.house())
+
+    def test_moved_again_counts_as_a_change(self):
+        self.told(self.placement(x=5.0))
+        trackcopy.save(self.ac, "t")
+        self.told(self.placement(x=6.0))
+        self.assertGreater(trackedits.changes(self.ac, "t"), 0)
+
+    def test_the_view_gets_what_the_draft_places_and_save_writes_the_same(self):
+        self.told(self.placement(x=5.0, turn=30.0, scale=1.5))
+        now = trackedits.load(self.ac, "t")
+        i = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "nocol_bld_0_0")
+        count = kn5.scan(self.kn5)["meshes"][i]["vertices"]
+        served = np.frombuffer(trackview.mesh_bytes(self.ac, "t", i, now["base"], trackedits.moved_now(self.ac, "t", now["base"]))
+                               [:count * kn5.VERTEX.itemsize], dtype=kn5.VERTEX)
+        trackcopy.save(self.ac, "t")
+        np.testing.assert_array_equal(served, self.meshes(kn5.read(self.own())["root"])["nocol_bld_0_0"].vertices)
+
+    def test_saving_names_the_meshes_of_what_was_placed_otherwise(self):
+        self.assertEqual([3, 4, 5], self.told(self.placement(x=5.0))["meshes"])
+        self.assertEqual([], self.told(self.placement(x=5.0))["meshes"])
+        self.assertEqual([4], self.told(self.placement(x=5.0), self.placement("t_0_0#4", y=1.0))["meshes"])
+        self.assertEqual([3, 4, 5], self.told()["meshes"])
+
+    def test_a_span_alone_or_what_is_no_object_is_refused(self):
+        self.poles()
+        for wrong in (self.placement("t_1_0#0"), self.placement("t_0_0#99"), self.placement("t_9_9#0"), self.placement(scale=0.0)):
+            with self.assertRaises(trackedits.Invalid, msg=wrong["id"]):
+                self.told(wrong)
+        self.told(self.placement("t_0_0#0", x=1.0))         # (a pole: its span goes with it)
+
+    def test_a_copy_takes_its_placements_along(self):
+        self.told(self.placement(x=5.0))
+        trackcopy.save(self.ac, "t", copy_to="t_mod")
+        self.assertEqual([[25.0], [25.0, 26.0], [35.0]], self.house("t_mod"))
+        self.assertEqual([[20.0], [20.0, 21.0], [30.0]], self.house())
+        self.assertEqual([self.placement(x=5.0)], trackedits.load(self.ac, "t_mod")["placed"])
+
+    def test_the_saved_list_says_where_the_house_stands_now(self):
+        self.told(self.placement(x=5.0))
+        trackcopy.save(self.ac, "t")
+        listed = trackview.list_of(self.own())["t_0_0"]["at"]
+        self.assertEqual([[5.0, 0.0, 0.0]] * 3, listed[3:])
+        self.assertEqual([[0.0, 0.0, 0.0]] * 3, listed[:3])
 
 
 if __name__ == "__main__":

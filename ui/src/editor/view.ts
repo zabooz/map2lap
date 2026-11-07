@@ -1,10 +1,12 @@
 // The Editor tab's 3D view of a built track (src/app/trackview.py hands out its kn5's parts). W A S D and right drag move
 // over the ground, the wheel zooms towards the mouse, held it turns and tilts around the view's middle, as in a building game. Meshes
-// load nearest first, so the spot in view comes first on a long track. A click picks what is under the mouse.
+// load nearest first, so the spot in view comes first on a long track. A click picks what is under the mouse; with Move on, a press picks
+// it and a drag takes it along over the ground.
 import * as THREE from "three";
 import {DDSLoader} from "three/addons/loaders/DDSLoader.js";
 import {acceleratedRaycast, MeshBVH} from "three-mesh-bvh";
 import {DEFAULT_CONTROLS, NORMAL_SPEED, type Controls} from "./controls";
+import {nudgeVertices, STILL, type Nudge, type Placement} from "./placing";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
@@ -165,7 +167,8 @@ const IN_THE_LIST = /^(?!.*_sub_).*(_cars_|_bld|_props_|_wire_|_pylon_|_rocks_|_
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
-const LEFT_BUTTON = 0;
+const LEFT_BUTTON = 0, LEFT_HELD = 1;
+const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
 const ROAD = /^1ROAD_ground/;       // what a click marks a band on (trackband: the road is this)
 const BAND_COLOUR = "#27d3c3";
@@ -193,6 +196,14 @@ interface Piece {
   mesh: number;
   from: number;
   end: number;
+}
+
+/** The vertices of an object in one mesh as they were when it was taken up: their numbers, their floats in that order. */
+interface Grabbed {
+  id: string;
+  mesh: number;
+  numbers: Uint32Array;
+  floats: Float32Array;
 }
 
 /** An image's pixels, to read. (A plain canvas: not every browser has OffscreenCanvas.) */
@@ -426,6 +437,10 @@ export class TrackView {
   private onPinTaken: (pin: number) => void = () => {};
   private onClicked: (picked: Picked | null) => void = () => {};
   private band: THREE.LineSegments | null = null;
+  private moveTool = false;             // Move is on: a press picks, a drag takes what is picked along
+  private onMoved: (ids: string[], x: number, z: number) => void = () => {};
+  private placed = new Map<string, Placement>();        // how the draft places objects now (setPlaced)
+  private dragging: {ids: string[]; plane: THREE.Plane; from: THREE.Vector3; x: number; y: number; grabbed: Grabbed[]; pivots: Map<string, number[]>; way: THREE.Vector3} | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -444,6 +459,7 @@ export class TrackView {
     this.flyKeys(this.renderer.domElement);
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
+    this.moves(this.renderer.domElement);
     this.dragPins(this.renderer.domElement);
     this.strokes(this.renderer.domElement);
     this.resizing = new ResizeObserver(() => this.resize());
@@ -931,6 +947,173 @@ export class TrackView {
     this.wheelTaken = taken;
   }
 
+  /** Move on or off; onMoved gets what was dragged and how far, in x and z, when it is let go. Off, a drag under way goes back. */
+  setMove(on: boolean, onMoved: (ids: string[], x: number, z: number) => void) {
+    this.onMoved = onMoved;
+    if (on === this.moveTool) return;
+    this.moveTool = on;
+    if (!on) {
+      this.dropDrag();
+      this.renderer.domElement.style.cursor = "";
+    }
+  }
+
+  /** How the draft places objects now: where each one's place is, to turn and scale it around. */
+  setPlaced(placed: Placement[]) {
+    this.placed = new Map(placed.map(p => [p.id, p]));
+  }
+
+  /** The object an object belongs to, at the top (a house for its sign and door); a tree or bush: itself. */
+  private rootOf(id: string) {
+    const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
+    let k = Number(id.slice(at + 1));
+    while (list && list.parents[k] >= 0) k = list.parents[k];
+    return list ? `${id.slice(0, at)}#${k}` : id;
+  }
+
+  /** What a listed object is called, for the hover box and the notes. */
+  private namesOf(id: string) {
+    const at = id.lastIndexOf("#"), list = this.data!.objects[id.slice(0, at)], k = Number(id.slice(at + 1));
+    return {id, kind: kindName(list.kinds[k]), sort: sortOf(list, k)};
+  }
+
+  /** Whether Move can take it: not a span of wires, which goes where its poles go. */
+  canMove(id: string) {
+    const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
+    return !list || !NOT_MOVED.has(list.kinds[Number(id.slice(at + 1))]);
+  }
+
+  /** Where an object stands now, what it is turned and scaled around (placement.py): a listed one's place as the draft moved it; a tree's or
+      bush's the middle of its foot. */
+  private pivotOf(id: string) {
+    const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
+    if (list) {
+      const [x, y, z] = list.at[Number(id.slice(at + 1))], p = this.placed.get(id);
+      return [x + (p?.x ?? 0), y + (p?.y ?? 0), z + (p?.z ?? 0)];
+    }
+    const box = this.boundsOf(id), middle = box.getCenter(new THREE.Vector3());
+    return [middle.x, box.min.y, middle.z];
+  }
+
+  /** The vertices the objects and what belongs to them have in the meshes loaded, as they are now. */
+  private grab(ids: string[]): Grabbed[] {
+    const out: Grabbed[] = [];
+    for (const id of ids) {
+      const byMesh = new Map<number, Set<number>>();
+      for (const {mesh, from, end} of this.piecesOf(id)) {
+        const part = this.byNumber.get(mesh);
+        if (!part) continue;
+        const indices = (part.userData.indices ?? part.geometry.getIndex()!.array) as Uint16Array;
+        if (!byMesh.has(mesh)) byMesh.set(mesh, new Set());
+        for (let k = from * 3; k < end * 3; k++) byMesh.get(mesh)!.add(indices[k]);
+      }
+      for (const [mesh, vertices] of byMesh) {
+        const numbers = Uint32Array.from(vertices), array = this.vertexArray(mesh), floats = new Float32Array(numbers.length * FLOATS_PER_VERTEX);
+        numbers.forEach((v, k) => floats.set(array.subarray(v * FLOATS_PER_VERTEX, (v + 1) * FLOATS_PER_VERTEX), k * FLOATS_PER_VERTEX));
+        out.push({id, mesh, numbers, floats});
+      }
+    }
+    return out;
+  }
+
+  private vertexArray(mesh: number) {
+    return (this.byNumber.get(mesh)!.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data.array as Float32Array;
+  }
+
+  /** The vertices grabbed as nudges (by id; none: as they were) move them around pivots, in the view only: the server's meshes take
+      their place when its answer comes (refreshMeshes). */
+  private nudgeGrabbed(grabbed: Grabbed[], pivots: Map<string, number[]>, nudges: (id: string) => Nudge) {
+    for (const g of grabbed) {
+      nudgeVertices(g.floats, this.vertexArray(g.mesh), g.numbers, FLOATS_PER_VERTEX, pivots.get(g.id)!, nudges(g.id));
+      const m = this.byNumber.get(g.mesh)!;
+      (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data.needsUpdate = true;
+      fitSphere(m.geometry, m.userData.info as MeshInfo);
+      m.geometry.boundsTree?.refit();
+      this.previewed.add(g.mesh);
+    }
+    this.reframePicks();
+    this.dirty = true;
+  }
+
+  /** The objects ids turned, raised or scaled at once, each around where it stands, until the server's meshes come: a notch of the wheel.
+      While they are dragged, what was taken up is nudged too: the next move of the mouse shows them as they are now, not as they were. */
+  nudge(ids: string[], n: Partial<Nudge>) {
+    const nudge = {...STILL, ...n}, d = this.dragging;
+    if (d && ids.every(id => d.ids.includes(id))) {
+      for (const g of d.grabbed) {
+        if (!ids.includes(g.id)) continue;
+        const out = new Float32Array(g.floats.length);
+        nudgeVertices(g.floats, out, Array.from(g.numbers, (_, k) => k), FLOATS_PER_VERTEX, d.pivots.get(g.id)!, nudge);
+        g.floats = out;
+      }
+      for (const id of ids) {
+        const [x, y, z] = d.pivots.get(id)!;
+        d.pivots.set(id, [x + nudge.x, y + nudge.y, z + nudge.z]);
+      }
+      return this.dragOn(d.grabbed);
+    }
+    this.nudgeGrabbed(this.grab(ids), new Map(ids.map(id => [id, this.pivotOf(id)])), () => nudge);
+  }
+
+  /** The vertices of grabbed shown as taken up and moved the way dragged so far. */
+  private dragOn(grabbed: Grabbed[]) {
+    const d = this.dragging!;
+    this.nudgeGrabbed(grabbed, d.pivots, () => ({...STILL, x: d.way.x, z: d.way.z}));
+  }
+
+  /** A drag under way goes back, nothing moved. */
+  private dropDrag() {
+    const d = this.dragging;
+    this.dragging = null;
+    if (d) this.nudgeGrabbed(d.grabbed, d.pivots, () => STILL);
+  }
+
+  /** The frames of what is picked round it as it stands now. */
+  private reframePicks() {
+    for (const [id, {box}] of this.picks) {
+      const bounds = this.boundsOf(id);
+      if (!bounds.isEmpty()) box.box.copy(bounds);
+    }
+  }
+
+  /** With Move on, the left button pressed picks what is under the mouse (Shift: adds it); held and moved, it takes all that is picked along
+      over the ground, level at the height of the one under the mouse; let go, onMoved says how far. */
+  private moves(el: HTMLElement) {
+    el.addEventListener("pointerdown", e => {
+      if (!this.moveTool || this.brush || e.button !== LEFT_BUTTON) return;
+      const picked = this.pick(e, el);
+      if (!picked?.id || !this.picks.has(picked.id)) return;
+      const ids = [...this.picks.keys()].filter(id => this.canMove(id));
+      if (!ids.includes(picked.id)) return;
+      const pivots = new Map(ids.map(id => [id, this.pivotOf(id)]));
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pivots.get(picked.id)![1]), from = new THREE.Vector3();
+      this.picker.setFromCamera(screenPoint(e, el), this.camera);
+      if (!this.picker.ray.intersectPlane(plane, from)) return;
+      this.dragging = {ids, plane, from, x: e.clientX, y: e.clientY, grabbed: this.grab(ids), pivots, way: new THREE.Vector3()};
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener("pointermove", e => {
+      const d = this.dragging;
+      if (!d) return;
+      if (!(e.buttons & LEFT_HELD)) return this.dropDrag();
+      if (!d.way.lengthSq() && Math.hypot(e.clientX - d.x, e.clientY - d.y) < CLICK_PX) return;     // (a click with a shaky hand)
+      this.picker.setFromCamera(screenPoint(e, el), this.camera);
+      const at = new THREE.Vector3();
+      if (!this.picker.ray.intersectPlane(d.plane, at) || at.distanceTo(this.camera.position) > 2 * this.highest) return;    // (at the horizon)
+      d.way.set(at.x - d.from.x, 0, at.z - d.from.z);
+      el.style.cursor = "grabbing";
+      this.dragOn(d.grabbed);
+    });
+    el.addEventListener("pointerup", e => {
+      const d = this.dragging;
+      if (!d || e.button !== LEFT_BUTTON) return;
+      this.dragging = null;
+      el.style.cursor = "grab";
+      if (d.way.lengthSq()) this.onMoved(d.ids, d.way.x, d.way.z);
+    });
+    el.addEventListener("pointercancel", () => this.dropDrag());
+  }
+
   /** onClicked gets what the left button clicked, null for nothing there: picked already, and what a marking goes by. */
   setClicked(onClicked: (picked: Picked | null) => void) {
     this.onClicked = onClicked;
@@ -1173,10 +1356,14 @@ export class TrackView {
     data.array.set(new Float32Array(buf, 0, info.vertices * FLOATS_PER_VERTEX));
     data.needsUpdate = true;
     this.underPreview.delete(info.i);       // (what it covered is no more: what lies under it is what just came)
+    // (what is being dragged stays where the mouse has it: the server's mesh has it where it was taken up)
+    const dragged = this.dragging?.grabbed.filter(g => g.mesh === info.i) ?? [];
+    if (dragged.length) this.dragOn(dragged);
     fitSphere(g, info);
     g.boundsTree?.refit();
     this.laidOver(info.i);
     if (this.marked) this.markDue = true;
+    this.reframePicks();
     this.dirty = true;
     this.hoverDue = true;
   }
@@ -1253,12 +1440,12 @@ export class TrackView {
   }
 
   /** A press and release without moving (away and back is a drag too): the left button picks what is under the mouse, the right one picks it and asks for its
-      menu (a right drag moves the view, as before). With the brush set the left button is the brush's. */
+      menu (a right drag moves the view, as before). With the brush set the left button is the brush's, with Move on moves'. */
   private clicks(el: HTMLElement) {
     let from: {x: number; y: number; button: number} | null = null;
     el.addEventListener("pointerdown", e => {
       // (a press on a pin is the pin's: it is dragged, a right click takes it away)
-      from = (e.button === 0 && !this.brush && this.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
+      from = (e.button === 0 && !this.brush && !this.moveTool && this.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
     });
     el.addEventListener("pointermove", e => {
       if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_PX) from = null;
@@ -1281,7 +1468,9 @@ export class TrackView {
     this.mouse = screenPoint(e, el);
     const hit = this.hit();
     const hovered = hit ? this.describe(hit) : null;
-    const adding = this.adding && e.shiftKey && e.button === LEFT_BUTTON, id = hovered?.id ?? null;
+    const adding = this.adding && e.shiftKey && e.button === LEFT_BUTTON;
+    const id = hovered?.id && this.moveTool ? this.rootOf(hovered.id) : hovered?.id ?? null;     // (Move takes a house with its sign and door)
+    if (hovered && id && id !== hovered.id) Object.assign(hovered, this.namesOf(id));
     if (!hovered) {
       if (!adding) this.unpick();
       return null;
@@ -1450,7 +1639,9 @@ export class TrackView {
       if (at) this.marking(at.x, at.z);
     }
     const hit = timed("map2lap.hover", () => this.hit());
-    this.onHover(hit ? this.describe(hit) : null);
+    const hovered = hit ? this.describe(hit) : null;
+    if (this.moveTool) this.renderer.domElement.style.cursor = hovered?.id && this.canMove(this.rootOf(hovered.id)) ? "grab" : "";
+    this.onHover(hovered);
   }
 
   /** The first solid thing under the mouse, or a wire near it in front of that. */

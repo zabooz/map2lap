@@ -241,9 +241,9 @@ def _object_changes(entry, field):
     return d[root]
 
 
-def _whole_changes(mesh, scan, objects, field):
+def _whole_changes(mesh, scan, objects, field, reach):
     """{mesh number: per vertex the change of the object it belongs to}, for the single objects: by the list, and billboards told by
-    their count. mesh(i): a mesh's vertices and triangles."""
+    their count. mesh(i): a mesh's vertices and triangles; reach(i): how far its sphere reaches."""
     out = {}
 
     def give(i, faces, changes):
@@ -260,7 +260,7 @@ def _whole_changes(mesh, scan, objects, field):
     for i, first in trackview._first_faces(scan["meshes"], scan["materials"]).items():
         parts.setdefault(trackview._base(scan["meshes"][i]["name"]), []).append((i, first))
     for tile_parts in parts.values():
-        if not any(field.reaches(scan["meshes"][i]["center"], scan["meshes"][i]["radius"]) for i, _ in tile_parts):
+        if not any(field.reaches(scan["meshes"][i]["center"], reach(i)) for i, _ in tile_parts):
             continue
         numbers, xs, zs = [], [], []
         for i, first in tile_parts:         # (a billboard can lie across two parts of a mesh: it moves as one all the same)
@@ -276,7 +276,7 @@ def _whole_changes(mesh, scan, objects, field):
     return out
 
 
-def _wire_changes(mesh, scan, objects, field):
+def _wire_changes(mesh, scan, objects, field, reach):
     """{mesh number: per vertex the change of a wire hanging on two listed poles, NaN for none}: from the one pole's change to the
     other's by the way along the span, so it stays on their cross-arms, which move whole. A pole's wire ends beside it: by the change at
     its own place it would part from the arm, on a slope of 15 % by 15 cm per metre of arm."""
@@ -296,7 +296,7 @@ def _wire_changes(mesh, scan, objects, field):
         length2 = max((bx - ax) ** 2 + (bz - az) ** 2, 1e-6)
         for i, first, n in objects[tile]["faces"][int(number)]:
             m = scan["meshes"][i]
-            if not (da or db or field.reaches(m["center"], m["radius"])):
+            if not (da or db or field.reaches(m["center"], reach(i))):
                 continue
             vertices, faces = mesh(i)
             own = np.unique(faces[first:first + n])
@@ -305,23 +305,30 @@ def _wire_changes(mesh, scan, objects, field):
     return out
 
 
-def moved(path, scan, objects, ops):
-    """What the height changes ops move in the kn5 at path: a kn5.Moved. objects: its object list. InTheWay if they reach a deck or a
-    railway, or single objects there is no list of (a track built before lists: they would float)."""
+def moved(path, scan, objects, ops, under=None):
+    """What the height changes ops move in the kn5 at path: a kn5.Moved. objects: its object list, with the places the objects stand at.
+    under: a kn5.Moved the meshes start from (trackplace: objects placed anew), the result only what the changes move further. InTheWay
+    if they reach a deck or a railway, or single objects there is no list of (a track built before lists: they would float)."""
     field = Field(ops)
     vertices, grow = {}, {}
     meshes = {}
+    under = under or kn5.Moved({}, {}, {})
 
     def mesh(i):
         if i not in meshes:
             meshes[i] = _mesh(f, scan["meshes"][i])
+            if i in under.vertices:
+                meshes[i] = (under.vertices[i], meshes[i][1])
         return meshes[i]
 
+    def reach(i):
+        return scan["meshes"][i]["radius"] + under.grow.get(i, 0.0)
+
     with open(path, "rb") as f:
-        wires, lifts = _wire_changes(mesh, scan, objects, field), _line_lifts(mesh, scan, field)
+        wires, lifts = _wire_changes(mesh, scan, objects, field, reach), _line_lifts(mesh, scan, field)
         for i, m in enumerate(scan["meshes"]):
             kind = objectlist.kind_of(m["name"])
-            if i not in wires and i not in lifts and not field.reaches(m["center"], m["radius"]):
+            if i not in wires and i not in lifts and not field.reaches(m["center"], reach(i)):
                 continue
             if kind in IN_THE_WAY:
                 if _reached(field, *mesh(i)):
@@ -341,7 +348,7 @@ def moved(path, scan, objects, ops):
                     largest = max(largest or 0.0, float(np.abs(wires[i][hung]).max()))
                 if largest is not None:
                     grow[i], vertices[i] = largest, changed
-        for i, d in _whole_changes(mesh, scan, objects, field).items():
+        for i, d in _whole_changes(mesh, scan, objects, field, reach).items():
             if d.any():
                 changed = mesh(i)[0].copy()
                 changed["pos"][:, 1] = changed["pos"][:, 1].astype(np.float64) + d

@@ -61,6 +61,9 @@ with its kn5 filtered, no build), in its place or as a copy; the kn5 as it was i
 Editor shows from then on, so what was deleted can come back.
 Its buttons stand in the sidebar by groups (`ui/src/editor/ToolPanel.tsx`; a portal, their state stays by the view in `EditTools.tsx`), one tool on at a time, Esc back to Select. What the tool on can be set to stands in a bar over the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
 Camera (C) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
+Move (M) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
+(`app/placement.py`), written into the kn5 by `app/trackplace.py` before the height changes; the view shows it at once and takes the server's
+meshes when they come.
 With Mark road or Smooth on, two clicks on the road mark a band that follows it, by the road surface and its heights alone, not over a wall (`app/trackband.py`, `ui/src/editor/useBand.ts`; further clicks are pins, `pins.ts`), for the tools that work on a stretch: Smooth so far.
 Elevation (H: the round brush of `useBrush.ts`, which a tool gives what a stroke does) and those tools make a height change on the server (`app/trackheights.py`, a raster the draft holds; while it is under way, what it changes so far comes back without being kept): it moves the ground of the kn5 and what lies along it, vertex by vertex; single
 objects move whole, wires go from pole to pole; water stays, and one that reaches a deck or a railway is refused. Saving the draft names the meshes that moved; the view fetches those anew from the server, which hands them out as the

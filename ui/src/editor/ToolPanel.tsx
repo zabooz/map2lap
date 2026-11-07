@@ -5,12 +5,13 @@ import {thenView} from "./ToolOptions";
 import {isChanged, type useSave} from "./useSave";
 import type {TrackView} from "./view";
 
-export type Tool = "select" | "road" | "delete" | "camera" | "elevation" | "smooth";     // (what the left button does: picks, marks a band, each click deletes, picks, the brush, marks a band and evens it out)
+export type Tool = "select" | "road" | "delete" | "camera" | "move" | "elevation" | "smooth";     // (what the left button does: picks, marks a band, each click deletes, picks, picks and drags, the brush, marks a band and evens it out)
 export const TOOLS: {tool: Tool; group: "general" | "tools"; id: string; label: string; key: string; hint: string}[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click an object to pick it, Shift + click adds more, X or Delete takes them out; a right click marks all of its sort (V)"},
   {tool: "road", group: "general", id: "edit-road", label: "Mark road", key: "R", hint: "Two clicks on the road mark a stretch of it, for Smooth; further clicks are pins (R; Esc ends it)"},
   {tool: "delete", group: "general", id: "edit-click-deletes", label: "Delete", key: "X", hint: "Each click deletes what is under it, Ctrl+Z brings it back (X, with nothing picked; Esc ends it)"},
   {tool: "camera", group: "general", id: "edit-camera", label: "Camera", key: "C", hint: "Go along the track by the wheel or riding by itself, back to the first view (C; Esc ends it)"},
+  {tool: "move", group: "tools", id: "edit-move", label: "Move", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
   {tool: "elevation", group: "tools", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
   {tool: "smooth", group: "tools", id: "edit-smooth", label: "Smooth", key: "T", hint: "Even out a marked stretch of road: mark it first or after, it shows at once, Enter takes it (T; Esc ends it)"},
 ];
