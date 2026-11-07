@@ -205,7 +205,10 @@ def _listed(k, item, start, marks):
     ring = np.asarray(spec.ring, np.float64)
     mid = ring.mean(axis=0)
     return {"item": k, "start": start, "house": not str(spec.cls or "").startswith("bridge"), "at": [round(float(mid[0]), 3), round(float(mid[1]), 3), round(float(gmin), 3)],
-            "marks": [[start + v, what] for v, what in marks]}
+            "marks": [[start + v, what] for v, what in marks],
+            "details": {"asset": "generated-building", "footprint": ring.round(3).tolist(),
+                        "parameters": {name: getattr(spec, name, None) for name in
+                                       ("cls", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "pitch", "min_h", "seed")}}}
 
 
 def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False, objects=None):

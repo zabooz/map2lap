@@ -112,7 +112,7 @@ test("a click on grass or the sky ends a marking, a click on the road with a too
   await page.keyboard.press("v");
   await page.mouse.click(a.x, a.y);
   await expect(page.locator("#edit-band")).toBeHidden();
-  await expect(page.locator("#edit-picked")).toContainText("can't be deleted yet");
+  await expect(page.locator("#edit-surface")).toContainText("Asphalt selected");
 });
 
 test("no road between the clicks: it says so, and A stays", async ({page, backend}) => {

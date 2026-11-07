@@ -39,7 +39,7 @@ export async function points(page: Page, at: {x: number; y: number}) {
 
 /** The list as the server has it. */
 export async function stored(page: Page, name = "alpha") {
-  return (await (await page.request.get(`/api/editor/${name}/edits`)).json()) as {base: string; revision: number; outdated: number;
+  return (await (await page.request.get(`/api/editor/${name}/edits`)).json()) as {base: string; revision: number; outdated: number; sorts: string[];
     deleted: {id: string; kind: string; position: number[]}[]};
 }
 

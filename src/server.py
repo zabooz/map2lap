@@ -21,7 +21,7 @@ import time
 import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from app import named
 
@@ -47,6 +47,8 @@ BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<n
                             # files" is on, replaced by the next build of the track, deleted with the build files
 EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?(?:&c=[a-f0-9]*)?)")
 COPIES_PATH = re.compile(r"/api/editor/([^/]+)/copies")
+SURFACE_PATH = re.compile(r"/api/editor/([^/]+)/surface")
+SURFACE_PREPARE_PATH = re.compile(r"/api/editor/([^/]+)/surface/prepare")
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
 SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
 BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush(/preview)?")
@@ -507,6 +509,24 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             self._send(500, {"error": str(e)})
 
+    def _surface(self, name):
+        """Read-only selection of generated paint masks; source revision prevents mixing builds."""
+        try:
+            q = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+            if "points" in q:
+                return self._edits_answer(lambda: trackview.surfaces(settings.ac_path(), generator.slug(name), json.loads(q["points"][0]), q["r"][0]))
+            self._edits_answer(lambda: trackview.surface(settings.ac_path(), generator.slug(name), int(q["mesh"][0]),
+                                                        float(q["u"][0]), float(q["v"][0]), q["r"][0], q.get("whole", ["0"])[0] == "1"))
+        except (KeyError, ValueError, IndexError, TypeError) as e:
+            self._send(400, {"error": str(e)})
+
+    def _prepare_surface(self, name):
+        try:
+            q = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+            self._edits_answer(lambda: trackview.prepare_surface(settings.ac_path(), generator.slug(name), int(q["mesh"][0]), q["r"][0]))
+        except (KeyError, ValueError, IndexError) as e:
+            self._send(400, {"error": str(e)})
+
     def _own_page(self):
         """Whether a request can only come from the page itself: another site can't send this type without asking first (no
         answer to that here), nor reach this server under another name."""
@@ -633,6 +653,10 @@ class Handler(BaseHTTPRequestHandler):
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
+        elif (surface := SURFACE_PATH.fullmatch(urlsplit(self.path).path)):
+            self._surface(surface[1])
+        elif (preparing := SURFACE_PREPARE_PATH.fullmatch(urlsplit(self.path).path)):
+            self._prepare_surface(preparing[1])
         elif (copies := COPIES_PATH.fullmatch(self.path)):
             self._edits_answer(lambda: trackview.copy_index(settings.ac_path(), generator.slug(copies[1])))
         elif edits:

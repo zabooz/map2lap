@@ -54,6 +54,12 @@ Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a s
 
 **Tool options** (Editor):
 The bar over the view with what the tool on can be set to (`ui/src/editor/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
+Select uses Shift for all matching objects or the whole connected surface, Ctrl to add to the selection.
+
+**Selection index** (Editor):
+Disposable prepared paint components and alpha masks (`track/surfaceindex.py`, `out/editor-selection`), made while ground tiles
+load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes the connected material.
+Separate material meshes, including the road verge (`edge_dirt`), get connected face regions while their geometry loads.
 
 **Source**:
 A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`
@@ -67,6 +73,15 @@ What the Editor changed on a track, its draft: `out/edits/<track>.json` (`app/tr
 list's "base"). So far the objects it leaves out, each by its id with its position as a check, and whole sorts of trees ("sorts") and of
 listed objects ("object_sorts"), each a rule, not ids. Built again, the list stays but is not applied ("outdated"). No file: the
 recipe, while it counts.
+
+**Build facts** (Editor):
+`data/map2lap_editor/`, the kn5-bound manifest and per-tile archives of painted material layers, source features and generated
+section descriptions (`track/editorinfo.py`). They stay with a saved track and its source independently of kept build files.
+The object list's optional `details` hold original model parameters; current edits remain in the draft and recipe.
+
+**Painted ground selection** (Editor):
+The connected contribution of a ground material at a clicked UV, read from the build's lossless paint masks and highlighted
+over the ground. It includes soft edges and neighbouring tiles, changes no draft and grants no object editing actions.
 
 **Engine**:
 The folder `engine/`: our roads, grading, buildings and scenery code, based on BeamNG.Earth's server folder.

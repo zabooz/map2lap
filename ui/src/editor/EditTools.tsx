@@ -15,6 +15,9 @@ import {useBand} from "./useBand";
 import {useSave} from "./useSave";
 import type {Marked, MenuAt, Picked, TrackView, WheelKeys} from "./view";
 import {ViewMenu} from "./ViewMenu";
+import {SurfaceInfo} from "./SurfaceInfo";
+import type {SurfacePoint} from "./surfaces";
+import {ToolChoice, ToolOptions, thenView} from "./ToolOptions";
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
@@ -38,7 +41,10 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const state = useSyncExternalStore(edits.subscribe, edits.state);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [menu, setMenu] = useState<MenuAt | null>(null);
-  const [marked, setMarked] = useState<Marked | null>(null);
+  const [marked, setMarked] = useState<Marked[]>([]);
+  const [surfacePicks, setSurfacePicks] = useState<SurfacePoint[]>([]);
+  const [selectWhole, setSelectWhole] = useState(false);
+  const [selectAdd, setSelectAdd] = useState(false);
   const [tool, setTool] = useState<Tool>("select");
   const [copyTake, setCopyTake] = useState(0);
   const [note, setNote] = useState<string | null>(null);
@@ -61,7 +67,14 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const onPicked = useEffectEvent((p: Picked | null) => {
     if (marking && p?.left) return view.unpick();
     setPicked(p);
-    setMarked(null);
+    if (!p?.adding) { setMarked([]); setSurfacePicks([]); }
+    if (tool === "select" && p?.surface) {
+      setSurfacePicks(previous => [...(p.adding ? previous : []).filter(s => JSON.stringify(s) !== JSON.stringify(p.surface)), p.surface!].slice(-64));
+    }
+    if (tool === "select" && p?.whole && p.id) {
+      const group = p.sprite ? {sort: p.sprite, tree: true} : p.sort && !NOT_ALL.has(p.sort) ? {sort: p.sort, tree: false} : null;
+      if (group) setMarked(previous => [...(p.adding ? previous : []).filter(g => g.sort !== group.sort || g.tree !== group.tree), group]);
+    }
     if (deleting && p?.id && p.left) {
       edits.remove([{id: p.id, position: p.position}]);
       view.unpick();
@@ -83,6 +96,10 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   useEffect(() => { view.setWheelTaken((band.line !== null && smoothing) || tool === "camera" || tool === "copy" || moving); }, [view, band.line, smoothing, tool, moving]);
 
   useEffect(() => { view.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
+  useEffect(() => {
+    view.setSelectMode(tool === "select", selectWhole, selectAdd);
+    return () => view.setSelectMode(false);
+  }, [view, tool, selectWhole, selectAdd]);
 
   useEffect(() => {
     if (tool !== "road" && tool !== "smooth") band.clear();
@@ -157,18 +174,14 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
 
   const remove = () => {
     if (!editable) return;
-    if (marked) {               // (all of the marked sort, as a rule)
-      if (marked.tree) edits.removeSort(marked.sort);
-      else edits.removeObjectSort(marked.sort);
-      setMarked(null);
-      view.unpick();
-    } else if (removable.length) {      // (one undo step, however many)
-      edits.remove(removable);
+    if (marked.length || removable.length) {
+      edits.removeSelected(view.selectedOutside(marked), marked);
+      setMarked([]);
       view.unpick();
     }
   };
   /** A tool taken up, the one on laid down: Select. */
-  const takeUp = (t: Tool) => setTool(tool === t ? "select" : t);
+  const takeUp = (t: Tool) => { setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(tool === t ? "select" : t); };
   const closeMenu = useCallback(() => setMenu(null), []);
 
   // (an effect event: Delete pressed right after a click reaches what that click picked, not the list of keys before it)
@@ -183,13 +196,16 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     if (e.key === "Delete") remove();
     else if (e.key === "Escape") {
       setMenu(null);
-      setMarked(null);
+      setMarked([]);
+      setSelectWhole(false);
+      setSelectAdd(false);
+      setSurfacePicks([]);
       view.cancelStroke();
       view.unpick();
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
     } else if (e.key === "Enter" && smoothing && band.apply()) view.focus();
-    else if ((marked || removable.length) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
+    else if ((marked.length || removable.length) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
     else if (control && key === "z") {
@@ -214,8 +230,18 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} />, toolsHost)}
       {notesHost && createPortal(
-        <EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={marking && !picked?.id ? null : picked} sort={sort}
-                   markedName={marked && (marked.tree ? marked.sort : sortName(marked.sort))} reopen={reopen} readAgain={() => void readAgain()} />, notesHost)}
+        <><EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
+                   markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null} reopen={reopen} readAgain={() => void readAgain()} />
+          {tool === "select" && surfacePicks.length > 0 && <SurfaceInfo key={JSON.stringify(surfacePicks)} name={name} surfaces={surfacePicks} view={view} />}</>, notesHost)}
+      {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
+        options={[
+          <ToolChoice label="Select all" on={selectWhole} hint="Select the whole connected surface or every object of this sort (Shift + click)" onClick={thenView(view, () => {
+            setSelectWhole(!selectWhole);
+            if (picked?.surface) setSurfacePicks(previous => previous.map(s => ({...s, whole: !selectWhole})));
+            else if (tree || sort) setMarked(selectWhole ? [] : [{sort: tree ?? sort!, tree: !!tree}]);
+          })} />,
+          <ToolChoice label="Add" on={selectAdd} hint="Add to the selection; click a picked object again to remove it (Ctrl + click)" onClick={thenView(view, () => setSelectAdd(!selectAdd))} />,
+        ]} />}
       {elevating && <ElevationOptions elevation={elevation} view={view} />}
       {marking && <BandOptions band={band} smoothing={smoothing} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
@@ -226,7 +252,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
                   onMove={editable && picked?.id && view.canMove(picked.id) ? () => { setTool("move"); setNote(null); view.focus(); } : null}
                   onDuplicate={editable && picked?.id && view.canMove(picked.id) ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null}
                   onSmooth={clickedOnBand ? () => { setTool("smooth"); setNote(null); view.focus(); } : null}
-                  onMark={() => { setMarked(sort ? {sort, tree: false} : {sort: tree!, tree: true}); view.focus(); }}
+                  onMark={() => { setMarked([sort ? {sort, tree: false} : {sort: tree!, tree: true}]); view.focus(); }}
                   onDelete={() => { remove(); view.focus(); }} />
       )}
       {saving.asking && <SaveDialog title={title} taken={taken} canOverwrite={saving.canSave} onOverwrite={() => void saving.chosen(null)}

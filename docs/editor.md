@@ -5,8 +5,10 @@ and the `/api/` endpoints. Bun is needed only for development; `bun run dev` pro
 The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.
 
 `app/trackview.py` scans an installed Map2Lap track's kn5 with `track.kn5.scan`: offsets, sizes, materials and start points,
-without loading all meshes or textures into memory. The page requests their bytes separately, with the file's revision;
-a changed or partially written file returns HTTP 409. The viewer loads nearby meshes first (six at a time, twelve textures), counts
+without loading all meshes or textures into memory. The page requests their bytes separately, with the file's revision.
+A shared progress bar covers mesh loading, required textures and selection preparation. Reading the index has an indeterminate
+bar; afterwards the fraction counts completed tasks, not elapsed or remaining time. Its reserved place stays when loading ends.
+A changed or partially written file returns HTTP 409. The viewer loads nearby meshes first (six at a time, twelve textures), counts
 memory against its configured limit and disposes meshes and textures when the track changes. The limit estimates RAM and GPU use;
 it does not include all browser overhead. Meshes and textures above it stay out of the preview; `tools/editor_memory.py` says what a
 track takes. A long track is tens of thousands of requests: GETs share kept connections (HTTP/1.1), and a part cut off on its way is
@@ -68,3 +70,43 @@ draft says, so the view and Save have one reckoning and the page none of its own
 Which triangles make up an object: `track/objectlist.py`, written by the build (parked cars, houses with their signs and doors,
 street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes by their count of triangles). Every mesh
 a build adds is entered there as listed, counted or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.
+
+## Build facts and painted ground selection
+
+New builds keep `data/map2lap_editor/` beside the kn5 (`track/editorinfo.py`). Its versioned manifest belongs to exactly one
+kn5 state; a stale or missing manifest is ignored. Each tile ZIP contains a base material raster, the ordered alpha masks used
+by the actual ground painter, and their texture/repeat/brightness descriptions. Rock blends, paths, roads, dirt-road grass
+strips, streams, sport markings and forecourts are recorded where they are painted. The baked colour image and physics are
+unchanged. Masks are lossless PNGs, separate from the baked texture, and retain soft edges.
+
+The tile also retains nearby mapped road and land-area identifiers, projected geometry and selected map facts; available
+road specifications; the generated road/marking chunks and sidewalk runs; original prop, barrier and parking rows; and
+generated mesh names, material roles and bounds. These are build descriptions for future tools, not a complete triangle-to-road
+or triangle-to-bridge ownership index. The object list's optional `details` entries retain original prop parameters and generated
+building dimensions/footprints. Copies and Save preserve these details; the picking index omits them to avoid transferring
+unused model descriptions on every load. Geometry, materials and collision already in the kn5 are not duplicated here.
+
+Loading prepares each loaded ground tile through `/surface/prepare` before reporting “parts loaded”. `track/surfaceindex.py`
+evaluates the recorded paint once, retaining dominant materials, soft alpha masks, horizontal runs and linked components in
+disposable content-addressed files under `out/editor-selection`. Sources and saved copies with the same metadata reuse them;
+decoded lookup data is bounded to 64 MiB. A click queries `/surface` with the served source revision, mesh and hit UV: it looks
+up prepared components without evaluating paint or flooding pixels again. Layers with the same material contribute together.
+Normal road selection follows one mapped chain, stopping at branches and changes between a road and a link; same-kind degree-two
+map splits join only on the same mapped level. Shift selects the whole connected material instead. This depends on the retained
+map topology, not visual junction guessing. Selection is bounded to 64 prepared tiles; unloaded or further continuation is reported.
+The page highlights
+the lossless mask over the loaded ground meshes, sharing their live geometry, so height edits remain aligned. Only masks for
+loaded tiles are decoded, within the preview memory limit. Selection changes no draft and enables no Delete, Move or Copy
+action. The shared Select bar offers Shift / Select all and Ctrl / Add; Ctrl keeps earlier regions or objects, and clicking an
+already picked object with Ctrl removes it from the selection. Shift on an object selects its matching sort (trees by atlas image;
+listed objects by sort, never all houses). Mixed explicit objects and sorts delete in one undo step.
+
+Mesh loading also identifies connected material faces, keeping listed-object ownership separate and joining duplicated vertices
+by their shared edges (`ui/src/editor/materials.ts`). The separate `edge_dirt` road verge can therefore be selected without paint
+metadata; Shift includes its other loaded matching regions. Its highlight owns its geometry and follows live height changes.
+This material information is groundwork for later texture tools; clicking a house still selects the house as an object.
+Esc or another tool cancels pending surface work and releases the highlight's memory.
+
+The source and Save keep the metadata independently of build files and bind the manifest to their own kn5. An older track
+needs one new build to obtain the painted-ground data; its existing object tools remain available. Textures cannot yet be
+replaced in the Editor. The retained descriptions refer to the original build; current edits remain in the draft and recipe.

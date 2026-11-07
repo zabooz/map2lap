@@ -13,7 +13,7 @@ import time
 import numpy as np
 
 from app import mytracks, placement, trackcopies, trackedits, trackheights, trackplace, tracksource, trackview
-from track import kn5, objectlist
+from track import editorinfo, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -267,6 +267,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         moved = kn5.without_faces(path, new_kn5, going, change, added)
         now_at = trackheights.list_moved(placement.list_placed(objects, edits["placed"]), edits["heights"])
         objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
+        editorinfo.copy(path, new_kn5)
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"],
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}

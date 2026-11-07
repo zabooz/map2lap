@@ -1,5 +1,5 @@
 import type {Ref} from "react";
-import type {Track, TrackGroup} from "../types";
+import type {EditorLoadStatus, Track, TrackGroup} from "../types";
 import styles from "./EditorPanel.module.css";
 import {groupOf} from "./MyTracksPane";
 
@@ -7,7 +7,7 @@ const GROUPS: readonly (readonly [TrackGroup, string])[] = [["built", "Built"], 
 
 /** The Editor tab's sidebar: File with the track to show, what is loading (a line of its own: nothing moves) and its Save and Play, the places the 3D view's buttons
     are drawn into (fileRef, toolsRef, notesRef: there while the page is, hidden with the tab, as the view keeps its state), how it all works. */
-export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: string; hidden: boolean;
+export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: EditorLoadStatus; hidden: boolean;
                                                                                                       fileRef: Ref<HTMLDivElement>; toolsRef: Ref<HTMLDivElement>;
                                                                                                       savedRef: Ref<HTMLSpanElement>;
                                                                                                       notesRef: Ref<HTMLDivElement>; onChoose: (name: string) => void}) {
@@ -28,8 +28,13 @@ export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, 
             })}
           </select>
           <div className={`small muted ${styles.status}`}>
-            <span id="edit-status">{status}</span>
+            <span id="edit-status">{status.text}</span>
+            {typeof status.progress === "number" && <span>{Math.floor(status.progress * 100)}%</span>}
             <span id="edit-saved" ref={savedRef} />
+          </div>
+          <div className={styles.progressSlot}>
+            <progress className={styles.progress} aria-label="Loading track" aria-describedby="edit-status" max={1}
+                      value={status.progress ?? undefined} hidden={status.progress === undefined} />
           </div>
           {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
             <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
@@ -41,8 +46,9 @@ export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, 
         <details id="edit-help" className={styles.help}>
           <summary className={styles.helpTitle}>Help</summary>
           <div className={styles.helpText}>
-            <p className="small muted">Select (V): click an object, such as a tree, a parked car, a house, a sign, a fence or a power line, and press X or Delete to take it out, Ctrl+Z brings it back. Shift + click adds more to it, or takes one out again. Right-click it to
-              mark all of its sort, X then deletes them all. Delete (X with nothing picked): each click deletes what is under it.</p>
+            <p className="small muted">Select (V): click an object, such as a tree, a parked car, a house, a sign, a fence or a power line, and press X or Delete to take it out, Ctrl+Z brings it back. Ctrl + click adds more to it, or takes one out again. Right-click it to
+              mark all of its sort, or Shift + click to select all matching. X then deletes them all. Delete (X with nothing picked): each click deletes what is under it.</p>
+            <p className="small muted">Click ground to select a surface, such as asphalt, meadow, rock or the road verge. Roads stop at mapped branches; Shift + click selects the whole connected surface, Ctrl adds to the selection. Select all and Add are also in the Select bar. Esc clears the highlight. Ground selection is prepared while loading and needs a track built with surface data; texture replacement comes later.</p>
             <p className="small muted">Mark road (R): two clicks on the road mark a stretch of it; further clicks add pins that say which way it goes. Smooth (T, or a right click on what is marked) evens it out, marked before or after, and shows it at once: Enter takes it. Elevation (H) raises or lowers the ground, with the road and what stands on it: a click by its height, held more and more where the ring is, each one Ctrl+Z.</p>
             <p className="small muted">Move (M, or Move in the right-click menu): drag a house, a tree or street furniture to where it should stand; Shift, Ctrl and Alt with the wheel turn, raise and size what is picked. A house takes its sign and door along, a pole its wires; dragging follows the terrain and keeps its height above the ground.</p>
             <p className="small muted">Copy (C): pick an object, then click to place copies repeatedly; Esc ends it. Duplicate in the right-click menu starts Copy with that object. A house takes its sign and door, a copied pole has no wires.</p>

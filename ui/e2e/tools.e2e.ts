@@ -96,23 +96,23 @@ test("Shift shows the way Elevation goes as it is held, from either choice", asy
   await expect(lower).toHaveAttribute("aria-pressed", "true");
 });
 
-test("Select: Shift adds to what is picked, again takes it out, X deletes all as one undo step, Esc lets go of them", async ({page, backend}) => {
+test("Select: Ctrl adds to what is picked, again takes it out, X deletes all as one undo step, Esc lets go of them", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
   await openEditor(page);
   const tree = await findTree(page), car = await findCar(page);
   const picked = page.locator("#edit-picked");
-  const shiftClick = async (at: {x: number; y: number}) => {
-    await page.keyboard.down("Shift");
+  const ctrlClick = async (at: {x: number; y: number}) => {
+    await page.keyboard.down("Control");
     await page.mouse.click(at.x, at.y);
-    await page.keyboard.up("Shift");
+    await page.keyboard.up("Control");
   };
   await page.mouse.click(tree.x, tree.y);
   await expect(picked).toContainText("Tree");
-  await shiftClick(car);
+  await ctrlClick(car);
   await expect(picked).toHaveText("2 objects picked: X or Delete deletes them all.");
-  await shiftClick(car);
+  await ctrlClick(car);
   await expect(picked).toContainText("Tree");
-  await shiftClick(car);
+  await ctrlClick(car);
   await expect(picked).toContainText("2 objects picked");
   await page.keyboard.press("x");
   await expect(page.locator("#edit-count")).toHaveText("2 objects deleted");

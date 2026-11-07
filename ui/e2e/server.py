@@ -27,7 +27,7 @@ import furniture  # noqa: E402
 import server  # noqa: E402
 from app import mapcache, mytracks, settings, system, updater, version  # noqa: E402
 from scenery import cars, trees  # noqa: E402
-from track import kn5, objectlist  # noqa: E402
+from track import editorinfo, kn5, objectlist  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="map2lap_e2e_")
 AC = os.path.join(TMP, "ac")
@@ -40,6 +40,7 @@ BUILD_STEP_S = 0.3
 calls = []                  # what the page asked of the stand-ins
 release = {}                # the newest release version.latest answers
 stopped = threading.Event()
+TRACK_LOCK = threading.RLock()
 ATLAS = os.path.join(TMP, "atlas.png")
 
 
@@ -163,7 +164,13 @@ def pole_with_wires(number, mat, two=False):
     return [node, wire], entry
 
 
-def make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False):
+def make_track(*args, **kwargs):
+    """A test build is indivisible, as real builds are; several intercepted mesh GETs can ask for it at once."""
+    with TRACK_LOCK:
+        return _make_track(*args, **kwargs)
+
+
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
@@ -199,8 +206,23 @@ def make_track(name, title, files=True, built=None, track_version=None, north=42
         nodes, entry = pole_with_wires(sum(c.cls == 2 for c in tree.children), 0, pole == "two")
         tree.children[-1:-1] = nodes
         listed["t_0_0"] = entry
+    if verge:
+        materials.append(material("edge_dirt", "ground_far.dds"))
+        node = mesh("nocol_road_edge_dirt_0_0", len(materials) - 1,
+                    [(134, 0.02, -75), (138, 0.02, -75), (134, 0.02, -20), (138, 0.02, -20)],
+                    [(0, 1, 0)] * 4, [(0, 0), (1, 0), (0, -1), (1, -1)], [0, 2, 1, 1, 2, 3])
+        tree.children.insert(-1, node)
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
     objectlist.write(os.path.join(root, name + ".kn5"), listed)
+    if name != "gamma":
+        parts = []
+        for ty in (-1, 0):
+            part = os.path.join(root, f"t_0_{ty}.obj")
+            paint = editorinfo.Paint(part, 0, ty, 32)
+            paint.base(["road_asphalt"], np.zeros((32, 32), np.uint8))
+            paint.finish()
+            parts.append(part)
+        editorinfo.install(os.path.join(root, name + ".kn5"), parts)
     with open(os.path.join(root, "data", "map2lap_route.txt"), "w", encoding="utf-8") as f:
         f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n128 0\n128 -250\n")
     current = track_version or version.TRACK_VERSION
@@ -333,7 +355,7 @@ class Handler(server.Handler):
             release.update(body)
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)
             make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True), car=body.get("car"), house=body.get("house", False),
-                       pole=body.get("pole", False), hill=body.get("hill", False))
+                       pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

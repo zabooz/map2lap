@@ -84,3 +84,5 @@ export interface CodeContent {
   width?: number;
   points?: LatLon[];
 }
+/** Editor loading: unknown amount is null, no active load is undefined; otherwise a fraction of completed tasks. */
+export interface EditorLoadStatus { text: string; progress?: number | null; }

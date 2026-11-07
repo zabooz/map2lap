@@ -8,6 +8,8 @@ import {acceleratedRaycast, MeshBVH} from "three-mesh-bvh";
 import {DEFAULT_CONTROLS, NORMAL_SPEED, type Controls} from "./controls";
 import {nudgeVertices, STILL, type Nudge, type Placement} from "./placing";
 import type {CopyPose} from "./copying";
+import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
+import {MaterialRegions} from "./materials";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
@@ -48,7 +50,10 @@ export interface Picked {
   position: [number, number, number];
   left: boolean;                // (by the left button, not for a menu)
   road: [number, number] | null;    // (AC x, z, if it is the road itself: asphalt, with nothing on it)
-  all: {id: string; position: [number, number, number]}[];      // (what can be deleted of all that is picked now, this one and those Shift added to it)
+  all: {id: string; position: [number, number, number]}[];      // (what can be deleted of all that is picked now, this one and those Ctrl added to it)
+  surface?: SurfacePoint;
+  adding?: boolean;
+  whole?: boolean;
 }
 
 /** Where a right click asks for its menu: in the view's pixels, with the view's size. */
@@ -106,6 +111,7 @@ interface MaterialInfo {
 }
 
 interface TrackIndex {
+  surface_tiles?: string[];
   draft?: number;
   copy_revision?: string;
   revision: string;             // the state of the file its numbers hold for
@@ -371,6 +377,8 @@ export class TrackView {
   private onCopyPlace: ((at: [number, number, number]) => void) | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
+  private surfaceOverlay: SurfaceOverlay | null = null;
+  private surfaceFailed: (message: string) => void = () => {};
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
   private resizing: ResizeObserver;
   private down = new THREE.Raycaster();
@@ -380,6 +388,7 @@ export class TrackView {
   private meshes: THREE.Mesh[] = [];
   private grounds: THREE.Mesh[] = [];
   private textures: (Promise<THREE.Texture | null> | undefined)[] = [];
+  private loadedTexture: (() => void) | null = null;
   private materials: (THREE.MeshLambertMaterial | undefined)[] = [];
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
@@ -411,14 +420,16 @@ export class TrackView {
   private alphaOf = new Map<THREE.Texture, ImageData | null>();
   private onPick: (picked: Picked | null) => void = () => {};
   private onMenu: (at: MenuAt) => void = () => {};
-  private marked: Marked | null = null;
+  private marked: Marked | Marked[] | null = null;
   private markedLines: THREE.LineSegments | null = null;
   private markDue = false;              // (meshes loaded since the frames were drawn)
   private lastMark = 0;
   private markEvery = MARK_EVERY_MS;
   private onIndexed: (revision: string | null) => void = () => {};
   private picks = new Map<string, {box: THREE.Box3Helper; picked: Picked}>();   // (by id, as they were picked, each with its frame)
-  private adding = false;               // Shift with the left button adds to what is picked
+  private adding = false;               // Ctrl with the left button adds to what is picked
+  private selectMode = {enabled: false, whole: false, add: false};
+  private materialAreas = new Map<number, MaterialRegions>();
   private parts = new Map<string, THREE.Mesh[]>();      // a tile's billboard meshes by their base name
   private byNumber = new Map<number, THREE.Mesh>();     // the loaded meshes by number
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
@@ -519,6 +530,18 @@ export class TrackView {
     this.onPick = onPick;
   }
 
+  /** A painted ground region, highlighted independently of deletable objects. Null releases all mask memory. */
+  async setSurface(selection: SurfaceSelection | null, failed: (message: string) => void = () => {}) {
+    this.surfaceFailed = failed;
+    if (!selection) { this.surfaceOverlay?.clear(); return; }
+    this.surfaceOverlay ??= new SurfaceOverlay(this.scene, () => { this.dirty = true; }, bytes => {
+      if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+      this.usedBytes += bytes;
+      return true;
+    }, bytes => { this.usedBytes -= bytes; });
+    await this.surfaceOverlay.set(selection, this.meshes);
+  }
+
   /** onIndexed gets the state of the track file shown as soon as it is known, null when none is. */
   setIndexed(onIndexed: (revision: string | null) => void) {
     this.onIndexed = onIndexed;
@@ -536,9 +559,26 @@ export class TrackView {
     this.onPick(null);
   }
 
-  /** Whether Shift with the left button adds to what is picked, or takes one out again; else it is a click like any. */
+  /** Whether Ctrl with the left button adds to what is picked, or takes one out again; else it is a click like any. */
   setAdding(adding: boolean) {
     this.adding = adding;
+  }
+
+  setSelectMode(enabled: boolean, whole = false, add = false) { this.selectMode = {enabled, whole, add}; }
+
+  /** Material regions were identified as their meshes loaded; no topology search belongs to a click. */
+  materialSelection(point: SurfacePoint): SurfaceSelection {
+    const source = this.byNumber.get(point.mesh), region = this.materialAreas.get(point.mesh);
+    if (!source || !region || point.face === undefined || !this.data) throw new Error("This material is no longer loaded");
+    const info = source.userData.info as MeshInfo;
+    const meshes: {mesh: number; faces: number[]}[] = [];
+    for (const [number, areas] of this.materialAreas) {
+      const mesh = this.byNumber.get(number);
+      if (!mesh || (mesh.userData.info as MeshInfo).material !== info.material || (!point.whole && number !== point.mesh)) continue;
+      const faces = point.whole ? areas.facesOfOwner(point.object ?? null) : areas.faces(point.face);
+      if (faces.length) meshes.push({mesh: number, faces});
+    }
+    return {material: this.data.materials[info.material].name, truncated: false, tiles: [], meshes};
   }
 
   /** The objects with these ids ("<mesh as built>#<number>"), the trees and bushes of sorts and the listed objects of objectSorts
@@ -691,7 +731,7 @@ export class TrackView {
 
   /** Show the track name; say(text) gets the progress or the fault. Returns when all is loaded (or another track was asked
       for: what the older one still says or fails with is nobody's business any more). */
-  async open(name: string, say: (text: string) => void) {
+  async open(name: string, say: (text: string, progress?: number | null) => void) {
     const mine = ++this.token;
     this.loading.abort();
     this.loading = new AbortController();
@@ -703,18 +743,19 @@ export class TrackView {
     this.onHover(null);
     this.onPick(null);
     this.onIndexed(null);
-    say(name ? "Reading the track …" : "");
+    say(name ? "Reading the track …" : "", name ? null : undefined);
     if (!name) return;
     try {
       await this.load(name, mine, signal, say);
     } catch (e) {
       if (mine !== this.token) return;
+      this.loadedTexture = null;
       this.loading.abort();
       say(`Could not load this track: ${(e as Error).message}`);
     }
   }
 
-  private async load(name: string, mine: number, signal: AbortSignal, say: (text: string) => void) {
+  private async load(name: string, mine: number, signal: AbortSignal, say: (text: string, progress?: number | null) => void) {
     const r = await fetch(`/api/editor/${encodeURIComponent(name)}/index`, {signal});
     const data = await r.json();
     if (mine !== this.token) return;
@@ -731,11 +772,31 @@ export class TrackView {
     this.placeCamera(data);
     this.renderer.domElement.focus({preventScroll: true});     // (W A S D work at once, not in the track's dropdown)
     // Generated geometry has its own cancellable loader. Original MeshInfos never change when a copy is added or undone.
-    const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data) : Promise.resolve();
     let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy), this.camera.position.toArray());
     let sortedAt = this.camera.position.clone(), sortedWhen = performance.now();
     const total = data.meshes.length;
-    let done = 0;
+    let done = 0, copiedDone = 0, texturesDone = 0;
+    const prepareTurn = oneByOne(2), prepared = new Map<string, Promise<void>>();
+    const available = new Set<string>(data.surface_tiles ?? []);
+    const tiles = new Set<string>(data.meshes.map((m: MeshInfo) => groundTile(m.name)).filter((tile: string | null) => tile && available.has(tile)));
+    const neededImages = new Set(data.meshes.map((m: MeshInfo) => data.materials[m.material]?.texture).filter(Boolean));
+    const textureCount = data.textures.filter((t: {name: string}) => neededImages.has(t.name)).length;
+    const tasks = total + textureCount + tiles.size;
+    let preparedDone = 0, meshesReady = false;
+    const report = () => {
+      if (mine !== this.token) return;
+      const text = !meshesReady ? `Loading: ${done + copiedDone} of ${total} parts`
+        : texturesDone < textureCount && !this.overLimit ? `Loading textures: ${texturesDone} of ${textureCount}`
+        : `Preparing selection: ${preparedDone} of ${prepared.size} (${done + copiedDone} parts)`;
+      // Task counts describe work done, not time remaining. Only the final status ends the loading indicator.
+      say(text, Math.min(1, (done + copiedDone + texturesDone + preparedDone) / Math.max(1, tasks)));
+    };
+    this.loadedTexture = () => { texturesDone++; report(); };
+    const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data).then(() => {
+      copiedDone = data.meshes.filter((m: MeshInfo) => m.copy).length;
+      report();
+    }) : Promise.resolve();
+    report();
     const worker = async () => {
       while (queue.length && mine === this.token) {
         if (performance.now() - sortedWhen > RESORT_EVERY_MS && sortedAt.distanceTo(this.camera.position) > RESORT_M) {
@@ -755,16 +816,34 @@ export class TrackView {
         const buf = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}`, signal);
         if (mine !== this.token) return;
         this.addMesh(name, data, info, buf);
+        const tile = groundTile(info.name);
+        if (tile && available.has(tile) && !prepared.has(tile)) {
+          const preparation = prepareTurn(async () => {
+            if (signal.aborted || mine !== this.token) return;
+            await fetchBytes(`/api/editor/${encodeURIComponent(name)}/surface/prepare?mesh=${info.i}&r=${data.revision}`, signal);
+            preparedDone++;
+            report();
+          });
+          prepared.set(tile, preparation);
+          // Attach a rejection handler immediately, before the source queue finishes; load reports the error below.
+          void preparation.catch(() => {});
+        }
         if (asked !== this.heightsVersion) void this.refresh(info.i);      // (changed on its way)
         done++;
-        say(`Loading: ${done} of ${total} parts`);
+        report();
       }
     };
     await Promise.all(Array.from({length: PARALLEL}, worker));
     await copied;
     if (mine !== this.token) return;
+    meshesReady = true;
+    report();
     await Promise.all(this.textures);
     if (mine !== this.token) return;
+    if (preparedDone < prepared.size) report();
+    await Promise.all(prepared.values());
+    if (mine !== this.token) return;
+    this.loadedTexture = null;
     say(this.overLimit ? `Memory limit reached (Settings): ${done} of ${total} parts, the nearest ones` : `${total} parts loaded`);
   }
 
@@ -1120,7 +1199,7 @@ export class TrackView {
     }
   }
 
-  /** With Move on, the left button pressed picks what is under the mouse (Shift: adds it); held and moved, it takes all that is picked along
+  /** With Move on, the left button pressed picks what is under the mouse (Ctrl: adds it); held and moved, it takes all that is picked along
       over the ground, keeping each one's clearance; let go, onMoved says how far. */
   private moves(el: HTMLElement) {
     el.addEventListener("pointerdown", e => {
@@ -1680,21 +1759,29 @@ export class TrackView {
     this.mouse = screenPoint(e, el);
     const hit = this.hit();
     const hovered = hit ? this.describe(hit) : null;
-    const adding = this.adding && e.shiftKey && e.button === LEFT_BUTTON;
+    const adding = this.adding && (e.ctrlKey || e.metaKey || this.selectMode?.enabled && this.selectMode.add) && e.button === LEFT_BUTTON;
+    const whole = this.selectMode?.enabled && (e.shiftKey || this.selectMode.whole) && e.button === LEFT_BUTTON;
     const id = hovered?.id && this.moveTool ? this.rootOf(hovered.id) : hovered?.id ?? null;     // (Move takes a house with its sign and door)
     if (hovered && id && id !== hovered.id) Object.assign(hovered, this.namesOf(id));
     if (!hovered) {
       if (!adding) this.unpick();
       return null;
     }
-    if (adding && !id) return null;     // (nothing to add: what is picked stays)
-    if (adding && this.picks.has(id!)) return this.dropPick(id!);
+    const info = hit?.object.userData.info as MeshInfo | undefined;
+    let surface: SurfacePoint | undefined;
+    if (info && hit?.uv && hovered && !id && (groundTile(hovered.object) || this.materialAreas?.has(info.i))) {
+      surface = {mesh: info.i, u: hit.uv.x, v: hit.uv.y, revision: this.data.revision, whole: !!whole};
+      if (!groundTile(hovered.object)) { surface.face = hit.faceIndex ?? 0; surface.object = null; }
+    }
+    if (adding && !id && !surface) return null;
+    if (adding && id && this.picks.has(id)) return this.dropPick(id, true);
     if (!adding && !(e.button !== LEFT_BUTTON && id && this.picks.has(id))) this.forgetPicks();     // (a right click on one of them keeps them: its menu is for them all)
     const bounds = id ? this.boundsOf(id) : null;
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
     const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
                             sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
-                            road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: []};
+                            road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: [],
+                            adding: !!adding, whole: !!whole, surface};
     if (id && bounds) this.picks.set(id, {box: this.picks.get(id)?.box ?? this.frameOf(bounds), picked});
     picked.all = this.allPicked();
     this.onPick(picked);
@@ -1706,14 +1793,22 @@ export class TrackView {
     return [...this.picks.values()].map(({picked}) => ({id: picked.id!, position: picked.position}));
   }
 
+  /** Explicit picks outside the selected whole sorts; a sort's own member needs no redundant draft entry. */
+  selectedOutside(groups: Marked[]) {
+    return [...this.picks.values()].filter(({picked}) => !groups.some(g => (g.tree ? picked.sprite : picked.sort) === g.sort))
+      .map(({picked}) => ({id: picked.id!, position: picked.position}));
+  }
+
   /** The picked one id out again: what was picked before it is what is spoken of, or nothing is left. */
-  private dropPick(id: string) {
+  private dropPick(id: string, adding = false) {
+    const removed = this.picks.get(id)!.picked;
     this.removeFrame(this.picks.get(id)!.box);
     this.picks.delete(id);
     const last = [...this.picks.values()].at(-1)?.picked ?? null;
     if (last) last.all = this.allPicked();
-    this.onPick(last && {...last});
-    return last;
+    const result = last ? {...last, adding, whole: false} : adding ? {...removed, id: null, kind: "", all: [], adding, whole: false, surface: undefined} : null;
+    this.onPick(result);
+    return result;
   }
 
   /** onMenu gets where a right click asks for the picked object's menu, in the view's pixels, with the view's size. */
@@ -1722,7 +1817,7 @@ export class TrackView {
   }
 
   /** Every object of a sort the view shows gets a frame (listed: the build's sort; tree: an atlas image), null: none. */
-  setMarked(marked: Marked | null) {
+  setMarked(marked: Marked | Marked[] | null) {
     this.marked = marked;
     this.frameMarked();
   }
@@ -1738,7 +1833,8 @@ export class TrackView {
     }
     this.dirty = true;
     if (!this.marked || !this.data) return;
-    const boxes = this.marked.tree ? this.treesOf(this.marked.sort) : this.listedOf(this.marked.sort);
+    const groups = Array.isArray(this.marked) ? this.marked : [this.marked];
+    const boxes = groups.flatMap(group => group.tree ? this.treesOf(group.sort) : this.listedOf(group.sort));
     const points = new Float32Array(boxes.length * 24 * 3), corner = new THREE.Vector3();
     boxes.forEach((box, b) => {
       BOX_EDGES.forEach(([p, q], e) => {
@@ -2192,6 +2288,7 @@ export class TrackView {
         const d = this.camera.position.distanceTo(m.geometry.boundingSphere!.center);
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
       }
+      this.surfaceOverlay?.follow();
       this.renderer.render(this.scene, this.camera);
     }
     if (this.hoverDue && now - this.lastHover >= HOVER_EVERY_MS) {
@@ -2208,6 +2305,8 @@ export class TrackView {
   }
 
   private clear() {
+    this.loadedTexture = null;
+    this.surfaceOverlay?.clear();
     this.setCopy(null, null);
     this.copyVersion++;
     this.copyLoading?.abort();
@@ -2237,6 +2336,7 @@ export class TrackView {
     this.parts.clear();
     this.byNumber.clear();
     this.pendingPivots.clear();
+    this.materialAreas?.clear();
     this.objectPieces = new Map();
     this.belonging = new Map();
     this.forgetPicks();
@@ -2268,6 +2368,9 @@ export class TrackView {
             }
             this.usedBytes += extra;
           }
+          return made;
+        }).then(made => {
+          if (mine === this.token) this.loadedTexture?.();
           return made;
         });
       this.textures[i] = t;
@@ -2311,6 +2414,12 @@ export class TrackView {
       this.parts.get(info.base)!.push(m);
     }
     this.byNumber.set(info.i, m);
+    if (!groundTile(info.name) && info.first_face == null && (this.objectPieces.has(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
+      this.materialAreas ??= new Map();
+      this.materialAreas.set(info.i, new MaterialRegions(m.geometry.getAttribute("position"),
+        (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objectPieces.get(info.i) ?? []));
+    }
+    void this.surfaceOverlay?.add(m).catch(e => this.surfaceFailed(String(e.message ?? e)));
     this.laidOver(info.i);
     for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(m, piece, true);
     if (info.base !== null && info.base !== undefined) {

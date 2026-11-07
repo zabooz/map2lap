@@ -8,7 +8,7 @@ import re
 import struct
 
 from app import mytracks, tracksource
-from track import kn5, objectlist
+from track import editorinfo, kn5, objectlist, surfaceindex
 
 VERTEX_BYTES = kn5.VERTEX.itemsize
 START = "AC_START_0"
@@ -158,15 +158,63 @@ def index(ac, name):
                "first_face": first.get(i), "base": _base(m["name"]) if i in first else None, "copy": bool(m.get("copy"))}
               for i, m in enumerate(s["meshes"]) if m["renderable"]]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
+    facts = editorinfo.manifest(path)
     return {"revision": revision, "meshes": meshes, "materials": [_material(m) for m in s["materials"]],
             "textures": [{"name": t[0], "size": t[2]} for t in s["textures"]], "start": _start(s["points"].get(START)),
-            "anchor": anchor, "route": route, "atlas": _atlas(), "objects": listed, "draft": s.get("draft", 0),
-            "copy_revision": s.get("copy_key", "")}
+            "anchor": anchor, "route": route, "atlas": _atlas(), "objects": _view_objects(listed), "draft": s.get("draft", 0),
+            "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else []}
 
 
 def sprites():
     """The names of the billboards' sorts (scenery.trees)."""
     return _atlas()["sprites"]
+
+
+def _view_objects(objects):
+    """The picking index omits original model parameters: they stay on disk until an editing tool needs them. Pure."""
+    return {key: {k: value for k, value in entry.items() if k != "details"} for key, entry in objects.items()}
+
+
+def _surface_tile(scan, mesh):
+    if not 0 <= mesh < len(scan["meshes"]):
+        raise ValueError("No ground mesh at this point")
+    match = re.fullmatch(r"1(?:ROAD|GRASS|GRAVEL)_ground_(-?\d+)_(-?\d+)(?:_\d+)?", scan["meshes"][mesh]["name"])
+    if not match:
+        raise ValueError("Select a painted ground surface")
+    return int(match[1]), int(match[2])
+
+
+def prepare_surface(ac, name, mesh, revision):
+    """Prepare one loaded ground tile's material regions; files survive restarts and saved-source copies."""
+    path, scan, current = _scanned(ac, name)
+    if current != revision:
+        raise Unreadable("The track changed")
+    tx, ty = _surface_tile(scan, mesh)
+    result = surfaceindex.prepare(path, [f"{tx}_{ty}"])
+    if _revision(os.stat(path)) != revision:
+        raise Unreadable("The track changed while selection was being prepared")
+    return result
+
+
+def surface(ac, name, mesh, u, v, revision, whole=False):
+    """The connected painted ground under a click, from the served source's lossless build facts."""
+    path, scan, current = _scanned(ac, name)
+    if current != revision:
+        raise Unreadable("The track changed")
+    tx, ty = _surface_tile(scan, mesh)
+    # kn5 UV v is negated by the writer; the masks use ordinary north-pointing v.
+    result = surfaceindex.select(path, tx, ty, float(u), -float(v), whole)
+    if _revision(os.stat(path)) != revision:
+        raise Unreadable("The track changed while the surface was being selected")
+    return result
+
+
+def surfaces(ac, name, points, revision):
+    """An additive selection of prepared ground regions, all belonging to the same served source."""
+    if not isinstance(points, list) or not 1 <= len(points) <= 64 or not all(isinstance(p, dict) for p in points):
+        raise ValueError("Select at most 64 ground regions")
+    results = [surface(ac, name, int(p["mesh"]), float(p["u"]), float(p["v"]), revision, bool(p.get("whole"))) for p in points]
+    return surfaceindex.merge(results)
 
 
 def objects(ac, name):
@@ -187,7 +235,7 @@ def copy_index(ac, name):
                "first_face": None, "base": None, "copy": True}
               for i, m in enumerate(scan["meshes"]) if m.get("copy") and m["renderable"]]
     return {"revision": revision, "draft": scan.get("draft", 0), "copy_revision": scan.get("copy_key", ""), "meshes": meshes,
-            "objects": {key: value for key, value in listed.items() if key.startswith("copy_")}}
+            "objects": _view_objects({key: value for key, value in listed.items() if key.startswith("copy_")})}
 
 
 @functools.lru_cache(maxsize=2)

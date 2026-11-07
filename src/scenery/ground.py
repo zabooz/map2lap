@@ -247,7 +247,7 @@ def _paint_paths(idx, paths, x0, y0):
     return out
 
 
-def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
+def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn, paint=None):
     """img with the segments (m, 4) in pixels, half widths hws (pixels), look (ROAD_LOOKS number per segment)
     painted in, anti-aliased. worn: the roads' patches and cracks (WEAR) and a dirt track's grass strip."""
     white = np.array([(255.0, 255.0, 255.0, 1.0)], np.float32)
@@ -268,6 +268,8 @@ def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
             road = _wear(road, wx[am], wy[am], WEAR[name])
         w = (alpha[am] / 255.0)[:, None]
         img[am] = img[am] * (1 - w) + road * w
+        if paint is not None:
+            paint.layer(texname, alpha, repeat=rep, brightness=bright, road_class=name)
         if worn and name == "dirt":      # grass strip between the wheel tracks
             alpha = fast._ef.paint_lines(np.zeros((TEX_PX, TEX_PX, 3), np.uint8), segs[sel], hws[sel] * TRACK_GRASS,
                                          one, white)[..., 0]
@@ -276,6 +278,8 @@ def _paint_looks(img, segs, hws, look, wx, wy, sp, gc_dir, worn):
                             wx[am], wy[am], TERRAIN_UV_M)
             w = (alpha[am] / 255.0)[:, None] * 0.85
             img[am] = img[am] * (1 - w) + grass * w
+            if paint is not None:
+                paint.layer("gc_meadow", np.rint(alpha * 0.85).astype(np.uint8), repeat=TERRAIN_UV_M)
 
 
 def _wear(rgb, x, y, amount):
@@ -289,7 +293,7 @@ def _wear(rgb, x, y, amount):
     return rgb
 
 
-def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=()):
+def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=(), paint=None):
     """Terrain of the tile (tx, ty): returns (P (n*n + m, 3) ENU: the lattice, then the vertices of the cells cut along walls,
     UV likewise (n*n + m, 2), {AC prefix: triangles}, texture file). depth (n, n): lowering under water (water.water_tile) or
     None; walls: the cut lines along the walls between two roads (wallcut.cut)."""
@@ -391,11 +395,14 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     sp = TILE / TEX_PX
     col, row = np.meshgrid(np.arange(TEX_PX), np.arange(TEX_PX))
     wx, wy = x0 + (col + 0.5) * sp, y1 - (row + 0.5) * sp
-    mats = groundcover.materials(frame, md, tx, ty, GC_PX_M)           # [j, i], j northwards
+    mats = groundcover.materials(frame, md, tx, ty, GC_PX_M, record=paint) if paint is not None else groundcover.materials(frame, md, tx, ty, GC_PX_M)
     mi = np.clip(((wx - x0) / GC_PX_M).astype(np.int64), 0, mats.shape[1] - 1)
     mj = np.clip(((wy - y0) / GC_PX_M).astype(np.int64), 0, mats.shape[0] - 1)
     names, ids = np.unique(mats, return_inverse=True)        # (numbers: comparing names per pixel took 40 % of a tile)
     pm = ids.reshape(mats.shape)[mj, mi]
+    if paint is not None:
+        paint.base(names, ids.reshape(mats.shape)[::-1])
+        paint.roads(frame, feats, getattr(s.surface, "urban", None), getattr(s, "widths", None))
     img = np.zeros((TEX_PX, TEX_PX, 3), np.float32)
     for k, name in enumerate(names):
         m = pm == k
@@ -423,6 +430,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         rock *= (1.0 - 0.08 * w[m] * (1 - band))[:, None] * groundcover.macro(wx[m], wy[m])   # (layers strong only on
                                                                                             # the face itself)
         img[m] = img[m] * (1 - w[m][:, None]) + rock * w[m][:, None]
+        if paint is not None:
+            paint.layer("gc_rock", np.rint(w * 255).astype(np.uint8), repeat=TERRAIN_UV_M)
     # Streams and rivers (STREAMS): wet bank, water on top or a stone bed for dry ones; the roads go over them
     got = _streams(frame, md, tx, ty, 1.0 / sp) if md is not None else None
     if got is not None:
@@ -444,6 +453,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
                 col = np.array(rgb, np.float32) * (1.0 + 0.06 * groundcover._noise(wx[am], wy[am], 1.5, 71))[:, None]
             w = (a[am] / 255.0)[:, None]
             img[am] = img[am] * (1 - w) + col * w
+            if paint is not None:
+                paint.layer("water" if rgb is STREAM_WATER else "stream_bank" if rgb is STREAM_BANK else "stream_bed", a)
     got = leisure.marks(frame, md, tx, ty) if md is not None else None
     if got is not None:         # the pitches' white lines (leisure.pitch_layout), under the paths and roads
         segs, hw = got
@@ -456,6 +467,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         if am.any():
             w = (a[am] / 255.0)[:, None]
             img[am] = img[am] * (1 - w) + np.array(PITCH_LINE, np.float32) * w
+            if paint is not None:
+                paint.layer("pitch_line", a)
     pads = s.surface.fuel_pads(la, lo) if getattr(s.surface, "gas_pads", False) else []
     if pads:                    # gas station forecourts (make_obj._init_scenery): service asphalt, under the roads
         mask = Image.new("L", (TEX_PX, TEX_PX), 0)
@@ -469,6 +482,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             texname, rep, bright = ROAD_LOOKS["service"]
             img[am] = _sample(_texture(os.path.join(gc_dir, f"{texname}.png"), int(round(rep / sp))), wx[am], wy[am],
                               rep) * bright
+            if paint is not None:
+                paint.layer(texname, np.asarray(mask), repeat=rep, brightness=bright, road_class="service")
     if paths:                   # the mapped paths, under the roads
         names = list(ROAD_LOOKS)
         px = 1.0 / sp
@@ -477,7 +492,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         hws = np.concatenate([np.full(len(xy) - 1, hw * px) for xy, hw, *_ in paths])
         look = np.concatenate([np.full(len(xy) - 1, names.index(lk), np.uint8) for xy, _hw, _k, lk in paths])
         _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64), look, wx, wy,
-                     sp, gc_dir, worn=False)
+                     sp, gc_dir, worn=False, paint=paint)
     if feats:
         ro = []
         got = surfacemod._road_segments(frame, x0, y0, TILE, TEX_PX, TEX_PX, feats, s.surface.urban, s.widths,
@@ -491,6 +506,6 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         if got is not None:
             segs, hws, look = got
             _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64),
-                         np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True)
+                         np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True, paint=paint)
     Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(out_tex, quality=88)
     return P, UV, groups, out_tex

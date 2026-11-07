@@ -70,7 +70,7 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
     reset: () => { void edits.inTurn(() => { if (ids.length && edits.canEdit()) edits.place(ids.map(unplaced)); }); },
     /** A notch of the wheel over the view, with those keys held: its numbers as they stand in the bar. */
     wheel: (keys: WheelKeys, notch: number) => {
-      if (!ids.length) return onNote("Pick an object first: click it, Shift + click adds more");
+      if (!ids.length) return onNote("Pick an object first: click it, Ctrl + click adds more");
       if (keys === "shift") by({turn: notch * TURN_STEP}, "turn");
       else if (keys === "ctrl") by({y: notch * HEIGHT_STEP}, "height");
       else if (keys === "alt") by({scale: SIZE_STEP ** notch}, "size");
@@ -82,7 +82,7 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
 export function MoveOptions({move: m, view}: {move: ReturnType<typeof useMove>; view: TrackView}) {
   const none = !m.ids.length;
   return (
-    <ToolOptions id="edit-move-set" title="Move" note={none ? "Click an object to pick it, drag it to move it; Shift + click adds more." : undefined}
+    <ToolOptions id="edit-move-set" title="Move" note={none ? "Click an object to pick it, drag it to move it; Ctrl + click adds more." : undefined}
                  options={[
                    <ToolNumber label="Turn" unit="°" hint="How far it is turned from how it was built, counter-clockwise (Shift + wheel)" min={-180} max={180} step={TURN_STEP}
                                value={m.shown.turn} onChange={m.setTurn} />,

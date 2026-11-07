@@ -17,7 +17,7 @@ import sys
 
 import numpy as np
 
-from track import kn5, objectlist, parallel
+from track import editorinfo, kn5, objectlist, parallel
 
 # Material values (set in AC by eye): ambient and sun balanced so the shadow sides are not too dark and the sunlit
 # sides not too bright
@@ -530,6 +530,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
     finally:
         shutil.rmtree(chunk_dir, ignore_errors=True)
     objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]))
+    editorinfo.install(kn5_path, parts)
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "
         f"start at {base[0]:.1f} {base[1]:.1f} {base[2]:.1f})")
     return kn5_path

@@ -197,7 +197,8 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
   ]},
   {title: "Objects", rows: [
     ["V", "Select: click an object"],
-    ["Shift+Click", "Add to the selection, or remove from it"],
+    ["Shift+Click", "Select all matching objects or the whole connected surface"],
+    ["Ctrl+Click", "Add to the selection, or remove an object from it"],
     ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"],
     ["M", "Move: drag selected objects along the terrain"],
     ["C", "Copy: pick once, then click to place repeatedly"],

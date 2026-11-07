@@ -74,7 +74,8 @@ def _source(f, scan, objects, id_):
             sort = atlas["sprites"][cell]
         if not faces or kind in placement.NOT_ALONE:
             raise ValueError("this object cannot be copied on its own")
-        return {"kind": kind, "sort": sort, "at": np.array(at, np.float64), "faces": faces}
+        details = objects[base].get("details", [{}] * len(objects[base]["kinds"]))[k] if base in objects else {}
+        return {"kind": kind, "sort": sort, "at": np.array(at, np.float64), "faces": faces, "details": details}
     except (IndexError, KeyError, TypeError, ValueError) as e:
         raise ValueError(f"No object to copy: {id_}") from e
 
@@ -161,7 +162,7 @@ def _generate(path, scan, objects, copies):
     total = 0
     with open(path, "rb") as f:
         for copy in copies:
-            entry = {"kinds": [], "sorts": [], "at": [], "parents": [], "faces": []}
+            entry = {"kinds": [], "sorts": [], "at": [], "parents": [], "faces": [], "details": []}
             listed[copy["id"]] = entry
             for part in copy["parts"]:
                 source = _source(f, scan, objects, part["source"])
@@ -171,6 +172,7 @@ def _generate(path, scan, objects, copies):
                 entry["at"].append(at.tolist())
                 entry["parents"].append(part["parent"])
                 entry["faces"].append([])
+                entry["details"].append(source["details"])
                 tile = int(np.floor(at[0] / 256)), int(np.floor(-at[2] / 256))
                 for i, first, count in source["faces"]:
                     info = scan["meshes"][i]

@@ -24,6 +24,19 @@ async function started(deleted: Removed[] = []) {
   return {s, edits};
 }
 
+test("mixed selected objects and whole sorts delete as one undo step", async () => {
+  const {edits} = await started();
+  edits.removeSelected([tree(1)], [{tree: true, sort: "olive"}, {tree: false, sort: "bench"}]);
+  expect(edits.state().removed).toEqual([tree(1)]);
+  expect(edits.state().sorts).toEqual(["olive"]);
+  expect(edits.state().objectSorts).toEqual(["bench"]);
+  edits.undo();
+  expect(edits.state().removed).toEqual([]);
+  expect(edits.state().sorts).toEqual([]);
+  expect(edits.state().objectSorts).toEqual([]);
+  expect(edits.state().canUndo).toBe(false);
+});
+
 test("a whole sort is one step, once, saved as a rule beside the single ones", async () => {
   const {s, edits} = await started();
   edits.remove([tree(1)]);

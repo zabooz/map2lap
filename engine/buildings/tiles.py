@@ -550,7 +550,7 @@ def write_objects(path, mesh, listed):
     used = piece[cdae.vertex_order(T, M, len(list(mats)))]
     starts = np.r_[0, np.flatnonzero(used[1:] != used[:-1]) + 1]
     runs = [[int(used[a]), int(b - a)] for a, b in zip(starts, np.r_[starts[1:], len(used)])]
-    keep = ("item", "house", "at")
+    keep = ("item", "house", "at", "details")
     with open(os.path.splitext(path)[0] + ".objects.json", "w", encoding="utf-8") as f:
         json.dump({"buildings": [{k: b[k] for k in keep if k in b} for b in listed], "pieces": pieces, "runs": runs}, f)
 

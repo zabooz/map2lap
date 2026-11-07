@@ -18,7 +18,7 @@ import {useRelease} from "./hooks/useRelease";
 import {useSettings} from "./hooks/useSettings";
 import {useStored} from "./hooks/useStored";
 import {useTracks} from "./hooks/useTracks";
-import type {Tab, Track, TrackGroup} from "./types";
+import type {EditorLoadStatus, Tab, Track, TrackGroup} from "./types";
 
 const EditorScene = lazy(() => import("./editor/EditorScene"));
 
@@ -38,7 +38,8 @@ export function App() {
   const [editorSeen, setEditorSeen] = useState(tab === "edit");
   const [group, setGroup] = useStored<TrackGroup>("map2lap.myTracks", "built", GROUPS);
   const [editTrack, setEditTrack] = useStored<string>("map2lap.editTrack", "");
-  const [editStatus, setEditStatus] = useState("");
+  const [editStatus, setEditStatus] = useState<EditorLoadStatus>({text: ""});
+  const reportEditLoad = useCallback((text: string, progress?: number | null) => setEditStatus({text, progress}), []);
   const [fileHost, setFileHost] = useState<HTMLDivElement | null>(null);       // (where in the sidebar the 3D view's Save and Play are drawn)
   const [savedHost, setSavedHost] = useState<HTMLSpanElement | null>(null);   // (the save state beside loading progress)
   const [toolsHost, setToolsHost] = useState<HTMLDivElement | null>(null);     // (... and its tools)
@@ -198,7 +199,7 @@ export function App() {
             <Suspense fallback={null}>
               <EditorScene name={shownEditTrack} title={editing?.title ?? ""} taken={tracks.filter(t => t !== editing).map(t => t.title)}
                            built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost}
-                           onStatus={setEditStatus} onSaved={onSaved} />
+                           onStatus={reportEditLoad} onSaved={onSaved} />
             </Suspense>
           </ErrorBoundary>
         )}

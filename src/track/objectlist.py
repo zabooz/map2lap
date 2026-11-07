@@ -82,14 +82,16 @@ class TileList:
 
     def __init__(self):
         self.kinds, self.sorts, self.at, self.parents, self.meshes = [], [], [], [], {}
+        self.details = []
         self.spans, self.poles = {}, {}     # (a span's two ends, a pole's place: linked says which belongs to which)
 
-    def new(self, kind, x, y, z, parent=-1, sort=None):
+    def new(self, kind, x, y, z, parent=-1, sort=None, details=None):
         """A new object at (x east, y north, z up); its number. sort: its finest name, if finer than its kind."""
         self.kinds.append(kind)
         self.sorts.append(sort or kind)
         self.at.append([round(float(x), 3), round(float(z), 3), round(float(-y), 3)])
         self.parents.append(parent)
+        self.details.append(details or {})
         return len(self.kinds) - 1
 
     def note(self, name, owners):
@@ -102,7 +104,7 @@ class TileList:
         if self.kinds:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"kinds": self.kinds, "sorts": self.sorts, "at": self.at, "parents": self.parents, "meshes": self.meshes,
-                           "spans": self.spans, "poles": self.poles}, f)
+                           "spans": self.spans, "poles": self.poles, "details": self.details}, f)
         elif os.path.exists(path):
             os.remove(path)
 
@@ -168,7 +170,8 @@ def chunk_objects(part, written):
             faces[owner] += pieces_of(first, first + count, parts, name.startswith("1WALL"))
     group = os.path.splitext(os.path.basename(part))[0]
     return {group: {"kinds": listed["kinds"], "sorts": sorts_of(listed), "at": listed["at"], "parents": listed["parents"], "faces": faces,
-                    "spans": listed.get("spans", {}), "poles": listed.get("poles", {})}}
+                    "spans": listed.get("spans", {}), "poles": listed.get("poles", {}),
+                    "details": listed.get("details", [{} for _ in listed["kinds"]])}}
 
 
 POLE_REACH_M = {"pole": 1.0, "pylon": 20.0}     # how far from a pole's foot its span ends: the mean of a cross-arm's wires lies on
@@ -251,6 +254,9 @@ def well_formed(objects):
                    for p in entry["faces"]):
             return False
         if not isinstance(entry.get("with", {}), dict):
+            return False
+        details = entry.get("details", [{}] * n)
+        if not isinstance(details, list) or len(details) != n or not all(isinstance(d, dict) for d in details):
             return False
     return True
 

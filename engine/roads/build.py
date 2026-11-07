@@ -611,6 +611,19 @@ def sound_boxes(chunks):
     return out + rows.ravel().tolist()
 
 
+def _editor_value(value):
+    """Build facts as JSON values; numpy appears in sidewalk corners and bridge sections. Pure."""
+    if isinstance(value, np.ndarray):
+        return _editor_value(value.tolist())
+    if isinstance(value, np.generic):
+        return _editor_value(value.item())
+    if isinstance(value, dict):
+        return {str(k): _editor_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_editor_value(v) for v in value]
+    return value
+
+
 def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None, deck_mesh=None, bld=None,
                props=None, wires=None, park=None, tunnel_mesh=None, fuel=None,
                rail_mesh=None, garage_sound=(), wells=(), guardrail_rows=None, decals=True, footprints=None):
@@ -629,6 +642,9 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
     # parses on its main thread
     data = {"v": VERSION, "chunks": [] if road_mesh is not None or not decals else
             [c for c in chunks if not c.get("tube_only")]}
+    # The merged meshes lose the road/marking runs and sidewalk sections. Keep their generating descriptions for
+    # the Editor even when the game needs only meshes; no change to what is built or drawn.
+    data["editor"] = _editor_value({"chunks": chunks, "walks": walks or []})
     sound = sound_boxes(chunks) + list(garage_sound)      # (garage_sound: buildings.garage_sound_boxes)
     if sound:
         data["sound"] = sound

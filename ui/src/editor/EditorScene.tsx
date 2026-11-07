@@ -20,7 +20,7 @@ export default function EditorScene({name, title, taken, built, visible, control
   savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
-  onStatus: (text: string) => void;
+  onStatus: (text: string, progress?: number | null) => void;
   onSaved: (name: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);

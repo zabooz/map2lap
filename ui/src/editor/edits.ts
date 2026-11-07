@@ -248,6 +248,14 @@ export class TrackEdits {
     this.change({...this.edits(), removed: [...this.now.removed, ...items.filter(r => !have.has(r.id))]});
   }
 
+  /** Explicit objects and any whole sorts selected together are one delete and one undo. */
+  removeSelected(items: Removed[], groups: {tree: boolean; sort: string}[]) {
+    const have = new Set(this.now.removed.map(r => r.id));
+    this.change({...this.edits(), removed: [...this.now.removed, ...items.filter(r => !have.has(r.id))],
+      sorts: [...new Set([...this.now.sorts, ...groups.filter(g => g.tree).map(g => g.sort)])],
+      objectSorts: [...new Set([...this.now.objectSorts, ...groups.filter(g => !g.tree).map(g => g.sort)])]});
+  }
+
   /** All trees or bushes of a sort, wherever they stand. */
   removeSort(sprite: string) {
     if (!this.now.sorts.includes(sprite)) this.change({...this.edits(), sorts: [...this.now.sorts, sprite]});

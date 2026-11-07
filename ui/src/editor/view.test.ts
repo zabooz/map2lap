@@ -69,3 +69,15 @@ test("a BVH counts what it holds itself, not the geometry counted already", () =
   expect(bvhBytes(tree)).toBeGreaterThan(0);
   expect(estimateMemoryInBytes(tree)).toBeGreaterThanOrEqual(bvhBytes(tree) + shape);
 });
+
+test("whole-sort deletion omits redundant explicit members while keeping other picked objects", () => {
+  const view = Object.create(TrackView.prototype) as TrackView;
+  Object.assign(view, {picks: new Map([
+    ["trees#0", {picked: {id: "trees#0", sprite: "deciduous", sort: null, position: [0, 0, 0]}}],
+    ["tile#0", {picked: {id: "tile#0", sprite: null, sort: "car", position: [1, 0, 0]}}],
+    ["tile#1", {picked: {id: "tile#1", sprite: null, sort: "bench", position: [2, 0, 0]}}],
+  ])});
+  expect(view.selectedOutside([{tree: true, sort: "deciduous"}, {tree: false, sort: "bench"}])).toEqual([
+    {id: "tile#0", position: [1, 0, 0]},
+  ]);
+});

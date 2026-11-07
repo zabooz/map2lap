@@ -11,6 +11,43 @@ const bytes = (vertices: number) => {
   return b;
 };
 
+test("parts are ready only after the loaded ground's selection index is prepared; late preparation cannot change another track", async () => {
+  let release!: () => void, arrived!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), preparing = new Promise<void>(r => { arrived = r; });
+  const before = globalThis.fetch;
+  const statuses: string[] = [];
+  const progress: (number | null | undefined)[] = [];
+  let phase!: () => void;
+  const phaseReady = new Promise<void>(r => { phase = r; });
+  globalThis.fetch = (async input => {
+    const url = String(input);
+    if (url.endsWith("/index")) return Response.json({revision: "source", meshes: [{...info(0, 3), name: "1ROAD_ground_0_0"}],
+      surface_tiles: ["0_0"], objects: {}, materials: [], textures: [], route: [], start: null, atlas: {sprites: [], cols: 1, rows: 1}});
+    if (url.includes("/surface/prepare?")) { arrived(); await gate; return Response.json({prepared: 1}); }
+    return new Response(bytes(3));
+  }) as typeof fetch;
+  const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
+  Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(),
+    renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
+    previewShown: new Map(), materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {}, placeCamera: () => {},
+    material: () => new THREE.MeshBasicMaterial(), laidOver: () => {}, leaveOutSorts: () => {}, reframePicks: () => {}, settle: () => {}, onViewFailed: () => {}});
+  try {
+    const pending = view.load("alpha", 1, new AbortController().signal, (s: string, value?: number | null) => { statuses.push(s); progress.push(value); if (s.includes("Preparing selection")) phase(); });
+    await Promise.race([preparing, pending.then(() => { throw new Error("parts reported ready without preparing selection"); })]);
+    await phaseReady;
+    expect(statuses.some(s => /^\d+ parts loaded$/.test(s))).toBe(false);
+    expect(statuses.at(-1)).toContain("Preparing selection");
+    expect(progress.at(-1)).toBeNumber();
+    expect(progress.at(-1)).toBeGreaterThan(0);
+    expect(progress.at(-1)).toBeLessThan(1);
+    view.token = 2;
+    const count = statuses.length;
+    release(); await pending;
+    expect(statuses).toHaveLength(count);
+  } finally { release(); globalThis.fetch = before; }
+});
+
 for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during initial loading cannot re-add obsolete queued geometry`, async () => {
   const original = Array.from({length: 6}, (_, k) => info(k, 3));
   const data = (changed: boolean) => ({revision: "source", draft: changed ? 2 : 1, copy_revision: changed ? "b" : "a",

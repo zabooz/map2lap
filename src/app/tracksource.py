@@ -8,7 +8,7 @@ import os
 import shutil
 
 from app import mytracks
-from track import objectlist
+from track import editorinfo, objectlist
 
 NEW = ".new_"
 KN5 = "track.kn5"
@@ -39,7 +39,7 @@ def _same_folder(path):
     return os.path.normcase(os.path.abspath(path))
 
 
-def _made(source, ac, objects, put):
+def _made(source, ac, objects, put, facts_from):
     """The source of a track in the AC folder ac: put(path) leaves its kn5 at path, then its object list goes beside it and it is
     there, whole."""
     new = os.path.join(root(), NEW + source)
@@ -48,6 +48,7 @@ def _made(source, ac, objects, put):
     try:
         put(os.path.join(new, KN5))
         objectlist.write(os.path.join(new, KN5), objects)
+        editorinfo.copy(facts_from, os.path.join(new, KN5))
         with open(os.path.join(new, AC_FOLDER), "w", encoding="utf-8") as f:
             f.write(_same_folder(ac))
         os.rename(new, os.path.join(root(), source))
@@ -68,7 +69,7 @@ def make(ac, name, kn5_path, objects):
         st = os.stat(kn5_path)
         shutil.copyfile(kn5_path, path)
         os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))     # (the same state: the draft's ids, made for the track, hold for it)
-    return _made(source, ac, objects, copy)
+    return _made(source, ac, objects, copy, kn5_path)
 
 
 def link(ac, name, kn5_path, objects):
@@ -78,7 +79,7 @@ def link(ac, name, kn5_path, objects):
     if exists(source):
         return None
     try:
-        return _made(source, ac, objects, lambda path: os.link(kn5_path, path))
+        return _made(source, ac, objects, lambda path: os.link(kn5_path, path), kn5_path)
     except (OSError, NotImplementedError):
         return None
 

@@ -30,7 +30,7 @@ import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
 from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
-from track import objectlist, parallel  # noqa: E402
+from track import editorinfo, objectlist, parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
 OUT = os.path.join(ROOT, "out", "obj")
@@ -189,6 +189,8 @@ class Obj:
             self.f.write("mtllib track.mtl\n")
         self.nv = 0
         self.objects = 0
+        self.editor = None
+        self.mesh_facts = []
 
     def add(self, name, mat, P, UV, T, N=None, owners=None):
         """N: normals per vertex (ENU) or None (obj_to_kn5 makes them). owners: whose each triangle is, a number from self.listed
@@ -200,6 +202,12 @@ class Obj:
             self.problems.append(fault)
         if owners is not None:
             self.listed.note(name, owners)
+        if self.editor is not None and len(T):
+            used = P[np.unique(T)]
+            bounds = np.c_[used[:, 0], used[:, 2], -used[:, 1]]
+            self.mesh_facts.append({"name": name, "material": mat, "role": objectlist.kind_of(name),
+                                    "bounds": [bounds.min(0).round(3).tolist(), bounds.max(0).round(3).tolist()],
+                                    "triangles": len(T)})
         for s in range(0, len(T), MAX_VERTS // 3):          # (triangles per part: at most MAX_VERTS vertices)
             t = T[s:s + MAX_VERTS // 3]
             used, inv = np.unique(t.ravel(), return_inverse=True)
@@ -232,7 +240,11 @@ def _buildings_listed(objects, data, shapes, tiles_dir):
         x0, y0, _ = data[what]["pos"]
         for b in side.get("buildings", ()):
             if b.get("house"):
-                numbers[b["item"]] = objects.new("house", b["at"][0] + x0, b["at"][1] + y0, b["at"][2])
+                details = dict(b.get("details", {}))
+                if "footprint" in details:
+                    ring = np.asarray(details["footprint"])
+                    details["footprint"] = np.c_[ring[:, 0] + x0, -(ring[:, 1] + y0)].round(3).tolist()
+                numbers[b["item"]] = objects.new("house", b["at"][0] + x0, b["at"][1] + y0, b["at"][2], details=details)
     owners = {}
     for what, parts in shapes:
         side = sides.get(what)
@@ -330,7 +342,8 @@ def _props_listed(objects, groups, rows, marks, solid, deco, houses):
             parent = houses.get(row[8], -1)
         elif group == "polelamp":
             parent = poles.get((x, y), -1)
-        number = objects.new(kind, x, y, z, parent=parent, sort=propsmesh.sort_of(group))
+        number = objects.new(kind, x, y, z, parent=parent, sort=propsmesh.sort_of(group),
+                             details={"asset": group, "parameters": row[4:], "source_index": k})
         if kind == "power pole":
             objects.poles[number] = [x, y, group]
             poles[(x, y)] = number
@@ -710,6 +723,7 @@ def _scenery_tile(tx, ty, part_path):
     returns (objects, vertices, triangles per prefix, unknown materials, messages)."""
     anc, tiles_dir, frame, elev, raw, veg = (_ctx[k] for k in ("anc", "tiles_dir", "frame", "elev", "raw", "veg"))
     obj = Obj(part_path, header=False)
+    obj.editor = editorinfo.Paint(part_path, tx, ty, ground.TEX_PX)
     unknown, tris, msgs = set(), {}, []
     log = msgs.append
     depth, wmesh, fmesh = water.water_tile(frame, blockworker._s.md, raw, tx, ty, CELL)
@@ -721,7 +735,7 @@ def _scenery_tile(tx, ty, part_path):
     gmat = f"ground_{tx}_{ty}"
     P, UV, ggroups, _ = ground.build(frame, anc["aid"], tx, ty, _ctx["g"], blockworker._s.dem, anc["dem_zoom"],
                                      depth, blockworker._s.md, TEX_SRC, _ctx["tex_dir"],
-                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"])
+                                     os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"], paint=obj.editor)
     grid = P[:ground.LATTICE ** 2]      # (the terrain's lattice: the bushes' normals, ground_normals)
     for pre, T in ggroups.items():
         obj.add(f"{pre}_ground_{tx}_{ty}", gmat, P, UV, T)
@@ -913,6 +927,8 @@ def _scenery_tile(tx, ty, part_path):
         obj.add(f"{prefix}_rocks_{tx}_{ty}", rocks.MATERIAL, *mesh, owners=np.repeat(numbers, len(mesh[2]) // len(numbers)))
         tris["rocks"] = tris.get("rocks", 0) + len(mesh[2])
     obj.close()
+    obj.editor.data["build"] = {key: data[key] for key in ("editor", "props", "guardrails", "park", "fuel", "footprints", "footprint_cls") if key in data}
+    obj.editor.finish(meshes=obj.mesh_facts)
     msgs += obj.problems
     return obj.objects, obj.nv, tris, unknown, msgs
 

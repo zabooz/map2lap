@@ -1,0 +1,80 @@
+import {centre, expect, openEditor, scene, test} from "./fixtures";
+import {findCar, findTree, stored} from "./edit-helpers";
+
+test("Select uses the shared tool bar; Shift selects a whole sort and Ctrl adds another object", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
+  await openEditor(page);
+  const bar = page.locator("#edit-select-set");
+  await expect(bar).toHaveAttribute("data-tool-options", "");
+  await expect(bar).toContainText("Shift");
+  await expect(bar).toContainText("Ctrl");
+  await expect(bar.getByRole("button", {name: "Select all", exact: true})).toBeVisible();
+  const tree = await findTree(page), car = await findCar(page);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(tree.x, tree.y);
+  await page.keyboard.up("Shift");
+  await expect(page.locator("#edit-marked")).toContainText("All deciduous");
+  await page.keyboard.down("Control");
+  await page.mouse.click(car.x, car.y);
+  await page.keyboard.up("Control");
+  await expect(page.locator("#edit-marked")).toContainText("deciduous");
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await stored(page)).sorts).toEqual(["deciduous"]);
+  expect((await stored(page)).deleted.map(d => d.id)).toContain("t_0_0#0");
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await stored(page)).sorts).toEqual([]);
+  expect((await stored(page)).deleted).toEqual([]);
+});
+
+test("Select all and Add buttons apply the same actions as their modifiers", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
+  await openEditor(page);
+  const at = await findTree(page);
+  await page.mouse.click(at.x, at.y);
+  await page.locator("#edit-select-set").getByRole("button", {name: "Select all", exact: true}).click();
+  await expect(page.locator("#edit-marked")).toContainText("All deciduous");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#edit-marked")).toHaveCount(0);
+  await expect(page.locator("#edit-select-set")).toBeVisible();
+  const car = await findCar(page);
+  await page.mouse.click(at.x, at.y);
+  await page.locator("#edit-select-set").getByRole("button", {name: "Add", exact: true}).click();
+  await page.mouse.click(car.x, car.y);
+  await expect(page.locator("#edit-picked")).toContainText("2 objects");
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await stored(page)).deleted.length).toBe(2);
+});
+
+test("the bankett is a prepared material region and cannot delete the underlying road", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", verge: true, trees: false});
+  await openEditor(page);
+  const middle = await centre(scene(page));
+  const at = {x: middle.x + 130, y: middle.y}; // inside the fixture's narrow verge, away from its boundary
+  await page.mouse.move(at.x, at.y);
+  await expect(page.locator("#hover-box h4").first()).toHaveText("Road edge");
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator("#edit-surface")).toContainText("Road verge");
+  await page.keyboard.press("Delete");
+  expect((await stored(page)).deleted).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#edit-surface")).toHaveCount(0);
+});
+
+test("Ctrl adds painted regions while Shift requests the whole connected road", async ({page}) => {
+  await openEditor(page);
+  const at = await centre(scene(page));
+  const urls: string[] = [];
+  page.on("request", r => { if (r.url().includes("/surface?")) urls.push(r.url()); });
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator("#edit-surface")).toContainText("Asphalt");
+  await page.keyboard.down("Control");
+  await page.mouse.click(at.x + 20, at.y + 20);
+  await page.keyboard.up("Control");
+  await expect.poll(() => urls.length).toBe(2);
+  expect(JSON.parse(new URL(urls[1]).searchParams.get("points")!)).toHaveLength(2);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(at.x, at.y);
+  await page.keyboard.up("Shift");
+  await expect.poll(() => urls.length).toBe(3);
+  expect(JSON.parse(new URL(urls[2]).searchParams.get("points")!)[0].whole).toBe(true);
+});

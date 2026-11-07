@@ -192,7 +192,7 @@ def classes(frame, md, tx, ty, cell=2.0):
     return best[pad:pad + m, pad:pad + m]
 
 
-def landuse(frame, md, tx, ty, cell=2.0):
+def landuse(frame, md, tx, ty, cell=2.0, record=None):
     """Material per terrain cell [j, i] from the tile's land_use areas ("" for none), or None without areas.
     Larger ones painted first, smaller ones on top (the pitch in the park in the residential area); holes left out. A
     field gets its variant from its id: all pieces of one area (one per map cell) the same."""
@@ -204,16 +204,16 @@ def landuse(frame, md, tx, ty, cell=2.0):
         if mat == "@field":
             mat = f"gc_field{zlib.crc32(str(f.ids[i]).encode()) % FIELD_VARIANTS}"
         return mat
-    return _areas(frame, md, tx, ty, cell, "land_use", mat_of)
+    return _areas(frame, md, tx, ty, cell, "land_use", mat_of, record)
 
 
-def land(frame, md, tx, ty, cell=2.0):
+def land(frame, md, tx, ty, cell=2.0, record=None):
     """Material per terrain cell [j, i] from the tile's natural ground areas (Overture land: LAND_MAT; "" for none), or
     None without any; as landuse()."""
-    return _areas(frame, md, tx, ty, cell, "land", lambda f, i, c: LAND_MAT.get(c))
+    return _areas(frame, md, tx, ty, cell, "land", lambda f, i, c: LAND_MAT.get(c), record)
 
 
-def _areas(frame, md, tx, ty, cell, layer, mat_of):
+def _areas(frame, md, tx, ty, cell, layer, mat_of, record=None):
     """Material per terrain cell [j, i] from the tile's polygons of map layer `layer` (mat_of(feats, i, class) -> a
     material or None to leave one out; "" for none), or None without any: larger ones painted first, smaller ones on
     top; holes left out."""
@@ -237,6 +237,8 @@ def _areas(frame, md, tx, ty, cell, layer, mat_of):
                     continue
                 area = 0.5 * abs(np.dot(o[:, 0], np.roll(o[:, 1], 1)) - np.dot(o[:, 1], np.roll(o[:, 0], 1)))
                 polys.append((area, mat, [(r - (x0, y0)) / cell - 0.5 for r in part]))     # (cell centres)
+                if record is not None:
+                    record.feature(f, i, part, material=mat)
     if not polys:
         return None
     index = {name: k + 1 for k, name in enumerate(sorted({p[1] for p in polys}))}
@@ -256,7 +258,7 @@ def _areas(frame, md, tx, ty, cell, layer, mat_of):
     return out
 
 
-def materials(frame, md, tx, ty, cell=2.0, water=None):
+def materials(frame, md, tx, ty, cell=2.0, water=None, record=None):
     """Material per terrain cell (m, m) as an object array: WorldCover (fields as Voronoi plots), on top the land_use
     areas except on trees, snow and water, over both the natural ground's (land) except on water. water: name for
     WorldCover's water (the distant view paints lakes; close by water.py's water lies there, meadow below it)."""
@@ -271,11 +273,11 @@ def materials(frame, md, tx, ty, cell=2.0, water=None):
         mats[cls == c] = name
     field = cls == 40
     mats[field] = np.char.add("gc_field", variant[field].astype(str)).astype(object)
-    lu = landuse(frame, md, tx, ty, cell)
+    lu = landuse(frame, md, tx, ty, cell, record=record) if record is not None else landuse(frame, md, tx, ty, cell)
     if lu is not None:
         on = (lu != "") & ~np.isin(cls, LANDUSE_UNDER)
         mats[on] = lu[on]
-    nat = land(frame, md, tx, ty, cell)
+    nat = land(frame, md, tx, ty, cell, record=record) if record is not None else land(frame, md, tx, ty, cell)
     if nat is not None:
         on = (nat != "") & ~np.isin(cls, LAND_UNDER)
         mats[on] = nat[on]

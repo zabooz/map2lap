@@ -454,7 +454,7 @@ test("loaded includes the textures, and a texture failure is shown", async ({pag
   await requested;
   // Every mesh has arrived; the textures are still waiting.
   try {
-    await expect(page.locator("#edit-status")).toHaveText("Loading: 4 of 4 parts");
+    await expect(page.locator("#edit-status")).toHaveText("Loading textures: 0 of 4");
   } finally {
     release();
   }
