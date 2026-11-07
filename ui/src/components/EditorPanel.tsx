@@ -7,8 +7,9 @@ const GROUPS: readonly (readonly [TrackGroup, string])[] = [["built", "Built"], 
 
 /** The Editor tab's sidebar: File with the track to show, what is loading (a line of its own: nothing moves) and its Save and Play, the places the 3D view's buttons
     are drawn into (fileRef, toolsRef, notesRef: there while the page is, hidden with the tab, as the view keeps its state), how it all works. */
-export function EditorPanel({tracks, choice, status, hidden, fileRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: string; hidden: boolean;
+export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: string; hidden: boolean;
                                                                                                       fileRef: Ref<HTMLDivElement>; toolsRef: Ref<HTMLDivElement>;
+                                                                                                      savedRef: Ref<HTMLSpanElement>;
                                                                                                       notesRef: Ref<HTMLDivElement>; onChoose: (name: string) => void}) {
   return (
     <section id="editor" className="view" hidden={hidden}>
@@ -26,7 +27,10 @@ export function EditorPanel({tracks, choice, status, hidden, fileRef, toolsRef, 
               );
             })}
           </select>
-          <p id="edit-status" className={`small muted ${styles.status}`}>{status}</p>
+          <div className={`small muted ${styles.status}`}>
+            <span id="edit-status">{status}</span>
+            <span id="edit-saved" ref={savedRef} />
+          </div>
           {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
             <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will
               need them: build it again under My tracks.</p>

@@ -16,7 +16,7 @@ test("the Editor's keys and mouse are listed under Editor", async ({page}) => {
   await page.goto("/");
   await openSettings(page, "Editor");
   const keys = page.locator("#editor-keys");
-  for (const row of ["W A S D Move over the ground, at the same height", "Right click Its menu: Mark all of its sort, Delete", "Ctrl+Z Undo", "Ctrl+S Save the track"]) {
+  for (const row of ["W A S D Move over the ground, at the same height", "Right click Its menu: Mark all of its sort, Delete", "Ctrl+Z Undo", "Ctrl+Shift+Z, Ctrl+Y Redo", "Ctrl+S Save the track"]) {
     await expect(keys.getByRole("row", {name: row, exact: true})).toBeVisible();
   }
 });

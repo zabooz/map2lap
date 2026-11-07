@@ -194,7 +194,7 @@ const KEYS: [string, string][] = [
   ["M", "Move: on and off; a drag takes what is picked along"],
   ["H", "Elevation: on and off"], ["Shift", "A tool's first option, shown at the bottom of the view: Elevation the other way"], ["Shift+Wheel", "Smooth: strength; Camera: along the track; Move: turn"], ["Ctrl+Wheel", "The next option: Elevation's radius, Smooth's width, Camera's height, Move's height"], ["Alt+Wheel", "The next: Elevation's height, Camera's speed, Move's size"], ["Ctrl+Alt+Wheel", "The next: Elevation's soft edge"],
   ["X", "Delete what is picked, or all that is marked; with nothing picked: each click deletes, on and off"],
-  ["Esc", "Back to Select: ends a stroke, a marking or a tool, closes the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Y, Ctrl+Shift+Z", "Redo"], ["Ctrl+S", "Save the track"],
+  ["Esc", "Back to Select: ends a stroke, a marking or a tool, closes the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Shift+Z, Ctrl+Y", "Redo"], ["Ctrl+S", "Save the track"],
 ];
 
 /** The Editor's keys and mouse, while the 3D view has the focus (a click into it). */

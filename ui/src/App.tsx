@@ -40,6 +40,7 @@ export function App() {
   const [editTrack, setEditTrack] = useStored<string>("map2lap.editTrack", "");
   const [editStatus, setEditStatus] = useState("");
   const [fileHost, setFileHost] = useState<HTMLDivElement | null>(null);       // (where in the sidebar the 3D view's Save and Play are drawn)
+  const [savedHost, setSavedHost] = useState<HTMLSpanElement | null>(null);   // (the save state beside loading progress)
   const [toolsHost, setToolsHost] = useState<HTMLDivElement | null>(null);     // (... and its tools)
   const [notesHost, setNotesHost] = useState<HTMLDivElement | null>(null);
   const [settingsChoice, setSettingsOpen] = useState<boolean | null>(null);    // null: opened or closed by nobody yet
@@ -156,7 +157,7 @@ export function App() {
           {tabButton("edit", "Editor")}
         </nav>
 
-        <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} toolsRef={setToolsHost} notesRef={setNotesHost} onChoose={setEditTrack} />
+        <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} notesRef={setNotesHost} onChoose={setEditTrack} />
 
         <div id="work" className="view" hidden={tab === "edit"}>
           <div className={styles.panes}>
@@ -196,7 +197,7 @@ export function App() {
           <ErrorBoundary message="The 3D view could not start">
             <Suspense fallback={null}>
               <EditorScene name={shownEditTrack} title={editing?.title ?? ""} taken={tracks.filter(t => t !== editing).map(t => t.title)}
-                           built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} toolsHost={toolsHost} notesHost={notesHost}
+                           built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost}
                            onStatus={setEditStatus} onSaved={onSaved} />
             </Suspense>
           </ErrorBoundary>

@@ -48,14 +48,14 @@ test("undo brings back the very same picture, redo takes it away again, by keys 
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   await saved(page);
   expect((await stored(page)).deleted).toEqual([]);
-  await page.keyboard.press("Control+y");
+  await page.keyboard.press("Control+Shift+z");
   await expect.poll(async () => (await picture(page)).equals(gone)).toBe(true);
   await button(page, "↶ Undo").click();
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   await button(page, "↷ Redo").click();
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await expect(scene(page)).toBeFocused();      // (after a button W A S D still fly)
-  await button(page, "Discard").click();
+  await button(page, "Discard all").click();
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   await expect(page.locator("#edit-count")).toBeHidden();
   await button(page, "↶ Undo").click();
@@ -104,7 +104,7 @@ test("a parked car on a track built with the list: picked whole, all of it gone,
   await expect.poll(async () => (await picture(page)).equals(without)).toBe(true);
   await scene(page).focus();
   await page.keyboard.press("Control+z");       // (a new page has nothing to undo: Discard brings it back)
-  await button(page, "Discard").click();
+  await button(page, "Discard all").click();
   await expect.poll(async () => (await picture(page)).equals(withCar)).toBe(true);
 });
 
@@ -249,7 +249,7 @@ test("all of a sort: marked, then deleted, the same picture as a track without t
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
-  await button(page, "Discard").click();
+  await button(page, "Discard all").click();
   await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
   await scene(page).focus();
   await page.keyboard.press("Control+z");

@@ -16,4 +16,3 @@
 .split { display: flex; }
 .split button:first-child { flex: 1; border-radius: 7px 0 0 7px; }
 .split button:last-child { border-radius: 0 7px 7px 0; border-left: 0; padding: 0 8px; }
-.state { min-height: 1.4em; color: var(--muted); }     /* (one line kept: nothing moves when it says something) */

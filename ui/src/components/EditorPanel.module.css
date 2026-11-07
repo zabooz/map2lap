@@ -1,7 +1,7 @@
 .file { display: flex; flex-direction: column; gap: 6px; }
 .title { margin: 0; font-size: 13px; font-weight: 600; }
 .track { width: 100%; }
-.status { min-height: 1.4em; }     /* (what is loading in a line of its own: nothing moves) */
+.status { min-height: 1.4em; display: flex; flex-wrap: wrap; gap: 0 12px; }     /* (loading and save state share a reserved line) */
 /* The tools scroll on a small window, what is to be said stays below them */
 .scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 .notes { flex: none; max-height: 25vh; overflow-y: auto; }

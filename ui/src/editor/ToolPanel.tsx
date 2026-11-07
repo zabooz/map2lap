@@ -27,8 +27,8 @@ function Section({title, children}: {title: string; children: ReactNode}) {
   );
 }
 
-/** Save and Play, with what is saved: under the track's choice in the sidebar's File. */
-export function FileButtons({edits, view, saving}: {edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>}) {
+/** Save, Play and Discard all under the track's choice in the sidebar's File. */
+export function FileButtons({state, edits, view, saving}: {state: EditState; edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>}) {
   const then = (action: () => void) => thenView(view, action);
   return (
     <div className={`${styles.tools} ${styles.fileButtons}`}>
@@ -41,7 +41,12 @@ export function FileButtons({edits, view, saving}: {edits: TrackEdits; view: Tra
         <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save if needed, then drive it in Assetto Corsa"
                 onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : "▶ Play"}</button>
       </div>
-      <span id="edit-saved" className={styles.state}>{saving.savedText}</span>
+      <button type="button" disabled={!isChanged(state) || !edits.canEdit() || saving.busy}
+              title="Restore the track as built, taking back all Editor changes" onClick={then(() => {
+                if (confirm("Discard all Editor changes and restore the track as built?\n\nThis includes previously saved edits. Save to apply it to Assetto Corsa; Undo brings the edits back.")) {
+                  void edits.inTurn(() => edits.discard());
+                }
+              })}>Discard all</button>
     </div>
   );
 }
@@ -68,8 +73,7 @@ export function ToolPanel({state, edits, view, tool, onTool}: {state: EditState;
       <Section title="General">
         <div id="edit-history" className={styles.row}>
           <button type="button" disabled={!state.canUndo || !editable} title="Ctrl+Z" onClick={then(() => void edits.inTurn(() => edits.undo()))}>↶ Undo</button>
-          <button type="button" disabled={!state.canRedo || !editable} title="Ctrl+Y" onClick={then(() => void edits.inTurn(() => edits.redo()))}>↷ Redo</button>
-          <button type="button" disabled={!isChanged(state) || !editable} title="All changes since the last Save go" onClick={then(() => void edits.inTurn(() => edits.discard()))}>Discard</button>
+          <button type="button" disabled={!state.canRedo || !editable} title="Ctrl+Shift+Z" onClick={then(() => void edits.inTurn(() => edits.redo()))}>↷ Redo</button>
         </div>
         {buttons("general")}
       </Section>

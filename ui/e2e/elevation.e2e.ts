@@ -85,7 +85,7 @@ test("the brush: a stroke is saved with the track, comes back after a reload, Sa
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(raised)).toBe(true);
-  await button(page, "Discard").click();
+  await button(page, "Discard all").click();
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
   await expect(page.locator("#edit-heights")).toBeHidden();
 });
@@ -117,7 +117,7 @@ test("the brush: a stroke on its way when Discard is pressed goes too, and strok
 
   answer = 0;
   await brushStroke(page);
-  await button(page, "Discard").click();
+  await button(page, "Discard all").click();
   await expect(page.locator("#edit-heights")).toBeHidden();
   await saved(page);
   expect(await heights(page)).toEqual([]);

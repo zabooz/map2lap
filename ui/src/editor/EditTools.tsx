@@ -17,15 +17,16 @@ import {ViewMenu} from "./ViewMenu";
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
-    those hosts: V, R, X, C, M, H, T, Home, Delete, Esc, Enter, Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z, Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
+    those hosts: V, R, X, C, M, H, T, Home, Delete, Esc, Enter, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). */
-export function EditTools({name, title, taken, view, scene, fileHost, toolsHost, notesHost, elevationSpeed, reopen, onSaved}: {
+export function EditTools({name, title, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, elevationSpeed, reopen, onSaved}: {
   name: string;
   title: string;
   taken: string[];
   view: TrackView;
   scene: RefObject<HTMLDivElement | null>;
   fileHost: HTMLElement | null;
+  savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
   elevationSpeed: number;
@@ -204,7 +205,8 @@ export function EditTools({name, title, taken, view, scene, fileHost, toolsHost,
 
   return (
     <>
-      {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} />, fileHost)}
+      {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} />, fileHost)}
+      {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} />, toolsHost)}
       {notesHost && createPortal(
         <EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={marking && !picked?.id ? null : picked} sort={sort}
