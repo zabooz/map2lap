@@ -186,25 +186,53 @@ function ControlsGroup({controls, onChange}: {controls: Controls; onChange: (c: 
 }
 
 // (what ui/src/editor/view.ts and EditTools.tsx answer to)
-const KEYS: [string, string][] = [
-  ["W A S D", "Move over the ground, at the same height"], ["K", "Camera: on and off; go along the track by the wheel or riding by itself"], ["Home", "Reset the camera: back to the first view, behind the start"], ["Right drag", "Take the ground along"],
-  ["Wheel", "Zoom towards the mouse"], ["Wheel held, drag", "Turn and tilt around the view's middle"], ["V", "Select: a click picks an object"], ["Shift+Click", "Select: add one to what is picked, or take it out again"],
-  ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"], ["Delete", "Delete what is picked, or all that is marked"],
-  ["R", "Mark road: on and off; a click on the road sets A, then B"], ["T", "Smooth: on and off"], ["Enter", "Take what Smooth shows"],
-  ["M", "Move: on and off; a drag takes what is picked along"],
-  ["C", "Copy: pick an object, then click to place more copies; Esc ends it"],
-  ["H", "Elevation: on and off"], ["Shift", "A tool's first option, shown at the bottom of the view: Elevation the other way"], ["Shift+Wheel", "Smooth: strength; Camera: along the track; Move/Copy: turn"], ["Ctrl+Wheel", "The next option: Elevation's radius, Smooth's width, Camera's height, Move/Copy's height"], ["Alt+Wheel", "The next: Elevation's height, Camera's speed, Move/Copy's size"], ["Ctrl+Alt+Wheel", "The next: Elevation's soft edge"],
-  ["X", "Delete what is picked, or all that is marked; with nothing picked: each click deletes, on and off"],
-  ["Esc", "Back to Select: ends a stroke, a marking or a tool, closes the menu"], ["Ctrl+Z", "Undo"], ["Ctrl+Shift+Z, Ctrl+Y", "Redo"], ["Ctrl+S", "Save the track"],
+const KEYS: {title: string; rows: [string, string][]}[] = [
+  {title: "Camera", rows: [
+    ["W A S D", "Move over the ground, at the same height"],
+    ["Right drag", "Take the ground along"],
+    ["Wheel", "Zoom towards the mouse"],
+    ["Wheel held, drag", "Turn and tilt around the view's middle"],
+    ["K", "Camera tool: follow the route or ride automatically"],
+    ["Home", "Reset the camera to the first view"],
+  ]},
+  {title: "Objects", rows: [
+    ["V", "Select: click an object"],
+    ["Shift+Click", "Add to the selection, or remove from it"],
+    ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"],
+    ["M", "Move: drag selected objects along the terrain"],
+    ["C", "Copy: pick once, then click to place repeatedly"],
+    ["Delete", "Delete the selection or marked objects"],
+    ["X", "Delete the selection; with nothing selected, toggle click-to-delete"],
+  ]},
+  {title: "Terrain", rows: [
+    ["R", "Mark road: click the road for A, then B"],
+    ["T", "Smooth: on and off"],
+    ["Enter", "Apply Smooth"],
+    ["H", "Elevation: on and off"],
+  ]},
+  {title: "Tool options", rows: [
+    ["Shift", "First tool option; Elevation: reverse direction"],
+    ["Shift+Wheel", "Smooth: strength; Camera: route; Move/Copy: turn"],
+    ["Ctrl+Wheel", "Elevation: radius; Smooth: width; Camera/Move/Copy: height"],
+    ["Alt+Wheel", "Elevation: height; Camera: speed; Move/Copy: size"],
+    ["Ctrl+Alt+Wheel", "Elevation: soft edge"],
+  ]},
+  {title: "General", rows: [
+    ["Esc", "Back to Select; end the active tool or close its menu"],
+    ["Ctrl+Z", "Undo"], ["Ctrl+Shift+Z, Ctrl+Y", "Redo"], ["Ctrl+S", "Save the track"],
+  ]},
 ];
 
 /** The Editor's keys and mouse, while the 3D view has the focus (a click into it). */
 function Keys() {
   return (
     <Group title="Keys and mouse">
-      <table id="editor-keys" className={styles.keys}>
-        <tbody>{KEYS.map(([key, what]) => <tr key={key}><th><kbd>{key}</kbd></th><td>{what}</td></tr>)}</tbody>
-      </table>
+      <div id="editor-keys" className={styles.keySections}>
+        {KEYS.map(({title, rows}) => <table key={title} className={styles.keys}>
+          <caption>{title}</caption>
+          <tbody>{rows.map(([key, what]) => <tr key={key}><th scope="row"><kbd>{key}</kbd></th><td>{what}</td></tr>)}</tbody>
+        </table>)}
+      </div>
     </Group>
   );
 }
@@ -286,10 +314,12 @@ export function SettingsDialog({settings, release, busy, controls, onControls, o
           <Testing settings={settings} />
         </div>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "editor"}>
-          <Keys />
+          <div className={styles.viewSettings}>
+            <BuildFiles settings={settings} busy={busy} />
+            <View3D controls={controls} onChange={onControls} />
+          </div>
           <ControlsGroup controls={controls} onChange={onControls} />
-          <BuildFiles settings={settings} busy={busy} />
-          <View3D controls={controls} onChange={onControls} />
+          <Keys />
         </div>
       </section>
     </div>

@@ -35,7 +35,7 @@ test("the settings' three tabs hold their groups", async ({page}) => {
   await dialog.getByRole("tab", {name: "Map2Lap"}).click();
   await expect(panel.getByRole("heading")).toHaveText(["Build speed", "Storage", "Testing"]);
   await dialog.getByRole("tab", {name: "Editor"}).click();
-  await expect(panel.getByRole("heading")).toHaveText(["Keys and mouse", "Controls", "Build files", "3D view"]);
+  await expect(panel.getByRole("heading")).toHaveText(["Build files", "3D view", "Controls", "Keys and mouse"]);
 });
 
 test("a reload stays on its tab", async ({page}) => {

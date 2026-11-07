@@ -3,6 +3,34 @@ import {expect, openSettings, test} from "./fixtures";
 
 const saved = async (page: import("@playwright/test").Page) => (await page.request.get("/api/settings")).json();
 
+test("Editor settings put build files and view first, with enough room for the grouped keyboard reference", async ({page}) => {
+  await page.goto("/");
+  await openSettings(page, "Editor");
+  const dialog = page.getByRole("dialog"), panel = dialog.getByRole("tabpanel");
+  await expect(panel.getByRole("heading", {level: 3})).toHaveText(["Build files", "3D view", "Controls", "Keys and mouse"]);
+  expect((await dialog.boundingBox())!.width).toBeGreaterThanOrEqual(720);
+  await expect(page.getByLabel("Keep build files")).toBeInViewport();
+  await expect(page.getByLabel("Memory limit")).toBeInViewport();
+  const keys = page.locator("#editor-keys");
+  for (const name of ["Camera", "Objects", "Terrain", "Tool options", "General"]) {
+    await expect(keys.getByRole("table", {name, exact: true})).toBeAttached();
+  }
+  await dialog.screenshot({path: test.info().outputPath("settings-editor-desktop.png")});
+  await keys.getByRole("table", {name: "Camera", exact: true}).scrollIntoViewIfNeeded();
+  await dialog.screenshot({path: test.info().outputPath("settings-keys-desktop.png")});
+  await page.getByLabel("Memory limit").fill("12");
+  await page.setViewportSize({width: 390, height: 640});
+  const box = (await dialog.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await keys.getByRole("row", {name: "Ctrl+S Save the track", exact: true}).scrollIntoViewIfNeeded();
+  await expect(keys.getByRole("row", {name: "Ctrl+S Save the track", exact: true})).toBeInViewport();
+  await page.getByRole("button", {name: "Close settings"}).click();
+  await openSettings(page, "Editor");
+  await expect(page.getByLabel("Memory limit")).toHaveValue("12");
+});
+
 test("the car is saved", async ({page}) => {
   await page.goto("/");
   await openSettings(page);
@@ -16,7 +44,7 @@ test("the Editor's keys and mouse are listed under Editor", async ({page}) => {
   await page.goto("/");
   await openSettings(page, "Editor");
   const keys = page.locator("#editor-keys");
-  await expect(keys.getByRole("row", {name: "K Camera: on and off; go along the track by the wheel or riding by itself", exact: true})).toBeVisible();
+  await expect(keys.getByRole("row", {name: "K Camera tool: follow the route or ride automatically", exact: true})).toBeVisible();
   for (const row of ["W A S D Move over the ground, at the same height", "Right click Its menu: Move, Duplicate, Mark all of its sort, Delete", "Ctrl+Z Undo", "Ctrl+Shift+Z, Ctrl+Y Redo", "Ctrl+S Save the track"]) {
     await expect(keys.getByRole("row", {name: row, exact: true})).toBeVisible();
   }
