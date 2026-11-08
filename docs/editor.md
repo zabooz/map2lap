@@ -119,9 +119,17 @@ and browsed in pages of 40; only small previews load, never the full original ma
 
 User assets live beside the app in `library/materials/<id>/asset.json`, `original/colour.<ext>` and `preview.png`, on Windows
 and Linux. The manifest contains relative paths and original file information; the original bytes are retained. Material ids
-bind image content and physical repeat size. Importing that combination again reuses the existing material and name.
+bind image content, physical repeat size, variation and material properties. Importing that combination again reuses the existing material and name.
 The layout leaves `library/objects/` for future model imports. The library is excluded from Git and both release formats;
 the updater refuses an archive containing `Map2Lap/library`, so neither system's update step replaces user assets.
+
+Material schema 2 adds optional `normal` and `roughness` maps and shader-independent `roughness`/`normal_scale` properties.
+The import API accepts role-bound uploads (`role=colour|normal|roughness`), then optional `maps` upload references when
+publishing a material. Colour is sRGB; RGB tangent-space normals use +Y, roughness uses the red channel as linear data.
+Each original remains unchanged under `original/`; normalized per-role PNGs are disposable. Data maps bypass ICC colour
+conversion. Packed DDS normals and unapplied EXIF orientation on normals are refused. Missing maps use flat normals and
+roughness 1; normal scale defaults to 1. Schema 1 packages retain their ids and remain readable.
+The current import dialog and ground renderer still use colour only; PBR display is a separate rendering step.
 
 `app/materiallibrary.py` publishes complete packages atomically. Uploads are limited to 64 MiB and decoded images to 8192 px
 per side/32 megapixels; two queued uploads bound the input buffers and image preparation is serialized. It applies image
@@ -167,6 +175,10 @@ Select all requests, so it cannot silently apply to only part of the requested m
 draft and saved recipe participate in Undo, Redo, Discard and Save. Operations and normalized source images remain under
 `out/paints` and `out/paint-assets`; a saved track also retains its active operations/materials in `data/map2lap_paints`.
 Removing a library entry or clearing cache does not remove a track's materials. This retained edit data is not disposable cache.
+New material snapshots use asset schema 2, preserving the complete imported description, all original files and normalized
+maps independently of their library entry. Save validates their digests and includes these files in its disk estimate. Older
+schema 1 snapshots remain readable with their retained colour image; originals absent from those snapshots cannot be recovered.
+The operation format still assigns a material id to selected areas and contains no shader channels or render-region palette.
 
 `app/trackdetail.py` retains imported images as separately repeated full-resolution layers. One RGBA selection image per
 edited tile assigns the original tile to A and up to three replacement materials to RGB. This is the four-slot limit of the

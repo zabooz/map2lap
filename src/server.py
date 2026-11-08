@@ -622,7 +622,7 @@ class Handler(BaseHTTPRequestHandler):
                         raw = self.rfile.read(size)
                         if len(raw) != size:
                             raise ValueError("The image upload was interrupted")
-                        return self._send(200, materiallibrary.prepare(q["filename"][0], raw))
+                        return self._send(200, materiallibrary.prepare(q["filename"][0], raw, q.get("role", ["colour"])[0]))
                     finally:
                         MATERIAL_UPLOADS.release()
                 return self._send(200, materiallibrary.add(self._body()))

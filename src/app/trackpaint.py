@@ -17,6 +17,7 @@ from app import materiallibrary, mytracks, paintimage, trackview
 from track import editorinfo, surfaceindex
 
 SCHEMA = 1
+ASSET_SCHEMA = 2
 MATERIAL = re.compile(r"[a-z][a-z0-9_]{0,79}")  # Build-written labels, also used in package-relative mask names.
 MAX_PAINTS = 4096
 KEY = re.compile(r"[a-f0-9]{64}")
@@ -140,8 +141,7 @@ def validate(ac, name, revision, paints):
         folder, record = operation(ac, name, id, revision)
         asset = _resolve(ac, name, "materials", record["asset"])
         description = _verified(asset / "asset.json", record["asset"])
-        if _file_digest(asset / "colour.png") != description["image"]:
-            raise ValueError("The retained material image has changed")
+        _validate_asset(asset, description)
         for tile in record["tiles"]:
             for mask in tile["masks"]:
                 if _file_digest(folder / mask["file"]) != mask["sha256"]:
@@ -158,6 +158,27 @@ def _file_digest(path):
     return _file_digest_at(str(path), (stat.st_mtime_ns, stat.st_size))
 
 
+def _validate_asset(folder, description):
+    """Verify every retained normalized map and original; colour-only schema 1 snapshots remain readable."""
+    files = {"colour.png": description["image"]}
+    if description.get("schema") == ASSET_SCHEMA:
+        for role, ref in description["maps"].items():
+            materiallibrary._role(role)
+            if ref["file"] != role + ".png":
+                raise ValueError("Invalid retained material map path")
+            files[ref["file"]] = _key(ref["sha256"])
+        for role, ref in description["original"]["maps"].items():
+            materiallibrary._role(role)
+            extension = materiallibrary.EXTENSION[materiallibrary.FORMATS[Path(materiallibrary._filename(ref["filename"])).suffix.lower()]]
+            if ref["file"] != "original/" + role + extension:
+                raise ValueError("Invalid original material path")
+            files[ref["file"]] = _key(ref["sha256"])
+    elif description.get("schema") != 1:
+        raise ValueError("This retained material format is not supported")
+    if any(_file_digest(folder / path) != digest for path, digest in files.items()):
+        raise ValueError("The retained material image has changed")
+
+
 def _snapshot(material, variation=None):
     description = materiallibrary.get(material)
     raw = materiallibrary.colour(material)
@@ -167,11 +188,23 @@ def _snapshot(material, variation=None):
             raise ValueError("Ground textures require an opaque colour image")
     record = {k: description[k] for k in ("name", "category", "repeat", "source_url", "license")}
     record["variation"] = materiallibrary.varies(description) if variation is None else variation
-    record.update(schema=SCHEMA, library=material, image=hashlib.sha256(raw).hexdigest())
+    files, maps = {"colour.png": raw}, {}
+    for role, source in description["maps"].items():
+        filename = role + ".png"
+        pixels = raw if role == "colour" else materiallibrary.map_image(material, role)
+        files[filename] = pixels
+        files[source["file"]] = materiallibrary.original(material, role)
+        maps[role] = {"file": filename, "sha256": hashlib.sha256(pixels).hexdigest(),
+                      "colour_space": "srgb" if role == "colour" else "linear"}
+        if role == "normal":
+            maps[role]["convention"] = "+Y"
+    record.update(schema=ASSET_SCHEMA, library=material, image=hashlib.sha256(raw).hexdigest(), maps=maps,
+                  properties=materiallibrary.properties(description), original=description)
     id = _digest(record)
     folder = _out("paint-assets", id)
     if not (folder / "asset.json").is_file():
-        _atomic(folder / "colour.png", raw)
+        for filename, pixels in files.items():
+            _atomic(folder / filename, pixels)
         _atomic(folder / "asset.json", _json_bytes(record))
     return id
 
@@ -369,8 +402,7 @@ def _bundle_inputs(ac, name, paints):
             if KEY.fullmatch(folder.name) and folder.is_dir():
                 meta = _verified(folder / "asset.json", folder.name)
                 if "map2lap_material_" + meta["image"] + ".dds" in used:
-                    if _file_digest(folder / "colour.png") != meta["image"]:
-                        raise ValueError("The retained material image has changed")
+                    _validate_asset(folder, meta)
                     materials[folder.name] = folder
     for id in paints:
         folder, record = operation(ac, name, id)

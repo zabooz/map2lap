@@ -68,10 +68,11 @@ The docked right panel for the clicked selection, its material/texture and retai
 while the separate Under pointer section follows the mouse. Its width comes from the 3D view's space; hiding it restores that space.
 
 **Material library** (Editor):
-User-imported colour images and their physical repeat size, category and source information. Immutable packages under
+User-imported material maps and their physical repeat size, variation, category and source information. Versioned immutable packages under
 `library/materials/<id>` keep the original image, preview and relative-path manifest. Prepared colour maps are disposable
 under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. Importing a material alone does
-not change the track.
+not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
+the current dialog and ground renderer use colour only.
 
 **Custom Shaders Patch (CSP)**:
 An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.

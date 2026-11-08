@@ -20,6 +20,82 @@ def image_bytes(mode="RGB", size=(64, 32), colour=(30, 160, 40), format="PNG"):
 
 
 class LibraryTest(unittest.TestCase):
+    def test_ground_material_keeps_independent_original_maps_and_rebuilds_linear_data(self):
+        from PIL import ImageCms
+        colour = image_bytes()
+        normal_image = Image.new("RGB", (8, 8), (180, 110, 240))
+        encoded = io.BytesIO()
+        normal_image.save(encoded, "PNG", icc_profile=ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes())
+        normal = encoded.getvalue()
+        roughness = image_bytes(mode="L", size=(8, 8), colour=73)
+        staged = self.library.prepare("colour.png", colour)
+        nm = self.library.prepare("normal.png", normal, role="normal")
+        rm = self.library.prepare("roughness.png", roughness, role="roughness")
+        settings = {"token": staged["token"], "filename": "colour.png", "name": "Ground", "category": "soil", "repeat": [2, 3],
+                    "maps": {"normal": {"token": nm["token"], "filename": nm["filename"]},
+                             "roughness": {"token": rm["token"], "filename": rm["filename"]}}}
+        material = self.library.add(settings)["material"]
+        self.assertEqual(2, material["schema"])
+        self.assertEqual("srgb", material["maps"]["colour"]["colour_space"])
+        self.assertEqual("linear", material["maps"]["normal"]["colour_space"])
+        self.assertEqual("+Y", material["maps"]["normal"]["convention"])
+        self.assertEqual({"roughness": 1., "normal_scale": 1.}, material["properties"])
+        folder = Path(self.tmp.name, "library/materials", material["id"])
+        for role, raw in (("colour", colour), ("normal", normal), ("roughness", roughness)):
+            self.assertEqual(raw, (folder / material["maps"][role]["file"]).read_bytes())
+        import shutil
+        shutil.rmtree(Path(self.tmp.name, "cache"))
+        with Image.open(io.BytesIO(self.library.map_image(material["id"], "normal"))) as image:
+            self.assertEqual((180, 110, 240), image.getpixel((0, 0)), "normal vectors must not undergo colour management")
+        with Image.open(io.BytesIO(self.library.map_image(material["id"], "roughness"))) as image:
+            self.assertEqual(73, image.getpixel((0, 0)))
+        self.assertTrue(self.library.add(settings)["duplicate"])
+        self.library.prepare("colour.png", colour)
+        colour_only = self.library.add({k: v for k, v in settings.items() if k != "maps"})["material"]
+        self.assertNotEqual(material["id"], colour_only["id"])
+        with self.assertRaisesRegex(ValueError, "roughness"):
+            self.library.map_image(colour_only["id"], "roughness")
+
+    def test_invalid_material_map_settings_never_publish_a_partial_package(self):
+        staged = self.library.prepare("colour.png", image_bytes())
+        settings = {"token": staged["token"], "filename": "colour.png", "name": "Ground", "category": "soil", "repeat": [2, 2]}
+        for extra in ({"maps": {"unknown": {}}}, {"maps": {"normal": {"token": staged["token"], "filename": "colour.png"}}},
+                      {"properties": {"roughness": float("nan")}}, {"properties": {"normal_scale": -1}}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                self.library.add({**settings, **extra})
+        self.assertEqual([], self.library.listing()["items"])
+
+    def test_schema_one_material_keeps_its_id_and_can_regenerate_its_colour(self):
+        import hashlib
+        import shutil
+        _prepared, result = self.add()
+        material = result["material"]
+        identity = {"schema": 1, "colour": material["maps"]["colour"]["sha256"], "repeat": material["repeat"], "variation": material["variation"]}
+        old_id = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        old = {k: v for k, v in material.items() if k != "properties"}
+        old.update(schema=1, id=old_id, maps={"colour": {k: v for k, v in material["maps"]["colour"].items() if k != "colour_space"}})
+        folder = Path(self.tmp.name, "library/materials", old_id)
+        shutil.copytree(folder.with_name(material["id"]), folder)
+        (folder / "asset.json").write_text(json.dumps(old), encoding="utf-8")
+        shutil.rmtree(Path(self.tmp.name, "cache"))
+        self.assertEqual(old_id, self.library.get(old_id)["id"])
+        self.assertEqual({"roughness": 1., "normal_scale": 1.}, self.library.properties(old))
+        self.assertTrue(self.library.colour(old_id).startswith(b"\x89PNG"))
+
+    def test_data_map_cache_is_independent_of_colour_management_for_the_same_bytes(self):
+        image = Image.new("RGB", (8, 8), (180, 110, 240))
+        encoded = io.BytesIO()
+        image.save(encoded, "PNG", icc_profile=b"not a colour profile; data channels have no colour space transform")
+        with self.assertRaises(ValueError):
+            self.library.prepare("colour.png", encoded.getvalue())
+        normal = self.library.prepare("normal.png", encoded.getvalue(), role="normal")
+        roughness = self.library.prepare("roughness.png", encoded.getvalue(), role="roughness")
+        self.assertEqual(normal["token"], roughness["token"])
+        self.assertNotEqual(self.library._cache(normal["token"], "normal"), self.library._cache(roughness["token"], "roughness"))
+        with Image.open(self.library._cache(normal["token"], "normal") / "normal.png") as image:
+            self.assertEqual((180, 110, 240), image.getpixel((0, 0)))
+
+
     def test_tiny_colours_keep_their_pixels_but_prepare_valid_bc_texture_dimensions(self):
         prepared, result = self.add(raw=image_bytes(size=(1, 1), colour=(255, 0, 0)))
         self.assertEqual([1, 1], prepared["source"]["size"])

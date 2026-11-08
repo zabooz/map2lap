@@ -91,6 +91,42 @@ class PaintTest(unittest.TestCase):
         return trackedits.save_telling(self.ac, self.name, {"base": now["base"], "revision": now["revision"], "id": "paint",
                                       "deleted": [], "paints": paints})
 
+    def test_material_snapshot_and_saved_copy_keep_originals_and_all_maps_without_the_library(self):
+        from app import trackpaint
+        raw_colour = png(np.full((8, 8, 3), (120, 100, 70), np.uint8))
+        raw_normal = png(np.full((8, 8, 3), (160, 120, 245), np.uint8))
+        raw_roughness = png(np.full((8, 8), 79, np.uint8))
+        colour = materiallibrary.prepare("colour.png", raw_colour)
+        normal = materiallibrary.prepare("normal.png", raw_normal, role="normal")
+        roughness = materiallibrary.prepare("roughness.png", raw_roughness, role="roughness")
+        asset = materiallibrary.add({"token": colour["token"], "filename": "colour.png", "name": "Ground",
+                                     "category": "soil", "repeat": [2, 3], "tags": ["retained"], "license": "CC0",
+                                     "maps": {"normal": {"token": normal["token"], "filename": "normal.png"},
+                                              "roughness": {"token": roughness["token"], "filename": "roughness.png"}}})["material"]
+        op = self.operation(asset["id"])
+        folder, record = trackpaint.operation(self.ac, self.name, op)
+        retained = trackpaint._resolve(self.ac, self.name, "materials", record["asset"])
+        meta = trackpaint._verified(retained / "asset.json", record["asset"])
+        self.assertEqual(asset, meta["original"])
+        self.assertEqual({"colour", "normal", "roughness"}, set(meta["maps"]))
+        for role, raw in (("colour", raw_colour), ("normal", raw_normal), ("roughness", raw_roughness)):
+            self.assertEqual(raw, (retained / asset["maps"][role]["file"]).read_bytes())
+            self.assertTrue((retained / meta["maps"][role]["file"]).is_file())
+        self.keep([op])
+        expected_size = trackpaint.bundle_size(self.ac, self.name, [op])
+        trackcopy.save(self.ac, self.name, "portable_maps", "Portable maps")
+        saved = Path(self.ac, "content/tracks/portable_maps") / trackpaint.BUNDLE
+        self.assertEqual(expected_size, sum(path.stat().st_size for path in saved.rglob("*") if path.is_file()))
+        shutil.rmtree(Path(self.tmp.name, "library"))
+        shutil.rmtree(Path(self.tmp.name, "cache"), ignore_errors=True)
+        shutil.rmtree(Path(self.tmp.name, "out/paints"))
+        shutil.rmtree(Path(self.tmp.name, "out/paint-assets"))
+        trackpaint.validate(self.ac, "portable_maps", self.revision, [op])
+        normal_path = saved / "materials" / record["asset"] / "normal.png"
+        normal_path.write_bytes(b"damaged data")
+        with self.assertRaisesRegex(ValueError, "changed"):
+            trackpaint.validate(self.ac, "portable_maps", self.revision, [op])
+
     def test_grass_changes_across_tiles_while_roads_keep_their_pixels_and_edges_stay_soft(self):
         asset = self.material((200, 30, 40))
         operation = self.operation(asset)

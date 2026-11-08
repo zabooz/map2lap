@@ -68,6 +68,22 @@ class RequestsTest(unittest.TestCase):
         self.assertEqual(400, self.request("/api/library/imports?filename=..%2Fgrass.png", image_bytes(), "application/x-map2lap-image")[0])
         self.assertEqual(0, self.library.listing()["total"])
 
+    def test_material_import_retains_role_bound_normal_and_roughness_uploads(self):
+        uploads = {}
+        for role, raw in (("colour", image_bytes()), ("normal", image_bytes(colour=(128, 128, 255))),
+                          ("roughness", image_bytes(mode="L", colour=90))):
+            code, response = self.request(f"/api/library/imports?filename={role}.png&role={role}", raw, "application/x-map2lap-image")
+            self.assertEqual(200, code)
+            data = json.loads(response)
+            self.assertEqual(role, data["role"])
+            uploads[role] = {"token": data["token"], "filename": role + ".png"}
+        code, raw = self.request("/api/library/materials", json.dumps({**uploads["colour"], "name": "Ground", "category": "soil", "repeat": [2, 2],
+                                 "maps": {role: uploads[role] for role in ("normal", "roughness")}}).encode())
+        self.assertEqual(200, code)
+        self.assertEqual({"colour", "normal", "roughness"}, set(json.loads(raw)["material"]["maps"]))
+        code, _raw = self.request("/api/library/imports?filename=map.png&role=unknown", image_bytes(), "application/x-map2lap-image")
+        self.assertEqual(400, code)
+
 
 if __name__ == "__main__":
     unittest.main()
