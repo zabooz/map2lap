@@ -225,6 +225,19 @@ track remains driveable with ordinary repetition. The browser and CSP use the sa
 internal noise differs from the browser's deterministic field, so individual shifted patches need not occupy identical places.
 The implementation adds texture samples; frame-rate cost is not inferred from unit tests.
 
+## Render-region feasibility probe
+
+`tools/ground_regions.py` measures spatial palette partitioning independently of the live renderer. Its inputs are unrestricted
+semantic material weights, not RGBA slots. `app/groundregions.py` partitions a tile while retaining each material present in
+a region's filter support. Soft junctions and coarse texture filtering can require more than three replacements even in the
+smallest region. Such regions retain their full palette and are explicitly reported as overflow. Splitting stops when both
+children would have the same global filter support; more draw regions cannot reduce that palette.
+
+The tool writes reproducible, pickle-free weight archives and a JSON report under `out/analysis/ground-regions`. It records
+planner time, Python/NumPy allocation, proposed mask bytes and the palette groups implied by the shader capacity. These
+are CPU feasibility/allocation results, not GPU timings, frame rate or an AC rendering verdict. No user track, draft or library
+is modified. The current renderer's three-replacement restriction remains in effect.
+
 ## Build facts and painted ground selection
 
 New builds keep `data/map2lap_editor/` beside the kn5 (`track/editorinfo.py`). Its versioned manifest belongs to exactly one
