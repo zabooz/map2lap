@@ -21,18 +21,26 @@ if [ ! -t 0 ] && [ -z "$MAP2LAP_TERMINAL" ]; then
   done
 fi
 ARGS=
+update_failed() {
+  printf '\nUpdate failed. Close programs using Map2Lap files, check disk space and permissions, then start Map2Lap again to retry.\n'
+  printf 'The downloaded update has been kept. Press Enter to close.'
+  read -r _
+  exit 1
+}
 while :; do
   if [ -f update/ready ]; then
     echo "Installing the update ..."
-    rm -f update/ready
     for d in update/Map2Lap/*/; do
+      [ -d "$d" ] || continue
       n=$(basename "$d")
-      rm -rf "$n" && cp -a "$d" "$n"
+      rm -rf "$n" && cp -a "$d" "$n" || update_failed
     done
     for f in update/Map2Lap/*; do
-      [ -f "$f" ] && [ "$(basename "$f")" != start.sh ] && cp -a "$f" .
+      [ -f "$f" ] && [ "$(basename "$f")" != start.sh ] || continue
+      cp -a "$f" . || update_failed
     done
-    cp -a update/Map2Lap/start.sh start.sh.new && mv -f start.sh.new start.sh
+    cp -a update/Map2Lap/start.sh start.sh.new && mv -f start.sh.new start.sh || update_failed
+    rm -f update/ready || update_failed
     rm -rf update
   fi
   if [ -x python/bin/python3 ]; then

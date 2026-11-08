@@ -91,12 +91,19 @@ def ours(suffix):
 
 
 def block(text, start, end):
-    """The lines of text from the one starting with start (stripped) to the first one after it that is end
-    (stripped), both included. Pure."""
+    """The install lines from start through their matching end, including nested batch copy loops. Pure."""
     lines = text.splitlines()
     a = next(i for i, ln in enumerate(lines) if ln.strip().startswith(start))
-    b = next(i for i in range(a + 1, len(lines)) if lines[i].strip() == end)
-    return lines[a:b + 1]
+    depth = 1
+    for b in range(a + 1, len(lines)):
+        line = lines[b].strip()
+        if end == ")" and line.endswith("(") and not line.lower().startswith("rem "):
+            depth += 1
+        if line == end:
+            depth -= 1
+            if not depth:
+                return lines[a:b + 1]
+    raise ValueError("The start script has no complete install block")
 
 
 def verdict(probe, old, what):
@@ -136,13 +143,16 @@ def windows(rel):
         with open(os.path.join(root, "Start Map2Lap.bat"), encoding="utf-8", errors="replace") as f:
             lines = block(f.read(), 'if exist "update\\ready" (', ")")
         lines = [ln.replace('"%~nx0"', '"Start Map2Lap.bat"').replace(" & goto run", "") for ln in lines]
+        lines += ["goto :eof", ":update_failed", "exit /b 1"]
         with open(os.path.join(tmp, "install.bat"), "w", encoding="utf-8") as f:
             f.write("@echo off\r\n" + f'cd /d "{root}"\r\n' + "\r\n".join(lines) + "\r\n")
         with open(os.path.join(tmp, "probe.py"), "w", encoding="utf-8") as f:
             f.write(PROBE)
-        subprocess.run(["cmd", "/c", os.path.join(tmp, "install.bat")], capture_output=True)
-        r = subprocess.run([os.path.join(root, "python", "python.exe"), os.path.join(tmp, "probe.py")], cwd=root,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = subprocess.run(["cmd", "/c", os.path.join(tmp, "install.bat")], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=180)
+        if r.returncode == 0:
+            r = subprocess.run([os.path.join(root, "python", "python.exe"), os.path.join(tmp, "probe.py")], cwd=root,
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
         lines, ok = verdict(parse(r.stdout), rel["version"], "Windows")
         if not ok:
             lines.append("  " + "\n  ".join((r.stdout + r.stderr).strip().splitlines()[-6:]))
@@ -168,7 +178,7 @@ def linux(rel):
         start =subprocess.run(WSL + ["tar", "xzOf", wsl_path(old_tar), f"{make_release.NAME}/start.sh"],
                                capture_output=True, text=True).stdout
         install = "\n".join(block(start, "if [ -f update/ready ]; then", "fi"))
-        script += "\n" + install + f'\npython/bin/python3 "{wsl_path(os.path.join(tmp, "probe.py"))}"\n'
+        script += "\nupdate_failed() { exit 1; }\n" + install + f'\npython/bin/python3 "{wsl_path(os.path.join(tmp, "probe.py"))}"\n'
         script += 'cd / && rm -rf "$T"\n'
         with open(os.path.join(tmp, "update.sh"), "w", newline="\n") as f:
             f.write(script)

@@ -9,6 +9,7 @@ archive and stay. User-imported library/ is never part of a release; an archive 
 """
 import hashlib
 import os
+from pathlib import PurePosixPath
 import shutil
 import tarfile
 import urllib.request
@@ -31,7 +32,7 @@ state = {"state": "idle", "done": 0, "total": 0, "error": None}
 def _check_library(names):
     """Refuse an update that would make either start script mirror over the user's own library. Pure."""
     for name in names:
-        parts = name.replace("\\", "/").strip("/").split("/")
+        parts = PurePosixPath(name.replace("\\", "/").strip("/")).parts
         if len(parts) >= 2 and parts[0].casefold() == "map2lap" and parts[1].casefold() == "library":
             raise ValueError("The update contains a user library folder; it cannot be installed")
 
@@ -59,6 +60,16 @@ def drop_old(root=ROOT):
 def download(rel):
     """Fetch rel["archive"] (version.latest(): name, url, size, digest "sha256:..."), check it and unpack it into NEW.
     Raises with a message for the page when the download or the check fails."""
+    try:
+        _download(rel)
+    except BaseException:
+        # No partial archive or extracted files should survive a failed download/check.
+        shutil.rmtree(DIR, ignore_errors=True)
+        raise
+
+
+def _download(rel):
+    """Download and stage rel's archive, writing READY only after all checks and extraction succeed."""
     a = rel["archive"]
     shutil.rmtree(DIR, ignore_errors=True)
     os.makedirs(DIR)

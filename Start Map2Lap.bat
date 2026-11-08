@@ -10,10 +10,16 @@ set ARGS=
 :run
 if exist "update\ready" (
   echo Installing the update ...
-  del "update\ready"
-  for /d %%D in ("update\Map2Lap\*") do robocopy "%%D" "%%~nxD" /MIR /NJH /NJS /NFL /NDL /NP >nul
-  for %%F in ("update\Map2Lap\*") do if /i not "%%~nxF"=="Start Map2Lap.bat" copy /y "%%F" . >nul
-  copy /y "update\Map2Lap\Start Map2Lap.bat" "%~nx0" >nul & rmdir /s /q "update" & goto run
+  rem Short retries cover transient scanner locks; a persistent lock must stop the update visibly.
+  for /d %%D in ("update\Map2Lap\*") do (
+    robocopy "%%D" "%%~nxD" /MIR /R:5 /W:2 /NJH /NJS /NFL /NDL /NP
+    if errorlevel 8 goto update_failed
+  )
+  for %%F in ("update\Map2Lap\*") do if /i not "%%~nxF"=="Start Map2Lap.bat" (
+    copy /y "%%F" . >nul
+    if errorlevel 1 goto update_failed
+  )
+  copy /y "update\Map2Lap\Start Map2Lap.bat" "%~nx0" >nul & if errorlevel 1 (goto update_failed) else (del "update\ready" & rmdir /s /q "update" & goto run)
 )
 if exist "python\python.exe" (
   "python\python.exe" src\server.py %ARGS%
@@ -24,3 +30,9 @@ if exist "python\python.exe" (
 )
 if "%errorlevel%"=="75" (set "ARGS=--no-browser" & goto run)
 pause
+exit /b
+:update_failed
+echo Update failed. Close other Map2Lap windows and programs using its files, then start Map2Lap again to retry.
+echo The downloaded update has been kept. Map2Lap will not start until the update succeeds.
+pause
+exit /b 1

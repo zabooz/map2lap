@@ -410,6 +410,8 @@ def install_update():
             return 409, {"error": "Wait for CSP installation before updating Map2Lap"}
         if job["state"] in ("running", "stopping") or running["clearing"]:
             return 409, {"error": "Not while a build is running"}
+        if trackcopy.busy():
+            return 409, {"error": "A track is being saved in the Editor: wait for it, then update"}
         if updater.state["state"] in ("downloading", "restarting"):
             return 409, {"error": "The update is already being installed"}
         updater.state.update(state="downloading", done=0, total=0, error=None)
@@ -650,6 +652,8 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 if job["state"] in ("running", "stopping"):
                     raise trackcopy.Refused("A build is running: wait for it, then try again")
+                if updater.state["state"] in ("downloading", "restarting"):
+                    raise trackcopy.Refused("Map2Lap is installing an update: wait for it, then save")
         ac = settings.ac_path()
         if copy and (not title or title in (t["title"] for t in mytracks.listing(ac))):     # (a tab's list can be older than this)
             return self._send(409, {"error": "A new track needs a name no track has"})

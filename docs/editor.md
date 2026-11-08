@@ -33,7 +33,8 @@ keeps the kn5 as it was as the track's source (`app/tracksource.py`, `out/source
 counts (`trackview.served`), so what was deleted can come back after any Save. In its place on one disk the old file itself becomes
 the source (a hardlink until the old folder goes, taken back if the Save fails), which needs no room for a copy; a new track leaves the
 original installed, so its source is a true copy. A Save, a build and a deletion never run at once
-(`trackcopy`'s lock, asked under the server's). A saved track is its own work from then on, under Edited in My tracks: a build of its
+(`trackcopy`'s lock, asked under the server's). Saves and app updates also exclude each other under those locks: the update's
+restart must wait until saving finishes. A saved track is its own work from then on, under Edited in My tracks: a build of its
 name is refused, by the server under the same lock and by `generator.build` and `finish_obj` for the tools too (`mytracks.saved_in_editor`;
 OBJ parts alone stay allowed, they don't go into AC), and Build as copy makes a new track from the map, which has none
 of the edits; sources no track of their AC folder names go at the next

@@ -10,6 +10,14 @@ and its dependencies out: users need no Bun.
 User-imported assets live in `library/` beside the app on both systems. It is excluded even from accidentally tracked release
 inputs and is created by the app when needed. Never ship that folder: the start scripts replace the folders an update contains.
 The updater therefore also refuses ZIP or TAR.GZ archives with a `Map2Lap/library` entry before marking them ready to install.
+Failed downloads or archive checks remove their staging files. Editor saves and app updates refuse to start while the other
+is running, so the update restart cannot interrupt a Save.
+
+Both start scripts stop on an installation copy error and keep `update/ready` and the downloaded files for retry on the
+next start. Windows retries each failed robocopy operation five times, two seconds apart; codes 8 and above fail the update.
+Errors stay visible, and the app starts only after every folder, top-level file and the starter itself has been copied.
+The starter of the installed version applies an update: these checks protect only updates started by a version that already
+contains them. An older starter, including 0.5.7, still has its original retry and error handling during its first update.
 
 `.venv\Scripts\python.exe tools\make_release.py [--win | --linux]` builds, on Windows, both `dist\Map2Lap-<version>-win64.zip`
 (python.org's embeddable Python) and `dist\Map2Lap-<version>-linux-x64.tar.gz` (python-build-standalone with the packages'

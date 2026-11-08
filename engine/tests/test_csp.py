@@ -28,6 +28,15 @@ def archive(extra=()):
 
 
 class CspTest(unittest.TestCase):
+    def test_offline_install_explains_connection_problem(self):
+        csp._job["path"] = str(self.ac.resolve())
+        with mock.patch.object(csp, "_open", side_effect=urllib.error.URLError("getaddrinfo failed")):
+            csp._install(str(self.ac))
+        info = csp.status(str(self.ac))
+        self.assertEqual("error", info["stage"])
+        self.assertIn("connection", info["error"])
+        self.assertNotIn("getaddrinfo", info["error"])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

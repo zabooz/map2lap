@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 import urllib.parse
 import zipfile
@@ -269,6 +270,8 @@ def _install(ac):
             _progress("installing")
             install_archive(ac, package, version, lambda done, total: _progress("installing", done, total))
         _progress("done")
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        _progress("error", error="Could not download CSP from the official site. Check your internet connection and try again later.")
     except Exception as error:
         _progress("error", error=f"CSP could not be installed: {error}")
 
