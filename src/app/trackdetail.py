@@ -12,7 +12,7 @@ from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
 from track.textures import dds_mipmaps, dds_size, dds_weights
 
-PROFILE = 4
+PROFILE = 5
 
 
 def _url(name, kind, key):
@@ -79,6 +79,12 @@ def _source(scan, i):
                 scale = next((list(p[2]) for p in material.props if p[0] == "mult" + channel), [1., 1.])
                 result["images"].append({"i": numbers[texture], "scale": scale, "channel": "RGB".index(channel),
                                          "variation": trackview._prop(material, "m2lVariation" + channel, 0) == 1})
+    elif scale := trackview._material(material).get("world_scale"):
+        texture = maps.get("txDetailR")
+        if texture not in numbers:
+            raise ValueError("The source ground material has a missing layer image")
+        # The legacy full-surface shader repeats in world metres; objsp repeats against a 256 m tile UV.
+        result.update(kind="world", images=[{"i": numbers[texture], "scale": [256. * v for v in scale]}])
     else:
         result["kind"] = "base"
     return result
@@ -130,11 +136,12 @@ def _compute(ac, name, record, path, scan, filename):
             weights[token][on] += values[on] / 255.
     coverage = np.minimum(1., sum(weights.values(), np.zeros((height, width), np.float32)))
     if source["images"]:
-        old_mask = _source_image(path, scan, source["mask"], record["base"])
-        if old_mask.shape[:2] != (height, width):
+        old_mask = None if source["kind"] == "world" else _source_image(path, scan, source["mask"], record["base"])
+        if old_mask is not None and old_mask.shape[:2] != (height, width):
             old_mask = np.array(Image.fromarray(old_mask).resize((width, height), Image.Resampling.BOX))
         for ref in source["images"]:
-            values = (1. - old_mask[..., 0] / 255.) if source["kind"] == "dual" else old_mask[..., ref["channel"]] / 255.
+            values = (1. if source["kind"] == "world" else
+                      1. - old_mask[..., 0] / 255. if source["kind"] == "dual" else old_mask[..., ref["channel"]] / 255.)
             values = (values * (1. - coverage)).astype(np.float32)
             if not values.any():
                 continue

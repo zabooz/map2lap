@@ -358,27 +358,40 @@ def texture(ac, name, i, revision, version):
     return raw
 
 
-def bundle_size(ac, name, paints):
-    """Additional retained masks and material snapshots needed by a saved track."""
-    files = {}
+def _bundle_inputs(ac, name, paints):
+    """Active edit files and metadata for native source materials, including a transferred track's embedded layers."""
+    operations, materials = {}, {}
+    _path, scan, _revision = trackview._scanned(ac, name)
+    used = {texture for material in scan["materials"] for _slot, _index, texture in material.maps}
+    saved = Path(trackview.kn5_path(ac, name)).parent / BUNDLE / "materials"
+    if saved.is_dir():
+        for folder in saved.iterdir():
+            if KEY.fullmatch(folder.name) and folder.is_dir():
+                meta = _verified(folder / "asset.json", folder.name)
+                if "map2lap_material_" + meta["image"] + ".dds" in used:
+                    if _file_digest(folder / "colour.png") != meta["image"]:
+                        raise ValueError("The retained material image has changed")
+                    materials[folder.name] = folder
     for id in paints:
         folder, record = operation(ac, name, id)
-        for path in folder.iterdir():
-            files[str(path)] = path.stat().st_size
-        asset = _resolve(ac, name, "materials", record["asset"])
-        for path in asset.iterdir():
-            files[str(path)] = path.stat().st_size
-    return sum(files.values())
+        operations[id] = folder
+        materials[record["asset"]] = _resolve(ac, name, "materials", record["asset"])
+    return operations, materials
+
+
+def bundle_size(ac, name, paints):
+    """Additional retained masks and material snapshots needed by a saved track, including native source layers."""
+    return sum(path.stat().st_size for folders in _bundle_inputs(ac, name, paints) for folder in folders.values()
+               for path in folder.rglob("*") if path.is_file())
 
 
 def export(ac, name, paints, target):
-    """Only active immutable edits and their shared assets into the saved track's data folder."""
+    """Active edits and assets still used by native source layers into the saved track's data folder."""
+    operations, materials = _bundle_inputs(ac, name, paints)
     destination = Path(target) / BUNDLE
     if destination.exists():
         shutil.rmtree(destination)
-    for id in paints:
-        folder, record = operation(ac, name, id)
+    for id, folder in operations.items():
         shutil.copytree(folder, destination / "operations" / id)
-        asset = record["asset"]
-        if not (destination / "materials" / asset).exists():
-            shutil.copytree(_resolve(ac, name, "materials", asset), destination / "materials" / asset)
+    for id, folder in materials.items():
+        shutil.copytree(folder, destination / "materials" / id)

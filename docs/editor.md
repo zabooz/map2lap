@@ -192,7 +192,9 @@ preview download even if the retained draft already contains that operation; suc
 Save embeds those same mask/colour bytes, retains every original tile payload and writes the native layer material. Integer
 tile origins are added to UVs so arbitrary repeat sizes remain aligned across tiles. Positions, normals, tangents, triangles
 and physical surface prefixes stay unchanged. The source is retained for Undo/Discard, and the saved recipe/bundle carries
-the operation masks and normalized colour snapshots. Even without the local source cache, the native material remains
+the operation masks and normalized colour snapshots. Saving a transferred track also retains the material snapshots referenced
+by its native source layers, so another edit or Save as copy keeps their names, physical sizes and previews. Legacy full-surface
+world-space colours remain source layers when part of that ground receives a new material. Even without the local source cache, the native material remains
 viewable and global UVs are normalized when selecting ground. Missing retained inputs remain openable/discardable with a
 warning; Save refuses incomplete data. Saved recipes record the detail layout profile; older painted saves remain saveable
 so their retained edits can be written with sharp layers without rebuilding. `paintimage.py` remains the low-resolution tile/thumbnail compatibility compositor;

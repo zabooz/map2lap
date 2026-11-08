@@ -132,6 +132,10 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
         refs, raw, dual = layout["images"], trackdetail.mask(ac, name, version), False
     elif source["images"]:
         refs = [{**ref, "name": scan["textures"][ref["i"]][0]} for ref in source["images"]]
+        if source["kind"] == "world":
+            result.update(_appearance_ref(ac, name, revision, scan, refs[0]))
+            trackview._scan_of(ac, name, revision)
+            return result
         _filename, offset, size = scan["textures"][source["mask"]]
         raw, dual = trackview._read(path, offset, size, revision), source["kind"] == "dual"
     else:

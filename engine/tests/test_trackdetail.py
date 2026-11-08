@@ -222,6 +222,61 @@ class DetailTest(unittest.TestCase):
         self.assertEqual(source_images[0]["i"], source_images[1]["i"])
         self.assertNotEqual(source_images[0]["scale"], source_images[1]["scale"])
 
+    def test_portable_source_material_metadata_survives_another_edit_and_save(self):
+        from app import trackinspect, trackpaint
+        first = self.operation(self.detail_asset())
+        descriptor = self.keep([first])["textures"][0]
+        asset = descriptor["layers"]["images"][0]["asset"]
+        trackcopy.save(self.ac, self.name, "portable", "Portable")
+        folder = Path(self.ac, "content/tracks/portable")
+        # A transferred track has its own native layers, without the original computer's source/draft cache.
+        shutil.rmtree(Path(self.tmp.name, "out"))
+        shutil.rmtree(Path(self.tmp.name, "library"))
+        shutil.rmtree(Path(self.tmp.name, "cache"))
+        revision = trackview.index(self.ac, "portable")["revision"]
+        trackview.prepare_surface(self.ac, "portable", 0, revision)
+        op = trackpaint.create(self.ac, "portable", revision, self.material((20, 30, 200)),
+                               [{"mesh": 0, "u": .5, "v": -.5}])
+        now = trackedits.load(self.ac, "portable")
+        trackedits.save_telling(self.ac, "portable", {"base": revision, "revision": now["revision"], "id": "paint", "deleted": [], "paints": [op]})
+        trackcopy.save(self.ac, "portable", "portable_again", "Portable again")
+        retained = Path(self.ac, "content/tracks/portable_again") / trackpaint.BUNDLE / "materials" / asset
+        self.assertTrue((retained / "asset.json").is_file(), "native source layer lost its material metadata")
+        self.assertTrue((retained / "colour.png").is_file())
+        shutil.rmtree(Path(self.tmp.name, "out"))
+        shutil.rmtree(folder)
+        revision = trackview.index(self.ac, "portable_again")["revision"]
+        info = trackinspect.appearance(self.ac, "portable_again", 0, .1, -.5, revision)
+        self.assertEqual("Fine detail", info["name"])
+        self.assertEqual([2, 3], info["repeat"])
+        self.assertTrue(trackinspect.paint_preview(self.ac, "portable_again", asset).startswith(b"\x89PNG"))
+
+    def test_world_colour_source_survives_a_partial_ground_replacement(self):
+        from app import trackdetail, trackinspect, trackpaint
+        native = kn5.read(str(self.path))
+        textures = [(name, raw) for name, _active, raw in native["textures"]]
+        textures += [("old_photo.png", fixture.png(np.full((16, 16, 3), (200, 100, 30), np.uint8))), *groundmaterial.textures()]
+        native["materials"][0] = groundmaterial.world_colour(native["materials"][0], "old_photo.png", 2)
+        kn5.write(str(self.path), textures, native["materials"], native["root"])
+        self.revision = trackview.index(self.ac, self.name)["revision"]
+        original = trackinspect.appearance(self.ac, self.name, 0, .5, -.5, self.revision)
+        self.assertFalse(original["original"])
+        self.assertEqual([2, 2], original["repeat"])
+        selected = np.zeros((32, 32), np.uint8)
+        selected[:8, :8] = 255
+        chosen = {"material": "gc_meadow", "truncated": False}
+        merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(selected)).decode()}]}
+        with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+            op = self.operation(self.detail_asset())
+        descriptor = trackpaint.descriptors(self.ac, self.name, self.revision, [op])[0]
+        layout = descriptor["layers"]
+        old = next((ref for ref in layout["images"] if ref["name"] == "old_photo.png"), None)
+        self.assertIsNotNone(old, "existing world-space colour was discarded")
+        self.assertEqual([128, 128], old["scale"])
+        with Image.open(io.BytesIO(trackdetail.mask(self.ac, self.name, descriptor["version"]))) as mask:
+            self.assertEqual(255, mask.getpixel((20, 20))[old["channel"]])
+            self.assertEqual(0, mask.getpixel((2, 2))[old["channel"]])
+
     def test_exceeding_shader_slots_is_refused_before_writing_the_draft(self):
         from app import trackpaint
         operations = []
