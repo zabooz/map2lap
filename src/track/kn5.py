@@ -160,22 +160,29 @@ def _copy_bytes(source, target, n):
         n -= len(piece)
 
 
-def without_faces(path, out, going, change=None, added=(), texture_bytes=None, materials=None, textures=()):
+def without_faces(path, out, going, change=None, added=(), texture_bytes=None, materials=None, textures=(), drop_textures=()):
     """A copy of the kn5 at path at out without some triangles: going {mesh number (as scan's): bool per triangle, True what goes}.
     A mesh left with none is left out. What doesn't change is copied as it stands, so the rest stays the same to the byte and a 10 GB
     file never lies in memory; a changed mesh keeps only the vertices it still uses, and its bounding sphere: a little too big does no
     harm. change: a Moved, of the file's numbers before anything goes. added: draft meshes with mesh_arrays data, numbered after
     the source meshes, subject to the same filtering and changes. texture_bytes(i): replacement bytes, or None to stream the
     original image unchanged. materials: a replacement table with the same indexes; textures: additional shared images.
+    drop_textures: explicit unreferenced source image names to omit while streaming; other payloads stay byte-identical.
     Returns {mesh number: its new number, None if left out}."""
     change = change or Moved({}, {}, {})
     scan_ = scan(path)
     textures = tuple(textures)
-    if materials is not None and len(materials) != len(scan_["materials"]):
+    drop_textures = frozenset(drop_textures)
+    if materials is not None and len(materials) < len(scan_["materials"]):
         raise ValueError("Replacement materials must keep the original material indexes")
     names = [name for name, _raw in textures]
     if len(set(names)) != len(names) or set(names).intersection(t[0] for t in scan_["textures"]):
         raise ValueError("Additional texture names must be unique")
+    if drop_textures - {t[0] for t in scan_["textures"]}:
+        raise ValueError("Only existing texture names can be filtered")
+    table = scan_["materials"] if materials is None else materials
+    if drop_textures.intersection(n for m in table for _slot, _i, n in m.maps):
+        raise ValueError("A filtered texture is still referenced by a material")
     moved, number = {}, 0
     all_meshes = scan_["meshes"] + list(added)
     for i, m in enumerate(all_meshes):
@@ -194,11 +201,11 @@ def without_faces(path, out, going, change=None, added=(), texture_bytes=None, m
             r.skip(r.take("<i"))
         _materials(r)
         head = f.tell()
-        if texture_bytes is None and materials is None and not textures:
+        if texture_bytes is None and materials is None and not textures and not drop_textures:
             f.seek(0)
             _copy_bytes(f, g, head)
         else:
-            _copy_header(f, g, texture_bytes, materials, textures)
+            _copy_header(f, g, texture_bytes, materials, textures, drop_textures)
         cls, name = r.take("<i"), r.string()
         children = r.take("<i")
         active = r.take("<B")
@@ -225,7 +232,7 @@ def without_faces(path, out, going, change=None, added=(), texture_bytes=None, m
     return moved
 
 
-def _copy_header(f, g, replacement, materials=None, textures=()):
+def _copy_header(f, g, replacement, materials=None, textures=(), drop_textures=()):
     """Stream selected image/material changes and additional shared images, retaining material indexes and nodes."""
     f.seek(6)
     r = FileReader(f)
@@ -235,14 +242,17 @@ def _copy_header(f, g, replacement, materials=None, textures=()):
     prefix = f.tell()
     f.seek(0)
     _copy_bytes(f, g, prefix - 4)
-    g.write(struct.pack("<i", count + len(textures)))
+    g.write(struct.pack("<i", count - len(drop_textures) + len(textures)))
     f.seek(prefix)
     for i in range(count):
         start = f.tell()
         r.take("<i")
-        r.string()
+        name = r.string()
         size = r.take("<i")
         at = f.tell()
+        if name in drop_textures:
+            f.seek(at + size)
+            continue
         raw = replacement(i) if replacement else None
         f.seek(start)
         if raw is None:

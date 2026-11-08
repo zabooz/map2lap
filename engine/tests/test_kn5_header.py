@@ -14,6 +14,34 @@ IDENTITY = (1., 0, 0, 0, 0, 1., 0, 0, 0, 0, 1., 0, 0, 0, 0, 1.)
 
 
 class HeaderTest(unittest.TestCase):
+    def test_explicit_texture_filter_streams_foreign_payloads_and_rejects_removing_referenced_images(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = (Path(temporary, name + ".kn5") for name in ("source", "target"))
+            material = kn5.Material("base", "ksPerPixel", 0, 0, 0, [], [("txDiffuse", 0, "original")])
+            kn5.write(source, [("original", b"source image"), ("own_stale", b"derived"), ("foreign_unused", b"keep me")],
+                      [material], kn5.Node(1, "root", 1, matrix=IDENTITY))
+            original = source.read_bytes()
+            kn5.without_faces(source, target, {}, drop_textures={"own_stale"})
+            result = kn5.read(target)
+            self.assertEqual([("original", b"source image"), ("foreign_unused", b"keep me")],
+                             [(n, raw) for n, _active, raw in result["textures"]])
+            self.assertEqual(original, source.read_bytes())
+            self.assertEqual([material], result["materials"])
+            self.assertEqual(result["size"], result["end"])
+            with self.assertRaisesRegex(ValueError, "referenced"):
+                kn5.without_faces(source, target, {}, drop_textures={"original"})
+
+    def test_appending_derived_materials_keeps_existing_material_numbers_and_source_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = (Path(temporary, name + ".kn5") for name in ("source", "target"))
+            material = kn5.Material("base", "ksPerPixel", 0, 0, 0, [], [])
+            derived = replace(material, name="regional", shader="ksPerPixelMultiMap_NMDetail")
+            kn5.write(source, [], [material], kn5.Node(1, "root", 1, matrix=IDENTITY))
+            before = source.read_bytes()
+            kn5.without_faces(source, target, {}, materials=[material, derived])
+            self.assertEqual([material, derived], kn5.read(target)["materials"])
+            self.assertEqual(before, source.read_bytes())
+
     def test_material_edits_and_one_shared_image_preserve_meshes_and_unmodified_textures(self):
         with tempfile.TemporaryDirectory() as temporary:
             source, target = (Path(temporary, name + ".kn5") for name in ("source", "target"))
