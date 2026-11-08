@@ -5,7 +5,7 @@ the work is split: download() fetches this system's release archive (Windows' zi
 the size and SHA-256 GitHub states for it and unpacks it into update/Map2Lap; the server then ends with RESTART, and
 "Start Map2Lap.bat" (start.sh) moves the new files in before it starts Python again. Linux would allow replacing them
 in place, but the same steps on both systems keep one way to test. settings.json, cache/ and out/ aren't in the
-archive and stay.
+archive and stay. User-imported library/ is never part of a release; an archive containing it is refused.
 """
 import hashlib
 import os
@@ -26,6 +26,14 @@ PYTHON = "python/python.exe" if os.name == "nt" else "python/bin/python3"
 OLD_FOLDERS = (("vendor", "engine"),)     # (an older release's folder, the one that replaced it: drop_old)
 # idle downloading restarting error; done/total: bytes of the archive
 state = {"state": "idle", "done": 0, "total": 0, "error": None}
+
+
+def _check_library(names):
+    """Refuse an update that would make either start script mirror over the user's own library. Pure."""
+    for name in names:
+        parts = name.replace("\\", "/").strip("/").split("/")
+        if len(parts) >= 2 and parts[0].casefold() == "map2lap" and parts[1].casefold() == "library":
+            raise ValueError("The update contains a user library folder; it cannot be installed")
 
 
 def possible(root=ROOT):
@@ -67,11 +75,13 @@ def download(rel):
     need = {"Map2Lap/src/server.py", "Map2Lap/" + PYTHON}
     if path.endswith(".zip"):
         with zipfile.ZipFile(path) as zf:
+            _check_library(zf.namelist())
             if not need <= set(zf.namelist()):
                 raise ValueError("The release archive has no Map2Lap folder")
             zf.extractall(DIR)
     else:
         with tarfile.open(path) as tf:
+            _check_library(tf.getnames())
             if not need <= set(tf.getnames()):
                 raise ValueError("The release archive has no Map2Lap folder")
             tf.extractall(DIR, filter="data")       # (keeps the execute bits; nothing outside DIR)

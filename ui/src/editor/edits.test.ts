@@ -16,6 +16,16 @@ function server(deleted: Removed[] = []) {
 
 const settle = () => new Promise(ok => setTimeout(ok, 0));
 
+test("older saved ground materials remain saveable until their native format is upgraded", async () => {
+  const saved = {at: 1, deleted: [], sorts: [], object_sorts: [], paints: ["paint"], needs_save: true};
+  const edits = new TrackEdits("upgrade", async () => json({base: "b", revision: 0, deleted: [], paints: ["paint"], saved}));
+  edits.bind("b");
+  await edits.start();
+  expect(isCurrent(edits.state())).toBe(false);
+  edits.markSaved();
+  expect(isCurrent(edits.state())).toBe(true);
+});
+
 /** Edits started on a fresh server, with one change saved at once. */
 async function started(deleted: Removed[] = []) {
   const s = server(deleted), edits = new TrackEdits("t", s.send);
@@ -35,6 +45,43 @@ test("mixed selected objects and whole sorts delete as one undo step", async () 
   expect(edits.state().sorts).toEqual([]);
   expect(edits.state().objectSorts).toEqual([]);
   expect(edits.state().canUndo).toBe(false);
+});
+
+test("material changes keep order, undo and discard and saved status", async () => {
+  const {edits} = await started();
+  edits.addPaint("first");
+  edits.addPaint("second");
+  edits.markSaved();
+  expect(isCurrent(edits.state())).toBe(true);
+  edits.addPaint("first");
+  expect(edits.state().paints).toEqual(["second", "first"]);
+  expect(isCurrent(edits.state())).toBe(false);
+  edits.undo();
+  expect(edits.state().paints).toEqual(["first", "second"]);
+  expect(isCurrent(edits.state())).toBe(true);
+  edits.discard();
+  expect(edits.state().paints).toEqual([]);
+  expect(edits.changed()).toBe(false);
+  edits.undo();
+  expect(edits.state().paints).toEqual(["first", "second"]);
+});
+
+test("adjusting one smoothing operation replaces it, including zero, as one undo step", async () => {
+  const {edits} = await started();
+  const height = (id: string) => ({id, x: 0, z: 0, nx: 2, nz: 2, mm: [0, 10, 10, 0]});
+  edits.replaceHeight(null, height("first"), false);
+  edits.replaceHeight("first", height("second"), true);
+  expect(edits.state().heights.map(h => h.id)).toEqual(["second"]);
+  edits.replaceHeight("second", null, true);
+  expect(edits.state().heights).toEqual([]);
+  edits.replaceHeight(null, height("third"), false);
+  edits.undo();
+  expect(edits.state().heights).toEqual([]);
+  expect(edits.state().canUndo).toBe(false);
+  edits.redo();
+  expect(edits.state().heights.map(h => h.id)).toEqual(["third"]);
+  expect(edits.replaceHeight("missing", height("wrong"), true)).toBe(false);
+  expect(edits.state().heights.map(h => h.id)).toEqual(["third"]);
 });
 
 test("a whole sort is one step, once, saved as a rule beside the single ones", async () => {

@@ -1,9 +1,17 @@
 // The Editor: a track in 3D, the camera, the hover box, loading and its faults.
-import {centre, dragMouse, expect, openEditor, openSettings, scene, stillView, test} from "./fixtures";
+import {centre, dragMouse, expect, openEditor as loadEditor, openSettings, scene, stillView, test} from "./fixtures";
 
 const box = (page: import("@playwright/test").Page) => page.locator("#hover-box");
 
+async function openEditor(page: import("@playwright/test").Page, name = "alpha") {
+  await loadEditor(page, name);
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
+  await scene(page).focus();
+}
+
 async function hoverCentre(page: import("@playwright/test").Page) {
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
+  await scene(page).focus();
   const c = await centre(scene(page));
   await page.mouse.move(c.x - 2, c.y);
   await page.mouse.move(c.x, c.y);
@@ -320,8 +328,10 @@ test("the wheel held turns around the view's middle, up to just over the horizon
   expect(apart(await placed(page), middle)).toBeLessThan(1);
 
   const p = {x: c.x, y: c.y + 60}, to = {x: c.x + 80, y: c.y + 90};
+  const beforePointing = await box(page).innerText();
   await page.mouse.move(p.x - 2, p.y);
   await page.mouse.move(p.x, p.y);
+  await expect(box(page)).not.toHaveText(beforePointing); // hover is throttled; the old centre is also a Road surface
   await expect(box(page)).toContainText("Road surface");
   const grabbed = await placed(page);
   await dragMouse(page, p, to, "right");
@@ -350,7 +360,7 @@ test("inverted, the same drag looks the other way", async ({page}) => {
   await dragMouse(page, c, {x: c.x, y: c.y - 100}, "middle");
   await page.mouse.move(100, 500);
   const normal = await stillView(page);
-  await page.reload();
+  // Set the preference in the settled page; two immediate reloads abort WebKit's intervening asset requests.
   await page.evaluate(() => localStorage.setItem("map2lap.controls", JSON.stringify({invertLook: true})));
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);

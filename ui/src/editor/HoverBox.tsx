@@ -2,22 +2,23 @@ import type {ReactNode} from "react";
 import styles from "./HoverBox.module.css";
 import type {Hovered} from "./view";
 
-const fixed = (v: number, digits = 2) => v.toFixed(digits);
+const fixed = (v: number, digits = 2) => Number(v.toFixed(digits)).toFixed(digits);
 
 function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;
 }
 
-/** The box at the view's top right: what the mouse points at and where. A single object has an id if it can be told apart: the
+/** Pointer details inside the inspector. A single object has an id if it can be told apart: the
     track file holds meshes merged per tile, by material. */
-export function HoverBox({hovered: h}: {hovered: Hovered | null}) {
+export function HoverBox({hovered: h, id = "hover-box"}: {hovered: Hovered | null; id?: string}) {
   if (!h) return null;
   const b = h.billboard;
   return (
-    <div id="hover-box" className={styles.box}>
+    <div id={id} className={styles.box}>
       <h4>{h.kind}{h.sprite && ` · ${h.sprite}`}</h4>
       <dl>
         {h.id && <Row label="ID">{h.id}</Row>}
+        {h.sort && <Row label="Type">{h.sort}</Row>}
         {b?.height != null && <Row label="Height">{fixed(b.height, 1)} m</Row>}
         {b?.width != null && <Row label="Width">{fixed(b.width, 1)} m</Row>}
         {b?.foot && <Row label="Stands at">{fixed(b.foot[0], 1)}, {fixed(b.foot[1], 1)}</Row>}

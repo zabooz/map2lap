@@ -37,11 +37,12 @@ test("Move in the context menu keeps the clicked house picked and opens its cont
   await expect(page.locator("#edit-move-set")).toBeVisible(); // Taking up Move again must not toggle it off.
 });
 
-test("Move in the context menu is disabled for terrain", async ({page}) => {
+test("terrain has Edit instead of object movement actions in its context menu", async ({page}) => {
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y, {button: "right"});
-  await expect(page.getByRole("menuitem", {name: "Move", exact: true})).toBeDisabled();
+  await expect(page.getByRole("menuitem", {name: "Move", exact: true})).toHaveCount(0);
+  await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeEnabled();
 });
 
 test("M takes up Move; a tree dragged goes where it is let go, kept in the draft; undo puts it back to the pixel", async ({page}) => {

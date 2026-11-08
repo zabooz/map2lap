@@ -10,6 +10,7 @@ import {nudgeVertices, STILL, type Nudge, type Placement} from "./placing";
 import type {CopyPose} from "./copying";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
+import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type ColourLayers, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
@@ -54,6 +55,7 @@ export interface Picked {
   surface?: SurfacePoint;
   adding?: boolean;
   whole?: boolean;
+  inspection?: {hovered: Hovered; revision: string; texture: number | null; listed: boolean};
 }
 
 /** Where a right click asks for its menu: in the view's pixels, with the view's size. */
@@ -101,6 +103,12 @@ interface MeshInfo {
   base: string | null;          // (the tile's billboards: the mesh's name without its part's number)
 }
 
+interface SplatImageEntry {
+  done: Promise<THREE.Texture | null>; controller: AbortController; bytes: number; token: number;
+  texture?: THREE.Texture; disposed: boolean;
+}
+interface SplatPending {keys: Set<string>; done: Promise<void>}
+
 interface MaterialInfo {
   name: string;
   shader: string;
@@ -108,16 +116,22 @@ interface MaterialInfo {
   bright: number;
   alpha_ref: number;
   blend: boolean;
+  dual_layer?: ColourLayers;
+  world_scale?: [number, number];
+  splat?: ColourSplat;
+  source?: MaterialInfo;
 }
 
 interface TrackIndex {
+  paint_errors?: string[];
+  paints?: string[];
   surface_tiles?: string[];
   draft?: number;
   copy_revision?: string;
   revision: string;             // the state of the file its numbers hold for
   meshes: MeshInfo[];
   materials: MaterialInfo[];
-  textures: {name: string; size: number}[];
+  textures: {name: string; size: number; source_size?: number; version?: string; linear?: boolean; layers?: ColourSplat}[];
   start: {pos: [number, number, number]; forward: [number, number, number]} | null;
   anchor: [number, number] | null;
   route: number[][];
@@ -289,11 +303,17 @@ function oneByOne(most: number) {
 const textureTurn = oneByOne(TEXTURES_AT_A_TIME);
 
 /** The texture with the file name file from its bytes. */
-async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: number) {
+async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: number, linear = false) {
   let t: THREE.Texture;
   if (/\.dds$/i.test(file)) {
     const d = new DDSLoader().parse(buf, true);
-    t = new THREE.CompressedTexture(d.mipmaps as ImageData[], d.width, d.height, d.format as THREE.CompressedPixelFormat);
+    if (d.format === THREE.RGBAFormat) {
+      t = new THREE.DataTexture(d.mipmaps[0].data, d.width, d.height, THREE.RGBAFormat);
+      t.mipmaps = d.mipmaps as ImageData[];
+      t.generateMipmaps = false;
+    } else {
+      t = new THREE.CompressedTexture(d.mipmaps as ImageData[], d.width, d.height, d.format as THREE.CompressedPixelFormat);
+    }
     t.minFilter = d.mipmapCount > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
   } else {
     const bitmap = await createImageBitmap(new Blob([buf]), {imageOrientation: "none", premultiplyAlpha: "none"});
@@ -304,7 +324,7 @@ async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: number) {
   t.flipY = false;                  // (kn5's uv: from the image's top left, as DirectX reads it)
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = anisotropy;
-  t.colorSpace = THREE.SRGBColorSpace;
+  t.colorSpace = linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
   t.needsUpdate = true;
   return t;
 }
@@ -378,6 +398,8 @@ export class TrackView {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private surfaceOverlay: SurfaceOverlay | null = null;
+  private roadRegionOverlay: SurfaceOverlay | null = null;
+  private roadInfluenceOverlay: SurfaceOverlay | null = null;
   private surfaceFailed: (message: string) => void = () => {};
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
   private resizing: ResizeObserver;
@@ -388,8 +410,19 @@ export class TrackView {
   private meshes: THREE.Mesh[] = [];
   private grounds: THREE.Mesh[] = [];
   private textures: (Promise<THREE.Texture | null> | undefined)[] = [];
+  private textureBytes = new WeakMap<THREE.Texture, number>();
+  private textureChanges = new Map<number, {abort: () => void; done: Promise<void>; version: string}>();
+  private displayedTextures = new Map<number, string>();
+  private paintFailure: string | null = null;
+  private onTexturesChanged: () => void = () => {};
+  private paintVersion = 0;
+  private paintLoading: AbortController | null = null;
   private loadedTexture: (() => void) | null = null;
   private materials: (THREE.MeshLambertMaterial | undefined)[] = [];
+  private splatImages = new Map<string, SplatImageEntry>();
+  private splatBindings = new Map<number, Set<string>>();
+  private splatPending = new Map<number, SplatPending>();
+  private sourceMaterials = new Map<number, MaterialInfo>();
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -540,6 +573,26 @@ export class TrackView {
       return true;
     }, bytes => { this.usedBytes -= bytes; });
     await this.surfaceOverlay.set(selection, this.meshes);
+  }
+
+  /** Smooth road uses the painted footprint in orange; its softer terrain transition is a separate small mask. */
+  async setRoadRegion(selection: SurfaceSelection | null) {
+    if (!selection) { this.roadRegionOverlay?.clear(); return; }
+    this.roadRegionOverlay ??= this.makeRoadOverlay();
+    await this.roadRegionOverlay.set(selection, this.meshes);
+  }
+
+  async setRoadInfluence(selection: SurfaceSelection | null) {
+    if (!selection) { this.roadInfluenceOverlay?.clear(); return; }
+    this.roadInfluenceOverlay ??= this.makeRoadOverlay();
+    await this.roadInfluenceOverlay.set(selection, this.meshes);
+  }
+
+  private makeRoadOverlay() {
+    return new SurfaceOverlay(this.scene, () => { this.dirty = true; }, bytes => {
+      if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+      this.usedBytes += bytes; return true;
+    }, bytes => { this.usedBytes -= bytes; }, undefined, 0xf39c35, .42);
   }
 
   /** onIndexed gets the state of the track file shown as soon as it is known, null when none is. */
@@ -764,6 +817,8 @@ export class TrackView {
       return;
     }
     this.data = data;
+    this.ensureSplatState();
+    if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Discard all can remove these edits.`);
     this.objectPieces = objectIndex(data.objects);
     this.belonging = childrenOf(data.objects);
     this.removed = this.wanted();           // (the sorts named before the list was there; no mesh is loaded yet)
@@ -779,8 +834,8 @@ export class TrackView {
     const prepareTurn = oneByOne(2), prepared = new Map<string, Promise<void>>();
     const available = new Set<string>(data.surface_tiles ?? []);
     const tiles = new Set<string>(data.meshes.map((m: MeshInfo) => groundTile(m.name)).filter((tile: string | null) => tile && available.has(tile)));
-    const neededImages = new Set(data.meshes.map((m: MeshInfo) => data.materials[m.material]?.texture).filter(Boolean));
-    const textureCount = data.textures.filter((t: {name: string}) => neededImages.has(t.name)).length;
+    const neededImages = new Set(data.meshes.flatMap((m: MeshInfo) => materialImages(data.materials[m.material])));
+    const textureCount = neededImages.size;
     const tasks = total + textureCount + tiles.size;
     let preparedDone = 0, meshesReady = false;
     const report = () => {
@@ -839,6 +894,7 @@ export class TrackView {
     meshesReady = true;
     report();
     await Promise.all(this.textures);
+    await Promise.all([...this.splatPending.values()].map(p => p.done));
     if (mine !== this.token) return;
     if (preparedDone < prepared.size) report();
     await Promise.all(prepared.values());
@@ -1614,6 +1670,8 @@ export class TrackView {
     this.onViewFailed = onViewFailed;
   }
 
+  setTexturesChanged(onChanged: () => void) { this.onTexturesChanged = onChanged; }
+
   /** Mesh number i fetched again, as the server hands it out now. Only the last answer per mesh counts. */
   private async refresh(i: number) {
     const mine = this.token, {signal} = this.loading, m = this.byNumber.get(i);
@@ -1645,11 +1703,25 @@ export class TrackView {
     if (dragged.length) this.dragOn(dragged);
     fitSphere(g, info);
     g.boundsTree?.refit();
+    if (GROUND.test(info.name)) this.followRoadPins(g.boundingBox!);
     this.laidOver(info.i);
     if (this.marked) this.markDue = true;
     this.reframePicks();
     this.dirty = true;
     this.hoverDue = true;
+  }
+
+  private followRoadPins(bounds: THREE.Box3) {
+    if (!this.pins?.length || !this.pinMarks) return;
+    const positions = this.pinMarks.geometry.getAttribute("position");
+    for (const [k, pin] of this.pins.entries()) {
+      if (pin[0] < bounds.min.x || pin[0] > bounds.max.x || pin[2] < bounds.min.z || pin[2] > bounds.max.z) continue;
+      const height = this.groundAt(pin[0], pin[2]);
+      if (height === null) continue;
+      pin[1] = height;
+      positions.setY(k, height + BAND_UP_M);
+      positions.needsUpdate = true;
+    }
   }
 
   /** The ground under the mouse if a stroke can go on it, else null. */
@@ -1781,7 +1853,10 @@ export class TrackView {
     const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
                             sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
                             road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: [],
-                            adding: !!adding, whole: !!whole, surface};
+                            adding: !!adding, whole: !!whole, surface,
+                            inspection: {hovered, revision: this.data.revision,
+                              texture: this.data.textures.findIndex(t => t.name === hovered.texture),
+                              listed: !!id && !!this.data.objects[id.slice(0, id.lastIndexOf("#"))]}};
     if (id && bounds) this.picks.set(id, {box: this.picks.get(id)?.box ?? this.frameOf(bounds), picked});
     picked.all = this.allPicked();
     this.onPick(picked);
@@ -1907,6 +1982,12 @@ export class TrackView {
   private forgetPicks() {
     for (const {box} of this.picks.values()) this.removeFrame(box);
     this.picks.clear();
+  }
+
+  /** Current dimensions from loaded object triangles, independent of the surrounding merged mesh. */
+  dimensionsOf(id: string): [number, number, number] {
+    const size = this.boundsOf(id).getSize(new THREE.Vector3());
+    return [size.x, size.y, size.z];
   }
 
   /** The room an object takes, over all its triangles that are loaded. */
@@ -2289,6 +2370,8 @@ export class TrackView {
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
       }
       this.surfaceOverlay?.follow();
+      this.roadRegionOverlay?.follow();
+      this.roadInfluenceOverlay?.follow();
       this.renderer.render(this.scene, this.camera);
     }
     if (this.hoverDue && now - this.lastHover >= HOVER_EVERY_MS) {
@@ -2305,8 +2388,21 @@ export class TrackView {
   }
 
   private clear() {
+    this.paintVersion++;
+    this.paintLoading?.abort();
+    for (const change of this.textureChanges.values()) change.abort();
+    this.textureChanges.clear();
+    this.displayedTextures.clear();
+    this.paintFailure = null;
     this.loadedTexture = null;
+    for (const entry of this.splatImages.values()) this.disposeSplatImage(entry);
+    this.splatImages.clear();
+    this.splatBindings.clear();
+    this.splatPending.clear();
+    this.sourceMaterials.clear();
     this.surfaceOverlay?.clear();
+    this.roadRegionOverlay?.clear();
+    this.roadInfluenceOverlay?.clear();
     this.setCopy(null, null);
     this.copyVersion++;
     this.copyLoading?.abort();
@@ -2345,7 +2441,9 @@ export class TrackView {
   private texture(name: string, data: TrackIndex, i: number) {
     let t = this.textures[i];
     if (!t) {
-      const reserved = COPIES * data.textures[i].size, mine = this.token;
+      const descriptor = {...data.textures[i]};
+      if (descriptor.layers) { descriptor.version = ""; descriptor.size = descriptor.source_size ?? descriptor.size; }
+      const reserved = COPIES * descriptor.size, mine = this.token;
       if (!fits(this.usedBytes, reserved, this.settings.memoryGb)) {
         this.overLimit = true;
         return Promise.resolve(null);     // (the mesh stays plain grey)
@@ -2353,11 +2451,23 @@ export class TrackView {
       this.usedBytes += reserved;
       const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
       const signal = this.loading.signal;
-      t = textureTurn(() => fetchBytes(`/api/editor/${encodeURIComponent(name)}/texture/${i}?r=${data.revision}`, signal)
-        .then(buf => makeTexture(buf, data.textures[i].name, anisotropy)))
+      let allocated = reserved;
+      let displayedVersion = descriptor.version ?? "";
+      t = textureTurn(async () => {
+        let bytes: ArrayBuffer;
+        try {
+          bytes = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/texture/${i}?r=${data.revision}${descriptor.version ? `&p=${descriptor.version}` : ""}`, signal);
+        } catch (error) {
+          if (!descriptor.version || signal.aborted || mine !== this.token) throw error;
+          this.onViewFailed(`A material edit could not be shown: ${String(error)}. Its original texture is shown; you can discard the edit.`);
+          displayedVersion = "";
+          bytes = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/texture/${i}?r=${data.revision}`, signal);
+        }
+        return makeTexture(bytes, descriptor.name, anisotropy, descriptor.linear);
+      })
         .then(made => {
           // (a PNG takes far more decoded than its file says; the next parts see what it really took)
-          if (made.image instanceof ImageBitmap && mine === this.token) {
+          if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap && mine === this.token) {
             const extra = decodedBytes(made.image.width, made.image.height) - reserved;
             if (!fits(this.usedBytes, extra, this.settings.memoryGb)) {
               this.usedBytes -= reserved;
@@ -2367,6 +2477,11 @@ export class TrackView {
               return null;
             }
             this.usedBytes += extra;
+            allocated += extra;
+          }
+          if (mine === this.token) {
+            this.textureBytes.set(made, allocated);
+            (this.displayedTextures ??= new Map()).set(i, displayedVersion);
           }
           return made;
         }).then(made => {
@@ -2378,10 +2493,249 @@ export class TrackView {
     return t;
   }
 
+  textureVersion(i: number) { return this.displayedTextures?.get(i) ?? ""; }
+
+  /** One acknowledged draft; immutable versions survive unrelated writes and older requests are cancelled. */
+  refreshPaints(textures: GroundTextureUpdate[], paints: string[]) {
+    this.paintFailure = null;
+    this.paintVersion++;
+    this.paintLoading?.abort();
+    if (!this.data) return;
+    this.ensureSplatState();
+    this.data.paints = paints;
+    const active = new Set(textures.filter(t => t.version).map(t => t.i));
+    const updates = [...textures], explicit = new Set(textures.map(t => t.i));
+    this.data.textures.forEach((t, i) => {
+      if (t.version && !active.has(i) && !explicit.has(i)) updates.push({i, size: t.source_size ?? t.size, version: ""});
+    });
+    for (const next of updates) {
+      const descriptor = this.data.textures[next.i];
+      if (!descriptor) continue;
+      if (next.layers || descriptor.layers) this.refreshSplat(next);
+      else this.refreshTexture(next);
+    }
+  }
+
+  /** Reconcile an index loaded before the draft. The requested recipe belongs to this tab, never another tab's latest edits. */
+  async syncPaints(paints: string[]) {
+    const data = this.data;
+    if (!data || (!this.paintFailure && JSON.stringify(data.paints ?? []) === JSON.stringify(paints))) return;
+    const epoch = ++this.paintVersion, mine = this.token;
+    this.paintLoading?.abort();
+    const controller = this.paintLoading = new AbortController();
+    try {
+      const r = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/textures`, {method: "POST", signal: controller.signal,
+        headers: {"Content-Type": "application/json"}, body: JSON.stringify({base: data.revision, paints})});
+      const answer = await r.json() as {textures: GroundTextureUpdate[]; error?: string};
+      if (!r.ok) throw new Error(answer.error ?? "Could not read ground materials");
+      if (controller.signal.aborted || mine !== this.token || epoch !== this.paintVersion) return;
+      const active = new Set(answer.textures.map(t => t.i));
+      data.textures.forEach((t, i) => { if (t.version && !active.has(i)) answer.textures.push({i, size: t.source_size ?? t.size, version: ""}); });
+      this.paintFailure = null;
+      this.refreshPaints(answer.textures, paints);
+    } catch (e) {
+      if (!controller.signal.aborted && mine === this.token) this.onViewFailed(e instanceof Error ? e.message : "Could not read ground materials");
+    }
+  }
+
+  async texturesReady() {
+    await Promise.all([...this.textureChanges.values()].map(t => t.done));
+    await Promise.all([...(this.splatPending?.values() ?? [])].map(t => t.done));
+    if (this.paintFailure) throw new Error(this.paintFailure);
+  }
+
+  private ensureSplatState() {
+    this.splatImages ??= new Map(); this.splatBindings ??= new Map();
+    this.splatPending ??= new Map(); this.sourceMaterials ??= new Map();
+  }
+
+  private disposeSplatImage(entry: SplatImageEntry) {
+    if (entry.disposed) return;
+    entry.disposed = true; entry.controller.abort();
+    if (entry.token === this.token) this.usedBytes -= entry.bytes;
+    entry.texture?.dispose();
+    if (typeof ImageBitmap !== "undefined" && entry.texture?.image instanceof ImageBitmap) entry.texture.image.close();
+  }
+
+  private pruneSplatImages() {
+    const needed = new Set([...this.splatBindings.values(), ...[...this.splatPending.values()].map(p => p.keys)].flatMap(k => [...k]));
+    for (const [key, entry] of this.splatImages) if (!needed.has(key)) {
+      this.splatImages.delete(key); this.disposeSplatImage(entry);
+    }
+  }
+
+  private splatTexture(ref: ColourImage, data: TrackIndex, keys: Set<string>) {
+    if (!ref.url) {
+      const i = ref.i ?? data.textures.findIndex(t => t.name === ref.name);
+      return i < 0 ? Promise.resolve(null) : this.texture(this.trackName, data, i);
+    }
+    const key = `${ref.linear ? "mask" : "colour"}:${ref.key ?? ref.url}`;
+    keys.add(key);
+    const found = this.splatImages.get(key);
+    if (found) return found.done;
+    const bytes = COPIES * (ref.size ?? 0), mine = this.token;
+    if (!bytes || !fits(this.usedBytes, bytes, this.settings.memoryGb)) {
+      this.overLimit = true; return Promise.resolve(null);
+    }
+    this.usedBytes += bytes;
+    const controller = new AbortController();
+    const entry: SplatImageEntry = {done: Promise.resolve(null), controller, bytes, token: mine, disposed: false};
+    this.splatImages.set(key, entry);
+    const signal = AbortSignal.any([controller.signal, this.loading.signal]);
+    entry.done = textureTurn(async () => {
+      if (signal.aborted) return null;
+      const raw = await fetchBytes(ref.url!, signal);
+      if (signal.aborted) return null;
+      return makeTexture(raw, ref.name, this.renderer.capabilities.getMaxAnisotropy(), ref.linear);
+    }).then(texture => {
+      if (entry.disposed || mine !== this.token) { texture?.dispose(); return null; }
+      if (texture) { entry.texture = texture; this.loadedTexture?.(); }
+      return texture;
+    }).catch(error => {
+      if (this.splatImages.get(key) === entry) this.splatImages.delete(key);
+      this.disposeSplatImage(entry);
+      throw error;
+    });
+    void entry.done.catch(() => {}); // Its material job reports a current failure; obsolete downloads are cancelled.
+    return entry.done;
+  }
+
+  private prepareSplat(k: number, material: THREE.MeshLambertMaterial, layers: ColourSplat, ready: () => void) {
+    this.ensureSplatState();
+    const data = this.data!, mine = this.token, keys = new Set<string>();
+    const entry: SplatPending = {keys, done: Promise.resolve()};
+    this.splatPending.set(k, entry);
+    const current = () => mine === this.token && this.splatPending.get(k) === entry && !this.loading.signal.aborted;
+    const base = this.splatTexture(layers.base, data, keys);
+    void base.then(texture => { if (texture && current()) { material.map = texture; material.needsUpdate = true; this.dirty = true; } }, () => {});
+    const mask = this.splatTexture(layers.mask, data, keys);
+    const colours = layers.images.map(ref => this.splatTexture(ref, data, keys));
+    this.pruneSplatImages();
+    entry.done = Promise.all([base, mask, ...colours]).then(([original, keep, ...images]) => {
+      if (!current()) return;
+      if (!original || !keep || images.some(image => !image)) throw new Error("Not enough editor memory for this material. Increase the limit and reopen the track.");
+      material.map = original;
+      bindSplat(material, keep, images as THREE.Texture[], layers);
+      this.splatBindings.set(k, keys);
+      ready(); this.dirty = true;
+    }).catch(error => {
+      if (current()) {
+        this.paintFailure = error instanceof Error ? error.message : "Could not load this material";
+        this.onViewFailed(this.paintFailure);
+      }
+    }).finally(() => {
+      if (this.splatPending.get(k) === entry) this.splatPending.delete(k);
+      if (mine === this.token) {
+        if (this.materials[k] !== material) material.dispose();
+        this.pruneSplatImages();
+      }
+    });
+  }
+
+  private refreshSplat(next: GroundTextureUpdate) {
+    const data = this.data!, descriptor = data.textures[next.i], oldLayers = descriptor.layers;
+    if (descriptor.version === next.version && this.textureVersion(next.i) === next.version && !!oldLayers === !!next.layers) return;
+    const indices = next.materials ?? next.layers?.materials ?? oldLayers?.materials ?? [];
+    Object.assign(descriptor, {version: next.version, size: next.size, layers: next.layers});
+    for (const k of indices) {
+      const source = this.sourceMaterials.get(k) ?? data.materials[k].source ?? data.materials[k];
+      this.sourceMaterials.set(k, source);
+      const old = this.materials[k];
+      if (!next.layers) {
+        this.splatPending.delete(k); this.splatBindings.delete(k);
+        data.materials[k] = source;
+        this.materials[k] = undefined;
+        const restored = old ? this.material(this.trackName, data, k) : null;
+        for (const mesh of this.meshes) if (mesh.userData.info.material === k && restored) mesh.material = restored;
+        old?.dispose();
+        this.displayedTextures.set(next.i, "");
+      } else if (!old) {
+        data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
+      } else {
+        const material = old.clone(), layers = next.layers;
+        this.prepareSplat(k, material, layers, () => {
+          const previous = this.materials[k];
+          this.materials[k] = material; data.materials[k] = {...source, splat: layers};
+          for (const mesh of this.meshes) if (mesh.userData.info.material === k) mesh.material = material;
+          previous?.dispose();
+          this.displayedTextures.set(next.i, next.version);
+          this.onTexturesChanged?.();
+        });
+      }
+    }
+    this.pruneSplatImages(); this.dirty = true;
+    if (!next.layers) this.onTexturesChanged?.();
+  }
+
+  /** Keep a texture's identity: all loaded materials and Copy previews retain their existing reference. */
+  private refreshTexture(next: {i: number; size: number; version: string}) {
+    const data = this.data, descriptor = data?.textures[next.i];
+    if (!data || !descriptor || this.textureChanges.get(next.i)?.version === next.version) return;
+    if ((descriptor.version ?? "") === next.version && (!this.textures[next.i] || this.textureVersion(next.i) === next.version)) return;
+    Object.assign(descriptor, {version: next.version, size: next.size});
+    this.textureChanges.get(next.i)?.abort();
+    const old = this.textures[next.i];
+    if (!old) return; // Still outside the memory limit or not requested: its eventual load uses the new descriptor.
+    const mine = this.token, controller = new AbortController();
+    let reserved = 0;
+    const release = () => { if (mine === this.token) this.usedBytes -= reserved; reserved = 0; };
+    const entry = {abort: () => { controller.abort(); release(); }, done: Promise.resolve(), version: next.version};
+    this.textureChanges.set(next.i, entry);
+    const signal = AbortSignal.any([controller.signal, this.loading.signal]);
+    const current = () => !signal.aborted && mine === this.token && this.textureChanges.get(next.i) === entry;
+    entry.done = (async () => {
+      let made: THREE.Texture | null = null;
+      try {
+        const target = await old;
+        if (!target || !current()) return;
+        made = await textureTurn(async () => {
+          if (!current()) return null;
+          const needed = COPIES * next.size;
+          if (!fits(this.usedBytes, needed, this.settings.memoryGb)) throw new Error("Not enough editor memory to update this ground texture. Increase the memory limit and reopen the track.");
+          this.usedBytes += needed; reserved = needed;
+          const bytes = await fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/texture/${next.i}?r=${data.revision}${next.version ? `&p=${next.version}` : ""}`, signal);
+          if (!current()) return null;
+          return makeTexture(bytes, descriptor.name, this.renderer.capabilities.getMaxAnisotropy(), descriptor.linear);
+        });
+        if (!made || !current()) return;
+        if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap) {
+          const extra = decodedBytes(made.image.width, made.image.height) - reserved;
+          if (!fits(this.usedBytes, extra, this.settings.memoryGb)) throw new Error("Not enough editor memory to update this ground texture. Increase the memory limit and reopen the track.");
+          this.usedBytes += extra; reserved += extra;
+        }
+        const previousImage = target.image;
+        this.usedBytes -= this.textureBytes.get(target) ?? 0;
+        this.textureBytes.set(target, reserved); reserved = 0;
+        const alpha = this.alphaOf.get(target);
+        if (alpha) this.usedBytes -= alpha.data.byteLength;
+        this.alphaOf.delete(target);
+        target.dispose();
+        target.copy(made); target.needsUpdate = true;
+        for (const m of this.materials) if (m?.map === target) m.needsUpdate = true;
+        if (typeof ImageBitmap !== "undefined" && previousImage instanceof ImageBitmap) previousImage.close();
+        made = null; // Its bitmap is now owned by target; the temporary texture never reached the GPU.
+        (this.displayedTextures ??= new Map()).set(next.i, next.version);
+        this.onTexturesChanged?.();
+        this.dirty = true;
+      } catch (e) {
+        if (current()) {
+          this.paintFailure = e instanceof Error ? e.message : "Could not update ground materials";
+          this.onViewFailed(this.paintFailure);
+        }
+      } finally {
+        if (made) { made.dispose(); if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap) made.image.close(); }
+        release();
+        if (this.textureChanges.get(next.i) === entry) this.textureChanges.delete(next.i);
+      }
+    })();
+  }
+
   private material(name: string, data: TrackIndex, k: number) {
     const have = this.materials[k];
     if (have) return have;
     const d = data.materials[k], b = Math.min(1, d.bright);
+    this.ensureSplatState();
+    if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
     const m = new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
     if (d.blend) {
@@ -2389,12 +2743,40 @@ export class TrackView {
       m.depthWrite = false;
     }
     this.materials[k] = m;
+    if (d.splat) {
+      this.prepareSplat(k, m, d.splat, () => {
+        const i = d.splat!.base.i ?? data.textures.findIndex(t => t.name === d.splat!.base.name);
+        if (i >= 0) this.displayedTextures.set(i, data.textures[i].version ?? "");
+        this.onTexturesChanged?.();
+      });
+      return m;
+    }
+    if (d.dual_layer) {
+      const mine = this.token, layers = d.dual_layer;
+      const image = (file: string | null) => {
+        const index = data.textures.findIndex(t => t.name === file);
+        return index < 0 ? Promise.resolve(null) : this.texture(name, data, index);
+      };
+      // Reserve the original tile first. Until all three images fit and arrive, show that tile unchanged.
+      const base = image(layers.base), keep = image(layers.mask), detail = image(d.texture);
+      void base.then(texture => {
+        if (texture && mine === this.token) { m.map = texture; m.needsUpdate = true; this.dirty = true; }
+      }, () => {});
+      void Promise.all([base, keep, detail]).then(([original, mask, colour]) => {
+        if (!original || !mask || !colour || mine !== this.token) return;
+        m.map = colour;
+        bindColourBlend(m, original, mask, layers.scale);
+        this.dirty = true;
+      }, () => {}); // The shared loader reports failed images and owns their memory and disposal.
+      return m;
+    }
     const i = data.textures.findIndex(t => t.name === d.texture);
     if (i >= 0) {
       const mine = this.token;
       void this.texture(name, data, i).then(t => {
         if (!t || mine !== this.token) return;
         m.map = t;
+        if (d.world_scale) bindWorldColour(m, d.world_scale);
         m.needsUpdate = true;
         this.dirty = true;
       }, () => {});       // (load awaits the textures and reports their failures)
@@ -2420,6 +2802,8 @@ export class TrackView {
         (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objectPieces.get(info.i) ?? []));
     }
     void this.surfaceOverlay?.add(m).catch(e => this.surfaceFailed(String(e.message ?? e)));
+    void this.roadRegionOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
+    void this.roadInfluenceOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     this.laidOver(info.i);
     for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(m, piece, true);
     if (info.base !== null && info.base !== undefined) {

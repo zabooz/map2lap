@@ -1,6 +1,5 @@
-/* What the mouse points at: over the view's top right, the mouse passes through it */
-.box { position: absolute; top: 12px; right: 12px; width: 320px; padding: 10px 12px; border: 1px solid var(--line);
-       border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); pointer-events: none; font-size: 12px; }
+/* What the pointer sees, contained by the right inspector. */
+.box { font-size: 12px; }
 .box h4 { margin: 0 0 4px; font-size: 13px; }
 .box dl + h4 { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
 .box dl { display: grid; grid-template-columns: 76px 1fr; gap: 1px 8px; margin: 0; }

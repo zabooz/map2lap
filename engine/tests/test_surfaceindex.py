@@ -1,8 +1,12 @@
 """Ground selection is prepared while loading, then clicks look up regions without evaluating paint masks again."""
 import base64
 import io
+import json
+import os
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -58,6 +62,35 @@ class SurfaceIndexTest(unittest.TestCase):
         self.assertTrue((mask[29:35] == 255).all())
         self.assertTrue((mask[:28] == 0).all())
 
+    def test_select_all_includes_disconnected_regions_and_distant_matching_tiles(self):
+        alpha = np.zeros((64, 64), np.uint8)
+        alpha[10:15, 10:20] = 255
+        alpha[45:50, 45:55] = 180
+        editorinfo.install(str(self.kn5), [self.tile(0, alpha=alpha), self.tile(3, alpha=alpha)])
+        surfaceindex.prepare(str(self.kn5))
+        local = surfaceindex.select(str(self.kn5), 0, 0, 0.2, 0.8)
+        self.assertEqual(1, len(local["tiles"]))
+        self.assertEqual(0, self.mask(local)[46, 46])
+        with mock.patch.object(surfaceindex, "_build_tile", side_effect=AssertionError("selection recomputed paint")):
+            all_ = surfaceindex.select(str(self.kn5), 0, 0, 0.2, 0.8, whole=True)
+        self.assertEqual({(0, 0), (3, 0)}, {tuple(tile["tile"]) for tile in all_["tiles"]})
+        np.testing.assert_array_equal(alpha, self.mask(all_))
+        np.testing.assert_array_equal(alpha, self.mask(all_, (3, 0)))
+        self.assertFalse(all_["truncated"])
+
+    def test_select_all_reports_its_preview_limit_and_unprepared_matching_area(self):
+        editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 3, 8)])
+        surfaceindex.prepare(str(self.kn5), ["0_0", "3_0"])
+        partial = surfaceindex.select(str(self.kn5), 0, 0, 0.5, 0.5, whole=True)
+        self.assertEqual(2, len(partial["tiles"]))
+        self.assertTrue(partial["truncated"])
+        surfaceindex.prepare(str(self.kn5))
+        with mock.patch.object(editorinfo, "MAX_TILES", 2):
+            limited = surfaceindex.select(str(self.kn5), 8, 0, 0.5, 0.5, whole=True)
+        self.assertEqual(2, len(limited["tiles"]))
+        self.assertIn([8, 0], [tile["tile"] for tile in limited["tiles"]])
+        self.assertTrue(limited["truncated"])
+
     @staticmethod
     def road(id_, points, link=False, layer="0"):
         return {"id": id_, "layer": "roads", "tags": {"layer": layer}, "geometry": [points],
@@ -85,6 +118,72 @@ class SurfaceIndexTest(unittest.TestCase):
         self.assertEqual(chains["a"], chains["b"])
         self.assertNotEqual(chains["b"], chains["exit"])
         self.assertNotEqual(chains["a"], chains["above"])
+
+    def in_process(self, seed, code, payload):
+        source = "import sys\nsys.path.insert(0, " + repr(str(Path(surfaceindex.__file__).parents[1])) + ")\n"
+        result = subprocess.run([sys.executable, "-c", source + textwrap.dedent(code)],
+                                input=json.dumps(payload), text=True, capture_output=True,
+                                env={**os.environ, "PYTHONHASHSEED": str(seed)}, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_chain_ids_are_stable_across_processes_and_feature_order(self):
+        roads = [self.road(name, [[i * 64, -128], [(i + 1) * 64, -128]])
+                 for i, name in enumerate(("a", "b", "c", "d"))]
+        results = [self.in_process(seed, """
+            import json
+            from track import surfaceindex
+            print(json.dumps(surfaceindex.road_chains(json.load(sys.stdin))))
+            """, features) for seed in (1, 2, 5) for features in (roads, roads[::-1])]
+        for result in results:
+            self.assertEqual(results[0], result)
+            self.assertEqual(1, len(set(result.values())))
+
+    def test_cached_road_selection_and_smoothing_survive_another_process(self):
+        roads = [self.road(name, [[32 + i * 112, -128], [32 + (i + 1) * 112, -128]])
+                 for i, name in enumerate(("a", "b", "c", "d"))]
+        editorinfo.install(str(self.kn5), [self.tile(x, features=roads) for x in (0, 1)])
+        payload = {"path": str(self.kn5), "cache": str(self.root / "cache")}
+        self.in_process(1, """
+            import json
+            from pathlib import Path
+            from track import surfaceindex
+            data = json.load(sys.stdin)
+            surfaceindex.CACHE_ROOT = Path(data['cache'])
+            surfaceindex.prepare(data['path'], ['0_0'])
+            print('null')
+            """, payload)
+        result = self.in_process(2, """
+            import base64, io, json
+            from pathlib import Path
+            import numpy as np
+            from PIL import Image
+            from app import roadregion
+            from track import surfaceindex
+            data = json.load(sys.stdin)
+            surfaceindex.CACHE_ROOT = Path(data['cache'])
+            surfaceindex.prepare(data['path'], ['1_0'])
+            local = surfaceindex.select(data['path'], 0, 0, .5, .5)
+            net = roadregion.mapped(data['path'], [[48, -128], [464, -128]])
+            selected = roadregion.selection(data['path'], net)
+            pixels = [int(np.asarray(Image.open(io.BytesIO(base64.b64decode(t['mask']))))[32, 32])
+                      for t in sorted(selected['tiles'], key=lambda t: t['tile'])]
+            print(json.dumps({'local_tiles': len(local['tiles']), 'pixels': pixels}))
+            """, payload)
+        self.assertEqual({"local_tiles": 2, "pixels": [255, 255]}, result)
+
+    def test_old_unstable_owner_cache_is_replaced_automatically(self):
+        editorinfo.install(str(self.kn5), [self.tile()])
+        with mock.patch.object(surfaceindex, "VERSION", 1):
+            surfaceindex._catalog.cache_clear()
+            surfaceindex.prepare(str(self.kn5))
+            old_target = surfaceindex._context(str(self.kn5))[1]
+        surfaceindex._catalog.cache_clear()
+        new_target = surfaceindex._context(str(self.kn5))[1]
+        self.assertNotEqual(old_target, new_target)
+        surfaceindex.prepare(str(self.kn5))
+        self.assertTrue((new_target / "0_0.npz").is_file())
+        self.assertTrue((old_target / "0_0.npz").is_file())
 
     def test_prepared_files_survive_memory_eviction_and_save_as_without_recomputing(self):
         editorinfo.install(str(self.kn5), [self.tile()])

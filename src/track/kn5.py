@@ -160,14 +160,22 @@ def _copy_bytes(source, target, n):
         n -= len(piece)
 
 
-def without_faces(path, out, going, change=None, added=()):
+def without_faces(path, out, going, change=None, added=(), texture_bytes=None, materials=None, textures=()):
     """A copy of the kn5 at path at out without some triangles: going {mesh number (as scan's): bool per triangle, True what goes}.
     A mesh left with none is left out. What doesn't change is copied as it stands, so the rest stays the same to the byte and a 10 GB
     file never lies in memory; a changed mesh keeps only the vertices it still uses, and its bounding sphere: a little too big does no
     harm. change: a Moved, of the file's numbers before anything goes. added: draft meshes with mesh_arrays data, numbered after
-    the source meshes, subject to the same filtering and changes. Returns {mesh number: its new number, None if left out}."""
+    the source meshes, subject to the same filtering and changes. texture_bytes(i): replacement bytes, or None to stream the
+    original image unchanged. materials: a replacement table with the same indexes; textures: additional shared images.
+    Returns {mesh number: its new number, None if left out}."""
     change = change or Moved({}, {}, {})
     scan_ = scan(path)
+    textures = tuple(textures)
+    if materials is not None and len(materials) != len(scan_["materials"]):
+        raise ValueError("Replacement materials must keep the original material indexes")
+    names = [name for name, _raw in textures]
+    if len(set(names)) != len(names) or set(names).intersection(t[0] for t in scan_["textures"]):
+        raise ValueError("Additional texture names must be unique")
     moved, number = {}, 0
     all_meshes = scan_["meshes"] + list(added)
     for i, m in enumerate(all_meshes):
@@ -186,8 +194,11 @@ def without_faces(path, out, going, change=None, added=()):
             r.skip(r.take("<i"))
         _materials(r)
         head = f.tell()
-        f.seek(0)
-        _copy_bytes(f, g, head)
+        if texture_bytes is None and materials is None and not textures:
+            f.seek(0)
+            _copy_bytes(f, g, head)
+        else:
+            _copy_header(f, g, texture_bytes, materials, textures)
         cls, name = r.take("<i"), r.string()
         children = r.take("<i")
         active = r.take("<B")
@@ -212,6 +223,47 @@ def without_faces(path, out, going, change=None, added=()):
                         bs_center=info["center"], bs_radius=info["radius"] + change.grow.get(i, 0))
             g.writelines(node_bytes(node))
     return moved
+
+
+def _copy_header(f, g, replacement, materials=None, textures=()):
+    """Stream selected image/material changes and additional shared images, retaining material indexes and nodes."""
+    f.seek(6)
+    r = FileReader(f)
+    if r.take("<i") > 5:
+        r.take("<i")
+    count = r.take("<i")
+    prefix = f.tell()
+    f.seek(0)
+    _copy_bytes(f, g, prefix - 4)
+    g.write(struct.pack("<i", count + len(textures)))
+    f.seek(prefix)
+    for i in range(count):
+        start = f.tell()
+        r.take("<i")
+        r.string()
+        size = r.take("<i")
+        at = f.tell()
+        raw = replacement(i) if replacement else None
+        f.seek(start)
+        if raw is None:
+            _copy_bytes(f, g, at - start + size)
+        else:
+            _copy_bytes(f, g, at - start - 4)
+            g.write(struct.pack("<i", len(raw)))
+            g.write(raw)
+            f.seek(at + size)
+    for name, raw in textures:
+        g.write(struct.pack("<i", 1) + _s(name) + struct.pack("<i", len(raw)))
+        g.write(raw)
+    start = f.tell()
+    _materials(r)
+    end = f.tell()
+    f.seek(start)
+    if materials is None:
+        _copy_bytes(f, g, end - start)
+    else:
+        g.writelines(material_bytes(materials))
+        f.seek(end)
 
 
 def mesh_arrays(f, info):
@@ -336,7 +388,13 @@ def header_bytes(textures, materials, version=6):
     out.append(struct.pack("<i", len(textures)))
     for name, data in textures:
         out += [struct.pack("<i", 1), _s(name), struct.pack("<i", len(data)), data]
-    out.append(struct.pack("<i", len(materials)))
+    out.extend(material_bytes(materials))
+    return out
+
+
+def material_bytes(materials):
+    """A KN5 material table as byte pieces, preserving list order and therefore mesh material indexes. Pure."""
+    out = [struct.pack("<i", len(materials))]
     for m in materials:
         out += [_s(m.name), _s(m.shader), struct.pack("<BBi", m.blend, m.alpha_tested, m.depth_mode),
                 struct.pack("<i", len(m.props))]

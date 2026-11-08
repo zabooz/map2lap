@@ -5,13 +5,12 @@ import {thenView} from "./ToolOptions";
 import {isChanged, type useSave} from "./useSave";
 import type {TrackView} from "./view";
 
-export type Tool = "select" | "road" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth";
 type Group = "general" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click an object to pick it, Ctrl + click adds more, Shift + click selects all matching, X or Delete takes them out; a right click marks all of its sort (V)"},
-  {tool: "camera", group: "general", id: "edit-camera", label: "Camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
-  {tool: "road", group: "terrain", id: "edit-road", label: "Mark road", key: "R", hint: "Two clicks on the road mark a stretch of it, for Smooth; further clicks are pins (R; Esc ends it)"},
-  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth", key: "T", hint: "Even out a marked stretch of road: mark it first or after, it shows at once, Enter takes it (T; Esc ends it)"},
+  {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
+  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "T", hint: "Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (T)"},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
   {tool: "move", group: "objects", id: "edit-move", label: "Move", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
   {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},

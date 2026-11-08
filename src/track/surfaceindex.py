@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw
 from track import editorinfo
 
 CACHE_ROOT = Path(__file__).resolve().parents[2] / "out" / "editor-selection"
-VERSION = 1
+VERSION = 2  # Rebuild persisted owners made with process-dependent road-chain roots.
 ROAD_MATERIALS = {"road_asphalt", "road_concrete", "road_cobble", "road_gravel", "road_dirt"}
 RUN = np.dtype([("row", "<u2"), ("start", "<u2"), ("end", "<u2"), ("local", "<u4"), ("whole", "<u4"), ("owner", "<u4")])
 _preparing = threading.Lock()
@@ -45,7 +45,7 @@ def _join(parent, a, b):
 
 
 def road_chains(features):
-    """Source road id to chain number: join only same-surface degree-two endpoints on the same mapped level. Pure."""
+    """Stable source road chains: join only same-surface degree-two endpoints on the same mapped level. Pure."""
     roads = {str(f["id"]): f for f in features}
     names = sorted(roads)
     numbers = {name: i for i, name in enumerate(names)}
@@ -66,7 +66,12 @@ def road_chains(features):
         sa, sb = roads[a].get("spec") or {}, roads[b].get("spec") or {}
         if (sa.get("kind"), bool(sa.get("link"))) == (sb.get("kind"), bool(sb.get("link"))):
             _join(parent, numbers[a], numbers[b])
-    return {name: _find(parent, numbers[name]) + 1 for name in names}
+    # Union roots depend on set/feature iteration. Persist the lowest sorted source number in each chain,
+    # so a later process agrees with prepared tiles (including tiles prepared in different sessions).
+    canonical = {}
+    for i in range(len(names)):
+        canonical.setdefault(_find(parent, i), i + 1)
+    return {name: canonical[_find(parent, numbers[name])] for name in names}
 
 
 @functools.lru_cache(maxsize=1)
@@ -271,8 +276,26 @@ def merge(selections):
             "tiles": [{"tile": list(key), "mask": base64.b64encode(editorinfo._png(mask)).decode("ascii")} for key, mask in masks.items()]}
 
 
+def _all_matching(target, available, material, clicked):
+    """All prepared contributions of one material, including disconnected regions; keep the preview bounded."""
+    tiles, truncated = [], False
+    for key in [clicked, *sorted(set(available) - {clicked})]:
+        path = target / (key + ".npz")
+        if not path.is_file():
+            truncated = True
+            continue
+        tile = _load(path, material)
+        if tile is None or not len(tile["runs"]):
+            continue
+        if len(tiles) == editorinfo.MAX_TILES:
+            truncated = True
+            break
+        tiles.append({"tile": list(map(int, key.split("_"))), "mask": base64.b64encode(tile["alpha"].tobytes()).decode("ascii")})
+    return {"material": material, "truncated": truncated, "whole": True, "tiles": tiles}
+
+
 def select(kn5, tx, ty, u, v, whole=False):
-    """Look up a prepared local/whole region and its tile links; paint evaluation and component discovery belong to prepare."""
+    """Look up the local connected region, or all matching prepared ground; never evaluate painting on a click."""
     _folder, target, available, _roads, _chains = _context(kn5)
     key = f"{tx}_{ty}"
     if key not in available:
@@ -283,6 +306,8 @@ def select(kn5, tx, ty, u, v, whole=False):
     size = first["meta"]["size"]
     row, col = editorinfo._pixel(u, v, size)
     material = first["meta"]["materials"][int(first["dominant"][row, col])]
+    if whole:
+        return _all_matching(target, available, material, key)
     tile = _load(target / (key + ".npz"), material)
     runs = tile["runs"]
     at = np.flatnonzero((runs["row"] == row) & (runs["start"] <= col) & (runs["end"] > col))

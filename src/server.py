@@ -31,11 +31,12 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (debugapp, mapcache, mytracks, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
-                 trackview, updater, version)
+from app import (csp, debugapp, mapcache, materiallibrary, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
+                 trackdetail, trackinspect, trackpaint, trackview, updater, version)
 from app.paths import ROOT, SRC  # noqa: E402
 
 PORT = 8800
+MATERIAL_UPLOADS = threading.BoundedSemaphore(2)  # Bound queued input buffers as well as the serialized image preparation.
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
        "progress": None, "started": None, "ended": None}              # progress: generator.PHASES {phase, done, total}
 running = {"proc": None, "clearing": False}     # clearing: the map data cache is being cleared (no build)
@@ -45,7 +46,7 @@ lock, dialog_lock = threading.Lock(), threading.Lock()
 MARK = os.path.join(ROOT, "out", "build_running.json")
 BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<name>): written only while "Keep build
                             # files" is on, replaced by the next build of the track, deleted with the build files
-EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?(?:&c=[a-f0-9]*)?)")
+EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?(?:&c=[a-f0-9]*)?(?:&p=[a-f0-9]{64})?)")
 COPIES_PATH = re.compile(r"/api/editor/([^/]+)/copies")
 SURFACE_PATH = re.compile(r"/api/editor/([^/]+)/surface")
 SURFACE_PREPARE_PATH = re.compile(r"/api/editor/([^/]+)/surface/prepare")
@@ -223,6 +224,8 @@ def start_build(name, title, points, width, area):
     with lock:
         if job["state"] in ("running", "stopping"):
             return 409, {"error": "A build is already running"}
+        if csp.busy():
+            return 409, {"error": "CSP is being installed: wait for it, then build"}
         if trackcopy.busy():            # (asked under the lock a Save asks about builds under: never both at once)
             return 409, {"error": "A track is being saved in the Editor: wait for it, then try again"}
         # (here too, not before the lock: a Save that ended since the request was made would be replaced)
@@ -320,6 +323,8 @@ def play(name):
     with lock:
         if job["state"] in ("running", "stopping"):
             return 409, {"error": "Not while a build is running"}
+        if csp.busy():
+            return 409, {"error": "CSP is being installed: wait for it, then play"}
     if system.running("acs.exe"):
         return 409, {"error": "Assetto Corsa is already running"}
     if not system.ensure_steam():
@@ -356,7 +361,11 @@ def play(name):
         ini.set("SESSION_0", k, v)
     with open(race_ini(), "w", encoding="utf-8") as f:
         ini.write(f, space_around_delimiters=False)
-    system.start_ac(ac)
+    with lock:
+        # Steam sign-in can take a while; a requested CSP install may have started since the first check.
+        if csp.busy():
+            return 409, {"error": "CSP is being installed: wait for it, then play"}
+        system.start_ac(ac)
     return 200, {"ok": True}
 
 
@@ -374,6 +383,22 @@ def web_file(path, web=WEB):
     return file
 
 
+def install_csp(path):
+    """Explicit install for the AC folder shown by the page; captures the path before background work starts."""
+    ac = settings.ac_path()
+    if not isinstance(path, str) or os.path.normcase(os.path.realpath(path)) != os.path.normcase(os.path.realpath(ac)):
+        return 409, {"error": "The Assetto Corsa folder changed. Check the folder and try again."}
+    with lock:
+        if job["state"] in ("running", "stopping") or running["clearing"] or trackcopy.busy():
+            return 409, {"error": "Wait for the current build, save or cache cleanup before installing CSP."}
+        if updater.state["state"] in ("downloading", "restarting"):
+            return 409, {"error": "Map2Lap is installing an update"}
+        try:
+            return 202, csp.start(ac)
+        except (ValueError, OSError) as error:
+            return 409, {"error": str(error)}
+
+
 def install_update():
     """Settings → "Install update": the newest release is downloaded in the background (updater), then the server ends
     for "Start Map2Lap.bat" (start.sh) to put it in and start it again; not during a build; returns (HTTP code,
@@ -381,6 +406,8 @@ def install_update():
     if not updater.possible():
         return 409, {"error": "Not a release folder: update it with git"}
     with lock:
+        if csp.busy():
+            return 409, {"error": "Wait for CSP installation before updating Map2Lap"}
         if job["state"] in ("running", "stopping") or running["clearing"]:
             return 409, {"error": "Not while a build is running"}
         if updater.state["state"] in ("downloading", "restarting"):
@@ -483,7 +510,8 @@ class Handler(BaseHTTPRequestHandler):
                 copy_revision = self.path.rsplit("&c=", 1)[1] if "&c=" in self.path else None
                 self._send(200, trackview.mesh_bytes(ac, name, int(i), revision, moved, draft, copy_revision), "application/octet-stream")
             elif kind == "texture":
-                tex, data = trackview.texture_bytes(ac, name, int(i), revision)
+                paint = parse_qs(urlsplit(self.path).query).get("p", [""])[0]
+                tex, data = trackview.texture_bytes(ac, name, int(i), revision, paint)
                 self._send(200, data, IMAGE_TYPES.get(os.path.splitext(tex)[1].lower(), "application/octet-stream"))
             else:
                 self._send(200, trackview.index(ac, name))
@@ -493,6 +521,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(409, {"error": "The copied objects changed; refreshing their view"})
         except trackview.Unreadable:
             self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+        except ValueError as e:
+            self._send(400, {"error": str(e)})
+        except OSError as e:
+            self._send(500, {"error": str(e)})
         except ConnectionError:             # (the page asked for another track meanwhile)
             pass
 
@@ -502,7 +534,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, work())
         except trackview.NotOurs:
             self._send(404, {"error": "This track has no track file (build it again)"})
-        except trackedits.Invalid as e:
+        except (trackedits.Invalid, ValueError) as e:
             self._send(400, {"error": str(e)})
         except (trackedits.Conflict, trackview.Unreadable):
             self._send(409, {"error": "The track or its changes changed: read them again"})
@@ -520,6 +552,25 @@ class Handler(BaseHTTPRequestHandler):
         except (KeyError, ValueError, IndexError, TypeError) as e:
             self._send(400, {"error": str(e)})
 
+    def _inspect(self, name, kind="inspect"):
+        """Details are fetched for a selection, never included in a whole track's picking index."""
+        try:
+            q = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+            name, ac = generator.slug(name), settings.ac_path()
+            if kind == "thumbnail":
+                self._send(200, trackinspect.thumbnail(ac, name, int(q["texture"][0]), q["r"][0], q.get("p", [""])[0]), "image/png")
+            elif kind == "appearance":
+                self._send(200, trackinspect.appearance(ac, name, int(q["mesh"][0]), float(q["u"][0]), float(q["v"][0]),
+                                                      q["r"][0], q.get("p", [""])[0]))
+            else:
+                self._edits_answer(lambda: trackinspect.object_info(ac, name, q["id"][0], q["r"][0]))
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track changed: read it again"})
+        except (KeyError, ValueError, IndexError, TypeError, OSError) as e:
+            self._send(400, {"error": str(e)})
+
     def _prepare_surface(self, name):
         try:
             q = parse_qs(urlsplit(self.path).query, strict_parsing=True)
@@ -527,11 +578,59 @@ class Handler(BaseHTTPRequestHandler):
         except (KeyError, ValueError, IndexError) as e:
             self._send(400, {"error": str(e)})
 
-    def _own_page(self):
+    def _own_page(self, content_type="application/json"):
         """Whether a request can only come from the page itself: another site can't send this type without asking first (no
         answer to that here), nor reach this server under another name."""
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
-        return host in LOCAL_HOSTS and (self.headers.get("Content-Type") or "").startswith("application/json")
+        return host in LOCAL_HOSTS and (self.headers.get("Content-Type") or "").split(";", 1)[0].strip() == content_type
+
+    def _library(self):
+        """Material summaries, small previews and bounded same-page imports; no absolute file paths enter a request."""
+        path = urlsplit(self.path)
+        try:
+            q = parse_qs(path.query)
+            if self.command == "GET":
+                if path.path == "/api/library/materials":
+                    return self._send(200, materiallibrary.listing(q.get("q", [""])[0], q.get("category", [""])[0],
+                                      int(q.get("offset", ["0"])[0]), int(q.get("limit", ["40"])[0])))
+                preview = re.fullmatch(r"/api/library/(materials|imports)/([a-f0-9]{64})/preview", path.path)
+                if preview:
+                    return self._send(200, materiallibrary.preview(preview[2], preview[1] == "imports"), "image/png")
+                material = re.fullmatch(r"/api/library/materials/([a-f0-9]{64})", path.path)
+                if material:
+                    return self._send(200, materiallibrary.get(material[1]))
+            elif (deleting := re.fullmatch(r"/api/library/materials/([a-f0-9]{64})/delete", path.path)):
+                if not self._own_page("application/json"):
+                    return self._send(403, {"error": "Only the page itself can delete a texture"})
+                if int(self.headers.get("Content-Length", 0)) > 4096:
+                    return self._send(413, {"error": "Too many texture settings"})
+                self._body()
+                return self._send(200, {"deleted": materiallibrary.remove(deleting[1])})
+            elif path.path in ("/api/library/imports", "/api/library/materials"):
+                upload = path.path.endswith("/imports")
+                if not self._own_page("application/x-map2lap-image" if upload else "application/json"):
+                    return self._send(403, {"error": "Only the page itself can import a material"})
+                size = int(self.headers.get("Content-Length", 0))
+                if not 0 < size <= (materiallibrary.MAX_BYTES if upload else 16384):
+                    return self._send(413, {"error": "Choose an image up to 64 MB" if upload else "Too many material settings"})
+                if upload:
+                    if not MATERIAL_UPLOADS.acquire(blocking=False):
+                        return self._send(429, {"error": "Another image is being prepared. Try again in a moment."})
+                    try:
+                        raw = self.rfile.read(size)
+                        if len(raw) != size:
+                            raise ValueError("The image upload was interrupted")
+                        return self._send(200, materiallibrary.prepare(q["filename"][0], raw))
+                    finally:
+                        MATERIAL_UPLOADS.release()
+                return self._send(200, materiallibrary.add(self._body()))
+            self._send(404, {"error": "No material here"})
+        except (ValueError, KeyError, TypeError) as error:
+            self._send(400, {"error": str(error)})
+        except ConnectionError:
+            pass
+        except OSError:
+            self._send(500, {"error": "Could not read or store the material. Check folder permissions and disk space."})
 
     def _save_track(self, name):
         """Save in the Editor (trackcopy.save): the track name in its place, or (copy) as a new one; the answer comes when it is
@@ -607,8 +706,21 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             base = body.get("base")
             path, scan = trackview._scan_of(ac, name, base)
+            if "revision" in body and body["revision"] != trackedits.load(ac, name)["revision"]:
+                return self._send(409, {"error": "The road edits changed: mark the road again"})
+            if body.get("network"):
+                net = roadregion.mapped(path, body.get("points"))
+                region = roadregion.selection(path, net)
+                if what == "way":
+                    lines = [[[x, 0., z] for x, z in line] for line in net["lines"]]
+                    return self._send(200, {"lines": lines, "region": region})
+                moved = trackedits.moved_without(ac, name, base, body.get("replace"))
+                op, influence = roadnet.change_of(path, scan, moved, net, region, body.get("blend", 6), body.get("strength"), secrets.token_hex(8))
+                trackedits.remember_meshes(ac, name, base, op)
+                return self._send(200, {"height": op, "influence": influence,
+                                       "standing": trackheights.standing(path, scan, trackview.list_of(path), op)})
+            moved = trackedits.moved_without(ac, name, base, body.get("replace"))
             road = trackband.road_cells(path, base)
-            moved = trackedits.moved_now(ac, name, base)
             if what == "way":
                 line, width = trackband.way(road, body.get("points"))
                 ys = trackband.road_heights(path, scan, moved, line)
@@ -618,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, trackedits.preview(ac, name, base, op), "application/octet-stream")
             trackedits.remember_meshes(ac, name, base, op)
             self._send(200, {"height": op, "standing": trackheights.standing(path, scan, trackview.list_of(path), op)})
-        except (ValueError, AttributeError) as e:
+        except (ValueError, AttributeError, TypeError) as e:
             self._send(400, {"error": str(e)})
         except (trackband.Refused, trackheights.InTheWay) as e:
             self._send(409, {"error": str(e)})
@@ -650,9 +762,26 @@ class Handler(BaseHTTPRequestHandler):
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
+        if self.path == "/api/csp":
+            return self._send(200, csp.status(settings.ac_path()))
+        if urlsplit(self.path).path.startswith("/api/library/"):
+            return self._library()
+        detail = re.fullmatch(r"/api/editor/([^/]+)/(paint-mask|paint-asset|paint-preview)/([a-f0-9]{64})", self.path)
+        if detail:
+            try:
+                ac, name = settings.ac_path(), generator.slug(detail[1])
+                reader = {"paint-mask": trackdetail.mask, "paint-asset": trackdetail.image, "paint-preview": trackinspect.paint_preview}[detail[2]]
+                raw = reader(ac, name, detail[3])
+                return self._send(200, raw, "image/png" if detail[2] == "paint-preview" else "image/vnd-ms.dds")
+            except trackview.Unreadable as error:
+                return self._send(409, {"error": str(error)})
+            except (ValueError, OSError, trackview.NotOurs) as error:
+                return self._send(400, {"error": str(error)})
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
+        elif (inspection := re.fullmatch(r"/api/editor/([^/]+)/(inspect|thumbnail|appearance)", urlsplit(self.path).path)):
+            self._inspect(inspection[1], inspection[2])
         elif (surface := SURFACE_PATH.fullmatch(urlsplit(self.path).path)):
             self._surface(surface[1])
         elif (preparing := SURFACE_PREPARE_PATH.fullmatch(urlsplit(self.path).path)):
@@ -695,6 +824,39 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, f.read(), WEB_TYPES.get(os.path.splitext(file)[1], "application/octet-stream"))
 
     def do_POST(self):
+        if self.path == "/api/csp/install":
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can install CSP"})
+            try:
+                size = int(self.headers.get("Content-Length") or 0)
+                if not 0 < size <= 4096:
+                    return self._send(400, {"error": "No valid CSP installation request"})
+                body = self._body()
+                if not isinstance(body, dict):
+                    raise ValueError("No valid CSP installation request")
+                code, answer = install_csp(body.get("path"))
+                return self._send(code, answer)
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "No valid CSP installation request"})
+        if urlsplit(self.path).path.startswith("/api/library/"):
+            return self._library()
+        paint = re.fullmatch(r"/api/editor/([^/]+)/(paint|textures)", self.path)
+        if paint:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can edit materials"})
+            if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+                self.close_connection = True
+                return self._send(413, {"error": "Too many material changes"})
+            def work():
+                body = self._body()
+                ac, name = settings.ac_path(), generator.slug(paint[1])
+                if paint[2] == "paint":
+                    return trackedits.paint(ac, name, body)
+                try:
+                    return {"paints": body["paints"], "textures": trackpaint.descriptors(ac, name, body["base"], body["paints"])}
+                except (ValueError, KeyError, TypeError) as e:
+                    raise trackedits.Invalid(str(e)) from e
+            return self._edits_answer(work)
         move = MOVE_PATH.fullmatch(self.path)
         if move:
             if not self._own_page():

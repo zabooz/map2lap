@@ -73,7 +73,8 @@ export class SurfaceOverlay {
   private faceOverlays = new Map<THREE.Mesh, {overlay: THREE.Mesh; faces: number[]; stamp: number; indexStamp: number}>();
 
   constructor(private scene: THREE.Scene, private changed: () => void, private reserve: (bytes: number) => boolean,
-              private release: (bytes: number) => void, private decode: (mask: string) => Promise<THREE.Texture> = decodeMask) {}
+              private release: (bytes: number) => void, private decode: (mask: string) => Promise<THREE.Texture> = decodeMask,
+              private colour = 0x279fff, private opacity = .45) {}
 
   async set(selection: SurfaceSelection | null, meshes: THREE.Mesh[]) {
     this.clear();
@@ -106,7 +107,7 @@ export class SurfaceOverlay {
       try {
         const texture = await this.decode(mask);
         if (version !== this.version) { disposeTexture(texture); return; }
-        const material = new THREE.MeshBasicMaterial({color: 0x279fff, alphaMap: texture, opacity: 0.45, transparent: true,
+        const material = new THREE.MeshBasicMaterial({color: this.colour, alphaMap: texture, opacity: this.opacity, transparent: true,
           side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
         this.materials.set(key, {material, bytes});
         owned = true;
@@ -168,7 +169,7 @@ export class SurfaceOverlay {
       const geometry = source.geometry.clone(), original = source.geometry.getIndex()!;
       geometry.setIndex(faces.flatMap(face => [0, 1, 2].map(c => original.getX(face * 3 + c))));
       const sourceMaterial = source.material as THREE.MeshLambertMaterial;
-      const material = new THREE.MeshBasicMaterial({color: 0x279fff, map: sourceMaterial.map, alphaTest: sourceMaterial.alphaTest,
+      const material = new THREE.MeshBasicMaterial({color: this.colour, map: sourceMaterial.map, alphaTest: sourceMaterial.alphaTest,
         opacity: 0.55, transparent: true, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
       const overlay = new THREE.Mesh(geometry, material);
       overlay.renderOrder = 5;

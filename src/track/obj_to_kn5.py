@@ -4,7 +4,8 @@ Modelled on a file written by ksEditor (kn5.py reads it completely):
 - root node with an identity matrix, below it the meshes in world coordinates (Y up) and the empties
   (AC_START_n, AC_PIT_n, AC_HOTLAP_START_0, AC_TIME_0_L/R or AC_AB_*) as matrix nodes; the car faces local +Z.
 - vertex: position, normal, UV (v negated), tangent; 16 bit indices (<= 65535 vertices per mesh).
-- material ksPerPixel with ksAmbient, ksDiffuse, ksSpecular, ksSpecularEXP, ksEmissive, ksAlphaRef and txDiffuse.
+- materials with ksAmbient, ksDiffuse, ksSpecular, ksSpecularEXP, ksEmissive, ksAlphaRef and txDiffuse;
+  tile ground uses ksMultilayer with neutral detail slots, retaining the baked image's appearance.
 
     python -m track.obj_to_kn5 <track.obj> <target.kn5> [anchor.json]
 """
@@ -17,7 +18,7 @@ import sys
 
 import numpy as np
 
-from track import editorinfo, kn5, objectlist, parallel
+from track import editorinfo, groundmaterial, kn5, objectlist, parallel
 
 # Material values (set in AC by eye): ambient and sun balanced so the shadow sides are not too dark and the sunlit
 # sides not too bright
@@ -98,30 +99,18 @@ def dds_bc1(path):
     """JPG -> DDS (BC1/DXT1) with mipmaps down to 4 px, stored next to it (reused while newer than the JPG); returns the
     path or None (sides not a multiple of 4). AC unpacks JPG to RGBA in video memory: 2048 px = 22 MB with mipmaps,
     BC1 2.8 MB (2400 terrain textures: 53 GB -> 7 GB)."""
-    import io
-    import struct
     from PIL import Image
+    from track.textures import dds_mipmaps
     out = os.path.splitext(path)[0] + ".dds"
     if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(path):
         return out
-    im = Image.open(path).convert("RGB")
-    w0, h0 = w, h = im.size
-    if w % 4 or h % 4:
-        return None
-    levels = []
-    while True:
-        b = io.BytesIO()
-        im.save(b, "DDS", pixel_format="DXT1")
-        levels.append(b.getvalue()[128:])       # (Pillow's header: 128 bytes, FourCC DXT1)
-        if w <= 4 or h <= 4 or w % 8 or h % 8:
-            break
-        w, h = w // 2, h // 2
-        im = im.resize((w, h), Image.BOX)
-    head = struct.pack("<4s7I44x", b"DDS ", 124, 0xA1007, h0, w0, len(levels[0]), 0, len(levels))
-    head += struct.pack("<2I4s5I", 32, 0x4, b"DXT1", 0, 0, 0, 0, 0) + struct.pack("<5I", 0x401008, 0, 0, 0, 0)
+    with Image.open(path) as im:
+        if im.width % 4 or im.height % 4:
+            return None
+        data = dds_mipmaps(im)
     tmp = out + ".tmp"
     with open(tmp, "wb") as f:
-        f.write(head + b"".join(levels))
+        f.write(data)
     os.replace(tmp, out)
     return out
 
@@ -520,8 +509,11 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         props += [("ksEmissive", 0.0, (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)),
                   ("ksAlphaRef", ALPHA_REF.get(m, 0.0), (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))]
         shader, alpha_tested = SHADERS.get(m, ("ksPerPixel", 0))
-        materials.append(kn5.Material(m, shader, 0, alpha_tested, 0, props,
-                                      [("txDiffuse", 0, os.path.basename(tex[m]))]))
+        material = kn5.Material(m, shader, 0, alpha_tested, 0, props,
+                               [("txDiffuse", 0, os.path.basename(tex[m]))])
+        materials.append(groundmaterial.layered(material) if groundmaterial.is_ground(m) else material)
+    if any(m.shader == "ksMultilayer" for m in materials):
+        textures.extend(groundmaterial.textures())
     root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
     empties, base = start_empties(objs, anchor, log)
     root.children += empties

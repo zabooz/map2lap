@@ -2,7 +2,16 @@
 // which part of the image lies there, so a mirrored or turned texture can't pass; the rest against known colours and references.
 import {join} from "node:path";
 import type {Page} from "@playwright/test";
-import {centre, dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
+import {centre, dragMouse, expect, openEditor as loadEditor, scene, stillView, test} from "./fixtures";
+
+// Keep the reference canvas at 1140 × 900; the docked inspector has its own 325 px beside it.
+test.use({viewport: {width: 1825, height: 900}});
+
+async function openEditor(page: Page, name = "alpha") {
+  await loadEditor(page, name);
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
+  await scene(page).focus();
+}
 
 const SKY = [169, 207, 233];
 const SKY_TOLERANCE = 3;        // (of 255: rounding between browsers)
@@ -104,6 +113,7 @@ test("a tree shows where the mouse finds one, and through its empty parts lies w
   const empty = await picture(page, await stillView(page));
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
   await page.mouse.move(AWAY.x, AWAY.y);
   const view = (await scene(page).boundingBox())!;
   const full = await picture(page, await stillView(page));
@@ -135,4 +145,31 @@ test("reference views: the track looks as it did", async ({page}) => {
   await page.mouse.move(AWAY.x, AWAY.y);
   await stillView(page);
   await expect(scene(page)).toHaveScreenshot("turned.png", REFERENCE);
+});
+
+test("the 3D canvas stays painted when properties resize, hide and reopen", async ({page}) => {
+  await openEditor(page);
+  const painted = async () => {
+    await page.mouse.move(AWAY.x, AWAY.y);
+    const view = (await scene(page).boundingBox())!;
+    // Only one pixel is needed. Serializing a whole RGBA frame three times starves parallel software-rendering tests.
+    const sky = await page.evaluate(async ({base64, x}) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(bitmap, Math.round(x), 3, 1, 1, 0, 0, 1, 1);
+      bitmap.close();
+      return Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
+    }, {base64: (await stillView(page)).toString("base64"), x: view.width * 0.9});
+    sky.forEach((c, k) => expect(Math.abs(c - SKY[k]), `sky after resizing ${sky}`).toBeLessThanOrEqual(SKY_TOLERANCE));
+  };
+  const divider = page.getByRole("separator", {name: "Inspector width"});
+  await divider.focus();
+  await divider.press("ArrowLeft");
+  await painted();
+  await page.getByRole("button", {name: "Hide properties"}).click();
+  await painted();
+  await page.getByRole("button", {name: "Show properties"}).click();
+  await painted();
 });

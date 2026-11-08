@@ -64,6 +64,29 @@ class TrackViewTest(unittest.TestCase):
                 self.assertEqual(len(n.indices), struct.unpack("<i", f.read(4))[0])
                 self.assertEqual(n.indices.tobytes(), f.read(m["indices"] * 2))
 
+    def test_dual_layer_index_keeps_both_colour_images_and_the_linear_keep_mask(self):
+        material = kn5.Material("ground_0_0", "ksPerPixel_dual_layer", 0, 0, 0,
+                                [("uvMult", 128., (0, 0), (0, 0, 0), (0, 0, 0, 0))],
+                                [("txDiffuse", 0, "detail.dds"), ("txLayer1", 1, "base.dds"),
+                                 ("txLayer1_Mask", 2, "keep.dds")])
+        kn5.write(self.path, [("detail.dds", b"detail"), ("base.dds", b"base"), ("keep.dds", b"mask")],
+                  [material], kn5.Node(1, "map2lap", 1, matrix=IDENTITY, children=[mesh("1ROAD_ground_0_0", 3)]))
+        got = trackview.index(self.ac, self.name)
+        self.assertEqual("detail.dds", got["materials"][0]["texture"])
+        self.assertEqual({"base": "base.dds", "mask": "keep.dds", "scale": 128.}, got["materials"][0]["dual_layer"])
+        self.assertEqual([False, False, True], [bool(t.get("linear")) for t in got["textures"]])
+        self.assertEqual(["detail.dds", "base.dds", "keep.dds"], [t["name"] for t in got["textures"]])
+
+    def test_world_colour_index_exposes_the_actual_photo_and_its_world_scale(self):
+        from track import groundmaterial
+        material = kn5.Material("asphalt", "ksMultilayer", 0, 0, 0,
+                                [("multR", .5, (0, 0), (0, 0, 0), (0, 0, 0, 0))],
+                                [("txDiffuse", 0, groundmaterial.WHITE), ("txMask", 1, groundmaterial.MASK),
+                                 ("txDetailR", 2, "photo.dds")])
+        got = trackview._material(material)
+        self.assertEqual("photo.dds", got["texture"])
+        self.assertEqual([.5, .5], got["world_scale"])
+
     def test_index_leaves_out_invisible_meshes_and_finds_the_start(self):
         got = trackview.index(self.ac, self.name)
         self.assertEqual(["1ROAD_x", "nocol_y"], [m["name"] for m in got["meshes"]])

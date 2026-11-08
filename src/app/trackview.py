@@ -3,12 +3,13 @@ read from the file on demand (a long track's kn5 does not fit into memory). Map2
 """
 import functools
 import json
+import math
 import os
 import re
 import struct
 
 from app import mytracks, tracksource
-from track import editorinfo, kn5, objectlist, surfaceindex
+from track import editorinfo, groundmaterial, kn5, objectlist, surfaceindex
 
 VERTEX_BYTES = kn5.VERTEX.itemsize
 START = "AC_START_0"
@@ -95,13 +96,36 @@ def _prop(material, name, default):
 
 
 def _material(material):
-    """What the view needs of a Material: its names, its diffuse texture's name, ksAmbient + ksDiffuse (how bright AC lights
-    it), cut out by alpha or see-through. Pure."""
+    """Names, colour-layer inputs/scales, ksAmbient + ksDiffuse and alpha flags for the view. Pure."""
     texture = next((tex for slot, _n, tex in material.maps if slot == "txDiffuse"), None)
-    return {"name": material.name, "shader": material.shader, "texture": texture,
-            "bright": _prop(material, "ksAmbient", 0.5) + _prop(material, "ksDiffuse", 0.5),
-            "alpha_ref": _prop(material, "ksAlphaRef", 0.5) if material.alpha_tested else 0.0,
-            "blend": bool(material.blend)}
+    result = {"name": material.name, "shader": material.shader, "texture": texture,
+              "bright": _prop(material, "ksAmbient", 0.5) + _prop(material, "ksDiffuse", 0.5),
+              "alpha_ref": _prop(material, "ksAlphaRef", 0.5) if material.alpha_tested else 0.0,
+              "blend": bool(material.blend)}
+    if material.shader == "ksPerPixel_dual_layer":
+        maps = {slot: tex for slot, _n, tex in material.maps}
+        scale = _prop(material, "uvMult", 1.)
+        if texture and maps.get("txLayer1") and maps.get("txLayer1_Mask") and math.isfinite(scale) and scale > 0:
+            result["dual_layer"] = {"base": maps["txLayer1"], "mask": maps["txLayer1_Mask"], "scale": scale}
+    elif material.shader == "ksMultilayer":
+        maps = {slot: tex for slot, _n, tex in material.maps}
+        scale = _prop(material, "multR", 1.)
+        if (texture == groundmaterial.WHITE and maps.get("txMask") == groundmaterial.MASK and maps.get("txDetailR")
+                and _prop(material, "magicMult", 1.) == 1 and math.isfinite(scale) and scale > 0):
+            result.update(texture=maps["txDetailR"], world_scale=[scale, scale])
+    elif material.shader == "ksMultilayer_objsp":
+        maps = {slot: tex for slot, _n, tex in material.maps}
+        if maps.get("txDetailA") and maps.get("txMask"):
+            images = []
+            for channel in "RGB":
+                filename = maps.get("txDetail" + channel)
+                if filename and filename != groundmaterial.WHITE:
+                    scale = next((list(p[2]) for p in material.props if p[0] == "mult" + channel), [1., 1.])
+                    images.append({"name": filename, "scale": scale, "channel": "RGB".index(channel),
+                                   "variation": _prop(material, "m2lVariation" + channel, 0) == 1})
+            result.update(texture=maps["txDetailA"], splat={"base": {"name": maps["txDetailA"]},
+                          "mask": {"name": maps["txMask"], "linear": True}, "images": images, "origin": [0, 0]})
+    return result
 
 
 def _start(matrix):
@@ -159,8 +183,24 @@ def index(ac, name):
               for i, m in enumerate(s["meshes"]) if m["renderable"]]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
     facts = editorinfo.manifest(path)
-    return {"revision": revision, "meshes": meshes, "materials": [_material(m) for m in s["materials"]],
-            "textures": [{"name": t[0], "size": t[2]} for t in s["textures"]], "start": _start(s["points"].get(START)),
+    from app import trackpaint
+    paint_errors = []
+    try:
+        painted = {t["i"]: t for t in trackpaint.descriptors(ac, name, revision, s.get("paints", []), errors=paint_errors)}
+    except (ValueError, OSError) as error:
+        paint_errors.append(str(error))
+        painted = {}
+    materials = [_material(m) for m in s["materials"]]
+    masks = {m["dual_layer"]["mask"] for m in materials if "dual_layer" in m}
+    masks.update(m["splat"]["mask"]["name"] for m in materials if "splat" in m)
+    for descriptor in painted.values():
+        if "layers" in descriptor:
+            for i in descriptor["materials"]:
+                materials[i] = {**materials[i], "splat": descriptor["layers"], "source": materials[i]}
+    return {"revision": revision, "meshes": meshes, "materials": materials,
+            "textures": [{"name": t[0], "size": t[2], "source_size": t[2], **({"linear": True} if t[0] in masks else {}),
+                          **{k: v for k, v in painted.get(i, {}).items() if k != "i"}}
+                         for i, t in enumerate(s["textures"])], "paints": s.get("paints", []), "paint_errors": list(dict.fromkeys(paint_errors)), "start": _start(s["points"].get(START)),
             "anchor": anchor, "route": route, "atlas": _atlas(), "objects": _view_objects(listed), "draft": s.get("draft", 0),
             "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else []}
 
@@ -197,11 +237,13 @@ def prepare_surface(ac, name, mesh, revision):
 
 
 def surface(ac, name, mesh, u, v, revision, whole=False):
-    """The connected painted ground under a click, from the served source's lossless build facts."""
+    """A connected ground region or all matching prepared regions, from the source's lossless build facts."""
     path, scan, current = _scanned(ac, name)
     if current != revision:
         raise Unreadable("The track changed")
     tx, ty = _surface_tile(scan, mesh)
+    if _prop(scan["materials"][scan["meshes"][mesh]["material"]], "m2lUVGlobal", 0) == 1:
+        u, v = float(u) - tx, float(v) + ty
     # kn5 UV v is negated by the writer; the masks use ordinary north-pointing v.
     result = surfaceindex.select(path, tx, ty, float(u), -float(v), whole)
     if _revision(os.stat(path)) != revision:
@@ -329,8 +371,11 @@ def mesh_bytes(ac, name, i, revision, moved=None, draft=None, copy_revision=None
     return data
 
 
-def texture_bytes(ac, name, i, revision):
+def texture_bytes(ac, name, i, revision, version=""):
     """Texture i as in the file: (its name, the image file's bytes: .dds, .png or .jpg)."""
     path, s = _scan_of(ac, name, revision)
     tex, offset, size = s["textures"][i]
+    if version:
+        from app import trackpaint
+        return tex, trackpaint.texture(ac, name, i, revision, version)
     return tex, _read(path, offset, size, revision)

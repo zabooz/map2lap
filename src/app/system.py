@@ -278,6 +278,10 @@ def start_ac(ac):
            "STEAM_COMPAT_CLIENT_INSTALL_PATH": (steam_roots() or [STEAM_DEFAULT])[0],
            "STEAM_COMPAT_LIBRARY_PATHS": ":".join(os.path.join(lib, "steamapps") for lib in steam_libraries()),
            "STEAM_COMPAT_TOOL_PATHS": ":".join(p for p in (tool, run) if p)}
+    from app import csp
+    patch = csp.inspect(ac)
+    if patch["status"] == "installed" and patch["enabled"]:
+        env["WINEDLLOVERRIDES"] = csp.proton_overrides(env.get("WINEDLLOVERRIDES", ""))
     cmd = [script, "waitforexitandrun", exe]
     if run:
         cmd = [os.path.join(run, "_v2-entry-point"), "--verb=waitforexitandrun", "--"] + cmd

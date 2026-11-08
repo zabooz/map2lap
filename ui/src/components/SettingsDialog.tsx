@@ -5,6 +5,7 @@ import {fmtBytes} from "../format";
 import type {useRelease} from "../hooks/useRelease";
 import type {useSettings} from "../hooks/useSettings";
 import styles from "./SettingsDialog.module.css";
+import {CspSettings} from "./CspSettings";
 
 const CACHE_CAPS = [5, 10, 20, 50, 100, 0];     // GB (0: no limit)
 
@@ -39,6 +40,7 @@ function Installation({settings: s, release}: {settings: ReturnType<typeof useSe
         <button onClick={() => void s.browse()}>Browse …</button>
       </div>
       <p id="ac-status" className={`small ${s.ac?.ok ? styles.good : styles.fault}`}>{s.ac?.text}</p>
+      <CspSettings key={s.settings?.ac_path ?? ""} path={s.settings?.ac_path ?? ""} />
     </Group>
   );
 }
@@ -197,7 +199,7 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
   ]},
   {title: "Objects", rows: [
     ["V", "Select: click an object"],
-    ["Shift+Click", "Select all matching objects or the whole connected surface"],
+    ["Shift+Click", "Select all matching objects or ground areas, including separate ones"],
     ["Ctrl+Click", "Add to the selection, or remove an object from it"],
     ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"],
     ["M", "Move: drag selected objects along the terrain"],
@@ -206,15 +208,13 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
     ["X", "Delete the selection; with nothing selected, toggle click-to-delete"],
   ]},
   {title: "Terrain", rows: [
-    ["R", "Mark road: click the road for A, then B"],
-    ["T", "Smooth: on and off"],
-    ["Enter", "Apply Smooth"],
+    ["T", "Smooth road: mark a road region, add points for branches, then raise strength from 0%; changes apply automatically"],
     ["H", "Elevation: on and off"],
   ]},
   {title: "Tool options", rows: [
     ["Shift", "First tool option; Elevation: reverse direction"],
-    ["Shift+Wheel", "Smooth: strength; Camera: route; Move/Copy: turn"],
-    ["Ctrl+Wheel", "Elevation: radius; Smooth: width; Camera/Move/Copy: height"],
+    ["Shift+Wheel", "Smooth road: strength; Road camera: route; Move/Copy: turn"],
+    ["Ctrl+Wheel", "Elevation: radius; Smooth road: terrain transition; Road camera/Move/Copy: height"],
     ["Alt+Wheel", "Elevation: height; Camera: speed; Move/Copy: size"],
     ["Ctrl+Alt+Wheel", "Elevation: soft edge"],
   ]},
@@ -307,12 +307,12 @@ export function SettingsDialog({settings, release, busy, controls, onControls, o
         <div className={styles.tab} role="tabpanel" hidden={tab !== "general"}>
           <a className={styles.bugLink} href="https://github.com/zabooz/map2lap/issues" target="_blank" rel="noopener">Found a bug?</a>
           <Installation settings={settings} release={release} />
-          <Play settings={settings} onCar={onCar} />
-        </div>
-        <div className={styles.tab} role="tabpanel" hidden={tab !== "map2lap"}>
           <BuildSpeed settings={settings} />
           <Storage settings={settings} busy={busy} />
           <Testing settings={settings} />
+        </div>
+        <div className={styles.tab} role="tabpanel" hidden={tab !== "map2lap"}>
+          <Play settings={settings} onCar={onCar} />
         </div>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "editor"}>
           <div className={styles.viewSettings}>

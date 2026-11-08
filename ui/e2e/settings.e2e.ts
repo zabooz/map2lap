@@ -33,7 +33,7 @@ test("Editor settings put build files and view first, with enough room for the g
 
 test("the car is saved", async ({page}) => {
   await page.goto("/");
-  await openSettings(page);
+  await openSettings(page, "Map2Lap");
   await page.getByLabel("Car").selectOption({label: "Test Car"});
   await expect.poll(async () => (await saved(page)).car).toBe("car_a");
   await page.getByLabel("Car").selectOption("");
@@ -52,7 +52,7 @@ test("the Editor's keys and mouse are listed under Editor", async ({page}) => {
 
 test("the CPU share is saved when let go, its line follows", async ({page}) => {
   await page.goto("/");
-  await openSettings(page, "Map2Lap");
+  await openSettings(page, "General");
   const slider = page.getByLabel("CPU usage");
   await slider.focus();
   await page.keyboard.press("ArrowLeft");
@@ -64,7 +64,7 @@ test("the CPU share is saved when let go, its line follows", async ({page}) => {
 
 test("the map data's limit is saved, Clear asks and clears", async ({page, backend}) => {
   await page.goto("/");
-  await openSettings(page, "Map2Lap");
+  await openSettings(page, "General");
   await page.getByLabel("Map data limit").selectOption("50");
   await expect.poll(async () => (await saved(page)).cache_gb).toBe(50);
   await expect(page.getByRole("dialog")).toContainText("5 MB");
@@ -74,7 +74,7 @@ test("the map data's limit is saved, Clear asks and clears", async ({page, backe
 
 test("the debug app goes into the AC folder and out again", async ({page}) => {
   await page.goto("/");
-  await openSettings(page, "Map2Lap");
+  await openSettings(page, "General");
   const box = page.getByLabel("Track Debug app in Assetto Corsa");
   await box.check();
   await expect.poll(async () => (await saved(page)).debug_app).toBe(true);

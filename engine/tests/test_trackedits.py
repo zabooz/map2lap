@@ -62,6 +62,18 @@ class Base(unittest.TestCase):
     def load(self):
         return trackedits.load(self.ac, self.name)
 
+    def test_smoothing_can_recompute_from_before_its_own_height_change(self):
+        first, other = {"id": "smooth"}, {"id": "brush"}
+        placed, moved = [], object()
+        with mock.patch.object(trackedits, "_heights_and_moved", return_value=([other, first], placed, moved)), \
+             mock.patch.object(trackedits, "context", return_value=("source", {}, {})), \
+             mock.patch.object(trackedits.trackplace, "changed", return_value="baseline") as changed:
+            self.assertIs(moved, trackedits.moved_without(self.ac, self.name, "base", None))
+            self.assertEqual("baseline", trackedits.moved_without(self.ac, self.name, "base", "smooth"))
+            self.assertEqual([other], changed.call_args.args[3])
+            with self.assertRaises(ValueError):
+                trackedits.moved_without(self.ac, self.name, "base", "undone")
+
     def save(self, deleted, **changed):
         now = self.load()
         return trackedits.save(self.ac, self.name, {"base": now["base"], "revision": now["revision"], "deleted": deleted, "id": "x", **changed})

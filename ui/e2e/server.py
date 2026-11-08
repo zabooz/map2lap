@@ -25,7 +25,7 @@ os.chdir(REPO)
 import generator  # noqa: E402
 import furniture  # noqa: E402
 import server  # noqa: E402
-from app import mapcache, mytracks, settings, system, updater, version  # noqa: E402
+from app import mapcache, materiallibrary, mytracks, settings, system, updater, version  # noqa: E402
 from scenery import cars, trees  # noqa: E402
 from track import editorinfo, kn5, objectlist  # noqa: E402
 
@@ -170,7 +170,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
@@ -188,6 +188,8 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     items = [("deciduous", 40.0, 200.0, 0.0, 0.0, 12.0, 0.1), ("deciduous", 128.0, 130.0, 0.0, 0.0, 30.0, 0.1)]
     tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
     road = ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=int(TILE / 2), height=hill_at) if hill else ground("1ROAD_ground_0_0", 0, 0.0, -TILE)
+    if grass:
+        road.name = "1GRASS_ground_0_0"
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
                      *([billboards("nocol_trees_0_0", 2, items)] if with_trees else []),
                      ground("nocol_far_1", 3, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
@@ -219,8 +221,11 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         for ty in (-1, 0):
             part = os.path.join(root, f"t_0_{ty}.obj")
             paint = editorinfo.Paint(part, 0, ty, 32)
-            paint.base(["road_asphalt"], np.zeros((32, 32), np.uint8))
-            paint.finish()
+            paint.base([ground_material or ("gc_meadow" if grass else "road_asphalt")], np.zeros((32, 32), np.uint8))
+            features = [{"id": "fixture-road", "layer": "roads", "tags": {"highway": "residential"},
+                         "spec": {"width": 16, "kind": "paved"},
+                         "geometry": [[[128, -256], [128, -80], [128, 0], [128, 256]]]}] if hill else []
+            paint.finish(features=features)
             parts.append(part)
         editorinfo.install(os.path.join(root, name + ".kn5"), parts)
     with open(os.path.join(root, "data", "map2lap_route.txt"), "w", encoding="utf-8") as f:
@@ -253,7 +258,7 @@ def fill():
     stopped.clear()
     server.job.update(state="idle", log=[], result=None, error=None, progress=None, started=None, ended=None)
     server.running.update(proc=None, clearing=False)
-    for d in (AC, os.path.join(TMP, "out")):
+    for d in (AC, os.path.join(TMP, "out"), os.path.join(TMP, "library"), os.path.join(TMP, "cache")):
         remove_tree(d)
     os.makedirs(os.path.join(AC, "content", "cars", "car_a", "skins", "default"))
     os.makedirs(os.path.join(AC, "content", "cars", "car_a", "ui"))
@@ -272,6 +277,7 @@ def stand_ins():
     """All that would reach out of TMP. Checked at the end: a test must never touch the real folders."""
     settings.FILE = os.path.join(TMP, "settings.json")
     server.ROOT = mytracks.ROOT = TMP
+    materiallibrary.ROOT = TMP
     server.MARK = os.path.join(TMP, "out", "build_running.json")
 
     def record(name, value=None):
@@ -294,7 +300,7 @@ def stand_ins():
     server.start_build = start_build
     system.kill_tree = lambda pid: stopped.set()
     server.tidy_interrupted = record("tidy")
-    assert settings.FILE.startswith(TMP) and server.ROOT == TMP and mytracks.ROOT == TMP
+    assert settings.FILE.startswith(TMP) and server.ROOT == TMP and mytracks.ROOT == TMP and materiallibrary.ROOT == TMP
 
 
 def start_build(name, title, points, width, area):
@@ -355,7 +361,8 @@ class Handler(server.Handler):
             release.update(body)
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)
             make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True), car=body.get("car"), house=body.get("house", False),
-                       pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False))
+                       pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False), grass=body.get("grass", False),
+                       ground_material=body.get("ground_material"))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

@@ -52,6 +52,16 @@ test("an old asynchronous mask cannot reappear after Escape or a new selection",
   a.geometry.dispose(); a.material.dispose();
 });
 
+test("Smooth road can show orange masks independently of blue selection", async () => {
+  const scene = new THREE.Scene(), ground = mesh("1ROAD_ground_0_0");
+  const overlay = new SurfaceOverlay(scene, () => {}, () => true, () => {}, async () => new THREE.Texture(), 0xf39c35, .4);
+  await overlay.set(selection, [ground]);
+  const material = (scene.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material;
+  expect(material.color.getHex()).toBe(0xf39c35);
+  expect(material.opacity).toBe(.4);
+  overlay.clear(); ground.geometry.dispose(); ground.material.dispose();
+});
+
 test("a prepared mesh-material region highlights only its faces and follows live vertices without disposing the source", async () => {
   const scene = new THREE.Scene(), source = mesh("nocol_road_edge_dirt_0_0");
   source.userData.info = {i: 0, vertices: 4};

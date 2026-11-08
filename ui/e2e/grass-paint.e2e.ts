@@ -1,0 +1,73 @@
+import {centre, expect, openEditor, scene, test} from "./fixtures";
+import {picture, saved} from "./edit-helpers";
+
+test("a road offers Edit and opens its material picker without object replacement actions", async ({page}) => {
+  await openEditor(page);
+  await page.getByRole("button", {name: "Hide properties"}).click();
+  const at = await centre(scene(page));
+  await page.mouse.click(at.x, at.y, {button: "right"});
+  const menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem", {name: "Smooth road"})).toBeVisible();
+  await expect(menu.getByRole("menuitem", {name: "Replace…"})).toHaveCount(0);
+  await menu.getByRole("menuitem", {name: "Edit…"}).click();
+  await expect(page.getByRole("dialog", {name: "Textures"})).toContainText("Asphalt");
+});
+
+test("apply a grass material, undo, redo, reload and save a standalone copy", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", grass: true, trees: false});
+  await openEditor(page);
+  const original = await picture(page);
+  const panel = page.getByRole("complementary", {name: "Selection properties"});
+  await panel.getByRole("button", {name: "Edit", exact: true}).click();
+  const picker = page.getByRole("dialog", {name: "Textures"});
+  await picker.locator('input[type="file"]').setInputFiles({name: "grass.png", mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVQIHWP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64")});
+  const dialog = page.getByRole("dialog", {name: "Import texture"});
+  await expect(dialog.getByRole("img", {name: "Texture preview"})).toBeVisible();
+  await dialog.getByLabel("Name", {exact: true}).fill("Red test meadow");
+  await dialog.getByLabel("Category").selectOption("grass");
+  await dialog.getByRole("button", {name: "Add to library", exact: true}).click();
+  await expect(dialog).toBeHidden();
+  await expect(picker.getByRole("button", {name: "Apply", exact: true})).toBeDisabled();
+  await picker.getByRole("button", {name: "Cancel", exact: true}).click();
+  const at = await centre(scene(page));
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator("#edit-surface")).toContainText("Meadow selected");
+  await panel.getByRole("button", {name: "Edit texture"}).click();
+  const apply = picker.getByRole("button", {name: "Apply", exact: true});
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(picker).toBeHidden();
+  await saved(page);
+  await expect(page.locator("#edit-saved")).toHaveText("Not saved");
+  await expect(page.locator("#edit-paints")).toHaveText("1 material change");
+  await scene(page).focus(); await page.keyboard.press("Escape");
+  const changed = await picture(page);
+  expect(changed.equals(original)).toBe(false);
+  const paintedPixel = await page.evaluate(async base64 => {
+    const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, Math.floor(bitmap.width / 2), Math.floor(bitmap.height / 2), 1, 1, 0, 0, 1, 1);
+    bitmap.close();
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  }, changed.toString("base64"));
+  expect(paintedPixel[0], "painted ground must retain its red colour, including mask mipmaps").toBeGreaterThan(30);
+  expect(paintedPixel[0]).toBeGreaterThan(paintedPixel[1] * 2);
+  expect(paintedPixel[0]).toBeGreaterThan(paintedPixel[2] * 2);
+  await page.keyboard.press("Control+z"); await saved(page);
+  await expect.poll(async () => (await picture(page)).equals(original)).toBe(true);
+  await page.keyboard.press("Control+Shift+z"); await saved(page);
+  await expect.poll(async () => (await picture(page)).equals(changed)).toBe(true);
+  await page.reload();
+  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  await expect.poll(async () => (await picture(page)).equals(changed)).toBe(true);
+  await page.locator("#edit-save-more").click();
+  await page.locator("#save-name").fill("Grass copy");
+  await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
+  await expect(page.locator("#edit-track")).toHaveValue("grass_copy");
+  await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
+  await expect.poll(async () => (await picture(page)).equals(changed)).toBe(true);
+  await page.getByRole("button", {name: "Discard all", exact: true}).click(); await saved(page);
+  await expect.poll(async () => (await picture(page)).equals(original)).toBe(true);
+});

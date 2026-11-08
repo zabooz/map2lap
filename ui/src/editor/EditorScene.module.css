@@ -1,4 +1,6 @@
 /* The 3D view over the map (the map underneath keeps its place) */
-.scene { position: absolute; inset: 0; z-index: 1500; background: var(--bg); overflow: hidden; }
+.layout { position: absolute; inset: 0; z-index: 1500; background: var(--bg); overflow: hidden; }
+.scene { position: absolute; inset: 0; right: var(--inspector-space); background: var(--bg); overflow: hidden; z-index: 0; }
+.inspectorHost { position: absolute; right: 0; top: 0; bottom: 0; width: var(--inspector-space); display: flex; }
 .view { position: absolute; inset: 0; }
 .view canvas { display: block; outline: none; }

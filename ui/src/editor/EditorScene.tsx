@@ -1,9 +1,8 @@
 // The 3D view over the map. Loaded on the Editor tab's first visit (with three.js: most of the page's bytes).
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useRef, useState, type CSSProperties} from "react";
 import type {Controls} from "./controls";
 import styles from "./EditorScene.module.css";
 import {EditTools} from "./EditTools";
-import {HoverBox} from "./HoverBox";
 import {TrackView, type Hovered} from "./view";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
@@ -27,6 +26,9 @@ export default function EditorScene({name, title, taken, built, visible, control
   const scene = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<TrackView | null>(null);
   const [hovered, setHovered] = useState<Hovered | null>(null);
+  const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [inspectorWidth, setInspectorWidth] = useState(320);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
 
   useEffect(() => {
     const v = new TrackView(host.current!);
@@ -42,11 +44,17 @@ export default function EditorScene({name, title, taken, built, visible, control
   useEffect(() => { void view?.open(name, onStatus); }, [view, name, built, onStatus]);
 
   return (
-    <div id="scene" className={styles.scene} hidden={!visible} ref={scene}>
-      <div className={styles.view} ref={host} />
+    <div className={styles.layout} hidden={!visible}
+      style={{"--inspector-space": name && !inspectorCollapsed ? `min(${inspectorWidth + 5}px, 48%)` : "0px"} as CSSProperties}>
+      <div id="scene" className={styles.scene} ref={scene}>
+        <div className={styles.view} ref={host} />
       {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
+                                  inspectorHost={inspectorHost} hovered={hovered}
+                                  inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
+                                  inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}
                                   reopen={() => void view.open(name, onStatus)} onSaved={onSaved} />}
-      <HoverBox hovered={hovered} />
+      </div>
+      <div className={styles.inspectorHost} ref={setInspectorHost} />
     </div>
   );
 }

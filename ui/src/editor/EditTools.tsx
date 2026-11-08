@@ -8,22 +8,23 @@ import {EditNotes} from "./EditNotes";
 import {ElevationOptions, useElevation} from "./Elevation";
 import {MoveOptions, useMove} from "./Move";
 import {NOT_ALL, sortName} from "./inspect";
-import {onBand} from "./pins";
 import {SaveDialog} from "./SaveDialog";
 import {FileButtons, TOOLS, ToolPanel, type Tool} from "./ToolPanel";
 import {useBand} from "./useBand";
 import {useSave} from "./useSave";
-import type {Marked, MenuAt, Picked, TrackView, WheelKeys} from "./view";
+import type {Hovered, Marked, MenuAt, Picked, TrackView, WheelKeys} from "./view";
 import {ViewMenu} from "./ViewMenu";
-import {SurfaceInfo} from "./SurfaceInfo";
-import type {SurfacePoint} from "./surfaces";
+import {Inspector} from "./Inspector";
+import {surfaceName, type SurfacePoint, type SurfaceSelection} from "./surfaces";
+import {usePaint} from "./usePaint";
 import {ToolChoice, ToolOptions, thenView} from "./ToolOptions";
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
-    those hosts: V, R, X, K, M, H, T, Home, Delete, Esc, Enter, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
+    those hosts: V, X, K, M, H, T, Home, Delete, Esc, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). */
-export function EditTools({name, title, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, elevationSpeed, reopen, onSaved}: {
+export function EditTools({name, title, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost, hovered,
+  inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved}: {
   name: string;
   title: string;
   taken: string[];
@@ -33,6 +34,12 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
+  inspectorHost: HTMLElement | null;
+  hovered: Hovered | null;
+  inspectorWidth: number;
+  onInspectorWidth: (width: number) => void;
+  inspectorCollapsed: boolean;
+  onInspectorCollapsed: (collapsed: boolean) => void;
   elevationSpeed: number;
   reopen: () => void;
   onSaved: (name: string) => void;
@@ -43,27 +50,46 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [menu, setMenu] = useState<MenuAt | null>(null);
   const [marked, setMarked] = useState<Marked[]>([]);
   const [surfacePicks, setSurfacePicks] = useState<SurfacePoint[]>([]);
+  const [surfaceInfo, setSurfaceInfo] = useState<{points: SurfacePoint[]; selection: SurfaceSelection | null} | null>(null);
+  const onSurface = useCallback((selection: SurfaceSelection | null) => setSurfaceInfo({points: surfacePicks, selection}), [surfacePicks]);
   const [selectWhole, setSelectWhole] = useState(false);
   const [selectAdd, setSelectAdd] = useState(false);
   const [tool, setTool] = useState<Tool>("select");
   const [copyTake, setCopyTake] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
+  const [materialOpen, setMaterialOpen] = useState(false);
+  const [textureRevision, setTextureRevision] = useState(0);
+  const closeMaterial = useCallback(() => setMaterialOpen(false), []);
   const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setCopyWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { copyWheel.current = wheel; }, []);
   const editable = edits.canEdit();
   const elevating = tool === "elevation" && editable;
   const deleting = tool === "delete" && editable;
-  const marking = (tool === "road" || tool === "smooth") && editable;
+  const marking = tool === "smooth" && editable;
   const smoothing = tool === "smooth" && editable;
   const moving = tool === "move" && editable;
   const saving = useSave({name, edits, state, view, onSaved});
+  const painting = usePaint(name, edits, view);
+  const selection = surfaceInfo?.points === surfacePicks ? surfaceInfo.selection : null;
+  const materials = selection?.materials ?? (selection ? [selection.material] : []);
+  const materialTarget = tool === "select" && editable && selection?.tiles.length && !selection.meshes?.length
+    && materials.length
+    ? materials.map(surfaceName).join(", ") : null;
+  const materialReason = !editable ? "This track cannot be edited right now."
+    : surfacePicks.length && !selection ? "Preparing the selected surface…"
+    : selection?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
+    : selection && new Set(selection.tiles.map(t => t.tile.join(","))).size > 64 ? "Select at most 64 ground tiles to apply a material."
+    : selection?.truncated && surfacePicks.some(point => point.whole) ? "Select all is incomplete. Finish loading or select a smaller area (at most 64 ground tiles)."
+    : !materialTarget ? "Select a painted ground surface to apply a material." : null;
+  const paintSurface = painting.apply;
+  const applyMaterial = useCallback((id: string, variation?: boolean) => materialTarget && !materialReason ? paintSurface(id, surfacePicks, variation) : Promise.resolve(false), [materialTarget, materialReason, paintSurface, surfacePicks]);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
-  const band = useBand({name, view, edits, enabled: marking, previewing: smoothing, revision: state.keptRevision, onNote: setNote});
+  const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
   const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
 
-  /** What a click picked; with Delete on, gone at once; Mark road's left button picks nothing. */
+  /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
     if (marking && p?.left) return view.unpick();
     setPicked(p);
@@ -81,7 +107,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     }
   });
 
-  /** With Mark road or Smooth on, a click on the road marks a band: A, B, a point in between; on grass or the sky the marking goes. */
+  /** Smooth road marks A, B and intermediate pins; grass or sky clears the active range. */
   const onClicked = useEffectEvent((p: Picked | null) => {
     if (!marking) return;
     if (p?.road) band.click(p.road[0], p.road[1]);
@@ -102,7 +128,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   }, [view, tool, selectWhole, selectAdd]);
 
   useEffect(() => {
-    if (tool !== "road" && tool !== "smooth") band.clear();
+    if (tool !== "smooth") band.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- (a tool that doesn't work on it ends the marking; band is new each time)
   }, [tool]);
 
@@ -137,12 +163,18 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
 
   useEffect(() => {
     edits.setOnMeshes(meshes => view.refreshMeshes(meshes));
+    edits.setOnTextures((textures, paints) => view.refreshPaints(textures, paints));
     view.setViewFailed(setViewFailed);
+    view.setTexturesChanged(() => setTextureRevision(value => value + 1));
     return () => {
       edits.setOnMeshes(() => {});
+      edits.setOnTextures(() => {});
       view.setViewFailed(() => {});
+      view.setTexturesChanged(() => {});
     };
   }, [view, edits]);
+
+  useEffect(() => { if (state.save === "saved" && edits.canEdit()) void view.syncPaints(state.paints); }, [view, edits, state]);
 
   const toolWheel = useEffectEvent((keys: Parameters<typeof elevation.wheel>[0], by: number) => {
     if (tool === "camera") camera.wheel(keys, by);
@@ -181,7 +213,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     }
   };
   /** A tool taken up, the one on laid down: Select. */
-  const takeUp = (t: Tool) => { setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(tool === t ? "select" : t); };
+  const takeUp = (t: Tool) => { band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(tool === t ? "select" : t); };
   const closeMenu = useCallback(() => setMenu(null), []);
 
   // (an effect event: Delete pressed right after a click reaches what that click picked, not the list of keys before it)
@@ -191,7 +223,8 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       if (control && key === "s") e.preventDefault();
       return;
     }
-    if (e.key !== "Escape" && e.key !== "Enter" && (e.target as HTMLElement).tagName === "INPUT") return;      // (a tool's number keeps its own keys)
+    if (["Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key) && (e.target as HTMLElement).closest('[role="tablist"]')) return;
+    if (e.key !== "Escape" && e.key !== "Enter" && ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName)) return; // Fields keep their typing and option keys.
     const keyed = control ? undefined : TOOLS.find(t => t.key.toLowerCase() === key);
     if (e.key === "Delete") remove();
     else if (e.key === "Escape") {
@@ -201,10 +234,11 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       setSelectAdd(false);
       setSurfacePicks([]);
       view.cancelStroke();
+      band.clear();
       view.unpick();
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
-    } else if (e.key === "Enter" && smoothing && band.apply()) view.focus();
+    }
     else if ((marked.length || removable.length) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
@@ -217,12 +251,11 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   });
 
   useEffect(() => {
-    const on = [scene.current!, fileHost, toolsHost, notesHost], listen = (e: KeyboardEvent) => keys(e);
+    const on = [scene.current!, fileHost, toolsHost, notesHost, inspectorHost], listen = (e: KeyboardEvent) => keys(e);
     for (const el of on) el?.addEventListener("keydown", listen);
     return () => { for (const el of on) el?.removeEventListener("keydown", listen); };
-  }, [scene, fileHost, toolsHost, notesHost]);
+  }, [scene, fileHost, toolsHost, notesHost, inspectorHost]);
 
-  const clickedOnBand = tool === "road" && !!band.line && !!picked && onBand(band.line, band.width, picked.position[0], picked.position[2]);
 
   return (
     <>
@@ -231,11 +264,15 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} />, toolsHost)}
       {notesHost && createPortal(
         <><EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
-                   markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null} reopen={reopen} readAgain={() => void readAgain()} />
-          {tool === "select" && surfacePicks.length > 0 && <SurfaceInfo key={JSON.stringify(surfacePicks)} name={name} surfaces={surfacePicks} view={view} />}</>, notesHost)}
+                   markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null} reopen={reopen} readAgain={() => void readAgain()} /></>, notesHost)}
+      {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
+        marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
+        collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface} materialTarget={materialTarget}
+        materialOpen={materialOpen} onMaterialOpen={() => setMaterialOpen(true)} onMaterialClose={closeMaterial}
+        materialReason={materialReason} textureRevision={textureRevision} painting={painting} onApply={applyMaterial} />, inspectorHost)}
       {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
         options={[
-          <ToolChoice label="Select all" on={selectWhole} hint="Select the whole connected surface or every object of this sort (Shift + click)" onClick={thenView(view, () => {
+          <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
             setSelectWhole(!selectWhole);
             if (picked?.surface) setSurfacePicks(previous => previous.map(s => ({...s, whole: !selectWhole})));
             else if (tree || sort) setMarked(selectWhole ? [] : [{sort: tree ?? sort!, tree: !!tree}]);
@@ -243,15 +280,19 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
           <ToolChoice label="Add" on={selectAdd} hint="Add to the selection; click a picked object again to remove it (Ctrl + click)" onClick={thenView(view, () => setSelectAdd(!selectAdd))} />,
         ]} />}
       {elevating && <ElevationOptions elevation={elevation} view={view} />}
-      {marking && <BandOptions band={band} smoothing={smoothing} />}
+      {marking && <BandOptions band={band} view={view} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && <MoveOptions move={move} view={view} />}
       {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} />}
       {menu && (
-        <ViewMenu at={menu} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
+        <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
+                  onEdit={() => { setTool("select"); if (picked?.surface) {
+                    setSurfacePicks([picked.surface]);
+                    if (picked.surface.face === undefined) setMaterialOpen(true);
+                  } onInspectorCollapsed(false); view.focus(); }}
                   onMove={editable && picked?.id && view.canMove(picked.id) ? () => { setTool("move"); setNote(null); view.focus(); } : null}
                   onDuplicate={editable && picked?.id && view.canMove(picked.id) ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null}
-                  onSmooth={clickedOnBand ? () => { setTool("smooth"); setNote(null); view.focus(); } : null}
+                  onSmooth={editable && picked?.road ? () => { setTool("smooth"); band.start(picked.road![0], picked.road![1]); setNote(null); view.focus(); } : null}
                   onMark={() => { setMarked([sort ? {sort, tree: false} : {sort: tree!, tree: true}]); view.focus(); }}
                   onDelete={() => { remove(); view.focus(); }} />
       )}

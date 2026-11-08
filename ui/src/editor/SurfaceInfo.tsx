@@ -1,9 +1,11 @@
-import {useEffect, useState} from "react";
+import {useEffect, useState, type ReactNode} from "react";
 import {surfaceName, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import type {TrackView} from "./view";
 
 /** Inspect one clicked painted surface. Selection never changes the draft; unmounting cancels the request and highlight. */
-export function SurfaceInfo({name, surfaces, view}: {name: string; surfaces: SurfacePoint[]; view: TrackView}) {
+export function SurfaceInfo({name, surfaces, view, children, onSelected}: {name: string; surfaces: SurfacePoint[]; view: TrackView;
+  onSelected?: (selection: SurfaceSelection | null) => void;
+  children?: (selection: SurfaceSelection | null) => ReactNode}) {
   const [selected, setSelected] = useState<SurfaceSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -29,7 +31,7 @@ export function SurfaceInfo({name, surfaces, view}: {name: string; surfaces: Sur
         const result: SurfaceSelection = {material: materials[0], materials, truncated: regions.some(r => r.truncated),
           tiles: regions.flatMap(r => r.tiles), meshes: [...faces].map(([mesh, f]) => ({mesh, faces: [...f]}))};
         await view.setSurface(result, message => { if (!controller.signal.aborted) setError(message); });
-        if (!controller.signal.aborted) setSelected(result);
+        if (!controller.signal.aborted) { setSelected(result); onSelected?.(result); }
       } catch (e) {
         if (!controller.signal.aborted) {
           void view.setSurface(null);
@@ -37,9 +39,9 @@ export function SurfaceInfo({name, surfaces, view}: {name: string; surfaces: Sur
         }
       }
     })();
-    return () => { controller.abort(); void view.setSurface(null); };
-  }, [name, surfaces, view]);
+    return () => { controller.abort(); void view.setSurface(null); onSelected?.(null); };
+  }, [name, surfaces, view, onSelected]);
   if (error) return <p id="edit-surface-error" className="small muted">{error}</p>;
-  return <p id="edit-surface" className="small muted">{selected ? `${(selected.materials ?? [selected.material]).map(surfaceName).join(", ")} selected. Esc clears the selection.` : "Selecting ground…"}
-    {selected?.truncated && " The surface continues beyond the highlighted area."}</p>;
+  return <>{children?.(selected)}<p id="edit-surface" className="small muted">{selected ? `${(selected.materials ?? [selected.material]).map(surfaceName).join(", ")} selected. Esc clears the selection.` : "Selecting ground…"}
+    {selected?.truncated && " The surface continues beyond the highlighted area."}</p></>;
 }

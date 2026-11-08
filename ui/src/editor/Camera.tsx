@@ -47,7 +47,7 @@ export function useCamera({view, enabled, onNote}: {view: TrackView; enabled: bo
 /** What it can be set to. */
 export function CameraOptions({camera, view}: {camera: ReturnType<typeof useCamera>; view: TrackView}) {
   return (
-    <ToolOptions id="edit-camera-set" title="Camera" note="Shift + wheel goes along the track from the place nearest the camera. W A S D or the mouse leave it, Esc ends it."
+    <ToolOptions id="edit-camera-set" title="Road camera" note="Shift + wheel goes along the track from the place nearest the camera. W A S D or the mouse leave it, Esc ends it."
                  options={[
                    <ToolValue label="Along the track" hint="How far along the track it is (Shift + wheel: forwards, backwards)" value={camera.metre === null ? "no route" : `${Math.round(camera.metre)} m`} />,
                    <ToolNumber label="Height" unit="m" hint="How far above the ground it goes along the track (Ctrl + wheel)" min={MIN_HEIGHT} max={MAX_HEIGHT} step={HEIGHT_STEP} value={camera.height}

@@ -33,7 +33,7 @@ from scenery import groundcover, leisure, wallcut, water
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
 LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
-TEX_PX = 2048                   # pixels per tile edge (12.5 cm); TODO long routes: ksMultilayer (mask + detail)
+TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); groundmaterial adds neutral detail slots
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
 # Road look -> (texture, m per repeat, brightness); painted in this order. Asphalt by road class (_look).

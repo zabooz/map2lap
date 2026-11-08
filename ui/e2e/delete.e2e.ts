@@ -256,14 +256,14 @@ test("all of a sort: marked, then deleted, the same picture as a track without t
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
 });
 
-test("the right-click menu: Replace and Edit greyed, Mark all frames and deletes nothing, Esc ends it; a right drag opens none", async ({page}) => {
+test("the right-click menu: Replace greyed, Edit available, Mark all frames and deletes nothing, Esc ends it; a right drag opens none", async ({page}) => {
   await openEditor(page);
   const before = await picture(page);
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y, {button: "right"});
   await expect(page.locator("#view-menu")).toBeVisible();
   await expect(page.getByRole("menuitem", {name: "Replace…"})).toBeDisabled();
-  await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeDisabled();
+  await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeEnabled();
   await expect(page.getByRole("menuitem", {name: "Delete"})).toBeEnabled();
   await page.getByRole("menuitem", {name: /^Mark all /}).click();
   await expect(page.locator("#view-menu")).toBeHidden();

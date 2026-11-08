@@ -23,7 +23,12 @@ export const test = base.extend<{reset: void; faultsAllowed: {on: boolean}}, {ba
     const url = `http://127.0.0.1:${port}`;
     await use({
       url,
-      post: async (path, body = {}) => { await fetch(url + path, {method: "POST", body: JSON.stringify(body)}); },
+      post: async (path, body = {}) => {
+        // The server closes POST connections; do not reuse a closing socket between test resets.
+        const response = await fetch(url + path, {method: "POST", headers: {Connection: "close"}, body: JSON.stringify(body)});
+        const answer = await response.json();
+        if (!response.ok) throw new Error(`Test setup failed: ${response.status} ${JSON.stringify(answer)}`);
+      },
       calls: async () => (await fetch(`${url}/__test/calls`)).json() as Promise<unknown[][]>,
     });
     server.stdin.end();

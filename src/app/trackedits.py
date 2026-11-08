@@ -15,7 +15,7 @@ import threading
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackheights, trackplace, trackview
+from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackpaint, trackplace, trackview
 from track import objectlist
 
 SCHEMA = 1
@@ -74,7 +74,12 @@ def changes(ac, name):
         return 1
     if not saved or s["base"] != saved["base"]:
         return _count(s)
-    return sum(len(set(a) ^ set(b)) for a, b in zip(_parts(s), _parts(saved)))
+    return sum(len(set(a) ^ set(b)) for a, b in zip(_parts(s), _parts(saved))) + int(_needs_material_save(saved))
+
+
+def _needs_material_save(saved):
+    """Whether saved paint operations still use an older native material layout. Pure."""
+    return bool(saved.get("paints")) and saved.get("detail_profile") != trackdetail.PROFILE
 
 
 def _placements(stored):
@@ -86,13 +91,13 @@ def _parts(stored):
     """A list's ids, sorts, object sorts, height changes and placements, by all they hold. Pure."""
     return ([d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ()),
             [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored),
-            [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())])
+            [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))))
 
 
 def _count(stored):
     """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
     return (len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
-            + len(stored.get("placed", ())) + len(stored.get("copies", ())))
+            + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())))
 
 
 def _names(value):
@@ -107,7 +112,7 @@ def _well_formed(d):
             and all(isinstance(i, dict) and isinstance(i.get("id"), str) and isinstance(i.get("position"), list) for i in d["deleted"])
             and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
             and trackheights.problems(d.get("heights", [])) is None and placement.problems(d.get("placed", [])) is None
-            and trackcopies.problems(d.get("copies", [])) is None)
+            and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None)
 
 
 def _stored(path, saved=None):
@@ -121,10 +126,10 @@ def _stored(path, saved=None):
             return d
     except FileNotFoundError:
         if saved:
-            if trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", [])) or trackcopies.problems(saved.get("copies", [])):
+            if trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", [])) or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", [])):
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
-                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", [])}
+                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", [])}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -150,12 +155,13 @@ def load(ac, name):
     same = s["base"] == revision
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
             "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
-            "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [],
+            "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "paints": s.get("paints", []) if same else [],
             "outdated": _old(s, revision), "saved": saved and {
-                "at": saved["saved"], "deleted": [d["id"] for d in saved["deleted"]],
+                "at": saved["saved"], "needs_save": _needs_material_save(saved), "deleted": [d["id"] for d in saved["deleted"]],
                 "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
                 "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else [],
-                "placed": saved.get("placed", []) if not s.get("broken") else [], "copies": saved.get("copies", []) if not s.get("broken") else []}}
+                "placed": saved.get("placed", []) if not s.get("broken") else [], "copies": saved.get("copies", []) if not s.get("broken") else [],
+                "paints": saved.get("paints", []) if not s.get("broken") else []}}
 
 
 def context(ac, name, revision, copies=None):
@@ -174,7 +180,7 @@ def context(ac, name, revision, copies=None):
         stored = _stored(draft, trackview.recipe(ac, name))
         copies = stored.get("copies", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
-        value = path, {**extended, "draft": stored["revision"]}, objects
+        value = path, {**extended, "draft": stored["revision"], "paints": stored.get("paints", []) if stored["base"] == revision else []}, objects
         # An atomic save may have replaced the draft while its geometry was generated. Never cache it under the old stat.
         if key == (path, revision, _stamp(draft), _stamp(info), _stamp(listed)):
             _context_cache.update(key=key, value=value)
@@ -296,6 +302,17 @@ def moved_now(ac, name, revision):
     nothing: the Editor shows each mesh as it will be, so the view and Save have one reckoning. Kept while the draft's file and the recipe
     stay as they are: a long track's 66,000 meshes each ask."""
     return _heights_and_moved(ac, name, revision)[2]
+
+
+def moved_without(ac, name, revision, omit):
+    """Current placements/heights excluding one active smoothing result, so adjusting it never smooths twice."""
+    heights, placed, moved = _heights_and_moved(ac, name, revision)
+    if omit is None:
+        return moved
+    if not isinstance(omit, str) or not any(h["id"] == omit for h in heights):
+        raise ValueError("The smoothing operation changed: mark the road again")
+    path, scan, objects = context(ac, name, revision)
+    return trackplace.changed(path, scan, objects, [h for h in heights if h["id"] != omit], placed)
 
 
 def _heights_and_moved(ac, name, revision):
@@ -485,11 +502,42 @@ def save_telling(ac, name, body):
         object_sorts = _checked_sorts(body.get("object_sorts") or [], listed_sorts, "objects")
         heights = _checked_heights(body["heights"]) if "heights" in body else s.get("heights", []) if s["base"] == revision else []
         placed = _checked_placed(body["placed"], counts) if "placed" in body else s.get("placed", []) if s["base"] == revision else []
-        if not known or ((deleted or sorts or object_sorts or heights or placed or copies) and _old(s, revision)):
+        previous_paints = s.get("paints", []) if s["base"] == revision else []
+        paints = body.get("paints", previous_paints)
+        if trackpaint.problems(paints):
+            raise Invalid(trackpaint.problems(paints))
+        try:
+            previous_ids = set(previous_paints)
+            trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
+        except ValueError as error:
+            raise Invalid(str(error)) from error
+        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
+        # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
+        try:
+            textures = trackpaint.changed(ac, name, revision, previous_paints, paints)
+        except ValueError as error:
+            raise Invalid(str(error)) from error
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
-                      "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies})
+                      "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints})
         same = s["base"] == revision
         before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else []}
-    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, {"heights": heights, "placed": placed, "copies": copies})}
+    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, {"heights": heights, "placed": placed, "copies": copies}),
+            "textures": textures}
+
+
+def paint(ac, name, body):
+    """Prepare one texture edit for the page's source/draft revision; the page adds its id as one undoable change."""
+    if not isinstance(body, dict):
+        raise Invalid("Select a ground area and a material")
+    with _saving:
+        now = load(ac, name)
+        if now["outdated"] or body.get("base") != now["base"] or body.get("revision") != now["revision"]:
+            raise Conflict(name)
+    try:
+        id = trackpaint.create(ac, name, now["base"], body.get("material"), body.get("points"), body.get("variation"))
+        trackpaint.descriptors(ac, name, now["base"], [*[p for p in now.get("paints", []) if p != id], id])
+    except (ValueError, KeyError, TypeError) as error:
+        raise Invalid(str(error)) from error
+    return {"paint": id}

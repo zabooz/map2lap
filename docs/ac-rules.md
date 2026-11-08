@@ -36,6 +36,26 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   stays in its cell's object, by the same sample.
 - Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px = 12.5 cm/px): comic ground, the roads on top in
   BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`).
+- Ground materials use the standard AC `ksMultilayer` shader (`track/groundmaterial.py`): the existing tile image stays
+  in `txDiffuse`, with its UVs and lighting values unchanged. A shared 4 px mask selects a shared white detail image,
+  so the initial detail multiplier is exactly one. RGBA slots allow later masked detail textures without another
+  material format. No separate geometry, higher-resolution base image or CSP dependency is introduced by this setup.
+- `groundmaterial.dual_layer` builds a colour-only `ksPerPixel_dual_layer` material for a square repeating image:
+  `txDiffuse` samples the new image at the scaled UV, `txLayer1` retains the existing tile at its original UV,
+  and the red channel of `txLayer1_Mask` mixes between them (white keeps the tile). Reflection is disabled in this
+  setup. It has no PBR maps; the default generator materials still use the neutral setup above.
+- `groundmaterial.world_colour` fully replaces an opaque surface using a white base and the shared red mask. Its colour
+  repeats in world X/Z metres, independent of the old UVs. This keeps the physical pattern size consistent on a bridge's
+  slab and overlaid road strip, whose original UVs have different scales, without changing vertices or collision.
+- Editor ground assignments use `ksMultilayer_objsp`: a white multiplier, an RGBA weight mask, original tile in A and up to
+  three full-resolution colours in RGB. Every `multR/G/B/A` is a float2 in this shader. Integer tile origins are added to
+  saved UVs to align repeats across tiles; positions, triangles and collision names stay unchanged.
+- The editor's RGBA selection channels are independent weights. Their mipmaps average each channel independently and
+  retain a unit total; they use lossless RGBA8 DDS rather than BC3, whose independent colour/alpha quantization changes
+  that total. The native AC fallback and CSP replacement receive the same masks.
+- Saved material variation uses a managed CSP replacement to `ksMultilayer_objsp_nm4`, with separate tiling-fix flags for
+  imported RGB layers and no variation of the original A tile or mask. The native material remains a usable fallback
+  without CSP. This colour-only setup fills missing normal maps with flat values; it does not import PBR maps.
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
   as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);
   `rail` likewise with `railcol`.

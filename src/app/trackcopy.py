@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackedits, trackheights, trackplace, tracksource, trackview
+from app import mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, trackvariation, trackview
 from track import editorinfo, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -220,7 +220,7 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"]
+    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
     if not (changed or source or copy_to):
         raise Refused("Nothing to save: nothing is changed")
     objects = trackview.list_of(path)
@@ -245,6 +245,12 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     added = scan["meshes"][len(source_scan["meshes"]):]
     # The source needs no new textures; every appended node has 53 fixed bytes, its length-prefixed name, vertices and indices.
     extra = sum(53 + len(kn5._s(m["name"])) + m["vertices"] * kn5.VERTEX.itemsize + m["indices"] * 2 for m in added)
+    try:
+        trackpaint.validate(ac, name, edits["base"], edits["paints"])
+        textures = {d["i"]: d for d in trackpaint.descriptors(ac, name, edits["base"], edits["paints"])}
+        extra += trackdetail.save_size(textures.values(), source_scan) + trackpaint.bundle_size(ac, name, edits["paints"])
+    except (ValueError, OSError) as error:
+        raise Refused(str(error)) from error
     _check_room(os.path.dirname(folder), os.path.getsize(path), not (source or tracksource.exists(tracksource.id_of(name, own))), extra)
     try:                            # (before a source is made: refused, nothing is left behind)
         change = trackplace.changed(path, scan, objects, edits["heights"], edits["placed"])
@@ -262,15 +268,21 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     going, seen = faces_left_out(path, scan, objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
                                  trackview._atlas(), edits["object_sorts"])
     try:
-        _copy_folder(folder, temporary, {name + ".kn5", objectlist.FILE})
+        _copy_folder(folder, temporary, {name + ".kn5", objectlist.FILE, str(trackpaint.BUNDLE)})
         new_kn5 = os.path.join(temporary, new + ".kn5")
-        moved = kn5.without_faces(path, new_kn5, going, change, added)
+        materials, images, change = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path)
+        trackvariation.write(temporary, materials if materials is not None else scan["materials"])
+        if materials is None and not images:
+            moved = kn5.without_faces(path, new_kn5, going, change, added, None)
+        else:
+            moved = kn5.without_faces(path, new_kn5, going, change, added, materials=materials, textures=images)
         now_at = trackheights.list_moved(placement.list_placed(objects, edits["placed"]), edits["heights"])
         objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
         editorinfo.copy(path, new_kn5)
+        trackpaint.export(ac, name, edits["paints"], temporary)
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
-                  "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"],
-                  "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
+                  "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
+                  "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)

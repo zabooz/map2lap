@@ -40,8 +40,15 @@ bush's the middle of its foot), with what belongs to it and a pole's wires (`app
 draft and the recipe, always from the source; height changes go after it, by where it stands now.
 
 **Band** (Editor):
-A marked stretch of road, A to B by two clicks, following the road surface (`app/trackband.py`, `ui/src/editor/useBand.ts`); what a tool such as Smooth
-works on. Its **own road** is the 1ROAD that stands to its line as a road can across: a bank or a side road at another level beside it is not, and goes along.
+A linear road-height solver and the legacy band API (`app/trackband.py`). Its **own road** is the 1ROAD that stands to its
+line as a road can across: a bank or a side road at another level beside it is not. Its spline and height helpers are also
+used by the current **Road region** tool.
+
+**Road region** (Editor):
+The mapped road network joined by Smooth road's points, bounded at its terminal points and clipped by the actual painted
+road masks (`app/roadregion.py`). Extra points may add branches. Orange shows the selected roads; fainter orange shows the
+terrain transition. `app/roadnet.py` joins the arms through shared junction heights/gradients and returns one ordinary 2 m
+height raster. The main driving route does not constrain the selection.
 
 **Object copy** (Editor):
 An independent instance kept in the draft and recipe as source object ids with frozen poses (`app/trackcopies.py`), with its own
@@ -54,11 +61,34 @@ Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a s
 
 **Tool options** (Editor):
 The bar over the view with what the tool on can be set to (`ui/src/editor/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
-Select uses Shift for all matching objects or the whole connected surface, Ctrl to add to the selection.
+Select uses Shift for all matching objects or prepared ground areas, including separate ones; Ctrl adds to the selection.
+
+**Properties** (Editor):
+The docked right panel for the clicked selection, its material/texture and retained object details. Selection stays pinned
+while the separate Under pointer section follows the mouse. Its width comes from the 3D view's space; hiding it restores that space.
+
+**Material library** (Editor):
+User-imported colour images and their physical repeat size, category and source information. Immutable packages under
+`library/materials/<id>` keep the original image, preview and relative-path manifest. Prepared colour maps are disposable
+under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. Importing a material alone does
+not change the track.
+
+**Custom Shaders Patch (CSP)**:
+An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.
+Map2Lap Settings detects its installed version and enable setting; a missing installation can download the recommended
+public release from the official site on request (`app/csp.py`). CSP runs inside AC; the Editor's browser renderer is separate.
+
+**Ground texture edit** (Editor):
+An immutable selected-ground mask and retained library colour texture snapshot (`app/trackpaint.py`). Ordered ids in the draft/recipe
+select separately repeated full-resolution colour layers (`app/trackdetail.py`), leaving positions, triangles and physics unchanged.
+Native materials keep the original tile and up to three replacement colours; integer UV origins align arbitrary repeat sizes.
+Saved tracks keep their active inputs in `data/map2lap_paints`; derived mask/colour DDS under `cache/track-details` can be rebuilt
+without the library.
 
 **Selection index** (Editor):
 Disposable prepared paint components and alpha masks (`track/surfaceindex.py`, `out/editor-selection`), made while ground tiles
-load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes the connected material.
+load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes all matching
+prepared regions of the material, including disconnected areas. The bounded preview reports an incomplete selection.
 Separate material meshes, including the road verge (`edge_dirt`), get connected face regions while their geometry loads.
 
 **Source**:

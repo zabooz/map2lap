@@ -13,6 +13,9 @@ dist/
 # Settings of the generator page (the AC folder differs per machine)
 settings.json
 
+# User-imported materials and models (kept across updates, never part of a release)
+library/
+
 # Map data cache (elevation, map data, vegetation; several GB, downloaded again any time)
 cache/
 

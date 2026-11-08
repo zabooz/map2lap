@@ -1,4 +1,4 @@
-// The Editor's tools: the sidebar's groups, one tool at a time, the bar's keys, picking more than one, Mark road and Smooth, Camera.
+// The Editor's tools: the sidebar's groups, one tool at a time, the bar's keys, picking more than one, Smooth road, Camera.
 import type {Page} from "@playwright/test";
 import {centre, expect, openEditor, openSettings, scene, test, type Backend} from "./fixtures";
 import {AWAY, findCar, findTree, heights, picture} from "./edit-helpers";
@@ -46,7 +46,7 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   await openEditor(page);
   await keysOnView(page);
   expect(await pressed(page, "#edit-select")).toBe("true");
-  for (const [key, id] of [["r", "#edit-road"], ["x", "#edit-click-deletes"], ["k", "#edit-camera"], ["c", "#edit-copy"], ["h", "#edit-elevation"], ["t", "#edit-smooth"]]) {
+  for (const [key, id] of [["m", "#edit-move"], ["x", "#edit-click-deletes"], ["k", "#edit-camera"], ["c", "#edit-copy"], ["h", "#edit-elevation"], ["t", "#edit-smooth"]]) {
     await page.keyboard.press(key);
     await expect(page.locator(id)).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("#edit-select")).toHaveAttribute("aria-pressed", "false");
@@ -130,42 +130,39 @@ test("Select: Ctrl adds to what is picked, again takes it out, X deletes all as 
   await expect(page.locator("#edit-count")).toBeHidden();
 });
 
-test("Mark road marks and changes nothing; Smooth takes it, by its button or by a right click on it, not beside it", async ({page, backend}) => {
-  const {a, b, c} = await onHill(page, backend);
+test("Smooth road marks at zero through its key or the road context menu", async ({page, backend}) => {
+  const {a, b} = await onHill(page, backend);
   await keysOnView(page);
-  await page.keyboard.press("r");
-  await expect(page.locator("#edit-road-hint")).toContainText("Click the road");
+  await page.keyboard.press("t");
+  await expect(page.locator("#edit-road")).toHaveCount(0);
+  await expect(page.locator("#edit-road-hint")).toContainText("click the road");
   await page.mouse.click(a.x, a.y);
   await expect(page.locator("#edit-band")).toContainText("A is set");
   await page.mouse.click(b.x, b.y);
-  await expect(page.locator("#edit-band")).toContainText("choose a tool");
-  await expect(page.locator("#edit-band").getByLabel("Strength")).toHaveCount(0);
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(300);
+  await expect(page.locator("#edit-band").getByLabel("Transition")).toBeVisible();
+  await expect(page.locator("#edit-band").getByLabel("Strength")).toHaveValue("0");
   expect(await heights(page)).toEqual([]);
-
-  await page.mouse.click(c.x, c.y, {button: "right"});
-  await page.getByRole("menuitem", {name: "Smooth"}).click();
+  await scene(page).focus(); await page.keyboard.press("Escape");
+  await page.mouse.click(a.x, a.y, {button: "right"});
+  await page.getByRole("menuitem", {name: "Smooth road", exact: true}).click();
   await expect(page.locator("#edit-smooth")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#edit-band").getByLabel("Strength")).toBeVisible();
-  await expect(page.locator("#edit-picked")).toBeHidden();      // (the road under the click is no news here)
-
-  await page.locator("#edit-road").click();
-  await expect(page.locator("#edit-band").getByLabel("Strength")).toHaveCount(0);
-  await expect(page.locator("#edit-band")).toContainText("choose a tool");      // (the band stays)
-  await page.locator("#edit-smooth").click();
-  await expect(page.locator("#edit-band").getByLabel("Strength")).toBeVisible();
+  await expect(page.locator("#edit-band")).toContainText("A is set");
+  await page.mouse.click(b.x, b.y);
+  await expect(page.locator("#edit-band").getByLabel("Transition")).toBeVisible();
+  await expect(page.locator("#edit-band").getByLabel("Strength")).toHaveValue("0");
+  await expect(page.locator("#edit-picked")).toBeHidden();
+  expect(await heights(page)).toEqual([]);
 });
 
-test("Mark road's left button picks nothing, its right click on an object still asks", async ({page}) => {
+test("Smooth road's left click picks no object; a right click on a tree still offers object actions", async ({page}) => {
   await openEditor(page);
   const tree = await findTree(page);
-  await page.keyboard.press("r");
+  await page.keyboard.press("t");
   await page.mouse.click(tree.x, tree.y);
   await expect(page.locator("#edit-picked")).toBeHidden();
   await page.mouse.click(tree.x, tree.y, {button: "right"});
-  await expect(page.getByRole("menuitem", {name: "Delete"})).toBeEnabled();
-  await expect(page.getByRole("menuitem", {name: "Smooth"})).toHaveCount(0);    // (nothing is marked)
+  await expect(page.getByRole("menuitem", {name: "Delete", exact: true})).toBeEnabled();
+  await expect(page.getByRole("menuitem", {name: "Smooth road", exact: true})).toHaveCount(0);
   await expect(page.locator("#edit-picked")).toContainText("Tree");
 });
 
