@@ -245,7 +245,7 @@ track remains driveable with ordinary repetition. The browser and CSP use the sa
 internal noise differs from the browser's deterministic field, so individual shifted patches need not occupy identical places.
 The implementation adds texture samples; frame-rate cost is not inferred from unit tests.
 
-## Render-region feasibility probe
+## Render-region probes
 
 `tools/ground_regions.py` measures spatial palette partitioning independently of the live renderer. Its inputs are unrestricted
 semantic material weights, not RGBA slots. `app/groundregions.py` partitions a tile while retaining each material present in
@@ -254,9 +254,32 @@ smallest region. Such regions retain their full palette and are explicitly repor
 children would have the same global filter support; more draw regions cannot reduce that palette.
 
 The tool writes reproducible, pickle-free weight archives and a JSON report under `out/analysis/ground-regions`. It records
-planner time, Python/NumPy allocation, proposed mask bytes and the palette groups implied by the shader capacity. These
-are CPU feasibility/allocation results, not GPU timings, frame rate or an AC rendering verdict. No user track, draft or library
-is modified. The current renderer's three-replacement restriction remains in effect.
+planner time, Python/NumPy allocation, proposed mask bytes and the palette groups implied by the shader capacity.
+
+`--gpu` additionally builds the isolated browser probe in `ui/tools/ground_array.ts`, using Bun and Playwright. It serves only
+the generated fixture from a temporary local HTTP listener. `--browser` chooses Chrome, Edge, Firefox or WebKit;
+`--hardware` requests the browser's default graphics backend. The report always records the actual renderer, which can
+still be software. Results and images are retained under the output's `webgl/` folder. Synthetic colour/normal/roughness
+maps exercise the rendering contract; these are not measurements of a complete track or full-resolution photo collection.
+
+The WebGL2 prototype in `groundArray.ts`/`groundArrayRender.ts` samples independent texture arrays for all material weights
+and maps. Each layer retains its own physical X/Y repeat, variation, normal scale and roughness factor. Array padding keeps
+each original map's texels at its own resolution. Explicit repeat-aware isotropic bilinear/trilinear sampling stays within those bounds,
+including devices without float-linear texture filtering. Colour mips average in linear light; normal/roughness/weights stay
+data. No material is removed when too many contributors meet. Unsupported device capacity is an explicit error.
+
+Regional weight arrays keep aligned local mip prefixes and share the complete global coarse tail. The palette expands to
+every global material across the prefix/tail transition, so distant filtering cannot lose contributors from adjacent regions.
+The prefix split accounts for border overhead; the full array is retained when regional allocation would be larger. Derived
+weight arrays use half-float GPU storage where every positive weight remains representable, otherwise float32. Original
+float fields and semantic material assignments are independent of this disposable representation.
+
+Browser tests compare dense twelve-material mixtures, individual contributions and filtered pixels with an independent
+reference; exercise serialized fixture reopening; verify normal/roughness lighting, rectangular repeats and variation; and
+check near, far and fractional mip transitions. Reports count actual texture allocations and draws. Completion-wall timings
+include CPU/graphics synchronization, not GPU timer queries or track FPS. The lighting probe is separate from CSP.
+No user track, draft or library is modified. The production renderer's three-replacement restriction remains in effect;
+the AC rendering path and the complete Editor editing/save workflow are not validated by this probe.
 
 ## Build facts and painted ground selection
 

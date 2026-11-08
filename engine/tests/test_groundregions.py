@@ -79,6 +79,25 @@ class RegionTest(unittest.TestCase):
                 for token in source.files:
                     self.assertGreater(float(source[token][16, 16]), 0)
 
+    def test_webgl_fixture_retains_dense_weights_and_independent_material_maps(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+        import ground_regions
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ground_regions.run(root, size=32, materials=6)
+            description = ground_regions.webgl_fixture(root, view_size=32)
+            saved = json.loads((root / "webgl/fixture.json").read_text(encoding="utf-8"))
+            self.assertEqual(description, saved)
+            self.assertEqual(6, len(description["layers"]))
+            self.assertIn("normal", description["layers"][0])
+            self.assertIn("roughness", description["layers"][0])
+            weights = np.fromfile(root / "webgl/weights.bin", dtype="<f4").reshape(6, 32, 32)
+            self.assertTrue((weights[:, 16, 16] > 0).all())
+            np.testing.assert_allclose(weights.sum(axis=0), .8, atol=1e-6)
+            self.assertEqual({layer["id"] for layer in description["layers"]},
+                             {token for region in description["regions"] for token in region["palette"]})
+            self.assertFalse(description["ac_verified"])
+
 
 if __name__ == "__main__":
     unittest.main()

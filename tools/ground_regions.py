@@ -1,7 +1,11 @@
 """Measure local material-palette feasibility before changing the Editor renderer; no user track or library is modified."""
 import argparse
 import json
+import math
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import time
 import tracemalloc
@@ -73,11 +77,61 @@ def run(output, size=512, materials=12):
     return report
 
 
+def webgl_fixture(output, view_size=256):
+    """Write shader-independent material maps and full float weights for the browser probe, without reducing dense palettes."""
+    output = Path(output)
+    with np.load(output / "junction.npz", allow_pickle=False) as saved:
+        ids = sorted(saved.files)
+        fields = np.stack([saved[token] for token in ids]).astype("<f4") * np.float32(.8)
+    _count, height, width = fields.shape
+    if width != height or width & (width - 1) or not 16 <= view_size <= 2048:
+        raise ValueError("The WebGL comparison uses power-of-two square weight fixtures and a 16–2048 pixel viewport")
+    target = output / "webgl"
+    target.mkdir(parents=True, exist_ok=True)
+    fields.tofile(target / "weights.bin")
+    layers = [{"id": token, "repeat": [2 + k, 3], "variation": k == 0,
+               "colour": {"width": 1, "height": 1, "data": [200 + k % 3 * 15, 40 + k * 13 % 200, 20 + k * 19 % 220, 255]}}
+              for k, token in enumerate(ids)]
+    # Synthetic data maps exercise tangent-space normals and linear roughness without a shipped material collection.
+    phase = np.arange(8) * (2 * np.pi / 8)
+    nx = np.broadcast_to(.35 * np.sin(phase)[None, :], (8, 8))
+    ny = np.broadcast_to(.35 * np.cos(phase)[:, None], (8, 8))
+    normal = np.dstack(((nx + 1) * 127.5, (ny + 1) * 127.5, (np.sqrt(1 - nx * nx - ny * ny) + 1) * 127.5, np.full((8, 8), 255)))
+    roughness = np.broadcast_to(100 + 70 * np.sin(phase)[None, :], (8, 8))
+    roughness = np.dstack((roughness, roughness, roughness, np.full((8, 8), 255)))
+    layers[0]["normal"] = {"width": 8, "height": 8, "data": np.rint(normal).astype(np.uint8).ravel().tolist()}
+    layers[0]["roughness"] = {"width": 8, "height": 8, "data": np.rint(roughness).astype(np.uint8).ravel().tolist()}
+    footprint = max(1., width / view_size)
+    radius = int(2 ** (math.ceil(math.log2(footprint)) + 1))
+    plan = groundregions.plan(dict(zip(ids, fields)), min_side=max(1, width // 16), filter_radius=radius)
+    description = {"profile": 1, "width": width, "height": height, "weights_file": "weights.bin", "weights_format": "float32le",
+                   "weight_order": "layer-major-bottom-first", "layers": layers, "extent": [256, 256], "origin": [-256, 512], "base": [.1, .2, .3],
+                   "view_size": view_size, "regions": plan["regions"], "filter_radius": radius, "ac_verified": False}
+    (target / "fixture.json").write_text(json.dumps(description, allow_nan=False), encoding="utf-8")
+    return description
+
+
+def webgl(output, browser="chrome", view_size=256, hardware=False):
+    """Run the real browser shader and save its reference checks, images and measured allocations/draws."""
+    webgl_fixture(output, view_size)
+    bun = shutil.which("bun") or str(Path.home() / ".bun" / "bin" / ("bun.exe" if os.name == "nt" else "bun"))
+    helper = Path(__file__).resolve().parents[1] / "ui" / "tools" / "ground_array.ts"
+    subprocess.run([bun, "run", str(helper), str(Path(output).resolve() / "webgl"), browser, *(["--hardware"] if hardware else [])], check=True)
+    report = json.loads(Path(output, "webgl/report.json").read_text(encoding="utf-8"))
+    if not report.get("passed"):
+        raise ValueError("The WebGL prototype failed conformance; inspect its saved report")
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("out/analysis/ground-regions"), help="derived report and reproducible input fixtures")
     parser.add_argument("--size", type=int, default=512, help="pixels per 256 m tile (16–2048)")
     parser.add_argument("--materials", type=int, default=12, help="distinct materials in the tile (4–32)")
+    parser.add_argument("--gpu", action="store_true", help="also run the WebGL2 rendering/reference probe (requires Bun and a Playwright browser)")
+    parser.add_argument("--browser", choices=("chrome", "edge", "firefox", "webkit"), default="chrome")
+    parser.add_argument("--view-size", type=int, default=256, help="WebGL output size in pixels")
+    parser.add_argument("--hardware", action="store_true", help="request the browser's default GPU backend instead of SwiftShader (actual renderer is reported)")
     args = parser.parse_args()
     try:
         report = run(args.output, args.size, args.materials)
@@ -87,7 +141,12 @@ def main():
         print(f"{label}: {measured['regions']} regions, {measured['overflow_regions']} overflow, "
               f"{measured['required_capacity']} required slots, {measured['proposed_mask_bytes'] / 2**20:.2f} MiB masks, "
               f"{measured['cpu_seconds']:.3f} s CPU")
-    print(f"Report: {args.output / 'report.json'}; GPU/AC rendering has not been verified.")
+    if args.gpu:
+        result = webgl(args.output, args.browser, args.view_size, args.hardware)
+        print(f"WebGL: {result['renderer']}; conformance passed, {result['regions']['drawCalls']} region draws, "
+              f"{result['regions']['textureBytes'] / 2**20:.2f} MiB textures. AC rendering has not been verified.")
+    else:
+        print(f"Report: {args.output / 'report.json'}; GPU/AC rendering has not been verified.")
 
 
 if __name__ == "__main__":
