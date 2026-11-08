@@ -10,7 +10,7 @@ import {nudgeVertices, STILL, type Nudge, type Placement} from "./placing";
 import type {CopyPose} from "./copying";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
-import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type ColourLayers, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
+import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type GroundMaterial, type ColourLayers, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf, type Atlas, type ObjectList} from "./inspect";
@@ -418,7 +418,7 @@ export class TrackView {
   private paintVersion = 0;
   private paintLoading: AbortController | null = null;
   private loadedTexture: (() => void) | null = null;
-  private materials: (THREE.MeshLambertMaterial | undefined)[] = [];
+  private materials: (GroundMaterial | undefined)[] = [];
   private splatImages = new Map<string, SplatImageEntry>();
   private splatBindings = new Map<number, Set<string>>();
   private splatPending = new Map<number, SplatPending>();
@@ -2600,7 +2600,7 @@ export class TrackView {
     return entry.done;
   }
 
-  private prepareSplat(k: number, material: THREE.MeshLambertMaterial, layers: ColourSplat, ready: () => void) {
+  private prepareSplat(k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) {
     this.ensureSplatState();
     const data = this.data!, mine = this.token, keys = new Set<string>();
     const entry: SplatPending = {keys, done: Promise.resolve()};
@@ -2610,12 +2610,16 @@ export class TrackView {
     void base.then(texture => { if (texture && current()) { material.map = texture; material.needsUpdate = true; this.dirty = true; } }, () => {});
     const mask = this.splatTexture(layers.mask, data, keys);
     const colours = layers.images.map(ref => this.splatTexture(ref, data, keys));
+    const details = layers.images.map(ref => ref.detail ? this.splatTexture(ref.detail, data, keys) : Promise.resolve(null));
     this.pruneSplatImages();
-    entry.done = Promise.all([base, mask, ...colours]).then(([original, keep, ...images]) => {
+    entry.done = Promise.all([base, mask, ...colours, ...details]).then(([original, keep, ...loaded]) => {
       if (!current()) return;
-      if (!original || !keep || images.some(image => !image)) throw new Error("Not enough editor memory for this material. Increase the limit and reopen the track.");
+      const images = loaded.slice(0, colours.length), packed = loaded.slice(colours.length);
+      if (!original || !keep || images.some(image => !image) || packed.some((image, i) => layers.images[i].detail && !image)) {
+        throw new Error("Not enough editor memory for this material. Increase the limit and reopen the track.");
+      }
       material.map = original;
-      bindSplat(material, keep, images as THREE.Texture[], layers);
+      bindSplat(material, keep, images as THREE.Texture[], layers, packed);
       this.splatBindings.set(k, keys);
       ready(); this.dirty = true;
     }).catch(error => {
@@ -2652,7 +2656,10 @@ export class TrackView {
       } else if (!old) {
         data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
       } else {
-        const material = old.clone(), layers = next.layers;
+        const layers = next.layers, colour = old.color.clone();
+        const material: GroundMaterial = layers.images.some(ref => ref.detail)
+          ? new THREE.MeshStandardMaterial({color: colour, roughness: 1, metalness: 0})
+          : new THREE.MeshLambertMaterial({color: colour});
         this.prepareSplat(k, material, layers, () => {
           const previous = this.materials[k];
           this.materials[k] = material; data.materials[k] = {...source, splat: layers};
@@ -2736,7 +2743,9 @@ export class TrackView {
     const d = data.materials[k], b = Math.min(1, d.bright);
     this.ensureSplatState();
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
-    const m = new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
+    const m: GroundMaterial = d.splat?.images.some(ref => ref.detail)
+      ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: 1, metalness: 0})
+      : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
     if (d.blend) {
       m.transparent = true;

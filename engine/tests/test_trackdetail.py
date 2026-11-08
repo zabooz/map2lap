@@ -2,6 +2,7 @@
 import io
 import base64
 import json
+import json
 from pathlib import Path
 import shutil
 import tempfile
@@ -16,7 +17,7 @@ from PIL import Image
 
 import test_trackpaint as fixture
 from app import materiallibrary, trackcopy, trackedits, trackview
-from track import groundmaterial, kn5, surfaceindex
+from track import editorinfo, groundmaterial, kn5, surfaceindex
 
 
 class DetailTest(unittest.TestCase):
@@ -38,6 +39,100 @@ class DetailTest(unittest.TestCase):
         staged = materiallibrary.prepare("detail.png", fixture.png(pixels))
         return materiallibrary.add({"token": staged["token"], "filename": "detail.png", "name": "Fine detail",
                                     "category": "asphalt", "repeat": [2, 3]})["material"]["id"]
+
+    def test_preview_detail_packs_retained_positive_y_normal_and_roughness_as_linear_data(self):
+        from app import trackdetail, trackpaint
+        colour = materiallibrary.prepare("colour.png", fixture.png(np.full((32, 32, 3), 170, np.uint8)))
+        normal = materiallibrary.prepare("normal.png", fixture.png(np.full((8, 8, 3), (143, 177, 243), np.uint8)), role="normal")
+        rough = materiallibrary.prepare("rough.png", fixture.png(np.full((16, 16), 71, np.uint8)), role="roughness")
+        asset = materiallibrary.add({"token": colour["token"], "filename": "colour.png", "name": "PBR",
+                                    "category": "soil", "repeat": [2, 3], "variation": False,
+                                    "maps": {"normal": {"token": normal["token"], "filename": "normal.png"},
+                                             "roughness": {"token": rough["token"], "filename": "rough.png"}}})["material"]["id"]
+        op = self.operation(asset)
+        layout = self.keep([op])["textures"][0]["layers"]
+        ref = layout["images"][0]
+        self.assertEqual({"roughness": 1., "normal_scale": 1.}, ref["properties"])
+        self.assertTrue(ref["detail"]["linear"])
+        materiallibrary.remove(asset)
+        with Image.open(io.BytesIO(trackdetail.detail_image(self.ac, self.name, ref["asset"]))) as packed:
+            self.assertEqual((16, 16), packed.size)
+            self.assertEqual((143, 177, 243, 71), packed.getpixel((5, 5)))
+        self.assertTrue(trackpaint._resolve(self.ac, self.name, "materials", ref["asset"]).is_dir())
+
+    def test_portable_pbr_slots_distinguish_identical_photos_after_original_source_and_caches_are_gone(self):
+        from app import trackdetail, trackpaint
+        operations = []
+        for i, green in enumerate((38, 218)):
+            colour = materiallibrary.prepare("colour.png", fixture.png(np.full((16, 16, 3), 130, np.uint8)))
+            normal = materiallibrary.prepare("normal.png", fixture.png(np.full((16, 16, 3), (128, green, 218), np.uint8)), role="normal")
+            asset = materiallibrary.add({"token": colour["token"], "filename": "colour.png", "name": f"PBR {i}",
+                                        "category": "soil", "repeat": [2, 3], "variation": False,
+                                        "maps": {"normal": {"token": normal["token"], "filename": "normal.png"}}})["material"]["id"]
+            operations.append(self.operation(asset, .1 if i == 0 else .5, -.5))
+        descriptor = self.keep(operations)["textures"][0]["layers"]
+        self.assertEqual(2, len(descriptor["images"]))
+        expected = {ref["asset"]: trackdetail.detail_image(self.ac, self.name, ref["asset"]) for ref in descriptor["images"]}
+        trackcopy.save(self.ac, self.name, "portable_pbr", "Portable PBR")
+        for relative in ("library", "cache", "out/sources", "out/paints", "out/paint-assets", "out/paint-views"):
+            shutil.rmtree(Path(self.tmp.name, relative), ignore_errors=True)
+        reopened = trackview.index(self.ac, "portable_pbr")
+        refs = reopened["materials"][0]["splat"]["images"]
+        self.assertEqual(set(expected), {ref.get("asset") for ref in refs})
+        for ref in refs:
+            self.assertTrue(ref["detail"]["linear"])
+            self.assertIn("/portable_pbr/paint-data/", ref["detail"]["url"])
+            self.assertEqual(expected[ref["asset"]], trackdetail.detail_image(self.ac, "portable_pbr", ref["asset"]))
+
+    def test_compiled_slot_binding_is_hash_bound_and_rejects_corrupt_provenance(self):
+        from app import trackdetail, trackpaint
+        self.keep([self.operation(self.detail_asset())])
+        trackcopy.save(self.ac, self.name, "bound", "Bound")
+        path = Path(self.ac, "content/tracks/bound/bound.kn5")
+        manifest = path.parent / trackdetail.BINDINGS_FILE
+        self.assertTrue(trackdetail._bindings(self.ac, "bound", path))
+        original = manifest.read_text(encoding="utf8")
+        record = json.loads(original)
+        record["materials"]["ground_0_0"]["R"] = "invalid"
+        manifest.write_text(json.dumps(record), encoding="utf8")
+        with self.assertRaisesRegex(ValueError, "binding.*changed"):
+            trackdetail._bindings(self.ac, "bound", path)
+        manifest.write_text(json.dumps({**record, "digest": trackpaint._digest({k: v for k, v in record.items() if k != "digest"})}), encoding="utf8")
+        with self.assertRaisesRegex(ValueError, "Invalid texture edit id"):
+            trackdetail._bindings(self.ac, "bound", path)
+        manifest.write_text(original, encoding="utf8")
+        _name, offset, size = kn5.scan(str(path))["textures"][0]
+        with path.open("r+b") as file:
+            file.seek(offset + size - 1)
+            value = file.read(1)[0]
+            file.seek(offset + size - 1)
+            file.write(bytes([value ^ 1]))
+        self.assertEqual({}, trackdetail._bindings(self.ac, "bound", path))
+
+    def test_portable_index_resolves_shared_slot_provenance_and_asset_once_across_tiles(self):
+        from app import trackdetail, trackpaint
+        colour = materiallibrary.prepare("colour.png", fixture.png(np.full((16, 16, 3), 130, np.uint8)))
+        normal = materiallibrary.prepare("normal.png", fixture.png(np.full((16, 16, 3), (128, 218, 218), np.uint8)), role="normal")
+        asset = materiallibrary.add({"token": colour["token"], "filename": "colour.png", "name": "Shared PBR",
+                                    "category": "soil", "repeat": [2, 3], "variation": False,
+                                    "maps": {"normal": {"token": normal["token"], "filename": "normal.png"}}})["material"]["id"]
+        self.keep([self.operation(asset)])
+        trackcopy.save(self.ac, self.name, "shared_index", "Shared index")
+        shutil.rmtree(Path(self.tmp.name, "out/sources"))
+        with (mock.patch.object(trackdetail, "_bindings", wraps=trackdetail._bindings) as bindings,
+              mock.patch.object(trackdetail, "_asset", wraps=trackdetail._asset) as assets,
+              mock.patch.object(trackdetail, "_detail", wraps=trackdetail._detail) as details):
+            reopened = trackview.index(self.ac, "shared_index")
+        materials = [m for m in reopened["materials"] if "splat" in m]
+        self.assertEqual(2, len(materials))
+        self.assertEqual(1, bindings.call_count)
+        self.assertEqual(1, assets.call_count)
+        self.assertEqual(1, details.call_count)
+        asset = materials[0]["splat"]["images"][0]["asset"]
+        retained = trackpaint._resolve(self.ac, "shared_index", "materials", asset)
+        (retained / "normal.png").write_bytes(b"damaged data")
+        self.assertIn("The retained material image has changed", trackview.index(self.ac, "shared_index")["paint_errors"])
+
 
     def test_reapplying_a_after_b_moves_its_immutable_operation_to_the_end(self):
         first, second = self.detail_asset(), self.material((40, 180, 30))
@@ -276,6 +371,27 @@ class DetailTest(unittest.TestCase):
         with Image.open(io.BytesIO(trackdetail.mask(self.ac, self.name, descriptor["version"]))) as mask:
             self.assertEqual(255, mask.getpixel((20, 20))[old["channel"]])
             self.assertEqual(0, mask.getpixel((2, 2))[old["channel"]])
+
+    def test_semantic_composition_retains_four_independent_materials_before_native_encoding(self):
+        from app import trackdetail, trackpaint
+        operations = []
+        for i in range(4):
+            mask = np.zeros((32, 32), np.uint8)
+            mask[i * 8:(i + 1) * 8] = 255
+            chosen = {"material": "gc_meadow", "truncated": False}
+            merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
+            with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+                operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + 40 * i, 30, 40)),
+                                                   [{"mesh": 0, "u": .1, "v": -.5}]))
+        self.keep(operations[:3])
+        version = trackpaint._plan(self.ac, self.name, self.revision, operations)[0]
+        record, path, scan, filename = trackdetail._view(self.ac, self.name, version)
+        semantic, weights, coverage = trackdetail._semantic(self.ac, self.name, record, path, scan, filename)
+        self.assertEqual(4, len(weights))
+        self.assertEqual({image["id"] for image in semantic["images"]}, set(weights))
+        self.assertTrue(all(image["properties"] == {"roughness": 1., "normal_scale": 1.} for image in semantic["images"]))
+        self.assertTrue(all(set(image["maps"]) == {"colour"} for image in semantic["images"]))
+        np.testing.assert_array_equal(coverage, 1)
 
     def test_exceeding_shader_slots_is_refused_before_writing_the_draft(self):
         from app import trackpaint

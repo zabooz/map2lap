@@ -55,7 +55,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   that total. The native AC fallback and CSP replacement receive the same masks.
 - Saved material variation uses a managed CSP replacement to `ksMultilayer_objsp_nm4`, with separate tiling-fix flags for
   imported RGB layers and no variation of the original A tile or mask. The native material remains a usable fallback
-  without CSP. This colour-only setup fills missing normal maps with flat values; it does not import PBR maps.
+  without CSP. This native colour-only setup supplies flat normal maps; retained imported PBR maps are used independently
+  by the Editor preview.
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
   as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);
   `rail` likewise with `railcol`.

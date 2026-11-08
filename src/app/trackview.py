@@ -191,6 +191,14 @@ def index(ac, name):
         paint_errors.append(str(error))
         painted = {}
     materials = [_material(m) for m in s["materials"]]
+    from app import trackdetail
+    try:
+        context = trackdetail.retained_context(ac, name, path) if any("splat" in m for m in materials) else None
+        for material in materials:
+            if "splat" in material:
+                material["splat"] = trackdetail.retained_layers(ac, name, path, material["name"], material["splat"], context)
+    except (ValueError, OSError) as error:
+        paint_errors.append(str(error))
     masks = {m["dual_layer"]["mask"] for m in materials if "dual_layer" in m}
     masks.update(m["splat"]["mask"]["name"] for m in materials if "splat" in m)
     for descriptor in painted.values():

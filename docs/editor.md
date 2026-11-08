@@ -131,7 +131,17 @@ conversion. Packed DDS normals and unapplied EXIF orientation on normals are ref
 roughness 1; normal scale defaults to 1. Schema 1 packages retain their ids and remain readable.
 The import dialog accepts colour and optional normal/roughness files, with independent repeat width/height and variation.
 Preparation is queued across roles and dialog reopenings; pending, replaced or invalid maps cannot enter the committed material.
-The live ground preview and production AC output still use colour only; PBR display is a separate rendering step.
+The Editor preview uses tangent normal and roughness maps for imported PBR materials. A shared linear texture retains
+normal RGB and roughness A; photographs stay sRGB. Data and colour use the same repeat and variation offsets.
+Original tile pixels and existing colour-only assignments retain Lambert lighting beside PBR fields; imported PBR uses
+physical lighting. Undo, Redo and reopening use the same immutable inputs. Production AC output currently keeps the colour fallback
+and the native adapter still limits one tile to three replacement materials.
+
+Save retains versioned compiled slot provenance separately in `data/map2lap_ground_layers.json`, bound to the written KN5's
+SHA256. It identifies the exact material snapshot for each native slot, including assets with identical photographs and repeat
+sizes but different normal maps. This restores the Editor's PBR inputs after transfer without the original source or caches;
+the paint selections and material snapshots remain the editing inputs. A stale binding is ignored and corrupt bindings are
+reported. Index loading validates the provenance once and resolves each shared asset once across its tiles.
 
 `app/materiallibrary.py` publishes complete packages atomically. Uploads are limited to 64 MiB and decoded images to 8192 px
 per side/32 megapixels; two queued uploads bound the input buffers and image preparation is serialized. It applies image

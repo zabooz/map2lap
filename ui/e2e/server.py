@@ -170,7 +170,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
@@ -221,7 +221,11 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         for ty in (-1, 0):
             part = os.path.join(root, f"t_0_{ty}.obj")
             paint = editorinfo.Paint(part, 0, ty, 32)
-            paint.base([ground_material or ("gc_meadow" if grass else "road_asphalt")], np.zeros((32, 32), np.uint8))
+            if ground_split:
+                ids = np.broadcast_to((np.arange(32) >= 16).astype(np.uint8), (32, 32)).copy()
+                paint.base(["gc_meadow", "road_asphalt"], ids)
+            else:
+                paint.base([ground_material or ("gc_meadow" if grass else "road_asphalt")], np.zeros((32, 32), np.uint8))
             features = [{"id": "fixture-road", "layer": "roads", "tags": {"highway": "residential"},
                          "spec": {"width": 16, "kind": "paved"},
                          "geometry": [[[128, -256], [128, -80], [128, 0], [128, 256]]]}] if hill else []
@@ -362,7 +366,7 @@ class Handler(server.Handler):
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)
             make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True), car=body.get("car"), house=body.get("house", False),
                        pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False), grass=body.get("grass", False),
-                       ground_material=body.get("ground_material"))
+                       ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

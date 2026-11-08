@@ -770,13 +770,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, csp.status(settings.ac_path()))
         if urlsplit(self.path).path.startswith("/api/library/"):
             return self._library()
-        detail = re.fullmatch(r"/api/editor/([^/]+)/(paint-mask|paint-asset|paint-preview)/([a-f0-9]{64})", self.path)
+        detail = re.fullmatch(r"/api/editor/([^/]+)/(paint-mask|paint-asset|paint-data|paint-preview)/([a-f0-9]{64})", self.path)
         if detail:
             try:
                 ac, name = settings.ac_path(), generator.slug(detail[1])
-                reader = {"paint-mask": trackdetail.mask, "paint-asset": trackdetail.image, "paint-preview": trackinspect.paint_preview}[detail[2]]
+                reader = {"paint-mask": trackdetail.mask, "paint-asset": trackdetail.image, "paint-data": trackdetail.detail_image,
+                          "paint-preview": trackinspect.paint_preview}[detail[2]]
                 raw = reader(ac, name, detail[3])
-                return self._send(200, raw, "image/png" if detail[2] == "paint-preview" else "image/vnd-ms.dds")
+                return self._send(200, raw, "image/png" if detail[2] in {"paint-preview", "paint-data"} else "image/vnd-ms.dds")
             except trackview.Unreadable as error:
                 return self._send(409, {"error": str(error)})
             except (ValueError, OSError, trackview.NotOurs) as error:

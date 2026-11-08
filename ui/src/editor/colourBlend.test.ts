@@ -3,6 +3,27 @@ import * as THREE from "three";
 import {bindSplat, materialImages} from "./colourBlend";
 import {TrackView} from "./view";
 
+test("PBR layers use retained linear detail data for tangent normals and roughness under physical lighting", () => {
+  const material = new THREE.MeshStandardMaterial({map: new THREE.Texture()});
+  const detail = new THREE.Texture();
+  bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {
+    base: {name: "original"}, mask: {name: "mask"}, origin: [0, 0],
+    images: [{name: "photo", scale: [128, 256 / 3], detail: {name: "data", linear: true},
+      properties: {roughness: .7, normal_scale: 2}}],
+  }, [detail]);
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.uniforms.m2lData0.value).toBe(detail);
+  expect(shader.fragmentShader).toContain("roughnessFactor = m2lRoughness");
+  expect(shader.fragmentShader).toContain("m2lTangentFrame(-vViewPosition, normal, vMapUv)");
+  expect(shader.fragmentShader).toContain("mat3 m2lFrame = m2lTangentFrame");
+  expect(shader.fragmentShader.indexOf("mat3 m2lFrame =")).toBeLessThan(shader.fragmentShader.indexOf("if (m2lContribution > 0.0)"));
+  expect(shader.fragmentShader).toContain("m2lPacked0.xyz * 2.0 - 1.0");
+  expect(shader.fragmentShader).toContain("m2lPacked0.a * m2lProperties0.y");
+  expect(shader.uniforms.m2lProperties0.value.toArray()).toEqual([2, .7]);
+});
+
 test("variation changes imported photo sampling while the source tile and selection mask keep their original UVs", () => {
   const material = new THREE.MeshLambertMaterial({map: new THREE.Texture()});
   bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {

@@ -249,6 +249,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         trackpaint.validate(ac, name, edits["base"], edits["paints"])
         textures = {d["i"]: d for d in trackpaint.descriptors(ac, name, edits["base"], edits["paints"])}
         extra += trackdetail.save_size(textures.values(), source_scan) + trackpaint.bundle_size(ac, name, edits["paints"])
+        extra += trackdetail.binding_size(ac, name, path, textures.values(), source_scan)
     except (ValueError, OSError) as error:
         raise Refused(str(error)) from error
     _check_room(os.path.dirname(folder), os.path.getsize(path), not (source or tracksource.exists(tracksource.id_of(name, own))), extra)
@@ -280,6 +281,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
         editorinfo.copy(path, new_kn5)
         trackpaint.export(ac, name, edits["paints"], temporary)
+        trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}

@@ -12,7 +12,9 @@ from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
 from track.textures import dds_mipmaps, dds_size, dds_weights
 
-PROFILE = 5
+PROFILE = 6
+BINDINGS_SCHEMA = 1
+BINDINGS_FILE = Path("data", "map2lap_ground_layers.json")
 
 
 def _url(name, kind, key):
@@ -98,9 +100,131 @@ def _source_image(path, scan, i, revision, mode="RGBA"):
         return np.array(image.convert(mode))
 
 
-def _compute(ac, name, record, path, scan, filename):
+def _detail(ac, name, asset, meta):
+    """Shared linear normal/roughness input descriptor, without decoding the colour photograph."""
+    maps = {role: ref for role, ref in meta.get("maps", {}).items() if role in {"normal", "roughness"}}
+    if not maps:
+        return None
+    folder = trackpaint._resolve(ac, name, "materials", asset)
+    dimensions = [1, 1]
+    for role, ref in maps.items():
+        path = folder / (role + ".png")
+        if trackpaint._file_digest(path) != ref["sha256"]:
+            raise ValueError("The retained material image has changed")
+        with Image.open(path) as image:
+            dimensions = [max(a, b) for a, b in zip(dimensions, image.size)]
+    key = trackpaint._digest(maps)
+    return {"name": "map2lap_detail_" + key + ".png", "key": key, "linear": True,
+            "size": dds_size(*dimensions, uncompressed=True), "dimensions": dimensions}
+
+
+@functools.lru_cache(maxsize=16)
+def _kn5_digest_at(path, state):
+    """Hash a compiled KN5 with bounded buffers; a long track must not be read into a Python bytes object."""
+    with open(path, "rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def _kn5_digest(path):
+    stat = Path(path).stat()
+    return _kn5_digest_at(str(path), (stat.st_mtime_ns, stat.st_size))
+
+
+@functools.lru_cache(maxsize=32)
+def _binding_record_at(path, state):
+    """Validate one immutable provenance file once, including callers compiling several edited native tiles."""
+    record = trackpaint._read(Path(path))
+    if record.get("schema") != BINDINGS_SCHEMA or not isinstance(record.get("materials"), dict):
+        raise ValueError("This saved ground material binding is not supported")
+    if record.get("digest") != trackpaint._digest({k: v for k, v in record.items() if k != "digest"}):
+        raise ValueError("The saved ground binding has changed")
+    for material, slots in record["materials"].items():
+        if not isinstance(material, str) or not isinstance(slots, dict) or set(slots) - set("RGB"):
+            raise ValueError("Invalid saved ground binding")
+        for asset in slots.values():
+            trackpaint._key(asset)
+    return record
+
+
+def _bindings(ac, name, path):
+    """Optional compiled slot provenance, valid only for exactly these KN5 bytes; original paints remain authoritative."""
+    target = Path(trackview.kn5_path(ac, name)).parent / BINDINGS_FILE
+    if not target.is_file():
+        return {}
+    stat = target.stat()
+    record = _binding_record_at(str(target), (stat.st_mtime_ns, stat.st_size))
+    if record.get("kn5_sha256") != _kn5_digest(path):
+        return {}
+    return record["materials"]
+
+
+def _retained_ref(ac, name, ref, asset, resolved):
+    """Resolve a compiled slot to its full portable snapshot, including two assets with the same colour/repeat."""
+    if asset not in resolved:
+        _path, meta, _dimensions = _asset(ac, name, asset)
+        attributes = {"asset": asset, "properties": materiallibrary.properties(meta)}
+        detail = _detail(ac, name, asset, meta)
+        if detail:
+            attributes["detail"] = {**detail, "url": _url(name, "paint-data", asset)}
+        resolved[asset] = ("map2lap_material_" + meta["image"] + ".dds", attributes)
+    filename, attributes = resolved[asset]
+    if ref["name"] != filename:
+        raise ValueError("The saved ground slot has another photograph")
+    return {**ref, **attributes}
+
+
+def retained_context(ac, name, path):
+    """One validated provenance table and one shared-asset resolution table for an index operation."""
+    return _bindings(ac, name, path), {}
+
+
+def retained_layers(ac, name, path, material_name, layout, context=None):
+    """Rebind a transferred native material to portable PBR inputs without requiring its original source/cache."""
+    table, resolved = retained_context(ac, name, path) if context is None else context
+    bindings = table.get(material_name, {})
+    images = []
+    for ref in layout["images"]:
+        channel = "RGB"[ref["channel"]]
+        images.append(_retained_ref(ac, name, ref, trackpaint._key(bindings[channel]), resolved) if channel in bindings else ref)
+    return {**layout, "images": images}
+
+
+def _compiled_bindings(ac, name, path, descriptors, scan):
+    """Compile slot provenance from semantic descriptors; existing portable source slots remain bound."""
+    result = dict(_bindings(ac, name, path))
+    for descriptor in descriptors:
+        layout = descriptor.get("layers")
+        if layout:
+            slots = {"RGB"[ref["channel"]]: ref["asset"] for ref in layout["images"] if "asset" in ref}
+            for i in layout["materials"]:
+                result[scan["materials"][i].name] = slots
+    return result
+
+
+def binding_size(ac, name, path, descriptors, scan):
+    """Exact compiled binding size before writing, using the fixed 64-character SHA256 field."""
+    return len(trackpaint._json_bytes({"schema": BINDINGS_SCHEMA, "kn5_sha256": "0" * 64,
+                                      "materials": _compiled_bindings(ac, name, path, descriptors, scan), "digest": "0" * 64}))
+
+
+def write_bindings(ac, name, path, descriptors, scan, target):
+    """Write versioned compiled provenance after the copied KN5 and semantic paint bundle are complete."""
+    materials = _compiled_bindings(ac, name, path, descriptors, scan)
+    if materials:
+        record = {"schema": BINDINGS_SCHEMA, "kn5_sha256": _kn5_digest(target), "materials": materials}
+        trackpaint._atomic(Path(target).parent / BINDINGS_FILE,
+                           trackpaint._json_bytes({**record, "digest": trackpaint._digest(record)}))
+    else:
+        (Path(target).parent / BINDINGS_FILE).unlink(missing_ok=True)
+
+
+def _semantic(ac, name, record, path, scan, filename):
+    """Original material composition and retained map metadata, independent of native shader slots."""
     key = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
     source = _source(scan, record["texture"])
+    if source["kind"] == "splat":
+        source["images"] = retained_layers(ac, name, path, scan["materials"][source["materials"][0]].name,
+                                           {"images": [{**ref, "name": scan["textures"][ref["i"]][0]} for ref in source["images"]]})["images"]
     _file, offset, size = scan["textures"][record["texture"]]
     with Image.open(io.BytesIO(trackview._read(path, offset, size, record["base"]))) as base:
         width, height = base.size
@@ -125,13 +249,16 @@ def _compute(ac, name, record, path, scan, filename):
             id = Path(assets[number][0]).parent.name
             token = "asset:" + id
             if token not in weights:
-                if len(weights) == 3:
-                    raise ValueError("A 256 m ground tile can use at most three replacement materials; reuse a material or undo a replacement")
                 _asset_path, meta, dimensions = _asset(ac, name, id)
                 images[token] = {"asset": id, "name": "map2lap_material_" + meta["image"] + ".dds", "key": meta["image"],
                                  "url": _url(name, "paint-asset", id), "size": dds_size(*dimensions),
                                  "variation": materiallibrary.varies(meta),
-                                 "scale": [256. / v for v in meta["repeat"]]}
+                                 "scale": [256. / v for v in meta["repeat"]], "repeat": list(meta["repeat"]),
+                                 "maps": meta.get("maps", {"colour": {"file": "colour.png", "sha256": meta["image"], "colour_space": "srgb"}}),
+                                 "properties": materiallibrary.properties(meta)}
+                detail = _detail(ac, name, id, meta)
+                if detail:
+                    images[token]["detail"] = detail
                 weights[token] = np.zeros((height, width), np.float32)
             weights[token][on] += values[on] / 255.
     coverage = np.minimum(1., sum(weights.values(), np.zeros((height, width), np.float32)))
@@ -148,23 +275,34 @@ def _compute(ac, name, record, path, scan, filename):
             token = f"source:{ref['i']}:{ref.get('channel', 0)}"
             weights[token] = values
             images[token] = {**ref, "name": scan["textures"][ref["i"]][0]}
-    if len(weights) > 3:
-        raise ValueError("A 256 m ground tile can use at most three replacement materials; reuse a material or undo a replacement")
     total = sum(weights.values(), np.zeros((height, width), np.float32))
     divisor = np.maximum(1., total)
-    mask = np.zeros((height, width, 4), np.uint8)
     palette = sorted(weights)
-    for channel, token in enumerate(palette):
-        mask[..., channel] = np.rint(weights[token] / divisor * 255).astype(np.uint8)
+    origin = [0, 0] if source["global_uv"] else [key[0], -key[1]]
+    layout = {"base": {"i": record["texture"], "name": filename},
+              "images": [{**images[token], "id": token} for token in palette], "source": source,
+              "origin": origin, "materials": source["materials"], "dimensions": [width, height]}
+    return layout, {token: weights[token] / divisor for token in palette}, coverage
+
+
+def _compute(ac, name, record, path, scan, filename):
+    """Encode the existing three-slot colour layout from the shared semantic composition."""
+    semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename)
+    if len(weights) > 3:
+        raise ValueError("A 256 m ground tile can use at most three replacement materials; reuse a material or undo a replacement")
+    width, height = semantic["dimensions"]
+    mask = np.zeros((height, width, 4), np.uint8)
+    for channel, values in enumerate(weights.values()):
+        mask[..., channel] = np.rint(values * 255).astype(np.uint8)
     excess = np.maximum(0, mask[..., :3].sum(axis=2).astype(np.int16) - 255)
     for channel in range(3):
         removed = np.minimum(mask[..., channel], excess).astype(np.uint8)
         mask[..., channel] -= removed
         excess -= removed
     mask[..., 3] = 255 - mask[..., :3].sum(axis=2)
-    origin = [0, 0] if source["global_uv"] else [key[0], -key[1]]
-    return {"base": {"i": record["texture"], "name": filename}, "images": [{**images[token], "channel": j} for j, token in enumerate(palette)],
-            "origin": origin, "materials": source["materials"], "dimensions": [width, height]}, mask
+    images = [{**{k: v for k, v in image.items() if k not in {"id", "maps", "repeat"}}, "channel": j}
+              for j, image in enumerate(semantic["images"])]
+    return {**{k: v for k, v in semantic.items() if k not in {"images", "source"}}, "images": images}, mask
 
 
 def _keep_weights(version, pixels):
@@ -201,8 +339,36 @@ def describe(ac, name, version):
 def _with_urls(name, version, layout):
     """Bind retained content to this track's endpoints; a saved copy may outlive the original track. Pure."""
     return {**layout, "mask": {**layout["mask"], "url": _url(name, "paint-mask", version)},
-            "images": [{**ref, **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {})}
+            "images": [{**ref, **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
+                        **({"detail": {**ref["detail"], "url": _url(name, "paint-data", ref["asset"])}} if "detail" in ref else {})}
                        for ref in layout["images"]]}
+
+
+def detail_image(ac, name, asset):
+    """Portable +Y tangent normal RGB and linear roughness A, each source retained unchanged."""
+    _path, meta, _size = _asset(ac, name, asset)
+    descriptor = _detail(ac, name, asset, meta)
+    if descriptor is None:
+        raise ValueError("This material has no normal or roughness map")
+    target = _cache(descriptor["key"], "data").with_suffix(".png")
+    if not target.is_file():
+        folder = trackpaint._resolve(ac, name, "materials", asset)
+        size = tuple(descriptor["dimensions"])
+        bands = [Image.new("L", size, value) for value in (128, 128, 255, 255)]
+        for role in ("normal", "roughness"):
+            if role not in meta["maps"]:
+                continue
+            with Image.open(folder / (role + ".png")) as image:
+                channels = image.convert("RGB").split() if role == "normal" else [image.convert("RGB").getchannel("R")]
+                resized = [band.resize(size, Image.Resampling.BILINEAR) for band in channels]
+                if role == "normal":
+                    bands[:3] = resized
+                else:
+                    bands[3] = resized[0]
+        output = io.BytesIO()
+        Image.merge("RGBA", bands).save(output, "PNG")
+        trackpaint._atomic(target, output.getvalue())
+    return target.read_bytes()
 
 
 def image(ac, name, asset):
