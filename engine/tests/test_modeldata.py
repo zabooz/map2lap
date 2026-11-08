@@ -52,6 +52,47 @@ def encode(document, binary):
 
 
 class ModelTest(unittest.TestCase):
+    def test_default_anchor_is_contact_bounds_midpoint_despite_asymmetric_crown_and_duplicate_feet(self):
+        document, binary = fixture()
+        points = np.array([[-1, 1, -2], [3, 1, 2], [20, 3, 8], [-1, 1, -2], [-1, 1, -2], [0, 2, 0]], "<f4")
+        start = (len(binary) + 3) // 4 * 4
+        binary += b"\0" * (start - len(binary)) + points.tobytes()
+        document["bufferViews"].append({"buffer": 0, "byteOffset": start, "byteLength": points.nbytes})
+        document["accessors"][0].update(bufferView=3, count=len(points))
+        document["buffers"][0]["byteLength"] = len(binary)
+        primitive = document["meshes"][0]["primitives"][0]
+        del primitive["indices"]
+        document["meshes"][0]["primitives"].append(dict(primitive))
+        document["nodes"].append({"mesh": 0, "translation": [-30, 20, 0]})
+        document["scenes"][0]["nodes"].append(2)
+        model = modeldata.load(encode(document, binary))
+        self.assertEqual([12, 4, -4], model.anchor)
+        self.assertEqual(2, len(model.instances))
+        self.assertEqual(2, len(model.primitives))
+
+    def test_extension_only_textures_name_the_extension_and_allow_a_core_fallback(self):
+        for extension in ("EXT_texture_webp", "KHR_texture_basisu"):
+            document, binary = fixture()
+            document["textures"][0] = {"extensions": {extension: {"source": 0}}}
+            with self.subTest(extension=extension), self.assertRaisesRegex(ValueError, extension + ".*PNG/JPEG"):
+                modeldata.load(encode(document, binary))
+            document["textures"][0]["source"] = 0
+            model = modeldata.load(encode(document, binary))
+            self.assertEqual(extension, next(iter(model.document["textures"][0]["extensions"])))
+
+    def test_core_texture_fallback_preserves_separate_optional_encoded_image_without_decoding_it(self):
+        for extension, mime, raw in (("EXT_texture_webp", "image/webp", b"RIFF\x04\0\0\0WEBP"),
+                                     ("KHR_texture_basisu", "image/ktx2", b"\xabKTX 20\xbb\r\n\x1a\n")):
+            document, binary = fixture()
+            document["images"].append({"uri": "data:" + mime + ";base64," + base64.b64encode(raw).decode()})
+            document["textures"][0]["extensions"] = {extension: {"source": 1}}
+            model = modeldata.load(encode(document, binary))
+            self.assertEqual(raw, model.images[1])
+            self.assertEqual(0, model.document["textures"][0]["source"])
+            document["textures"][0]["extensions"][extension]["source"] = 99
+            with self.assertRaises(ValueError):
+                modeldata.load(encode(document, binary))
+
     def test_scene_transforms_ground_anchor_and_alpha_leaf_material_survive_import(self):
         document, binary = fixture()
         model = modeldata.load(encode(document, binary))

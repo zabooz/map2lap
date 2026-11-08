@@ -230,7 +230,27 @@ def _map_settings(settings, token, filename):
         raise ValueError("Material properties must be finite numbers")
     if not 0 <= values["roughness"] <= 1 or values["normal_scale"] < 0:
         raise ValueError("Roughness must be between 0 and 1; normal scale must be non-negative")
-    return references, values
+    return references, {key: float(value) for key, value in values.items()}
+
+
+def _compatible_id(references, meta, values):
+    """Find an immutable schema 1/2 package with the same map bytes and physical settings."""
+    root = Path(ROOT, "library", "materials")
+    if not root.is_dir():
+        return None
+    maps = {role: ref["token"] for role, ref in references.items()}
+    for folder in sorted(root.iterdir()):
+        if not KEY.fullmatch(folder.name):
+            continue
+        try:
+            material = get(folder.name)
+            if (material["repeat"] == meta["repeat"] and varies(material) == meta["variation"]
+                    and properties(material) == values
+                    and {role: ref["sha256"] for role, ref in material["maps"].items()} == maps):
+                return folder.name
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return None
 
 
 def _staged_map(role, ref):
@@ -265,6 +285,9 @@ def add(settings):
         target = _folder(id)
         if (target / "asset.json").is_file():
             return {"material": get(id), "duplicate": True}
+        compatible = _compatible_id(references, meta, values)
+        if compatible is not None:
+            return {"material": get(compatible), "duplicate": True}
         inputs = {role: _staged_map(role, ref) for role, ref in references.items()}
         staged, _original, data, _description = inputs["colour"]
         material = {"schema": SCHEMA, "kind": "material", "id": id, **meta, "source": data["source"], "prepared": data["prepared"],

@@ -20,9 +20,10 @@ precision highp sampler2DArray;
 in vec2 uv;
 out vec4 result;
 uniform sampler2DArray weightsMap, colourMap, normalMap, roughnessMap, weightsTail;
-uniform vec4 materialInfo[${count}], mapInfo[${count}], extraInfo[${count}];
+uniform vec4 materialInfo[${count}], mapInfo[${count}], extraInfo[${count}], samplingInfo[${count}];
 uniform int palette[${count}], nearIndices[${count}], activeCount, mode, regional, splitLevel;
-uniform vec2 extent, origin;
+uniform vec2 extent;
+uniform vec4 noiseFrame;
 uniform vec2 originalWeightSize;
 uniform vec4 weightFrame;
 uniform vec3 baseColour;
@@ -57,12 +58,17 @@ vec4 filtered(sampler2DArray image, vec2 at, vec2 dx, vec2 dy, int layer, vec2 s
   float footprint = max(length(dx * size), length(dy * size));
   return atLod(image,at,layer,size,repeatMap,log2(max(1.0,footprint)));
 }
-float noise(vec2 p) {
+float hashCell(ivec2 p) {
+  uvec2 q = uvec2(p & ivec2(65535));
+  uint h = q.x * 374761393u + q.y * 668265263u;
+  h = (h ^ (h >> 13u)) * 1274126177u;
+  return float((h ^ (h >> 16u)) >> 8u) / 16777216.0;
+}
+float noise(vec2 p, vec2 seed) {
   vec2 i = floor(p), f = fract(p);
   f = f*f*(3.0-2.0*f);
-  vec4 h = vec4(dot(i, vec2(127.1,311.7)), dot(i+vec2(1,0),vec2(127.1,311.7)),
-                dot(i+vec2(0,1),vec2(127.1,311.7)), dot(i+vec2(1,1),vec2(127.1,311.7)));
-  h = fract(sin(h)*43758.5453);
+  ivec2 cell = ivec2(i) + ivec2(noiseFrame.zw) + ivec2(seed);
+  vec4 h = vec4(hashCell(cell),hashCell(cell+ivec2(1,0)),hashCell(cell+ivec2(0,1)),hashCell(cell+ivec2(1,1)));
   return mix(mix(h.x,h.y,f.x),mix(h.z,h.w,f.x),f.y);
 }
 vec3 light(vec3 colour, vec3 n, float rough) {
@@ -78,9 +84,13 @@ vec3 light(vec3 colour, vec3 n, float rough) {
   float specular = distribution*geometry*fresnel/max(0.0001,4.0*nv*nl);
   return colour*0.12 + (colour*0.96/3.14159265359+vec3(specular))*nl*2.0;
 }
+vec3 srgb(vec3 colour) {
+  return mix(12.92*colour,1.055*pow(max(colour,vec3(0.0)),vec3(1.0/2.4))-0.055,
+             step(vec3(0.0031308),colour));
+}
 void main() {
-  vec2 world = origin + uv*extent;
-  vec2 worldDx=dFdx(world),worldDy=dFdy(world);
+  vec2 local = uv*extent;
+  vec2 worldDx=dFdx(local),worldDy=dFdy(local);
   vec2 weightDx=dFdx(uv),weightDy=dFdy(uv);
   float lod=log2(max(1.0,max(length(weightDx*originalWeightSize),length(weightDy*originalWeightSize))));
   float tailBlend=regional>0 ? clamp(lod-float(splitLevel),0.0,1.0) : 0.0;
@@ -98,11 +108,12 @@ void main() {
     // During the first transition, blend local mip K with global mip K+1 exactly once.
     if (tailBlend>0.0) farWeight=atLod(weightsTail,uv,layer,vec2(textureSize(weightsTail,0).xy),false,max(1.0,lod-float(splitLevel))).r;
     float weight=mix(nearWeight,farWeight,tailBlend);
-    vec4 info = materialInfo[layer], maps = mapInfo[layer], extra = extraInfo[layer];
-    vec2 at = world/info.xy, dx = worldDx/info.xy, dy = worldDy/info.xy;
+    vec4 info = materialInfo[layer], maps = mapInfo[layer], extra = extraInfo[layer], sampling = samplingInfo[layer];
+    // The CPU reduces each origin modulo its repeat in double precision, keeping photo texels precise far from the anchor.
+    vec2 at = local/info.xy + sampling.xy, dx = worldDx/info.xy, dy = worldDy/info.xy;
     // Gradients are computed before the branch and shared across translated samples and all maps.
     if (weight>0.0) {
-      float blend = extra.z>0.5 ? noise(world/8.0+float(layer)*17.0) : 0.0;
+      float blend = extra.z>0.5 ? noise(local/8.0+noiseFrame.xy,sampling.zw) : 0.0;
       vec2 shift = vec2(0.371,0.613);
       vec3 c = filtered(colourMap,at,dx,dy,layer,maps.xy,true).rgb;
       vec3 nm = extra.w>0.5 ? filtered(normalMap,at,dx,dy,layer,maps.zw,true).rgb : vec3(0.5,0.5,1.0);
@@ -124,6 +135,7 @@ void main() {
   normal = unit(normal+original*vec3(0,0,1));
   roughness = (roughness+original)/divisor;
   vec3 shown = mode==0 ? colour : mode==1 ? normal*0.5+0.5 : mode==2 ? vec3(roughness) : light(colour,normal,roughness);
+  if (mode==0 || mode==3) shown=srgb(shown);
   result = vec4(shown,1.0);
 }`;
 }
@@ -164,7 +176,7 @@ export class GroundArrayRenderer {
     this.prepared={...prepared,weights:this.regional?.tail??fullWeights,bytes:prepared.bytes-originalWeightBytes+(this.regional?.bytes??weightBytes)};
     this.ids = new Map(this.prepared.ids.map((id, k) => [id, k]));
     if (input.layers.length > Number(gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS))
-        || 5*input.layers.length+16 > Number(gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS))) {
+        || 6*input.layers.length+16 > Number(gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS))) {
       throw new Error("This GPU cannot represent every material in the probe palette");
     }
     this.program = this.link(vertex, fragment(input.layers.length));
@@ -190,7 +202,20 @@ export class GroundArrayRenderer {
     gl.uniform4fv(this.uniform("mapInfo[0]"), this.prepared.mapInfo);
     gl.uniform4fv(this.uniform("extraInfo[0]"), this.prepared.extraInfo);
     gl.uniform2fv(this.uniform("extent"), input.extent);
-    gl.uniform2fv(this.uniform("origin"), input.origin);
+    const modulo=(value:number,period:number)=>((value%period)+period)%period;
+    const sampling=new Float32Array(input.layers.length*4);
+    input.layers.forEach((layer,k)=>{
+      // Stable semantic ids seed the variation; disposable array/palette order never changes its appearance.
+      let seed=2166136261;
+      for(let j=0;j<layer.id.length;j++) seed=Math.imul(seed^layer.id.charCodeAt(j),16777619)>>>0;
+      sampling.set([modulo(input.origin[0],layer.repeat[0])/layer.repeat[0],
+        modulo(input.origin[1],layer.repeat[1])/layer.repeat[1],seed&65535,seed>>>16],k*4);
+    });
+    gl.uniform4fv(this.uniform("samplingInfo[0]"),sampling);
+    // An 8 m smooth-noise lattice repeats after 65536 cells (524 km). Integer hashing retains exact shared tile cells.
+    gl.uniform4fv(this.uniform("noiseFrame"),new Float32Array([
+      modulo(input.origin[0],8)/8,modulo(input.origin[1],8)/8,
+      modulo(Math.floor(input.origin[0]/8),65536),modulo(Math.floor(input.origin[1]/8),65536)]));
     gl.uniform3fv(this.uniform("baseColour"), input.base);
     this.check();
   }

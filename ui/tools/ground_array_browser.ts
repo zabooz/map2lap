@@ -4,6 +4,7 @@ import type {GroundArrayInput, GroundMap} from "../src/editor/groundArray";
 
 const solid = (r: number, g = r, b = r): GroundMap => ({width: 1, height: 1, data: new Uint8Array([r,g,b,255])});
 const linear = (v: number) => v <= .04045 ? v / 12.92 : ((v+.055)/1.055)**2.4;
+const srgb = (v: number) => v <= .0031308 ? 12.92*v : 1.055*v**(1/2.4)-.055;
 const canvas = () => document.getElementById("ground") as HTMLCanvasElement;
 const difference = (a: Uint8Array, b: Uint8Array) => {
   let maximum=0;
@@ -45,7 +46,7 @@ function reference(input: GroundArrayInput, pixels: Uint8Array, width: number, h
       colour.forEach((_,c)=>colour[c]+=weight*colours[k][c]);
     }
     colour.forEach((value,c)=>{
-      const expected=Math.round(255*(value+Math.max(0,1-total)*input.base[c])/Math.max(1,total));
+      const expected=Math.round(255*srgb((value+Math.max(0,1-total)*input.base[c])/Math.max(1,total)));
       maximum=Math.max(maximum,Math.abs(pixels[(y*width+x)*4+c]-expected));
     });
   }
@@ -175,6 +176,64 @@ function benchmark(input:GroundArrayInput,width:number,height:number,regions:Gro
   return {renderer:view.renderer,preparedMs,regionalPreparedMs,regionalApplied,error,regionDifference,full:compact(all),regions:compact(local),lit:compact(lit)};
 }
 
-const api={denseCheck,filterCheck,propertyCheck,regionalCheck,fixture,stripeFixture,wire,reopen,run,benchmark};
+function identityCheck() {
+  const input=fixture(2,16); input.weights.fill(0); input.weights.fill(1,0,256);
+  input.extent=[13,11]; input.origin=[-2,3]; input.layers[0].variation=true;
+  input.layers[0].colour={width:2,height:2,data:new Uint8Array([230,40,20,255,30,180,20,255,20,40,220,255,230,210,20,255])};
+  const render=(regions?:GroundProbeRegion[])=>{
+    const view=new GroundArrayRenderer(canvas(),input); view.render(127,93,"colour",regions);
+    const pixels=view.pixels();view.dispose();return pixels;
+  };
+  const original=render(),regions=fourRegions(input).reverse();
+  regions.forEach(region=>region.palette.reverse());
+  const paletteDifference=difference(original,render(regions));
+  input.layers.reverse(); input.weights.copyWithin(256,0,256);input.weights.fill(0,0,256);
+  return {orderDifference:difference(original,render()),paletteDifference};
+}
+
+function precisionCheck() {
+  const input=fixture(1,16);input.weights.fill(1);input.extent=[1.73,1.29];input.origin=[.125,-.375];
+  input.layers[0].repeat=[2,2];input.layers[0].variation=false;
+  const data=new Uint8Array(256*256*4);
+  for(let y=0;y<256;y++) for(let x=0;x<256;x++) data.set([(x*73+y*19)%256,(x*17+y*31)%256,(x*7+y*53)%256,255],(y*256+x)*4);
+  input.layers[0].colour={width:256,height:256,data};
+  const render=()=>{const view=new GroundArrayRenderer(canvas(),input);view.render(287,239);const pixels=view.pixels();view.dispose();return pixels;};
+  const original=render();
+  return [8192,16384].map(offset=>{input.origin=[offset+.125,offset-.375];return difference(original,render());});
+}
+
+function transferCheck() {
+  const input=fixture(1,4);input.weights.fill(1);input.layers[0].colour=solid(200);
+  const view=new GroundArrayRenderer(canvas(),input);view.render(8,8);const grey=view.pixels()[0];
+  view.render(8,8,"lit");const lit=view.pixels()[0];
+  view.render(8,8,"normal");const normal=Array.from(view.pixels().slice(0,3));
+  view.render(8,8,"roughness");const roughness=view.pixels()[0];view.dispose();
+  // Independent scalar evaluation of the diagnostic light for a flat surface, roughness 1 and sRGB grey 200.
+  const nl=1/Math.sqrt(1.25),nh=Math.sqrt((1+nl)/2),vh=nh;
+  const geometry=nl/(nl*.5+.5),fresnel=.04+.96*(1-vh)**5;
+  const specular=geometry*fresnel/(Math.PI*4*nl);
+  const expectedLit=Math.round(255*srgb(linear(200/255)*.12+(linear(200/255)*.96/Math.PI+specular)*nl*2));
+  input.layers[0].colour={width:2,height:2,data:new Uint8Array([0,0,0,255,255,255,255,255,255,255,255,255,0,0,0,255])};
+  input.layers[0].repeat=[1,1];input.extent=[8,8];
+  const mip=new GroundArrayRenderer(canvas(),input);mip.render(1,1);const average=mip.pixels()[0];mip.dispose();
+  return {grey,lit,expectedLit,normal,roughness,average,expectedAverage:Math.round(255*srgb(.5))};
+}
+
+function tileSeamCheck() {
+  const input=fixture(1,16);input.weights.fill(1);input.extent=[16,8];input.origin=[16377.125,-8192.375];
+  input.layers[0].repeat=[2,3];input.layers[0].variation=true;
+  input.layers[0].colour={width:2,height:2,data:new Uint8Array([230,40,20,255,30,180,20,255,20,40,220,255,230,210,20,255])};
+  const render=(width:number)=>{const view=new GroundArrayRenderer(canvas(),input);view.render(width,64);const pixels=view.pixels();view.dispose();return pixels;};
+  const whole=render(128),parts=new Uint8Array(whole.length);
+  input.extent=[8,8];
+  for(let k=0;k<2;k++){
+    const tile=render(64);
+    for(let y=0;y<64;y++) parts.set(tile.subarray(y*64*4,(y+1)*64*4),(y*128+k*64)*4);
+    input.origin[0]+=8;
+  }
+  return difference(whole,parts);
+}
+
+const api={denseCheck,filterCheck,propertyCheck,regionalCheck,identityCheck,precisionCheck,transferCheck,tileSeamCheck,fixture,stripeFixture,wire,reopen,run,benchmark};
 export type GroundBrowserProbe=typeof api;
 Object.assign(window,{groundArrayProbe:api});

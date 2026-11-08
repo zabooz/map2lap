@@ -274,6 +274,11 @@ The prefix split accounts for border overhead; the full array is retained when r
 weight arrays use half-float GPU storage where every positive weight remains representable, otherwise float32. Original
 float fields and semantic material assignments are independent of this disposable representation.
 
+Variation uses integer-hashed world lattice cells seeded by the semantic material id, so array, palette and region order
+do not change the pattern. The CPU reduces each tile origin modulo each material's repeat before uploading its phase;
+texture sampling and gradients use local coordinates to preserve texel precision far from the track anchor. Colour and lit
+output encode linear light as sRGB for the canvas; normal and roughness diagnostic modes retain raw data values.
+
 Browser tests compare dense twelve-material mixtures, individual contributions and filtered pixels with an independent
 reference; exercise serialized fixture reopening; verify normal/roughness lighting, rectangular repeats and variation; and
 check near, far and fractional mip transitions. Reports count actual texture allocations and draws. Completion-wall timings

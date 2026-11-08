@@ -18,6 +18,7 @@ MAX_NODES = 4096
 MAX_IMAGES = 128
 COMPONENTS = {5120: "i1", 5121: "u1", 5122: "<i2", 5123: "<u2", 5125: "<u4", 5126: "<f4"}
 WIDTHS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+TEXTURE_EXTENSIONS = {"EXT_texture_webp": "image/webp", "KHR_texture_basisu": "image/ktx2"}
 
 
 @dataclass(frozen=True)
@@ -238,6 +239,7 @@ def _instances(document, meshes, primitives):
         raise ValueError("The GLB scene has too many root nodes")
     instances, visited = [], set()
     low, high = np.full(3, np.inf), np.full(3, -np.inf)
+    foot_low, foot_high = low.copy(), high.copy()
     vertex_count = 0
     # Iteration bounds hierarchy depth without relying on Python's recursion limit.
     pending = [(index, np.eye(4)) for index in reversed(roots)]
@@ -264,6 +266,13 @@ def _instances(document, meshes, primitives):
                     world = positions @ transform[:3, :3].T + transform[:3, 3]
                 if not np.isfinite(world).all():
                     raise ValueError("The transformed GLB vertices must be finite")
+                bottom = world[:, 1].min()
+                contacts = world[world[:, 1] == bottom]
+                if bottom < low[1]:
+                    foot_low, foot_high = contacts.min(axis=0), contacts.max(axis=0)
+                elif bottom == low[1]:
+                    foot_low = np.minimum(foot_low, contacts.min(axis=0))
+                    foot_high = np.maximum(foot_high, contacts.max(axis=0))
                 low, high = np.minimum(low, world.min(axis=0)), np.maximum(high, world.max(axis=0))
             instances.append(Instance(index, refs, _frozen(transform)))
         children = node.get("children", [])
@@ -273,8 +282,9 @@ def _instances(document, meshes, primitives):
             pending.append((child, transform))
     if not instances:
         raise ValueError("The GLB scene has no model geometry")
-    anchor = (low + high) / 2
-    anchor[1] = low[1]
+    # The lowest transformed vertices are the contact footprint; an asymmetric crown must not move the tree's foot.
+    # Bounds, rather than a mean, also make duplicated contact vertices immaterial. No physical-height tolerance is used.
+    anchor = foot_low / 2 + foot_high / 2
     return tuple(instances), [low.tolist(), high.tolist()], anchor.tolist()
 
 
@@ -282,15 +292,27 @@ def _images(reader):
     entries = reader.document.get("images", [])
     if len(entries) > MAX_IMAGES:
         raise ValueError("The GLB contains too many images")
+    textures = reader.document.get("textures", [])
+    core_sources = {texture["source"] for texture in textures}
+    alternatives = {}
+    for texture in textures:
+        for name, extension in texture.get("extensions", {}).items():
+            if name in TEXTURE_EXTENSIONS:
+                alternatives.setdefault(extension["source"], set()).add(TEXTURE_EXTENSIONS[name])
     images = []
-    for entry in entries:
+    for index, entry in enumerate(entries):
+        alternative_mimes = alternatives.get(index, set()) if index not in core_sources else set()
         if "uri" in entry:
-            mime, raw = _embedded(entry["uri"], ("image/png", "image/jpeg"))
+            mime, raw = _embedded(entry["uri"], ("image/png", "image/jpeg", *sorted(alternative_mimes)))
         elif "bufferView" in entry:
             _view, raw = reader.view(entry["bufferView"])
             mime = entry.get("mimeType")
         else:
             raise ValueError("GLB images must be embedded in the model")
+        if mime in alternative_mimes:
+            # Select the supported core fallback. Retain unused extension bytes/metadata verbatim, without claiming a decoder.
+            images.append(bytes(raw))
+            continue
         with Image.open(io.BytesIO(raw)) as image:
             if (image.format not in ("PNG", "JPEG") or max(image.size) > 8192 or image.width * image.height > (32 << 20)
                     or mime != {"PNG": "image/png", "JPEG": "image/jpeg"}.get(image.format)):
@@ -305,7 +327,16 @@ def _materials(document):
     textures, images = document.get("textures", []), document.get("images", [])
     samplers = document.get("samplers", [])
     for texture in textures:
+        if "source" not in texture:
+            extensions = texture.get("extensions", {})
+            unsupported = [name for name in TEXTURE_EXTENSIONS if name in extensions]
+            if unsupported:
+                raise ValueError("Unsupported texture extension " + ", ".join(unsupported) + "; export a PNG/JPEG core texture fallback")
+            raise ValueError("A GLB texture needs an embedded PNG/JPEG source")
         _at(images, texture["source"])
+        for name, extension in texture.get("extensions", {}).items():
+            if name in TEXTURE_EXTENSIONS:
+                _at(images, extension["source"])
         if "sampler" in texture:
             _at(samplers, texture["sampler"])
     materials = document.get("materials", [])

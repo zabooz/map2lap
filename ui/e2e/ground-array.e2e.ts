@@ -20,6 +20,43 @@ test.beforeEach(async ({page}) => {
   await page.addScriptTag({content: script});
 });
 
+test("variation follows material identity across array, palette and region order",async({page})=>{
+  const result=await page.evaluate(()=>{
+    // @ts-expect-error developer probe API
+    return window.groundArrayProbe.identityCheck();
+  });
+  expect(result.orderDifference).toBe(0);
+  expect(result.paletteDifference).toBe(0);
+});
+
+test("repeat sampling preserves photo texels at 8 and 16 km origins",async({page})=>{
+  const result=await page.evaluate(()=>{
+    // @ts-expect-error developer probe API
+    return window.groundArrayProbe.precisionCheck();
+  });
+  for(const error of result) expect(error).toBeLessThanOrEqual(1);
+});
+
+test("colour output encodes sRGB and its mips average in linear light",async({page})=>{
+  const result=await page.evaluate(()=>{
+    // @ts-expect-error developer probe API
+    return window.groundArrayProbe.transferCheck();
+  });
+  expect(Math.abs(result.grey-200)).toBeLessThanOrEqual(1);
+  expect(Math.abs(result.lit-result.expectedLit)).toBeLessThanOrEqual(1);
+  expect(result.normal).toEqual([128,128,255]);
+  expect(result.roughness).toBe(255);
+  expect(Math.abs(result.average-result.expectedAverage)).toBeLessThanOrEqual(1);
+});
+
+test("variation and repeat phase agree across adjacent large-origin tiles",async({page})=>{
+  const error=await page.evaluate(()=>{
+    // @ts-expect-error developer probe API
+    return window.groundArrayProbe.tileSeamCheck();
+  });
+  expect(error).toBeLessThanOrEqual(1);
+});
+
 test("all twelve materials contribute at a dense junction and survive a serialized reopen", async ({page}) => {
   const result = await page.evaluate(() => {
     // @ts-expect-error developer probe API, outside the product window

@@ -20,6 +20,36 @@ def image_bytes(mode="RGB", size=(64, 32), colour=(30, 160, 40), format="PNG"):
 
 
 class LibraryTest(unittest.TestCase):
+    def test_property_number_spelling_reuses_the_default_semantic_identity(self):
+        _prepared, default = self.add()
+        for values in ({"roughness": 1, "normal_scale": 1}, {"roughness": 1., "normal_scale": 1.}):
+            _prepared, result = self.add(properties=values)
+            self.assertTrue(result["duplicate"])
+            self.assertEqual(default["material"]["id"], result["material"]["id"])
+        for value in (True, float("inf"), float("nan")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.add(properties={"roughness": value})
+
+    def test_reimport_reuses_existing_integer_schema_two_identity_without_rewriting_it(self):
+        import hashlib
+        _prepared, result = self.add(properties={"roughness": .5, "normal_scale": 2.})
+        material = result["material"]
+        values = {"roughness": .5, "normal_scale": 2}
+        identity = {"schema": 2, "maps": {"colour": material["maps"]["colour"]["sha256"]},
+                    "repeat": material["repeat"], "variation": material["variation"], "properties": values}
+        old_id = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        folder = Path(self.tmp.name, "library/materials", material["id"])
+        old_folder = folder.with_name(old_id)
+        folder.rename(old_folder)
+        material.update(id=old_id, properties=values)
+        manifest = old_folder / "asset.json"
+        manifest.write_text(json.dumps(material), encoding="utf-8")
+        unchanged = manifest.read_bytes()
+        _prepared, again = self.add(properties={"roughness": .5, "normal_scale": 2.})
+        self.assertTrue(again["duplicate"])
+        self.assertEqual(old_id, again["material"]["id"])
+        self.assertEqual(unchanged, manifest.read_bytes())
+
     def test_ground_material_keeps_independent_original_maps_and_rebuilds_linear_data(self):
         from PIL import ImageCms
         colour = image_bytes()
@@ -81,6 +111,12 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(old_id, self.library.get(old_id)["id"])
         self.assertEqual({"roughness": 1., "normal_scale": 1.}, self.library.properties(old))
         self.assertTrue(self.library.colour(old_id).startswith(b"\x89PNG"))
+        self.library.remove(material["id"])
+        unchanged = (folder / "asset.json").read_bytes()
+        _prepared, again = self.add(properties={"roughness": 1, "normal_scale": 1})
+        self.assertTrue(again["duplicate"])
+        self.assertEqual(old_id, again["material"]["id"])
+        self.assertEqual(unchanged, (folder / "asset.json").read_bytes())
 
     def test_data_map_cache_is_independent_of_colour_management_for_the_same_bytes(self):
         image = Image.new("RGB", (8, 8), (180, 110, 240))
