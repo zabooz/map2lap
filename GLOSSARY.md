@@ -74,6 +74,12 @@ under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-
 not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
 the current dialog and ground renderer use colour only.
 
+**Model package** (Editor):
+An immutable user asset under `library/objects/<id>`, with its original GLB and a versioned description of source scale,
+ground anchor, category and collision choice (`app/objectlibrary.py`). `app/modeldata.py` keeps primitive geometry shared
+between the GLB's scene nodes and retains material/image resources. The import core is separate from track placements;
+the Editor and AC placement/export paths are not connected to it yet.
+
 **Custom Shaders Patch (CSP)**:
 An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.
 Map2Lap Settings detects its installed version and enable setting; a missing installation can download the recommended

@@ -120,7 +120,7 @@ and browsed in pages of 40; only small previews load, never the full original ma
 User assets live beside the app in `library/materials/<id>/asset.json`, `original/colour.<ext>` and `preview.png`, on Windows
 and Linux. The manifest contains relative paths and original file information; the original bytes are retained. Material ids
 bind image content, physical repeat size, variation and material properties. Importing that combination again reuses the existing material and name.
-The layout leaves `library/objects/` for future model imports. The library is excluded from Git and both release formats;
+Model packages use the parallel `library/objects/` layout described below. The library is excluded from Git and both release formats;
 the updater refuses an archive containing `Map2Lap/library`, so neither system's update step replaces user assets.
 
 Material schema 2 adds optional `normal` and `roughness` maps and shader-independent `roughness`/`normal_scale` properties.
@@ -161,6 +161,26 @@ The original ground remains labelled as such at untouched points; soft edges ind
 These selection requests read existing layer masks and do not bake colour tiles. Previews come from retained assets,
 so they also work after library removal or on portable saved copies. A changed selection/version cancels its old request;
 source mesh/material/shader diagnostics remain under Details.
+
+## Model import core
+
+`app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with unchanged
+`original/model.glb`. Their ids bind original content, category, metres per source unit, model-local anchor and explicit
+collision choice (`none` by default, or `mesh`). These import settings are independent of future scene placements. Name,
+tags, source and licence remain with the package. Prepared uploads under `cache/models` are disposable; original bytes
+remain available and hash-checked after clearing that cache. No model collection is shipped.
+
+`app/modeldata.py` reads self-contained static GLB 2.0 triangle meshes. Primitive arrays are shared between scene nodes;
+node transformations remain separate. It reads interleaved attributes, normalized UVs and embedded PNG/JPG images
+(buffer views or inline base64 data),
+retaining original material descriptions including alpha modes/cutoffs and double-sided leaves. Bounds use the selected
+scene's complete transforms, and the default ground anchor is the horizontal middle of the transformed foot. Geometry is
+in glTF's Y-up metre frame. This core performs no shader conversion or physical surface assignment.
+
+The importer bounds file size, JSON metadata, geometry, node references and image dimensions before publishing a package.
+External resources, required extensions, skinning, animations, morph targets, sparse accessors, non-triangle topology and
+additional vertex attributes are explicit import errors. Original material and image resources are never silently removed.
+The browser import UI, object-placement recipe and AC model conversion are not connected to this core yet.
 
 ## Ground texture changes
 
