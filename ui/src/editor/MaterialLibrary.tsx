@@ -27,6 +27,8 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
     <span>Variation in the game requires CSP.</span>
     {info?.source_url && <span>Source: {info.source_url}</span>}
     {info?.license && <span>License: {info.license}</span>}
+    {info?.maps.normal && <span>Normal map: {info.maps.normal.filename}</span>}
+    {info?.maps.roughness && <span>Roughness map: {info.maps.roughness.filename}</span>}
     <button type="button" className={styles.delete} onClick={onDelete} disabled={disabled}>Delete texture</button>
   </div>;
 }

@@ -129,7 +129,9 @@ publishing a material. Colour is sRGB; RGB tangent-space normals use +Y, roughne
 Each original remains unchanged under `original/`; normalized per-role PNGs are disposable. Data maps bypass ICC colour
 conversion. Packed DDS normals and unapplied EXIF orientation on normals are refused. Missing maps use flat normals and
 roughness 1; normal scale defaults to 1. Schema 1 packages retain their ids and remain readable.
-The current import dialog and ground renderer still use colour only; PBR display is a separate rendering step.
+The import dialog accepts colour and optional normal/roughness files, with independent repeat width/height and variation.
+Preparation is queued across roles and dialog reopenings; pending, replaced or invalid maps cannot enter the committed material.
+The live ground preview and production AC output still use colour only; PBR display is a separate rendering step.
 
 `app/materiallibrary.py` publishes complete packages atomically. Uploads are limited to 64 MiB and decoded images to 8192 px
 per side/32 megapixels; two queued uploads bound the input buffers and image preparation is serialized. It applies image

@@ -13,8 +13,11 @@ export interface MaterialSummary {
 export interface LibraryMaterial extends MaterialSummary {
   source_url: string;
   license: string;
-  maps: {colour: {file: string; filename: string; sha256: string}};
+  maps: {colour: MaterialMap; normal?: MaterialMap; roughness?: MaterialMap};
 }
+
+export type MaterialMapRole = "colour" | "normal" | "roughness";
+interface MaterialMap {file: string; filename: string; sha256: string}
 
 export interface PreparedImport {
   token: string;
@@ -33,6 +36,21 @@ export async function libraryJson<T>(url: string, options?: RequestInit): Promis
   const result = await response.json() as T & {error?: string};
   if (!response.ok) throw new Error(result.error ?? "Could not read the material library");
   return result;
+}
+
+let preparation: Promise<unknown> = Promise.resolve();
+
+/** The server prepares one image at a time. Finish an active upload before starting another, even after a dialog closes. */
+export function prepareMaterialImage(file: File, role: MaterialMapRole, signal: AbortSignal): Promise<PreparedImport> {
+  const task = preparation.catch(() => {}).then(() => {
+    signal.throwIfAborted();
+    // Aborting fetch would release this queue before server-side preparation finishes.
+    return libraryJson<PreparedImport>(`/api/library/imports?${new URLSearchParams({filename: file.name, role})}`, {
+      method: "POST", headers: {"Content-Type": "application/x-map2lap-image"}, body: file,
+    });
+  });
+  preparation = task;
+  return task;
 }
 
 export const materialPreview = (id: string, staged = false) => `/api/library/${staged ? "imports" : "materials"}/${id}/preview`;

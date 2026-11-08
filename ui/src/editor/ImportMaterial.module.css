@@ -11,9 +11,15 @@
 .repeat { display: flex; gap: 12px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px 10px; margin: 0; }
 .repeat .field { flex: 1; }
 .repeat legend { padding: 0 4px; color: var(--muted); font-size: 12px; }
+.maps { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px 10px; margin: 0; }
+.maps legend { padding: 0 4px; color: var(--muted); font-size: 12px; }
+.map { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.map .field { width: 100%; }
+.map button { font-size: 12px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); cursor: pointer; }
 .more summary { cursor: pointer; color: var(--muted); }
 .more .field { margin-top: 8px; }
-.buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.buttons { display: flex; justify-content: flex-end; gap: 8px; position: sticky; bottom: -20px; z-index: 1;
+           margin: 0 -20px -20px; padding: 12px 20px; background: var(--panel); border-top: 1px solid var(--line); }
 .buttons button { height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
 .buttons button:disabled { opacity: .5; cursor: default; }
 .buttons .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
