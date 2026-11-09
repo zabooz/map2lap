@@ -16,6 +16,21 @@ function server(deleted: Removed[] = []) {
 
 const settle = () => new Promise(ok => setTimeout(ok, 0));
 
+test("replacing multiple trees and their individual fitted poses is a single Undo step", async () => {
+  const {edits} = await started();
+  const models = [1, 2].map(i => ({id: `instance_${i}`, asset: "tree", at: [i, 0, 0] as [number, number, number],
+    replaces: `trees#${i}`, collision: "none" as const, scale: i * 2}));
+  const poses = models.map(m => ({id: m.id + "#0", x: 0, y: 2, z: 0, turn: 20, scale: 1}));
+  edits.addModels(models, poses);
+  expect(edits.state().models).toEqual(models);
+  expect(edits.state().placed).toEqual(poses);
+  edits.undo();
+  expect(edits.state().models).toEqual([]);
+  expect(edits.state().placed).toEqual([]);
+  edits.redo();
+  expect(edits.state().models).toEqual(models);
+});
+
 test("model bindings and their prepared poses are one undoable saved change, rebind keeps identity", async () => {
   const {edits} = await started();
   const model = {id: "instance_one", asset: "first", at: [1, 0, 2] as [number, number, number], replaces: null, collision: "none" as const};

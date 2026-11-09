@@ -1,3 +1,19 @@
+export const MODEL_CATEGORIES = [["tree", "Trees"], ["building", "Buildings"], ["other", "Other"]] as const;
+let modelPreparation: Promise<unknown> = Promise.resolve();
+
+/** Queue GLB preparation across cancelled dialogs; finish the server's current upload before starting another. */
+export function prepareModelFile(file: File, signal: AbortSignal): Promise<{token: string; geometry: {bounds: number[][]}}> {
+  const task = modelPreparation.catch(() => {}).then(() => {
+    signal.throwIfAborted();
+    // The dialog discards a cancelled answer; aborting fetch could leave the server still holding its preparation lock.
+    return libraryJson<{token: string; geometry: {bounds: number[][]}}>(`/api/library/model-imports?filename=${encodeURIComponent(file.name)}`, {
+      method: "POST", headers: {"Content-Type": "application/x-map2lap-glb"}, body: file,
+    });
+  });
+  modelPreparation = task;
+  return task;
+}
+
 /** Library metadata stays small; maps are fetched only when a material is used. */
 export interface MaterialSummary {
   id: string;

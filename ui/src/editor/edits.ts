@@ -9,6 +9,7 @@ export interface ModelInstance {
   at: [number, number, number];
   replaces: string | null;
   collision: "none" | "mesh";
+  scale?: number;               // physical fit to a replaced tree, before its editable relative pose
 }
 
 export interface Removed {
@@ -311,8 +312,14 @@ export class TrackEdits {
 
   /** An asset binding and its prepared source pose enter the same undo step; rebinding preserves identity and pose. */
   addModel(model: ModelInstance, prepared: Placement[] = []) {
+    this.addModels([model], prepared);
+  }
+
+  /** A whole selection of replacements and their source poses enters one Undo step. */
+  addModels(models: ModelInstance[], prepared: Placement[] = []) {
     const ids = new Set(prepared.map(p => p.id));
-    this.change({...this.edits(), models: [...this.now.models.filter(m => m.id !== model.id), model],
+    const modelIds = new Set(models.map(m => m.id));
+    this.change({...this.edits(), models: [...this.now.models.filter(m => !modelIds.has(m.id)), ...models],
       placed: [...this.now.placed.filter(p => !ids.has(p.id)), ...prepared]});
   }
 

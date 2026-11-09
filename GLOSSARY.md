@@ -85,7 +85,8 @@ packages, retaining their originals in saved tracks; native shading currently co
 
 **Model snapshot and instance** (Editor):
 An immutable snapshot freezes the original GLB and its import description when applied. A stable generic instance id binds
-that snapshot to a ground anchor and explicit collision choice; movement, turn and size stay separately in `placed`.
+that snapshot to a ground anchor and explicit collision choice. A replacement can retain a uniform fit to the source tree's
+physical height; subsequent movement, turn and relative size stay separately in `placed`.
 Hash-bound compiled provenance identifies generated KN5 regions and consumed source replacements after cache-free transfer.
 
 **Custom Shaders Patch (CSP)**:

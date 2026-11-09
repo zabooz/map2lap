@@ -48,8 +48,9 @@ def problems(copies):
     return None
 
 
-def _source(f, scan, objects, id_):
+def _source(f, scan, objects, id_, arrays=None):
     """A source object's metadata and its (mesh, first face, count) pieces; refuse an unknown or empty object."""
+    arrays = arrays or (lambda i: kn5.mesh_arrays(f, scan["meshes"][i]))
     try:
         base, number = id_.rsplit("#", 1)
         k = int(number)
@@ -62,13 +63,13 @@ def _source(f, scan, objects, id_):
         else:
             pieces = trackplace._billboard_pieces(scan, trackplace._billboard_parts(scan), base, k)
             faces = [(i, a, b - a) for i, a, b in pieces]
-            vertices = [kn5.mesh_arrays(f, scan["meshes"][i])[0] for i, _a, _n in faces]
-            corners = np.concatenate([v["pos"][np.unique(kn5.mesh_arrays(f, scan["meshes"][i])[1][a:a+n])]
+            vertices = [arrays(i)[0] for i, _a, _n in faces]
+            corners = np.concatenate([v["pos"][np.unique(arrays(i)[1][a:a+n])]
                                       for v, (i, a, n) in zip(vertices, faces)])
             low, high = corners.min(axis=0), corners.max(axis=0)
             at = [(low[0] + high[0]) / 2, low[1], (low[2] + high[2]) / 2]
             kind = trackview._billboard_kind(base)
-            uv = vertices[0]["uv"][kn5.mesh_arrays(f, scan["meshes"][faces[0][0]])[1][faces[0][1]]].mean(axis=0)
+            uv = vertices[0]["uv"][arrays(faces[0][0])[1][faces[0][1]]].mean(axis=0)
             atlas = trackview._atlas()
             cell = int((uv[1] % 1) * atlas["rows"]) * atlas["cols"] + int((uv[0] % 1) * atlas["cols"])
             sort = atlas["sprites"][cell]

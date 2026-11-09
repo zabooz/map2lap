@@ -206,6 +206,83 @@ class ModelWorkflowTest(Base):
         self.assertEqual([{**moved, "id": answer["model"]["id"] + "#0"}], answer["placed"])
         self.assertEqual([moved], trackedits.load(self.ac, self.name)["placed"], "Preparing replacement must not move the original")
 
+    def test_batch_replacement_keeps_each_tree_height_pose_and_ground_clearance_through_save(self):
+        from app import trackmodels
+        from test_trackheights import plateau
+        document, binary = fixture()
+        prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        asset = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Tree"})["model"]
+        poses = [{"id": f"nocol_trees_0_0#{i}", "x": x, "y": y, "z": z, "turn": turn, "scale": scale}
+                 for i, x, y, z, turn, scale in ((0, 2, 3, 4, 30, .5), (2, 15, 3, -7, 60, 1.5))]
+        heights = [plateau(x=-20, z=-20, nx=61, nz=61, height=1500)]
+        self.keep([], poses, heights)
+        now = trackedits.load(self.ac, self.name)
+        answer = trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"],
+            "model": asset["id"], "replace": [p["id"] for p in poses], "keep_height": True})
+        self.assertEqual(2, len(answer["models"]))
+        self.assertEqual(1, len({m["asset"] for m in answer["models"]}))
+        self.assertEqual([], trackedits.load(self.ac, self.name)["models"], "Preparation must not change the draft")
+        for model, pose in zip(answer["models"], poses):
+            self.assertIn({**pose, "id": model["id"] + "#0"}, answer["placed"])
+        self.keep(answer["models"], [*poses, *answer["placed"]], heights)
+        preview = trackview.index(self.ac, self.name)
+        for model, pose in zip(answer["models"], poses):
+            _folder, meta = trackmodels.resolve(self.ac, self.name, model["asset"])
+            matrix = np.asarray(preview["model_matrices"][model["id"]]).reshape(4, 4).T
+            corners = np.c_[np.asarray(meta["geometry"]["bounds"]), np.ones(2)] @ matrix.T
+            self.assertAlmostEqual(23 * pose["scale"], float(np.ptp(corners[:, 1])), places=4)
+            self.assertAlmostEqual(pose["y"] + 1.5, float(corners[:, 1].min()), places=4)
+        trackcopy.save(self.ac, self.name, "forest", "Forest")
+        native = kn5.read(Path(self.ac, "content/tracks/forest/forest.kn5"))
+        for model, pose in zip(answer["models"], poses):
+            parts = [m.vertices["pos"] for m in kn5.walk_meshes(native["root"]) if model["id"] in m.name and m.name.startswith("nocol_")]
+            corners = np.concatenate(parts)
+            self.assertAlmostEqual(23 * pose["scale"], float(np.ptp(corners[:, 1])), places=4)
+            self.assertAlmostEqual(pose["y"] + 1.5, float(corners[:, 1].min()), places=4)
+        for relative in ("library", "cache", "out/sources", "out/edits", "out/model-assets"):
+            shutil.rmtree(Path(self.ac, relative), ignore_errors=True)
+        trackcopy.save(self.ac, "forest", "cold_forest", "Cold forest")
+        cold = kn5.read(Path(self.ac, "content/tracks/cold_forest/cold_forest.kn5"))
+        by_name = {m.name: m for m in kn5.walk_meshes(cold["root"])}
+        for mesh in kn5.walk_meshes(native["root"]):
+            self.assertEqual(mesh.vertices.tobytes(), by_name[mesh.name].vertices.tobytes(), mesh.name)
+
+    def test_replacing_an_imported_tree_retains_identity_and_height_with_a_different_import_scale(self):
+        from app import trackmodels
+        document, binary = fixture()
+        prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        first = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "First", "metres_per_unit": 1})["model"]
+        second = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Second", "metres_per_unit": .01})["model"]
+        now = trackedits.load(self.ac, self.name)
+        model = trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"],
+            "model": first["id"], "replace": "nocol_trees_0_0#0", "keep_height": True})["model"]
+        pose = {"id": model["id"] + "#0", "x": 3, "y": 2, "z": 1, "turn": 35, "scale": 2}
+        self.keep([model], [pose])
+        now = trackedits.load(self.ac, self.name)
+        result = trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"],
+            "model": second["id"], "replace": [pose["id"]], "keep_height": True})
+        rebound = result["models"][0]
+        self.assertEqual(model["id"], rebound["id"])
+        self.assertEqual(model["replaces"], rebound["replaces"])
+        self.assertEqual(model["at"], rebound["at"])
+        self.assertAlmostEqual(model["scale"] * 100, rebound["scale"])
+        self.assertEqual([], result["placed"])
+        self.keep([rebound], [pose])
+        copied = trackedits.copy_template(self.ac, self.name, {"base": now["base"], "revision": trackedits.load(self.ac, self.name)["revision"], "object": pose["id"]})
+        now = trackedits.load(self.ac, self.name)
+        duplicate = trackedits.copy_template(self.ac, self.name, {"base": now["base"], "revision": now["revision"], "template": copied["template"], "at": [30, 0, 30]})
+        self.assertEqual(rebound["scale"], duplicate["model"]["scale"])
+        self.assertEqual(2, duplicate["placed"][0]["scale"])
+
+    def test_a_batch_with_a_non_tree_refuses_the_whole_change(self):
+        document, binary = fixture(); prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        asset = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Tree"})["model"]
+        now = trackedits.load(self.ac, self.name)
+        with self.assertRaisesRegex(trackedits.Invalid, "tree|bush"):
+            trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"], "model": asset["id"],
+                "replace": ["nocol_trees_0_0#0", "t_0_0#0"], "keep_height": True})
+        self.assertEqual(now, trackedits.load(self.ac, self.name))
+
     def test_library_edits_cannot_change_an_applied_snapshot_and_changed_snapshot_refuses_the_draft_atomically(self):
         import json
         from app import trackmodels

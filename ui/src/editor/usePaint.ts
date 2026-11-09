@@ -10,7 +10,7 @@ export function usePaint(name: string, edits: TrackEdits, view: TrackView) {
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(false), pending = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const apply = useCallback((material: string, points: SurfacePoint[], variation?: boolean) => {
+  const apply = useCallback((material: string, points: SurfacePoint[], variation?: boolean, tiles?: [number, number][]) => {
     if (pending.current || !points.length || !edits.canEdit()) return Promise.resolve(false);
     pending.current = true; setBusy(true); setError(null);
     let applied = false;
@@ -20,7 +20,7 @@ export function usePaint(name: string, edits: TrackEdits, view: TrackView) {
         const revision = await edits.saved(), base = edits.boundRevision();
         if (!alive.current) return;
         if (revision === null || !base || !edits.canEdit()) throw new Error("The current changes could not be kept. Try again after reloading them.");
-        const result = await post<{paint: string}>(`/api/editor/${encodeURIComponent(name)}/paint`, {base, revision, material, points, variation});
+        const result = await post<{paint: string}>(`/api/editor/${encodeURIComponent(name)}/paint`, {base, revision, material, points, variation, tiles});
         if (!alive.current) return;
         if (result.error || !result.paint) throw new Error(result.error ?? "Could not apply this material");
         edits.addPaint(result.paint);

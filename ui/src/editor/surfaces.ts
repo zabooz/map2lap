@@ -19,6 +19,14 @@ export interface SurfacePoint {
   object?: string | null;
 }
 
+/** Ground seeds after picked: left clicks select or add; context actions use the active selection. Pure. */
+export function pickedSurfaces(previous: SurfacePoint[], picked: {surface?: SurfacePoint; adding?: boolean; left?: boolean} | null): SurfacePoint[] {
+  if (!picked?.surface) return picked?.adding ? previous : [];
+  // A context menu acts on the selected regions, including whole-material seeds from Select all.
+  if (picked.left === false && previous.length) return previous;
+  return [...(picked.adding ? previous : []).filter(point => JSON.stringify(point) !== JSON.stringify(picked.surface)), picked.surface].slice(-64);
+}
+
 const NAMES: Record<string, string> = {
   road_asphalt: "Asphalt", road_concrete: "Concrete", road_cobble: "Cobblestones", road_gravel: "Gravel", road_dirt: "Dirt road",
   gc_meadow: "Meadow", gc_lawn: "Lawn", gc_forest: "Forest ground", gc_shrub: "Shrubland", gc_rock: "Rock face", gc_scree: "Scree",

@@ -51,6 +51,8 @@ and loaded dimensions from its surrounding merged mesh, show related ids and ret
 available, and list hidden as well as visible parts. The separate Under pointer section holds live hit and position data.
 Sections collapse; the panel can be hidden or resized by dragging its divider (arrow keys on the divider also resize it).
 The 3D view and its tool bar use the remaining width.
+Right-clicking ground and choosing Edit uses the active ground selection, including Select all and added regions.
+Without a ground selection, the right-clicked surface becomes the selection; a left click selects a new surface.
 
 `app/trackinspect.py` reads one selected object's descriptions through the cached draft context, via `/inspect`, bound to
 the served source revision. These descriptions stay out of `/index` and `/copies`. `/thumbnail` converts one source texture
@@ -161,7 +163,13 @@ original, including after Settings clears the cache. Listing caches only small s
 `/api/library/imports` prepares a bounded upload, and the final JSON POST imports the chosen settings. Importing a material
 alone changes no track. The user-facing picker is named Textures and opens from Edit, a painted-ground Appearance image or ground Edit.
 It keeps search/filter/selection state between openings, pages a scrollable thumbnail grid and shows one larger preview.
+Objects uses the same library layout, search/category filters, paged asset grid, right-hand preview and footer. Its GLB
+import fields open in a separate Import object dialog, matching the texture import flow. Each tab keeps its own browsing
+state; only the selected object opens a live 3D preview.
 Import opens its own dialog; Apply changes the selected ground and closes the picker only after its preview succeeds.
+Select all previews at most 64 prepared ground tiles. An incomplete selection can apply to its highlighted part: the picker
+states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
+authoritative source masks; later loading cannot change the chosen tiles. Unscoped incomplete Select all requests remain refused.
 Escape closes the picker without clearing the ground selection, including from its search field.
 The selected texture's repetition variation can be changed before Apply without reimporting; this setting belongs to that
 application and is retained by Undo/Redo and Save. Delete texture asks for confirmation and removes only the selected
@@ -196,6 +204,10 @@ The Objects tool group's **INSERT** button (I) opens the shared asset library on
 the ground picker used by Edit texture. Fields keep their typing shortcuts. Import a GLB, give it a name and metres per source unit, choose the default
 collision, then add it to the library. The preview shows the GLB materials, including cutout leaves. **Place on ground** accepts
 repeated ground clicks until Esc. **Replace selected tree** accepts a picked tree or bush and preserves its current placement.
+With several trees selected, the context menu's Replace opens the object library for the whole highlighted selection.
+Right-clicking another member of a marked tree sort retains that selection. Replacement keeps each tree's position, terrain
+clearance, turn and actual height, scaling the new model uniformly to preserve its proportions. A retained per-instance fit
+precedes its editable placement; Undo/Redo treats the whole replacement as one step. Save, cold reopen and Copy retain the fit.
 Before placement a translucent model follows the mouse over the ground. Its Turn, Height and Size options also affect each
 new placement, including the modifier-wheel controls used by Copy. Model previews and placed GLBs share viewport reflection
 lighting without altering imported metallic or roughness factors or the original terrain lighting.

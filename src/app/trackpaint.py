@@ -212,7 +212,7 @@ def _snapshot(material, variation=None):
     return id
 
 
-def create(ac, name, revision, material, points, variation=None):
+def create(ac, name, revision, material, points, variation=None, tiles=None):
     """Capture authoritative painted-ground masks and a material; the draft is not changed here."""
     if variation is not None and type(variation) is not bool:
         raise ValueError("Choose whether the texture varies its repeats")
@@ -224,9 +224,13 @@ def create(ac, name, revision, material, points, variation=None):
         raise ValueError("Select a ground area first")
     if len(points) > 64:
         raise ValueError("Select at most 64 ground points")
+    scope = surfaceindex.tile_scope(tiles) if tiles is not None else None
     groups = {}
     for point in points:
         selected = trackview.surface(ac, name, int(point["mesh"]), float(point["u"]), float(point["v"]), revision, bool(point.get("whole")))
+        if point.get("whole") and scope is not None:
+            # Loading more tiles must not expand or change the subset the user saw before Apply.
+            selected = surfaceindex.matching_tiles(path, selected["material"], sorted(scope))
         if point.get("whole") and selected["truncated"]:
             raise ValueError("Select all is incomplete: finish loading or select a smaller area (at most 64 ground tiles)")
         if not MATERIAL.fullmatch(selected["material"]):
@@ -236,12 +240,16 @@ def create(ac, name, revision, material, points, variation=None):
     for source, selections in groups.items():
         for tile in surfaceindex.merge(selections)["tiles"]:
             key = tuple(tile["tile"])
+            if scope is not None and key not in scope:
+                continue
             filename = f"{key[0]}_{key[1]}_{source}.png"
             raw = base64.b64decode(tile["mask"], validate=True)
             masks[filename] = raw
             tiles.setdefault(key, []).append({"material": source, "file": filename, "sha256": hashlib.sha256(raw).hexdigest()})
     if not tiles or len(tiles) > editorinfo.MAX_TILES:
         raise ValueError("Select at most 64 ground tiles")
+    if scope is not None and set(tiles) != scope:
+        raise ValueError("The highlighted ground selection changed; select it again")
     images = {tuple(map(int, match.groups())) for tex in scan["textures"] if (match := GROUND_IMAGE.fullmatch(tex[0]))}
     if not set(tiles) <= images:
         raise ValueError("This track has no editable ground image for part of the selection")

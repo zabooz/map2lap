@@ -58,6 +58,7 @@ export interface Picked {
   all: {id: string; position: [number, number, number]}[];      // (what can be deleted of all that is picked now, this one and those Ctrl added to it)
   surface?: SurfacePoint;
   adding?: boolean;
+  keeping?: boolean;           // a context click on the current object selection retains its marked groups
   whole?: boolean;
   inspection?: {hovered: Hovered; revision: string; texture: number | null; listed: boolean};
 }
@@ -294,18 +295,19 @@ class MeshFetchError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-/** Jobs through this run at most most at a time, the others wait their turn. */
-function oneByOne(most: number) {
-  const waiting: (() => void)[] = [];
+/** Run at most most jobs; priority jobs take the next free slot before ordinary queued work. */
+export function oneByOne(most: number) {
+  const waiting: (() => void)[] = [], priorityWaiting: (() => void)[] = [];
   let running = 0;
-  return async <T>(job: () => Promise<T>) => {
-    if (running >= most) await new Promise<void>(ok => waiting.push(ok));
-    running++;
+  return async <T>(job: () => Promise<T>, priority = false) => {
+    if (running >= most) await new Promise<void>(ok => (priority ? priorityWaiting : waiting).push(ok));
+    else running++;
     try {
       return await job();
     } finally {
-      running--;
-      waiting.shift()?.();
+      const next = priorityWaiting.shift() ?? waiting.shift();
+      // Transfer the occupied slot directly: a new arrival cannot take it before the queued job resumes.
+      if (next) next(); else running--;
     }
   };
 }
@@ -1990,13 +1992,16 @@ export class TrackView {
     }
     if (adding && !id && !surface) return null;
     if (adding && id && this.picks.has(id)) return this.dropPick(id, true);
-    if (!adding && !(e.button !== LEFT_BUTTON && id && this.picks.has(id))) this.forgetPicks();     // (a right click on one of them keeps them: its menu is for them all)
+    const groups = !this.marked ? [] : Array.isArray(this.marked) ? this.marked : [this.marked];
+    const keeping = e.button !== LEFT_BUTTON && !!id && (this.picks.has(id)
+      || groups.some(group => (group.tree ? hovered.sprite : hovered.sort) === group.sort));
+    if (!adding && !keeping) this.forgetPicks();     // A context menu on a marked member acts on the whole selection.
     const bounds = id ? this.boundsOf(id) : null;
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
     const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
                             sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
                             road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: [],
-                            adding: !!adding, whole: !!whole, surface,
+                            adding: !!adding, keeping, whole: !!whole, surface,
                             inspection: {hovered, revision: this.data.revision,
                               texture: this.data.textures.findIndex(t => t.name === hovered.texture),
                               listed: !!id && !!this.data.objects[id.slice(0, id.lastIndexOf("#"))]}};
@@ -2015,6 +2020,29 @@ export class TrackView {
   selectedOutside(groups: Marked[]) {
     return [...this.picks.values()].filter(({picked}) => !groups.some(g => (g.tree ? picked.sprite : picked.sort) === g.sort))
       .map(({picked}) => ({id: picked.id!, position: picked.position}));
+  }
+
+  /** Snapshot every highlighted tree or bush for Replace; a mixed selection is refused as a whole. */
+  replacementTargets(groups: Marked[]): string[] | null {
+    if (!this.data) return null;
+    const ids = new Set<string>();
+    for (const [id, {picked}] of this.picks) {
+      if (picked.kind !== "Tree" && picked.kind !== "Bush") return null;
+      if (this.shownBounds(this.piecesOf(id))) ids.add(id);
+    }
+    const sprites = new Set(groups.filter(g => g.tree).map(g => g.sort));
+    for (const mesh of this.billboardMeshes()) {
+      const info = mesh.userData.info as MeshInfo;
+      for (const [k, from, end] of this.billboardsOf(mesh)) {
+        if (sprites.has(this.spriteOf(mesh, from)!) && this.shownBounds([{mesh: info.i, from, end}])) ids.add(`${info.base}#${k}`);
+      }
+    }
+    for (const id of idsOfSorts(this.data.objects, new Set(groups.map(g => g.sort)))) {
+      const at = id.lastIndexOf("#"), kind = this.data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
+      if (kind !== "tree" && kind !== "bush") return null;
+      if (this.shownBounds(this.piecesOf(id))) ids.add(id);
+    }
+    return [...ids];
   }
 
   /** The picked one id out again: what was picked before it is what is spoken of, or nothing is left. */
@@ -2624,7 +2652,7 @@ export class TrackView {
           bytes = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/texture/${i}?r=${data.revision}`, signal);
         }
         return makeTexture(bytes, descriptor.name, anisotropy, descriptor.linear);
-      })
+      }, true) // Ordinary images and source tiles go ahead of queued masks and replacement photos.
         .then(made => {
           // (a PNG takes far more decoded than its file says; the next parts see what it really took)
           if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap && mine === this.token) {
@@ -2809,6 +2837,10 @@ export class TrackView {
     const entry: SplatPending = {keys, done: Promise.resolve()}; this.splatPending.set(k, entry);
     const current = () => mine === this.token && this.splatPending.get(k) === entry && !this.loading.signal.aborted;
     const base = this.splatTexture(layers.base, data, keys);
+    // Show the source tile while regional weights and photos load; an existing displayed map stays intact.
+    void base.then(texture => {
+      if (texture && current() && !material.map) { material.map = texture; material.needsUpdate = true; this.dirty = true; }
+    }, () => {});
     const photos = layers.images.map(ref => this.splatTexture(ref, data, keys));
     const maps = layers.images.map(ref => ref.detail ? this.splatTexture(ref.detail, data, keys) : Promise.resolve(null));
     const masks = layers.ground!.passes.map(pass => pass.weight.size ? this.splatTexture(pass.weight, data, keys) : Promise.resolve(null));

@@ -294,6 +294,29 @@ def _all_matching(target, available, material, clicked):
     return {"material": material, "truncated": truncated, "whole": True, "tiles": tiles}
 
 
+def tile_scope(tiles):
+    """Validate the explicit displayed subset of at most MAX_TILES ground coordinates. Pure."""
+    if (not isinstance(tiles, (list, tuple)) or not 1 <= len(tiles) <= editorinfo.MAX_TILES
+            or any(not isinstance(t, (list, tuple)) or len(t) != 2 or any(type(v) is not int for v in t) for t in tiles)):
+        raise ValueError("Select at most 64 valid ground tiles")
+    keys = {tuple(t) for t in tiles}
+    if len(keys) != len(tiles):
+        raise ValueError("The highlighted ground tiles must be unique")
+    return keys
+
+
+def matching_tiles(kn5, material, tiles):
+    """Read authoritative whole-material masks for exactly the displayed tiles, independent of later loading."""
+    keys = [f"{x}_{y}" for x, y in sorted(tile_scope(tiles))]
+    _folder, target, available, _roads, _chains = _context(kn5)
+    if not set(keys) <= set(available):
+        raise ValueError("The highlighted ground selection is no longer available")
+    result = _all_matching(target, keys, material, keys[0])
+    if result["truncated"]:
+        raise ValueError("The highlighted ground selection changed; select it again")
+    return result
+
+
 def select(kn5, tx, ty, u, v, whole=False):
     """Look up the local connected region, or all matching prepared ground; never evaluate painting on a click."""
     _folder, target, available, _roads, _chains = _context(kn5)

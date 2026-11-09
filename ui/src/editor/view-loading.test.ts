@@ -1,6 +1,17 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {TrackView} from "./view";
+import {oneByOne, TrackView} from "./view";
+
+test("original textures take the next free slot before queued masks", async () => {
+  const queue = oneByOne(1), order: string[] = [];
+  let release!: () => void;
+  const first = queue(() => new Promise<void>(resolve => { release = resolve; }));
+  const mask = queue(async () => { order.push("mask"); });
+  const original = queue(async () => { order.push("original"); }, true);
+  release();
+  await Promise.all([first, mask, original]);
+  expect(order).toEqual(["original", "mask"]);
+});
 
 const info = (i: number, vertices: number, copy = false) => ({i, vertices, indices: vertices, copy, name: `nocol_props_${i}`,
   material: 0, lod_in: 0, lod_out: 10000, center: copy ? [1000, 0, 0] : [0, 0, 0], radius: 1, base: null, first_face: null});

@@ -22,6 +22,6 @@ export function AssetLibrary({tab, onTab, onClose, busy, textures, objects}: {
       <button type="button" role="tab" aria-selected={tab === "objects"} disabled={busy} onClick={() => onTab("objects")}>OBJECTS</button>
     </div>
     <div role="tabpanel" aria-label="Textures" hidden={tab !== "textures"}>{textures}</div>
-    <div role="tabpanel" aria-label="Objects" hidden={tab !== "objects"}>{open && objects}</div>
+    <div role="tabpanel" aria-label="Objects" hidden={tab !== "objects"}>{objects}</div>
   </dialog>, document.body);
 }

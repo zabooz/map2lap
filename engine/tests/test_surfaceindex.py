@@ -96,6 +96,18 @@ class SurfaceIndexTest(unittest.TestCase):
         return {"id": id_, "layer": "roads", "tags": {"layer": layer}, "geometry": [points],
                 "spec": {"width": 16, "kind": "paved", "link": link}}
 
+    def test_explicit_tile_scope_keeps_the_highlighted_subset_after_more_tiles_load(self):
+        editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 3, 8)])
+        surfaceindex.prepare(str(self.kn5), ["0_0", "8_0"])
+        with mock.patch.object(editorinfo, "MAX_TILES", 2):
+            preview = surfaceindex.select(str(self.kn5), 0, 0, .5, .5, whole=True)
+            self.assertTrue(preview["truncated"])
+            surfaceindex.prepare(str(self.kn5), ["3_0"])
+            scoped = surfaceindex.matching_tiles(str(self.kn5), preview["material"], [(0, 0), (8, 0)])
+        self.assertEqual({(0, 0), (8, 0)}, {tuple(tile["tile"]) for tile in scoped["tiles"]})
+        self.assertFalse(scoped["truncated"])
+        np.testing.assert_array_equal(self.mask(preview, (8, 0)), self.mask(scoped, (8, 0)))
+
     def test_a_junction_stops_normal_road_selection_shift_takes_the_connected_road(self):
         alpha = np.zeros((64, 64), np.uint8)
         alpha[30:34, 8:56], alpha[8:33, 30:34] = 255, 255

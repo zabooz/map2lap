@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type RefObject} from "react";
+import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
 import {BandOptions} from "./BandOptions";
 import {CameraOptions, useCamera} from "./Camera";
@@ -18,9 +18,14 @@ import {useSave} from "./useSave";
 import type {Hovered, Marked, MenuAt, Picked, TrackView, WheelKeys} from "./view";
 import {ViewMenu} from "./ViewMenu";
 import {Inspector} from "./Inspector";
-import {surfaceName, type SurfacePoint, type SurfaceSelection} from "./surfaces";
+import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {usePaint} from "./usePaint";
 import {ToolChoice, ToolOptions, thenView} from "./ToolOptions";
+
+/** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
+export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
+  return (tool === "smooth" && editable && marked) || tool === "camera" || tool === "copy" || tool === "model" || (tool === "move" && editable);
+}
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
@@ -62,6 +67,9 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
   const [libraryTab, setLibraryTab] = useState<LibraryTab | null>(null);
+  const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
+  const replaceable = useMemo(() => menu && picked?.id ? view.replacementTargets(marked) : null, [view, menu, picked, marked]);
+  const openModels = () => { setReplaceTargets(view.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
   const [textureRevision, setTextureRevision] = useState(0);
   const closeMaterial = useCallback(() => setLibraryTab(null), []);
   const setMaterialOpen = useCallback((open: boolean) => setLibraryTab(open ? "textures" : null), []);
@@ -71,7 +79,6 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const elevating = tool === "elevation" && editable;
   const deleting = tool === "delete" && editable;
   const marking = tool === "smooth" && editable;
-  const smoothing = tool === "smooth" && editable;
   const moving = tool === "move" && editable;
   const saving = useSave({name, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
@@ -80,14 +87,17 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const materialTarget = tool === "select" && editable && selection?.tiles.length && !selection.meshes?.length
     && materials.length
     ? materials.map(surfaceName).join(", ") : null;
+  const limitedTiles = selection?.truncated && surfacePicks.some(point => point.whole)
+    ? new Set(selection.tiles.map(t => t.tile.join(","))).size : undefined;
   const materialReason = !editable ? "This track cannot be edited right now."
     : surfacePicks.length && !selection ? "Preparing the selected surface…"
     : selection?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
     : selection && new Set(selection.tiles.map(t => t.tile.join(","))).size > 64 ? "Select at most 64 ground tiles to apply a material."
-    : selection?.truncated && surfacePicks.some(point => point.whole) ? "Select all is incomplete. Finish loading or select a smaller area (at most 64 ground tiles)."
     : !materialTarget ? "Select a painted ground surface to apply a material." : null;
   const paintSurface = painting.apply;
-  const applyMaterial = useCallback((id: string, variation?: boolean) => materialTarget && !materialReason ? paintSurface(id, surfacePicks, variation) : Promise.resolve(false), [materialTarget, materialReason, paintSurface, surfacePicks]);
+  const applyMaterial = useCallback((id: string, variation?: boolean) => materialTarget && !materialReason
+    ? paintSurface(id, surfacePicks, variation, limitedTiles ? selection?.tiles.map(t => t.tile) : undefined) : Promise.resolve(false),
+    [materialTarget, materialReason, paintSurface, surfacePicks, limitedTiles, selection]);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
@@ -97,10 +107,9 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const onPicked = useEffectEvent((p: Picked | null) => {
     if (marking && p?.left) return view.unpick();
     setPicked(p);
-    if (!p?.adding) { setMarked([]); setSurfacePicks([]); }
-    if (tool === "select" && p?.surface) {
-      setSurfacePicks(previous => [...(p.adding ? previous : []).filter(s => JSON.stringify(s) !== JSON.stringify(p.surface)), p.surface!].slice(-64));
-    }
+    if (!p?.adding && !p?.keeping) setMarked([]);
+    if (tool === "select") setSurfacePicks(previous => pickedSurfaces(previous, p));
+    else if (!p?.adding) setSurfacePicks([]);
     if (tool === "select" && p?.whole && p.id) {
       const group = p.sprite ? {sort: p.sprite, tree: true} : p.sort && !NOT_ALL.has(p.sort) ? {sort: p.sort, tree: false} : null;
       if (group) setMarked(previous => [...(p.adding ? previous : []).filter(g => g.sort !== group.sort || g.tree !== group.tree), group]);
@@ -123,7 +132,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     return () => view.setClicked(() => {});
   }, [view]);
 
-  useEffect(() => { view.setWheelTaken((band.line !== null && smoothing) || tool === "camera" || tool === "copy" || moving); }, [view, band.line, smoothing, tool, moving]);
+  useEffect(() => { view.setWheelTaken(takesWheel(tool, editable, band.line !== null)); }, [view, band.line, editable, tool]);
 
   useEffect(() => { view.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
   useEffect(() => {
@@ -244,7 +253,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       view.focus();
     }
     else if ((marked.length || removable.length) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
-    else if (keyed?.tool === "model") { if (editable) setLibraryTab("objects"); }
+    else if (keyed?.tool === "model") { if (editable) openModels(); }
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
     else if (control && key === "z") {
@@ -266,12 +275,12 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     <>
       {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
-      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={() => setLibraryTab("objects")} />, toolsHost)}
-      <Models name={name} view={view} edits={edits} picked={picked} enabled={tool === "model" && editable}
+      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
+      <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={tool === "model" && editable}
         onWheel={setCopyWheel}
         choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => setTool("model")}
-        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={setLibraryTab} onClose={closeMaterial} busy={busy || painting.busy} objects={objects}
-          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} busy={painting.busy} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
+        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy} objects={objects}
+          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={limitedTiles} busy={painting.busy} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
         notes={<EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
@@ -297,8 +306,9 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} />}
       {menu && (
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
+                  onReplace={editable && replaceable?.length ? openModels : null}
                   onEdit={() => { setTool("select"); if (picked?.surface) {
-                    setSurfacePicks([picked.surface]);
+                    setSurfacePicks(previous => pickedSurfaces(tool === "select" ? previous : [], {surface: picked.surface, left: false}));
                     if (picked.surface.face === undefined) setMaterialOpen(true);
                   } onInspectorCollapsed(false); view.focus(); }}
                   onMove={editable && picked?.id && view.canMove(picked.id) ? () => { setTool("move"); setNote(null); view.focus(); } : null}

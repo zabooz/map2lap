@@ -924,7 +924,7 @@ class Handler(BaseHTTPRequestHandler):
         if model:
             if not self._own_page():
                 return self._send(403, {"error": "Only the page itself can place a model"})
-            if int(self.headers.get("Content-Length") or 0) > 16384:
+            if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
                 self.close_connection = True
                 return self._send(413, {"error": "Too many model settings"})
             return self._edits_answer(lambda: trackedits.model(settings.ac_path(), model[1], self._body()))

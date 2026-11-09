@@ -1,1 +1,2 @@
-.preview { width: 100%; min-height: 260px; background: #333b40; }
+.preview { width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; }
+.preview canvas { display: block; }

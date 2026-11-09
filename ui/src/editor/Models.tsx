@@ -3,12 +3,12 @@ import {post} from "../api";
 import type {ModelInstance, TrackEdits} from "./edits";
 import {ModelLibrary, type LibraryModel} from "./ModelLibrary";
 import {isUnplaced, nudged, unplaced, type Placement} from "./placing";
-import type {Picked, TrackView, WheelKeys} from "./view";
+import type {TrackView, WheelKeys} from "./view";
 import {ToolNumber, ToolOptions} from "./ToolOptions";
 
 /** Place a selected model repeatedly or exchange the selected tree's binding through the same draft queue as Move and Undo. */
-export function Models({name, view, edits, picked, enabled, choosing, onClose, onPlace, renderLibrary, onWheel}: {
-  name: string; view: TrackView; edits: TrackEdits; picked: Picked | null; enabled: boolean; choosing: boolean;
+export function Models({name, view, edits, replace: replaceTargets, enabled, choosing, onClose, onPlace, renderLibrary, onWheel}: {
+  name: string; view: TrackView; edits: TrackEdits; replace: string[]; enabled: boolean; choosing: boolean;
   onClose: () => void; onPlace: () => void; renderLibrary?: (objects: ReactNode, busy: boolean) => ReactNode;
   onWheel: (wheel: (keys: WheelKeys, by: number) => void) => void;
 }) {
@@ -21,21 +21,23 @@ export function Models({name, view, edits, picked, enabled, choosing, onClose, o
       : keys === "ctrl" ? {y: by * .1} : keys === "alt" ? {scale: 1.05 ** by} : {})));
     return () => onWheel(() => {});
   }, [enabled, onWheel]);
-  const apply = useCallback((model: LibraryModel, at?: [number, number, number], replace?: string) => {
+  const apply = useCallback((model: LibraryModel, at?: [number, number, number], replace?: string[]) => {
     const options = {...pose};
     void edits.inTurn(async () => {
       edits.saveNow();
       const revision = await edits.saved();
       if (revision === null || !edits.canEdit()) return;
-      const answer = await post<{model: ModelInstance; placed: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/model`,
-        {base: edits.boundRevision(), revision, model: model.id, at, replace});
-      if (answer.error || !answer.model) setFault(answer.error ?? "Could not place the model");
+      const answer = await post<{model?: ModelInstance; models?: ModelInstance[]; placed: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/model`,
+        {base: edits.boundRevision(), revision, model: model.id, at, replace, keep_height: !!replace});
+      const models = answer.models ?? (answer.model ? [answer.model] : []);
+      if (answer.error || !models.length) setFault(answer.error ?? "Could not place the model");
       else {
-        const placed = !replace && !isUnplaced(options) ? [...answer.placed ?? [], {...options, id: `${answer.model.id}#0`}] : answer.placed;
-        edits.addModel(answer.model, placed); setFault(null);
+        const placed = !replace && !isUnplaced(options) ? [...answer.placed ?? [], {...options, id: `${models[0].id}#0`}] : answer.placed;
+        edits.addModels(models, placed); setFault(null);
+        if (replace) view.unpick();
       }
     });
-  }, [pose, name, edits]);
+  }, [pose, name, edits, view]);
   const place = useEffectEvent((at: [number, number, number]) => { if (selected) apply(selected, at); });
   useEffect(() => {
     if (!enabled || !selected) return;
@@ -43,8 +45,8 @@ export function Models({name, view, edits, picked, enabled, choosing, onClose, o
     return () => view.setCopy(null, null);
   }, [view, enabled, selected]);
   useEffect(() => { if (enabled) view.setCopyPose(pose); }, [view, enabled, selected, pose]);
-  const library = <ModelLibrary embedded={!!renderLibrary} onBusy={setLibraryBusy} replace={picked?.kind === "Tree" || picked?.kind === "Bush" ? picked.id : null} onClose={onClose} onChoose={(model, replace) => {
-      if (replace && picked?.id) apply(model, undefined, picked.id);
+  const library = <ModelLibrary embedded={!!renderLibrary} open={choosing} onBusy={setLibraryBusy} replace={replaceTargets.length} onClose={onClose} onChoose={(model, replace) => {
+      if (replace && replaceTargets.length) apply(model, undefined, replaceTargets);
       else { setSelected(model); onPlace(); }
       onClose(); view.focus();
     }} />;

@@ -1,6 +1,27 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {SurfaceOverlay} from "./surfaces";
+import {pickedSurfaces, SurfaceOverlay, type SurfacePoint} from "./surfaces";
+
+test("Select all and added ground seeds survive right-click and Edit as the full material target", () => {
+  const point: SurfacePoint = {mesh: 0, u: .2, v: .3, revision: "source", whole: true};
+  const other: SurfacePoint = {...point, mesh: 1, whole: false};
+  const selected = pickedSurfaces([point], {surface: other, adding: true, left: true});
+  const underMenu = {...point, u: .4, v: .5, whole: false};
+  const rightClicked = pickedSurfaces(selected, {surface: underMenu, left: false});
+  expect(rightClicked).toBe(selected);
+  expect(pickedSurfaces(rightClicked, {surface: underMenu, left: false})).toBe(selected);
+  expect(selected).toEqual([point, other]);
+});
+
+test("a context click without a ground selection selects its surface; a left click replaces and Escape clears it", () => {
+  const point: SurfacePoint = {mesh: 0, u: .2, v: .3, revision: "source"};
+  const selected = pickedSurfaces([], {surface: point, left: false});
+  expect(selected).toEqual([point]);
+  const next = {...point, mesh: 2};
+  expect(pickedSurfaces(selected, {surface: next, left: true})).toEqual([next]);
+  expect(pickedSurfaces(selected, null)).toEqual([]);
+  expect(pickedSurfaces(selected, {left: true})).toEqual([]);
+});
 
 const mesh = (name: string) => {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial());

@@ -140,6 +140,34 @@ class PaintTest(unittest.TestCase):
         with Image.open(io.BytesIO(original)) as source:
             self.assertEqual((30, 150, 40), source.getpixel((5, 5)))
 
+    def test_explicit_partial_apply_changes_only_the_highlighted_tile_and_survives_save(self):
+        from app import trackpaint
+        asset = self.material((200, 30, 40))
+        now = trackedits.load(self.ac, self.name)
+        body = {"base": now["base"], "revision": now["revision"], "material": asset,
+                "points": [{"mesh": 0, "u": .1, "v": -.5, "whole": True}]}
+        untouched = trackview.texture_bytes(self.ac, self.name, 1, self.revision)[1]
+        with mock.patch.object(editorinfo, "MAX_TILES", 1):
+            with self.assertRaisesRegex(trackedits.Invalid, "incomplete"):
+                trackedits.paint(self.ac, self.name, body)
+            op = trackedits.paint(self.ac, self.name, {**body, "tiles": [[0, 0]]})["paint"]
+        self.assertEqual([[0, 0]], [t["tile"] for t in trackpaint.operation(self.ac, self.name, op)[1]["tiles"]])
+        image, _ = self.image([op])
+        self.assertEqual([200, 30, 40], image[5, 5].tolist())
+        self.assertEqual([80, 80, 80], image[16, 16].tolist())
+        self.keep([op])
+        trackcopy.save(self.ac, self.name, "partial", "Partial")
+        saved = kn5.read(Path(self.ac, "content/tracks/partial/partial.kn5"))
+        self.assertEqual(untouched, next(t[2] for t in saved["textures"] if t[0] == "ground_1_0.png"))
+
+    def test_partial_apply_rejects_invalid_or_unknown_tile_scopes(self):
+        from app import trackpaint
+        asset = self.material((200, 30, 40))
+        points = [{"mesh": 0, "u": .1, "v": -.5, "whole": True}]
+        for tiles in ([], [[0, 0]] * 65, [[0, 0], [0, 0]], [[True, 0]], [[.5, 0]], [[0]], [[999, 0]]):
+            with self.subTest(tiles=tiles), self.assertRaises(ValueError):
+                trackpaint.create(self.ac, self.name, self.revision, asset, points, tiles=tiles)
+
     def test_replacing_twice_uses_the_latest_material_without_accumulating_old_colour(self):
         first = self.operation(self.material((200, 30, 40)))
         second = self.operation(self.material((30, 40, 200)))

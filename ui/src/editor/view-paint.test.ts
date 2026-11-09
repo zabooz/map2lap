@@ -4,6 +4,36 @@ import {TrackView} from "./view";
 import {GroundFrame, GroundLayer} from "./groundRender";
 import type {ColourSplat, GroundMaterial, GroundPass} from "./colourBlend";
 
+test("regional ground shows its original while replacement images are still loading", async () => {
+  const view = Object.create(TrackView.prototype) as TrackView;
+  const material = new THREE.MeshLambertMaterial(), original = new THREE.Texture();
+  let release!: (texture: THREE.Texture) => void;
+  const photo = new Promise<THREE.Texture>(resolve => { release = resolve; });
+  const fields = {token: 1, loading: new AbortController(), data: {textures: []}, materials: [material], dirty: false,
+    splatTexture: (ref: {name: string}) => ref.name === "base" ? Promise.resolve(original) : photo,
+    pruneSplatImages: () => {}, onViewFailed: () => {}};
+  Object.assign(view, fields);
+  const state = view as unknown as typeof fields & {
+    prepareGround: (k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) => void;
+    splatPending: Map<number, {done: Promise<void>}>;
+  };
+  const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"},
+    images: [{name: "photo", scale: [128, 128]}], origin: [0, 0],
+    ground: {dimensions: [2048, 2048], uv_origin: [0, 0], bytes: 0, split: 0, passes: []}};
+  let committed = false;
+  state.prepareGround(0, material, layers, () => { committed = true; });
+  const pending = state.splatPending.get(0)!.done;
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(material.map).toBe(original);
+    expect(state.dirty).toBe(true);
+    expect(committed).toBe(false);
+  } finally {
+    state.token++; release(original); await pending;
+    material.dispose(); original.dispose();
+  }
+});
+
 test("regional Apply uses the View budget and refuses a replacement before changing the displayed ground", async () => {
   const view = Object.create(TrackView.prototype) as TrackView;
   const geometry = new THREE.PlaneGeometry(256, 256, 8, 8), sourceMaterial = new THREE.MeshLambertMaterial();

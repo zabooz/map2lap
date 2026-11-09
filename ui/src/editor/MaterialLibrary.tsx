@@ -1,6 +1,7 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {ImportMaterial} from "./ImportMaterial";
+import {LibraryBrowser, LibraryCard, LibraryCards, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection} from "./LibraryBrowser";
 import {groundTextureProblem, libraryJson, MATERIAL_CATEGORIES, materialPreview, type LibraryMaterial, type MaterialSummary} from "./library";
 import styles from "./MaterialLibrary.module.css";
 
@@ -16,7 +17,7 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
       .then(value => { if (!controller.signal.aborted) setInfo(value); }).catch(() => {});
     return () => controller.abort();
   }, [material.id]);
-  return <div className={styles.selected}>
+  return <LibrarySelection>
     <img src={materialPreview(material.id)} alt="Texture preview" />
     <strong>{material.name}</strong><span>{material.repeat.join(" × ")} m per repeat</span>
     <span>{material.source.size.join(" × ")} px original · {material.prepared.size.join(" × ")} px prepared</span>
@@ -30,13 +31,14 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
     {info?.maps.normal && <span>Normal map: {info.maps.normal.filename}</span>}
     {info?.maps.roughness && <span>Roughness map: {info.maps.roughness.filename}</span>}
     <button type="button" className={styles.delete} onClick={onDelete} disabled={disabled}>Delete texture</button>
-  </div>;
+  </LibrarySelection>;
 }
 
 /** A modal material picker. Browsing changes no track; selection and filters survive closing it. */
-export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, busy, error, onApply, onClose, embedded = false}: {
+export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, limitedTiles, busy, error, onApply, onClose, embedded = false}: {
   open: boolean; target: string | null; reason: string | null; busy: boolean; error: string | null;
   onApply: (id: string, variation?: boolean) => Promise<boolean>; onClose: () => void; embedded?: boolean;
+  limitedTiles?: number;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -101,49 +103,37 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
   };
 
   const content = <>
-      <div className={styles.shell}>
-        <div className={styles.heading}><div><h2 id="material-picker-title">Textures</h2>
-          <p>{target ? `Selected: ${target}` : "Texture library"}</p></div>
-          <button type="button" onClick={() => input.current?.click()} disabled={blocked}>Import…</button></div>
-        <input className={styles.file} ref={input} type="file" accept=".png,.jpg,.jpeg,.dds" aria-label="Texture file"
-          onChange={e => { choose(e.target.files); e.target.value = ""; }} />
-        <div className={styles.filters}>
+      <input className={styles.file} ref={input} type="file" accept=".png,.jpg,.jpeg,.dds" aria-label="Texture file"
+        onChange={e => { choose(e.target.files); e.target.value = ""; }} />
+      <LibraryBrowser title="Textures" titleId="material-picker-title" subtitle={target ? `Selected: ${target}` : "Texture library"}
+        onImport={() => input.current?.click()} disabled={blocked} onFiles={choose}
+        filters={<>
           <input type="search" aria-label="Search textures" placeholder="Search textures" value={query} autoFocus
             onChange={e => { setQuery(e.target.value); setPage(0); }} />
           <select aria-label="Filter textures" value={category} onChange={e => { setCategory(e.target.value); setPage(0); }}>
             <option value="">All categories</option>{MATERIAL_CATEGORIES.map(([id, title]) => <option value={id} key={id}>{title}</option>)}
           </select>
-        </div>
-        <div className={styles.content}>
-          <div className={styles.browser} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (!blocked) choose(e.dataTransfer.files); }}>
-            {fault ? <p role="alert">{fault}</p> : !result ? <p role="status">Loading textures…</p>
+        </>}
+        browser={fault ? <p role="alert">{fault}</p> : !result ? <p role="status">Loading textures…</p>
               : !result.items.length ? <p className="muted">{query || category ? "No matching textures." : "No textures yet. Import or drop a colour image here · PNG, JPG, DDS."}</p>
-              : <div className={styles.cards}>{result.items.map(material => <button type="button" key={material.id} aria-label={material.name}
-                aria-pressed={selected?.id === material.id} className={styles.card} onClick={() => { setSelected(material); setVariation(null); }} disabled={blocked}>
-                <img src={materialPreview(material.id)} alt="" loading="lazy" decoding="async" /><span>{material.name}</span>
-              </button>)}</div>}
-          </div>
-          <div className={styles.preview}>{selected ? <MaterialDetails key={selected.id} material={selected} variation={varied}
+              : <LibraryCards>{result.items.map(material => <LibraryCard key={material.id} label={material.name}
+                selected={selected?.id === material.id} onClick={() => { setSelected(material); setVariation(null); }} disabled={blocked}
+                thumbnail={<img src={materialPreview(material.id)} alt="" loading="lazy" decoding="async" />} />)}</LibraryCards>}
+        preview={selected ? <MaterialDetails key={selected.id} material={selected} variation={varied}
             onVariation={setVariation} onDelete={() => void remove()} disabled={blocked} />
-            : <p className="muted">Choose a texture to preview it. The track changes only when you apply it.</p>}</div>
-        </div>
-        {result && result.total > PAGE_SIZE && <div className={styles.pages}>
-          <button type="button" disabled={!page} onClick={() => setPage(v => v - 1)}>Previous</button>
-          <span>{result.offset + 1}–{Math.min(result.total, result.offset + PAGE_SIZE)} of {result.total}</span>
-          <button type="button" disabled={result.offset + PAGE_SIZE >= result.total} onClick={() => setPage(v => v + 1)}>Next</button>
-        </div>}
-        {note && <p role="status" className={styles.note}>{note}</p>}
-        {error && <p role="alert" className={styles.error}>{error}</p>}
-        <div className={styles.footer}>
+            : <p className="muted">Choose a texture to preview it. The track changes only when you apply it.</p>}
+        pages={result && <LibraryPages page={page} offset={result.offset} total={result.total} limit={PAGE_SIZE} onPage={setPage} />}
+        notices={<>{note && <LibraryNotice>{note}</LibraryNotice>}{error && <LibraryNotice error>{error}</LibraryNotice>}</>}
+        footer={<>
           <div><strong>{target ? `Apply to: ${target}` : "No editable surface selected"}</strong>
             <p>{applyProblem ?? "Appearance changes only. The driving surface stays unchanged."}</p>
+            {!!limitedTiles && <p>Selection is incomplete. Only the highlighted areas in {limitedTiles} tiles will change; the rest stays unchanged.</p>}
             {busy && <progress aria-label="Applying material" />}</div>
           <button type="button" disabled={blocked} onClick={onClose}>Cancel</button>
-          <button type="button" className={styles.primary} disabled={!selected || !target || !!applyProblem || blocked}
+          <LibraryPrimary disabled={!selected || !target || !!applyProblem || blocked}
             onClick={() => { if (selected) void onApply(selected.id, varied).then(applied => { if (applied) onClose(); }); }}>
-            {busy ? "Applying…" : "Apply"}</button>
-        </div>
-      </div>
+            {busy ? "Applying…" : limitedTiles ? `Apply to ${limitedTiles} tiles` : "Apply"}</LibraryPrimary>
+        </>} />
     {file && createPortal(<ImportMaterial file={file} onCancel={cancel} onImported={imported} />, document.body)}
   </>;
   if (embedded) return content;

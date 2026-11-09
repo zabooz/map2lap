@@ -46,6 +46,9 @@ def problems(instances):
             return "No finite model position"
         if instance.get("collision") not in ("none", "mesh"):
             return "Choose no collision or model mesh collision"
+        scale = instance.get("scale", 1)
+        if type(scale) not in (int, float) or not np.isfinite(scale) or scale <= 0:
+            return "No finite positive model size"
         if instance.get("replaces") is not None and (not isinstance(instance["replaces"], str) or len(instance["replaces"]) > 64):
             return "No source object to replace"
     return None
@@ -223,7 +226,7 @@ def view_matrices(scan, placed, heights):
         meta = scan["model_assets"][instance["asset"]]
         pose = poses.get(instance["id"] + "#0", {"x": 0, "y": 0, "z": 0, "turn": 0, "scale": 1})
         angle = np.deg2rad(pose["turn"]); c, s = np.cos(angle), np.sin(angle)
-        matrix = np.eye(4); matrix[:3, :3] = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]) * (pose["scale"] * meta["metres_per_unit"])
+        matrix = np.eye(4); matrix[:3, :3] = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]) * (pose["scale"] * instance.get("scale", 1) * meta["metres_per_unit"])
         at = np.asarray(instance["at"], np.float64) + [pose["x"], pose["y"], pose["z"]]
         old = trackheights.Field(scan.get("model_heights", {}).get(instance["id"], []))
         at[1] += float(field.at(at[0], at[2])[0] + old.at(at[0], at[2])[0])
@@ -264,6 +267,7 @@ def extend(ac, name, scan, objects, models):
                                    "parents": [-1], "faces": [[]], "details": [{"model": asset}]}
         for part in parts[asset]:
             vertices, faces = part["vertices"].copy(), part["faces"]
+            vertices["pos"] *= instance.get("scale", 1)
             vertices["pos"] += instance["at"]
             material_number = part["material"] if part["material"] is not None else len(decoded[asset].materials)
             definition = decoded[asset].materials[material_number] if part["material"] is not None else {}
@@ -322,49 +326,103 @@ def snapshot(asset):
     return id, record
 
 
+def _model_height(meta):
+    """The model's actual height in metres after its imported node transforms and units. Pure."""
+    height = (meta["geometry"]["bounds"][1][1] - meta["geometry"]["bounds"][0][1]) * meta["metres_per_unit"]
+    if not np.isfinite(height) or height <= 0:
+        raise ValueError("The replacement model needs a positive height")
+    return height
+
+
+def _source_pose(source, target, objects, by_id):
+    """Collapse the source tree's placement chain, retaining its translation, turn and relative size. Pure."""
+    point = source["at"].tolist()
+    base, number = target.rsplit("#", 1)
+    chain = (placement.chain(objects[base], base, int(number), by_id) if base in objects
+             else [(point, by_id[target])] if target in by_id else [])
+    if not chain:
+        return None
+    moved = placement.through([point], [[0, 1, 0]], [[1, 0, 0]], chain)[0][0]
+    return {"x": float(moved[0] - point[0]), "y": float(moved[1] - point[1]), "z": float(moved[2] - point[2]),
+            "turn": (sum(p["turn"] for _at, p in chain) + 180) % 360 - 180,
+            "scale": float(np.prod([p["scale"] for _at, p in chain]))}
+
+
+def _replacements(ac, name, now, body, asset, meta, targets):
+    """Prepare all selected trees together, sharing asset verification and a bounded source-mesh cache."""
+    from app import trackedits
+    path, scan, objects = trackedits.context(ac, name, now["base"])
+    existing = {m["id"] + "#0": m for m in now.get("models", [])}
+    by_id = {p["id"]: p for p in now["placed"]}
+    omitted = {d["id"] for d in now["deleted"]} | {m["replaces"] for m in existing.values() if m.get("replaces")}
+    models, posed, heights = [], [], {}
+    keep_height = body.get("keep_height", False)
+    height = _model_height(meta) if keep_height else None
+    with open(path, "rb") as file:
+        # Nearby trees share mesh buffers; four cached meshes keep large forest replacements bounded.
+        @functools.lru_cache(maxsize=4)
+        def arrays(i):
+            return kn5.mesh_arrays(file, scan["meshes"][i])
+
+        for target in targets:
+            if target in omitted:
+                raise ValueError("The selected tree is deleted or already replaced")
+            old = existing.get(target)
+            if old is not None:
+                if old["asset"] not in heights:
+                    _folder, old_meta = resolve(ac, name, old["asset"])
+                    if old_meta["category"] != "tree":
+                        raise ValueError("Select a tree or bush to replace")
+                    heights[old["asset"]] = _model_height(old_meta)
+                instance = {**old, "asset": asset, "collision": body.get("collision", old["collision"])}
+                if keep_height:
+                    instance["scale"] = heights[old["asset"]] * old.get("scale", 1) / height
+            else:
+                source = trackcopies._source(file, scan, objects, target, arrays)
+                if source["kind"] not in ("tree", "bush"):
+                    raise ValueError("Select a tree or bush to replace")
+                if source["sort"] in [*now["sorts"], *now["object_sorts"]]:
+                    raise ValueError("The selected tree is deleted")
+                instance = {"id": "instance_" + secrets.token_hex(12), "asset": asset, "at": source["at"].tolist(),
+                            "replaces": target, "collision": body.get("collision", meta["collision"])}
+                if keep_height:
+                    corners = [arrays(i)[0]["pos"][arrays(i)[1][first:first+count]].reshape(-1, 3)
+                               for i, first, count in source["faces"] if scan["meshes"][i].get("renderable", 1)]
+                    if not corners:
+                        raise ValueError("The selected tree has no visible height")
+                    # Fit the source's physical height before its pose; the same pose then keeps every tree's final height.
+                    instance["scale"] = float(np.ptp(np.concatenate(corners)[:, 1])) / height
+                pose = _source_pose(source, target, objects, by_id)
+                if pose:
+                    posed.append({"id": instance["id"] + "#0", **pose})
+            models.append(instance)
+    wrong = problems(models) or placement.problems(posed)
+    if wrong:
+        raise ValueError(wrong)
+    return models, posed
+
+
 def create(ac, name, now, body):
-    """Prepare an instance binding or a visual source-tree replacement; no pose or draft is committed here."""
+    """Prepare placement or an atomic group replacement; the page commits bindings and poses in one Undo step."""
     asset, meta = snapshot(body.get("model"))
     target = body.get("replace")
-    point = body.get("at")
-    pose = None
-    existing = next((m for m in now.get("models", []) if m["id"] + "#0" == target), None)
-    if existing is not None:
-        rebound = {**existing, "asset": asset, "collision": body.get("collision", existing["collision"])}
-        wrong = problems([rebound])
-        if wrong:
-            raise ValueError(wrong)
-        return {"model": rebound, "placed": []}
+    if type(body.get("keep_height", False)) is not bool:
+        raise ValueError("Choose whether to retain tree heights")
     if target is not None:
-        from app import trackedits
-        path, scan, objects = trackedits.context(ac, name, now["base"])
-        with open(path, "rb") as file:
-            source = trackcopies._source(file, scan, objects, target)
-        if source["kind"] not in ("tree", "bush"):
-            raise ValueError("Select a tree or bush to replace")
-        point = source["at"].tolist()
-        by_id = {p["id"]: p for p in now["placed"]}
-        base, number = target.rsplit("#", 1)
-        chain = (placement.chain(objects[base], base, int(number), by_id) if base in objects
-                 else [(point, by_id[target])] if target in by_id else [])
-        if chain:
-            moved = placement.through([point], [[0, 1, 0]], [[1, 0, 0]], chain)[0][0]
-            turn = sum(p["turn"] for _at, p in chain)
-            pose = {"x": float(moved[0] - point[0]), "y": float(moved[1] - point[1]), "z": float(moved[2] - point[2]),
-                    "turn": (turn + 180) % 360 - 180, "scale": float(np.prod([p["scale"] for _at, p in chain]))}
+        targets = target if isinstance(target, list) else [target]
+        if not targets or any(not isinstance(t, str) or len(t) > 64 for t in targets) or len(set(targets)) != len(targets):
+            raise ValueError("Select distinct trees or bushes to replace")
+        models, posed = _replacements(ac, name, now, body, asset, meta, targets)
+        return {"models": models, "placed": posed} if isinstance(target, list) else {"model": models[0], "placed": posed}
+    point = body.get("at")
     instance = {"id": "instance_" + secrets.token_hex(12), "asset": asset, "at": point,
-                "replaces": target, "collision": body.get("collision", meta["collision"])}
+                "replaces": None, "collision": body.get("collision", meta["collision"])}
     wrong = problems([instance])
     if wrong:
         raise ValueError(wrong)
-    if target is None:
-        # A ground ray includes the live height edits. Save adds that field after the base instance and its placement.
-        instance["at"] = list(point)
-        instance["at"][1] -= float(trackheights.Field(now["heights"]).at(point[0], point[2])[0])
-    posed = [{"id": instance["id"] + "#0", **pose}] if pose else []
-    if placement.problems(posed):
-        raise ValueError("The combined source pose is outside the supported placement range")
-    return {"model": instance, "placed": posed}
+    instance["at"] = list(point)
+    instance["at"][1] -= float(trackheights.Field(now["heights"]).at(point[0], point[2])[0])
+    return {"model": instance, "placed": []}
 
 
 def copy_template(ac, name, now, instance):
@@ -379,7 +437,7 @@ def copy_template(ac, name, now, instance):
     matrix = np.asarray(view_matrices(scan, now["placed"], now["heights"])[instance["id"]]).reshape(4, 4).T
     foot = matrix @ [*meta["anchor"], 1]
     return {"template": {"model": {"asset": instance["asset"], "collision": instance["collision"],
-                                   "turn": pose["turn"], "scale": pose["scale"]}},
+                                   "turn": pose["turn"], "scale": pose["scale"], "model_scale": instance.get("scale", 1)}},
             "at": foot[:3].tolist(), "kind": meta["category"]}
 
 
@@ -395,6 +453,8 @@ def copied(ac, name, now, body):
     resolve(ac, name, source.get("asset"))
     instance = {"id": "instance_" + secrets.token_hex(12), "asset": source["asset"], "at": list(at),
                 "replaces": None, "collision": source.get("collision")}
+    if source.get("model_scale", 1) != 1:
+        instance["scale"] = source["model_scale"]
     wrong = problems([instance])
     if wrong:
         raise ValueError(wrong)

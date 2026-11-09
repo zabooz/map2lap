@@ -565,7 +565,7 @@ def paint(ac, name, body):
         if now["outdated"] or body.get("base") != now["base"] or body.get("revision") != now["revision"]:
             raise Conflict(name)
     try:
-        id = trackpaint.create(ac, name, now["base"], body.get("material"), body.get("points"), body.get("variation"))
+        id = trackpaint.create(ac, name, now["base"], body.get("material"), body.get("points"), body.get("variation"), body.get("tiles"))
         trackpaint.descriptors(ac, name, now["base"], [*[p for p in now.get("paints", []) if p != id], id])
     except (ValueError, KeyError, TypeError) as error:
         raise Invalid(str(error)) from error
