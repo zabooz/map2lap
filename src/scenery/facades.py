@@ -11,6 +11,8 @@ of building:
 Shutters only where BeamNG.Earth's region has them (make_obj.SHUTTER_REGIONS).
 Plain walls (siding boards, stucco, metal) and roofs are tiled (buildings.SIDING_UV_M, ROOF_UV_M).
 """
+import os
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -32,12 +34,18 @@ def _window(d, x0, y0, x1, y1, shutters=True):
             for yy in range(y0 + 8, y1 - 4, 14):
                 d.line([(sx0 + 3, yy), (sx0 + w - 3, yy)], fill=SHUTTER_DARK, width=3)
     d.rectangle([x0, y0, x1, y1], fill=FRAME)                                   # frame
-    d.rectangle([x0 + 8, y0 + 8, x1 - 8, y1 - 8], fill=GLASS)                   # glass
-    d.polygon([(x0 + 8, y0 + 8), (x0 + 40, y0 + 8), (x0 + 8, y0 + 60)], fill=GLASS_HI)   # glint
-    xm, ym = (x0 + x1) // 2, (y0 + y1) // 2
-    d.line([(xm, y0 + 8), (xm, y1 - 8)], fill=FRAME, width=6)                   # mullions
-    d.line([(x0 + 8, ym), (x1 - 8, ym)], fill=FRAME, width=6)
+    _panes(d, x0, y0, x1, y1, GLASS, FRAME, GLASS_HI)
     d.rectangle([x0 - 8, y1, x1 + 8, y1 + 12], fill=SILL)                       # sill
+
+
+def _panes(d, x0, y0, x1, y1, pane, bar, glint=None):
+    """A window's glass and its cross, on the texture and on the glow mask alike, so that they fit to the pixel."""
+    d.rectangle([x0 + 8, y0 + 8, x1 - 8, y1 - 8], fill=pane)                    # glass
+    if glint is not None:
+        d.polygon([(x0 + 8, y0 + 8), (x0 + 40, y0 + 8), (x0 + 8, y0 + 60)], fill=glint)
+    xm, ym = (x0 + x1) // 2, (y0 + y1) // 2
+    d.line([(xm, y0 + 8), (xm, y1 - 8)], fill=bar, width=6)                     # mullions
+    d.line([(x0 + 8, ym), (x1 - 8, ym)], fill=bar, width=6)
 
 
 def _shop(d, x0, y0, x1, y1):
@@ -86,17 +94,22 @@ def sheet(plaster_img, color, shutters):
     shade = tuple(int(c * 0.85) for c in img.getpixel((5, 300)))
     for y in (250, 506, 762):                                                   # cornices above the bands
         d.rectangle([0, y, PX, y + 6], fill=shade)
-    for k in range(3):                                                          # tall windows, 3 bays
-        bx = k * PX / 3
-        _window(d, int(bx + 118), 34, int(bx + 222), 226, shutters)
-    for bx in range(0, PX, BAY):                                                # square windows, 4 bays
-        _window(d, bx + WIN_X[0], WIN_Y[0], bx + WIN_X[1], WIN_Y[1], shutters)
-    for k in range(5):                                                          # sash windows, 5 bays
+    for x0, y0, x1, y1, shuttered in sheet_windows():
+        _window(d, x0, y0, x1, y1, shutters and shuttered)
+    for k in range(5):                                                          # (on brick: a stone lintel)
         bx = k * PX / 5
-        _window(d, int(bx + 58), 548, int(bx + 146), 736, shutters)
-        _window(d, int(bx + 58), 804, int(bx + 146), 992, shutters=False)       # (on brick: a stone lintel)
         d.rectangle([int(bx + 50), 790, int(bx + 154), 802], fill=(226, 220, 206))
     return img
+
+
+def sheet_windows():
+    """[(x0, y0, x1, y1, whether it can have shutters)] of the windows of sheet's four bands. Pure."""
+    windows = [(int(k * PX / 3 + 118), 34, int(k * PX / 3 + 222), 226, True) for k in range(3)]             # tall, 3 bays
+    windows += [(bx + WIN_X[0], WIN_Y[0], bx + WIN_X[1], WIN_Y[1], True) for bx in range(0, PX, BAY)]       # square, 4 bays
+    for k in range(5):                                                                                      # sash, 5 bays
+        bx = k * PX / 5
+        windows += [(int(bx + 58), 548, int(bx + 146), 736, True), (int(bx + 58), 804, int(bx + 146), 992, False)]
+    return windows
 
 
 def brickwall(color):
@@ -153,7 +166,91 @@ def shopfront(plaster_img):
     """Shop facade (BeamNG material bne_bld_shop): shop windows with an awning in both bands."""
     img = plaster_img.copy()
     d = ImageDraw.Draw(img)
-    for bx in range(0, PX, BAY):
-        for y0, y1 in ((300, 480), SHOP_Y):
-            _shop(d, bx + 28, y0, bx + BAY - 28, y1)
+    for x0, y0, x1, y1 in shop_windows():
+        _shop(d, x0, y0, x1, y1)
     return img
+
+
+def shop_windows():
+    """[(x0, y0, x1, y1)] of shopfront's windows. Pure."""
+    return [(bx + 28, y0, bx + BAY - 28, y1) for bx in range(0, PX, BAY) for y0, y1 in ((300, 480), SHOP_Y)]
+
+
+# Windows lit at night (CSP): a mask per look says which panes glow. The houses of one colour and brightness share a sheet, so
+# each of the brightness levels (make_obj.FACADE_LEVELS) has a pattern of its own and neighbouring houses differ.
+GLOWING = ("fac", "shp", "off")
+GLOW_LEVELS = 3
+LIT_EVERY = 5                   # one window in this many is lit
+
+
+def _is_lit(level, k):
+    """Whether window number k of a sheet is lit at night at a brightness level. By a rule, not a hash: a band has only 3 to 5 windows,
+    and a hash lit half of them or none. The 4 puts the first sash window, which every single window laid on a plain wall shows
+    (mesh.WIN_UV), at one level: a third of such houses are lit. Pure."""
+    return (k + 2 * level + 4) % LIT_EVERY == 0
+
+
+def window_glow(kind, level):
+    """The glow mask of a look (GLOWING) at a brightness level: an L image of the sheet's size, white on the lit panes, black
+    on all else, the frames and the crosses too. Pure."""
+    img = Image.new("L", (PX, PX), 0)
+    d = ImageDraw.Draw(img)
+    if kind == "fac":
+        for k, (x0, y0, x1, y1, _) in enumerate(sheet_windows()):
+            if _is_lit(level, k):
+                _panes(d, x0, y0, x1, y1, 255, 0)
+    elif kind == "shp":
+        for k, (x0, y0, x1, y1) in enumerate(shop_windows()):
+            if _is_lit(level, k):
+                d.rectangle([x0 + 8, y0 + 8, x1 - 8, y1 - 8], fill=255)
+    else:
+        k = 0
+        for y0, bays in ((0, 5), (256, 4)):             # (curtain: a bay's two panes, over and under the rail)
+            for bay in range(bays):
+                x0, x1 = int(bay * PX / bays) + 9, int((bay + 1) * PX / bays) - 1
+                for top, bottom in ((y0, y0 + 107), (y0 + 115, y0 + 211)):
+                    if _is_lit(level, k):
+                        d.rectangle([x0, top, x1, bottom], fill=255)
+                    k += 1
+    return img
+
+
+def glow_file(kind, level):
+    """The name of a glow mask in a track's extension folder. Pure."""
+    return f"glow_{kind}_{level}.png"
+
+
+def write_glow(ext_dir):
+    """All glow masks into a track's extension folder."""
+    for kind in GLOWING:
+        for level in range(GLOW_LEVELS):
+            window_glow(kind, level).save(os.path.join(ext_dir, glow_file(kind, level)))
+
+
+def night_config():
+    """The lines of a track's ext_config.ini that light the windows at night: CSP's window shader over each mask, its rooms left
+    flat (four lit panes, no interior), the glass's blue taken out of the glow so that it is warm. Pure."""
+    rooms = "".join(f"""
+[Material_RoomWindows]
+Materials = {kind}_?_{level}
+EmissiveMode = DIFFUSE_WITH_EMISSIVE
+EmissiveDiffuseEXP = 1
+NormalsFactor = 0
+InteriorBaseBrightness = 1
+InteriorVolumeBrightness = 0
+InteriorLightsBrightness = 0
+InteriorGlowBrightness = 0
+InteriorVolumeAmbientBrightness = 0
+RESOURCE_0 = txEmissive
+RESOURCE_FILE_0 = {glow_file(kind, level)}
+""" for kind in GLOWING for level in range(GLOW_LEVELS))
+    materials = ", ".join(f"{kind}_?" for kind in GLOWING)
+    return rooms + f"""
+[MATERIAL_ADJUSTMENT_...]
+DESCRIPTION = lit windows
+MATERIALS = {materials}
+KEY_0 = ksEmissive
+VALUE_0 = 14, 10, 5
+VALUE_0_OFF = 0, 0, 0
+CONDITION = NIGHT_SMOOTH
+"""

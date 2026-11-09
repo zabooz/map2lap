@@ -102,6 +102,10 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   and one `LIGHT_SERIES` in `ext_config.ini` makes a light of all glass within 2 m. CSP reads the geometry as the track loads, so a
   lamp moved, copied or deleted in the Editor needs nothing more. No shadows of their own: their light goes through walls and decks.
   Without CSP they stay dark. A track built before has no such glass.
+- Windows light up at night through CSP: `facades.window_glow` draws a mask per look and brightness level into the track's
+  `extension` folder with the same geometry as the windows, so frames and crosses stay dark. One window in five is lit. Every window
+  of a wall is a piece of its own that takes a bay of its band by chance (`looks.BAND_*`, third value): in one piece per floor whole
+  columns would be lit. Single windows laid on a plain wall all show one bay, so such a house is lit whole or not at all.
 - Unknown BeamNG materials become wall/concrete (`FALLBACK`); the build reports them → add them to `SURFACE`.
 - AC has no vertex colours: `make_obj.BLD_KINDS` gives each building material a comic texture per colour of BeamNG.Earth's
   table, and `bld_split` turns the colour jitter into one of 3 brightness levels.

@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 
 from app import settings, version
 from app.paths import ROOT
+from scenery import facades
 from track import parallel
 
 AC = settings.ac_path()         # (generator page: Settings; else found through Steam)
@@ -143,7 +144,7 @@ MESHES = nocol_foam_?
 KEEP_BACKGROUND = 0
 INTERACTIVE = 0
 SCRIPT = foam_anim.lua
-"""
+""" + facades.night_config()
 
 
 def read_obj(obj=OBJ):
@@ -215,6 +216,7 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
     os.makedirs(os.path.join(root, "extension"), exist_ok=True)
     with open(os.path.join(root, "extension", "ext_config.ini"), "w", encoding="utf-8") as f:
         f.write(EXT_CONFIG)
+    facades.write_glow(os.path.join(root, "extension"))
     tex_dir = os.path.join(os.path.dirname(obj), "textures")
     if os.path.exists(os.path.join(tex_dir, "water_waves.png")):
         from scenery import water                            # (only here: needs BeamNG.Earth's path from build_tiles)

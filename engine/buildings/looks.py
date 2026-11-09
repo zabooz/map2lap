@@ -278,12 +278,14 @@ class _Looks:
 
 # The window sheets' bands, top of the image first (v in Collada convention: v = 1 at the image top).
 # (sheet, band index, bays per 1024 px)
-BAND_TALL = (0, 3)          # m_highrise_plaster: tall windows on plaster (3 bays of uneven width)
-BAND_PANEL = (1, 4)         # square windows on panels
-BAND_SASH = (2, 5, (0, 2, 3))   # sash windows on plaster (bays 1 and 4 are black "open" windows: skipped)
-BAND_BRICK = (3, 5)         # sash windows on red brick
-BAND_OFFICE = (0, 5)        # m_highrise_metal: curtain wall
-BAND_OFFICE2 = (1, 4)
+# The third value: the bays a window may take, one by chance per window. All of them look the same by day; at night each has its
+# own light (facades.window_glow), and a wall drawn in one piece per floor would light whole columns.
+BAND_TALL = (0, 3, (0, 1, 2))      # tall windows on plaster
+BAND_PANEL = (1, 4, (0, 1, 2, 3))  # square windows on panels
+BAND_SASH = (2, 5, (0, 1, 2, 3, 4))    # sash windows on plaster
+BAND_BRICK = (3, 5, (0, 1, 2, 3, 4))   # sash windows on red brick
+BAND_OFFICE = (0, 5, (0, 1, 2, 3, 4))  # curtain wall
+BAND_OFFICE2 = (1, 4, (0, 1, 2, 3))
 BAND_SHOP = (2, 2)          # shopfront with awnings
 BANDS = 4
 # Overture "bridge_structure" (OSM man_made=bridge parts with a height: the Queensboro Bridge's towers, 110 m) was a
