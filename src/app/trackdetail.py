@@ -333,12 +333,14 @@ def _keep_weights(version, pixels):
 
 def describe(ac, name, version, resolved=None):
     """Small immutable layout; cached metadata avoids pixel work on repeated PUTs and index reads."""
+    from app import trackregions
     record, path, scan, filename = _view(ac, name, version)
     resolved = {} if resolved is None else resolved
     target = trackpaint._out("paint-views", version) / "layers.json"
     try:
         saved = trackpaint._read(target)
-        if (saved.get("profile") == PROFILE
+        # (the block is the Editor's alone: PROFILE would count every saved painted track as changed, trackedits)
+        if (saved.get("profile") == PROFILE and ("ground" not in saved["layout"] or saved.get("block") == trackregions.BLOCK)
                 and saved.get("digest") == trackpaint._digest({k: v for k, v in saved.items() if k != "digest"})):
             for ref in saved["layout"]["images"]:
                 if "asset" in ref:
@@ -348,7 +350,6 @@ def describe(ac, name, version, resolved=None):
         pass
     composition = _semantic(ac, name, record, path, scan, filename, resolved)
     if len(composition[1]) > 3:
-        from app import trackregions
         semantic, weights, _coverage = composition
         def store(key, raw):
             trackpaint._atomic(_cache(key, "region").with_suffix(".r16"), raw)
@@ -357,7 +358,7 @@ def describe(ac, name, version, resolved=None):
         ground["uv_origin"] = [key[0], -key[1]] if semantic["source"]["global_uv"] else [0, 0]
         layout = {k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}
         layout.update(ground=ground, mask={"name": "regional", "size": 0})
-        saved = {"profile": PROFILE, "layout": layout}
+        saved = {"profile": PROFILE, "block": trackregions.BLOCK, "layout": layout}
         trackpaint._atomic(target, trackpaint._json_bytes({**saved, "digest": trackpaint._digest(saved)}))
         return _with_urls(name, version, layout)
     layout, pixels = _compute(ac, name, record, path, scan, filename, composition)
@@ -403,8 +404,9 @@ def _weight_offsets(name, version, layout):
 
 def weight_bundle(ac, name, version):
     """Gzip one tile's existing regional atlas bytes, preserving every stored mip bit."""
+    from app import trackregions
     _view(ac, name, version)  # Validate the track/source even when the compressed transfer is cached.
-    target = _cache(version, "bundle").with_suffix(".gz")
+    target = _cache(version, f"bundle{trackregions.BLOCK}").with_suffix(".gz")
     if not target.is_file():
         layout = describe(ac, name, version)
         output = io.BytesIO()

@@ -1,6 +1,7 @@
 """How much work a regional ground Save does: what a region's mask depends on is made once per Save, and a mask whose
 inputs did not change since the track's last Save is taken from then."""
 import copy
+import gzip
 import hashlib
 import shutil
 import tempfile
@@ -243,6 +244,48 @@ class RegionMaskTest(unittest.TestCase):
         with mock.patch.object(server.settings, "ac_path", return_value=self.ac):
             self.assertEqual(200, server.delete_track(self.name)[0])
         self.assertFalse(folder.exists())
+
+
+class RegionalLayoutTest(unittest.TestCase):
+    """The Editor's regional passes: how many a tile takes, and that a layout of another block size is not served."""
+    setUp = paintfixture.PaintTest.setUp
+    material = paintfixture.PaintTest.material
+    keep = paintfixture.PaintTest.keep
+    build = guarded.GuardedSaveTest.build
+    painted = RegionMaskTest.painted
+    stripe = RegionMaskTest.stripe
+
+    def layout(self):
+        """Tile 0's regional descriptor as a request gets it."""
+        descriptors = trackpaint.descriptors(self.ac, self.name, self.revision, self.paints)
+        return descriptors[0]
+
+    def weights_length(self, descriptor):
+        return len(gzip.decompress(trackdetail.weight_bundle(self.ac, self.name, descriptor["version"])))
+
+    def test_a_busy_tile_takes_few_passes(self):
+        rows = np.random.default_rng(1).random((512, 512, 3), np.float32) * .3
+        weights = {key: rows[..., k] for k, key in enumerate("abc")}
+        layout = {"dimensions": [512, 512], "images": [{"id": key} for key in weights]}
+        passes = trackregions.compile(layout, weights, "v", lambda _token, _raw: None)["passes"]
+        self.assertLessEqual(len(passes), 2 * 2 * 4 + 4)        # (four regions of the four fields, base included; a tail each)
+
+    def test_a_layout_of_another_block_size_is_compiled_again(self):
+        self.paints = self.painted(5)
+        self.layout()
+        with (mock.patch.object(trackregions, "BLOCK", 8),
+              mock.patch.object(trackground, "weight_regions", wraps=trackground.weight_regions) as regions):
+            self.layout()
+        self.assertEqual(8, regions.call_args.kwargs["block"])
+
+    def test_the_weights_sent_are_those_of_the_layout_sent(self):
+        self.paints = self.painted(5)
+        before = self.layout()
+        self.weights_length(before)
+        with mock.patch.object(trackregions, "BLOCK", 8):
+            after = self.layout()
+            bundle = next(p["weight"]["bundle"] for p in after["layers"]["ground"]["passes"] if p["weight"]["size"])
+            self.assertEqual(bundle["size"], self.weights_length(after))
 
 
 class PhotoKeyTest(unittest.TestCase):

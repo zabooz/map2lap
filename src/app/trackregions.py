@@ -7,6 +7,11 @@ import numpy as np
 
 from app import trackground
 
+# The largest side in pixels of a weight region left whole: each region is a draw per material and ground piece in the
+# Editor. Larger regions hold more empty weight, smaller ones more draws: at 64, the start of Heiligenblut's copy (three
+# painted tiles) took 3,244 ground draws, 22 ms of CPU and 20 MiB of weights; at 256, 577 draws, 3.8 ms and 51 MiB.
+BLOCK = 256
+
 
 def compile(layout, weights, version, store):
     """Compile every semantic contribution into local mip prefixes and shared coarse tails."""
@@ -37,7 +42,7 @@ def compile(layout, weights, version, store):
                                   "size": len(raw) if encoded["pixels"].size else 0},
                        "max_error": encoded["max_error"], "positive_lost": encoded["positive_lost"]})
 
-    regions = trackground.weight_regions(fields, block=64, halo=2)
+    regions = trackground.weight_regions(fields, block=BLOCK, halo=2)
     for region in regions:
         support = trackground.region_support(fields, region["bounds"], split)
         for key in support["palette"]:
