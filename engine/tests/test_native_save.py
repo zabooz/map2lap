@@ -12,7 +12,7 @@ import numpy as np
 
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
-from app import materiallibrary, trackcopy, trackdetail, trackground, trackmodels, tracknative, trackpaint, trackregions, trackview
+from app import materiallibrary, trackcopy, trackdetail, trackground, trackinspect, trackmodels, tracknative, trackpaint, trackregions, trackview
 from track import editorinfo, groundnormals, kn5, textures
 
 
@@ -144,6 +144,67 @@ class RegionMaskTest(unittest.TestCase):
         self.assertTrue(copies)
         self.assertAlmostEqual(source + 5, lowest, places=3)
 
+
+    def tiles_read_by_export(self, *save):
+        """How many tiles' weight fields tracknative.build reads itself during trackcopy.save(self.ac, self.name, *save)."""
+        real, reads = tracknative.build, []
+
+        def build(*args):
+            with mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as semantic:
+                result = real(*args)
+            reads.append(semantic.call_count)
+            return result
+        with mock.patch.object(tracknative, "build", build):
+            trackcopy.save(self.ac, self.name, *save)
+        return reads[0]
+
+    def test_a_save_with_its_masks_kept_reads_no_tile_again(self):
+        self.keep(self.painted(5))
+        self.assertEqual(1, self.tiles_read_by_export())
+        self.assertEqual(0, self.tiles_read_by_export())
+
+    def test_a_mask_gone_from_the_cache_reads_its_tile_and_makes_that_mask_alone(self):
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        first = self.saved(self.name)[1]
+        next(path for path in tracknative._mask_folder(self.name).glob("*.dds") if path.read_bytes() in first.values()).unlink()
+        with mock.patch.object(tracknative, "region_mask", wraps=tracknative.region_mask) as made:
+            self.assertEqual(1, self.tiles_read_by_export())
+        self.assertEqual(1, made.call_count)
+        self.assertEqual(first, self.saved(self.name)[1])
+
+    def test_a_tile_prepared_without_mask_keys_saves_the_same_masks(self):
+        paints = self.painted(5)
+        self.keep(paints)
+        trackcopy.save(self.ac, self.name, "with_keys", "With keys")
+        shutil.rmtree(tracknative._mask_folder(self.name))
+        self.keep(paints)                   # (a Save as a copy leaves the track's draft empty)
+        real = trackdetail.native_descriptors
+        with mock.patch.object(trackdetail, "native_descriptors", side_effect=lambda ac, name, ds: real(ac, name, ds, keys=False)):
+            trackcopy.save(self.ac, self.name, "without_keys", "Without keys")
+        self.assertTrue(self.saved("with_keys")[1])
+        self.assertEqual(self.saved("with_keys")[1], self.saved("without_keys")[1])
+
+    def test_the_size_estimate_makes_no_mask_keys(self):
+        self.keep(self.painted(5))
+        with mock.patch.object(tracknative, "_mask_key", wraps=tracknative._mask_key) as keys:
+            self.assertIsNotNone(trackinspect.statistics(self.ac, self.name)["draft_bytes"])
+        keys.assert_not_called()
+
+    def test_a_selection_changed_during_a_save_is_refused_and_leaves_the_track_as_it_was(self):
+        paints = self.painted(5)
+        self.keep(paints)
+        folder, record = trackpaint.operation(self.ac, self.name, paints[0])
+        selection = folder / record["tiles"][0]["masks"][0]["file"]
+        real = trackpaint.export
+
+        def changed_after_export(*args):
+            real(*args)
+            selection.write_bytes(selection.read_bytes() + b"x")
+        before = self.path.read_bytes()
+        with mock.patch.object(trackpaint, "export", changed_after_export), self.assertRaises(trackcopy.Refused):
+            trackcopy.save(self.ac, self.name)
+        self.assertEqual(before, self.path.read_bytes())
 
     def textures(self, folder):
         return {n: raw for n, _a, raw in kn5.read(str(Path(self.ac, "content/tracks", folder, folder + ".kn5")))["textures"]}

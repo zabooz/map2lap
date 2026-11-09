@@ -325,6 +325,10 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")
+        try:                        # (their files, copied just now, are what the ground above was made from)
+            trackpaint.validate(ac, name, edits["base"], edits["paints"])
+        except (ValueError, OSError) as error:
+            raise Refused(str(error)) from error
         if copy_to:
             os.rename(temporary, target)
         else:

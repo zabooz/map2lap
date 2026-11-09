@@ -26,7 +26,7 @@ def statistics(ac, name):
         size += sum(len(raw) for raw in scan.get('model_images', {}).values())
         if draft['paints']:
             descriptors = trackpaint.descriptors(ac, name, draft['base'], draft['paints'])
-            native = trackdetail.native_descriptors(ac, name, descriptors)
+            native = trackdetail.native_descriptors(ac, name, descriptors, keys=False)
             size += trackdetail.save_size(native, source, path)
         result['draft_bytes'] = size
     except (ValueError, OSError, trackview.Unreadable) as error:

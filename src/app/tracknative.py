@@ -267,10 +267,14 @@ def build(ac,name,descriptors,scan,change,path,added):
     with open(path,'rb') as file:
         for descriptor in descriptors:
             layout=descriptor['layers']; record,_p,_s,filename=trackdetail._view(ac,name,descriptor['version'])
-            semantic,fields,_coverage=trackdetail._semantic(ac,name,record,path,scan,filename)
-            height,width=next(iter(fields.values())).shape
-            fields={**fields,'base':np.maximum(0.,1.-sum(fields.values(),np.zeros((height,width),np.float32)))}
-            regions=layout.get('native_regions') or palette_regions(fields)
+            # (native_descriptors read this tile's fields for its regions and kept what is needed of them here: the fields of
+            # all tiles, 400 MiB for ten, don't wait for the export; read again only for a mask not kept)
+            read=functools.cache(lambda: trackdetail._semantic(ac,name,record,path,scan,filename))
+            fields=functools.cache(lambda: with_base(read()[1]))
+            semantic=layout.get('native_tile') or read()[0]
+            width,height=semantic['dimensions']
+            regions=layout.get('native_regions') or palette_regions(fields())
+            keys=layout.get('native_mask_keys')
             refs={ref['id']:ref for ref in semantic['images']}
             # The tile image on its mask's ring canvas (trackdetail.ringed_base): sampled as one more repeating photo, its
             # edge must not reach the opposite one.
@@ -304,10 +308,10 @@ def build(ac,name,descriptors,scan,change,path,added):
                     if points is None: points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],origin)
                     if not len(points): continue
                     if number not in masks:
-                        phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
-                        key=_mask_key(fields,bounds,palette,phase)
+                        phase=_mask_phase(layout,width,height)
+                        key=keys[number] if keys else _mask_key(fields(),bounds,palette,phase)
                         # (AC gets BC7: a quarter; one unchanged since the last Save is taken from then)
-                        raw=_stored(kept,key+'.dds',lambda: bc7_weights(region_mask(fields,bounds,palette,phase=phase)))
+                        raw=_stored(kept,key+'.dds',lambda: bc7_weights(region_mask(fields(),bounds,palette,phase=phase)))
                         used.add(key+'.dds')
                         masks[number]=resource(raw,'.dds')
                     mask=masks[number]
@@ -381,6 +385,22 @@ def _mask_key(fields, bounds, palette, phase):
     area = slice(max(0, y0 - 2), min(height, y1 + 2)), slice(max(0, x0 - 2), min(width, x1 + 2))
     return trackpaint._digest([MASK_CACHE_VERSION, [_field_digest(fields[key][area]) for key in palette], [int(b) for b in bounds],
                                list(palette), [float(p) for p in phase], [width, height]])
+
+
+def with_base(weights):
+    """A tile's weight fields and 'base', what they leave of its own image. Pure."""
+    return {**weights, "base": np.maximum(0., 1. - sum(weights.values(), np.zeros_like(next(iter(weights.values())))))}
+
+
+def _mask_phase(layout, width, height):
+    """The phase region_mask takes for a width x height tile of layout. Pure."""
+    return (np.asarray(layout["origin"]) + layout["ground"]["uv_origin"] - [0, 1]) * [width, height]
+
+
+def mask_keys(fields, regions, layout):
+    """The _mask_key of each of a tile's regions, in their order, fields with 'base'. Pure."""
+    height, width = next(iter(fields.values())).shape
+    return [_mask_key(fields, bounds, palette, _mask_phase(layout, width, height)) for bounds, palette in regions]
 
 
 def _stored(folder, file, make):

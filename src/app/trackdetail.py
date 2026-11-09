@@ -574,8 +574,9 @@ def sample_source_mask(path,scan,source,revision,u,v,tile):
     return _mask_pixel(path,offset,size,u,v,tile,source.get('mask_extent',[1.,1.]))
 
 
-def native_descriptors(ac, name, descriptors):
-    """Select real native PBR output even for one to three materials, independently of the browser adapter."""
+def native_descriptors(ac, name, descriptors, keys=True):
+    """Select real native PBR output even for one to three materials, independently of the browser adapter. keys: also
+    keep what tracknative.build reads of a tile, for an export to need its weight fields only for a mask not kept."""
     from app import tracknative
     result, resolved = [], {}
     for descriptor in descriptors:
@@ -589,8 +590,12 @@ def native_descriptors(ac, name, descriptors):
                 # Only what tracknative reads of "ground": the browser's passes and atlases (trackregions.compile) aren't.
                 ground = {"dimensions": semantic["dimensions"], "uv_origin": [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]}
                 layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
-            fields = {**weights, "base": np.maximum(0., 1. - sum(weights.values(), np.zeros_like(next(iter(weights.values())))))}
-            descriptor = {**descriptor, "layers": {**layout, "native_regions": tracknative.palette_regions(fields)}}
+            fields = tracknative.with_base(weights)
+            layout = {**layout, "native_regions": tracknative.palette_regions(fields)}
+            if keys:
+                layout = {**layout, "native_tile": {k: semantic[k] for k in ("images", "base", "dimensions")},
+                          "native_mask_keys": tracknative.mask_keys(fields, layout["native_regions"], layout)}
+            descriptor = {**descriptor, "layers": layout}
         result.append(descriptor)
     return result
 
