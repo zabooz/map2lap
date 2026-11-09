@@ -82,6 +82,10 @@ of the main scene that sees no mesh (three.js draws maps only inside a render, a
 ground shares it (`GroundFrame`). It reaches from the camera 200 m deep, more the higher the camera is. In a shadow the sky's light
 falls to 70 %, in three.js's own light chunks, so all materials agree.
 
+At night, when CSP's lamps come on, windows and lamp glass glow (`nightGlow.ts`): facades through the masks in the track's `extension`
+folder, fetched only then (a track built before has none and stays dark), and a see-through cone hangs under each lamp in one draw,
+placed from the glass as it stands, so that it follows a lamp moved or deleted. No light falls on the road in the view; Play shows it.
+
 At night a weak full moon stands across the sky from the sun (`moonDirection`) and lights the track from one side; its disc and
 the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside the headlights, which the Editor doesn't have.
 

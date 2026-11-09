@@ -2,6 +2,7 @@
 read from the file on demand (a long track's kn5 does not fit into memory). Map2Lap's tracks only (mytracks.FILE).
 """
 import functools
+import io
 import json
 import math
 import os
@@ -424,6 +425,25 @@ def mesh_bytes(ac, name, i, revision, moved=None, draft=None, copy_revision=None
             vertices=vertices.copy(); vertices['uv'] *= extent
         return vertices.tobytes() + data[m["vertices"] * VERTEX_BYTES:]
     return data
+
+
+GLOW_FILE = re.compile(r"glow_(?:fac|shp|off)_[0-2]\.png")
+
+
+def glow_bytes(ac, name, file):
+    """A window mask of a track (scenery.facades.write_glow) as a PNG at half its size, enough for the Editor's view; None for a
+    track built before them."""
+    if not GLOW_FILE.fullmatch(file):
+        raise ValueError(f"Not a window mask: {file}")
+    path = os.path.join(ac, "content", "tracks", name, "extension", file)
+    if not os.path.exists(path):
+        return None
+    from PIL import Image
+    with Image.open(path) as image:
+        small = image.resize((image.width // 2, image.height // 2), Image.BOX)
+    out = io.BytesIO()
+    small.save(out, "PNG")
+    return out.getvalue()
 
 
 def texture_bytes(ac, name, i, revision, version=""):

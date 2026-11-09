@@ -67,7 +67,7 @@ test("parts are ready only after the loaded ground's selection index is prepared
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
     byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
     materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {},
-    material: () => new THREE.MeshBasicMaterial(), leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
+    nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(), leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
   sceneModules(view as unknown as TrackView);
   try {
     const pending = view.load("alpha", 1, new AbortController().signal, (s: string, value?: number | null) => { statuses.push(s); progress.push(value); if (s.includes("Preparing selection")) phase(); });
@@ -110,7 +110,7 @@ for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during 
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
     byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
     wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {}, material: () => new THREE.MeshBasicMaterial(),
-    leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: (s: string | null) => { if (s) throw new Error(s); }});
+    nightGlow: {bind: () => {}}, leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: (s: string | null) => { if (s) throw new Error(s); }});
   sceneModules(view as unknown as TrackView);
   try {
     const loading = view.load("alpha", 1, view.loading.signal, () => {});

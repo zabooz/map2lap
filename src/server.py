@@ -49,6 +49,7 @@ BUILD_LOG = "build.log"     # a build's log among its build files (out/tracks/<n
                             # files" is on, replaced by the next build of the track, deleted with the build files
 EDITOR_PATH = re.compile(r"/api/editor/([^/]+)/(?:index|(mesh|texture)/(\d+)\?r=([\w-]+)(?:&d=\d+)?(?:&c=[a-f0-9]*)?(?:&p=[a-f0-9]{64})?)")
 COPIES_PATH = re.compile(r"/api/editor/([^/]+)/copies")
+GLOW_PATH = re.compile(r"/api/editor/([^/]+)/glow/(glow_(?:fac|shp|off)_[0-2]\.png)")
 SURFACE_PATH = re.compile(r"/api/editor/([^/]+)/surface")
 SURFACE_PREPARE_PATH = re.compile(r"/api/editor/([^/]+)/surface/prepare")
 EDITS_PATH = re.compile(r"/api/editor/([^/]+)/edits")
@@ -883,6 +884,9 @@ class Handler(BaseHTTPRequestHandler):
             self._surface(surface[1])
         elif (preparing := SURFACE_PREPARE_PATH.fullmatch(urlsplit(self.path).path)):
             self._prepare_surface(preparing[1])
+        elif (glow := GLOW_PATH.fullmatch(self.path)):
+            mask = trackview.glow_bytes(settings.ac_path(), generator.slug(glow[1]), glow[2])
+            self._send(200 if mask else 204, mask or b"", "image/png")     # (204: a track built before: no fault in the browser's log)
         elif (copies := COPIES_PATH.fullmatch(self.path)):
             self._edits_answer(lambda: trackview.copy_index(settings.ac_path(), generator.slug(copies[1])))
         elif edits:

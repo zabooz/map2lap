@@ -7,6 +7,7 @@ import {NightSky} from "./nightSky";
 import {lightAt, moonDirection, sunDirection, sunHeight, type Place} from "./sun";
 import {SunLight} from "three/addons/lights/SunLight.js";
 import {sunLight} from "./sunShadows";
+import {NightGlow, lampsOn} from "./nightGlow";
 
 const RECHBERG: Place = {lat: 46.518829, lon: 14.57707, utcOffset: 1};
 
@@ -15,7 +16,7 @@ function bareView(extra = {}) {
   const view = Object.create(TrackView.prototype) as TrackView;
   const scene = new THREE.Scene(), ambient = new THREE.AmbientLight(), sun = new THREE.DirectionalLight(), moon = new THREE.DirectionalLight();
   scene.add(ambient, sun, moon);
-  const fields = {scene, ambient, sun, moon, nightSky: new NightSky(), place: RECHBERG, clock: 10, dirty: false, groundFrame: null as GroundFrame | null,
+  const fields = {scene, ambient, sun, moon, nightSky: new NightSky(), nightGlow: new NightGlow(async () => null), place: RECHBERG, clock: 10, dirty: false, groundFrame: null as GroundFrame | null,
     modelLight: null as {texture: THREE.Texture} | null, modelDraw: new ModelDraw(scene), ...extra};
   Object.assign(view, fields);
   return {view, state: view as unknown as typeof fields};
@@ -84,6 +85,15 @@ test("edited ground gets the same light as the rest", () => {
   expect(sun.color.getHex()).toBe(state.sun.color.getHex());
   expect(sun.position.toArray()).toEqual(state.sun.position.toArray());
   frame.dispose();
+});
+
+test("the clock turns the lamps and windows on and off, at the hour CSP does", () => {
+  const {view, state} = bareView();
+  view.setClock(12);
+  expect(state.nightGlow.on).toBe(false);
+  view.setClock(0);
+  expect(state.nightGlow.on).toBe(true);
+  expect(state.nightGlow.on).toBe(lampsOn(sunHeight(RECHBERG, 0)));
 });
 
 test("edited ground takes the shadow map the rest takes", () => {

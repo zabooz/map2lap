@@ -22,6 +22,7 @@ import {modelLight} from "./modelLighting";
 import {bindLightShares, takesGroundLight} from "./lightShare";
 import {NightSky} from "./nightSky";
 import {SunShadows, sunLight, takeShadows} from "./sunShadows";
+import {LampCones, NightGlow, isLampGlass, lampsOn} from "./nightGlow";
 import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace} from "./sun";
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
 import {WeightBundles} from "./weightBundle";
@@ -115,6 +116,9 @@ export class TrackView {
   private ambient = new THREE.AmbientLight();
   private sun = sunLight();
   private sunShadows: SunShadows;
+  private nightGlow = new NightGlow(file => this.glowImage(file), () => { this.dirty = true; });
+  private lampCones: LampCones;
+  private lampGlass: THREE.Mesh[] = [];
   private moon = new THREE.DirectionalLight(MOON_COLOUR);
   private nightSky = new NightSky();
   private place = trackPlace(null);                     // where the open track lies: its sun
@@ -223,6 +227,7 @@ export class TrackView {
     host.appendChild(this.renderer.domElement);
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
+    this.lampCones = new LampCones(this.scene);
     this.applyLight();
     this.down.firstHitOnly = true;      // (the ground's height: what lies further down of the same mesh is of no interest)
     this.navigation.turnAround(this.renderer.domElement);
@@ -249,6 +254,7 @@ export class TrackView {
     this.modelLight?.dispose();
     this.nightSky.dispose();
     this.sun.dispose();
+    this.lampCones.dispose();
     this.roadMarkers.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
@@ -275,9 +281,16 @@ export class TrackView {
     const moon = moonDirection(this.place, this.clock);
     this.moon.intensity = light.moon; this.moon.position.fromArray(moon);
     this.nightSky.set(moon, light.night);
+    this.nightGlow.set(lampsOn(sunHeight(this.place, this.clock)));
     this.groundFrame?.followLights();
     if (this.modelLight) this.modelDraw.setEnvironment(this.modelLight.texture, this.reflections());
     this.dirty = true;
+  }
+
+  /** A window mask of the track, null for a track built before them. */
+  private async glowImage(file: string) {
+    const answer = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/glow/${file}`);
+    return answer.status === 200 ? makeTexture(await answer.arrayBuffer(), file, this.renderer.capabilities.getMaxAnisotropy(), true) : null;
   }
 
   /** The power of the models' reflections: they fade with the sky's light, full by day. */
@@ -1796,6 +1809,7 @@ export class TrackView {
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
       this.nightSky.follow(this.camera.position);
+      this.lampCones.update(this.lampGlass, this.nightGlow.on);
       const renderStarted = performance.now();
       this.sunShadows.draw(this.camera, this.navigation.height);
       try { for (const layer of this.groundLayers?.values() ?? []) layer.follow(); this.groundFrame?.render(this.camera); }
@@ -1823,6 +1837,8 @@ export class TrackView {
   }
 
   private clear() {
+    this.nightGlow.clear();
+    this.lampGlass = [];
     this.modelTransformVersion++;
     this.modelDraw.dispose();
     for (const layer of this.groundLayers?.values() ?? []) layer.dispose();
@@ -2297,6 +2313,11 @@ export class TrackView {
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
     takeShadows(m);
+    if (!info.model) {
+      const material = data.materials[info.material]?.name ?? "";
+      if (isLampGlass(material)) this.lampGlass.push(m);
+      this.nightGlow.bind(m.material as GroundMaterial, material);
+    }
     this.scene.add(m);
     try { this.groundLayers?.get(info.material)?.attach(m); }
     catch (error) { this.paintFailure = String((error as Error).message ?? error); this.onViewFailed(this.paintFailure); }
