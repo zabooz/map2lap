@@ -94,11 +94,15 @@ test("Copy C places the picked tree repeatedly; undo, redo, reload and Save reta
   expect(await copies(page)).toEqual(made);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
   await expect(page.getByRole("button", {name: "Discard all", exact: true})).toBeDisabled();
-  const kept = await picture(page), source = await findTree(page);
-  await page.mouse.click(source.x, source.y); await page.keyboard.press("c");
-  await page.mouse.click(c.x + 140, c.y + 160);
-  await expect.poll(() => copies(page)).toHaveLength(3);
-  await page.keyboard.press("Escape"); await saved(page);
+  const kept = await picture(page), draft = await stored(page);
+  const removed = await page.request.put("/api/editor/alpha/edits", {
+    data: {...draft, id: "unsaved-remove-copy", copies: made.slice(0, 1)},
+  });
+  await expect(removed).toBeOK();
+  await page.reload();
+  await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
+  expect(await copies(page)).toEqual(made.slice(0, 1));
+  await expect(page.locator("#edit-saved")).toHaveText("Not saved");
   await page.getByRole("button", {name: "Discard all", exact: true}).click();
   await expect.poll(() => copies(page)).toEqual(made);
   await expect.poll(async () => (await picture(page)).equals(kept)).toBe(true);

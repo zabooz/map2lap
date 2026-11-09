@@ -93,6 +93,8 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   const repo = join(import.meta.dirname, "../..");
   const python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
   const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py")]);
+  // Keep the fitted crown and its raised pose inside the reference camera's image.
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_height: 6});
   await openEditor(page);
   const sourceTrees = (await meshes(page))["nocol_trees_0_0"];
   const before = await picture(page);
@@ -149,6 +151,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   expect((await modelResources()).shared[0].geometries).toEqual(shared[0].geometries);
   const draft = await (await page.request.get("/api/editor/alpha/edits")).json();
   const replacement = draft.models.find((m: {replaces: string | null}) => m.replaces);
+  expect(replacement.scale).toBeCloseTo(6 / 5, 5);
   const index = await (await page.request.get("/api/editor/alpha/index")).json();
   const bounds = (await scene(page).boundingBox())!;
   // Replacement preserves the source tree's height, so pick through its fitted instance transform.

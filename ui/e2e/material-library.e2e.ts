@@ -56,7 +56,8 @@ test("optional material maps prepare serially and discard a replaced pending map
     if (!role) return route.continue();
     uploads.push(role);
     if (uploads.length === 1) await gate;
-    await route.fulfill({response: await route.fetch()});
+    // Resume the browser upload: WebKit does not expose File bodies for route.fetch() to replay.
+    await route.continue();
   });
   try {
     await dialog.getByLabel("Normal map (optional)", {exact: true}).setInputFiles(normal);
@@ -108,7 +109,7 @@ test("optional material maps cancelled during preparation cannot enter the next 
     const role = new URL(route.request().url()).searchParams.get("role")!;
     uploads.push(role);
     if (uploads.length === 1) await gate;
-    await route.fulfill({response: await route.fetch()});
+    await route.continue();
   });
   try {
     await dialog.getByLabel("Normal map (optional)", {exact: true}).setInputFiles(normal);
