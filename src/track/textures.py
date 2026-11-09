@@ -72,6 +72,79 @@ def dds_weights(image):
     return bytes(header) + b"".join(levels)
 
 
+DXGI_BC7_UNORM = 98
+
+
+def _bc7_header(width, height, levels):
+    """A DDS header with its DX10 extension for BC7_UNORM: linear data, never sRGB. Pure."""
+    header = bytearray(148)
+    header[:4] = b"DDS "
+    struct.pack_into("<7I", header, 4, 124, 0xA1007, height, width, max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16, 0, levels)
+    struct.pack_into("<2I", header, 76, 32, 0x4)
+    header[84:88] = b"DX10"
+    struct.pack_into("<I", header, 108, 0x401008)
+    struct.pack_into("<5I", header, 128, DXGI_BC7_UNORM, 3, 0, 1, 0)
+    return bytes(header)
+
+
+def _is_bc7(raw):
+    return raw[:4] == b"DDS " and raw[84:88] == b"DX10" and len(raw) >= 148 and struct.unpack_from("<I", raw, 128)[0] == DXGI_BC7_UNORM
+
+
+def _is_rgba8(raw):
+    return raw[:4] == b"DDS " and not struct.unpack_from("<I", raw, 80)[0] & 4 and struct.unpack_from("<I", raw, 88)[0] == 32
+
+
+def weight_levels(raw):
+    """Every mip level (H, W, 4 uint8 RGBA) of an RGBA8 or BC7 weight DDS. Pure."""
+    import numpy as np
+    height, width = struct.unpack_from("<2I", raw, 12)
+    count, levels = max(1, struct.unpack_from("<I", raw, 28)[0]), []
+    if _is_bc7(raw):
+        at = 148
+        for _ in range(count):
+            size = max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16
+            with Image.open(io.BytesIO(_bc7_header(width, height, 1) + raw[at:at + size])) as image:
+                levels.append(np.array(image.convert("RGBA")))
+            at, width, height = at + size, max(1, width // 2), max(1, height // 2)
+        return levels
+    masks, at = struct.unpack_from("<4I", raw, 92), 128
+    for _ in range(count):
+        packed = np.frombuffer(raw, "<u4", width * height, at).reshape(height, width)
+        levels.append(np.stack([((packed & m) >> ((m & -m).bit_length() - 1)).astype(np.uint8) if m else np.full((height, width), 255, np.uint8)
+                                for m in masks], -1))
+        at, width, height = at + width * height * 4, max(1, width // 2), max(1, height // 2)
+    return levels
+
+
+def bc7_weights(raw):
+    """A lossless RGBA8 weight DDS (dds_weights) as BC7 with the same mip levels: a quarter of the size, for AC. Pure.
+    Weights are data, so the error is plain RGBA (linear), not perceptual: about 0.1 of 255 on average, up to some 10
+    at sharp edges, the four weights' sum off by up to a few 255ths (a brightness step under 2 %, not seen). Tried in
+    AC with CSP (2026-11-09); other textures, and RGBA16F region masks, pass unchanged."""
+    if not _is_rgba8(raw):
+        return raw
+    import etcpak
+    import numpy as np
+    params = etcpak.BC7CompressBlockParams()
+    params.init_linear_weights()
+    params.m_uber_level = 2
+    levels = weight_levels(raw)
+    blocks = []
+    for level in levels:
+        h, w = level.shape[:2]
+        padded = np.ascontiguousarray(np.pad(level, ((0, -h % 4), (0, -w % 4), (0, 0)), mode="edge"))
+        blocks.append(etcpak.compress_bc7(padded.tobytes(), padded.shape[1], padded.shape[0], params))
+    return _bc7_header(levels[0].shape[1], levels[0].shape[0], len(levels)) + b"".join(blocks)
+
+
+def browser_weights(raw):
+    """A BC7 weight DDS as lossless RGBA8 for the Editor's browser view, whose DDS loader has no BC7. Pure."""
+    if not _is_bc7(raw):
+        return raw
+    return dds_weights(Image.fromarray(weight_levels(raw)[0]))
+
+
 def weight_extent(width, height):
     """Mask canvas/source ratios with a one-texel guard through mip seven at 2K. Pure."""
     # AC's stock multilayer sampler repeats. 128 edge texels keep its bilinear

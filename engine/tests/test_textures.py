@@ -11,6 +11,37 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 
 class TextureTest(unittest.TestCase):
+    def test_saved_weights_are_bc7_a_quarter_of_the_size_and_read_back_close_to_the_lossless_ones(self):
+        import numpy as np
+        from track.textures import dds_weights, bc7_weights, weight_levels
+        y, x = np.mgrid[:64, :96]
+        r = np.clip((np.sin(x / 9) + np.cos(y / 7) + .2) * 400, 0, 255)
+        values = np.stack([r, 255 - r, np.zeros_like(r), np.zeros_like(r)], -1).astype(np.uint8)
+        lossless = dds_weights(Image.fromarray(values))
+        saved = bc7_weights(lossless)
+        self.assertEqual((b"DX10", 98), (saved[84:88], struct.unpack_from("<I", saved, 128)[0]))     # BC7_UNORM: data, not sRGB
+        self.assertEqual(struct.unpack_from("<I", lossless, 28), struct.unpack_from("<I", saved, 28))  # every mip level
+        self.assertLess(len(saved), len(lossless) / 3)
+        for before, after in zip(weight_levels(lossless), weight_levels(saved)):
+            d = np.abs(before.astype(int) - after.astype(int))
+            self.assertLess(d.mean(), 2.55)     # (under 1 % of a weight on average)
+            self.assertLessEqual(np.abs(before.astype(int).sum(-1) - after.astype(int).sum(-1)).max(), 12)
+
+    def test_a_bc7_mask_reads_back_as_lossless_weights_for_the_browser(self):
+        import numpy as np
+        from track.textures import dds_weights, bc7_weights, browser_weights
+        values = np.zeros((8, 8, 4), np.uint8)
+        values[:, :4, 0], values[:, 4:, 3] = 255, 255
+        raw = browser_weights(bc7_weights(dds_weights(Image.fromarray(values))))
+        self.assertEqual((bytes(4), 32), (raw[84:88], struct.unpack_from("<I", raw, 88)[0]))
+        self.assertEqual(4, struct.unpack_from("<I", raw, 28)[0])
+
+    def test_other_textures_pass_unchanged(self):
+        from track.textures import bc7_weights, browser_weights, dds_mipmaps
+        raw = dds_mipmaps(Image.new("RGB", (8, 8)))
+        self.assertIs(raw, bc7_weights(raw))
+        self.assertIs(raw, browser_weights(raw))
+
     def test_lossless_weight_dds_preserves_unit_sums_at_every_mip(self):
         import numpy as np
         from track.textures import dds_weights, dds_size

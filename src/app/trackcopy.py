@@ -303,7 +303,9 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         if materials is None and not images:
             moved = kn5.without_faces(path, new_kn5, going, change, added, None, renderable=native_files.get('renderable',{}))
         else:
-            moved = kn5.without_faces(path, new_kn5, going, change, added, materials=materials, textures=images, drop_textures=drop_textures, renderable=native_files.get('renderable',{}))
+            names, replace = [t[0] for t in source_scan["textures"]], native_files.get("replace", {})
+            moved = kn5.without_faces(path, new_kn5, going, change, added, lambda i: replace.get(names[i]) if i < len(names) else None,
+                                      materials=materials, textures=images, drop_textures=drop_textures, renderable=native_files.get('renderable',{}))
         from app import trackuv2
         trackuv2.write(path, new_kn5, added)
         now_at = trackheights.list_moved(placement.list_placed(objects, edits["placed"]), edits["heights"])

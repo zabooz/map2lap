@@ -36,7 +36,7 @@ test("variation changes imported photo sampling while the source tile and select
   expect(shader.fragmentShader).toContain("m2lVary(m2lPhoto0");
   expect(shader.fragmentShader).toContain("textureGrad(");
   expect(shader.fragmentShader).toContain("texture2D(map, vMapUv).rgb * m2lWeights.a");
-  expect(shader.fragmentShader).toContain("texture2D(m2lKeep, (vMapUv + m2lMaskOrigin) / m2lMaskExtent)");
+  expect(shader.fragmentShader).toContain("texture2D(m2lKeep, (m2lTile + m2lMaskOrigin) / m2lMaskExtent)");
   expect(shader.uniforms.m2lMaskExtent.value.toArray()).toEqual([1.125, 1.125]);
   expect(shader.uniforms.m2lMaskOrigin.value.toArray()).toEqual([-1, 2]);
   expect(shader.vertexShader).toContain("m2lWorldXZ");
@@ -154,4 +154,32 @@ test("bridge asphalt samples in world metres without changing the original UVs o
     expect(internal.usedBytes).toBe(272);
     expect(material.map!.repeat.toArray()).toEqual([1, 1]);
   } finally { globalThis.fetch = before; await cleanup(); }
+});
+
+test("a guarded tile samples masks and photos at its whole-tile UV and its original texture at the mesh UV", () => {
+  const material = new THREE.MeshLambertMaterial({map: new THREE.Texture()});
+  bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {
+    base: {name: "original"}, mask: {name: "mask"}, origin: [0, 0], uv_guard: 1 / 64,
+    images: [{name: "photo", scale: [128, 128]}],
+  });
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader,
+    fragmentShader: THREE.ShaderLib.lambert.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.uniforms.m2lGuard.value).toBe(1 / 64);
+  expect(shader.fragmentShader).toContain("vec2 m2lTile = (vMapUv - vec2(m2lGuard, -m2lGuard)) / (1.0 - 2.0 * m2lGuard)");
+  expect(shader.fragmentShader).toContain("texture2D(m2lKeep, (m2lTile + m2lMaskOrigin) / m2lMaskExtent)");
+  expect(shader.fragmentShader).toContain("texture2D(m2lPhoto0, (m2lTile + m2lOrigin) * m2lScale0)");
+  expect(shader.fragmentShader).toContain("texture2D(map, vMapUv).rgb * m2lWeights.a");
+});
+
+test("a saved tile image on its mask's ring canvas is sampled where the mask is", () => {
+  const material = new THREE.MeshLambertMaterial({map: new THREE.Texture()});
+  bindSplat(material, new THREE.Texture(), [], {
+    base: {name: "ground_0_0.dds"}, mask: {name: "mask"}, origin: [0, 0], mask_extent: [1.125, 1.125], base_extent: [1.125, 1.125],
+    images: [],
+  });
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader,
+    fragmentShader: THREE.ShaderLib.lambert.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.fragmentShader).toContain("texture2D(map, (m2lTile + m2lMaskOrigin) / m2lMaskExtent).rgb * m2lWeights.a");
 });

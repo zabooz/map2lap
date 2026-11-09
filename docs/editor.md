@@ -80,6 +80,15 @@ writes the guarded masks into AC without a track build. Native regional masks re
 extend it by at most 128 pixels per axis, capped at half that region's span. This bounds each ordinary region canvas to
 four times its unpadded area; tiny regions retain the minimum halo. Large regions gain filtering room through mip seven,
 while the complete cross-region far-filtering contract remains separate.
+Tracks built since the ground texture guard (`ground.GUARD_PX`, `docs/ac-rules.md`) have ground UVs that cover only the inside
+of their tile image, 32/2048 to 2016/2048; their ground materials say so in `m2lUVGuard`. The Editor's masks and selections cover
+the whole tile, so every lookup takes the tile's own UV (`trackview.tile_uv`): picking and Appearance on the server, masks and
+photos in the preview shaders (`uv_guard` in a paint layout), the colour compositor and Save. The original tile image keeps its
+mesh UV in the preview. Save writes whole-tile UVs and puts the tile image, under its own name and number, on its mask's ring
+canvas (`trackdetail.ringed_base`, `m2lBaseExtent`): the edited material samples image and mask at one UV, and the ring keeps the
+opposite tile edge out of AC's repeating filter. Older tracks get the same ring on painted tiles at their next Save. A saved copy
+without its source reads the ringed image back to the tile (`trackdetail.tile_base`). An opaque tile stays BC1; the ring canvas
+is 2304 px for a 2048 px tile (26.6 % more than the tile it replaces, only on painted tiles).
 Terrain pieces meeting at exactly the same 3D point on a 256 m tile boundary share area-weighted geometric normals and
 orthogonal tangents. Preview and Save apply small cached patches without modifying the retained source; new generator
 outputs receive the same correction. Different heights and interior vertices stay separate. A height edit starts from

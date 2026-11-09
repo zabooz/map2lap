@@ -14,6 +14,7 @@ from PIL import Image
 
 from app import trackground
 from track import kn5
+from track.textures import bc7_weights, pad_weights, weight_extent
 
 PREFIX = "nocol_ground_m2l_"
 SOURCE_FILE = Path("data", "map2lap_regional_source.json")
@@ -195,18 +196,31 @@ def save_size(layout,scan,path):
     """Bound regional source copies and full-resolution mask storage; never multiply by photo repeat. Pure."""
     width,height=layout['ground']['dimensions']
     regions=layout.get('native_regions',[])
-    masks=sum((canvas_size(bounds,width,height)[0]*canvas_size(bounds,width,height)[1]*8*4//3+256) for bounds,_palette in regions)
+    # A byte per pixel and its mips: BC7 (bc7_weights); the rare RGBA16F mask (region_mask) stays 8 and is left out here.
+    masks=sum((canvas_size(bounds,width,height)[0]*canvas_size(bounds,width,height)[1]*4//3+256) for bounds,_palette in regions)
+    ring=weight_extent(width,height)
+    masks+=round(width*ring[0])*round(height*ring[1])*4//3+256    # (the tile image on its ring canvas, as BC3 at most)
     geometry=0
     with open(path,'rb') as file:
         for info in scan['meshes']:
             if info['material'] not in layout['materials']: continue
             vertices,faces=kn5.mesh_arrays(file,info)
             extent=next((p[2] for p in scan['materials'][info['material']].props if p[0]=='m2lMaskExtent'),(1.,1.))
+            vertices=_tile_uvs(vertices,scan['materials'][info['material']])
             if extent != (1.,1.): vertices=vertices.copy(); vertices['uv']*=extent
             for bounds,_palette in regions:
                 points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],layout['ground']['uv_origin'])
                 geometry+=len(points)*46+256
     return masks+geometry
+
+
+def _tile_uvs(vertices,material):
+    """vertices with the whole tile's UVs where a guarded build's cover only its texture's inside (trackview.tile_uv). Pure."""
+    from app import trackview
+    guard=trackview._prop(material,'m2lUVGuard',0.)
+    if not guard: return vertices
+    vertices=vertices.copy(); vertices['uv']=np.array(trackview.tile_uv(vertices['uv'][:,0],vertices['uv'][:,1],guard,False,0,0)).T
+    return vertices
 
 
 def _append(meshes,source,points,material,name):
@@ -246,7 +260,12 @@ def build(ac,name,descriptors,scan,change,path,added):
             fields={**fields,'base':np.maximum(0.,1.-sum(fields.values(),np.zeros((height,width),np.float32)))}
             regions=layout.get('native_regions') or palette_regions(fields)
             refs={ref['id']:ref for ref in semantic['images']}
-            refs['base']={**semantic['base'],'id':'base','scale':[1,1],'variation':False}
+            # The tile image on its mask's ring canvas (trackdetail.ringed_base): sampled as one more repeating photo, its
+            # edge must not reach the opposite one.
+            tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(semantic['base']['name']).groups()))
+            ring=weight_extent(width,height)
+            refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
+            base_material=materials[layout['materials'][0]]
             origin=layout['ground']['uv_origin']
             for source_i,info in enumerate(scan['meshes']):
                 if info['material'] not in layout['materials']: continue
@@ -254,7 +273,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                 source_values={p[0]:p[1] for p in original.props}
                 specular=max(.15,source_values.get('ksSpecular',0.))
                 vertices,faces=kn5.mesh_arrays(file,info)
-                vertices=change.vertices.get(source_i,vertices)
+                vertices=_tile_uvs(change.vertices.get(source_i,vertices),original)
                 previous=trackview._mask_extent(original)
                 if previous != [1.,1.]: vertices=vertices.copy(); vertices['uv']*=previous
                 hidden[source_i]=0
@@ -264,7 +283,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                     points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],origin)
                     if not len(points): continue
                     phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
-                    mask=resource(region_mask(fields,bounds,palette,phase=phase),'.dds')
+                    mask=resource(bc7_weights(region_mask(fields,bounds,palette,phase=phase)),'.dds')     # (AC gets BC7: a quarter)
                     props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
                     props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
                     maps=[('txDiffuse',0,white),('txMask',1,mask)]
@@ -272,7 +291,8 @@ def build(ac,name,descriptors,scan,change,path,added):
                         ref=refs[palette[j]] if j<len(palette) else None
                         photo,normal,scale,varies=white,flat,[1.,1.],False
                         if ref is not None:
-                            key=(ref['id'],specular)
+                            # (each tile has its own image under the same id 'base': its texture number tells them apart)
+                            key=(ref['id'],ref.get('i'),specular)
                             if key not in prepared:
                                 if 'asset' in ref:
                                     folder=trackpaint._resolve(ac,name,'materials',ref['asset'])
@@ -280,7 +300,10 @@ def build(ac,name,descriptors,scan,change,path,added):
                                 else:
                                     _n,at,size=scan['textures'][ref['i']]
                                     raw=trackview._read(path,at,size,record['base'])
-                                with Image.open(io.BytesIO(raw)) as image: colour=image.convert('RGBA')
+                                if ref['id']=='base':
+                                    colour=pad_weights(Image.fromarray(trackdetail.tile_base(raw,base_material,tile)),tile).convert('RGBA')
+                                else:
+                                    with Image.open(io.BytesIO(raw)) as image: colour=image.convert('RGBA')
                                 data=None
                                 if 'detail' in ref and 'asset' in ref:
                                     with Image.open(io.BytesIO(trackdetail.detail_image(ac,name,ref['asset']))) as image: data=np.array(image.convert('RGBA'))

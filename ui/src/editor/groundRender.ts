@@ -35,8 +35,9 @@ function regionTree(regions: RegionNode[]): RegionNode {
   return {bounds, children: [regionTree(regions.slice(0, middle)), regionTree(regions.slice(middle))]};
 }
 
-/** Assign source triangles once through UV bounds; yield owned indices with borrowed vertices. Pure. */
-export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: number[][], origin: number[]) {
+/** Assign source triangles once through UV bounds; yield owned indices with borrowed vertices. guard: the share of a guarded
+ * tile texture outside the mesh UVs (ColourSplat.uv_guard); bounds cover the whole tile. Pure. */
+export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: number[][], origin: number[], guard = 0) {
   const regions = new Map<string, RegionNode>();
   for (const box of bounds) if (!regions.has(box.join(","))) regions.set(box.join(","), {bounds: box, kept: []});
   if (!regions.size) return;
@@ -44,8 +45,8 @@ export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: nu
   const indices = source.getIndex()!, uv = source.getAttribute("uv");
   for (let i = 0; i < indices.count; i += 3) {
     const a = indices.getX(i), b = indices.getX(i + 1), c = indices.getX(i + 2);
-    const ax = uv.getX(a) - origin[0], bx = uv.getX(b) - origin[0], cx = uv.getX(c) - origin[0];
-    const ay = uv.getY(a) - origin[1] + 1, by = uv.getY(b) - origin[1] + 1, cy = uv.getY(c) - origin[1] + 1;
+    const s = 1 - 2 * guard, x = (k: number) => (uv.getX(k) - origin[0] - guard) / s, y = (k: number) => (uv.getY(k) - origin[1] + guard) / s + 1;
+    const ax = x(a), bx = x(b), cx = x(c), ay = y(a), by = y(b), cy = y(c);
     const minX = Math.min(ax, bx, cx), maxX = Math.max(ax, bx, cx), minY = Math.min(ay, by, cy), maxY = Math.max(ay, by, cy);
     stack.push(root);
     while (stack.length) {
@@ -64,8 +65,8 @@ export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: nu
 }
 
 /** Only UV-intersecting triangles are submitted; edge fragments retain exact world-UV clipping. Pure. */
-export function groundRegionGeometry(source: THREE.BufferGeometry, bounds: number[], origin: number[]) {
-  return groundRegionGeometries(source, [bounds], origin).next().value![1];
+export function groundRegionGeometry(source: THREE.BufferGeometry, bounds: number[], origin: number[], guard = 0) {
+  return groundRegionGeometries(source, [bounds], origin, guard).next().value![1];
 }
 
 function disposeRegion(geometry: THREE.BufferGeometry) {
@@ -176,22 +177,25 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       m2lFrames: {value: pass.frames.map(f => new THREE.Vector4(...f.atlas))}, m2lSources: {value: pass.frames.map(f => new THREE.Vector2(...f.source))},
       m2lConstants: {value: pass.frames.map(f => f.constant ?? -1)},
       m2lScale: {value: new THREE.Vector2(...scale)}, m2lPhase: {value: new THREE.Vector2(...phase)},
-      m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lBounds: {value: new THREE.Vector4(...pass.bounds)},
+      m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lGuard: {value: layers.uv_guard ?? 0}, m2lBounds: {value: new THREE.Vector4(...pass.bounds)},
       m2lData: {value: data}, m2lNoiseFrequency: {value: 1.6},
       m2lProperties: {value: new THREE.Vector2(ref?.properties?.normal_scale ?? 1, ref?.properties?.roughness ?? 1)}});
-    shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec2 m2lUVOrigin; varying vec2 m2lLocal;")
-      .replace("#include <uv_vertex>", "#include <uv_vertex>\nm2lLocal = uv - m2lUVOrigin;");
+    // m2lRaw samples the original tile at its mesh UV; m2lLocal is the whole tile's UV, which weights and bounds cover.
+    shader.vertexShader = shader.vertexShader.replace("#include <common>",
+      "#include <common>\nuniform vec2 m2lUVOrigin; uniform float m2lGuard; varying vec2 m2lLocal, m2lRaw;")
+      .replace("#include <uv_vertex>",
+        "#include <uv_vertex>\nm2lRaw = uv - m2lUVOrigin; m2lLocal = (m2lRaw - vec2(m2lGuard, -m2lGuard)) / (1.0 - 2.0 * m2lGuard);");
     if (ref?.variation) shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 m2lWorldXZ;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nm2lWorldXZ = (modelMatrix * vec4(transformed,1.0)).xz;");
     shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `#include <map_pars_fragment>
-      varying vec2 m2lLocal; uniform vec2 m2lScale, m2lPhase, m2lProperties; uniform vec4 m2lBounds;
+      varying vec2 m2lLocal, m2lRaw; uniform vec2 m2lScale, m2lPhase, m2lProperties; uniform vec4 m2lBounds;
       uniform sampler2D m2lData; ${weights(pass)} ${pbr ? tangentFrame : ""} ${ref?.variation ? variationShader : ""}
     `).replace("#include <map_fragment>", `
       vec2 m2lUV = vec2(m2lLocal.x, m2lLocal.y + 1.0);
       vec2 m2lDx = dFdx(m2lUV) * m2lSize, m2lDy = dFdy(m2lUV) * m2lSize;
       float m2lLOD = clamp(log2(max(length(m2lDx),length(m2lDy))),0.0,log2(max(m2lSize.x,m2lSize.y)));
       float m2lMass = mix(m2lAt(m2lUV,floor(m2lLOD)),m2lAt(m2lUV,ceil(m2lLOD)),fract(m2lLOD));
-      vec2 m2lPhotoUV = ${pass.image < 0 ? "m2lLocal" : "m2lLocal * m2lScale + m2lPhase"};
+      vec2 m2lPhotoUV = ${pass.image < 0 ? "m2lRaw" : "m2lLocal * m2lScale + m2lPhase"};
       diffuseColor *= ${ref?.variation ? "m2lVary" : "texture2D"}(map,m2lPhotoUV);
       ${pbr ? `vec4 m2lPacked = ${ref?.variation ? "m2lVaryData(map,m2lData," : "texture2D(m2lData,"}m2lPhotoUV);` : ""}
     `);
@@ -231,7 +235,7 @@ export class GroundLayer {
     let bytes = 0;
     try {
       for (const [key, geometry] of groundRegionGeometries(source.geometry,
-        this.layers.ground!.passes.map(pass => pass.bounds), this.layers.ground!.uv_origin)) {
+        this.layers.ground!.passes.map(pass => pass.bounds), this.layers.ground!.uv_origin, this.layers.uv_guard ?? 0)) {
         regions.set(key, geometry);
         const size = geometry.getIndex()!.array.byteLength;
         this.frame.reserveIndices(size); bytes += size;

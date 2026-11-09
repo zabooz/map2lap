@@ -140,3 +140,15 @@ test("replacing source geometry at version zero rebuilds borrowed region attribu
   expect(old.getAttribute("position")).toBeDefined();
   layer.dispose(); expect(next.getAttribute("position")).toBeDefined();
 });
+
+test("a guarded tile's triangles fall into the regions their whole-tile UVs reach", () => {
+  // Guarded ground UVs cover only the inside of the tile texture (groundmaterial.UV_GUARD); masks and region bounds the whole tile.
+  const guard = 1 / 8, inside = (u: number) => guard + u * (1 - 2 * guard);
+  const source = new THREE.BufferGeometry();
+  source.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  source.setAttribute("uv", new THREE.BufferAttribute(Float32Array.from([inside(0), -inside(.5), inside(.1), -inside(.5), inside(0), -inside(.4)]), 2));
+  source.setIndex([0, 1, 2]);
+  const west = [0, 0, .11, 1];
+  expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0], guard)).get(west.join(","))!.getIndex()!.array)).toEqual([0, 1, 2]);
+  expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0])).get(west.join(","))!.getIndex()!.array)).toEqual([]);
+});

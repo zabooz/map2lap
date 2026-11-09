@@ -10,11 +10,19 @@ from PIL import Image
 WHITE = "map2lap_detail_white.png"
 MASK = "map2lap_detail_base.png"
 GROUND = re.compile(r"ground_-?\d+_-?\d+")
+# The share of a ground tile texture's edge that is its guard ring (scenery/ground.py, GUARD_PX of TEX_PX): its UVs
+# run from UV_GUARD to 1 - UV_GUARD. Built tracks carry it as the material property m2lUVGuard; older ones have none.
+UV_GUARD = 32 / 2048
 
 
 def is_ground(name):
     """Whether name is a generated tile's ground material (not water, distant terrain or a bridge). Pure."""
     return bool(GROUND.fullmatch(name))
+
+
+def guard_prop(fraction=UV_GUARD):
+    """The kn5 property marking a ground material's guarded UVs. Pure."""
+    return ("m2lUVGuard", fraction, (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))
 
 
 def layered(material, mask=MASK, details=None, scales=None):

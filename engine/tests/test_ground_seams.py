@@ -123,9 +123,10 @@ class GroundSeamSaveTest(unittest.TestCase):
         np.testing.assert_allclose(served['uv'],native['root'].children[1].vertices['uv']+[1,0],atol=1e-7)
         source=trackdetail._source(scan,0)
         self.assertEqual((255,0,0,0),trackdetail.sample_source_mask(path,scan,source,index['revision'],.15,-.85,(0,0)))
-        self.assertEqual((0,0,0,255),trackdetail.sample_source_mask(path,scan,source,index['revision'],.5,-.5,(0,0)))
+        # (saved masks are BC7, textures.bc7_weights: a weight within 2 of 255)
+        self.assertTrue(all(abs(a-b)<=2 for a,b in zip((0,0,0,255),trackdetail.sample_source_mask(path,scan,source,index['revision'],.5,-.5,(0,0)))))
         pixels=trackdetail._source_image(path,scan,source['mask'],index['revision'],source=source,tile=(0,0),dimensions=(32,32))
-        self.assertEqual([0,0,0,255],pixels[16,16].tolist())
+        self.assertTrue(all(abs(a-b)<=2 for a,b in zip((0,0,0,255),pixels[16,16].tolist())))
 
 
 if __name__ == '__main__':

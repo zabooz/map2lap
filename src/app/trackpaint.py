@@ -404,7 +404,9 @@ def texture(ac, name, i, revision, version):
             key = tuple(map(int, match.groups()))
             layers, assets = _layers(ac, name, revision, record["paints"], key)
             raw = trackview._read(path, offset, size, revision)
-            _atomic(target, paintimage.encoded(raw, filename, key, layers, assets))
+            material = next((m for m in scan["materials"] if m.name == Path(filename).stem), None)
+            guard = trackview._prop(material, "m2lUVGuard", 0.) if material else 0.
+            _atomic(target, paintimage.encoded(raw, filename, key, layers, assets, guard))
         raw = target.read_bytes()
     trackview._scan_of(ac, name, revision)
     return raw

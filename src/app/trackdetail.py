@@ -12,7 +12,7 @@ from PIL import Image
 
 from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
-from track.textures import dds_mipmaps, dds_size, dds_weights, pad_weights, weight_extent
+from track.textures import bc7_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, weight_extent
 
 PROFILE = 10
 BINDINGS_SCHEMA = 1
@@ -70,7 +70,8 @@ def _source(scan, i):
     required = {"ksPerPixel_dual_layer": ("txDiffuse", "txLayer1_Mask"), "ksMultilayer_objsp": ("txMask", "txDetailA")}
     if any(maps.get(slot) not in numbers for slot in required.get(material.shader, ())):
         raise ValueError("The source ground material has a missing layer image")
-    result = {"materials": indices, "global_uv": trackview._prop(material, "m2lUVGlobal", 0) == 1, "images": []}
+    result = {"materials": indices, "global_uv": trackview._prop(material, "m2lUVGlobal", 0) == 1, "images": [],
+              "uv_guard": trackview._prop(material, "m2lUVGuard", 0.)}
     if material.shader == "ksPerPixel_dual_layer":
         result.update(kind="dual", mask=numbers[maps["txLayer1_Mask"]])
         scale = trackview._prop(material, "uvMult", 1.)
@@ -246,7 +247,8 @@ def _semantic(ac, name, record, path, scan, filename, resolved=None):
                                            {"images": [{**ref, "name": scan["textures"][ref["i"]][0]} for ref in source["images"]]})["images"]
     _file, offset, size = scan["textures"][record["texture"]]
     with Image.open(io.BytesIO(trackview._read(path, offset, size, record["base"]))) as base:
-        width, height = base.size
+        extent = base_extent(scan["materials"][source["materials"][0]])     # (a saved ring canvas: the tile's own size)
+        width, height = round(base.width / extent[0]), round(base.height / extent[1])
     if max(width, height) > 2048:
         raise ValueError("Ground detail masks support tile images up to 2048 pixels")
     layers, assets = trackpaint._layers(ac, name, record["base"], record["paints"], key)
@@ -301,6 +303,10 @@ def _semantic(ac, name, record, path, scan, filename, resolved=None):
     layout = {"base": {"i": record["texture"], "name": filename},
               "images": [{**images[token], "id": token} for token in palette], "source": source,
               "origin": origin, "materials": source["materials"], "dimensions": [width, height]}
+    if source["uv_guard"]:      # (the tile's mesh UVs cover only its guarded texture's inside: trackview.tile_uv)
+        layout["uv_guard"] = source["uv_guard"]
+    if extent != [1., 1.]:      # (a saved copy's tile image on its old mask's ring canvas, sampled where that mask is)
+        layout["base_extent"] = extent
     return layout, {token: weights[token] / divisor for token in palette}, coverage
 
 
@@ -618,10 +624,54 @@ def save_size(descriptors, scan, path):
                     sizes.setdefault(key, ref["detail"]["size"] + 65536)
             sizes[layout["base"]["name"] + ":native"] = tracknative.save_size(layout, scan, path)
             continue
-        for ref in [layout["mask"], *layout["images"]]:
+        for ref in layout["images"]:
             if ref["name"] not in known:
                 sizes[ref["name"]] = ref["size"]
+        # The mask is written as BC7 (bc7_weights), the tile image on the same canvas as BC3 at most (ringed_base): a
+        # byte per pixel each, a quarter of the lossless RGBA8 mask's size.
+        sizes[layout["mask"]["name"]] = layout["mask"]["size"] // 4 + 256
+        sizes[layout["base"]["name"] + ":ring"] = layout["mask"]["size"] // 4 + 256
     return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures() if name not in known)
+
+
+def base_extent(material):
+    """The ring canvas of a saved tile image (ringed_base) to the tile's own size; [1, 1] for an image of the tile alone. Pure."""
+    return next((list(p[2]) for p in material.props if p[0] == "m2lBaseExtent"), [1., 1.])
+
+
+def tile_base(raw, material, tile):
+    """A ground tile's image over exactly its 256 m (H, W, 4 uint8) from its encoded texture: a guarded build's inside
+    (groundmaterial.UV_GUARD) stretched back over the whole tile, a saved ring canvas unrolled. Pure."""
+    with Image.open(io.BytesIO(raw)) as image:
+        pixels = np.array(image.convert("RGBA"))
+    extent = base_extent(material)
+    if extent != [1., 1.]:
+        height, width = round(pixels.shape[0] / extent[1]), round(pixels.shape[1] / extent[0])
+        xs = (np.arange(width) + tile[0] * width) % pixels.shape[1]
+        ys = (np.arange(height) + (-tile[1] - 1) * height) % pixels.shape[0]
+        return pixels[ys[:, None], xs[None, :]]
+    guard = trackview._prop(material, "m2lUVGuard", 0.)
+    if guard:
+        height, width = pixels.shape[:2]
+        gx, gy = round(guard * width), round(guard * height)
+        return np.array(Image.fromarray(pixels[gy:height - gy, gx:width - gx]).resize((width, height), Image.Resampling.LANCZOS))
+    return pixels
+
+
+def ringed_base(pixels, tile, filename):
+    """The tile image on the same world-phase ring canvas as its saved mask (pad_weights), in filename's format. Pure.
+    The edited material samples image and mask at one UV; the ring keeps the opposite tile edge out of AC's repeating
+    filter, as the build's guard does (scenery/ground.py)."""
+    alpha = bool((pixels[..., 3] < 255).any())      # (an opaque tile stays BC1 / RGB, half the size of BC3)
+    image = pad_weights(Image.fromarray(pixels), tile)
+    if filename.lower().endswith(".dds"):
+        return dds_mipmaps(image, alpha=alpha, smallest=1)
+    output = io.BytesIO()
+    if filename.lower().endswith(".png"):
+        image.convert("RGBA" if alpha else "RGB").save(output, "PNG")
+    else:
+        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
+    return output.getvalue()
 
 
 def saved(ac, name, revision, descriptors, scan, change, path, added=()):
@@ -637,26 +687,33 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
         from app import tracknative
         materials, resources, added, native_config, owned, native_files = tracknative.build(ac, name, regional, scan, change, path, added)
     present = {t[0] for t in scan["textures"]}
-    origins = {}
+    origins, ringed = {}, {}
     for descriptor in descriptors:
         layout = descriptor.get("layers")
         if not layout:
             continue
         if "ground" in layout:
             continue
-        resources[layout["mask"]["name"]] = mask(ac, name, descriptor["version"])
+        resources[layout["mask"]["name"]] = bc7_weights(mask(ac, name, descriptor["version"]))     # (AC gets BC7: a quarter)
         for ref in layout["images"]:
             if "asset" in ref:
                 resources[ref["name"]] = image(ac, name, ref["asset"])
+        base = layout["base"]["name"]
+        tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(base).groups()))
+        _name, offset, size = scan["textures"][layout["base"]["i"]]
+        # (the tile image of the source; it replaces the old one under its name, so there is no second copy)
+        ringed[base] = ringed_base(tile_base(trackview._read(path, offset, size, revision), materials[layout["materials"][0]], tile),
+                                   tile, base)
         for i in layout["materials"]:
             original = materials[i]
             extent = layout.get('mask_extent',[1.,1.])
             props = [p for p in original.props if p[0] not in {"multR", "multG", "multB", "multA", "magicMult", "uvMult", "m2lUVGlobal", "m2lMaskExtent",
-                                                             "m2lVariationR", "m2lVariationG", "m2lVariationB"}]
+                                                             "m2lVariationR", "m2lVariationG", "m2lVariationB", "m2lUVGuard", "m2lBaseExtent"}]
             props.extend([(f"mult{channel}", 1., tuple(v*e for v,e in zip(layout["images"][j]["scale"],extent)) if j < len(layout["images"]) else tuple(extent),
                            (0., 0., 0.), (0., 0., 0., 0.)) for j, channel in enumerate("RGB")])
-            props += [("multA", 1., tuple(extent), (0., 0., 0.), (0., 0., 0., 0.)),
+            props += [("multA", 1., (1., 1.), (0., 0., 0.), (0., 0., 0., 0.)),     # (the ring canvas is the mask's)
                       ("m2lMaskExtent", 1., tuple(extent), (0., 0., 0.), (0., 0., 0., 0.)),
+                      ("m2lBaseExtent", 1., tuple(extent), (0., 0., 0.), (0., 0., 0., 0.)),
                       ("magicMult", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)),
                       ("m2lUVGlobal", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))]
             props.extend(("m2lVariation" + channel, float(j < len(layout["images"]) and layout["images"][j].get("variation", False)),
@@ -666,11 +723,12 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
                         for j, channel in enumerate("RGB"))
             maps.append(("txDetailA", 5, layout["base"]["name"]))
             materials[i] = replace(original, shader="ksMultilayer_objsp", props=props, maps=maps)
-            origins[i] = (layout["origin"], extent, trackview._mask_extent(original))
+            origins[i] = (layout["origin"], extent, trackview._mask_extent(original), trackview._prop(original, "m2lUVGuard", 0.))
     def finish(table, moved):
         referenced = {n for m in materials for _slot, _i, n in m.maps}
         images = [(n, raw) for n, raw in resources.items() if n not in present and (n not in owned or n in referenced)]
-        return table, images, moved, added, native_config, (owned - referenced) & present, native_files
+        # (a ringed tile image takes the old one's place and number: paint records name the tile image by its number)
+        return table, images, moved, added, native_config, (owned - referenced) & present, {**native_files, "replace": ringed}
     if not origins:
         return finish(materials if regional else None, change)
     resources.update(groundmaterial.textures())
@@ -680,8 +738,9 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
             transform = origins.get(mesh["material"])
             if transform is None:
                 continue
-            offset,extent,previous = transform
+            offset,extent,previous,guard = transform
             data = vertices[i].copy() if i in vertices else kn5.mesh_arrays(file, mesh)[0]
-            data["uv"] = (data['uv'] * previous + offset) / extent
+            uv = np.array(trackview.tile_uv(data["uv"][:, 0], data["uv"][:, 1], guard, False, 0, 0)).T
+            data["uv"] = (uv * previous + offset) / extent
             vertices[i] = data
     return finish(materials, kn5.Moved(vertices, change.grow, change.points))

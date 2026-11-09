@@ -164,8 +164,7 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
     path, scan = trackview._scan_of(ac, name, revision)
     tx, ty = trackview._surface_tile(scan, mesh)
     material = scan["materials"][scan["meshes"][mesh]["material"]]
-    if trackview._prop(material, "m2lUVGlobal", 0) == 1:
-        u, v = u - tx, v + ty
+    u, v = trackview.material_uv(material, tx, ty, u, v)
     if not all(math.isfinite(q) and lo <= q <= hi for q, lo, hi in ((u, -.01, 1.01), (v, -1.01, .01))):
         raise ValueError("No ground at this texture point")
     base = next((i for i, t in enumerate(scan["textures"]) if trackpaint.GROUND_IMAGE.fullmatch(t[0])

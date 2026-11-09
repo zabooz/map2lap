@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image
 
 import test_trackpaint as fixture
-from app import materiallibrary, trackcopy, trackedits, trackview
+from app import materiallibrary, trackcopy, trackdetail, trackedits, trackview
 from track import editorinfo, groundmaterial, kn5, surfaceindex
 
 
@@ -584,7 +584,7 @@ class DetailTest(unittest.TestCase):
         for x,y in ((4,5),(4,28)):
             actual=self._saved_region_weights(saved,layout,fields,x,y)
             for key,values in fields.items(): self.assertAlmostEqual(float(values[y,x]),actual[key],delta=2/255)
-            self.assertAlmostEqual(1.,sum(actual.values()),delta=.002)
+            self.assertAlmostEqual(1.,sum(actual.values()),delta=4/255)     # (saved masks are BC7: textures.bc7_weights)
         source_ids=[key for key in fields if key.startswith('source:')]
         self.assertEqual(1,len(source_ids))
         # Legacy dual's mask weights its original tile: its red replacement is
@@ -648,7 +648,7 @@ class DetailTest(unittest.TestCase):
             self.assertEqual(source_material, saved["materials"][0])
             for x,y in ((4,5),(4,28)):
                 actual=self._saved_region_weights(saved,layout,fields,x,y)
-                self.assertAlmostEqual(1.,sum(actual.values()),delta=.002)
+                self.assertAlmostEqual(1.,sum(actual.values()),delta=4/255)     # (saved masks are BC7: textures.bc7_weights)
                 for key,values in fields.items(): self.assertAlmostEqual(float(values[y,x]),actual[key],delta=2/255)
             old=next(key for key in fields if key.startswith('source:'))
             self.assertAlmostEqual(32/255,float(fields[old][5,4]),delta=2/255)
@@ -1103,8 +1103,18 @@ class DetailTest(unittest.TestCase):
         copied = Path(self.ac, "content/tracks/detail_copy/detail_copy.kn5")
         saved = kn5.read(str(copied))
         textures = {name: raw for name, _active, raw in saved["textures"]}
+        self.assertEqual([t[0] for t in before["textures"]], [t[0] for t in saved["textures"]][:len(before["textures"])])
+        ringed = {m.name + ".png": m for m in saved["materials"] if trackdetail.base_extent(m) != [1., 1.]}
+        self.assertIn("ground_0_0.png", ringed)
         for name, _active, raw in before["textures"]:
-            self.assertEqual(raw, textures[name])
+            if name not in ringed:
+                self.assertEqual(raw, textures[name])
+                continue
+            # An edited tile's image lies on its mask's ring canvas, in its place and under its name (trackdetail.ringed_base).
+            with Image.open(io.BytesIO(raw)) as image:
+                original = np.array(image.convert("RGBA"))
+            tile = (int(name.split("_")[1]), 0)
+            np.testing.assert_array_equal(original, trackdetail.tile_base(textures[name], ringed[name], tile))
         self.assertEqual("ksMultilayer_objsp", saved["materials"][0].shader)
         maps = {slot: name for slot, _i, name in saved["materials"][0].maps}
         self.assertEqual(groundmaterial.WHITE, maps["txDiffuse"])

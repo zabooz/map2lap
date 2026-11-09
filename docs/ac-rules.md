@@ -54,8 +54,12 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   three full-resolution colours in RGB. Every `multR/G/B/A` is a float2 in this shader. Integer tile origins are added to
   saved UVs to align repeats across tiles; positions, triangles and collision names stay unchanged.
 - The editor's RGBA selection channels are independent weights. Their mipmaps average each channel independently and
-  retain a unit total; they use lossless RGBA8 DDS rather than BC3, whose independent colour/alpha quantization changes
-  that total. The native AC fallback and CSP replacement receive the same masks.
+  retain a unit total; the Editor works on them as lossless RGBA8 DDS, not BC3, whose independent colour/alpha
+  quantization changes that total. Save writes them as BC7 (`textures.bc7_weights`, each lossless mip level encoded
+  with linear error): a quarter of the size (27 -> 6.8 MiB for a 2304 px tile canvas), weights off by about 0.1/255 on
+  average and their sum by a few 255ths at sharp edges, under 2 % brightness. Tried in AC with CSP (2026-11-09); a
+  track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The browser has no BC7 decoder:
+  the server unpacks a saved mask for it (`textures.browser_weights`).
 - Saved material variation uses a managed CSP replacement to `ksMultilayer_objsp_nm4`, with separate tiling-fix flags for
   imported RGB layers and no variation of the original A tile or mask. The native material remains a usable fallback
   without CSP. This native colour-only setup supplies flat normal maps; retained imported PBR maps are used independently

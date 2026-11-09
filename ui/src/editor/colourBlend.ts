@@ -10,7 +10,11 @@ export interface GroundPass {image: number; first: number; bounds: [number, numb
   frames: {source: [number, number]; atlas: [number, number, number, number]; constant?: number}[]; weight: ColourImage}
 export interface RegionalGround {dimensions: [number, number]; uv_origin: [number, number]; passes: GroundPass[]; bytes: number; split: number}
 export interface ColourSplat {base: ColourImage; mask: ColourImage; images: ColourPhoto[]; origin: [number, number]; materials?: number[]; ground?: RegionalGround;
-  mask_extent?: [number, number]; mask_origin?: [number, number]}
+  mask_extent?: [number, number]; mask_origin?: [number, number];
+  /** The share of a guarded tile texture's edge outside the mesh UVs (groundmaterial.UV_GUARD); masks cover the whole tile. */
+  uv_guard?: number;
+  /** Set when the original tile image lies on the mask's ring canvas (a saved copy): it is sampled where the mask is. */
+  base_extent?: [number, number]}
 export interface GroundTextureUpdate {i: number; size: number; version: string; layers?: ColourSplat; materials?: number[]}
 interface MaterialImages {texture: string | null; dual_layer?: ColourLayers; splat?: ColourSplat}
 
@@ -31,6 +35,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
   const channels = layers.images.map((p, i) => "rgb"[p.channel ?? i]);
   const varied = layers.images.some(p => p.variation);
   const pbr = material instanceof THREE.MeshStandardMaterial;
+  const original = layers.base_extent ? "texture2D(map, (m2lTile + m2lMaskOrigin) / m2lMaskExtent)" : "texture2D(map, vMapUv)";
   material.onBeforeCompile = shader => {
     if (varied) {
       // CSP's nm4 procedural reference converts its noise multiplier to cells using a factor of 32.
@@ -41,7 +46,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
     }
     Object.assign(shader.uniforms, {m2lKeep: {value: keep}, m2lOrigin: {value: new THREE.Vector2(...layers.origin)}});
     Object.assign(shader.uniforms, {m2lMaskExtent: {value: new THREE.Vector2(...(layers.mask_extent ?? [1, 1]))},
-      m2lMaskOrigin: {value: new THREE.Vector2(...(layers.mask_origin ?? [0, 0]))}});
+      m2lMaskOrigin: {value: new THREE.Vector2(...(layers.mask_origin ?? [0, 0]))}, m2lGuard: {value: layers.uv_guard ?? 0}});
     for (let i = 0; i < images.length; i++) {
       shader.uniforms[`m2lPhoto${i}`] = {value: images[i]};
       shader.uniforms[`m2lScale${i}`] = {value: new THREE.Vector2(...layers.images[i].scale)};
@@ -57,20 +62,23 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
       uniform vec2 m2lOrigin;
       uniform vec2 m2lMaskExtent;
       uniform vec2 m2lMaskOrigin;
+      uniform float m2lGuard;
       ${varied ? variationShader : ""}
       ${images.map((_p, i) => `uniform sampler2D m2lPhoto${i}; uniform vec2 m2lScale${i};`).join("\n")}
       ${details.map((p, i) => p ? `uniform sampler2D m2lData${i}; uniform vec2 m2lProperties${i};` : "").join("\n")}
       ${pbr ? tangentFrame : ""}
     `).replace("#include <map_fragment>", `
       #ifdef USE_MAP
-        vec4 m2lWeights = texture2D(m2lKeep, (vMapUv + m2lMaskOrigin) / m2lMaskExtent);
-        vec3 m2lColour = ${pbr ? "vec3(0.0)" : "texture2D(map, vMapUv).rgb * m2lWeights.a"};
-        ${pbr ? `vec3 m2lOriginalColour = texture2D(map, vMapUv).rgb * diffuseColor.rgb * m2lWeights.a;
+        // The original tile keeps its mesh UV; masks and photos take the whole tile's (kn5 v is negated).
+        vec2 m2lTile = (vMapUv - vec2(m2lGuard, -m2lGuard)) / (1.0 - 2.0 * m2lGuard);
+        vec4 m2lWeights = texture2D(m2lKeep, (m2lTile + m2lMaskOrigin) / m2lMaskExtent);
+        vec3 m2lColour = ${pbr ? "vec3(0.0)" : `${original}.rgb * m2lWeights.a`};
+        ${pbr ? `vec3 m2lOriginalColour = ${original}.rgb * diffuseColor.rgb * m2lWeights.a;
           float m2lContribution = 0.0;
           vec3 m2lNormal = vec3(0.0); float m2lRoughness = 0.0;` : ""}
-        ${images.map((_p, i) => `${pbr && !details[i] ? "m2lOriginalColour" : "m2lColour"} += ${layers.images[i].variation ? "m2lVary" : "texture2D"}(m2lPhoto${i}, (vMapUv + m2lOrigin) * m2lScale${i}).rgb * m2lWeights.${channels[i]}${pbr && !details[i] ? " * diffuseColor.rgb" : ""};`).join("\n")}
+        ${images.map((_p, i) => `${pbr && !details[i] ? "m2lOriginalColour" : "m2lColour"} += ${layers.images[i].variation ? "m2lVary" : "texture2D"}(m2lPhoto${i}, (m2lTile + m2lOrigin) * m2lScale${i}).rgb * m2lWeights.${channels[i]}${pbr && !details[i] ? " * diffuseColor.rgb" : ""};`).join("\n")}
         ${pbr ? images.map((_p, i) => details[i] ? `
-          vec4 m2lPacked${i} = ${layers.images[i].variation ? `m2lVaryData(m2lPhoto${i}, m2lData${i},` : `texture2D(m2lData${i},`} (vMapUv + m2lOrigin) * m2lScale${i});
+          vec4 m2lPacked${i} = ${layers.images[i].variation ? `m2lVaryData(m2lPhoto${i}, m2lData${i},` : `texture2D(m2lData${i},`} (m2lTile + m2lOrigin) * m2lScale${i});
           vec3 m2lNormal${i} = m2lPacked${i}.xyz * 2.0 - 1.0;
           m2lNormal${i}.xy *= m2lProperties${i}.x;
           m2lNormal += normalize(m2lNormal${i}) * m2lWeights.${channels[i]};
@@ -99,7 +107,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
         `);
     }
   };
-  material.customProgramCacheKey = () => "map2lap-splat-5-" + Number(pbr) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])).join("");
+  material.customProgramCacheKey = () => "map2lap-splat-6-" + Number(pbr) + Number(!!layers.base_extent) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])).join("");
   material.needsUpdate = true;
 }
 

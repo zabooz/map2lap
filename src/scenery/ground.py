@@ -29,6 +29,7 @@ import roads as roadsmod
 import surface as surfacemod
 
 from scenery import groundcover, leisure, wallcut, water
+from track import groundmaterial
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
@@ -39,7 +40,8 @@ TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); gro
 # The tile is baked into TEX_PX - 2 * GUARD_PX pixels and its edge pixels repeated around it (guarded, guarded_uv): no
 # memory, 3.1 % of the resolution (12.5 -> 12.9 cm). Protects through mip 6 (8 m per pixel, a pixel on the screen some
 # hundreds of metres away); beyond, and with anisotropic filtering looking across the edge, the mix comes back, far off.
-GUARD_PX = 32
+# The kn5 marks it on each ground material (groundmaterial.UV_GUARD), so the Editor maps UVs back to the whole tile.
+GUARD_PX = round(groundmaterial.UV_GUARD * TEX_PX)
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
 # Road look -> (texture, m per repeat, brightness); painted in this order. Asphalt by road class (_look).

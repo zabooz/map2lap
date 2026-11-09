@@ -105,6 +105,21 @@ def _mask_extent(material):
     return next((list(p[2]) for p in material.props if p[0] == 'm2lMaskExtent'), [1., 1.])
 
 
+def tile_uv(u, v, guard, global_uv, tx, ty):
+    """A ground mesh's UV (kn5's: v negated) as its tile's own, u 0..1 and v -1..0 over the whole 256 m, which the
+    Editor's masks cover: less a global UV's tile origin, and out of a guarded texture's inside (groundmaterial.UV_GUARD). Pure."""
+    if global_uv:
+        u, v = u - tx, v + ty
+    if guard:
+        u, v = (u - guard) / (1 - 2 * guard), (v + guard) / (1 - 2 * guard)
+    return u, v
+
+
+def material_uv(material, tx, ty, u, v):
+    """tile_uv by what the ground material of tile (tx, ty) says of its UVs. Pure."""
+    return tile_uv(u, v, _prop(material, "m2lUVGuard", 0.), _prop(material, "m2lUVGlobal", 0) == 1, tx, ty)
+
+
 def _material(material):
     """Names, colour-layer inputs/scales, ksAmbient + ksDiffuse and alpha flags for the view. Pure."""
     texture = next((tex for slot, _n, tex in material.maps if slot == "txDiffuse"), None)
@@ -137,6 +152,9 @@ def _material(material):
             result.update(texture=maps["txDetailA"], splat={"base": {"name": maps["txDetailA"]},
                           "mask": {"name": maps["txMask"], "linear": True}, "images": images, "origin": [0, 0],
                           "mask_extent": extent, "mask_origin": [0,0]})
+            ring = next((list(p[2]) for p in material.props if p[0] == "m2lBaseExtent"), None)
+            if ring:            # (the tile image lies on the mask's ring canvas: trackdetail.ringed_base)
+                result["splat"]["base_extent"] = ring
     return result
 
 
@@ -270,8 +288,7 @@ def surface(ac, name, mesh, u, v, revision, whole=False):
     if current != revision:
         raise Unreadable("The track changed")
     tx, ty = _surface_tile(scan, mesh)
-    if _prop(scan["materials"][scan["meshes"][mesh]["material"]], "m2lUVGlobal", 0) == 1:
-        u, v = float(u) - tx, float(v) + ty
+    u, v = material_uv(scan["materials"][scan["meshes"][mesh]["material"]], tx, ty, float(u), float(v))
     # kn5 UV v is negated by the writer; the masks use ordinary north-pointing v.
     result = surfaceindex.select(path, tx, ty, float(u), -float(v), whole)
     if _revision(os.stat(path)) != revision:
@@ -418,4 +435,5 @@ def texture_bytes(ac, name, i, revision, version=""):
     if version:
         from app import trackpaint
         return tex, trackpaint.texture(ac, name, i, revision, version)
-    return tex, _read(path, offset, size, revision)
+    from track.textures import browser_weights
+    return tex, browser_weights(_read(path, offset, size, revision))     # (a saved BC7 mask: the browser has no BC7)
