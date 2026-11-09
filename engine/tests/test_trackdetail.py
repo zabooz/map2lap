@@ -83,7 +83,7 @@ class DetailTest(unittest.TestCase):
             trackcopy.save(self.ac,self.name,'regional_six','Regional six')
         folder=Path(self.ac,'content/tracks/regional_six'); saved=kn5.read(folder/'regional_six.kn5')
         self.assertFalse((folder/'regional_six.uv2').exists())
-        self.assertEqual(node.vertices.tobytes(),saved['root'].children[0].vertices.tobytes())
+        self.assertEqual(fixture.geometry(node.vertices),fixture.geometry(saved['root'].children[0].vertices))
         self.assertEqual(node.indices.tobytes(),saved['root'].children[0].indices.tobytes())
         self.assertEqual(0,saved['root'].children[0].renderable)
         regions=[m for m in kn5.walk_meshes(saved['root']) if m.name.startswith('nocol_ground_m2l_')]
@@ -916,7 +916,7 @@ class DetailTest(unittest.TestCase):
         editorinfo.install(str(self.path), [part])
         self.revision = trackview.index(self.ac, self.name)["revision"]
         trackview.prepare_surface(self.ac, self.name, 0, self.revision)
-        original_vertices, original_indices = node.vertices.tobytes(), node.indices.tobytes()
+        original_vertices, original_indices = fixture.geometry(node.vertices), node.indices.tobytes()
         original_weight = {f"source_grass{k}": editorinfo._weight(editorinfo._folder(str(self.path)), "0_0", f"source_grass{k}")
                            for k in range(6)}
         if not distributed:
@@ -968,7 +968,7 @@ class DetailTest(unittest.TestCase):
         trackcopy.save(self.ac, self.name, "six_pbr", "Six portable PBR materials")
         folder = Path(self.ac, "content/tracks/six_pbr")
         saved = kn5.read(str(folder / "six_pbr.kn5"))
-        self.assertEqual(original_vertices, saved["root"].children[0].vertices.tobytes())
+        self.assertEqual(original_vertices, fixture.geometry(saved["root"].children[0].vertices))
         self.assertEqual(original_indices, saved["root"].children[0].indices.tobytes())
         self.assertTrue(all(n.name.startswith("nocol_") for n in saved["root"].children[2:] if n.cls == 2))
         for snapshot in snapshots:

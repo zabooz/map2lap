@@ -25,6 +25,12 @@ def png(array):
     return output.getvalue()
 
 
+def geometry(vertices):
+    """The bytes of what Save keeps of a ground mesh's vertices: positions and UVs. Its normals and tangents at tile
+    borders are shared with the neighbour tile (track/groundnormals.py), so they may change. Pure."""
+    return np.ascontiguousarray(vertices["pos"]).tobytes() + np.ascontiguousarray(vertices["uv"]).tobytes()
+
+
 class PaintTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -203,7 +209,7 @@ class PaintTest(unittest.TestCase):
         trackcopy.save(self.ac, self.name, "grass_copy", "Grass copy")
         copied = Path(self.ac, "content/tracks/grass_copy/grass_copy.kn5")
         after = kn5.read(str(copied))
-        self.assertEqual(before["root"].children[0].vertices.tobytes(), after["root"].children[0].vertices.tobytes())
+        self.assertEqual(geometry(before["root"].children[0].vertices), geometry(after["root"].children[0].vertices))
         self.assertEqual("1GRASS_ground_0_0", after["root"].children[0].name)
         with Image.open(io.BytesIO(after["textures"][0][2])) as image:
             self.assertEqual((30, 150, 40), image.getpixel((5, 5)))  # The original tile is retained as the native base layer.
