@@ -622,9 +622,8 @@ def _footprints(tiles_dir, aid, tx, ty):
 
 def ground_normals(G, x0, y0, B):
     """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per bush): the ground's under each, from the
-    tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Bushes don't receive shadows
-    (obj_to_kn5: ksPerPixelAT_NS): pointing up they would stay bright on a hillside turned away from the sun, the
-    slope's light is what darkens them. Trees keep "up" (they stand above the slope)."""
+    tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Pointing up, bushes would stay bright on a
+    hillside turned away from the sun: the slope's light is what darkens them. Trees start from "up" (they stand above the slope)."""
     n = int(round(math.sqrt(len(G))))
     Z = G[:, 2].reshape(n, n)                               # [j northwards, i eastwards]
     dzdy, dzdx = np.gradient(Z, CELL)
@@ -634,6 +633,31 @@ def ground_normals(G, x0, y0, B):
     N = np.stack([-dzdx[j, i], -dzdy[j, i], np.ones(len(c))], 1)
     N /= np.linalg.norm(N, axis=1, keepdims=True)
     return np.repeat(N, 8, axis=0)
+
+
+# How far a plant's normals lean away from its stem, against their up part: 1 is 45 degrees, about what the stock tracks' trees
+# have (magione, drift). Headlights come in almost level: straight up, a plant took nothing of them and stood black at night; towards
+# the road instead, a tree with the sun behind it went almost black by day (both seen in AC). Away from the stem needs no road
+# and no sun direction, so it holds on every road, in either hemisphere and on flat land: the side a light comes from is lit.
+STEM_LEAN = 1.0
+
+
+def away_from_stem(B, N=None):
+    """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per plant): N, the normals to start from (None: up), each
+    leaned by STEM_LEAN level and away from its plant's stem. Pure."""
+    B = np.asarray(B, np.float64).reshape(-1, 8, 3)
+    out = np.tile((0.0, 0.0, 1.0), (*B.shape[:2], 1)) if N is None else np.asarray(N, np.float64).reshape(B.shape).copy()
+    way = B[:, :, :2] - B[:, :, :2].mean(1, keepdims=True)
+    out[:, :, :2] += STEM_LEAN * way / np.maximum(np.linalg.norm(way, axis=2, keepdims=True), 1e-9)
+    out /= np.linalg.norm(out, axis=2, keepdims=True)
+    return out.reshape(-1, 3)
+
+
+def add_plants(obj, name, mesh, tris, ground=None):
+    """Add the billboard mesh (P, UV, T of trees.billboards) to obj as name, its normals away_from_stem from ground (a bush's slope,
+    ground_normals; None: a tree's "up"), and count its triangles in tris."""
+    obj.add(name, "trees", *mesh, N=away_from_stem(mesh[0], ground))
+    tris["trees"] = tris.get("trees", 0) + len(mesh[2])
 
 
 def _init_scenery(tiles_dir, tex_dir):
@@ -907,18 +931,15 @@ def _scenery_tile(tx, ty, part_path):
     zone = trees.tile_zone(frame, items + extra)
     tmesh = trees.billboards([t for t in items + extra if t[0] not in BUSHES], wet, zone)
     if tmesh is not None:
-        obj.add(f"nocol_trees_{tx}_{ty}", "trees", *tmesh)
-        tris["trees"] = tris.get("trees", 0) + len(tmesh[2])
+        add_plants(obj, f"nocol_trees_{tx}_{ty}", tmesh, tris)
     bmesh = trees.billboards([t for t in items if t[0] in BUSHES], wet, zone)
-    if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees keep "up"
-        obj.add(f"nocol_trees_bush_{tx}_{ty}", "trees", *bmesh, N=ground_normals(grid, x0, y0, bmesh[0]))
-        tris["trees"] = tris.get("trees", 0) + len(bmesh[2])
+    if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees start from "up"
+        add_plants(obj, f"nocol_trees_bush_{tx}_{ty}", bmesh, tris, ground_normals(grid, x0, y0, bmesh[0]))
     try:                        # cheap bushes in groups on shrubland (bushes.py), lit like the ground too
         cheap = trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings)
         cmesh = trees.billboards(cheap, wet, zone)
         if cmesh is not None:
-            obj.add(f"nocol_bush_{tx}_{ty}", "trees", *cmesh, N=ground_normals(grid, x0, y0, cmesh[0]))
-            tris["trees"] = tris.get("trees", 0) + len(cmesh[2])
+            add_plants(obj, f"nocol_bush_{tx}_{ty}", cmesh, tris, ground_normals(grid, x0, y0, cmesh[0]))
     except Exception as e:      # (rather without them than without the tile)
         log(f"Cheap bushes, tile {tx},{ty}: {type(e).__name__}: {e}")
     places = {}

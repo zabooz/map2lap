@@ -33,16 +33,16 @@ VALUES = {
     "foam": {"ksAmbient": 0.60, "ksDiffuse": 0.30, "ksSpecular": 0.10, "ksSpecularEXP": 20.0},
 }
 SMOOTH = {"grass", "asphalt", "cobble", "dirt", "ballast", "paint", "water", "foam", "edge_dirt", "arrows", "far"}
-# Billboards: alpha test shader, normals pointing up (evenly lit from all sides); gravel edge and arrows
-# (roadtex.py): frayed or cut-out shape through the alpha test. Trees don't receive shadows (_NS, like Kunos'
-# ksTree; they still cast them): with ksPerPixelAT every upright quad shadowed itself, diagonal stripes across all
-# crowns, different with every viewing angle
-SHADERS = {"trees": ("ksPerPixelAT_NS", 1), "edge_dirt": ("ksPerPixelAT", 1), "arrows": ("ksPerPixelAT", 1)}
+# Billboards: alpha test shader; gravel edge and arrows (roadtex.py): frayed or cut-out shape through the alpha test.
+# Plants use ksTree as the stock tracks do, with normals leaning away from the stem (make_obj.away_from_stem). Plain ksTree
+# receives no shadows and casts them; with CSP the track's ext_config.ini turns that round (make_track_folder.EXT_CONFIG):
+# receiving and casting at once, every upright quad shadowed the one crossing it, stripes and black wedges across the crowns
+SHADERS = {"trees": ("ksTree", 1), "edge_dirt": ("ksPerPixelAT", 1), "arrows": ("ksPerPixelAT", 1)}
 SIGN_LETTERS = ("bne_exit_letters", "bne_guide_letters", "bne_guide_letters_black")     # (make_obj.SIGN_LETTERS)
 SHADERS.update({m: ("ksPerPixelAT", 1) for m in SIGN_LETTERS})
 SHADERS["fences"] = ("ksPerPixelAT_NS", 1)     # (fences.py: chain link, mesh, pickets cut out; upright quads like trees)
 SHADERS["leisure"] = ("ksPerPixelAT", 1)        # (leisure.py: the goals' and hoops' nets cut out)
-UP_NORMALS = {"trees"}
+UP_NORMALS = {"trees"}                          # (only for parts without normals of their own: make_obj gives plants theirs)
 VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}
 VALUES["edge_dirt"] = VALUES["grass"]
 VALUES["far"] = VALUES["grass"]
@@ -53,6 +53,9 @@ ALPHA_REF.update({m: 0.5 for m in SIGN_LETTERS})
 ALPHA_REF["fences"] = 0.5
 ALPHA_REF["leisure"] = 0.5
 FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make_obj.FACADE_LEVELS)
+# Buildings against DEFAULT: less ambient, more sun, so a side turned away from the sun reads darker than the lit one (set in AC
+# by eye on a town and a country test track; the sum stays about the same, so their brightness does)
+BUILDING_AMBIENT, BUILDING_DIFFUSE = 0.75, 1.3
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
 # View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC draws every tile up
@@ -205,6 +208,18 @@ def skirt_normals(P, N):
     order = np.lexsort((N[:, 1], inv))          # per place, within it ascending by up
     last = np.r_[np.nonzero(np.diff(inv[order]))[0], len(order) - 1]
     return N[order[last]][inv]
+
+
+def light_values(m):
+    """The light values {ksAmbient, ksDiffuse, ksSpecular, ksSpecularEXP} of the material named m. Pure."""
+    if m.startswith(("gc_", "ground_")):        # comic ground and terrain texture per tile: light values like the meadow
+        return VALUES["grass"]
+    # buildings and walls <kind>_CC_L (make_obj.BLD_KINDS, WALL_SOURCE): brightness level L through the light values
+    if re.fullmatch(r"[a-z]{3}_\d{2}_[0-2]", m):
+        k = FACADE_LEVELS[int(m[-1])]
+        return {**DEFAULT, "ksAmbient": DEFAULT["ksAmbient"] * k * BUILDING_AMBIENT,
+                "ksDiffuse": DEFAULT["ksDiffuse"] * k * BUILDING_DIFFUSE}
+    return VALUES.get(m, DEFAULT)
 
 
 def mesh_nodes(name, mat_index, smooth, P, UV, T, up=False, skirts=False, normals=None):
@@ -497,13 +512,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
             textures.append((os.path.basename(tex[m]), open(tex[m], "rb").read()))
     materials = []
     for m in used:
-        val = VALUES.get(m, DEFAULT)
-        if m.startswith(("gc_", "ground_")):    # comic ground and terrain texture per tile: light values like the meadow
-            val = VALUES["grass"]
-        # buildings and walls <kind>_CC_L (make_obj.BLD_KINDS, WALL_SOURCE): brightness level L through the light values
-        if re.fullmatch(r"[a-z]{3}_\d{2}_[0-2]", m):
-            k = FACADE_LEVELS[int(m[-1])]
-            val = {**DEFAULT, "ksAmbient": DEFAULT["ksAmbient"] * k, "ksDiffuse": DEFAULT["ksDiffuse"] * k}
+        val = light_values(m)
         props = [(k, val[k], (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
                  for k in ("ksAmbient", "ksDiffuse", "ksSpecular", "ksSpecularEXP")]
         props += [("ksEmissive", 0.0, (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)),

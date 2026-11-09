@@ -196,7 +196,7 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                 pixels[row * 128:(row + 1) * 128, col * 128:(col + 1) * 128] = ROAD_FIELDS[row][col]
         textures[0] = ("ground_0_0.dds", dds_mipmaps(Image.fromarray(pixels), smallest=1))
     materials = [material("ground_0_0", "ground_0_0.dds"), material("ground_-1_0", "ground_-1_0.dds"),
-                 material("trees", "trees.png", "ksPerPixelAT_NS", 1), material("ground_far", "ground_far.dds")]
+                 material("trees", "trees.png", "ksTree", 1), material("ground_far", "ground_far.dds")]
     if ground_brightness is not None:
         for entry in materials[:2]:
             entry.props = [(p[0], ground_brightness / 2 if p[0] in {"ksAmbient", "ksDiffuse"} else p[1], *p[2:]) for p in entry.props]

@@ -91,6 +91,17 @@ VIBRATION_LENGTH=0.3
 EXT_CONFIG = """\
 [INCLUDE: common/materials_track.ini]
 
+; the ground casts shadows only at a low sun (long shadows of hills): all day it shadowed itself, rings around the camera
+[SHADER_REPLACEMENT_...]
+MATERIALS = ground_?
+CAST_SHADOWS = TERRAIN
+
+; plants take the shadows of houses and hills and cast none: a plant is two crossed quads, casting too they put black wedges on each other
+[SHADER_REPLACEMENT_...]
+MATERIALS = trees
+SHADER = ksTree_ppshadows
+CAST_SHADOWS = 0
+
 ; animated comic water: Lua redraws the texture every frame (like Shuto's billboards)
 [SCRIPTABLE_DISPLAY_...]
 MESHES = nocol_water_?

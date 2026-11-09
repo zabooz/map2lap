@@ -91,9 +91,13 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Scale textures down to the target resolution before sampling them (else a blotchy pattern: asphalt like cobbles).
 - Atlases keep an empty margin per image (`trees.PAD`): else billboard edges reach into the neighbouring image at small
   mip levels, or through the repeat into their own bottom row (floating lines).
-- Alpha-tested billboards with up-pointing normals shadow themselves (stripes): trees use `ksPerPixelAT_NS`. Bushes carry
-  the ground's normal instead (`make_obj.ground_normals`), so they darken with a slope turned away from the sun.
-- The terrain casts no shadows (it shadowed itself: rings around the camera on the asphalt).
+- Crossed alpha-tested billboards that both cast and receive shadows shadow each other (stripes, black wedges). Plants are
+  `ksTree` in the kn5, as on the stock tracks; with CSP the track's `ext_config.ini` makes them `ksTree_ppshadows` with
+  `CAST_SHADOWS = 0`: dark in the shade of houses and hills, no shadow of their own. Their normals lean 45 degrees away from
+  the stem (`make_obj.away_from_stem`), else headlights, which come in almost level, leave them black at night. Bushes start
+  from the ground's normal (`make_obj.ground_normals`), so they darken with a slope turned away from the sun.
+- The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
+  itself, rings around the camera on the asphalt. Without CSP it casts none.
 - Unknown BeamNG materials become wall/concrete (`FALLBACK`); the build reports them → add them to `SURFACE`.
 - AC has no vertex colours: `make_obj.BLD_KINDS` gives each building material a comic texture per colour of BeamNG.Earth's
   table, and `bld_split` turns the colour jitter into one of 3 brightness levels.
