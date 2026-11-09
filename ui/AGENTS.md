@@ -17,6 +17,7 @@ Which browser tests when: while working the test file of the change in Chrome (`
 The browser tests run against `ui/e2e/server.py`: the real server with an AC folder, settings and small tracks of its own, and
 stand-ins for builds, AC, updates, map data and the net. They test that things work, not where they sit; only the 3D view is
 tested down to the pixel (`render.e2e.ts`). `--update-snapshots` takes new reference images after a wanted change of its look.
+Set `MAP2LAP_TEST_WEB` to an absolute bundle directory to test a separate UI build without replacing the live `src/web`.
 
 - Function components and hooks; state lives where it is used, what can be worked out from it is worked out while rendering.
 - An effect only talks to something outside React (server, Leaflet, three.js) and cleans up after itself (`StrictMode` is on).

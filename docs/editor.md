@@ -228,7 +228,12 @@ External resources, required extensions, skinning, animations, morph targets, sp
 additional vertex attributes are explicit import errors. Original material and image resources are never silently removed.
 The Objects tool group's **INSERT** button (I) opens the shared asset library on its **OBJECTS** tab; **TEXTURES** contains
 the ground picker used by Edit texture. Fields keep their typing shortcuts. Import a GLB, give it a name and metres per source unit, choose the default
-collision, then add it to the library. The preview shows the GLB materials, including cutout leaves. **Place on ground** accepts
+collision, then add it to the library. Object cards show rendered model pictures, including cutout leaves, just as texture
+cards show their images. Visible cards share one offscreen renderer; finished 512 px PNGs are cached in the browser
+(64 in memory, up to 256 in persistent storage when available). Closing the library or changing pages cancels abandoned
+requests. The larger static preview uses that same PNG, with no second model download or render; selecting an object
+promotes its pending picture ahead of the remaining cards. Import and library pictures use reduced fill light and highlight
+compression so bright foliage retains its shading; source material colours are unchanged. **Place on ground** accepts
 repeated ground clicks until Esc. **Replace selected tree** accepts a picked tree or bush and preserves its current placement.
 With several trees selected, the context menu's Replace opens the object library for the whole highlighted selection.
 Right-clicking another member of a marked tree sort retains that selection. Replacement keeps each tree's position, terrain

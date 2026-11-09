@@ -12,7 +12,7 @@ export function LibraryBrowser({title, titleId, subtitle, onImport, disabled, fi
       <button type="button" onClick={onImport} disabled={disabled}>Import…</button></div>
     <div className={styles.filters}>{filters}</div>
     <div className={styles.content}>
-      <div className={styles.browser} onDragOver={e => e.preventDefault()} onDrop={e => {
+      <div className={styles.browser} data-library-browser="" onDragOver={e => e.preventDefault()} onDrop={e => {
         e.preventDefault(); if (!disabled) onFiles(e.dataTransfer.files);
       }}>{browser}</div>
       <div className={styles.preview}>{preview}</div>

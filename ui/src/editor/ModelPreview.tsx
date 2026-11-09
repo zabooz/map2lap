@@ -2,7 +2,7 @@ import {useEffect, useRef} from "react";
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
 import styles from "./ModelPreview.module.css";
-import {modelEnvironment, modelLight} from "./modelLighting";
+import {modelEnvironment, modelLight, modelPreviewScene} from "./modelLighting";
 
 /** A static GLB preview with its native alpha materials; this canvas owns and disposes only its own decoded asset. */
 export function ModelPreview({url, file, height}: {url?: string; file?: File; height?: number}) {
@@ -13,9 +13,7 @@ export function ModelPreview({url, file, height}: {url?: string; file?: File; he
     renderer.setSize(element.clientWidth, element.clientHeight);
     element.appendChild(renderer.domElement);
     const light = modelLight(renderer);
-    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, element.clientWidth / element.clientHeight, .01, 1000);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2));
-    const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(4, 8, 6); scene.add(sun);
+    const scene = modelPreviewScene(renderer), camera = new THREE.PerspectiveCamera(40, element.clientWidth / element.clientHeight, .01, 1000);
     let stopped = false;
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
     const release = () => { for (const g of geometries) g.dispose(); for (const m of materials) m.dispose(); for (const t of textures) t.dispose(); };

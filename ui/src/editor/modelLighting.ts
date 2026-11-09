@@ -1,6 +1,15 @@
 import * as THREE from "three";
 import {RoomEnvironment} from "three/addons/environments/RoomEnvironment.js";
 
+/** Photograph imported materials without clipping bright foliage channels; leaves the main track lighting alone. */
+export function modelPreviewScene(renderer: THREE.WebGLRenderer) {
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = .8;
+  const scene = new THREE.Scene(); scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, .6));
+  const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(4, 8, 6); scene.add(sun);
+  return scene;
+}
+
 /** Bind model-only image based light; source terrain keeps its original lighting. */
 export function modelEnvironment(materials: Iterable<THREE.Material>, texture: THREE.Texture) {
   for (const material of materials) if (material instanceof THREE.MeshStandardMaterial) {

@@ -31,6 +31,10 @@ from scenery import cars, trees  # noqa: E402
 from track import editorinfo, kn5, objectlist  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
+# Test an isolated UI build without replacing the live generator page's bundles.
+if web_root := os.environ.get("MAP2LAP_TEST_WEB"):
+    server.web_file.__defaults__ = (os.path.abspath(web_root),)
+
 TMP = tempfile.mkdtemp(prefix="map2lap_e2e_")
 AC = os.path.join(TMP, "ac")
 IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)

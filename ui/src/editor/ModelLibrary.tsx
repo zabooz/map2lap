@@ -3,7 +3,7 @@ import {createPortal} from "react-dom";
 import {libraryJson, MODEL_CATEGORIES} from "./library";
 import {ImportModel} from "./ImportModel";
 import {LibraryBrowser, LibraryCard, LibraryCards, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection} from "./LibraryBrowser";
-import {ModelPreview} from "./ModelPreview";
+import {ModelThumbnail} from "./ModelThumbnail";
 import styles from "./ModelLibrary.module.css";
 
 export interface LibraryModel {id: string; name: string; category: string; metres_per_unit: number; anchor: number[]; collision: "none" | "mesh"}
@@ -56,10 +56,8 @@ export function ModelLibrary({replace, onChoose, onClose, embedded = false, open
       browser={fault ? <p role="alert">{fault}</p> : !result ? <p role="status">Loading objects…</p>
         : !result.items.length ? <p className="muted">{query || category ? "No matching objects." : "No objects yet. Import or drop a GLB model here."}</p>
         : <LibraryCards>{result.items.map(model => <LibraryCard key={model.id} label={model.name} selected={selected?.id === model.id}
-          disabled={busy} onClick={() => setSelected(model)} thumbnail={<svg className={styles.icon} viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M32 9 53 21v24L32 57 11 45V21Z M11 21l21 12 21-12 M32 33v24 M21 15l21 12" />
-          </svg>} />)}</LibraryCards>}
-      preview={selected ? <LibrarySelection><ModelPreview url={`/api/library/models/${selected.id}/original`} />
+          disabled={busy} onClick={() => setSelected(model)} thumbnail={<ModelThumbnail id={model.id} name={model.name} enabled={open} />} />)}</LibraryCards>}
+      preview={selected ? <LibrarySelection><ModelThumbnail key={selected.id} id={selected.id} name={selected.name} enabled={open} preview />
         <strong>{selected.name}</strong><span>{MODEL_CATEGORIES.find(([id]) => id === selected.category)?.[1] ?? selected.category}</span>
         <span>{selected.metres_per_unit} m per unit · Collision: {selected.collision === "mesh" ? "Model mesh" : "None"}</span>
       </LibrarySelection> : <p className="muted">Choose an object to preview it. The track changes only when you place or replace it.</p>}
