@@ -94,6 +94,11 @@ export function isCurrent(state: EditState) {
     && JSON.stringify(state.models ?? []) === JSON.stringify(r.models ?? []);
 }
 
+/** Unsaved user changes only; a required material-layout upgrade is not something Discard can undo. Pure. */
+export function hasUnsavedChanges(state: EditState) {
+  return state.recipe ? !isCurrent({...state, recipe: {...state.recipe, needsSave: false}}) : !sameEdits(state, NONE);
+}
+
 /** Undo and redo of a track saved as a copy, for the copy's edits to take over (handOver). */
 let handed: {name: string; edits: Edits; past: Edits[]; future: Edits[]} | null = null;
 
@@ -112,6 +117,7 @@ export class TrackEdits {
   private turns: Promise<unknown> = Promise.resolve();
   private past: Edits[] = [];
   private future: Edits[] = [];
+  private savedEdits: Edits | null = null;
   private base: string | null = null;       // the state of the file the server's list is of
   private bound: string | null = null;      // the state of the file the view shows
   private revision = 0;
@@ -140,6 +146,7 @@ export class TrackEdits {
   /** The track was saved as these edits say. */
   markSaved() {
     const e = this.edits();
+    this.savedEdits = e;
     this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), sorts: e.sorts, objectSorts: e.objectSorts,
                        heights: e.heights.map(h => h.id), placed: e.placed, copies: e.copies, paints: e.paints, models: e.models}});
   }
@@ -239,6 +246,7 @@ export class TrackEdits {
       const s = d.saved;
       const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? [], copies: s.copies ?? [], paints: s.paints ?? [], models: s.models ?? [], needsSave: !!s.needs_save} : null;
       this.set({...edits, keptRevision: d.revision, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
+      this.savedEdits = recipe && !hasUnsavedChanges(this.now) ? edits : null;
       this.compare();
     } catch (e) {
       if (asked === this.asked) this.set({save: "stuck", error: (e as Error).message});
@@ -349,9 +357,28 @@ export class TrackEdits {
       || this.now.placed.length > 0 || this.now.copies.length > 0 || this.now.paints.length > 0 || this.now.models.length > 0;
   }
 
-  /** All changes taken back, as one step that can be undone. */
-  discard() {
-    if (this.changed()) this.change(NONE);
+  /** Unsaved changes taken back to the last Save, as one step that can be undone. */
+  async discard() {
+    if (!this.canEdit() || !hasUnsavedChanges(this.now)) return;
+    let target = this.savedEdits ?? NONE;
+    if (this.now.recipe && !this.savedEdits) {
+      const base = this.base, asked = this.asked;
+      this.hold(true);
+      try {
+        const response = await this.send(this.url + "/saved"), d = await response.json();
+        if (asked !== this.asked) return;
+        if (!response.ok) throw new Error(d.error ?? "Could not read the last Save");
+        if (d.base !== base || this.base !== base) throw new Error(TRACK_CHANGED);
+        target = {removed: d.deleted ?? [], sorts: d.sorts ?? [], objectSorts: d.object_sorts ?? [],
+          heights: d.heights ?? [], placed: d.placed ?? [], copies: d.copies ?? [], paints: d.paints ?? [], models: d.models ?? []};
+        this.savedEdits = target;
+      } catch (error) {
+        const message = (error as Error).message;
+        this.set({error: message, ...(message === TRACK_CHANGED ? {save: "stuck" as const} : {})});
+        return;
+      } finally { this.hold(false); }
+    }
+    if (this.canEdit() && !sameEdits(this.edits(), target)) this.change(target);
   }
 
   private edits(): Edits {

@@ -864,6 +864,8 @@ class Handler(BaseHTTPRequestHandler):
             self._edits_answer(lambda: trackview.copy_index(settings.ac_path(), generator.slug(copies[1])))
         elif edits:
             self._edits_answer(lambda: trackedits.load(settings.ac_path(), edits[1]))
+        elif (saved_edits := re.fullmatch(r"/api/editor/([^/]+)/edits/saved", self.path)):
+            self._edits_answer(lambda: trackedits.saved_edits(settings.ac_path(), generator.slug(saved_edits[1])))
         elif self.path == "/api/status":
             with lock:
                 st = dict(job)

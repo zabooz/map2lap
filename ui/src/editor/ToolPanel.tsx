@@ -1,8 +1,9 @@
 import type {ReactNode} from "react";
 import type {EditState, TrackEdits} from "./edits";
+import {hasUnsavedChanges} from "./edits";
 import styles from "./ToolPanel.module.css";
 import {thenView} from "./ToolOptions";
-import {isChanged, type useSave} from "./useSave";
+import type {useSave} from "./useSave";
 import type {TrackView} from "./view";
 
 export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model";
@@ -42,9 +43,9 @@ export function FileButtons({state, edits, view, saving}: {state: EditState; edi
         <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save if needed, then drive it in Assetto Corsa"
                 onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : "▶ Play"}</button>
       </div>
-      <button type="button" disabled={!isChanged(state) || !edits.canEdit() || saving.busy}
-              title="Restore the track as built, taking back all Editor changes" onClick={then(() => {
-                if (confirm("Discard all Editor changes and restore the track as built?\n\nThis includes previously saved edits. Save to apply it to Assetto Corsa; Undo brings the edits back.")) {
+      <button type="button" disabled={!hasUnsavedChanges(state) || !edits.canEdit() || saving.busy}
+              title="Discard unsaved changes and return to the last Save" onClick={then(() => {
+                if (confirm("Discard changes since the last Save?\n\nYour saved edits are kept. Undo brings the discarded changes back.")) {
                   void edits.inTurn(() => edits.discard());
                 }
               })}>Discard all</button>

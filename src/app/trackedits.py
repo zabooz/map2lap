@@ -168,6 +168,17 @@ def load(ac, name):
                 "paints": saved.get("paints", []) if not s.get("broken") else [], "models": saved.get("models", []) if not s.get("broken") else []}}
 
 
+def saved_edits(ac, name):
+    """Read the last Save's complete edits only when Discard needs them; never read or alter the current draft."""
+    _file(ac, name)
+    revision = trackview.deletable(ac, name)[0]
+    saved = trackview.recipe(ac, name)
+    if saved and saved["base"] != revision:
+        raise Conflict("The saved track changed; read it again")
+    return {"base": revision, **{key: (saved or {}).get(key, []) for key in
+            ("deleted", "sorts", "object_sorts", "heights", "placed", "copies", "paints", "models")}}
+
+
 def context(ac, name, revision, copies=None, models=None):
     """The source path, scan and list extended by the copies of this draft (or the explicit list)."""
     path, scan = trackview._scan_of(ac, name, revision)

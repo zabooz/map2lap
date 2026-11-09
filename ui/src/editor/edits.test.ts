@@ -71,6 +71,45 @@ async function started(deleted: Removed[] = []) {
   return {s, edits};
 }
 
+test("Discard all restores the last Save, keeps saved edits and is one undoable step", async () => {
+  const {edits} = await started();
+  edits.remove([tree(1)]);
+  edits.addPaint("saved-paint");
+  const model = {id: "saved-model", asset: "tree", at: [1, 0, 2] as [number, number, number], replaces: null, collision: "none" as const};
+  edits.addModel(model);
+  edits.markSaved();
+  edits.addPaint("unsaved-paint");
+  await edits.discard();
+  expect(edits.state().removed).toEqual([tree(1)]);
+  expect(edits.state().paints).toEqual(["saved-paint"]);
+  expect(edits.state().models).toEqual([model]);
+  expect(isCurrent(edits.state())).toBe(true);
+  edits.undo();
+  expect(edits.state().paints).toEqual(["saved-paint", "unsaved-paint"]);
+  edits.redo();
+  expect(edits.state().paints).toEqual(["saved-paint"]);
+});
+
+test("reopened unsaved drafts obtain full saved positions and heights only when discarded", async () => {
+  const height = {id: "saved-height", x: 0, z: 0, nx: 1, nz: 1, mm: [100]};
+  const requests: string[] = [];
+  const edits = new TrackEdits("copy", async url => {
+    requests.push(url);
+    if (url.endsWith("/edits/saved")) return json({base: "b", deleted: [tree(1)], heights: [height], paints: ["saved-paint"]});
+    return json({base: "b", revision: 3, deleted: [], paints: ["unsaved-paint"],
+      saved: {at: 1, deleted: [tree(1).id], heights: [height.id], sorts: [], object_sorts: [], placed: [], paints: ["saved-paint"]}});
+  });
+  edits.bind("b");
+  await edits.start();
+  expect(requests).toHaveLength(1);
+  await edits.discard();
+  expect(edits.state().removed).toEqual([tree(1)]);
+  expect(edits.state().heights).toEqual([height]);
+  expect(edits.state().paints).toEqual(["saved-paint"]);
+  expect(isCurrent(edits.state())).toBe(true);
+  expect(requests).toHaveLength(2);
+});
+
 test("mixed selected objects and whole sorts delete as one undo step", async () => {
   const {edits} = await started();
   edits.removeSelected([tree(1)], [{tree: true, sort: "olive"}, {tree: false, sort: "bench"}]);
@@ -96,11 +135,9 @@ test("material changes keep order, undo and discard and saved status", async () 
   edits.undo();
   expect(edits.state().paints).toEqual(["first", "second"]);
   expect(isCurrent(edits.state())).toBe(true);
-  edits.discard();
-  expect(edits.state().paints).toEqual([]);
-  expect(edits.changed()).toBe(false);
-  edits.undo();
+  await edits.discard();
   expect(edits.state().paints).toEqual(["first", "second"]);
+  expect(isCurrent(edits.state())).toBe(true);
 });
 
 test("adjusting one smoothing operation replaces it, including zero, as one undo step", async () => {

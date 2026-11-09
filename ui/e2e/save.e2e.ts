@@ -19,7 +19,7 @@ test("Discard all in File asks before clearing edits, can be cancelled and undon
   const firstClick = discard.click();
   const warning = await cancelled;
   expect(warning.type()).toBe("confirm");
-  expect(warning.message()).toContain("previously saved edits");
+  expect(warning.message()).toContain("saved edits are kept");
   await warning.dismiss();
   await firstClick;
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
@@ -36,7 +36,6 @@ test("Discard all in File asks before clearing edits, can be cancelled and undon
 
 test("Save: asked once, then written at once; the kn5 AC drives is without the tree, the work stays shown; Play saves first", async ({page}) => {
   await openEditor(page);
-  const whole = await picture(page);
   const trees = (await meshes(page))["nocol_trees_0_0"];
   await expect(page.locator("#edit-saved")).toHaveText("");      // (nothing changed: nothing to say)
   await expect(page.locator("#edit-save")).toBeDisabled();       // (nothing to save)
@@ -57,9 +56,18 @@ test("Save: asked once, then written at once; the kn5 AC drives is without the t
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(preview)).toBe(true);
-  await button(page, "Discard all").click();        // (all back: the source still holds the tree)
-  await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
+  await expect(button(page, "Discard all")).toBeDisabled();
+  const draft = await stored(page);
+  const restored = await page.request.put("/api/editor/alpha/edits", {data: {...draft, id: "unsaved-restore", deleted: []}});
+  await expect(restored).toBeOK();               // Unsaved restoration of the already saved deletion.
+  await page.reload();                         // The saved baseline must also be available after reopening an unsaved draft.
+  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
+  await button(page, "Discard all").click();        // The saved deletion returns; it must not restore the built track.
+  await saved(page);
+  await expect.poll(async () => (await picture(page)).equals(preview)).toBe(true);
+  await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
+  await button(page, "↶ Undo").click();
   await page.locator("#edit-play").click();     // (Play: saved first, at once now, then AC)
   await expect(page.locator("#save-dialog")).toBeHidden();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
