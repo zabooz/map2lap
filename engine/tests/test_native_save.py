@@ -10,7 +10,7 @@ import numpy as np
 
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
-from app import trackcopy, tracknative, trackpaint, trackview
+from app import materiallibrary, trackcopy, trackdetail, tracknative, trackpaint, trackregions, trackview
 from track import editorinfo, kn5
 
 
@@ -99,6 +99,22 @@ class RegionMaskTest(unittest.TestCase):
         shutil.rmtree(tracknative._mask_folder(self.name))
         trackcopy.save(self.ac, self.name)
         self.assertEqual(kept, self.saved(self.name)[1])
+
+    def test_a_tile_of_a_pbr_material_is_prepared_once_and_gets_no_browser_passes(self):
+        self.painted(0)
+        prepared = materiallibrary.prepare("rough.png", paintfixture.png(np.full((4, 4, 3), 90, np.uint8)))
+        asset = materiallibrary.add({"token": prepared["token"], "filename": "rough.png", "name": "Rough", "category": "soil",
+                                     "repeat": [2, 2], "properties": {"normal_scale": 1., "roughness": .5}})["material"]["id"]
+        paint = trackpaint.create(self.ac, self.name, self.revision, asset, [{"mesh": 0, "u": 1.5 / 7, "v": -.5, "whole": False}])
+        descriptors = trackpaint.descriptors(self.ac, self.name, self.revision, [paint])
+        self.assertNotIn("ground", descriptors[0]["layers"])
+        with (mock.patch.object(trackregions, "compile", wraps=trackregions.compile) as passes,
+              mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as prepared_tiles):
+            native = trackdetail.native_descriptors(self.ac, self.name, descriptors)[0]["layers"]
+        passes.assert_not_called()
+        self.assertEqual(1, prepared_tiles.call_count)
+        self.assertEqual({"dimensions", "uv_origin"}, set(native["ground"]))
+        self.assertTrue(native["native_regions"])
 
 
 class MaskKeyTest(unittest.TestCase):

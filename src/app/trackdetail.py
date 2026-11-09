@@ -582,25 +582,21 @@ def sample_source_mask(path,scan,source,revision,u,v,tile):
 
 def native_descriptors(ac, name, descriptors):
     """Select real native PBR output even for one to three materials, independently of the browser adapter."""
-    from app import trackregions
+    from app import tracknative
     result, resolved = [], {}
     for descriptor in descriptors:
         layout = descriptor.get("layers", {})
         pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
-        if pbr and "ground" not in layout:
+        if pbr or "ground" in layout:
             record, path, scan, filename = _view(ac, name, descriptor["version"])
             semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename, resolved)
-            ground = trackregions.compile(semantic, weights, descriptor["version"], lambda _key, _raw: None)
-            tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
-            ground["uv_origin"] = [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]
-            layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
-            descriptor = {**descriptor, "layers": layout}
-        if 'ground' in layout:
-            from app import tracknative
-            record,path,scan,filename=_view(ac,name,descriptor['version'])
-            _semantic_layout,weights,_coverage=_semantic(ac,name,record,path,scan,filename,resolved)
-            fields={**weights,'base':np.maximum(0.,1.-sum(weights.values(),np.zeros_like(next(iter(weights.values())))))}
-            descriptor={**descriptor,'layers':{**layout,'native_regions':tracknative.palette_regions(fields)}}
+            if "ground" not in layout:
+                tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+                # Only what tracknative reads of "ground": the browser's passes and atlases (trackregions.compile) aren't.
+                ground = {"dimensions": semantic["dimensions"], "uv_origin": [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]}
+                layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
+            fields = {**weights, "base": np.maximum(0., 1. - sum(weights.values(), np.zeros_like(next(iter(weights.values())))))}
+            descriptor = {**descriptor, "layers": {**layout, "native_regions": tracknative.palette_regions(fields)}}
         result.append(descriptor)
     return result
 

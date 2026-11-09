@@ -368,7 +368,7 @@ region's mask once for all ground pieces of its tile and keeps the packed masks 
 `cache/native-masks`, named by the digest of all their inputs (`tracknative._mask_key`): a Save takes a mask from there if
 its fields within its bounds and two-pixel halo, bounds, palette and phase did not change, so a small change remakes only the
 masks around it, and afterwards deletes those it did not use. Heiligenblut's copy with
-ten painted tiles: 66.6 s before, 30.2 s with an empty cache, 16.1 s with all masks kept (79.8 MiB). Imported normal
+ten painted tiles: 66.6 s before, 29.0 s with an empty cache, 13.6 s with all masks kept (79.8 MiB). Imported normal
 maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to
 a specular-strength approximation in photo alpha; this is not PBR roughness. Regional render copies are `nocol_`; the edited
 source is hidden for rendering while its collision vertices and indices remain byte-identical. Global UV origins and native
