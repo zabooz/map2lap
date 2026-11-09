@@ -275,7 +275,6 @@ def build(ac,name,descriptors,scan,change,path,added):
             # piece clipped to it: made once per region, though a tile's ground comes in several pieces (1ROAD_, 1GRASS_,
             # split ones). First made where it was first needed, so the kn5 keeps its texture order.
             masks={}
-            digests=functools.cache(lambda key,fields=fields: _field_digest(fields[key]))
             for source_i,info in enumerate(scan['meshes']):
                 if info['material'] not in layout['materials']: continue
                 original=materials[info['material']]
@@ -293,7 +292,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                     if not len(points): continue
                     if number not in masks:
                         phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
-                        key=_mask_key(digests,bounds,palette,phase,(width,height))
+                        key=_mask_key(fields,bounds,palette,phase)
                         # (AC gets BC7: a quarter; one unchanged since the last Save is taken from then)
                         raw=_packed_mask(kept,key,lambda: bc7_weights(region_mask(fields,bounds,palette,phase=phase)))
                         used.add(key+'.dds')
@@ -361,12 +360,15 @@ def _field_digest(field):
     return digest.hexdigest()
 
 
-def _mask_key(digests, bounds, palette, phase, size):
-    """The digest of all region_mask reads: the palette's whole fields in channel order (it reads beyond the bounds for
-    its halo and mips), the bounds, the phase and the tile's size. Pure."""
+def _mask_key(fields, bounds, palette, phase):
+    """The digest of all region_mask reads: the palette's fields within the bounds and the two pixels around them (a change
+    elsewhere on the tile keeps this mask), in channel order, the bounds, the phase and the tile's size. Pure."""
     from app import trackpaint
-    return trackpaint._digest([MASK_CACHE_VERSION, [digests(key) for key in palette], [int(b) for b in bounds], list(palette),
-                               [float(p) for p in phase], [int(s) for s in size]])
+    height, width = next(iter(fields.values())).shape
+    x0, y0, x1, y1 = bounds
+    area = slice(max(0, y0 - 2), min(height, y1 + 2)), slice(max(0, x0 - 2), min(width, x1 + 2))
+    return trackpaint._digest([MASK_CACHE_VERSION, [_field_digest(fields[key][area]) for key in palette], [int(b) for b in bounds],
+                               list(palette), [float(p) for p in phase], [width, height]])
 
 
 def _packed_mask(folder, key, make):

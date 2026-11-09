@@ -1,6 +1,7 @@
 """How much work a regional ground Save does: what a region's mask depends on is made once per Save, and a mask whose
 inputs did not change since the track's last Save is taken from then."""
 import copy
+import shutil
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -80,6 +81,56 @@ class RegionMaskTest(unittest.TestCase):
         self.assertGreater(made.call_count, 0)
         kept = [path.read_bytes() for path in tracknative._mask_folder(self.name).glob("*.dds")]
         self.assertEqual(sorted(masks.values()), sorted(kept))
+
+    def test_a_change_elsewhere_on_the_tile_keeps_a_regions_mask_and_saves_what_a_save_from_nothing_saves(self):
+        paints = self.painted(5)
+        self.keep(paints)
+        trackcopy.save(self.ac, self.name)
+        # The last stripe (x 22 to 28 of 32) takes the first one's material: that field changes, far from the first stripe.
+        same = trackpaint.create(self.ac, self.name, self.revision, self.material((60, 60, 60)),
+                                 [{"mesh": 0, "u": 5.5 / 7, "v": -.5, "whole": False}])
+        self.keep(paints[:4] + [same])
+        with mock.patch.object(tracknative, "region_mask", wraps=tracknative.region_mask) as made:
+            trackcopy.save(self.ac, self.name)
+        _regions, kept = self.saved(self.name)
+        self.assertGreater(made.call_count, 0)
+        for call in made.call_args_list:
+            self.assertGreaterEqual(call.args[1][2] + 2, 22, call.args[1])        # (reads up to two pixels past its bounds)
+        shutil.rmtree(tracknative._mask_folder(self.name))
+        trackcopy.save(self.ac, self.name)
+        self.assertEqual(kept, self.saved(self.name)[1])
+
+
+class MaskKeyTest(unittest.TestCase):
+    """_mask_key against what region_mask reads: the bounds and two pixels around them."""
+
+    def setUp(self):
+        rows = np.random.default_rng(1).random((32, 32, 2), np.float32) + .1
+        self.fields = {"a": rows[..., 0], "b": rows[..., 1]}
+        self.bounds, self.palette, self.phase = [8, 8, 16, 16], ["a", "b"], [0., 0.]
+
+    def key_and_mask(self, y, x):
+        fields = {**self.fields, "a": self.fields["a"].copy()}
+        fields["a"][y, x] += .4
+        return (tracknative._mask_key(fields, self.bounds, self.palette, self.phase),
+                tracknative.region_mask(fields, self.bounds, self.palette, phase=self.phase))
+
+    def test_a_pixel_region_mask_reads_changes_the_key(self):
+        same = tracknative._mask_key(self.fields, self.bounds, self.palette, self.phase)
+        for y, x in ((10, 10), (6, 10), (10, 6), (17, 10), (10, 17)):
+            self.assertNotEqual(same, self.key_and_mask(y, x)[0], (y, x))
+
+    def test_a_pixel_it_does_not_read_keeps_the_key_and_the_mask(self):
+        same = tracknative._mask_key(self.fields, self.bounds, self.palette, self.phase)
+        mask = tracknative.region_mask(self.fields, self.bounds, self.palette, phase=self.phase)
+        for y, x in ((5, 10), (10, 5), (18, 10), (10, 18), (30, 30)):
+            self.assertEqual((same, mask), self.key_and_mask(y, x), (y, x))
+
+    def test_bounds_at_the_tiles_edge_are_cut_to_it(self):
+        self.bounds = [0, 0, 8, 8]
+        same = tracknative._mask_key(self.fields, self.bounds, self.palette, self.phase)
+        self.assertEqual(same, self.key_and_mask(10, 10)[0])
+        self.assertNotEqual(same, self.key_and_mask(9, 9)[0])
 
 
 if __name__ == "__main__":
