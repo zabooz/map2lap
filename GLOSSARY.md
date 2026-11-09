@@ -378,6 +378,15 @@ A spot saved from AC by the Track Debug app, with the 20 s of driving around it 
 Map2Lap's drawn style: textures painted in code, not photos.
 _Avoid_: toon, cartoon
 
+**Lamp glass**:
+The small box under a street lamp's head with its own material `lamp_glass` (meshes `nocol_props_glass_`). CSP finds the lamps by it when a track loads.
+
+**Glow mask**:
+An image beside a track's `ext_config.ini` (`glow_<kind>_<level>.png`, `facades.window_glow`) that says which window panes of a facade sheet light up at night. Frames and crosses stay dark.
+
+**Bay**:
+One window's width of a band of a facade sheet. A wall's windows each take a bay of their band by chance (`looks.BAND_*`).
+
 ## BeamNG.Earth
 
 **BeamNG.Earth**:
