@@ -10,6 +10,8 @@ import {nudgeVertices, STILL, type Nudge, type Placement} from "./placing";
 import type {CopyPose} from "./copying";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
+import {ModelDraw} from "./modelDraw";
+import type {ModelInstance} from "./edits";
 import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type GroundMaterial, type ColourLayers, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
@@ -89,6 +91,7 @@ export interface Marked {
 }
 
 interface MeshInfo {
+  model?: {instance: string; asset: string; primitive: number; material: number | null};
   copy?: boolean;
   i: number;
   name: string;
@@ -123,6 +126,10 @@ interface MaterialInfo {
 }
 
 interface TrackIndex {
+  models?: ModelInstance[];
+  model_assets?: Record<string, {url: string}>;
+  model_matrices?: Record<string, number[]>;
+  model_replacements?: string[];
   paint_errors?: string[];
   paints?: string[];
   surface_tiles?: string[];
@@ -228,6 +235,7 @@ interface Grabbed {
   mesh: number;
   numbers: Uint32Array;
   floats: Float32Array;
+  modelMatrix?: THREE.Matrix4;
 }
 
 /** An image's pixels, to read. (A plain canvas: not every browser has OffscreenCanvas.) */
@@ -397,6 +405,11 @@ export class TrackView {
   private onCopyPlace: ((at: [number, number, number]) => void) | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
+  private modelDraw = new ModelDraw(this.scene, undefined, bytes => {
+    if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+    this.usedBytes += bytes; return true;
+  });
+  private modelTransformVersion = 0;
   private surfaceOverlay: SurfaceOverlay | null = null;
   private roadRegionOverlay: SurfaceOverlay | null = null;
   private roadInfluenceOverlay: SurfaceOverlay | null = null;
@@ -667,7 +680,7 @@ export class TrackView {
 
   /** The ids to leave out: those named, and the listed objects of the sorts named. */
   private wanted(named = this.named) {
-    return new Set([...named.ids, ...idsOfSorts(this.data?.objects ?? {}, named.objectSorts), ...idsOfSorts(this.data?.objects ?? {}, this.removedSorts)]);
+    return new Set([...named.ids, ...(this.data?.model_replacements ?? []), ...idsOfSorts(this.data?.objects ?? {}, named.objectSorts), ...idsOfSorts(this.data?.objects ?? {}, this.removedSorts)]);
   }
 
   /** listedOut and billboardsOut for what is left out now: a whole sort of a long track is thousands of objects, too many to look
@@ -817,6 +830,8 @@ export class TrackView {
       return;
     }
     this.data = data;
+    if (data.models?.length) await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {});
+    if (mine !== this.token) return;
     this.ensureSplatState();
     if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Discard all can remove these edits.`);
     this.objectPieces = objectIndex(data.objects);
@@ -1184,7 +1199,7 @@ export class TrackView {
       for (const [mesh, vertices] of byMesh) {
         const numbers = Uint32Array.from(vertices), array = this.vertexArray(mesh), floats = new Float32Array(numbers.length * FLOATS_PER_VERTEX);
         numbers.forEach((v, k) => floats.set(array.subarray(v * FLOATS_PER_VERTEX, (v + 1) * FLOATS_PER_VERTEX), k * FLOATS_PER_VERTEX));
-        out.push({id, mesh, numbers, floats});
+        out.push({id, mesh, numbers, floats, modelMatrix: this.modelDraw.instance(id.split("#")[0])?.matrix.clone()});
       }
     }
     return out;
@@ -1204,6 +1219,13 @@ export class TrackView {
       fitSphere(m.geometry, m.userData.info as MeshInfo);
       m.geometry.boundsTree?.refit();
       this.previewed.add(g.mesh);
+      if (g.modelMatrix) {
+        const n = nudges(g.id);
+        const transform = new THREE.Matrix4().makeScale(n.scale, n.scale, n.scale)
+          .premultiply(new THREE.Matrix4().makeRotationY(n.turn * Math.PI / 180))
+          .premultiply(new THREE.Matrix4().makeTranslation(n.x, n.y, n.z));
+        this.modelDraw.nudge(g.id.split("#")[0], pivots.get(g.id)!, transform, g.modelMatrix);
+      }
     }
     this.reframePicks();
     this.dirty = true;
@@ -1511,6 +1533,15 @@ export class TrackView {
   /** The meshes by number the server now hands out otherwise (it says which: only it knows what moves with a change), its list in that
       revision: those loaded are fetched anew. The changes aren't reckoned here: there is one reckoning, the server's, which Save uses too. */
   refreshMeshes(meshes: number[]) {
+    if (meshes.includes(-2)) {
+      void (async () => {
+        if (meshes.includes(-1)) { this.detachModelMeshes(); await this.syncCopies(); }
+        await this.reloadModels();
+        this.refreshMeshes(meshes.filter(i => i >= 0));
+      })();
+      return;
+    }
+    if (meshes.some(i => (this.byNumber.get(i)?.userData.info as MeshInfo | undefined)?.model)) void this.refreshModelTransforms();
     if (meshes.includes(-1)) void this.syncCopies();
     // (a preview taken over: what showed it, whether or not the server names it. One still in place goes on again over what comes: takeVertices)
     const all = new Set(this.previewShown.size ? meshes : [...meshes, ...this.previewed]);
@@ -1518,6 +1549,60 @@ export class TrackView {
     if (!all.size) return;
     this.heightsVersion++;
     for (const i of all) if (i >= 0) void this.refresh(i);
+  }
+
+  private detachModelMeshes() {
+    for (const mesh of this.meshes.filter(m => (m.userData.info as MeshInfo).model)) {
+      const info = mesh.userData.info as MeshInfo;
+      this.scene.remove(mesh); mesh.geometry.dispose();
+      if (this.byNumber.get(info.i) === mesh) this.byNumber.delete(info.i);
+      this.usedBytes -= COPIES * meshBytes(info); this.materialAreas?.delete(info.i);
+      this.previewed.delete(info.i); this.underPreview.delete(info.i);
+    }
+    this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).model);
+  }
+
+  /** Refresh the real appended model/material index while retaining the user's camera and active placement action. */
+  private async reloadModels() {
+    const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
+    let reserved = 0;
+    try {
+      const response = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/index`, {signal});
+      const data = await response.json() as TrackIndex;
+      if (!response.ok) throw new Error("Could not read the model index");
+      const added = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
+      const buffers = await Promise.all(added.map(info => jobs(() => fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/mesh/${info.i}?r=${data.revision}`, signal))));
+      if (mine !== this.token || asked !== this.modelTransformVersion) return;
+      const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
+      if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) throw new Error("The models exceed the Editor memory limit");
+      this.usedBytes += bytes; reserved = bytes;
+      await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
+      if (mine !== this.token || asked !== this.modelTransformVersion) return;
+      this.detachModelMeshes();
+      const previousRemoved = this.removed;
+      this.data = data;
+      this.objectPieces = objectIndex(data.objects); this.belonging = childrenOf(data.objects);
+      this.removed = this.wanted(); this.noteListedOut();
+      for (const id of previousRemoved) if (!this.removed.has(id)) this.leaveOut(id, false);
+      for (const id of this.removed) if (!previousRemoved.has(id)) this.leaveOut(id, true);
+      added.forEach((info, i) => this.addMesh(this.trackName, data, info, buffers[i]));
+      reserved = 0;
+      for (const id of [...this.picks.keys()]) if (id.startsWith("instance_") && !data.objects[id.split("#")[0]]) this.dropPick(id);
+      this.reframePicks(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
+    } catch (error) {
+      if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message);
+    } finally { if (reserved && mine === this.token) this.usedBytes -= reserved; }
+  }
+
+  private async refreshModelTransforms() {
+    const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
+    try {
+      const response = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/index`, {signal});
+      const data = await response.json() as TrackIndex;
+      if (!response.ok) throw new Error("Could not refresh model placement");
+      if (mine !== this.token || asked !== this.modelTransformVersion) return;
+      this.modelDraw.transforms(data.model_matrices ?? {}); this.dirty = true;
+    } catch (error) { if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message); }
   }
 
   /** Reload only generated meshes and object ids, keeping the camera and the source track's meshes. */
@@ -1619,6 +1704,7 @@ export class TrackView {
       const geometry = part.toNonIndexed();
       part.dispose();
       const material = (m.material as THREE.Material).clone();
+      material.visible = true;
       material.transparent = true;
       material.opacity = 0.5;
       material.depthWrite = false;
@@ -2075,12 +2161,12 @@ export class TrackView {
     const listed = objectAt(this.objectPieces.get(info.i), face);
     const tile = listed ? data.objects[listed.slice(0, listed.lastIndexOf("#"))] : null;
     const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
-    const tree = isBillboard || !!tile && ["tree", "bush"].includes(tile.kinds[k]);
+    const atlasTree = isBillboard || (!info.model && !!tile && ["tree", "bush"].includes(tile.kinds[k]));
     return {
       id: listed ?? (number !== null ? `${info.base}#${number}` : null),
       kind: listed ? kindName(tile!.kinds[k]) : kindOf(info.name),
-      sprite: tree && uv ? spriteAt(data.atlas, uv[0], uv[1]) : null,
-      sort: listed && !tree ? sortOf(tile!, k) : null,
+      sprite: atlasTree && uv ? spriteAt(data.atlas, uv[0], uv[1]) : null,
+      sort: listed && !atlasTree ? sortOf(tile!, k) : null,
       object: info.name,
       physics: physicsOf(info.name),
       material: material.name,
@@ -2368,11 +2454,21 @@ export class TrackView {
       for (const m of this.meshes) {  // the distances AC shows each mesh at (trees, bushes, furniture go far away)
         const d = this.camera.position.distanceTo(m.geometry.boundingSphere!.center);
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
+        const info = m.userData.info as MeshInfo;
+        if (info.model) this.modelDraw.visible(info.model.instance, m.visible && !this.removed.has(info.model.instance + "#0"));
       }
       this.surfaceOverlay?.follow();
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
+      const renderStarted = performance.now();
       this.renderer.render(this.scene, this.camera);
+      if (this.data?.models?.length) {
+        performance.clearMarks("map2lap.models.frame");
+        performance.mark("map2lap.models.frame", {detail: {sceneCalls: this.renderer.info.render.calls,
+          sceneTriangles: this.renderer.info.render.triangles, uploadedGeometries: this.renderer.info.memory.geometries,
+          uploadedTextures: this.renderer.info.memory.textures, reservedViewBytes: this.usedBytes,
+          cpuRenderMs: performance.now() - renderStarted}});
+      }
     }
     if (this.hoverDue && now - this.lastHover >= HOVER_EVERY_MS) {
       this.hoverDue = false;
@@ -2388,6 +2484,8 @@ export class TrackView {
   }
 
   private clear() {
+    this.modelTransformVersion++;
+    this.modelDraw.dispose();
     this.paintVersion++;
     this.paintLoading?.abort();
     for (const change of this.textureChanges.values()) change.abort();
@@ -2795,7 +2893,8 @@ export class TrackView {
 
   private addMesh(name: string, data: TrackIndex, info: MeshInfo, buf: ArrayBuffer) {
     if (this.byNumber.has(info.i)) return;
-    const m = new THREE.Mesh(makeGeometry(info, buf), this.material(name, data, info.material));
+    const m = new THREE.Mesh(makeGeometry(info, buf), info.model
+      ? this.modelDraw.picking(info.model.asset, info.model.material ?? -1) : this.material(name, data, info.material));
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
     this.scene.add(m);

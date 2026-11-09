@@ -25,7 +25,7 @@ os.chdir(REPO)
 import generator  # noqa: E402
 import furniture  # noqa: E402
 import server  # noqa: E402
-from app import mapcache, materiallibrary, mytracks, settings, system, updater, version  # noqa: E402
+from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, updater, version  # noqa: E402
 from scenery import cars, trees  # noqa: E402
 from track import editorinfo, kn5, objectlist  # noqa: E402
 
@@ -282,6 +282,7 @@ def stand_ins():
     settings.FILE = os.path.join(TMP, "settings.json")
     server.ROOT = mytracks.ROOT = TMP
     materiallibrary.ROOT = TMP
+    objectlibrary.ROOT = TMP
     server.MARK = os.path.join(TMP, "out", "build_running.json")
 
     def record(name, value=None):
@@ -361,6 +362,9 @@ class Handler(server.Handler):
         body = self._body()
         if self.path == "/__test/reset":
             fill()
+        elif self.path == "/__test/cold-models":
+            for relative in ("library", "cache", "out/sources", "out/edits", "out/model-assets"):
+                shutil.rmtree(os.path.join(TMP, relative), ignore_errors=True)
         elif self.path == "/__test/release":
             release.update(body)
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)

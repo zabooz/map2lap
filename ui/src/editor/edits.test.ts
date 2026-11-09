@@ -16,6 +16,28 @@ function server(deleted: Removed[] = []) {
 
 const settle = () => new Promise(ok => setTimeout(ok, 0));
 
+test("model bindings and their prepared poses are one undoable saved change, rebind keeps identity", async () => {
+  const {edits} = await started();
+  const model = {id: "instance_one", asset: "first", at: [1, 0, 2] as [number, number, number], replaces: null, collision: "none" as const};
+  const pose = {id: "instance_one#0", x: 3, y: 2, z: 0, turn: 30, scale: 2};
+  edits.addModel(model, [pose]);
+  expect(edits.state().models).toEqual([model]);
+  expect(edits.state().placed).toEqual([pose]);
+  edits.markSaved();
+  expect(isCurrent(edits.state())).toBe(true);
+  edits.addModel({...model, asset: "second"});
+  expect(edits.state().models).toHaveLength(1);
+  expect(edits.state().placed).toEqual([pose]);
+  expect(isCurrent(edits.state())).toBe(false);
+  edits.undo();
+  expect(edits.state().models).toEqual([model]);
+  edits.undo();
+  expect(edits.state().models).toEqual([]);
+  expect(edits.state().placed).toEqual([]);
+  edits.redo();
+  expect(edits.state().models).toEqual([model]);
+});
+
 test("older saved ground materials remain saveable until their native format is upgraded", async () => {
   const saved = {at: 1, deleted: [], sorts: [], object_sorts: [], paints: ["paint"], needs_save: true};
   const edits = new TrackEdits("upgrade", async () => json({base: "b", revision: 0, deleted: [], paints: ["paint"], saved}));

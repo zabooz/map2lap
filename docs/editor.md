@@ -174,7 +174,7 @@ These selection requests read existing layer masks and do not bake colour tiles.
 so they also work after library removal or on portable saved copies. A changed selection/version cancels its old request;
 source mesh/material/shader diagnostics remain under Details.
 
-## Model import core
+## Imported models
 
 `app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with unchanged
 `original/model.glb`. Their ids bind original content, category, metres per source unit, model-local anchor and explicit
@@ -192,7 +192,48 @@ in glTF's Y-up metre frame. This core performs no shader conversion or physical 
 The importer bounds file size, JSON metadata, geometry, node references and image dimensions before publishing a package.
 External resources, required extensions, skinning, animations, morph targets, sparse accessors, non-triangle topology and
 additional vertex attributes are explicit import errors. Original material and image resources are never silently removed.
-The browser import UI, object-placement recipe and AC model conversion are not connected to this core yet.
+The Editor's **Models** button opens this library. Import a GLB, give it a name and metres per source unit, choose the default
+collision, then add it to the library. The preview shows the GLB materials, including cutout leaves. **Place on ground** accepts
+repeated ground clicks until Esc. **Replace selected tree** accepts a picked tree or bush and preserves its current placement.
+An already imported instance can receive a different asset without changing its instance id or pose. The normal Move tool
+provides dragging, turn, height and size; bindings and prepared source poses enter the same Undo/Redo step.
+Copy and Duplicate create a new model binding to the same frozen snapshot, preserving the source turn and size while
+placing its foot on the target ground. Existing source-object copies and model bindings save together.
+
+`app/trackmodels.py` freezes a separate immutable snapshot before applying an asset. Its id covers both the original GLB hash
+and the complete import description, so later library edits cannot rescale existing trees. Draft schema 2 adds ordered `models`
+bindings (`id`, snapshot `asset`, initial `at`, optional source `replaces`, object `collision`); schema 1 drafts remain readable.
+The existing `placed` list remains authoritative for instance movement, rotation and size. `/api/library/model-imports`,
+`/api/library/models` and `/api/editor/<track>/model` provide bounded imports, browsing and prepared bindings.
+
+Save writes actual KN5 vertices, UV0, normals, tangents, colour images and alpha materials. glTF UV0 retains its top-left
+orientation; node transforms, import units and the frozen ground anchor are applied once. Missing normals produce flat face
+normals and ignore supplied tangents; mirrored node transforms reverse triangle winding and use inverse-transpose normals.
+Double-sided materials receive back faces. Parts split below KN5's 65,535-vertex limit. `none` creates `nocol_` render meshes;
+`mesh` additionally creates invisible `1WALL_` collision. Visual source replacement removes only the selected `nocol_` faces;
+source collision and unrelated vertices/indices remain unchanged.
+
+`data/map2lap_models/` retains the verified original GLBs and snapshot descriptions once per asset in the saved track.
+Its `compiled.json` is compiled provenance tied to the written KN5's SHA256, rather than a new editable geometry format.
+After loss of the library, preparation cache and source cache, the semantic bindings, model deletions and poses remain editable.
+Compiled source provenance distinguishes replacements already applied to that source from new replacements, so renumbered
+billboards are not removed again. Regeneration strips the prior owned render regions and reuses matching owned material slots.
+Inherited terrain changes apply only to regenerated models; the remaining baked source is not moved twice. Portable originals
+needed by local Undo are retained before their last binding is removed.
+
+The production browser uses `modelDraw.ts` to share each asset's real GLTF geometry, materials and textures across instances.
+World-space CPU picking meshes retain the ordinary object selection and movement implementation. Removing one instance does
+not dispose the remaining instance's shared render buffers. A rejected load or memory reservation keeps the previous visible
+state; obsolete asynchronous loads are released. The configured memory estimate includes the shared render resources and the
+ordinary picking-mesh allowance. Bounded User Timing records `map2lap.models.resources` and `map2lap.models.frame` expose
+resource counts and CPU render-call duration; texture GPU bytes are estimates and software-browser timing is not hardware FPS.
+
+Native material conversion currently implements base colour factors, OPAQUE/MASK/BLEND and double-sided geometry.
+The original GLB retains its full PBR descriptions, and the browser uses its normal/roughness/metallic inputs, but equivalent
+normal/roughness/metallic shading in AC is not implemented by this model exporter. Base-colour texture transforms are refused
+at binding, rather than ignored; additional vertex colours and UV sets are refused at import. No game validation is implied.
+Server geometry is still copied per instance, and browser/native draw counts grow with instance count. Forest-scale batching,
+LOD/performance evidence and the remaining native material coverage are separate open release requirements.
 
 ## Ground texture changes
 

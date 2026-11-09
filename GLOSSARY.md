@@ -78,8 +78,13 @@ existing source and colour-only fields retain their lighting. Production AC outp
 **Model package** (Editor):
 An immutable user asset under `library/objects/<id>`, with its original GLB and a versioned description of source scale,
 ground anchor, category and collision choice (`app/objectlibrary.py`). `app/modeldata.py` keeps primitive geometry shared
-between the GLB's scene nodes and retains material/image resources. The import core is separate from track placements;
-the Editor and AC placement/export paths are not connected to it yet.
+between the GLB's scene nodes and retains material/image resources. The Editor imports, places and replaces trees from these
+packages, retaining their originals in saved tracks; native shading currently covers colour and alpha.
+
+**Model snapshot and instance** (Editor):
+An immutable snapshot freezes the original GLB and its import description when applied. A stable generic instance id binds
+that snapshot to a ground anchor and explicit collision choice; movement, turn and size stay separately in `placed`.
+Hash-bound compiled provenance identifies generated KN5 regions and consumed source replacements after cache-free transfer.
 
 **Custom Shaders Patch (CSP)**:
 An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.

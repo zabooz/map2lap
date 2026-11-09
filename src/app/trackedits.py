@@ -15,10 +15,10 @@ import threading
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackpaint, trackplace, trackview
+from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, trackpaint, trackplace, trackview
 from track import objectlist
 
-SCHEMA = 1
+SCHEMA = 2
 MAX_BYTES = 16 * 1024 * 1024        # about 150,000 objects: far more than anyone clicks away, far less than fills the memory
 NAME = re.compile(r"[a-z0-9_]+")    # (generator.slug's names; another name is refused, not turned into one of them)
 ID = re.compile(r"([\w-]+)#(\d+)")
@@ -91,13 +91,14 @@ def _parts(stored):
     """A list's ids, sorts, object sorts, height changes and placements, by all they hold. Pure."""
     return ([d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ()),
             [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored),
-            [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))))
+            [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))),
+            [json.dumps(m, sort_keys=True) for m in stored.get("models", ())])
 
 
 def _count(stored):
     """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
     return (len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
-            + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())))
+            + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ())))
 
 
 def _names(value):
@@ -107,12 +108,13 @@ def _names(value):
 
 def _well_formed(d):
     """Whether what was read from a draft's file is one, to its last part: a file cut or edited by hand is no list to act on. Pure."""
-    return (isinstance(d, dict) and d.get("schema") == SCHEMA and type(d.get("revision")) is int
+    return (isinstance(d, dict) and d.get("schema") in (1, SCHEMA) and type(d.get("revision")) is int
             and "base" in d and isinstance(d["base"], (str, type(None))) and isinstance(d.get("deleted"), list)
             and all(isinstance(i, dict) and isinstance(i.get("id"), str) and isinstance(i.get("position"), list) for i in d["deleted"])
             and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
             and trackheights.problems(d.get("heights", [])) is None and placement.problems(d.get("placed", [])) is None
-            and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None)
+            and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None
+            and trackmodels.problems(d.get("models", [])) is None)
 
 
 def _stored(path, saved=None):
@@ -126,10 +128,12 @@ def _stored(path, saved=None):
             return d
     except FileNotFoundError:
         if saved:
-            if trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", [])) or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", [])):
+            if (trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", []))
+                    or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", []))
+                    or trackmodels.problems(saved.get("models", []))):
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
-                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", [])}
+                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", [])}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -156,19 +160,23 @@ def load(ac, name):
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
             "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
             "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "paints": s.get("paints", []) if same else [],
-            "outdated": _old(s, revision), "saved": saved and {
+            "models": s.get("models", []) if same else [], "outdated": _old(s, revision), "saved": saved and {
                 "at": saved["saved"], "needs_save": _needs_material_save(saved), "deleted": [d["id"] for d in saved["deleted"]],
                 "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
                 "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else [],
                 "placed": saved.get("placed", []) if not s.get("broken") else [], "copies": saved.get("copies", []) if not s.get("broken") else [],
-                "paints": saved.get("paints", []) if not s.get("broken") else []}}
+                "paints": saved.get("paints", []) if not s.get("broken") else [], "models": saved.get("models", []) if not s.get("broken") else []}}
 
 
-def context(ac, name, revision, copies=None):
+def context(ac, name, revision, copies=None, models=None):
     """The source path, scan and list extended by the copies of this draft (or the explicit list)."""
     path, scan = trackview._scan_of(ac, name, revision)
-    if copies is not None:
+    if copies is not None or models is not None:
+        stored = _stored(_file(ac, name), trackview.recipe(ac, name))
+        copies = copies if copies is not None else stored.get("copies", []) if stored["base"] == revision else []
+        models = models if models is not None else stored.get("models", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
+        extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path}, objects, models)
         return path, extended, objects
     draft = _file(ac, name)
     info = os.path.join(os.path.dirname(trackview.kn5_path(ac, name)), mytracks.FILE)
@@ -180,6 +188,7 @@ def context(ac, name, revision, copies=None):
         stored = _stored(draft, trackview.recipe(ac, name))
         copies = stored.get("copies", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
+        extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path}, objects, stored.get("models", []) if stored["base"] == revision else [])
         value = path, {**extended, "draft": stored["revision"], "paints": stored.get("paints", []) if stored["base"] == revision else []}, objects
         # An atomic save may have replaced the draft while its geometry was generated. Never cache it under the old stat.
         if key == (path, revision, _stamp(draft), _stamp(info), _stamp(listed)):
@@ -227,6 +236,14 @@ def copy_template(ac, name, body):
         now = load(ac, name)
         if body.get("base") != now["base"] or body.get("revision") != now["revision"] or now["outdated"]:
             raise Conflict(name)
+        try:
+            if isinstance(body.get("template"), dict) and "model" in body["template"]:
+                return trackmodels.copied(ac, name, now, body)
+            imported = next((m for m in now["models"] if m["id"] + "#0" == body.get("object")), None)
+            if imported is not None:
+                return trackmodels.copy_template(ac, name, now, imported)
+        except (ValueError, KeyError, TypeError, OSError) as error:
+            raise Invalid(str(error)) from error
         path, scan = trackview._scan_of(ac, name, now["base"])
         if "template" in body:
             copied = {**body["template"], "id": "copy_" + secrets.token_hex(12)} if isinstance(body["template"], dict) else None
@@ -452,7 +469,8 @@ def _meshes_between(ac, name, revision, before, after):
     placed_then, placed_now = (set(_placements({"placed": d["placed"]})) for d in (before, after))
     moving = {p[0] for p in placed_then ^ placed_now}
     copied = before.get("copies", []) != after.get("copies", [])
-    if not (different or moving or copied):
+    modeled = before.get("models", []) != after.get("models", [])
+    if not (different or moving or copied or modeled):
         return []
     path, scan, objects = context(ac, name, revision)
     out = set()
@@ -462,7 +480,7 @@ def _meshes_between(ac, name, revision, before, after):
         out.update(trackheights.lines_reached(scan, trackheights.Field(different)))
     for h in different:
         out.update(_meshes_of_height(path, scan, objects, after["placed"] if h["id"] in now else before["placed"], h))
-    return ([-1] if copied else []) + sorted(i for i in out if not scan["meshes"][i].get("copy")) if copied else sorted(out)
+    return ([-2] if modeled else []) + ([-1] if copied else []) + sorted(i for i in out if not copied or not scan["meshes"][i].get("copy"))
 
 
 def save(ac, name, body):
@@ -489,11 +507,22 @@ def save_telling(ac, name, body):
         s = _stored(path, trackview.recipe(ac, name))
         known = body.get("revision") == s["revision"] or s.get("last") in unanswered
         copies = body.get("copies", s.get("copies", []) if s["base"] == revision else [])
+        models = body.get("models", s.get("models", []) if s["base"] == revision else [])
+        wrong = trackmodels.problems(models)
+        if wrong:
+            raise Invalid(wrong)
+        try:
+            for asset in {model["asset"] for model in models}:
+                trackmodels.resolve(ac, name, asset)
+            if s["base"] == revision and models != s.get("models", []):
+                trackmodels.retain(ac, name, s.get("models", []))
+        except (ValueError, OSError) as error:
+            raise Invalid(str(error)) from error
         wrong = trackcopies.problems(copies)
         if wrong:
             raise Invalid(wrong)
         try:
-            _source, scan, objects = context(ac, name, revision, copies)
+            _source, scan, objects = context(ac, name, revision, copies, models)
         except ValueError as e:
             raise Invalid(str(e)) from e
         counts, listed_sorts = trackview.counts_of(scan, objects)
@@ -511,7 +540,7 @@ def save_telling(ac, name, body):
             trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
         except ValueError as error:
             raise Invalid(str(error)) from error
-        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints) and _old(s, revision)):
+        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints or models) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
@@ -520,10 +549,10 @@ def save_telling(ac, name, body):
         except ValueError as error:
             raise Invalid(str(error)) from error
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
-                      "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints})
+                      "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models})
         same = s["base"] == revision
-        before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else []}
-    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, {"heights": heights, "placed": placed, "copies": copies}),
+        before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else []}
+    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, {"heights": heights, "placed": placed, "copies": copies, "models": models}),
             "textures": textures}
 
 
@@ -541,3 +570,17 @@ def paint(ac, name, body):
     except (ValueError, KeyError, TypeError) as error:
         raise Invalid(str(error)) from error
     return {"paint": id}
+
+
+def model(ac, name, body):
+    """Freeze a library model and prepare its generic instance binding for one ordinary undoable draft change."""
+    if not isinstance(body, dict):
+        raise Invalid("Choose a model and a place")
+    with _saving:
+        now = load(ac, name)
+        if now["outdated"] or body.get("base") != now["base"] or body.get("revision") != now["revision"]:
+            raise Conflict(name)
+        try:
+            return trackmodels.create(ac, name, now, body)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            raise Invalid(str(error)) from error

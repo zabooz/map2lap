@@ -220,7 +220,7 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
+    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"] or edits.get("models")
     if not (changed or source or copy_to):
         raise Refused("Nothing to save: nothing is changed")
     objects = trackview.list_of(path)
@@ -241,10 +241,14 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     path = tracksource.kn5_of(source) if source else own
     source_objects = objects
     source_scan = kn5.scan(path)
-    scan, objects = trackcopies.build(path, source_scan, objects, edits["copies"])
+    from app import trackmodels
+    inherited = trackmodels.compiled(ac, name, path)
+    copied_scan, objects = trackcopies.build(path, source_scan, objects, edits["copies"])
+    scan, objects = trackmodels.extend(ac, name, {**copied_scan, "model_source_path": path}, objects, edits.get("models", []))
     added = scan["meshes"][len(source_scan["meshes"]):]
     # The source needs no new textures; every appended node has 53 fixed bytes, its length-prefixed name, vertices and indices.
     extra = sum(53 + len(kn5._s(m["name"])) + m["vertices"] * kn5.VERTEX.itemsize + m["indices"] * 2 for m in added)
+    extra += trackmodels.save_size(ac, name, edits.get("models", []), scan) if edits.get("models") else 0
     try:
         trackpaint.validate(ac, name, edits["base"], edits["paints"])
         textures = {d["i"]: d for d in trackpaint.descriptors(ac, name, edits["base"], edits["paints"])}
@@ -268,10 +272,25 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     shutil.rmtree(temporary, ignore_errors=True)        # (left by a Map2Lap that ended halfway)
     going, seen = faces_left_out(path, scan, objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
                                  trackview._atlas(), edits["object_sorts"])
+    consumed = {m["id"]: m.get("replaces") for m in inherited["models"]} if inherited else {}
+    for i, mesh in enumerate(source_scan["meshes"]):
+        if inherited and mesh["name"] in inherited["meshes"]:
+            going[i] = np.ones(mesh["indices"] // 3, bool)
+    replacements = [m["replaces"] for m in edits.get("models", [])
+                    if m.get("replaces") and consumed.get(m["id"]) != m["replaces"]]
+    if replacements:
+        hidden, _seen = faces_left_out(path, source_scan, source_objects, replacements, [], trackview._atlas(), [])
+        for i, mask in hidden.items():
+            if source_scan["meshes"][i]["name"].startswith("nocol_"):
+                going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
         _copy_folder(folder, temporary, {name + ".kn5", objectlist.FILE, str(trackpaint.BUNDLE)})
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path)
+        if edits.get("models"):
+            materials = materials if materials is not None else scan["materials"]
+            present = {t[0] for t in source_scan["textures"]}
+            images.extend((n, raw) for n, raw in scan.get("model_images", {}).items() if n not in present)
         trackvariation.write(temporary, materials if materials is not None else scan["materials"])
         if materials is None and not images:
             moved = kn5.without_faces(path, new_kn5, going, change, added, None)
@@ -281,10 +300,13 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
         editorinfo.copy(path, new_kn5)
         trackpaint.export(ac, name, edits["paints"], temporary)
+        trackmodels.export(ac, name, edits.get("models", []), temporary, new_kn5, edits, inherited)
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
-                  "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
+                  "models": edits.get("models", []), "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
+        if inherited:
+            recipe["model_source"] = inherited
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)

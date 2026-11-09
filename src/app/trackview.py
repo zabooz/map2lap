@@ -64,7 +64,8 @@ def recipe(ac, name):
     except OSError:
         return None
     if not (isinstance(edits, dict) and tracksource.exists(edits.get("source"))):
-        return None
+        from app import trackmodels
+        return trackmodels.cold_recipe(ac, name)
     return edits if edits.get("kn5") == objectlist.state_of(path) else None
 
 
@@ -72,7 +73,7 @@ def served(ac, name):
     """(the kn5 the Editor shows of the track name and its draft's ids are of, the source's id or None): its source while its recipe
     counts, else its own kn5."""
     own, saved = kn5_path(ac, name), recipe(ac, name)
-    return (tracksource.kn5_of(saved["source"]), saved["source"]) if saved else (own, None)
+    return (tracksource.kn5_of(saved["source"]), saved["source"]) if saved and saved.get("source") else (own, None)
 
 
 @functools.lru_cache(maxsize=1)
@@ -179,7 +180,8 @@ def index(ac, name):
     first = _first_faces(s["meshes"], s["materials"])
     meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
-               "first_face": first.get(i), "base": _base(m["name"]) if i in first else None, "copy": bool(m.get("copy"))}
+               "first_face": first.get(i), "base": _base(m["name"]) if i in first else None, "copy": bool(m.get("copy")),
+               **({"model": m["model"]} if m.get("model") else {})}
               for i, m in enumerate(s["meshes"]) if m["renderable"]]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
     facts = editorinfo.manifest(path)
@@ -205,12 +207,17 @@ def index(ac, name):
         if "layers" in descriptor:
             for i in descriptor["materials"]:
                 materials[i] = {**materials[i], "splat": descriptor["layers"], "source": materials[i]}
+    from app import trackmodels
+    edits = trackedits.load(ac, name) if s.get("models") else {}
     return {"revision": revision, "meshes": meshes, "materials": materials,
             "textures": [{"name": t[0], "size": t[2], "source_size": t[2], **({"linear": True} if t[0] in masks else {}),
                           **{k: v for k, v in painted.get(i, {}).items() if k != "i"}}
                          for i, t in enumerate(s["textures"])], "paints": s.get("paints", []), "paint_errors": list(dict.fromkeys(paint_errors)), "start": _start(s["points"].get(START)),
             "anchor": anchor, "route": route, "atlas": _atlas(), "objects": _view_objects(listed), "draft": s.get("draft", 0),
-            "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else []}
+            "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else [],
+            "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
+            "model_replacements": s.get("model_replacements", []),
+            "model_matrices": trackmodels.view_matrices(s, edits.get("placed", []), edits.get("heights", []))}
 
 
 def sprites():
@@ -381,8 +388,11 @@ def mesh_bytes(ac, name, i, revision, moved=None, draft=None, copy_revision=None
 
 def texture_bytes(ac, name, i, revision, version=""):
     """Texture i as in the file: (its name, the image file's bytes: .dds, .png or .jpg)."""
-    path, s = _scan_of(ac, name, revision)
+    from app import trackedits
+    path, s, _objects = trackedits.context(ac, name, revision)
     tex, offset, size = s["textures"][i]
+    if tex in s.get("model_images", {}):
+        return tex, s["model_images"][tex]
     if version:
         from app import trackpaint
         return tex, trackpaint.texture(ac, name, i, revision, version)

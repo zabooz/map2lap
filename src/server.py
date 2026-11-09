@@ -31,7 +31,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (csp, debugapp, mapcache, materiallibrary, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
+from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -591,6 +591,32 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         try:
             q = parse_qs(path.query)
+            if path.path in ("/api/library/models", "/api/library/model-imports") or path.path.startswith("/api/library/models/"):
+                if self.command == "GET":
+                    if path.path == "/api/library/models":
+                        return self._send(200, objectlibrary.listing(q.get("q", [""])[0], q.get("category", [""])[0],
+                            int(q.get("offset", ["0"])[0]), int(q.get("limit", ["40"])[0])))
+                    original = re.fullmatch(r"/api/library/models/([a-f0-9]{64})/original", path.path)
+                    if original:
+                        return self._send(200, objectlibrary.original(original[1]), "model/gltf-binary")
+                    return self._send(404, {"error": "No model here"})
+                upload = path.path == "/api/library/model-imports"
+                if not self._own_page("application/x-map2lap-glb" if upload else "application/json"):
+                    return self._send(403, {"error": "Only the page itself can import a model"})
+                size = int(self.headers.get("Content-Length", 0))
+                if not 0 < size <= (modeldata.MAX_BYTES if upload else 16384):
+                    return self._send(413, {"error": "Choose a GLB up to 128 MB" if upload else "Too many model settings"})
+                if upload:
+                    if not MATERIAL_UPLOADS.acquire(blocking=False):
+                        return self._send(429, {"error": "Another asset is being prepared"})
+                    try:
+                        raw = self.rfile.read(size)
+                        if len(raw) != size:
+                            raise ValueError("The model upload was interrupted")
+                        return self._send(200, objectlibrary.prepare(q["filename"][0], raw))
+                    finally:
+                        MATERIAL_UPLOADS.release()
+                return self._send(200, objectlibrary.add(self._body()))
             if self.command == "GET":
                 if path.path == "/api/library/materials":
                     return self._send(200, materiallibrary.listing(q.get("q", [""])[0], q.get("category", [""])[0],
@@ -770,6 +796,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, csp.status(settings.ac_path()))
         if urlsplit(self.path).path.startswith("/api/library/"):
             return self._library()
+        model_asset = re.fullmatch(r"/api/editor/([^/]+)/model-asset/([a-f0-9]{64})", self.path)
+        if model_asset:
+            try:
+                from app import trackmodels
+                return self._send(200, trackmodels.original(settings.ac_path(), model_asset[1], model_asset[2]), "model/gltf-binary")
+            except (ValueError, OSError, trackview.NotOurs) as error:
+                return self._send(404, {"error": str(error)})
         detail = re.fullmatch(r"/api/editor/([^/]+)/(paint-mask|paint-asset|paint-data|paint-preview)/([a-f0-9]{64})", self.path)
         if detail:
             try:
@@ -878,6 +911,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.close_connection = True
                 return self._send(413, {"error": "No object to copy"})
             return self._edits_answer(lambda: trackedits.copy_template(settings.ac_path(), copy[1], self._body()))
+        model = re.fullmatch(r"/api/editor/([^/]+)/model", self.path)
+        if model:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can place a model"})
+            if int(self.headers.get("Content-Length") or 0) > 16384:
+                self.close_connection = True
+                return self._send(413, {"error": "Too many model settings"})
+            return self._edits_answer(lambda: trackedits.model(settings.ac_path(), model[1], self._body()))
         save = SAVE_PATH.fullmatch(self.path)
         if save:
             return self._save_track(save[1])

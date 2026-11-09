@@ -116,12 +116,16 @@ test("a refused road connection says why and keeps the first point for another a
 
 test("a refused additional pin leaves the two accepted points as the smoothing input", async ({page, backend}) => {
   const {a, b, c} = await onHill(page, backend); await mark(page, a, b);
+  await page.clock.install();
   await page.route("**/band/way", r => r.fulfill({status: 409, json: {error: "No road found"}}));
   await page.mouse.click(c.x, c.y);
   await expect(page.locator("#edit-tool-note")).toContainText("No road found");
+  // Restoring the accepted points schedules an automatic zero-strength no-op; its completion must not dismiss the error.
+  await page.clock.runFor(1000);
+  await expect(page.locator("#edit-tool-note")).toContainText("No road found");
   let sent: number | null = null;
   page.on("request", r => { if (r.url().endsWith("/alpha/band")) sent = r.postDataJSON().points.length; });
-  await strength(page).fill("80"); await expect.poll(() => sent).toBe(2);
+  await strength(page).fill("80"); await page.clock.runFor(500); await expect.poll(() => sent).toBe(2);
 });
 
 test("failed smoothing preserves the draft and changing strength retries", async ({page, backend}) => {

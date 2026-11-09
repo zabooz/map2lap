@@ -2,8 +2,8 @@
 import {useEffect, useEffectEvent, useState} from "react";
 import {post} from "../api";
 import type {CopyTemplate, ObjectCopy} from "./copying";
-import type {TrackEdits} from "./edits";
-import {nudged, unplaced} from "./placing";
+import type {ModelInstance, TrackEdits} from "./edits";
+import {nudged, unplaced, type Placement} from "./placing";
 import {thenView, ToolAction, ToolNumber, ToolOptions} from "./ToolOptions";
 import type {Picked, TrackView, WheelKeys} from "./view";
 
@@ -50,10 +50,10 @@ export function CopyTool({name, edits, view, picked, onWheel}: {name: string; ed
       edits.saveNow();
       const revision = await edits.saved();
       if (revision === null) return;
-      const r = await post<{copy: ObjectCopy}>(`/api/editor/${encodeURIComponent(name)}/copy`,
+      const r = await post<{copy?: ObjectCopy; model?: ModelInstance; placed?: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/copy`,
         {base: edits.boundRevision(), revision, template, at, pose: options});
-      if (r.error || !r.copy) setFault(r.error ?? "Could not place the copy");
-      else { edits.addCopy(r.copy); setFault(null); }
+      if (r.error || (!r.copy && !r.model)) setFault(r.error ?? "Could not place the copy");
+      else { if (r.model) edits.addModel(r.model, r.placed); else edits.addCopy(r.copy!); setFault(null); }
     });
   });
 

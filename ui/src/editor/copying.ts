@@ -4,7 +4,7 @@ export interface ObjectCopy {
   parts: {source: string; parent: number; matrix: number[]}[];
 }
 
-export type CopyTemplate = Pick<ObjectCopy, "parts">;
+export type CopyTemplate = Pick<ObjectCopy, "parts"> | {model: {asset: string; collision: "none" | "mesh"; turn: number; scale: number}};
 
 /** Extra turn, ground clearance and size applied to each new copy of the frozen source. */
 export interface CopyPose {turn: number; y: number; scale: number}

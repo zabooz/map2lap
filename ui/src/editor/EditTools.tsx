@@ -7,6 +7,7 @@ import {TrackEdits, type EditState} from "./edits";
 import {EditNotes} from "./EditNotes";
 import {ElevationOptions, useElevation} from "./Elevation";
 import {MoveOptions, useMove} from "./Move";
+import {Models} from "./Models";
 import {NOT_ALL, sortName} from "./inspect";
 import {SaveDialog} from "./SaveDialog";
 import {FileButtons, TOOLS, ToolPanel, type Tool} from "./ToolPanel";
@@ -59,6 +60,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
   const [materialOpen, setMaterialOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [textureRevision, setTextureRevision] = useState(0);
   const closeMaterial = useCallback(() => setMaterialOpen(false), []);
   const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
@@ -261,7 +263,9 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     <>
       {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
-      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} />, toolsHost)}
+      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={() => setModelsOpen(true)} />, toolsHost)}
+      <Models name={name} view={view} edits={edits} picked={picked} enabled={tool === "model" && editable}
+        choosing={modelsOpen} onClose={() => setModelsOpen(false)} onPlace={() => setTool("model")} />
       {notesHost && createPortal(
         <><EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
                    markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null} reopen={reopen} readAgain={() => void readAgain()} /></>, notesHost)}

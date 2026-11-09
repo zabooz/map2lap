@@ -106,7 +106,8 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
         else if (result.state === "applied") {
           onNote(result.message ?? null);
           await view.setRoadInfluence(result.influence ?? null).catch(error => { if (!over) onNote(String(error.message ?? error)); });
-        } else if (result.state === "unchanged") onNote(null);
+        // A rejected pin restores good points and reruns this timer at strength zero. That no-op owns no status to clear.
+        } else if (result.state === "unchanged" && strength > 0) onNote(null);
       });
     }, APPLY_AFTER_MS);
     return () => { over = true; clearTimeout(timer); smoothing.cancel(); };
@@ -121,10 +122,11 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
       if (points.length >= MAX_PINS) return onNote(`A road network has at most ${MAX_PINS} points`);
       smoothing.cancel(); setPoints([...points, [x, z]]); onNote(points.length ? "Finding the connected road area…" : null);
     },
-    setStrength: (value: number) => { smoothing.cancel(); setStrengthValue(Math.min(100, Math.max(0, value))); },
-    setBlend: (value: number) => { smoothing.cancel(); setBlendValue(Math.min(MAX_BLEND, Math.max(MIN_BLEND, value))); },
+    setStrength: (value: number) => { smoothing.cancel(); onNote(null); setStrengthValue(Math.min(100, Math.max(0, value))); },
+    setBlend: (value: number) => { smoothing.cancel(); onNote(null); setBlendValue(Math.min(MAX_BLEND, Math.max(MIN_BLEND, value))); },
     wheel: (keys: WheelKeys, by: number) => {
       smoothing.cancel();
+      onNote(null);
       if (keys === "shift") setStrengthValue(value => Math.min(100, Math.max(0, value + by * 5)));
       else if (keys === "ctrl") setBlendValue(value => Math.min(MAX_BLEND, Math.max(MIN_BLEND, value + by)));
     },

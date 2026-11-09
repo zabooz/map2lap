@@ -101,7 +101,7 @@ export interface ObjectList {
   faces: [number, number, number][][];      // per object: [mesh number, first triangle, triangles], ...
 }
 
-const KIND_NAMES: Record<string, string> = {car: "Parked car", house: "Building", "house sign": "Building sign", door: "Door",
+const KIND_NAMES: Record<string, string> = {tree: "Tree", bush: "Bush", car: "Parked car", house: "Building", "house sign": "Building sign", door: "Door",
                                             "road sign": "Road sign", "town sign": "Town sign", "street furniture": "Street furniture",
                                             "power line": "Power line", "power pole": "Power pole", fence: "Fence", rock: "Rock",
                                             "gas station": "Gas station", pool: "Pool", playground: "Playground equipment",

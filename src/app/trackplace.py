@@ -169,6 +169,9 @@ def changed(path, scan, objects, heights, placed):
     """What a draft's placements and then its height changes move in the kn5 at path, together: a kn5.Moved. InTheWay as
     trackheights.moved."""
     under = moved(path, scan, objects, placed)
+    if scan.get("model_heights"):
+        from app import trackmodels
+        under = trackmodels.grounded(scan, objects, placed, under)
     if not heights:
         return under
     over = trackheights.moved(path, scan, placement.list_placed(objects, placed), heights, under)

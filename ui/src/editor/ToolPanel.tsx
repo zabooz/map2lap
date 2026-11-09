@@ -5,7 +5,7 @@ import {thenView} from "./ToolOptions";
 import {isChanged, type useSave} from "./useSave";
 import type {TrackView} from "./view";
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model";
 type Group = "general" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click an object to pick it, Ctrl + click adds more, Shift + click selects all matching, X or Delete takes them out; a right click marks all of its sort (V)"},
@@ -53,7 +53,7 @@ export function FileButtons({state, edits, view, saving}: {state: EditState; edi
 
 /** The Editor's tools, by groups: undo and redo with the tools that change nothing, those of the ground and the road, those of objects; one tool at a time as in an
     image editor. tool: the one on. onTool: one was pressed. */
-export function ToolPanel({state, edits, view, tool, onTool}: {state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void}) {
+export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
   const editable = edits.canEdit();
   const then = (action: () => void) => thenView(view, action);
   const free = (t: Tool) => t === "select" || t === "camera";      // (these change nothing: also on a track that can't be edited now)
@@ -78,7 +78,7 @@ export function ToolPanel({state, edits, view, tool, onTool}: {state: EditState;
         {buttons("general")}
       </Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
-      <Section title="Objects">{buttons("objects")}</Section>
+      <Section title="Objects">{buttons("objects")}<button type="button" disabled={!editable} onClick={onModels}>Models</button></Section>
     </div>
   );
 }
