@@ -267,6 +267,10 @@ def build(ac,name,descriptors,scan,change,path,added):
             refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
             base_material=materials[layout['materials'][0]]
             origin=layout['ground']['uv_origin']
+            # A region's mask depends on the tile's fields, its bounds and palette and the tile's phase, not on the ground
+            # piece clipped to it: made once per region, though a tile's ground comes in several pieces (1ROAD_, 1GRASS_,
+            # split ones). First made where it was first needed, so the kn5 keeps its texture order.
+            masks={}
             for source_i,info in enumerate(scan['meshes']):
                 if info['material'] not in layout['materials']: continue
                 original=materials[info['material']]
@@ -282,8 +286,10 @@ def build(ac,name,descriptors,scan,change,path,added):
                     extent=np.array([cw/width,ch/height])
                     points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],origin)
                     if not len(points): continue
-                    phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
-                    mask=resource(bc7_weights(region_mask(fields,bounds,palette,phase=phase)),'.dds')     # (AC gets BC7: a quarter)
+                    if number not in masks:
+                        phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
+                        masks[number]=resource(bc7_weights(region_mask(fields,bounds,palette,phase=phase)),'.dds')     # (AC gets BC7: a quarter)
+                    mask=masks[number]
                     props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
                     props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
                     maps=[('txDiffuse',0,white),('txMask',1,mask)]
