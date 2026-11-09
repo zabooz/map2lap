@@ -173,6 +173,16 @@ class RegionMaskTest(unittest.TestCase):
         self.assertFalse((folder / "old.png").exists())
         self.assertTrue(list(folder.glob("*.dds")))
 
+    def test_a_deleted_track_leaves_no_kept_images(self):
+        import server
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        folder = tracknative._mask_folder(self.name)
+        self.assertTrue(list(folder.iterdir()))
+        with mock.patch.object(server.settings, "ac_path", return_value=self.ac):
+            self.assertEqual(200, server.delete_track(self.name)[0])
+        self.assertFalse(folder.exists())
+
 
 class PhotoKeyTest(unittest.TestCase):
     """_photo_key against what a ground photo's packed images are made from."""

@@ -32,7 +32,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracksource,  # noqa: E402
+from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracknative, tracksource,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -263,6 +263,7 @@ def delete_track(name):
                 return 409, {"error": "Could not delete it: close Assetto Corsa (or Content Manager's preview) and try again"}
             shutil.rmtree(gone, ignore_errors=True)
             trackedits.clear(name)
+            tracknative.forget(name)
             shutil.rmtree(os.path.join(ROOT, "out", "tracks", name), ignore_errors=True)
             tracksource.tidy(settings.ac_path())            # (its source, if no copy names it)
     except trackcopy.Busy:

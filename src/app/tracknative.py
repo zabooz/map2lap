@@ -360,6 +360,11 @@ def _mask_folder(name):
     return Path(trackpaint.mytracks.ROOT, "cache", "native-masks", hashlib.sha256(name.encode()).hexdigest()[:32])
 
 
+def forget(name):
+    """Delete what track name's Saves kept here, when the track is deleted."""
+    shutil.rmtree(_mask_folder(name), ignore_errors=True)
+
+
 def _field_digest(field):
     """sha256 of one weight field's values, type and shape. Pure."""
     digest = hashlib.sha256(f"{field.dtype.str}{field.shape}".encode())
