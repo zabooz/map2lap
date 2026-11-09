@@ -8,19 +8,64 @@ function fitRegion(geometry: THREE.BufferGeometry) {
   geometry.boundingBox = box; geometry.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
 }
 
-/** Only UV-intersecting triangles are submitted; edge fragments retain exact world-UV clipping. Pure. */
-export function groundRegionGeometry(source: THREE.BufferGeometry, bounds: number[], origin: number[]) {
-  const indices = source.getIndex()!, uv = source.getAttribute("uv"), kept: number[] = [];
-  for (let i = 0; i < indices.count; i += 3) {
-    const triangle = [indices.getX(i), indices.getX(i + 1), indices.getX(i + 2)];
-    const x = triangle.map(k => uv.getX(k) - origin[0]), y = triangle.map(k => uv.getY(k) - origin[1] + 1);
-    if (Math.max(...x) <= bounds[0] || Math.min(...x) >= bounds[2] || Math.max(...y) <= bounds[1] || Math.min(...y) >= bounds[3]) continue;
-    kept.push(...triangle);
-  }
+function regionGeometry(source: THREE.BufferGeometry, kept: number[]) {
   const geometry = new THREE.BufferGeometry();
   for (const [key, attribute] of Object.entries(source.attributes)) geometry.setAttribute(key, attribute);
   geometry.setIndex(kept); fitRegion(geometry);
   return geometry;
+}
+
+interface RegionNode {
+  bounds: number[];
+  kept?: number[];
+  children?: [RegionNode, RegionNode];
+}
+
+/** Build a balanced UV-box hierarchy for arbitrary, overlapping region bounds. Pure. */
+function regionTree(regions: RegionNode[]): RegionNode {
+  if (regions.length === 1) return regions[0];
+  const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const region of regions) {
+    bounds[0] = Math.min(bounds[0], region.bounds[0]); bounds[1] = Math.min(bounds[1], region.bounds[1]);
+    bounds[2] = Math.max(bounds[2], region.bounds[2]); bounds[3] = Math.max(bounds[3], region.bounds[3]);
+  }
+  const axis = bounds[2] - bounds[0] >= bounds[3] - bounds[1] ? 0 : 1;
+  regions.sort((a, b) => (a.bounds[axis] + a.bounds[axis + 2]) - (b.bounds[axis] + b.bounds[axis + 2]));
+  const middle = Math.floor(regions.length / 2);
+  return {bounds, children: [regionTree(regions.slice(0, middle)), regionTree(regions.slice(middle))]};
+}
+
+/** Assign source triangles once through UV bounds; yield owned indices with borrowed vertices. Pure. */
+export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: number[][], origin: number[]) {
+  const regions = new Map<string, RegionNode>();
+  for (const box of bounds) if (!regions.has(box.join(","))) regions.set(box.join(","), {bounds: box, kept: []});
+  if (!regions.size) return;
+  const root = regionTree([...regions.values()]), stack: RegionNode[] = [];
+  const indices = source.getIndex()!, uv = source.getAttribute("uv");
+  for (let i = 0; i < indices.count; i += 3) {
+    const a = indices.getX(i), b = indices.getX(i + 1), c = indices.getX(i + 2);
+    const ax = uv.getX(a) - origin[0], bx = uv.getX(b) - origin[0], cx = uv.getX(c) - origin[0];
+    const ay = uv.getY(a) - origin[1] + 1, by = uv.getY(b) - origin[1] + 1, cy = uv.getY(c) - origin[1] + 1;
+    const minX = Math.min(ax, bx, cx), maxX = Math.max(ax, bx, cx), minY = Math.min(ay, by, cy), maxY = Math.max(ay, by, cy);
+    stack.push(root);
+    while (stack.length) {
+      const node = stack.pop()!, box = node.bounds;
+      // Strict UV-box overlap is intentional: touching edges have no fragments in this draw.
+      if (maxX <= box[0] || minX >= box[2] || maxY <= box[1] || minY >= box[3]) continue;
+      if (node.children) stack.push(...node.children);
+      else node.kept!.push(a, b, c);
+    }
+  }
+  for (const [key, region] of regions) {
+    const geometry = regionGeometry(source, region.kept!);
+    region.kept = []; // Release temporary lists as each index buffer is budgeted by the caller.
+    yield [key, geometry] as const;
+  }
+}
+
+/** Only UV-intersecting triangles are submitted; edge fragments retain exact world-UV clipping. Pure. */
+export function groundRegionGeometry(source: THREE.BufferGeometry, bounds: number[], origin: number[]) {
+  return groundRegionGeometries(source, [bounds], origin).next().value![1];
 }
 
 function disposeRegion(geometry: THREE.BufferGeometry) {
@@ -185,14 +230,15 @@ export class GroundLayer {
     const regions = new Map<string, THREE.BufferGeometry>();
     let bytes = 0;
     try {
+      for (const [key, geometry] of groundRegionGeometries(source.geometry,
+        this.layers.ground!.passes.map(pass => pass.bounds), this.layers.ground!.uv_origin)) {
+        regions.set(key, geometry);
+        const size = geometry.getIndex()!.array.byteLength;
+        this.frame.reserveIndices(size); bytes += size;
+      }
       for (let i = 0; i < this.materials.length; i++) {
         const pass = this.layers.ground!.passes[i], key = pass.bounds.join(",");
-        let geometry = regions.get(key);
-        if (!geometry) {
-          geometry = groundRegionGeometry(source.geometry, pass.bounds, this.layers.ground!.uv_origin); regions.set(key, geometry);
-          const size = geometry.getIndex()!.array.byteLength;
-          this.frame.reserveIndices(size); bytes += size;
-        }
+        const geometry = regions.get(key)!;
         if (geometry.getIndex()!.count) depth.add(new THREE.Mesh(geometry, this.materials[i]));
       }
     } catch (error) {

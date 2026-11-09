@@ -1,7 +1,59 @@
-import {expect, test} from "bun:test";
+import {expect, spyOn, test} from "bun:test";
 import * as THREE from "three";
-import {GroundFrame, GroundLayer, groundRegionGeometry} from "./groundRender";
+import {GroundFrame, GroundLayer, groundRegionGeometry, groundRegionGeometries} from "./groundRender";
 import type {ColourSplat, GroundPass} from "./colourBlend";
+
+/** The original per-region UV-box scan, independent of the spatial assignment. Pure. */
+function originalIndices(source: THREE.BufferGeometry, bounds: number[], origin: number[]) {
+  const indices = source.getIndex()!, uv = source.getAttribute("uv"), kept: number[] = [];
+  for (let i = 0; i < indices.count; i += 3) {
+    const triangle = [indices.getX(i), indices.getX(i + 1), indices.getX(i + 2)];
+    const x = triangle.map(k => uv.getX(k) - origin[0]), y = triangle.map(k => uv.getY(k) - origin[1] + 1);
+    if (Math.max(...x) <= bounds[0] || Math.min(...x) >= bounds[2] || Math.max(...y) <= bounds[1] || Math.min(...y) >= bounds[3]) continue;
+    kept.push(...triangle);
+  }
+  return kept;
+}
+
+test("one assignment preserves original indices and order for overlapping, boundary and global UV regions", () => {
+  const bounds = [[0, 0, .25, .5], [.25, 0, .5, .5], [.5, .5, 1, 1], [0, 0, 1, 1],
+    [-1, -.25, .1, .1], [.13, .27, .84, .61], [2, 2, 3, 3], [.25, .25, .25, .5], [0, 0, .25, .5]];
+  for (const origin of [[0, 1], [-123456.25, 98765.5]]) {
+    const source = new THREE.PlaneGeometry(256, 256, 8, 8), uv = source.getAttribute("uv");
+    const shift = origin[0] < 0 ? -.25 : 0;
+    source.setAttribute("uv", new THREE.BufferAttribute(Float64Array.from(uv.array, (v, i) => v + shift + origin[i % 2] - (i % 2)), 2));
+    if (shift) source.setIndex(Array.from(source.getIndex()!.array).reverse());
+    const before = source.getIndex()!.array.slice();
+    const regions = new Map(groundRegionGeometries(source, bounds, origin));
+    expect(regions.size).toBe(bounds.length - 1);
+    for (const box of bounds) {
+      const geometry = regions.get(box.join(","))!;
+      expect(Array.from(geometry.getIndex()!.array)).toEqual(originalIndices(source, box, origin));
+      for (const [name, attribute] of Object.entries(source.attributes)) expect(geometry.getAttribute(name)).toBe(attribute);
+    }
+    expect(source.getIndex()!.array).toEqual(before);
+  }
+});
+
+test("spatial assignment reads each triangle once and prunes distant region tests", () => {
+  const source = new THREE.PlaneGeometry(256, 256, 32, 32), uv = source.getAttribute("uv");
+  const readUV = spyOn(uv, "getX"), triangles = source.getIndex()!.count / 3;
+  let regionReads = 0;
+  const boxes = Array.from({length: 1024}, (_, i) => new Proxy(
+    [i % 32 / 32, Math.floor(i / 32) / 32, (i % 32 + 1) / 32, (Math.floor(i / 32) + 1) / 32], {
+      get(target, property, receiver) {
+        if (["0", "1", "2", "3"].includes(String(property))) regionReads++;
+        return Reflect.get(target, property, receiver);
+      },
+    }));
+  try {
+    const regions = new Map(groundRegionGeometries(source, boxes, [0, 1]));
+    expect(regions.size).toBe(1024);
+    expect(readUV).toHaveBeenCalledTimes(triangles * 3);
+    // Includes tree construction and keys, as well as leaf tests: far below scanning every region per triangle.
+    expect(regionReads).toBeLessThan(triangles * boxes.length / 4);
+  } finally { readUV.mockRestore(); }
+});
 
 test("regional indices reserve CPU and GPU once per shared bounds, keep the old mesh on refusal and release only owned data", () => {
   let held = 0, limit = Infinity;
@@ -11,22 +63,30 @@ test("regional indices reserve CPU and GPU once per shared bounds, keep the old 
   }, bytes => { held -= bytes; });
   const pass: GroundPass = {image: -1, first: 0, bounds: [.25, .25, .5, .5], frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
   const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"}, images: [], origin: [0, 0],
-    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass, pass]}};
+    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0,
+      passes: [pass, pass, {...pass, bounds: [.5, .5, .75, .75]}]}};
   const source = new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8));
   const originalPositions = source.geometry.getAttribute("position");
-  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null, null], new THREE.Color());
+  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null, null, null], new THREE.Color());
   layer.attach(source);
   const old = frame.scene.children[0] as THREE.Mesh, oldRegion = (old.children[0] as THREE.Mesh).geometry;
-  const bytes = oldRegion.getIndex()!.array.byteLength * 2;
+  const bytes = [...(old.userData.regions as Map<string, THREE.BufferGeometry>).values()]
+    .reduce((sum, geometry) => sum + geometry.getIndex()!.array.byteLength * 2, 0);
   expect(held).toBe(bytes);
   expect((old.children[1] as THREE.Mesh).geometry).toBe(oldRegion);
-  source.geometry = new THREE.PlaneGeometry(256, 256, 16, 16); limit = held;
-  expect(() => layer.follow()).toThrow("memory");
+  source.geometry = new THREE.PlaneGeometry(256, 256, 16, 16);
+  const firstReplacement = groundRegionGeometry(source.geometry, pass.bounds, [0, 1]);
+  limit = held + firstReplacement.getIndex()!.array.byteLength * 2;
+  const disposed = spyOn(THREE.BufferGeometry.prototype, "dispose");
+  try {
+    expect(() => layer.follow()).toThrow("memory");
+    expect(disposed).toHaveBeenCalledTimes(2); // Includes the unreserved region after a successful first reservation.
+  } finally { disposed.mockRestore(); }
   expect(frame.scene.children).toEqual([old]); expect(held).toBe(bytes);
   expect(oldRegion.getAttribute("position")).toBe(originalPositions);
   limit = Infinity; layer.follow();
   const next = frame.scene.children[0] as THREE.Mesh, nextRegion = (next.children[0] as THREE.Mesh).geometry;
-  expect(next).not.toBe(old); expect(held).toBe(nextRegion.getIndex()!.array.byteLength * 2);
+  expect(next).not.toBe(old); expect(held).toBe(nextRegion.getIndex()!.array.byteLength * 4);
   layer.dispose(); expect(held).toBe(0); expect(frame.scene.children).toHaveLength(0);
   expect(source.geometry.getAttribute("position")).toBeDefined();
 });
