@@ -196,7 +196,8 @@ def canvas_size(bounds,width,height):
 
 
 def save_size(layout,scan,path):
-    """Bound regional source copies and full-resolution mask storage; never multiply by photo repeat. Pure."""
+    """Bound regional source copies and full-resolution mask storage; never multiply by photo repeat. Keeps the clips in
+    layout['native_clips'], {mesh: (digest of the vertices clipped, {region: points})}, for build."""
     width,height=layout['ground']['dimensions']
     regions=layout.get('native_regions',[])
     # A byte per pixel and its mips: BC7 (bc7_weights); the rare RGBA16F mask (region_mask) stays 8 and is left out here.
@@ -204,15 +205,19 @@ def save_size(layout,scan,path):
     ring=weight_extent(width,height)
     masks+=round(width*ring[0])*round(height*ring[1])*4//3+256    # (the tile image on its ring canvas, as BC3 at most)
     geometry=0
+    clips=layout.setdefault('native_clips',{})
     with open(path,'rb') as file:
-        for info in scan['meshes']:
+        for source_i,info in enumerate(scan['meshes']):
             if info['material'] not in layout['materials']: continue
             vertices,faces=kn5.mesh_arrays(file,info)
             extent=next((p[2] for p in scan['materials'][info['material']].props if p[0]=='m2lMaskExtent'),(1.,1.))
             vertices=_tile_uvs(vertices,scan['materials'][info['material']])
             if extent != (1.,1.): vertices=vertices.copy(); vertices['uv']*=extent
-            for bounds,_palette in regions:
+            clips[source_i]=_field_digest(vertices),{}
+            clipped=clips[source_i][1]
+            for number,(bounds,_palette) in enumerate(regions):
                 points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],layout['ground']['uv_origin'])
+                clipped[number]=points
                 geometry+=len(points)*46+256
     return masks+geometry
 
@@ -271,6 +276,7 @@ def build(ac,name,descriptors,scan,change,path,added):
             refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
             base_material=materials[layout['materials'][0]]
             origin=layout['ground']['uv_origin']
+            clips=layout.get('native_clips',{})
             # A region's mask depends on the tile's fields, its bounds and palette and the tile's phase, not on the ground
             # piece clipped to it: made once per region, though a tile's ground comes in several pieces (1ROAD_, 1GRASS_,
             # split ones). First made where it was first needed, so the kn5 keeps its texture order.
@@ -285,10 +291,14 @@ def build(ac,name,descriptors,scan,change,path,added):
                 previous=trackview._mask_extent(original)
                 if previous != [1.,1.]: vertices=vertices.copy(); vertices['uv']*=previous
                 hidden[source_i]=0
+                # (the size check clipped this ground before: its clips hold unless the vertices changed since)
+                digest,clipped=clips.get(source_i,(None,{}))
+                if digest!=_field_digest(vertices): clipped={}
                 for number,(bounds,palette) in enumerate(regions):
                     cw,ch=canvas_size(bounds,width,height)
                     extent=np.array([cw/width,ch/height])
-                    points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],origin)
+                    points=clipped.pop(number,None)
+                    if points is None: points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],origin)
                     if not len(points): continue
                     if number not in masks:
                         phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]

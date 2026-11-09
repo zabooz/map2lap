@@ -12,8 +12,8 @@ import numpy as np
 
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
-from app import materiallibrary, trackcopy, trackdetail, trackmodels, tracknative, trackpaint, trackregions, trackview
-from track import editorinfo, kn5
+from app import materiallibrary, trackcopy, trackdetail, trackground, trackmodels, tracknative, trackpaint, trackregions, trackview
+from track import editorinfo, groundnormals, kn5
 
 
 class RegionMaskTest(unittest.TestCase):
@@ -117,6 +117,31 @@ class RegionMaskTest(unittest.TestCase):
         self.assertEqual(1, prepared_tiles.call_count)
         self.assertEqual({"dimensions", "uv_origin"}, set(native["ground"]))
         self.assertTrue(native["native_regions"])
+
+    def test_the_size_check_and_the_export_clip_the_ground_once(self):
+        self.keep(self.painted(5))
+        # (a real build's ground has its border lighting already; this fixture's would be changed by it)
+        with (mock.patch.object(groundnormals, "changed", side_effect=lambda _path, change: change),
+              mock.patch.object(trackground, "clip_region", wraps=trackground.clip_region) as clipped):
+            trackcopy.save(self.ac, self.name, "copy", "Copy")
+        regions = {tuple(call.args[2]) for call in clipped.call_args_list}
+        self.assertEqual(2 * len(regions), clipped.call_count)              # (two ground pieces)
+
+    def test_a_moved_ground_piece_is_clipped_from_where_it_went(self):
+        self.keep(self.painted(5))
+        with open(self.path, "rb") as file:
+            scan = kn5.scan(str(self.path))
+            moved = kn5.mesh_arrays(file, scan["meshes"][0])[0].copy()
+        source = moved["pos"][:, 1].min()
+        moved["pos"][:, 1] += 5
+        with mock.patch.object(groundnormals, "changed", side_effect=lambda _path, _change: kn5.Moved({0: moved}, {}, {})):
+            trackcopy.save(self.ac, self.name, "moved", "Moved")
+        target = Path(self.ac, "content/tracks/moved/moved.kn5")
+        with open(target, "rb") as file:
+            copies = [m for m in kn5.scan(str(target))["meshes"] if "m2l_region_0_" in m["name"]]
+            lowest = min(kn5.mesh_arrays(file, m)[0]["pos"][:, 1].min() for m in copies)
+        self.assertTrue(copies)
+        self.assertAlmostEqual(source + 5, lowest, places=3)
 
 
 class KnHashTest(unittest.TestCase):
