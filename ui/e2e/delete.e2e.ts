@@ -11,7 +11,7 @@ test("a click picks a tree, Delete takes it away at once, the mouse finds what s
   await page.keyboard.press("Delete");
   await page.mouse.move(AWAY.x, AWAY.y);
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
-  await expect(page.locator("#edit-picked")).toBeHidden();
+  await expect(page.locator("#edit-picked")).toHaveCount(0);
   await points(page, at);
   await expect(box(page)).not.toContainText(NEAR_TREE);
 });
@@ -32,7 +32,7 @@ test("what is deleted is saved with the track and is gone after a reload, on thi
   await expect.poll(async () => (await picture(page)).equals(gone)).toBe(true);
   await page.locator("#edit-track").selectOption("beta");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   expect((await stored(page, "beta")).deleted).toEqual([]);
 });
 
@@ -57,7 +57,7 @@ test("undo brings back the very same picture, redo takes it away again, by keys 
   await expect(scene(page)).toBeFocused();      // (after a button W A S D still fly)
   await button(page, "Discard all").click();
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await button(page, "↶ Undo").click();
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await page.mouse.move(c.x, c.y);
@@ -184,7 +184,7 @@ test("a power pole takes its wires along; a wire alone can be found beside it an
   await page.keyboard.press("Control+z");       // (all poles of its sort: the same, as a rule)
   await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
   expect(await deleteAllOf(page, pole)).toBe("Mark all Power pole (1)");
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
   await saved(page);
   expect(((await (await page.request.get("/api/editor/alpha/edits")).json()) as {object_sorts: string[]}).object_sorts).toEqual(["pole"]);
@@ -225,7 +225,7 @@ test("a parked car on an older build says a new build can delete it, a tree ther
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toHaveText("Parked car: only a new build can delete it");
   await page.keyboard.press("Delete");
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await deleteTree(page);
 });
 
@@ -273,7 +273,7 @@ test("the right-click menu: Replace greyed, Edit available, Mark all frames and 
   expect(framed.equals(before)).toBe(false);
   await scene(page).focus();
   await page.keyboard.press("Escape");
-  await expect(page.locator("#edit-marked")).toBeHidden();
+  await expect(page.locator("#edit-marked")).toHaveCount(0);
   expect((await stored(page)).deleted).toEqual([]);
   const view = (await scene(page).boundingBox())!;
   await page.mouse.click(view.x + 200, view.y + 2);       // (the sky: nothing picked, no frame)
@@ -307,7 +307,7 @@ test("all parked cars: marked and deleted as a rule; saved, the track's own kn5 
   const at = await findCar(page);
   expect(await deleteAllOf(page, at)).toBe("Mark all Parked car (1)");
   await expect(page.locator("#edit-sorts")).toHaveText("All deleted: Parked car");
-  await expect(page.locator("#edit-count")).toBeHidden();         // (a rule, no list of ids)
+  await expect(page.locator("#edit-count")).toHaveCount(0);         // (a rule, no list of ids)
   await expect.poll(async () => (await picture(page)).equals(without)).toBe(true);
   await saved(page);
   const s = (await (await page.request.get("/api/editor/alpha/edits")).json()) as {object_sorts: string[]; deleted: unknown[]};
@@ -360,9 +360,10 @@ test("read again from a tree deleted alone to only its whole sort: the tree stay
   await page.request.put("/api/editor/alpha/edits", {data: {base: s.base, revision: s.revision, id: "other", deleted: [], sorts: [sort]}});
   await page.keyboard.press("Control+y");       // (the tree out by its id here: refused, the other tab's list is newer)
   await expect(page.locator("#edit-stuck")).toContainText("changed elsewhere");
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
   await page.getByRole("button", {name: "Read again"}).click();
   await expect(page.locator("#edit-sorts")).toHaveText(`All deleted: ${sort}`);
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
 });
 
@@ -396,7 +397,7 @@ test("the road can't be deleted: with click deletes it says so, Delete does noth
   await expect(page.locator("#edit-picked")).toContainText("Road surface: can't be deleted yet");
   await page.keyboard.press("Delete");
   await page.mouse.move(AWAY.x, AWAY.y);
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   expect((await picture(page)).equals(before)).toBe(true);
   expect((await stored(page)).revision).toBe(0);
 });
@@ -405,7 +406,7 @@ test("dragging over a tree picks nothing; the sky ends a pick", async ({page}) =
   await openEditor(page);
   const at = await findTree(page);
   await dragMouse(page, at, {x: at.x + 60, y: at.y}, "left");
-  await expect(page.locator("#edit-picked")).toBeHidden();
+  await expect(page.locator("#edit-picked")).toHaveCount(0);
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const again = await findTree(page);
@@ -413,7 +414,7 @@ test("dragging over a tree picks nothing; the sky ends a pick", async ({page}) =
   await expect(page.locator("#edit-picked")).toBeVisible();
   const view = (await scene(page).boundingBox())!;
   await page.mouse.click(view.x + 200, view.y + 2);
-  await expect(page.locator("#edit-picked")).toBeHidden();
+  await expect(page.locator("#edit-picked")).toHaveCount(0);
 });
 
 test("the frame around a picked tree goes when it is deleted, and it stands out in the picture", async ({page}) => {

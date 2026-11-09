@@ -16,6 +16,7 @@ import time
 from types import SimpleNamespace
 
 import numpy as np
+from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -28,6 +29,7 @@ import server  # noqa: E402
 from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, updater, version  # noqa: E402
 from scenery import cars, trees  # noqa: E402
 from track import editorinfo, kn5, objectlist  # noqa: E402
+from track.textures import dds_mipmaps  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="map2lap_e2e_")
 AC = os.path.join(TMP, "ac")
@@ -170,7 +172,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
@@ -182,12 +184,22 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         atlas = f.read()
     textures = [("ground_0_0.dds", dds(*ROAD_FIELDS)), ("ground_-1_0.dds", dds(((60, 130, 50),))), ("trees.png", atlas),
                 ("ground_far.dds", dds(((80, 120, 90),)))]
+    if ground_materials:
+        # This fixture generates its physical 256px source directly; the renderer never enlarges a smaller mask.
+        pixels = np.empty((256, 256, 3), np.uint8)
+        for row in range(2):
+            for col in range(2):
+                pixels[row * 128:(row + 1) * 128, col * 128:(col + 1) * 128] = ROAD_FIELDS[row][col]
+        textures[0] = ("ground_0_0.dds", dds_mipmaps(Image.fromarray(pixels), smallest=1))
     materials = [material("ground_0_0", "ground_0_0.dds"), material("ground_-1_0", "ground_-1_0.dds"),
                  material("trees", "trees.png", "ksPerPixelAT_NS", 1), material("ground_far", "ground_far.dds")]
+    if ground_brightness is not None:
+        for entry in materials[:2]:
+            entry.props = [(p[0], ground_brightness / 2 if p[0] in {"ksAmbient", "ksDiffuse"} else p[1], *p[2:]) for p in entry.props]
     # (x, north, up, yaw, height, random value; the second stands on the road ahead of the start)
     items = [("deciduous", 40.0, 200.0, 0.0, 0.0, 12.0, 0.1), ("deciduous", 128.0, 130.0, 0.0, 0.0, 30.0, 0.1)]
     tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
-    road = ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=int(TILE / 2), height=hill_at) if hill else ground("1ROAD_ground_0_0", 0, 0.0, -TILE)
+    road = ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=int(TILE / 2), height=hill_at) if hill else ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=128 if ground_materials else GRID)
     if grass:
         road.name = "1GRASS_ground_0_0"
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
@@ -219,9 +231,18 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     if name != "gamma":
         parts = []
         for ty in (-1, 0):
-            part = os.path.join(root, f"t_0_{ty}.obj")
-            paint = editorinfo.Paint(part, 0, ty, 32)
-            if ground_split:
+            px, py = ((-1, 0) if ty == -1 else (0, 0)) if ground_materials else (0, ty)
+            part = os.path.join(root, f"t_{px}_{py}.obj")
+            paint = editorinfo.Paint(part, px, py, 256 if ground_materials and ty == 0 else 32)
+            if ground_materials and ty == 0:
+                labels = [f"gc_field{k}" for k in range(ground_materials)]
+                ids = np.broadcast_to(np.minimum(ground_materials - 1, np.arange(256) * ground_materials // 256), (256, 256)).astype(np.uint8)
+                paint.base(labels, ids)
+                yy, xx = np.indices((256, 256))
+                soft = np.rint(45 * np.maximum(0, 1 - np.hypot(xx - 128, yy - 128) / 64)).astype(np.uint8)
+                for label in labels:
+                    paint.layer(label, soft)
+            elif ground_split:
                 ids = np.broadcast_to((np.arange(32) >= 16).astype(np.uint8), (32, 32)).copy()
                 paint.base(["gc_meadow", "road_asphalt"], ids)
             else:
@@ -348,6 +369,14 @@ class Handler(server.Handler):
     """The page's server and what only the tests ask for."""
 
     def do_GET(self):
+        if self.path == "/__test/ground-weights":
+            from app import trackdetail, trackedits, trackpaint
+            now = trackedits.load(AC, "alpha")
+            descriptor = trackpaint.descriptors(AC, "alpha", now["base"], now["paints"])[0]
+            record, path, scan, filename = trackdetail._view(AC, "alpha", descriptor["version"])
+            layout, weights, _coverage = trackdetail._semantic(AC, "alpha", record, path, scan, filename)
+            width, height = layout["dimensions"]
+            return self._send(200, {"dimensions": [width, height], "weights": [float(v[height // 2, width // 2]) for v in weights.values()]})
         if self.path == "/__test/calls":
             return self._send(200, calls)
         if self.path.startswith("/__test/meshes?name="):    # (what the track's own kn5 holds, as AC reads it: the Editor shows its source)
@@ -370,7 +399,8 @@ class Handler(server.Handler):
         elif self.path == "/__test/rebuild":    # (the track built again: a new file, a new date)
             make_track(body["name"], body["title"], built=time.time() + 100, with_trees=body.get("trees", True), car=body.get("car"), house=body.get("house", False),
                        pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False), grass=body.get("grass", False),
-                       ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False))
+                       ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False),
+                       ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

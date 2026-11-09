@@ -6,7 +6,7 @@ import {SurfaceInfo} from "./SurfaceInfo";
 import {surfaceName, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import type {Hovered, Marked, Picked, TrackView} from "./view";
 import styles from "./Inspector.module.css";
-import {MaterialLibrary} from "./MaterialLibrary";
+import {TrackStatistics} from "./TrackStatistics";
 
 function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;
@@ -131,19 +131,20 @@ function Appearance({name, picked, version, onEdit}: {name: string; picked: Pick
 }
 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
-export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface, materialTarget, materialReason,
-  materialOpen, onMaterialOpen, onMaterialClose, textureRevision, painting, onApply}: {
+export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
+  onMaterialOpen, textureRevision, notes, attention}: {
   name: string; picked: Picked | null; hovered: Hovered | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
-  onSurface: (selection: SurfaceSelection | null) => void; materialTarget: string | null;
-  materialReason: string | null; materialOpen: boolean; onMaterialOpen: () => void; onMaterialClose: () => void; textureRevision: number;
-  painting: {busy: boolean; error: string | null}; onApply: (id: string, variation?: boolean) => Promise<boolean>}) {
+  onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
+  notes?: ReactNode; attention?: boolean;
+}) {
   const [tab, setTab] = useState<"properties" | "details">("properties");
   const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
   const textureVersion = chosen?.inspection?.texture != null ? view.textureVersion(chosen.inspection.texture) : "";
   const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
   return <>
-    {collapsed && <button className={styles.show} onClick={() => onCollapsed(false)} aria-label="Show properties">Properties ‹</button>}
+    {collapsed && <button className={styles.show} onClick={() => { onCollapsed(false); if (attention) setTab("details"); }} aria-label="Show properties">
+      {attention ? <span role="alert">Editor needs attention — Details ‹</span> : "Properties ‹"}</button>}
     {!collapsed && <div className={styles.divider} role="separator" tabIndex={0} aria-label="Inspector width" aria-orientation="vertical"
       aria-valuenow={width} aria-valuemin={260} aria-valuemax={520}
       onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); updateWidth(width + (e.key === "ArrowLeft" ? 20 : -20)); } }}
@@ -160,6 +161,7 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
             setTab(next); document.getElementById(`inspector-tab-${next}`)?.focus();
           } }}>{id === "properties" ? "Properties" : "Details"}</button>)}
       </div>
+      {attention && <button type="button" className={styles.materials} role="alert" onClick={() => setTab("details")}>Editor needs attention — open Details</button>}
       <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
       <section id="inspect-selection" className={styles.section}>
         <h3>Selection</h3>
@@ -176,6 +178,8 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
       <button type="button" className={styles.materials} onClick={onMaterialOpen}>Edit</button>
       </div>
       <div id="inspector-details" role="tabpanel" aria-labelledby="inspector-tab-details" hidden={tab !== "details"}>
+      <TrackStatistics name={name} revision={state.keptRevision} active={tab === "details" && state.save === "saved"} />
+      <section className={styles.section} aria-label="Editor changes"><h3>Editor changes</h3>{notes}</section>
       {chosen?.id && chosen.inspection && <ObjectDetails key={`${name} ${chosen.id}`} name={name} picked={chosen} view={view} state={state} />}
       {chosen?.inspection && <details className={styles.details}><summary>Selected mesh details</summary>
         <HoverBox id="inspect-mesh" hovered={chosen.inspection.hovered} />
@@ -185,6 +189,5 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
       </details>
       </div>
     </aside>
-    <MaterialLibrary open={materialOpen} target={materialTarget} reason={materialReason} busy={painting.busy} error={painting.error} onApply={onApply} onClose={onMaterialClose} />
   </>;
 }

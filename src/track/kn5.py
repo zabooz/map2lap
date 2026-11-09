@@ -160,7 +160,7 @@ def _copy_bytes(source, target, n):
         n -= len(piece)
 
 
-def without_faces(path, out, going, change=None, added=(), texture_bytes=None, materials=None, textures=(), drop_textures=()):
+def without_faces(path, out, going, change=None, added=(), texture_bytes=None, materials=None, textures=(), drop_textures=(), renderable=None):
     """A copy of the kn5 at path at out without some triangles: going {mesh number (as scan's): bool per triangle, True what goes}.
     A mesh left with none is left out. What doesn't change is copied as it stands, so the rest stays the same to the byte and a 10 GB
     file never lies in memory; a changed mesh keeps only the vertices it still uses, and its bounding sphere: a little too big does no
@@ -216,7 +216,7 @@ def without_faces(path, out, going, change=None, added=(), texture_bytes=None, m
         g.write(struct.pack("<i", cls) + _s(name) + struct.pack("<iB", children - left + extra, active) + struct.pack("<16f", *matrix))
         mesh = -1
         for _ in range(children):
-            mesh = _copy_child(f, g, r, mesh, moved, going, scan_, change)
+            mesh = _copy_child(f, g, r, mesh, moved, going, scan_, change, renderable or {})
         for i, info in enumerate(added, len(scan_["meshes"])):
             if moved[i] is None:
                 continue
@@ -286,7 +286,7 @@ def mesh_arrays(f, info):
     return vertices, np.frombuffer(f.read(info["indices"] * 2), dtype="<u2").reshape(-1, 3)
 
 
-def _copy_child(f, g, r, mesh, moved, going, scan_, change):
+def _copy_child(f, g, r, mesh, moved, going, scan_, change, renderable=None):
     """The root's next child from f to g: a mesh without its triangles that go, as change moved it. Returns the number of the last mesh
     passed."""
     start = f.tell()
@@ -313,7 +313,9 @@ def _copy_child(f, g, r, mesh, moved, going, scan_, change):
         f.seek(vertices_at + size + tail_size)
     elif gone is None and mesh not in change.vertices:
         f.seek(start)
-        _copy_bytes(f, g, vertices_at - start + size + tail_size)
+        _copy_bytes(f, g, vertices_at - start + size + tail_size - 1)
+        value = f.read(1)
+        g.write(bytes([renderable[mesh]]) if renderable and mesh in renderable else value)
     else:
         f.seek(start)
         _copy_bytes(f, g, vertices_at - start)
@@ -332,6 +334,7 @@ def _copy_child(f, g, r, mesh, moved, going, scan_, change):
         tail = bytearray(f.read(tail_size))
         if mesh in change.grow:
             struct.pack_into("<f", tail, 4 + 4 + 8 + 12, m["radius"] + change.grow[mesh])
+        if renderable and mesh in renderable: tail[-1] = renderable[mesh]
         g.write(tail)
     return mesh
 

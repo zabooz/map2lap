@@ -17,7 +17,7 @@ async function mark(page: Page, a: {x: number; y: number}, b: {x: number; y: num
   await expect(page.locator("#edit-band")).toContainText("A is set");
   await page.mouse.click(b.x, b.y);
   await expect(transition(page)).toBeVisible();
-  await expect(page.locator("#edit-tool-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toHaveCount(0);
 }
 async function escape(page: Page) { await scene(page).focus(); await page.keyboard.press("Escape"); }
 
@@ -43,7 +43,7 @@ test("strength applies automatically, zero restores this step, Escape keeps it a
   await saved(page);
   expect(Math.min(...(await heights(page))[0].mm)).toBeLessThan(-1000);
   await strength(page).fill("0");
-  await expect(page.locator("#edit-heights")).toBeHidden();
+  await expect(page.locator("#edit-heights")).toHaveCount(0);
   await strength(page).fill("70");
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await strength(page).press("Enter");
@@ -51,7 +51,7 @@ test("strength applies automatically, zero restores this step, Escape keeps it a
   await escape(page);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await page.keyboard.press("Control+z");
-  await expect(page.locator("#edit-heights")).toBeHidden();
+  await expect(page.locator("#edit-heights")).toHaveCount(0);
   await saved(page);
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
 });
@@ -69,7 +69,7 @@ test("smoothing is one undo step above an existing elevation edit", async ({page
   await escape(page); await page.keyboard.press("Control+z");
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await page.keyboard.press("Control+z");
-  await expect(page.locator("#edit-heights")).toBeHidden();
+  await expect(page.locator("#edit-heights")).toHaveCount(0);
 });
 
 test("Escape ignores a smoothing response that arrives after cancellation", async ({page, backend}) => {
@@ -111,7 +111,7 @@ test("a refused road connection says why and keeps the first point for another a
   await expect(page.locator("#edit-band")).toContainText("A is set");
   await page.unroute("**/band/way"); await page.mouse.click(b.x, b.y);
   await expect(transition(page)).toBeVisible();
-  await expect(page.locator("#edit-tool-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toHaveCount(0);
 });
 
 test("a refused additional pin leaves the two accepted points as the smoothing input", async ({page, backend}) => {
@@ -144,13 +144,13 @@ test("pins can be added, dragged and removed without duplicating them", async ({
   page.on("request", r => { if (r.url().endsWith("/band/way")) sent.push(r.postDataJSON().points); });
   await page.mouse.click(c.x, c.y); await expect.poll(() => sent.length).toBe(1);
   const original = sent[0]; expect(original).toHaveLength(3);
-  await expect(page.locator("#edit-tool-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toHaveCount(0);
   await page.mouse.click(c.x, c.y); await page.waitForTimeout(300); expect(sent).toHaveLength(1);
   await page.mouse.move(c.x, c.y); await page.mouse.down();
   await page.mouse.move(c.x, c.y + 60, {steps: 4}); await page.mouse.up();
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]).toHaveLength(3); expect(sent[1]).not.toEqual(original);
-  await expect(page.locator("#edit-tool-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toHaveCount(0);
   await page.mouse.click(c.x, c.y + 60, {button: "right"});
   await expect.poll(() => sent.length).toBe(3); expect(sent[2]).toHaveLength(2);
   await expect(transition(page)).toBeVisible();
@@ -161,7 +161,7 @@ test("a cancelled pin drag and a shaky click keep its original place", async ({p
   const sent: unknown[][] = [];
   page.on("request", r => { if (r.url().endsWith("/band/way")) sent.push(r.postDataJSON().points); });
   await page.mouse.click(c.x, c.y); await expect.poll(() => sent.length).toBe(1);
-  await expect(page.locator("#edit-tool-note")).toBeHidden();
+  await expect(page.locator("#edit-tool-note")).toHaveCount(0);
   await page.mouse.move(c.x, c.y); await page.mouse.down(); await page.mouse.move(c.x, c.y + 60, {steps: 4});
   await scene(page).evaluate(el => el.dispatchEvent(new PointerEvent("pointercancel", {bubbles: true})));
   await page.mouse.up(); await page.mouse.move(c.x, c.y); await page.mouse.down();

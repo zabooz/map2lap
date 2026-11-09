@@ -42,7 +42,7 @@ test("an unrelated draft change does not reject a pending copy mesh", async ({pa
   const answer = page.waitForResponse(r => r.url().includes(`/mesh/${firstCopy}?`));
   release();
   expect((await answer).status()).toBe(200);
-  await expect(page.locator("#edit-view-failed")).toBeHidden();
+  await expect(page.locator("#edit-view-failed")).toHaveCount(0);
 });
 
 test("right-click leaves a ready Copy source frozen until Duplicate explicitly chooses another", async ({page, backend}) => {

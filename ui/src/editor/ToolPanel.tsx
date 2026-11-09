@@ -15,6 +15,7 @@ export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: s
   {tool: "move", group: "objects", id: "edit-move", label: "Move", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
   {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},
   {tool: "delete", group: "objects", id: "edit-click-deletes", label: "Delete", key: "X", hint: "Each click deletes what is under it, Ctrl+Z brings it back (X, with nothing picked; Esc ends it)"},
+  {tool: "model", group: "objects", id: "edit-insert", label: "INSERT", key: "I", hint: "Open the object library to import or place a model (I)"},
 ];
 
 /** One titled group of the sidebar's tools. */
@@ -62,7 +63,7 @@ export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: 
     <div className={styles.picker}>
       {TOOLS.filter(t => t.group === group).map(t => (
         <button type="button" key={t.tool} id={t.id} className={shownTool === t.tool ? styles.on : ""} aria-pressed={shownTool === t.tool}
-                disabled={!editable && !free(t.tool)} title={t.hint} onClick={then(() => onTool(t.tool))}>
+                disabled={!editable && !free(t.tool)} title={t.hint} onClick={then(() => t.tool === "model" ? onModels?.() : onTool(t.tool))}>
           {t.label}<span className={styles.key} aria-hidden="true">{t.key}</span>
         </button>
       ))}
@@ -78,7 +79,7 @@ export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: 
         {buttons("general")}
       </Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
-      <Section title="Objects">{buttons("objects")}<button type="button" disabled={!editable} onClick={onModels}>Models</button></Section>
+      <Section title="Objects">{buttons("objects")}</Section>
     </div>
   );
 }

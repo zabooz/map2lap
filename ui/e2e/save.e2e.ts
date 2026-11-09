@@ -28,7 +28,7 @@ test("Discard all in File asks before clearing edits, can be cancelled and undon
   page.once("dialog", d => void d.accept());
   await discard.click();
   await saved(page);
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   expect((await stored(page)).deleted).toEqual([]);
   await button(page, "↶ Undo").click();
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
@@ -106,7 +106,7 @@ test("Save as new track: only under a new name, shown with the work and its undo
   await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await expect(page.locator("#edit-saved")).toHaveText("");
   await page.locator("#edit-save-more").click();    // (Cancel writes nothing)
   await page.locator("#save-dialog").getByRole("button", {name: "Cancel"}).click();
@@ -197,7 +197,7 @@ test("while the track is written nothing changes: Saved means what was written, 
   write();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await page.keyboard.press("Control+z");
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
 });
 
@@ -210,7 +210,7 @@ test("in the dialog's name field the keys are the field's: Delete and Ctrl+Z lea
   await page.keyboard.press("Home");
   await page.keyboard.press("Delete");
   await expect(page.locator("#save-name")).toHaveValue("lpha Test");
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Delete");          // (the view has the keys again: the tree still picked)
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");

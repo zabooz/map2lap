@@ -8,6 +8,8 @@ import {EditNotes} from "./EditNotes";
 import {ElevationOptions, useElevation} from "./Elevation";
 import {MoveOptions, useMove} from "./Move";
 import {Models} from "./Models";
+import {AssetLibrary, type LibraryTab} from "./AssetLibrary";
+import {MaterialLibrary} from "./MaterialLibrary";
 import {NOT_ALL, sortName} from "./inspect";
 import {SaveDialog} from "./SaveDialog";
 import {FileButtons, TOOLS, ToolPanel, type Tool} from "./ToolPanel";
@@ -59,10 +61,10 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [copyTake, setCopyTake] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
-  const [materialOpen, setMaterialOpen] = useState(false);
-  const [modelsOpen, setModelsOpen] = useState(false);
+  const [libraryTab, setLibraryTab] = useState<LibraryTab | null>(null);
   const [textureRevision, setTextureRevision] = useState(0);
-  const closeMaterial = useCallback(() => setMaterialOpen(false), []);
+  const closeMaterial = useCallback(() => setLibraryTab(null), []);
+  const setMaterialOpen = useCallback((open: boolean) => setLibraryTab(open ? "textures" : null), []);
   const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setCopyWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { copyWheel.current = wheel; }, []);
   const editable = edits.canEdit();
@@ -181,7 +183,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const toolWheel = useEffectEvent((keys: Parameters<typeof elevation.wheel>[0], by: number) => {
     if (tool === "camera") camera.wheel(keys, by);
     else if (tool === "move") move.wheel(keys, by);
-    else if (tool === "copy") copyWheel.current(keys, by);
+    else if (tool === "copy" || tool === "model") copyWheel.current(keys, by);
     else if (tool === "smooth") band.wheel(keys, by);
     else elevation.wheel(keys, by);
   });
@@ -242,6 +244,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       view.focus();
     }
     else if ((marked.length || removable.length) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
+    else if (keyed?.tool === "model") { if (editable) setLibraryTab("objects"); }
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
     else if (control && key === "z") {
@@ -263,17 +266,21 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     <>
       {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
-      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={() => setModelsOpen(true)} />, toolsHost)}
+      {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={() => setLibraryTab("objects")} />, toolsHost)}
       <Models name={name} view={view} edits={edits} picked={picked} enabled={tool === "model" && editable}
-        choosing={modelsOpen} onClose={() => setModelsOpen(false)} onPlace={() => setTool("model")} />
-      {notesHost && createPortal(
-        <><EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed} picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
-                   markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null} reopen={reopen} readAgain={() => void readAgain()} /></>, notesHost)}
+        onWheel={setCopyWheel}
+        choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => setTool("model")}
+        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={setLibraryTab} onClose={closeMaterial} busy={busy || painting.busy} objects={objects}
+          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} busy={painting.busy} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
+        notes={<EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed}
+          picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
+          markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null}
+          reopen={reopen} readAgain={() => void readAgain()} />}
+        attention={!!(viewFailed || saving.failed || state.error || state.outdated || state.save === "failed")}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
-        collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface} materialTarget={materialTarget}
-        materialOpen={materialOpen} onMaterialOpen={() => setMaterialOpen(true)} onMaterialClose={closeMaterial}
-        materialReason={materialReason} textureRevision={textureRevision} painting={painting} onApply={applyMaterial} />, inspectorHost)}
+        collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
+        onMaterialOpen={() => setMaterialOpen(true)} textureRevision={textureRevision} />, inspectorHost)}
       {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
         options={[
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {

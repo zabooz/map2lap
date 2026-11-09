@@ -9,6 +9,7 @@ import os
 import shutil
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -251,8 +252,9 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     extra += trackmodels.save_size(ac, name, edits.get("models", []), scan) if edits.get("models") else 0
     try:
         trackpaint.validate(ac, name, edits["base"], edits["paints"])
-        textures = {d["i"]: d for d in trackpaint.descriptors(ac, name, edits["base"], edits["paints"])}
-        extra += trackdetail.save_size(textures.values(), source_scan) + trackpaint.bundle_size(ac, name, edits["paints"])
+        descriptors = trackpaint.descriptors(ac, name, edits["base"], edits["paints"])
+        textures = {d["i"]: d for d in trackdetail.native_descriptors(ac, name, descriptors)}
+        extra += trackdetail.save_size(textures.values(), source_scan, path) + trackpaint.bundle_size(ac, name, edits["paints"])
         extra += trackdetail.binding_size(ac, name, path, textures.values(), source_scan)
     except (ValueError, OSError) as error:
         raise Refused(str(error)) from error
@@ -272,6 +274,10 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     shutil.rmtree(temporary, ignore_errors=True)        # (left by a Map2Lap that ended halfway)
     going, seen = faces_left_out(path, scan, objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
                                  trackview._atlas(), edits["object_sorts"])
+    from app import tracknative
+    for i, mesh in enumerate(scan["meshes"]):
+        if mesh["name"].startswith(tracknative.PREFIX):
+            going[i] = np.ones(mesh["indices"] // 3, bool)
     consumed = {m["id"]: m.get("replaces") for m in inherited["models"]} if inherited else {}
     for i, mesh in enumerate(source_scan["meshes"]):
         if inherited and mesh["name"] in inherited["meshes"]:
@@ -284,24 +290,27 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
             if source_scan["meshes"][i]["name"].startswith("nocol_"):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
-        _copy_folder(folder, temporary, {name + ".kn5", objectlist.FILE, str(trackpaint.BUNDLE)})
+        _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)})
         new_kn5 = os.path.join(temporary, new + ".kn5")
-        materials, images, change = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path)
+        materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
         if edits.get("models"):
             materials = materials if materials is not None else scan["materials"]
             present = {t[0] for t in source_scan["textures"]}
             images.extend((n, raw) for n, raw in scan.get("model_images", {}).items() if n not in present)
-        trackvariation.write(temporary, materials if materials is not None else scan["materials"])
+        trackvariation.write(temporary, materials if materials is not None else scan["materials"], native_config)
         if materials is None and not images:
-            moved = kn5.without_faces(path, new_kn5, going, change, added, None)
+            moved = kn5.without_faces(path, new_kn5, going, change, added, None, renderable=native_files.get('renderable',{}))
         else:
-            moved = kn5.without_faces(path, new_kn5, going, change, added, materials=materials, textures=images)
+            moved = kn5.without_faces(path, new_kn5, going, change, added, materials=materials, textures=images, drop_textures=drop_textures, renderable=native_files.get('renderable',{}))
+        from app import trackuv2
+        trackuv2.write(path, new_kn5, added)
         now_at = trackheights.list_moved(placement.list_placed(objects, edits["placed"]), edits["heights"])
         objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
         editorinfo.copy(path, new_kn5)
         trackpaint.export(ac, name, edits["paints"], temporary)
         trackmodels.export(ac, name, edits.get("models", []), temporary, new_kn5, edits, inherited)
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
+        tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}

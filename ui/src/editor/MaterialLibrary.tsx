@@ -34,9 +34,9 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
 }
 
 /** A modal material picker. Browsing changes no track; selection and filters survive closing it. */
-export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, busy, error, onApply, onClose}: {
+export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, busy, error, onApply, onClose, embedded = false}: {
   open: boolean; target: string | null; reason: string | null; busy: boolean; error: string | null;
-  onApply: (id: string, variation?: boolean) => Promise<boolean>; onClose: () => void;
+  onApply: (id: string, variation?: boolean) => Promise<boolean>; onClose: () => void; embedded?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -60,10 +60,11 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
   const varied = variation ?? selected?.variation ?? (!!selected && ["grass", "asphalt", "rock", "soil", "sand", "snow"].includes(selected.category));
 
   useEffect(() => {
+    if (embedded) return;
     const element = dialog.current!;
     if (open) element.showModal();
     return () => element.close();
-  }, [open]);
+  }, [open, embedded]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,10 +100,7 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
     } finally { setRemoving(false); }
   };
 
-  return createPortal(<>
-    <dialog ref={dialog} className={styles.dialog} aria-labelledby="material-picker-title"
-      onKeyDown={e => { e.stopPropagation(); if (e.key === "Escape") { e.preventDefault(); if (!blocked) onClose(); } }}
-      onCancel={e => { e.preventDefault(); if (!blocked) onClose(); }}>
+  const content = <>
       <div className={styles.shell}>
         <div className={styles.heading}><div><h2 id="material-picker-title">Textures</h2>
           <p>{target ? `Selected: ${target}` : "Texture library"}</p></div>
@@ -146,7 +144,10 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
             {busy ? "Applying…" : "Apply"}</button>
         </div>
       </div>
-    </dialog>
     {file && createPortal(<ImportMaterial file={file} onCancel={cancel} onImported={imported} />, document.body)}
-  </>, document.body);
+  </>;
+  if (embedded) return content;
+  return createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby="material-picker-title"
+    onKeyDown={e => { e.stopPropagation(); if (e.key === "Escape") { e.preventDefault(); if (!blocked) onClose(); } }}
+    onCancel={e => { e.preventDefault(); if (!blocked) onClose(); }}>{content}</dialog>, document.body);
 });

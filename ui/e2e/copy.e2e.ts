@@ -12,7 +12,7 @@ test("Copy releases the source selection; X switches to Delete and leaves the or
   await expect(page.locator("#edit-picked")).toContainText("Tree");
   await page.keyboard.press("c");
   await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
-  await expect(page.locator("#edit-picked")).toBeHidden();
+  await expect(page.locator("#edit-picked")).toHaveCount(0);
   await page.keyboard.press("x");
   await expect(page.locator("#edit-click-deletes")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#edit-copy-set")).toBeHidden();

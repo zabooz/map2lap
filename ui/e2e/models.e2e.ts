@@ -15,6 +15,66 @@ async function sample(page: import("@playwright/test").Page, png: Buffer, points
 
 const delta = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 
+test('INSERT shares one TEXTURES/OBJECTS library and places an imported tree', async ({page}, testInfo) => {
+  const repo=join(import.meta.dirname,'../..');
+  const python=join(repo,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
+  const glb=execFileSync(python,[join(repo,'ui/e2e/model_fixture.py'),'--metallic']);
+  await openEditor(page);
+  await expect(page.getByRole('button',{name:'INSERT',exact:true})).toBeVisible({timeout:3000});
+  const insert=page.getByRole('button',{name:'INSERT',exact:true});
+  expect(await insert.evaluate(button => button.parentElement === document.querySelector('#edit-click-deletes')?.parentElement)).toBe(true);
+  await scene(page).focus();
+  await page.keyboard.press('i');
+  const library=page.getByRole('dialog',{name:'Asset library'});
+  await expect(library).toBeVisible();
+  await expect(library.getByRole('tab',{name:'OBJECTS'})).toHaveAttribute('aria-selected','true');
+  await library.getByRole('tab',{name:'TEXTURES'}).click();
+  await expect(library.getByLabel('Search textures')).toBeVisible();
+  await library.getByRole('tab',{name:'OBJECTS'}).click();
+  await expect(page.locator('dialog[open]')).toHaveCount(1);
+  await library.getByLabel('Model file').setInputFiles({name:'insert-tree.glb',mimeType:'model/gltf-binary',buffer:glb});
+  await library.getByLabel('Model name').fill('Insert tree');
+  await library.getByLabel('Model name').press('i');
+  await expect(library.getByLabel('Model name')).toHaveValue('Insert treei');
+  await library.getByRole('button',{name:'Add to library',exact:true}).click();
+  await expect(library.getByLabel('Model preview')).toBeVisible();
+  await library.screenshot({path:testInfo.outputPath('insert-library-objects.png')});
+  await library.getByRole('button',{name:'Place on ground',exact:true}).click();
+  const before = await picture(page), viewport = (await scene(page).boundingBox())!;
+  const index = await (await page.request.get('/api/editor/alpha/index')).json();
+  await scene(page).hover({position:{x:600,y:400}});
+  const ghost = () => page.evaluate(() => (performance.getEntriesByName('map2lap.models.ghost').at(-1) as PerformanceMark)?.detail);
+  await expect.poll(async () => (await ghost())?.visible).toBe(true);
+  const point = project(index, viewport, new THREE.Vector3(.72,4.05,.01).applyMatrix4(new THREE.Matrix4().fromArray((await ghost()).matrix)));
+  const ghostPng = await scene(page).screenshot({style:'[data-tool-options] {visibility:hidden}'});
+  const groundPixel = (await sample(page,before,[point]))[0], ghostPixel = (await sample(page,ghostPng,[point]))[0];
+  expect(delta(groundPixel,ghostPixel)).toBeGreaterThan(10);
+  expect((await (await page.request.get('/api/editor/alpha/edits')).json()).models ?? []).toHaveLength(0);
+  await page.locator('#edit-insert-set').getByRole('spinbutton',{name:/Turn/}).fill('35');
+  await page.locator('#edit-insert-set').getByRole('spinbutton',{name:/Height/}).fill('150');
+  await page.locator('#edit-insert-set').getByRole('spinbutton',{name:/Size/}).fill('140');
+  await scene(page).click({position:{x:600,y:400}});
+  await expect.poll(async()=>(await(await page.request.get('/api/editor/alpha/edits')).json()).models?.length).toBe(1);
+  await page.keyboard.press('Escape');
+  const posed = await (await page.request.get('/api/editor/alpha/index')).json(), instance = posed.models[0];
+  const pose = (await (await page.request.get('/api/editor/alpha/edits')).json()).placed.find((p:{id:string})=>p.id===`${instance.id}#0`);
+  expect([pose.turn,pose.y,pose.scale]).toEqual([35,1.5,1.4]);
+  const shownPoint = project(posed,viewport,new THREE.Vector3(.72,4.05,.01).applyMatrix4(new THREE.Matrix4().fromArray(posed.model_matrices[instance.id])));
+  const metallicPixel = (await sample(page,await picture(page),[shownPoint]))[0];
+  expect(metallicPixel[1]).toBeGreaterThan(30);
+  await page.getByRole('tab',{name:'Details',exact:true}).click();
+  await expect(page.getByLabel('Track statistics')).toContainText('Current KN5');
+  await expect(page.getByLabel('Track statistics')).toContainText('With draft (estimate)');
+  await expect(page.locator('#inspector-details #edit-placed')).toHaveText('1 object moved');
+  await testInfo.attach('insert-ghost',{body:ghostPng,contentType:'image/png'});
+  await page.getByRole('tab',{name:'Properties',exact:true}).click();
+  await scene(page).click({position:{x:200,y:500}});
+  await page.getByRole('button',{name:'Edit texture',exact:true}).click();
+  await expect(library.getByRole('tab',{name:'TEXTURES'})).toHaveAttribute('aria-selected','true');
+  await expect(page.locator('dialog[open]')).toHaveCount(1);
+  await library.screenshot({path:testInfo.outputPath('insert-library-textures.png')});
+});
+
 function project(index: {start: {pos: number[]; forward: number[]}}, bounds: {width: number; height: number}, world: THREE.Vector3) {
   const camera = new THREE.PerspectiveCamera(55, bounds.width / bounds.height, .5, 10000), start = new THREE.Vector3(...index.start.pos);
   camera.position.copy(start).addScaledVector(new THREE.Vector3(...index.start.forward).normalize(), -45).add(new THREE.Vector3(0, 22, 0));
@@ -30,7 +90,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   await openEditor(page);
   const sourceTrees = (await meshes(page))["nocol_trees_0_0"];
   const before = await picture(page);
-  await page.getByRole("button", {name: "Models", exact: true}).click();
+  await page.getByRole("button", {name: "INSERT", exact: true}).click();
   await page.getByLabel("Model file").setInputFiles({name: "cutout-tree.glb", mimeType: "model/gltf-binary", buffer: glb});
   await page.getByLabel("Model name").fill("Cutout test tree");
   await page.getByRole("button", {name: "Add to library", exact: true}).click();
@@ -66,7 +126,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   await page.keyboard.press("Escape");
   const tree = await findTree(page);
   await page.mouse.click(tree.x, tree.y);
-  await page.getByRole("button", {name: "Models", exact: true}).click();
+  await page.getByRole("button", {name: "INSERT", exact: true}).click();
   await page.getByRole("button", {name: "Cutout test tree", exact: true}).click();
   await page.getByRole("button", {name: "Replace selected tree", exact: true}).click();
   await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).models?.length).toBe(2);
@@ -178,7 +238,7 @@ test("Discard all and Undo refresh models together with source heights, source p
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const repo = join(import.meta.dirname, "../.."), python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
   const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py")]);
-  await page.getByRole("button", {name: "Models", exact: true}).click();
+  await page.getByRole("button", {name: "INSERT", exact: true}).click();
   await page.getByLabel("Model file").setInputFiles({name: "discard-tree.glb", mimeType: "model/gltf-binary", buffer: glb});
   await page.getByLabel("Model name").fill("Discard tree");
   await page.getByRole("button", {name: "Add to library", exact: true}).click();
@@ -201,7 +261,7 @@ test("an omitted primitive material loads its independent opaque default in the 
   const repo = join(import.meta.dirname, "../.."), python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
   const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py"), "--default-material"]);
   await openEditor(page);
-  await page.getByRole("button", {name: "Models", exact: true}).click();
+  await page.getByRole("button", {name: "INSERT", exact: true}).click();
   await page.getByLabel("Model file").setInputFiles({name: "default.glb", mimeType: "model/gltf-binary", buffer: glb});
   await page.getByLabel("Model name").fill("Default material");
   await page.getByRole("button", {name: "Add to library", exact: true}).click();

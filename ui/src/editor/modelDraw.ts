@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
+import {modelEnvironment} from "./modelLighting";
 
 interface Binding {id: string; asset: string}
 interface Asset {url: string}
@@ -53,6 +54,12 @@ export class ModelDraw {
   private instances = new Map<string, {asset: string; root: THREE.Group}>();
   private version = 0;
   private wanted = new Set<string>();
+  private environment: THREE.Texture | null = null;
+
+  setEnvironment(texture: THREE.Texture) {
+    this.environment = texture;
+    for (const asset of this.assets.values()) modelEnvironment(asset.materials, texture);
+  }
 
   constructor(private scene: THREE.Scene, private load: (url: string) => Promise<THREE.Group> = async url => {
     const gltf = await new GLTFLoader().loadAsync(url);
@@ -61,7 +68,8 @@ export class ModelDraw {
     });
     return gltf.scene;
   },
-              private reserve: (bytes: number) => boolean = () => true) {}
+              private reserve: (bytes: number) => boolean = () => true,
+              private report = true) {}
 
   instance(id: string) { return this.instances.get(id)?.root; }
 
@@ -98,6 +106,7 @@ export class ModelDraw {
     let pending = this.pending.get(id);
     if (!pending) {
       pending = this.load(url).then(resources).then(asset => {
+        if (this.environment) modelEnvironment(asset.materials, this.environment);
         const own = this.pending.get(id) === pending;
         if (!own || !this.wanted.has(id)) {
           if (own) this.pending.delete(id);
@@ -149,8 +158,10 @@ export class ModelDraw {
     for (const [id, asset] of this.assets) if (!ids.has(id)) {
       this.assets.delete(id); release(asset); this.reserve(-asset.bytes);
     }
-    performance.clearMarks("map2lap.models.resources");
-    performance.mark("map2lap.models.resources", {detail: this.stats()});
+    if (this.report) {
+      performance.clearMarks("map2lap.models.resources");
+      performance.mark("map2lap.models.resources", {detail: this.stats()});
+    }
   }
 
   visible(id: string, visible: boolean) { const instance = this.instance(id); if (instance) instance.visible = visible; }

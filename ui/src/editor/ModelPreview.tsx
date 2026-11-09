@@ -2,6 +2,7 @@ import {useEffect, useRef} from "react";
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
 import styles from "./ModelPreview.module.css";
+import {modelEnvironment, modelLight} from "./modelLighting";
 
 /** A static GLB preview with its native alpha materials; this canvas owns and disposes only its own decoded asset. */
 export function ModelPreview({url}: {url: string}) {
@@ -11,6 +12,7 @@ export function ModelPreview({url}: {url: string}) {
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.setSize(element.clientWidth, 260);
     element.appendChild(renderer.domElement);
+    const light = modelLight(renderer);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, element.clientWidth / 260, .01, 1000);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2));
     const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(4, 8, 6); scene.add(sun);
@@ -27,6 +29,7 @@ export function ModelPreview({url}: {url: string}) {
         }
       });
       if (stopped) { release(); return; }
+      modelEnvironment(materials, light.texture);
       scene.add(gltf.scene);
       const bounds = new THREE.Box3().setFromObject(gltf.scene), middle = bounds.getCenter(new THREE.Vector3());
       const size = Math.max(...bounds.getSize(new THREE.Vector3()).toArray(), .01);
@@ -34,7 +37,7 @@ export function ModelPreview({url}: {url: string}) {
       camera.near = size / 1000; camera.far = size * 20; camera.updateProjectionMatrix(); camera.lookAt(middle);
       renderer.render(scene, camera);
     }).catch(() => {});
-    return () => { stopped = true; release(); renderer.dispose(); renderer.domElement.remove(); };
+    return () => { stopped = true; release(); light.dispose(); renderer.dispose(); renderer.domElement.remove(); };
   }, [url]);
   return <div className={styles.preview} ref={host} aria-label="Model preview" />;
 }

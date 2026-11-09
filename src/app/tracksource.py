@@ -49,6 +49,8 @@ def _made(source, ac, objects, put, facts_from):
         put(os.path.join(new, KN5))
         objectlist.write(os.path.join(new, KN5), objects)
         editorinfo.copy(facts_from, os.path.join(new, KN5))
+        from app import tracknative
+        tracknative.copy_source(facts_from, os.path.join(new, KN5))
         with open(os.path.join(new, AC_FOLDER), "w", encoding="utf-8") as f:
             f.write(_same_folder(ac))
         os.rename(new, os.path.join(root(), source))

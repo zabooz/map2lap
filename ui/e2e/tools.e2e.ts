@@ -119,7 +119,7 @@ test("Select: Ctrl adds to what is picked, again takes it out, X deletes all as 
   await expect(picked).toBeHidden();
   expect(await pressed(page, "#edit-click-deletes")).toBe("false");
   await page.keyboard.press("Control+z");
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
 
   await page.mouse.click(tree.x, tree.y);
   await expect(picked).toContainText("Tree");
@@ -127,7 +127,7 @@ test("Select: Ctrl adds to what is picked, again takes it out, X deletes all as 
   await expect(picked).toBeHidden();
   await page.keyboard.press("x");                   // (nothing picked: its tool)
   await expect(page.locator("#edit-click-deletes")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#edit-count")).toBeHidden();
+  await expect(page.locator("#edit-count")).toHaveCount(0);
 });
 
 test("Smooth road marks at zero through its key or the road context menu", async ({page, backend}) => {
@@ -150,7 +150,7 @@ test("Smooth road marks at zero through its key or the road context menu", async
   await page.mouse.click(b.x, b.y);
   await expect(page.locator("#edit-band").getByLabel("Transition")).toBeVisible();
   await expect(page.locator("#edit-band").getByLabel("Strength")).toHaveValue("0");
-  await expect(page.locator("#edit-picked")).toBeHidden();
+  await expect(page.locator("#edit-picked")).toHaveCount(0);
   expect(await heights(page)).toEqual([]);
 });
 
@@ -159,7 +159,7 @@ test("Smooth road's left click picks no object; a right click on a tree still of
   const tree = await findTree(page);
   await page.keyboard.press("t");
   await page.mouse.click(tree.x, tree.y);
-  await expect(page.locator("#edit-picked")).toBeHidden();
+  await expect(page.locator("#edit-picked")).toHaveCount(0);
   await page.mouse.click(tree.x, tree.y, {button: "right"});
   await expect(page.getByRole("menuitem", {name: "Delete", exact: true})).toBeEnabled();
   await expect(page.getByRole("menuitem", {name: "Smooth road", exact: true})).toHaveCount(0);
@@ -283,6 +283,7 @@ test("Camera: a track with no route says so", async ({page}) => {
   await expect(bar).toContainText("no route");
   await wheelWith(page, ["Shift"], -100);
   await expect(page.locator("#edit-tool-note")).toHaveText("This track has no route to go along");
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
   await page.locator("#edit-tool-note").waitFor();
   await page.locator("#edit-ride").click();
   await expect(page.locator("#edit-tool-note")).toHaveText("This track has no route to go along");
@@ -298,9 +299,12 @@ test("a small window: the buttons scroll, what is to be said stays in sight; Ele
   let sent: number | null = null;
   page.on("request", r => { if (r.url().endsWith("/brush")) sent = (r.postDataJSON() as {speed: number}).speed; });
   await page.mouse.click(c.x, c.y + 60);
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
+  await page.locator("#edit-heights").scrollIntoViewIfNeeded();
   await expect(page.locator("#edit-heights")).toBeInViewport();
   expect(sent).toBe(300);
   await page.locator("#edit-help summary").scrollIntoViewIfNeeded();
+  await page.locator("#edit-heights").scrollIntoViewIfNeeded();
   await expect(page.locator("#edit-heights")).toBeInViewport();
 
   await page.setViewportSize({width: 1280, height: 720});

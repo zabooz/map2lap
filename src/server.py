@@ -559,7 +559,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             q = parse_qs(urlsplit(self.path).query, strict_parsing=True)
             name, ac = generator.slug(name), settings.ac_path()
-            if kind == "thumbnail":
+            if kind == "statistics":
+                self._edits_answer(lambda: trackinspect.statistics(ac, name))
+            elif kind == "thumbnail":
                 self._send(200, trackinspect.thumbnail(ac, name, int(q["texture"][0]), q["r"][0], q.get("p", [""])[0]), "image/png")
             elif kind == "appearance":
                 self._send(200, trackinspect.appearance(ac, name, int(q["mesh"][0]), float(q["u"][0]), float(q["v"][0]),
@@ -792,6 +794,13 @@ class Handler(BaseHTTPRequestHandler):
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
+        region = re.fullmatch(r"/api/editor/([^/]+)/paint-region/([a-f0-9]{64})/([a-f0-9]{64})", self.path)
+        if region:
+            try:
+                raw = trackdetail.region_image(settings.ac_path(), generator.slug(region[1]), region[2], region[3])
+                return self._send(200, raw, "application/octet-stream")
+            except (ValueError, OSError, trackview.Unreadable, trackview.NotOurs) as error:
+                return self._send(400, {"error": str(error)})
         if self.path == "/api/csp":
             return self._send(200, csp.status(settings.ac_path()))
         if urlsplit(self.path).path.startswith("/api/library/"):
@@ -818,7 +827,7 @@ class Handler(BaseHTTPRequestHandler):
         editor, edits = EDITOR_PATH.fullmatch(self.path), EDITS_PATH.fullmatch(self.path)
         if editor:
             self._editor(editor)
-        elif (inspection := re.fullmatch(r"/api/editor/([^/]+)/(inspect|thumbnail|appearance)", urlsplit(self.path).path)):
+        elif (inspection := re.fullmatch(r"/api/editor/([^/]+)/(inspect|thumbnail|appearance|statistics)", urlsplit(self.path).path)):
             self._inspect(inspection[1], inspection[2])
         elif (surface := SURFACE_PATH.fullmatch(urlsplit(self.path).path)):
             self._surface(surface[1])

@@ -14,7 +14,7 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   const originalThumbnail = await thumbnail.getAttribute("src");
   const originalBytes = await (await page.request.get(originalThumbnail!)).body();
   await panel.getByRole("button", {name: "Edit texture"}).click();
-  const picker = page.getByRole("dialog", {name: "Textures"});
+  const picker = page.getByRole("dialog", {name: "Asset library"});
   await expect(picker).toBeVisible();
   await expect(picker).toContainText("Shrubland");
   await picker.getByLabel("Search textures").fill("hello");
@@ -26,7 +26,7 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   await expect(picker).toBeVisible();
   await expect(picker.getByLabel("Search textures")).toHaveValue("hello");
   await picker.getByLabel("Search textures").fill("");
-  await picker.locator('input[type="file"]').setInputFiles(image);
+  await picker.getByLabel('Texture file').setInputFiles(image);
   const importer = page.getByRole("dialog", {name: "Import texture"});
   await importer.getByLabel("Name", {exact: true}).fill("Test ground");
   await importer.getByRole("button", {name: "Add to library", exact: true}).click();
@@ -48,7 +48,7 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   await page.keyboard.press("Control+Shift+z"); await saved(page);
   await expect(thumbnail).toHaveAttribute("src", firstThumbnail);
   await panel.getByRole("button", {name: "Edit texture"}).click();
-  await picker.locator('input[type="file"]').setInputFiles({name: "blue.png", mimeType: "image/png",
+  await picker.getByLabel('Texture file').setInputFiles({name: "blue.png", mimeType: "image/png",
     buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC", "base64")});
   await importer.getByRole("button", {name: "Add to library", exact: true}).click();
   await picker.getByRole("button", {name: "Apply", exact: true}).click();
@@ -79,9 +79,9 @@ test("asphalt can use an imported material without changing its driving surface"
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y, {button: "right"});
   await page.getByRole("menuitem", {name: "Edit…"}).click();
-  const picker = page.getByRole("dialog", {name: "Textures"});
+  const picker = page.getByRole("dialog", {name: "Asset library"});
   await expect(picker).toContainText("Asphalt");
-  await picker.locator('input[type="file"]').setInputFiles(image);
+  await picker.getByLabel('Texture file').setInputFiles(image);
   const importer = page.getByRole("dialog", {name: "Import texture"});
   await importer.getByRole("button", {name: "Add to library", exact: true}).click();
   await picker.getByRole("button", {name: "Apply", exact: true}).click();
@@ -109,7 +109,7 @@ test("an oversized combined ground selection explains its limit before Apply", a
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
   await page.getByRole("button", {name: "Edit texture"}).click();
-  const picker = page.getByRole("dialog", {name: "Textures"});
+  const picker = page.getByRole("dialog", {name: "Asset library"});
   await expect(picker).toContainText("at most 64 ground tiles");
   await expect(picker.getByRole("button", {name: "Apply", exact: true})).toBeDisabled();
 });

@@ -8,13 +8,14 @@ export interface LibraryModel {id: string; name: string; category: string; metre
 interface Prepared {token: string; geometry: {bounds: number[][]}}
 
 /** Imported models stay in the library until explicitly placed or bound to the selected tree. */
-export function ModelLibrary({replace, onChoose, onClose}: {replace: string | null; onChoose: (model: LibraryModel, replace: boolean) => void; onClose: () => void}) {
+export function ModelLibrary({replace, onChoose, onClose, embedded = false, onBusy}: {replace: string | null; onChoose: (model: LibraryModel, replace: boolean) => void; onClose: () => void; embedded?: boolean; onBusy?: (busy: boolean) => void}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [items, setItems] = useState<LibraryModel[]>([]), [selected, setSelected] = useState<LibraryModel | null>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null), [filename, setFilename] = useState("");
   const [name, setName] = useState(""), [units, setUnits] = useState("1"), [collision, setCollision] = useState<"none" | "mesh">("none");
   const [busy, setBusy] = useState(false), [fault, setFault] = useState<string | null>(null);
-  useEffect(() => { const d = dialog.current!; d.showModal(); return () => d.close(); }, []);
+  useEffect(() => { if (embedded) return; const d = dialog.current!; d.showModal(); return () => d.close(); }, [embedded]);
+  useEffect(() => { onBusy?.(busy); }, [busy, onBusy]);
   useEffect(() => {
     const controller = new AbortController();
     void libraryJson<{items: LibraryModel[]}>("/api/library/models", {signal: controller.signal})
@@ -40,7 +41,7 @@ export function ModelLibrary({replace, onChoose, onClose}: {replace: string | nu
     } catch (error) { setFault(error instanceof Error ? error.message : "Could not store model"); }
     finally { setBusy(false); }
   };
-  return createPortal(<dialog ref={dialog} className={styles.dialog} aria-label="Models" onCancel={e => { e.preventDefault(); if (!busy) onClose(); }}>
+  const content = <>
     <h2>Models</h2>
     <label>Import GLB<input aria-label="Model file" type="file" accept=".glb" disabled={busy}
       onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file); e.target.value = ""; }} /></label>
@@ -63,5 +64,7 @@ export function ModelLibrary({replace, onChoose, onClose}: {replace: string | nu
       <button type="button" disabled={busy || !selected || !replace} onClick={() => selected && onChoose(selected, true)}>Replace selected tree</button>
       <button type="button" disabled={busy || !selected} onClick={() => selected && onChoose(selected, false)}>Place on ground</button>
     </div>
-  </dialog>, document.body);
+  </>;
+  if (embedded) return <div className={styles.embedded}>{content}</div>;
+  return createPortal(<dialog ref={dialog} className={styles.dialog} aria-label="Models" onCancel={e => { e.preventDefault(); if (!busy) onClose(); }}>{content}</dialog>, document.body);
 }

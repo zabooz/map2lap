@@ -12,7 +12,7 @@ MANAGED = re.compile(r"\n" + re.escape(BEGIN) + r"\r?\n.*?" + re.escape(END) + r
 def _flags(material):
     """The imported layers which vary; the original tile in A always stays fixed. Pure."""
     values = {p[0]: p[1] for p in material.props}
-    return [int(values.get("m2lVariation" + channel, 0) == 1) for channel in "RGB"]
+    return [int(values.get("m2lVariation" + channel, 0) == 1) for channel in "RGBA"]
 
 
 def config(materials):
@@ -20,23 +20,27 @@ def config(materials):
     sections = []
     for material in materials:
         flags = _flags(material)
-        if material.shader != "ksMultilayer_objsp" or not groundmaterial.is_ground(material.name) or not any(flags):
+        regional = any(p[0]=='m2lGroundPass' and p[1]==3 for p in material.props)
+        if material.shader != "ksMultilayer_objsp" or not (groundmaterial.is_ground(material.name) or regional) or not (any(flags) or regional):
             continue
         sections.append("\n".join([
             "[SHADER_REPLACEMENT_...]", "MATERIALS = " + material.name, "SHADER = ksMultilayer_objsp_nm4",
             "FILL_MISSING_TEXTURES = 1", "PROP_0 = multTilingFix, 1",
-            *[f"PROP_{j + 1} = tilingFix{channel}, {flag}" for j, (channel, flag) in enumerate(zip("RGBA", [*flags, 0]))],
+            *[f"PROP_{j + 1} = tilingFix{channel}, {flag}" for j, (channel, flag) in enumerate(zip("RGBA", flags))],
+            *[line for j, channel in enumerate('RGBA') for slot, _index, texture in material.maps
+              if regional and slot=='txNormal'+channel
+              for line in (f'RESOURCE_{j}=txNormal{channel}',f'RESOURCE_TEXTURE_{j}={texture}')],
         ]))
     return "\n\n".join(sections) + "\n" if sections else ""
 
 
-def write(folder, materials):
+def write(folder, materials, extra=""):
     """Refresh only our config/include inside Save's staging folder, keeping unrelated track effects verbatim."""
     extension = Path(folder, "extension")
     main, owned = extension / "ext_config.ini", extension / FILE
     before = main.read_bytes().decode("utf-8-sig") if main.exists() else ""
     clean = MANAGED.sub("", before)
-    content = config(materials)
+    content = config(materials) + extra
     if content:
         extension.mkdir(parents=True, exist_ok=True)
         owned.write_text(content, encoding="utf-8")

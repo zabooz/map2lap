@@ -5,13 +5,19 @@ export interface ColourImage {name: string; i?: number; key?: string; url?: stri
 export interface ColourPhoto extends ColourImage {scale: [number, number]; channel?: number; asset?: string; variation?: boolean;
   detail?: ColourImage; properties?: {roughness: number; normal_scale: number}}
 export type GroundMaterial = THREE.MeshLambertMaterial | THREE.MeshStandardMaterial;
-export interface ColourSplat {base: ColourImage; mask: ColourImage; images: ColourPhoto[]; origin: [number, number]; materials?: number[]}
+export interface GroundPass {image: number; first: number; bounds: [number, number, number, number];
+  frames: {source: [number, number]; atlas: [number, number, number, number]; constant?: number}[]; weight: ColourImage}
+export interface RegionalGround {dimensions: [number, number]; uv_origin: [number, number]; passes: GroundPass[]; bytes: number; split: number}
+export interface ColourSplat {base: ColourImage; mask: ColourImage; images: ColourPhoto[]; origin: [number, number]; materials?: number[]; ground?: RegionalGround}
 export interface GroundTextureUpdate {i: number; size: number; version: string; layers?: ColourSplat; materials?: number[]}
 interface MaterialImages {texture: string | null; dual_layer?: ColourLayers; splat?: ColourSplat}
 
 /** Texture names used by a material, including its original tile and keep mask. Pure. */
 export function materialImages(material?: MaterialImages): string[] {
   if (!material) return [];
+  if (material.splat?.ground) return [...new Set([material.splat.base.name,
+    ...material.splat.images.flatMap(p => p.detail ? [p.name, p.detail.name] : [p.name]),
+    ...material.splat.ground.passes.filter(p => p.weight.size).map(p => p.weight.name)])];
   if (material.splat) return [...new Set([material.splat.base.name, material.splat.mask.name,
     ...material.splat.images.flatMap(p => p.detail ? [p.name, p.detail.name] : [p.name])])];
   return [...new Set([material.texture, material.dual_layer?.base, material.dual_layer?.mask].filter((name): name is string => !!name))];
@@ -92,7 +98,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
 }
 
 // Cotangent frame from screen derivatives preserves +Y normals against the actual KN5 V direction, including slopes.
-const tangentFrame = `
+export const tangentFrame = `
   mat3 m2lTangentFrame(vec3 eye, vec3 normal, vec2 uv) {
     vec3 dx = dFdx(eye), dy = dFdy(eye);
     vec2 sx = dFdx(uv), sy = dFdy(uv);
@@ -107,7 +113,7 @@ const tangentFrame = `
 // CSP's nm4 shaders blend two translated samples using a spatial noise field. The browser uses its own deterministic
 // value-noise field at the nm4 procedural reference frequency; CSP supplies its internal txNoise.
 // Masks and the original A layer never pass through it.
-const variationShader = `
+export const variationShader = `
   varying vec2 m2lWorldXZ;
   uniform float m2lNoiseFrequency;
   float m2lHash(vec2 p) { return fract(sin(dot(p, vec2(0.317, 0.819))) * 43758.5453); }

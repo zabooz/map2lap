@@ -1,6 +1,41 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
+import {GroundFrame, GroundLayer} from "./groundRender";
+import type {ColourSplat, GroundMaterial, GroundPass} from "./colourBlend";
+
+test("regional Apply uses the View budget and refuses a replacement before changing the displayed ground", async () => {
+  const view = Object.create(TrackView.prototype) as TrackView;
+  const geometry = new THREE.PlaneGeometry(256, 256, 8, 8), sourceMaterial = new THREE.MeshLambertMaterial();
+  const mesh = new THREE.Mesh(geometry, sourceMaterial); mesh.userData.info = {material: 0};
+  const texture = new THREE.Texture(), failures: string[] = [];
+  const fields = {token: 1, loading: new AbortController(), trackName: "test", data: {textures: []}, scene: new THREE.Scene(),
+    renderer: {capabilities: {maxSamples: 4}, getDrawingBufferSize: (out: THREE.Vector2) => out.set(10, 10)},
+    settings: {memoryGb: 1}, usedBytes: 0, meshes: [mesh], materials: [sourceMaterial], textureChanges: new Map(),
+    splatTexture: async () => texture, pruneSplatImages: () => {}, onViewFailed: (m: string) => failures.push(m)};
+  Object.assign(view, fields);
+  const state = view as unknown as typeof fields & {groundFrame: GroundFrame; groundLayers: Map<number, GroundLayer>;
+    prepareGround: (k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) => void};
+  const pass: GroundPass = {image: -1, first: 0, bounds: [.25, .25, .5, .5], frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
+  const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"}, images: [], origin: [0, 0],
+    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass]}};
+  const first = new THREE.MeshLambertMaterial();
+  let commits = 0;
+  state.prepareGround(0, first, layers, () => { commits++; state.materials[0] = first; mesh.material = first; });
+  await view.texturesReady();
+  const oldLayer = state.groundLayers.get(0)!, oldScene = [...state.groundFrame.scene.children], oldMap = first.map;
+  const region = ((oldScene[0] as THREE.Mesh).children[0] as THREE.Mesh).geometry;
+  const bytes = 6000 + 2 * region.getIndex()!.array.byteLength;
+  expect(state.usedBytes).toBe(bytes);
+  state.settings.memoryGb = (bytes + 1) / 1024 ** 3;
+  state.prepareGround(0, new THREE.MeshLambertMaterial(), layers, () => { commits++; });
+  await expect(view.texturesReady()).rejects.toThrow("memory");
+  expect(commits).toBe(1); expect(failures).toHaveLength(1);
+  expect(state.groundLayers.get(0)).toBe(oldLayer); expect(state.groundFrame.scene.children).toEqual(oldScene);
+  expect(mesh.material).toBe(first); expect(first.map).toBe(oldMap); expect(state.usedBytes).toBe(bytes);
+  oldLayer!.dispose(); state.groundFrame.dispose(); expect(state.usedBytes).toBe(0);
+  expect(geometry.getAttribute("position")).toBeDefined();
+});
 
 function dds(colour: number) {
   const bytes = new ArrayBuffer(136), header = new Int32Array(bytes, 0, 31);

@@ -10,8 +10,8 @@ const roughness = {name: "ground-roughness.png", mimeType: "image/png", buffer: 
 test("optional material maps keep original roles and settings after importing and reloading", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  const panel = page.getByRole("dialog", {name: "Textures"});
-  await panel.locator('input[type="file"]').setInputFiles(image);
+  const panel = page.getByRole("dialog", {name: "Asset library"});
+  await panel.getByLabel('Texture file').setInputFiles(image);
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await dialog.getByLabel("Normal map (optional)", {exact: true}).setInputFiles(normal);
   await dialog.getByLabel("Roughness map (optional)", {exact: true}).setInputFiles(roughness);
@@ -45,7 +45,7 @@ test("optional material maps keep original roles and settings after importing an
 test("optional material maps prepare serially and discard a replaced pending map", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  await page.getByRole("dialog", {name: "Textures"}).locator('input[type="file"]').setInputFiles(image);
+  await page.getByRole("dialog", {name: "Asset library"}).getByLabel('Texture file').setInputFiles(image);
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await expect(dialog.getByRole("img", {name: "Texture preview"})).toBeVisible();
   let release!: () => void;
@@ -79,7 +79,7 @@ test("optional material maps prepare serially and discard a replaced pending map
 test("optional material maps reject invalid data until removed without importing a partial material", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  await page.getByRole("dialog", {name: "Textures"}).locator('input[type="file"]').setInputFiles(image);
+  await page.getByRole("dialog", {name: "Asset library"}).getByLabel('Texture file').setInputFiles(image);
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await dialog.getByLabel("Normal map (optional)", {exact: true}).setInputFiles({name: "broken.png", mimeType: "image/png", buffer: Buffer.from("broken")});
   await expect(dialog.getByRole("alert")).toContainText("Normal map");
@@ -97,8 +97,8 @@ test("optional material maps reject invalid data until removed without importing
 test("optional material maps cancelled during preparation cannot enter the next import", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  const panel = page.getByRole("dialog", {name: "Textures"});
-  await panel.locator('input[type="file"]').setInputFiles(image);
+  const panel = page.getByRole("dialog", {name: "Asset library"});
+  await panel.getByLabel('Texture file').setInputFiles(image);
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await expect(dialog.getByRole("img", {name: "Texture preview"})).toBeVisible();
   let release!: () => void;
@@ -115,7 +115,7 @@ test("optional material maps cancelled during preparation cannot enter the next 
     await expect.poll(() => uploads.length).toBe(1);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
-    await panel.locator('input[type="file"]').setInputFiles({...image, name: "next-colour.png"});
+    await panel.getByLabel('Texture file').setInputFiles({...image, name: "next-colour.png"});
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("button", {name: "Add to library", exact: true})).toBeDisabled();
     expect(uploads).toEqual(["normal"]);
@@ -134,9 +134,9 @@ test("optional material maps cancelled during preparation cannot enter the next 
 test("import previews a material, keeps its settings and finds it after a reload", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  const panel = page.getByRole("dialog", {name: "Textures"});
+  const panel = page.getByRole("dialog", {name: "Asset library"});
   await expect(panel).toContainText("No textures yet");
-  await panel.locator('input[type="file"]').setInputFiles(image);
+  await panel.getByLabel('Texture file').setInputFiles(image);
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await expect(dialog.getByRole("img", {name: "Texture preview"})).toBeVisible();
   await dialog.getByLabel("Name", {exact: true}).fill("Summer meadow");
@@ -161,15 +161,15 @@ test("import previews a material, keeps its settings and finds it after a reload
 test("cancelled and invalid imports leave the library unchanged and typing cannot edit the track", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  const panel = page.getByRole("dialog", {name: "Textures"});
-  await panel.locator('input[type="file"]').setInputFiles(image);
+  const panel = page.getByRole("dialog", {name: "Asset library"});
+  await panel.getByLabel('Texture file').setInputFiles(image);
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await dialog.getByLabel("Name", {exact: true}).fill("xxx material");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(page.locator("#edit-select")).toHaveClass(/on/);
   expect((await (await page.request.get("/api/library/materials")).json()).total).toBe(0);
-  await panel.locator('input[type="file"]').setInputFiles({name: "broken.png", mimeType: "image/png", buffer: Buffer.from("broken")});
+  await panel.getByLabel('Texture file').setInputFiles({name: "broken.png", mimeType: "image/png", buffer: Buffer.from("broken")});
   await expect(dialog).toContainText("Could not read this image");
   await expect(dialog.getByRole("button", {name: "Add to library", exact: true})).toBeDisabled();
 });
@@ -177,7 +177,7 @@ test("cancelled and invalid imports leave the library unchanged and typing canno
 test("library filters keep their keys instead of switching the active Editor tool", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Edit", exact: true}).click();
-  const panel = page.getByRole("dialog", {name: "Textures"});
+  const panel = page.getByRole("dialog", {name: "Asset library"});
   await panel.getByLabel("Filter textures").focus();
   await page.keyboard.press("m");
   await expect(page.locator("#edit-select")).toHaveClass(/on/);

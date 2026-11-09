@@ -666,8 +666,8 @@ class SaveTest(Base):
         self.edits(["t_0_0#0"])
         real = kn5.without_faces
 
-        def and_a_build_writes(*args):
-            moved = real(*args)
+        def and_a_build_writes(*args, **kwargs):
+            moved = real(*args, **kwargs)
             stat = os.stat(args[0])
             os.utime(args[0], ns=(stat.st_atime_ns, stat.st_mtime_ns + 1000))
             return moved
@@ -681,8 +681,8 @@ class SaveTest(Base):
         self.edits(["t_0_0#0"])
         real = kn5.without_faces
 
-        def and_another_tab_saves(*args):
-            moved = real(*args)
+        def and_another_tab_saves(*args, **kwargs):
+            moved = real(*args, **kwargs)
             self.edits(["t_0_0#1"])
             return moved
         with mock.patch.object(kn5, "without_faces", side_effect=and_another_tab_saves):

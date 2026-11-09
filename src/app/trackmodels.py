@@ -204,11 +204,16 @@ def grounded(scan, objects, placed, under):
 def cold_recipe(ac, name):
     """Rebase editable model bindings onto a compiled track; its source edits have already been applied once."""
     record = compiled(ac, name)
+    from app import tracknative
+    regional = tracknative.inherited(ac, name, trackview.kn5_path(ac, name))
     if not record:
-        return None
+        if not regional.get('paints'):
+            return None
+        record = {'placed': [], 'models': []}
+    paints = regional["paints"]
     return {"source": None, "cold_models": True, "base": objectlist.state_of(trackview.kn5_path(ac, name)),
             "kn5": objectlist.state_of(trackview.kn5_path(ac, name)), "saved": 0, "deleted": record.get("model_deleted", []), "sorts": [],
-            "object_sorts": [], "heights": [], "placed": record["placed"], "copies": [], "paints": [], "models": record["models"]}
+            "object_sorts": [], "heights": [], "placed": record["placed"], "copies": [], "paints": paints, "models": record["models"]}
 
 
 def view_matrices(scan, placed, heights):

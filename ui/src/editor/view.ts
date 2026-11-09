@@ -11,7 +11,9 @@ import type {CopyPose} from "./copying";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
+import {modelLight} from "./modelLighting";
 import type {ModelInstance} from "./edits";
+import {GroundFrame, GroundLayer} from "./groundRender";
 import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type GroundMaterial, type ColourLayers, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 import {placeOnRoute, routeMetres} from "./ride";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt, trackArea,
@@ -313,7 +315,14 @@ const textureTurn = oneByOne(TEXTURES_AT_A_TIME);
 /** The texture with the file name file from its bytes. */
 async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: number, linear = false) {
   let t: THREE.Texture;
-  if (/\.dds$/i.test(file)) {
+  if (/\.r16$/i.test(file)) {
+    const header = new DataView(buf);
+    if (header.getUint32(0, true) !== 0x5747324d) throw new Error("Invalid regional ground atlas");
+    const width = header.getUint32(4, true), height = header.getUint32(8, true);
+    if (!width || !height || buf.byteLength !== 12 + width * height * 2) throw new Error("Invalid regional ground dimensions");
+    t = new THREE.DataTexture(new Uint16Array(buf, 12), width, height, THREE.RedFormat, THREE.HalfFloatType);
+    t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  } else if (/\.dds$/i.test(file)) {
     const d = new DDSLoader().parse(buf, true);
     if (d.format === THREE.RGBAFormat) {
       t = new THREE.DataTexture(d.mipmaps[0].data, d.width, d.height, THREE.RGBAFormat);
@@ -400,6 +409,9 @@ export class TrackView {
   private copyStamp: number[] = [];
   private groundVersion = 0;
   private copyGhost: THREE.Group | null = null;
+  private copyRelease: (() => void) | null = null;
+  private modelGhostVersion = 0;
+  private modelLight: THREE.WebGLRenderTarget | null = null;
   private copyFoot = new THREE.Vector3();
   private copyPose: CopyPose = {turn: 0, y: 0, scale: 1};
   private onCopyPlace: ((at: [number, number, number]) => void) | null = null;
@@ -436,6 +448,8 @@ export class TrackView {
   private splatBindings = new Map<number, Set<string>>();
   private splatPending = new Map<number, SplatPending>();
   private sourceMaterials = new Map<number, MaterialInfo>();
+  private groundLayers = new Map<number, GroundLayer>();
+  private groundFrame: GroundFrame | null = null;
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -545,6 +559,7 @@ export class TrackView {
     this.token++;
     this.loading.abort();
     this.clear();
+    this.modelLight?.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
     this.renderer.dispose();
@@ -830,7 +845,7 @@ export class TrackView {
       return;
     }
     this.data = data;
-    if (data.models?.length) await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {});
+    if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
     this.ensureSplatState();
     if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Discard all can remove these edits.`);
@@ -1576,6 +1591,7 @@ export class TrackView {
       const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
       if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) throw new Error("The models exceed the Editor memory limit");
       this.usedBytes += bytes; reserved = bytes;
+      if (data.models?.length) this.ensureModelLight();
       await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
       if (mine !== this.token || asked !== this.modelTransformVersion) return;
       this.detachModelMeshes();
@@ -1676,13 +1692,15 @@ export class TrackView {
 
   /** A translucent source follows the mouse; each left click places another independent instance. */
   setCopy(source: string | null, place: ((at: [number, number, number]) => void) | null, foot?: number[]) {
+    this.modelGhostVersion++;
     if (this.copyGhost) {
       this.scene.remove(this.copyGhost);
-      for (const child of this.copyGhost.children as THREE.Mesh[]) {
+      if (!this.copyRelease) for (const child of this.copyGhost.children as THREE.Mesh[]) {
         child.geometry.dispose();
         (child.material as THREE.Material).dispose();
       }
     }
+    this.copyRelease?.(); this.copyRelease = null;
     this.copyGhost = null;
     this.copyStamp = [];
     this.onCopyPlace = place;
@@ -1718,6 +1736,42 @@ export class TrackView {
     this.followCopy();
   }
 
+  private ensureModelLight() {
+    if (!this.modelLight) {
+      const target = modelLight(this.renderer);
+      const bytes = target.width * target.height * 8; // RGBA16F, shared once per viewport.
+      if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) { target.dispose(); throw new Error("The model lighting exceeds the Editor memory limit"); }
+      this.modelLight = target; this.usedBytes += bytes;
+    }
+    this.modelDraw.setEnvironment(this.modelLight.texture);
+    return this.modelLight.texture;
+  }
+
+  /** A library preview has no draft instance yet; its decoded resources live only until placement mode ends. */
+  async setModelGhost(model: {id: string; anchor: number[]; metres_per_unit: number}, place: (at: [number, number, number]) => void) {
+    this.setCopy(null, place);
+    const version = this.modelGhostVersion, holder = new THREE.Scene();
+    const draw = new ModelDraw(holder, undefined, bytes => {
+      if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+      this.usedBytes += bytes; return true;
+    }, false);
+    this.copyRelease = () => draw.dispose();
+    const transform = new THREE.Matrix4().makeScale(model.metres_per_unit, model.metres_per_unit, model.metres_per_unit)
+      .multiply(new THREE.Matrix4().makeTranslation(-model.anchor[0], -model.anchor[1], -model.anchor[2]));
+    try {
+      draw.setEnvironment(this.ensureModelLight());
+      await draw.sync([{id: "ghost", asset: model.id}], {[model.id]: {url: `/api/library/models/${model.id}/original`}}, {ghost: transform.toArray()});
+      if (version !== this.modelGhostVersion) { draw.dispose(); return; }
+      const root = draw.instance("ghost")!, group = new THREE.Group();
+      root.traverse(node => { if (node instanceof THREE.Mesh) for (const m of Array.isArray(node.material) ? node.material : [node.material]) {
+        m.transparent = true; m.opacity *= .5; m.depthWrite = false;
+      } });
+      group.matrixAutoUpdate = false; group.add(root);
+      this.copyGhost = group; this.copyFoot.set(0, 0, 0); this.copyStamp = [];
+      this.scene.add(group); this.followCopy();
+    } catch (error) { draw.dispose(); if (version === this.modelGhostVersion) this.onViewFailed((error as Error).message); }
+  }
+
   /** Extra turn, height over the ground and size for the next copies, around their foot. */
   setCopyPose(pose: CopyPose) {
     this.copyPose = {turn: pose.turn, y: pose.y, scale: pose.scale};
@@ -1747,6 +1801,9 @@ export class TrackView {
         .multiply(new THREE.Matrix4().makeScale(scale, scale, scale))
         .multiply(new THREE.Matrix4().makeTranslation(-this.copyFoot.x, -this.copyFoot.y, -this.copyFoot.z));
       this.copyGhost.matrixWorldNeedsUpdate = true;
+      performance.clearMarks("map2lap.models.ghost");
+      performance.mark("map2lap.models.ghost", {detail: {visible: this.copyGhost.visible,
+        matrix: this.copyGhost.matrix.clone().multiply(this.copyGhost.children[0]?.matrix ?? new THREE.Matrix4()).toArray()}});
     }
     this.dirty = true;
   }
@@ -2461,6 +2518,8 @@ export class TrackView {
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
       const renderStarted = performance.now();
+      try { for (const layer of this.groundLayers?.values() ?? []) layer.follow(); this.groundFrame?.render(this.camera); }
+      catch (error) { const message = String((error as Error).message ?? error); if (message !== this.paintFailure) { this.paintFailure = message; this.onViewFailed(message); } }
       this.renderer.render(this.scene, this.camera);
       if (this.data?.models?.length) {
         performance.clearMarks("map2lap.models.frame");
@@ -2486,6 +2545,8 @@ export class TrackView {
   private clear() {
     this.modelTransformVersion++;
     this.modelDraw.dispose();
+    for (const layer of this.groundLayers?.values() ?? []) layer.dispose();
+    this.groundLayers?.clear(); this.groundFrame?.dispose(); this.groundFrame = null;
     this.paintVersion++;
     this.paintLoading?.abort();
     for (const change of this.textureChanges.values()) change.abort();
@@ -2502,6 +2563,7 @@ export class TrackView {
     this.roadRegionOverlay?.clear();
     this.roadInfluenceOverlay?.clear();
     this.setCopy(null, null);
+    this.modelLight?.dispose(); this.modelLight = null;
     this.copyVersion++;
     this.copyLoading?.abort();
     this.stopRide();
@@ -2699,6 +2761,7 @@ export class TrackView {
   }
 
   private prepareSplat(k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) {
+    if (layers.ground) { this.prepareGround(k, material, layers, ready); return; }
     this.ensureSplatState();
     const data = this.data!, mine = this.token, keys = new Set<string>();
     const entry: SplatPending = {keys, done: Promise.resolve()};
@@ -2718,6 +2781,7 @@ export class TrackView {
       }
       material.map = original;
       bindSplat(material, keep, images as THREE.Texture[], layers, packed);
+      this.removeGround(k);
       this.splatBindings.set(k, keys);
       ready(); this.dirty = true;
     }).catch(error => {
@@ -2734,6 +2798,43 @@ export class TrackView {
     });
   }
 
+  private removeGround(k: number) {
+    this.groundLayers?.get(k)?.dispose(); this.groundLayers?.delete(k);
+    if (!this.groundLayers?.size) { this.groundFrame?.dispose(); this.groundFrame = null; }
+  }
+
+  private prepareGround(k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) {
+    this.ensureSplatState(); this.groundLayers ??= new Map();
+    const data = this.data!, mine = this.token, keys = new Set<string>();
+    const entry: SplatPending = {keys, done: Promise.resolve()}; this.splatPending.set(k, entry);
+    const current = () => mine === this.token && this.splatPending.get(k) === entry && !this.loading.signal.aborted;
+    const base = this.splatTexture(layers.base, data, keys);
+    const photos = layers.images.map(ref => this.splatTexture(ref, data, keys));
+    const maps = layers.images.map(ref => ref.detail ? this.splatTexture(ref.detail, data, keys) : Promise.resolve(null));
+    const masks = layers.ground!.passes.map(pass => pass.weight.size ? this.splatTexture(pass.weight, data, keys) : Promise.resolve(null));
+    entry.done = Promise.all([base, ...photos, ...maps, ...masks]).then(loaded => {
+      if (!current()) return;
+      const original = loaded[0], images = loaded.slice(1, 1 + photos.length), packed = loaded.slice(1 + photos.length, 1 + photos.length + maps.length);
+      const weights = loaded.slice(1 + photos.length + maps.length);
+      if (!original || images.some(p => !p) || weights.some((p, i) => layers.ground!.passes[i].weight.size && !p) || packed.some((p, i) => layers.images[i].detail && !p)) throw new Error("Not enough editor memory for these ground materials");
+      const frame = this.groundFrame ?? new GroundFrame(this.renderer, this.scene,
+        bytes => { if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false; this.usedBytes += bytes; return true; },
+        bytes => { this.usedBytes -= bytes; });
+      const replacement = new GroundLayer(frame, layers, original, images as THREE.Texture[], packed, weights, material.color);
+      try {
+        for (const mesh of this.meshes) if (mesh.userData.info.material === k) replacement.attach(mesh);
+        frame.bind(material);
+      } catch (error) { replacement.dispose(); if (!this.groundFrame) frame.dispose(); throw error; }
+      this.groundFrame = frame;
+      this.groundLayers.get(k)?.dispose(); this.groundLayers.set(k, replacement);
+      this.splatBindings.set(k, keys); ready(); this.dirty = true;
+    }).catch(error => { if (current()) { this.paintFailure = String(error.message ?? error); this.onViewFailed(this.paintFailure); } })
+      .finally(() => {
+        if (this.splatPending.get(k) === entry) this.splatPending.delete(k);
+        if (mine === this.token) { if (this.materials[k] !== material) material.dispose(); this.pruneSplatImages(); }
+      });
+  }
+
   private refreshSplat(next: GroundTextureUpdate) {
     const data = this.data!, descriptor = data.textures[next.i], oldLayers = descriptor.layers;
     if (descriptor.version === next.version && this.textureVersion(next.i) === next.version && !!oldLayers === !!next.layers) return;
@@ -2744,6 +2845,7 @@ export class TrackView {
       this.sourceMaterials.set(k, source);
       const old = this.materials[k];
       if (!next.layers) {
+        this.removeGround(k);
         this.splatPending.delete(k); this.splatBindings.delete(k);
         data.materials[k] = source;
         this.materials[k] = undefined;
@@ -2755,7 +2857,7 @@ export class TrackView {
         data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
       } else {
         const layers = next.layers, colour = old.color.clone();
-        const material: GroundMaterial = layers.images.some(ref => ref.detail)
+        const material: GroundMaterial = !layers.ground && layers.images.some(ref => ref.detail)
           ? new THREE.MeshStandardMaterial({color: colour, roughness: 1, metalness: 0})
           : new THREE.MeshLambertMaterial({color: colour});
         this.prepareSplat(k, material, layers, () => {
@@ -2841,7 +2943,7 @@ export class TrackView {
     const d = data.materials[k], b = Math.min(1, d.bright);
     this.ensureSplatState();
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
-    const m: GroundMaterial = d.splat?.images.some(ref => ref.detail)
+    const m: GroundMaterial = !d.splat?.ground && d.splat?.images.some(ref => ref.detail)
       ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: 1, metalness: 0})
       : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
@@ -2898,6 +3000,8 @@ export class TrackView {
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
     this.scene.add(m);
+    try { this.groundLayers?.get(info.material)?.attach(m); }
+    catch (error) { this.paintFailure = String((error as Error).message ?? error); this.onViewFailed(this.paintFailure); }
     this.meshes.push(m);
     if (info.base !== null && info.base !== undefined) {
       if (!this.parts.has(info.base)) this.parts.set(info.base, []);

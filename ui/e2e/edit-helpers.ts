@@ -110,9 +110,10 @@ export async function deleteAllOf(page: Page, at: {x: number; y: number}, label:
   const mark = page.getByRole("menuitem", {name: label});
   const text = await mark.innerText();
   await mark.click();
+  await page.getByRole("tab", {name: "Details", exact: true}).click();
   await expect(page.locator("#edit-marked")).toBeVisible();
   await page.keyboard.press("Delete");
-  await expect(page.locator("#edit-marked")).toBeHidden();
+  await expect(page.locator("#edit-marked")).toHaveCount(0);
   return text;
 }
 

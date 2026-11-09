@@ -137,8 +137,11 @@ def problems(paints):
 def validate(ac, name, revision, paints):
     if problems(paints):
         raise ValueError(problems(paints))
+    from app import tracknative
+    path, _scan = trackview._scan_of(ac, name, revision)
+    inherited = set(tracknative.inherited(ac, name, path)["paints"])
     for id in paints:
-        folder, record = operation(ac, name, id, revision)
+        folder, record = operation(ac, name, id, None if id in inherited else revision)
         asset = _resolve(ac, name, "materials", record["asset"])
         description = _verified(asset / "asset.json", record["asset"])
         _validate_asset(asset, description)
@@ -261,18 +264,25 @@ def _source_digest(path, revision, i, offset, size):
 
 
 def _plan(ac, name, revision, paints, errors=None):
-    from app import trackdetail
+    from app import trackdetail, tracknative
     path, scan = trackview._scan_of(ac, name, revision)
+    retained = tracknative.inherited(ac, name, path)
+    inherited = set(retained["paints"])
+    # Regional sources retain the untouched base plus their complete editable
+    # paint list. An explicit empty draft therefore means restore that base.
+    effective = list(dict.fromkeys(paints if 'render_sources' in retained else [*retained["paints"], *paints]))
     grouped = {}
-    for id in paints:
+    for id in effective:
         try:
-            _folder, record = operation(ac, name, id, revision)
+            _folder, record = operation(ac, name, id, None if id in inherited else revision)
         except (ValueError, OSError) as error:
             if errors is None:
                 raise
             errors.append(str(error))
             continue
         for tile in record["tiles"]:
+            if id in inherited and tile["tile"] not in retained["tiles"]:
+                continue
             grouped.setdefault(tuple(tile["tile"]), []).append(id)
     result = {}
     for i, (filename, offset, size) in enumerate(scan["textures"]):
@@ -305,15 +315,14 @@ def descriptors(ac, name, revision, paints, reset=(), errors=None):
     """Immutable versions and allocation bounds; never composite or encode a texture here."""
     if problems(paints):
         raise ValueError(problems(paints))
-    if not paints and not reset:
-        return []
     path, scan = trackview._scan_of(ac, name, revision)
     plan = _plan(ac, name, revision, paints, errors)
     result = []
+    resolved = {}
     from app import trackdetail
     for i, version in plan.items():
         try:
-            layers = trackdetail.describe(ac, name, version)
+            layers = trackdetail.describe(ac, name, version, resolved)
         except (ValueError, OSError) as error:
             if errors is None:
                 raise
@@ -338,10 +347,12 @@ def changed(ac, name, revision, before, after):
 
 
 def _layers(ac, name, revision, paints, key):
+    from app import tracknative
+    retained = set(tracknative.inherited(ac, name, trackview._scan_of(ac, name, revision)[0])["paints"])
     layers, assets = [], {}
     numbers = {}
     for id in paints:
-        folder, record = operation(ac, name, id, revision)
+        folder, record = operation(ac, name, id, None if id in retained else revision)
         asset = record["asset"]
         if asset not in numbers:
             asset_folder = _resolve(ac, name, "materials", asset)
@@ -395,6 +406,9 @@ def _bundle_inputs(ac, name, paints):
     """Active edit files and metadata for native source materials, including a transferred track's embedded layers."""
     operations, materials = {}, {}
     _path, scan, _revision = trackview._scanned(ac, name)
+    from app import tracknative
+    inherited = tracknative.inherited(ac, name, _path)["paints"]
+    paints = list(dict.fromkeys([*inherited, *paints]))
     used = {texture for material in scan["materials"] for _slot, _index, texture in material.maps}
     saved = Path(trackview.kn5_path(ac, name)).parent / BUNDLE / "materials"
     if saved.is_dir():

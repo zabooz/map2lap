@@ -65,7 +65,8 @@ Select uses Shift for all matching objects or prepared ground areas, including s
 
 **Properties** (Editor):
 The docked right panel for the clicked selection, its material/texture and retained object details. Selection stays pinned
-while the separate Under pointer section follows the mouse. Its width comes from the 3D view's space; hiding it restores that space.
+while the separate Under pointer section follows the mouse. Details also contains track size, draft estimates and all edit
+notes/recovery actions. Its width comes from the 3D view's space; hiding it restores that space.
 
 **Material library** (Editor):
 User-imported material maps and their physical repeat size, variation, category and source information. Versioned immutable packages under
@@ -73,7 +74,8 @@ User-imported material maps and their physical repeat size, variation, category 
 under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. Importing a material alone does
 not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
 the import dialog accepts all three roles. The Editor preview uses normal and roughness maps for imported PBR materials;
-existing source and colour-only fields retain their lighting. Production AC output currently keeps the colour fallback.
+existing source and colour-only fields retain their lighting. Regional AC output binds normals through CSP nm4 and converts
+roughness to an explicit specular-strength approximation; it does not implement PBR roughness.
 
 **Model package** (Editor):
 An immutable user asset under `library/objects/<id>`, with its original GLB and a versioned description of source scale,
@@ -94,7 +96,9 @@ public release from the official site on request (`app/csp.py`). CSP runs inside
 **Ground texture edit** (Editor):
 An immutable selected-ground mask and retained library colour texture snapshot (`app/trackpaint.py`). Ordered ids in the draft/recipe
 select separately repeated full-resolution colour layers (`app/trackdetail.py`), leaving positions, triangles and physics unchanged.
-Native materials keep the original tile and up to three replacement colours; integer UV origins align arbitrary repeat sizes.
+Semantic edits and preview keep unrestricted contributions. Regional native materials have at most four local contributors;
+Save explicitly refuses denser transition/filter halos while the draft remains intact. Exact float2 repeat sizes and UV
+origins align the photos. Dense six-way and distant-filter support remain open release requirements.
 Saved tracks keep their active inputs in `data/map2lap_paints`; derived mask/colour DDS under `cache/track-details` can be rebuilt
 without the library.
 

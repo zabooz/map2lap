@@ -192,9 +192,13 @@ in glTF's Y-up metre frame. This core performs no shader conversion or physical 
 The importer bounds file size, JSON metadata, geometry, node references and image dimensions before publishing a package.
 External resources, required extensions, skinning, animations, morph targets, sparse accessors, non-triangle topology and
 additional vertex attributes are explicit import errors. Original material and image resources are never silently removed.
-The Editor's **Models** button opens this library. Import a GLB, give it a name and metres per source unit, choose the default
+The Objects tool group's **INSERT** button (I) opens the shared asset library on its **OBJECTS** tab; **TEXTURES** contains
+the ground picker used by Edit texture. Fields keep their typing shortcuts. Import a GLB, give it a name and metres per source unit, choose the default
 collision, then add it to the library. The preview shows the GLB materials, including cutout leaves. **Place on ground** accepts
 repeated ground clicks until Esc. **Replace selected tree** accepts a picked tree or bush and preserves its current placement.
+Before placement a translucent model follows the mouse over the ground. Its Turn, Height and Size options also affect each
+new placement, including the modifier-wheel controls used by Copy. Model previews and placed GLBs share viewport reflection
+lighting without altering imported metallic or roughness factors or the original terrain lighting.
 An already imported instance can receive a different asset without changing its instance id or pose. The normal Move tool
 provides dragging, turn, height and size; bindings and prepared source poses enter the same Undo/Redo step.
 Copy and Duplicate create a new model binding to the same frozen snapshot, preserving the source turn and size while
@@ -253,11 +257,13 @@ maps independently of their library entry. Save validates their digests and incl
 schema 1 snapshots remain readable with their retained colour image; originals absent from those snapshots cannot be recovered.
 The operation format still assigns a material id to selected areas and contains no shader channels or render-region palette.
 
-`app/trackdetail.py` retains imported images as separately repeated full-resolution layers. One RGBA selection image per
-edited tile assigns the original tile to A and up to three replacement materials to RGB. This is the four-slot limit of the
-native `ksMultilayer_objsp` material, not a library limit. Reapplying a material to the same region replaces its old owner,
-freeing that slot. Too many simultaneous replacements are refused before the draft is written. Ground colour images must
-be opaque. Each layer retains independent X/Y repeat sizes; the same colour pixels at different sizes share their DDS.
+`app/trackdetail.py` retains imported images as separately repeated full-resolution layers. Semantic operations and the
+browser retain all material contributions, including soft overlaps. Native Save partitions an edited tile into spatial
+regions with at most four contributors, including the original only where its weight is positive. Five or six distributed
+materials can therefore share a tile. A transition whose local filter halo still needs more than four materials is explicitly
+refused by Save before staging; Apply, preview and draft remain unrestricted. Dense six-way junctions and distant cross-region
+filtering remain open release requirements. Ground colour images must be opaque. Each layer retains exact independent X/Y
+repeat sizes; identical photos and normal maps share their DDS, without cutting geometry at photo repetitions.
 
 Immutable layouts bind the source and ordered operations. First preparation resolves masks and publishes a small layout;
 subsequent draft/index reads reuse that metadata. They do not composite colour tiles or encode DDS. The mask and shared
@@ -265,7 +271,9 @@ colour DDS endpoints encode missing cached files lazily under `cache/track-detai
 Prepared mask pixels are retained as a lossless PNG in disposable cache, avoiding repeated weight calculation after an
 in-memory eviction or restart. A missing PNG is rebuilt from the retained operation masks. RGBA mask channels are independent
 weights, not alpha-associated colour: each mip is filtered independently and its weights sum to 255. Masks use lossless
-uncompressed RGBA8 DDS, avoiding BC3 colour/alpha quantization changing their brightness; photos remain BC1 DDS. A full
+uncompressed RGBA8 DDS, avoiding BC3 colour/alpha quantization changing their brightness. The classic colour path uses BC1
+photos; regional photos use BC3 with independent gloss alpha. A local FP16 mask is retained when RGBA8 exceeds the weight
+error budget. A full
 2048² mask including mips occupies about 22.4 MB instead of 5.6 MB for BC3. The descriptor, memory budget and Save's disk
 estimate include the actual size. This preserves 12.5 cm mask resolution instead of silently downsampling road boundaries.
 The renderer samples masks as linear data and colours as sRGB, blends the retained original tile with the repeating photos,
@@ -274,9 +282,12 @@ downloads cannot overwrite a newer selection. Until a complete layout fits and l
 Reapplying the same immutable operation moves it to the end rather than creating duplicate ids. Apply can retry a failed
 preview download even if the retained draft already contains that operation; success is reported only after the preview loads.
 
-Save embeds those same mask/colour bytes, retains every original tile payload and writes the native layer material. Integer
-tile origins are added to UVs so arbitrary repeat sizes remain aligned across tiles. Positions, normals, tangents, triangles
-and physical surface prefixes stay unchanged. The source is retained for Undo/Discard, and the saved recipe/bundle carries
+Save writes cropped RGBA region masks with filter halos and shared photos in `ksMultilayer_objsp` materials. Imported normal
+maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to
+a specular-strength approximation in photo alpha; this is not PBR roughness. Regional render copies are `nocol_`; the edited
+source is hidden for rendering while its collision vertices and indices remain byte-identical. Global UV origins and native
+float2 multipliers keep physical repeats exact. Cold reopen retains the editable source; removing paints restores its render
+flag on Save. The source is retained for Undo/Discard, and the saved recipe/bundle carries
 the operation masks and normalized colour snapshots. Saving a transferred track also retains the material snapshots referenced
 by its native source layers, so another edit or Save as copy keeps their names, physical sizes and previews. Legacy full-surface
 world-space colours remain source layers when part of that ground receives a new material. Even without the local source cache, the native material remains
@@ -292,11 +303,17 @@ unchanged. No bigger colour tile or extra photo copies are produced.
 
 Save keeps the native `ksMultilayer_objsp` material as a regular-repeating fallback. A managed include in the saved track's
 `extension/ext_config.ini` selects CSP's `ksMultilayer_objsp_nm4` for marked materials, enables only the imported layers'
-`tilingFixR/G/B` and leaves `tilingFixA` off. Missing normal maps are filled with flat defaults. The owned include is
+`tilingFixR/G/B/A` for the applicable imported channels. Missing normal maps are filled with flat defaults. The owned include is
 regenerated during Save and removed when no source/edited materials need it; unrelated effects remain. Without CSP the
 track remains driveable with ordinary repetition. The browser and CSP use the same two-sample mixing rule, but CSP's
 internal noise differs from the browser's deterministic field, so individual shifted patches need not occupy identical places.
-The implementation adds texture samples; frame-rate cost is not inferred from unit tests.
+The implementation adds texture samples; frame-rate cost is not inferred from unit tests. Normal orientation, specular
+calibration, distant filtering and large-track performance still need native validation.
+
+The Inspector's **Details** tab holds all edit counts, selection notes, errors and recovery actions previously below the
+tools. A persistent attention button also works with the Inspector collapsed. Track statistics measure the current KN5 file
+and fetch a draft size estimate on demand; an unchanged track is labelled measured. An unrepresentable native draft shows
+its reason instead of inventing a size. Editing controls remain over the view.
 
 ## Render-region probes
 
@@ -336,7 +353,7 @@ Browser tests compare dense twelve-material mixtures, individual contributions a
 reference; exercise serialized fixture reopening; verify normal/roughness lighting, rectangular repeats and variation; and
 check near, far and fractional mip transitions. Reports count actual texture allocations and draws. Completion-wall timings
 include CPU/graphics synchronization, not GPU timer queries or track FPS. The lighting probe is separate from CSP.
-No user track, draft or library is modified. The production renderer's three-replacement restriction remains in effect;
+No user track, draft or library is modified by the standalone probe. The live browser now uses unrestricted regional weights;
 the AC rendering path and the complete Editor editing/save workflow are not validated by this probe.
 
 ## Build facts and painted ground selection

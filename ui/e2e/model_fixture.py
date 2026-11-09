@@ -8,13 +8,16 @@ import numpy as np
 from PIL import Image
 
 
-def tree(default_material=False):
+def tree(default_material=False, metallic=False):
     document = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0}],
                 "buffers": [], "bufferViews": [], "accessors": [], "meshes": [{"primitives": []}],
                 "materials": [{"pbrMetallicRoughness": {"baseColorFactor": [.22, .08, .025, 1], "metallicFactor": 0}, "doubleSided": True},
                               {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0},
                                "alphaMode": "MASK", "alphaCutoff": .5, "doubleSided": True}],
                 "textures": [{"source": 0}], "images": []}
+    if metallic:
+        for material in document['materials']:
+            material['pbrMetallicRoughness'].update(metallicFactor=1, roughnessFactor=1)
     binary = bytearray()
 
     def view(raw):
@@ -52,4 +55,4 @@ def tree(default_material=False):
 
 
 if __name__ == "__main__":
-    sys.stdout.buffer.write(tree("--default-material" in sys.argv))
+    sys.stdout.buffer.write(tree("--default-material" in sys.argv, "--metallic" in sys.argv))

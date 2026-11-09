@@ -177,12 +177,14 @@ def index(ac, name):
     path, _s, revision = _scanned(ac, name)
     from app import trackedits
     _path, s, listed = trackedits.context(ac, name, revision)
+    from app import tracknative
     first = _first_faces(s["meshes"], s["materials"])
+    native_sources=tracknative.inherited(ac,name,path).get('render_sources',{})
     meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
                "first_face": first.get(i), "base": _base(m["name"]) if i in first else None, "copy": bool(m.get("copy")),
                **({"model": m["model"]} if m.get("model") else {})}
-              for i, m in enumerate(s["meshes"]) if m["renderable"]]
+              for i, m in enumerate(s["meshes"]) if (m["renderable"] or native_sources.get(m['name'])) and not m["name"].startswith(tracknative.PREFIX)]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
     facts = editorinfo.manifest(path)
     from app import trackpaint

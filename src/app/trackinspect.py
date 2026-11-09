@@ -9,6 +9,30 @@ from PIL import Image
 from app import materiallibrary, trackdetail, trackedits, trackpaint, trackview
 
 
+def statistics(ac, name):
+    """Measure the current KN5 and estimate the draft on demand, without writing or a save staging folder."""
+    current = Path(trackview.kn5_path(ac, name)).stat().st_size
+    draft = trackedits.load(ac, name)
+    changed = trackedits.changes(ac, name) > 0
+    result = {'current_bytes': current, 'draft_bytes': current, 'estimated': bool(changed)}
+    if not changed:
+        return result
+    try:
+        path, scan, _objects = trackedits.context(ac, name, draft['base'])
+        source = trackview._scan_of(ac, name, draft['base'])[1]
+        added = scan['meshes'][len(source['meshes']):]
+        size = Path(path).stat().st_size + sum(128 + len(m['name'].encode()) + m['vertices'] * 44 + m['indices'] * 2 for m in added)
+        size += sum(len(raw) for raw in scan.get('model_images', {}).values())
+        if draft['paints']:
+            descriptors = trackpaint.descriptors(ac, name, draft['base'], draft['paints'])
+            native = trackdetail.native_descriptors(ac, name, descriptors)
+            size += trackdetail.save_size(native, source, path)
+        result['draft_bytes'] = size
+    except (ValueError, OSError, trackview.Unreadable) as error:
+        result.update(draft_bytes=None, error=str(error))
+    return result
+
+
 def object_info(ac, name, object_id, revision):
     """One listed object's own faces, related ids and original build parameters, for the served source revision."""
     path, _scan = trackview._scan_of(ac, name, revision)
@@ -129,6 +153,16 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
         if record["texture"] != base:
             raise ValueError("The texture version belongs to another ground tile")
         layout = trackdetail.describe(ac, name, version)
+        if "ground" in layout:
+            semantic, fields, _coverage = trackdetail._semantic(ac, name, record, path, scan, _filename)
+            width, height = semantic["dimensions"]
+            col, row = min(width - 1, max(0, int(u * width))), min(height - 1, max(0, int((1 + v) * height)))
+            weights = [float(fields[ref["id"]][row, col]) for ref in layout["images"]]
+            residual = max(0., 1. - sum(weights))
+            if weights and max(weights) > residual:
+                result.update(_appearance_ref(ac, name, revision, scan, layout["images"][weights.index(max(weights))]))
+            result["mixed"] = sum(value > .05 for value in [*weights, residual]) > 1
+            return result
         refs, raw, dual = layout["images"], trackdetail.mask(ac, name, version), False
     elif source["images"]:
         refs = [{**ref, "name": scan["textures"][ref["i"]][0]} for ref in source["images"]]

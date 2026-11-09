@@ -1,6 +1,7 @@
 """Selection details are read on demand, leaving the loading index small."""
 import io
 import json
+from pathlib import Path
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
@@ -16,6 +17,26 @@ from app import trackedits, trackview
 class InspectorTest(unittest.TestCase):
     def setUp(self):
         test_trackview.TrackViewTest.setUp(self)
+
+    def test_track_size_is_measured_and_draft_estimate_is_read_only(self):
+        from app import trackinspect
+        current = Path(self.path).stat().st_size
+        result = trackinspect.statistics(self.ac, self.name)
+        self.assertEqual(current, result['current_bytes'])
+        self.assertEqual(current, result['draft_bytes'])
+        draft = trackedits.load(self.ac, self.name)
+        with (mock.patch.object(trackedits, 'load', return_value={**draft, 'heights': [[0, 0, 1]]}),
+              mock.patch.object(trackedits, 'changes', return_value=1)):
+            estimate = trackinspect.statistics(self.ac, self.name)
+        self.assertEqual(current, estimate['current_bytes'])
+        self.assertGreaterEqual(estimate['draft_bytes'], current)
+        self.assertTrue(estimate['estimated'])
+        self.assertEqual(draft, trackedits.load(self.ac, self.name))
+        with (mock.patch.object(trackedits, 'load', return_value={**draft,'paints':['already saved']}),
+              mock.patch.object(trackedits,'changes',return_value=0)):
+            saved=trackinspect.statistics(self.ac,self.name)
+        self.assertFalse(saved['estimated'])
+        self.assertEqual(current,saved['draft_bytes'])
 
     def test_only_the_requested_object_with_hidden_parts_and_original_parameters(self):
         from app import trackinspect

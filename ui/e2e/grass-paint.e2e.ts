@@ -10,7 +10,7 @@ test("a road offers Edit and opens its material picker without object replacemen
   await expect(menu.getByRole("menuitem", {name: "Smooth road"})).toBeVisible();
   await expect(menu.getByRole("menuitem", {name: "Replace…"})).toHaveCount(0);
   await menu.getByRole("menuitem", {name: "Edit…"}).click();
-  await expect(page.getByRole("dialog", {name: "Textures"})).toContainText("Asphalt");
+  await expect(page.getByRole("dialog", {name: "Asset library"})).toContainText("Asphalt");
 });
 
 test("apply a grass material, undo, redo, reload and save a standalone copy", async ({page, backend}) => {
@@ -19,8 +19,8 @@ test("apply a grass material, undo, redo, reload and save a standalone copy", as
   const original = await picture(page);
   const panel = page.getByRole("complementary", {name: "Selection properties"});
   await panel.getByRole("button", {name: "Edit", exact: true}).click();
-  const picker = page.getByRole("dialog", {name: "Textures"});
-  await picker.locator('input[type="file"]').setInputFiles({name: "grass.png", mimeType: "image/png",
+  const picker = page.getByRole("dialog", {name: "Asset library"});
+  await picker.getByLabel('Texture file').setInputFiles({name: "grass.png", mimeType: "image/png",
     buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVQIHWP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64")});
   const dialog = page.getByRole("dialog", {name: "Import texture"});
   await expect(dialog.getByRole("img", {name: "Texture preview"})).toBeVisible();

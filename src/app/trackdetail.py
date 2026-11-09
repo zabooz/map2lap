@@ -12,7 +12,7 @@ from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
 from track.textures import dds_mipmaps, dds_size, dds_weights
 
-PROFILE = 6
+PROFILE = 7
 BINDINGS_SCHEMA = 1
 BINDINGS_FILE = Path("data", "map2lap_ground_layers.json")
 
@@ -195,6 +195,8 @@ def _compiled_bindings(ac, name, path, descriptors, scan):
     for descriptor in descriptors:
         layout = descriptor.get("layers")
         if layout:
+            if "ground" in layout:
+                continue
             slots = {"RGB"[ref["channel"]]: ref["asset"] for ref in layout["images"] if "asset" in ref}
             for i in layout["materials"]:
                 result[scan["materials"][i].name] = slots
@@ -218,8 +220,17 @@ def write_bindings(ac, name, path, descriptors, scan, target):
         (Path(target).parent / BINDINGS_FILE).unlink(missing_ok=True)
 
 
-def _semantic(ac, name, record, path, scan, filename):
+def _resolved_asset(ac, name, id, resolved):
+    """Validate colour and data maps once per descriptor/index operation; never reuse validation across requests."""
+    if id not in resolved:
+        _path, meta, dimensions = _asset(ac, name, id)
+        resolved[id] = (meta, dimensions, _detail(ac, name, id, meta))
+    return resolved[id]
+
+
+def _semantic(ac, name, record, path, scan, filename, resolved=None):
     """Original material composition and retained map metadata, independent of native shader slots."""
+    resolved = {} if resolved is None else resolved
     key = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
     source = _source(scan, record["texture"])
     if source["kind"] == "splat":
@@ -249,14 +260,13 @@ def _semantic(ac, name, record, path, scan, filename):
             id = Path(assets[number][0]).parent.name
             token = "asset:" + id
             if token not in weights:
-                _asset_path, meta, dimensions = _asset(ac, name, id)
+                meta, dimensions, detail = _resolved_asset(ac, name, id, resolved)
                 images[token] = {"asset": id, "name": "map2lap_material_" + meta["image"] + ".dds", "key": meta["image"],
                                  "url": _url(name, "paint-asset", id), "size": dds_size(*dimensions),
                                  "variation": materiallibrary.varies(meta),
                                  "scale": [256. / v for v in meta["repeat"]], "repeat": list(meta["repeat"]),
                                  "maps": meta.get("maps", {"colour": {"file": "colour.png", "sha256": meta["image"], "colour_space": "srgb"}}),
                                  "properties": materiallibrary.properties(meta)}
-                detail = _detail(ac, name, id, meta)
                 if detail:
                     images[token]["detail"] = detail
                 weights[token] = np.zeros((height, width), np.float32)
@@ -285,9 +295,9 @@ def _semantic(ac, name, record, path, scan, filename):
     return layout, {token: weights[token] / divisor for token in palette}, coverage
 
 
-def _compute(ac, name, record, path, scan, filename):
+def _compute(ac, name, record, path, scan, filename, composition=None):
     """Encode the existing three-slot colour layout from the shared semantic composition."""
-    semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename)
+    semantic, weights, _coverage = composition or _semantic(ac, name, record, path, scan, filename)
     if len(weights) > 3:
         raise ValueError("A 256 m ground tile can use at most three replacement materials; reuse a material or undo a replacement")
     width, height = semantic["dimensions"]
@@ -312,18 +322,36 @@ def _keep_weights(version, pixels):
     trackpaint._atomic(_cache(version, "weights").with_suffix(".png"), output.getvalue())
 
 
-def describe(ac, name, version):
+def describe(ac, name, version, resolved=None):
     """Small immutable layout; cached metadata avoids pixel work on repeated PUTs and index reads."""
     record, path, scan, filename = _view(ac, name, version)
+    resolved = {} if resolved is None else resolved
     target = trackpaint._out("paint-views", version) / "layers.json"
     try:
         saved = trackpaint._read(target)
         if (saved.get("profile") == PROFILE
                 and saved.get("digest") == trackpaint._digest({k: v for k, v in saved.items() if k != "digest"})):
+            for ref in saved["layout"]["images"]:
+                if "asset" in ref:
+                    _resolved_asset(ac, name, ref["asset"], resolved)
             return _with_urls(name, version, saved["layout"])
     except ValueError:
         pass
-    layout, pixels = _compute(ac, name, record, path, scan, filename)
+    composition = _semantic(ac, name, record, path, scan, filename, resolved)
+    if len(composition[1]) > 3:
+        from app import trackregions
+        semantic, weights, _coverage = composition
+        def store(key, raw):
+            trackpaint._atomic(_cache(key, "region").with_suffix(".r16"), raw)
+        ground = trackregions.compile(semantic, weights, version, store)
+        key = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+        ground["uv_origin"] = [key[0], -key[1]] if semantic["source"]["global_uv"] else [0, 0]
+        layout = {k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}
+        layout.update(ground=ground, mask={"name": "regional", "size": 0})
+        saved = {"profile": PROFILE, "layout": layout}
+        trackpaint._atomic(target, trackpaint._json_bytes({**saved, "digest": trackpaint._digest(saved)}))
+        return _with_urls(name, version, layout)
+    layout, pixels = _compute(ac, name, record, path, scan, filename, composition)
     width, height = layout.pop("dimensions")
     layout["mask"] = {"name": "map2lap_mask_" + version + ".dds", "key": version, "linear": True,
                       "size": dds_size(width, height, uncompressed=True)}
@@ -338,10 +366,47 @@ def describe(ac, name, version):
 
 def _with_urls(name, version, layout):
     """Bind retained content to this track's endpoints; a saved copy may outlive the original track. Pure."""
-    return {**layout, "mask": {**layout["mask"], "url": _url(name, "paint-mask", version)},
+    return {**layout,
+            **({"ground": {**layout["ground"], "passes": [{**p, "weight": {**p["weight"],
+                "url": f"/api/editor/{name}/paint-region/{version}/{p['weight']['key']}"}} for p in layout["ground"]["passes"]]}}
+               if "ground" in layout else {}),
+            "mask": {**layout["mask"], "url": _url(name, "paint-mask", version)},
             "images": [{**ref, **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
                         **({"detail": {**ref["detail"], "url": _url(name, "paint-data", ref["asset"])}} if "detail" in ref else {})}
                        for ref in layout["images"]]}
+
+
+@functools.lru_cache(maxsize=128)
+def _region_keys_at(path, state):
+    """Small ownership sets per immutable descriptor revision, not another copy of all pass metadata."""
+    saved=trackpaint.json.loads(Path(path).read_bytes())
+    if saved.get('profile')!=PROFILE or saved.get('digest')!=trackpaint._digest({k:v for k,v in saved.items() if k!='digest'}):
+        raise ValueError('The regional ground descriptor has changed')
+    return frozenset(p['weight']['key'] for p in saved['layout'].get('ground',{}).get('passes',[]))
+
+
+def region_image(ac, name, version, key):
+    """One immutable regional R16F atlas, reconstructed from retained original inputs after cache eviction."""
+    trackpaint._key(key)
+    record,path,scan,filename=_view(ac,name,version)
+    manifest=trackpaint._out('paint-views',version)/'layers.json'
+    try:
+        stat=manifest.stat()
+    except FileNotFoundError:
+        describe(ac,name,version)
+        stat=manifest.stat()
+    keys=_region_keys_at(str(manifest),(stat.st_ino,stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size))
+    if key not in keys:
+        raise ValueError("This region does not belong to the ground version")
+    target = _cache(key, "region").with_suffix(".r16")
+    if not target.is_file():
+        with trackpaint._rendering:
+            if not target.is_file():
+                from app import trackregions
+                semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename)
+                trackregions.compile(semantic, weights, version,
+                    lambda token, raw: trackpaint._atomic(_cache(token, "region").with_suffix(".r16"), raw))
+    return target.read_bytes()
 
 
 def detail_image(ac, name, asset):
@@ -414,13 +479,49 @@ def mask(ac, name, version):
         return target.read_bytes()
 
 
-def save_size(descriptors, scan):
-    """Additional shared image bytes needed by Save, before any DDS is encoded. Pure."""
+def native_descriptors(ac, name, descriptors):
+    """Select real native PBR output even for one to three materials, independently of the browser adapter."""
+    from app import trackregions
+    result, resolved = [], {}
+    for descriptor in descriptors:
+        layout = descriptor.get("layers", {})
+        pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
+        if pbr and "ground" not in layout:
+            record, path, scan, filename = _view(ac, name, descriptor["version"])
+            semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename, resolved)
+            ground = trackregions.compile(semantic, weights, descriptor["version"], lambda _key, _raw: None)
+            tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+            ground["uv_origin"] = [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]
+            layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
+            descriptor = {**descriptor, "layers": layout}
+        if 'ground' in layout:
+            from app import tracknative
+            record,path,scan,filename=_view(ac,name,descriptor['version'])
+            _semantic_layout,weights,_coverage=_semantic(ac,name,record,path,scan,filename,resolved)
+            fields={**weights,'base':np.maximum(0.,1.-sum(weights.values(),np.zeros_like(next(iter(weights.values())))))}
+            descriptor={**descriptor,'layers':{**layout,'native_regions':tracknative.palette_regions(fields)}}
+        result.append(descriptor)
+    return result
+
+
+def save_size(descriptors, scan, path):
+    """Preflight shared photographs/data maps and bounded native masks/geometry before output is allocated."""
     known = {t[0] for t in scan["textures"]}
     sizes = {}
     for descriptor in descriptors:
         layout = descriptor.get("layers")
         if not layout:
+            continue
+        if "ground" in layout:
+            from app import tracknative
+            for ref in layout["images"]:
+                if not ref["id"].startswith("asset:"):
+                    continue
+                sizes.setdefault(ref["name"], ref.get("size", 2048 * 2048 * 4) * 8 + 65536)
+                if "detail" in ref:
+                    key = ref["detail"]["key"] + trackpaint._digest(ref.get("properties", {}))
+                    sizes.setdefault(key, ref["detail"]["size"] + 65536)
+            sizes[layout["base"]["name"] + ":native"] = tracknative.save_size(layout, scan, path)
             continue
         for ref in [layout["mask"], *layout["images"]]:
             if ref["name"] not in known:
@@ -428,14 +529,25 @@ def save_size(descriptors, scan):
     return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures() if name not in known)
 
 
-def saved(ac, name, revision, descriptors, scan, change, path):
+def saved(ac, name, revision, descriptors, scan, change, path, added=()):
     """Prepare native material tables/images and integer UV origins, preserving every position and triangle."""
     materials, resources = list(scan["materials"]), {}
+    descriptors = list(descriptors)
+    regional = [d for d in descriptors if "ground" in d.get("layers", {})]
+    from app import tracknative
+    inherited=tracknative.inherited(ac,name,path)
+    restore={i:flag for i,m in enumerate(scan['meshes']) if (flag:=inherited.get('render_sources',{}).get(m['name'])) is not None}
+    native_config, owned, native_files = "", set(), {'renderable':restore}
+    if regional:
+        from app import tracknative
+        materials, resources, added, native_config, owned, native_files = tracknative.build(ac, name, regional, scan, change, path, added)
     present = {t[0] for t in scan["textures"]}
     origins = {}
     for descriptor in descriptors:
         layout = descriptor.get("layers")
         if not layout:
+            continue
+        if "ground" in layout:
             continue
         resources[layout["mask"]["name"]] = mask(ac, name, descriptor["version"])
         for ref in layout["images"]:
@@ -458,8 +570,12 @@ def saved(ac, name, revision, descriptors, scan, change, path):
             maps.append(("txDetailA", 5, layout["base"]["name"]))
             materials[i] = replace(original, shader="ksMultilayer_objsp", props=props, maps=maps)
             origins[i] = layout["origin"]
+    def finish(table, moved):
+        referenced = {n for m in materials for _slot, _i, n in m.maps}
+        images = [(n, raw) for n, raw in resources.items() if n not in present and (n not in owned or n in referenced)]
+        return table, images, moved, added, native_config, (owned - referenced) & present, native_files
     if not origins:
-        return None, [], change
+        return finish(materials if regional else None, change)
     resources.update(groundmaterial.textures())
     vertices = dict(change.vertices)
     with open(path, "rb") as file:
@@ -470,4 +586,4 @@ def saved(ac, name, revision, descriptors, scan, change, path):
             data = vertices[i].copy() if i in vertices else kn5.mesh_arrays(file, mesh)[0]
             data["uv"] += offset
             vertices[i] = data
-    return materials, [(name, raw) for name, raw in resources.items() if name not in present], kn5.Moved(vertices, change.grow, change.points)
+    return finish(materials, kn5.Moved(vertices, change.grow, change.points))
