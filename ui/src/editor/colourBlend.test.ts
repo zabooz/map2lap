@@ -27,7 +27,7 @@ test("PBR layers use retained linear detail data for tangent normals and roughne
 test("variation changes imported photo sampling while the source tile and selection mask keep their original UVs", () => {
   const material = new THREE.MeshLambertMaterial({map: new THREE.Texture()});
   bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {
-    base: {name: "original"}, mask: {name: "mask"}, origin: [-1, 2],
+    base: {name: "original"}, mask: {name: "mask"}, origin: [-1, 2], mask_extent: [1.125, 1.125], mask_origin: [-1, 2],
     images: [{name: "photo", scale: [128, 64], variation: true}],
   });
   const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader,
@@ -36,7 +36,9 @@ test("variation changes imported photo sampling while the source tile and select
   expect(shader.fragmentShader).toContain("m2lVary(m2lPhoto0");
   expect(shader.fragmentShader).toContain("textureGrad(");
   expect(shader.fragmentShader).toContain("texture2D(map, vMapUv).rgb * m2lWeights.a");
-  expect(shader.fragmentShader).toContain("texture2D(m2lKeep, vMapUv)");
+  expect(shader.fragmentShader).toContain("texture2D(m2lKeep, (vMapUv + m2lMaskOrigin) / m2lMaskExtent)");
+  expect(shader.uniforms.m2lMaskExtent.value.toArray()).toEqual([1.125, 1.125]);
+  expect(shader.uniforms.m2lMaskOrigin.value.toArray()).toEqual([-1, 2]);
   expect(shader.vertexShader).toContain("m2lWorldXZ");
   // A two-metre photograph must span several noise cells, rather than repeating ten times inside one 20 m cell.
   expect(shader.uniforms.m2lNoiseFrequency?.value * 2).toBeGreaterThan(1);

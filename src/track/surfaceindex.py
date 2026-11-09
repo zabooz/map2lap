@@ -268,12 +268,22 @@ def merge(selections):
     for selection in selections:
         for tile in selection["tiles"]:
             key = tuple(tile["tile"])
-            with Image.open(io.BytesIO(base64.b64decode(tile["mask"]))) as image:
-                mask = np.asarray(image)
-            masks[key] = np.maximum(masks[key], mask) if key in masks else mask
+            masks.setdefault(key, []).append(tile["mask"])
+    tiles = []
+    for key, encoded in masks.items():
+        # The usual single click already owns its finished PNGs. Decode only genuinely overlapping selections.
+        mask = encoded[0]
+        if any(other != mask for other in encoded[1:]):
+            combined = None
+            for raw in encoded:
+                with Image.open(io.BytesIO(base64.b64decode(raw))) as image:
+                    pixels = np.asarray(image)
+                combined = pixels if combined is None else np.maximum(combined, pixels)
+            mask = base64.b64encode(editorinfo._png(combined)).decode("ascii")
+        tiles.append({"tile": list(key), "mask": mask})
     return {"material": materials[0] if materials else "", "materials": materials,
             "truncated": any(s["truncated"] for s in selections),
-            "tiles": [{"tile": list(key), "mask": base64.b64encode(editorinfo._png(mask)).decode("ascii")} for key, mask in masks.items()]}
+            "tiles": tiles}
 
 
 def _all_matching(target, available, material, clicked):

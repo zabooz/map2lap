@@ -3,6 +3,7 @@ import functools
 import gzip
 import hashlib
 import io
+import struct
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,9 +12,9 @@ from PIL import Image
 
 from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
-from track.textures import dds_mipmaps, dds_size, dds_weights
+from track.textures import dds_mipmaps, dds_size, dds_weights, pad_weights, weight_extent
 
-PROFILE = 7
+PROFILE = 10
 BINDINGS_SCHEMA = 1
 BINDINGS_FILE = Path("data", "map2lap_ground_layers.json")
 
@@ -75,12 +76,13 @@ def _source(scan, i):
         scale = trackview._prop(material, "uvMult", 1.)
         result["images"] = [{"i": numbers[maps["txDiffuse"]], "scale": [scale, scale]}]
     elif material.shader == "ksMultilayer_objsp":
-        result.update(kind="splat", mask=numbers[maps["txMask"]])
+        extent = trackview._mask_extent(material)
+        result.update(kind="splat", mask=numbers[maps["txMask"]], mask_extent=extent)
         for channel in "RGB":
             texture = maps.get("txDetail" + channel)
             if texture and texture != groundmaterial.WHITE:
                 scale = next((list(p[2]) for p in material.props if p[0] == "mult" + channel), [1., 1.])
-                result["images"].append({"i": numbers[texture], "scale": scale, "channel": "RGB".index(channel),
+                result["images"].append({"i": numbers[texture], "scale": [v/e for v,e in zip(scale,extent)], "channel": "RGB".index(channel),
                                          "variation": trackview._prop(material, "m2lVariation" + channel, 0) == 1})
     elif scale := trackview._material(material).get("world_scale"):
         texture = maps.get("txDetailR")
@@ -93,11 +95,16 @@ def _source(scan, i):
     return result
 
 
-def _source_image(path, scan, i, revision, mode="RGBA"):
+def _source_image(path, scan, i, revision, mode="RGBA", *, source=None, tile=None, dimensions=None):
     _name, offset, size = scan["textures"][i]
     with Image.open(io.BytesIO(trackview._read(path, offset, size, revision))) as image:
-        if max(image.size) > 2048:
+        if max(image.size) > 2304:
             raise ValueError("The source ground selection image is too large")
+        if source and source.get('mask_extent', [1,1]) != [1,1]:
+            width,height=dimensions
+            xs=(np.arange(width)+tile[0]*width)%image.width
+            ys=(np.arange(height)+(-tile[1]-1)*height)%image.height
+            return np.asarray(image.convert(mode))[ys[:,None],xs[None,:]]
         return np.array(image.convert(mode))
 
 
@@ -274,7 +281,8 @@ def _semantic(ac, name, record, path, scan, filename, resolved=None):
             weights[token][on] += values[on] / 255.
     coverage = np.minimum(1., sum(weights.values(), np.zeros((height, width), np.float32)))
     if source["images"]:
-        old_mask = None if source["kind"] == "world" else _source_image(path, scan, source["mask"], record["base"])
+        old_mask = None if source["kind"] == "world" else _source_image(path, scan, source["mask"], record["base"],
+            source=source,tile=key,dimensions=(width,height))
         if old_mask is not None and old_mask.shape[:2] != (height, width):
             old_mask = np.array(Image.fromarray(old_mask).resize((width, height), Image.Resampling.BOX))
         for ref in source["images"]:
@@ -354,8 +362,11 @@ def describe(ac, name, version, resolved=None):
         return _with_urls(name, version, layout)
     layout, pixels = _compute(ac, name, record, path, scan, filename, composition)
     width, height = layout.pop("dimensions")
+    layout['mask_extent'] = list(weight_extent(width,height))
+    layout['mask_origin'] = layout['origin']
+    cw,ch=(round(size*extent) for size,extent in zip((width,height),layout['mask_extent']))
     layout["mask"] = {"name": "map2lap_mask_" + version + ".dds", "key": version, "linear": True,
-                      "size": dds_size(width, height, uncompressed=True)}
+                      "size": dds_size(cw, ch, uncompressed=True)}
     for ref in layout["images"]:
         ref.pop("url", None)
     raw = pixels.tobytes()
@@ -497,6 +508,7 @@ def mask(ac, name, version):
     target = _cache(version, "mask")
     if target.is_file():
         return target.read_bytes()
+
     with trackpaint._rendering:
         if not target.is_file():
             saved = trackpaint._read(trackpaint._out("paint-views", version) / "layers.json")
@@ -514,8 +526,52 @@ def mask(ac, name, version):
                 raise ValueError("The retained ground selection has changed")
             width, height = saved["dimensions"]
             pixels = Image.frombytes("RGBA", (width, height), raw)
-            trackpaint._atomic(target, dds_weights(pixels))
+            tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+            trackpaint._atomic(target, dds_weights(pad_weights(pixels,tile)))
         return target.read_bytes()
+
+
+def _mask_pixel(path, offset, size, u, v, tile, extent):
+    """Read one canonical tile-UV pixel; uncompressed masks need only a header and four bytes."""
+    with open(path,'rb') as file:
+        file.seek(offset); header=file.read(min(128,size))
+        if header[:4]==b'DDS ' and len(header)==128 and struct.unpack_from('<I',header,88)[0]==32 and not (struct.unpack_from('<I',header,80)[0]&4):
+            height,width=struct.unpack_from('<2I',header,12)
+            if not (0 < width <= 2304 and 0 < height <= 2304 and 128+width*height*4 <= size):
+                raise ValueError('The ground selection image has invalid dimensions')
+            if extent != [1.,1.]:
+                # The padding is rotated into world phase; never clamp these global coordinates.
+                col=int(((u+tile[0])/extent[0]%1)*width)%width
+                row=int(((v-tile[1])/extent[1]%1)*height)%height
+            else:
+                col=min(width-1,max(0,int(u*width))); row=min(height-1,max(0,int((1+v)*height)))
+            file.seek(offset+128+(row*width+col)*4)
+            packed=int.from_bytes(file.read(4),'little')
+            masks=struct.unpack_from('<4I',header,92)
+            return tuple((packed&m)>>((m&-m).bit_length()-1) if m else 255 for m in masks)
+        # Older dual-layer/DXT tracks retain their original decoding path.
+        file.seek(offset); raw=file.read(size)
+    with Image.open(io.BytesIO(raw)) as image:
+        if max(image.size)>2304: raise ValueError('The ground selection image is too large')
+        col=min(image.width-1,max(0,int(u*image.width)))
+        row=min(image.height-1,max(0,int((1+v)*image.height)))
+        return image.convert('RGBA').getpixel((col,row))
+
+
+def sample_mask(ac,name,version,u,v):
+    """One RGBA weight at canonical local u=[0,1], v=[-1,0], without decoding the full mask."""
+    record,path,scan,filename=_view(ac,name,version)
+    layout=describe(ac,name,version)
+    target=_cache(version,'mask')
+    if not target.is_file(): mask(ac,name,version)
+    tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+    return _mask_pixel(target,0,target.stat().st_size,u,v,tile,layout.get('mask_extent',[1.,1.]))
+
+
+def sample_source_mask(path,scan,source,revision,u,v,tile):
+    """One embedded source-mask RGBA weight at canonical local tile UV, including padded cold saves."""
+    _filename,offset,size=scan['textures'][source['mask']]
+    return _mask_pixel(path,offset,size,u,v,tile,source.get('mask_extent',[1.,1.]))
 
 
 def native_descriptors(ac, name, descriptors):
@@ -594,11 +650,13 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
                 resources[ref["name"]] = image(ac, name, ref["asset"])
         for i in layout["materials"]:
             original = materials[i]
-            props = [p for p in original.props if p[0] not in {"multR", "multG", "multB", "multA", "magicMult", "uvMult", "m2lUVGlobal",
+            extent = layout.get('mask_extent',[1.,1.])
+            props = [p for p in original.props if p[0] not in {"multR", "multG", "multB", "multA", "magicMult", "uvMult", "m2lUVGlobal", "m2lMaskExtent",
                                                              "m2lVariationR", "m2lVariationG", "m2lVariationB"}]
-            props.extend([(f"mult{channel}", 1., tuple(layout["images"][j]["scale"]) if j < len(layout["images"]) else (1., 1.),
+            props.extend([(f"mult{channel}", 1., tuple(v*e for v,e in zip(layout["images"][j]["scale"],extent)) if j < len(layout["images"]) else tuple(extent),
                            (0., 0., 0.), (0., 0., 0., 0.)) for j, channel in enumerate("RGB")])
-            props += [("multA", 1., (1., 1.), (0., 0., 0.), (0., 0., 0., 0.)),
+            props += [("multA", 1., tuple(extent), (0., 0., 0.), (0., 0., 0., 0.)),
+                      ("m2lMaskExtent", 1., tuple(extent), (0., 0., 0.), (0., 0., 0., 0.)),
                       ("magicMult", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)),
                       ("m2lUVGlobal", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))]
             props.extend(("m2lVariation" + channel, float(j < len(layout["images"]) and layout["images"][j].get("variation", False)),
@@ -608,7 +666,7 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
                         for j, channel in enumerate("RGB"))
             maps.append(("txDetailA", 5, layout["base"]["name"]))
             materials[i] = replace(original, shader="ksMultilayer_objsp", props=props, maps=maps)
-            origins[i] = layout["origin"]
+            origins[i] = (layout["origin"], extent, trackview._mask_extent(original))
     def finish(table, moved):
         referenced = {n for m in materials for _slot, _i, n in m.maps}
         images = [(n, raw) for n, raw in resources.items() if n not in present and (n not in owned or n in referenced)]
@@ -619,10 +677,11 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
     vertices = dict(change.vertices)
     with open(path, "rb") as file:
         for i, mesh in enumerate(scan["meshes"]):
-            offset = origins.get(mesh["material"])
-            if offset is None or offset == [0, 0]:
+            transform = origins.get(mesh["material"])
+            if transform is None:
                 continue
+            offset,extent,previous = transform
             data = vertices[i].copy() if i in vertices else kn5.mesh_arrays(file, mesh)[0]
-            data["uv"] += offset
+            data["uv"] = (data['uv'] * previous + offset) / extent
             vertices[i] = data
     return finish(materials, kn5.Moved(vertices, change.grow, change.points))

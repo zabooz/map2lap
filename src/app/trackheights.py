@@ -316,6 +316,10 @@ def moved(path, scan, objects, ops, under=None):
             meshes[i] = _mesh(f, scan["meshes"][i])
             if i in under.vertices:
                 meshes[i] = (under.vertices[i], meshes[i][1])
+            else:
+                from track import groundnormals
+                if groundnormals.GROUND.fullmatch(scan['meshes'][i]['name']):
+                    meshes[i]=(groundnormals.apply(meshes[i][0],groundnormals.patches(path).get(i)),meshes[i][1])
         return meshes[i]
 
     def reach(i):

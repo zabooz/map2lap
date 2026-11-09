@@ -261,6 +261,8 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     _check_room(os.path.dirname(folder), os.path.getsize(path), not (source or tracksource.exists(tracksource.id_of(name, own))), extra)
     try:                            # (before a source is made: refused, nothing is left behind)
         change = trackplace.changed(path, scan, objects, edits["heights"], edits["placed"])
+        from track import groundnormals
+        change = groundnormals.changed(path,change)
     except trackheights.InTheWay as e:
         raise Refused(str(e)) from e
     if source is None:

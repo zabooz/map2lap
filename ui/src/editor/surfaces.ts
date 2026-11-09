@@ -68,6 +68,22 @@ function disposeTexture(texture: THREE.Texture) {
   texture.dispose();
 }
 
+/** A selection belongs to one 256 m tile; its opposite edge must never enter the highlight. */
+function clampSelection(material: THREE.MeshBasicMaterial, tile: string) {
+  const [x, y] = tile.split("_").map(Number), texture = material.alphaMap!;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.m2lSurfaceOrigin = {value: new THREE.Vector2(-x, y + 1)};
+    shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec2 m2lSurfaceOrigin;")
+      .replace("#include <uv_vertex>", `#include <uv_vertex>
+        #ifdef USE_ALPHAMAP
+          vAlphaMapUv = (modelMatrix * vec4(position, 1.0)).xz / 256.0 + m2lSurfaceOrigin;
+        #endif`);
+  };
+  material.customProgramCacheKey = () => "map2lap-selection-tile-1";
+}
+
 /** Owns a read-only selection's masks, with cancellable decoding and the viewer's memory budget. */
 export class SurfaceOverlay {
   private version = 0;
@@ -117,6 +133,7 @@ export class SurfaceOverlay {
         if (version !== this.version) { disposeTexture(texture); return; }
         const material = new THREE.MeshBasicMaterial({color: this.colour, alphaMap: texture, opacity: this.opacity, transparent: true,
           side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
+        clampSelection(material, key);
         this.materials.set(key, {material, bytes});
         owned = true;
         for (const mesh of this.sources) if (groundTile(mesh.name) === key) this.attach(mesh, material);

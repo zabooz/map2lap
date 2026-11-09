@@ -2,6 +2,7 @@
 import functools
 import io
 import math
+import struct
 from pathlib import Path
 
 from PIL import Image
@@ -132,6 +133,32 @@ def _appearance_ref(ac, name, revision, scan, ref):
             "repeat": repeat, "variation": ref.get("variation", False), "original": False}
 
 
+def _regional_at(ac, name, version, layout, u, v):
+    """Read only the cached level-zero atlases covering the clicked texel, never recompose the tile."""
+    ground = layout["ground"]
+    width, height = ground["dimensions"]
+    col, row = min(width - 1, max(0, int(u * width))), min(height - 1, max(0, int((1 + v) * height)))
+    x, y = (col + .5) / width, (row + .5) / height
+    values = [0.] * len(layout["images"])
+    for part in ground["passes"]:
+        left, top, right, bottom = part["bounds"]
+        if part["first"] != 0 or part["image"] < 0 or not (left <= x < right and top <= y < bottom):
+            continue
+        frame = part["frames"][0]
+        if "constant" in frame:
+            value = frame["constant"]
+        else:
+            raw = trackdetail.region_image(ac, name, version, part["weight"]["key"])
+            magic, columns, rows = struct.unpack_from("<4sII", raw)
+            px = col - frame["source"][0] + frame["atlas"][0]
+            py = row - frame["source"][1] + frame["atlas"][1]
+            if magic != b"M2GW" or len(raw) != 12 + columns * rows * 2 or not (0 <= px < columns and 0 <= py < rows):
+                raise ValueError("Invalid ground weight atlas")
+            value = struct.unpack_from("<e", raw, 12 + (py * columns + px) * 2)[0]
+        values[part["image"]] += value
+    return values
+
+
 def appearance(ac, name, mesh, u, v, revision, version=""):
     """The dominant displayed colour at the clicked ground point, bound to its immutable displayed version."""
     path, scan = trackview._scan_of(ac, name, revision)
@@ -154,32 +181,25 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
             raise ValueError("The texture version belongs to another ground tile")
         layout = trackdetail.describe(ac, name, version)
         if "ground" in layout:
-            semantic, fields, _coverage = trackdetail._semantic(ac, name, record, path, scan, _filename)
-            width, height = semantic["dimensions"]
-            col, row = min(width - 1, max(0, int(u * width))), min(height - 1, max(0, int((1 + v) * height)))
-            weights = [float(fields[ref["id"]][row, col]) for ref in layout["images"]]
+            weights = _regional_at(ac, name, version, layout, u, v)
             residual = max(0., 1. - sum(weights))
             if weights and max(weights) > residual:
                 result.update(_appearance_ref(ac, name, revision, scan, layout["images"][weights.index(max(weights))]))
             result["mixed"] = sum(value > .05 for value in [*weights, residual]) > 1
+            trackview._scan_of(ac, name, revision)
             return result
-        refs, raw, dual = layout["images"], trackdetail.mask(ac, name, version), False
+        refs, dual = layout["images"], False
+        pixel = trackdetail.sample_mask(ac, name, version, u, v)
     elif source["images"]:
         refs = [{**ref, "name": scan["textures"][ref["i"]][0]} for ref in source["images"]]
         if source["kind"] == "world":
             result.update(_appearance_ref(ac, name, revision, scan, refs[0]))
             trackview._scan_of(ac, name, revision)
             return result
-        _filename, offset, size = scan["textures"][source["mask"]]
-        raw, dual = trackview._read(path, offset, size, revision), source["kind"] == "dual"
+        dual = source["kind"] == "dual"
+        pixel = trackdetail.sample_source_mask(path, scan, source, revision, u, v, (tx, ty))
     else:
         return result
-    with Image.open(io.BytesIO(raw)) as image:
-        if max(image.size) > 2048:
-            raise ValueError("The ground selection image is too large")
-        col = min(image.width - 1, max(0, int(u * image.width)))
-        row = min(image.height - 1, max(0, int((1 + v) * image.height)))
-        pixel = image.convert("RGBA").getpixel((col, row))
     weights = [255 - pixel[0]] if dual else [pixel[ref.get("channel", j)] for j, ref in enumerate(refs)]
     if weights and max(weights) > 255 - sum(weights):
         ref = refs[weights.index(max(weights))]

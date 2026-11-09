@@ -100,6 +100,11 @@ def _prop(material, name, default):
     return next((p[1] for p in material.props if p[0] == name), default)
 
 
+def _mask_extent(material):
+    """Native mask UV compression, independent of physical photograph repetition. Pure."""
+    return next((list(p[2]) for p in material.props if p[0] == 'm2lMaskExtent'), [1., 1.])
+
+
 def _material(material):
     """Names, colour-layer inputs/scales, ksAmbient + ksDiffuse and alpha flags for the view. Pure."""
     texture = next((tex for slot, _n, tex in material.maps if slot == "txDiffuse"), None)
@@ -120,16 +125,18 @@ def _material(material):
             result.update(texture=maps["txDetailR"], world_scale=[scale, scale])
     elif material.shader == "ksMultilayer_objsp":
         maps = {slot: tex for slot, _n, tex in material.maps}
+        extent = _mask_extent(material)
         if maps.get("txDetailA") and maps.get("txMask"):
             images = []
             for channel in "RGB":
                 filename = maps.get("txDetail" + channel)
                 if filename and filename != groundmaterial.WHITE:
                     scale = next((list(p[2]) for p in material.props if p[0] == "mult" + channel), [1., 1.])
-                    images.append({"name": filename, "scale": scale, "channel": "RGB".index(channel),
+                    images.append({"name": filename, "scale": [v/e for v,e in zip(scale,extent)], "channel": "RGB".index(channel),
                                    "variation": _prop(material, "m2lVariation" + channel, 0) == 1})
             result.update(texture=maps["txDetailA"], splat={"base": {"name": maps["txDetailA"]},
-                          "mask": {"name": maps["txMask"], "linear": True}, "images": images, "origin": [0, 0]})
+                          "mask": {"name": maps["txMask"], "linear": True}, "images": images, "origin": [0, 0],
+                          "mask_extent": extent, "mask_origin": [0,0]})
     return result
 
 
@@ -383,13 +390,21 @@ def mesh_bytes(ac, name, i, revision, moved=None, draft=None, copy_revision=None
     if copy_revision is None and draft is not None and draft != s.get("draft"):
         raise ModelsChanged("The model objects changed")
     m = s["meshes"][i]
+    from track import groundnormals
+    patch=groundnormals.patches(path).get(i) if groundnormals.GROUND.fullmatch(m['name']) else None
     if "data" in m:
         vertices, faces = m["data"]
         data = vertices.tobytes() + struct.pack("<i", faces.size) + faces.tobytes()
     else:
         data = _read(path, m["offset"], m["vertices"] * VERTEX_BYTES + 4 + m["indices"] * 2, revision)
-    if moved and i in moved.vertices:
-        return moved.vertices[i].tobytes() + data[m["vertices"] * VERTEX_BYTES:]
+    extent = _mask_extent(s['materials'][m['material']])
+    if moved and i in moved.vertices or extent != [1.,1.] or patch is not None:
+        import numpy as np
+        vertices = moved.vertices[i] if moved and i in moved.vertices else np.frombuffer(data,kn5.VERTEX,m['vertices'])
+        if not (moved and i in moved.vertices):vertices=groundnormals.apply(vertices,patch)
+        if extent != [1.,1.]:
+            vertices=vertices.copy(); vertices['uv'] *= extent
+        return vertices.tobytes() + data[m["vertices"] * VERTEX_BYTES:]
     return data
 
 

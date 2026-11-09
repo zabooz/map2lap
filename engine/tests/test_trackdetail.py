@@ -791,12 +791,11 @@ class DetailTest(unittest.TestCase):
         answer = self.keep(operations)
         layer = answer["textures"][0]["layers"]
         self.assertEqual(1, len(layer["images"]))
-        with Image.open(io.BytesIO(trackdetail.mask(self.ac, self.name, answer["textures"][0]["version"]))) as encoded:
-            values = np.array(encoded.convert("RGBA"))
-        self.assertEqual(255, int(values[5, 5, 0]))
-        self.assertEqual(0, int(values[5, 5, 3]))
-        self.assertEqual(0, int(values[16, 16, 0]))
-        self.assertEqual(255, int(values[16, 16, 3]))
+        version=answer['textures'][0]['version']
+        selected=trackdetail.sample_mask(self.ac,self.name,version,5.5/32,5.5/32-1)
+        road=trackdetail.sample_mask(self.ac,self.name,version,16.5/32,16.5/32-1)
+        self.assertEqual((255,0),(selected[0],selected[3]))
+        self.assertEqual((0,255),(road[0],road[3]))
 
     def test_same_colour_at_different_repeat_sizes_shares_one_embedded_image(self):
         first = self.operation(self.material((180, 30, 40), (2, 2)))
@@ -881,9 +880,8 @@ class DetailTest(unittest.TestCase):
         old = next((ref for ref in layout["images"] if ref["name"] == "old_photo.png"), None)
         self.assertIsNotNone(old, "existing world-space colour was discarded")
         self.assertEqual([128, 128], old["scale"])
-        with Image.open(io.BytesIO(trackdetail.mask(self.ac, self.name, descriptor["version"]))) as mask:
-            self.assertEqual(255, mask.getpixel((20, 20))[old["channel"]])
-            self.assertEqual(0, mask.getpixel((2, 2))[old["channel"]])
+        self.assertEqual(255,trackdetail.sample_mask(self.ac,self.name,descriptor['version'],20.5/32,20.5/32-1)[old['channel']])
+        self.assertEqual(0,trackdetail.sample_mask(self.ac,self.name,descriptor['version'],2.5/32,2.5/32-1)[old['channel']])
 
     def test_dense_six_way_soft_weights_remain_editable_and_native_save_refuses(self):
         self._six_material_source(distributed=False)
@@ -1116,7 +1114,8 @@ class DetailTest(unittest.TestCase):
         for a, b in zip(before["root"].children, saved["root"].children):
             np.testing.assert_array_equal(a.vertices["pos"], b.vertices["pos"])
             np.testing.assert_array_equal(a.indices, b.indices)
-        np.testing.assert_array_equal(before["root"].children[1].vertices["uv"] + (1, 0), saved["root"].children[1].vertices["uv"])
+        np.testing.assert_allclose(before["root"].children[1].vertices["uv"] + (1, 0),
+            saved["root"].children[1].vertices["uv"] * trackview._mask_extent(saved['materials'][1]), atol=1e-7)
         shutil.rmtree(Path(self.tmp.name, "library"))
         shutil.rmtree(Path(self.tmp.name, "cache"), ignore_errors=True)
         shutil.rmtree(Path(self.tmp.name, "out/paint-assets"))

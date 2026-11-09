@@ -63,7 +63,28 @@ Without a ground selection, the right-clicked surface becomes the selection; a l
 the served source revision. These descriptions stay out of `/index` and `/copies`. `/thumbnail` converts one source texture
 to a browser-readable PNG at most 256 px wide/high and caches at most 32 encoded previews; revision validation still runs on
 cache hits. Selection changes cancel detail requests and discard late results. Original build parameters describe the source;
-placements and height changes remain separate. The preview of painted ground is its combined tile texture.
+placements and height changes remain separate. Appearance shows the dominant retained colour image at the selected point.
+An unrelated tile finishing its textures never remounts that card. Simple RGBA8 masks are inspected by reading only their
+header and one pixel; regional ground reads the existing level-zero atlas at that point instead of recomposing the tile.
+Selection metadata appears before its highlight finishes decoding, and already encoded selection masks are merged without
+decoding them unless different selections overlap on the same tile.
+The highlight samples its mask in tile-local world coordinates with clamped edges; selecting a surface cannot mix the
+opposite edge into a thin blue line, including on sources with global UVs.
+
+Simple replacement masks have an extruded, world-phase-aligned border: a 2048-pixel tile uses a 2304-pixel canvas.
+The 128-pixel guard on each side keeps the opposite repeated edge out of bilinear filtering through mip seven; the complete
+mip chain remains, so coarser levels still average more distant areas. This adds 26.56% mask area, without enlarging the
+photographs. Saved material UVs and multipliers compensate for the canvas together; the Editor exposes canonical tile UVs
+again for picking and later edits. Old sources remain readable. The cache profile regenerates preview masks; saving again
+writes the guarded masks into AC without a track build. Native regional masks retain the true two-source-texel halo and
+extend it by at most 128 pixels per axis, capped at half that region's span. This bounds each ordinary region canvas to
+four times its unpadded area; tiny regions retain the minimum halo. Large regions gain filtering room through mip seven,
+while the complete cross-region far-filtering contract remains separate.
+Terrain pieces meeting at exactly the same 3D point on a 256 m tile boundary share area-weighted geometric normals and
+orthogonal tangents. Preview and Save apply small cached patches without modifying the retained source; new generator
+outputs receive the same correction. Different heights and interior vertices stay separate. A height edit starts from
+these shared normals before applying its deformation, so saving preserves the edited lighting. Existing tracks receive
+the correction on their next Save, without rebuilding their geometry from map data.
 
 Its buttons stand in the sidebar by groups (`ui/src/editor/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Discard all), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Discard all asks before taking back every edit, including previously saved edits, as one undoable step; Save writes the restored track. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
 Road camera (K) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).

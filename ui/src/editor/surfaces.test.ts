@@ -31,6 +31,25 @@ const mesh = (name: string) => {
 const selection = {material: "gc_meadow", truncated: false, tiles: [{tile: [0, 0] as [number, number],
   mask: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="}]};
 
+test("selection masks clamp in tile-local world coordinates instead of wrapping the opposite edge", async () => {
+  const scene = new THREE.Scene(), source = mesh("1GRASS_ground_16_-9"), texture = new THREE.Texture();
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  const overlay = new SurfaceOverlay(scene, () => {}, () => true, () => {}, async () => texture);
+  await overlay.set({...selection, tiles: [{...selection.tiles[0], tile: [16, -9]}]}, [source]);
+  try {
+    expect(Number(texture.wrapS)).toBe(THREE.ClampToEdgeWrapping);
+    expect(Number(texture.wrapT)).toBe(THREE.ClampToEdgeWrapping);
+    const material = (scene.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    const shader = {uniforms: {}, vertexShader: "#include <common>\n#include <uv_vertex>", fragmentShader: ""};
+    material.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    const origin = (shader.uniforms as Record<string, {value: THREE.Vector2}>).m2lSurfaceOrigin.value;
+    expect(origin.toArray()).toEqual([-16, -8]);
+    expect(new THREE.Vector2(4096, 2048).divideScalar(256).add(origin).toArray()).toEqual([0, 0]);
+    expect(new THREE.Vector2(4352, 2304).divideScalar(256).add(origin).toArray()).toEqual([1, 1]);
+    expect(shader.vertexShader).toContain("vAlphaMapUv =");
+  } finally { overlay.clear(); source.geometry.dispose(); (source.material as THREE.Material).dispose(); }
+});
+
 test("surface highlighting follows all physics meshes of its tile, shares geometry, and leaves picking and geometry intact", async () => {
   const scene = new THREE.Scene(), a = mesh("1ROAD_ground_0_0"), b = mesh("1GRASS_ground_0_0_1"), tree = mesh("nocol_trees_0_0");
   let bytes = 0, decoded = 0, disposed = 0;

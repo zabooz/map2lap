@@ -30,11 +30,13 @@ export function SurfaceInfo({name, surfaces, view, children, onSelected}: {name:
         }
         const result: SurfaceSelection = {material: materials[0], materials, truncated: regions.some(r => r.truncated),
           tiles: regions.flatMap(r => r.tiles), meshes: [...faces].map(([mesh, f]) => ({mesh, faces: [...f]}))};
+        // Metadata is ready before the full-resolution highlight finishes decoding/uploading.
+        setSelected(result); onSelected?.(result);
         await view.setSurface(result, message => { if (!controller.signal.aborted) setError(message); });
-        if (!controller.signal.aborted) { setSelected(result); onSelected?.(result); }
       } catch (e) {
         if (!controller.signal.aborted) {
           void view.setSurface(null);
+          setSelected(null); onSelected?.(null);
           setError(e instanceof Error ? e.message : "Could not select this ground");
         }
       }

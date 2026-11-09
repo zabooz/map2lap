@@ -132,7 +132,7 @@ function Appearance({name, picked, version, onEdit}: {name: string; picked: Pick
 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
 export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, textureRevision, notes, attention}: {
+  onMaterialOpen, notes, attention}: {
   name: string; picked: Picked | null; hovered: Hovered | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
@@ -173,7 +173,7 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
         </SurfaceInfo>}
         {!chosen && !surfaces.length && !marked.length && <p className="small muted">Nothing selected. Click a surface or object in the view.</p>}
       </section>
-      {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture} ${textureVersion} ${textureRevision}`}
+      {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture}`}
         name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null} />}
       <button type="button" className={styles.materials} onClick={onMaterialOpen}>Edit</button>
       </div>

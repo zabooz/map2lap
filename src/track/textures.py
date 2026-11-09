@@ -72,6 +72,26 @@ def dds_weights(image):
     return bytes(header) + b"".join(levels)
 
 
+def weight_extent(width, height):
+    """Mask canvas/source ratios with a one-texel guard through mip seven at 2K. Pure."""
+    # AC's stock multilayer sampler repeats. 128 edge texels keep its bilinear
+    # footprint away from the opposite tile through mip 7 (16 m per mask texel).
+    return tuple((size + 2 * max(1, size // 16)) / size for size in (width, height))
+
+
+def pad_weights(image, tile):
+    """Extrude tile edges on a globally phase-locked repeating mask canvas. Pure."""
+    import numpy as np
+    width, height = image.size
+    cw, ch = (round(size * extent) for size, extent in zip(image.size, weight_extent(width, height)))
+    # UV V spans [-1, 0] inside a tile; its image rows span [0, height].
+    phase = (tile[0] * width, (-tile[1] - 1) * height)
+    xs = (np.arange(cw) - phase[0] + (cw-width)//2) % cw - (cw-width)//2
+    ys = (np.arange(ch) - phase[1] + (ch-height)//2) % ch - (ch-height)//2
+    pixels = np.asarray(image.convert('RGBA'))
+    return Image.fromarray(pixels[np.clip(ys, 0, height-1)[:, None], np.clip(xs, 0, width-1)[None, :]])
+
+
 def preserve_blocks(original, changed, mask):
     """Reuse untouched BC1/BC3 blocks at each common mip level. Pure. Other formats keep the newly encoded image."""
     import numpy as np

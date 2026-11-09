@@ -521,6 +521,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         kn5.write_streamed(kn5_path, textures, materials, root, chunks, n_nodes)
     finally:
         shutil.rmtree(chunk_dir, ignore_errors=True)
+    from track import groundnormals
+    groundnormals.write(kn5_path)
     objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]))
     editorinfo.install(kn5_path, parts)
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "

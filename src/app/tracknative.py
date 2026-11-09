@@ -181,8 +181,14 @@ def region_mask(fields, bounds, palette, phase=(0,0)):
 
 
 def canvas_size(bounds,width,height):
-    """Exact local spans plus real halo room; no photograph repetition alignment or padding. Pure."""
-    return [min(limit,max(1,bounds[k+2]-bounds[k]+4)) for k,limit in enumerate((width,height))]
+    """Local spans with bounded repeat guards; photographs retain their original resolution and phase. Pure."""
+    # AC repeats the canvas: two texels cease protecting its opposite edge at
+    # mip 2. A 128-texel guard protects 2K source filtering through mip 7. Cap
+    # each guard at half the local span so small regions grow by at most 4x in
+    # area. Sub-four-pixel regions retain their existing two-real-texel halo;
+    # their far global multi-palette filtering remains outside this contract.
+    spans=[max(1,bounds[k+2]-bounds[k]) for k in range(2)]
+    return [span+2*max(2,min(128,span//2)) for span in spans]
 
 
 def save_size(layout,scan,path):
@@ -195,6 +201,8 @@ def save_size(layout,scan,path):
         for info in scan['meshes']:
             if info['material'] not in layout['materials']: continue
             vertices,faces=kn5.mesh_arrays(file,info)
+            extent=next((p[2] for p in scan['materials'][info['material']].props if p[0]=='m2lMaskExtent'),(1.,1.))
+            if extent != (1.,1.): vertices=vertices.copy(); vertices['uv']*=extent
             for bounds,_palette in regions:
                 points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],layout['ground']['uv_origin'])
                 geometry+=len(points)*46+256
@@ -247,6 +255,8 @@ def build(ac,name,descriptors,scan,change,path,added):
                 specular=max(.15,source_values.get('ksSpecular',0.))
                 vertices,faces=kn5.mesh_arrays(file,info)
                 vertices=change.vertices.get(source_i,vertices)
+                previous=trackview._mask_extent(original)
+                if previous != [1.,1.]: vertices=vertices.copy(); vertices['uv']*=previous
                 hidden[source_i]=0
                 for number,(bounds,palette) in enumerate(regions):
                     cw,ch=canvas_size(bounds,width,height)
@@ -255,7 +265,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                     if not len(points): continue
                     phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
                     mask=resource(region_mask(fields,bounds,palette,phase=phase),'.dds')
-                    props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
+                    props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
                     props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
                     maps=[('txDiffuse',0,white),('txMask',1,mask)]
                     for j,channel in enumerate('RGBA'):
