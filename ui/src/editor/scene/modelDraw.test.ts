@@ -2,6 +2,32 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {ModelDraw} from "./modelDraw";
 
+test("retained colour-corrected Kenney models receive the matte profile without changing their binding or other models", async () => {
+  const materials = new Map<string, THREE.MeshStandardMaterial>();
+  const draw = new ModelDraw(new THREE.Scene(), async url => {
+    const material = new THREE.MeshStandardMaterial({color: 0x2cd8b8}); materials.set(url, material);
+    const root = new THREE.Group(); root.add(new THREE.Mesh(new THREE.PlaneGeometry(), material)); return root;
+  });
+  const environment = new THREE.Texture(); draw.setEnvironment(environment);
+  const source = "https://kenney.nl/assets/nature-kit";
+  const assets = {legacy: {url: "legacy", source_url: source, material_colours: "srgb"},
+    other: {url: "other", source_url: "https://example.org/other", material_colours: "srgb"},
+    explicit: {url: "explicit", source_url: source, material_colours: "srgb", material_lighting: "model"}};
+  const saved = JSON.stringify(assets);
+  const bindings = Object.keys(assets).map(id => ({id, asset: id}));
+  const matrices = Object.fromEntries(bindings.map(({id}) => [id, new THREE.Matrix4().makeTranslation(5, 2, 3).toArray()]));
+  await draw.sync(bindings, assets, matrices);
+  expect(materials.get("legacy")!.envMap).toBeNull();
+  expect(materials.get("legacy")!.toneMapped).toBe(false);
+  for (const id of ["other", "explicit"]) {
+    expect(materials.get(id)!.envMap).toBe(environment);
+    expect(materials.get(id)!.toneMapped).toBe(true);
+  }
+  expect(JSON.stringify(assets)).toBe(saved);
+  expect(draw.instance("legacy")!.matrix.toArray()).toEqual(matrices.legacy);
+  draw.dispose();
+});
+
 test("a placed model lies in the shadow of a house and throws none itself", async () => {
   const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial()));
   const draw = new ModelDraw(new THREE.Scene(), async () => source);

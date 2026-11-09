@@ -3,7 +3,7 @@ import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
 import {modelEnvironment} from "./modelLighting";
 
 interface Binding {id: string; asset: string}
-interface Asset {url: string}
+interface Asset {url: string; material_lighting?: string; material_colours?: string; source_url?: string}
 interface Loaded {root: THREE.Group; bytes: number; geometryCpuBytes: number; geometryGpuBytes: number; textureCpuEstimate: number; textureGpuEstimate: number;
   geometries: Set<THREE.BufferGeometry>; materials: Set<THREE.Material>; textures: Set<THREE.Texture>; picking: Map<number, THREE.Material>; released?: boolean}
 
@@ -101,12 +101,19 @@ export class ModelDraw {
     }
   }
 
-  private async asset(id: string, url: string) {
+  private async asset(id: string, description: Asset) {
     const active = this.assets.get(id);
     if (active) return active;
     let pending = this.pending.get(id);
     if (!pending) {
-      pending = this.load(url).then(resources).then(asset => {
+      pending = this.load(description.url).then(resources).then(asset => {
+        // Earlier Map2Lap Kenney palette packages predate the explicit matte flag. Their retained provenance
+        // selects the same material response without rewriting a saved GLB, draft binding or object pose.
+        const matte = description.material_lighting === "matte" || (description.material_lighting === undefined
+          && description.material_colours === "srgb" && description.source_url === "https://kenney.nl/assets/nature-kit");
+        if (matte) for (const material of asset.materials) if (material instanceof THREE.MeshStandardMaterial) {
+          material.userData.map2lap = {...material.userData.map2lap, lighting: "matte"};
+        }
         if (this.environment) modelEnvironment(asset.materials, this.environment, this.power);
         const own = this.pending.get(id) === pending;
         if (!own || !this.wanted.has(id)) {
@@ -125,7 +132,7 @@ export class ModelDraw {
     this.wanted = ids;
     let loaded: Map<string, Loaded>;
     try {
-      loaded = new Map(await Promise.all([...ids].map(async id => [id, await this.asset(id, descriptions[id].url)] as const)));
+      loaded = new Map(await Promise.all([...ids].map(async id => [id, await this.asset(id, descriptions[id])] as const)));
     } catch (error) {
       if (version === this.version) {
         this.wanted = new Set(this.assets.keys());

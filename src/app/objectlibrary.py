@@ -4,16 +4,18 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import threading
+from urllib.parse import urlsplit
 
 from app import materiallibrary, modeldata, modelimport
 from app.paths import ROOT
 
 SCHEMA = 1
 PREPARATION = 1
-CATEGORIES = ("tree", "building", "other")
+CATEGORIES = ("tree", "bush", "grass", "flower", "plant", "rock", "building", "prop", "other")
 _gate = threading.RLock()
 _preparing = threading.Lock()
 
@@ -63,7 +65,7 @@ def prepare(filename, raw):
         converted = Path(filename).suffix.lower() != '.glb'
         glb, warnings = modelimport.convert(filename, raw) if converted else (raw, [])
         model = modeldata.load(glb)
-        data = {"version": PREPARATION, "token": token, "bytes": len(glb), "geometry": _summary(model),
+        data = {"version": PREPARATION, "token": token, "bytes": len(glb), "geometry": _summary(model), 'lighting_options': ['model', 'matte'],
                 "model_sha256": hashlib.sha256(glb).hexdigest(), "warnings": warnings}
         if converted:
             data['source'] = {"filename": filename, "sha256": token, "bytes": len(raw),
@@ -104,6 +106,7 @@ def _settings(settings, geometry):
     return {"name": name, "category": category, "metres_per_unit": float(scale), "anchor": list(map(float, anchor)), "collision": collision,
             "tags": list(dict.fromkeys(materiallibrary._text(t, 40, "the tags", True) for t in tags)),
             "source_url": materiallibrary._text(settings.get("source", ""), 500, "the source"),
+            "creator": materiallibrary._text(settings.get("creator", ""), 200, "the creator"),
             "license": materiallibrary._text(settings.get("license", ""), 200, "the license")}
 
 
@@ -123,8 +126,12 @@ def add(settings):
                 raise ValueError('The prepared source model has changed')
         except (OSError, ValueError) as error:
             raise ValueError("The prepared model is no longer available. Choose the file again.") from error
+        colour_space = settings.get('material_colours', 'linear')
+        lighting = settings.get('material_lighting', 'model')
+        glb = modelimport.material_lighting(modelimport.material_colours((staged / 'model.glb').read_bytes(), colour_space), lighting)
+        model_sha = hashlib.sha256(glb).hexdigest()
         meta = _settings(settings, data["geometry"])
-        identity = {"schema": SCHEMA, "model": data.get('model_sha256', token),
+        identity = {"schema": SCHEMA, "model": model_sha,
                     **{k: meta[k] for k in ("category", "metres_per_unit", "anchor", "collision")}}
         id = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
         target = _folder(id)
@@ -132,17 +139,25 @@ def add(settings):
             return {"model": get(id), "duplicate": True}
         asset = {"schema": SCHEMA, "kind": "model", "id": id, **meta, "geometry": data["geometry"],
                  "model": {"file": "original/model.glb", "filename": Path(filename).stem + '.glb' if data.get('source') else filename,
-                           "sha256": data.get('model_sha256', token), "bytes": data["bytes"]}}
+                           "sha256": model_sha, "bytes": len(glb)}}
+        if colour_space == 'srgb':
+            asset['material_colours'] = colour_space
+        if lighting == 'matte':
+            asset['material_lighting'] = lighting
         if data.get('source'):
             asset['source'] = data['source']
             asset['warnings'] = data.get('warnings', [])
+        elif model_sha != data.get('model_sha256', token):
+            asset['source'] = {'filename': filename, 'sha256': token, 'bytes': data['bytes'], 'file': 'original/upload.glb'}
         target.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".import_", dir=target.parent) as temporary:
             folder = Path(temporary, "ready")
             (folder / "original").mkdir(parents=True)
-            shutil.copyfile(staged / "model.glb", folder / "original/model.glb")
+            (folder / 'original/model.glb').write_bytes(glb)
             if data.get('source'):
                 shutil.copyfile(staged / 'upload', folder / data['source']['file'])
+            elif asset.get('source'):
+                shutil.copyfile(staged / 'model.glb', folder / asset['source']['file'])
             materiallibrary._write_json(folder / "asset.json", asset)
             os.replace(folder, target)
         return {"model": asset, "duplicate": False}
@@ -170,8 +185,8 @@ def original(id):
     return raw
 
 
-def prepared_model(token):
-    """The validated canonical GLB used by the import preview, including converted FBX/OBJ uploads."""
+def prepared_model(token, material_colours='linear', material_lighting='model'):
+    """The validated preview with the chosen base-colour interpretation; staging stays unchanged."""
     token = _key(token)
     try:
         folder = _cache(token)
@@ -179,7 +194,7 @@ def prepared_model(token):
         raw = (folder / 'model.glb').read_bytes()
         if data.get('version') != PREPARATION or hashlib.sha256(raw).hexdigest() != data.get('model_sha256', token):
             raise ValueError('The prepared model has changed')
-        return raw
+        return modelimport.material_lighting(modelimport.material_colours(raw, material_colours), material_lighting)
     except OSError as error:
         raise ValueError('The prepared model is no longer available. Choose the file again.') from error
 
@@ -190,12 +205,70 @@ def source_path(folder, asset):
     if source is None:
         return None
     suffix = Path(_filename(source.get('filename'))).suffix.lower()
-    if suffix == '.glb' or source.get('file') != 'original/upload' + suffix:
+    if source.get('file') != 'original/upload' + suffix:
         raise ValueError('Invalid original source model path')
     path = Path(folder) / source['file']
     if _digest(path) != _key(source.get('sha256')):
         raise ValueError('The original source model has changed')
     return path
+
+
+def _superseded():
+    """Catalogue replacements are separate from immutable packages and do not change existing model references."""
+    try:
+        data = materiallibrary._json(Path(ROOT, 'library/objects/superseded.json'))
+        return {_key(old): _key(new) for old, new in data.items()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+def supersede(old, new):
+    """Show a replacement in the catalogue while retaining both original packages for existing references."""
+    with _gate:
+        get(old)
+        get(new)
+        replacements = _superseded()
+        seen, target = {old}, new
+        while True:
+            if target in seen:
+                raise ValueError('A model replacement cannot form a cycle')
+            seen.add(target)
+            if target not in replacements:
+                break
+            target = replacements[target]
+        replacements[old] = new
+        folder = Path(ROOT, 'library/objects')
+        with tempfile.TemporaryDirectory(prefix='.catalogue_', dir=folder) as temporary:
+            path = Path(temporary, 'superseded.json')
+            materiallibrary._write_json(path, replacements)
+            os.replace(path, folder / 'superseded.json')
+
+
+def _provider(asset):
+    """A known publisher from the retained source link; user model names do not establish provenance. Pure."""
+    try:
+        source = urlsplit(asset.get('source_url', ''))
+        if source.scheme not in ('https', 'http'):
+            return ''
+        return {'kenney.nl': 'Kenney', 'quaternius.com': 'Quaternius', 'polyhaven.com': 'Poly Haven'}.get(
+            (source.hostname or '').removeprefix('www.'), '')
+    except ValueError:
+        return ''
+
+
+def catalogue_category(asset):
+    """Expand legacy curated tree/other entries using the publisher's model family; retain explicit import categories. Pure."""
+    category = asset['category']
+    if category not in ('tree', 'other') or not _provider(asset):
+        return category
+    filename = Path(asset.get('model', {}).get('filename', '')).stem
+    words = set(re.findall('[a-z]+', re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', filename).lower()))
+    # A flowering bush is still a bush; standalone flowers and grass have their own publisher families.
+    families = [('bush', {'bush', 'shrub'}), ('grass', {'grass'}), ('flower', {'flower', 'petal'}),
+                ('tree', {'tree', 'pine', 'palm', 'trunk', 'stump', 'log'}),
+                ('plant', {'plant', 'cactus', 'fern', 'sorrel'}), ('rock', {'rock', 'stone', 'boulder', 'pebble'}),
+                ('prop', {'table', 'bench', 'barrier', 'lamp'})]
+    return next((kind for kind, names in families if words & names), category)
 
 
 def listing(query="", category="", offset=0, limit=40):
@@ -207,6 +280,7 @@ def listing(query="", category="", offset=0, limit=40):
     folder = Path(ROOT, "library", "objects")
     items = []
     with _gate:
+        assets = []
         for path in folder.iterdir() if folder.is_dir() else ():
             if not materiallibrary.KEY.fullmatch(path.name):
                 continue
@@ -214,8 +288,17 @@ def listing(query="", category="", offset=0, limit=40):
                 asset = get(path.name)
             except ValueError:
                 continue
-            if ((not category or category == asset["category"])
+            assets.append(asset)
+        present = {asset['id'] for asset in assets}
+        hidden = {old for old, new in _superseded().items() if new in present}
+        for asset in assets:
+            if asset['id'] in hidden:
+                continue
+            kind = catalogue_category(asset)
+            if ((not category or category == kind)
                     and query in " ".join([asset["name"], *asset["tags"]]).casefold()):
-                items.append({k: asset[k] for k in ("id", "name", "category", "tags", "metres_per_unit", "anchor", "collision", "geometry")})
+                items.append({**{k: asset[k] for k in ("id", "name", "tags", "metres_per_unit", "anchor", "collision", "geometry")},
+                              'category': kind, 'creator': asset.get('creator') or _provider(asset),
+                              'source_url': asset.get('source_url', ''), 'license': asset.get('license', '')})
     items.sort(key=lambda item: (item["name"].casefold(), item["id"]))
-    return {"items": items[offset:offset + limit], "total": len(items), "offset": offset}
+    return {"items": items[offset:offset + limit], "total": len(items), "offset": offset, 'categories': list(CATEGORIES)}

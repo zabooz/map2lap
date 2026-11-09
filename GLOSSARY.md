@@ -83,6 +83,7 @@ ground anchor, category and collision choice (`app/objectlibrary.py`). `app/mode
 between the GLB's scene nodes and retains material/image resources. The Editor imports, places and replaces trees from these
 packages, retaining their originals in saved tracks; native shading currently covers colour and alpha. FBX and OBJ imports
 also retain their unchanged source upload (a model file or ZIP with companion materials/textures) beside the converted GLB.
+An explicit sRGB material-colour import also keeps the source GLB unchanged beside its adjusted canonical GLB.
 
 **Model snapshot and instance** (Editor):
 An immutable snapshot freezes the original GLB and its import description when applied. A stable generic instance id binds

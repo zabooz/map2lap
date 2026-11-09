@@ -19,3 +19,24 @@ test("dimming reflections does not recompile the material", () => {
   expect(material.envMapIntensity).toBe(.25);
   expect(material.version).toBe(version);
 });
+
+test("explicit matte palette materials use scene lights without room reflections or tone mapping", () => {
+  const environment = new THREE.Texture();
+  const matte = new THREE.MeshStandardMaterial({color: 0x2cd8b8, metalness: 0, roughness: 1});
+  matte.userData.map2lap = {lighting: "matte"};
+  const normal = new THREE.MeshStandardMaterial({color: 0x2cd8b8, metalness: 0, roughness: 1});
+  const before = matte.color.toArray();
+  modelEnvironment([matte, normal], environment);
+  expect(matte.envMap).toBeNull();
+  expect(matte.envMapIntensity).toBe(0);
+  expect(matte.toneMapped).toBe(false);
+  expect(matte.color.toArray()).toEqual(before);
+  expect(normal.envMap).toBe(environment);
+  expect(normal.envMapIntensity).toBe(1);
+  expect(normal.toneMapped).toBe(true);
+  const version = matte.version;
+  modelEnvironment([matte, normal], environment, .25);
+  expect(matte.envMapIntensity).toBe(0);
+  expect(matte.version).toBe(version);
+  expect(normal.envMapIntensity).toBe(.25);
+});

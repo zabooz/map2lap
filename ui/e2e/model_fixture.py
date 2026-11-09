@@ -67,5 +67,29 @@ def obj_bundle():
     return stream.getvalue()
 
 
+def palette(textured, rgb=(159, 137, 255)):
+    """The same purple RGB as a legacy material factor or a standard sRGB colour texture. Pure."""
+    raw = tree()
+    length = struct.unpack_from('<I', raw, 12)[0]
+    document = json.loads(raw[20:20 + length])
+    if textured:
+        import base64
+        image = io.BytesIO()
+        Image.new('RGB', (4, 4), tuple(rgb)).save(image, 'PNG')
+        document['images'] = [{'uri': 'data:image/png;base64,' + base64.b64encode(image.getvalue()).decode()}]
+    for material in document['materials']:
+        pbr = material['pbrMetallicRoughness']
+        pbr.update(baseColorFactor=[1, 1, 1, 1] if textured else [*(c / 255 for c in rgb), 1], roughnessFactor=1)
+        pbr.pop('baseColorTexture', None)
+        if textured:
+            pbr['baseColorTexture'] = {'index': 0}
+        material['alphaMode'] = 'OPAQUE'
+    text = json.dumps(document, separators=(',', ':')).encode()
+    text += b' ' * (-len(text) % 4)
+    tail = raw[20 + length:]
+    return struct.pack('<4sIIII', b'glTF', 2, 20 + len(text) + len(tail), len(text), 0x4e4f534a) + text + tail
+
+
 if __name__ == "__main__":
-    sys.stdout.buffer.write(obj_bundle() if '--obj-zip' in sys.argv else tree("--default-material" in sys.argv, "--metallic" in sys.argv))
+    sys.stdout.buffer.write(palette('--palette-texture' in sys.argv, (44, 216, 184) if '--palette-grass' in sys.argv else (159, 137, 255)) if any(arg.startswith('--palette-') for arg in sys.argv)
+                            else obj_bundle() if '--obj-zip' in sys.argv else tree("--default-material" in sys.argv, "--metallic" in sys.argv))

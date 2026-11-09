@@ -18,6 +18,36 @@ class ModelWorkflowTest(Base):
         patch = mock.patch.object(objectlibrary, "ROOT", self.ac)
         patch.start(); self.addCleanup(patch.stop)
 
+    def test_srgb_import_keeps_palette_and_upload_through_native_save_and_cold_resave(self):
+        import io
+        from PIL import Image
+        document, binary = fixture()
+        document['materials'][0]['pbrMetallicRoughness'].pop('baseColorTexture')
+        document['materials'][0]['pbrMetallicRoughness']['baseColorFactor'] = [159 / 255, 137 / 255, 1, 1]
+        document['materials'][0]['alphaMode'] = 'OPAQUE'
+        raw = encode(document, binary)
+        prepared = objectlibrary.prepare('purple.glb', raw)
+        preview = objectlibrary.prepared_model(prepared['token'], 'srgb', 'matte')
+        asset = objectlibrary.add({'token': prepared['token'], 'filename': 'purple.glb', 'name': 'Purple',
+                                   'material_colours': 'srgb', 'material_lighting': 'matte'})['model']
+        now = trackedits.load(self.ac, self.name)
+        instance = trackedits.model(self.ac, self.name, {'base': now['base'], 'revision': now['revision'],
+            'model': asset['id'], 'at': [20, 0, 5]})['model']
+        self.keep([instance])
+        trackcopy.save(self.ac, self.name, 'purple_model', 'Purple')
+        for relative in ('library', 'cache', 'out/sources', 'out/edits', 'out/model-assets'):
+            shutil.rmtree(Path(self.ac, relative), ignore_errors=True)
+        self.assertEqual(1, len(trackview.index(self.ac, 'purple_model')['models']))
+        trackcopy.save(self.ac, 'purple_model', 'purple_again', 'Purple again')
+        retained = Path(self.ac, 'content/tracks/purple_again/data/map2lap_models/assets', instance['asset'])
+        self.assertEqual(raw, (retained / 'original/upload.glb').read_bytes())
+        self.assertEqual(preview, (retained / 'original/model.glb').read_bytes())
+        native = kn5.read(Path(self.ac, 'content/tracks/purple_again/purple_again.kn5'))
+        part = next(m for m in kn5.walk_meshes(native['root']) if 'm2l_model' in m.name)
+        texture = next(name for slot, _number, name in native['materials'][part.material].maps if slot == 'txDiffuse')
+        with Image.open(io.BytesIO({name: data for name, _active, data in native['textures']}[texture])) as image:
+            self.assertEqual((159, 137, 255, 255), image.convert('RGBA').getpixel((0, 0)))
+
     def test_converted_obj_and_source_upload_survive_portable_save_without_library_or_caches(self):
         raw = b'v 0 0 0\nv 2 0 0\nv 0 3 0\nf 1 2 3\n'
         prepared = objectlibrary.prepare('panel.obj', raw)

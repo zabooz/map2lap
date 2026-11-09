@@ -1,4 +1,5 @@
-export const MODEL_CATEGORIES = [["tree", "Trees"], ["building", "Buildings"], ["other", "Other"]] as const;
+export const MODEL_CATEGORIES = [["tree", "Trees"], ["bush", "Bushes"], ["grass", "Grass"], ["flower", "Flowers"],
+  ["plant", "Plants"], ["rock", "Rocks"], ["building", "Buildings"], ["prop", "Street furniture"], ["other", "Other"]] as const;
 let modelPreparation: Promise<unknown> = Promise.resolve();
 
 /** Queue model preparation across cancelled dialogs; finish the server's current upload before starting another. */

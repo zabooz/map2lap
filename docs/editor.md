@@ -261,18 +261,48 @@ source mesh/material/shader diagnostics remain under Details.
 
 ## Imported models
 
-`app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with unchanged
+`app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with a canonical
 `original/model.glb`. Their ids bind the GLB content, category, metres per source unit, model-local anchor and explicit
 collision choice (`none` by default, or `mesh`). These import settings are independent of future scene placements. Name,
 tags, source and licence remain with the package. Prepared uploads under `cache/models` are disposable; original bytes
 remain available and hash-checked after clearing that cache. No model collection is shipped.
 
+The object catalogue offers trees, bushes, grass, flowers, plants, rocks, buildings, street furniture and other objects.
+Legacy entries from the curated Kenney, Quaternius and Poly Haven collections use their publisher's model-family filename
+for this display category; stored package categories, IDs and model bytes are not rewritten. New imports choose their
+category explicitly. The right information panel shows creator, source and licence, with unknown credits labelled as
+such. Kenney and Quaternius prefixes are omitted from visible card/preview titles while the original names and tags
+remain searchable and unchanged in their packages.
+
 The object importer accepts GLB, FBX and OBJ, or a ZIP containing exactly one FBX/OBJ and its companion MTL/images.
 `app/modelimport.py` converts FBX/OBJ with the bundled `src/bin/modelconvert-*` ufbx reader; Blender is not required.
 The unchanged input is kept as `original/upload.fbx`, `.obj` or `.zip`, with its own hash and original filename, in the
 library and portable saved model snapshots. `original/model.glb` is the validated canonical representation consumed by
-the preview, placement and Save; existing GLB originals remain byte-identical. Preparation tokens identify the upload,
+the preview, placement and Save; default GLB imports remain byte-identical. Preparation tokens identify the upload,
 while immutable model ids use the canonical GLB hash and semantic import settings.
+
+**Material colours** defaults to **As stored in model**. The explicit **sRGB (for washed-out colours)** choice decodes
+only material base-colour RGB factors from sRGB to linear, as needed for the legacy Kenney Nature Kit palette. Alpha,
+texture bytes, emissive factors and geometry remain unchanged. The import preview updates directly from
+`/api/library/model-imports/<token>/preview?material_colours=srgb`; Add publishes those same bytes. An adjusted GLB also
+keeps its unchanged input as `original/upload.glb`, alongside the canonical `original/model.glb`, in library packages and
+portable track snapshots. No colour-space choice is inferred from model names or brightness.
+
+**Surface** defaults to **From model**. **Matte colour (no reflections)** explicitly prepares flat-colour artwork as
+rough non-metallic materials, with `extras.map2lap.lighting = "matte"` in their canonical GLB. The browser uses the
+existing scene lights for these materials but no room reflection map or filmic tone mapping; the palette, textures,
+alpha and scene lights are unchanged. This setting is shown only when the running backend advertises it. The preview,
+library thumbnails and placed models read the same material flag. Regular PBR models keep their existing environment
+maps and tone mapping. The native colour/alpha path remains matte and retains the original palette in its colour PNG.
+Retained Kenney packages prepared by Map2Lap's earlier sRGB-only step use the same browser material profile from their
+recorded source URL and colour mode; this changes their rendering without rewriting GLB bytes, draft bindings or poses.
+
+`tools/fix_kenney_colours.py` verifies the curated collection's provenance and source palette against the publisher ZIP
+before applying sRGB decoding and the explicit matte surface. Existing hand-coloured linear variants are excluded.
+Already colour-corrected packages are upgraded from their retained raw uploads, so RGB is decoded only once.
+It publishes new packages and records
+catalogue replacements in `library/objects/superseded.json`; the old immutable packages remain addressable, and existing
+placed models and saved tracks are unchanged. If a replacement package is removed, the old catalogue entry is shown again.
 
 The separate converter process normalizes FBX file units and axes to glTF's metre/Y-up frame; OBJ defaults to metre/Y-up
 and the import scale remains adjustable. It triangulates polygons, retains node placements, hard normals and UV seams,

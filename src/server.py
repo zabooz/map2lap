@@ -635,7 +635,8 @@ class Handler(BaseHTTPRequestHandler):
                 if self.command == "GET":
                     prepared = re.fullmatch(r"/api/library/model-imports/([a-f0-9]{64})/preview", path.path)
                     if prepared:
-                        return self._send(200, objectlibrary.prepared_model(prepared[1]), "model/gltf-binary")
+                        return self._send(200, objectlibrary.prepared_model(prepared[1], q.get('material_colours', ['linear'])[0],
+                            q.get('material_lighting', ['model'])[0]), "model/gltf-binary")
                     if path.path == "/api/library/models":
                         return self._send(200, objectlibrary.listing(q.get("q", [""])[0], q.get("category", [""])[0],
                             int(q.get("offset", ["0"])[0]), int(q.get("limit", ["40"])[0])))

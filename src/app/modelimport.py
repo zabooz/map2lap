@@ -19,6 +19,56 @@ PROGRAM = Path(__file__).resolve().parents[1] / 'bin' / ('modelconvert-win64.exe
 SUFFIXES = {'.glb', '.obj', '.fbx', '.zip'}
 
 
+def material_colours(raw, space='linear'):
+    """Decode explicitly selected legacy sRGB base-colour factors; preserve alpha, maps and binary chunks. Pure."""
+    if space not in ('linear', 'srgb'):
+        raise ValueError('Choose model or sRGB material colours')
+    if space == 'linear':
+        return raw
+    document, _binary = modeldata._chunks(raw)
+    changed = False
+    for material in document.get('materials', []):
+        pbr = material.get('pbrMetallicRoughness', {})
+        if 'baseColorFactor' not in pbr:
+            continue
+        rgb, alpha = pbr['baseColorFactor'][:3], pbr['baseColorFactor'][3]
+        # Some legacy exports (Kenney Nature Kit) put their sRGB palette directly in glTF's linear factor.
+        # Never infer this from brightness: valid linear factors would be darkened a second time.
+        pbr['baseColorFactor'] = [*(c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in rgb), alpha]
+        changed = True
+    if not changed:
+        return raw
+    return _with_document(raw, document)
+
+
+def material_lighting(raw, mode='model'):
+    """Explicit matte artwork keeps its palette and uses diffuse scene lighting without room reflections. Pure."""
+    if mode not in ('model', 'matte'):
+        raise ValueError('Choose model or matte material lighting')
+    if mode == 'model':
+        return raw
+    document, _binary = modeldata._chunks(raw)
+    for material in document.get('materials', []):
+        extras = material.setdefault('extras', {})
+        if not isinstance(extras, dict) or not isinstance(extras.get('map2lap', {}), dict):
+            raise ValueError('The material extras cannot store a matte surface setting')
+        extras.setdefault('map2lap', {})['lighting'] = 'matte'
+        # Flat palette artwork has a matte dielectric surface, rather than the legacy exporter's metallic default.
+        material.setdefault('pbrMetallicRoughness', {}).update(metallicFactor=0, roughnessFactor=1)
+    return _with_document(raw, document)
+
+
+def _with_document(raw, document):
+    """Replace the GLB's JSON only, keeping every following binary chunk byte-identical. Pure."""
+    text = json.dumps(document, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    text += b' ' * (-len(text) % 4)
+    tail = raw[20 + struct.unpack_from('<I', raw, 12)[0]:]
+    size = 20 + len(text) + len(tail)
+    if size > modeldata.MAX_BYTES or len(text) > modeldata.MAX_JSON_BYTES:
+        raise ValueError('Adjusted model exceeds the GLB size limit')
+    return struct.pack('<4sIIII', b'glTF', 2, size, len(text), 0x4e4f534a) + text + tail
+
+
 def _files(filename, raw):
     """One model and its uploaded companions, without opening any model-authored paths. Pure."""
     if Path(filename).suffix.lower() != '.zip':

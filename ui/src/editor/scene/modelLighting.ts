@@ -13,6 +13,14 @@ export function modelPreviewScene(renderer: THREE.WebGLRenderer) {
 /** Bind model-only image based light at a power (1 by day); source terrain keeps its original lighting. */
 export function modelEnvironment(materials: Iterable<THREE.Material>, texture: THREE.Texture, power = 1) {
   for (const material of materials) if (material instanceof THREE.MeshStandardMaterial) {
+    if (material.userData.map2lap?.lighting === "matte") {
+      // Explicit flat-colour artwork uses the existing sky/sun, without a reflective room or filmic palette compression.
+      material.envMapIntensity = 0;
+      if (material.envMap || material.toneMapped) {
+        material.envMap = null; material.toneMapped = false; material.needsUpdate = true;
+      }
+      continue;
+    }
     material.envMapIntensity = power;
     if (material.envMap === texture) continue;      // (the clock dims it many times a second: no new shader for that)
     material.envMap = texture;
