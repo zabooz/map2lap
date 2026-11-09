@@ -1,7 +1,9 @@
 """How much work a regional ground Save does: what a region's mask depends on is made once per Save, and a mask whose
 inputs did not change since the track's last Save is taken from then."""
 import copy
+import hashlib
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,7 +12,7 @@ import numpy as np
 
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
-from app import materiallibrary, trackcopy, trackdetail, tracknative, trackpaint, trackregions, trackview
+from app import materiallibrary, trackcopy, trackdetail, trackmodels, tracknative, trackpaint, trackregions, trackview
 from track import editorinfo, kn5
 
 
@@ -115,6 +117,29 @@ class RegionMaskTest(unittest.TestCase):
         self.assertEqual(1, prepared_tiles.call_count)
         self.assertEqual({"dimensions", "uv_origin"}, set(native["ground"]))
         self.assertTrue(native["native_regions"])
+
+
+class KnHashTest(unittest.TestCase):
+    """A Save's new kn5 is hashed once, however many records name it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name, "track.kn5")
+        self.path.write_bytes(b"first")
+        trackmodels._hash_at.cache_clear()
+
+    def test_the_models_and_the_ground_records_share_one_hash(self):
+        with mock.patch.object(hashlib, "file_digest", wraps=hashlib.file_digest) as hashed:
+            model = trackmodels._file_hash(str(self.path))
+            self.assertEqual(model, trackdetail._kn5_digest(self.path))
+        self.assertEqual(1, hashed.call_count)
+
+    def test_a_rewritten_file_is_hashed_again(self):
+        first = trackdetail._kn5_digest(self.path)
+        self.path.write_bytes(b"second, longer")
+        self.assertEqual(hashlib.sha256(b"second, longer").hexdigest(), trackdetail._kn5_digest(self.path))
+        self.assertNotEqual(first, trackdetail._kn5_digest(self.path))
 
 
 class MaskKeyTest(unittest.TestCase):

@@ -127,16 +127,10 @@ def _detail(ac, name, asset, meta):
             "size": dds_size(*dimensions, uncompressed=True), "dimensions": dimensions}
 
 
-@functools.lru_cache(maxsize=16)
-def _kn5_digest_at(path, state):
-    """Hash a compiled KN5 with bounded buffers; a long track must not be read into a Python bytes object."""
-    with open(path, "rb") as file:
-        return hashlib.file_digest(file, "sha256").hexdigest()
-
-
 def _kn5_digest(path):
-    stat = Path(path).stat()
-    return _kn5_digest_at(str(path), (stat.st_mtime_ns, stat.st_size))
+    """sha256 of a compiled KN5, the one hash of it that the models' and the ground's records of a Save share."""
+    from app import trackmodels
+    return trackmodels._file_hash(path)
 
 
 @functools.lru_cache(maxsize=32)
