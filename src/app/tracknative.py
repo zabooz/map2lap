@@ -17,6 +17,9 @@ from track import kn5
 from track.textures import bc7_weights, pad_weights, weight_extent
 
 PREFIX = "nocol_ground_m2l_"
+# The packed region masks a track's last Save wrote, by the digest of their inputs (_mask_key). Raise it when
+# region_mask, canvas_size or bc7_weights write other bytes for the same inputs: the files would no longer match.
+MASK_CACHE_VERSION = 1
 SOURCE_FILE = Path("data", "map2lap_regional_source.json")
 OWN_TEXTURE = re.compile(r"map2lap_native_[0-9a-f]{64}\.(?:png|dds)\Z")
 
@@ -252,6 +255,7 @@ def build(ac,name,descriptors,scan,change,path,added):
     white=resource(dict(groundmaterial.textures())[groundmaterial.WHITE],'.png')
     flat=resource(_png(np.full((4,4,4),[128,128,255,255],np.uint8)),'.png')
     prepared={}
+    kept,used=_mask_folder(name),set()
     with open(path,'rb') as file:
         for descriptor in descriptors:
             layout=descriptor['layers']; record,_p,_s,filename=trackdetail._view(ac,name,descriptor['version'])
@@ -271,6 +275,7 @@ def build(ac,name,descriptors,scan,change,path,added):
             # piece clipped to it: made once per region, though a tile's ground comes in several pieces (1ROAD_, 1GRASS_,
             # split ones). First made where it was first needed, so the kn5 keeps its texture order.
             masks={}
+            digests=functools.cache(lambda key,fields=fields: _field_digest(fields[key]))
             for source_i,info in enumerate(scan['meshes']):
                 if info['material'] not in layout['materials']: continue
                 original=materials[info['material']]
@@ -288,7 +293,11 @@ def build(ac,name,descriptors,scan,change,path,added):
                     if not len(points): continue
                     if number not in masks:
                         phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
-                        masks[number]=resource(bc7_weights(region_mask(fields,bounds,palette,phase=phase)),'.dds')     # (AC gets BC7: a quarter)
+                        key=_mask_key(digests,bounds,palette,phase,(width,height))
+                        # (AC gets BC7: a quarter; one unchanged since the last Save is taken from then)
+                        raw=_packed_mask(kept,key,lambda: bc7_weights(region_mask(fields,bounds,palette,phase=phase)))
+                        used.add(key+'.dds')
+                        masks[number]=resource(raw,'.dds')
                     mask=masks[number]
                     props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
                     props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
@@ -335,7 +344,52 @@ def build(ac,name,descriptors,scan,change,path,added):
                     output=points.copy(); output['uv']=(output['uv']+layout['origin'])/extent
                     _append(meshes,info,output,index,f'{PREFIX}region_{source_i}_{number}')
     for i in unused: materials[i]=replace(materials[i],maps=[])
+    _keep_only(kept,used)
     return materials,textures,meshes,'',owned|set(textures),{'renderable':hidden}
+
+
+def _mask_folder(name):
+    """The folder of the packed region masks of track name's last Save (cache: deleting it costs one slower Save)."""
+    from app import trackpaint
+    return Path(trackpaint.mytracks.ROOT, "cache", "native-masks", hashlib.sha256(name.encode()).hexdigest()[:32])
+
+
+def _field_digest(field):
+    """sha256 of one weight field's values, type and shape. Pure."""
+    digest = hashlib.sha256(f"{field.dtype.str}{field.shape}".encode())
+    digest.update(np.ascontiguousarray(field).data)
+    return digest.hexdigest()
+
+
+def _mask_key(digests, bounds, palette, phase, size):
+    """The digest of all region_mask reads: the palette's whole fields in channel order (it reads beyond the bounds for
+    its halo and mips), the bounds, the phase and the tile's size. Pure."""
+    from app import trackpaint
+    return trackpaint._digest([MASK_CACHE_VERSION, [digests(key) for key in palette], [int(b) for b in bounds], list(palette),
+                               [float(p) for p in phase], [int(s) for s in size]])
+
+
+def _packed_mask(folder, key, make):
+    """The packed mask kept under key in folder, else make() kept there. A file that can't be read or written only costs
+    making it."""
+    from app import trackpaint
+    path = folder / (key + ".dds")
+    try:
+        return path.read_bytes()
+    except OSError:
+        raw = make()
+    try:
+        trackpaint._atomic(path, raw)
+    except OSError:
+        pass
+    return raw
+
+
+def _keep_only(folder, used):
+    """Delete the packed masks in folder that the Save just made did not use: a track keeps those of its last Save."""
+    for path in folder.glob("*.dds"):
+        if path.name not in used:
+            path.unlink(missing_ok=True)
 
 
 def _png(values):
