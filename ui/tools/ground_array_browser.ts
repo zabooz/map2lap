@@ -1,6 +1,6 @@
 /** Browser-only conformance harness for the array rendering prototype. No Editor state or user track is loaded. */
-import {GroundArrayRenderer, type GroundProbeRegion, type GroundProbeMode} from "../src/editor/groundArrayRender";
-import type {GroundArrayInput, GroundMap} from "../src/editor/groundArray";
+import {GroundArrayRenderer, type GroundProbeRegion, type GroundProbeMode} from "./ground/groundArrayRender";
+import type {GroundArrayInput, GroundMap} from "./ground/groundArray";
 
 const solid = (r: number, g = r, b = r): GroundMap => ({width: 1, height: 1, data: new Uint8Array([r,g,b,255])});
 const linear = (v: number) => v <= .04045 ? v / 12.92 : ((v+.055)/1.055)**2.4;

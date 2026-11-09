@@ -1,26 +1,27 @@
 import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
-import {BandOptions} from "./BandOptions";
-import {CameraOptions, useCamera} from "./Camera";
-import {CopyTool} from "./Copy";
-import {TrackEdits, type EditState} from "./edits";
-import {EditNotes} from "./EditNotes";
-import {ElevationOptions, useElevation} from "./Elevation";
-import {MoveOptions, useMove} from "./Move";
-import {Models} from "./Models";
-import {AssetLibrary, type LibraryTab} from "./AssetLibrary";
-import {MaterialLibrary} from "./MaterialLibrary";
-import {NOT_ALL, sortName} from "./inspect";
-import {SaveDialog} from "./SaveDialog";
-import {FileButtons, TOOLS, ToolPanel, type Tool} from "./ToolPanel";
-import {useBand} from "./useBand";
-import {useSave} from "./useSave";
-import type {Hovered, Marked, MenuAt, Picked, TrackView, WheelKeys} from "./view";
-import {ViewMenu} from "./ViewMenu";
-import {Inspector} from "./Inspector";
-import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./surfaces";
-import {usePaint} from "./usePaint";
-import {ToolChoice, ToolOptions, thenView} from "./ToolOptions";
+import {BandOptions} from "./tools/BandOptions";
+import {CameraOptions, useCamera} from "./tools/Camera";
+import {CopyTool} from "./tools/Copy";
+import {TrackEdits, type EditState} from "./state/edits";
+import {EditNotes} from "./inspector/EditNotes";
+import {ElevationOptions, useElevation} from "./tools/Elevation";
+import {MoveOptions, useMove} from "./tools/Move";
+import {Models} from "./tools/Models";
+import {AssetLibrary, type LibraryTab} from "./library/AssetLibrary";
+import {MaterialLibrary} from "./library/MaterialLibrary";
+import {NOT_ALL, sortName} from "./scene/inspect";
+import {SaveDialog} from "./state/SaveDialog";
+import {FileButtons, TOOLS, ToolPanel, type Tool} from "./tools/ToolPanel";
+import {useBand} from "./tools/useBand";
+import {useSave} from "./state/useSave";
+import type {Hovered, Marked, MenuAt, Picked, WheelKeys} from "./types";
+import type {TrackView} from "./scene/view";
+import {ViewMenu} from "./tools/ViewMenu";
+import {Inspector} from "./inspector/Inspector";
+import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
+import {usePaint} from "./tools/usePaint";
+import {ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {

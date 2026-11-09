@@ -3,6 +3,23 @@
 The page is React and TypeScript in `ui/`, built with Bun into the committed `src/web` files. `server.py` serves these
 and the `/api/` endpoints. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
 The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.
+
+The Editor source in `ui/src/editor/` is grouped by responsibility. `EditorScene.tsx` owns the React/three.js lifetime and
+`EditTools.tsx` connects the active tool, selection and dialogs. Shared selection and track-index contracts live in `types.ts`.
+
+- `scene/`: rendering, mesh/image loading, picking and surface overlays. `view.ts` coordinates the scene;
+  `navigation.ts` owns camera movement and route riding, `roadMarkers.ts` owns road pins and their geometry, and
+  `geometryPreview.ts` owns temporary height/normal changes over canonical meshes.
+- `tools/`: tool controls, pointer modifiers, brush sampling, movement, copying, smoothing and material application.
+- `library/`: browsing, imports and model pictures/previews.
+- `inspector/`: selected-object properties, appearance, hover information and track statistics.
+- `state/`: the edit list, Undo/Redo, draft synchronization and the Save dialog.
+
+Unit tests and component CSS stay beside their owner. Pure geometry, sampling and queue tests import those modules directly;
+`view-*.test.ts` exercise scene integration without a WebGL renderer. Edit-list history and autosave synchronization have
+separate test files with a shared server fixture. Browser workflows and exact rendered-picture checks remain in `ui/e2e/`.
+The experimental texture-array renderer and its tests live in `ui/tools/ground/`, outside the production Editor.
+
 Generated ground uses a neutral `ksMultilayer` material around its existing baked image, leaving its colour unchanged.
 The preview also reads colour-only `ksPerPixel_dual_layer` materials: the new image uses its UV multiplier, the original
 tile and keep mask use the original UVs. A white-base, red-only `ksMultilayer` colour replacement is sampled in world X/Z
@@ -110,7 +127,7 @@ outputs receive the same correction. Different heights and interior vertices sta
 these shared normals before applying its deformation, so saving preserves the edited lighting. Existing tracks receive
 the correction on their next Save, without rebuilding their geometry from map data.
 
-Its buttons stand in the sidebar by groups (`ui/src/editor/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Discard all), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Discard all asks before taking back changes since the last Save, as one undoable step. Previously saved edits remain; a track never saved in the Editor returns to its built state. A reopened unsaved draft reads the full saved recipe only when needed, through `/edits/saved`, so ordinary loading does not duplicate large height rasters. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
+Its buttons stand in the sidebar by groups (`ui/src/editor/tools/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Discard all), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Discard all asks before taking back changes since the last Save, as one undoable step. Previously saved edits remain; a track never saved in the Editor returns to its built state. A reopened unsaved draft reads the full saved recipe only when needed, through `/edits/saved`, so ordinary loading does not duplicate large height rasters. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
 Road camera (K) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
 Move (M, or Move in the context menu) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
 (`app/placement.py`), written into the kn5 by `app/trackplace.py` before the height changes; the view shows it at once and takes the server's
@@ -136,7 +153,7 @@ only its digest. The preview updates when its pointer, camera, pose or ground ch
 anchor, including hidden collision. Pending drags keep their displayed pivots until canonical placements arrive; a failed
 drag restores the kept meshes.
 Smooth road (T) includes Mark road: two clicks bound a road region; further draggable points can add side-road branches,
-including a Y (`app/roadregion.py`, `ui/src/editor/useBand.ts`). The retained map graph chooses the connections and separates
+including a Y (`app/roadregion.py`, `ui/src/editor/tools/useBand.ts`). The retained map graph chooses the connections and separates
 mapped levels; it never uses the main driving route. The orange region follows the actual painted road mask, clips at the
 terminal cross-sections and excludes neighbouring unselected road segments, including a close leg of the same hairpin.
 Strength starts at 0%, so marking alone changes nothing. Strength, Transition and point changes apply automatically after a
@@ -436,7 +453,7 @@ the generated fixture from a temporary local HTTP listener. `--browser` chooses 
 still be software. Results and images are retained under the output's `webgl/` folder. Synthetic colour/normal/roughness
 maps exercise the rendering contract; these are not measurements of a complete track or full-resolution photo collection.
 
-The WebGL2 prototype in `groundArray.ts`/`groundArrayRender.ts` samples independent texture arrays for all material weights
+The WebGL2 prototype in `ui/tools/ground/groundArray.ts` and `groundArrayRender.ts` samples independent texture arrays for all material weights
 and maps. Each layer retains its own physical X/Y repeat, variation, normal scale and roughness factor. Array padding keeps
 each original map's texels at its own resolution. Explicit repeat-aware isotropic bilinear/trilinear sampling stays within those bounds,
 including devices without float-linear texture filtering. Colour mips average in linear light; normal/roughness/weights stay
@@ -494,7 +511,7 @@ already picked object with Ctrl removes it from the selection. Shift on an objec
 listed objects by sort, never all houses). Mixed explicit objects and sorts delete in one undo step.
 
 Mesh loading also identifies connected material faces, keeping listed-object ownership separate and joining duplicated vertices
-by their shared edges (`ui/src/editor/materials.ts`). The separate `edge_dirt` road verge can therefore be selected without paint
+by their shared edges (`ui/src/editor/scene/materials.ts`). The separate `edge_dirt` road verge can therefore be selected without paint
 metadata; Shift includes its other loaded matching regions. Its highlight owns its geometry and follows live height changes.
 This material information is groundwork for later texture tools; clicking a house still selects the house as an object.
 Esc or another tool cancels pending surface work and releases the highlight's memory.

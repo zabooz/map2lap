@@ -4,7 +4,7 @@ stands at the start. From the kn5 in the AC folder (the source of a saved track)
     .venv\\Scripts\\python.exe tools\\editor_memory.py <track>
     .venv\\Scripts\\python.exe tools\\editor_memory.py <track> --limits 4,8,16,32
 
-The counting is ui/src/editor/view.ts's as it stands (FLOATS_PER_VERTEX, COPIES): keep the two the same. Nearest first, a texture when
+The counting follows ui/src/editor/scene/geometry.ts and view.ts (FLOATS_PER_VERTEX, COPIES): keep them the same. Nearest first, a texture when
 the first mesh of its material comes, the first mesh over the limit ends it. Not counted: the ground's ray structures, decoded images
 beyond their stored size, the browser's own overhead: a real view stops somewhat earlier, and where depends on the camera.
 """

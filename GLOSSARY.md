@@ -56,11 +56,11 @@ An independent instance kept in the draft and recipe as source object ids with f
 a house carries its children and collision, a copied pole has no wires.
 
 **Brush** (Editor):
-The round thing on the ground a tool works with: its ring, radius, soft edge, strokes as a click or held and moved (`ui/src/editor/useBrush.ts`). What a stroke does is the tool's:
+The round thing on the ground a tool works with: its ring, radius, soft edge, strokes as a click or held and moved (`ui/src/editor/tools/useBrush.ts`). What a stroke does is the tool's:
 Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a smaller ring can stand between the points of the ground's 2 m lattice and move nothing.
 
 **Tool options** (Editor):
-The bar over the view with what the tool on can be set to (`ui/src/editor/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
+The bar over the view with what the tool on can be set to (`ui/src/editor/tools/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
 Select uses Shift for all matching objects or prepared ground areas, including separate ones; Ctrl adds to the selection.
 
 **Properties** (Editor):

@@ -21,7 +21,7 @@ Set `MAP2LAP_TEST_WEB` to an absolute bundle directory to test a separate UI bui
 
 - Function components and hooks; state lives where it is used, what can be worked out from it is worked out while rendering.
 - An effect only talks to something outside React (server, Leaflet, three.js) and cleans up after itself (`StrictMode` is on).
-- Leaflet through react-leaflet, three.js in `ui/src/editor/view.ts`: camera and mesh data stay outside React; only the hover
+- Leaflet through react-leaflet, three.js in `ui/src/editor/scene/`: camera and mesh data stay outside React; only the hover
   information enters React state.
 - A component's look lives in its `<name>.module.css` beside it (`bun run check` compares the two); `ui/src/styles.css` holds only
   colours, base rules and what several components share. No style by element name or id: a global `aside` rule reached into

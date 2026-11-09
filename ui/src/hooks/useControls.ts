@@ -1,5 +1,5 @@
 import {useCallback, useState} from "react";
-import {DEFAULT_CONTROLS, parseControls, type Controls} from "../editor/controls";
+import {DEFAULT_CONTROLS, parseControls, type Controls} from "../editor/scene/controls";
 
 const KEY = "map2lap.controls";
 

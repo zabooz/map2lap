@@ -1,9 +1,10 @@
 // Exercise inspector request lifetimes without waiting for a track or a WebGL renderer.
 import {useState} from "react";
 import {createRoot} from "react-dom/client";
-import {Inspector} from "../src/editor/Inspector";
-import type {EditState} from "../src/editor/edits";
-import type {Picked, TrackView} from "../src/editor/view";
+import {Inspector} from "../src/editor/inspector/Inspector";
+import type {EditState} from "../src/editor/state/edits";
+import type {Picked} from "../src/editor/types";
+import type {TrackView} from "../src/editor/scene/view";
 
 const surfaces = [{mesh: 0, u: .25, v: -.5, revision: "source"}];
 const picked = {kind: "Ground", all: [], surface: surfaces[0], inspection: {

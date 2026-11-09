@@ -14,7 +14,7 @@ dist/
 settings.json
 
 # User-imported materials and models (kept across updates, never part of a release)
-library/
+/library/
 
 # Map data cache (elevation, map data, vegetation; several GB, downloaded again any time)
 cache/

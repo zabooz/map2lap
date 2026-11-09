@@ -1,6 +1,6 @@
 import {useEffect, useState, type ReactNode} from "react";
 import {get, post} from "../api";
-import {DEFAULT_CONTROLS, ELEVATION_SPEED_RANGE, MEMORY_RANGE, SPEED_RANGE, SPEEDS, type Controls} from "../editor/controls";
+import {DEFAULT_CONTROLS, ELEVATION_SPEED_RANGE, MEMORY_RANGE, SPEED_RANGE, SPEEDS, type Controls} from "../editor/scene/controls";
 import {fmtBytes} from "../format";
 import type {useRelease} from "../hooks/useRelease";
 import type {useSettings} from "../hooks/useSettings";
@@ -187,7 +187,7 @@ function ControlsGroup({controls, onChange}: {controls: Controls; onChange: (c: 
   );
 }
 
-// (what ui/src/editor/view.ts and EditTools.tsx answer to)
+// (what ui/src/editor/scene/navigation.ts and EditTools.tsx answer to)
 const KEYS: {title: string; rows: [string, string][]}[] = [
   {title: "Camera", rows: [
     ["W A S D", "Move over the ground, at the same height"],

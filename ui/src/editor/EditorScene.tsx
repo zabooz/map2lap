@@ -1,10 +1,11 @@
 // The 3D view over the map. Loaded on the Editor tab's first visit (with three.js: most of the page's bytes).
 import {useEffect, useRef, useState, type CSSProperties} from "react";
-import type {Controls} from "./controls";
+import type {Controls} from "./scene/controls";
 import styles from "./EditorScene.module.css";
 import {EditTools} from "./EditTools";
-import {SunClock} from "./SunClock";
-import {TrackView, type Hovered} from "./view";
+import {SunClock} from "./scene/SunClock";
+import type {Hovered} from "./types";
+import {TrackView} from "./scene/view";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
     source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
