@@ -13,7 +13,7 @@ import numpy as np
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
 from app import materiallibrary, trackcopy, trackdetail, trackground, trackmodels, tracknative, trackpaint, trackregions, trackview
-from track import editorinfo, groundnormals, kn5
+from track import editorinfo, groundnormals, kn5, textures
 
 
 class RegionMaskTest(unittest.TestCase):
@@ -81,8 +81,9 @@ class RegionMaskTest(unittest.TestCase):
             trackcopy.save(self.ac, self.name)
         _regions, masks = self.saved(self.name)
         self.assertGreater(made.call_count, 0)
-        kept = [path.read_bytes() for path in tracknative._mask_folder(self.name).glob("*.dds")]
-        self.assertEqual(sorted(masks.values()), sorted(kept))
+        kept = {path.read_bytes() for path in tracknative._mask_folder(self.name).glob("*.dds")}     # (masks and photos)
+        self.assertLessEqual(set(masks.values()), kept)
+        self.assertLessEqual(kept, set(self.textures(self.name).values()))
 
     def test_a_change_elsewhere_on_the_tile_keeps_a_regions_mask_and_saves_what_a_save_from_nothing_saves(self):
         paints = self.painted(5)
@@ -142,6 +143,69 @@ class RegionMaskTest(unittest.TestCase):
             lowest = min(kn5.mesh_arrays(file, m)[0]["pos"][:, 1].min() for m in copies)
         self.assertTrue(copies)
         self.assertAlmostEqual(source + 5, lowest, places=3)
+
+
+    def textures(self, folder):
+        return {n: raw for n, _a, raw in kn5.read(str(Path(self.ac, "content/tracks", folder, folder + ".kn5")))["textures"]}
+
+    def test_a_save_without_changes_packs_no_photo_again_and_writes_what_a_save_from_nothing_writes(self):
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        first = self.textures(self.name)
+        with (mock.patch.object(textures, "dds_mipmaps", wraps=textures.dds_mipmaps) as packed,
+              mock.patch.object(trackdetail, "tile_base", wraps=trackdetail.tile_base) as tiles):
+            trackcopy.save(self.ac, self.name)
+        packed.assert_not_called()
+        tiles.assert_not_called()
+        self.assertEqual(first, self.textures(self.name))
+        shutil.rmtree(tracknative._mask_folder(self.name))
+        trackcopy.save(self.ac, self.name)
+        self.assertEqual(first, self.textures(self.name))
+
+    def test_a_save_keeps_only_the_files_it_used(self):
+        paints = self.painted(5)
+        self.keep(paints)
+        trackcopy.save(self.ac, self.name)
+        folder = tracknative._mask_folder(self.name)
+        (folder / "old.png").write_bytes(b"old")
+        self.keep(paints[:4])
+        trackcopy.save(self.ac, self.name)
+        self.assertFalse((folder / "old.png").exists())
+        self.assertTrue(list(folder.glob("*.dds")))
+
+
+class PhotoKeyTest(unittest.TestCase):
+    """_photo_key against what a ground photo's packed images are made from."""
+
+    @staticmethod
+    def material(guard=0., extent=None):
+        empty = ((0., 0.), (0., 0., 0.), (0., 0., 0., 0.))
+        props = [("m2lUVGuard", guard, *empty)] if guard else []
+        if extent:
+            props.append(("m2lBaseExtent", 0., tuple(extent), *empty[1:]))
+        return kn5.Material("m", "ksMultilayer_objsp", 0, 0, 0, props, [])
+
+    def key(self, raw=b"a", ref=None, material=None, tile=(1, -2), sheen=0):
+        return tracknative._photo_key(raw, ref or {"id": "base"}, material or self.material(), tile, sheen)
+
+    def test_a_tiles_own_image_depends_on_its_bytes_tile_guard_ring_and_alpha(self):
+        same = self.key()
+        self.assertEqual(same, self.key())
+        for other in (self.key(raw=b"b"), self.key(tile=(2, -2)), self.key(material=self.material(guard=.1)),
+                      self.key(material=self.material(extent=(1.25, 1.25))), self.key(sheen=9)):
+            self.assertNotEqual(same, other)
+
+    def test_a_shared_photo_does_not_depend_on_the_tile(self):
+        source = {"id": "source:3:0"}
+        self.assertEqual(self.key(ref=source), self.key(ref=source, tile=(7, 7), material=self.material(guard=.1)))
+        self.assertNotEqual(self.key(ref=source), self.key())
+
+    def test_a_photo_with_a_detail_map_depends_on_it_and_its_properties(self):
+        def ref(detail="k", scale=1., rough=.5):
+            return {"id": "asset:a", "asset": "a", "detail": {"key": detail}, "properties": {"normal_scale": scale, "roughness": rough}}
+        same = self.key(ref=ref())
+        for other in (ref(detail="l"), ref(scale=.5), ref(rough=.8)):
+            self.assertNotEqual(same, self.key(ref=other))
 
 
 class KnHashTest(unittest.TestCase):

@@ -10,6 +10,7 @@ import re
 import struct
 
 import numpy as np
+import PIL
 from PIL import Image
 
 from app import trackground
@@ -20,6 +21,9 @@ PREFIX = "nocol_ground_m2l_"
 # The packed region masks a track's last Save wrote, by the digest of their inputs (_mask_key). Raise it when
 # region_mask, canvas_size or bc7_weights write other bytes for the same inputs: the files would no longer match.
 MASK_CACHE_VERSION = 1
+# The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
+# pad_weights or dds_mipmaps write other bytes for the same inputs.
+PHOTO_CACHE_VERSION = 1
 SOURCE_FILE = Path("data", "map2lap_regional_source.json")
 OWN_TEXTURE = re.compile(r"map2lap_native_[0-9a-f]{64}\.(?:png|dds)\Z")
 
@@ -247,7 +251,6 @@ def build(ac,name,descriptors,scan,change,path,added):
     """One opaque stock multilayer render copy per region; source physics and geometry stay byte-identical."""
     from app import trackdetail,trackpaint,trackview
     from track import groundmaterial
-    from track.textures import dds_mipmaps
     materials=list(scan['materials']); textures={}; meshes=list(added)
     inherited_record=inherited(ac,name,path)
     owned=set(inherited_record.get('native_textures',[]))|_owned_images(materials)
@@ -304,7 +307,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                         phase=(np.asarray(layout['origin'])+origin-[0,1])*[width,height]
                         key=_mask_key(fields,bounds,palette,phase)
                         # (AC gets BC7: a quarter; one unchanged since the last Save is taken from then)
-                        raw=_packed_mask(kept,key,lambda: bc7_weights(region_mask(fields,bounds,palette,phase=phase)))
+                        raw=_stored(kept,key+'.dds',lambda: bc7_weights(region_mask(fields,bounds,palette,phase=phase)))
                         used.add(key+'.dds')
                         masks[number]=resource(raw,'.dds')
                     mask=masks[number]
@@ -324,25 +327,19 @@ def build(ac,name,descriptors,scan,change,path,added):
                                 else:
                                     _n,at,size=scan['textures'][ref['i']]
                                     raw=trackview._read(path,at,size,record['base'])
-                                if ref['id']=='base':
-                                    colour=pad_weights(Image.fromarray(trackdetail.tile_base(raw,base_material,tile)),tile).convert('RGBA')
-                                else:
-                                    with Image.open(io.BytesIO(raw)) as image: colour=image.convert('RGBA')
-                                data=None
+                                sheen=round(255*source_values.get('ksSpecular',0.)/specular) if ref['id']=='base' or ref['id'].startswith('source:') else 0
+                                detail=None
                                 if 'detail' in ref and 'asset' in ref:
-                                    with Image.open(io.BytesIO(trackdetail.detail_image(ac,name,ref['asset']))) as image: data=np.array(image.convert('RGBA'))
-                                if data is None:
-                                    normal_name=flat; alpha=Image.new('L',colour.size,round(255*source_values.get('ksSpecular',0.)/specular) if ref['id']=='base' or ref['id'].startswith('source:') else 0)
-                                else:
-                                    values=data[...,:3].astype(np.float64)/255*2-1
-                                    values[...,:2]*=ref.get('properties',{}).get('normal_scale',1.)
-                                    values/=np.maximum(np.linalg.norm(values,axis=2,keepdims=True),1e-20)
-                                    normals=np.empty_like(data); normals[...,:3]=np.rint((values*.5+.5)*255).clip(0,255).astype(np.uint8); normals[...,3]=255
-                                    normal_name=resource(_png(normals),'.png')
-                                    gloss=np.rint((1-np.clip(data[...,3]/255*ref.get('properties',{}).get('roughness',1.),0,1))*255).astype(np.uint8)
-                                    alpha=Image.fromarray(gloss).resize(colour.size,Image.Resampling.BILINEAR)
-                                colour.putalpha(alpha)
-                                prepared[key]=(resource(dds_mipmaps(colour,alpha=True,smallest=1,independent=True),'.dds'),normal_name)
+                                    detail=functools.cache(lambda asset=ref['asset']: _rgba(trackdetail.detail_image(ac,name,asset)))
+                                # (a tile's images unchanged since the last Save are taken from then, as its masks are)
+                                stored=_photo_key(raw,ref,base_material,tile,sheen)
+                                normal_name=flat
+                                if detail:
+                                    normal_name=resource(_stored(kept,stored+'.png',lambda: _photo_normals(detail(),ref)),'.png')
+                                    used.add(stored+'.png')
+                                colour=_stored(kept,stored+'.dds',lambda: _photo_colour(raw,ref,base_material,tile,sheen,detail))
+                                used.add(stored+'.dds')
+                                prepared[key]=(resource(colour,'.dds'),normal_name)
                             photo,normal=prepared[key]; scale=ref.get('scale',[1.,1.]); varies=bool(ref.get('variation'))
                         props.extend([('mult'+channel,1.,tuple(np.asarray(scale)*extent),(0.,0.,0.),(0.,0.,0.,0.)),('m2lVariation'+channel,float(varies),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
                         maps.extend([('txDetail'+channel,j+2,photo),('txNormal'+channel,j+6,normal)])
@@ -358,7 +355,7 @@ def build(ac,name,descriptors,scan,change,path,added):
 
 
 def _mask_folder(name):
-    """The folder of the packed region masks of track name's last Save (cache: deleting it costs one slower Save)."""
+    """The folder of the packed region masks and photos of track name's last Save (cache: deleting it costs one slower Save)."""
     from app import trackpaint
     return Path(trackpaint.mytracks.ROOT, "cache", "native-masks", hashlib.sha256(name.encode()).hexdigest()[:32])
 
@@ -381,11 +378,10 @@ def _mask_key(fields, bounds, palette, phase):
                                list(palette), [float(p) for p in phase], [width, height]])
 
 
-def _packed_mask(folder, key, make):
-    """The packed mask kept under key in folder, else make() kept there. A file that can't be read or written only costs
-    making it."""
+def _stored(folder, file, make):
+    """The bytes kept under file in folder, else make() kept there. A file that can't be read or written only costs making it."""
     from app import trackpaint
-    path = folder / (key + ".dds")
+    path = folder / file
     try:
         return path.read_bytes()
     except OSError:
@@ -398,10 +394,56 @@ def _packed_mask(folder, key, make):
 
 
 def _keep_only(folder, used):
-    """Delete the packed masks in folder that the Save just made did not use: a track keeps those of its last Save."""
-    for path in folder.glob("*.dds"):
+    """Delete the packed images in folder that the Save just made did not use: a track keeps those of its last Save."""
+    for path in folder.glob("*"):
         if path.name not in used:
             path.unlink(missing_ok=True)
+
+
+def _photo_key(raw, ref, material, tile, sheen):
+    """The digest of all that _photo_colour and _photo_normals read: the encoded source, for a tile's own image its guard,
+    ring canvas and tile, the alpha of a photo without a gloss map (sheen), a detail map and its properties. Pure."""
+    from app import trackdetail, trackpaint, trackview
+    properties = ref.get("properties", {})
+    base = [[int(t) for t in tile], trackview._prop(material, "m2lUVGuard", 0.), trackdetail.base_extent(material)] if ref["id"] == "base" else None
+    detail = [ref["detail"]["key"], properties.get("normal_scale", 1.), properties.get("roughness", 1.)] if "detail" in ref and "asset" in ref else None
+    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, base, detail])
+
+
+def _rgba(raw):
+    """The pixels of an encoded image as (H, W, 4) uint8. Pure."""
+    with Image.open(io.BytesIO(raw)) as image:
+        return np.array(image.convert("RGBA"))
+
+
+def _photo_colour(raw, ref, material, tile, sheen, detail):
+    """A ground photo as an RGBA DDS: its colour (a tile's own image on its mask's ring canvas), in alpha its gloss from
+    detail, a function giving the detail map's pixels, or else sheen. Pure."""
+    from app import trackdetail
+    from track.textures import dds_mipmaps
+    if ref["id"] == "base":
+        colour = pad_weights(Image.fromarray(trackdetail.tile_base(raw, material, tile)), tile).convert("RGBA")
+    else:
+        with Image.open(io.BytesIO(raw)) as image:
+            colour = image.convert("RGBA")
+    if detail is None:
+        alpha = Image.new("L", colour.size, sheen)
+    else:
+        gloss = np.rint((1 - np.clip(detail()[..., 3] / 255 * ref.get("properties", {}).get("roughness", 1.), 0, 1)) * 255).astype(np.uint8)
+        alpha = Image.fromarray(gloss).resize(colour.size, Image.Resampling.BILINEAR)
+    colour.putalpha(alpha)
+    return dds_mipmaps(colour, alpha=True, smallest=1, independent=True)
+
+
+def _photo_normals(data, ref):
+    """A detail map's (H, W, 4) pixels as a PNG of its normals, scaled by the material's normal_scale. Pure."""
+    values = data[..., :3].astype(np.float64) / 255 * 2 - 1
+    values[..., :2] *= ref.get("properties", {}).get("normal_scale", 1.)
+    values /= np.maximum(np.linalg.norm(values, axis=2, keepdims=True), 1e-20)
+    normals = np.empty_like(data)
+    normals[..., :3] = np.rint((values * .5 + .5) * 255).clip(0, 255).astype(np.uint8)
+    normals[..., 3] = 255
+    return _png(normals)
 
 
 def _png(values):
