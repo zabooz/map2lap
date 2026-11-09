@@ -98,6 +98,10 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   from the ground's normal (`make_obj.ground_normals`), so they darken with a slope turned away from the sun.
 - The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
   itself, rings around the camera on the asphalt. Without CSP it casts none.
+- Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),
+  and one `LIGHT_SERIES` in `ext_config.ini` makes a light of all glass within 2 m. CSP reads the geometry as the track loads, so a
+  lamp moved, copied or deleted in the Editor needs nothing more. No shadows of their own: their light goes through walls and decks.
+  Without CSP they stay dark. A track built before has no such glass.
 - Unknown BeamNG materials become wall/concrete (`FALLBACK`); the build reports them → add them to `SURFACE`.
 - AC has no vertex colours: `make_obj.BLD_KINDS` gives each building material a comic texture per colour of BeamNG.Earth's
   table, and `bld_split` turns the colour jitter into one of 3 brightness levels.

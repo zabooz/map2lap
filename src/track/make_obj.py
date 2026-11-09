@@ -108,6 +108,7 @@ MATERIALS = {   # our material -> (texture or None, base colour)
     "water": ("@water", (1, 1, 1)), "foam": ("@foam", (1, 1, 1)),    # comic water (water.make_textures)
     "trees": ("@trees", (1, 1, 1)),             # (the atlas is made by trees.make_atlas)
     "props": ("@props", (1, 1, 1)),             # street furniture (propsmesh.make_atlas)
+    "lamp_glass": ("@props", (1, 1, 1)),        # the street lamps' glass: CSP finds the lamps by it (make_track_folder.EXT_CONFIG)
     cars.MATERIAL: ("@cars", (1, 1, 1)),        # parked cars (cars.make_atlas)
     fences.MATERIAL: ("@fences", (1, 1, 1)),    # fences, walls, hedges (fences.make_atlas)
     leisure.MATERIAL: ("@leisure", (1, 1, 1)),  # pools, playgrounds, graves, silos, masts (leisure.make_atlas)
@@ -326,14 +327,14 @@ def _signs_listed(objects, kind, sort, P, side):
     return vertex
 
 
-def _props_listed(objects, groups, rows, marks, solid, deco, houses):
+def _props_listed(objects, groups, rows, marks, solid, deco, glass, houses):
     """Each prop row that drew something as a new object, a door as its house's (its row says which: doors.doors; houses: {building's
-    number on the tile: object}), a pole's lamp as that pole's (the same place); (the owner of each vertex of solid, of deco)."""
-    solid_n, deco_n = (0 if m is None else len(m[0]) for m in (solid, deco))
-    of_solid, of_deco = np.full(solid_n, -1, np.int64), np.full(deco_n, -1, np.int64)
+    number on the tile: object}), a pole's lamp as that pole's (the same place); (the owner of each vertex of solid, of deco, of glass)."""
+    solid_n, deco_n, glass_n = (0 if m is None else len(m[0]) for m in (solid, deco, glass))
+    of_solid, of_deco, of_glass = np.full(solid_n, -1, np.int64), np.full(deco_n, -1, np.int64), np.full(glass_n, -1, np.int64)
     poles = {}
-    for (k, a, b), (_, a_end, b_end) in zip(marks, marks[1:] + [(0, solid_n, deco_n)]):
-        if a == a_end and b == b_end:
+    for (k, a, b, c), (_, a_end, b_end, c_end) in zip(marks, marks[1:] + [(0, solid_n, deco_n, glass_n)]):
+        if a == a_end and b == b_end and c == c_end:
             continue
         group, row = groups[rows[k][0]], rows[k]
         kind, (x, y, z) = propsmesh.kind_of(group), row[1:4]
@@ -347,8 +348,8 @@ def _props_listed(objects, groups, rows, marks, solid, deco, houses):
         if kind == "power pole":
             objects.poles[number] = [x, y, group]
             poles[(x, y)] = number
-        of_solid[a:a_end], of_deco[b:b_end] = number, number
-    return of_solid, of_deco
+        of_solid[a:a_end], of_deco[b:b_end], of_glass[c:c_end] = number, number, number
+    return of_solid, of_deco, of_glass
 
 
 def shape_parts(path, pos):
@@ -814,17 +815,18 @@ def _scenery_tile(tx, ty, part_path):
     if data.get("props"):
         try:
             marks = []
-            solid, deco, street_trees = propsmesh.build(
+            solid, deco, glass, street_trees = propsmesh.build(
                 data["props"]["groups"], data["props"]["items"],
                 np.concatenate(road_xy) if road_xy else None, marks)
-            of_solid, of_deco = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, houses)
-            for prefix, mesh, vertex in (("1WALL", solid, of_solid), ("nocol", deco, of_deco)):
+            of_solid, of_deco, of_glass = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, glass, houses)
+            for name, material, mesh, vertex in ((f"1WALL_props_{tx}_{ty}", "props", solid, of_solid), (f"nocol_props_{tx}_{ty}", "props", deco, of_deco),
+                                                 (f"nocol_props_glass_{tx}_{ty}", "lamp_glass", glass, of_glass)):
                 if mesh is not None:
-                    obj.add(f"{prefix}_props_{tx}_{ty}", "props", *mesh, owners=vertex[mesh[2][:, 0]])
+                    obj.add(name, material, *mesh, owners=vertex[mesh[2][:, 0]])
                     tris["props"] = tris.get("props", 0) + len(mesh[2])
             marks = []
             solid, deco = propsmesh.pylons(data["props"]["groups"], data["props"]["items"], marks)  # high-voltage pylons
-            of_solid, of_deco = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, houses)
+            of_solid, of_deco, _ = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, None, houses)
             for prefix, mesh, vertex in (("1WALL", solid, of_solid), ("nocol", deco, of_deco)):
                 if mesh is not None:
                     obj.add(f"{prefix}_pylon_{tx}_{ty}", "props", *mesh, owners=vertex[mesh[2][:, 0]])

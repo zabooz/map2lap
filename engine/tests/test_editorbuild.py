@@ -39,7 +39,7 @@ class BuildFactsTest(unittest.TestCase):
         listed = objectlist.TileList()
         row = [0, 5, 7, 2, 35, 1.2, 0.8, 2.0]
         mesh = (np.array([[5, 7, 2], [6, 7, 2], [5, 8, 2]]), np.zeros((3, 2)), np.array([[0, 1, 2]]))
-        make_obj._props_listed(listed, ["bench"], [row], [(0, 0, 0)], mesh, None, {})
+        make_obj._props_listed(listed, ["bench"], [row], [(0, 0, 0, 0)], mesh, None, None, {})
         with tempfile.TemporaryDirectory() as folder:
             part = str(Path(folder) / "t_0_0.obj")
             listed.note("nocol_props_0_0", [0])

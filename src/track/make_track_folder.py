@@ -90,6 +90,35 @@ VIBRATION_LENGTH=0.3
 # trees, on purpose). For realistic water again: [Material_Water] Materials = water, Type = LAKE
 EXT_CONFIG = """\
 [INCLUDE: common/materials_track.ini]
+[INCLUDE: common/conditions.ini]
+
+; street lamps at night: CSP finds them by the glass of their heads as the track loads, so a lamp moved, copied or deleted in the
+; Editor needs nothing here. All glass within 2 m is one lamp: a head's is 0.5 m wide, two lamps stand further apart. No shadows of
+; their own (costly with a lamp every 30 m): their light goes through walls and decks
+[LIGHT_SERIES_...]
+DESCRIPTION = street lamps
+MATERIALS = lamp_glass
+CLUSTER_THRESHOLD = 2
+OFFSET = 0, -0.1, 0
+DIRECTION = 0, -1, 0
+COLOR = 1, 0.82, 0.6, 6
+SPOT = 130
+SPOT_SHARPNESS = 0.4
+RANGE = 25
+RANGE_GRADIENT_OFFSET = 0.5
+FADE_AT = 400
+FADE_SMOOTH = 50
+SPECULAR_MULT = 1
+SHADOWS = 0
+CONDITION = NIGHT_SMOOTH
+
+[MATERIAL_ADJUSTMENT_...]
+DESCRIPTION = street lamp glass
+MATERIALS = lamp_glass
+KEY_0 = ksEmissive
+VALUE_0 = 1, 0.82, 0.6, 20
+VALUE_0_OFF = 0, 0, 0
+CONDITION = NIGHT_SMOOTH
 
 ; the ground casts shadows only at a low sun (long shadows of hills): all day it shadowed itself, rings around the camera
 [SHADER_REPLACEMENT_...]

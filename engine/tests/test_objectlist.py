@@ -364,9 +364,9 @@ class PropsTest(unittest.TestCase):
         rows = [[0, 1.0, 1.0, 0.0, 0.0, 1.0, 2.5, 0.5], [3, 2.0, 2.0, 0.0, 0.0, 1.0, 2.5, 0.5],
                 [1, 5.0, 5.0, 0.0, 0.0, 1.0, 2.1, 0.5, 4], [2, 9.0, 9.0, 0.0, 0.0, 1.0, 1.0, 0.5]]
         marks = []
-        solid, deco, _trees = propsmesh.build(groups, rows, None, marks)
+        solid, deco, glass, _trees = propsmesh.build(groups, rows, None, marks)
         objects = objectlist.TileList()
-        solid_owner, deco_owner = make_obj._props_listed(objects, groups, rows, marks, solid, deco, {4: 77})
+        solid_owner, deco_owner, _ = make_obj._props_listed(objects, groups, rows, marks, solid, deco, glass, {4: 77})
         self.assertEqual(["road sign", "door", "street furniture"], objects.kinds)
         self.assertEqual(["speedk50", "door", "bin"], objects.sorts)
         self.assertEqual([-1, 77, -1], objects.parents)
@@ -481,9 +481,9 @@ class PoleLampTest(unittest.TestCase):
         groups = ["pole", "polelamp"]
         rows = [[0, 3.0, 4.0, 0.0, 0.0, 1.0, 8.0, 0.5], [1, 3.0, 4.0, 7.0, 0.0, 1.0, 1.1, 0.5]]
         marks = []
-        solid, deco, _trees = propsmesh.build(groups, rows, None, marks)
+        solid, deco, glass, _trees = propsmesh.build(groups, rows, None, marks)
         objects = objectlist.TileList()
-        make_obj._props_listed(objects, groups, rows, marks, solid, deco, {})
+        make_obj._props_listed(objects, groups, rows, marks, solid, deco, glass, {})
         self.assertEqual(["power pole", "street furniture"], objects.kinds)
         self.assertEqual(["pole", "polelamp"], objects.sorts)
         self.assertEqual([-1, 0], objects.parents)

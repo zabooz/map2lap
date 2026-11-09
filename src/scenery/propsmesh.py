@@ -236,7 +236,7 @@ def pylons(groups, rows, marks=None):
     solid, deco = Builder(), Builder()
     for k, row in enumerate(rows):
         if marks is not None:
-            marks.append((k, len(solid.P), len(deco.P)))
+            marks.append((k, len(solid.P), len(deco.P), 0))
         g = groups[row[0]]
         if g == "pylon":
             _pylon(solid, deco, *row[1:4], math.radians(row[4]))
@@ -391,12 +391,12 @@ def sort_of(group):
 
 
 def build(groups, rows, road_xy=None, marks=None):
-    """(collision mesh, visible mesh without collision, street tree rows [x, y, z, yaw, h, rank]). marks: a list that gets per row
-    (its number, the vertices so far of the first mesh, of the second)."""
-    solid, deco, street_trees = Builder(), Builder(), []
+    """(collision mesh, visible mesh without collision, the street lamps' glass, street tree rows [x, y, z, yaw, h, rank]). marks: a
+    list that gets per row (its number, the vertices so far of the first mesh, of the second, of the glass)."""
+    solid, deco, glass, street_trees = Builder(), Builder(), Builder(), []
     for k, row in enumerate(rows):
         if marks is not None:
-            marks.append((k, len(solid.P), len(deco.P)))
+            marks.append((k, len(solid.P), len(deco.P), len(glass.P)))
         g = groups[row[0]]
         x, y, z, yaw_deg, scale, h, rank = row[1:8]
         yaw = math.radians(yaw_deg)
@@ -417,10 +417,10 @@ def build(groups, rows, road_xy=None, marks=None):
             deco.box(ax, ay, z + h - 0.2, 1.6, 0.12, 0.12, a, METAL)
             hx, hy = x + math.cos(a) * 1.6, y + math.sin(a) * 1.6
             deco.box(hx, hy, z + h - 0.45, 0.7, 0.32, 0.25, a, LAMP, top=LAMP)
-            deco.box(hx, hy, z + h - 0.5, 0.5, 0.22, 0.06, a, YELLOW)
+            glass.box(hx, hy, z + h - 0.5, 0.5, 0.22, 0.06, a, YELLOW)
         elif g == "polelamp":                               # lamp on a pole (without its own pole)
             deco.box(x, y, z - 0.25, 0.6, 0.3, 0.25, yaw, LAMP)
-            deco.box(x, y, z - 0.3, 0.45, 0.2, 0.06, yaw, YELLOW)
+            glass.box(x, y, z - 0.3, 0.45, 0.2, 0.06, yaw, YELLOW)
         elif g in SPEED or g in ("stop", "giveway"):        # post and double-sided sign on top
             k = SPEED.get(g, STOP if g == "stop" else GIVEWAY)
             solid.box(x, y, z - 0.3, 0.07, 0.07, h + 0.3, yaw, METAL)
@@ -447,7 +447,7 @@ def build(groups, rows, road_xy=None, marks=None):
             deco.box(x - s * 0.22, y + c * 0.22, z + 0.48, 1.6, 0.06, 0.45, yaw, BENCH)
             for dx in (-0.7, 0.7):
                 deco.box(x + c * dx, y + s * dx, z, 0.08, 0.4, 0.4, yaw, METAL)
-    return solid.mesh(), deco.mesh(), street_trees
+    return solid.mesh(), deco.mesh(), glass.mesh(), street_trees
 
 
 def _plate(b, x, y, z0, yaw, w, h, k, depth=0.0):
