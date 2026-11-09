@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {SunLight} from "three/addons/lights/SunLight.js";
 import {tangentFrame, variationShader, type ColourSplat, type GroundPass, type GroundMaterial} from "./colourBlend";
 
 function fitRegion(geometry: THREE.BufferGeometry) {
@@ -88,6 +89,7 @@ export class GroundFrame {
     private reserve: (bytes: number) => boolean, private release: (bytes: number) => void) {
     for (const child of lights.children) if (child instanceof THREE.Light) {
       const copy = child.clone();     // (a light has one parent: this scene needs its own, the values stay the view's)
+      if (child instanceof SunLight) (copy as SunLight).shadow = child.shadow;   // one map for both scenes (SunShadows)
       this.scene.add(copy); this.lights.push([child, copy]);
     }
   }
@@ -253,7 +255,11 @@ export class GroundLayer {
       for (let i = 0; i < this.materials.length; i++) {
         const pass = this.layers.ground!.passes[i], key = pass.bounds.join(",");
         const geometry = regions.get(key)!;
-        if (geometry.getIndex()!.count) depth.add(new THREE.Mesh(geometry, this.materials[i]));
+        if (geometry.getIndex()!.count) {
+          const passMesh = new THREE.Mesh(geometry, this.materials[i]);
+          passMesh.receiveShadow = true;
+          depth.add(passMesh);
+        }
       }
     } catch (error) {
       for (const geometry of regions.values()) disposeRegion(geometry);

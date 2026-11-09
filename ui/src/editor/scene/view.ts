@@ -21,6 +21,7 @@ import {ModelDraw} from "./modelDraw";
 import {modelLight} from "./modelLighting";
 import {bindLightShares, takesGroundLight} from "./lightShare";
 import {NightSky} from "./nightSky";
+import {SunShadows, sunLight, takeShadows} from "./sunShadows";
 import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace} from "./sun";
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
 import {WeightBundles} from "./weightBundle";
@@ -112,7 +113,8 @@ export class TrackView {
   private modelGhostVersion = 0;
   private modelLight: THREE.WebGLRenderTarget | null = null;
   private ambient = new THREE.AmbientLight();
-  private sun = new THREE.DirectionalLight();
+  private sun = sunLight();
+  private sunShadows: SunShadows;
   private moon = new THREE.DirectionalLight(MOON_COLOUR);
   private nightSky = new NightSky();
   private place = trackPlace(null);                     // where the open track lies: its sun
@@ -220,6 +222,7 @@ export class TrackView {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     host.appendChild(this.renderer.domElement);
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
+    this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
     this.applyLight();
     this.down.firstHitOnly = true;      // (the ground's height: what lies further down of the same mesh is of no interest)
     this.navigation.turnAround(this.renderer.domElement);
@@ -245,6 +248,7 @@ export class TrackView {
     this.clear();
     this.modelLight?.dispose();
     this.nightSky.dispose();
+    this.sun.dispose();
     this.roadMarkers.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
@@ -1793,6 +1797,7 @@ export class TrackView {
       this.roadInfluenceOverlay?.follow();
       this.nightSky.follow(this.camera.position);
       const renderStarted = performance.now();
+      this.sunShadows.draw(this.camera, this.navigation.height);
       try { for (const layer of this.groundLayers?.values() ?? []) layer.follow(); this.groundFrame?.render(this.camera); }
       catch (error) { const message = String((error as Error).message ?? error); if (message !== this.paintFailure) { this.paintFailure = message; this.onViewFailed(message); } }
       this.renderer.render(this.scene, this.camera);
@@ -2291,6 +2296,7 @@ export class TrackView {
       ? this.modelDraw.picking(info.model.asset, info.model.material ?? -1) : this.material(name, data, info.material));
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
+    takeShadows(m);
     this.scene.add(m);
     try { this.groundLayers?.get(info.material)?.attach(m); }
     catch (error) { this.paintFailure = String((error as Error).message ?? error); this.onViewFailed(this.paintFailure); }

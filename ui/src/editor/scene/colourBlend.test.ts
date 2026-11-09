@@ -23,6 +23,21 @@ test("PBR layers use retained linear detail data for tangent normals and roughne
   expect(shader.uniforms.m2lProperties0.value.toArray()).toEqual([2, .7]);
 });
 
+test("the original tile beside a PBR field keeps the sun, and its shadow", () => {
+  const material = new THREE.MeshStandardMaterial({map: new THREE.Texture()});
+  bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {
+    base: {name: "original"}, mask: {name: "mask"}, origin: [0, 0],
+    images: [{name: "photo", scale: [128, 128], detail: {name: "data", linear: true}, properties: {roughness: 1, normal_scale: 1}}],
+  }, [new THREE.Texture()]);
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.fragmentShader).toContain("sunLights[0].color");
+  expect(shader.fragmentShader).toContain("getSunShadow(sunShadowMap[0], sunLightShadows[0], 0)");
+  expect(shader.fragmentShader).toContain("directionalLights[j].color");   // (the moon)
+  expect(shader.fragmentShader).toContain("vec3 m2lSourceLight = ambientLightColor * m2lShade");   // (as dark in a shadow as the field beside it)
+});
+
 test("variation changes imported photo sampling while the source tile and selection mask keep their original UVs", () => {
   const material = new THREE.MeshLambertMaterial({map: new THREE.Texture()});
   bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {

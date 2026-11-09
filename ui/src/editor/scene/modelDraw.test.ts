@@ -2,6 +2,16 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {ModelDraw} from "./modelDraw";
 
+test("a placed model lies in the shadow of a house and throws none itself", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial()));
+  const draw = new ModelDraw(new THREE.Scene(), async () => source);
+  await draw.sync([{id: "a", asset: "tree"}], {tree: {url: "tree.glb"}}, {a: new THREE.Matrix4().toArray()});
+  const mesh = draw.instance("a")!.children[0] as THREE.Mesh;
+  expect(mesh.receiveShadow).toBe(true);
+  expect(mesh.castShadow).toBe(false);
+  draw.dispose();
+});
+
 test("model instances share real geometry, materials and textures; removing one keeps the other alive", async () => {
   const scene = new THREE.Scene(), geometry = new THREE.PlaneGeometry(), texture = new THREE.Texture();
   const material = new THREE.MeshStandardMaterial({map: texture, alphaTest: .5, roughness: .7});

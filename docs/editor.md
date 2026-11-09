@@ -76,6 +76,12 @@ Manager gives AC the real sun of that day, the Editor doesn't follow it. Materia
 the sky's and the sun's light by their ksAmbient and ksDiffuse (`lightShare.ts`). Ground stays on the plain light, as painting it
 replaces its shader.
 
+Houses throw the sun's shadow (`sunShadows.ts`, by the mesh name `_bld`); ground, objects, plants and placed models take it, nothing
+else throws one, so the view shows less than AC does (hills, bridges, poles, cars). The map is drawn once per drawn frame, by a render
+of the main scene that sees no mesh (three.js draws maps only inside a render, and edited ground, drawn first, has no houses); edited
+ground shares it (`GroundFrame`). It reaches from the camera 200 m deep, more the higher the camera is. In a shadow the sky's light
+falls to 70 %, in three.js's own light chunks, so all materials agree.
+
 At night a weak full moon stands across the sky from the sun (`moonDirection`) and lights the track from one side; its disc and
 the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside the headlights, which the Editor doesn't have.
 

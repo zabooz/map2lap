@@ -5,6 +5,8 @@ import {GroundFrame} from "./groundRender";
 import {ModelDraw} from "./modelDraw";
 import {NightSky} from "./nightSky";
 import {lightAt, moonDirection, sunDirection, sunHeight, type Place} from "./sun";
+import {SunLight} from "three/addons/lights/SunLight.js";
+import {sunLight} from "./sunShadows";
 
 const RECHBERG: Place = {lat: 46.518829, lon: 14.57707, utcOffset: 1};
 
@@ -81,6 +83,16 @@ test("edited ground gets the same light as the rest", () => {
   expect(sun.intensity).toBe(state.sun.intensity);
   expect(sun.color.getHex()).toBe(state.sun.color.getHex());
   expect(sun.position.toArray()).toEqual(state.sun.position.toArray());
+  frame.dispose();
+});
+
+test("edited ground takes the shadow map the rest takes", () => {
+  const {state} = bareView({sun: sunLight()}), sun = state.sun as unknown as SunLight;
+  state.scene.add(sun);
+  const frame = new GroundFrame({} as THREE.WebGLRenderer, state.scene, () => true, () => {});
+  const copy = frame.scene.children.find(light => light instanceof SunLight) as SunLight;
+  expect(copy.shadow).toBe(sun.shadow);
+  expect(copy.castShadow).toBe(true);
   frame.dispose();
 });
 

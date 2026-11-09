@@ -96,7 +96,14 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
           if (m2lContribution > 0.0) normal = normalize(m2lFrame * normalize(m2lNormal));`)
         .replace("#include <opaque_fragment>", `
           // The source tile and existing colour-only fields retain their Lambert lighting next to a PBR field.
-          vec3 m2lSourceLight = ambientLightColor;
+          vec3 m2lSourceLight = ambientLightColor * m2lShade;
+          #if NUM_SUN_LIGHTS > 0
+          float m2lSourceSun = max(0.0, dot(m2lSourceNormal, sunLights[0].direction));
+          #if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
+          if (receiveShadow) m2lSourceSun *= getSunShadow(sunShadowMap[0], sunLightShadows[0], 0);
+          #endif
+          m2lSourceLight += sunLights[0].color * m2lSourceSun;
+          #endif
           #if NUM_DIR_LIGHTS > 0
           for (int j = 0; j < NUM_DIR_LIGHTS; ++j) {
             m2lSourceLight += directionalLights[j].color * max(0.0, dot(m2lSourceNormal, directionalLights[j].direction));

@@ -152,6 +152,7 @@ export class ModelDraw {
       if (!instance) {
         const root = loaded.get(binding.asset)!.root.clone(true);
         root.matrixAutoUpdate = false;
+        root.traverse(node => { node.receiveShadow = true; });
         instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance); this.scene.add(root);
       }
       instance.root.matrix.fromArray(matrices[binding.id]); instance.root.matrixWorldNeedsUpdate = true;

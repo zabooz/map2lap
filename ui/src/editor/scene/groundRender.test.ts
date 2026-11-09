@@ -141,6 +141,20 @@ test("replacing source geometry at version zero rebuilds borrowed region attribu
   layer.dispose(); expect(next.getAttribute("position")).toBeDefined();
 });
 
+test("painted ground takes shadows in each pass, and throws none", () => {
+  const frame = new GroundFrame({} as THREE.WebGLRenderer, new THREE.Scene(), () => true, () => {});
+  const layer = new GroundLayer(frame, {base: {name: "base"}, mask: {name: "unused"}, images: [], origin: [0, 0],
+    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0,
+      passes: [{image: -1, first: 0, bounds: [0, 0, 1, 1], frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}],
+        weight: {name: "uniform", size: 0}}]}}, new THREE.Texture(), [], [], [null], new THREE.Color(1, 1, 1));
+  layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 2, 2)));
+  const depth = frame.scene.children[0] as THREE.Mesh, pass = depth.children[0] as THREE.Mesh;
+  expect(pass.receiveShadow).toBe(true);
+  expect(pass.castShadow).toBe(false);
+  expect(depth.castShadow).toBe(false);
+  layer.dispose();
+});
+
 test("a guarded tile's triangles fall into the regions their whole-tile UVs reach", () => {
   // Guarded ground UVs cover only the inside of the tile texture (groundmaterial.UV_GUARD); masks and region bounds the whole tile.
   const guard = 1 / 8, inside = (u: number) => guard + u * (1 - 2 * guard);
