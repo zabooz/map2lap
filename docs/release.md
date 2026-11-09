@@ -7,6 +7,10 @@ Before packaging a page change, run `bun install --frozen-lockfile`, `bun run ch
 `ui/` source. Without browser tests, `bun run build` does the build alone. The archives include `src/web` and leave `ui/`
 and its dependencies out: users need no Bun.
 
+The FBX/OBJ reader's Windows and Linux executables under `src/bin` are built together with
+`tools/build_modelconvert.py --linux`. Each archive includes only its platform's converter and the accompanying licences;
+the Linux executable gets mode 0755. There is no Blender or Python converter package dependency at runtime.
+
 User-imported assets live in `library/` beside the app on both systems. It is excluded even from accidentally tracked release
 inputs and is created by the app when needed. Never ship that folder: the start scripts replace the folders an update contains.
 The updater therefore also refuses ZIP or TAR.GZ archives with a `Map2Lap/library` entry before marking them ready to install.

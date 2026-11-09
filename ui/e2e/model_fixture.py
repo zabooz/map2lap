@@ -3,6 +3,7 @@ import io
 import json
 import struct
 import sys
+import zipfile
 
 import numpy as np
 from PIL import Image
@@ -54,5 +55,17 @@ def tree(default_material=False, metallic=False):
     return struct.pack("<III", 0x46546c67, 2, 28 + len(encoded) + len(binary)) + struct.pack("<II", len(encoded), 0x4e4f534a) + encoded + struct.pack("<II", len(binary), 0x004e4942) + binary
 
 
+def obj_bundle():
+    """A self-made textured OBJ and its relative MTL/PNG companions in one uploaded ZIP. Pure."""
+    image = io.BytesIO()
+    Image.new('RGBA', (8, 8), (30, 160, 40, 255)).save(image, 'PNG')
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, 'w') as archive:
+        archive.writestr('model/panel.obj', 'mtllib panel.mtl\nusemtl leaf\nv -1 0 0\nv 1 0 0\nv 1 3 0\nv -1 3 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nf 1/1 2/2 3/3 4/4\n')
+        archive.writestr('model/panel.mtl', 'newmtl leaf\nKd 1 1 1\nmap_Kd textures/leaf.png\n')
+        archive.writestr('model/textures/leaf.png', image.getvalue())
+    return stream.getvalue()
+
+
 if __name__ == "__main__":
-    sys.stdout.buffer.write(tree("--default-material" in sys.argv, "--metallic" in sys.argv))
+    sys.stdout.buffer.write(obj_bundle() if '--obj-zip' in sys.argv else tree("--default-material" in sys.argv, "--metallic" in sys.argv))

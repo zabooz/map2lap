@@ -35,7 +35,8 @@ export function ModelLibrary({replace, onChoose, onClose, embedded = false, open
   const choose = (files: FileList | null) => {
     if (!files?.length) return;
     if (files.length !== 1) { setNote("Choose one object at a time."); return; }
-    if (files[0].size > 128 * 1024 * 1024) { setNote("Choose a GLB up to 128 MB."); return; }
+    if (!/\.(glb|fbx|obj|zip)$/i.test(files[0].name)) { setNote("Choose a GLB, FBX, OBJ or model ZIP."); return; }
+    if (files[0].size > 128 * 1024 * 1024) { setNote("Choose a model up to 128 MB."); return; }
     setNote(null); setFile(files[0]);
   };
   const imported = (model: LibraryModel) => {
@@ -43,7 +44,7 @@ export function ModelLibrary({replace, onChoose, onClose, embedded = false, open
     setNote("Object added to your library.");
   };
   const content = <>
-    <input className={styles.file} ref={input} aria-label="Model file" type="file" accept=".glb" disabled={busy}
+    <input className={styles.file} ref={input} aria-label="Model file" type="file" accept=".glb,.fbx,.obj,.zip" disabled={busy}
       onChange={event => { choose(event.target.files); event.target.value = ""; }} />
     <LibraryBrowser title="Objects" subtitle={replace ? `Selected: ${replace} ${replace === 1 ? "tree" : "trees"}` : "Object library"}
       onImport={() => input.current?.click()} disabled={busy} onFiles={choose}
@@ -54,7 +55,7 @@ export function ModelLibrary({replace, onChoose, onClose, embedded = false, open
         </select>
       </>}
       browser={fault ? <p role="alert">{fault}</p> : !result ? <p role="status">Loading objects…</p>
-        : !result.items.length ? <p className="muted">{query || category ? "No matching objects." : "No objects yet. Import or drop a GLB model here."}</p>
+        : !result.items.length ? <p className="muted">{query || category ? "No matching objects." : "Import GLB, FBX or OBJ. Include companion textures and MTL files in a ZIP with one model."}</p>
         : <LibraryCards>{result.items.map(model => <LibraryCard key={model.id} label={model.name} selected={selected?.id === model.id}
           disabled={busy} onClick={() => setSelected(model)} thumbnail={<ModelThumbnail id={model.id} name={model.name} enabled={open} />} />)}</LibraryCards>}
       preview={selected ? <LibrarySelection><ModelThumbnail key={selected.id} id={selected.id} name={selected.name} enabled={open} preview />

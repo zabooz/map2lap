@@ -18,6 +18,25 @@ class ModelWorkflowTest(Base):
         patch = mock.patch.object(objectlibrary, "ROOT", self.ac)
         patch.start(); self.addCleanup(patch.stop)
 
+    def test_converted_obj_and_source_upload_survive_portable_save_without_library_or_caches(self):
+        raw = b'v 0 0 0\nv 2 0 0\nv 0 3 0\nf 1 2 3\n'
+        prepared = objectlibrary.prepare('panel.obj', raw)
+        asset = objectlibrary.add({'token': prepared['token'], 'filename': 'panel.obj', 'name': 'Panel'})['model']
+        now = trackedits.load(self.ac, self.name)
+        instance = trackedits.model(self.ac, self.name, {'base': now['base'], 'revision': now['revision'],
+            'model': asset['id'], 'at': [20, 0, 5]})['model']
+        self.keep([instance])
+        trackcopy.save(self.ac, self.name, 'converted_model', 'Converted model')
+        retained = Path(self.ac, 'content/tracks/converted_model/data/map2lap_models/assets', instance['asset'])
+        self.assertEqual(raw, (retained / 'original/upload.obj').read_bytes())
+        for relative in ('library', 'cache', 'out/sources', 'out/edits', 'out/model-assets'):
+            shutil.rmtree(Path(self.ac, relative), ignore_errors=True)
+        index = trackview.index(self.ac, 'converted_model')
+        self.assertEqual(1, len(index['models']))
+        trackcopy.save(self.ac, 'converted_model', 'converted_again', 'Converted again')
+        copied = Path(self.ac, 'content/tracks/converted_again/data/map2lap_models/assets', instance['asset'])
+        self.assertEqual(raw, (copied / 'original/upload.obj').read_bytes())
+
     def keep(self, models, placed=(), heights=(), copies=()):
         now = trackedits.load(self.ac, self.name)
         return trackedits.save_telling(self.ac, self.name, {"base": now["base"], "revision": now["revision"],

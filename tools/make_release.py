@@ -48,9 +48,9 @@ NAME = "Map2Lap"
 SKIP = ("tools/", "docs/", ".githooks/", ".gitignore", ".gitattributes", "AGENTS.md", "CLAUDE.md", "GLOSSARY.md",
         "engine/tests/", "native/", "ui/", "library/")
 # what only the other system needs
-ONLY = {"win": ("Start Map2Lap.bat", "engine/earthfast.pyd"),
-        "linux": ("start.sh", "Map2Lap.desktop", "engine/earthfast.abi3.so")}
-EXECUTABLE = ("start.sh", "Map2Lap.desktop")     # (Linux: started by a double-click)
+ONLY = {"win": ("Start Map2Lap.bat", "engine/earthfast.pyd", "src/bin/modelconvert-win64.exe"),
+        "linux": ("start.sh", "Map2Lap.desktop", "engine/earthfast.abi3.so", "src/bin/modelconvert-linux-x64")}
+EXECUTABLE = ("start.sh", "Map2Lap.desktop", "src/bin/modelconvert-linux-x64")
 TEXTURES = os.path.join("assets", "textures")
 
 

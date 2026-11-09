@@ -78,10 +78,11 @@ existing source and colour-only fields retain their lighting. Regional AC output
 roughness to an explicit specular-strength approximation; it does not implement PBR roughness.
 
 **Model package** (Editor):
-An immutable user asset under `library/objects/<id>`, with its original GLB and a versioned description of source scale,
+An immutable user asset under `library/objects/<id>`, with its self-contained GLB and a versioned description of source scale,
 ground anchor, category and collision choice (`app/objectlibrary.py`). `app/modeldata.py` keeps primitive geometry shared
 between the GLB's scene nodes and retains material/image resources. The Editor imports, places and replaces trees from these
-packages, retaining their originals in saved tracks; native shading currently covers colour and alpha.
+packages, retaining their originals in saved tracks; native shading currently covers colour and alpha. FBX and OBJ imports
+also retain their unchanged source upload (a model file or ZIP with companion materials/textures) beside the converted GLB.
 
 **Model snapshot and instance** (Editor):
 An immutable snapshot freezes the original GLB and its import description when applied. A stable generic instance id binds

@@ -4,15 +4,15 @@ import type {LibraryModel} from "./ModelLibrary";
 import {ModelPreview} from "./ModelPreview";
 import styles from "./ImportModel.module.css";
 
-interface Prepared {token: string; geometry: {bounds: number[][]}}
+interface Prepared {token: string; geometry: {bounds: number[][]}; warnings?: string[]}
 
-/** Preview a GLB in a separate import dialog; publishing it does not place it on the track. */
+/** Preview the prepared model used by placement and Save; publishing it does not place it on the track. */
 export function ImportModel({file, onCancel, onImported, onBusy}: {
   file: File; onCancel: () => void; onImported: (model: LibraryModel) => void; onBusy: (busy: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null), [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState(() => file.name.replace(/\.glb$/i, "").replace(/[_-]+/g, " ").slice(0, 80));
+  const [name, setName] = useState(() => file.name.replace(/\.(glb|fbx|obj|zip)$/i, "").replace(/[_-]+/g, " ").slice(0, 80));
   const [category, setCategory] = useState("tree"), [units, setUnits] = useState("1");
   const [collision, setCollision] = useState<"none" | "mesh">("none");
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
@@ -40,7 +40,8 @@ export function ImportModel({file, onCancel, onImported, onBusy}: {
     <form className={styles.form} onSubmit={event => { event.preventDefault(); void add(); }}>
       <h2>Import object</h2><p className={styles.note}>{file.name}</p>
       {prepared && <>
-        <ModelPreview file={file} height={155} />
+        <ModelPreview url={`/api/library/model-imports/${prepared.token}/preview`} height={155} />
+        {prepared.warnings?.map(warning => <p key={warning} className={styles.note}>{warning}</p>)}
         <label className={styles.field}>Name<input aria-label="Model name" value={name} maxLength={80} required disabled={saving} onChange={event => setName(event.target.value)} /></label>
         <label className={styles.field}>Category<select value={category} disabled={saving} onChange={event => setCategory(event.target.value)}>
           {MODEL_CATEGORIES.map(([id, label]) => <option value={id} key={id}>{label}</option>)}

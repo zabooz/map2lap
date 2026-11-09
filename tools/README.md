@@ -38,3 +38,4 @@ line here (`engine/tests/test_tools.py`).
 | Build the Rust module, read a DLL's imports | `build_native.py`, `pe_imports.py` |
 | Make a release, test its update | `make_release.py`, `test_update.py` |
 | The CC0 textures a clone lacks | `get_textures.py` |
+| Build the bundled FBX/OBJ import converter for Windows and Linux | `build_modelconvert.py` |

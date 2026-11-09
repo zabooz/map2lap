@@ -1,8 +1,8 @@
 export const MODEL_CATEGORIES = [["tree", "Trees"], ["building", "Buildings"], ["other", "Other"]] as const;
 let modelPreparation: Promise<unknown> = Promise.resolve();
 
-/** Queue GLB preparation across cancelled dialogs; finish the server's current upload before starting another. */
-export function prepareModelFile(file: File, signal: AbortSignal): Promise<{token: string; geometry: {bounds: number[][]}}> {
+/** Queue model preparation across cancelled dialogs; finish the server's current upload before starting another. */
+export function prepareModelFile(file: File, signal: AbortSignal): Promise<{token: string; geometry: {bounds: number[][]}; warnings?: string[]}> {
   const task = modelPreparation.catch(() => {}).then(() => {
     signal.throwIfAborted();
     // The dialog discards a cancelled answer; aborting fetch could leave the server still holding its preparation lock.

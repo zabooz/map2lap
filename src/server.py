@@ -610,8 +610,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         try:
             q = parse_qs(path.query)
-            if path.path in ("/api/library/models", "/api/library/model-imports") or path.path.startswith("/api/library/models/"):
+            if (path.path in ("/api/library/models", "/api/library/model-imports")
+                    or path.path.startswith(("/api/library/models/", "/api/library/model-imports/"))):
                 if self.command == "GET":
+                    prepared = re.fullmatch(r"/api/library/model-imports/([a-f0-9]{64})/preview", path.path)
+                    if prepared:
+                        return self._send(200, objectlibrary.prepared_model(prepared[1]), "model/gltf-binary")
                     if path.path == "/api/library/models":
                         return self._send(200, objectlibrary.listing(q.get("q", [""])[0], q.get("category", [""])[0],
                             int(q.get("offset", ["0"])[0]), int(q.get("limit", ["40"])[0])))
@@ -624,7 +628,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(403, {"error": "Only the page itself can import a model"})
                 size = int(self.headers.get("Content-Length", 0))
                 if not 0 < size <= (modeldata.MAX_BYTES if upload else 16384):
-                    return self._send(413, {"error": "Choose a GLB up to 128 MB" if upload else "Too many model settings"})
+                    return self._send(413, {"error": "Choose a model up to 128 MB" if upload else "Too many model settings"})
                 if upload:
                     if not MATERIAL_UPLOADS.acquire(blocking=False):
                         return self._send(429, {"error": "Another asset is being prepared"})

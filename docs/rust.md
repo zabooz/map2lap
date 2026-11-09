@@ -3,6 +3,12 @@
 The hot loops of grading and painting, in `native/earthfast`. The repo holds the built module for both systems:
 `engine/earthfast.pyd` (Windows) and `engine/earthfast.abi3.so` (Linux release). Both are abi3: any Python >= 3.10.
 
+The independent FBX/OBJ reader is in `native/modelconvert`, using pinned ufbx and `Cargo.lock`. Build both runtime
+executables with `.venv\Scripts\python.exe tools\build_modelconvert.py --linux`: `src/bin/modelconvert-win64.exe` and
+`src/bin/modelconvert-linux-x64`. This does not rebuild earthfast or require stopping the generator page. Windows needs a
+C compiler (MinGW GCC, `CC`/`AR`, or a developer-only Zig download under `out/model-converters/zig`); Linux builds through
+WSL with GCC. The checked-in executables are shipped with notices, and users need neither a compiler nor Blender.
+
 ## Rebuilding
 
 Every change to the Rust code builds both files: a stale one gives the other system different roads (`AC_EXPORT_YIELD` and

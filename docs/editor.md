@@ -211,10 +211,31 @@ source mesh/material/shader diagnostics remain under Details.
 ## Imported models
 
 `app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with unchanged
-`original/model.glb`. Their ids bind original content, category, metres per source unit, model-local anchor and explicit
+`original/model.glb`. Their ids bind the GLB content, category, metres per source unit, model-local anchor and explicit
 collision choice (`none` by default, or `mesh`). These import settings are independent of future scene placements. Name,
 tags, source and licence remain with the package. Prepared uploads under `cache/models` are disposable; original bytes
 remain available and hash-checked after clearing that cache. No model collection is shipped.
+
+The object importer accepts GLB, FBX and OBJ, or a ZIP containing exactly one FBX/OBJ and its companion MTL/images.
+`app/modelimport.py` converts FBX/OBJ with the bundled `src/bin/modelconvert-*` ufbx reader; Blender is not required.
+The unchanged input is kept as `original/upload.fbx`, `.obj` or `.zip`, with its own hash and original filename, in the
+library and portable saved model snapshots. `original/model.glb` is the validated canonical representation consumed by
+the preview, placement and Save; existing GLB originals remain byte-identical. Preparation tokens identify the upload,
+while immutable model ids use the canonical GLB hash and semantic import settings.
+
+The separate converter process normalizes FBX file units and axes to glTF's metre/Y-up frame; OBJ defaults to metre/Y-up
+and the import scale remains adjustable. It triangulates polygons, retains node placements, hard normals and UV seams,
+and converts classic material colours, cutout alpha, normal, roughness/metallic and emissive images. Legacy roughness is
+an approximation from the Phong exponent when no roughness is supplied. Bump/height maps remain in the original upload;
+the import dialog explains that surface relief needs a tangent-space normal map. Layered images and texture transforms
+must be baked before importing. Non-white vertex colours must be baked to a colour image, matching the existing GLB path's
+supported attributes. Actual animation, skinning and morph targets are refused; constant exported channels are
+allowed. Saved AC shading retains the existing colour/alpha limitations described below.
+
+Only uploaded companions can satisfy external references. ZIP members must have unambiguous relative paths, with at most
+1024 entries and 128 MiB unpacked in total. The native reader opens no external files, caps temporary and result allocations
+at 256 MiB each, and conversion times out after 60 seconds. The existing geometry and image limits also apply to converted
+GLBs. `/api/library/model-imports/<token>/preview` returns that validated GLB before permanent publication.
 
 `app/modeldata.py` reads self-contained static GLB 2.0 triangle meshes. Primitive arrays are shared between scene nodes;
 node transformations remain separate. It reads interleaved attributes, normalized UVs and embedded PNG/JPG images

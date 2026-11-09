@@ -8,4 +8,5 @@ test("the Objects library exposes search, category filtering and its selected-tr
   expect(html).toContain('aria-label="Filter objects"');
   expect(html).toContain("Replace 12 selected trees");
   expect(html).toContain("Import…");
+  expect(html).toContain('accept=".glb,.fbx,.obj,.zip"');
 });
