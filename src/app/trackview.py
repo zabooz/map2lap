@@ -121,10 +121,11 @@ def material_uv(material, tx, ty, u, v):
 
 
 def _material(material):
-    """Names, colour-layer inputs/scales, ksAmbient + ksDiffuse and alpha flags for the view. Pure."""
+    """Names, colour-layer inputs/scales, ksAmbient and ksDiffuse (their sum and apart) and alpha flags for the view. Pure."""
     texture = next((tex for slot, _n, tex in material.maps if slot == "txDiffuse"), None)
+    ambient, diffuse = _prop(material, "ksAmbient", 0.5), _prop(material, "ksDiffuse", 0.5)
     result = {"name": material.name, "shader": material.shader, "texture": texture,
-              "bright": _prop(material, "ksAmbient", 0.5) + _prop(material, "ksDiffuse", 0.5),
+              "bright": ambient + diffuse, "ambient": ambient, "diffuse": diffuse,
               "alpha_ref": _prop(material, "ksAlphaRef", 0.5) if material.alpha_tested else 0.0,
               "blend": bool(material.blend)}
     if material.shader == "ksPerPixel_dual_layer":

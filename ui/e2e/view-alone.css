@@ -1,2 +1,2 @@
 /* A reference picture is of the 3D view, not of what lies over it */
-[data-tool-options] { visibility: hidden; }
+[data-tool-options], #sun-clock { visibility: hidden; }

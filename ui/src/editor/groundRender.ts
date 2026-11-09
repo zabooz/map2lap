@@ -83,9 +83,19 @@ export class GroundFrame {
   private indexBytes = 0;
   private materials = new Set<GroundMaterial>();
   private viewport = new THREE.Vector2();
+  private lights: [THREE.Light, THREE.Light][] = [];
   constructor(private renderer: THREE.WebGLRenderer, lights: THREE.Scene,
     private reserve: (bytes: number) => boolean, private release: (bytes: number) => void) {
-    for (const child of lights.children) if (child instanceof THREE.Light) this.scene.add(child.clone());
+    for (const child of lights.children) if (child instanceof THREE.Light) {
+      const copy = child.clone();     // (a light has one parent: this scene needs its own, the values stay the view's)
+      this.scene.add(copy); this.lights.push([child, copy]);
+    }
+  }
+  /** Take over the view's lights as they are now. */
+  followLights() {
+    for (const [source, copy] of this.lights) {
+      copy.color.copy(source.color); copy.intensity = source.intensity; copy.position.copy(source.position);
+    }
   }
   bind(material: GroundMaterial) {
     this.ensure();

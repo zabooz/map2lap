@@ -314,11 +314,25 @@ def play_car():
     return (model, car_name(model)) if model else (None, None)
 
 
-def play(name):
-    """Drive the track in AC (My tracks, "Play"): race.ini the way Content Manager writes it, with the last settings
-    (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (system.start_ac;
-    system.ensure_steam starts Steam if needed); returns (HTTP code, response)."""
+def sun_angle(clock):
+    """race.ini's [LIGHTING] SUN_ANGLE for a local clock hour, as Content Manager writes it: 16 degrees an hour from 13:00,
+    below -80 and above 80 too for the hours of the night (CSP reads them). Pure."""
+    return 16.0 * (clock - 13.0)
+
+
+def valid_clock(clock):
+    """Whether clock is an hour of the day, 0 up to 24. Pure."""
+    return isinstance(clock, (int, float)) and not isinstance(clock, bool) and 0 <= clock < 24     # (NaN compares false)
+
+
+def play(name, clock=None):
+    """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
+    settings (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (system.start_ac;
+    system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
+    Returns (HTTP code, response)."""
     import configparser
+    if clock is not None and not valid_clock(clock):
+        return 400, {"error": "The time of day is not an hour of the day"}
     ac = settings.ac_path()
     if not os.path.exists(os.path.join(ac, "content", "tracks", name, name + ".kn5")):
         return 404, {"error": "This track has no track file (build it again)"}
@@ -361,6 +375,10 @@ def play(name):
         ini.add_section("SESSION_0")
     for k, v in (("NAME", "Practice"), ("TYPE", "1"), ("DURATION_MINUTES", "0"), ("SPAWN_SET", "START")):
         ini.set("SESSION_0", k, v)
+    if clock is not None:
+        if not ini.has_section("LIGHTING"):
+            ini.add_section("LIGHTING")
+        ini.set("LIGHTING", "SUN_ANGLE", f"{sun_angle(clock):.2f}")
     with open(race_ini(), "w", encoding="utf-8") as f:
         ini.write(f, space_around_delimiters=False)
     with lock:
@@ -1040,7 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], info.get("width"),
                                         info.get("area")))
             elif self.path == "/api/play":
-                self._send(*play(generator.slug(body.get("name") or "")))
+                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock")))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":

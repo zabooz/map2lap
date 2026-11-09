@@ -55,10 +55,11 @@ export class ModelDraw {
   private version = 0;
   private wanted = new Set<string>();
   private environment: THREE.Texture | null = null;
+  private power = 1;
 
-  setEnvironment(texture: THREE.Texture) {
-    this.environment = texture;
-    for (const asset of this.assets.values()) modelEnvironment(asset.materials, texture);
+  setEnvironment(texture: THREE.Texture, power = 1) {
+    this.environment = texture; this.power = power;
+    for (const asset of this.assets.values()) modelEnvironment(asset.materials, texture, power);
   }
 
   constructor(private scene: THREE.Scene, private load: (url: string) => Promise<THREE.Group> = async url => {
@@ -106,7 +107,7 @@ export class ModelDraw {
     let pending = this.pending.get(id);
     if (!pending) {
       pending = this.load(url).then(resources).then(asset => {
-        if (this.environment) modelEnvironment(asset.materials, this.environment);
+        if (this.environment) modelEnvironment(asset.materials, this.environment, this.power);
         const own = this.pending.get(id) === pending;
         if (!own || !this.wanted.has(id)) {
           if (own) this.pending.delete(id);

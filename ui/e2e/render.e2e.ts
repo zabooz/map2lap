@@ -147,21 +147,42 @@ test("reference views: the track looks as it did", async ({page}) => {
   await expect(scene(page)).toHaveScreenshot("turned.png", REFERENCE);
 });
 
+/** The colour of the sky at the top of the still view. */
+async function skyColour(page: Page) {
+  await page.mouse.move(AWAY.x, AWAY.y);
+  const view = (await scene(page).boundingBox())!;
+  // Only one pixel is needed. Serializing a whole RGBA frame three times starves parallel software-rendering tests.
+  return page.evaluate(async ({base64, x}) => {
+    const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, Math.round(x), 3, 1, 1, 0, 0, 1, 1);
+    bitmap.close();
+    return Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
+  }, {base64: (await stillView(page)).toString("base64"), x: view.width * 0.9});
+}
+
+test("the time of day darkens the view, is only a preview and goes back to 10:00", async ({page}) => {
+  await openEditor(page);
+  const clock = page.locator("#sun-clock"), slider = clock.getByRole("slider", {name: "Time of day"}), reset = clock.getByRole("button", {name: "Reset"});
+  const save = page.locator("#edit-save");
+  const saveBefore = await save.isDisabled();
+  await expect(clock).toContainText("10:00");
+  await expect(reset).toBeDisabled();
+  await slider.fill("0");
+  await expect(clock).toContainText("00:00");
+  await expect.poll(async () => Math.max(...await skyColour(page))).toBeLessThan(60);
+  expect(await save.isDisabled()).toBe(saveBefore);
+  await reset.click();
+  await expect(clock).toContainText("10:00");
+  await expect.poll(async () => Math.abs((await skyColour(page))[0] - SKY[0])).toBeLessThanOrEqual(SKY_TOLERANCE);
+});
+
 test("the 3D canvas stays painted when properties resize, hide and reopen", async ({page}) => {
   await openEditor(page);
   const painted = async () => {
-    await page.mouse.move(AWAY.x, AWAY.y);
-    const view = (await scene(page).boundingBox())!;
-    // Only one pixel is needed. Serializing a whole RGBA frame three times starves parallel software-rendering tests.
-    const sky = await page.evaluate(async ({base64, x}) => {
-      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = 1;
-      const context = canvas.getContext("2d")!;
-      context.drawImage(bitmap, Math.round(x), 3, 1, 1, 0, 0, 1, 1);
-      bitmap.close();
-      return Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
-    }, {base64: (await stillView(page)).toString("base64"), x: view.width * 0.9});
+    const sky = await skyColour(page);
     sky.forEach((c, k) => expect(Math.abs(c - SKY[k]), `sky after resizing ${sky}`).toBeLessThanOrEqual(SKY_TOLERANCE));
   };
   const divider = page.getByRole("separator", {name: "Inspector width"});

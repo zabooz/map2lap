@@ -47,6 +47,21 @@ start, and none while that folder isn't there. Planned editing tools will use th
 installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
 turn that off or delete them. Existing saved preferences stay in effect.
 
+## Light and the time of day
+
+The clock over the view (`SunClock`) shows the track's local time, 10:00 when a track opens. Nothing is saved or built; Play from
+the Editor starts AC at that hour (`server.sun_angle`). `TrackView.setClock` sets sun, ambient, sky and the placed models' reflections together (`applyLight`); edited ground has
+its own scene and takes the same values over (`GroundFrame.followLights`).
+
+The sun stands where CSP has it with no date set in a session: the equinox's path, the same all year, from the track's anchor and
+its time zone (`sun.ts`, read from CSP: 0.2 degrees off by day). The zone comes from the coordinates, offline; a date set in Content
+Manager gives AC the real sun of that day, the Editor doesn't follow it. Materials keep their colours; other than ground they weigh
+the sky's and the sun's light by their ksAmbient and ksDiffuse (`lightShare.ts`). Ground stays on the plain light, as painting it
+replaces its shader.
+
+At night a weak full moon stands across the sky from the sun (`moonDirection`) and lights the track from one side; its disc and
+the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside the headlights, which the Editor doesn't have.
+
 ## Tools and changes
 
 The right panel has Properties and Details tabs. Properties keeps the clicked selection independently of the pointer and

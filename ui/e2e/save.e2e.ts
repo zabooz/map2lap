@@ -196,6 +196,14 @@ test("nothing changed: Play starts the track at once, nothing asked", async ({pa
   await expect.poll(async () => (await (await page.request.get("/__test/calls")).json()) as unknown[][]).toContainEqual(["play", "alpha"]);
 });
 
+test("Play starts Assetto Corsa at the hour the Editor's clock shows", async ({page}) => {
+  await openEditor(page);
+  await page.locator("#sun-clock").getByRole("slider", {name: "Time of day"}).fill("1110");
+  const started = page.waitForRequest("**/api/play");
+  await page.locator("#edit-play").click();
+  expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5});
+});
+
 test("while the track is written nothing changes: Saved means what was written, and undo works afterwards", async ({page}) => {
   await openEditor(page);
   await deleteTree(page);

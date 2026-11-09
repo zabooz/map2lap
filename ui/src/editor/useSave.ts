@@ -60,7 +60,7 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     chosen: async (copyTitle: string | null) => {
       view.focus();
       const then = asking?.play, saved = await write(copyTitle);
-      if (saved && then) void play(saved);
+      if (saved && then) void play(saved, view.clockHours());
     },
     cancel: useCallback(() => {
       setAsking(null);
@@ -79,9 +79,9 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     drive: async () => {
       await edits.settled();
       const now = edits.state();
-      if (isCurrent(now) || isAsBuilt(now)) void play(name);
+      if (isCurrent(now) || isAsBuilt(now)) void play(name, view.clockHours());
       else if (!now.recipe) setAsking({play: true});
-      else if (await write()) void play(name);
+      else if (await write()) void play(name, view.clockHours());
     },
   };
 }

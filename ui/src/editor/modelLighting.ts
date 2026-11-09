@@ -10,9 +10,11 @@ export function modelPreviewScene(renderer: THREE.WebGLRenderer) {
   return scene;
 }
 
-/** Bind model-only image based light; source terrain keeps its original lighting. */
-export function modelEnvironment(materials: Iterable<THREE.Material>, texture: THREE.Texture) {
+/** Bind model-only image based light at a power (1 by day); source terrain keeps its original lighting. */
+export function modelEnvironment(materials: Iterable<THREE.Material>, texture: THREE.Texture, power = 1) {
   for (const material of materials) if (material instanceof THREE.MeshStandardMaterial) {
+    material.envMapIntensity = power;
+    if (material.envMap === texture) continue;      // (the clock dims it many times a second: no new shader for that)
     material.envMap = texture;
     material.needsUpdate = true;
   }

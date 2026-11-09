@@ -12,8 +12,9 @@ sys.path.insert(0, ENGINE)
 sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
 import generator  # noqa: E402,F401  (sets the engine's path)
+from app import trackview  # noqa: E402
 from scenery import trees  # noqa: E402
-from track import make_obj, make_track_folder, obj_to_kn5  # noqa: E402
+from track import kn5, make_obj, make_track_folder, obj_to_kn5  # noqa: E402
 
 UP = (0.0, 0.0, 1.0)
 
@@ -109,6 +110,18 @@ class MaterialLightTest(unittest.TestCase):
         self.assertEqual(obj_to_kn5.VALUES["asphalt"], obj_to_kn5.light_values("asphalt"))
         self.assertEqual(obj_to_kn5.VALUES["grass"], obj_to_kn5.light_values("ground_0_0"))
         self.assertEqual(obj_to_kn5.DEFAULT, obj_to_kn5.light_values("plaster"))
+
+
+class EditorMaterialLightTest(unittest.TestCase):
+    def test_the_editor_gets_ambient_and_diffuse_apart(self):
+        """The sum alone can't tell a material lit by the sky from one lit by the sun, and the Editor's clock changes the two apart."""
+        none = ((0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
+        material = kn5.Material("fac_07_1", "ksPerPixel", 0, 0, 0,
+                                [("ksAmbient", 0.3, *none), ("ksDiffuse", 0.4, *none)], [])
+        shown = trackview._material(material)
+        self.assertAlmostEqual(0.3, shown["ambient"])
+        self.assertAlmostEqual(0.4, shown["diffuse"])
+        self.assertAlmostEqual(0.7, shown["bright"])
 
 
 class PlantShadowTest(unittest.TestCase):

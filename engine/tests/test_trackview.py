@@ -103,7 +103,7 @@ class TrackViewTest(unittest.TestCase):
         self.assertEqual((5.0, 6.0, 7.0), got["start"]["pos"])
         self.assertEqual((0.0, 0.0, 1.0), got["start"]["forward"])
         self.assertEqual({"name": "trees", "shader": "ksPerPixelAT", "texture": "a.png", "alpha_ref": 0.5, "blend": False}, {
-            k: v for k, v in got["materials"][0].items() if k != "bright"})
+            k: v for k, v in got["materials"][0].items() if k not in ("bright", "ambient", "diffuse")})
         self.assertAlmostEqual(0.7, got["materials"][0]["bright"], places=5)
         json.dumps(got)     # (goes to the page)
 

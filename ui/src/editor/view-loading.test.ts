@@ -63,7 +63,7 @@ test("parts are ready only after the loaded ground's selection index is prepared
     return new Response(bytes(3));
   }) as typeof fetch;
   const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
-  Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(),
+  Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
     byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
     previewShown: new Map(), materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {}, placeCamera: () => {},
@@ -105,7 +105,7 @@ for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during 
     load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>;
     syncCopies: () => Promise<void>; draft: number; meshes: THREE.Mesh[]; loading: AbortController;
   };
-  Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(),
+  Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
     byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [], previewShown: new Map(),
     wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {}, placeCamera: () => {}, material: () => new THREE.MeshBasicMaterial(),

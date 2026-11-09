@@ -3,13 +3,13 @@ import {post} from "../api";
 
 const STARTING_MS = 5000;       // how long Play stays "Starting …": AC's window takes a while, the server answers at once
 
-/** Start AC on a track (Practice, the set car; the server starts Steam if needed). */
+/** Start AC on a track (Practice, the set car; the server starts Steam if needed); clock: the local hour to start at, else the last one. */
 export function usePlay() {
   const [starting, setStarting] = useState(false);
 
-  const play = async (name: string) => {
+  const play = async (name: string, clock?: number) => {
     setStarting(true);
-    const r = await post("/api/play", {name});
+    const r = await post("/api/play", {name, clock});
     if (r.error) alert(r.error);
     setTimeout(() => setStarting(false), r.error ? 0 : STARTING_MS);
   };

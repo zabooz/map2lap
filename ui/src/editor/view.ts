@@ -12,6 +12,9 @@ import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} fr
 import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
 import {modelLight} from "./modelLighting";
+import {bindLightShares, takesGroundLight} from "./lightShare";
+import {NightSky} from "./nightSky";
+import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace} from "./sun";
 import type {ModelInstance} from "./edits";
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
 import {WeightBundles} from "./weightBundle";
@@ -122,6 +125,8 @@ interface MaterialInfo {
   shader: string;
   texture: string | null;
   bright: number;
+  ambient?: number;             // ksAmbient and ksDiffuse apart: how much of the sky's and of the sun's light it takes
+  diffuse?: number;
   alpha_ref: number;
   blend: boolean;
   dual_layer?: ColourLayers;
@@ -403,6 +408,12 @@ export class TrackView {
   private copyRelease: (() => void) | null = null;
   private modelGhostVersion = 0;
   private modelLight: THREE.WebGLRenderTarget | null = null;
+  private ambient = new THREE.AmbientLight();
+  private sun = new THREE.DirectionalLight();
+  private moon = new THREE.DirectionalLight(MOON_COLOUR);
+  private nightSky = new NightSky();
+  private place = trackPlace(null);                     // where the open track lies: its sun
+  private clock = 10;                                   // the hour shown (setClock)
   private copyFoot = new THREE.Vector3();
   private copyPose: CopyPose = {turn: 0, y: 0, scale: 1};
   private onCopyPlace: ((at: [number, number, number]) => void) | null = null;
@@ -526,11 +537,8 @@ export class TrackView {
     this.renderer = new THREE.WebGLRenderer({antialias: true, logarithmicDepthBuffer: true});
     this.renderer.setPixelRatio(window.devicePixelRatio);
     host.appendChild(this.renderer.domElement);
-    this.scene.background = new THREE.Color("#a9cfe9");
-    this.scene.add(new THREE.AmbientLight("#ffffff", 2.0));
-    const sun = new THREE.DirectionalLight("#fff4e0", 1.6);
-    sun.position.set(0.5, 1, 0.35);
-    this.scene.add(sun);
+    this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
+    this.applyLight();
     this.down.firstHitOnly = true;      // (the ground's height: what lies further down of the same mesh is of no interest)
     this.turnAround(this.renderer.domElement);
     this.grabGround(this.renderer.domElement);
@@ -551,11 +559,39 @@ export class TrackView {
     this.loading.abort();
     this.clear();
     this.modelLight?.dispose();
+    this.nightSky.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
+
+  /** The hour of the day (local, 0..24) the view shows. Nothing of the track changes and nothing is saved. */
+  setClock(hours: number) {
+    this.clock = hours;
+    this.applyLight();
+  }
+
+  /** The hour shown: Play starts AC at it. */
+  clockHours() { return this.clock; }
+
+  /** Sun, ambient, sky and reflections from the place and the clock, the same values for all that is drawn. */
+  private applyLight() {
+    const light = lightAt(sunHeight(this.place, this.clock));
+    this.scene.background = new THREE.Color(light.sky);
+    this.ambient.color.set(light.ambientColour); this.ambient.intensity = light.ambient;
+    this.sun.color.set(light.sunColour); this.sun.intensity = light.sun;
+    this.sun.position.fromArray(sunDirection(this.place, this.clock));
+    const moon = moonDirection(this.place, this.clock);
+    this.moon.intensity = light.moon; this.moon.position.fromArray(moon);
+    this.nightSky.set(moon, light.night);
+    this.groundFrame?.followLights();
+    if (this.modelLight) this.modelDraw.setEnvironment(this.modelLight.texture, this.reflections());
+    this.dirty = true;
+  }
+
+  /** The power of the models' reflections: they fade with the sky's light, full by day. */
+  private reflections() { return this.ambient.intensity / lightAt(90).ambient; }
 
   /** Its tab was opened or left. */
   show(on: boolean) {
@@ -831,6 +867,8 @@ export class TrackView {
     const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(name)}/index`, signal);
     if (mine !== this.token) return;
     this.data = data;
+    this.place = trackPlace(data.anchor);
+    this.applyLight();
     if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
     this.ensureSplatState();
@@ -1743,7 +1781,7 @@ export class TrackView {
       if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) { target.dispose(); throw new Error("The model lighting exceeds the Editor memory limit"); }
       this.modelLight = target; this.usedBytes += bytes;
     }
-    this.modelDraw.setEnvironment(this.modelLight.texture);
+    this.modelDraw.setEnvironment(this.modelLight.texture, this.reflections());
     return this.modelLight.texture;
   }
 
@@ -1759,7 +1797,7 @@ export class TrackView {
     const transform = new THREE.Matrix4().makeScale(model.metres_per_unit, model.metres_per_unit, model.metres_per_unit)
       .multiply(new THREE.Matrix4().makeTranslation(-model.anchor[0], -model.anchor[1], -model.anchor[2]));
     try {
-      draw.setEnvironment(this.ensureModelLight());
+      draw.setEnvironment(this.ensureModelLight(), this.reflections());
       await draw.sync([{id: "ghost", asset: model.id}], {[model.id]: {url: `/api/library/models/${model.id}/original`}}, {ghost: transform.toArray()});
       if (version !== this.modelGhostVersion) { draw.dispose(); return; }
       const root = draw.instance("ghost")!, group = new THREE.Group();
@@ -2543,6 +2581,7 @@ export class TrackView {
       this.surfaceOverlay?.follow();
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
+      this.nightSky.follow(this.camera.position);
       const renderStarted = performance.now();
       try { for (const layer of this.groundLayers?.values() ?? []) layer.follow(); this.groundFrame?.render(this.camera); }
       catch (error) { const message = String((error as Error).message ?? error); if (message !== this.paintFailure) { this.paintFailure = message; this.onViewFailed(message); } }
@@ -3018,6 +3057,7 @@ export class TrackView {
       }, () => {}); // The shared loader reports failed images and owns their memory and disposal.
       return m;
     }
+    if (d.ambient !== undefined && d.diffuse !== undefined && !d.world_scale && !takesGroundLight(d.name)) bindLightShares(m, d.ambient, d.diffuse);
     const i = data.textures.findIndex(t => t.name === d.texture);
     if (i >= 0) {
       const mine = this.token;

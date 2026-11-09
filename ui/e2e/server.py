@@ -325,7 +325,7 @@ def stand_ins():
     updater.possible = lambda root=None: False
     mapcache.usage = lambda: (5000000, 3)
     mapcache.clear = lambda: (calls.append(["map data cleared"]), 5000000)[1]
-    server.play = lambda name: (calls.append(["play", name]), (200, {"ok": True}))[1]
+    server.play = lambda name, clock=None: (calls.append(["play", name]), (200, {"ok": True}))[1]
     server.browse_folder = record("browse")
     server.start_build = start_build
     system.kill_tree = lambda pid: stopped.set()
