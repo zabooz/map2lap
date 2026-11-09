@@ -224,12 +224,12 @@ test("Camera: Ride goes by itself and Pause stands, at the end it stops and star
 
   await page.locator("#edit-home").click();
   await expect(ride).toHaveText("Ride");
-  expect((await picture(page)).equals(first)).toBe(true);
+  await expect.poll(async () => (await picture(page)).equals(first)).toBe(true);
   await keysOnView(page);
   await wheelWith(page, ["Shift"], -100);
   await expect(bar).toContainText("20 m");
   await page.keyboard.press("Home");
-  expect((await picture(page)).equals(first)).toBe(true);
+  await expect.poll(async () => (await picture(page)).equals(first)).toBe(true);
 });
 
 test("Camera: W A S D, the plain wheel and the right button leave the track, Esc and another tool end it; the camera stays", async ({page, backend}) => {

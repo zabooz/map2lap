@@ -118,7 +118,8 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   expect(delta(basePixels[1], shownPixels[1])).toBeLessThanOrEqual(1);
   expect(delta(basePixels[2], shownPixels[2])).toBeGreaterThan(15);
   expect(shownPixels[0][1]).toBeGreaterThan(shownPixels[0][0] * 2);
-  expect(shownPixels[3][0]).toBeGreaterThan(shownPixels[3][1] * 2);
+  // The red pigment must remain distinct; bright viewport lighting can clip its red channel.
+  expect(shownPixels[3][0] - Math.max(shownPixels[3][1], shownPixels[3][2])).toBeGreaterThan(60);
   await page.getByRole("button", {name: /Undo/}).click();
   await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).models?.length ?? 0).toBe(0);
   await expect.poll(async () => (await modelResources())?.instances).toBe(0);
@@ -150,12 +151,10 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   const replacement = draft.models.find((m: {replaces: string | null}) => m.replaces);
   const index = await (await page.request.get("/api/editor/alpha/index")).json();
   const bounds = (await scene(page).boundingBox())!;
-  const camera = new THREE.PerspectiveCamera(55, bounds.width / bounds.height, .5, 10000);
-  const start = new THREE.Vector3(...index.start.pos);
-  camera.position.copy(start).addScaledVector(new THREE.Vector3(...index.start.forward).normalize(), -45).add(new THREE.Vector3(0, 22, 0));
-  camera.lookAt(start); camera.updateMatrixWorld();
-  const point = new THREE.Vector3(...replacement.at).add(new THREE.Vector3(.8, 3.8, .005)).project(camera);
-  await page.mouse.click(bounds.x + (point.x + 1) * bounds.width / 2, bounds.y + (1 - point.y) * bounds.height / 2);
+  // Replacement preserves the source tree's height, so pick through its fitted instance transform.
+  const point = project(index, bounds, new THREE.Vector3(.72, 4.05, .01)
+    .applyMatrix4(new THREE.Matrix4().fromArray(index.model_matrices[replacement.id])));
+  await page.mouse.click(bounds.x + point.x, bounds.y + point.y);
   await expect(page.locator("#edit-picked")).toContainText("Cutout test tree");
   await page.locator("#edit-move").click();
   const beforeMove = await picture(page);

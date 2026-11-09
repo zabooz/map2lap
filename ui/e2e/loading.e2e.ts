@@ -59,6 +59,6 @@ test("a loading error ends the bar and keeps its explanation", async ({page}) =>
   await page.goto("/");
   await page.locator("#t-edit").click();
   await page.locator("#edit-track").selectOption("alpha");
-  await expect(page.locator("#edit-status")).toHaveText("The track changed");
+  await expect(page.locator("#edit-status")).toHaveText("Could not load this track: The track changed");
   await expect(page.getByRole("progressbar", {name: "Loading track"})).toBeHidden();
 });

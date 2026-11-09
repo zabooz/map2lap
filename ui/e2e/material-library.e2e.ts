@@ -115,6 +115,7 @@ test("optional material maps cancelled during preparation cannot enter the next 
     await expect.poll(() => uploads.length).toBe(1);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
+    await expect(panel).toBeVisible();
     await panel.getByLabel('Texture file').setInputFiles({...image, name: "next-colour.png"});
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("button", {name: "Add to library", exact: true})).toBeDisabled();
@@ -167,6 +168,7 @@ test("cancelled and invalid imports leave the library unchanged and typing canno
   await dialog.getByLabel("Name", {exact: true}).fill("xxx material");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+  await expect(panel).toBeVisible();
   await expect(page.locator("#edit-select")).toHaveClass(/on/);
   expect((await (await page.request.get("/api/library/materials")).json()).total).toBe(0);
   await panel.getByLabel('Texture file').setInputFiles({name: "broken.png", mimeType: "image/png", buffer: Buffer.from("broken")});

@@ -256,6 +256,8 @@ requests. The larger static preview uses that same PNG, with no second model dow
 promotes its pending picture ahead of the remaining cards. Import and library pictures use reduced fill light and highlight
 compression so bright foliage retains its shading; source material colours are unchanged. **Place on ground** accepts
 repeated ground clicks until Esc. **Replace selected tree** accepts a picked tree or bush and preserves its current placement.
+Escape closes the active library dialog even from its search field and retains its search. Escape in a nested import
+dialog cancels only that import, leaving the library open; portal cancel events do not close the parent library.
 With several trees selected, the context menu's Replace opens the object library for the whole highlighted selection.
 Right-clicking another member of a marked tree sort retains that selection. Replacement keeps each tree's position, terrain
 clearance, turn and actual height, scaling the new model uniformly to preserve its proportions. A retained per-instance fit

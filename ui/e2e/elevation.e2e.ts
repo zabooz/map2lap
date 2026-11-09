@@ -66,7 +66,7 @@ test("the brush: keys in its numbers stay there, a click on the sky is no stroke
   await expect(page.locator("#edit-heights")).toHaveCount(0);
 });
 
-test("the brush: a stroke is saved with the track, comes back after a reload, Save writes it, Discard takes it", async ({page}) => {
+test("the brush: Save retains the stroke after reload and Discard removes only a later unsaved stroke", async ({page}) => {
   await openEditor(page);
   await page.locator("#edit-elevation").click();
   await page.locator("#edit-elevation-set").getByLabel("Radius").fill("40");
@@ -85,9 +85,17 @@ test("the brush: a stroke is saved with the track, comes back after a reload, Sa
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(raised)).toBe(true);
-  await button(page, "Discard all").click();
+  await expect(button(page, "Discard all")).toBeDisabled();
+  await page.locator("#edit-elevation").click();
+  await page.locator("#edit-elevation-set").getByLabel("Radius").fill("40");
+  await page.locator("#edit-elevation-set").getByLabel("Height").fill("300");
+  await brushStroke(page); await saved(page);
+  await expect(page.locator("#edit-heights")).toHaveText("2 height changes");
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
-  await expect(page.locator("#edit-heights")).toHaveCount(0);
+  await button(page, "Discard all").click();
+  await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
+  await expect(page.locator("#edit-heights")).toHaveText("1 height change");
+  await expect.poll(async () => (await picture(page)).equals(raised)).toBe(true);
 });
 
 test("the brush: a stroke on its way when Discard is pressed goes too, and strokes keep their order", async ({page}) => {

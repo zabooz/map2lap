@@ -93,9 +93,16 @@ test("Copy C places the picked tree repeatedly; undo, redo, reload and Save reta
   await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
   expect(await copies(page)).toEqual(made);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
+  await expect(page.getByRole("button", {name: "Discard all", exact: true})).toBeDisabled();
+  const kept = await picture(page), source = await findTree(page);
+  await page.mouse.click(source.x, source.y); await page.keyboard.press("c");
+  await page.mouse.click(c.x + 140, c.y + 160);
+  await expect.poll(() => copies(page)).toHaveLength(3);
+  await page.keyboard.press("Escape"); await saved(page);
   await page.getByRole("button", {name: "Discard all", exact: true}).click();
-  await expect.poll(() => copies(page)).toEqual([]);
-  await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
+  await expect.poll(() => copies(page)).toEqual(made);
+  await expect.poll(async () => (await picture(page)).equals(kept)).toBe(true);
+  await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
 });
 
 test("Copy in the panel can pick its source; a placed tree has its own pick, Move and Delete without changing the original", async ({page}) => {

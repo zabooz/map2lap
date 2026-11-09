@@ -256,13 +256,13 @@ test("all of a sort: marked, then deleted, the same picture as a track without t
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
 });
 
-test("the right-click menu: Replace greyed, Edit available, Mark all frames and deletes nothing, Esc ends it; a right drag opens none", async ({page}) => {
+test("the right-click menu offers tree replacement; Mark all frames and deletes nothing, Esc ends it; a right drag opens none", async ({page}) => {
   await openEditor(page);
   const before = await picture(page);
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y, {button: "right"});
   await expect(page.locator("#view-menu")).toBeVisible();
-  await expect(page.getByRole("menuitem", {name: "Replace…"})).toBeDisabled();
+  await expect(page.getByRole("menuitem", {name: "Replace…"})).toBeEnabled();
   await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeEnabled();
   await expect(page.getByRole("menuitem", {name: "Delete"})).toBeEnabled();
   await page.getByRole("menuitem", {name: /^Mark all /}).click();
@@ -411,7 +411,8 @@ test("dragging over a tree picks nothing; the sky ends a pick", async ({page}) =
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const again = await findTree(page);
   await page.mouse.click(again.x, again.y);
-  await expect(page.locator("#edit-picked")).toBeVisible();
+  await expect(page.locator("#inspect-selection")).toContainText("Tree");
+  await expect(page.locator("#inspect-selection")).toContainText(NEAR_TREE);
   const view = (await scene(page).boundingBox())!;
   await page.mouse.click(view.x + 200, view.y + 2);
   await expect(page.locator("#edit-picked")).toHaveCount(0);

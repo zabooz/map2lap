@@ -122,7 +122,7 @@ test("Save as new track: only under a new name, shown with the work and its undo
   await expect(page.locator('#edit-track option[value="alpha_edit_2"]')).toHaveCount(0);
 });
 
-test("the first Save can make a new track too; a new track after Overwrite leaves the track as saved", async ({page}) => {
+test("the first Save can make a new track too; Discard and a subsequent copy retain the last Save", async ({page}) => {
   await openEditor(page);
   const trees = (await meshes(page))["nocol_trees_0_0"];
   await deleteTree(page);
@@ -139,13 +139,20 @@ test("the first Save can make a new track too; a new track after Overwrite leave
   await deleteTree(page);
   await saveTrack(page);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  await button(page, "Discard all").click();        // (the new track gets everything back, this one stays as saved)
+  await expect(button(page, "Discard all")).toBeDisabled();
+  const draft = await stored(page);
+  const restored = await page.request.put("/api/editor/alpha/edits", {data: {...draft, id: "unsaved-restore", deleted: []}});
+  await expect(restored).toBeOK();
+  await page.reload();
+  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  await expect(page.locator("#edit-saved")).toHaveText("Not saved");
+  await button(page, "Discard all").click();
   await saved(page);
   await page.locator("#edit-save-more").click();
-  await page.locator("#save-name").fill("Alpha Whole");
+  await page.locator("#save-name").fill("Alpha Saved Copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
-  await expect(page.locator("#edit-track")).toHaveValue("alpha_whole");
-  expect((await meshes(page, "alpha_whole"))["nocol_trees_0_0"]).toBe(trees);
+  await expect(page.locator("#edit-track")).toHaveValue("alpha_saved_copy");
+  expect((await meshes(page, "alpha_saved_copy"))["nocol_trees_0_0"]).toBe(trees - 8);
   expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees - 8);
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);

@@ -16,7 +16,17 @@ export function AssetLibrary({tab, onTab, onClose, busy, textures, objects}: {
     return () => element.close();
   }, [open]);
   return createPortal(<dialog ref={dialog} className={styles.dialog} aria-label="Asset library"
-    onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+    onCancel={event => {
+      // Import dialogs use portals: their cancel events also reach this React parent.
+      if (event.target !== event.currentTarget) return;
+      event.preventDefault(); if (!busy) onClose();
+    }}
+    onKeyDown={event => {
+      if (event.key !== "Escape" || event.defaultPrevented || !(event.target instanceof Element)
+        || event.target.closest("dialog") !== event.currentTarget) return;
+      // Search inputs consume Escape themselves; closing the library keeps the search for next time.
+      event.preventDefault(); if (!busy) onClose();
+    }}>
     <div className={styles.tabs} role="tablist" aria-label="Library category">
       <button type="button" role="tab" aria-selected={tab === "textures"} disabled={busy} onClick={() => onTab("textures")}>TEXTURES</button>
       <button type="button" role="tab" aria-selected={tab === "objects"} disabled={busy} onClick={() => onTab("objects")}>OBJECTS</button>
