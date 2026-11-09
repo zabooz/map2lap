@@ -1,7 +1,8 @@
 import * as THREE from "three";
+import type {WeightBundleRef} from "./weightBundle";
 
 export interface ColourLayers {base: string; mask: string; scale: number}
-export interface ColourImage {name: string; i?: number; key?: string; url?: string; size?: number; linear?: boolean}
+export interface ColourImage {name: string; i?: number; key?: string; url?: string; size?: number; linear?: boolean; bundle?: WeightBundleRef}
 export interface ColourPhoto extends ColourImage {scale: [number, number]; channel?: number; asset?: string; variation?: boolean;
   detail?: ColourImage; properties?: {roughness: number; normal_scale: number}}
 export type GroundMaterial = THREE.MeshLambertMaterial | THREE.MeshStandardMaterial;

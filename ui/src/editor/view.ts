@@ -13,6 +13,8 @@ import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
 import {modelLight} from "./modelLighting";
 import type {ModelInstance} from "./edits";
+import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
+import {WeightBundles} from "./weightBundle";
 import {GroundFrame, GroundLayer} from "./groundRender";
 import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type GroundMaterial, type ColourLayers, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 import {placeOnRoute, routeMetres} from "./ride";
@@ -155,7 +157,6 @@ const PARALLEL = 6;                 // meshes asked for at a time
 // limit 34 s against 23 s with 12: hundreds at once stand in the meshes' way.
 const TEXTURES_AT_A_TIME = 12;
 const RESORT_M = 100, RESORT_EVERY_MS = 500;    // the queue of meshes sorted again when the view moved this far, at most this often: 66,000 take a while
-const FETCH_TRIES = 3, FETCH_WAIT_MS = 500;     // one part of 66,000 cut off on its way doesn't end the loading of a long track
 // The memory limit (the settings): a long track's kn5 can reach 10 GB, more than a browser tab can hold. What lies furthest
 // from the view then stays out. A mesh or compressed texture counts twice: it stays here for the mouse and the ground, and
 // the graphics card holds a copy. An estimate: the browser's own overhead is not counted.
@@ -271,28 +272,16 @@ function speedUpRays(mesh: THREE.Mesh) {
 
 const meshBytes = (m: MeshInfo) => m.vertices * FLOATS_PER_VERTEX * 4 + 4 + m.indices * 2;
 
+/** Generated mesh numbers are bound to their model draft or copy layout; source mesh numbers follow the KN5. Pure. */
+function meshUrl(name: string, data: TrackIndex, info: MeshInfo) {
+  return `/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}`
+    + (info.model ? `&d=${data.draft ?? 0}` : info.copy ? `&c=${data.copy_revision ?? ""}` : "");
+}
+
 /** Where a mouse event lies on el, each way from -1 to 1. Pure. */
 function screenPoint(e: MouseEvent, el: HTMLElement) {
   const r = el.getBoundingClientRect();
   return new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
-}
-
-/** The bytes at url. A connection lost is tried again; what the server refuses is not. */
-async function fetchBytes(url: string, signal: AbortSignal, tries = FETCH_TRIES): Promise<ArrayBuffer> {
-  let r: Response;
-  try {
-    r = await fetch(url, {signal});
-    if (r.ok) return await r.arrayBuffer();
-  } catch (e) {
-    if (signal.aborted || tries <= 1) throw e;
-    await new Promise(ok => setTimeout(ok, FETCH_WAIT_MS));
-    return fetchBytes(url, signal, tries - 1);
-  }
-  throw new MeshFetchError(r.status, (await r.json().catch(() => null))?.error ?? `${url}: ${r.status}`);
-}
-
-class MeshFetchError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
 }
 
 /** Run at most most jobs; priority jobs take the next free slot before ordinary queued work. */
@@ -839,13 +828,8 @@ export class TrackView {
   }
 
   private async load(name: string, mine: number, signal: AbortSignal, say: (text: string, progress?: number | null) => void) {
-    const r = await fetch(`/api/editor/${encodeURIComponent(name)}/index`, {signal});
-    const data = await r.json();
+    const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(name)}/index`, signal);
     if (mine !== this.token) return;
-    if (!r.ok) {
-      say(data.error || "Could not read this track");
-      return;
-    }
     this.data = data;
     if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
@@ -861,11 +845,12 @@ export class TrackView {
     // Generated geometry has its own cancellable loader. Original MeshInfos never change when a copy is added or undone.
     let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy), this.camera.position.toArray());
     let sortedAt = this.camera.position.clone(), sortedWhen = performance.now();
-    const total = data.meshes.length;
+    let total = data.meshes.length;
     let done = 0, copiedDone = 0, texturesDone = 0;
+    let modelsChanged = false;
     const prepareTurn = oneByOne(2), prepared = new Map<string, Promise<void>>();
     const available = new Set<string>(data.surface_tiles ?? []);
-    const tiles = new Set<string>(data.meshes.map((m: MeshInfo) => groundTile(m.name)).filter((tile: string | null) => tile && available.has(tile)));
+    const tiles = new Set(data.meshes.map(m => groundTile(m.name)).filter((tile): tile is string => tile !== null && available.has(tile)));
     const neededImages = new Set(data.meshes.flatMap((m: MeshInfo) => materialImages(data.materials[m.material])));
     const textureCount = neededImages.size;
     const tasks = total + textureCount + tiles.size;
@@ -893,6 +878,7 @@ export class TrackView {
         }
         const info = queue.pop()!;
         if (this.byNumber.has(info.i)) continue;
+        if (info.model && modelsChanged) { done++; report(); continue; }
         if (!fits(this.usedBytes, COPIES * meshBytes(info), this.settings.memoryGb)) {
           this.overLimit = true;
           queue.length = 0;
@@ -900,8 +886,17 @@ export class TrackView {
         }
         this.usedBytes += COPIES * meshBytes(info);
         const asked = this.heightsVersion;
-        const buf = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/mesh/${info.i}?r=${data.revision}`, signal);
+        let buf: ArrayBuffer;
+        try { buf = await fetchBytes(meshUrl(name, data, info), signal); }
+        catch (error) {
+          if (!info.model || !(error instanceof MeshFetchError) || error.status !== 409) throw error;
+          if (mine !== this.token) return;
+          this.usedBytes -= COPIES * meshBytes(info); modelsChanged = true; done++; report(); continue;
+        }
         if (mine !== this.token) return;
+        if (info.model && this.data?.draft !== data.draft) {
+          this.usedBytes -= COPIES * meshBytes(info); modelsChanged = true; done++; report(); continue;
+        }
         this.addMesh(name, data, info, buf);
         const tile = groundTile(info.name);
         if (tile && available.has(tile) && !prepared.has(tile)) {
@@ -923,6 +918,12 @@ export class TrackView {
     await Promise.all(Array.from({length: PARALLEL}, worker));
     await copied;
     if (mine !== this.token) return;
+    if (modelsChanged) {
+      const count = await this.reloadModels() ?? this.meshes.filter(m => (m.userData.info as MeshInfo).model).length;
+      if (mine !== this.token) return;
+      const difference = count - data.meshes.filter((m: MeshInfo) => m.model).length;
+      total += difference; done += difference;
+    }
     meshesReady = true;
     report();
     await Promise.all(this.textures);
@@ -1580,22 +1581,20 @@ export class TrackView {
   }
 
   /** Refresh the real appended model/material index while retaining the user's camera and active placement action. */
-  private async reloadModels() {
+  private async reloadModels(retries = 2): Promise<number | null> {
     const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
     let reserved = 0;
     try {
-      const response = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/index`, {signal});
-      const data = await response.json() as TrackIndex;
-      if (!response.ok) throw new Error("Could not read the model index");
+      const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
       const added = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
-      const buffers = await Promise.all(added.map(info => jobs(() => fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/mesh/${info.i}?r=${data.revision}`, signal))));
-      if (mine !== this.token || asked !== this.modelTransformVersion) return;
+      const buffers = await Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal))));
+      if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
       if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) throw new Error("The models exceed the Editor memory limit");
       this.usedBytes += bytes; reserved = bytes;
       if (data.models?.length) this.ensureModelLight();
       await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
-      if (mine !== this.token || asked !== this.modelTransformVersion) return;
+      if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       this.detachModelMeshes();
       const previousRemoved = this.removed;
       this.data = data;
@@ -1607,17 +1606,19 @@ export class TrackView {
       reserved = 0;
       for (const id of [...this.picks.keys()]) if (id.startsWith("instance_") && !data.objects[id.split("#")[0]]) this.dropPick(id);
       this.reframePicks(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
+      return added.length;
     } catch (error) {
-      if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message);
+      if (mine === this.token && asked === this.modelTransformVersion && !signal.aborted
+          && error instanceof MeshFetchError && error.status === 409 && retries > 0) return this.reloadModels(retries - 1);
+      if (mine === this.token && asked === this.modelTransformVersion && !signal.aborted) this.onViewFailed((error as Error).message);
+      return null;
     } finally { if (reserved && mine === this.token) this.usedBytes -= reserved; }
   }
 
   private async refreshModelTransforms() {
     const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
     try {
-      const response = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/index`, {signal});
-      const data = await response.json() as TrackIndex;
-      if (!response.ok) throw new Error("Could not refresh model placement");
+      const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
       if (mine !== this.token || asked !== this.modelTransformVersion) return;
       this.modelDraw.transforms(data.model_matrices ?? {}); this.dirty = true;
     } catch (error) { if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message); }
@@ -1632,10 +1633,7 @@ export class TrackView {
     try {
       let data = initial;
       if (!data) {
-        const r = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/copies`, {signal});
-        const answer = await r.json();
-        if (!r.ok) throw new MeshFetchError(r.status, answer.error ?? "Could not load the copied objects");
-        data = answer as TrackIndex;
+        data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/copies`, signal);
       }
       if (mine !== this.token || asked !== this.copyVersion) return;
       if (data.revision !== this.data?.revision) throw new Error("The track changed");
@@ -1823,13 +1821,13 @@ export class TrackView {
     if (!m || !this.data) return;
     const asked = m.userData.asked = (m.userData.asked ?? 0) + 1;
     try {
-      const buf = await this.refreshes(() => fetchBytes(
-        `/api/editor/${encodeURIComponent(this.trackName)}/mesh/${i}?r=${this.data!.revision}${(m.userData.info as MeshInfo).copy ? `&c=${this.data!.copy_revision ?? ""}` : ""}`, signal));
+      const buf = await this.refreshes(() => fetchBytes(meshUrl(this.trackName, this.data!, m.userData.info as MeshInfo), signal));
       if (mine === this.token && m.userData.asked === asked && this.byNumber.get(i) === m) this.takeVertices(m, buf);
     } catch (e) {
       // (another track was asked for: nothing to say. Else the picture is behind what is kept: it mustn't look as if it were up to date)
       if (mine === this.token && !signal.aborted && m.userData.asked === asked && this.byNumber.get(i) === m) {
-        if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).copy) void this.syncCopies();
+        if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).model) void this.reloadModels();
+        else if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).copy) void this.syncCopies();
         else this.onViewFailed((e as Error).message);
       }
     }
@@ -2712,10 +2710,8 @@ export class TrackView {
     this.paintLoading?.abort();
     const controller = this.paintLoading = new AbortController();
     try {
-      const r = await fetch(`/api/editor/${encodeURIComponent(this.trackName)}/textures`, {method: "POST", signal: controller.signal,
+      const answer = await fetchJson<{textures: GroundTextureUpdate[]}>(`/api/editor/${encodeURIComponent(this.trackName)}/textures`, controller.signal, {method: "POST",
         headers: {"Content-Type": "application/json"}, body: JSON.stringify({base: data.revision, paints})});
-      const answer = await r.json() as {textures: GroundTextureUpdate[]; error?: string};
-      if (!r.ok) throw new Error(answer.error ?? "Could not read ground materials");
       if (controller.signal.aborted || mine !== this.token || epoch !== this.paintVersion) return;
       const active = new Set(answer.textures.map(t => t.i));
       data.textures.forEach((t, i) => { if (t.version && !active.has(i)) answer.textures.push({i, size: t.source_size ?? t.size, version: ""}); });
@@ -2736,6 +2732,8 @@ export class TrackView {
     this.splatImages ??= new Map(); this.splatBindings ??= new Map();
     this.splatPending ??= new Map(); this.sourceMaterials ??= new Map();
   }
+
+  private weightBundles?: WeightBundles;
 
   private disposeSplatImage(entry: SplatImageEntry) {
     if (entry.disposed) return;
@@ -2770,9 +2768,18 @@ export class TrackView {
     const entry: SplatImageEntry = {done: Promise.resolve(null), controller, bytes, token: mine, disposed: false};
     this.splatImages.set(key, entry);
     const signal = AbortSignal.any([controller.signal, this.loading.signal]);
+    this.weightBundles ??= new WeightBundles(size => {
+      if (!fits(this.usedBytes, size, this.settings.memoryGb)) return false;
+      this.usedBytes += size; return true;
+    }, size => { this.usedBytes -= size; });
+    const bundled = ref.bundle ? this.weightBundles.acquire(ref.bundle, ref.size!, signal) : undefined;
+    if (bundled === null) {
+      this.splatImages.delete(key); this.disposeSplatImage(entry);
+      this.overLimit = true; return Promise.resolve(null);
+    }
     entry.done = textureTurn(async () => {
       if (signal.aborted) return null;
-      const raw = await fetchBytes(ref.url!, signal);
+      const raw = bundled ? await bundled.read() : await fetchBytes(ref.url!, signal);
       if (signal.aborted) return null;
       return makeTexture(raw, ref.name, this.renderer.capabilities.getMaxAnisotropy(), ref.linear);
     }).then(texture => {
@@ -2783,7 +2790,7 @@ export class TrackView {
       if (this.splatImages.get(key) === entry) this.splatImages.delete(key);
       this.disposeSplatImage(entry);
       throw error;
-    });
+    }).finally(() => bundled?.release());
     void entry.done.catch(() => {}); // Its material job reports a current failure; obsolete downloads are cancelled.
     return entry.done;
   }

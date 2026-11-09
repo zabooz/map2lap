@@ -17,7 +17,12 @@ A changed or partially written file returns HTTP 409. The viewer loads nearby me
 memory against its configured limit and disposes meshes and textures when the track changes. The limit estimates RAM and GPU use;
 it does not include all browser overhead. Meshes and textures above it stay out of the preview; `tools/editor_memory.py` says what a
 track takes. A long track is tens of thousands of requests: GETs share kept connections (HTTP/1.1), and a part cut off on its way is
-asked for again. The camera moves as in a building game, level over the ground (`view.ts`), with no state kept between moves that
+asked for again. Loading manifests, mesh/image bytes and selection preparation allow 30 seconds without response headers
+or another nonempty body chunk; progress resets that timer. GET connection failures retry at most twice, HTTP refusals
+and leaving the track never retry, and the read-only textures POST times out without automatic repetition. In the browser
+console, `map2lapLoading()` lists open transfers with their URL, attempt, received bytes, age and time since progress;
+completed and cancelled entries are released. This diagnoses network waits, not synchronous geometry work on the main thread.
+The camera moves as in a building game, level over the ground (`view.ts`), with no state kept between moves that
 could lie far off: what it turns around or zooms towards is looked up each time. The middle of its view stays within the track's meshes plus a margin (the camera may stand beyond, to look back), it stays
 below a height the distant terrain can be seen from; where no ground lies under it, the last one found counts.
 
@@ -293,6 +298,12 @@ counts all images in loading progress and the memory limit, and releases unused 
 downloads cannot overwrite a newer selection. Until a complete layout fits and loads, the previous appearance remains.
 Reapplying the same immutable operation moves it to the end rather than creating duplicate ids. Apply can retry a failed
 preview download even if the retained draft already contains that operation; success is reported only after the preview loads.
+
+Weight transport retains the exact cached pixels and mip bytes. Simple RGBA DDS masks use cached HTTP gzip; regional
+weights share one gzip bundle per tile version, with byte offsets for each unique nonconstant atlas. Fetch handles HTTP
+decompression. The viewer keeps per-atlas texture identities and memory accounting, reserves the temporary uncompressed
+bundle separately, and copies each atlas before releasing that bundle. Cancelling one consumer leaves others running;
+cancelling the last releases the transfer. Existing individual weight endpoints remain available.
 
 Save writes cropped RGBA region masks with filter halos and shared photos in `ksMultilayer_objsp` materials. Imported normal
 maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to

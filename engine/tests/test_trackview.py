@@ -33,6 +33,15 @@ def mesh(name, n, material=0, renderable=1):
 
 
 class TrackViewTest(unittest.TestCase):
+    def test_stale_model_mesh_revision_is_rejected_before_an_index_can_be_reused_or_removed(self):
+        from app import trackedits
+        vertices = np.zeros(3, kn5.VERTEX)
+        faces = np.array([[0, 1, 2]], dtype="<u2")
+        for meshes in ([], [{"model": {"instance": "new"}, "data": (vertices, faces)}]):
+            with self.subTest(meshes=len(meshes)), mock.patch.object(trackedits, "context", return_value=("unused", {"meshes": meshes, "draft": 2}, {})):
+                with self.assertRaises(trackview.ModelsChanged):
+                    trackview.mesh_bytes("unused", "test", 0, "source", draft=1)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

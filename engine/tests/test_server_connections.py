@@ -14,6 +14,45 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 import server  # noqa: E402
 
 
+class ResponseDisconnectTest(unittest.TestCase):
+    def handler(self):
+        """A response writer without a listening socket."""
+        handler = object.__new__(server.Handler)
+        handler.command, handler.close_connection = "GET", False
+        handler.send_response, handler.send_header = mock.Mock(), mock.Mock()
+        handler.end_headers, handler.wfile = mock.Mock(), mock.Mock()
+        return handler
+
+    def test_disconnected_headers_or_body_end_the_connection(self):
+        for failure in (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            for phase in ("headers", "body"):
+                with self.subTest(failure=failure.__name__, phase=phase):
+                    handler = self.handler()
+                    writer = handler.end_headers if phase == "headers" else handler.wfile.write
+                    writer.side_effect = failure("client disconnected")
+                    handler._send(200, {"ok": True})
+                    self.assertTrue(handler.close_connection)
+                    handler.send_response.assert_called_once_with(200)
+                    if phase == "headers":
+                        handler.wfile.write.assert_not_called()
+
+    def test_disconnected_inspection_does_not_attempt_an_error_response(self):
+        handler = self.handler()
+        handler.path = "/api/editor/example/appearance?mesh=0&u=0&v=0&r=source"
+        handler.wfile.write.side_effect = ConnectionAbortedError("client disconnected")
+        with mock.patch.object(server.settings, "ac_path", return_value="unused"), \
+             mock.patch.object(server.trackinspect, "appearance", return_value={"name": "Ground"}):
+            handler._inspect("example", "appearance")
+        handler.send_response.assert_called_once_with(200)
+        self.assertTrue(handler.close_connection)
+
+    def test_other_io_errors_remain_visible(self):
+        handler = self.handler()
+        handler.wfile.write.side_effect = OSError("unexpected I/O failure")
+        with self.assertRaisesRegex(OSError, "unexpected I/O failure"):
+            handler._send(200, {})
+
+
 class ConnectionsTest(unittest.TestCase):
     def setUp(self):
         self.srv = server.Server(("127.0.0.1", 0), server.Handler)

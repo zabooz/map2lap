@@ -22,6 +22,31 @@ const bytes = (vertices: number) => {
   return b;
 };
 
+test("a model removed during loading refreshes its index instead of aborting on the old mesh number", async () => {
+  const before = globalThis.fetch, errors: string[] = [], urls: string[] = [];
+  let indexes = 0;
+  globalThis.fetch = (async input => {
+    const url = String(input); urls.push(url);
+    if (url.endsWith("/index")) {
+      indexes++;
+      return Response.json({revision: "source", draft: indexes, models: [], objects: {},
+        meshes: indexes === 1 ? [{...info(0, 3), model: {instance: "old", asset: "tree"}}] : []});
+    }
+    return Response.json({error: "The models changed"}, {status: 409});
+  }) as typeof fetch;
+  const view = Object.create(TrackView.prototype) as {reloadModels: () => Promise<number | null>};
+  Object.assign(view, {token: 1, modelTransformVersion: 0, loading: new AbortController(), trackName: "alpha", usedBytes: 0,
+    settings: {memoryGb: 1}, meshes: [], removed: new Set(), picks: new Map(),
+    modelDraw: {sync: async () => {}}, detachModelMeshes: () => {}, wanted: () => new Set(), noteListedOut: () => {},
+    reframePicks: () => {}, onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
+  try {
+    expect(await view.reloadModels()).toBe(0);
+    expect(indexes).toBe(2);
+    expect(urls.find(url => url.includes("/mesh/"))).toContain("&d=1");
+    expect(errors).toEqual([]);
+  } finally { globalThis.fetch = before; }
+});
+
 test("parts are ready only after the loaded ground's selection index is prepared; late preparation cannot change another track", async () => {
   let release!: () => void, arrived!: () => void;
   const gate = new Promise<void>(r => { release = r; }), preparing = new Promise<void>(r => { arrived = r; });

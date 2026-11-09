@@ -30,6 +30,10 @@ class CopiesChanged(Unreadable):
     """The generated mesh layout is obsolete; the view needs the current copy index."""
 
 
+class ModelsChanged(Unreadable):
+    """The requested draft's generated mesh numbers no longer describe the current models."""
+
+
 def _revision(stat):
     """Which state of a file a stat result is of. Pure."""
     return f"{stat.st_mtime_ns}-{stat.st_size}"
@@ -375,9 +379,10 @@ def mesh_bytes(ac, name, i, revision, moved=None, draft=None, copy_revision=None
     path, s, _objects = trackedits.context(ac, name, revision)
     if copy_revision is not None and copy_revision != s.get("copy_key", ""):
         raise CopiesChanged("The copied objects changed")
+    # Generated model numbers can disappear or be reused after an edit; check before indexing the new layout.
+    if copy_revision is None and draft is not None and draft != s.get("draft"):
+        raise ModelsChanged("The model objects changed")
     m = s["meshes"][i]
-    if m.get("copy") and copy_revision is None and draft is not None and draft != s.get("draft"):
-        raise Unreadable("the copied objects changed")
     if "data" in m:
         vertices, faces = m["data"]
         data = vertices.tobytes() + struct.pack("<i", faces.size) + faces.tobytes()

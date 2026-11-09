@@ -1,5 +1,6 @@
 """Masked full-resolution ground colours: small immutable layouts, shared DDS images and native KN5 materials."""
 import functools
+import gzip
 import hashlib
 import io
 from dataclasses import replace
@@ -366,14 +367,52 @@ def describe(ac, name, version, resolved=None):
 
 def _with_urls(name, version, layout):
     """Bind retained content to this track's endpoints; a saved copy may outlive the original track. Pure."""
+    bundles = _weight_offsets(name, version, layout)
     return {**layout,
             **({"ground": {**layout["ground"], "passes": [{**p, "weight": {**p["weight"],
-                "url": f"/api/editor/{name}/paint-region/{version}/{p['weight']['key']}"}} for p in layout["ground"]["passes"]]}}
+                "url": f"/api/editor/{name}/paint-region/{version}/{p['weight']['key']}",
+                **({"bundle": bundles[p['weight']['key']]} if p['weight']['size'] else {})}} for p in layout["ground"]["passes"]]}}
                if "ground" in layout else {}),
             "mask": {**layout["mask"], "url": _url(name, "paint-mask", version)},
             "images": [{**ref, **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
                         **({"detail": {**ref["detail"], "url": _url(name, "paint-data", ref["asset"])}} if "detail" in ref else {})}
                        for ref in layout["images"]]}
+
+
+def _weight_offsets(name, version, layout):
+    """Byte offsets of unique nonconstant atlases in descriptor order. Pure."""
+    offsets, size = {}, 0
+    for part in layout.get("ground", {}).get("passes", []):
+        ref = part["weight"]
+        if ref["size"] and ref["key"] not in offsets:
+            offsets[ref["key"]] = {"offset": size}
+            size += ref["size"]
+    return {key: {**ref, "size": size, "url": _url(name, "paint-weights", version)} for key, ref in offsets.items()}
+
+
+def weight_bundle(ac, name, version):
+    """Gzip one tile's existing regional atlas bytes, preserving every stored mip bit."""
+    _view(ac, name, version)  # Validate the track/source even when the compressed transfer is cached.
+    target = _cache(version, "bundle").with_suffix(".gz")
+    if not target.is_file():
+        layout = describe(ac, name, version)
+        output = io.BytesIO()
+        with gzip.GzipFile(fileobj=output, mode="wb", compresslevel=1, mtime=0) as zipped:
+            for key in _weight_offsets(name, version, layout):
+                path = _cache(key, "region").with_suffix(".r16")
+                raw = path.read_bytes() if path.is_file() else region_image(ac, name, version, key)
+                zipped.write(raw)
+        trackpaint._atomic(target, output.getvalue())
+    return target.read_bytes()
+
+
+def compressed_mask(ac, name, version):
+    """Cache gzip of the unchanged RGBA DDS, including its independently filtered mips."""
+    _view(ac, name, version)
+    target = _cache(version, "mask").with_suffix(".dds.gz")
+    if not target.is_file():
+        trackpaint._atomic(target, gzip.compress(mask(ac, name, version), compresslevel=1, mtime=0))
+    return target.read_bytes()
 
 
 @functools.lru_cache(maxsize=128)

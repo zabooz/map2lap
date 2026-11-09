@@ -10,6 +10,7 @@ and every build uses the current code (a running server would otherwise build wi
     .venv\\Scripts\\python.exe server.py
 """
 import json
+import gzip
 import os
 import re
 import secrets
@@ -487,15 +488,29 @@ class Handler(BaseHTTPRequestHandler):
     # for minutes, of the 16,000 Windows has for them)
     protocol_version = "HTTP/1.1"
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         if self.command != "GET":       # (a request refused can leave its body unread: the next one would start in it)
             self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.end_headers()
+            self.wfile.write(data)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # Selection changes can cancel an in-flight reply; never send an error on that dead connection.
+            self.close_connection = True
+
+    def _send_weights(self, compressed, ctype="application/octet-stream"):
+        """Let Fetch decompress lossless weights; clients declining gzip receive identical original bytes."""
+        accepts = self.headers.get("Accept-Encoding", "")
+        encoded = any(re.fullmatch(r"gzip(?:\s*;\s*q=(?:1(?:\.0*)?|0\.[0-9]*[1-9][0-9]*))?", part.strip(), re.I)
+                      for part in accepts.split(","))
+        headers = {"Vary": "Accept-Encoding", **({"Content-Encoding": "gzip"} if encoded else {})}
+        self._send(200, compressed if encoded else gzip.decompress(compressed), ctype, headers)
 
     def _body(self):
         n = int(self.headers.get("Content-Length", 0))
@@ -519,6 +534,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, trackview.index(ac, name))
         except (trackview.NotOurs, IndexError):
             self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.ModelsChanged:
+            self._send(409, {"error": "The models changed; refreshing their view"})
         except trackview.CopiesChanged:
             self._send(409, {"error": "The copied objects changed; refreshing their view"})
         except trackview.Unreadable:
@@ -794,6 +811,14 @@ class Handler(BaseHTTPRequestHandler):
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
+        weights = re.fullmatch(r"/api/editor/([^/]+)/paint-weights/([a-f0-9]{64})", self.path)
+        if weights:
+            try:
+                return self._send_weights(trackdetail.weight_bundle(settings.ac_path(), generator.slug(weights[1]), weights[2]))
+            except trackview.Unreadable as error:
+                return self._send(409, {"error": str(error)})
+            except (ValueError, OSError, trackview.NotOurs) as error:
+                return self._send(400, {"error": str(error)})
         region = re.fullmatch(r"/api/editor/([^/]+)/paint-region/([a-f0-9]{64})/([a-f0-9]{64})", self.path)
         if region:
             try:
@@ -816,6 +841,8 @@ class Handler(BaseHTTPRequestHandler):
         if detail:
             try:
                 ac, name = settings.ac_path(), generator.slug(detail[1])
+                if detail[2] == "paint-mask":
+                    return self._send_weights(trackdetail.compressed_mask(ac, name, detail[3]), "image/vnd-ms.dds")
                 reader = {"paint-mask": trackdetail.mask, "paint-asset": trackdetail.image, "paint-data": trackdetail.detail_image,
                           "paint-preview": trackinspect.paint_preview}[detail[2]]
                 raw = reader(ac, name, detail[3])
