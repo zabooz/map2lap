@@ -34,8 +34,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - A cell goes as soon as **one** of its corners is a tunnel hole.
 - A wall between two roads cuts the cells along its cut line apart (`scenery/wallcut.py`): a step at the wall's face. A cut cell
   stays in its cell's object, by the same sample.
-- Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px = 12.5 cm/px): comic ground, the roads on top in
-  BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`).
+- Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px): comic ground, the roads on top in
+  BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`). AC samples it repeating, so the
+  tile fills the inner 1984 px (12.9 cm/px) and its edge pixels repeat 32 px around it; the ground UVs run from 32/2048
+  to 2016/2048 (`ground.GUARD_PX`). Without that ring each tile edge mixed in the opposite edge, 256 m away: a thin
+  green line across the roads. Tracks built before still have UVs 0..1.
 - Ground materials use the standard AC `ksMultilayer` shader (`track/groundmaterial.py`): the existing tile image stays
   in `txDiffuse`, with its UVs and lighting values unchanged. A shared 4 px mask selects a shared white detail image,
   so the initial detail multiplier is exactly one. RGBA slots allow later masked detail textures without another

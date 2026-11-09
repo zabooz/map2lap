@@ -34,6 +34,12 @@ CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
 LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
 TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); groundmaterial adds neutral detail slots
+# AC and the Editor sample a tile's texture repeating (a kn5 material has no clamp): at UV 0 or 1 bilinear filtering mixes
+# in the opposite edge, 256 m away, half and half on every mip level: a thin green line across a road at each tile edge.
+# The tile is baked into TEX_PX - 2 * GUARD_PX pixels and its edge pixels repeated around it (guarded, guarded_uv): no
+# memory, 3.1 % of the resolution (12.5 -> 12.9 cm). Protects through mip 6 (8 m per pixel, a pixel on the screen some
+# hundreds of metres away); beyond, and with anisotropic filtering looking across the edge, the mix comes back, far off.
+GUARD_PX = 32
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
 # Road look -> (texture, m per repeat, brightness); painted in this order. Asphalt by road class (_look).
@@ -88,6 +94,19 @@ def _texture(path, px):
 def _to_px(a):
     """Field a (row 0 = north) bilinear onto TEX_PX x TEX_PX."""
     return np.asarray(Image.fromarray(np.asarray(a, np.float32), "F").resize((TEX_PX, TEX_PX), Image.BILINEAR))
+
+
+def guarded(img, guard):
+    """img (N, N, 3) uint8, the whole tile, as a texture of the same size: the tile shrunk to N - 2 * guard pixels, its
+    edge pixels repeated guard times around it (GUARD_PX). Pure."""
+    n = img.shape[0]
+    inside = np.asarray(Image.fromarray(img).resize((n - 2 * guard, n - 2 * guard), Image.LANCZOS))
+    return np.pad(inside, ((guard, guard), (guard, guard), (0, 0)), mode="edge")
+
+
+def guarded_uv(uv, guard, px):
+    """uv (k, 2) over the whole tile (0..1) onto the inside of a guarded texture of px pixels. Pure."""
+    return guard / px + np.asarray(uv, np.float64) * ((px - 2 * guard) / px)
 
 
 def _sample(tex, x, y, repeat_m):
@@ -389,7 +408,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         m = drawn & (surf == pre)
         groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]], along.T[surf[along.cells[along.owner]] == pre]]
     P = np.r_[np.c_[P[:, :2], along.u.ravel()], along.P]
-    UV = np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE]
+    UV = guarded_uv(np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE],
+                    GUARD_PX, TEX_PX)
 
     # looks: comic ground, the roads on top
     sp = TILE / TEX_PX
@@ -507,5 +527,5 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             segs, hws, look = got
             _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64),
                          np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True, paint=paint)
-    Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(out_tex, quality=88)
+    Image.fromarray(guarded(np.clip(img, 0, 255).astype(np.uint8), GUARD_PX)).save(out_tex, quality=88)
     return P, UV, groups, out_tex
