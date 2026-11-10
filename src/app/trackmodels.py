@@ -258,6 +258,13 @@ def images(ac, name, scan):
     return {texture: modelmesh.dds(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
 
 
+def _pieces(vertices, faces):
+    """A part's faces in pieces within a kn5 mesh's 65,535 vertices: (their vertices, triangles numbered within). Pure."""
+    for start in range(0, len(faces), 21845):
+        used, inverse = np.unique(faces[start:start + 21845].ravel(), return_inverse=True)
+        yield vertices[used], inverse.reshape(-1, 3).astype("<u2")
+
+
 PLANTS = {"tree", "bush", "grass", "flower", "plant"}
 
 
@@ -311,29 +318,31 @@ def extend(ac, name, scan, objects, models):
             vertices["pos"] += instance["at"]
             material_number = part["material"] if part["material"] is not None else len(decoded[asset].materials)
             definition = decoded[asset].materials[material_number] if part["material"] is not None else {}
-            if definition.get("doubleSided", False):
-                back = vertices.copy(); back["normal"] *= -1
-                faces = np.concatenate([faces, faces[:, ::-1] + len(vertices)])
-                vertices = np.concatenate([vertices, back])
-            for start in range(0, len(faces), 21845):
-                used, inverse = np.unique(faces[start:start + 21845].ravel(), return_inverse=True)
-                data = vertices[used]
+            double = definition.get("doubleSided", False)
+            own = listed[instance["id"]]["faces"][0]
+
+            def add(prefix, data, triangles, visible):
                 center = (data["pos"].min(axis=0).astype(np.float64) + data["pos"].max(axis=0)) / 2
-                number = len(meshes)
-                meshes.append({"name": f"nocol_m2l_model_{instance['id']}_{len(listed[instance['id']]['faces'][0])}",
-                    "material": slots[asset][material_number], "vertices": len(data), "indices": len(inverse),
-                    "data": (data, inverse.reshape(-1, 3).astype("<u2")),
+                own.append([len(meshes), 0, len(triangles)])
+                meshes.append({"name": f"{prefix}m2l_model_{instance['id']}_{len(own) - 1}",
+                    "material": slots[asset][material_number], "vertices": len(data), "indices": triangles.size,
+                    "data": (data, triangles),
                     "model": {"instance": instance["id"], "asset": asset, "primitive": part["primitive"], "material": part["material"],
                               "at": instance["at"], "scale": instance.get("scale", 1)},
-                    "active": 1, "visible": 1, "renderable": 1, "cast_shadows": 1, "transparent": int(definition.get("alphaMode") == "BLEND"),
+                    "active": 1, "visible": visible, "renderable": visible, "cast_shadows": visible,
+                    "transparent": int(definition.get("alphaMode") == "BLEND"),
                     "layer": 0, "lod_in": 0., "lod_out": 1000., "center": center.tolist(),
                     "radius": float(np.linalg.norm(data["pos"] - center, axis=1).max())})
-                listed[instance["id"]]["faces"][0].append([number, 0, len(inverse) // 3])
-                if instance["collision"] == "mesh":
-                    collision = {**meshes[-1], "name": meshes[-1]["name"].replace("nocol_", "1WALL_", 1),
-                                 "visible": 0, "renderable": 0, "cast_shadows": 0}
-                    listed[instance["id"]]["faces"][0].append([len(meshes), 0, len(inverse) // 3])
-                    meshes.append(collision)
+            # A double-sided material's faces are written once: CSP draws them from both sides (trackvariation). Collision keeps
+            # both sides, as a back face of its own.
+            for data, triangles in _pieces(vertices, faces):
+                add("nocol_", data, triangles, 1)
+                if instance["collision"] == "mesh" and not double:
+                    add("1WALL_", data, triangles, 0)
+            if instance["collision"] == "mesh" and double:
+                back = vertices.copy(); back["normal"] *= -1
+                for data, triangles in _pieces(np.concatenate([vertices, back]), np.concatenate([faces, faces[:, ::-1] + len(vertices)])):
+                    add("1WALL_", data, triangles, 0)
     names = {t[0] for t in scan["textures"]}
     textures = [*scan["textures"], *[(n, 0, recipe["bytes"]) for n, recipe in resources.items() if n not in names]]
     consumed = {m["id"]: m.get("replaces") for m in inherited["models"]} if inherited else {}

@@ -120,6 +120,29 @@ class ModelEditingTest(Base):
                 self.assertAlmostEqual(values["ksAmbient"], material["ambient"])
                 self.assertAlmostEqual(values["ksDiffuse"], material["diffuse"])
 
+    def test_double_sided_faces_are_written_once_and_drawn_from_both_sides_through_csp(self):
+        self.keep([self.placed(self.asset())])
+        trackcopy.save(self.ac, self.name, "one_side", "One side")
+        folder = Path(self.ac, "content/tracks/one_side")
+        native = kn5.read(str(folder / "one_side.kn5"))
+        (leaves,) = [m for m in kn5.walk_meshes(native["root"]) if "m2l_model" in m.name]
+        self.assertEqual((3, 3), (len(leaves.vertices), len(leaves.indices)))
+        material = native["materials"][leaves.material].name
+        config = (folder / "extension/ext_config.ini").read_text(encoding="utf-8")
+        config += "".join(path.read_text(encoding="utf-8") for path in (folder / "extension").glob("map2lap_*.ini"))
+        self.assertRegex(config, r"MATERIALS = [^\n]*" + material + r"[^\n]*\nCULL_MODE = NONE")
+
+    def test_mesh_collision_keeps_both_sides_of_a_double_sided_part(self):
+        now = trackedits.load(self.ac, self.name)
+        model = trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"], "model": self.asset(),
+                                                      "at": [20, 0, 5], "collision": "mesh"})["model"]
+        self.keep([model])
+        trackcopy.save(self.ac, self.name, "walled", "Walled")
+        native = kn5.read(str(Path(self.ac, "content/tracks/walled/walled.kn5")))
+        parts = {m.name.split("_")[0]: m for m in kn5.walk_meshes(native["root"]) if "m2l_model" in m.name}
+        self.assertEqual(3, len(parts["nocol"].vertices))
+        self.assertEqual((6, 6), (len(parts["1WALL"].vertices), len(parts["1WALL"].indices)))
+
     def test_the_index_says_what_a_model_meshs_vertices_are_made_from(self):
         model = {**self.placed(self.asset()), "scale": 2}
         self.keep([model])

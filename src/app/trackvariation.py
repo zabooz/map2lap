@@ -34,13 +34,21 @@ def config(materials):
     return "\n\n".join(sections) + "\n" if sections else ""
 
 
+def model_config(materials):
+    """CSP draws imported models' double-sided materials from both sides; their faces are written once, not twice. Without CSP
+    their back faces stay unseen. Pure."""
+    props = [{p[0]: p[1] for p in material.props} for material in materials]
+    names = [m.name for m, values in zip(materials, props) if values.get("m2lModelMaterial") == 1 and values.get("m2lDoubleSided") == 1]
+    return "\n".join(["[SHADER_REPLACEMENT_...]", "MATERIALS = " + ", ".join(names), "CULL_MODE = NONE"]) + "\n" if names else ""
+
+
 def write(folder, materials, extra=""):
     """Refresh only our config/include inside Save's staging folder, keeping unrelated track effects verbatim."""
     extension = Path(folder, "extension")
     main, owned = extension / "ext_config.ini", extension / FILE
     before = main.read_bytes().decode("utf-8-sig") if main.exists() else ""
     clean = MANAGED.sub("", before)
-    content = config(materials) + extra
+    content = "\n".join(part for part in (config(materials), model_config(materials)) if part) + extra
     if content:
         extension.mkdir(parents=True, exist_ok=True)
         owned.write_text(content, encoding="utf-8")

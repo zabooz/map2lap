@@ -89,7 +89,9 @@ class ModelWorkflowTest(Base):
         self.assertEqual(2, len(parts)); self.assertNotEqual(parts[0].material, parts[1].material)
         coloured, default = (native["materials"][m.material] for m in parts)
         self.assertTrue(coloured.alpha_tested); self.assertFalse(default.alpha_tested); self.assertEqual(0, default.blend)
-        self.assertEqual(6, len(parts[0].vertices)); self.assertEqual(3, len(parts[1].vertices))
+        # (both write their faces once: CSP draws the double-sided leaves from both sides, the default only from the front)
+        self.assertEqual(3, len(parts[0].vertices)); self.assertEqual(3, len(parts[1].vertices))
+        self.assertEqual([1, 0], [{p[0]: p[1] for p in m.props}["m2lDoubleSided"] for m in (coloured, default)])
         texture = next(name for slot, _number, name in default.maps if slot == "txDiffuse")
         with Image.open(io.BytesIO({name: raw for name, _active, raw in native["textures"]}[texture])) as image:
             self.assertTrue(np.all(np.asarray(image.convert("RGBA")) == 255))

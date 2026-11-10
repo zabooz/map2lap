@@ -369,7 +369,9 @@ Save writes actual KN5 vertices, UV0, normals, tangents, colour images and alpha
 orientation; node transforms, import units and the frozen ground anchor are applied once. Missing normals produce flat face
 normals and ignore supplied tangents; mirrored node transforms reverse triangle winding and use inverse-transpose normals.
 Materials take the track's own light values: plants (tree, bush, grass, flower, plant) those of its trees, other
-models those of its other objects; every import category places, as a tree, a bush, a house or a model. Double-sided materials receive back faces. Parts split below KN5's 65,535-vertex limit. `none` creates `nocol_` render meshes;
+models those of its other objects; every import category places, as a tree, a bush, a house or a model. Double-sided materials write their faces once: Save's own CSP include gives them `CULL_MODE = NONE`, so CSP draws
+both sides (without CSP their back faces stay unseen); `1WALL_` collision keeps a back face of its own. This halved every
+library model's kn5 bytes per copy (a Quaternius Twisted Tree: 2.5 to 1.3 MB). Parts split below KN5's 65,535-vertex limit. `none` creates `nocol_` render meshes;
 `mesh` additionally creates invisible `1WALL_` collision. Visual source replacement removes only the selected `nocol_` faces;
 source collision and unrelated vertices/indices remain unchanged.
 

@@ -95,7 +95,7 @@ def materials(model, asset, light):
         name, recipe = _recipe(model, source, factor, mode, material.get("alphaCutoff", .5))
         recipes[name] = recipe
         props = {"ksAmbient": light["ksAmbient"], "ksDiffuse": light["ksDiffuse"], "ksSpecular": 0., "ksAlphaRef": material.get("alphaCutoff", .5),
-                 "m2lModelMaterial": 1., "m2lRoughness": pbr.get("roughnessFactor", 1.), "m2lMetallic": pbr.get("metallicFactor", 1.)}
+                 "m2lModelMaterial": 1., "m2lDoubleSided": float(material.get("doubleSided", False)), "m2lRoughness": pbr.get("roughnessFactor", 1.), "m2lMetallic": pbr.get("metallicFactor", 1.)}
         values = [(k, float(v), (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)) for k, v in props.items()]
         result.append(kn5.Material(f"m2l_model_{asset[:24]}_{number}", "ksPerPixelAT" if mode == "MASK" else "ksPerPixel",
                                    int(mode == "BLEND"), int(mode == "MASK"), 0, values, [("txDiffuse", 0, name)]))
