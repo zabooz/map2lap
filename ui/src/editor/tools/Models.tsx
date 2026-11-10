@@ -22,27 +22,35 @@ export function Models({name, view, edits, replace: replaceTargets, enabled, cho
       : keys === "ctrl" ? {y: by * .1} : keys === "alt" ? {scale: 1.05 ** by} : {})));
     return () => onWheel(() => {});
   }, [enabled, onWheel]);
-  const apply = useCallback((model: LibraryModel, at?: [number, number, number], replace?: string[]) => {
+  /** pending: the key of the model the view shows already for this click; it goes unless the edit is made. */
+  const apply = useCallback((model: LibraryModel, at?: [number, number, number], replace?: string[], pending: number | null = null) => {
     const options = {...pose};
+    let shown = pending;
     void edits.inTurn(async () => {
-      edits.saveNow();
-      const revision = await edits.saved();
-      if (revision === null || !edits.canEdit()) return;
-      const answer = await post<{model?: ModelInstance; models?: ModelInstance[]; placed: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/model`,
-        {base: edits.boundRevision(), revision, model: model.id, at, replace, keep_height: !!replace});
-      const models = answer.models ?? (answer.model ? [answer.model] : []);
-      if (answer.error || !models.length) setFault(answer.error ?? "Could not place the model");
-      else {
-        const placed = !replace && !isUnplaced(options) ? [...answer.placed ?? [], {...options, id: `${models[0].id}#0`}] : answer.placed;
-        edits.addModels(models, placed); setFault(null);
-        if (replace) view.unpick();
-      }
+      try {
+        edits.saveNow();
+        const revision = await edits.saved();
+        if (revision === null || !edits.canEdit()) return;
+        const answer = await post<{model?: ModelInstance; models?: ModelInstance[]; placed: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/model`,
+          {base: edits.boundRevision(), revision, model: model.id, at, replace, keep_height: !!replace});
+        const models = answer.models ?? (answer.model ? [answer.model] : []);
+        if (answer.error || !models.length) setFault(answer.error ?? "Could not place the model");
+        else {
+          const placed = !replace && !isUnplaced(options) ? [...answer.placed ?? [], {...options, id: `${models[0].id}#0`}] : answer.placed;
+          if (shown !== null) { view.confirmPending(shown, models[0].id, revision); shown = null; }
+          edits.addModels(models, placed); setFault(null);
+          if (replace) view.unpick();
+        }
+      } finally { if (shown !== null) view.dropPending(shown); }
     });
   }, [pose, name, edits, view]);
-  const place = useEffectEvent((at: [number, number, number]) => { if (selected) apply(selected, at); });
+  const place = useEffectEvent((at: [number, number, number], pending: number | null) => {
+    if (selected) apply(selected, at, undefined, pending);
+    else if (pending !== null) view.dropPending(pending);
+  });
   useEffect(() => {
     if (!enabled || !selected) return;
-    void view.setModelGhost(selected, at => place(at));
+    void view.setModelGhost(selected, (at, pending) => place(at, pending));
     return () => view.setCopy(null, null);
   }, [view, enabled, selected]);
   useEffect(() => { if (enabled) view.setCopyPose(pose); }, [view, enabled, selected, pose]);

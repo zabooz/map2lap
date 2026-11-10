@@ -4,7 +4,7 @@
 // it and a drag takes it along over the ground.
 import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, Marked, MeshInfo, MaterialInfo, TrackIndex} from "../types";
 import {Navigation, VIEW_M, FLY_MAX_STEP_S} from "./navigation";
-import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeometry} from "./geometry";
+import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, modelMeshKey, fitSphere, makeGeometry} from "./geometry";
 import {screenPoint, LEFT_BUTTON, LEFT_HELD, CLICK_PX} from "./pointer";
 import {RoadMarkers} from "./roadMarkers";
 import {GeometryPreview} from "./geometryPreview";
@@ -112,6 +112,10 @@ export class TrackView {
   private copyGhost: THREE.Group | null = null;
   private copyRelease: (() => void) | null = null;
   private modelGhostVersion = 0;
+  private modelGhostSolid: THREE.Object3D | null = null;       // the placement ghost's model with its own materials, for a click to show at once
+  private modelGhostHold: (() => () => void) | null = null;    // keeps the ghost's loaded model until the returned call
+  private pendingModels = new Map<number, {root: THREE.Group; release: () => void; instance?: string; draft?: number}>();
+  private pendingKey = 0;
   private modelLight: THREE.WebGLRenderTarget | null = null;
   private ambient = new THREE.AmbientLight();
   private sun = sunLight();
@@ -1042,24 +1046,58 @@ export class TrackView {
     for (const i of all) if (i >= 0) void this.refresh(i);
   }
 
+  private modelMeshes() {
+    return this.meshes.filter(m => (m.userData.info as MeshInfo).model);
+  }
+
+  private dropModelMesh(mesh: THREE.Mesh) {
+    const info = mesh.userData.info as MeshInfo;
+    this.scene.remove(mesh); mesh.geometry.dispose();
+    if (this.byNumber.get(info.i) === mesh) this.byNumber.delete(info.i);
+    this.usedBytes -= COPIES * meshBytes(info) + ((mesh.userData.indices as Uint16Array | undefined)?.byteLength ?? 0);
+    this.materialAreas?.delete(info.i);
+    this.geometryPreview.changedMeshes.delete(info.i); this.geometryPreview.replaced(info.i);
+  }
+
   private detachModelMeshes() {
-    for (const mesh of this.meshes.filter(m => (m.userData.info as MeshInfo).model)) {
-      const info = mesh.userData.info as MeshInfo;
-      this.scene.remove(mesh); mesh.geometry.dispose();
-      if (this.byNumber.get(info.i) === mesh) this.byNumber.delete(info.i);
-      this.usedBytes -= COPIES * meshBytes(info); this.materialAreas?.delete(info.i);
-      this.geometryPreview.changedMeshes.delete(info.i); this.geometryPreview.replaced(info.i);
-    }
+    for (const mesh of this.modelMeshes()) this.dropModelMesh(mesh);
     this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).model);
   }
 
-  /** Refresh the real appended model/material index while retaining the user's camera and active placement action. */
+  /** The loaded model meshes as the index now lays them out: those made from the same thing stay under their new numbers, with what is
+      left out of them; the others go. What a preview or a drag holds by number follows. Returns those that stay. */
+  private keepModelMeshes(wanted: MeshInfo[]) {
+    const now = new Map(wanted.map(info => [modelMeshKey(info), info]));
+    const kept = new Set(this.modelMeshes().filter(mesh => now.has(modelMeshKey(mesh.userData.info as MeshInfo))));
+    for (const mesh of this.modelMeshes()) {
+      if (!kept.has(mesh)) this.dropModelMesh(mesh);
+      else if (this.byNumber.get((mesh.userData.info as MeshInfo).i) === mesh) this.byNumber.delete((mesh.userData.info as MeshInfo).i);
+    }
+    const numbers = new Map<number, number>();
+    for (const mesh of kept) {
+      const old = mesh.userData.info as MeshInfo, info = now.get(modelMeshKey(old))!;
+      mesh.userData.info = info;
+      this.byNumber.set(info.i, mesh);
+      if (info.i === old.i) continue;
+      numbers.set(old.i, info.i);
+      if (this.geometryPreview.changedMeshes.has(old.i)) mesh.userData.behind = true;
+      this.geometryPreview.forget(old.i);
+    }
+    this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).model || kept.has(m));
+    for (const grabbed of this.dragging?.grabbed ?? []) grabbed.mesh = numbers.get(grabbed.mesh) ?? grabbed.mesh;
+    return kept;
+  }
+
+  /** Refresh the real appended model/material index while retaining the user's camera and active placement action. Only meshes not loaded
+      yet are downloaded. Returns how many model meshes the index has. */
   private async reloadModels(retries = 2): Promise<number | null> {
     const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
     let reserved = 0;
     try {
       const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
-      const added = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
+      const wanted = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
+      const loaded = new Set(this.modelMeshes().map(m => modelMeshKey(m.userData.info as MeshInfo)));
+      const added = wanted.filter(info => !loaded.has(modelMeshKey(info)));
       const buffers = await Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal))));
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
@@ -1068,7 +1106,7 @@ export class TrackView {
       if (data.models?.length) this.ensureModelLight();
       await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
-      this.detachModelMeshes();
+      const kept = this.keepModelMeshes(wanted);
       const previousRemoved = this.removed;
       this.data = data;
       this.objectPieces = objectIndex(data.objects); this.belonging = childrenOf(data.objects);
@@ -1077,9 +1115,12 @@ export class TrackView {
       for (const id of this.removed) if (!previousRemoved.has(id)) this.leaveOut(id, true);
       added.forEach((info, i) => this.addMesh(this.trackName, data, info, buffers[i]));
       reserved = 0;
+      // (what a kept mesh was asked anew for under the old draft or number hasn't come: asked again as the index says now)
+      for (const mesh of kept) if (mesh.userData.behind) void this.refresh((mesh.userData.info as MeshInfo).i);
+      this.settlePending(data);
       for (const id of [...this.picks.keys()]) if (id.startsWith("instance_") && !data.objects[id.split("#")[0]]) this.dropPick(id);
       this.reframePicks(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
-      return added.length;
+      return wanted.length;
     } catch (error) {
       if (mine === this.token && asked === this.modelTransformVersion && !signal.aborted
           && error instanceof MeshFetchError && error.status === 409 && retries > 0) return this.reloadModels(retries - 1);
@@ -1174,7 +1215,7 @@ export class TrackView {
       }
     }
     this.copyRelease?.(); this.copyRelease = null;
-    this.copyGhost = null;
+    this.copyGhost = null; this.modelGhostSolid = null; this.modelGhostHold = null;
     this.copyStamp = [];
     this.onCopyPlace = place;
     if (!source || !place) { this.dirty = true; return; }
@@ -1220,15 +1261,19 @@ export class TrackView {
     return this.modelLight.texture;
   }
 
-  /** A library preview has no draft instance yet; its decoded resources live only until placement mode ends. */
-  async setModelGhost(model: {id: string; anchor: number[]; metres_per_unit: number}, place: (at: [number, number, number]) => void) {
-    this.setCopy(null, place);
+  /** A library preview has no draft instance yet; its decoded resources live until placement mode ends and the last model a click
+      showed with them is replaced by the server's (addPending). place gets the click's ground point and that shown model's key. */
+  async setModelGhost(model: {id: string; anchor: number[]; metres_per_unit: number}, place: (at: [number, number, number], pending: number | null) => void) {
+    this.setCopy(null, at => place(at, this.addPending()));
     const version = this.modelGhostVersion, holder = new THREE.Scene();
     const draw = new ModelDraw(holder, undefined, bytes => {
       if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
       this.usedBytes += bytes; return true;
     }, false);
-    this.copyRelease = () => draw.dispose();
+    let holders = 1;
+    const letGo = () => { if (--holders === 0) draw.dispose(); };
+    const ghostMaterials: THREE.Material[] = [];
+    this.copyRelease = () => { for (const m of ghostMaterials) m.dispose(); letGo(); };
     const transform = new THREE.Matrix4().makeScale(model.metres_per_unit, model.metres_per_unit, model.metres_per_unit)
       .multiply(new THREE.Matrix4().makeTranslation(-model.anchor[0], -model.anchor[1], -model.anchor[2]));
     try {
@@ -1236,13 +1281,59 @@ export class TrackView {
       await draw.sync([{id: "ghost", asset: model.id}], {[model.id]: {url: `/api/library/models/${model.id}/original`}}, {ghost: transform.toArray()});
       if (version !== this.modelGhostVersion) { draw.dispose(); return; }
       const root = draw.instance("ghost")!, group = new THREE.Group();
-      root.traverse(node => { if (node instanceof THREE.Mesh) for (const m of Array.isArray(node.material) ? node.material : [node.material]) {
+      this.modelGhostSolid = root.clone(true);
+      this.modelGhostHold = () => { holders++; let held = true; return () => { if (held) { held = false; letGo(); } }; };
+      // (translucent copies: the loaded materials stay solid for what a click shows; textures stay shared)
+      const translucent = (original: THREE.Material) => {
+        const m = original.clone(); ghostMaterials.push(m);
         m.transparent = true; m.opacity *= .5; m.depthWrite = false;
-      } });
+        return m;
+      };
+      root.traverse(node => {
+        if (node instanceof THREE.Mesh) node.material = Array.isArray(node.material) ? node.material.map(translucent) : translucent(node.material);
+      });
       group.matrixAutoUpdate = false; group.add(root);
       this.copyGhost = group; this.copyFoot.set(0, 0, 0); this.copyStamp = [];
       this.scene.add(group); this.followCopy();
     } catch (error) { draw.dispose(); if (version === this.modelGhostVersion) this.onViewFailed((error as Error).message); }
+  }
+
+  /** The ghost's model shown solid where the ghost stands, at once, until the server's instance is drawn (settlePending). Its key, null
+      while the ghost's model loads. */
+  private addPending() {
+    if (!this.copyGhost || !this.modelGhostSolid || !this.modelGhostHold) return null;
+    const root = new THREE.Group();
+    root.matrixAutoUpdate = false; root.matrix.copy(this.copyGhost.matrix); root.userData.pendingModel = true;
+    root.add(this.modelGhostSolid.clone(true));
+    const key = ++this.pendingKey;
+    this.pendingModels.set(key, {root, release: this.modelGhostHold()});
+    this.scene.add(root); this.dirty = true;
+    return key;
+  }
+
+  /** A shown model became the server's instance, added to the draft after its revision draft. */
+  confirmPending(key: number, instance: string, draft: number) {
+    const pending = this.pendingModels.get(key);
+    if (pending) Object.assign(pending, {instance, draft});
+  }
+
+  /** A shown model that won't become an instance: refused, or the edit could not be made. */
+  dropPending(key: number) {
+    const pending = this.pendingModels.get(key);
+    if (!pending) return;
+    this.scene.remove(pending.root); pending.release(); this.pendingModels.delete(key); this.dirty = true;
+  }
+
+  private dropAllPending() {
+    for (const key of [...this.pendingModels.keys()]) this.dropPending(key);
+  }
+
+  /** Shown models whose instance is drawn now go, and those a later draft no longer has (undone). An older index keeps them. */
+  private settlePending(data: TrackIndex) {
+    for (const [key, {instance, draft}] of this.pendingModels) {
+      if (instance === undefined) continue;
+      if (this.modelDraw.instance(instance) || (data.draft ?? 0) > draft! && !data.models?.some(m => m.id === instance)) this.dropPending(key);
+    }
   }
 
   /** Extra turn, height over the ground and size for the next copies, around their foot. */
@@ -1293,9 +1384,10 @@ export class TrackView {
     const mine = this.token, {signal} = this.loading, m = this.byNumber.get(i);
     if (!m || !this.data) return;
     const asked = m.userData.asked = (m.userData.asked ?? 0) + 1;
+    m.userData.behind = true;
     try {
       const buf = await this.refreshes(() => fetchBytes(meshUrl(this.trackName, this.data!, m.userData.info as MeshInfo), signal));
-      if (mine === this.token && m.userData.asked === asked && this.byNumber.get(i) === m) this.takeVertices(m, buf);
+      if (mine === this.token && m.userData.asked === asked && this.byNumber.get(i) === m) { this.takeVertices(m, buf); m.userData.behind = false; }
     } catch (e) {
       // (another track was asked for: nothing to say. Else the picture is behind what is kept: it mustn't look as if it were up to date)
       if (mine === this.token && !signal.aborted && m.userData.asked === asked && this.byNumber.get(i) === m) {
@@ -1859,6 +1951,7 @@ export class TrackView {
     this.roadRegionOverlay?.clear();
     this.roadInfluenceOverlay?.clear();
     this.setCopy(null, null);
+    this.dropAllPending();
     this.modelLight?.dispose(); this.modelLight = null;
     this.copyVersion++;
     this.copyLoading?.abort();
@@ -2327,7 +2420,8 @@ export class TrackView {
       this.parts.get(info.base)!.push(m);
     }
     this.byNumber.set(info.i, m);
-    if (!groundTile(info.name) && info.first_face == null && (this.objectPieces.has(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
+    // (a model is always picked as its object: it never reaches the search for a material's connected faces)
+    if (!info.model && !groundTile(info.name) && info.first_face == null && (this.objectPieces.has(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
       this.materialAreas ??= new Map();
       this.materialAreas.set(info.i, new MaterialRegions(m.geometry.getAttribute("position"),
         (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objectPieces.get(info.i) ?? []));

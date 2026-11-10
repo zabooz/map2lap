@@ -350,7 +350,8 @@ With several trees selected, the context menu's Replace opens the object library
 Right-clicking another member of a marked tree sort retains that selection. Replacement keeps each tree's position, terrain
 clearance, turn and actual height, scaling the new model uniformly to preserve its proportions. A retained per-instance fit
 precedes its editable placement; Undo/Redo treats the whole replacement as one step. Save, cold reopen and Copy retain the fit.
-Before placement a translucent model follows the mouse over the ground. Its Turn, Height and Size options also affect each
+Before placement a translucent model follows the mouse over the ground. A click shows the model solid at once, where the ghost stood, sharing the ghost's loaded model; it gives way when
+the server's instance is drawn, and goes if the insert is refused or a later draft no longer has it. Its Turn, Height and Size options also affect each
 new placement, including the modifier-wheel controls used by Copy. Model previews and placed GLBs share viewport reflection
 lighting without altering imported metallic or roughness factors or the original terrain lighting.
 An already imported instance can receive a different asset without changing its instance id or pose. The normal Move tool
@@ -385,7 +386,9 @@ Inherited terrain changes apply only to regenerated models; the remaining baked 
 needed by local Undo are retained before their last binding is removed.
 
 The production browser uses `modelDraw.ts` to share each asset's real GLTF geometry, materials and textures across instances.
-World-space CPU picking meshes retain the ordinary object selection and movement implementation. Removing one instance does
+World-space CPU picking meshes retain the ordinary object selection and movement implementation. When the models change, only
+parts not loaded yet are downloaded: a loaded part stays while its name, asset, place and size do, under whatever number the new
+layout gives it. A model's moved vertices arrive through the ordinary mesh refresh, asked again after a stale draft. Removing one instance does
 not dispose the remaining instance's shared render buffers. A rejected load or memory reservation keeps the previous visible
 state; obsolete asynchronous loads are released. The configured memory estimate includes the shared render resources and the
 ordinary picking-mesh allowance. Bounded User Timing records `map2lap.models.resources` and `map2lap.models.frame` expose

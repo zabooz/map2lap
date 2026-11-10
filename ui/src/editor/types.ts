@@ -78,7 +78,7 @@ export interface Marked {
 }
 
 export interface MeshInfo {
-  model?: {instance: string; asset: string; primitive: number; material: number | null};
+  model?: {instance: string; asset: string; primitive: number; material: number | null; at: number[]; scale: number};
   copy?: boolean;
   i: number;
   name: string;

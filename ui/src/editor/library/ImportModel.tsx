@@ -17,6 +17,7 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
   const [collision, setCollision] = useState<"none" | "mesh">("none");
   const [materialColours, setMaterialColours] = useState("linear");
   const [materialLighting, setMaterialLighting] = useState("model");
+  const [textureSide, setTextureSide] = useState(1024);
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close(); }, []);
   useEffect(() => { onBusy(loading || saving); return () => onBusy(false); }, [loading, saving, onBusy]);
@@ -33,7 +34,7 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
     try {
       const value = await libraryJson<{model: LibraryModel}>("/api/library/models", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({token: prepared.token, filename: file.name, name, category, metres_per_unit: Number(units), collision,
-          material_colours: materialColours, material_lighting: materialLighting})});
+          material_colours: materialColours, material_lighting: materialLighting, texture_side: textureSide})});
       onImported(value.model);
     } catch (fault) { setError(fault instanceof Error ? fault.message : "Could not store object"); }
     finally { setSaving(false); }
@@ -43,7 +44,11 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
     <form className={styles.form} onSubmit={event => { event.preventDefault(); void add(); }}>
       <h2>Import object</h2><p className={styles.note}>{file.name}</p>
       {prepared && <>
-        <ModelPreview url={`/api/library/model-imports/${prepared.token}/preview?${new URLSearchParams({material_colours: materialColours, material_lighting: materialLighting})}`} height={155} />
+        <ModelPreview url={`/api/library/model-imports/${prepared.token}/preview?${new URLSearchParams({material_colours: materialColours, material_lighting: materialLighting, texture_side: String(textureSide)})}`} height={155} />
+        <label className={styles.field}>Texture size<select value={textureSide} disabled={saving} onChange={event => setTextureSide(Number(event.target.value))}>
+          <option value={1024}>1024 px (recommended)</option><option value={2048}>2048 px</option>
+        </select></label>
+        <p className={styles.note}>Larger images are reduced to this size for the Editor and the track. Smaller ones stay as they are; the original file stays in the library.</p>
         <label className={styles.field}>Material colours<select value={materialColours} disabled={saving} onChange={event => setMaterialColours(event.target.value)}>
           <option value="linear">As stored in model</option><option value="srgb">sRGB (for washed-out colours)</option>
         </select></label>

@@ -35,7 +35,7 @@ test("a model removed during loading refreshes its index instead of aborting on 
     return Response.json({error: "The models changed"}, {status: 409});
   }) as typeof fetch;
   const view = Object.create(TrackView.prototype) as {reloadModels: () => Promise<number | null>};
-  Object.assign(view, {token: 1, modelTransformVersion: 0, loading: new AbortController(), trackName: "alpha", usedBytes: 0,
+  Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), loading: new AbortController(), trackName: "alpha", usedBytes: 0,
     settings: {memoryGb: 1}, meshes: [], removed: new Set(), picks: new Map(),
     modelDraw: {sync: async () => {}}, detachModelMeshes: () => {}, wanted: () => new Set(), noteListedOut: () => {},
     reframePicks: () => {}, onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
