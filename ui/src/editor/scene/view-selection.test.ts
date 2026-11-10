@@ -29,7 +29,7 @@ test("replacement targets include every highlighted tree once and refuse a mixed
   Object.assign(view, {data: {objects: {}}, picks: new Map([[selected.id, {picked: selected}]]),
     billboardMeshes: () => [mesh], billboardsOf: () => [[0, 0, 8], [1, 8, 16], [2, 16, 24]],
     spriteOf: (_mesh: THREE.Mesh, face: number) => face < 16 ? "deciduous" : "pine",
-    piecesOf: () => [], shownBounds: () => new THREE.Box3()});
+    removed: new Set(), modelDraw: {bounds: () => null}, piecesOf: () => [], shownBounds: () => new THREE.Box3()});
   expect(view.replacementTargets([{tree: true, sort: "deciduous"}])).toEqual(["trees#0", "trees#1"]);
   selected.kind = "Car";
   expect(view.replacementTargets([{tree: true, sort: "deciduous"}])).toBeNull();

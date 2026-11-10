@@ -174,9 +174,9 @@ and split before AC's vertex limit. Placements and then height changes apply to 
 The validated draft context is cached by the source, draft, recipe and object-list file states. Copy geometry has a separate
 SHA-256 revision: unrelated draft changes cannot invalidate its layout. `/copies` returns only generated mesh metadata and
 copied object lists; their cancellable loader is separate from the source queue and retries an obsolete manifest. With imported
-models present, the full index supplies both generated layouts: copies precede models, so retained models take their new
-mesh numbers before copies occupy their former numbers. The two layouts are committed together; a newer change supersedes
-older loads. Copy meshes stay loaded while their copy revision is unchanged, including their mesh numbers and geometry;
+models present, the full index supplies both generated layouts: copies still precede models in the server metadata and
+object-list face ranges. The browser commits that index's bindings/matrices and copy layout together. Models own no numbered
+scene meshes, so a copy taking a former model mesh number cannot displace or hide one. A newer change supersedes older loads. Copy meshes stay loaded while their copy revision is unchanged, including their mesh numbers and geometry;
 model-only edits do not download or replace them. A received index only counts as loaded after its copy layout commits.
 Original meshes stay loaded. The server keeps one generated manifest (up to two million vertices); height-query cache keys hold
 only its digest. The preview updates when its pointer, camera, pose or ground changes, and uses the server's complete foot
@@ -441,7 +441,12 @@ screen door (alpha-to-coverage draws 40 % alpha as 40 % of the pixels). Each mip
 cutoff, so cutout leaves stay as dense far away.
 BC3 alpha blocks are encoded with each block's own lowest and highest value. A saved track's own material slot takes the image
 made now; Save drops a model image of the saved kn5 that no material uses any more. The Inspector makes its own PNG preview of
-at most 256 px. A draft save builds the models once: that state answers the save and is what the index reads next.
+at most 256 px. A draft write prepares model metadata once: that state answers the write and is what the index reads next.
+Verified asset revisions retain decoded local geometry, native material recipes and piece topology separately from the draft.
+Only added or changed bindings compute their metadata; Undo removes their entries from the current manifest. Other draft
+changes reuse it. Active assets and instance metadata belong to the current track. A 16-entry LRU additionally keeps recent assets
+for reuse after removal; active mixtures larger than that remain prepared. Snapshot file identity, modification/creation times
+and size distinguish replaced inputs, and snapshot hashes are still verified before reuse.
 
 `data/map2lap_models/` retains the verified original GLBs and snapshot descriptions once per asset in the saved track.
 Its `compiled.json` is compiled provenance tied to the written KN5's SHA256, rather than a new editable geometry format.
@@ -452,19 +457,26 @@ Inherited terrain changes apply only to regenerated models; the remaining baked 
 needed by local Undo are retained before their last binding is removed.
 
 The production browser uses `modelDraw.ts` to share each asset's real GLTF geometry, materials and textures across instances.
-World-space CPU picking meshes retain the ordinary object selection and movement implementation. When the models change, only
-parts not loaded yet are downloaded: a loaded part stays while its name, asset, place and size do, under whatever number the new
-layout gives it. A model's moved vertices arrive through the ordinary mesh refresh, asked again after a stale draft. Removing one instance does
-not dispose the remaining instance's shared render buffers. A rejected load or memory reservation keeps the previous visible
-state; obsolete asynchronous loads are released. The configured memory estimate includes the shared render resources and the
-ordinary picking-mesh allowance. Bounded User Timing records `map2lap.models.resources` and `map2lap.models.frame` expose
+Picking raycasts the logical instance roots against those same shared GLB triangles at their current matrices; the original
+materials supply the alpha test, so empty cutout leaves still let a click reach the source behind them. No per-instance mesh
+buffers are downloaded or reserved. Move holds a matrix per model instead of vertex numbers/copies. Selection frames and
+sort selection read referenced shared vertices; distance culling transforms the shared asset bounds' midpoint. Delete, Undo
+and Revert use the binding's `<instance>#0` identity independently of mesh numbers. Copy previews share the same asset and
+hold its resources while a pending solid remains. Removing one instance does not dispose the others' shared render buffers.
+A rejected load or memory reservation keeps the previous visible state; obsolete asynchronous loads are released.
+The configured memory estimate includes shared render resources and instance transform buffers. Bounded User Timing records `map2lap.models.resources` and `map2lap.models.frame` expose
 resource counts and CPU render-call duration; texture GPU bytes are estimates and software-browser timing is not hardware FPS.
 
 Native material conversion currently implements base colour factors, OPAQUE/MASK/BLEND and double-sided geometry.
 The original GLB retains its full PBR descriptions, and the browser uses its normal/roughness/metallic inputs, but equivalent
 normal/roughness/metallic shading in AC is not implemented by this model exporter. Base-colour texture transforms are refused
 at binding, rather than ignored; additional vertex colours and UV sets are refused at import. No game validation is implied.
-Server geometry is still copied per instance. Save bundles model parts like object copies: per 256 m tile of the
+The server index retains shared asset arrays, piece indices and each binding's exact bounds, counts and face ranges.
+Bounds are calculated once per new binding from transient positions with the original two float32 assignments, keeping
+centres/radii byte-identical rather than approximating them with transformed spheres. It retains no world-space vertex arrays
+per model. Draft poses and current/inherited heights follow rigid model matrices; source/copy geometry is evaluated separately.
+The compatibility mesh endpoint can synthesize a requested model part, but the Editor no longer requests those parts.
+Save materializes the native vertices and bundles model parts like object copies: per 256 m tile of the
 instance's final place, prefix (`nocol_`/`1WALL_`) and mesh flags, each bundle within 65,535 vertices, before placements,
 heights and deletions, which all work on face ranges; the object list keeps each instance's own range. Blended parts stay
 alone. Twenty Quaternius trees went from 40 meshes to 6; heavy scans hardly bundle (twenty boulders: 80 to 60), and bundling saves
@@ -473,8 +485,8 @@ no bytes. The Editor draws opaque and cutout model parts through `InstancedMesh`
 hidden or shown rewrites only its own slots (a hidden part keeps its slot, shrunk to a point); a batch is built again only when
 models leave or join it. Among 20,000 plants one move costs 0.5 ms, where rebuilding every batch cost 51 ms. Bounds are
 recomputed when transforms change. Blended parts retain independent meshes for transparent sorting. Instance buffers count toward the Editor
-memory limit; hiding instances reuses their allocated capacity. CPU selection still uses the ordinary per-instance mesh data,
-and server geometry and KN5 geometry remain per instance. Automatic distance-dependent model simplification is not implemented.
+memory limit; hiding instances reuses their allocated capacity. CPU selection shares the asset geometry. KN5 geometry remains
+per instance. Automatic distance-dependent model simplification is not implemented.
 
 ### Object groups
 

@@ -5,7 +5,22 @@ import {modelEnvironment} from "./modelLighting";
 interface Binding {id: string; asset: string}
 interface Asset {url: string; material_lighting?: string; material_colours?: string; source_url?: string}
 interface Loaded {root: THREE.Group; bytes: number; geometryCpuBytes: number; geometryGpuBytes: number; textureCpuEstimate: number; textureGpuEstimate: number;
-  geometries: Set<THREE.BufferGeometry>; materials: Set<THREE.Material>; textures: Set<THREE.Texture>; picking: Map<number, THREE.Material>; released?: boolean}
+  geometries: Set<THREE.BufferGeometry>; materials: Set<THREE.Material>; textures: Set<THREE.Texture>; center: THREE.Vector3; released?: boolean}
+
+/** Referenced triangles only: unused accessor vertices must not enlarge selection or culling bounds. */
+function modelBounds(root: THREE.Group) {
+  const bounds = new THREE.Box3(), point = new THREE.Vector3();
+  root.updateMatrixWorld(true);
+  root.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    const position = node.geometry.getAttribute("position"), index = node.geometry.index;
+    for (let k = 0; k < (index?.count ?? position.count); k++) {
+      point.fromBufferAttribute(position, index ? index.getX(k) : k).applyMatrix4(node.matrixWorld);
+      bounds.expandByPoint(point);
+    }
+  });
+  return bounds;
+}
 
 function resources(root: THREE.Group): Loaded {
   const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
@@ -35,7 +50,7 @@ function resources(root: THREE.Group): Loaded {
     }
   }
   const bytes = geometryCpuBytes + geometryGpuBytes + textureCpuEstimate + textureGpuEstimate;
-  return {root, bytes, geometryCpuBytes, geometryGpuBytes, textureCpuEstimate, textureGpuEstimate, geometries, materials, textures, picking: new Map()};
+  return {root, bytes, geometryCpuBytes, geometryGpuBytes, textureCpuEstimate, textureGpuEstimate, geometries, materials, textures, center: modelBounds(root).getCenter(new THREE.Vector3())};
 }
 
 function release(asset: Loaded) {
@@ -43,11 +58,10 @@ function release(asset: Loaded) {
   asset.released = true;
   for (const geometry of asset.geometries) geometry.dispose();
   for (const material of asset.materials) material.dispose();
-  for (const material of asset.picking.values()) material.dispose();
   for (const texture of asset.textures) { texture.dispose(); if (typeof ImageBitmap !== "undefined" && texture.image instanceof ImageBitmap) texture.image.close(); }
 }
 
-/** Asset-owned render buffers and photos, shared by all instance clones. CPU picking meshes belong to the ordinary editor. */
+/** Asset-owned render buffers and photos, shared by all instance clones. Picking uses the same asset buffers and logical instance matrices. */
 export class ModelDraw {
   private assets = new Map<string, Loaded>();
   private pending = new Map<string, Promise<Loaded>>();
@@ -74,6 +88,10 @@ export class ModelDraw {
     const gltf = await new GLTFLoader().loadAsync(url);
     gltf.parser.associations.forEach((reference, object) => {
       if (object instanceof THREE.Material) object.userData.modelMaterial = reference?.materials ?? -1;
+      if (object instanceof THREE.Mesh && reference?.meshes !== undefined) {
+        object.userData.modelPrimitive = gltf.parser.json.meshes.slice(0, reference.meshes)
+          .reduce((n: number, mesh: {primitives: unknown[]}) => n + mesh.primitives.length, 0) + (reference.primitives ?? 0);
+      }
     });
     return gltf.scene;
   },
@@ -118,6 +136,7 @@ export class ModelDraw {
 
   stats() {
     return {assets: this.assets.size, instances: this.instances.size,
+      pickingGeometryBytes: 0,
       reservedBytes: this.batchBytes + [...this.assets.values()].reduce((sum, asset) => sum + asset.bytes, 0),
       instanceBufferBytes: this.batchBytes, renderBatches: this.batches.size, blendedParts: [...this.blended.values()].reduce((n, parts) => n + parts.length, 0),
       shared: [...this.assets].map(([id, asset]) => ({asset: id,
@@ -127,14 +146,32 @@ export class ModelDraw {
         geometries: [...asset.geometries].map(g => g.uuid), materials: [...asset.materials].map(m => m.uuid), textures: [...asset.textures].map(t => t.uuid)}))};
   }
 
-  picking(asset: string, index: number): THREE.Material {
-    const loaded = this.assets.get(asset)!;
-    let material = loaded.picking.get(index);
-    if (!material) {
-      const original = [...loaded.materials].find(m => (m.userData.modelMaterial ?? -1) === index) ?? [...loaded.materials][0];
-      material = original.clone(); material.visible = false; loaded.picking.set(index, material);
+  /** Logical roots stay outside the render scene. Raycasting them uses shared triangles and the original alpha material. */
+  intersections(picker: THREE.Raycaster) {
+    const hits: THREE.Intersection[] = [];
+    for (const {root} of this.instances.values()) {
+      if (!root.visible) continue;
+      root.updateMatrixWorld(true);
+      picker.intersectObject(root, true, hits);
     }
-    return material;
+    return hits.sort((a, b) => a.distance - b.distance);
+  }
+
+  /** Exact selection bounds from shared vertices, allocated only for the requested object. */
+  bounds(id: string) {
+    const root = this.instance(id);
+    if (!root) return null;
+    root.updateMatrixWorld(true);
+    return modelBounds(root);
+  }
+
+  /** Distance uses the asset's local bounds and current pose, independently of server mesh numbers. */
+  cull(camera: THREE.Vector3, removed: Set<string>, distance: number) {
+    const center = new THREE.Vector3();
+    for (const [id, instance] of this.instances) {
+      center.copy(this.assets.get(instance.asset)!.center).applyMatrix4(instance.root.matrix);
+      this.visible(id, camera.distanceTo(center) < distance && !removed.has(id + "#0"));
+    }
   }
 
   transforms(matrices: Record<string, number[]>) {
@@ -198,7 +235,7 @@ export class ModelDraw {
       if (!instance) {
         const root = loaded.get(binding.asset)!.root.clone(true);
         root.matrixAutoUpdate = false;
-        root.traverse(node => { node.receiveShadow = true; });
+        root.traverse(node => { node.receiveShadow = true; node.userData.modelInstance = binding.id; });
         instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance); this.dirty.add(binding.id);
       }
       // (an index reload hands every matrix again: only an instance that moved is drawn anew)

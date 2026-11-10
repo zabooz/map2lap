@@ -62,3 +62,26 @@ test("an idle Copy preview does no more ray queries or redraws until its inputs 
   view.camera.position.x = 1; view.followCopy();
   expect(rays).toBe(3);
 });
+
+
+test("an imported Copy preview and its pending solid share the asset geometry and hold it through Escape", () => {
+  const geometry = new THREE.PlaneGeometry(), material = new THREE.MeshBasicMaterial();
+  const root = new THREE.Group(); root.add(new THREE.Mesh(geometry, material)); root.matrixAutoUpdate = false;
+  root.matrix.makeTranslation(3, 4, 5);
+  const scene = new THREE.Scene(), view = Object.create(TrackView.prototype) as TrackView;
+  let held = 0;
+  Object.assign(view, {scene, data: {objects: {}}, belonging: new Map(), byNumber: new Map(), pendingModels: new Map(), pendingKey: 0,
+    copyFoot: new THREE.Vector3(), pivotOf: () => [3, 4, 5], mouse: null,
+    modelDraw: {instance: () => root, hold: () => { held++; return () => { held--; }; }}});
+  view.setCopy("instance_a#0", () => {});
+  const preview = scene.children[0] as THREE.Group;
+  let shown!: THREE.Mesh;
+  preview.traverse(n => { if (n instanceof THREE.Mesh) shown = n; });
+  expect(shown.geometry).toBe(geometry); expect(shown.material).not.toBe(material);
+  expect((shown.material as THREE.Material).opacity).toBe(.5);
+  expect(material.opacity).toBe(1); expect(held).toBe(1);
+  const pending = view.addPending()!;
+  view.setCopy(null, null); expect(held).toBe(1);
+  view.dropPending(pending); expect(held).toBe(0);
+  geometry.dispose(); material.dispose();
+});

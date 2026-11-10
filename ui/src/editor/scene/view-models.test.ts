@@ -2,7 +2,7 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
 import {GeometryPreview} from "./geometryPreview";
-import {modelMeshKey} from "./geometry";
+import {ModelDraw} from "./modelDraw";
 import type {MeshInfo} from "../types";
 
 const part = (i: number, instance: string, asset = "tree", at = [0, 0, 0], scale = 1) => ({i, vertices: 3, indices: 3, name: `nocol_m2l_model_${instance}_0`,
@@ -30,51 +30,58 @@ function setUp() {
     const url = String(input);
     if (url.endsWith("/copies")) return Response.json({revision: "source", draft: served.draft, copy_revision: served.copyRevision, meshes: served.copies, objects: {}});
     if (url.endsWith("/index")) return Response.json({revision: "source", draft: served.draft, copy_revision: served.copyRevision, materials: [], meshes: [...served.copies, ...served.parts],
-      models: served.parts.map(p => ({id: p.model!.instance, asset: p.model!.asset})), model_assets: {}, model_matrices: {},
+      models: served.parts.map(p => ({id: p.model!.instance, asset: p.model!.asset})), model_assets: Object.fromEntries(served.parts.map(p => [p.model!.asset, {url: p.model!.asset}])),
+      model_matrices: Object.fromEntries(served.parts.map(p => [p.model!.instance, new THREE.Matrix4().makeTranslation(served.x, 0, 0).toArray()])) ,
       objects: Object.fromEntries(served.parts.map(p => [p.model!.instance, {kinds: ["model"], sorts: ["model"], at: [[0, 0, 0]], parents: [-1], faces: [[[p.i, 0, 1]]], details: [{}]}]))});
     urls.push(url);
     if (!url.includes(`&d=${served.draft}`) && !url.includes(`&c=${served.copyRevision}`)) return Response.json({error: "The models changed"}, {status: 409});
     return new Response(bytes(served.x));
   }) as typeof fetch;
   const view = Object.create(TrackView.prototype) as View;
+  const scene = new THREE.Scene();
+  const draw = new ModelDraw(scene, async () => {
+    const root = new THREE.Group(); root.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial())); return root;
+  });
   const byNumber = new Map<number, THREE.Mesh>();
-  Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), pendingKey: 0, loading: new AbortController(), trackName: "alpha", scene: new THREE.Scene(), usedBytes: 0, settings: {memoryGb: 8},
+  Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), pendingKey: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
     meshes: [], byNumber, parts: new Map(), grounds: [], materialAreas: new Map(), objectPieces: new Map(), belonging: new Map(), picks: new Map(),
     data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
     copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(),
     listedOut: new Map(), billboardsOut: new Map(), removed: new Set(), removedSorts: new Set(), wanted: () => new Set(served.removed), ensureModelLight: () => {}, reframePicks: () => {},
-    modelDraw: {sync: async () => {}, picking: () => new THREE.MeshBasicMaterial()}, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
+    modelDraw: draw, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
     geometryPreview: new GeometryPreview(i => byNumber.get(i), () => {}), onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
-  return {view, served, urls, errors, done: () => { globalThis.fetch = before; }};
+  return {view, draw, served, urls, errors, done: () => { draw.dispose(); globalThis.fetch = before; }};
 }
 
 const firstX = (m: THREE.Mesh) => m.geometry.getAttribute("position").getX(0);
 
 test("a tree copy takes a model's former mesh number without disappearing, including after Revert", async () => {
-  const {view, served, errors, done} = setUp();
+  const {view, draw, served, errors, done} = setUp();
   const copied = {...part(0, "unused"), model: undefined, copy: true, name: "nocol_props_copy_tree"};
   try {
     served.parts = [part(0, "a")];
     await view.reloadModels();
-    const model = view.byNumber.get(0)!;
+    const model = draw.instance("a")!;
     for (let attempt = 0; attempt < 2; attempt++) {
       served.copies = [copied]; served.copyRevision = "tree"; served.parts = [part(1, "a")]; served.draft++;
       await view.syncCopies();
       expect(errors).toEqual([]);
       expect(view.meshes.filter(m => m.userData.info.copy)).toHaveLength(1);
-      expect(view.byNumber.get(1)).toBe(model);
+      expect(draw.instance("a")).toBe(model);
+      expect(view.byNumber.has(1)).toBe(false);
       served.copies = []; served.copyRevision = ""; served.parts = [part(0, "a")]; served.draft++;
       await view.syncCopies();
       await view.reloadModels();
       expect(view.meshes.filter(m => m.userData.info.copy)).toHaveLength(0);
-      expect(view.byNumber.get(0)).toBe(model);
+      expect(draw.instance("a")).toBe(model);
+      expect(view.byNumber.has(0)).toBe(false);
     }
     expect(errors).toEqual([]);
   } finally { done(); }
 });
 
 test("inserting or moving a model downloads no unchanged copy meshes and keeps their numbers and geometry", async () => {
-  const {view, served, urls, errors, done} = setUp();
+  const {view, draw, served, urls, errors, done} = setUp();
   try {
     served.parts = [part(0, "a")];
     await view.reloadModels();
@@ -86,14 +93,15 @@ test("inserting or moving a model downloads no unchanged copy meshes and keeps t
     served.parts.push(part(2, "b")); served.draft++;
     await view.reloadModels();
     expect(urls.filter(url => url.includes("&c="))).toEqual([]);
-    expect(urls).toHaveLength(1);
-    expect(urls[0]).toContain("/mesh/2?");
+    expect(urls).toEqual([]);
+    expect(draw.instance("b")).toBeDefined();
     urls.length = 0;
     served.draft++; served.x = 5;
     await view.syncCopies();
     await view.refresh(1);
     expect(urls.filter(url => url.includes("&c="))).toEqual([]);
-    expect(firstX(view.byNumber.get(1)!)).toBe(5);
+    expect(draw.instance("a")!.matrix.elements[12]).toBe(5);
+    expect(view.byNumber.has(1)).toBe(false);
     expect(view.byNumber.get(0)).toBe(copy);
     expect(copy.geometry).toBe(geometry);
     expect((copy.userData.info as MeshInfo).i).toBe(0);
@@ -128,7 +136,7 @@ test("the initial index's copy revision is not proof that its geometry has loade
     Object.assign(view, {data: {revision: "source", copy_revision: "tree", materials: [], models: [{id: "a"}], objects: {}, meshes: [...served.copies, ...served.parts]}});
     await view.syncCopies();
     expect(urls.filter(url => url.includes("&c="))).toHaveLength(1);
-    expect(view.meshes).toHaveLength(2);
+    expect(view.meshes).toHaveLength(1);
     expect(errors).toEqual([]);
   } finally { done(); }
 });
@@ -179,142 +187,35 @@ test("a copy download overtaken by Revert cannot mark that revision loaded or re
   } finally { release(); done(); }
 });
 
-test("inserting a model downloads only the new one and keeps what is loaded", async () => {
-  const {view, served, urls, errors, done} = setUp();
+test("adding, removing, reordering or replacing models holds shared roots without any numbered geometry", async () => {
+  const {view, draw, served, urls, errors, done} = setUp();
   try {
-    served.parts = [part(0, "a")];
+    served.parts = [part(0, "a")]; await view.reloadModels();
+    const a = draw.instance("a")!;
+    served.parts.push(part(1, "b"), part(2, "c")); served.draft++;
+    expect(await view.reloadModels()).toBe(3);
+    const c = draw.instance("c")!;
+    served.parts = [part(0, "c"), part(1, "a")]; served.draft++;
     await view.reloadModels();
-    const a = view.byNumber.get(0)!;
-    urls.length = 0;
-    served.parts = [part(0, "a"), part(1, "b")]; served.draft = 2;
-    expect(await view.reloadModels()).toBe(2);
-    expect(urls).toHaveLength(1);
-    expect(urls[0]).toContain("/mesh/1?");
-    expect(view.byNumber.get(0)).toBe(a);
-    expect(view.meshes).toHaveLength(2);
-    expect(errors).toEqual([]);
+    expect(draw.instance("a")).toBe(a); expect(draw.instance("c")).toBe(c); expect(draw.instance("b")).toBeUndefined();
+    served.parts = [part(0, "a", "bush")]; served.draft++;
+    await view.reloadModels();
+    expect(draw.instance("a")).not.toBe(a); expect(draw.instance("c")).toBeUndefined();
+    expect(urls).toEqual([]); expect(view.meshes).toHaveLength(0); expect(view.byNumber.size).toBe(0);
+    expect(view.materialAreas.size).toBe(0); expect(view.usedBytes).toBe(0); expect(errors).toEqual([]);
   } finally { done(); }
 });
 
-test("an oversized model group is refused before downloading its per-instance picking geometry", async () => {
+test("the per-instance native size never reserves picking geometry; shared asset reservation still refuses overflow", async () => {
   const {view, served, urls, errors, done} = setUp();
   try {
     served.parts = [{...part(0, "a"), vertices: 1000000}];
     Object.assign(view, {settings: {memoryGb: .001}});
-    expect(await view.reloadModels()).toBeNull();
-    expect(urls.length).toBe(0); expect(errors.join(" ")).toContain("memory limit"); expect(view.usedBytes).toBe(0);
+    expect(await view.reloadModels()).toBe(1);
+    expect(urls).toEqual([]); expect(errors).toEqual([]); expect(view.usedBytes).toBe(0);
+    Object.assign(view, {modelDraw: {sync: async () => { throw new Error("The models exceed the Editor memory limit"); }}});
+    expect(await view.reloadModels()).toBeNull(); expect(errors.join(" ")).toContain("memory limit");
   } finally { done(); }
-});
-
-test("a model mesh takes no material regions: it is always picked as its object", async () => {
-  const {view, served, done} = setUp();
-  try {
-    served.parts = [part(0, "a")];
-    await view.reloadModels();
-    expect(view.byNumber.size).toBe(1);
-    expect(view.materialAreas.size).toBe(0);
-  } finally { done(); }
-});
-
-test("deleting a model from the middle renumbers those after it without a download and frees its memory", async () => {
-  const {view, served, urls, done} = setUp();
-  try {
-    served.parts = [part(0, "a")];
-    await view.reloadModels();
-    const one = view.usedBytes;
-    served.parts = [part(0, "a"), part(1, "b"), part(2, "c")]; served.draft = 2;
-    await view.reloadModels();
-    const [a, b, c] = [0, 1, 2].map(i => view.byNumber.get(i)!);
-    view.dragging = {grabbed: [{mesh: 2}]};
-    urls.length = 0;
-    served.parts = [part(0, "a"), part(1, "c")]; served.draft = 3;
-    await view.reloadModels();
-    expect(urls).toEqual([]);
-    expect(view.byNumber.get(0)).toBe(a);
-    expect(view.byNumber.get(1)).toBe(c);
-    expect(view.byNumber.has(2)).toBe(false);
-    expect((c.userData.info as MeshInfo).i).toBe(1);
-    expect(view.meshes).not.toContain(b);
-    expect((view.dragging as {grabbed: {mesh: number}[]}).grabbed[0].mesh).toBe(1);
-    served.parts = [part(0, "a")]; served.draft = 4;
-    await view.reloadModels();
-    expect(view.usedBytes).toBe(one);
-  } finally { done(); }
-});
-
-test("two kept models swapping numbers each land on their own", async () => {
-  const {view, served, urls, done} = setUp();
-  try {
-    served.parts = [part(0, "a"), part(1, "b")];
-    await view.reloadModels();
-    const [a, b] = [view.byNumber.get(0)!, view.byNumber.get(1)!];
-    urls.length = 0;
-    served.parts = [part(0, "b"), part(1, "a")]; served.draft = 2;
-    await view.reloadModels();
-    expect(urls).toEqual([]);
-    expect(view.byNumber.get(0)).toBe(b);
-    expect(view.byNumber.get(1)).toBe(a);
-  } finally { done(); }
-});
-
-test("another asset under the same instance id is downloaded, the old one goes", async () => {
-  const {view, served, urls, done} = setUp();
-  try {
-    served.parts = [part(0, "a", "tree")];
-    await view.reloadModels();
-    const old = view.byNumber.get(0)!;
-    urls.length = 0;
-    served.parts = [part(0, "a", "bush")]; served.draft = 2; served.x = 7;
-    await view.reloadModels();
-    expect(urls).toHaveLength(1);
-    expect(view.byNumber.get(0)).not.toBe(old);
-    expect(view.meshes).toHaveLength(1);
-    expect(firstX(view.byNumber.get(0)!)).toBe(7);
-  } finally { done(); }
-});
-
-test("a kept mesh whose refresh met an older draft gets the moved vertices after all", async () => {
-  const {view, served, errors, done} = setUp();
-  try {
-    served.parts = [part(0, "a")];
-    await view.reloadModels();
-    const a = view.byNumber.get(0)!;
-    served.draft = 2; served.x = 5;
-    await view.refresh(0);
-    await new Promise(resolve => setTimeout(resolve, 20));
-    expect(view.byNumber.get(0)).toBe(a);
-    expect(firstX(a)).toBe(5);
-    expect(errors).toEqual([]);
-  } finally { done(); }
-});
-
-test("a model left out stays out when it is kept, and comes back under its new number", async () => {
-  const {view, served, done} = setUp();
-  try {
-    served.parts = [part(0, "a"), part(1, "b")];
-    await view.reloadModels();
-    const b = view.byNumber.get(1)!;
-    served.removed = ["b#0"];
-    view.removed = new Set(served.removed);
-    (view as unknown as {leaveOut: (id: string, out: boolean) => void}).leaveOut("b#0", true);
-    served.parts = [part(0, "b")]; served.draft = 2;
-    await view.reloadModels();
-    expect(view.byNumber.get(0)).toBe(b);
-    expect([...b.geometry.getIndex()!.array]).toEqual([0, 0, 0]);
-    served.removed = [];
-    served.draft = 3;
-    await view.reloadModels();
-    expect([...b.geometry.getIndex()!.array]).toEqual([0, 1, 2]);
-  } finally { done(); }
-});
-
-test("a mesh's key changes with what its vertices are made from, not with its number. Pure", () => {
-  const key = modelMeshKey(part(0, "a"));
-  expect(modelMeshKey(part(5, "a"))).toBe(key);
-  expect(modelMeshKey(part(0, "b"))).not.toBe(key);
-  expect(modelMeshKey(part(0, "a", "bush"))).not.toBe(key);
-  expect(modelMeshKey(part(0, "a", "tree", [1, 0, 0]))).not.toBe(key);
-  expect(modelMeshKey(part(0, "a", "tree", [0, 0, 0], 2))).not.toBe(key);
 });
 
 interface Pending {
@@ -329,7 +230,7 @@ function ghostAt(view: View, instances: Set<string>) {
   pending.copyGhost = new THREE.Group(); pending.copyGhost.matrix.makeTranslation(4, 5, 6);
   pending.modelGhostSolid = solid;
   pending.modelGhostHold = () => { held.count++; let done = false; return () => { if (!done) { done = true; held.count--; } }; };
-  (view as unknown as {modelDraw: object}).modelDraw = {sync: async () => {}, picking: () => new THREE.MeshBasicMaterial(),
+  (view as unknown as {modelDraw: object}).modelDraw = {sync: async () => {},
     instance: (id: string) => instances.has(id) ? new THREE.Group() : undefined};
   return {pending, held, solid};
 }
@@ -382,5 +283,19 @@ test("no ghost model loaded yet: a click shows nothing", () => {
   const {view, done} = setUp();
   try {
     expect((view as unknown as Pending).addPending()).toBeNull();
+  } finally { done(); }
+});
+
+
+test("a second model stroke keeps only semantic metadata and downloads zero instance buffers", async () => {
+  const {view, served, urls, errors, done} = setUp();
+  try {
+    served.parts = [part(0, "a")]; await view.reloadModels();
+    urls.length = 0;
+    served.parts.push(part(1, "b")); served.draft++;
+    await view.reloadModels();
+    expect(urls).toEqual([]);
+    expect(view.meshes).toHaveLength(0); expect(view.byNumber.size).toBe(0); expect(view.usedBytes).toBe(0);
+    expect(errors).toEqual([]);
   } finally { done(); }
 });

@@ -22,7 +22,7 @@ const bytes = (vertices: number) => {
   return b;
 };
 
-test("a model removed during loading refreshes its index instead of aborting on the old mesh number", async () => {
+test("obsolete model mesh descriptors never start a download or a retry", async () => {
   const before = globalThis.fetch, errors: string[] = [], urls: string[] = [];
   let indexes = 0;
   globalThis.fetch = (async input => {
@@ -41,8 +41,8 @@ test("a model removed during loading refreshes its index instead of aborting on 
     reframePicks: () => {}, onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
   try {
     expect(await view.reloadModels()).toBe(0);
-    expect(indexes).toBe(2);
-    expect(urls.find(url => url.includes("/mesh/"))).toContain("&d=1");
+    expect(indexes).toBe(1);
+    expect(urls.filter(url => url.includes("/mesh/"))).toEqual([]);
     expect(errors).toEqual([]);
   } finally { globalThis.fetch = before; }
 });

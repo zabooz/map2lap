@@ -189,7 +189,7 @@ def context(ac, name, revision, copies=None, models=None):
         copies = copies if copies is not None else stored.get("copies", []) if stored["base"] == revision else []
         models = models if models is not None else stored.get("models", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
-        extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path}, objects, models)
+        extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path, "model_source_revision": revision}, objects, models)
         return path, extended, objects
     with _context_lock:
         key = _context_key(ac, name, path, revision)
@@ -198,7 +198,7 @@ def context(ac, name, revision, copies=None, models=None):
         stored = _stored(_file(ac, name), trackview.recipe(ac, name))
         copies = stored.get("copies", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
-        extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path}, objects, stored.get("models", []) if stored["base"] == revision else [])
+        extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path, "model_source_revision": revision}, objects, stored.get("models", []) if stored["base"] == revision else [])
         value = path, {**extended, "draft": stored["revision"], "paints": stored.get("paints", []) if stored["base"] == revision else []}, objects
         # An atomic save may have replaced the draft while its geometry was generated. Never cache it under the old stat.
         if key == _context_key(ac, name, path, revision):
@@ -351,12 +351,13 @@ def moved_without(ac, name, revision, omit):
 def _state_key(path, scan, heights, placed):
     """What a draft's kn5.Moved goes by: the kn5, its copies and models (scan), its height changes by id in their order, its placements. Pure."""
     models = json.dumps([scan.get("models", []), scan.get("model_heights", {})], sort_keys=True, default=str)
-    return path, scan.get("copy_key"), models, tuple(h["id"] for h in heights), _placed_key(placed)
+    return path, scan.get("model_source_revision"), scan.get("copy_key"), models, tuple(h["id"] for h in heights), _placed_key(placed)
 
 
 def _changed(path, scan, objects, heights, placed):
     """trackplace.changed, kept for the drafts' states reckoned last: moving a smoothing's strength replaces its change, the draft without it stays
     (moved_without), and the meshes handed out once it is saved take the draft with it its request reckoned (remember_meshes). InTheWay as it."""
+    scan, objects, placed = trackmodels.editor_source(scan, objects, placed)
     key = _state_key(path, scan, heights, placed)
     with _reckoned_lock:
         if key in _reckoned:
@@ -395,7 +396,7 @@ def preview(ac, name, revision, op):
     InTheWay if it can't be applied. Nothing is kept."""
     heights, placed, now = _heights_and_moved(ac, name, revision)
     kn5_path, scan, objects = context(ac, name, revision)
-    after = trackplace.changed(kn5_path, scan, objects, heights + [op], placed)
+    after = _changed(kn5_path, scan, objects, heights + [op], placed)
 
     def vertices_in(moved, i):
         if moved and i in moved.vertices:
@@ -422,7 +423,8 @@ def _moved_or_none(ac, name, revision, heights, placed):
     try:
         return _changed(path, scan, objects, heights, placed)
     except trackheights.InTheWay:
-        return trackplace.moved(path, scan, objects, placed) if placed else None
+        source, listed, poses = trackmodels.editor_source(scan, objects, placed)
+        return trackplace.moved(path, source, listed, poses) if poses else None
 
 
 def _checked_placed(placed, counts):
@@ -472,13 +474,15 @@ def _placed_key(placed):
 def _meshes_of_height(path, scan, objects, placed, op, refuse=False):
     """The meshes the height change op moves with the objects where placed puts them, as known from before or reckoned now. refuse:
     InTheWay if it can't be applied, else it moves none."""
-    key = (path, op["id"], _placed_key(placed), scan.get("copy_key"))
+    key = (op["id"], trackmodels._digest(_state_key(path, scan, [], placed)))
     with _now_lock:
         known = _meshes_of.get(key)
     if known is None:
         try:
-            known = sorted(trackheights.moved(path, scan, placement.list_placed(objects, placed), [op],
-                                              trackplace.moved(path, scan, objects, placed)).vertices)
+            source, listed, poses = trackmodels.editor_source(scan, objects, placed)
+            known = sorted(set(trackheights.moved(path, source, placement.list_placed(listed, poses), [op],
+                                                 trackplace.moved(path, source, listed, poses)).vertices)
+                           | trackmodels.meshes_at_height(scan, placed, [op]))
         except trackheights.InTheWay:
             if refuse:
                 raise
@@ -499,11 +503,12 @@ def remember_meshes(ac, name, revision, op, replace=None):
     others = [h for h in heights if h["id"] != replace]
     before, after = _changed(path, scan, objects, others, placed), _changed(path, scan, objects, others + [op], placed)
     both = before.vertices.keys() & after.vertices.keys()
-    known = sorted((before.vertices.keys() ^ after.vertices.keys()) | {i for i in both if not _alike(before.vertices[i], after.vertices[i])})
+    known = sorted((before.vertices.keys() ^ after.vertices.keys()) | {i for i in both if not _alike(before.vertices[i], after.vertices[i])}
+                   | trackmodels.meshes_at_height(scan, placed, [op]))
     with _now_lock:
         if len(_meshes_of) > MAX_REMEMBERED:
             _meshes_of.clear()
-        _meshes_of[(path, op["id"], _placed_key(placed), scan.get("copy_key"))] = known
+        _meshes_of[(op["id"], trackmodels._digest(_state_key(path, scan, [], placed)))] = known
 
 
 def _alike(a, b):

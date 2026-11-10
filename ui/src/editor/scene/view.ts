@@ -8,7 +8,7 @@ import type {LoadAbout} from "../../types";
 /** What loading says: its text, how far (undefined: done, null: not known) and about it (a first opening, why it failed). */
 export type Say = (text: string, progress?: number | null, about?: LoadAbout) => void;
 import {Navigation, VIEW_M, FLY_MAX_STEP_S} from "./navigation";
-import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, modelMeshKey, fitSphere, makeGeometry} from "./geometry";
+import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeometry} from "./geometry";
 import {screenPoint, LEFT_BUTTON, LEFT_HELD, CLICK_PX} from "./pointer";
 import {RoadMarkers} from "./roadMarkers";
 import {GeometryPreview} from "./geometryPreview";
@@ -88,13 +88,13 @@ interface Piece {
 }
 
 /** The vertices of an object in one mesh as they were when it was taken up: their numbers, their floats in that order. */
-interface Grabbed {
+interface GrabbedVertices {
   id: string;
   mesh: number;
   numbers: Uint32Array;
   floats: Float32Array;
-  modelMatrix?: THREE.Matrix4;
 }
+type Grabbed = GrabbedVertices | {id: string; modelMatrix: THREE.Matrix4};
 
 /** An image's pixels, to read. (A plain canvas: not every browser has OffscreenCanvas.) */
 function pixelsOf(image: ImageBitmap) {
@@ -514,7 +514,7 @@ export class TrackView {
       for (const [k, from] of this.billboardsOf(mesh)) if (this.spriteOf(mesh, from) === sprite) seen.add(`${info.base}#${k}`);
     }
     for (const id of idsOfSorts(this.data?.objects ?? {}, new Set([sprite]))) {
-      if (!this.removed.has(id) && this.shownBounds(this.piecesOf(id))) seen.add(id);
+      if (!this.removed.has(id) && this.shownObjectBounds(id)) seen.add(id);
     }
     return seen.size;
   }
@@ -597,16 +597,14 @@ export class TrackView {
     this.navigation.placeCamera(data);
     this.renderer.domElement.focus({preventScroll: true});     // (W A S D work at once, not in the track's dropdown)
     // Generated geometry has its own cancellable loader. Original MeshInfos never change when a copy is added or undone.
-    const sharedLayout = data.meshes.some(m => m.copy) && !!data.models?.length;
-    let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy && !(sharedLayout && m.model)), this.camera.position.toArray());
+    let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy && !m.model), this.camera.position.toArray());
     let sortedAt = this.camera.position.clone(), sortedWhen = performance.now();
-    let total = data.meshes.length;
+    const total = data.meshes.filter(m => !m.model).length;
     let done = 0, copiedDone = 0, texturesDone = 0;
-    let modelsChanged = false;
     const prepareTurn = oneByOne(2), prepared = new Map<string, Promise<void>>();
     const available = new Set<string>(data.surface_tiles ?? []);
     const tiles = new Set(data.meshes.map(m => groundTile(m.name)).filter((tile): tile is string => tile !== null && available.has(tile)));
-    const neededImages = new Set(data.meshes.flatMap((m: MeshInfo) => materialImages(data.materials[m.material])));
+    const neededImages = new Set(data.meshes.filter(m => !m.model).flatMap((m: MeshInfo) => materialImages(data.materials[m.material])));
     const textureCount = neededImages.size;
     const tasks = total + textureCount + tiles.size;
     let preparedDone = 0, meshesReady = false;
@@ -621,7 +619,7 @@ export class TrackView {
     };
     this.loadedTexture = () => { texturesDone++; report(); };
     const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data).then(() => {
-      copiedDone = data.meshes.filter((m: MeshInfo) => m.copy || sharedLayout && m.model).length;
+      copiedDone = data.meshes.filter((m: MeshInfo) => m.copy).length;
       report();
     }) : Promise.resolve();
     report();
@@ -634,7 +632,6 @@ export class TrackView {
         }
         const info = queue.pop()!;
         if (this.byNumber.has(info.i)) continue;
-        if (info.model && modelsChanged) { done++; report(); continue; }
         if (!fits(this.usedBytes, COPIES * meshBytes(info), this.settings.memoryGb)) {
           this.overLimit = true;
           queue.length = 0;
@@ -642,17 +639,8 @@ export class TrackView {
         }
         this.usedBytes += COPIES * meshBytes(info);
         const asked = this.heightsVersion;
-        let buf: ArrayBuffer;
-        try { buf = await fetchBytes(meshUrl(name, data, info), signal); }
-        catch (error) {
-          if (!info.model || !(error instanceof MeshFetchError) || error.status !== 409) throw error;
-          if (mine !== this.token) return;
-          this.usedBytes -= COPIES * meshBytes(info); modelsChanged = true; done++; report(); continue;
-        }
+        const buf = await fetchBytes(meshUrl(name, data, info), signal);
         if (mine !== this.token) return;
-        if (info.model && this.data?.draft !== data.draft) {
-          this.usedBytes -= COPIES * meshBytes(info); modelsChanged = true; done++; report(); continue;
-        }
         this.addMesh(name, data, info, buf);
         const tile = groundTile(info.name);
         if (tile && available.has(tile) && !prepared.has(tile)) {
@@ -674,12 +662,6 @@ export class TrackView {
     await Promise.all(Array.from({length: PARALLEL}, worker));
     await copied;
     if (mine !== this.token) return;
-    if (modelsChanged) {
-      const count = await this.reloadModels() ?? this.meshes.filter(m => (m.userData.info as MeshInfo).model).length;
-      if (mine !== this.token) return;
-      const difference = count - data.meshes.filter((m: MeshInfo) => m.model).length;
-      total += difference; done += difference;
-    }
     meshesReady = true;
     report();
     await Promise.all(this.textures);
@@ -810,6 +792,7 @@ export class TrackView {
   rejectMove(ids: string[]) {
     for (const id of ids) this.pendingPivots.delete(id);
     if (this.dragging?.ids.some(id => ids.includes(id))) this.dropDrag();
+    if (ids.some(id => id.startsWith("instance_"))) void this.refreshModelTransforms();
     this.refreshMeshes([]);
   }
 
@@ -851,6 +834,8 @@ export class TrackView {
   private grab(ids: string[]): Grabbed[] {
     const out: Grabbed[] = [];
     for (const id of ids) {
+      const modelMatrix = this.modelDraw.instance(id.split("#")[0])?.matrix.clone();
+      if (modelMatrix) { out.push({id, modelMatrix}); continue; }
       const byMesh = new Map<number, Set<number>>();
       for (const {mesh, from, end} of this.piecesOf(id)) {
         const part = this.byNumber.get(mesh);
@@ -862,7 +847,7 @@ export class TrackView {
       for (const [mesh, vertices] of byMesh) {
         const numbers = Uint32Array.from(vertices), array = this.vertexArray(mesh), floats = new Float32Array(numbers.length * FLOATS_PER_VERTEX);
         numbers.forEach((v, k) => floats.set(array.subarray(v * FLOATS_PER_VERTEX, (v + 1) * FLOATS_PER_VERTEX), k * FLOATS_PER_VERTEX));
-        out.push({id, mesh, numbers, floats, modelMatrix: this.modelDraw.instance(id.split("#")[0])?.matrix.clone()});
+        out.push({id, mesh, numbers, floats});
       }
     }
     return out;
@@ -876,18 +861,18 @@ export class TrackView {
       their place when its answer comes (refreshMeshes). */
   private nudgeGrabbed(grabbed: Grabbed[], pivots: Map<string, number[]>, nudges: (id: string) => Nudge) {
     for (const g of grabbed) {
-      nudgeVertices(g.floats, this.vertexArray(g.mesh), g.numbers, FLOATS_PER_VERTEX, pivots.get(g.id)!, nudges(g.id));
-      const m = this.byNumber.get(g.mesh)!;
-      (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data.needsUpdate = true;
-      fitSphere(m.geometry, m.userData.info as MeshInfo);
-      m.geometry.boundsTree?.refit();
-      this.geometryPreview.changedMeshes.add(g.mesh);
-      if (g.modelMatrix) {
+      if ("modelMatrix" in g) {
         const n = nudges(g.id);
         const transform = new THREE.Matrix4().makeScale(n.scale, n.scale, n.scale)
           .premultiply(new THREE.Matrix4().makeRotationY(n.turn * Math.PI / 180))
           .premultiply(new THREE.Matrix4().makeTranslation(n.x, n.y, n.z));
         this.modelDraw.nudge(g.id.split("#")[0], pivots.get(g.id)!, transform, g.modelMatrix);
+      } else {
+        nudgeVertices(g.floats, this.vertexArray(g.mesh), g.numbers, FLOATS_PER_VERTEX, pivots.get(g.id)!, nudges(g.id));
+        const m = this.byNumber.get(g.mesh)!;
+        (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data.needsUpdate = true;
+        fitSphere(m.geometry, m.userData.info as MeshInfo); m.geometry.boundsTree?.refit();
+        this.geometryPreview.changedMeshes.add(g.mesh);
       }
     }
     this.reframePicks();
@@ -901,6 +886,16 @@ export class TrackView {
     if (d && ids.every(id => d.ids.includes(id))) {
       for (const g of d.grabbed) {
         if (!ids.includes(g.id)) continue;
+        if ("modelMatrix" in g) {
+          const root = this.modelDraw.instance(g.id.split("#")[0]);
+          if (root) {
+            this.modelDraw.nudge(g.id.split("#")[0], d.pivots.get(g.id)!, new THREE.Matrix4().makeScale(nudge.scale, nudge.scale, nudge.scale)
+              .premultiply(new THREE.Matrix4().makeRotationY(nudge.turn * Math.PI / 180))
+              .premultiply(new THREE.Matrix4().makeTranslation(nudge.x, nudge.y, nudge.z)), g.modelMatrix);
+            g.modelMatrix = root.matrix.clone();
+          }
+          continue;
+        }
         const out = new Float32Array(g.floats.length);
         nudgeVertices(g.floats, out, Array.from(g.numbers, (_, k) => k), FLOATS_PER_VERTEX, d.pivots.get(g.id)!, nudge);
         g.floats = out;
@@ -1088,7 +1083,7 @@ export class TrackView {
       })();
       return;
     }
-    if (meshes.some(i => (this.byNumber.get(i)?.userData.info as MeshInfo | undefined)?.model)) void this.refreshModelTransforms();
+    if (meshes.some(i => this.data?.meshes.find(m => m.i === i)?.model)) void this.refreshModelTransforms();
     if (meshes.includes(-1)) void this.syncCopies();
     // (a preview taken over: what showed it, whether or not the server names it. One still in place goes on again over what comes: takeVertices)
     const all = new Set(this.geometryPreview.active ? meshes : [...meshes, ...this.geometryPreview.changedMeshes]);
@@ -1098,77 +1093,25 @@ export class TrackView {
     for (const i of all) if (i >= 0) void this.refresh(i);
   }
 
-  private modelMeshes() {
-    return this.meshes.filter(m => (m.userData.info as MeshInfo).model);
-  }
-
-  private dropModelMesh(mesh: THREE.Mesh) {
-    const info = mesh.userData.info as MeshInfo;
-    this.scene.remove(mesh); mesh.geometry.dispose();
-    if (this.byNumber.get(info.i) === mesh) this.byNumber.delete(info.i);
-    this.usedBytes -= COPIES * meshBytes(info) + ((mesh.userData.indices as Uint16Array | undefined)?.byteLength ?? 0);
-    this.materialAreas?.delete(info.i);
-    this.geometryPreview.changedMeshes.delete(info.i); this.geometryPreview.replaced(info.i);
-  }
-
-  /** The loaded model meshes as the index now lays them out: those made from the same thing stay under their new numbers, with what is
-      left out of them; the others go. What a preview or a drag holds by number follows. Returns those that stay. */
-  private keepModelMeshes(wanted: MeshInfo[]) {
-    const now = new Map(wanted.map(info => [modelMeshKey(info), info]));
-    const kept = new Set(this.modelMeshes().filter(mesh => now.has(modelMeshKey(mesh.userData.info as MeshInfo))));
-    for (const mesh of this.modelMeshes()) {
-      if (!kept.has(mesh)) this.dropModelMesh(mesh);
-      else if (this.byNumber.get((mesh.userData.info as MeshInfo).i) === mesh) this.byNumber.delete((mesh.userData.info as MeshInfo).i);
-    }
-    const numbers = new Map<number, number>();
-    for (const mesh of kept) {
-      const old = mesh.userData.info as MeshInfo, info = now.get(modelMeshKey(old))!;
-      mesh.userData.info = info;
-      this.byNumber.set(info.i, mesh);
-      if (info.i === old.i) continue;
-      numbers.set(old.i, info.i);
-      if (this.geometryPreview.changedMeshes.has(old.i)) mesh.userData.behind = true;
-      this.geometryPreview.forget(old.i);
-    }
-    this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).model || kept.has(m));
-    for (const grabbed of this.dragging?.grabbed ?? []) grabbed.mesh = numbers.get(grabbed.mesh) ?? grabbed.mesh;
-    return kept;
-  }
-
-  /** Refresh the real appended model/material index while retaining the user's camera and active placement action. Only meshes not loaded
-      yet are downloaded. Returns how many model meshes the index has. */
-  private async reloadModels(retries = 2): Promise<number | null> {
+  /** Commit model bindings/matrices and the preceding copy layout together; models need no per-instance buffers. */
+  private async reloadModels(): Promise<number | null> {
     const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
-    ++this.copyVersion;
-    this.copyLoading?.abort();
-    let reserved = 0;
+    ++this.copyVersion; this.copyLoading?.abort();
     try {
       const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
-      const wanted = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
-      const loaded = new Set(this.modelMeshes().map(m => modelMeshKey(m.userData.info as MeshInfo)));
-      const added = wanted.filter(info => !loaded.has(modelMeshKey(info)));
-      // Copies are generated before models, from copy descriptors alone. A model insert or move cannot change their numbers.
       const copiesChanged = this.loadedCopyRevision !== (data.copy_revision ?? "");
       const copies = copiesChanged ? data.meshes.filter(info => info.copy) : [];
-      const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
-      const oldCopies = copiesChanged ? this.meshes.filter(m => (m.userData.info as MeshInfo).copy).reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0) : 0;
+      const jobs = oneByOne(PARALLEL);
+      const oldCopies = copiesChanged ? this.meshes.filter(m => (m.userData.info as MeshInfo).copy)
+        .reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0) : 0;
       const copyBytes = copies.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
-      // A forest's CPU selection meshes can exceed the budget even when its shared render geometry fits.
-      // Refuse from index sizes before downloading thousands of buffers; check again after concurrent asset loads.
-      if (!fits(this.usedBytes - oldCopies, bytes + copyBytes, this.settings.memoryGb)) throw new Error("The models and copies exceed the Editor memory limit");
-      const [buffers, copyBuffers] = await Promise.all([
-        Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
-        Promise.all(copies.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
-      ]);
+      if (!fits(this.usedBytes - oldCopies, copyBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
+      const copyBuffers = await Promise.all(copies.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal))));
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
-      if (!fits(this.usedBytes - oldCopies, bytes + copyBytes, this.settings.memoryGb)) throw new Error("The models and copies exceed the Editor memory limit");
-      this.usedBytes += bytes; reserved = bytes;
       if (data.models?.length) this.ensureModelLight();
       await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
-      const kept = this.keepModelMeshes(wanted);
-      // Copies precede models in the server's layout. Move kept model numbers before adding copies at their former numbers.
-      // Commit both layouts without an await: Revert and a late model index cannot resurrect or hide copied trees.
+      // Models own no numbered scene meshes. Copies can take their former numbers without displacing an instance.
       if (copiesChanged && (copies.length || oldCopies)) this.applyCopies(data, copyBuffers, this.heightsVersion);
       const previousRemoved = this.removed;
       this.data = data;
@@ -1176,21 +1119,15 @@ export class TrackView {
       this.removed = this.wanted(); this.noteListedOut();
       for (const id of previousRemoved) if (!this.removed.has(id)) this.leaveOut(id, false);
       for (const id of this.removed) if (!previousRemoved.has(id)) this.leaveOut(id, true);
-      added.forEach((info, i) => this.addMesh(this.trackName, data, info, buffers[i]));
-      reserved = 0;
-      // (what a kept mesh was asked anew for under the old draft or number hasn't come: asked again as the index says now)
-      for (const mesh of kept) if (mesh.userData.behind) void this.refresh((mesh.userData.info as MeshInfo).i);
       this.settlePending(data);
       this.loadedCopyRevision = data.copy_revision ?? "";
       for (const id of [...this.picks.keys()]) if (id.startsWith("instance_") && !data.objects[id.split("#")[0]]) this.dropPick(id);
       this.reframePicks(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
-      return wanted.length;
+      return data.models?.length ?? 0;
     } catch (error) {
-      if (mine === this.token && asked === this.modelTransformVersion && !signal.aborted
-          && error instanceof MeshFetchError && error.status === 409 && retries > 0) return this.reloadModels(retries - 1);
       if (mine === this.token && asked === this.modelTransformVersion && !signal.aborted) this.onViewFailed((error as Error).message);
       return null;
-    } finally { if (reserved && mine === this.token) this.usedBytes -= reserved; }
+    }
   }
 
   private async refreshModelTransforms() {
@@ -1198,13 +1135,15 @@ export class TrackView {
     try {
       const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
       if (mine !== this.token || asked !== this.modelTransformVersion) return;
-      this.modelDraw.transforms(data.model_matrices ?? {}); this.dirty = true;
+      this.modelDraw.transforms(data.model_matrices ?? {});
+      if (this.dragging) this.dragOn(this.dragging.grabbed.filter(g => "modelMatrix" in g));
+      this.reframePicks(); this.dirty = true; this.hoverDue = true;
     } catch (error) { if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message); }
   }
 
   /** Reload only generated meshes and object ids, keeping the camera and the source track's meshes. */
   private async syncCopies(initial?: TrackIndex, retries = 2): Promise<void> {
-    if (this.modelMeshes().length || this.data?.models?.length || initial?.models?.length) { await this.reloadModels(); return; }
+    if (this.data?.models?.length || initial?.models?.length) { await this.reloadModels(); return; }
     ++this.modelTransformVersion;
     const mine = this.token, asked = ++this.copyVersion;
     this.copyLoading?.abort();
@@ -1303,7 +1242,22 @@ export class TrackView {
     const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = [];
     group.matrixAutoUpdate = false;
     const ids = [...takenAlong([source], this.belonging)].filter(id => this.canMove(id));
-    for (const id of ids) for (const piece of this.piecesOf(id, false)) {
+    const model = source.startsWith("instance_") ? this.modelDraw.instance(source.split("#")[0]) : undefined;
+    if (model) {
+      // Copy previews hold the same GLB geometry; only their translucent materials belong to the preview.
+      const original = model.clone(true), translucent = model.clone(true);
+      original.visible = translucent.visible = true;
+      translucent.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        const fade = (material: THREE.Material) => {
+          const copy = material.clone(); copy.transparent = true; copy.opacity *= .5; copy.depthWrite = false;
+          materials.push(copy); return copy;
+        };
+        node.material = Array.isArray(node.material) ? node.material.map(fade) : fade(node.material);
+      });
+      solid.add(original); group.add(translucent);
+    }
+    for (const id of model ? [] : ids) for (const piece of this.piecesOf(id, false)) {
       const m = this.byNumber.get(piece.mesh);
       if (!m) continue;
       const indices = m.geometry.getIndex()!.array;
@@ -1492,8 +1446,7 @@ export class TrackView {
     } catch (e) {
       // (another track was asked for: nothing to say. Else the picture is behind what is kept: it mustn't look as if it were up to date)
       if (mine === this.token && !signal.aborted && m.userData.asked === asked && this.byNumber.get(i) === m) {
-        if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).model) void this.reloadModels();
-        else if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).copy) void this.syncCopies();
+        if (e instanceof MeshFetchError && e.status === 409 && (m.userData.info as MeshInfo).copy) void this.syncCopies();
         else this.onViewFailed((e as Error).message);
       }
     }
@@ -1508,7 +1461,7 @@ export class TrackView {
     data.needsUpdate = true;
     this.geometryPreview.replaced(info.i);       // (what it covered is no more: what lies under it is what just came)
     // (what is being dragged stays where the mouse has it: the server's mesh has it where it was taken up)
-    const dragged = this.dragging?.grabbed.filter(g => g.mesh === info.i) ?? [];
+    const dragged = this.dragging?.grabbed.filter(g => "mesh" in g && g.mesh === info.i) ?? [];
     if (dragged.length) this.dragOn(dragged);
     fitSphere(g, info);
     g.boundsTree?.refit();
@@ -1679,7 +1632,7 @@ export class TrackView {
     const ids = new Set<string>();
     for (const [id, {picked}] of this.picks) {
       if (picked.kind !== "Tree" && picked.kind !== "Bush") return null;
-      if (this.shownBounds(this.piecesOf(id))) ids.add(id);
+      if (this.shownObjectBounds(id)) ids.add(id);
     }
     const sprites = new Set(groups.filter(g => g.tree).map(g => g.sort));
     for (const mesh of this.billboardMeshes()) {
@@ -1691,7 +1644,7 @@ export class TrackView {
     for (const id of idsOfSorts(this.data.objects, new Set(groups.map(g => g.sort)))) {
       const at = id.lastIndexOf("#"), kind = this.data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
       if (kind !== "tree" && kind !== "bush") return null;
-      if (this.shownBounds(this.piecesOf(id))) ids.add(id);
+      if (this.shownObjectBounds(id)) ids.add(id);
     }
     return [...ids];
   }
@@ -1751,8 +1704,7 @@ export class TrackView {
   private listedOf(sort: string) {
     const boxes: THREE.Box3[] = [];
     for (const id of idsOfSorts(this.data!.objects, new Set([sort]))) {
-      const at = id.lastIndexOf("#"), faces = this.data!.objects[id.slice(0, at)].faces[Number(id.slice(at + 1))];
-      const box = this.shownBounds(faces.map(([mesh, from, count]) => ({mesh, from, end: from + count})));
+      const box = this.shownObjectBounds(id);
       if (box) boxes.push(box);
     }
     return boxes;
@@ -1770,6 +1722,11 @@ export class TrackView {
       }
     }
     return [...byId.values()].map(pieces => this.shownBounds(pieces)).filter(box => box !== null).concat(this.listedOf(sprite));
+  }
+
+  private shownObjectBounds(id: string) {
+    if (this.removed.has(id)) return null;
+    return this.modelDraw.bounds(id.split("#")[0]) ?? this.shownBounds(this.piecesOf(id));
   }
 
   /** The room the pieces take that are loaded and not left out, or null. */
@@ -1814,6 +1771,8 @@ export class TrackView {
 
   /** The room an object takes, over all its triangles that are loaded. */
   private boundsOf(id: string) {
+    const model = this.modelDraw.bounds(id.split("#")[0]);
+    if (model) return model;
     const bounds = new THREE.Box3(), corner = new THREE.Vector3();
     for (const {mesh, from, end} of this.piecesOf(id)) {
       const part = this.byNumber.get(mesh);
@@ -1858,7 +1817,8 @@ export class TrackView {
   /** The first solid thing under the mouse, or a wire near it in front of that. */
   private hit() {
     this.picker.setFromCamera(this.mouse!, this.camera);
-    const solid = this.picker.intersectObjects(this.meshes.filter(m => m.visible), false).find(h => this.solidAt(h));
+    const hits = [...this.picker.intersectObjects(this.meshes.filter(m => m.visible), false), ...this.modelDraw.intersections(this.picker)];
+    const solid = hits.sort((a, b) => a.distance - b.distance).find(h => this.solidAt(h));
     return this.wireNear(solid?.distance ?? Infinity) ?? solid;
   }
 
@@ -1888,13 +1848,19 @@ export class TrackView {
   }
 
   private describe(hit: THREE.Intersection): Hovered {
-    const data = this.data!, mesh = hit.object as THREE.Mesh, info = mesh.userData.info as MeshInfo;
+    const data = this.data!, mesh = hit.object as THREE.Mesh;
+    const instance = mesh.userData.modelInstance as string | undefined;
+    const materialNumber = (mesh.material as THREE.Material).userData.modelMaterial ?? -1;
+    const modelMaterial = materialNumber < 0 ? null : materialNumber;
+    const primitive = mesh.userData.modelPrimitive as number | undefined;
+    const info = instance ? data.meshes.find(m => m.model?.instance === instance && m.model.material === modelMaterial
+      && (primitive === undefined || m.model.primitive === primitive))! : mesh.userData.info as MeshInfo;
     const material = data.materials[info.material];
     const texture = data.textures.find(t => t.name === material.texture);
     const {x, y, z} = hit.point, face = hit.faceIndex ?? 0, uv = hit.uv ? ([hit.uv.x, hit.uv.y] as [number, number]) : null;
     const isBillboard = info.first_face !== null && info.first_face !== undefined;
     const number = isBillboard ? billboardOf(face, info.first_face!) : null;
-    const listed = objectAt(this.objectPieces.get(info.i), face);
+    const listed = instance ? instance + "#0" : objectAt(this.objectPieces.get(info.i), face);
     const tile = listed ? data.objects[listed.slice(0, listed.lastIndexOf("#"))] : null;
     const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
     const atlasTree = isBillboard || (!info.model && !!tile && ["tree", "bush"].includes(tile.kinds[k]));
@@ -2002,9 +1968,8 @@ export class TrackView {
       for (const m of this.meshes) {  // the distances AC shows each mesh at (trees, bushes, furniture go far away)
         const d = this.camera.position.distanceTo(m.geometry.boundingSphere!.center);
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
-        const info = m.userData.info as MeshInfo;
-        if (info.model) this.modelDraw.visible(info.model.instance, m.visible && !this.removed.has(info.model.instance + "#0"));
       }
+      this.modelDraw.cull(this.camera.position, this.removed, this.data?.meshes.find(m => m.model)?.lod_out ?? 1000);
       this.surfaceOverlay?.follow();
       this.flushModels();
       this.roadRegionOverlay?.follow();
@@ -2512,8 +2477,7 @@ export class TrackView {
 
   private addMesh(name: string, data: TrackIndex, info: MeshInfo, buf: ArrayBuffer) {
     if (this.byNumber.has(info.i)) return;
-    const m = new THREE.Mesh(makeGeometry(info, buf), info.model
-      ? this.modelDraw.picking(info.model.asset, info.model.material ?? -1) : this.material(name, data, info.material));
+    const m = new THREE.Mesh(makeGeometry(info, buf), this.material(name, data, info.material));
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
     takeShadows(m);
