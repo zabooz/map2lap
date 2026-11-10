@@ -281,6 +281,13 @@ library and portable saved model snapshots. `original/model.glb` is the validate
 the preview, placement and Save; default GLB imports remain byte-identical. Preparation tokens identify the upload,
 while immutable model ids use the canonical GLB hash and semantic import settings.
 
+**Texture size** is 1024 px by default, 2048 px at most. Import reduces every longer image to it on its long side, never
+enlarging one, in the canonical `original/model.glb` that preview, placement and Save read; the unchanged upload stays as
+`original/upload.glb`, so the choice also gives a model of its own id. Colour images are averaged in linear light, weighted by
+alpha so transparent pixels lend no colour; normal maps get unit vectors again; other maps keep each channel apart. An image
+used as a normal map and otherwise keeps its size. Alternative WebP/KTX2 sources leave the canonical GLB, so a browser shows the
+reduced image. Packages imported before keep their images. A 4K house went from 49.8 to 5.1 MB, in 2.3 s once at import.
+
 **Material colours** defaults to **As stored in model**. The explicit **sRGB (for washed-out colours)** choice decodes
 only material base-colour RGB factors from sRGB to linear, as needed for the legacy Kenney Nature Kit palette. Alpha,
 texture bytes, emissive factors and geometry remain unchanged. The import preview updates directly from

@@ -58,6 +58,151 @@ def material_lighting(raw, mode='model'):
     return _with_document(raw, document)
 
 
+TEXTURE_SIDES = (1024, 2048)
+# Colour images are averaged in linear light; a normal map's vectors are renormalized; other maps hold data, each channel apart.
+COLOUR_ROLES = {"baseColorTexture", "emissiveTexture", "diffuseTexture", "specularGlossinessTexture", "specularColorTexture", "sheenColorTexture"}
+
+
+def _roles(document):
+    """Each image's uses by texture slot name: "colour", "normal" or "data". Pure."""
+    roles = {}
+
+    def walk(value, key=""):
+        if isinstance(value, dict):
+            if key.endswith("Texture") and "index" in value:
+                source = document["textures"][value["index"]].get("source")
+                role = "normal" if key == "normalTexture" else "colour" if key in COLOUR_ROLES else "data"
+                roles.setdefault(source, set()).add(role)
+            for name, child in value.items():
+                walk(child, name)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, key)
+    walk(document.get("materials", []))
+    return roles
+
+
+def _to_linear(c):
+    return np.where(c <= .04045, c / 12.92, ((c + .055) / 1.055) ** 2.4)
+
+
+def _to_srgb(c):
+    return np.where(c <= .0031308, c * 12.92, 1.055 * np.maximum(c, 0) ** (1 / 2.4) - .055)
+
+
+def _resized(image, size, role):
+    """One image at size by its role: colour in linear light weighted by alpha, so transparent pixels lend no colour; a normal map
+    with unit vectors again; data each channel apart. Pure."""
+    bands = image.getbands()
+    pixels = np.asarray(image.convert("RGBA" if "A" in bands else "RGB"), np.float32) / 255
+
+    def scale(channel):
+        return np.asarray(Image.fromarray(channel.astype(np.float32), "F").resize(size, Image.Resampling.LANCZOS))
+    alpha = pixels[..., 3] if pixels.shape[2] == 4 else None
+    if role == "colour":
+        weight = alpha if alpha is not None else np.ones(pixels.shape[:2], np.float32)
+        covered = np.clip(scale(weight), 0, 1)
+        rgb = np.dstack([scale(_to_linear(pixels[..., k]) * weight) for k in range(3)])
+        rgb = _to_srgb(np.clip(rgb / np.maximum(covered, 1e-6)[..., None], 0, 1))
+    else:
+        rgb = np.dstack([scale(pixels[..., k]) for k in range(3)])
+        if role == "normal":
+            vectors = rgb * 2 - 1
+            rgb = vectors / np.maximum(np.linalg.norm(vectors, axis=2, keepdims=True), 1e-6) * .5 + .5
+        covered = scale(alpha) if alpha is not None else None
+    out = rgb if alpha is None else np.dstack([rgb, covered])
+    return Image.fromarray(np.rint(np.clip(out, 0, 1) * 255).astype(np.uint8))
+
+
+def texture_size(raw, side):
+    """The GLB with every image longer than side reduced to it on its long side, never enlarged: the same object, a smaller texture.
+    An image used both as a normal map and otherwise keeps its size. Alternative WebP/KTX2 sources go, so a browser shows the reduced
+    core image; the original upload keeps them. raw itself when nothing is longer. Pure."""
+    document, binary = modeldata._chunks(raw)
+    entries, textures = document.get("images", []), document.get("textures", [])
+    core = {texture["source"] for texture in textures if "source" in texture}
+    kept = [k for k in range(len(entries)) if k in core or not any(
+        extension.get("source") == k for texture in textures for name, extension in texture.get("extensions", {}).items() if name in modeldata.TEXTURE_EXTENSIONS)]
+
+    def payload(entry):
+        if "uri" in entry:
+            return modeldata._embedded(entry["uri"], ("image/png", "image/jpeg", *modeldata.TEXTURE_EXTENSIONS.values()))[1]
+        view = document["bufferViews"][entry["bufferView"]]
+        return bytes(binary[view.get("byteOffset", 0):view.get("byteOffset", 0) + view["byteLength"]])
+    sizes = {}
+    for k, entry in enumerate(entries):
+        with Image.open(io.BytesIO(payload(entry))) as image:
+            sizes[k] = image.size
+    if max((max(size) for size in sizes.values()), default=0) <= side:
+        return raw
+    roles, images = _roles(document), {}
+    for k in kept:
+        raw_image, role = payload(entries[k]), roles.get(k, {"data"})
+        width, height = sizes[k]
+        if max(width, height) <= side or ("normal" in role and len(role) > 1):
+            images[k] = raw_image
+            continue
+        size = tuple(max(1, round(d * side / max(width, height))) for d in (width, height))
+        with Image.open(io.BytesIO(raw_image)) as image:
+            reduced = _resized(image, size, "colour" if role == {"colour"} else "normal" if role == {"normal"} else "data")
+            out = io.BytesIO()
+            if image.format == "JPEG":
+                reduced.convert("RGB").save(out, "JPEG", quality=95)
+            else:
+                reduced.save(out, "PNG")
+        images[k] = out.getvalue()
+    return _with_images(document, binary, kept, images)
+
+
+def _with_images(document, binary, kept, images):
+    """A GLB of document whose image list is kept, each in its own buffer view holding images[k]; other views keep their bytes. Pure."""
+    image_views = {entry.get("bufferView") for entry in document.get("images", [])} - {None}
+    if any(view.get("buffer", 0) != 0 for view in document.get("bufferViews", [])):
+        raise ValueError("GLB resources must be embedded in the model")
+    out, views, renumber = bytearray(), [], {}
+
+    def append(data, view):
+        out.extend(b"\0" * (-len(out) % 4))
+        views.append({**view, "buffer": 0, "byteOffset": len(out), "byteLength": len(data)})
+        out.extend(data)
+        return len(views) - 1
+    for k, view in enumerate(document.get("bufferViews", [])):
+        if k not in image_views:
+            start = view.get("byteOffset", 0)
+            renumber[k] = append(binary[start:start + view["byteLength"]], {key: v for key, v in view.items() if key != "byteOffset"})
+    for accessor in document.get("accessors", []):
+        if "bufferView" in accessor:
+            accessor["bufferView"] = renumber[accessor["bufferView"]]
+    entries, number = document.get("images", []), {}
+    document["images"] = []
+    for k in kept:
+        entry = {key: v for key, v in entries[k].items() if key not in ("uri", "bufferView")}
+        entry.setdefault("mimeType", "image/jpeg" if images[k][:2] == b"\xff\xd8" else "image/png")
+        entry["bufferView"] = append(images[k], {})
+        number[k] = len(document["images"])
+        document["images"].append(entry)
+    for texture in document.get("textures", []):
+        texture["source"] = number[texture["source"]]
+        for name in modeldata.TEXTURE_EXTENSIONS:
+            texture.get("extensions", {}).pop(name, None)
+        if texture.get("extensions") == {}:
+            texture.pop("extensions")
+    used = [name for name in document.get("extensionsUsed", []) if name not in modeldata.TEXTURE_EXTENSIONS]
+    document.pop("extensionsUsed", None)
+    if used:
+        document["extensionsUsed"] = used
+    document["bufferViews"] = views
+    out.extend(b"\0" * (-len(out) % 4))
+    document["buffers"] = [{"byteLength": len(out)}]
+    text = json.dumps(document, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    text += b" " * (-len(text) % 4)
+    size = 28 + len(text) + len(out)
+    if size > modeldata.MAX_BYTES or len(text) > modeldata.MAX_JSON_BYTES:
+        raise ValueError("Adjusted model exceeds the GLB size limit")
+    return (struct.pack("<4sIIII", b"glTF", 2, size, len(text), 0x4e4f534a) + text
+            + struct.pack("<II", len(out), 0x004e4942) + bytes(out))
+
+
 def _with_document(raw, document):
     """Replace the GLB's JSON only, keeping every following binary chunk byte-identical. Pure."""
     text = json.dumps(document, separators=(',', ':'), allow_nan=False).encode('utf-8')

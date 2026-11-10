@@ -85,6 +85,26 @@ def prepare(filename, raw):
     return {**data, "filename": filename}
 
 
+def _side(value):
+    if type(value) is not int or value not in modelimport.TEXTURE_SIDES:
+        raise ValueError("Choose a texture size of 1024 or 2048 pixels")
+    return value
+
+
+def _sized(folder, side):
+    """The staged GLB with its images reduced to side, made once per prepared upload and size; the staged GLB stays as it is."""
+    path = folder / f"textures-{side}.glb"
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        pass
+    raw = modelimport.texture_size((folder / "model.glb").read_bytes(), side)
+    with tempfile.NamedTemporaryFile(dir=folder, prefix=".sized_", delete=False) as file:
+        file.write(raw)
+    os.replace(file.name, path)
+    return raw
+
+
 def _settings(settings, geometry):
     """Semantic immutable import settings; source units and the model anchor remain independent of object placements. Pure."""
     name = materiallibrary._text(settings.get("name"), 80, "a name", True)
@@ -128,7 +148,8 @@ def add(settings):
             raise ValueError("The prepared model is no longer available. Choose the file again.") from error
         colour_space = settings.get('material_colours', 'linear')
         lighting = settings.get('material_lighting', 'model')
-        glb = modelimport.material_lighting(modelimport.material_colours((staged / 'model.glb').read_bytes(), colour_space), lighting)
+        side = _side(settings.get('texture_side', modelimport.TEXTURE_SIDES[0]))
+        glb = modelimport.material_lighting(modelimport.material_colours(_sized(staged, side), colour_space), lighting)
         model_sha = hashlib.sha256(glb).hexdigest()
         meta = _settings(settings, data["geometry"])
         identity = {"schema": SCHEMA, "model": model_sha,
@@ -139,7 +160,7 @@ def add(settings):
             return {"model": get(id), "duplicate": True}
         asset = {"schema": SCHEMA, "kind": "model", "id": id, **meta, "geometry": data["geometry"],
                  "model": {"file": "original/model.glb", "filename": Path(filename).stem + '.glb' if data.get('source') else filename,
-                           "sha256": model_sha, "bytes": len(glb)}}
+                           "sha256": model_sha, "bytes": len(glb)}, "texture_side": side}
         if colour_space == 'srgb':
             asset['material_colours'] = colour_space
         if lighting == 'matte':
@@ -185,8 +206,9 @@ def original(id):
     return raw
 
 
-def prepared_model(token, material_colours='linear', material_lighting='model'):
-    """The validated preview with the chosen base-colour interpretation; staging stays unchanged."""
+def prepared_model(token, material_colours='linear', material_lighting='model', texture_side=modelimport.TEXTURE_SIDES[0]):
+    """The validated preview with the chosen base-colour interpretation and texture size: the bytes add publishes. Staging stays
+    unchanged."""
     token = _key(token)
     try:
         folder = _cache(token)
@@ -194,7 +216,7 @@ def prepared_model(token, material_colours='linear', material_lighting='model'):
         raw = (folder / 'model.glb').read_bytes()
         if data.get('version') != PREPARATION or hashlib.sha256(raw).hexdigest() != data.get('model_sha256', token):
             raise ValueError('The prepared model has changed')
-        return modelimport.material_lighting(modelimport.material_colours(raw, material_colours), material_lighting)
+        return modelimport.material_lighting(modelimport.material_colours(_sized(folder, _side(texture_side)), material_colours), material_lighting)
     except OSError as error:
         raise ValueError('The prepared model is no longer available. Choose the file again.') from error
 
