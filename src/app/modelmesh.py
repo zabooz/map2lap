@@ -107,6 +107,31 @@ def _unit(values):
     return values / np.maximum(lengths, 1e-30)
 
 
+# Normals within 1° are one: a scan's exporter splits equal corners by rounding noise (a scanned boulder's differ by at most
+# 0.37°), while a modelled edge turns by tens of degrees. A model shading a curve with steps under 1° would lose them.
+WELD = np.cos(np.radians(1))
+
+
+def weld(positions, uv, normals, tangents=None):
+    """Join vertices of the same position and UV whose normals, and tangents of the same handedness, lie within 1° of the first
+    such vertex: (the kept vertices' numbers, each vertex's new number). A vertex keeps its own normal when it joins none. Pure."""
+    keys = np.ascontiguousarray(np.hstack([np.asarray(positions, np.float32), np.asarray(uv, np.float32)]))
+    group = np.unique(keys, axis=0, return_inverse=True)[1].ravel()
+    target, left = np.arange(len(group)), np.arange(len(group))
+    while len(left):
+        first = np.empty(group.max() + 1, int)
+        first[group[left][::-1]] = left[::-1]       # (each group's first vertex still left)
+        lead = first[group[left]]
+        close = (left == lead) | (np.sum(normals[left] * normals[lead], axis=1) >= WELD)
+        if tangents is not None:
+            close &= (left == lead) | ((np.sum(tangents[left, :3] * tangents[lead, :3], axis=1) >= WELD)
+                                       & (np.sign(tangents[left, 3]) == np.sign(tangents[lead, 3])))
+        target[left[close]] = lead[close]
+        left = left[~close]
+    kept, number = np.unique(target, return_inverse=True)
+    return kept, number.ravel()
+
+
 def geometry(model, meta):
     """Apply node transforms and import units about the frozen anchor, preserving UV0 and inverse-transpose normals. Pure."""
     result = []
@@ -132,6 +157,9 @@ def geometry(model, meta):
             normals = _unit(normals @ np.linalg.inv(matrix))
             if determinant < 0:
                 faces = faces[:, [0, 2, 1]]
+            kept, renumbered = weld(positions, uv, normals, tangents)
+            points, uv, normals, faces = points[kept], uv[kept], normals[kept], renumbered[faces]
+            tangents = tangents[kept] if tangents is not None else None
             if tangents is None:
                 tangent = obj_to_kn5.tangents(points, uv, faces, normals)
                 handedness = None
@@ -149,7 +177,7 @@ def geometry(model, meta):
 
 
 LIMIT = 65535           # (a kn5 mesh numbers its vertices in 16 bits)
-COST_VERSION = 2        # (track_cost's rule: stored costs of another version are measured again)
+COST_VERSION = 3        # (track_cost's rule: stored costs of another version are measured again)
 
 
 def pieces(vertices, faces, blended=False):

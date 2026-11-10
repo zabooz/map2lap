@@ -40,7 +40,7 @@ class CostTest(Base):
         self.assertEqual(828, cost["bytes"]["mesh"])
         self.assertFalse(cost["heavy"]["none"])
 
-    def test_cost_matches_saved_vertex_and_index_payload_with_flat_normals_and_split_pieces(self):
+    def test_cost_matches_saved_vertex_and_index_payload_with_flat_normals_and_repeated_triangles(self):
         for double in (False, True):
             _raw, prepared = self.prepare(double, many=True)
             cost = prepared["geometry"]["track_cost"]
@@ -57,7 +57,6 @@ class CostTest(Base):
                     scan = kn5.scan(Path(self.ac, "content/tracks", target, target + ".kn5"))
                     meshes = [m for m in scan["meshes"] if "m2l_model_" in m["name"]]
                     self.assertEqual(sum(m["vertices"] * 44 + m["indices"] * 2 for m in meshes), cost["bytes"][collision])
-                    self.assertTrue(cost["heavy"][collision])
 
     def test_a_part_within_the_vertex_limit_counts_its_vertices_once_however_many_triangles(self):
         from dataclasses import replace

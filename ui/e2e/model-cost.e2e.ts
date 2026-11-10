@@ -1,9 +1,10 @@
 import {expect, openEditor, test} from "./fixtures";
 
-/** An indexed grid without NORMAL, so native flat shading must expand every triangle's corners. Pure. */
+/** An uneven indexed grid without NORMAL: native flat shading expands every triangle's corners, and no two neighbours lie
+ * flat enough to share them again. Pure. */
 function detailedPanel() {
   const positions: number[] = [], indices: number[] = [];
-  for (let y = 0; y < 50; y++) for (let x = 0; x < 50; x++) positions.push(x / 10, y / 10, 0);
+  for (let y = 0; y < 50; y++) for (let x = 0; x < 50; x++) positions.push(x / 10, y / 10, (x * y % 7) / 10);
   for (let y = 0; y < 49; y++) for (let x = 0; x < 49; x++) {
     const a = y * 50 + x; indices.push(a, a + 1, a + 50, a + 1, a + 51, a + 50);
   }
@@ -12,7 +13,7 @@ function detailedPanel() {
   const document = {asset: {version: "2.0"}, scene: 0, scenes: [{nodes: [0]}], nodes: [{mesh: 0}],
     buffers: [{byteLength: binary.length}], bufferViews: [{buffer: 0, byteLength: points.length},
       {buffer: 0, byteOffset: points.length, byteLength: faces.length}],
-    accessors: [{bufferView: 0, componentType: 5126, count: positions.length / 3, type: "VEC3", min: [0, 0, 0], max: [4.9, 4.9, 0]},
+    accessors: [{bufferView: 0, componentType: 5126, count: positions.length / 3, type: "VEC3", min: [0, 0, 0], max: [4.9, 4.9, 0.6]},
       {bufferView: 1, componentType: 5123, count: indices.length, type: "SCALAR"}],
     meshes: [{primitives: [{attributes: {POSITION: 0}, indices: 1, material: 0}]}],
     materials: [{doubleSided: true, pbrMetallicRoughness: {baseColorFactor: [.2, .5, .3, 1]}}]};
@@ -35,12 +36,12 @@ test("native geometry cost and heavy warning survive import into the selected li
   const importer = page.getByRole("dialog", {name: "Import object", exact: true});
   const facts = importer.getByLabel("Track geometry cost");
   await expect(facts).toContainText("4,802 triangles");
-  await expect(facts).toContainText("No collision: 0.66 MB");
-  await expect(facts).toContainText("Mesh collision: 1.99 MB");
-  await expect(facts.getByRole("status")).toContainText("Heavy model: 0.66 MB");
-  expect(cost.bytes).toEqual({none: 662676, mesh: 1988028});
+  await expect(facts).toContainText("No collision: 0.63 MB");
+  await expect(facts).toContainText("Mesh collision: 1.89 MB");
+  await expect(facts.getByRole("status")).toContainText("Heavy model: 0.63 MB");
+  expect(cost.bytes).toEqual({none: 630908, mesh: 1892724});
   await importer.getByRole("combobox", {name: /^Collision/}).selectOption("mesh");
-  await expect(facts.getByRole("status")).toContainText("Heavy model: 1.99 MB");
+  await expect(facts.getByRole("status")).toContainText("Heavy model: 1.89 MB");
   await facts.scrollIntoViewIfNeeded();
   await importer.screenshot({path: testInfo.outputPath("import-cost.png")});
   const published = page.waitForResponse(r => new URL(r.url()).pathname === "/api/library/models" && r.request().method() === "POST");
@@ -52,6 +53,6 @@ test("native geometry cost and heavy warning survive import into the selected li
   await expect(importer).toBeHidden();
   const stored = library.getByLabel("Track geometry cost");
   await expect(stored).toContainText("4,802 triangles");
-  await expect(stored.getByRole("status")).toContainText("Heavy model: 1.99 MB");
+  await expect(stored.getByRole("status")).toContainText("Heavy model: 1.89 MB");
   await library.screenshot({path: testInfo.outputPath("library-cost.png")});
 });
