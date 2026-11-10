@@ -3,36 +3,74 @@ import numpy as np
 import hashlib
 import io
 import json
+import math
 from PIL import Image
 
+from app import modelimport
 from track import kn5, obj_to_kn5
+from track.textures import dds_colour, dds_size
 
 
-def _recipe(model, source, factor, opaque):
-    """A native texture's name and what makes it: source image number, RGBA factor, opaque. The name covers every input of the
-    pixels, so equal pixels are one texture. "bytes" estimates its size by the source image's, a 4 px swatch without one. Pure."""
+ENCODER = "dds 2"           # in every texture name: a changed encoder makes new images, and saved tracks take them
+MAX_SIDE = 2048             # the native texture's longest side, also for models imported at 4K before import reduced them
+
+
+def _native_size(width, height):
+    """A native texture's sides: each the nearest power of two (BC blocks and mips halve evenly), at most MAX_SIDE. Pure."""
+    return tuple(min(MAX_SIDE, 1 << max(0, round(math.log2(d)))) for d in (width, height))
+
+
+def _recipe(model, source, factor, mode, cutoff):
+    """A native texture's name and what makes it: source image number, RGBA factor, glTF alpha mode and cutoff, size. The name covers
+    every input of its pixels, so equal pixels are one texture. "bytes" is the DDS's size; only the source image's header is read. Pure."""
     raw = model.images[source] if source is not None else b""
-    inputs = [hashlib.sha256(raw).hexdigest() if source is not None else None, factor.tolist(), opaque]
-    name = "map2lap_model_" + hashlib.sha256(json.dumps(inputs).encode()).hexdigest() + ".png"
-    return name, {"source": source, "factor": factor.tolist(), "opaque": opaque, "bytes": len(raw) or 128}
+    if source is None:
+        size = (4, 4)
+    else:
+        with Image.open(io.BytesIO(raw)) as picture:
+            size = _native_size(*picture.size)
+    inputs = [hashlib.sha256(raw).hexdigest() if source is not None else None, factor.tolist(), mode,
+              cutoff if mode == "MASK" else None, size, ENCODER]
+    name = "map2lap_model_" + hashlib.sha256(json.dumps(inputs).encode()).hexdigest() + ".dds"
+    return name, {"source": source, "factor": factor.tolist(), "mode": mode, "cutoff": cutoff, "size": list(size),
+                  "bytes": dds_size(*size, alpha=mode != "OPAQUE")}
+
+
+def _pixels(model, recipe, size):
+    """A recipe's colour and alpha as sRGB RGBA bytes at size (None: the source's), its factor applied after the resize: both
+    are linear, so the order makes no difference, and a 4K source is never held as floats. Pure."""
+    factor = np.asarray(recipe["factor"], np.float32)
+    if recipe["source"] is None:
+        pixels = np.ones(tuple((size or (4, 4))[::-1]) + (4,), np.float32)
+    else:
+        with Image.open(io.BytesIO(model.images[recipe["source"]])) as picture:
+            image = picture.convert("RGBA")
+        if recipe["mode"] == "OPAQUE":
+            image.putalpha(255)       # (an opaque material's alpha means nothing: it must not weigh its colours)
+        if size and tuple(size) != image.size:
+            image = modelimport.resized(image, tuple(size), "colour")
+        pixels = np.asarray(image.convert("RGBA"), np.float32) / 255
+    rgb = pixels[..., :3]
+    linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4) * factor[:3]
+    pixels[..., :3] = np.where(linear <= .0031308, linear * 12.92, 1.055 * np.maximum(linear, 0) ** (1 / 2.4) - .055)
+    pixels[..., 3] = 1 if recipe["mode"] == "OPAQUE" else pixels[..., 3] * factor[3]
+    return np.rint(np.clip(pixels, 0, 1) * 255).astype(np.uint8)
 
 
 def image(model, recipe, side=None):
-    """A recipe's native colour/alpha texture as PNG bytes, at most side pixels wide and high when given. Pure."""
-    factor = np.asarray(recipe["factor"], np.float64)
-    if recipe["source"] is None:
-        pixels = np.ones((4, 4, 4), np.float64)
-    else:
+    """A recipe's colour and alpha as PNG bytes for a preview, at most side pixels wide and high when given. Pure."""
+    size = None
+    if side and recipe["source"] is not None:
         with Image.open(io.BytesIO(model.images[recipe["source"]])) as picture:
-            if side:
-                picture.thumbnail((side, side), Image.Resampling.LANCZOS)
-            pixels = np.asarray(picture.convert("RGBA"), np.float64) / 255
-    rgb = pixels[..., :3]
-    linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4) * factor[:3]
-    pixels[..., :3] = np.where(linear <= .0031308, linear * 12.92, 1.055 * linear ** (1 / 2.4) - .055)
-    pixels[..., 3] = 1 if recipe["opaque"] else pixels[..., 3] * factor[3]
-    stream = io.BytesIO(); Image.fromarray(np.rint(pixels * 255).astype(np.uint8)).save(stream, "PNG")
+            scale = min(1, side / max(picture.size))
+            size = tuple(max(1, round(d * scale)) for d in picture.size)
+    stream = io.BytesIO(); Image.fromarray(_pixels(model, recipe, size)).save(stream, "PNG")
     return stream.getvalue()
+
+
+def dds(model, recipe):
+    """A recipe's native texture: DDS with mips at its power-of-two size, BC1 opaque, BC3 with alpha (textures.dds_colour). Pure."""
+    return dds_colour(_pixels(model, recipe, recipe["size"]), recipe["mode"], recipe["cutoff"])
 
 
 def materials(model, asset):
@@ -53,7 +91,7 @@ def materials(model, asset):
                 raise ValueError("Bake model texture transforms into UV0 before native export")
             source = model.document["textures"][info["index"]]["source"]
         mode = material.get("alphaMode", "OPAQUE")
-        name, recipe = _recipe(model, source, factor, mode == "OPAQUE")
+        name, recipe = _recipe(model, source, factor, mode, material.get("alphaCutoff", .5))
         recipes[name] = recipe
         props = {"ksAmbient": .5, "ksDiffuse": .5, "ksSpecular": 0., "ksAlphaRef": material.get("alphaCutoff", .5),
                  "m2lModelMaterial": 1., "m2lRoughness": pbr.get("roughnessFactor", 1.), "m2lMetallic": pbr.get("metallicFactor", 1.)}

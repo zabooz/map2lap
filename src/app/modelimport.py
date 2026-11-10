@@ -90,7 +90,7 @@ def _to_srgb(c):
     return np.where(c <= .0031308, c * 12.92, 1.055 * np.maximum(c, 0) ** (1 / 2.4) - .055)
 
 
-def _resized(image, size, role):
+def resized(image, size, role):
     """One image at size by its role: colour in linear light weighted by alpha, so transparent pixels lend no colour; a normal map
     with unit vectors again; data each channel apart. Pure."""
     bands = image.getbands()
@@ -144,7 +144,7 @@ def texture_size(raw, side):
             continue
         size = tuple(max(1, round(d * side / max(width, height))) for d in (width, height))
         with Image.open(io.BytesIO(raw_image)) as image:
-            reduced = _resized(image, size, "colour" if role == {"colour"} else "normal" if role == {"normal"} else "data")
+            reduced = resized(image, size, "colour" if role == {"colour"} else "normal" if role == {"normal"} else "data")
             out = io.BytesIO()
             if image.format == "JPEG":
                 reduced.convert("RGB").save(out, "JPEG", quality=95)

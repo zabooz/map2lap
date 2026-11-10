@@ -373,15 +373,22 @@ Double-sided materials receive back faces. Parts split below KN5's 65,535-vertex
 source collision and unrelated vertices/indices remain unchanged.
 
 Only Save makes a model's colour images. While editing, each texture is a recipe: its name hashes the source image, colour
-factor and alpha, so no draft change decodes a picture. The index and the draft's size estimate give the source image's bytes;
-Save's disk check uses the finished images. The Inspector makes its own preview of at most 256 px. A draft save builds the
-models once: that state answers the save and is what the index reads next.
+factor, alpha mode and cutoff, size and encoder, so no draft change decodes a picture; the index and the draft's size estimate
+give the finished image's bytes. Save writes DDS with mips down to 1×1: BC1 for opaque materials, BC3 for MASK and BLEND.
+Each side becomes the nearest power of two, at most 2048 px, so models imported at 4K before import reduced them are
+capped too (a 4K house: 2.8 MB instead of a 20.1 MB PNG). Mips mix colour in linear light, weighted by alpha so transparent
+texels lend no colour. A MASK's alpha is all or nothing, as glTF means it: partial alpha in the mips showed far leaves in AC as a
+screen door (alpha-to-coverage draws 40 % alpha as 40 % of the pixels). Each mip keeps the share of texels at or above the
+cutoff, so cutout leaves stay as dense far away.
+BC3 alpha blocks are encoded with each block's own lowest and highest value. A saved track's own material slot takes the image
+made now; Save drops a model image of the saved kn5 that no material uses any more. The Inspector makes its own PNG preview of
+at most 256 px. A draft save builds the models once: that state answers the save and is what the index reads next.
 
 `data/map2lap_models/` retains the verified original GLBs and snapshot descriptions once per asset in the saved track.
 Its `compiled.json` is compiled provenance tied to the written KN5's SHA256, rather than a new editable geometry format.
 After loss of the library, preparation cache and source cache, the semantic bindings, model deletions and poses remain editable.
 Compiled source provenance distinguishes replacements already applied to that source from new replacements, so renumbered
-billboards are not removed again. Regeneration strips the prior owned render regions and reuses matching owned material slots with the images they hold.
+billboards are not removed again. Regeneration strips the prior owned render regions and reuses matching owned material slots.
 Inherited terrain changes apply only to regenerated models; the remaining baked source is not moved twice. Portable originals
 needed by local Undo are retained before their last binding is removed.
 

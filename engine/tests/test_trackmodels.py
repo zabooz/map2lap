@@ -46,7 +46,8 @@ class ModelWorkflowTest(Base):
         part = next(m for m in kn5.walk_meshes(native['root']) if 'm2l_model' in m.name)
         texture = next(name for slot, _number, name in native['materials'][part.material].maps if slot == 'txDiffuse')
         with Image.open(io.BytesIO({name: data for name, _active, data in native['textures']}[texture])) as image:
-            self.assertEqual((159, 137, 255, 255), image.convert('RGBA').getpixel((0, 0)))
+            # BC1 keeps 5 bits of red and blue, 6 of green: within one step of the palette colour
+            np.testing.assert_allclose(image.convert('RGBA').getpixel((0, 0)), (159, 137, 255, 255), atol=4)
 
     def test_converted_obj_and_source_upload_survive_portable_save_without_library_or_caches(self):
         raw = b'v 0 0 0\nv 2 0 0\nv 0 3 0\nf 1 2 3\n'

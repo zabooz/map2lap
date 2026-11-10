@@ -253,9 +253,9 @@ def image(ac, name, recipe, side=None):
 
 
 def images(ac, name, scan):
-    """The new native textures of an extended scan as {name: PNG bytes}, each asset's original read once: only Save pays for them."""
+    """The new native textures of an extended scan as {name: DDS bytes}, each asset's original read once: only Save pays for them."""
     load = functools.lru_cache(maxsize=1)(lambda asset: _model(ac, name, asset))
-    return {texture: modelmesh.image(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
+    return {texture: modelmesh.dds(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
 
 
 def extend(ac, name, scan, objects, models):
@@ -267,6 +267,7 @@ def extend(ac, name, scan, objects, models):
         return {**scan, "meshes": meshes, "models": [], "model_assets": {}, "model_parts": {}, "model_replacements": []}, objects
     assets, parts, listed = {}, {}, dict(objects)
     materials, resources, decoded, slots = list(scan["materials"]), {}, {}, {}
+    present = {t[0] for t in scan["textures"]}
     for instance in models:
         asset = instance["asset"]
         if asset not in assets:
@@ -280,11 +281,15 @@ def extend(ac, name, scan, objects, models):
             for material in native:
                 slot = next((i for i, previous in enumerate(materials) if previous.name == material.name
                              and any(p[0] == "m2lModelMaterial" and p[1] == 1 for p in previous.props)), None)
+                # (a saved kn5's own slot keeps its number and takes the material as made now: an image made by an older
+                # encoder is replaced, and Save drops it once no material uses it)
                 if slot is None:
                     slot = len(materials); materials.append(material)
-                    texture = next(n for map_slot, _number, n in material.maps if map_slot == "txDiffuse")
+                else:
+                    materials[slot] = material
+                texture = next(n for map_slot, _number, n in material.maps if map_slot == "txDiffuse")
+                if texture not in present:
                     resources[texture] = {**recipes[texture], "asset": asset}
-                # (a slot of the saved kn5 keeps its map: that image is of this same immutable asset, and already in the file)
                 slots[asset].append(slot)
         meta = assets[asset]
         kind = {"tree": "tree", "building": "house", "other": "model"}[meta["category"]]

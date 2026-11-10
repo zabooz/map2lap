@@ -300,6 +300,9 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
             materials = materials if materials is not None else scan["materials"]
             present = {t[0] for t in source_scan["textures"]}
             images.extend((n, raw) for n, raw in scan.get("model_images", {}).items() if n not in present)
+            # (a model image of the saved kn5 no material uses any more, one an older encoder made, goes)
+            used = {n for m in materials for _slot, _number, n in m.maps}
+            drop_textures = {*drop_textures, *(n for n in present if n.startswith("map2lap_model_") and n not in used)}
         trackvariation.write(temporary, materials if materials is not None else scan["materials"], native_config)
         if materials is None and not images:
             moved = kn5.without_faces(path, new_kn5, going, change, added, None, renderable=native_files.get('renderable',{}))

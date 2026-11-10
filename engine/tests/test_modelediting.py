@@ -103,18 +103,18 @@ class ModelEditingTest(Base):
         mesh = next(m for m in trackview.index(self.ac, self.name)["meshes"] if m.get("model"))
         self.assertEqual((model["at"], 2), (mesh["model"]["at"], mesh["model"]["scale"]))
 
-    def test_a_recipe_decodes_nothing_and_names_its_pixels(self):
+    def test_a_recipe_names_its_pixels_without_making_them(self):
         document, binary = fixture()
         document["materials"].append({**document["materials"][0]})
         document["materials"].append({**document["materials"][0], "pbrMetallicRoughness": {
             **document["materials"][0]["pbrMetallicRoughness"], "baseColorFactor": [1, .5, 1, 1]}})
-        model = replace(modeldata.load(encode(document, binary)), images=(b"no picture at all",))
+        model = replace(modeldata.load(encode(document, binary)), images=(png((4, 4)),))
         native, recipes = modelmesh.materials(model, "a" * 64)
         names = [next(n for slot, _number, n in material.maps if slot == "txDiffuse") for material in native]
         self.assertEqual(names[0], names[1], "One image and factor is one texture")
         self.assertNotEqual(names[0], names[2])
         self.assertEqual(set(names), set(recipes))
-        again = replace(model, images=(b"another picture",))
+        again = replace(model, images=(png((4, 4), (1, 2, 3, 255)),))
         self.assertFalse(set(names) & set(modelmesh.materials(again, "b" * 64)[1]))
         self.assertEqual(set(names), set(modelmesh.materials(model, "b" * 64)[1]), "Assets sharing an image share its texture")
 

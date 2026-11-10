@@ -2,6 +2,7 @@
 import io
 import struct
 
+import numpy as np
 from PIL import Image
 
 
@@ -37,10 +38,87 @@ def dds_mipmaps(image, alpha=False, smallest=4, *, independent=False):
         w, h = max(1, w // 2), max(1, h // 2)
         im = (Image.merge(im.mode, [band.resize((w, h), Image.Resampling.BOX) for band in im.split()]) if independent
               else im.resize((w, h), Image.Resampling.BOX))
-    header = struct.pack("<4s7I44x", b"DDS ", 124, 0xA1007, h0, w0, len(levels[0]), 0, len(levels))
+    return _dds_file(levels, w0, h0, fourcc)
+
+
+def _dds_file(levels, width, height, fourcc):
+    """A DDS of these encoded mip levels, the largest width × height, compressed as fourcc (DXT1 or DXT5). Pure."""
+    header = struct.pack("<4s7I44x", b"DDS ", 124, 0xA1007, height, width, len(levels[0]), 0, len(levels))
     header += struct.pack("<2I4s5I", 32, 4, fourcc.encode("ascii"), 0, 0, 0, 0, 0)
     header += struct.pack("<5I", 0x401008, 0, 0, 0, 0)
     return header + b"".join(levels)
+
+
+def _halved(values):
+    """An array of rows × columns × channels at half size: each output the mean of its 2×2 (or 2×1 on a side of one). Pure."""
+    h, w = values.shape[:2]
+    if h > 1:
+        values = (values[0::2] + values[1::2]) / 2
+    if w > 1:
+        values = (values[:, 0::2] + values[:, 1::2]) / 2
+    return values
+
+
+def _threshold(alpha, cutoff, coverage):
+    """The alpha at or above which the same share of texels as at full size stays: thin cutout leaves as dense far away. Pure."""
+    if coverage <= 0 or coverage >= 1:
+        return cutoff
+    values, counts = np.unique(alpha, return_counts=True)
+    reaching = np.cumsum(counts[::-1])[::-1] / alpha.size        # (the share at or above each value)
+    # Equal values can't be split: take the value whose share comes nearest, not the first past it (2×2 means of single leaf
+    # texels are all 0.25: past it is every one of them).
+    nearest = [k for k in np.argsort(np.abs(reaching - coverage), kind="stable") if values[k] > 0]
+    return float(values[nearest[0]]) if nearest else cutoff
+
+
+def _bc3_alpha(alpha):
+    """BC3's alpha half of every 4×4 block, row by row: each block's own lowest and highest value as ends and the nearest of the
+    eight steps between (Pillow's encoder keeps 0 and 255 as ends and rounds down: an alpha test's 128 became 102). Pure."""
+    h, w = alpha.shape
+    padded = np.pad(alpha, ((0, -h % 4), (0, -w % 4)), mode="edge").astype(np.int32)
+    blocks = padded.reshape(padded.shape[0] // 4, 4, padded.shape[1] // 4, 4).transpose(0, 2, 1, 3).reshape(-1, 16)
+    high, low = blocks.max(axis=1), blocks.min(axis=1)
+    steps = np.arange(8)
+    weights = np.where(steps == 0, 7, np.where(steps == 1, 0, 8 - steps))      # (index 0 is the high end, 1 the low, 2..7 between)
+    palette = (weights * high[:, None] + (7 - weights) * low[:, None]) / 7
+    index = np.abs(blocks[:, :, None] - palette[:, None, :]).argmin(axis=2).astype(np.uint64)
+    index[high == low] = 0
+    bits = (index << (3 * np.arange(16, dtype=np.uint64))).sum(axis=1, dtype=np.uint64)
+    out = np.zeros((len(blocks), 8), np.uint8)
+    out[:, 0], out[:, 1] = high, low
+    out[:, 2:] = (bits[:, None] >> (8 * np.arange(6, dtype=np.uint64))).astype(np.uint8)
+    return out
+
+
+def dds_colour(pixels, mode, cutoff=.5):
+    """A colour image (rows × columns × RGBA, sRGB bytes, power-of-two sides) as DDS with mips down to 1×1. mode is glTF's alphaMode:
+    OPAQUE is BC1; MASK and BLEND are BC3. Mips mix colour in linear light, weighted by alpha so transparent texels lend no colour.
+    A MASK's alpha is all or nothing, as glTF means it: AC's alpha-to-coverage draws 40 % alpha as 40 % of the pixels, a screen door
+    through far leaves. Each of its mips keeps the share of texels at or above cutoff (alpha-tested leaves otherwise thin out to
+    nothing far away). Pure."""
+    rgba = np.asarray(pixels, np.float64) / 255
+    alpha = rgba[..., 3:] if mode != "OPAQUE" else np.ones(rgba.shape[:2] + (1,))
+    rgb = rgba[..., :3]
+    linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4) * alpha
+    coverage = float(np.mean(alpha >= cutoff)) if mode == "MASK" else None
+    fourcc, levels = "DXT1" if mode == "OPAQUE" else "DXT5", []
+    while True:
+        colour = linear / np.maximum(alpha, 1e-6) if len(levels) else rgb
+        if len(levels):
+            colour = np.where(colour <= .0031308, colour * 12.92, 1.055 * np.clip(colour, 0, 1) ** (1 / 2.4) - .055)
+        shown = alpha if coverage is None else (alpha >= (_threshold(alpha, cutoff, coverage) if len(levels) else cutoff)).astype(np.float64)
+        level = np.rint(np.clip(np.concatenate([colour, shown], axis=2), 0, 1) * 255).astype(np.uint8)
+        image = Image.fromarray(level[..., :3]) if mode == "OPAQUE" else Image.fromarray(level, "RGBA")
+        output = io.BytesIO()
+        image.save(output, "DDS", pixel_format=fourcc)
+        encoded = np.frombuffer(output.getvalue()[128:], np.uint8).copy()
+        if fourcc == "DXT5":
+            encoded.reshape(-1, 16)[:, :8] = _bc3_alpha(level[..., 3])
+        levels.append(encoded.tobytes())
+        if linear.shape[:2] == (1, 1):
+            break
+        linear, alpha = _halved(linear), _halved(alpha)
+    return _dds_file(levels, pixels.shape[1], pixels.shape[0], fourcc)
 
 
 def dds_weights(image):
