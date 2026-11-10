@@ -9,6 +9,14 @@ executables with `.venv\Scripts\python.exe tools\build_modelconvert.py --linux`:
 C compiler (MinGW GCC, `CC`/`AR`, or a developer-only Zig download under `out/model-converters/zig`); Linux builds through
 WSL with GCC. The checked-in executables are shipped with notices, and users need neither a compiler nor Blender.
 
+The same process optionally simplifies validated imported geometry with pinned `meshopt 0.7.0` (MIT option) and
+meshoptimizer 1.3 (MIT). `--simplify <request.json> <result.json>` accepts bounded arrays for independent primitives;
+GLB validation, images, scene metadata and immutable packaging stay in Python. No gltfpack executable or Python package
+is shipped. Both `CC` and `CXX` are needed. The Zig fallback disables C++ exceptions/RTTI and uses libc++'s supported
+verbose-abort customization to avoid linking its exception ABI into Rust's MinGW runtime. Linux uses GCC/G++ normally.
+Rust, C and C++ source paths are remapped; publication checks ASCII and UTF-16 builder names/paths and Windows imports.
+`cargo test --locked --manifest-path native/modelconvert/Cargo.toml` runs the converter's Rust tests.
+
 ## Rebuilding
 
 Every change to the Rust code builds both files: a stale one gives the other system different roads (`AC_EXPORT_YIELD` and

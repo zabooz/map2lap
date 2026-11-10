@@ -11,7 +11,7 @@ import tempfile
 import threading
 from urllib.parse import urlsplit
 
-from app import materiallibrary, modeldata, modelimport, modelmesh
+from app import materiallibrary, modeldata, modelimport, modelmesh, modelsimplify
 from app.paths import ROOT
 
 SCHEMA = 1
@@ -107,6 +107,22 @@ def _sized(folder, side):
     return raw
 
 
+def _variant(folder, side, percentage):
+    """Canonical geometry/texture choice, cached per upload, algorithm, level, error budget and texture size."""
+    percentage = modelsimplify.level(percentage)
+    if percentage == 100:
+        return _sized(folder, side)
+    path = folder / f'simplify-{modelsimplify.VERSION}-{percentage}-{modelsimplify.ERROR}-textures-{side}.glb'
+    with _gate:
+        if path.is_file():
+            return path.read_bytes()
+        raw = modelsimplify.simplify(_sized(folder, side), percentage)
+        with tempfile.NamedTemporaryFile(dir=folder, prefix='.simplified_', delete=False) as file:
+            file.write(raw)
+        os.replace(file.name, path)
+        return raw
+
+
 def _settings(settings, geometry):
     """Semantic immutable import settings; source units and the model anchor remain independent of object placements. Pure."""
     name = materiallibrary._text(settings.get("name"), 80, "a name", True)
@@ -151,7 +167,8 @@ def add(settings):
         colour_space = settings.get('material_colours', 'linear')
         lighting = settings.get('material_lighting', 'model')
         side = _side(settings.get('texture_side', modelimport.TEXTURE_SIDES[0]))
-        glb = modelimport.material_lighting(modelimport.material_colours(_sized(staged, side), colour_space), lighting)
+        percentage = modelsimplify.level(settings.get('simplify_level', 100))
+        glb = modelimport.material_lighting(modelimport.material_colours(_variant(staged, side, percentage), colour_space), lighting)
         model_sha = hashlib.sha256(glb).hexdigest()
         meta = _settings(settings, data["geometry"])
         identity = {"schema": SCHEMA, "model": model_sha,
@@ -160,9 +177,12 @@ def add(settings):
         target = _folder(id)
         if (target / "asset.json").is_file():
             return {"model": get(id), "duplicate": True}
-        asset = {"schema": SCHEMA, "kind": "model", "id": id, **meta, "geometry": data["geometry"],
+        geometry = data['geometry'] if percentage == 100 else _summary(modeldata.load(glb))
+        asset = {"schema": SCHEMA, "kind": "model", "id": id, **meta, "geometry": geometry,
                  "model": {"file": "original/model.glb", "filename": Path(filename).stem + '.glb' if data.get('source') else filename,
                            "sha256": model_sha, "bytes": len(glb)}, "texture_side": side}
+        if percentage != 100:
+            asset.update(simplify_level=percentage, simplify_error=modelsimplify.ERROR)
         if colour_space == 'srgb':
             asset['material_colours'] = colour_space
         if lighting == 'matte':
@@ -228,7 +248,7 @@ def cost(id):
     return _cost_at(str(path), (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size), asset["model"]["sha256"])
 
 
-def prepared_model(token, material_colours='linear', material_lighting='model', texture_side=modelimport.TEXTURE_SIDES[0]):
+def prepared_model(token, material_colours='linear', material_lighting='model', texture_side=modelimport.TEXTURE_SIDES[0], simplify_level=100):
     """The validated preview with the chosen base-colour interpretation and texture size: the bytes add publishes. Staging stays
     unchanged."""
     token = _key(token)
@@ -238,9 +258,20 @@ def prepared_model(token, material_colours='linear', material_lighting='model', 
         raw = (folder / 'model.glb').read_bytes()
         if data.get('version') != PREPARATION or hashlib.sha256(raw).hexdigest() != data.get('model_sha256', token):
             raise ValueError('The prepared model has changed')
-        return modelimport.material_lighting(modelimport.material_colours(_sized(folder, _side(texture_side)), material_colours), material_lighting)
+        return modelimport.material_lighting(modelimport.material_colours(_variant(folder, _side(texture_side), simplify_level), material_colours), material_lighting)
     except OSError as error:
         raise ValueError('The prepared model is no longer available. Choose the file again.') from error
+
+
+def prepared_info(token, material_colours='linear', material_lighting='model', texture_side=modelimport.TEXTURE_SIDES[0], simplify_level=100):
+    """Actual selected geometry costs and reduction status, measured by the same path Save uses."""
+    raw = prepared_model(token, material_colours, material_lighting, texture_side, simplify_level)
+    geometry = _summary(modeldata.load(raw))
+    original = materiallibrary._json(_cache(token) / 'prepared.json')['geometry']
+    before = original['track_cost']['triangles']
+    after = geometry['track_cost']['triangles']
+    return {'geometry': geometry, 'simplify_level': simplify_level,
+            'simplification': 'original' if simplify_level == 100 else 'no_gain' if after >= before else 'target_reached' if after <= before * simplify_level / 100 else 'limited'}
 
 
 def source_path(folder, asset):

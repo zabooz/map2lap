@@ -84,6 +84,9 @@ between the GLB's scene nodes and retains material/image resources. The Editor i
 packages, retaining their originals in saved tracks; native shading currently covers colour and alpha. FBX and OBJ imports
 also retain their unchanged source upload (a model file or ZIP with companion materials/textures) beside the converted GLB.
 An explicit sRGB material-colour import also keeps the source GLB unchanged beside its adjusted canonical GLB.
+Optional **Geometry** import targets (Original/75%/50%/25%) bake conservative simplification into the canonical GLB;
+the retained upload, ground anchor, bounds and source-unit scale stay fixed. The target is bounded by protected seams
+and a 1% per-primitive error budget, so actual reduction can stop earlier.
 
 **Model snapshot and instance** (Editor):
 An immutable snapshot freezes the original GLB and its import description when applied. A stable generic instance id binds

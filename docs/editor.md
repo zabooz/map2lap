@@ -288,7 +288,21 @@ Double-sided render faces count once; mesh collision additionally counts both si
 indices, excluding shared textures and mesh headers. A stored cost of another `COST_VERSION` is measured again. At 0.5 MB for the selected collision mode, a visible advisory warns about many copies;
 this is a size budget, not an AC limit or an FPS prediction. New packages retain the small facts in their geometry summary.
 Old packages are measured only on selection through `/api/library/models/<id>/cost`, cached in memory by file revision
-and verified content hash, without rewriting their manifest, GLB or model id. Importing does not simplify geometry.
+and verified content hash, without rewriting their manifest, GLB or model id.
+
+**Geometry** defaults to **Original**, with optional targets of **75%, 50%, 25%** of the original triangles. The bundled
+`modelconvert` process uses meshopt 0.7.0 / meshoptimizer 1.3, with a relative 1% error budget per primitive and unit
+normal/UV weights. Each primitive stays independent: materials, UV/normal seams and open borders remain protected.
+The existing Save weld first joins identical position/UV corners with normals less than 1 degree apart, so scan-export
+rounding splits do not block simplification. Missing normals retain flat faces and are not simplified. Positions never
+move; protected scene extrema and exact contact-footprint extrema preserve bounds, anchor and import scale. Tangents
+are calculated from the final normals, UVs and triangles. No permissive/sloppy fallback removes leaf cards or hard edges.
+
+The selected geometry is baked into the canonical GLB used by the actual preview, placement and Save, while the original
+upload remains intact. Prepared variants are cached by upload, algorithm version, level, error budget and texture size.
+`/api/library/model-imports/<token>/info` reports actual native costs for that same variant. The dialog prevents Add until
+the current choice is ready and reports limited reduction or **No further reduction possible** when the target cannot be
+reached. Existing model ids/packages remain addressable and Original retains the old identity rules.
 
 **Texture size** is 1024 px by default, 2048 px at most. Import reduces every longer image to it on its long side, never
 enlarging one, in the canonical `original/model.glb` that preview, placement and Save read; the unchanged upload stays as

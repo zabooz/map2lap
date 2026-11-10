@@ -3,7 +3,7 @@ import {libraryJson, MODEL_CATEGORIES, prepareModelFile} from "./library";
 import type {LibraryModel} from "./ModelLibrary";
 import {ModelPreview} from "./ModelPreview";
 import styles from "./ImportModel.module.css";
-import type {PreparedModel} from "./library";
+import type {PreparedModel, PreparedGeometry} from "./library";
 import {ModelCost} from "./ModelCost";
 
 /** Preview the prepared model used by placement and Save; publishing it does not place it on the track. */
@@ -18,6 +18,13 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
   const [materialColours, setMaterialColours] = useState("linear");
   const [materialLighting, setMaterialLighting] = useState("model");
   const [textureSide, setTextureSide] = useState(1024);
+  const [simplifyLevel, setSimplifyLevel] = useState(100);
+  const [selection, setSelection] = useState<{key: string; value: PreparedGeometry} | null>(null);
+  const choice = new URLSearchParams({material_colours: materialColours, material_lighting: materialLighting,
+    texture_side: String(textureSide), simplify_level: String(simplifyLevel)}).toString();
+  const choiceKey = `${prepared?.token}/${choice}`;
+  const selected = selection?.key === choiceKey ? selection.value : null;
+  const selecting = !!prepared && !selected;
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close(); }, []);
   useEffect(() => { onBusy(loading || saving); return () => onBusy(false); }, [loading, saving, onBusy]);
@@ -28,13 +35,21 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [file]);
+  useEffect(() => {
+    if (!prepared) return;
+    const controller = new AbortController();
+    void libraryJson<PreparedGeometry>(`/api/library/model-imports/${prepared.token}/info?${choice}`, {signal: controller.signal})
+      .then(value => { if (!controller.signal.aborted) { setSelection({key: choiceKey, value}); setError(null); } })
+      .catch((fault: Error) => { if (!controller.signal.aborted) setError(fault.message); });
+    return () => controller.abort();
+  }, [prepared, choice, choiceKey]);
   const add = async () => {
-    if (!prepared || saving) return;
+    if (!prepared || saving || selecting) return;
     setSaving(true); setError(null);
     try {
       const value = await libraryJson<{model: LibraryModel}>("/api/library/models", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({token: prepared.token, filename: file.name, name, category, metres_per_unit: Number(units), collision,
-          material_colours: materialColours, material_lighting: materialLighting, texture_side: textureSide})});
+          material_colours: materialColours, material_lighting: materialLighting, texture_side: textureSide, simplify_level: simplifyLevel})});
       onImported(value.model);
     } catch (fault) { setError(fault instanceof Error ? fault.message : "Could not store object"); }
     finally { setSaving(false); }
@@ -44,8 +59,15 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
     <form className={styles.form} onSubmit={event => { event.preventDefault(); void add(); }}>
       <h2>Import object</h2><p className={styles.note}>{file.name}</p>
       {prepared && <>
-        <ModelPreview url={`/api/library/model-imports/${prepared.token}/preview?${new URLSearchParams({material_colours: materialColours, material_lighting: materialLighting, texture_side: String(textureSide)})}`} height={155} />
-        {prepared.geometry.track_cost && <ModelCost cost={prepared.geometry.track_cost} collision={collision} />}
+        {selected && <ModelPreview url={`/api/library/model-imports/${prepared.token}/preview?${choice}`} height={155} />}
+        {selected?.geometry.track_cost && <ModelCost cost={selected.geometry.track_cost} collision={collision} />}
+        <label className={styles.field}>Geometry<select value={simplifyLevel} disabled={saving} onChange={event => setSimplifyLevel(Number(event.target.value))}>
+          <option value={100}>Original</option><option value={75}>75%</option><option value={50}>50%</option><option value={25}>25%</option>
+        </select></label>
+        <p className={styles.note}>Target triangle count. Preserves material and shading seams; the original file stays in the library.</p>
+        {selecting && !error && <p role="status">Preparing selected geometry…</p>}
+        {selected?.simplification === 'no_gain' && <p role="status">No further reduction possible.</p>}
+        {selected?.simplification === 'limited' && <p role="status">Reduced as far as possible while preserving model details.</p>}
         <label className={styles.field}>Texture size<select value={textureSide} disabled={saving} onChange={event => setTextureSide(Number(event.target.value))}>
           <option value={1024}>1024 px (recommended)</option><option value={2048}>2048 px</option>
         </select></label>
@@ -72,7 +94,7 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
       {error && <p role="alert" className={styles.error}>{error}</p>}
       {(loading || saving) && <div role="status" className={styles.waiting}>{saving ? "Adding to library…" : "Preparing object…"}<progress aria-label="Importing object" /></div>}
       <div className={styles.buttons}><button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className={styles.primary} disabled={!prepared || !name.trim() || saving}>Add to library</button></div>
+        <button type="submit" className={styles.primary} disabled={!prepared || selecting || !name.trim() || saving}>Add to library</button></div>
     </form>
   </dialog>;
 }

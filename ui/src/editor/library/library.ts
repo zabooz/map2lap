@@ -5,6 +5,10 @@ import type {TrackCost} from "./ModelCost";
 export interface PreparedModel {
   token: string; geometry: {bounds: number[][]; track_cost?: TrackCost}; warnings?: string[]; lighting_options?: string[];
 }
+export interface PreparedGeometry {
+  geometry: PreparedModel['geometry'];
+  simplification: 'original' | 'no_gain' | 'limited' | 'target_reached';
+}
 let modelPreparation: Promise<unknown> = Promise.resolve();
 
 /** Queue model preparation across cancelled dialogs; finish the server's current upload before starting another. */

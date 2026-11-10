@@ -1,5 +1,6 @@
 //! Bounded FBX/OBJ decoding in a separate process. Files referenced by a model are never opened here.
 use serde_json::{json, Value};
+mod simplify;
 use std::{collections::HashMap, env, fs, path::Path};
 
 type Result<T> = std::result::Result<T, String>;
@@ -335,6 +336,13 @@ fn convert(input: &Path, mtl: &Path, directory: &Path) -> Result<()> {
 
 fn main() {
     let args: Vec<_> = env::args_os().collect();
+    if args.len() == 4 && args[1] == "--simplify" {
+        if let Err(error) = simplify::run(Path::new(&args[2]), Path::new(&args[3])) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if args.len() != 4 {
         eprintln!("Expected input, material data and output folder");
         std::process::exit(2);
