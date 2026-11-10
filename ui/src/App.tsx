@@ -16,6 +16,7 @@ import {NewTrackPane} from "./components/NewTrackPane";
 import {SettingsDialog} from "./components/SettingsDialog";
 import {CardCode, PlayButton, StatusCard} from "./components/StatusCard";
 import {TrackMap} from "./components/TrackMap";
+import {ThemeSwitch} from "./components/ThemeSwitch";
 import {useBuild} from "./hooks/useBuild";
 import {useControls} from "./hooks/useControls";
 import {useCspStatus} from "./hooks/useCspStatus";
@@ -203,6 +204,7 @@ export function App() {
 
           <BuildLog text={build.log} started={status.started} />
         </div>
+        <ThemeSwitch />
       </aside>
 
       <main className={styles.main} inert={settingsOpen}>

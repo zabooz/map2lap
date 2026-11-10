@@ -24,7 +24,7 @@ export function SaveDialog({title, taken, canOverwrite, onOverwrite, onSaveNew, 
   const wanted = name.trim(), same = wanted === title;
   const fault = !wanted ? "Give it a name." : !same && taken.includes(wanted) ? `Another track is called “${wanted}” already.` : null;
   const newTitle = same ? copyOf(title, taken) : wanted;
-  const overwrites = same && canOverwrite;     // (the red button and Enter: Overwrite while it can, Save as new track once the name is another)
+  const overwrites = same && canOverwrite;     // (the primary button and Enter: Overwrite while it can, Save as new track once the name is another)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };

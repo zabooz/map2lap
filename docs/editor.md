@@ -4,6 +4,10 @@ The page is React and TypeScript in `ui/`, built with Bun into the committed `sr
 and the `/api/` endpoints. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
 The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.
 
+The sidebar's Light / Dark buttons select the page's appearance in every tab. Until a manual choice is made, the page follows
+the browser's system colour preference. A manual choice is kept in this browser and applied before the page first paints;
+when storage is blocked it lasts for the current visit. Appearance changes the controls, not the map tiles or 3D track lighting.
+
 The Editor source in `ui/src/editor/` is grouped by responsibility. `EditorScene.tsx` owns the React/three.js lifetime and
 `EditTools.tsx` connects the active tool, selection and dialogs. Shared selection and track-index contracts live in `types.ts`.
 

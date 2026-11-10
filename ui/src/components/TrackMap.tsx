@@ -10,7 +10,7 @@ import styles from "./TrackMap.module.css";
 
 const VIEW_KEY = "map2lap.view";
 const FIRST_VIEW = {center: [48.5, 11] as LatLon, zoom: 5};     // first visit: central Europe; then where the map was left
-const ROUTE_COLOR = "#e0243a";
+const ROUTE_COLOR = "var(--map-route)";  // The map stays light in both appearances, so its route keeps a dark petrol.
 const PIN_ZOOM = 13;
 const EARTH_M = 40075016;
 const BOX_STYLE = {color: ROUTE_COLOR, weight: 2, fillOpacity: 0.1};
