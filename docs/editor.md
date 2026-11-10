@@ -508,8 +508,9 @@ Groups saved before the two switches read as random.
 
 **Paint group** saves the mixture and opens the Groups brush: click to stamp, hold and move to paint. While the ring moves without a
 stroke it shows what a click there would plant (`view.setRingMoved`): the next stroke's seed is drawn beforehand, the worker scatters
-with it, and every plant stands at the ring's ground height, with no ground looked up under each and no server request; the click
-plants just those, each on its own ground. Radius (Shift + wheel),
+with it, and every plant stands on the ground as nine points across the ring give it, interpolated (`groundGrid`), with no ground
+looked up under each and no server request; the click plants just those, each on its own ground. A plant at the ring's middle
+height alone sank out of sight on the uphill side of a slope, so the click planted what the preview had not shown. Radius (Shift + wheel),
 density in plants per 100 square metres (Ctrl + wheel) and minimum foot-to-foot spacing (Alt + wheel) control its distribution.
 Trees and other models stay upright with random yaw and uniformly scaled proportions, unless their entry's random is off.
 Without random position each candidate stands in its lattice cell's middle, so the plants stand in rows. The browser worker

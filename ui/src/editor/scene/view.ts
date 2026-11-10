@@ -20,6 +20,7 @@ import {DEFAULT_CONTROLS, type Controls} from "./controls";
 import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing";
 import type {CopyPose} from "../tools/copying";
 import {alongStroke} from "../tools/deleteBrush";
+import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
 import type {Removed} from "../state/edits";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
@@ -1030,6 +1031,12 @@ export class TrackView {
       if (at !== null) y = Math.min(y, at);
     }
     return [x, y, z];
+  }
+
+  /** The ground under a ring of radius round x, z, cheaply (groundGrid): nine points looked up, the heights between them interpolated;
+      fallback where a point has no ground. */
+  ringGround(x: number, z: number, radius: number, fallback: number) {
+    return gridHeight(GRID_POINTS.map(([u, v]) => this.plantGround(x + u * radius, z + v * radius)?.[1] ?? null), x, z, radius, fallback);
   }
 
   private groupDraw: GroupDraw | null = null;

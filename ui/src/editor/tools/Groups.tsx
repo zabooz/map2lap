@@ -46,8 +46,8 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
       if (!current) { current = {key: crypto.randomUUID(), seed: nextSeed, version: 0}; nextSeed = newSeed(); ringAt = null; void view.dropGroup(HOVER); }
       return current;
     };
-    // While the ring moves without a stroke, what a click there would plant, cheaply: the brush's own scatter, every plant at the ring's
-    // ground height (no ground looked up under each; a slope shows them floating or sunk until the click sets each on its ground).
+    // While the ring moves without a stroke, what a click there would plant, cheaply: the brush's own scatter, every plant on the ground
+    // as nine points across the ring give it (view.ringGround), not looked up under each; the click sets each on its own ground.
     let ringAt: [number, number, number] | null = null, hovering = false;
     const hover = async () => {
       if (hovering) return;
@@ -57,7 +57,8 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
           const result = await worker.run([[at[0], at[2], 0]], {entries: group.entries, radius, density, spacing, seed: nextSeed, regular: group.randomPosition === false},
             [...occupied(), ...[...queued.values()].flat().map(p => ({x: p.at[0], z: p.at[2]}))]);
           if (closing || current || ringAt !== at) continue;
-          await view.showGroup(HOVER, result.plants.map(p => ({model: p.model, at: [p.x, at[1], p.z] as [number, number, number], turn: p.turn, scale: p.scale})), models);
+          const ground = view.ringGround(at[0], at[2], radius, at[1]);
+          await view.showGroup(HOVER, result.plants.map(p => ({model: p.model, at: [p.x, ground(p.x, p.z), p.z] as [number, number, number], turn: p.turn, scale: p.scale})), models);
         }
       } catch { /* (a hover that fails shows nothing; the click says why) */ }
       finally { hovering = false; }
