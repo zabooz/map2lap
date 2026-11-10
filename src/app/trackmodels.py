@@ -220,6 +220,29 @@ def cold_recipe(ac, name):
             "object_sorts": [], "heights": [], "placed": record["placed"], "copies": [], "paints": paints, "models": record["models"]}
 
 
+def editor_source(scan, objects, placed):
+    """Source-only inputs for draft height/pose work. Models follow rigid matrices; Save still uses every native face. Pure."""
+    ids = {instance["id"] for instance in scan.get("models", [])}
+    if not ids:
+        return scan, objects, placed
+    return ({**scan, "models": [], "model_heights": {}}, {key: value for key, value in objects.items() if key not in ids},
+            [pose for pose in placed if pose["id"].split("#")[0] not in ids])
+
+
+def meshes_at_height(scan, placed, heights):
+    """Generated model mesh numbers moved rigidly by heights at their posed anchor, with no vertex reads. Pure."""
+    if not scan.get("models"):
+        return set()
+    poses, field = {p["id"]: p for p in placed}, trackheights.Field(heights)
+    changed = set()
+    for instance in scan["models"]:
+        pose = poses.get(instance["id"] + "#0", {})
+        at = instance["at"]
+        if field.at(at[0] + pose.get("x", 0), at[2] + pose.get("z", 0))[0]:
+            changed.add(instance["id"])
+    return {i for i, mesh in enumerate(scan["meshes"]) if mesh.get("model", {}).get("instance") in changed}
+
+
 def view_matrices(scan, placed, heights):
     """World transforms for shared original GLB render buffers, with the same anchor, pose and rigid ground following as Save. Pure."""
     poses, field, result = {p["id"]: p for p in placed}, trackheights.Field(heights), {}
@@ -309,25 +332,131 @@ def light(category):
     return {key: values[key] for key in ("ksAmbient", "ksDiffuse")}
 
 
+# Only the current track's instance metadata is retained. Array storage is per asset, independent of plant count.
+_instances = {}
+
+
+def _asset_stamp(folder):
+    """Read both retained files in folder: identity, revision and size, including atomic replacement."""
+    return tuple((s.st_ino, s.st_mtime_ns, s.st_ctime_ns, s.st_size)
+                 for s in ((folder / name).stat() for name in ("asset.json", "original/model.glb")))
+
+
+@functools.lru_cache(maxsize=16)  # A few brush mixtures can be reused; visiting more assets evicts old decoded geometry.
+def _prepared(folder, asset, stamp):
+    """Decode one verified immutable asset revision and prepare shared native parts/material recipes."""
+    folder = Path(folder)
+    meta = _verified(folder, asset)
+    model = modeldata.load((folder / "original/model.glb").read_bytes())
+    parts = modelmesh.geometry(model, meta)
+    native, recipes = modelmesh.materials(model, asset, light(meta["category"]))
+    return {"stamp": (str(folder), stamp), "parts": parts, "materials": native, "recipes": recipes,
+            "definitions": model.materials, "pieces": {}}
+
+
+def _asset_pieces(ready, collision):
+    """Shared local pieces for one asset and collision choice, in the original mesh/triangle order."""
+    if collision in ready["pieces"]:
+        return ready["pieces"][collision]
+    result = []
+    for part in ready["parts"]:
+        vertices, faces = part["vertices"], part["faces"]
+        number = part["material"] if part["material"] is not None else len(ready["definitions"])
+        definition = ready["definitions"][number] if part["material"] is not None else {}
+        blended, double = definition.get("alphaMode") == "BLEND", definition.get("doubleSided", False)
+        def add(prefix, data, triangles, visible):
+            data.flags.writeable = triangles.flags.writeable = False
+            result.append({"prefix": prefix, "vertices": data, "faces": triangles, "visible": visible,
+                           "material": number, "primitive": part["primitive"], "source_material": part["material"],
+                           "transparent": int(blended)})
+        if "visual_pieces" not in part:
+            part["visual_pieces"] = list(modelmesh.pieces(vertices, faces, blended))
+        for data, triangles in part["visual_pieces"]:
+            add("nocol_", data, triangles, 1)
+            if collision == "mesh" and not double:
+                add("1WALL_", data, triangles, 0)
+        # CSP draws a double-sided visual face once; physical collision also needs its reversed back face.
+        if collision == "mesh" and double:
+            back = vertices.copy(); back["normal"] *= -1
+            for data, triangles in modelmesh.pieces(np.concatenate([vertices, back]), np.concatenate([faces, faces[:, ::-1] + len(vertices)])):
+                add("1WALL_", data, triangles, 0)
+    ready["pieces"][collision] = result
+    return result
+
+
+class _InstanceData:
+    """Tuple-compatible mesh data: shared local arrays and a frozen transform, no retained world-space vertex copy."""
+    def __init__(self, vertices, faces, instance):
+        self.vertices, self.faces = vertices, faces
+        self.scale, self.at = instance.get("scale", 1), tuple(instance["at"])
+
+    def __getitem__(self, index):
+        if index == 1:
+            return self.faces
+        if index != 0:
+            raise IndexError(index)
+        vertices = self.vertices.copy()
+        # Keep the original two float32 assignments: folding the translation into a matrix changes saved bytes.
+        vertices["pos"] *= self.scale
+        vertices["pos"] += self.at
+        return vertices
+
+
+def _instance_meshes(instance, ready):
+    """Only a new binding computes bounds; native vertices remain shared until Save or compatibility mesh output needs them."""
+    result = []
+    for part in _asset_pieces(ready, instance["collision"]):
+        data = _InstanceData(part["vertices"], part["faces"], instance)
+        # Exact old bounds include float32 rounding at the world position. Analytical transformed spheres differ in the index.
+        pos = part["vertices"]["pos"].copy()
+        pos *= data.scale
+        pos += data.at
+        center = (pos.min(axis=0).astype(np.float64) + pos.max(axis=0)) / 2
+        visible = part["visible"]
+        result.append({"name": f"{part['prefix']}m2l_model_{instance['id']}_{len(result)}",
+            "material": part["material"], "vertices": len(pos), "indices": part["faces"].size, "data": data,
+            "model": {"instance": instance["id"], "asset": instance["asset"], "primitive": part["primitive"],
+                      "material": part["source_material"], "at": list(data.at), "scale": data.scale},
+            "active": 1, "visible": visible, "renderable": visible, "cast_shadows": visible,
+            "transparent": part["transparent"], "layer": 0, "lod_in": 0., "lod_out": 1000.,
+            "center": center.tolist(), "radius": float(np.linalg.norm(pos - center, axis=1).max())})
+    return result
+
+
 def extend(ac, name, scan, objects, models):
+    """Extend the source layout using immutable asset pieces and only the changed bindings' metadata."""
+    with _gate:
+        scope = (str(mytracks.ROOT), str(ac), name, scan.get("model_source_path"))
+        if _instances.get("scope") != scope:
+            _instances.clear()
+            _instances["scope"] = scope
+        return _extend(ac, name, scan, objects, models)
+
+
+def _extend(ac, name, scan, objects, models):
     """Register model roots in the ordinary object list and derive each unique asset's real local geometry once."""
     inherited = compiled(ac, name, scan.get("model_source_path"))
     owned = set(inherited["meshes"]) if inherited else set()
     meshes = [{**m, "active": 0, "visible": 0, "renderable": 0} if m["name"] in owned else m for m in scan["meshes"]]
     if not models:
+        _instances["entries"], _instances["assets"] = {}, {}
         return {**scan, "meshes": meshes, "models": [], "model_assets": {}, "model_parts": {}, "model_replacements": []}, objects
     assets, parts, listed = {}, {}, dict(objects)
-    materials, resources, decoded, slots = list(scan["materials"]), {}, {}, {}
+    materials, resources, prepared, slots = list(scan["materials"]), {}, {}, {}
+    previous, current = _instances.get("entries", {}), {}
     present = {t[0] for t in scan["textures"]}
     for instance in models:
         asset = instance["asset"]
         if asset not in assets:
             folder, meta = resolve(ac, name, asset)
-            model = modeldata.load((folder / "original/model.glb").read_bytes())
-            decoded[asset] = model
-            parts[asset] = modelmesh.geometry(model, meta)
+            stamp = _asset_stamp(folder)
+            ready = _instances.get("assets", {}).get(asset)
+            if ready is None or ready["stamp"] != (str(folder), stamp):
+                ready = _prepared(str(folder), asset, stamp)
+            prepared[asset] = ready
+            parts[asset] = ready["parts"]
             assets[asset] = {**meta, "url": f"/api/editor/{name}/model-asset/{asset}"}
-            native, recipes = modelmesh.materials(model, asset, light(meta["category"]))
+            native, recipes = ready["materials"], ready["recipes"]
             slots[asset] = []
             for material in native:
                 slot = next((i for i, previous in enumerate(materials) if previous.name == material.name
@@ -346,37 +475,17 @@ def extend(ac, name, scan, objects, models):
         kind = {"tree": "tree", "bush": "bush", "building": "house"}.get(meta["category"], "model")
         listed[instance["id"]] = {"kinds": [kind], "sorts": [meta["name"]], "at": [instance["at"]],
                                    "parents": [-1], "faces": [[]], "details": [{"model": asset}]}
-        for part in parts[asset]:
-            vertices, faces = part["vertices"].copy(), part["faces"]
-            vertices["pos"] *= instance.get("scale", 1)
-            vertices["pos"] += instance["at"]
-            material_number = part["material"] if part["material"] is not None else len(decoded[asset].materials)
-            definition = decoded[asset].materials[material_number] if part["material"] is not None else {}
-            double = definition.get("doubleSided", False)
-            own = listed[instance["id"]]["faces"][0]
-
-            def add(prefix, data, triangles, visible):
-                center = (data["pos"].min(axis=0).astype(np.float64) + data["pos"].max(axis=0)) / 2
-                own.append([len(meshes), 0, len(triangles)])
-                meshes.append({"name": f"{prefix}m2l_model_{instance['id']}_{len(own) - 1}",
-                    "material": slots[asset][material_number], "vertices": len(data), "indices": triangles.size,
-                    "data": (data, triangles),
-                    "model": {"instance": instance["id"], "asset": asset, "primitive": part["primitive"], "material": part["material"],
-                              "at": instance["at"], "scale": instance.get("scale", 1)},
-                    "active": 1, "visible": visible, "renderable": visible, "cast_shadows": visible,
-                    "transparent": int(definition.get("alphaMode") == "BLEND"),
-                    "layer": 0, "lod_in": 0., "lod_out": 1000., "center": center.tolist(),
-                    "radius": float(np.linalg.norm(data["pos"] - center, axis=1).max())})
-            # A double-sided material's faces are written once: CSP draws them from both sides (trackvariation). Collision keeps
-            # both sides, as a back face of its own.
-            for data, triangles in modelmesh.pieces(vertices, faces, definition.get("alphaMode") == "BLEND"):
-                add("nocol_", data, triangles, 1)
-                if instance["collision"] == "mesh" and not double:
-                    add("1WALL_", data, triangles, 0)
-            if instance["collision"] == "mesh" and double:
-                back = vertices.copy(); back["normal"] *= -1
-                for data, triangles in modelmesh.pieces(np.concatenate([vertices, back]), np.concatenate([faces, faces[:, ::-1] + len(vertices)])):
-                    add("1WALL_", data, triangles, 0)
+        ready = prepared[asset]
+        key = (asset, ready["stamp"], _json(instance))
+        local = previous.get(key)
+        if local is None:
+            local = _instance_meshes(instance, ready)
+        current[key] = local
+        for source in local:
+            mesh = {**source, "material": slots[asset][source["material"]]}
+            listed[instance["id"]]["faces"][0].append([len(meshes), 0, mesh["indices"] // 3])
+            meshes.append(mesh)
+    _instances["entries"], _instances["assets"] = current, prepared
     names = {t[0] for t in scan["textures"]}
     textures = [*scan["textures"], *[(n, 0, recipe["bytes"]) for n, recipe in resources.items() if n not in names]]
     consumed = {m["id"]: m.get("replaces") for m in inherited["models"]} if inherited else {}

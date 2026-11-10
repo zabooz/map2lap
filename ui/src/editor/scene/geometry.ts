@@ -30,11 +30,6 @@ export function meshUrl(name: string, data: TrackIndex, info: MeshInfo) {
     + (info.model ? `&d=${data.draft ?? 0}` : info.copy ? `&c=${data.copy_revision ?? ""}` : "");
 }
 
-/** What a model mesh's vertices are made from: its part of an instance, that instance's model, place and size. Its number can
-    change with the layout; while this stays, the loaded mesh does too. Pure. */
-export const modelMeshKey = (info: MeshInfo) =>
-  JSON.stringify([info.name, info.model!.asset, info.model!.at, info.model!.scale, info.vertices, info.indices]);
-
 /** How far from centre a sphere has to reach to hold a box: to its farthest corner, not only to its two named ones. Pure. */
 export function reachOfBox(centre: readonly number[], low: readonly number[], high: readonly number[]) {
   return Math.hypot(...centre.map((c, axis) => Math.max(Math.abs(low[axis] - c), Math.abs(high[axis] - c))));

@@ -165,6 +165,13 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   const redone = await sample(page, await picture(page), points);
   expect(redone.map((p, i) => delta(p, shownPixels[i]))).toEqual([0, 0, 0, 0]);
   await page.keyboard.press("Escape");
+  // Both draw and picking use the shared GLB: solid crown selects its binding; the cutout reaches the source behind it.
+  for (const [point, solid] of [[points[0], true], [points[1], false]] as const) {
+    await page.mouse.move(viewport.x + point.x - 1, viewport.y + point.y);
+    await page.mouse.move(viewport.x + point.x, viewport.y + point.y);
+    if (solid) await expect(page.locator("#hover-box")).toContainText(first.id + "#0");
+    else await expect(page.locator("#hover-box")).not.toContainText(first.id + "#0");
+  }
   const tree = await findTree(page);
   await page.mouse.click(tree.x, tree.y);
   await page.getByRole("button", {name: "Insert", exact: true}).click();

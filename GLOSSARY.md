@@ -103,6 +103,8 @@ An immutable snapshot freezes the original GLB and its import description when a
 that snapshot to a ground anchor and explicit collision choice. A replacement can retain a uniform fit to the source tree's
 physical height; subsequent movement, turn and relative size stay separately in `placed`.
 Hash-bound compiled provenance identifies generated KN5 regions and consumed source replacements after cache-free transfer.
+Editor contexts retain shared asset geometry and per-binding metadata; picking and drawing share the GLB with instance matrices.
+Native vertex copies are made for Save, while the index keeps stable mesh numbers and face ranges.
 
 **Custom Shaders Patch (CSP)**:
 An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.

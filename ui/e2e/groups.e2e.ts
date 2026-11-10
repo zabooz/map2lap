@@ -190,14 +190,32 @@ test("a completed click survives immediate Esc and renders many plants in a boun
   await library.getByRole("button", {name: "Paint group", exact: true}).click();
   await page.locator("#edit-group-set").getByRole("spinbutton", {name: /Density/}).fill("100");
   await page.locator("#edit-group-set").getByRole("spinbutton", {name: /Spacing/}).fill("0.5");
+  const meshResponses: Promise<number>[] = [];
+  page.on("response", response => {
+    if (/\/api\/editor\/alpha\/mesh\//.test(response.url())) meshResponses.push(response.body().then(b => b.length));
+  });
+  // Fixed scatter seed makes the old/new transfer and resource measurements use the same plants.
+  await page.evaluate(() => {
+    const original = crypto.getRandomValues.bind(crypto);
+    Object.defineProperty(crypto, "getRandomValues", {value: (array: Uint32Array) =>
+      array instanceof Uint32Array && array.length === 1 ? array.fill(12345) : original(array)});
+  });
+  const started = Date.now();
   await scene(page).click({position: {x: 600, y: 400}}); await page.keyboard.press("Escape");
   await expect.poll(async () => (await draft(page)).models?.length ?? 0).toBeGreaterThan(100);
   await saved(page);
   await expect.poll(() => page.evaluate(() => (performance.getEntriesByName("map2lap.models.resources").at(-1) as PerformanceMark)?.detail?.instances ?? 0), {timeout: 30000}).toBeGreaterThan(100);
+  const confirmedMs = Date.now() - started;
   await picture(page);
   const stats = await page.evaluate(() => (performance.getEntriesByName("map2lap.models.resources").at(-1) as PerformanceMark)?.detail);
   expect(stats.instances).toBeGreaterThan(100); expect(stats.renderBatches).toBeLessThan(20);
   expect(stats.shared).toHaveLength(2);
+  const downloads = await Promise.all(meshResponses);
+  const measurement = {instances: stats.instances, confirmedMs, meshDownloads: downloads.length,
+    meshBytes: downloads.reduce((sum, n) => sum + n, 0), resources: stats};
+  await info.attach("stroke-measurement", {body: JSON.stringify(measurement, null, 2), contentType: "application/json"});
+  expect(downloads).toEqual([]);
+  expect(stats.pickingGeometryBytes).toBe(0);
   await info.attach("group-render-resources", {body: JSON.stringify(stats, null, 2), contentType: "application/json"});
   await scene(page).screenshot({path: info.outputPath("group-instances.png")});
 });

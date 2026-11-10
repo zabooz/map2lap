@@ -51,7 +51,7 @@ test("model Insert, Move, Undo and Redo do not download unchanged copy meshes", 
   await page.getByRole("button", {name: "Place on ground", exact: true}).click();
   await scene(page).click({position: {x: 400, y: 450}}); await saved(page);
   await expect.poll(instances).toBe(2); await page.keyboard.press("Escape"); await picture(page);
-  expect(urls).toHaveLength(2);
+  expect(urls).toEqual([]);
   for (const [action, count] of [["Undo", 1], ["Redo", 2]] as const) {
     await page.getByRole("button", {name: new RegExp(action)}).click(); await saved(page);
     await expect.poll(instances).toBe(count); await picture(page);
@@ -61,7 +61,7 @@ test("model Insert, Move, Undo and Redo do not download unchanged copy meshes", 
   for (const action of ["Undo", "Redo"]) {
     await page.getByRole("button", {name: new RegExp(action)}).click(); await saved(page); await picture(page);
   }
-  expect(urls.filter(url => url.includes("&c="))).toEqual([]);
+  expect(urls).toEqual([]);
   const after = await (await page.request.get("/api/editor/alpha/index")).json();
   expect(after.copy_revision).toBe(before.copy_revision);
   expect(after.meshes.filter((m: {copy?: boolean}) => m.copy)).toEqual(before.meshes.filter((m: {copy?: boolean}) => m.copy));

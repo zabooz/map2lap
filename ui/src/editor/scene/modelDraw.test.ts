@@ -205,7 +205,58 @@ test("an unassociated GLTF default material stays opaque for picking instead of 
   root.add(new THREE.Mesh(new THREE.PlaneGeometry(), coloured), new THREE.Mesh(new THREE.PlaneGeometry(), fallback));
   const draw = new ModelDraw(new THREE.Scene(), async () => root);
   await draw.sync([{id: "a", asset: "a"}], {a: {url: "a"}}, {a: new THREE.Matrix4().toArray()});
-  const picking = draw.picking("a", -1) as THREE.MeshStandardMaterial;
+  const picking = (draw.instance("a")!.children[1] as THREE.Mesh).material as THREE.MeshStandardMaterial;
   expect(picking.map).toBeNull(); expect(picking.alphaTest).toBe(0); expect(picking.color.getHex()).toBe(0xffffff);
+  draw.dispose();
+});
+
+
+test("picking uses shared asset triangles at each instance matrix, without generated meshes", async () => {
+  const geometry = new THREE.PlaneGeometry(2, 2), material = new THREE.MeshBasicMaterial({side: THREE.DoubleSide, alphaTest: .5});
+  const source = new THREE.Group(); source.add(new THREE.Mesh(geometry, material));
+  const draw = new ModelDraw(new THREE.Scene(), async () => source);
+  await draw.sync([{id: "a", asset: "tree"}, {id: "b", asset: "tree"}], {tree: {url: "tree"}},
+    {a: new THREE.Matrix4().makeTranslation(3, 0, 0).toArray(), b: new THREE.Matrix4().makeTranslation(3, 0, -2).toArray()});
+  const picker = new THREE.Raycaster(new THREE.Vector3(3, .3, 5), new THREE.Vector3(0, 0, -1));
+  const hits = draw.intersections(picker);
+  expect(hits.map(h => h.object.userData.modelInstance)).toEqual(["a", "b"]);
+  expect((hits[0].object as THREE.Mesh).geometry).toBe(geometry);
+  expect((hits[0].object as THREE.Mesh).material).toBe(material);
+  draw.visible("a", false);
+  expect(draw.intersections(picker).map(h => h.object.userData.modelInstance)).toEqual(["b"]);
+  draw.nudge("b", [3, 0, -2], new THREE.Matrix4().makeTranslation(4, 0, 0));
+  expect(draw.intersections(picker)).toEqual([]);
+  draw.dispose();
+});
+
+test("distance and selection bounds follow asset bounds, pose and deletion without an instance mesh", async () => {
+  const source = new THREE.Group(); const child = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshBasicMaterial());
+  child.position.y = 2; source.add(child);
+  const draw = new ModelDraw(new THREE.Scene(), async () => source);
+  await draw.sync([{id: "a", asset: "tree"}], {tree: {url: "tree"}}, {a: new THREE.Matrix4().makeTranslation(10, 5, 0).toArray()});
+  expect(draw.bounds("a")!.min.toArray()).toEqual([9, 5, -1]);
+  expect(draw.bounds("a")!.max.toArray()).toEqual([11, 9, 1]);
+  draw.cull(new THREE.Vector3(10, 7, 999), new Set(), 1000);
+  expect(draw.instance("a")!.visible).toBe(true);
+  draw.cull(new THREE.Vector3(10, 7, 1000), new Set(), 1000);
+  expect(draw.instance("a")!.visible).toBe(false);
+  draw.cull(new THREE.Vector3(10, 7, 0), new Set(["a#0"]), 1000);
+  expect(draw.instance("a")!.visible).toBe(false);
+  draw.transforms({a: new THREE.Matrix4().makeTranslation(20, 5, 0).toArray()});
+  expect(draw.bounds("a")!.min.x).toBe(19);
+  draw.dispose();
+});
+
+
+test("unused GLB accessor vertices never enlarge an instance's selection or distance center", async () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 2, 0, 0, 0, 2, 0, 9000, 9000, 0], 3));
+  geometry.setIndex([0, 1, 2]);
+  const source = new THREE.Group(); source.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
+  const draw = new ModelDraw(new THREE.Scene(), async () => source);
+  await draw.sync([{id: "a", asset: "tree"}], {tree: {url: "tree"}}, {a: new THREE.Matrix4().toArray()});
+  expect(draw.bounds("a")!.max.toArray()).toEqual([2, 2, 0]);
+  draw.cull(new THREE.Vector3(1, 1, 0), new Set(), 10);
+  expect(draw.instance("a")!.visible).toBe(true);
   draw.dispose();
 });
