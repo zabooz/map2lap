@@ -1,13 +1,18 @@
 export const MODEL_CATEGORIES = [["tree", "Trees"], ["bush", "Bushes"], ["grass", "Grass"], ["flower", "Flowers"],
   ["plant", "Plants"], ["rock", "Rocks"], ["building", "Buildings"], ["prop", "Street furniture"], ["other", "Other"]] as const;
+import type {TrackCost} from "./ModelCost";
+
+export interface PreparedModel {
+  token: string; geometry: {bounds: number[][]; track_cost?: TrackCost}; warnings?: string[]; lighting_options?: string[];
+}
 let modelPreparation: Promise<unknown> = Promise.resolve();
 
 /** Queue model preparation across cancelled dialogs; finish the server's current upload before starting another. */
-export function prepareModelFile(file: File, signal: AbortSignal): Promise<{token: string; geometry: {bounds: number[][]}; warnings?: string[]}> {
+export function prepareModelFile(file: File, signal: AbortSignal): Promise<PreparedModel> {
   const task = modelPreparation.catch(() => {}).then(() => {
     signal.throwIfAborted();
     // The dialog discards a cancelled answer; aborting fetch could leave the server still holding its preparation lock.
-    return libraryJson<{token: string; geometry: {bounds: number[][]}}>(`/api/library/model-imports?filename=${encodeURIComponent(file.name)}`, {
+    return libraryJson<PreparedModel>(`/api/library/model-imports?filename=${encodeURIComponent(file.name)}`, {
       method: "POST", headers: {"Content-Type": "application/x-map2lap-glb"}, body: file,
     });
   });

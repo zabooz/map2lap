@@ -146,3 +146,32 @@ def geometry(model, meta):
             result.append({"vertices": vertices, "faces": np.asarray(faces, "<u4"), "material": source.material,
                            "primitive": number, "node": node.node, "tangent_handedness": handedness})
     return result
+
+
+def track_cost(model):
+    """A GLB's per-instance native vertex/index bytes, without textures or node headers. Pure.
+
+    Match trackmodels._pieces: each 21,845-triangle piece owns its used vertices, including repeats at piece seams.
+    CSP draws double-sided render faces once; mesh collision additionally owns front and back faces.
+    """
+    def payload(faces):
+        return sum(len(np.unique(faces[start:start + 21845])) * kn5.VERTEX.itemsize
+                   + faces[start:start + 21845].size * 2 for start in range(0, len(faces), 21845))
+
+    visible, collision, triangles = 0, 0, 0
+    for part in geometry(model, {"anchor": model.anchor, "metres_per_unit": 1.}):
+        faces = part["faces"]
+        size = payload(faces)
+        visible += size
+        triangles += len(faces)
+        definition = model.materials[part["material"]] if part["material"] is not None else {}
+        if definition.get("doubleSided", False):
+            faces = np.concatenate([faces, faces[:, ::-1] + len(part["vertices"])])
+            size = payload(faces)
+        collision += size
+    # Advisory budget: 100 copies at 0.5 decimal MB already add 50 MB of geometry, before textures.
+    # This is no AC capability limit; a single detailed landmark may reasonably exceed it.
+    budget = 500_000
+    sizes = {"none": visible, "mesh": visible + collision}
+    return {"version": 1, "triangles": triangles, "bytes": sizes, "warning_bytes": budget,
+            "heavy": {mode: size >= budget for mode, size in sizes.items()}}
