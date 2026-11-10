@@ -23,7 +23,7 @@ def statistics(ac, name):
         source = trackview._scan_of(ac, name, draft['base'])[1]
         added = scan['meshes'][len(source['meshes']):]
         size = Path(path).stat().st_size + sum(128 + len(m['name'].encode()) + m['vertices'] * 44 + m['indices'] * 2 for m in added)
-        size += sum(len(raw) for raw in scan.get('model_images', {}).values())
+        size += sum(recipe['bytes'] for recipe in scan.get('model_textures', {}).values())
         if draft['paints']:
             descriptors = trackpaint.descriptors(ac, name, draft['base'], draft['paints'])
             native = trackdetail.native_descriptors(ac, name, descriptors, keys=False)
@@ -63,9 +63,10 @@ def object_info(ac, name, object_id, revision):
 
 
 @functools.lru_cache(maxsize=32)
-def _thumbnail(ac, name, i, revision, version=""):
-    """At most 32 encoded 256 px previews; neither source images nor decoded full-size pixels stay cached."""
-    _filename, raw = trackview.texture_bytes(ac, name, i, revision, version)
+def _thumbnail(ac, name, i, revision, version, _texture):
+    """At most 32 encoded 256 px previews, by texture name too: a draft's model textures renumber. Neither source images nor decoded
+    full-size pixels stay cached."""
+    _filename, raw = trackview.texture_bytes(ac, name, i, revision, version, side=256)
     with Image.open(io.BytesIO(raw)) as original:
         original.thumbnail((256, 256), Image.Resampling.LANCZOS)
         image = original.convert("RGBA" if "A" in original.getbands() else "RGB")
@@ -76,10 +77,10 @@ def _thumbnail(ac, name, i, revision, version=""):
 
 def thumbnail(ac, name, i, revision, version=""):
     """Texture i as a small browser-readable PNG; cached previews still require the requested source to be current."""
-    _path, scan = trackview._scan_of(ac, name, revision)
+    _path, scan, _objects = trackedits.context(ac, name, revision)
     if not 0 <= i < len(scan["textures"]):
         raise ValueError("No texture with this number")
-    result = _thumbnail(ac, name, i, revision, version)
+    result = _thumbnail(ac, name, i, revision, version, scan["textures"][i][0])
     trackview._scan_of(ac, name, revision)
     return result
 

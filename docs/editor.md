@@ -364,11 +364,16 @@ Double-sided materials receive back faces. Parts split below KN5's 65,535-vertex
 `mesh` additionally creates invisible `1WALL_` collision. Visual source replacement removes only the selected `nocol_` faces;
 source collision and unrelated vertices/indices remain unchanged.
 
+Only Save makes a model's colour images. While editing, each texture is a recipe: its name hashes the source image, colour
+factor and alpha, so no draft change decodes a picture. The index and the draft's size estimate give the source image's bytes;
+Save's disk check uses the finished images. The Inspector makes its own preview of at most 256 px. A draft save builds the
+models once: that state answers the save and is what the index reads next.
+
 `data/map2lap_models/` retains the verified original GLBs and snapshot descriptions once per asset in the saved track.
 Its `compiled.json` is compiled provenance tied to the written KN5's SHA256, rather than a new editable geometry format.
 After loss of the library, preparation cache and source cache, the semantic bindings, model deletions and poses remain editable.
 Compiled source provenance distinguishes replacements already applied to that source from new replacements, so renumbered
-billboards are not removed again. Regeneration strips the prior owned render regions and reuses matching owned material slots.
+billboards are not removed again. Regeneration strips the prior owned render regions and reuses matching owned material slots with the images they hold.
 Inherited terrain changes apply only to regenerated models; the remaining baked source is not moved twice. Portable originals
 needed by local Undo are retained before their last binding is removed.
 

@@ -446,13 +446,15 @@ def glow_bytes(ac, name, file):
     return out.getvalue()
 
 
-def texture_bytes(ac, name, i, revision, version=""):
-    """Texture i as in the file: (its name, the image file's bytes: .dds, .png or .jpg)."""
+def texture_bytes(ac, name, i, revision, version="", side=None):
+    """Texture i as in the file: (its name, the image file's bytes: .dds, .png or .jpg). A draft model's is made now, at most side
+    pixels when given."""
     from app import trackedits
     path, s, _objects = trackedits.context(ac, name, revision)
     tex, offset, size = s["textures"][i]
-    if tex in s.get("model_images", {}):
-        return tex, s["model_images"][tex]
+    if tex in s.get("model_textures", {}):
+        from app import trackmodels
+        return tex, trackmodels.image(ac, name, s["model_textures"][tex], side)
     if version:
         from app import trackpaint
         return tex, trackpaint.texture(ac, name, i, revision, version)

@@ -189,22 +189,25 @@ def context(ac, name, revision, copies=None, models=None):
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
         extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path}, objects, models)
         return path, extended, objects
-    draft = _file(ac, name)
-    info = os.path.join(os.path.dirname(trackview.kn5_path(ac, name)), mytracks.FILE)
-    listed = os.path.join(os.path.dirname(path), objectlist.FILE)
     with _context_lock:
-        key = (path, revision, _stamp(draft), _stamp(info), _stamp(listed))
+        key = _context_key(ac, name, path, revision)
         if _context_cache.get("key") == key:
             return _context_cache["value"]
-        stored = _stored(draft, trackview.recipe(ac, name))
+        stored = _stored(_file(ac, name), trackview.recipe(ac, name))
         copies = stored.get("copies", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
         extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path}, objects, stored.get("models", []) if stored["base"] == revision else [])
         value = path, {**extended, "draft": stored["revision"], "paints": stored.get("paints", []) if stored["base"] == revision else []}, objects
         # An atomic save may have replaced the draft while its geometry was generated. Never cache it under the old stat.
-        if key == (path, revision, _stamp(draft), _stamp(info), _stamp(listed)):
+        if key == _context_key(ac, name, path, revision):
             _context_cache.update(key=key, value=value)
         return value
+
+
+def _context_key(ac, name, path, revision):
+    """What a context holds for: its source and revision, and the state of the draft, the track's info and the object list."""
+    info = os.path.join(os.path.dirname(trackview.kn5_path(ac, name)), mytracks.FILE)
+    return path, revision, _stamp(_file(ac, name)), _stamp(info), _stamp(os.path.join(os.path.dirname(path), objectlist.FILE))
 
 
 def _stamp(path):
@@ -471,9 +474,10 @@ def remember_meshes(ac, name, revision, op):
     _meshes_of_height(path, scan, objects, _heights_and_moved(ac, name, revision)[1], op, refuse=True)
 
 
-def _meshes_between(ac, name, revision, before, after):
-    """The numbers of the meshes to show anew: what the height changes that are in only one of the lists before and after move, and the
-    road lines they reach; the objects placed otherwise in the two, and what goes with them. before, after: {"heights", "placed"}."""
+def _meshes_between(path, scan, objects, before, after):
+    """The numbers of the meshes to show anew in the context (path, scan, objects) of after: what the height changes that are in only one
+    of the lists before and after move, and the road lines they reach; the objects placed otherwise in the two, and what goes with them.
+    before, after: {"heights", "placed"}."""
     now = {h["id"] for h in after["heights"]}
     different = ([h for h in after["heights"] if h["id"] not in {b["id"] for b in before["heights"]}]
                  + [h for h in before["heights"] if h["id"] not in now])
@@ -483,7 +487,6 @@ def _meshes_between(ac, name, revision, before, after):
     modeled = before.get("models", []) != after.get("models", [])
     if not (different or moving or copied or modeled):
         return []
-    path, scan, objects = context(ac, name, revision)
     out = set()
     if moving:
         out.update(trackplace.meshes_of(scan, objects, moving))
@@ -533,7 +536,7 @@ def save_telling(ac, name, body):
         if wrong:
             raise Invalid(wrong)
         try:
-            _source, scan, objects = context(ac, name, revision, copies, models)
+            source, scan, objects = context(ac, name, revision, copies, models)
         except ValueError as e:
             raise Invalid(str(e)) from e
         counts, listed_sorts = trackview.counts_of(scan, objects)
@@ -563,7 +566,11 @@ def save_telling(ac, name, body):
                       "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models})
         same = s["base"] == revision
         before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else []}
-    return {"revision": new, "meshes": _meshes_between(ac, name, revision, before, {"heights": heights, "placed": placed, "copies": copies, "models": models}),
+        # What was built to check this list is the draft now: the index reads it, and the answer below stays this save's after the lock.
+        scan = {**scan, "draft": new, "paints": paints}
+        with _context_lock:
+            _context_cache.update(key=_context_key(ac, name, source, revision), value=(source, scan, objects))
+    return {"revision": new, "meshes": _meshes_between(source, scan, objects, before, {"heights": heights, "placed": placed, "copies": copies, "models": models}),
             "textures": textures}
 
 

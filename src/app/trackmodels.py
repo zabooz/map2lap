@@ -242,6 +242,22 @@ def view_matrices(scan, placed, heights):
     return result
 
 
+def _model(ac, name, asset):
+    folder, _meta = resolve(ac, name, asset)
+    return modeldata.load((folder / "original/model.glb").read_bytes())
+
+
+def image(ac, name, recipe, side=None):
+    """One texture of extend's "model_textures", from its retained original, at most side pixels when given."""
+    return modelmesh.image(_model(ac, name, recipe["asset"]), recipe, side)
+
+
+def images(ac, name, scan):
+    """The new native textures of an extended scan as {name: PNG bytes}, each asset's original read once: only Save pays for them."""
+    load = functools.lru_cache(maxsize=1)(lambda asset: _model(ac, name, asset))
+    return {texture: modelmesh.image(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
+
+
 def extend(ac, name, scan, objects, models):
     """Register model roots in the ordinary object list and derive each unique asset's real local geometry once."""
     inherited = compiled(ac, name, scan.get("model_source_path"))
@@ -259,15 +275,17 @@ def extend(ac, name, scan, objects, models):
             decoded[asset] = model
             parts[asset] = modelmesh.geometry(model, meta)
             assets[asset] = {**meta, "url": f"/api/editor/{name}/model-asset/{asset}"}
-            native, images = modelmesh.materials(model, asset)
+            native, recipes = modelmesh.materials(model, asset)
             slots[asset] = []
             for material in native:
                 slot = next((i for i, previous in enumerate(materials) if previous.name == material.name
                              and any(p[0] == "m2lModelMaterial" and p[1] == 1 for p in previous.props)), None)
                 if slot is None:
                     slot = len(materials); materials.append(material)
+                    texture = next(n for map_slot, _number, n in material.maps if map_slot == "txDiffuse")
+                    resources[texture] = {**recipes[texture], "asset": asset}
+                # (a slot of the saved kn5 keeps its map: that image is of this same immutable asset, and already in the file)
                 slots[asset].append(slot)
-            resources.update(images)
         meta = assets[asset]
         kind = {"tree": "tree", "building": "house", "other": "model"}[meta["category"]]
         listed[instance["id"]] = {"kinds": [kind], "sorts": [meta["name"]], "at": [instance["at"]],
@@ -290,7 +308,8 @@ def extend(ac, name, scan, objects, models):
                 meshes.append({"name": f"nocol_m2l_model_{instance['id']}_{len(listed[instance['id']]['faces'][0])}",
                     "material": slots[asset][material_number], "vertices": len(data), "indices": len(inverse),
                     "data": (data, inverse.reshape(-1, 3).astype("<u2")),
-                    "model": {"instance": instance["id"], "asset": asset, "primitive": part["primitive"], "material": part["material"]},
+                    "model": {"instance": instance["id"], "asset": asset, "primitive": part["primitive"], "material": part["material"],
+                              "at": instance["at"], "scale": instance.get("scale", 1)},
                     "active": 1, "visible": 1, "renderable": 1, "cast_shadows": 1, "transparent": int(definition.get("alphaMode") == "BLEND"),
                     "layer": 0, "lod_in": 0., "lod_out": 1000., "center": center.tolist(),
                     "radius": float(np.linalg.norm(data["pos"] - center, axis=1).max())})
@@ -301,10 +320,10 @@ def extend(ac, name, scan, objects, models):
                     listed[instance["id"]]["faces"][0].append([len(meshes), 0, len(inverse) // 3])
                     meshes.append(collision)
     names = {t[0] for t in scan["textures"]}
-    textures = [*scan["textures"], *[(n, 0, len(raw)) for n, raw in resources.items() if n not in names]]
+    textures = [*scan["textures"], *[(n, 0, recipe["bytes"]) for n, recipe in resources.items() if n not in names]]
     consumed = {m["id"]: m.get("replaces") for m in inherited["models"]} if inherited else {}
     replacements = [m["replaces"] for m in models if m.get("replaces") and consumed.get(m["id"]) != m["replaces"]]
-    return {**scan, "meshes": meshes, "materials": materials, "textures": textures, "model_images": resources,
+    return {**scan, "meshes": meshes, "materials": materials, "textures": textures, "model_textures": resources,
             "models": models, "model_assets": assets, "model_parts": parts,
             "model_replacements": replacements,
             "model_heights": inherited.get("model_heights", {}) if inherited else {}}, listed
