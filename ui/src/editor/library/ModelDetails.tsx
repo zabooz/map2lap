@@ -3,16 +3,10 @@ import {useEffect, useState} from "react";
 import {libraryJson, MODEL_CATEGORIES} from "./library";
 import {ModelCost, type TrackCost} from "./ModelCost";
 import styles from "./ModelDetails.module.css";
+import {LibraryFacts, webSource} from "./LibraryBrowser";
 
 /** Keep publisher credit in the information panel rather than repeating it in every card title. Pure. */
 export const modelName = (model: Pick<LibraryModel, "name">) => model.name.replace(/^(Kenney|Quaternius)\s*-\s*/i, "");
-
-function webSource(source?: string) {
-  try {
-    const url = new URL(source ?? "");
-    return ["https:", "http:"].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
-}
 
 /** The selected object's title and retained creator, source and licence; absent credits remain explicit. */
 export function ModelDetails({model}: {model: LibraryModel}) {
@@ -37,10 +31,8 @@ export function ModelDetails({model}: {model: LibraryModel}) {
     <span>{model.metres_per_unit} m per unit · Collision: {model.collision === "mesh" ? "Model mesh" : "None"}</span>
     {cost ? <ModelCost cost={cost} collision={model.collision} />
       : <span role="status">{error ? `Geometry cost unavailable: ${error}` : "Reading geometry cost…"}</span>}
-    <dl className={styles.credits}>
-      <dt>Creator</dt><dd>{creator || "Not specified"}</dd>
-      <dt>Source</dt><dd>{source ? <a href={source} target="_blank" rel="noopener noreferrer">View source</a> : "Not specified"}</dd>
-      <dt>Licence</dt><dd>{model.license || (model.tags?.includes("CC0") ? "CC0" : "Not specified")}</dd>
-    </dl>
+    <LibraryFacts rows={[["Creator", creator || "Not specified"],
+      ["Source", source ? <a href={source} target="_blank" rel="noopener noreferrer">View source</a> : "Not specified"],
+      ["Licence", model.license || (model.tags?.includes("CC0") ? "CC0" : "Not specified")]]} />
   </section>;
 }

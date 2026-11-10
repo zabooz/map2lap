@@ -5,6 +5,7 @@ import styles from "./ToolPanel.module.css";
 import {thenView} from "./ToolOptions";
 import type {useSave} from "../state/useSave";
 import type {TrackView} from "../scene/view";
+import {Help} from "./Help";
 
 export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model";
 type Group = "general" | "terrain" | "objects";
@@ -13,10 +14,10 @@ export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: s
   {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
   {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "T", hint: "Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (T)"},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
-  {tool: "move", group: "objects", id: "edit-move", label: "Move", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
+  {tool: "move", group: "objects", id: "edit-move", label: "Transform", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
   {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},
   {tool: "delete", group: "objects", id: "edit-click-deletes", label: "Delete", key: "X", hint: "Each click deletes what is under it, Ctrl+Z brings it back (X, with nothing picked; Esc ends it)"},
-  {tool: "model", group: "objects", id: "edit-insert", label: "INSERT", key: "I", hint: "Open the object library to import or place a model (I)"},
+  {tool: "model", group: "objects", id: "edit-insert", label: "Insert", key: "I", hint: "Open the object library to import or place a model (I)"},
 ];
 
 /** One titled group of the sidebar's tools. */
@@ -29,8 +30,9 @@ function Section({title, children}: {title: string; children: ReactNode}) {
   );
 }
 
-/** Save, Play and Discard all under the track's choice in the sidebar's File. */
-export function FileButtons({state, edits, view, saving}: {state: EditState; edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>}) {
+/** Save, Play and Revert to saved under the track's choice in the sidebar's File, the library of textures and objects apart below them. onLibrary: it was pressed. */
+export function FileButtons({state, edits, view, saving, onLibrary}: {state: EditState; edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>;
+                                                                  onLibrary: () => void}) {
   const then = (action: () => void) => thenView(view, action);
   return (
     <div className={`${styles.tools} ${styles.fileButtons}`}>
@@ -44,16 +46,18 @@ export function FileButtons({state, edits, view, saving}: {state: EditState; edi
                 onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : "▶ Play"}</button>
       </div>
       <button type="button" disabled={!hasUnsavedChanges(state) || !edits.canEdit() || saving.busy}
-              title="Discard unsaved changes and return to the last Save" onClick={then(() => {
-                if (confirm("Discard changes since the last Save?\n\nYour saved edits are kept. Undo brings the discarded changes back.")) {
+              title="Return to the last Save; Undo brings the changes back" onClick={then(() => {
+                if (confirm("Revert to the last Save?\n\nYour saved edits are kept. Undo brings the discarded changes back.")) {
                   void edits.inTurn(() => edits.discard());
                 }
-              })}>Discard all</button>
+              })}>Revert to saved</button>
+      <button type="button" id="edit-library" className={styles.library} title="Textures and objects: import them, paint the picked ground, place models"
+              onClick={then(onLibrary)}>Library</button>
     </div>
   );
 }
 
-/** The Editor's tools, by groups: undo and redo with the tools that change nothing, those of the ground and the road, those of objects; one tool at a time as in an
+/** The Editor's tools, by groups: undo and redo with the tools that change nothing, those of the ground and the road, those of objects, the help of the one on; one tool at a time as in an
     image editor. tool: the one on. onTool: one was pressed. */
 export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
   const editable = edits.canEdit();
@@ -81,6 +85,7 @@ export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: 
       </Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
       <Section title="Objects">{buttons("objects")}</Section>
+      <Help tool={shownTool} />
     </div>
   );
 }

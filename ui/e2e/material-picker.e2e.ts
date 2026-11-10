@@ -8,7 +8,7 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
-  const panel = page.getByRole("complementary", {name: "Selection properties"});
+  const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel.locator("#inspect-selection")).toContainText("Shrubland");
   const thumbnail = panel.getByRole("img", {name: "Selected texture"});
   const originalThumbnail = await thumbnail.getAttribute("src");
@@ -62,7 +62,7 @@ test("the right panel keeps technical mesh and pointer information in Details", 
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
-  const panel = page.getByRole("complementary", {name: "Selection properties"});
+  const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel.getByRole("tab", {name: "Properties", exact: true})).toHaveAttribute("aria-selected", "true");
   await expect(panel.getByText("Under pointer", {exact: true})).toBeHidden();
   await panel.getByRole("tab", {name: "Details", exact: true}).click();
@@ -94,7 +94,7 @@ test("asphalt can use an imported material without changing its driving surface"
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await page.getByRole("alert").filter({hasText: "Editor needs attention"}).click();
   await expect(page.locator("#edit-view-failed")).toBeVisible();
-  await page.getByRole("button", {name: "Discard all", exact: true}).click();
+  await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
   await saved(page);
   await expect(page.locator("#edit-paints")).toHaveCount(0);
 });

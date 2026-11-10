@@ -1,3 +1,10 @@
-.cost { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.cost small { color: var(--muted); }
-.warning { margin: 4px 0 0; padding: 8px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }
+.cost { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 12px; }     /* (triangles and both sizes in one line where there is room) */
+/* A number being measured: a small turning ring in its place, as wide as the number it stands for */
+.spinner { display: inline-block; width: 1em; height: 1em; margin: 0 1.2em; vertical-align: -0.15em; border: 2px solid var(--line);
+           border-top-color: var(--accent); border-radius: 50%; animation: turn .8s linear infinite; }
+@keyframes turn { to { transform: rotate(360deg); } }
+/* The budget line: the same box quiet or warning, so nothing below it moves */
+.budget { margin: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 12px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heavy { border-color: var(--warn); color: var(--warn); }
+.warning { flex-basis: 100%; margin: 4px 0 0; padding: 8px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }

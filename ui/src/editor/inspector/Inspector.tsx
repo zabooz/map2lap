@@ -7,6 +7,7 @@ import {surfaceName, type SurfacePoint, type SurfaceSelection} from "../scene/su
 import type {Hovered, Marked, Picked} from "../types";
 import type {TrackView} from "../scene/view";
 import styles from "./Inspector.module.css";
+import {SunClock} from "../scene/SunClock";
 import {TrackStatistics} from "./TrackStatistics";
 
 function Row({label, children}: {label: string; children: ReactNode}) {
@@ -144,15 +145,16 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
   const textureVersion = chosen?.inspection?.texture != null ? view.textureVersion(chosen.inspection.texture) : "";
   const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
   return <>
-    {collapsed && <button className={styles.show} onClick={() => { onCollapsed(false); if (attention) setTab("details"); }} aria-label="Show properties">
-      {attention ? <span role="alert">Editor needs attention — Details ‹</span> : "Properties ‹"}</button>}
+    {collapsed && <button className={styles.show} onClick={() => { onCollapsed(false); if (attention) setTab("details"); }} aria-label="Show inspector">
+      {attention ? <span role="alert">Editor needs attention — Details ‹</span> : "Inspector ‹"}</button>}
     {!collapsed && <div className={styles.divider} role="separator" tabIndex={0} aria-label="Inspector width" aria-orientation="vertical"
       aria-valuenow={width} aria-valuemin={260} aria-valuemax={520}
       onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); updateWidth(width + (e.key === "ArrowLeft" ? 20 : -20)); } }}
       onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); }}
       onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) updateWidth(e.currentTarget.getBoundingClientRect().right + width - e.clientX); }} />}
-    <aside className={styles.panel} aria-label="Selection properties" hidden={collapsed}>
-      <div className={styles.head}><h2>Properties</h2><button type="button" onClick={() => onCollapsed(true)} aria-label="Hide properties">›</button></div>
+    <aside className={styles.panel} aria-label="Inspector" hidden={collapsed}>
+      <div className={styles.head}><h2>Inspector</h2><button type="button" onClick={() => onCollapsed(true)} aria-label="Hide inspector">›</button></div>
+      <SunClock key={name} view={view} />
       <div className={styles.tabs} role="tablist" aria-label="Inspector">
         {(["properties", "details"] as const).map(id => <button type="button" role="tab" id={`inspector-tab-${id}`} key={id}
           aria-selected={tab === id} aria-controls={`inspector-${id}`} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}
@@ -176,7 +178,6 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
       </section>
       {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture}`}
         name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null} />}
-      <button type="button" className={styles.materials} onClick={onMaterialOpen}>Edit</button>
       </div>
       <div id="inspector-details" role="tabpanel" aria-labelledby="inspector-tab-details" hidden={tab !== "details"}>
       <TrackStatistics name={name} revision={state.keptRevision} active={tab === "details" && state.save === "saved"} />

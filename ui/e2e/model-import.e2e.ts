@@ -9,7 +9,7 @@ const obj = Buffer.from('v -1 0 0\nv 1 0 0\nv 1 3 0\nv -1 3 0\nf 1 2 3 4\n');
 for (const format of ['obj', 'fbx', 'zip'] as const) {
   test(`${format.toUpperCase()} import previews the converted model, places, saves and reopens`, async ({page, backend}) => {
     await openEditor(page);
-    await page.getByRole('button', {name: 'INSERT', exact: true}).click();
+    await page.getByRole('button', {name: 'Insert', exact: true}).click();
     const library = page.getByRole('dialog', {name: 'Asset library'});
     const repo = join(import.meta.dirname, '../..');
     const buffer = format === 'obj' ? obj : format === 'fbx'
@@ -52,7 +52,7 @@ for (const format of ['obj', 'fbx', 'zip'] as const) {
 
 test('an OBJ with missing MTL files explains how to include companion files', async ({page}) => {
   await openEditor(page);
-  await page.getByRole('button', {name: 'INSERT', exact: true}).click();
+  await page.getByRole('button', {name: 'Insert', exact: true}).click();
   await page.getByLabel('Model file').setInputFiles({name: 'missing.obj', mimeType: 'text/plain', buffer: Buffer.concat([Buffer.from('mtllib missing.mtl\n'), obj])});
   const importer = page.getByRole('dialog', {name: 'Import object', exact: true});
   await expect(importer.getByRole('alert')).toContainText('Missing model file: missing.mtl');

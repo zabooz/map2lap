@@ -28,20 +28,22 @@ function detailedPanel() {
 
 test("native geometry cost and heavy warning survive import into the selected library model", async ({page}, testInfo) => {
   await openEditor(page);
-  await page.getByRole("button", {name: "INSERT", exact: true}).click();
+  await page.getByRole("button", {name: "Insert", exact: true}).click();
   const library = page.getByRole("dialog", {name: "Asset library"});
   const prepared = page.waitForResponse(r => r.url().includes("/model-imports?filename="));
   await library.getByLabel("Model file").setInputFiles({name: "detailed-panel.glb", mimeType: "model/gltf-binary", buffer: detailedPanel()});
   const cost = (await (await prepared).json()).geometry.track_cost;
   const importer = page.getByRole("dialog", {name: "Import object", exact: true});
-  const facts = importer.getByLabel("Track geometry cost");
+  const facts = importer.getByLabel("Track geometry cost"), heavy = importer.getByRole("status").filter({hasText: "Heavy model"});
+  // (the cost of the model as it is: Original, not the 50 % the dialog starts at)
+  await importer.getByRole("slider", {name: "Geometry", exact: true}).fill("0");
   await expect(facts).toContainText("4,802 triangles");
   await expect(facts).toContainText("No collision: 0.63 MB");
   await expect(facts).toContainText("Mesh collision: 1.89 MB");
-  await expect(facts.getByRole("status")).toContainText("Heavy model: 0.63 MB");
+  await expect(heavy).toContainText("Heavy model: 0.63 MB");
   expect(cost.bytes).toEqual({none: 630908, mesh: 1892724});
   await importer.getByRole("combobox", {name: /^Collision/}).selectOption("mesh");
-  await expect(facts.getByRole("status")).toContainText("Heavy model: 1.89 MB");
+  await expect(heavy).toContainText("Heavy model: 1.89 MB");
   await facts.scrollIntoViewIfNeeded();
   await importer.screenshot({path: testInfo.outputPath("import-cost.png")});
   const published = page.waitForResponse(r => new URL(r.url()).pathname === "/api/library/models" && r.request().method() === "POST");

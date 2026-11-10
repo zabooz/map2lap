@@ -3,7 +3,6 @@ import {useEffect, useRef, useState, type CSSProperties} from "react";
 import type {Controls} from "./scene/controls";
 import styles from "./EditorScene.module.css";
 import {EditTools} from "./EditTools";
-import {SunClock} from "./scene/SunClock";
 import type {Hovered} from "./types";
 import {TrackView} from "./scene/view";
 
@@ -50,7 +49,6 @@ export default function EditorScene({name, title, taken, built, visible, control
       style={{"--inspector-space": name && !inspectorCollapsed ? `min(${inspectorWidth + 5}px, 48%)` : "0px"} as CSSProperties}>
       <div id="scene" className={styles.scene} ref={scene}>
         <div className={styles.view} ref={host} />
-        {view && name && <SunClock key={name} view={view} />}
       {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost} hovered={hovered}
                                   inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}

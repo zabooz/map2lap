@@ -4,7 +4,7 @@ import {findCar, findTree, points} from "./edit-helpers";
 test("the right inspector keeps the selected object while the pointer inspects the road", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
   await openEditor(page);
-  const panel = page.getByRole("complementary", {name: "Selection properties"});
+  const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Nothing selected");
   const car = await findCar(page);
@@ -31,7 +31,7 @@ test("surface selection appears in the inspector and cannot turn into an object 
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
-  const panel = page.getByRole("complementary", {name: "Selection properties"});
+  const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel.locator("#inspect-selection")).toContainText("Asphalt");
   const tree = await findTree(page);
   await points(page, tree);
@@ -45,17 +45,17 @@ test("the inspector can collapse, reopen and resize without losing the selection
   await openEditor(page);
   const tree = await findTree(page);
   await page.mouse.click(tree.x, tree.y);
-  const panel = page.getByRole("complementary", {name: "Selection properties"});
+  const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel.locator("#inspect-selection")).toContainText("Tree");
   const before = (await scene(page).boundingBox())!.width;
   const divider = page.getByRole("separator", {name: "Inspector width"});
   await divider.focus();
   await divider.press("ArrowLeft");
   await expect.poll(async () => (await scene(page).boundingBox())!.width).toBeLessThan(before);
-  await panel.getByRole("button", {name: "Hide properties"}).click();
+  await panel.getByRole("button", {name: "Hide inspector"}).click();
   await expect(panel).toBeHidden();
   await expect.poll(async () => (await scene(page).boundingBox())!.width).toBeGreaterThan(before);
-  await page.getByRole("button", {name: "Show properties"}).click();
+  await page.getByRole("button", {name: "Show inspector"}).click();
   await expect(panel.locator("#inspect-selection")).toContainText("Tree");
   await page.locator("#edit-track").selectOption("beta");
   await expect(panel).toContainText("Nothing selected");

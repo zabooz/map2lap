@@ -65,7 +65,7 @@ export function Models({name, view, edits, replace: replaceTargets, enabled, cho
       options={[
         <ToolNumber label="Turn" unit="°" hint="Turn the next model (Shift + wheel)" min={-180} max={180} step={5}
           value={pose.turn} onChange={turn => setPose(p => nudged({...p, turn}, {}))} />,
-        <ToolNumber label="Height" unit="cm" hint="Height over the ground (Ctrl + wheel)" min={-10000} max={10000} step={10}
+        <ToolNumber label="Raise" unit="cm" hint="Raise the next model above the clicked ground (Ctrl + wheel)" min={-10000} max={10000} step={10}
           value={Math.round(pose.y * 100)} onChange={cm => setPose(p => nudged({...p, y: cm / 100}, {}))} />,
         <ToolNumber label="Size" unit="%" hint="Model size (Alt + wheel)" min={10} max={1000} step={5}
           value={Math.round(pose.scale * 100)} onChange={percent => setPose(p => nudged({...p, scale: percent / 100}, {}))} />,

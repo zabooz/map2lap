@@ -1,4 +1,8 @@
-.dialog { width: min(960px, calc(100vw - 40px)); max-width: none; max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.dialog { width: min(1150px, calc(100vw - 40px)); max-width: none; height: min(860px, calc(100dvh - 40px)); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+/* The size is the dialog's own, not its tab's: switching between Textures and Objects, with or without pages and notices,
+   moves nothing; the open tab fills it, its grid takes what is left */
+.dialog[open] { display: flex; flex-direction: column; }
+.dialog > [role=tabpanel]:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dialog::backdrop { background: rgba(0, 0, 0, .5); }
 .tabs { display: flex; gap: 8px; padding: 14px 20px 0; }
 .tabs button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); cursor: pointer; }

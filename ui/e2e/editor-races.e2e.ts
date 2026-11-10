@@ -75,7 +75,7 @@ test("a move whose prerequisite draft fails restores the last kept geometry", as
       mark(); await gate; await route.fulfill({status: 500, json: {error: "Injected save failure"}});
     } else await route.continue();
   });
-  await page.locator("#edit-move-set").getByLabel("Height").fill("100");
+  await page.locator("#edit-move-set").getByLabel("Raise").fill("100");
   await blocked;
   const at = await findTree(page);
   await dragMouse(page, at, {x: at.x + 80, y: at.y});

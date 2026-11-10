@@ -19,21 +19,22 @@ const asItIs = async (page: Parameters<typeof stored>[0]) => {
 
 const placed = async (page: Parameters<typeof stored>[0]) => ((await stored(page)) as unknown as {placed: Placed[]}).placed;
 
-test("Move in the context menu keeps the clicked house picked and opens its controls", async ({page, backend}) => {
+test("Transform in the context menu keeps the clicked house picked and opens its controls", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", house: true});
   await openEditor(page);
   const house = await findTitled(page, "Building");
   await page.mouse.click(house.x, house.y, {button: "right"});
-  await page.getByRole("menuitem", {name: "Move", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Transform", exact: true}).click();
   await expect(page.locator("#view-menu")).toBeHidden();
   await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#edit-move")).toContainText("Transform");
   await expect(page.locator("#edit-picked")).toContainText("Building");
   await expect(page.locator("#edit-move-set")).toBeVisible();
-  await page.locator("#edit-move-set").getByLabel("Height").fill("100");
+  await page.locator("#edit-move-set").getByLabel("Raise").fill("100");
   await saved(page);
   expect(await placed(page)).toEqual([{id: "t_0_0#0", x: 0, y: 1, z: 0, turn: 0, scale: 1}]);
   await page.mouse.click(house.x, house.y, {button: "right"});
-  await page.getByRole("menuitem", {name: "Move", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Transform", exact: true}).click();
   await expect(page.locator("#edit-move-set")).toBeVisible(); // Taking up Move again must not toggle it off.
 });
 
@@ -41,7 +42,7 @@ test("terrain has Edit instead of object movement actions in its context menu", 
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y, {button: "right"});
-  await expect(page.getByRole("menuitem", {name: "Move", exact: true})).toHaveCount(0);
+  await expect(page.getByRole("menuitem", {name: "Transform", exact: true})).toHaveCount(0);
   await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeEnabled();
 });
 
@@ -77,7 +78,7 @@ test("a house picked is turned, raised and sized by the wheel with Shift, Ctrl a
   await page.mouse.click(house.x, house.y);
   await expect(page.locator("#edit-picked")).toContainText("Building");
   const bar = page.locator("#edit-move-set");
-  for (const [key, label, value] of [["Shift", "Turn", "5"], ["Control", "Height", "10"], ["Alt", "Size", "105"]] as const) {
+  for (const [key, label, value] of [["Shift", "Turn", "5"], ["Control", "Raise", "10"], ["Alt", "Size", "105"]] as const) {
     await page.keyboard.down(key);
     await page.mouse.wheel(0, -100);
     await page.keyboard.up(key);
@@ -136,7 +137,7 @@ test("Move follows a slope and keeps a raised object's clearance, including afte
   await page.locator("#edit-move").click();
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y);
-  await page.locator("#edit-move-set").getByLabel("Height").fill("200");
+  await page.locator("#edit-move-set").getByLabel("Raise").fill("200");
   await scene(page).focus();
   await saved(page);
   const before = await picture(page);
@@ -195,7 +196,7 @@ test("Move over edited terrain keeps the preview's height when the server takes 
   await page.locator("#edit-move").click();
   const tree = await findTree(page);
   await page.mouse.click(tree.x, tree.y);
-  await page.locator("#edit-move-set").getByLabel("Height").fill("200");
+  await page.locator("#edit-move-set").getByLabel("Raise").fill("200");
   await scene(page).focus();
   await saved(page);
   const at = await findTree(page);
@@ -235,4 +236,18 @@ test("Move over edited terrain keeps the preview's height when the server takes 
     await test.info().attach("drag-preview", {body: preview, contentType: "image/png"});
     await test.info().attach("after-move", {body: await pictureOfDrag(), contentType: "image/png"});
   }
+});
+
+test("a tool or Insert taken up in the sidebar closes the open context menu, so the next click in the view acts", async ({page}) => {
+  await openEditor(page);
+  const at = await centre(scene(page));
+  await page.mouse.click(at.x, at.y, {button: "right"});
+  await expect(page.locator("#view-menu")).toBeVisible();
+  await page.getByRole("button", {name: "Insert", exact: true}).click();
+  await expect(page.locator("#view-menu")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await page.mouse.click(at.x, at.y, {button: "right"});
+  await expect(page.locator("#view-menu")).toBeVisible();
+  await page.locator("#edit-elevation").click();
+  await expect(page.locator("#view-menu")).toBeHidden();
 });

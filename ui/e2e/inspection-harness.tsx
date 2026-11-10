@@ -12,7 +12,7 @@ const picked = {kind: "Ground", all: [], surface: surfaces[0], inspection: {
 }} as unknown as Picked;
 const state = {placed: [], keptRevision: "source", save: "saved"} as unknown as EditState;
 const ignore = () => {};
-const view = {textureVersion: () => "displayed", setSurface: async (selection: unknown) => {
+const view = {textureVersion: () => "displayed", setClock: ignore, setSurface: async (selection: unknown) => {
   if (selection) await new Promise<void>(() => {}); // The overlay is deliberately slower than selection metadata.
 }} as unknown as TrackView;
 

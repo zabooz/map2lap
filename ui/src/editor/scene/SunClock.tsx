@@ -13,10 +13,9 @@ export function SunClock({view}: {view: TrackView}) {
   useEffect(() => { view.setClock(minutes / 60); }, [view, minutes]);
   return (
     <div id="sun-clock" className={styles.clock}>
-      <input type="range" min={0} max={LAST} step={1} value={minutes} aria-label="Time of day"
+      <label htmlFor="sun-clock-time" className={styles.label}>Time of day: <span className={styles.time}>{clockText(minutes)}</span></label>
+      <input id="sun-clock-time" type="range" min={0} max={LAST} step={1} value={minutes} aria-label="Time of day"
              onChange={e => setMinutes(Number(e.target.value))} />
-      <span className={styles.time}>{clockText(minutes)}</span>
-      <button type="button" disabled={minutes === START} onClick={() => setMinutes(START)}>Reset</button>
     </div>
   );
 }

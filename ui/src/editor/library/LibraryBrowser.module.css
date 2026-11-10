@@ -1,4 +1,4 @@
-.shell { display: flex; flex-direction: column; gap: 14px; padding: 20px; max-height: calc(100dvh - 96px); box-sizing: border-box; font-size: 13px; }
+.shell { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 14px; padding: 20px; max-height: calc(100dvh - 96px); box-sizing: border-box; font-size: 13px; }
 .heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .heading h2 { margin: 0; font-size: 18px; }
 .heading p, .footer p { margin: 5px 0 0; color: var(--muted); }
@@ -8,8 +8,9 @@
 .filters { display: flex; gap: 10px; }
 .filters input { flex: 1; min-width: 0; height: 34px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); padding: 5px 9px; }
 .filters select { max-width: 45%; height: 34px; }
-.content { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; min-height: 0; height: min(48dvh, 440px); }
-.browser { overflow: auto; min-height: 0; padding: 2px; border: 1px solid var(--line); border-radius: 7px; }
+.content { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; flex: 1 1 auto; min-height: 0; height: min(58dvh, 530px); }     /* (in the library dialog: what is left) */
+.column { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }     /* (the grid, its pages centred under it) */
+.browser { flex: 1; overflow: auto; min-height: 0; padding: 2px; border: 1px solid var(--line); border-radius: 7px; }
 .browser > p { padding: 10px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; padding: 8px; }
 .card { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; text-align: left; font-size: 12px; }
@@ -20,6 +21,11 @@
 .selected { display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
 .selected img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; }
 .selected span { color: var(--muted); font-size: 12px; }
+.facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 12px; margin: 6px 0 0; padding-top: 12px;
+         border-top: 1px solid var(--line); font-size: 12px; overflow-wrap: anywhere; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.facts a { color: var(--accent); }
 .pages { display: flex; justify-content: center; align-items: center; gap: 12px; }
 .note { margin: 0; color: var(--muted); }
 .error { margin: 0; color: var(--warn); }

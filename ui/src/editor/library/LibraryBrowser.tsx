@@ -1,4 +1,4 @@
-import type {ButtonHTMLAttributes, ReactNode} from "react";
+import {Fragment, type ButtonHTMLAttributes, type ReactNode} from "react";
 import styles from "./LibraryBrowser.module.css";
 
 /** The common library layout: heading, filters, asset grid, preview and reserved actions. */
@@ -12,12 +12,15 @@ export function LibraryBrowser({title, titleId, subtitle, onImport, disabled, fi
       <button type="button" onClick={onImport} disabled={disabled}>Import…</button></div>
     <div className={styles.filters}>{filters}</div>
     <div className={styles.content}>
-      <div className={styles.browser} data-library-browser="" onDragOver={e => e.preventDefault()} onDrop={e => {
-        e.preventDefault(); if (!disabled) onFiles(e.dataTransfer.files);
-      }}>{browser}</div>
+      <div className={styles.column}>
+        <div className={styles.browser} data-library-browser="" onDragOver={e => e.preventDefault()} onDrop={e => {
+          e.preventDefault(); if (!disabled) onFiles(e.dataTransfer.files);
+        }}>{browser}</div>
+        {pages}
+      </div>
       <div className={styles.preview}>{preview}</div>
     </div>
-    {pages}{notices}
+    {notices}
     <div className={styles.footer}>{footer}</div>
   </div>;
 }
@@ -39,6 +42,19 @@ export function LibraryCard({label, selected, thumbnail, disabled, onClick}: {
 /** The selected asset's larger preview and properties. */
 export function LibrarySelection({children}: {children: ReactNode}) {
   return <div className={styles.selected}>{children}</div>;
+}
+
+/** The selected asset's facts beside their names, the same for textures and objects: Source, Licence, … rows: [name, value]. */
+export function LibraryFacts({rows}: {rows: [string, ReactNode][]}) {
+  return <dl className={styles.facts}>{rows.map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{value}</dd></Fragment>)}</dl>;
+}
+
+/** A web address to link to, http or https only, or null. Pure. */
+export function webSource(source?: string) {
+  try {
+    const url = new URL(source ?? "");
+    return ["https:", "http:"].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
 }
 
 /** The common library's primary action. */

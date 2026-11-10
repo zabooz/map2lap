@@ -83,11 +83,11 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
 export function MoveOptions({move: m, view}: {move: ReturnType<typeof useMove>; view: TrackView}) {
   const none = !m.ids.length;
   return (
-    <ToolOptions id="edit-move-set" title="Move" note={none ? "Click an object to pick it, drag it to move it; Ctrl + click adds more." : undefined}
+    <ToolOptions id="edit-move-set" title="Transform" note={none ? "Click an object to pick it, drag it to move it; Ctrl + click adds more." : undefined}
                  options={[
                    <ToolNumber label="Turn" unit="°" hint="How far it is turned from how it was built, counter-clockwise (Shift + wheel)" min={-180} max={180} step={TURN_STEP}
                                value={m.shown.turn} onChange={m.setTurn} />,
-                   <ToolNumber label="Height" unit="cm" hint="How far it is raised from where it was built (Ctrl + wheel)" min={-10000} max={10000} step={HEIGHT_STEP * CM}
+                   <ToolNumber label="Raise" unit="cm" hint="How far it is raised from where it was built (Ctrl + wheel)" min={-10000} max={10000} step={HEIGHT_STEP * CM}
                                value={Math.round(m.shown.y * CM)} onChange={m.setHeight} />,
                    <ToolNumber label="Size" unit="%" hint="Its size, against how it was built (Alt + wheel)" min={10} max={1000} step={5}
                                value={Math.round(m.shown.scale * PERCENT)} onChange={size => m.setSize(Math.max(10, size))} />,

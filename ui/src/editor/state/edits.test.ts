@@ -50,7 +50,7 @@ test("older saved ground materials remain saveable until their native format is 
 });
 
 /** Edits started on a fresh server, with one change saved at once. */
-test("Discard all restores the last Save, keeps saved edits and is one undoable step", async () => {
+test("Revert to saved restores the last Save, keeps saved edits and is one undoable step", async () => {
   const {edits} = await started();
   edits.remove([tree(1)]);
   edits.addPaint("saved-paint");

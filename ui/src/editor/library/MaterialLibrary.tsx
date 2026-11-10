@@ -1,7 +1,7 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {ImportMaterial} from "./ImportMaterial";
-import {LibraryBrowser, LibraryCard, LibraryCards, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection} from "./LibraryBrowser";
+import {LibraryBrowser, LibraryCard, LibraryCards, LibraryFacts, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection, webSource} from "./LibraryBrowser";
 import {groundTextureProblem, libraryJson, MATERIAL_CATEGORIES, materialPreview, type LibraryMaterial, type MaterialSummary} from "./library";
 import styles from "./MaterialLibrary.module.css";
 
@@ -17,19 +17,22 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
       .then(value => { if (!controller.signal.aborted) setInfo(value); }).catch(() => {});
     return () => controller.abort();
   }, [material.id]);
+  const source = webSource(info?.source_url);
   return <LibrarySelection>
     <img src={materialPreview(material.id)} alt="Texture preview" />
-    <strong>{material.name}</strong><span>{material.repeat.join(" × ")} m per repeat</span>
-    <span>{material.source.size.join(" × ")} px original · {material.prepared.size.join(" × ")} px prepared</span>
-    {material.source.alpha && <span>Contains transparency</span>}
-    {!!material.tags.length && <span>{material.tags.join(", ")}</span>}
+    <strong>{material.name}</strong>
+    <span>{MATERIAL_CATEGORIES.find(([id]) => id === material.category)?.[1] ?? material.category}</span>
+    <span>{material.repeat.join(" × ")} m per repeat{material.source.alpha && " · Contains transparency"}</span>
     <label className={styles.variation}><input type="checkbox" checked={variation} disabled={disabled}
       onChange={e => onVariation(e.target.checked)} />Break up texture repetition</label>
     <span>Variation in the game requires CSP.</span>
-    {info?.source_url && <span>Source: {info.source_url}</span>}
-    {info?.license && <span>License: {info.license}</span>}
-    {info?.maps.normal && <span>Normal map: {info.maps.normal.filename}</span>}
-    {info?.maps.roughness && <span>Roughness map: {info.maps.roughness.filename}</span>}
+    <LibraryFacts rows={[
+      ["Size", `${material.source.size.join(" × ")} px original · ${material.prepared.size.join(" × ")} px prepared`],
+      ["Source", source ? <a href={source} target="_blank" rel="noopener noreferrer">View source</a> : info ? "Not specified" : "…"],
+      ["Licence", info ? info.license || "Not specified" : "…"],
+      ...material.tags.length ? [["Tags", material.tags.join(", ")] as [string, string]] : [],
+      ...info?.maps.normal ? [["Normal map", info.maps.normal.filename] as [string, string]] : [],
+      ...info?.maps.roughness ? [["Roughness map", info.maps.roughness.filename] as [string, string]] : []]} />
     <button type="button" className={styles.delete} onClick={onDelete} disabled={disabled}>Delete texture</button>
   </LibrarySelection>;
 }

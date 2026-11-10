@@ -24,6 +24,7 @@ export function SaveDialog({title, taken, canOverwrite, onOverwrite, onSaveNew, 
   const wanted = name.trim(), same = wanted === title;
   const fault = !wanted ? "Give it a name." : !same && taken.includes(wanted) ? `Another track is called “${wanted}” already.` : null;
   const newTitle = same ? copyOf(title, taken) : wanted;
+  const overwrites = same && canOverwrite;     // (the red button and Enter: Overwrite while it can, Save as new track once the name is another)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
@@ -34,7 +35,7 @@ export function SaveDialog({title, taken, canOverwrite, onOverwrite, onSaveNew, 
   return (
     <div id="save-back" className={styles.back} onMouseDown={e => { if (e.target === e.currentTarget) onCancel(); }}>
       <form id="save-dialog" className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="save-title"
-            onSubmit={e => { e.preventDefault(); if (!fault) onSaveNew(newTitle); }}>
+            onSubmit={e => { e.preventDefault(); if (overwrites) onOverwrite(); else if (!fault) onSaveNew(newTitle); }}>
         <b id="save-title">Save track</b>
         <label className={styles.field}>Name
           <input id="save-name" type="text" value={name} maxLength={80} autoFocus onChange={e => setName(e.target.value)} />
@@ -42,8 +43,8 @@ export function SaveDialog({title, taken, canOverwrite, onOverwrite, onSaveNew, 
         <p id="save-taken" className={styles.note}>{fault ?? `Save as new track makes “${newTitle}”. Whatever you delete can be brought back later.`}</p>
         <div className={styles.buttons}>
           <button type="button" onClick={onCancel}>Cancel</button>
-          <button type="button" disabled={!same || !canOverwrite} onClick={onOverwrite}>Overwrite</button>
-          <button type="submit" className={styles.primary} disabled={!!fault}>Save as new track</button>
+          <button type="button" className={overwrites ? styles.primary : ""} disabled={!overwrites} onClick={onOverwrite}>Overwrite</button>
+          <button type="button" className={overwrites ? "" : styles.primary} disabled={!!fault} onClick={() => onSaveNew(newTitle)}>Save as new track</button>
         </div>
       </form>
     </div>

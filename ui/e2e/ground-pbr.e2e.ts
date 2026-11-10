@@ -63,7 +63,7 @@ test("adding PBR to another material preserves the existing colour-only field on
   const view = (await scene(page).boundingBox())!;
   async function apply(x: number, name: string) {
     await page.mouse.click(view.x + view.width * x, view.y + view.height * .65);
-    await page.getByRole("complementary", {name: "Selection properties"}).getByRole("button", {name: "Edit texture"}).click();
+    await page.getByRole("complementary", {name: "Inspector"}).getByRole("button", {name: "Edit texture"}).click();
     const picker = page.getByRole("dialog", {name: "Asset library"});
     await picker.getByRole("button", {name, exact: true}).click();
     await picker.getByRole("button", {name: "Apply", exact: true}).click();
@@ -104,7 +104,7 @@ test("four then six real PBR materials Apply and reopen with original soft junct
   const before = await picture(page);
   const view = (await scene(page).boundingBox())!;
   await page.mouse.click(view.x + view.width * .7, view.y + view.height * .65);
-  await page.getByRole("complementary", {name: "Selection properties"}).getByRole("button", {name: "Edit texture"}).click();
+  await page.getByRole("complementary", {name: "Inspector"}).getByRole("button", {name: "Edit texture"}).click();
   const picker = page.getByRole("dialog", {name: "Asset library"});
   await picker.getByRole("button", {name: "PBR field 3", exact: true}).click();
   await picker.getByRole("button", {name: "Apply", exact: true}).click();
@@ -181,7 +181,7 @@ test("PBR Apply preserves untouched source lighting and +Y normals follow the ac
   const view = (await scene(page).boundingBox())!;
   async function apply(name: string) {
     await page.mouse.click(view.x + view.width * .4, view.y + view.height * .65);
-    await page.getByRole("complementary", {name: "Selection properties"}).getByRole("button", {name: "Edit texture"}).click();
+    await page.getByRole("complementary", {name: "Inspector"}).getByRole("button", {name: "Edit texture"}).click();
     const picker = page.getByRole("dialog", {name: "Asset library"});
     await picker.getByRole("button", {name, exact: true}).click();
     await picker.getByRole("button", {name: "Apply", exact: true}).click();

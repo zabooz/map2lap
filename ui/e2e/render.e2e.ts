@@ -163,19 +163,20 @@ async function skyColour(page: Page) {
   }, {base64: (await stillView(page)).toString("base64"), x: view.width * 0.9});
 }
 
-test("the time of day darkens the view, is only a preview and goes back to 10:00", async ({page}) => {
+test("the time of day darkens the view, is only a preview and comes back by its slider", async ({page}) => {
   await openEditor(page);
-  const clock = page.locator("#sun-clock"), slider = clock.getByRole("slider", {name: "Time of day"}), reset = clock.getByRole("button", {name: "Reset"});
+  // (in the Inspector, above its tabs: "Time of day: 10:00" over the slider, no Reset button)
+  const clock = page.getByRole("complementary", {name: "Inspector"}).locator("#sun-clock"), slider = clock.getByRole("slider", {name: "Time of day"});
   const save = page.locator("#edit-save");
   const saveBefore = await save.isDisabled();
-  await expect(clock).toContainText("10:00");
-  await expect(reset).toBeDisabled();
+  await expect(clock).toHaveText("Time of day: 10:00");
+  await expect(clock.getByRole("button")).toHaveCount(0);
   await slider.fill("0");
-  await expect(clock).toContainText("00:00");
+  await expect(clock).toHaveText("Time of day: 00:00");
   await expect.poll(async () => Math.max(...await skyColour(page))).toBeLessThan(60);
   expect(await save.isDisabled()).toBe(saveBefore);
-  await reset.click();
-  await expect(clock).toContainText("10:00");
+  await slider.fill("600");
+  await expect(clock).toHaveText("Time of day: 10:00");
   await expect.poll(async () => Math.abs((await skyColour(page))[0] - SKY[0])).toBeLessThanOrEqual(SKY_TOLERANCE);
 });
 
@@ -189,8 +190,8 @@ test("the 3D canvas stays painted when properties resize, hide and reopen", asyn
   await divider.focus();
   await divider.press("ArrowLeft");
   await painted();
-  await page.getByRole("button", {name: "Hide properties"}).click();
+  await page.getByRole("button", {name: "Hide inspector"}).click();
   await painted();
-  await page.getByRole("button", {name: "Show properties"}).click();
+  await page.getByRole("button", {name: "Show inspector"}).click();
   await painted();
 });

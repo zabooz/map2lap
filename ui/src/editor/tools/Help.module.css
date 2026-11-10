@@ -1,0 +1,9 @@
+/* How the Editor is worked, then the keys of the tool that is on: "Shift + wheel   turn" */
+.help { padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.help p { margin: 6px 0 0; }
+.helpTitle { cursor: pointer; font-weight: 600; }
+.helpTool { margin: 10px 0 4px; font-size: 13px; }
+.keys { display: grid; gap: 2px; margin: 0; font-size: 12px; }
+.keys div { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 8px; }
+.keys dt { color: var(--text); font-variant-numeric: tabular-nums; }
+.keys dd { margin: 0; color: var(--muted); }

@@ -580,7 +580,7 @@ export class TrackView {
     if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
     this.ensureSplatState();
-    if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Discard all can remove these edits.`);
+    if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Revert to saved removes them while they are unsaved.`);
     this.objectPieces = objectIndex(data.objects);
     this.belonging = childrenOf(data.objects);
     this.removed = this.wanted();           // (the sorts named before the list was there; no mesh is loaded yet)

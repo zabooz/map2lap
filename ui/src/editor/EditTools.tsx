@@ -70,9 +70,14 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [libraryTab, setLibraryTab] = useState<LibraryTab | null>(null);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
   const replaceable = useMemo(() => menu && picked?.id ? view.replacementTargets(marked) : null, [view, menu, picked, marked]);
-  const openModels = () => { setReplaceTargets(view.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
+  // (the right-click menu belongs to the click that opened it: a tool or the library taken up closes it, so the next click in the view acts)
+  const openModels = () => { setMenu(null); setReplaceTargets(view.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
   const [textureRevision, setTextureRevision] = useState(0);
   const closeMaterial = useCallback(() => setLibraryTab(null), []);
+  // (File's Library opens where it was left, at Textures for a picked ground surface; Insert always at Objects)
+  const [lastTab, setLastTab] = useState<LibraryTab>("textures");
+  if (libraryTab && libraryTab !== lastTab) setLastTab(libraryTab);
+  const openLibrary = () => { if (lastTab === "objects" && !surfacePicks.length && editable) openModels(); else { setMenu(null); setLibraryTab("textures"); } };
   const setMaterialOpen = useCallback((open: boolean) => setLibraryTab(open ? "textures" : null), []);
   const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setCopyWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { copyWheel.current = wheel; }, []);
@@ -227,7 +232,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
     }
   };
   /** A tool taken up, the one on laid down: Select. */
-  const takeUp = (t: Tool) => { band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(tool === t ? "select" : t); };
+  const takeUp = (t: Tool) => { setMenu(null); band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(tool === t ? "select" : t); };
   const closeMenu = useCallback(() => setMenu(null), []);
 
   // (an effect event: Delete pressed right after a click reaches what that click picked, not the list of keys before it)
@@ -274,7 +279,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
 
   return (
     <>
-      {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} />, fileHost)}
+      {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={tool === "model" && editable}

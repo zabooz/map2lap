@@ -21,7 +21,7 @@ test("object cards show distinct model pictures and reuse them after reopening a
   page.on("request", request => { if (/\/api\/library\/models\/[^/]+\/original$/.test(request.url())) sources.push(request.url()); });
   const open = async () => {
     await openEditor(page);
-    await page.getByRole("button", {name: "INSERT", exact: true}).click();
+    await page.getByRole("button", {name: "Insert", exact: true}).click();
   };
   await open();
   const library = page.getByRole("dialog", {name: "Asset library"});
@@ -48,16 +48,15 @@ test("object cards show distinct model pictures and reuse them after reopening a
   expect(sources).toHaveLength(2);
   await library.screenshot({path: info.outputPath("object-thumbnails.png")});
   await library.getByRole("button", {name: "Cancel", exact: true}).click();
-  await page.getByRole("button", {name: "INSERT", exact: true}).click();
+  await page.getByRole("button", {name: "Insert", exact: true}).click();
   await expect(leafy).toBeVisible(); expect(sources).toHaveLength(2);
   await page.reload(); await open();
   await expect(leafy).toBeVisible(); await expect(white).toBeVisible();
   expect(sources).toHaveLength(2);
   await library.getByRole("button", {name: "Leafy tree", exact: true}).click();
-  const selectedPicture = library.getByLabel("Model preview").getByRole("img", {name: "Leafy tree", exact: true});
-  await expect(selectedPicture).toBeVisible();
-  expect(await selectedPicture.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(512);
-  expect(sources).toHaveLength(2);
+  // (the selected one turns in 3D, from its GLB loaded once more for it: the card pictures stay as they were)
+  await expect(library.getByLabel("Model preview").locator("canvas")).toBeVisible();
+  await expect.poll(() => sources.length).toBe(3);
   await expect(leafy).toBeVisible(); await expect(white).toBeVisible();
   await expect(library.getByRole("button", {name: "Place on ground", exact: true})).toBeEnabled();
 });

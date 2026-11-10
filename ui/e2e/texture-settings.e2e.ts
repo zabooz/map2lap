@@ -9,9 +9,9 @@ test("Edit changes repetition without reimport, and deleting its library entry p
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
-  const properties = page.getByRole("complementary", {name: "Selection properties"});
+  const properties = page.getByRole("complementary", {name: "Inspector"});
   await expect(page.locator("#edit-surface")).toContainText("Meadow selected");
-  await properties.getByRole("button", {name: "Edit", exact: true}).click();
+  await page.getByRole("button", {name: "Library", exact: true}).click();
   const picker = page.getByRole("dialog", {name: "Asset library", exact: true});
   await picker.getByLabel('Texture file').setInputFiles(photo);
   const importer = page.getByRole("dialog", {name: "Import texture", exact: true});
@@ -25,12 +25,12 @@ test("Edit changes repetition without reimport, and deleting its library entry p
   await expect(properties.locator("#inspect-appearance")).toContainText("Retained meadow");
   const index = await (await page.request.get("/api/editor/alpha/index")).json();
   expect(index.materials.some((m: {splat?: {images: {variation?: boolean}[]}}) => m.splat?.images.some(p => p.variation === false))).toBe(true);
-  await properties.getByRole("button", {name: "Edit", exact: true}).click();
+  await page.getByRole("button", {name: "Library", exact: true}).click();
   await picker.getByLabel("Break up texture repetition").check();
   await picker.getByRole("button", {name: "Apply", exact: true}).click();
   await expect(picker).toBeHidden();
   await saved(page);
-  await properties.getByRole("button", {name: "Edit", exact: true}).click();
+  await page.getByRole("button", {name: "Library", exact: true}).click();
   await picker.getByRole("button", {name: "Delete texture", exact: true}).click();
   await expect(picker).toContainText("Texture deleted from the library");
   await picker.getByRole("button", {name: "Cancel", exact: true}).click();

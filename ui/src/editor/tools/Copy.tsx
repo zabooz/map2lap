@@ -72,7 +72,7 @@ export function CopyTool({name, edits, view, picked, onWheel}: {name: string; ed
     options={[
       <ToolNumber label="Turn" unit="°" hint="Turn each copy from the source (Shift + wheel)" min={-180} max={180} step={5}
         value={pose.turn} onChange={turn => setPose(p => nudged({...p, turn}, {}))} />,
-      <ToolNumber label="Height" unit="cm" hint="Raise each copy above the clicked ground (Ctrl + wheel)" min={-10000} max={10000} step={10}
+      <ToolNumber label="Raise" unit="cm" hint="Raise each copy above the clicked ground (Ctrl + wheel)" min={-10000} max={10000} step={10}
         value={Math.round(pose.y * 100)} onChange={cm => setPose(p => nudged({...p, y: cm / 100}, {}))} />,
       <ToolNumber label="Size" unit="%" hint="Size of each copy against its source (Alt + wheel)" min={10} max={1000} step={5}
         value={Math.round(pose.scale * 100)} onChange={percent => setPose(p => nudged({...p, scale: percent / 100}, {}))} />,

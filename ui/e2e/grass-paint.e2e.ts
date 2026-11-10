@@ -3,7 +3,7 @@ import {picture, saved} from "./edit-helpers";
 
 test("a road offers Edit and opens its material picker without object replacement actions", async ({page}) => {
   await openEditor(page);
-  await page.getByRole("button", {name: "Hide properties"}).click();
+  await page.getByRole("button", {name: "Hide inspector"}).click();
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y, {button: "right"});
   const menu = page.getByRole("menu");
@@ -17,8 +17,8 @@ test("apply a grass material, undo, redo, reload and save a standalone copy", as
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", grass: true, trees: false});
   await openEditor(page);
   const original = await picture(page);
-  const panel = page.getByRole("complementary", {name: "Selection properties"});
-  await panel.getByRole("button", {name: "Edit", exact: true}).click();
+  const panel = page.getByRole("complementary", {name: "Inspector"});
+  await page.getByRole("button", {name: "Library", exact: true}).click();
   const picker = page.getByRole("dialog", {name: "Asset library"});
   await picker.getByLabel('Texture file').setInputFiles({name: "grass.png", mimeType: "image/png",
     buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVQIHWP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64")});
@@ -68,7 +68,7 @@ test("apply a grass material, undo, redo, reload and save a standalone copy", as
   await expect(page.locator("#edit-track")).toHaveValue("grass_copy");
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(changed)).toBe(true);
-  await expect(page.getByRole("button", {name: "Discard all", exact: true})).toBeDisabled();
+  await expect(page.getByRole("button", {name: "Revert to saved", exact: true})).toBeDisabled();
   const draft = await (await page.request.get("/api/editor/grass_copy/edits")).json();
   const restored = await page.request.put("/api/editor/grass_copy/edits", {data: {...draft, id: "unsaved-unpaint", paints: []}});
   await expect(restored).toBeOK();
@@ -76,7 +76,7 @@ test("apply a grass material, undo, redo, reload and save a standalone copy", as
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
   await expect.poll(async () => (await picture(page)).equals(original)).toBe(true);
-  await page.getByRole("button", {name: "Discard all", exact: true}).click(); await saved(page);
+  await page.getByRole("button", {name: "Revert to saved", exact: true}).click(); await saved(page);
   await expect.poll(async () => (await picture(page)).equals(changed)).toBe(true);
   await expect(page.locator("#edit-paints")).toHaveText("1 material change");
 });

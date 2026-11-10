@@ -61,6 +61,22 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   await expect(page.locator("#edit-click-deletes")).toHaveAttribute("aria-pressed", "true");
 });
 
+test("Help says how the Editor is worked and shows the keys of the tool that is on, changing with it", async ({page}) => {
+  await openEditor(page);
+  const help = page.locator("#edit-help");
+  await help.locator("summary").click();
+  await expect(help).toContainText("Esc ends a tool");
+  await expect(help.getByRole("heading")).toHaveText("Select (V)");
+  await scene(page).focus();
+  await page.keyboard.press("m");
+  await expect(help.getByRole("heading")).toHaveText("Transform (M)");
+  await expect(help.locator("dl")).toContainText("Alt + wheelsize");
+  await page.keyboard.press("h");
+  await expect(help.locator("dl")).toContainText("Ctrl + Alt + wheelsoft edge");
+  await page.keyboard.press("Escape");
+  await expect(help.getByRole("heading")).toHaveText("Select (V)");
+});
+
 test("the bar's keys: the options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, what is held is lit", async ({page}) => {
   await openEditor(page);
   await keysOnView(page);

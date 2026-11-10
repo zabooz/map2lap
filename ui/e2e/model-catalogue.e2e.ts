@@ -21,7 +21,7 @@ test('objects filter by their actual category and show creator credit beside cle
     expect(added.ok()).toBe(true);
   }
   await openEditor(page);
-  await page.getByRole('button', {name: 'INSERT', exact: true}).click();
+  await page.getByRole('button', {name: 'Insert', exact: true}).click();
   const library = page.getByRole('dialog', {name: 'Asset library'});
   const categories = library.getByLabel('Filter objects');
   await expect(categories.locator('option')).toHaveCount(10, {timeout: 5000});

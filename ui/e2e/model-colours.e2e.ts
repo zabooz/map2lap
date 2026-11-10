@@ -4,6 +4,8 @@ import type {Locator, Page} from '@playwright/test';
 import {test, expect, openEditor} from './fixtures';
 
 async function pictureColours(page: Page, importer: Locator) {
+  // (the level the dialog starts at is measured first: until then the preview is drawn anew when it arrives)
+  await expect(importer.getByLabel('Track geometry cost')).toHaveAttribute('aria-busy', 'false');
   const screenshot = await importer.getByLabel('Model preview').locator('canvas').screenshot();
   return page.evaluate(async base64 => {
     const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
@@ -25,7 +27,7 @@ test('material colour choice updates the preview, matches a colour texture and i
   const python = join(repo, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
   const model = (textured: boolean) => execFileSync(python, [join(repo, 'ui/e2e/model_fixture.py'), textured ? '--palette-texture' : '--palette-factor']);
   await openEditor(page);
-  await page.getByRole('button', {name: 'INSERT', exact: true}).click();
+  await page.getByRole('button', {name: 'Insert', exact: true}).click();
   const library = page.getByRole('dialog', {name: 'Asset library'});
   await library.getByLabel('Model file').setInputFiles({name: 'purple.glb', mimeType: 'model/gltf-binary', buffer: model(false)});
   const importer = page.getByRole('dialog', {name: 'Import object', exact: true});
@@ -63,7 +65,7 @@ test('explicit matte colour changes the preview without changing the palette and
   const python = join(repo, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
   const raw = execFileSync(python, [join(repo, 'ui/e2e/model_fixture.py'), '--palette-grass']);
   await openEditor(page);
-  await page.getByRole('button', {name: 'INSERT', exact: true}).click();
+  await page.getByRole('button', {name: 'Insert', exact: true}).click();
   const library = page.getByRole('dialog', {name: 'Asset library'});
   await library.getByLabel('Model file').setInputFiles({name: 'teal.glb', mimeType: 'model/gltf-binary', buffer: raw});
   const importer = page.getByRole('dialog', {name: 'Import object', exact: true});

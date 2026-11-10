@@ -4,6 +4,7 @@ import {libraryJson, MODEL_CATEGORIES} from "./library";
 import {ImportModel} from "./ImportModel";
 import {LibraryBrowser, LibraryCard, LibraryCards, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection} from "./LibraryBrowser";
 import {ModelThumbnail} from "./ModelThumbnail";
+import {ModelPreview} from "./ModelPreview";
 import {ModelDetails, modelName} from "./ModelDetails";
 import type {TrackCost} from "./ModelCost";
 import styles from "./ModelLibrary.module.css";
@@ -47,6 +48,19 @@ export function ModelLibrary({replace, onChoose, onClose, embedded = false, open
     setFile(null); setSelected(model); setQuery(""); setCategory(""); setPage(0); setRevision(value => value + 1);
     setNote("Object added to your library.");
   };
+  const remove = async () => {
+    if (!selected || busy || !confirm(`Delete “${modelName(selected)}” from your object library?
+
+Objects already placed in tracks are kept.`)) return;
+    setBusy(true);
+    try {
+      await libraryJson(`/api/library/models/${selected.id}/delete`, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+      setSelected(null); setPage(0); setRevision(value => value + 1);
+      setNote("Object deleted from the library. Objects placed in tracks are kept.");
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : "Could not delete this object");
+    } finally { setBusy(false); }
+  };
   const content = <>
     <input className={styles.file} ref={input} aria-label="Model file" type="file" accept=".glb,.fbx,.obj,.zip" disabled={busy}
       onChange={event => { choose(event.target.files); event.target.value = ""; }} />
@@ -62,8 +76,11 @@ export function ModelLibrary({replace, onChoose, onClose, embedded = false, open
         : !result.items.length ? <p className="muted">{query || category ? "No matching objects." : "Import GLB, FBX or OBJ. Include companion textures and MTL files in a ZIP with one model."}</p>
         : <LibraryCards>{result.items.map(model => <LibraryCard key={model.id} label={modelName(model)} selected={selected?.id === model.id}
           disabled={busy} onClick={() => setSelected(model)} thumbnail={<ModelThumbnail id={model.id} name={modelName(model)} enabled={open} />} />)}</LibraryCards>}
-      preview={selected ? <LibrarySelection><ModelThumbnail key={selected.id} id={selected.id} name={modelName(selected)} enabled={open} preview />
+      preview={selected ? <LibrarySelection>
+        {open ? <ModelPreview key={selected.id} url={`/api/library/models/${selected.id}/original`} />
+          : <ModelThumbnail key={selected.id} id={selected.id} name={modelName(selected)} enabled={false} preview />}
         <ModelDetails model={selected} />
+        <button type="button" className={styles.delete} onClick={() => void remove()} disabled={busy}>Delete object</button>
       </LibrarySelection> : <p className="muted">Choose an object to preview it. The track changes only when you place or replace it.</p>}
       pages={result && <LibraryPages page={page} offset={result.offset} total={result.total} limit={PAGE_SIZE} onPage={setPage} />}
       notices={note && <LibraryNotice>{note}</LibraryNotice>}

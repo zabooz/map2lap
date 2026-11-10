@@ -27,21 +27,21 @@ async function findCopy(page: Parameters<typeof stored>[0], id: string, at: {x: 
   throw new Error("The placed copy could not be picked");
 }
 
-test("Copy offers Turn, Height and Size by number and modifier wheel, retained for repeated placements", async ({page}) => {
+test("Copy offers Turn, Raise and Size by number and modifier wheel, retained for repeated placements", async ({page}) => {
   await openEditor(page);
   const tree = await findTree(page);
   await page.mouse.click(tree.x, tree.y);
   await page.keyboard.press("c");
   const bar = page.locator("#edit-copy-set");
   await expect(bar).toContainText("Click to place");
-  for (const [key, label, value] of [["Shift", "Turn", "5"], ["Control", "Height", "10"], ["Alt", "Size", "105"]] as const) {
+  for (const [key, label, value] of [["Shift", "Turn", "5"], ["Control", "Raise", "10"], ["Alt", "Size", "105"]] as const) {
     await page.keyboard.down(key);
     await page.mouse.wheel(0, -100);
     await page.keyboard.up(key);
     await expect(bar.getByLabel(label)).toHaveValue(value);
   }
   await bar.getByLabel("Turn").fill("90");
-  await bar.getByLabel("Height").fill("200");
+  await bar.getByLabel("Raise").fill("200");
   await bar.getByLabel("Size").fill("200");
   const c = await centre(scene(page));
   await page.mouse.click(c.x + 120, c.y + 100);
@@ -93,7 +93,7 @@ test("Copy C places the picked tree repeatedly; undo, redo, reload and Save reta
   await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
   expect(await copies(page)).toEqual(made);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
-  await expect(page.getByRole("button", {name: "Discard all", exact: true})).toBeDisabled();
+  await expect(page.getByRole("button", {name: "Revert to saved", exact: true})).toBeDisabled();
   const kept = await picture(page), draft = await stored(page);
   const removed = await page.request.put("/api/editor/alpha/edits", {
     data: {...draft, id: "unsaved-remove-copy", copies: made.slice(0, 1)},
@@ -103,7 +103,7 @@ test("Copy C places the picked tree repeatedly; undo, redo, reload and Save reta
   await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
   expect(await copies(page)).toEqual(made.slice(0, 1));
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
-  await page.getByRole("button", {name: "Discard all", exact: true}).click();
+  await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
   await expect.poll(() => copies(page)).toEqual(made);
   await expect.poll(async () => (await picture(page)).equals(kept)).toBe(true);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
@@ -124,7 +124,7 @@ test("Copy in the panel can pick its source; a placed tree has its own pick, Mov
   await page.mouse.down();
   await page.mouse.up();
   await page.keyboard.press("m");
-  await page.locator("#edit-move-set").getByLabel("Height").fill("100");
+  await page.locator("#edit-move-set").getByLabel("Raise").fill("100");
   await saved(page);
   const draft = await (await page.request.get("/api/editor/alpha/edits")).json();
   expect(draft.placed).toMatchObject([{id: `${copy.id}#0`, y: 1}]);

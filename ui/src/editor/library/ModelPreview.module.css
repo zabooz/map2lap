@@ -1,2 +1,7 @@
-.preview { width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; }
-.preview canvas { display: block; }
+.preview { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; }
+.canvas { width: 100%; height: 100%; }
+/* That it turns, said over it until it has been: an arrow round and the two ways, never in the way of a drag */
+.hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 12px; white-space: nowrap; pointer-events: none; }
+.preview canvas { display: block; cursor: grab; touch-action: none; }     /* (dragged it turns the model) */
+.preview canvas:active { cursor: grabbing; }
