@@ -63,10 +63,14 @@ Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a s
 The bar over the view with what the tool on can be set to (`ui/src/editor/tools/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
 Select uses Shift for all matching objects or prepared ground areas, including separate ones; Ctrl adds to the selection.
 
+**Toast** (page):
+A notice at the top centre of the page, one stack for all (`ui/src/components/toastStore.ts`, `Toasts.tsx`): a missing AC folder or
+CSP, the Editor's loading and Saving with a progress bar, and what goes wrong in the Editor outside a window. Not build errors.
+
 **Inspector** (Editor):
 The docked right panel, with the time of day above its Properties and Details tabs, for the clicked selection, its material/texture and retained object details. Selection stays pinned
-while the separate Under pointer section follows the mouse. Details also contains track size, draft estimates and all edit
-notes/recovery actions. Its width comes from the 3D view's space; hiding it restores that space.
+while the separate Under pointer section follows the mouse. Details also contains track size, draft estimates and the edit
+counts; what went wrong is a toast at the top centre. Its width comes from the 3D view's space; hiding it restores that space.
 
 **Material library** (Editor):
 User-imported material maps and their physical repeat size, variation, category and source information. Versioned immutable packages under

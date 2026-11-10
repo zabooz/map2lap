@@ -3,6 +3,10 @@
 // load nearest first, so the spot in view comes first on a long track. A click picks what is under the mouse; with Move on, a press picks
 // it and a drag takes it along over the ground.
 import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, Marked, MeshInfo, MaterialInfo, TrackIndex} from "../types";
+import type {LoadAbout} from "../../types";
+
+/** What loading says: its text, how far (undefined: done, null: not known) and about it (a first opening, why it failed). */
+export type Say = (text: string, progress?: number | null, about?: LoadAbout) => void;
 import {Navigation, VIEW_M, FLY_MAX_STEP_S} from "./navigation";
 import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, modelMeshKey, fitSphere, makeGeometry} from "./geometry";
 import {screenPoint, LEFT_BUTTON, LEFT_HELD, CLICK_PX} from "./pointer";
@@ -547,7 +551,7 @@ export class TrackView {
 
   /** Show the track name; say(text) gets the progress or the fault. Returns when all is loaded (or another track was asked
       for: what the older one still says or fails with is nobody's business any more). */
-  async open(name: string, say: (text: string, progress?: number | null) => void) {
+  async open(name: string, say: Say) {
     const mine = ++this.token;
     this.loading.abort();
     this.loading = new AbortController();
@@ -567,11 +571,11 @@ export class TrackView {
       if (mine !== this.token) return;
       this.loadedTexture = null;
       this.loading.abort();
-      say(`Could not load this track: ${(e as Error).message}`);
+      say(`Could not load this track: ${(e as Error).message}`, undefined, {failed: (e as Error).message});
     }
   }
 
-  private async load(name: string, mine: number, signal: AbortSignal, say: (text: string, progress?: number | null) => void) {
+  private async load(name: string, mine: number, signal: AbortSignal, say: Say) {
     const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(name)}/index`, signal);
     if (mine !== this.token) return;
     this.data = data;
@@ -602,13 +606,14 @@ export class TrackView {
     const textureCount = neededImages.size;
     const tasks = total + textureCount + tiles.size;
     let preparedDone = 0, meshesReady = false;
+    const first = (data.surface_unprepared ?? 0) > 0;      // (its sections for selecting are computed now, once: surfaceindex)
     const report = () => {
       if (mine !== this.token) return;
       const text = !meshesReady ? `Loading: ${done + copiedDone} of ${total} parts`
         : texturesDone < textureCount && !this.overLimit ? `Loading textures: ${texturesDone} of ${textureCount}`
         : `Preparing selection: ${preparedDone} of ${prepared.size} (${done + copiedDone} parts)`;
       // Task counts describe work done, not time remaining. Only the final status ends the loading indicator.
-      say(text, Math.min(1, (done + copiedDone + texturesDone + preparedDone) / Math.max(1, tasks)));
+      say(text, Math.min(1, (done + copiedDone + texturesDone + preparedDone) / Math.max(1, tasks)), {first});
     };
     this.loadedTexture = () => { texturesDone++; report(); };
     const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data).then(() => {
@@ -680,7 +685,8 @@ export class TrackView {
     await Promise.all(prepared.values());
     if (mine !== this.token) return;
     this.loadedTexture = null;
-    say(this.overLimit ? `Memory limit reached (Settings): ${done} of ${total} parts, the nearest ones` : `${total} parts loaded`);
+    say(this.overLimit ? `Memory limit reached (Settings): ${done} of ${total} parts, the nearest ones` : `${total} parts loaded`, undefined,
+      {limited: this.overLimit});
   }
 
   /** The wheel: nearer to what the mouse points at or back from it, by a share of the way (ZOOM_STEP); the view keeps its direction.
@@ -1365,9 +1371,6 @@ export class TrackView {
       if (drawn || (data.draft ?? 0) > draft! && !exists) this.dropPending(key);
     }
   }
-
-  /** A failed background placement stays visible as an editor error even after leaving Copy. */
-  copyFailed(message: string) { this.onViewFailed(message); }
 
   /** Extra turn, height over the ground and size for the next copies, around their foot. */
   setCopyPose(pose: CopyPose) {

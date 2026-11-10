@@ -4,7 +4,7 @@ import type {Controls} from "./scene/controls";
 import styles from "./EditorScene.module.css";
 import {EditTools} from "./EditTools";
 import type {Hovered} from "./types";
-import {TrackView} from "./scene/view";
+import {TrackView, type Say} from "./scene/view";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
     source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
@@ -20,7 +20,7 @@ export default function EditorScene({name, title, taken, built, visible, control
   savedHost: HTMLElement | null;
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
-  onStatus: (text: string, progress?: number | null) => void;
+  onStatus: Say;
   onSaved: (name: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -49,7 +49,7 @@ export default function EditorScene({name, title, taken, built, visible, control
       style={{"--inspector-space": name && !inspectorCollapsed ? `min(${inspectorWidth + 5}px, 48%)` : "0px"} as CSSProperties}>
       <div id="scene" className={styles.scene} ref={scene}>
         <div className={styles.view} ref={host} />
-      {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
+      {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} visible={visible} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost} hovered={hovered}
                                   inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
                                   inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}

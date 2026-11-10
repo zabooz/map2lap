@@ -248,6 +248,7 @@ def index(ac, name):
                          for i, t in enumerate(s["textures"])], "paints": s.get("paints", []), "paint_errors": list(dict.fromkeys(paint_errors)), "start": _start(s["points"].get(START)),
             "anchor": anchor, "route": route, "atlas": _atlas(), "objects": _view_objects(listed), "draft": s.get("draft", 0),
             "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else [],
+            "surface_unprepared": surfaceindex.unprepared(path) if facts else 0,
             "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
             "model_replacements": s.get("model_replacements", []),
             "model_matrices": trackmodels.view_matrices(s, edits.get("placed", []), edits.get("heights", []))}

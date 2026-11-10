@@ -12,7 +12,7 @@ export const box = (page: Page) => page.locator("#hover-box");
 
 export const saved = (page: Page) => expect(page.locator("#edit-bar")).toHaveAttribute("data-kept", "saved");     // (the changes kept in the background, not the track)
 
-export const VIEW_ALONE = {style: "[data-tool-options] { visibility: hidden; }"};
+export const VIEW_ALONE = {style: "[data-tool-options], [aria-label=Notifications] { visibility: hidden; }"};     // (tool options and toasts stand over the view)
 
 /** The picture of the view alone, once it stands still and the mouse is off it. */
 export async function picture(page: Page) {

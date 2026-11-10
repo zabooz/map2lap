@@ -92,8 +92,7 @@ test("asphalt can use an imported material without changing its driving surface"
   await page.route("**/api/editor/alpha/paint-asset/*", route => route.fulfill({status: 400, body: "temporarily unavailable"}));
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await page.getByRole("alert").filter({hasText: "Editor needs attention"}).click();
-  await expect(page.locator("#edit-view-failed")).toBeVisible();
+  await expect(page.locator("#edit-view-failed")).toBeVisible();     // (a toast: no Details tab to open first)
   await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
   await saved(page);
   await expect(page.locator("#edit-paints")).toHaveCount(0);

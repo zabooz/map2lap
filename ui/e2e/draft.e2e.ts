@@ -9,7 +9,7 @@ test("built again, older changes stay but are not applied, and nothing is mixed 
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test"});
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await expect(page.locator("#edit-outdated")).toContainText("1 older change belongs to an earlier build");
+  await expect(page.locator("#edit-outdated")).toContainText("1 older change not applied");
   await expect(page.locator("#edit-count")).toHaveCount(0);
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   const at = await findTree(page);
@@ -78,7 +78,7 @@ test("a failed save says so and goes through by itself", async ({page, faultsAll
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y);
   await page.keyboard.press("Delete");
-  await expect(page.locator("#edit-kept")).toHaveText("Changes not kept: trying again");
+  await expect(page.locator("#edit-kept")).toContainText("Changes not kept: trying again");
   failing = false;
   await expect(page.locator("#edit-bar")).toHaveAttribute("data-kept", "saved", {timeout: 10000});     // (edits.ts: RETRY_MS)
   expect((await stored(page)).deleted.map(d => d.id)).toEqual([NEAR_TREE]);

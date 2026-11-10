@@ -26,4 +26,3 @@
 .tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
 .appearance { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .appearance:hover .preview { border-color: var(--accent); }
-.materials { margin: 12px 0; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); cursor: pointer; }

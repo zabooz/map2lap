@@ -254,7 +254,7 @@ test("a change that can't be kept: Save says so and writes nothing", async ({pag
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y);
   await page.keyboard.press("Delete");
-  await expect(page.locator("#edit-kept")).toHaveText("Changes not kept: trying again");
+  await expect(page.locator("#edit-kept")).toContainText("Changes not kept: trying again");
   await saveTrack(page);
   await expect(page.locator("#edit-made")).toContainText("could not be kept");
   expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees);

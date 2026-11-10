@@ -28,8 +28,16 @@ cancellation; masks are sampled as linear data.
 
 `app/trackview.py` scans an installed Map2Lap track's kn5 with `track.kn5.scan`: offsets, sizes, materials and start points,
 without loading all meshes or textures into memory. The page requests their bytes separately, with the file's revision.
-A shared progress bar covers mesh loading, required textures and selection preparation. Reading the index has an indeterminate
-bar; afterwards the fraction counts completed tasks, not elapsed or remaining time. Its reserved place stays when loading ends.
+A toast at the top centre (the page's one stack, `components/toastStore.ts`) shows loading with a progress bar over mesh loading,
+required textures and selection preparation. Reading the index has an indeterminate bar; afterwards the fraction counts completed
+tasks, not elapsed or remaining time. The sidebar's status line keeps the text ("1234 parts loaded"). A first opening computes the
+ground's sections for selecting once (`track/surfaceindex.py`, files under `out/editor-selection` reused by later openings and saved
+copies): the index's `surface_unprepared` counts the tiles still to compute, and while it is above 0 the toast says why this opening
+takes longer. A failed load or the memory limit stays as a toast to read. Saving shows a toast with a running bar (the server reports
+no Save progress). Everything else that goes wrong outside a window is a toast too, while the Editor's tab is open
+(`editor/editorToasts.ts`): the view behind the last change (Load again), a refused copy (also after Esc), a failed Save, the draft
+retrying or stuck (Read again), older changes of an earlier build (Give up). A dismissed one stays away until its text changes.
+Dialogs keep their own errors inside them; build errors stay in the status card and log.
 A changed or partially written file returns HTTP 409. The viewer loads nearby meshes first (six at a time, twelve textures), counts
 memory against its configured limit and disposes meshes and textures when the track changes. The limit estimates RAM and GPU use;
 it does not include all browser overhead. Meshes and textures above it stay out of the preview; `tools/editor_memory.py` says what a

@@ -13,6 +13,8 @@
 .content { flex: 1; min-width: 0; }
 .title { display: block; font-size: 14px; }
 .message { margin: 4px 0 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.detail { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.bar { display: block; width: 100%; height: 6px; margin-top: 10px; accent-color: var(--accent); }
 .action { margin-top: 10px; padding: 6px 12px; border: 1px solid var(--toast-colour); border-radius: 7px;
           background: var(--toast-tint); color: var(--toast-colour); font-size: 13px; font-weight: 600; cursor: pointer; }
 .action:hover { filter: brightness(.95); }

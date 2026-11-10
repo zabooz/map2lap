@@ -224,6 +224,15 @@ def prepare(kn5, tiles=None):
     return {"prepared": len(keys)}
 
 
+def unprepared(kn5):
+    """How many of kn5's tiles have no prepared sections yet: what a first opening computes while loading (0 without
+    selection data)."""
+    if editorinfo.manifest(kn5) is None:
+        return 0
+    _folder, target, available, _roads, _chains = _context(kn5)
+    return sum(not (target / (key + ".npz")).is_file() for key in available)
+
+
 def _load(path, material=None):
     global _memory_bytes
     key = (str(path), material)

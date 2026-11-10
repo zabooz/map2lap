@@ -29,6 +29,14 @@ class SurfaceSourceTest(Base):
         _scan, objects = trackcopies.build(self.kn5, kn5.scan(self.kn5), self.objects, [copy])
         self.assertEqual(self.objects["t_0_0"]["details"][0], objects[copy["id"]]["details"][0])
 
+    def test_the_index_says_how_many_sections_a_first_opening_computes(self):
+        from unittest import mock
+        from track import surfaceindex
+        with mock.patch.object(surfaceindex, "CACHE_ROOT", os.path.join(self.ac, "selection")):
+            self.assertEqual(1, trackview.index(self.ac, "t")["surface_unprepared"])
+            surfaceindex.prepare(self.kn5)
+            self.assertEqual(0, trackview.index(self.ac, "t")["surface_unprepared"])
+
     def test_select_needs_the_served_revision_and_a_ground_mesh(self):
         self.assertEqual("gc_meadow", self.select()["material"])
         with self.assertRaises(trackview.Unreadable):

@@ -134,19 +134,18 @@ function Appearance({name, picked, version, onEdit}: {name: string; picked: Pick
 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
 export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, notes, attention}: {
+  onMaterialOpen, notes}: {
   name: string; picked: Picked | null; hovered: Hovered | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
-  notes?: ReactNode; attention?: boolean;
+  notes?: ReactNode;
 }) {
   const [tab, setTab] = useState<"properties" | "details">("properties");
   const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
   const textureVersion = chosen?.inspection?.texture != null ? view.textureVersion(chosen.inspection.texture) : "";
   const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
   return <>
-    {collapsed && <button className={styles.show} onClick={() => { onCollapsed(false); if (attention) setTab("details"); }} aria-label="Show inspector">
-      {attention ? <span role="alert">Editor needs attention — Details ‹</span> : "Inspector ‹"}</button>}
+    {collapsed && <button className={styles.show} onClick={() => onCollapsed(false)} aria-label="Show inspector">Inspector ‹</button>}
     {!collapsed && <div className={styles.divider} role="separator" tabIndex={0} aria-label="Inspector width" aria-orientation="vertical"
       aria-valuenow={width} aria-valuemin={260} aria-valuemax={520}
       onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); updateWidth(width + (e.key === "ArrowLeft" ? 20 : -20)); } }}
@@ -164,7 +163,6 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
             setTab(next); document.getElementById(`inspector-tab-${next}`)?.focus();
           } }}>{id === "properties" ? "Properties" : "Details"}</button>)}
       </div>
-      {attention && <button type="button" className={styles.materials} role="alert" onClick={() => setTab("details")}>Editor needs attention — open Details</button>}
       <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
       <section id="inspect-selection" className={styles.section}>
         <h3>Selection</h3>

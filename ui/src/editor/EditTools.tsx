@@ -22,6 +22,8 @@ import {Inspector} from "./inspector/Inspector";
 import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
 import {usePaint} from "./tools/usePaint";
 import {ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
+import {useToasts} from "../components/toastStore";
+import {editorToasts} from "./editorToasts";
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
@@ -32,10 +34,11 @@ export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
     those hosts: V, X, K, M, H, T, Home, Delete, Esc, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). */
-export function EditTools({name, title, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost, hovered,
+export function EditTools({name, title, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost, hovered,
   inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved}: {
   name: string;
   title: string;
+  visible: boolean;
   taken: string[];
   view: TrackView;
   scene: RefObject<HTMLDivElement | null>;
@@ -67,6 +70,8 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   const [copyTake, setCopyTake] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
+  const [copyFailed, setCopyFailed] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   const [libraryTab, setLibraryTab] = useState<LibraryTab | null>(null);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
   const replaceable = useMemo(() => menu && picked?.id ? view.replacementTargets(marked) : null, [view, menu, picked, marked]);
@@ -277,6 +282,16 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
   }, [scene, fileHost, toolsHost, notesHost, inspectorHost]);
 
 
+  // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
+  // ×'d, it stays away until its text changes)
+  const problems = editorToasts({viewFailed, copyFailed, saveFailed: saving.failed, save: state.save, error: state.error, outdated: state.outdated,
+    saving: saving.busy},
+    dismissed, {reopen: thenView(view, reopen), readAgain: thenView(view, () => void readAgain()), giveUp: thenView(view, () => edits.discardOutdated())});
+  useToasts(!visible ? [] : problems.map(t => ({...t, onDismiss: () => {
+    setDismissed(previous => new Set(previous).add(t.key));
+    if (t.id === "edit-copy-failed") setCopyFailed(null);
+  }})));
+
   return (
     <>
       {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
@@ -288,11 +303,10 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
         renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy} objects={objects}
           textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={limitedTiles} busy={painting.busy} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
-        notes={<EditNotes state={state} edits={edits} view={view} note={note} viewFailed={viewFailed} saveFailed={saving.failed}
+        notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null}
-          reopen={reopen} readAgain={() => void readAgain()} />}
-        attention={!!(viewFailed || saving.failed || state.error || state.outdated || state.save === "failed")}
+        />}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
         collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
         onMaterialOpen={() => setMaterialOpen(true)} textureRevision={textureRevision} />, inspectorHost)}
@@ -309,7 +323,7 @@ export function EditTools({name, title, taken, view, scene, fileHost, savedHost,
       {marking && <BandOptions band={band} view={view} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && <MoveOptions move={move} view={view} />}
-      {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} />}
+      {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} onFailed={setCopyFailed} />}
       {menu && (
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
                   onReplace={editable && replaceable?.length ? openModels : null}

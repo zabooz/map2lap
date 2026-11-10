@@ -5,7 +5,7 @@ import {groupOf} from "./MyTracksPane";
 
 const GROUPS: readonly (readonly [TrackGroup, string])[] = [["built", "Built"], ["edited", "Edited"]];
 
-/** The Editor tab's sidebar: File with the track to show, what is loading (a line of its own: nothing moves) and its Save and Play, the places the 3D view's buttons
+/** The Editor tab's sidebar: File with the track to show, what is loading (a line of its own: nothing moves; its bar is a toast) and its Save and Play, the places the 3D view's buttons
     are drawn into (fileRef, toolsRef with the help, notesRef: there while the page is, hidden with the tab, as the view keeps its state). */
 export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, toolsRef, notesRef, onChoose}: {tracks: Track[]; choice: string; status: EditorLoadStatus; hidden: boolean;
                                                                                                       fileRef: Ref<HTMLDivElement>; toolsRef: Ref<HTMLDivElement>;
@@ -29,12 +29,7 @@ export function EditorPanel({tracks, choice, status, hidden, fileRef, savedRef, 
           </select>
           <div className={`small muted ${styles.status}`}>
             <span id="edit-status">{status.text}</span>
-            {typeof status.progress === "number" && <span>{Math.floor(status.progress * 100)}%</span>}
             <span id="edit-saved" ref={savedRef} />
-          </div>
-          <div className={styles.progressSlot}>
-            <progress className={styles.progress} aria-label="Loading track" aria-describedby="edit-status" max={1}
-                      value={status.progress ?? undefined} hidden={status.progress === undefined} />
           </div>
           {tracks.some(t => t.name === choice && !t.build_files && !t.edited) && (
             <p id="edit-note" className="small muted">This track’s build files are gone. Deleting objects works, changing its road later will

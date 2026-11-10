@@ -62,6 +62,15 @@ class SurfaceIndexTest(unittest.TestCase):
         self.assertTrue((mask[29:35] == 255).all())
         self.assertTrue((mask[:28] == 0).all())
 
+    def test_unprepared_counts_the_sections_a_first_opening_still_computes(self):
+        editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 1)])
+        self.assertEqual(2, surfaceindex.unprepared(str(self.kn5)))
+        surfaceindex.prepare(str(self.kn5), ["0_0"])
+        self.assertEqual(1, surfaceindex.unprepared(str(self.kn5)))
+        surfaceindex.prepare(str(self.kn5))
+        self.assertEqual(0, surfaceindex.unprepared(str(self.kn5)))
+        self.assertEqual(0, surfaceindex.unprepared(str(self.root / "older.kn5")))   # (no selection data: nothing to compute)
+
     def test_select_all_includes_disconnected_regions_and_distant_matching_tiles(self):
         alpha = np.zeros((64, 64), np.uint8)
         alpha[10:15, 10:20] = 255

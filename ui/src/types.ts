@@ -85,4 +85,7 @@ export interface CodeContent {
   points?: LatLon[];
 }
 /** Editor loading: unknown amount is null, no active load is undefined; otherwise a fraction of completed tasks. */
-export interface EditorLoadStatus { text: string; progress?: number | null; }
+/** What a track's loading says. progress: undefined when done, null while how far is not known. first: its sections for selecting
+    are computed now (a first opening). failed: why it could not load. limited: the memory limit cut it short. */
+export interface EditorLoadStatus extends LoadAbout { text: string; progress?: number | null; }
+export interface LoadAbout { first?: boolean; failed?: string; limited?: boolean; }

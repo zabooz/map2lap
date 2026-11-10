@@ -11,8 +11,8 @@ import type {TrackView} from "../scene/view";
 interface Ready {template: CopyTemplate; at: number[]; kind: string; source: string}
 
 /** The active Copy tool, mounted anew each time it is taken up; its source stays ready after each placement. */
-export function CopyTool({name, edits, view, picked, onWheel}: {name: string; edits: TrackEdits; view: TrackView; picked: Picked | null;
-                                                              onWheel: (wheel: (keys: WheelKeys, by: number) => void) => void}) {
+export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: string; edits: TrackEdits; view: TrackView; picked: Picked | null;
+  onWheel: (wheel: (keys: WheelKeys, by: number) => void) => void; onFailed: (message: string) => void}) {
   const [ready, setReady] = useState<Ready | null>(null);
   const [fault, setFault] = useState<string | null>(null);
   const [pose, setPose] = useState(() => unplaced(""));
@@ -67,7 +67,7 @@ export function CopyTool({name, edits, view, picked, onWheel}: {name: string; ed
       } catch (error) {
         if (created) edits.rejectCopy(created);
         const message = (error as Error).message;
-        setFault(message); view.copyFailed(`Copy failed: ${message}`);
+        onFailed(message);
       } finally { if (shown !== null) view.dropPending(shown); }
     });
   });

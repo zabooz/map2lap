@@ -124,7 +124,7 @@ test("a failed draft write drops a tree copy, and reload keeps the saved instanc
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
     release();
     await page.getByRole("tab", {name: "Details", exact: true}).click();
-    await expect(page.locator("#edit-view-failed")).toContainText("Draft copy refused");
+    await expect(page.locator("#edit-copy-failed")).toContainText("Draft copy refused");
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
     expect((await draft(page)).copies).toHaveLength(0);
     await page.reload();
@@ -156,7 +156,7 @@ for (const imported of [false, true]) test(`Copy shows a solid ${imported ? "imp
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
     release();
     await page.getByRole("tab", {name: "Details", exact: true}).click();
-    await expect(page.locator("#edit-view-failed")).toContainText("Copy was refused for this test");
+    await expect(page.locator("#edit-copy-failed")).toContainText("Copy was refused for this test");
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   } finally { release(); }
 });

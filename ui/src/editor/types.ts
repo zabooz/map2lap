@@ -116,6 +116,7 @@ export interface TrackIndex {
   paint_errors?: string[];
   paints?: string[];
   surface_tiles?: string[];
+  surface_unprepared?: number;     // (tiles whose sections a first opening computes)
   draft?: number;
   copy_revision?: string;
   revision: string;             // the state of the file its numbers hold for

@@ -5,6 +5,10 @@ import {BuildLog} from "./components/BuildLog";
 import {EditorPanel} from "./components/EditorPanel";
 import {ErrorBoundary} from "./components/ErrorBoundary";
 import {InstallationToast} from "./components/InstallationToast";
+import {ToastHost} from "./components/Toasts";
+import {useToasts} from "./components/toastStore";
+import {loadingToast} from "./editor/editorToasts";
+import type {Say} from "./editor/scene/view";
 import {installationNotice, type InstallationTarget} from "./components/installationNotice";
 import {GearIcon} from "./components/icons";
 import {groupOf, MyTracksPane} from "./components/MyTracksPane";
@@ -42,7 +46,10 @@ export function App() {
   const [group, setGroup] = useStored<TrackGroup>("map2lap.myTracks", "built", GROUPS);
   const [editTrack, setEditTrack] = useStored<string>("map2lap.editTrack", "");
   const [editStatus, setEditStatus] = useState<EditorLoadStatus>({text: ""});
-  const reportEditLoad = useCallback((text: string, progress?: number | null) => setEditStatus({text, progress}), []);
+  const reportEditLoad = useCallback<Say>((text, progress, about) => setEditStatus({text, progress, ...about}), []);
+  const [loadDismissed, setLoadDismissed] = useState<EditorLoadStatus | null>(null);   // (a failure ×'d: away until another one)
+  const loadToast = loadingToast(editStatus);
+  useToasts(tab !== "edit" || !loadToast || loadDismissed === editStatus ? [] : [{...loadToast, onDismiss: () => setLoadDismissed(editStatus)}]);
   const [fileHost, setFileHost] = useState<HTMLDivElement | null>(null);       // (where in the sidebar the 3D view's Save and Play are drawn)
   const [savedHost, setSavedHost] = useState<HTMLSpanElement | null>(null);   // (the save state beside loading progress)
   const [toolsHost, setToolsHost] = useState<HTMLDivElement | null>(null);     // (... and its tools)
@@ -215,6 +222,7 @@ export function App() {
         <SettingsDialog settings={settings} release={release} patch={patch} focusTarget={settingsTarget} busy={busy} controls={controls} onControls={saveControls}
                         onCar={() => void reload()} onClose={closeSettings} />
       )}
+      <ToastHost />
       {installation && <InstallationToast key={`${settings.settings?.ac_path}:${installation.id}`} notice={installation} hidden={settingsOpen} onOpen={openInstallation} />}
     </>
   );
