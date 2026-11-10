@@ -204,10 +204,11 @@ def grounded(scan, objects, placed, under):
         dy = float(trackheights.Field(heights).at(at[0], at[2])[0])
         if not dy:
             continue
-        for i, _first, _count in posed[instance]["faces"][0]:
+        for i, first, count in posed[instance]["faces"][0]:
             data = vertices.get(i, scan["meshes"][i]["data"][0]).copy()
-            data["pos"][:, 1] = data["pos"][:, 1].astype(np.float64) + dy
-            vertices[i], grow[i] = data, grow.get(i, 0) + abs(dy)
+            own = np.unique(scan["meshes"][i]["data"][1].reshape(-1, 3)[first:first + count])     # (a saved bundle holds others too)
+            data["pos"][own, 1] = data["pos"][own, 1].astype(np.float64) + dy
+            vertices[i], grow[i] = data, max(grow.get(i, 0), abs(dy))
     return kn5.Moved(vertices, grow, under.points)
 
 
@@ -263,6 +264,53 @@ def _pieces(vertices, faces):
     for start in range(0, len(faces), 21845):
         used, inverse = np.unique(faces[start:start + 21845].ravel(), return_inverse=True)
         yield vertices[used], inverse.reshape(-1, 3).astype("<u2")
+
+
+TILE = 256                  # m, as object copies are bundled (trackcopies): AC still culls each bundle on its own
+FLAGS = ("material", "active", "visible", "renderable", "cast_shadows", "transparent", "layer", "lod_in", "lod_out")
+
+
+def bundle(scan, objects, placed):
+    """Save's model meshes merged per tile of their instance's final place, prefix and mesh flags, each bundle within AC's 65,535
+    vertices, as object copies are; every instance keeps its own face range in the object list. A blended (transparent) part stays
+    alone: AC sorts each mesh as a whole. Fewer meshes, the same triangles. Pure."""
+    first = next((i for i, m in enumerate(scan["meshes"]) if m.get("model")), None)
+    if first is None:
+        return scan, objects
+    poses = {p["id"]: p for p in placed}
+    meshes, buckets, where = list(scan["meshes"][:first]), {}, {}
+    for i, mesh in enumerate(scan["meshes"][first:], first):
+        model = mesh["model"]
+        pose = poses.get(model["instance"] + "#0", {"x": 0, "z": 0})
+        tile = int(np.floor((model["at"][0] + pose["x"]) / TILE)), int(np.floor(-(model["at"][2] + pose["z"]) / TILE))
+        prefix = mesh["name"].split("m2l_model_")[0]
+        key = (prefix, tile, *(mesh.get(k) for k in FLAGS), i if mesh.get("transparent") else None)
+        target = buckets.get(key)
+        if target is None or target["vertices"] + mesh["vertices"] > 65535:
+            target = buckets[key] = {**{k: v for k, v in mesh.items() if k != "model"}, "vertices": 0, "indices": 0, "data": ([], []),
+                                     "name": f"{prefix}m2l_model_{tile[0]}_{tile[1]}_{len(meshes) - first}", "number": len(meshes)}
+            meshes.append(target)
+        vertices, triangles = mesh["data"]
+        where[i] = target["number"], target["indices"] // 3
+        target["data"][0].append(vertices); target["data"][1].append(triangles.astype(np.int64) + target["vertices"])
+        target["vertices"] += len(vertices); target["indices"] += triangles.size
+    return _bundled(meshes, first, scan, objects, where)
+
+
+def _bundled(meshes, first, scan, objects, where):
+    """The bundles' arrays and bounds, and the object list's faces moved into them. Pure."""
+    for mesh in meshes[first:]:
+        vertices, triangles = np.concatenate(mesh["data"][0]), np.concatenate(mesh["data"][1]).astype("<u2")
+        center = (vertices["pos"].min(axis=0).astype(np.float64) + vertices["pos"].max(axis=0)) / 2
+        mesh.update(data=(vertices, triangles), center=center.tolist(), radius=float(np.linalg.norm(vertices["pos"] - center, axis=1).max()))
+        del mesh["number"]
+    listed = {}
+    for key, entry in objects.items():
+        if any(i in where for pieces in entry["faces"] for i, _f, _c in pieces):
+            entry = {**entry, "faces": [[[where[i][0], where[i][1] + f, count] if i in where else [i, f, count] for i, f, count in pieces]
+                                       for pieces in entry["faces"]]}
+        listed[key] = entry
+    return {**scan, "meshes": meshes}, listed
 
 
 PLANTS = {"tree", "bush", "grass", "flower", "plant"}

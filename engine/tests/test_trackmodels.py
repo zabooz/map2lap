@@ -287,8 +287,8 @@ class ModelWorkflowTest(Base):
         trackcopy.save(self.ac, self.name, "forest", "Forest")
         native = kn5.read(Path(self.ac, "content/tracks/forest/forest.kn5"))
         for model, pose in zip(answer["models"], poses):
-            parts = [m.vertices["pos"] for m in kn5.walk_meshes(native["root"]) if model["id"] in m.name and m.name.startswith("nocol_")]
-            corners = np.concatenate(parts)
+            from test_modelbundle import instance_points        # (Save bundles instances: the object list knows each one's faces)
+            corners = instance_points(Path(self.ac, "content/tracks/forest/forest.kn5"), model["id"])
             self.assertAlmostEqual(23 * pose["scale"], float(np.ptp(corners[:, 1])), places=4)
             self.assertAlmostEqual(pose["y"] + 1.5, float(corners[:, 1].min()), places=4)
         for relative in ("library", "cache", "out/sources", "out/edits", "out/model-assets"):

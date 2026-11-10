@@ -408,7 +408,11 @@ Native material conversion currently implements base colour factors, OPAQUE/MASK
 The original GLB retains its full PBR descriptions, and the browser uses its normal/roughness/metallic inputs, but equivalent
 normal/roughness/metallic shading in AC is not implemented by this model exporter. Base-colour texture transforms are refused
 at binding, rather than ignored; additional vertex colours and UV sets are refused at import. No game validation is implied.
-Server geometry is still copied per instance, and browser/native draw counts grow with instance count. Forest-scale batching,
+Server geometry is still copied per instance. Save bundles model parts like object copies: per 256 m tile of the
+instance's final place, prefix (`nocol_`/`1WALL_`) and mesh flags, each bundle within 65,535 vertices, before placements,
+heights and deletions, which all work on face ranges; the object list keeps each instance's own range. Blended parts stay
+alone. The Editor keeps a mesh per instance part. Twenty Quaternius trees went from 40 meshes to 6; heavy scans hardly bundle
+(twenty boulders: 80 to 60), and bundling saves no bytes. Browser draw counts still grow with instance count. Forest-scale batching,
 LOD/performance evidence and the remaining native material coverage are separate open release requirements.
 
 ## Ground texture changes

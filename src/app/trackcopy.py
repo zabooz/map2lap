@@ -247,6 +247,8 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     copied_scan, objects = trackcopies.build(path, source_scan, objects, edits["copies"])
     scan, objects = trackmodels.extend(ac, name, {**copied_scan, "model_source_path": path}, objects, edits.get("models", []))
     scan = {**scan, "model_images": trackmodels.images(ac, name, scan)}
+    # (bundled before placements, heights and deletions: they all work on face ranges, as in the source's own shared meshes)
+    scan, objects = trackmodels.bundle(scan, objects, edits["placed"])
     added = scan["meshes"][len(source_scan["meshes"]):]
     # The source needs no new textures; every appended node has 53 fixed bytes, its length-prefixed name, vertices and indices.
     extra = sum(53 + len(kn5._s(m["name"])) + m["vertices"] * kn5.VERTEX.itemsize + m["indices"] * 2 for m in added)
