@@ -4,6 +4,8 @@ import styles from "./App.module.css";
 import {BuildLog} from "./components/BuildLog";
 import {EditorPanel} from "./components/EditorPanel";
 import {ErrorBoundary} from "./components/ErrorBoundary";
+import {InstallationToast} from "./components/InstallationToast";
+import {installationNotice, type InstallationTarget} from "./components/installationNotice";
 import {GearIcon} from "./components/icons";
 import {groupOf, MyTracksPane} from "./components/MyTracksPane";
 import {NewTrackPane} from "./components/NewTrackPane";
@@ -12,6 +14,7 @@ import {CardCode, PlayButton, StatusCard} from "./components/StatusCard";
 import {TrackMap} from "./components/TrackMap";
 import {useBuild} from "./hooks/useBuild";
 import {useControls} from "./hooks/useControls";
+import {useCspStatus} from "./hooks/useCspStatus";
 import {useNewTrack, type MapMove} from "./hooks/useNewTrack";
 import {usePlay} from "./hooks/usePlay";
 import {useRelease} from "./hooks/useRelease";
@@ -44,13 +47,16 @@ export function App() {
   const [savedHost, setSavedHost] = useState<HTMLSpanElement | null>(null);   // (the save state beside loading progress)
   const [toolsHost, setToolsHost] = useState<HTMLDivElement | null>(null);     // (... and its tools)
   const [notesHost, setNotesHost] = useState<HTMLDivElement | null>(null);
-  const [settingsChoice, setSettingsOpen] = useState<boolean | null>(null);    // null: opened or closed by nobody yet
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState<InstallationTarget | null>(null);
   const [pick, setPick] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(true);   // false: the selection is newer than the last build's result
   const [move, setMove] = useState<MapMove | null>(null);
 
   const {tracks, car, reload} = useTracks();
   const settings = useSettings();
+  const patch = useCspStatus(settings.settings?.ac_ok ? settings.settings.ac_path : null);
+  const installation = installationNotice(settings.settings?.ac_ok, patch.info, patch.error);
   const version = settings.settings?.version ?? "";
   const release = useRelease(settings.settings?.version);
   const build = useBuild(() => setShowResult(true), () => void reload());
@@ -63,10 +69,10 @@ export function App() {
     if (t !== "new") void reload();
   };
   const track = useNewTrack(() => setShowResult(false), () => setTab("new"), setMove);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closeSettings = useCallback(() => { setSettingsOpen(false); setSettingsTarget(null); }, []);
+  const openInstallation = (target: InstallationTarget) => { setSettingsTarget(target); setSettingsOpen(true); };
 
   const acOk = settings.settings?.ac_ok ?? true;       // (an AC folder to install into: without it nothing can be built)
-  const settingsOpen = settingsChoice ?? !acOk;        // (no AC folder: the settings open by themselves)
 
   const mine = tab === "mine", {busy, status} = build;
   const picked = mine ? tracks.find(t => t.name === pick && groupOf(t) === group) : undefined;
@@ -206,9 +212,10 @@ export function App() {
       </main>
 
       {settingsOpen && (
-        <SettingsDialog settings={settings} release={release} busy={busy} controls={controls} onControls={saveControls}
+        <SettingsDialog settings={settings} release={release} patch={patch} focusTarget={settingsTarget} busy={busy} controls={controls} onControls={saveControls}
                         onCar={() => void reload()} onClose={closeSettings} />
       )}
+      {installation && <InstallationToast key={`${settings.settings?.ac_path}:${installation.id}`} notice={installation} hidden={settingsOpen} onOpen={openInstallation} />}
     </>
   );
 }

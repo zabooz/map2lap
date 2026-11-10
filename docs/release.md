@@ -41,12 +41,18 @@ update" look for the one of their system (`--target` of `gh release create` take
 Everything that differs between the systems is in `app/system.py`: Steam and its libraries, AC's Proton prefix (its
 `Documents` with `race.ini`), Play, processes, the folder picker, free memory.
 
-Settings detects Custom Shaders Patch locally from `dwrite.dll` and `extension/config/data_manifest.ini`, including
+The page checks the AC folder and Custom Shaders Patch locally on opening and while it remains open. Missing AC or
+missing, disabled or unreadable CSP shows a dismissible warning toast at the top centre. Its action opens the relevant
+Settings control; it never installs anything by itself. Dismissal lasts until that issue clears, the folder changes or the
+page reloads. A failed status request offers checking again rather than claiming CSP is missing. Play remains available
+without CSP. The shared toast component also supports information, success and error messages, and respects reduced motion.
+
+Map2Lap detects Custom Shaders Patch from `dwrite.dll` and `extension/config/data_manifest.ini`, including
 the user's enable override in Documents. Missing installations offer an explicit **Install CSP** button: it downloads
 the recommended public archive directly from the official `acstuff.club/patch/` page, stages and checks it, then merges
 its files with rollback and activates the DLL last. Existing loaders/patches are never upgraded by this action. CSP is
 not bundled with Map2Lap. A failed rollback retains recovery copies in the AC folder and reports their location.
-The download does not require the browser to stay open; Settings polls only local status. Builds, Play and Map2Lap
+The download does not require the browser to stay open; the page polls only local status. Builds, Play and Map2Lap
 updates are refused during installation. Changing the selected AC folder does not retarget an already requested install.
 
 Play starts `acs.exe` the way Steam does (`_v2-entry-point` of the Steam Linux Runtime the Proton names, then `proton

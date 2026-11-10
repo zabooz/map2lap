@@ -237,19 +237,33 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).models?.length).toBe(3);
   await expect.poll(async () => (await modelResources())?.instances).toBe(3);
   await page.keyboard.press("Escape"); await saved(page);
+  const expectedModelIds = (await (await page.request.get("/api/editor/alpha/edits")).json()).models.map((model: {id: string}) => model.id).sort();
   await page.locator("#edit-save-more").click();
   await page.locator("#save-name").fill("Imported model copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
   await expect(page.locator("#edit-track")).toHaveValue("imported_model_copy");
   const native = await meshes(page, "imported_model_copy");
-  expect(Object.keys(native).filter(name => name.includes("m2l_model"))).toHaveLength(6);
+  // Save bundles equal materials within a tile: three trees still contain all twelve triangles.
+  const modelTriangles = Object.entries(native).filter(([name]) => name.includes("m2l_model")).map(([, triangles]) => triangles);
+  expect(modelTriangles.reduce((sum, triangles) => sum + triangles, 0)).toBe(12);
   expect(native.nocol_trees_0_0).toBe(sourceTrees - 8);
   await backend.post("/__test/cold-models");
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect.poll(async () => (await (await page.request.get("/api/editor/imported_model_copy/edits")).json()).models?.length).toBe(3);
   const coldIndex = await (await page.request.get("/api/editor/imported_model_copy/index")).json();
-  expect(coldIndex.model_replacements).toEqual([]);
+  expect(coldIndex.models.map((model: {id: string}) => model.id).sort()).toEqual(expectedModelIds);
+  expect(new Set(expectedModelIds).size).toBe(3);
+  for (const id of expectedModelIds) {
+    expect(coldIndex.objects[id].kinds).toEqual(["tree"]);
+    expect(coldIndex.model_matrices[id]).toHaveLength(16);
+  }
+  // Original and compiled sources both reopen: the latter already removed the billboard. Count the visible result,
+  // including each still-active replacement's eight billboard triangles, rather than assuming one source representation.
+  const sourceTreeTriangles = coldIndex.meshes.filter((mesh: {name: string}) => mesh.name === "nocol_trees_0_0")
+    .reduce((sum: number, mesh: {indices: number}) => sum + mesh.indices / 3, 0);
+  expect(sourceTreeTriangles - coldIndex.model_replacements.length * 8).toBe(sourceTrees - 8);
+  for (const id of coldIndex.model_replacements) expect(id).toBe(replacement.replaces);
   await page.locator("#edit-save-more").click();
   await page.locator("#save-name").fill("Imported cold copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();

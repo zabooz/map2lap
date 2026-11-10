@@ -1,4 +1,4 @@
-import {useEffect, useState, type ReactNode} from "react";
+import {useEffect, useRef, useState, type ReactNode} from "react";
 import {get, post} from "../api";
 import {DEFAULT_CONTROLS, ELEVATION_SPEED_RANGE, MEMORY_RANGE, SPEED_RANGE, SPEEDS, type Controls} from "../editor/scene/controls";
 import {fmtBytes} from "../format";
@@ -6,6 +6,8 @@ import type {useRelease} from "../hooks/useRelease";
 import type {useSettings} from "../hooks/useSettings";
 import styles from "./SettingsDialog.module.css";
 import {CspSettings} from "./CspSettings";
+import type {useCspStatus} from "../hooks/useCspStatus";
+import type {InstallationTarget} from "./installationNotice";
 
 const CACHE_CAPS = [5, 10, 20, 50, 100, 0];     // GB (0: no limit)
 
@@ -18,7 +20,8 @@ function Group({title, children}: {title: string; children: ReactNode}) {
   return <div className={styles.group}><h3>{title}</h3>{children}</div>;
 }
 
-function Installation({settings: s, release}: {settings: ReturnType<typeof useSettings>; release: ReturnType<typeof useRelease>}) {
+function Installation({settings: s, release, patch}: {settings: ReturnType<typeof useSettings>; release: ReturnType<typeof useRelease>;
+  patch: ReturnType<typeof useCspStatus>}) {
   const {note} = release;
   return (
     <Group title="Installation">
@@ -40,7 +43,7 @@ function Installation({settings: s, release}: {settings: ReturnType<typeof useSe
         <button onClick={() => void s.browse()}>Browse …</button>
       </div>
       <p id="ac-status" className={`small ${s.ac?.ok ? styles.good : styles.fault}`}>{s.ac?.text}</p>
-      <CspSettings key={s.settings?.ac_path ?? ""} path={s.settings?.ac_path ?? ""} />
+      {s.settings?.ac_ok && <CspSettings key={s.settings.ac_path} path={s.settings.ac_path} patch={patch} />}
     </Group>
   );
 }
@@ -274,9 +277,11 @@ const TABS = [["general", "General"], ["map2lap", "Map2Lap"], ["editor", "Editor
 
 /** Settings: the gear's popup over the page, always the same height (switching its tabs doesn't jump); closed by its ×, a
     click beside it or Esc. Mounted while open; all its tabs stay mounted (what the server counted stays). */
-export function SettingsDialog({settings, release, busy, controls, onControls, onCar, onClose}: {
+export function SettingsDialog({settings, release, patch, focusTarget, busy, controls, onControls, onCar, onClose}: {
   settings: ReturnType<typeof useSettings>;
   release: ReturnType<typeof useRelease>;
+  patch: ReturnType<typeof useCspStatus>;
+  focusTarget: InstallationTarget | null;
   busy: boolean;
   controls: Controls;
   onControls: (c: Controls) => void;
@@ -284,6 +289,17 @@ export function SettingsDialog({settings, release, busy, controls, onControls, o
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("general");
+  const dialog = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!focusTarget) return;
+    const frame = requestAnimationFrame(() => {
+      const target = dialog.current?.querySelector<HTMLElement>(focusTarget === "ac" ? "#ac" : "#csp-settings button");
+      target?.focus();
+      target?.scrollIntoView({block: "nearest"});
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTarget]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -293,7 +309,7 @@ export function SettingsDialog({settings, release, busy, controls, onControls, o
 
   return (
     <div id="settings-back" className={styles.back} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <section id="settings" className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section ref={dialog} id="settings" className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className={styles.head}>
           <b id="settings-title">Settings</b>
           <button id="settings-close" className={styles.close} title="Close" aria-label="Close settings" onClick={onClose}>×</button>
@@ -306,7 +322,7 @@ export function SettingsDialog({settings, release, busy, controls, onControls, o
         </nav>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "general"}>
           <a className={styles.bugLink} href="https://github.com/zabooz/map2lap/issues" target="_blank" rel="noopener">Found a bug?</a>
-          <Installation settings={settings} release={release} />
+          <Installation settings={settings} release={release} patch={patch} />
           <BuildSpeed settings={settings} />
           <Storage settings={settings} busy={busy} />
           <Testing settings={settings} />

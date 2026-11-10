@@ -4,6 +4,8 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 from test_modeldata import encode, fixture
@@ -21,6 +23,45 @@ class LibraryTest(unittest.TestCase):
     def prepare(self):
         raw = encode(*fixture())
         return raw, objectlibrary.prepare("tree.glb", raw)
+
+    def test_concurrent_original_preview_and_geometry_info_share_one_sized_file(self):
+        raw, prepared = self.prepare()
+        first_sizing, second_sizing, release = threading.Event(), threading.Event(), threading.Event()
+        started = threading.Event()
+        size = objectlibrary.modelimport.texture_size
+        replace = objectlibrary.os.replace
+        calls = []
+
+        def sizing(data, side):
+            calls.append(side)
+            (first_sizing if len(calls) == 1 else second_sizing).set()
+            if not release.wait(5):
+                raise TimeoutError("sizing was not released")
+            return size(data, side)
+
+        def publish(source, target):
+            # Windows refuses overwriting the cache file while the other request is reading it.
+            if Path(target).exists():
+                raise PermissionError("the other preview is reading this file")
+            return replace(source, target)
+
+        def info():
+            started.set()
+            return objectlibrary.prepared_info(prepared["token"], simplify_level=50)
+
+        with mock.patch.object(objectlibrary.modelimport, "texture_size", side_effect=sizing), \
+             mock.patch.object(objectlibrary.os, "replace", side_effect=publish), ThreadPoolExecutor(2) as pool:
+            preview = pool.submit(objectlibrary.prepared_model, prepared["token"])
+            try:
+                self.assertTrue(first_sizing.wait(5))
+                geometry = pool.submit(info)
+                self.assertTrue(started.wait(5))
+                second_sizing.wait(.2)
+            finally:
+                release.set()
+            self.assertEqual(raw, preview.result(timeout=5))
+            self.assertEqual(prepared["geometry"], geometry.result(timeout=5)["geometry"])
+        self.assertEqual([1024], calls)
 
     def test_prepare_then_import_retains_the_original_and_explicit_model_properties(self):
         raw, prepared = self.prepare()

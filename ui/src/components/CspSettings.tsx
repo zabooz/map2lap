@@ -1,4 +1,5 @@
-import {useEffect, useState} from "react";
+import {useState} from "react";
+import type {useCspStatus} from "../hooks/useCspStatus";
 import {post} from "../api";
 import {fmtBytes} from "../format";
 import styles from "./CspSettings.module.css";
@@ -34,7 +35,7 @@ export function CspControls({info, pending, error, onInstall, onCheck}: {
   info: CspInfo | null; pending: boolean; error: string | null; onInstall: () => void; onCheck: () => void;
 }) {
   const busy = pending || !!info?.busy;
-  return <div className={styles.box}>
+  return <div id="csp-settings" className={styles.box}>
     <div className={styles.row}><strong>Custom Shaders Patch</strong>
       {info?.can_install && !busy ? <button type="button" onClick={onInstall}>Install CSP</button>
         : <button type="button" onClick={onCheck} disabled={busy}>Check again</button>}
@@ -50,46 +51,25 @@ export function CspControls({info, pending, error, onInstall, onCheck}: {
   </div>;
 }
 
-/** Poll only local status while Settings is open; changing the AC folder remounts this component. */
-export function CspSettings({path}: {path: string}) {
-  const [info, setInfo] = useState<CspInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/** Installation uses the same local status as the page's warning; changing the AC folder remounts these controls. */
+export function CspSettings({path, patch}: {path: string; patch: ReturnType<typeof useCspStatus>}) {
+  const {info, error, refresh, accept} = patch;
   const [actionError, setActionError] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
   const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const response = await fetch("/api/csp", {signal: controller.signal});
-        const next = await response.json() as CspInfo;
-        if (!response.ok) throw new Error("Could not check CSP. Try again after restarting Map2Lap.");
-        if (controller.signal.aborted) return;
-        setInfo(next); setError(null);
-        timer = setTimeout(() => void poll(), next.busy ? 1000 : 5000);
-      } catch (e) {
-        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not check CSP");
-      }
-    };
-    void poll();
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, [revision]);
 
   const install = async () => {
     if (pending || !info?.can_install) return;
-    setPending(true); setError(null); setActionError(null);
+    setPending(true); setActionError(null);
     try {
       const result = await post<CspInfo>("/api/csp/install", {path});
       if (result.error) throw new Error(result.error);
-      setInfo(result as CspInfo);
-      setRevision(v => v + 1);
+      accept(result as CspInfo);
+      refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not install CSP");
     } finally { setPending(false); }
   };
 
   return <CspControls info={info} pending={pending} error={actionError ?? error} onInstall={() => void install()}
-    onCheck={() => { setActionError(null); setRevision(v => v + 1); }} />;
+    onCheck={() => { setActionError(null); refresh(); }} />;
 }
