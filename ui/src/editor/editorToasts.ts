@@ -7,6 +7,7 @@ import type {EditorLoadStatus} from "../types";
 export interface EditorProblems {
   viewFailed: string | null;
   copyFailed: string | null;
+  groupFailed?: string | null;
   saveFailed: string | null;
   save: EditState["save"];
   error: string | null;
@@ -26,6 +27,7 @@ export function editorToasts(p: EditorProblems, dismissed: ReadonlySet<string>,
     !!p.viewFailed && {id: "edit-view-failed", tone: "warning", title: "The view doesn't show the last change",
       message: `Your changes are kept. ${p.viewFailed}`, action: {label: "Load again", run: actions.reopen}},
     !!p.copyFailed && {id: "edit-copy-failed", tone: "error", title: "Copy failed", message: p.copyFailed},
+    !!p.groupFailed && {id: "edit-group-failed", tone: "error", title: "Group placement failed", message: p.groupFailed},
     !!p.saveFailed && {id: "edit-made", tone: "error", title: "Not saved", message: p.saveFailed},
     p.save === "failed" && {id: "edit-kept", tone: "warning", title: "Changes not kept: trying again"},
     p.save === "stuck" && {id: "edit-stuck", tone: "error", title: "Changes not kept", message: p.error ?? "",

@@ -89,13 +89,18 @@ test("a low window's form reaches its end by scrolling", async ({page}) => {
   await expect(page.getByText("±200 m")).toBeVisible();
 });
 
-test("the settings open by themselves without an Assetto Corsa folder, Build stays off", async ({page}) => {
+test("a missing Assetto Corsa folder keeps Build off and its warning opens Settings", async ({page}) => {
   await page.route("**/api/settings", async route => {
     const real = await (await route.fetch()).json();
     await route.fulfill({json: {...real, ac_ok: false}});
   });
   await page.goto("/");
-  await expect(page.getByRole("dialog")).toBeVisible();
+  const warning = page.getByRole("alert");
+  await expect(warning).toContainText("Assetto Corsa folder not found");
+  await expect(page.getByRole("dialog", {name: "Settings"})).toBeHidden();
+  await expect(page.locator("#go")).toBeDisabled();
+  await warning.getByRole("button", {name: "Choose folder"}).click();
+  await expect(page.getByRole("dialog", {name: "Settings"})).toBeVisible();
   await expect(page.locator("#ac-status")).toContainText("No Assetto Corsa folder there");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeHidden();

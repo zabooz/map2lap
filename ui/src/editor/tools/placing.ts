@@ -21,7 +21,8 @@ export interface Nudge {
 }
 
 export const STILL: Nudge = {x: 0, y: 0, z: 0, turn: 0, scale: 1};
-const MAX_MOVE_M = 1000, MAX_RAISE_M = 100, MIN_SCALE = 0.1, MAX_SCALE = 10;      // (placement.py)
+const MAX_MOVE_M = 1000, MAX_RAISE_M = 100;      // (placement.py)
+export const MIN_SCALE = 0.1, MAX_SCALE = 10;
 
 const clamp = (v: number, least: number, most: number) => Math.min(most, Math.max(least, v));
 const rounded = (v: number, digits: number) => Math.round(v * 10 ** digits) / 10 ** digits;

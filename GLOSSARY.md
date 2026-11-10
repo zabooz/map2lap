@@ -20,6 +20,11 @@ per tile and material; the list says which triangles of them make up each object
 (a house's sign and door, a pole's lamp and wires). Every mesh a build adds is entered there. An object's id: `t_<x>_<y>#<number>`; a tree's or bush's, told apart by its count of triangles on any
 track: `<its mesh>#<number>`.
 
+**Object group**:
+A reusable Library mixture of imported models, with a weight and size range for each entry. The Groups brush scatters
+it onto loaded ground. One completed stroke is one undoable change; the planted models keep independent bindings and poses.
+This is separate from a **Sort**, which identifies matching objects already in a track.
+
 **Sort**:
 An object's finest name, what "delete all" in the Editor goes by. A listed object's is in the object list beside its **kind**, the coarse name
 the page shows (kind `street furniture`, sort `bench`; a prop row's group, a sign's stream, else the kind; lists of older builds have none:

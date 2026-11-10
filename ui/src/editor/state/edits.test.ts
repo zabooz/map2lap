@@ -2,6 +2,16 @@ import {expect, test} from "bun:test";
 import {isCurrent, TrackEdits, type Removed} from "./edits";
 import {tree, json, server, settle, started} from "./edits.fixture";
 
+test("a refused group is removed from all history in one operation while unrelated edits survive", async () => {
+  const {edits} = await started(); edits.remove([tree(0)]);
+  const models = [1, 2].map(n => ({id: `instance_${n}`, asset: "tree", at: [n, 0, 0] as [number, number, number], replaces: null, collision: "none" as const}));
+  edits.addModels(models, models.map(m => ({id: m.id + "#0", x: 0, y: 0, z: 0, turn: 0, scale: 1})));
+  edits.rejectModels(models.map(m => m.id));
+  expect(edits.state().models).toEqual([]); expect(edits.state().placed).toEqual([]);
+  edits.undo(); expect(edits.state().removed).toEqual([]);
+  edits.redo(); expect(edits.state().removed).toEqual([tree(0)]); expect(edits.state().models).toEqual([]);
+});
+
 test("a refused background copy is removed from the draft and history without losing unrelated edits", async () => {
   const {edits} = await started();
   edits.remove([tree(0)]);

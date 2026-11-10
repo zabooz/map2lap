@@ -2,6 +2,61 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {ModelDraw} from "./modelDraw";
 
+test("many repeated model parts draw in spatial instance batches while logical roots remain editable", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial()));
+  const scene = new THREE.Scene(), draw = new ModelDraw(scene, async () => source);
+  const bindings = Array.from({length: 200}, (_, n) => ({id: String(n), asset: "tree"}));
+  const matrices = Object.fromEntries(bindings.map(({id}, n) => [id, new THREE.Matrix4().makeTranslation(n % 100, 0, 0).toArray()]));
+  await draw.sync(bindings, {tree: {url: "tree"}}, matrices);
+  draw.flush();
+  expect(scene.children.filter(m => m instanceof THREE.InstancedMesh)).toHaveLength(1);
+  const batch = scene.children.find(m => m instanceof THREE.InstancedMesh) as THREE.InstancedMesh;
+  expect(batch.count).toBe(200); expect(draw.instance("0")).toBeDefined();
+  const hidden = new THREE.Matrix4(); draw.visible("0", false); draw.flush(); batch.getMatrixAt(0, hidden);
+  expect(new THREE.Vector3().setFromMatrixScale(hidden).length()).toBe(0); expect(batch.count).toBe(200);
+  draw.transforms({"1": new THREE.Matrix4().makeTranslation(1000, 0, 0).toArray()}); draw.flush();
+  expect(scene.children.filter(m => m instanceof THREE.InstancedMesh)).toHaveLength(2);
+  draw.dispose(); expect(scene.children).toHaveLength(0);
+});
+
+test("a moved or hidden model rebuilds only the batches it leaves or joins", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial()));
+  const scene = new THREE.Scene(), draw = new ModelDraw(scene, async () => source);
+  const at = (x: number) => new THREE.Matrix4().makeTranslation(x, 0, 0).toArray();
+  await draw.sync([{id: "a", asset: "tree"}, {id: "b", asset: "tree"}, {id: "c", asset: "tree"}], {tree: {url: "tree"}}, {a: at(0), b: at(1), c: at(600)});
+  const batches = () => scene.children.filter(m => m instanceof THREE.InstancedMesh) as THREE.InstancedMesh[];
+  const far = batches().find(b => b.count === 1)!, version = far.instanceMatrix.version;
+  draw.nudge("a", [0, 0, 0], new THREE.Matrix4().makeTranslation(2, 0, 0)); draw.flush();
+  draw.visible("b", false); draw.flush();
+  expect(far.instanceMatrix.version).toBe(version); expect(batches().map(b => b.count).sort()).toEqual([1, 2]);
+  draw.transforms({c: at(3)}); draw.flush();
+  expect(batches().map(b => b.count)).toEqual([3]); expect(far.parent).toBeNull();
+  draw.dispose();
+});
+
+test("hiding and showing instances reuses transform capacity even if no more memory can be reserved", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial()));
+  const scene = new THREE.Scene(); let allowed = true;
+  const draw = new ModelDraw(scene, async () => source, bytes => bytes <= 0 || allowed);
+  await draw.sync([{id: "a", asset: "tree"}, {id: "b", asset: "tree"}], {tree: {url: "tree"}},
+    {a: new THREE.Matrix4().toArray(), b: new THREE.Matrix4().toArray()});
+  const batch = scene.children[0]; allowed = false;
+  draw.visible("a", false); draw.flush(); expect(scene.children[0]).toBe(batch);
+  draw.visible("a", true); expect(() => draw.flush()).not.toThrow(); expect(scene.children[0]).toBe(batch);
+  draw.dispose();
+});
+
+test("a refused transform-buffer reservation preserves the previous roots, resource balance and visible batches", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial()));
+  const scene = new THREE.Scene(); let balance = 0, allowed = true;
+  const draw = new ModelDraw(scene, async () => source, bytes => { if (bytes > 0 && !allowed) return false; balance += bytes; return true; });
+  const matrix = new THREE.Matrix4().toArray(); await draw.sync([{id: "a", asset: "tree"}], {tree: {url: "tree"}}, {a: matrix});
+  const root = draw.instance("a")!, batch = scene.children[0], before = balance; allowed = false;
+  await expect(draw.sync([{id: "a", asset: "tree"}, {id: "b", asset: "tree"}], {tree: {url: "tree"}}, {a: matrix, b: matrix})).rejects.toThrow("memory limit");
+  expect(draw.instance("a")).toBe(root); expect(draw.instance("b")).toBeUndefined(); expect(scene.children[0]).toBe(batch); expect(balance).toBe(before);
+  draw.dispose(); expect(balance).toBe(0);
+});
+
 test("a Copy ghost holds its source textures after Revert removes the model, until its last preview is released", async () => {
   const geometry = new THREE.PlaneGeometry(), source = new THREE.Group();
   source.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));

@@ -2,12 +2,12 @@ import {useEffect, useRef, type ReactNode} from "react";
 import {createPortal} from "react-dom";
 import styles from "./AssetLibrary.module.css";
 
-export type LibraryTab = "textures" | "objects";
+export type LibraryTab = "textures" | "objects" | "groups";
 
 /** One modal library keeps both existing importers and switches their content in place. */
-export function AssetLibrary({tab, onTab, onClose, busy, textures, objects}: {
+export function AssetLibrary({tab, onTab, onClose, busy, textures, objects, groups}: {
   tab: LibraryTab | null; onTab: (tab: LibraryTab) => void; onClose: () => void; busy: boolean;
-  textures: ReactNode; objects: ReactNode;
+  textures: ReactNode; objects: ReactNode; groups?: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), open = tab !== null;
   useEffect(() => {
@@ -30,8 +30,10 @@ export function AssetLibrary({tab, onTab, onClose, busy, textures, objects}: {
     <div className={styles.tabs} role="tablist" aria-label="Library category">
       <button type="button" role="tab" aria-selected={tab === "textures"} disabled={busy} onClick={() => onTab("textures")}>TEXTURES</button>
       <button type="button" role="tab" aria-selected={tab === "objects"} disabled={busy} onClick={() => onTab("objects")}>OBJECTS</button>
+      <button type="button" role="tab" aria-selected={tab === "groups"} disabled={busy} onClick={() => onTab("groups")}>GROUPS</button>
     </div>
     <div role="tabpanel" aria-label="Textures" hidden={tab !== "textures"}>{textures}</div>
     <div role="tabpanel" aria-label="Objects" hidden={tab !== "objects"}>{objects}</div>
+    <div role="tabpanel" aria-label="Groups" hidden={tab !== "groups"}>{groups}</div>
   </dialog>, document.body);
 }

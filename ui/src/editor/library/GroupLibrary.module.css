@@ -1,0 +1,7 @@
+.name { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+.name input { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--text); }
+.entry { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.entry strong { grid-column: 1 / -1; }
+.entry label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.entry input { width: 100%; box-sizing: border-box; padding: 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text); }
+.entry button { grid-column: 1 / -1; padding: 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text); cursor: pointer; }

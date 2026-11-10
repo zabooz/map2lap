@@ -8,7 +8,11 @@ Bun.serve({
   hostname: "127.0.0.1",        // (this machine only, as server.py)
   port: 3000,
   development: {hmr: true, console: true},
-  routes: {"/": page},
+  routes: {"/": page,
+    "/src/editor/tools/scatter.worker.js": async () => {
+      const result = await Bun.build({entrypoints: [import.meta.dir + "/src/editor/tools/scatter.worker.ts"], target: "browser"});
+      return result.success ? new Response(result.outputs[0], {headers: {"Content-Type": "text/javascript"}}) : new Response("Worker build failed", {status: 500});
+    }},
   async fetch(request) {
     const url = new URL(request.url);
     // (the body whole: a stream would come without the Content-Length server.py reads it by)

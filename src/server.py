@@ -630,6 +630,22 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         try:
             q = parse_qs(path.query)
+            if path.path == "/api/library/groups" or path.path.startswith("/api/library/groups/"):
+                from app import grouplibrary
+                if self.command == "GET" and path.path == "/api/library/groups":
+                    return self._send(200, grouplibrary.listing())
+                if not self._own_page("application/json"):
+                    return self._send(403, {"error": "Only the page itself can change groups"})
+                if not 0 < int(self.headers.get("Content-Length", 0)) <= 32768:
+                    self.close_connection = True
+                    return self._send(413, {"error": "Too many group settings"})
+                body = self._body()
+                if path.path == "/api/library/groups":
+                    return self._send(200, {"group": grouplibrary.save(body)})
+                deleting = re.fullmatch(r"/api/library/groups/([a-f0-9]{32})/delete", path.path)
+                if deleting:
+                    return self._send(200, {"deleted": grouplibrary.remove(deleting[1])})
+                return self._send(404, {"error": "No group here"})
             if (path.path in ("/api/library/models", "/api/library/model-imports")
                     or path.path.startswith(("/api/library/models/", "/api/library/model-imports/"))):
                 if self.command == "GET":
@@ -643,6 +659,9 @@ class Handler(BaseHTTPRequestHandler):
                     if path.path == "/api/library/models":
                         return self._send(200, objectlibrary.listing(q.get("q", [""])[0], q.get("category", [""])[0],
                             int(q.get("offset", ["0"])[0]), int(q.get("limit", ["40"])[0])))
+                    description = re.fullmatch(r"/api/library/models/([a-f0-9]{64})", path.path)
+                    if description:
+                        return self._send(200, objectlibrary.get(description[1]))
                     original = re.fullmatch(r"/api/library/models/([a-f0-9]{64})/original", path.path)
                     if original:
                         return self._send(200, objectlibrary.original(original[1]), "model/gltf-binary")

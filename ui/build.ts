@@ -6,7 +6,7 @@ const OUT = join(import.meta.dir, "..", "src", "web");
 
 rmSync(OUT, {recursive: true, force: true});
 const built = await Bun.build({
-  entrypoints: [join(import.meta.dir, "index.html")],
+  entrypoints: [join(import.meta.dir, "index.html"), join(import.meta.dir, "src/editor/tools/scatter.worker.ts")],
   outdir: OUT,
   minify: true,
   splitting: true,              // (the 3D view with three.js in a part of its own: loaded on the Editor tab's first visit)
