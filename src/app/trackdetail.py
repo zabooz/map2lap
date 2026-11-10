@@ -591,30 +591,48 @@ def native_descriptors(ac, name, descriptors, keys=True):
     keep what tracknative.build reads of a tile, for an export to need its weight fields only for a mask not kept."""
     result, resolved = [], {}
     for descriptor in descriptors:
-        layout = descriptor.get("layers", {})
-        pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
-        if pbr or "ground" in layout:
+        if _native(descriptor.get("layers", {})):
             descriptor = {**descriptor, "layers": _native_layout(ac, name, descriptor, keys, resolved)}
         result.append(descriptor)
     return result
 
 
-def _native_layout(ac, name, descriptor, keys, resolved):
+def _native(layout):
+    """Whether a painted tile of this layout is saved as regional native ground (tracknative.build): a ground layout, or an
+    image with a detail map or a roughness. Pure."""
+    pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
+    return pbr or "ground" in layout
+
+
+def _native_stamp(descriptor, keys):
+    """What a kept _native_layout must have been made with. Pure."""
+    from app import tracknative
+    return {"profile": NATIVE_PROFILE, "masks": tracknative.MASK_CACHE_VERSION, "keys": keys,
+            "layout": trackpaint._digest(descriptor.get("layers", {}))}
+
+
+def _kept_native(descriptor, keys):
+    """The layout _native_layout kept for this painted tile, a copy, or None if none or one made otherwise."""
+    try:
+        saved = trackpaint._read(trackpaint._out("paint-views", descriptor["version"]) / "native.json")
+    except ValueError:
+        return None
+    return json.loads(json.dumps(saved["layout"])) if saved.get("stamp") == _native_stamp(descriptor, keys) else None     # (a copy: the read is shared)
+
+
+def _native_layout(ac, name, descriptor, keys, resolved, read=None):
     """A painted tile's layout as native_descriptors gives it, kept beside its view's layers.json: the version covers the tile's
     source image, the track's state and its paints, so a Save that changed nothing there reads none of its fields (99 tiles of
-    a painted Heiligenblut copy: 9 s a Save). Read back as JSON either way, so a kept and a new one are alike."""
+    a painted Heiligenblut copy: 9 s a Save). Read back as JSON either way, so a kept and a new one are alike. read: what
+    _semantic gives for the tile, when its caller reads it anyway (tracknative.prepare)."""
     from app import tracknative
-    layout = descriptor.get("layers", {})
-    stamp = {"profile": NATIVE_PROFILE, "masks": tracknative.MASK_CACHE_VERSION, "keys": keys, "layout": trackpaint._digest(layout)}
+    kept = _kept_native(descriptor, keys)
+    if kept is not None:
+        return kept
+    layout, stamp = descriptor.get("layers", {}), _native_stamp(descriptor, keys)
     target = trackpaint._out("paint-views", descriptor["version"]) / "native.json"
-    try:
-        saved = trackpaint._read(target)
-        if saved.get("stamp") == stamp:
-            return json.loads(json.dumps(saved["layout"]))     # (a copy: the read is shared)
-    except ValueError:
-        pass
     record, path, scan, filename = _view(ac, name, descriptor["version"])
-    semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename, resolved)
+    semantic, weights, _coverage = read() if read else _semantic(ac, name, record, path, scan, filename, resolved)
     if "ground" not in layout:
         tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
         # Only what tracknative reads of "ground": the browser's passes and atlases (trackregions.compile) aren't.

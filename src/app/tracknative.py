@@ -2,6 +2,7 @@
 import hashlib
 import io
 import math
+import os
 from pathlib import Path
 import shutil
 import functools
@@ -337,12 +338,7 @@ def build(ac,name,descriptors,scan,change,path,added):
             width,height=semantic['dimensions']
             regions=layout.get('native_regions') or palette_regions(fields())
             keys=layout.get('native_mask_keys')
-            refs={ref['id']:ref for ref in semantic['images']}
-            # The tile image on its mask's ring canvas (trackdetail.ringed_base): sampled as one more repeating photo, its
-            # edge must not reach the opposite one.
-            tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(semantic['base']['name']).groups()))
-            ring=weight_extent(width,height)
-            refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
+            refs,tile=_tile_refs(semantic,width,height)
             base_material=materials[layout['materials'][0]]
             origin=layout['ground']['uv_origin']
             copies=layout.get('native_copies',{}); used.update(copies)     # (the size check's: the next one takes them)
@@ -377,12 +373,9 @@ def build(ac,name,descriptors,scan,change,path,added):
                     if number not in masks:
                         phase=_mask_phase(layout,width,height)
                         key=keys[number] if keys else _mask_key(fields(),bounds,palette,phase)
-                        # (AC gets it at 1 m a texel (textures.coarse_weights) and as BC7: a 64th of the pixels, a quarter of
-                        # the bytes each; one unchanged since the last Save is taken from then. A canvas the step divides is
-                        # averaged before rounding since 2026-11-10, a 255th off the one made coarse after at most: a name of its own)
-                        direct='' if any(size%(18*SAVED_WEIGHT_STEP) for size in canvas_size(bounds,width,height)) else 'd'
-                        stored=f'{key}_c{SAVED_WEIGHT_STEP}{direct}.dds'
-                        raw=_stored(kept,stored,lambda: bc7_weights(region_mask(fields(),bounds,palette,phase=phase,step=SAVED_WEIGHT_STEP)))
+                        # (one unchanged since the last Save, or made by prepare, is taken from the cache)
+                        stored=_mask_file(key,bounds,width,height)
+                        raw=_stored(kept,stored,lambda: _saved_mask(fields(),bounds,palette,phase))
                         used.add(stored)
                         masks[number]=resource(raw,'.dds')
                     mask=masks[number]
@@ -395,14 +388,15 @@ def build(ac,name,descriptors,scan,change,path,added):
                         if ref is not None:
                             # (each tile has its own image under the same id 'base': its texture number tells them apart)
                             key=(ref['id'],ref.get('i'),specular)
+                            if key not in prepared and 'asset' not in ref:
+                                # (a tile's own images unchanged since the last Save, or made by prepare, come from the cache)
+                                stored,colour=_own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref))
+                                used.add(stored)
+                                prepared[key]=(resource(colour,'.dds'),flat)
                             if key not in prepared:
-                                if 'asset' in ref:
-                                    folder=trackpaint._resolve(ac,name,'materials',ref['asset'])
-                                    raw=(folder/'colour.png').read_bytes()
-                                else:
-                                    _n,at,size=scan['textures'][ref['i']]
-                                    raw=trackview._read(path,at,size,record['base'])
-                                sheen=round(255*source_values.get('ksSpecular',0.)/specular) if ref['id']=='base' or ref['id'].startswith('source:') else 0
+                                folder=trackpaint._resolve(ac,name,'materials',ref['asset'])
+                                raw=(folder/'colour.png').read_bytes()
+                                sheen=_sheen(source_values,specular,ref)
                                 detail=None
                                 if 'detail' in ref and 'asset' in ref:
                                     detail=functools.cache(lambda asset=ref['asset']: _rgba(trackdetail.detail_image(ac,name,asset)))
@@ -426,6 +420,127 @@ def build(ac,name,descriptors,scan,change,path,added):
     for i in unused: materials[i]=replace(materials[i],maps=[])
     _keep_only(kept,used)
     return materials,textures,meshes,'',owned|set(textures),{'renderable':hidden}
+
+
+def _tile_refs(semantic,width,height):
+    """({id: image} of a painted tile's description, the tile (tx, ty)). The tile image on its mask's ring canvas
+    (trackdetail.ringed_base) is sampled as one more repeating photo, 'base': its edge must not reach the opposite one. Pure."""
+    from app import trackpaint
+    refs={ref['id']:ref for ref in semantic['images']}
+    tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(semantic['base']['name']).groups()))
+    ring=weight_extent(width,height)
+    refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
+    return refs,tile
+
+
+def _sheen(source_values,specular,ref):
+    """The alpha of a photo without a gloss map: a tile's own image keeps its ground's gloss under the material's specular. Pure."""
+    return round(255*source_values.get('ksSpecular',0.)/specular) if ref['id']=='base' or ref['id'].startswith('source:') else 0
+
+
+def _mask_file(key,bounds,width,height):
+    """The cache name of a region's saved mask (_saved_mask) of _mask_key key: a canvas the step divides is averaged before
+    rounding since 2026-11-10, a 255th off the one made coarse after at most, so it has a name of its own. Pure."""
+    direct='' if any(size%(18*SAVED_WEIGHT_STEP) for size in canvas_size(bounds,width,height)) else 'd'
+    return f'{key}_c{SAVED_WEIGHT_STEP}{direct}.dds'
+
+
+def _saved_mask(fields,bounds,palette,phase):
+    """A region's mask as AC gets it: 1 m a texel (textures.coarse_weights) and BC7, a 64th of the pixels and a quarter of
+    the bytes each. Pure."""
+    return bc7_weights(region_mask(fields,bounds,palette,phase=phase,step=SAVED_WEIGHT_STEP))
+
+
+def _own_photo(kept,path,scan,revision,ref,material,tile,sheen):
+    """(cache name, DDS) of a tile's own image ref ('base' or a source's) as _photo_colour packs it, from the kn5 at path in
+    revision, kept under its _photo_key."""
+    from app import trackview
+    _n,at,size=scan['textures'][ref['i']]
+    raw=trackview._read(path,at,size,revision)
+    stored=_photo_key(raw,ref,material,tile,sheen)+'.dds'
+    return stored,_stored(kept,stored,lambda: _photo_colour(raw,ref,material,tile,sheen,None))
+
+
+# Below this many painted tiles to make, prepare stays in this process: starting the workers (spawn, each importing the
+# server's modules, a few seconds on Windows) costs more than they save (about 0.9 s a tile on an empty cache).
+POOL_FROM = 6
+_job = {}
+
+
+def prepare(ac,name,descriptors,scan,path,processes=None):
+    """Make and keep what a Save makes of each painted tile the last one did not leave (_prepare_tile), several tiles at once:
+    the Save then takes it all from the cache, as a warm one does, and writes what it would have written. A tile a worker
+    fails on, the Save makes itself. scan, path: the source kn5's. processes: how many (None: as a build may use, as RAM
+    allows, here below POOL_FROM tiles; 1: here)."""
+    from app import materiallibrary,mytracks,settings,trackdetail
+    from track import parallel
+    todo=[d for d in descriptors if trackdetail._native(d.get('layers',{})) and not _kept_tile(name,d)]
+    if not todo: return
+    if processes is None:
+        cores=max(1,round((os.cpu_count() or 2)*settings.load()['cores']/100))
+        processes=1 if len(todo)<POOL_FROM else min(parallel.workers(len(todo)),cores)
+    state=((mytracks.ROOT,materiallibrary.ROOT),ac,name,scan,path)
+    pool=None
+    if processes<=1:
+        _init_prepare(*state)
+        jobs=[(lambda d=d: _prepare_tile(d)) for d in todo]
+    else:
+        pool=parallel.pool(processes,_init_prepare,state)
+        jobs=[pool.submit(_prepare_tile,d).result for d in todo]
+    try:
+        for job in jobs:
+            try:
+                job()
+            except Exception:       # (the Save makes that tile itself, and says what went wrong)
+                pass
+    finally:
+        if pool: pool.shutdown()
+
+
+def _kept_tile(name,descriptor):
+    """Whether the track's last Save left a painted tile's description and all its masks: then nothing of it needs its fields.
+    (Its region copies and images are not looked at: the Save makes one missing itself.)"""
+    from app import trackdetail
+    layout=trackdetail._kept_native(descriptor,True)
+    if layout is None: return False
+    width,height=layout['native_tile']['dimensions']
+    kept=_mask_folder(name)
+    return all((kept/_mask_file(key,bounds,width,height)).exists() for (bounds,_palette),key in zip(layout['native_regions'],layout['native_mask_keys']))
+
+
+def _init_prepare(roots,ac,name,scan,path):
+    """A prepare worker's state: its parent's roots (a test's) and the track's."""
+    from app import materiallibrary,mytracks
+    mytracks.ROOT,materiallibrary.ROOT=roots
+    _job.update(ac=ac,name=name,scan=scan,path=path)
+
+
+def _prepare_tile(descriptor):
+    """Make and keep what a Save makes of one painted tile apart from the others, its fields read once: its description
+    (trackdetail._native_layout), its ground's region copies (save_size), its region masks and its own images."""
+    from app import trackdetail
+    ac,name,scan,path=(_job[k] for k in ('ac','name','scan','path'))
+    record,_p,_s,filename=trackdetail._view(ac,name,descriptor['version'])
+    read=functools.cache(lambda: trackdetail._semantic(ac,name,record,path,scan,filename))
+    layout=trackdetail._native_layout(ac,name,descriptor,True,{},read)
+    kept=_mask_folder(name)
+    save_size(layout,scan,path,kept)
+    fields=functools.cache(lambda: with_base(read()[1]))
+    semantic=layout['native_tile']; width,height=semantic['dimensions']
+    phase=_mask_phase(layout,width,height)
+    for (bounds,palette),key in zip(layout['native_regions'],layout['native_mask_keys']):
+        _stored(kept,_mask_file(key,bounds,width,height),lambda: _saved_mask(fields(),bounds,palette,phase))
+    refs,tile=_tile_refs(semantic,width,height)
+    base_material=scan['materials'][layout['materials'][0]]
+    done=set()
+    for info in scan['meshes']:
+        if info['material'] not in layout['materials']: continue
+        source_values={p[0]:p[1] for p in scan['materials'][info['material']].props}
+        specular=max(.15,source_values.get('ksSpecular',0.))
+        for ref in (refs[key] for _bounds,palette in layout['native_regions'] for key in palette):
+            if 'asset' not in ref and (ref['id'],ref.get('i'),specular) not in done:
+                done.add((ref['id'],ref.get('i'),specular))
+                _own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref))
 
 
 def _mask_folder(name):

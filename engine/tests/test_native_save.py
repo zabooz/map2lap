@@ -146,23 +146,16 @@ class RegionMaskTest(unittest.TestCase):
         self.assertAlmostEqual(source + 5, lowest, places=3)
 
 
-    def tiles_read_by_export(self, *save):
-        """How many tiles' weight fields tracknative.build reads itself during trackcopy.save(self.ac, self.name, *save)."""
-        real, reads = tracknative.build, []
-
-        def build(*args):
-            with mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as semantic:
-                result = real(*args)
-            reads.append(semantic.call_count)
-            return result
-        with mock.patch.object(tracknative, "build", build):
+    def tiles_read(self, *save):
+        """How many times trackcopy.save(self.ac, self.name, *save) reads a tile's weight fields, preparing it included."""
+        with mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as semantic:
             trackcopy.save(self.ac, self.name, *save)
-        return reads[0]
+        return semantic.call_count
 
     def test_a_save_with_its_masks_kept_reads_no_tile_again(self):
         self.keep(self.painted(5))
-        self.assertEqual(1, self.tiles_read_by_export())
-        self.assertEqual(0, self.tiles_read_by_export())
+        self.assertEqual(1, self.tiles_read())
+        self.assertEqual(0, self.tiles_read())
 
     def test_a_save_without_ground_changes_prepares_no_tile_again_and_writes_what_it_wrote(self):
         self.keep(self.painted(5))
@@ -212,6 +205,43 @@ class RegionMaskTest(unittest.TestCase):
             trackcopy.save(self.ac, self.name)
         self.assertEqual(after, self.region_meshes(self.name))      # (as a Save from nothing makes it)
 
+    def export_makes(self):
+        """What tracknative.build makes itself during trackcopy.save(self.ac, self.name): {function: calls}."""
+        real, made = tracknative.build, {}
+
+        def build(*args):
+            with (mock.patch.object(tracknative, "region_mask", wraps=tracknative.region_mask) as masks,
+                  mock.patch.object(tracknative, "_photo_colour", wraps=tracknative._photo_colour) as photos,
+                  mock.patch.object(trackground, "clip_region", wraps=trackground.clip_region) as clips,
+                  mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as fields):
+                result = real(*args)
+            own = sum("asset" not in call.args[1] for call in photos.call_args_list)     # (shared library images: the Save's)
+            made.update(masks=masks.call_count, photos=own, clips=clips.call_count, fields=fields.call_count)
+            return result
+        with mock.patch.object(tracknative, "build", build):
+            trackcopy.save(self.ac, self.name)
+        return made
+
+    def test_a_save_from_nothing_prepares_its_tiles_first_and_writes_what_a_save_without_that_writes(self):
+        # (a real build's ground has its border lighting already; this fixture's would be changed after preparing it)
+        patch = mock.patch.object(groundnormals, "changed", side_effect=lambda _path, change: change)
+        patch.start(); self.addCleanup(patch.stop)
+        self.keep(self.painted(5))
+        path = Path(self.ac, "content/tracks", self.name, self.name + ".kn5")
+        with mock.patch.object(tracknative, "prepare"):
+            trackcopy.save(self.ac, self.name)
+        unprepared = path.read_bytes()
+        for processes in (1, 2):
+            with self.subTest(processes=processes):
+                shutil.rmtree(tracknative._mask_folder(self.name))
+                for kept in Path(self.ac, "out", "paint-views").glob("*/native.json"):
+                    kept.unlink()
+                real = tracknative.prepare
+                with mock.patch.object(tracknative, "prepare", lambda *a: real(*a, processes=processes)):
+                    made = self.export_makes()
+                self.assertEqual({"masks": 0, "photos": 0, "clips": 0, "fields": 0}, made)
+                self.assertEqual(unprepared, path.read_bytes())
+
     def test_a_kept_tile_description_of_another_profile_is_made_again(self):
         self.keep(self.painted(5))
         trackcopy.save(self.ac, self.name)
@@ -226,7 +256,7 @@ class RegionMaskTest(unittest.TestCase):
         first = self.saved(self.name)[1]
         next(path for path in tracknative._mask_folder(self.name).glob("*.dds") if path.read_bytes() in first.values()).unlink()
         with mock.patch.object(tracknative, "region_mask", wraps=tracknative.region_mask) as made:
-            self.assertEqual(1, self.tiles_read_by_export())
+            self.assertEqual(1, self.tiles_read())
         self.assertEqual(1, made.call_count)
         self.assertEqual(first, self.saved(self.name)[1])
 

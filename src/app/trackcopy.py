@@ -259,8 +259,9 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     try:
         trackpaint.validate(ac, name, edits["base"], edits["paints"])
         descriptors = trackpaint.descriptors(ac, name, edits["base"], edits["paints"])
-        textures = {d["i"]: d for d in trackdetail.native_descriptors(ac, name, descriptors)}
         from app import tracknative
+        tracknative.prepare(ac, name, descriptors, source_scan, path)     # (painted tiles not kept from the last Save, at once)
+        textures = {d["i"]: d for d in trackdetail.native_descriptors(ac, name, descriptors)}
         extra += (trackdetail.save_size(textures.values(), source_scan, path, tracknative._mask_folder(name))     # (its last Save's region copies)
                   + trackpaint.bundle_size(ac, name, edits["paints"]))
         extra += trackdetail.binding_size(ac, name, path, textures.values(), source_scan)
