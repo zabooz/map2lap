@@ -65,6 +65,7 @@ const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar:
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
 const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
+const FOOT_RING = 8;                // points round a plant's foot: the lowest side of a slope lies within 22.5° of one, so at most 8 % of its drop is missed
 const ROAD = /^1ROAD_ground/;       // what a click marks a band on (trackband: the road is this)
 const SAMPLE_EVERY_MS = 50;         // where the ring is, this often while the mouse is held: finer than a hand moves it, and it counts the time where it stands
 const PREVIEW_EVERY_MS = 200;       // how often a stroke under way is asked for: at most one at a time, what is newest when it is answered goes next
@@ -999,20 +1000,39 @@ export class TrackView {
     return this.groundAt(x, z) ?? this.navigation.lastGround;
   }
 
-  /** A vegetation foot on loaded terrain only. Bridges, water and missing terrain are not planting surfaces. */
-  plantGround(x: number, z: number): [number, number, number] | null {
-    const hit = this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0));
-    return hit && BRUSHED.test(hit.object.name) ? [x, hit.point.y, z] : null;
+  /** A plant's foot at x, z on loaded terrain only, at the lowest ground within reach m of it (its foot's reach), so it floats
+      nowhere on a slope or at a cliff edge; its uphill side sinks in. Bridges, water and missing terrain are not planting surfaces:
+      under its middle that is no place, under a point of its ring that point is left out. */
+  plantGround(x: number, z: number, reach = 0): [number, number, number] | null {
+    const ground = (px: number, pz: number) => {
+      const hit = this.groundAlong(new THREE.Vector3(px, VIEW_M, pz), new THREE.Vector3(0, -1, 0));
+      return hit && BRUSHED.test(hit.object.name) ? hit.point.y : null;
+    };
+    let y = ground(x, z);
+    if (y === null) return null;
+    for (let i = 0; reach > 0 && i < FOOT_RING; i++) {
+      const a = i * 2 * Math.PI / FOOT_RING, at = ground(x + reach * Math.cos(a), z + reach * Math.sin(a));
+      if (at !== null) y = Math.min(y, at);
+    }
+    return [x, y, z];
   }
 
   private groupDraw: GroupDraw | null = null;
-  async showGroup(key: string, plants: GroupPlant[], models: LibraryModel[]) {
-    this.groupDraw ??= new GroupDraw(this.scene, bytes => {
+  private groups() {
+    return this.groupDraw ??= new GroupDraw(this.scene, bytes => {
       if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
       this.usedBytes += bytes; return true;
     });
-    this.groupDraw.environment(this.ensureModelLight(), this.reflections());
-    await this.groupDraw.show(key, plants, models); this.dirty = true;
+  }
+  /** Each model's foot reach in m at size 1 (plantFoot), measured once on its loaded scene. */
+  async groupFeet(models: LibraryModel[]): Promise<Record<string, number>> {
+    const groups = this.groups();
+    return Object.fromEntries(await Promise.all(models.map(async m => [m.id, await groups.foot(m) * m.metres_per_unit] as const)));
+  }
+  async showGroup(key: string, plants: GroupPlant[], models: LibraryModel[]) {
+    const groups = this.groups();
+    groups.environment(this.ensureModelLight(), this.reflections());
+    await groups.show(key, plants, models); this.dirty = true;
     performance.clearMarks("map2lap.groups.preview");
     performance.mark("map2lap.groups.preview", {detail: {key, count: plants.length}});
   }
@@ -1962,6 +1982,13 @@ export class TrackView {
     this.dirty = true;
   }
 
+  private modelFailure: string | null = null;
+  /** The models' instance batches brought up to date; a refusal (the memory limit) is told once and the last batches stay drawn. */
+  private flushModels() {
+    try { this.modelDraw.flush(); this.modelFailure = null; }
+    catch (error) { const message = String((error as Error).message ?? error); if (message !== this.modelFailure) { this.modelFailure = message; this.onViewFailed(message); } }
+  }
+
   private frame() {                 // (drawn only when something changed)
     const now = performance.now(), seconds = Math.min(FLY_MAX_STEP_S, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
@@ -1979,7 +2006,7 @@ export class TrackView {
         if (info.model) this.modelDraw.visible(info.model.instance, m.visible && !this.removed.has(info.model.instance + "#0"));
       }
       this.surfaceOverlay?.follow();
-      this.modelDraw.flush();
+      this.flushModels();
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
       this.nightSky.follow(this.camera.position);

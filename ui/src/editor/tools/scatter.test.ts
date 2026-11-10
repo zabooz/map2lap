@@ -37,3 +37,11 @@ test("mixture sizes stay within the ordinary Transform tool's 10–1000% range",
   for (const change of [{minScale: .05}, {maxScale: 20}])
     expect(() => scatter([[0, 0, 0]], {...options, entries: [{...options.entries[0], ...change}]})).toThrow();
 });
+
+test("a stroke over the cap thins evenly over the whole brush instead of filling one side", () => {
+  const result = scatter([[0, 0, 0]], {...options, radius: 100, spacing: .1, density: 10});
+  expect(result.limited).toBe(true); expect(result.length).toBeLessThanOrEqual(2000);
+  const east = result.filter(p => p.x > 0).length, west = result.length - east;
+  expect(east / result.length).toBeGreaterThan(.4); expect(west / result.length).toBeGreaterThan(.4);
+  expect(result.length).toBeGreaterThan(1500);
+});

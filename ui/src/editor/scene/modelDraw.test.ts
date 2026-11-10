@@ -12,10 +12,26 @@ test("many repeated model parts draw in spatial instance batches while logical r
   expect(scene.children.filter(m => m instanceof THREE.InstancedMesh)).toHaveLength(1);
   const batch = scene.children.find(m => m instanceof THREE.InstancedMesh) as THREE.InstancedMesh;
   expect(batch.count).toBe(200); expect(draw.instance("0")).toBeDefined();
-  draw.visible("0", false); draw.flush(); expect((scene.children[0] as THREE.InstancedMesh).count).toBe(199);
+  const hidden = new THREE.Matrix4(); draw.visible("0", false); draw.flush(); batch.getMatrixAt(0, hidden);
+  expect(new THREE.Vector3().setFromMatrixScale(hidden).length()).toBe(0); expect(batch.count).toBe(200);
   draw.transforms({"1": new THREE.Matrix4().makeTranslation(1000, 0, 0).toArray()}); draw.flush();
   expect(scene.children.filter(m => m instanceof THREE.InstancedMesh)).toHaveLength(2);
   draw.dispose(); expect(scene.children).toHaveLength(0);
+});
+
+test("a moved or hidden model rebuilds only the batches it leaves or joins", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial()));
+  const scene = new THREE.Scene(), draw = new ModelDraw(scene, async () => source);
+  const at = (x: number) => new THREE.Matrix4().makeTranslation(x, 0, 0).toArray();
+  await draw.sync([{id: "a", asset: "tree"}, {id: "b", asset: "tree"}, {id: "c", asset: "tree"}], {tree: {url: "tree"}}, {a: at(0), b: at(1), c: at(600)});
+  const batches = () => scene.children.filter(m => m instanceof THREE.InstancedMesh) as THREE.InstancedMesh[];
+  const far = batches().find(b => b.count === 1)!, version = far.instanceMatrix.version;
+  draw.nudge("a", [0, 0, 0], new THREE.Matrix4().makeTranslation(2, 0, 0)); draw.flush();
+  draw.visible("b", false); draw.flush();
+  expect(far.instanceMatrix.version).toBe(version); expect(batches().map(b => b.count).sort()).toEqual([1, 2]);
+  draw.transforms({c: at(3)}); draw.flush();
+  expect(batches().map(b => b.count)).toEqual([3]); expect(far.parent).toBeNull();
+  draw.dispose();
 });
 
 test("hiding and showing instances reuses transform capacity even if no more memory can be reserved", async () => {

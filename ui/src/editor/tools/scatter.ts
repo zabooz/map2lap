@@ -10,7 +10,7 @@ export type ScatterResult = Scattered[] & {limited?: boolean};
 export const MAX_SCATTER = 2000;
 const MAX_ATTEMPTS = MAX_SCATTER * 10;
 
-/** Frozen random values from a stroke seed; independent of frame rate and wall time. Pure but for its local counter. */
+/** Frozen random values from a seed; independent of frame rate and wall time. Pure but for its local counter. */
 function random(seed: number) {
   return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -30,6 +30,29 @@ function centres(samples: Sample[], step: number) {
   return out;
 }
 
+interface Cell {x: number; z: number; draw: () => number}
+
+/** The lattice cells whose candidate lies within radius of a centre, in the stroke's order, each once: centres the stroke's path,
+    grid the lattice step in m, seed the stroke's. A cell's candidate and its later draws come from the cell and the seed alone,
+    so a growing stroke never moves or reshuffles the plants it already shows. Pure. */
+function covered(centres: [number, number][], radius: number, grid: number, seed: number) {
+  const seen = new Set<string>(), out: Cell[] = [];
+  for (const [cx, cz] of centres) {
+    const reach = Math.ceil(radius / grid);
+    for (let ix = Math.floor(cx / grid) - reach; ix <= Math.floor(cx / grid) + reach; ix++) {
+      for (let iz = Math.floor(cz / grid) - reach; iz <= Math.floor(cz / grid) + reach; iz++) {
+        const k = `${ix},${iz}`; if (seen.has(k)) continue;
+        const draw = random(seed ^ Math.imul(ix, 73856093) ^ Math.imul(iz, 19349663));
+        const x = (ix + draw()) * grid, z = (iz + draw()) * grid;
+        // (a candidate outside this stamp may belong to a later one: only covered cells are remembered)
+        if (Math.hypot(x - cx, z - cz) > radius) continue;
+        seen.add(k); out.push({x, z, draw});
+      }
+    }
+  }
+  return out;
+}
+
 /** Scatter a weighted mixture in ground X/Z metres, respecting earlier plants through a spatial hash. Pure. */
 export function scatter(samples: Sample[], options: ScatterOptions, existing: {x: number; z: number}[] = []): ScatterResult {
   const {radius, spacing, density, entries, seed} = options;
@@ -41,34 +64,29 @@ export function scatter(samples: Sample[], options: ScatterOptions, existing: {x
   const out: ScatterResult = [];
   if (!samples.length) return out;
   if (samples.length > 5000 || samples.some(s => !Number.isFinite(s[0]) || !Number.isFinite(s[1]))) throw new Error("Invalid brush path.");
-  const rng = random(seed), buckets = new Map<string, {x: number; z: number}[]>(), cells = new Set<string>();
+  const buckets = new Map<string, {x: number; z: number}[]>();
   const cell = (x: number) => Math.floor(x / spacing), key = (x: number, z: number) => `${x},${z}`;
   const add = (p: {x: number; z: number}) => { const k = key(cell(p.x), cell(p.z)); const b = buckets.get(k) ?? []; b.push(p); buckets.set(k, b); };
   for (const p of existing) if (Number.isFinite(p.x) && Number.isFinite(p.z)) add(p);
-  const total = entries.reduce((n, e) => n + e.weight, 0), path = centres(samples, Math.max(radius * .5, spacing));
-  // Independent density trials on a fixed world lattice avoid painting overlaps twice. Random offsets remove the visible grid.
-  const grid = Math.sqrt(100 / density), reach = Math.ceil(radius / grid);
-  let attempts = 0;
-  for (const [cx, cz] of path) {
-    for (let ix = Math.floor(cx / grid) - reach; ix <= Math.floor(cx / grid) + reach; ix++) {
-      for (let iz = Math.floor(cz / grid) - reach; iz <= Math.floor(cz / grid) + reach; iz++) {
-        const k = key(ix, iz); if (cells.has(k)) continue;
-        // A candidate outside this stamp may belong to a later one: remember only covered cells.
-        const local = random(seed ^ Math.imul(ix, 73856093) ^ Math.imul(iz, 19349663));
-        const x = (ix + local()) * grid, z = (iz + local()) * grid;
-        if (Math.hypot(x - cx, z - cz) > radius) continue;
-        cells.add(k);
-        if (++attempts > MAX_ATTEMPTS || out.length >= MAX_SCATTER) { out.limited = true; return out; }
-        let clear = true;
-        for (let dx = -1; dx <= 1 && clear; dx++) for (let dz = -1; dz <= 1 && clear; dz++)
-          if (buckets.get(key(cell(x) + dx, cell(z) + dz))?.some(p => Math.hypot(p.x - x, p.z - z) < spacing)) clear = false;
-        if (!clear) continue;
-        let choice = rng() * total, entry = entries[entries.length - 1];
-        for (const e of entries) { choice -= e.weight; if (choice < 0) { entry = e; break; } }
-        const p = {model: entry.model, x, z, turn: rng() * 360 - 180, scale: entry.minScale + rng() * (entry.maxScale - entry.minScale)};
-        add(p); out.push(p);
-      }
-    }
+  const total = entries.reduce((n, e) => n + e.weight, 0), step = Math.max(radius * .5, spacing), path = centres(samples, step);
+  // Independent density trials on a fixed world lattice avoid painting overlaps twice; random offsets remove the visible grid.
+  // A stroke whose area could hold more than MAX_ATTEMPTS trials gets a coarser lattice, which bounds the work of a 500 m brush.
+  const area = Math.PI * radius * radius + 2 * radius * step * (path.length - 1), wanted = Math.sqrt(100 / density);
+  const grid = Math.max(wanted, Math.sqrt(area / MAX_ATTEMPTS)), cells = covered(path, radius, grid, seed);
+  // Over the cap every candidate is kept with the same chance, so a large brush thins evenly instead of filling from one side.
+  const keep = Math.min(1, MAX_SCATTER / cells.length);
+  out.limited = grid > wanted || keep < 1;
+  for (const {x, z, draw} of cells) {
+    if (draw() >= keep) continue;
+    let clear = true;
+    for (let dx = -1; dx <= 1 && clear; dx++) for (let dz = -1; dz <= 1 && clear; dz++)
+      if (buckets.get(key(cell(x) + dx, cell(z) + dz))?.some(p => Math.hypot(p.x - x, p.z - z) < spacing)) clear = false;
+    if (!clear) continue;
+    let choice = draw() * total, entry = entries[entries.length - 1];
+    for (const e of entries) { choice -= e.weight; if (choice < 0) { entry = e; break; } }
+    const p = {model: entry.model, x, z, turn: draw() * 360 - 180, scale: entry.minScale + draw() * (entry.maxScale - entry.minScale)};
+    add(p); out.push(p);
+    if (out.length >= MAX_SCATTER) break;
   }
   return out;
 }

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {ModelDraw} from "./modelDraw";
+import {footReach} from "./plantFoot";
 import type {LibraryModel} from "../library/ModelLibrary";
 
 export interface GroupPlant {model: string; at: [number, number, number]; turn: number; scale: number}
@@ -9,8 +10,18 @@ interface Shown {plants: GroupPlant[]; models: LibraryModel[]; canonical?: strin
 export class GroupDraw {
   private draw: ModelDraw;
   private groups = new Map<string, Shown>();
+  private feet = new Map<string, Promise<number>>();
   constructor(scene: THREE.Scene, reserve: (bytes: number) => boolean, load?: (url: string) => Promise<THREE.Group>) {
     this.draw = new ModelDraw(scene, load, reserve, false);
+  }
+  /** A model's foot reach in its own units (plantFoot), measured once on the scene its preview then shows. */
+  foot(model: LibraryModel) {
+    let reach = this.feet.get(model.id);
+    if (!reach) {
+      reach = this.draw.loaded(model.id, {...model, url: `/api/library/models/${model.id}/original`}).then(root => footReach(root, model.anchor));
+      this.feet.set(model.id, reach); reach.catch(() => this.feet.delete(model.id));
+    }
+    return reach;
   }
   environment(texture: THREE.Texture, power: number) { this.draw.setEnvironment(texture, power); }
   async show(key: string, plants: GroupPlant[], models: LibraryModel[]) {
@@ -43,5 +54,5 @@ export class GroupDraw {
       performance.mark("map2lap.groups.resources", {detail: this.draw.stats()});
     });
   }
-  dispose() { this.groups.clear(); this.draw.dispose(); }
+  dispose() { this.groups.clear(); this.feet.clear(); this.draw.dispose(); }
 }

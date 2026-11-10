@@ -457,8 +457,10 @@ instance's final place, prefix (`nocol_`/`1WALL_`) and mesh flags, each bundle w
 heights and deletions, which all work on face ranges; the object list keeps each instance's own range. Blended parts stay
 alone. Twenty Quaternius trees went from 40 meshes to 6; heavy scans hardly bundle (twenty boulders: 80 to 60), and bundling saves
 no bytes. The Editor draws opaque and cutout model parts through `InstancedMesh`, grouped by asset, geometry, material and
-256 m world cell. Logical instance roots retain individual transforms for Copy and movement. Bounds are recomputed when
-transforms change. Blended parts retain independent meshes for transparent sorting. Instance buffers count toward the Editor
+256 m world cell. Logical instance roots retain individual transforms for Copy and movement. A model moved within its cell,
+hidden or shown rewrites only its own slots (a hidden part keeps its slot, shrunk to a point); a batch is built again only when
+models leave or join it. Among 20,000 plants one move costs 0.5 ms, where rebuilding every batch cost 51 ms. Bounds are
+recomputed when transforms change. Blended parts retain independent meshes for transparent sorting. Instance buffers count toward the Editor
 memory limit; hiding instances reuses their allocated capacity. CPU selection still uses the ordinary per-instance mesh data,
 and server geometry and KN5 geometry remain per instance. Automatic distance-dependent model simplification is not implemented.
 
@@ -475,10 +477,14 @@ density in plants per 100 square metres (Ctrl + wheel) and minimum foot-to-foot 
 Trees and other models stay upright with random yaw and uniformly scaled proportions. The browser worker
 `tools/scatter.worker.ts` computes the distribution from a frozen per-stroke seed. Samples are resampled by distance, holds
 do not accumulate plants, and a spatial hash enforces spacing against earlier candidates and existing imported instances.
-The brush is bounded to 2,000 plants and 20,000 candidate attempts per stroke; the tool reports a reached limit.
+The brush is bounded to 2,000 plants and 20,000 candidates per stroke; the tool reports a reached limit. Over the limit every
+candidate is kept with the same chance, so a 100 m brush thins evenly instead of filling from one side. Each candidate's place,
+model, turn and size come from its lattice cell and the stroke's seed alone, so a growing stroke never reshuffles what it shows.
 
-The browser projects each candidate onto the actual loaded terrain; missing terrain, water and bridge decks are not planting
-surfaces. It does not invent a height from the camera's last ground. Local shared model resources render the preview while
+The browser projects each candidate onto the actual loaded terrain, roads included; missing terrain, water and bridge decks are
+not planting surfaces. A plant stands on the lowest ground under its foot, so on a slope or at a cliff edge nothing floats and
+its uphill side sinks in. The foot is the lowest tenth of the model's height (a tree's trunk, a rock's underside), measured once
+on the loaded model; the ground is sampled under its middle and at eight points round its reach. It does not invent a height from the camera's last ground. Local shared model resources render the preview while
 the button is held, without height-preview requests or generated geometry from the server. Model files are ordinary library
 downloads. Completed strokes keep a solid local group through Esc and draft synchronization until all canonical instances
 are drawn. Cancelling an unfinished stroke removes its preview. A refused placement or draft write removes the entire local

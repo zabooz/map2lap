@@ -41,9 +41,9 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
     const calculate = async (samples: Sample[], s: Stroke) => {
       const result = await worker.run(samples, {entries: group.entries, radius, density, spacing, seed: s.seed},
         [...occupied(), ...[...queued.values()].flat().map(p => ({x: p.at[0], z: p.at[2]}))]);
-      const plants: GroupPlant[] = [];
+      const plants: GroupPlant[] = [], feet = await view.groupFeet(models);
       for (let i = 0; i < result.plants.length; i++) {
-        const p = result.plants[i], at = view.plantGround(p.x, p.z);
+        const p = result.plants[i], at = view.plantGround(p.x, p.z, feet[p.model] * p.scale);
         if (at) plants.push({model: p.model, at, turn: p.turn, scale: p.scale});
         if (i % 100 === 99) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       }

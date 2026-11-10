@@ -58,9 +58,12 @@ export class ModelDraw {
   private environment: THREE.Texture | null = null;
   private power = 1;
   private batches = new Map<string, THREE.InstancedMesh>();
-  private blended: THREE.Mesh[] = [];
+  private members = new Map<string, Set<string>>();     // a batch's key: the instances with a part in it
+  private keys = new Map<string, string[]>();           // an instance: each opaque part's batch key
+  private slots = new Map<string, number[]>();          // an instance: each opaque part's place in its batch
+  private blended = new Map<string, THREE.Mesh[]>();    // an instance: its blended parts, each drawn alone
   private batchBytes = 0;
-  private changed = true;
+  private dirty = new Set<string>();                    // instances moved, hidden, shown, added or gone since the last flush
 
   setEnvironment(texture: THREE.Texture, power = 1) {
     this.environment = texture; this.power = power;
@@ -94,6 +97,19 @@ export class ModelDraw {
     };
   }
 
+  /** A model's loaded scene before any instance shows it (a brush measures its foot); the next sync that wants it takes it over. */
+  async loaded(id: string, description: Asset) {
+    this.wanted.add(id);
+    return (await this.asset(id, description)).root;
+  }
+
+  /** Loads still under way, or loaded for loaded(), that no sync wants any more are let go. */
+  private dropUnwanted() {
+    for (const [id, pending] of this.pending) void pending.then(asset => {
+      if (!this.wanted.has(id) && this.pending.get(id) === pending) { this.pending.delete(id); release(asset); }
+    }, () => {});
+  }
+
   private releaseUnused() {
     for (const [id, asset] of this.assets) if (!this.wanted.has(id) && !this.held.has(id)) {
       this.assets.delete(id); release(asset); this.reserve(-asset.bytes);
@@ -103,7 +119,7 @@ export class ModelDraw {
   stats() {
     return {assets: this.assets.size, instances: this.instances.size,
       reservedBytes: this.batchBytes + [...this.assets.values()].reduce((sum, asset) => sum + asset.bytes, 0),
-      instanceBufferBytes: this.batchBytes, renderBatches: this.batches.size, blendedParts: this.blended.length,
+      instanceBufferBytes: this.batchBytes, renderBatches: this.batches.size, blendedParts: [...this.blended.values()].reduce((n, parts) => n + parts.length, 0),
       shared: [...this.assets].map(([id, asset]) => ({asset: id,
         instances: [...this.instances.values()].filter(instance => instance.asset === id).length,
         geometryCpuBytes: asset.geometryCpuBytes, geometryGpuBytes: asset.geometryGpuBytes,
@@ -124,9 +140,8 @@ export class ModelDraw {
   transforms(matrices: Record<string, number[]>) {
     for (const [id, values] of Object.entries(matrices)) {
       const root = this.instance(id);
-      if (root) { root.matrix.fromArray(values); root.matrixWorldNeedsUpdate = true; }
+      if (root) { root.matrix.fromArray(values); root.matrixWorldNeedsUpdate = true; this.dirty.add(id); }
     }
-    this.changed = true;
   }
 
   private async asset(id: string, description: Asset) {
@@ -162,12 +177,7 @@ export class ModelDraw {
     try {
       loaded = new Map(await Promise.all([...ids].map(async id => [id, await this.asset(id, descriptions[id])] as const)));
     } catch (error) {
-      if (version === this.version) {
-        this.wanted = new Set(this.assets.keys());
-        for (const [id, pending] of this.pending) void pending.then(asset => {
-          if (!this.wanted.has(id) && this.pending.get(id) === pending) { this.pending.delete(id); release(asset); }
-        }, () => {});
-      }
+      if (version === this.version) { this.wanted = new Set(this.assets.keys()); this.dropUnwanted(); }
       throw error;
     }
     if (version !== this.version) return;
@@ -178,10 +188,10 @@ export class ModelDraw {
       throw new Error("The models exceed the Editor memory limit");
     }
     for (const [id, asset] of additions) { this.assets.set(id, asset); this.pending.delete(id); }
-    const before = new Map(this.instances), beforeMatrices = new Map([...before].map(([id, i]) => [id, i.root.matrix.clone()]));
+    const before = new Map(this.instances), dirty = new Set(this.dirty), beforeMatrices = new Map([...before].map(([id, i]) => [id, i.root.matrix.clone()]));
     const wanted = new Map(bindings.map(b => [b.id, b.asset]));
     for (const [id, instance] of this.instances) if (wanted.get(id) !== instance.asset) {
-      this.instances.delete(id);
+      this.instances.delete(id); this.dirty.add(id);
     }
     for (const binding of bindings) {
       let instance = this.instances.get(binding.id);
@@ -189,11 +199,12 @@ export class ModelDraw {
         const root = loaded.get(binding.asset)!.root.clone(true);
         root.matrixAutoUpdate = false;
         root.traverse(node => { node.receiveShadow = true; });
-        instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance);
+        instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance); this.dirty.add(binding.id);
       }
-      instance.root.matrix.fromArray(matrices[binding.id]); instance.root.matrixWorldNeedsUpdate = true;
+      // (an index reload hands every matrix again: only an instance that moved is drawn anew)
+      const matrix = new THREE.Matrix4().fromArray(matrices[binding.id]);
+      if (!instance.root.matrix.equals(matrix)) { instance.root.matrix.copy(matrix); instance.root.matrixWorldNeedsUpdate = true; this.dirty.add(binding.id); }
     }
-    this.changed = true;
     try { this.flush(); }
     catch (error) {
       this.instances = before;
@@ -201,62 +212,108 @@ export class ModelDraw {
       this.wanted = new Set([...before.values()].map(i => i.asset));
       for (const [id, asset] of additions) { this.assets.delete(id); release(asset); }
       if (bytes) this.reserve(-bytes);
-      this.changed = false;
+      this.dirty = dirty;
       throw error;
     }
-    this.releaseUnused();
+    this.releaseUnused(); this.dropUnwanted();
     if (this.report) {
       performance.clearMarks("map2lap.models.resources");
       performance.mark("map2lap.models.resources", {detail: this.stats()});
     }
   }
 
-  visible(id: string, visible: boolean) { const instance = this.instance(id); if (instance && instance.visible !== visible) { instance.visible = visible; this.changed = true; } }
+  visible(id: string, visible: boolean) { const instance = this.instance(id); if (instance && instance.visible !== visible) { instance.visible = visible; this.dirty.add(id); } }
 
-  /** Submit repeated opaque/cutout parts per asset and 256 m cell; blended parts retain independent sorting. */
+  /** An instance's parts: each opaque or cutout one under its batch's key (asset, geometry, materials, 256 m cell) with its matrix,
+      shrunk to a point where it is hidden, and its shown blended ones as meshes of their own. Pure but for the root's world matrices. */
+  private parts(asset: string, root: THREE.Group) {
+    const opaque: {key: string; part: THREE.Mesh; matrix: THREE.Matrix4}[] = [], blended: THREE.Mesh[] = [];
+    root.updateMatrixWorld(true);
+    const p = new THREE.Vector3().setFromMatrixPosition(root.matrix), cell = `${Math.floor(p.x / 256)},${Math.floor(p.z / 256)}`;
+    root.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      let visible = root.visible;
+      for (let n: THREE.Object3D | null = node; n && n !== root; n = n.parent) visible &&= n.visible;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      if (materials.some(m => m.transparent)) {
+        if (!visible) return;
+        const part = new THREE.Mesh(node.geometry, node.material); part.matrixAutoUpdate = false;
+        part.matrix.copy(node.matrixWorld); part.receiveShadow = true; blended.push(part); return;
+      }
+      // (a hidden part keeps its slot as a point where it stands: no fragments, and the batch's bounds stay where its plants are)
+      const matrix = visible ? node.matrixWorld.clone() : new THREE.Matrix4().makeScale(0, 0, 0).copyPosition(node.matrixWorld);
+      opaque.push({key: `${asset}/${node.geometry.uuid}/${materials.map(m => m.uuid).join(",")}/${cell}`, part: node, matrix});
+    });
+    return {opaque, blended};
+  }
+
+  /** Submit repeated opaque/cutout parts per asset and 256 m cell; blended parts retain independent sorting. A model moved within
+      its cell, hidden or shown rewrites only its own slots; a batch is built again only when instances leave or join it (one model
+      moved among 20,000 plants took 51 ms when all batches were built again, 15 ms when its cell's 5,000 were). */
   flush() {
-    if (!this.changed) return;
-    const groups = new Map<string, {part: THREE.Mesh; matrices: THREE.Matrix4[]; capacity: number}>(), blended: THREE.Mesh[] = [];
-    for (const {asset, root} of this.instances.values()) {
-      root.updateMatrixWorld(true);
-      root.traverse(node => {
-        if (!(node instanceof THREE.Mesh)) return;
-        let visible = root.visible;
-        for (let p: THREE.Object3D | null = node; p && p !== root; p = p.parent) visible &&= p.visible;
-        const materials = Array.isArray(node.material) ? node.material : [node.material];
-        if (materials.some(m => m.transparent)) {
-          if (!visible) return;
-          const part = new THREE.Mesh(node.geometry, node.material); part.matrixAutoUpdate = false;
-          part.matrix.copy(node.matrixWorld); part.receiveShadow = true; blended.push(part); return;
-        }
-        const p = new THREE.Vector3().setFromMatrixPosition(root.matrix);
-        const key = `${asset}/${node.geometry.uuid}/${materials.map(m => m.uuid).join(",")}/${Math.floor(p.x / 256)},${Math.floor(p.z / 256)}`;
-        const group = groups.get(key) ?? {part: node, matrices: [] as THREE.Matrix4[], capacity: 0};
-        group.capacity++; if (visible) group.matrices.push(node.matrixWorld.clone()); groups.set(key, group);
+    if (!this.dirty.size) return;
+    const touched = new Set<string>(), parts = new Map<string, ReturnType<ModelDraw["parts"]>>(), stay: string[] = [];
+    for (const id of this.dirty) {
+      const instance = this.instances.get(id), own = instance ? this.parts(instance.asset, instance.root) : {opaque: [], blended: []};
+      const before = this.keys.get(id) ?? [], after = own.opaque.map(o => o.key);
+      parts.set(id, own);
+      if (instance && this.slots.has(id) && before.length === after.length && before.every((key, i) => key === after[i])) { stay.push(id); continue; }
+      for (const key of [...before, ...after]) touched.add(key);
+    }
+    const members = new Map([...touched].map(key => [key, new Set(this.members.get(key))]));
+    for (const [id, own] of parts) if (!stay.includes(id)) {
+      for (const key of this.keys.get(id) ?? []) members.get(key)!.delete(id);
+      for (const {key} of own.opaque) members.get(key)!.add(id);
+    }
+    const groups = new Map<string, {part: THREE.Mesh; matrices: THREE.Matrix4[]; slots: [string, number][]}>();
+    for (const id of new Set([...members.values()].flatMap(ids => [...ids]))) {
+      const instance = this.instances.get(id)!, own = parts.get(id) ?? this.parts(instance.asset, instance.root);
+      parts.set(id, own);
+      own.opaque.forEach(({key, part, matrix}, i) => {
+        if (!touched.has(key)) return;
+        const group = groups.get(key) ?? {part, matrices: [] as THREE.Matrix4[], slots: [] as [string, number][]};
+        group.matrices.push(matrix); group.slots.push([id, i]); groups.set(key, group);
       });
     }
-    const bytes = [...groups].reduce((n, [key, g]) => n + Math.max(g.capacity, this.batches.get(key)?.instanceMatrix.count ?? 0) * 16 * 4 * 2, 0);
     // Count the CPU transform buffer and its GPU upload; shared model resources are reserved separately.
-    const delta = bytes - this.batchBytes;
+    const size = (count: number) => count * 16 * 4 * 2, had = (key: string) => this.batches.get(key)?.instanceMatrix.count ?? 0;
+    const delta = [...touched].reduce((n, key) => n - size(had(key)) + (groups.has(key) ? size(Math.max(groups.get(key)!.matrices.length, had(key))) : 0), 0);
     if (delta > 0 && !this.reserve(delta)) throw new Error("The model instances exceed the Editor memory limit");
-    const next = new Map<string, THREE.InstancedMesh>();
-    for (const [key, {part, matrices, capacity}] of groups) {
-      let batch = this.batches.get(key);
-      if (!batch || batch.instanceMatrix.count < capacity) {
-        batch = new THREE.InstancedMesh(part.geometry, part.material, capacity);
-        batch.receiveShadow = true; batch.matrixAutoUpdate = false; batch.userData.modelBatch = true;
-      }
-      matrices.forEach((m, i) => batch!.setMatrixAt(i, m)); batch.count = matrices.length;
-      batch.instanceMatrix.needsUpdate = true; batch.computeBoundingSphere();
-      next.set(key, batch);
+    for (const key of touched) this.rebuild(key, groups.get(key), members.get(key)!);
+    const moved = new Set<THREE.InstancedMesh>();
+    for (const id of stay) parts.get(id)!.opaque.forEach(({key, matrix}, i) => {
+      const batch = this.batches.get(key)!; batch.setMatrixAt(this.slots.get(id)![i], matrix); moved.add(batch);
+    });
+    for (const batch of moved) { batch.instanceMatrix.needsUpdate = true; batch.computeBoundingSphere(); }
+    for (const [id, own] of parts) if (this.dirty.has(id)) {
+      for (const mesh of this.blended.get(id) ?? []) this.scene.remove(mesh);
+      for (const mesh of own.blended) this.scene.add(mesh);
+      if (this.instances.has(id)) { this.keys.set(id, own.opaque.map(o => o.key)); this.blended.set(id, own.blended); }
+      else { this.keys.delete(id); this.blended.delete(id); this.slots.delete(id); }
     }
-    for (const [key, batch] of this.batches) if (next.get(key) !== batch) { this.scene.remove(batch); batch.dispose(); }
-    for (const batch of next.values()) if (!batch.parent) this.scene.add(batch);
-    for (const mesh of this.blended) this.scene.remove(mesh);
-    for (const mesh of blended) this.scene.add(mesh);
-    this.batches = next; this.blended = blended;
     if (delta < 0) this.reserve(delta);
-    this.batchBytes = bytes; this.changed = false;
+    this.batchBytes += delta; this.dirty.clear();
+  }
+
+  /** One batch drawn anew from its group (none: it goes), in a larger buffer only when its instances outgrew the old one;
+      each part's slot in it is noted for later moves. */
+  private rebuild(key: string, group: {part: THREE.Mesh; matrices: THREE.Matrix4[]; slots: [string, number][]} | undefined, members: Set<string>) {
+    const old = this.batches.get(key);
+    if (!group || old && old.instanceMatrix.count < group.matrices.length) {
+      if (old) { this.scene.remove(old); old.dispose(); }
+      this.batches.delete(key); this.members.delete(key);
+      if (!group) return;
+    }
+    let batch = this.batches.get(key);
+    if (!batch) {
+      batch = new THREE.InstancedMesh(group.part.geometry, group.part.material, group.matrices.length);
+      batch.receiveShadow = true; batch.matrixAutoUpdate = false; batch.userData.modelBatch = true;
+      this.scene.add(batch); this.batches.set(key, batch);
+    }
+    group.matrices.forEach((m, i) => batch.setMatrixAt(i, m)); batch.count = group.matrices.length;
+    group.slots.forEach(([id, part], i) => { const slots = this.slots.get(id) ?? []; slots[part] = i; this.slots.set(id, slots); });
+    batch.instanceMatrix.needsUpdate = true; batch.computeBoundingSphere();
+    this.members.set(key, members);
   }
 
   nudge(id: string, pivot: number[], transform: THREE.Matrix4, initial?: THREE.Matrix4) {
@@ -266,7 +323,7 @@ export class ModelDraw {
     root.matrix.premultiply(new THREE.Matrix4().makeTranslation(-pivot[0], -pivot[1], -pivot[2]))
       .premultiply(transform).premultiply(new THREE.Matrix4().makeTranslation(...pivot as [number, number, number]));
     root.matrixWorldNeedsUpdate = true;
-    this.changed = true;
+    this.dirty.add(id);
   }
 
   dispose() {
@@ -275,9 +332,9 @@ export class ModelDraw {
     for (const instance of this.instances.values()) this.scene.remove(instance.root);
     this.instances.clear();
     for (const batch of this.batches.values()) { this.scene.remove(batch); batch.dispose(); }
-    for (const mesh of this.blended) this.scene.remove(mesh);
-    this.batches.clear(); this.blended = [];
-    this.reserve(-this.batchBytes); this.batchBytes = 0; this.changed = true;
+    for (const parts of this.blended.values()) for (const mesh of parts) this.scene.remove(mesh);
+    this.batches.clear(); this.blended.clear(); this.members.clear(); this.keys.clear(); this.slots.clear(); this.dirty.clear();
+    this.reserve(-this.batchBytes); this.batchBytes = 0;
     for (const asset of this.assets.values()) { release(asset); this.reserve(-asset.bytes); }
     this.assets.clear();
     this.held.clear();
