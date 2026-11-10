@@ -167,7 +167,9 @@ SHA-256 revision: unrelated draft changes cannot invalidate its layout. `/copies
 copied object lists; their cancellable loader is separate from the source queue and retries an obsolete manifest. With imported
 models present, the full index supplies both generated layouts: copies precede models, so retained models take their new
 mesh numbers before copies occupy their former numbers. The two layouts are committed together; a newer change supersedes
-older loads. Original meshes stay loaded. The server keeps one generated manifest (up to two million vertices); height-query cache keys hold
+older loads. Copy meshes stay loaded while their copy revision is unchanged, including their mesh numbers and geometry;
+model-only edits do not download or replace them. A received index only counts as loaded after its copy layout commits.
+Original meshes stay loaded. The server keeps one generated manifest (up to two million vertices); height-query cache keys hold
 only its digest. The preview updates when its pointer, camera, pose or ground changes, and uses the server's complete foot
 anchor, including hidden collision. Pending drags keep their displayed pivots until canonical placements arrive; a failed
 drag restores the kept meshes.

@@ -36,6 +36,37 @@ async function pickModel(page: Page) {
   await expect(page.locator("#edit-picked")).toContainText("Copy tree");
 }
 
+test("model Insert, Move, Undo and Redo do not download unchanged copy meshes", async ({page, backend}) => {
+  await withModel(page, backend);
+  const tree = await findTree(page); await page.mouse.click(tree.x, tree.y); await page.keyboard.press("c");
+  await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
+  const copied = page.waitForResponse(r => r.url().includes("&c=") && r.ok());
+  const c = await centre(scene(page)); await page.mouse.click(c.x + 130, c.y + 100);
+  await page.keyboard.press("Escape"); await saved(page); await (await copied).finished(); await picture(page);
+  const before = await (await page.request.get("/api/editor/alpha/index")).json();
+  const urls: string[] = [];
+  page.on("request", r => { if (/\/mesh\/\d+\?/.test(r.url())) urls.push(r.url()); });
+  const instances = () => page.evaluate(() => (performance.getEntriesByName("map2lap.models.resources").at(-1) as PerformanceMark)?.detail.instances);
+  await page.getByRole("button", {name: "Insert", exact: true}).click();
+  await page.getByRole("button", {name: "Place on ground", exact: true}).click();
+  await scene(page).click({position: {x: 400, y: 450}}); await saved(page);
+  await expect.poll(instances).toBe(2); await page.keyboard.press("Escape"); await picture(page);
+  expect(urls).toHaveLength(2);
+  for (const [action, count] of [["Undo", 1], ["Redo", 2]] as const) {
+    await page.getByRole("button", {name: new RegExp(action)}).click(); await saved(page);
+    await expect.poll(instances).toBe(count); await picture(page);
+  }
+  await pickModel(page); await page.locator("#edit-move").click();
+  await page.locator("#edit-move-set").getByLabel("Raise").fill("150"); await saved(page); await picture(page);
+  for (const action of ["Undo", "Redo"]) {
+    await page.getByRole("button", {name: new RegExp(action)}).click(); await saved(page); await picture(page);
+  }
+  expect(urls.filter(url => url.includes("&c="))).toEqual([]);
+  const after = await (await page.request.get("/api/editor/alpha/index")).json();
+  expect(after.copy_revision).toBe(before.copy_revision);
+  expect(after.meshes.filter((m: {copy?: boolean}) => m.copy)).toEqual(before.meshes.filter((m: {copy?: boolean}) => m.copy));
+});
+
 test("a late copied tree cannot flash into view after Revert while the model layout is changing", async ({page, backend}) => {
   await withModel(page, backend);
   await saveTrack(page);
@@ -124,7 +155,7 @@ test("a failed draft write drops a tree copy, and reload keeps the saved instanc
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
     release();
     await page.getByRole("tab", {name: "Details", exact: true}).click();
-    await expect(page.locator("#edit-view-failed")).toContainText("Draft copy refused");
+    await expect(page.locator("#edit-view-failed")).toHaveText("Copy failed: Draft copy refused Load again");
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
     expect((await draft(page)).copies).toHaveLength(0);
     await page.reload();
@@ -156,7 +187,7 @@ for (const imported of [false, true]) test(`Copy shows a solid ${imported ? "imp
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
     release();
     await page.getByRole("tab", {name: "Details", exact: true}).click();
-    await expect(page.locator("#edit-view-failed")).toContainText("Copy was refused for this test");
+    await expect(page.locator("#edit-view-failed")).toHaveText("Copy failed: Copy was refused for this test Load again");
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   } finally { release(); }
 });

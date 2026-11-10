@@ -25,21 +25,22 @@ interface View {
 
 /** A view of no track but its models, and a server whose index and meshes follow `served`; urls holds the meshes asked for. */
 function setUp() {
-  const served = {parts: [] as MeshInfo[], copies: [] as MeshInfo[], draft: 1, x: 0, removed: [] as string[]}, urls: string[] = [], errors: string[] = [], before = globalThis.fetch;
+  const served = {parts: [] as MeshInfo[], copies: [] as MeshInfo[], copyRevision: "", draft: 1, x: 0, removed: [] as string[]}, urls: string[] = [], errors: string[] = [], before = globalThis.fetch;
   globalThis.fetch = (async input => {
     const url = String(input);
-    if (url.endsWith("/copies")) return Response.json({revision: "source", draft: served.draft, copy_revision: String(served.draft), meshes: served.copies, objects: {}});
-    if (url.endsWith("/index")) return Response.json({revision: "source", draft: served.draft, copy_revision: String(served.draft), materials: [], meshes: [...served.copies, ...served.parts],
+    if (url.endsWith("/copies")) return Response.json({revision: "source", draft: served.draft, copy_revision: served.copyRevision, meshes: served.copies, objects: {}});
+    if (url.endsWith("/index")) return Response.json({revision: "source", draft: served.draft, copy_revision: served.copyRevision, materials: [], meshes: [...served.copies, ...served.parts],
       models: served.parts.map(p => ({id: p.model!.instance, asset: p.model!.asset})), model_assets: {}, model_matrices: {},
       objects: Object.fromEntries(served.parts.map(p => [p.model!.instance, {kinds: ["model"], sorts: ["model"], at: [[0, 0, 0]], parents: [-1], faces: [[[p.i, 0, 1]]], details: [{}]}]))});
     urls.push(url);
-    if (!url.includes(`&d=${served.draft}`) && !url.includes(`&c=${served.draft}`)) return Response.json({error: "The models changed"}, {status: 409});
+    if (!url.includes(`&d=${served.draft}`) && !url.includes(`&c=${served.copyRevision}`)) return Response.json({error: "The models changed"}, {status: 409});
     return new Response(bytes(served.x));
   }) as typeof fetch;
   const view = Object.create(TrackView.prototype) as View;
   const byNumber = new Map<number, THREE.Mesh>();
   Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), pendingKey: 0, loading: new AbortController(), trackName: "alpha", scene: new THREE.Scene(), usedBytes: 0, settings: {memoryGb: 8},
     meshes: [], byNumber, parts: new Map(), grounds: [], materialAreas: new Map(), objectPieces: new Map(), belonging: new Map(), picks: new Map(),
+    data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
     copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(),
     listedOut: new Map(), billboardsOut: new Map(), removed: new Set(), removedSorts: new Set(), wanted: () => new Set(served.removed), ensureModelLight: () => {}, reframePicks: () => {},
     modelDraw: {sync: async () => {}, picking: () => new THREE.MeshBasicMaterial()}, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
@@ -57,12 +58,12 @@ test("a tree copy takes a model's former mesh number without disappearing, inclu
     await view.reloadModels();
     const model = view.byNumber.get(0)!;
     for (let attempt = 0; attempt < 2; attempt++) {
-      served.copies = [copied]; served.parts = [part(1, "a")]; served.draft++;
+      served.copies = [copied]; served.copyRevision = "tree"; served.parts = [part(1, "a")]; served.draft++;
       await view.syncCopies();
       expect(errors).toEqual([]);
       expect(view.meshes.filter(m => m.userData.info.copy)).toHaveLength(1);
       expect(view.byNumber.get(1)).toBe(model);
-      served.copies = []; served.parts = [part(0, "a")]; served.draft++;
+      served.copies = []; served.copyRevision = ""; served.parts = [part(0, "a")]; served.draft++;
       await view.syncCopies();
       await view.reloadModels();
       expect(view.meshes.filter(m => m.userData.info.copy)).toHaveLength(0);
@@ -70,6 +71,112 @@ test("a tree copy takes a model's former mesh number without disappearing, inclu
     }
     expect(errors).toEqual([]);
   } finally { done(); }
+});
+
+test("inserting or moving a model downloads no unchanged copy meshes and keeps their numbers and geometry", async () => {
+  const {view, served, urls, errors, done} = setUp();
+  try {
+    served.parts = [part(0, "a")];
+    await view.reloadModels();
+    served.copies = [{...part(0, "unused"), model: undefined, copy: true}];
+    served.copyRevision = "tree"; served.parts = [part(1, "a")]; served.draft++;
+    await view.syncCopies();
+    const copy = view.byNumber.get(0)!, geometry = copy.geometry;
+    urls.length = 0;
+    served.parts.push(part(2, "b")); served.draft++;
+    await view.reloadModels();
+    expect(urls.filter(url => url.includes("&c="))).toEqual([]);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("/mesh/2?");
+    urls.length = 0;
+    served.draft++; served.x = 5;
+    await view.syncCopies();
+    await view.refresh(1);
+    expect(urls.filter(url => url.includes("&c="))).toEqual([]);
+    expect(firstX(view.byNumber.get(1)!)).toBe(5);
+    expect(view.byNumber.get(0)).toBe(copy);
+    expect(copy.geometry).toBe(geometry);
+    expect((copy.userData.info as MeshInfo).i).toBe(0);
+    expect(errors).toEqual([]);
+  } finally { done(); }
+});
+
+test("a changed copy revision replaces geometry even when its mesh numbers stay the same", async () => {
+  const {view, served, urls, done} = setUp();
+  try {
+    served.parts = [part(0, "a")];
+    await view.reloadModels();
+    served.copies = [{...part(0, "unused"), model: undefined, copy: true}];
+    served.copyRevision = "first"; served.parts = [part(1, "a")]; served.draft++;
+    await view.syncCopies();
+    const copy = view.byNumber.get(0)!;
+    urls.length = 0;
+    served.copyRevision = "second"; served.x = 9; served.draft++;
+    await view.syncCopies();
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("&c=second");
+    expect(view.byNumber.get(0)).not.toBe(copy);
+    expect(firstX(view.byNumber.get(0)!)).toBe(9);
+  } finally { done(); }
+});
+
+test("the initial index's copy revision is not proof that its geometry has loaded", async () => {
+  const {view, served, urls, errors, done} = setUp();
+  try {
+    served.copies = [{...part(0, "unused"), model: undefined, copy: true}]; served.copyRevision = "tree";
+    served.parts = [part(1, "a")];
+    Object.assign(view, {data: {revision: "source", copy_revision: "tree", materials: [], models: [{id: "a"}], objects: {}, meshes: [...served.copies, ...served.parts]}});
+    await view.syncCopies();
+    expect(urls.filter(url => url.includes("&c="))).toHaveLength(1);
+    expect(view.meshes).toHaveLength(2);
+    expect(errors).toEqual([]);
+  } finally { done(); }
+});
+
+test("without imported models, an unchanged copy revision keeps the loaded mesh too", async () => {
+  const {view, served, urls, errors, done} = setUp();
+  try {
+    served.copies = [{...part(0, "unused"), model: undefined, copy: true}]; served.copyRevision = "tree";
+    Object.assign(view, {data: {revision: "source", materials: [], objects: {}, meshes: []}});
+    await view.syncCopies();
+    const copy = view.byNumber.get(0)!;
+    urls.length = 0; served.draft++;
+    await view.syncCopies();
+    expect(urls).toEqual([]);
+    expect(view.byNumber.get(0)).toBe(copy);
+    expect(errors).toEqual([]);
+  } finally { done(); }
+});
+
+test("a copy download overtaken by Revert cannot mark that revision loaded or restore the copy", async () => {
+  const {view, served, urls, errors, done} = setUp();
+  let release!: () => void;
+  const gate = new Promise<void>(ok => { release = ok; });
+  try {
+    served.parts = [part(0, "a")]; await view.reloadModels();
+    served.copies = [{...part(0, "unused"), model: undefined, copy: true}]; served.copyRevision = "tree";
+    served.parts = [part(1, "a")]; served.draft++;
+    const fetch = globalThis.fetch;
+    let held!: () => void;
+    const started = new Promise<void>(ok => { held = ok; });
+    globalThis.fetch = (async (...args) => {
+      const response = await fetch(...args);
+      if (String(args[0]).includes("&c=tree")) { held(); await gate; }
+      return response;
+    }) as typeof fetch;
+    const old = view.syncCopies(); await started;
+    served.copies = []; served.copyRevision = ""; served.parts = [part(0, "a")]; served.draft++;
+    await view.reloadModels(); release(); await old;
+    expect(view.meshes.filter(m => m.userData.info.copy)).toHaveLength(0);
+    globalThis.fetch = fetch;
+    urls.length = 0;
+    served.copies = [{...part(0, "unused"), model: undefined, copy: true}]; served.copyRevision = "tree";
+    served.parts = [part(1, "a")]; served.draft++;
+    await view.syncCopies();
+    expect(urls.filter(url => url.includes("&c=tree"))).toHaveLength(1);
+    expect(view.meshes.filter(m => m.userData.info.copy)).toHaveLength(1);
+    expect(errors).toEqual([]);
+  } finally { release(); done(); }
 });
 
 test("inserting a model downloads only the new one and keeps what is loaded", async () => {
