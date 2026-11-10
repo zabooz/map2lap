@@ -13,9 +13,14 @@ from PIL import Image
 
 from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
-from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, weight_extent
+from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, ring_indices, weight_extent
 
 PROFILE = 10
+# The Editor shows a painted tile's material borders as AC gets them, at 50 cm a texel (SAVED_WEIGHT_STEP, _preview_step),
+# its masks made from the tile's fields directly: a 16th of the pixels (64 tiles of a painted Heiligenblut copy: an Apply
+# 50 s at 12.5 cm, most of it the full-size mask, and 1.7 GiB in the browser). Raise it when the Editor's masks are made
+# otherwise: a view's kept description is then made again (as for trackregions.BLOCK), a saved track's paints stay saved.
+PREVIEW = 2
 # A painted tile's Save description kept under its version (_native_layout): raise it when native_descriptors,
 # tracknative.palette_regions or mask_keys give another one for the same tile.
 NATIVE_PROFILE = 1
@@ -317,21 +322,63 @@ def _semantic(ac, name, record, path, scan, filename, resolved=None):
 def _compute(ac, name, record, path, scan, filename, composition=None):
     """Encode the existing three-slot colour layout from the shared semantic composition."""
     semantic, weights, _coverage = composition or _semantic(ac, name, record, path, scan, filename)
+    return _plain_layout(semantic, weights), _weight_pixels(np.stack(list(weights.values()), axis=-1) if weights else
+                                                            np.zeros((*semantic["dimensions"][::-1], 0), np.float32))
+
+
+def _plain_layout(semantic, weights):
+    """The three-slot colour layout of a tile's composition (_semantic), its images by mask channel. Pure."""
     if len(weights) > 3:
         raise ValueError("A 256 m ground tile can use at most three replacement materials; reuse a material or undo a replacement")
-    width, height = semantic["dimensions"]
-    mask = np.zeros((height, width, 4), np.uint8)
-    for channel, values in enumerate(weights.values()):
-        mask[..., channel] = np.rint(values * 255).astype(np.uint8)
+    images = [{**{k: v for k, v in image.items() if k not in {"id", "maps", "repeat"}}, "channel": j}
+              for j, image in enumerate(semantic["images"])]
+    return {**{k: v for k, v in semantic.items() if k not in {"images", "source"}}, "images": images}
+
+
+def _weight_pixels(values):
+    """RGBA8 mask pixels (H, W, 4) of up to three weights (H, W, n) from 0 to 1: each rounded, R, G, B summing to 255 at
+    most, A the original ground's rest. Pure."""
+    mask = np.zeros((*values.shape[:2], 4), np.uint8)
+    for channel in range(values.shape[2]):
+        mask[..., channel] = np.rint(values[..., channel] * 255).astype(np.uint8)
     excess = np.maximum(0, mask[..., :3].sum(axis=2).astype(np.int16) - 255)
     for channel in range(3):
         removed = np.minimum(mask[..., channel], excess).astype(np.uint8)
         mask[..., channel] -= removed
         excess -= removed
     mask[..., 3] = 255 - mask[..., :3].sum(axis=2)
-    images = [{**{k: v for k, v in image.items() if k not in {"id", "maps", "repeat"}}, "channel": j}
-              for j, image in enumerate(semantic["images"])]
-    return {**{k: v for k, v in semantic.items() if k not in {"images", "source"}}, "images": images}, mask
+    return mask
+
+
+def _preview_step(width, height):
+    """How many of a width × height tile's pixels a side the Editor's mask texel spans: SAVED_WEIGHT_STEP (50 cm on a
+    2048 px tile) where both sides divide into 16 of them, so its ring canvas (weight_extent) does too and keeps every UV;
+    else 1. Pure."""
+    return 1 if any(size % (16 * SAVED_WEIGHT_STEP) for size in (width, height)) else SAVED_WEIGHT_STEP
+
+
+def _coarse_mask(weights, width, height, tile, step):
+    """A tile's mask DDS on its ring canvas (pad_weights) step times coarser: its fields averaged in step × step blocks
+    before rounding (_weight_pixels), no full-size mask made; within 2/255 of the full-size one made coarse
+    (coarse_weights). weights: {id: (height, width) from 0 to 1}, at most three. Pure."""
+    xs, ys = ring_indices(width, height, tile)
+    level = np.zeros((len(ys), len(xs), len(weights)), np.float32)
+    for channel, values in enumerate(weights.values()):
+        level[..., channel] = values[ys[:, None], xs[None, :]]
+    ch, cw = level.shape[:2]
+    small = level.reshape(ch // step, step, cw // step, step, len(weights)).mean(axis=(1, 3))
+    return dds_weights(Image.fromarray(_weight_pixels(small)))
+
+
+def _regional_inputs(semantic, weights):
+    """A tile's composition (_semantic) as the Editor's regional atlases take it (trackregions.compile): at its
+    _preview_step, each step × step block of a field averaged. Pure."""
+    width, height = semantic["dimensions"]
+    step = _preview_step(width, height)
+    if step == 1:
+        return semantic, weights
+    return ({**semantic, "dimensions": [width // step, height // step]},
+            {key: values.reshape(height // step, step, width // step, step).mean(axis=(1, 3)) for key, values in weights.items()})
 
 
 def _keep_weights(version, pixels):
@@ -350,7 +397,8 @@ def describe(ac, name, version, resolved=None):
     try:
         saved = trackpaint._read(target)
         # (the block is the Editor's alone: PROFILE would count every saved painted track as changed, trackedits)
-        if (saved.get("profile") == PROFILE and ("ground" not in saved["layout"] or saved.get("block") == trackregions.BLOCK)
+        if (saved.get("profile") == PROFILE and saved.get("preview") == PREVIEW
+                and ("ground" not in saved["layout"] or saved.get("block") == trackregions.BLOCK)
                 and saved.get("digest") == trackpaint._digest({k: v for k, v in saved.items() if k != "digest"})):
             for ref in saved["layout"]["images"]:
                 if "asset" in ref:
@@ -363,28 +411,43 @@ def describe(ac, name, version, resolved=None):
         semantic, weights, _coverage = composition
         def store(key, raw):
             trackpaint._atomic(_cache(key, "region").with_suffix(".r16"), raw)
-        ground = trackregions.compile(semantic, weights, version, store)
+        ground = trackregions.compile(*_regional_inputs(semantic, weights), version, store)
         key = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
         ground["uv_origin"] = [key[0], -key[1]] if semantic["source"]["global_uv"] else [0, 0]
         layout = {k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}
         layout.update(ground=ground, mask={"name": "regional", "size": 0})
-        saved = {"profile": PROFILE, "block": trackregions.BLOCK, "layout": layout}
+        saved = {"profile": PROFILE, "preview": PREVIEW, "block": trackregions.BLOCK, "layout": layout}
         trackpaint._atomic(target, trackpaint._json_bytes({**saved, "digest": trackpaint._digest(saved)}))
         return _with_urls(name, version, layout)
-    layout, pixels = _compute(ac, name, record, path, scan, filename, composition)
+    semantic, weights, _coverage = composition
+    layout = _plain_layout(semantic, weights)
     width, height = layout.pop("dimensions")
     layout['mask_extent'] = list(weight_extent(width,height))
     layout['mask_origin'] = layout['origin']
     cw,ch=(round(size*extent) for size,extent in zip((width,height),layout['mask_extent']))
+    step = _preview_step(width, height)
     layout["mask"] = {"name": "map2lap_mask_" + version + ".dds", "key": version, "linear": True,
-                      "size": dds_size(cw, ch, uncompressed=True)}
+                      "size": dds_size(cw // step, ch // step, uncompressed=True), **({"step": step} if step > 1 else {})}
     for ref in layout["images"]:
         ref.pop("url", None)
-    raw = pixels.tobytes()
-    saved = {"profile": PROFILE, "layout": layout, "dimensions": [width, height], "mask_hash": hashlib.sha256(raw).hexdigest()}
-    _keep_weights(version, pixels)
+    if step > 1:
+        tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+        raw = _coarse_mask(weights, width, height, tile, step)
+        trackpaint._atomic(_mask_target(version, layout), raw)
+    else:
+        pixels = _weight_pixels(np.stack(list(weights.values()), axis=-1) if weights else np.zeros((height, width, 0), np.float32))
+        raw = pixels.tobytes()
+        _keep_weights(version, pixels)
+    saved = {"profile": PROFILE, "preview": PREVIEW, "layout": layout, "dimensions": [width, height],
+             "mask_hash": hashlib.sha256(raw).hexdigest()}
     trackpaint._atomic(target, trackpaint._json_bytes({**saved, "digest": trackpaint._digest(saved)}))
     return _with_urls(name, version, layout)
+
+
+def _mask_target(version, layout):
+    """Where a plain layout's mask DDS is kept: one at the saved step (_coarse_mask) apart from a full-size one. Pure."""
+    step = layout["mask"].get("step", 1)
+    return _cache(version, "mask" if step == 1 else f"mask{step}")
 
 
 def _with_urls(name, version, layout):
@@ -416,7 +479,7 @@ def weight_bundle(ac, name, version):
     """Gzip one tile's existing regional atlas bytes, preserving every stored mip bit."""
     from app import trackregions
     _view(ac, name, version)  # Validate the track/source even when the compressed transfer is cached.
-    target = _cache(version, f"bundle{trackregions.BLOCK}").with_suffix(".gz")
+    target = _cache(version, f"bundle{trackregions.BLOCK}_{PREVIEW}").with_suffix(".gz")
     if not target.is_file():
         layout = describe(ac, name, version)
         output = io.BytesIO()
@@ -432,7 +495,7 @@ def weight_bundle(ac, name, version):
 def compressed_mask(ac, name, version):
     """Cache gzip of the unchanged RGBA DDS, including its independently filtered mips."""
     _view(ac, name, version)
-    target = _cache(version, "mask").with_suffix(".dds.gz")
+    target = _cache(version, f"mask_{PREVIEW}").with_suffix(".dds.gz")     # (the mask at the saved step or full size: mask)
     if not target.is_file():
         trackpaint._atomic(target, gzip.compress(mask(ac, name, version), compresslevel=1, mtime=0))
     return target.read_bytes()
@@ -466,7 +529,7 @@ def region_image(ac, name, version, key):
             if not target.is_file():
                 from app import trackregions
                 semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename)
-                trackregions.compile(semantic, weights, version,
+                trackregions.compile(*_regional_inputs(semantic, weights), version,
                     lambda token, raw: trackpaint._atomic(_cache(token, "region").with_suffix(".r16"), raw))
     return target.read_bytes()
 
@@ -517,11 +580,20 @@ def mask(ac, name, version):
     """One immutable RGBA weight DDS, shared by preview and Save; regenerate an evicted cache without the library."""
     record, path, scan, filename = _view(ac, name, version)
     layout = describe(ac, name, version)
-    target = _cache(version, "mask")
+    target = _mask_target(version, layout)
     if target.is_file():
         return target.read_bytes()
 
     with trackpaint._rendering:
+        if not target.is_file() and "step" in layout["mask"]:
+            saved = trackpaint._read(trackpaint._out("paint-views", version) / "layers.json")
+            semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename)
+            width, height = saved["dimensions"]
+            tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+            raw = _coarse_mask(weights, width, height, tile, layout["mask"]["step"])
+            if hashlib.sha256(raw).hexdigest() != saved["mask_hash"]:
+                raise ValueError("The retained ground selection has changed")
+            trackpaint._atomic(target, raw)
         if not target.is_file():
             saved = trackpaint._read(trackpaint._out("paint-views", version) / "layers.json")
             weights = _cache(version, "weights").with_suffix(".png")
@@ -574,7 +646,7 @@ def sample_mask(ac,name,version,u,v):
     """One RGBA weight at canonical local u=[0,1], v=[-1,0], without decoding the full mask."""
     record,path,scan,filename=_view(ac,name,version)
     layout=describe(ac,name,version)
-    target=_cache(version,'mask')
+    target=_mask_target(version,layout)
     if not target.is_file(): mask(ac,name,version)
     tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
     return _mask_pixel(target,0,target.stat().st_size,u,v,tile,layout.get('mask_extent',[1.,1.]))
@@ -638,6 +710,8 @@ def _native_layout(ac, name, descriptor, keys, resolved, read=None):
         # Only what tracknative reads of "ground": the browser's passes and atlases (trackregions.compile) aren't.
         ground = {"dimensions": semantic["dimensions"], "uv_origin": [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]}
         layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
+    else:       # (the browser's atlases are at the saved step (_regional_inputs), the fields AC's masks are made of at the tile's own size)
+        layout = {**layout, "ground": {**layout["ground"], "dimensions": semantic["dimensions"]}}
     fields = tracknative.with_base(weights)
     layout = {**layout, "native_regions": tracknative.palette_regions(fields)}
     if keys:
@@ -671,10 +745,11 @@ def save_size(descriptors, scan, path, kept=None):
         for ref in layout["images"]:
             if ref["name"] not in known:
                 sizes[ref["name"]] = ref["size"]
-        # The mask is written coarser (coarse_weights) and as BC7 (bc7_weights): a byte per pixel of a 64th of the
+        # The mask is written at the saved step and as BC7 (bc7_weights): a byte per pixel of a step² th of the full-size
         # lossless RGBA8 mask's pixels; the tile image on the mask's canvas as BC3 at most (ringed_base), a byte per pixel.
-        sizes[layout["mask"]["name"]] = layout["mask"]["size"] // (4 * SAVED_WEIGHT_STEP ** 2) + 256
-        sizes[layout["base"]["name"] + ":ring"] = layout["mask"]["size"] // 4 + 256
+        step = layout["mask"].get("step", 1)
+        sizes[layout["mask"]["name"]] = layout["mask"]["size"] * step ** 2 // (4 * SAVED_WEIGHT_STEP ** 2) + 256
+        sizes[layout["base"]["name"] + ":ring"] = layout["mask"]["size"] * step ** 2 // 4 + 256
     return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures() if name not in known)
 
 
@@ -738,8 +813,10 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
             continue
         if "ground" in layout:
             continue
-        # (AC gets it at 1 m a texel (coarse_weights) and as BC7: a 64th of the pixels, a quarter of the bytes each)
-        resources[layout["mask"]["name"]] = bc7_weights(coarse_weights(mask(ac, name, descriptor["version"])))
+        # (AC gets it at 50 cm a texel and as BC7: a 16th of the pixels, a quarter of the bytes each; the Editor's is at that
+        # step already where its tile divides (_preview_step), else coarse_weights leaves it as it is)
+        shown = mask(ac, name, descriptor["version"])
+        resources[layout["mask"]["name"]] = bc7_weights(shown if "step" in layout["mask"] else coarse_weights(shown))
         for ref in layout["images"]:
             if "asset" in ref:
                 resources[ref["name"]] = image(ac, name, ref["asset"])

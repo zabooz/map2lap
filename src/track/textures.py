@@ -216,13 +216,13 @@ def bc7_weights(raw):
     return _bc7_header(levels[0].shape[1], levels[0].shape[0], len(levels)) + b"".join(blocks)
 
 
-# A saved mask texel per SAVED_WEIGHT_STEP of the Editor's: 1 m on a 2048 px / 256 m tile instead of 12.5 cm. A mask is only
-# where materials meet, the materials keep their own resolution: their seams soften over about a metre, within the road
-# verge's band (roadtex.make_edge; at 50 cm and at 1 m a texel no difference was seen in AC, 2026-11-10), and a mask takes a
-# 64th of the room (6.75 -> 0.11 MiB at BC7; 97 masks of a painted Heiligenblut copy: 655 -> 11 MiB) and of the encoding time.
-# The canvas's ring keeps its share (weight_extent), so UVs stay; the Editor reads a saved one back at its own resolution
-# (trackdetail._source_image).
-SAVED_WEIGHT_STEP = 8
+# A saved mask texel per SAVED_WEIGHT_STEP of a tile's pixels: 50 cm on a 2048 px / 256 m tile instead of 12.5 cm. A mask is
+# only where materials meet, the materials keep their own resolution: their seams soften over about half a metre, and a mask
+# takes a 16th of the room (6.75 -> 0.42 MiB at BC7) and of the encoding time. At 1 m (8) a painted edge on asphalt showed
+# its texels as a band of the tile image under it (2026-11-11, in AC and the Editor); at 50 cm and at 1 m the road verge's
+# band looked alike (roadtex.make_edge, 2026-11-10). The canvas's ring keeps its share (weight_extent), so UVs stay; the
+# Editor reads a saved one of any step back at its own resolution (trackdetail._source_image).
+SAVED_WEIGHT_STEP = 4
 
 
 def coarse_weights(raw, step=SAVED_WEIGHT_STEP):
@@ -256,14 +256,19 @@ def weight_extent(width, height):
 def pad_weights(image, tile):
     """Extrude tile edges on a globally phase-locked repeating mask canvas. Pure."""
     import numpy as np
-    width, height = image.size
-    cw, ch = (round(size * extent) for size, extent in zip(image.size, weight_extent(width, height)))
+    xs, ys = ring_indices(image.width, image.height, tile)
+    return Image.fromarray(np.asarray(image.convert('RGBA'))[ys[:, None], xs[None, :]])
+
+
+def ring_indices(width, height, tile):
+    """(columns, rows) of a width × height tile's pixels on its ring canvas (pad_weights), its edges extruded. Pure."""
+    import numpy as np
+    cw, ch = (round(size * extent) for size, extent in zip((width, height), weight_extent(width, height)))
     # UV V spans [-1, 0] inside a tile; its image rows span [0, height].
     phase = (tile[0] * width, (-tile[1] - 1) * height)
     xs = (np.arange(cw) - phase[0] + (cw-width)//2) % cw - (cw-width)//2
     ys = (np.arange(ch) - phase[1] + (ch-height)//2) % ch - (ch-height)//2
-    pixels = np.asarray(image.convert('RGBA'))
-    return Image.fromarray(pixels[np.clip(ys, 0, height-1)[:, None], np.clip(xs, 0, width-1)[None, :]])
+    return np.clip(xs, 0, width-1), np.clip(ys, 0, height-1)
 
 
 def preserve_blocks(original, changed, mask):

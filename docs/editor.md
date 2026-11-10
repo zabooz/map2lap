@@ -576,7 +576,11 @@ filtering remain open release requirements. Ground colour images must be opaque.
 repeat sizes; identical photos and normal maps share their DDS, without cutting geometry at photo repetitions.
 
 Immutable layouts bind the source and ordered operations. First preparation resolves masks and publishes a small layout;
-subsequent draft/index reads reuse that metadata. They do not composite colour tiles or encode DDS. The mask and shared
+subsequent draft/index reads reuse that metadata. The Editor's masks are at the saved step, 50 cm a texel, as AC gets them
+(`trackdetail._preview_step`, `PREVIEW`): made from the tile's fields directly (`_coarse_mask`, `_regional_inputs`), a
+16th of the pixels; a tile whose side does not divide into 16 of them keeps its own resolution. Save writes a simple tile's
+mask as the Editor shows it, and makes a regional tile's from its full fields. 64 painted tiles of Heiligenblut's copy:
+an Apply 49.9 -> 13.3 s on the server, 1.7 GiB -> 108 MiB in the browser. A mask texture is filtered when magnified. They do not composite colour tiles or encode DDS. The mask and shared
 colour DDS endpoints encode missing cached files lazily under `cache/track-details`; cache hits bypass the encoder lock.
 Prepared mask pixels are retained as a lossless PNG in disposable cache, avoiding repeated weight calculation after an
 in-memory eviction or restart. A missing PNG is rebuilt from the retained operation masks. RGBA mask channels are independent
@@ -616,7 +620,7 @@ their pixels (`trackmodels.images`). Heiligenblut's copy with 99 painted tiles a
 what the last Save did not leave of each painted tile on several processes (Settings' cores, as RAM allows; below `POOL_FROM`
 tiles in the server's own): one reads a tile's fields once and keeps its description, region copies, masks and own images;
 the export then takes them from the cache, as a warm Save does, and writes the same bytes. A region mask whose canvas the saved mask's step divides is
-averaged to its metre texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
+averaged to its coarse texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
 255th off the one made coarse after); the tile images on their ring canvases take 33 s of an empty cache. Imported normal
 maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to
 a specular-strength approximation in photo alpha; this is not PBR roughness. Regional render copies are `nocol_`; the edited

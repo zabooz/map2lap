@@ -33,7 +33,7 @@ class TextureTest(unittest.TestCase):
         values = np.zeros((2304, 2304, 4), np.uint8)
         values[:, :1152, 0], values[:, 1152:, 3] = 255, 255           # (one material left, the original tile right)
         values[:8, :8] = np.repeat(np.eye(4, dtype=np.uint8) * 255, 2, axis=0)   # (two columns each of four materials)
-        coarse = weight_levels(coarse_weights(dds_weights(Image.fromarray(values))))
+        coarse = weight_levels(coarse_weights(dds_weights(Image.fromarray(values)), 8))
         self.assertEqual((288, 288, 4), coarse[0].shape)              # (1 m a texel on a 2048 px tile's ring canvas)
         self.assertEqual([255, 0, 0, 0], coarse[0][100, 100].tolist())
         self.assertEqual([0, 0, 0, 255], coarse[0][100, 200].tolist())

@@ -446,7 +446,7 @@ def _mask_file(key,bounds,width,height):
 
 
 def _saved_mask(fields,bounds,palette,phase):
-    """A region's mask as AC gets it: 1 m a texel (textures.coarse_weights) and BC7, a 64th of the pixels and a quarter of
+    """A region's mask as AC gets it: 50 cm a texel (textures.coarse_weights) and BC7, a 16th of the pixels and a quarter of
     the bytes each. Pure."""
     return bc7_weights(region_mask(fields,bounds,palette,phase=phase,step=SAVED_WEIGHT_STEP))
 

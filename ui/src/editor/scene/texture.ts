@@ -17,6 +17,7 @@ export async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: nu
       t = new THREE.DataTexture(d.mipmaps[0].data, d.width, d.height, THREE.RGBAFormat);
       t.mipmaps = d.mipmaps as ImageData[];
       t.generateMipmaps = false;
+      t.magFilter = THREE.LinearFilter;     // (a DataTexture's is nearest: a 1 m mask texel would show as a square close by)
     } else {
       t = new THREE.CompressedTexture(d.mipmaps as ImageData[], d.width, d.height, d.format as THREE.CompressedPixelFormat);
     }

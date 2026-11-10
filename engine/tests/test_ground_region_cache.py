@@ -42,7 +42,7 @@ class RegionCacheTest(unittest.TestCase):
         def request(key):
             barrier.wait(); return trackdetail.region_image('ac','track',self.version,key)
         with (mock.patch.object(trackdetail,'describe',return_value=self.layout),
-              mock.patch.object(trackdetail,'_semantic',return_value=({}, {}, None)),
+              mock.patch.object(trackdetail,'_semantic',return_value=({'dimensions':[32,32]}, {}, None)),
               mock.patch.object(trackregions,'compile',side_effect=rebuild) as compile):
             with ThreadPoolExecutor(2) as workers:
                 results=list(workers.map(request,self.keys))

@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import struct
 import tempfile
 import os
 import threading
@@ -1142,6 +1143,80 @@ class DetailTest(unittest.TestCase):
         trackview.prepare_surface(self.ac, "detail_copy", 1, portable["revision"])
         selected = trackview.surface(self.ac, "detail_copy", 1, 1.1, -.5, portable["revision"])
         self.assertEqual("gc_meadow", selected["material"])
+
+
+class SavedStepMaskTest(unittest.TestCase):
+    """The Editor shows a painted tile's material borders at the saved step (textures.SAVED_WEIGHT_STEP), as AC gets them:
+    a 128 px tile (the fixture's 32 px tiles stay at their own resolution: 32 px do not divide into 16 such texels)."""
+    material = fixture.PaintTest.material
+    keep = fixture.PaintTest.keep
+
+    def setUp(self):
+        DetailTest.setUp(self)
+        native = kn5.read(str(self.path))
+        textures = [(n, fixture.png(np.full((128, 128, 3), (30, 150, 40), np.uint8)) if n == "ground_0_0.png" else raw)
+                    for n, _a, raw in native["textures"]]
+        kn5.write(str(self.path), textures, native["materials"], native["root"])
+        self.revision = trackview.index(self.ac, self.name)["revision"]
+
+    def paint(self, colour, rows, soft=None):
+        """A plain colour over rows (of the 32 px selection) of tile 0, half over the row soft."""
+        from app import trackpaint
+        mask = np.zeros((32, 32), np.uint8)
+        mask[rows] = 255
+        if soft is not None:
+            mask[soft] = 128
+        chosen = {"material": "gc_meadow", "truncated": False}
+        merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
+        with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+            return trackpaint.create(self.ac, self.name, self.revision, self.material(colour), [{"mesh": 0, "u": .1, "v": -.5}])
+
+    def test_a_painted_tile_shows_its_borders_at_the_saved_step_made_without_its_full_size_mask(self):
+        from track import textures
+        op = self.paint((200, 30, 40), slice(0, 13), 13)
+        with mock.patch.object(trackdetail, "pad_weights", side_effect=AssertionError("made the full-size canvas")), \
+             mock.patch.object(trackdetail, "_keep_weights", side_effect=AssertionError("kept the full-size mask")):
+            answer = self.keep([op])
+            descriptor = answer["textures"][0]
+            raw = trackdetail.mask(self.ac, self.name, descriptor["version"])
+        side = 144 // textures.SAVED_WEIGHT_STEP          # (the 128 px tile's ring canvas)
+        self.assertEqual(textures.dds_size(side, side, uncompressed=True), descriptor["layers"]["mask"]["size"])
+        self.assertEqual((side, side), struct.unpack_from("<2I", raw, 12))
+        coarse = textures.weight_levels(raw)[0]
+        record, path, scan, filename = trackdetail._view(self.ac, self.name, descriptor["version"])
+        _layout, fine = trackdetail._compute(self.ac, self.name, record, path, scan, filename)
+        before = textures.weight_levels(textures.coarse_weights(textures.dds_weights(textures.pad_weights(Image.fromarray(fine), (0, 0)))))[0]
+        self.assertLessEqual(np.abs(coarse.astype(int) - before).max(), 2)      # (as Save made it from the full-size one)
+        self.assertTrue(((coarse[..., 0] > 0) & (coarse[..., 0] < 255)).any())   # (a border across a coarse texel blends)
+        self.assertTrue(trackdetail.compressed_mask(self.ac, self.name, descriptor["version"]))
+
+    def test_save_writes_the_coarse_mask_as_the_editor_shows_it(self):
+        from track import textures
+        descriptor = self.keep([self.paint((200, 30, 40), slice(0, 13))])["textures"][0]
+        shown = trackdetail.mask(self.ac, self.name, descriptor["version"])
+        trackcopy.save(self.ac, self.name)
+        saved = {n: raw for n, _a, raw in kn5.read(str(self.path))["textures"]}[descriptor["layers"]["mask"]["name"]]
+        self.assertEqual(textures.bc7_weights(shown), saved)
+
+    def test_the_point_asked_about_reads_the_coarse_mask(self):
+        version = self.keep([self.paint((200, 30, 40), slice(0, 13))])["textures"][0]["version"]
+        painted = trackdetail.sample_mask(self.ac, self.name, version, .5, -.9)
+        ground = trackdetail.sample_mask(self.ac, self.name, version, .5, -.2)
+        self.assertEqual((255, 0), (painted[0], painted[3]))
+        self.assertEqual((0, 255), (ground[0], ground[3]))
+
+    def test_four_materials_show_their_regions_at_the_saved_step_and_save_from_the_full_fields(self):
+        from app import trackinspect
+        from track import textures
+        operations = [self.paint((30 + 40 * i, 30, 40), slice(i * 8, (i + 1) * 8)) for i in range(4)]
+        descriptor = self.keep(operations)["textures"][0]
+        ground = descriptor["layers"]["ground"]
+        self.assertEqual([128 // textures.SAVED_WEIGHT_STEP] * 2, ground["dimensions"])
+        self.assertTrue(trackdetail.weight_bundle(self.ac, self.name, descriptor["version"]))
+        self.assertFalse(trackinspect.appearance(self.ac, self.name, 0, .5, -.9, self.revision, descriptor["version"])["original"])
+        native = trackdetail.native_descriptors(self.ac, self.name, [descriptor])[0]["layers"]
+        self.assertEqual([128, 128], native["ground"]["dimensions"])
+        trackcopy.save(self.ac, self.name)
 
 
 if __name__ == "__main__":
