@@ -15,6 +15,8 @@ from test_trackcopy import Base
 from app import modeldata, modelmesh, objectlibrary, trackcopy, trackedits
 from track import kn5, textures
 
+LIGHT = {"ksAmbient": .42, "ksDiffuse": .36}
+
 
 def levels(raw):
     """Each mip of a BC1/BC3 DDS as RGBA pixels. Pure."""
@@ -98,7 +100,7 @@ class RecipeTest(unittest.TestCase):
         for size, expected in (((48, 20), (64, 16)), ((4096, 16), (2048, 16)), ((1024, 512), (1024, 512))):
             with self.subTest(size=size):
                 model = model_with(np.full((size[1], size[0], 4), 90, np.uint8))
-                _native, recipes = modelmesh.materials(model, "a" * 64)
+                _native, recipes = modelmesh.materials(model, "a" * 64, LIGHT)
                 name, recipe = next(iter(recipes.items()))
                 self.assertTrue(name.endswith(".dds"))
                 raw = modelmesh.dds(model, recipe)

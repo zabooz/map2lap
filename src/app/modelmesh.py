@@ -73,8 +73,9 @@ def dds(model, recipe):
     return dds_colour(_pixels(model, recipe, recipe["size"]), recipe["mode"], recipe["cutoff"])
 
 
-def materials(model, asset):
-    """Native material factors, and each texture's recipe by name: no image is read until Save or a preview asks for it. Pure."""
+def materials(model, asset, light):
+    """Native material factors lit as light says ({"ksAmbient", "ksDiffuse"}), and each texture's recipe by name: no image is read
+    until Save or a preview asks for it. Pure."""
     result, recipes = [], {}
     definitions = list(model.materials)
     if not definitions or any(part.material is None for part in model.primitives):
@@ -93,7 +94,7 @@ def materials(model, asset):
         mode = material.get("alphaMode", "OPAQUE")
         name, recipe = _recipe(model, source, factor, mode, material.get("alphaCutoff", .5))
         recipes[name] = recipe
-        props = {"ksAmbient": .5, "ksDiffuse": .5, "ksSpecular": 0., "ksAlphaRef": material.get("alphaCutoff", .5),
+        props = {"ksAmbient": light["ksAmbient"], "ksDiffuse": light["ksDiffuse"], "ksSpecular": 0., "ksAlphaRef": material.get("alphaCutoff", .5),
                  "m2lModelMaterial": 1., "m2lRoughness": pbr.get("roughnessFactor", 1.), "m2lMetallic": pbr.get("metallicFactor", 1.)}
         values = [(k, float(v), (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)) for k, v in props.items()]
         result.append(kn5.Material(f"m2l_model_{asset[:24]}_{number}", "ksPerPixelAT" if mode == "MASK" else "ksPerPixel",

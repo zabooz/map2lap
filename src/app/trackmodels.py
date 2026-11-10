@@ -12,7 +12,7 @@ import threading
 import numpy as np
 
 from app import modeldata, modelmesh, mytracks, objectlibrary, placement, trackcopies, trackheights, trackview
-from track import kn5, objectlist
+from track import kn5, obj_to_kn5, objectlist
 
 SCHEMA = 1
 BUNDLE = Path("data/map2lap_models")
@@ -258,6 +258,16 @@ def images(ac, name, scan):
     return {texture: modelmesh.dds(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
 
 
+PLANTS = {"tree", "bush", "grass", "flower", "plant"}
+
+
+def light(category):
+    """A model's ambient and sun share in AC: the track's own trees' for plants, its other objects' for the rest. Both were set
+    in AC by eye (obj_to_kn5); 0.5 and 0.5 burnt bright flat colours, a Kenney tree's green, nearly white in the sun. Pure."""
+    values = obj_to_kn5.VALUES["trees"] if category in PLANTS else obj_to_kn5.DEFAULT
+    return {key: values[key] for key in ("ksAmbient", "ksDiffuse")}
+
+
 def extend(ac, name, scan, objects, models):
     """Register model roots in the ordinary object list and derive each unique asset's real local geometry once."""
     inherited = compiled(ac, name, scan.get("model_source_path"))
@@ -276,7 +286,7 @@ def extend(ac, name, scan, objects, models):
             decoded[asset] = model
             parts[asset] = modelmesh.geometry(model, meta)
             assets[asset] = {**meta, "url": f"/api/editor/{name}/model-asset/{asset}"}
-            native, recipes = modelmesh.materials(model, asset)
+            native, recipes = modelmesh.materials(model, asset, light(meta["category"]))
             slots[asset] = []
             for material in native:
                 slot = next((i for i, previous in enumerate(materials) if previous.name == material.name
@@ -292,7 +302,7 @@ def extend(ac, name, scan, objects, models):
                     resources[texture] = {**recipes[texture], "asset": asset}
                 slots[asset].append(slot)
         meta = assets[asset]
-        kind = {"tree": "tree", "building": "house", "other": "model"}[meta["category"]]
+        kind = {"tree": "tree", "bush": "bush", "building": "house"}.get(meta["category"], "model")
         listed[instance["id"]] = {"kinds": [kind], "sorts": [meta["name"]], "at": [instance["at"]],
                                    "parents": [-1], "faces": [[]], "details": [{"model": asset}]}
         for part in parts[asset]:

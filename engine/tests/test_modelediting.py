@@ -14,6 +14,8 @@ from test_trackcopy import Base
 from app import modeldata, modelmesh, objectlibrary, trackcopy, trackedits, trackinspect, trackmodels, trackview
 from track import kn5
 
+LIGHT = {"ksAmbient": .42, "ksDiffuse": .36}
+
 
 class Interrupting:
     """The save lock, and another save the moment it is first let go: what a second request does between the two."""
@@ -97,6 +99,27 @@ class ModelEditingTest(Base):
             self.assertEqual((4, 4), image.size)
             np.testing.assert_allclose(image.convert("RGBA").getpixel((0, 0)), (30, 133, 40, 120), atol=2)
 
+    def asset_of(self, category):
+        document, binary = fixture()
+        prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        return objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": category, "category": category})["model"]["id"]
+
+    def test_every_import_category_can_be_placed(self):
+        for category, kind in (("tree", "tree"), ("bush", "bush"), ("grass", "model"), ("rock", "model"), ("building", "house"), ("prop", "model")):
+            with self.subTest(category=category):
+                model = self.placed(self.asset_of(category))
+                self.keep([model])
+                self.assertEqual([kind], trackview.index(self.ac, self.name)["objects"][model["id"]]["kinds"])
+
+    def test_models_take_the_light_of_the_tracks_own_plants_and_objects(self):
+        from track import obj_to_kn5
+        for category, values in (("bush", obj_to_kn5.VALUES["trees"]), ("prop", obj_to_kn5.DEFAULT)):
+            with self.subTest(category=category):
+                self.keep([self.placed(self.asset_of(category))])
+                material = next(m for m in trackview.index(self.ac, self.name)["materials"] if m["name"].startswith("m2l_model_"))
+                self.assertAlmostEqual(values["ksAmbient"], material["ambient"])
+                self.assertAlmostEqual(values["ksDiffuse"], material["diffuse"])
+
     def test_the_index_says_what_a_model_meshs_vertices_are_made_from(self):
         model = {**self.placed(self.asset()), "scale": 2}
         self.keep([model])
@@ -109,19 +132,19 @@ class ModelEditingTest(Base):
         document["materials"].append({**document["materials"][0], "pbrMetallicRoughness": {
             **document["materials"][0]["pbrMetallicRoughness"], "baseColorFactor": [1, .5, 1, 1]}})
         model = replace(modeldata.load(encode(document, binary)), images=(png((4, 4)),))
-        native, recipes = modelmesh.materials(model, "a" * 64)
+        native, recipes = modelmesh.materials(model, "a" * 64, LIGHT)
         names = [next(n for slot, _number, n in material.maps if slot == "txDiffuse") for material in native]
         self.assertEqual(names[0], names[1], "One image and factor is one texture")
         self.assertNotEqual(names[0], names[2])
         self.assertEqual(set(names), set(recipes))
         again = replace(model, images=(png((4, 4), (1, 2, 3, 255)),))
-        self.assertFalse(set(names) & set(modelmesh.materials(again, "b" * 64)[1]))
-        self.assertEqual(set(names), set(modelmesh.materials(model, "b" * 64)[1]), "Assets sharing an image share its texture")
+        self.assertFalse(set(names) & set(modelmesh.materials(again, "b" * 64, LIGHT)[1]))
+        self.assertEqual(set(names), set(modelmesh.materials(model, "b" * 64, LIGHT)[1]), "Assets sharing an image share its texture")
 
     def test_a_recipe_renders_a_preview_at_a_limited_size(self):
         document, binary = fixture()
         model = replace(modeldata.load(encode(document, binary)), images=(png((64, 32)),))
-        _native, recipes = modelmesh.materials(model, "a" * 64)
+        _native, recipes = modelmesh.materials(model, "a" * 64, LIGHT)
         recipe = next(iter(recipes.values()))
         with Image.open(io.BytesIO(modelmesh.image(model, recipe))) as full, Image.open(io.BytesIO(modelmesh.image(model, recipe, 16))) as small:
             self.assertEqual((64, 32), full.size)
