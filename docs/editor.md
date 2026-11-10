@@ -149,6 +149,13 @@ Copy (C, or Duplicate in the context menu) keeps one source ready: each left cli
 Once its template is ready, the source is no longer selected: X switches to Delete and leaves the original intact.
 Right-clicking another object keeps that template; Choose another or Duplicate explicitly takes a new source. A placement
 clicked before leaving Copy still completes, as one undoable edit.
+Each placement click immediately shows a solid instance made from the loaded source, for both track objects and imported
+models. Its foot and pose are frozen at the click, even before the next preview frame. Draft synchronization, server
+validation and generated-mesh loading run behind it, in click order. Esc only ends placement mode. The solid instance
+stays until the matching canonical instance is drawn; a refused request or draft write removes it and reports the error,
+including after Esc. A refused addition is removed from Undo/Redo too. Save, Undo, Redo and Discard wait for accepted clicks;
+Discard returns to the last Save. Preview geometry/materials and imported source images stay held until the last pending
+instance releases them.
 Its preview and placed copies rest their foot on the clicked ground. Turn, Height and Size in its options apply to each new copy,
 by number or Shift/Ctrl/Alt + wheel, as with Move; Height is the clearance above the clicked ground, Size relative to the frozen source.
 `app/trackcopies.py` keeps source member ids and frozen poses in the draft and recipe, with independent `copy_<id>#<member>` ids;
@@ -157,8 +164,10 @@ reloading the source meshes or moving the camera; Save appends the same geometry
 and split before AC's vertex limit. Placements and then height changes apply to copies too; Undo, Redo and Discard include them.
 The validated draft context is cached by the source, draft, recipe and object-list file states. Copy geometry has a separate
 SHA-256 revision: unrelated draft changes cannot invalidate its layout. `/copies` returns only generated mesh metadata and
-copied object lists; their cancellable loader is separate from the source queue and retries an obsolete manifest. Its indexes
-retain the source entries. The server keeps one generated manifest (up to two million vertices); height-query cache keys hold
+copied object lists; their cancellable loader is separate from the source queue and retries an obsolete manifest. With imported
+models present, the full index supplies both generated layouts: copies precede models, so retained models take their new
+mesh numbers before copies occupy their former numbers. The two layouts are committed together; a newer change supersedes
+older loads. Original meshes stay loaded. The server keeps one generated manifest (up to two million vertices); height-query cache keys hold
 only its digest. The preview updates when its pointer, camera, pose or ground changes, and uses the server's complete foot
 anchor, including hidden collision. Pending drags keep their displayed pivots until canonical placements arrive; a failed
 drag restores the kept meshes.

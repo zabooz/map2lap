@@ -65,7 +65,7 @@ test("parts are ready only after the loaded ground's selection index is prepared
   const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
     materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {},
     nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(), leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
   sceneModules(view as unknown as TrackView);
@@ -108,7 +108,7 @@ for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during 
   };
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
     wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {}, material: () => new THREE.MeshBasicMaterial(),
     nightGlow: {bind: () => {}}, leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: (s: string | null) => { if (s) throw new Error(s); }});
   sceneModules(view as unknown as TrackView);

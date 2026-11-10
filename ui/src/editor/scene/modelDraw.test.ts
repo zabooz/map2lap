@@ -2,6 +2,21 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {ModelDraw} from "./modelDraw";
 
+test("a Copy ghost holds its source textures after Revert removes the model, until its last preview is released", async () => {
+  const geometry = new THREE.PlaneGeometry(), source = new THREE.Group();
+  source.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
+  let disposed = 0; geometry.addEventListener("dispose", () => disposed++);
+  const draw = new ModelDraw(new THREE.Scene(), async () => source);
+  await draw.sync([{id: "a", asset: "tree"}], {tree: {url: "tree"}}, {a: new THREE.Matrix4().toArray()});
+  const release = draw.hold("a");
+  await draw.sync([], {}, {});
+  expect(disposed).toBe(0);
+  release(); release();
+  expect(disposed).toBe(1);
+  expect(draw.stats().assets).toBe(0);
+  draw.dispose();
+});
+
 test("retained colour-corrected Kenney models receive the matte profile without changing their binding or other models", async () => {
   const materials = new Map<string, THREE.MeshStandardMaterial>();
   const draw = new ModelDraw(new THREE.Scene(), async url => {
