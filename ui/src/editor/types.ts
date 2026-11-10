@@ -61,11 +61,13 @@ export type Place = [number, number, number];
 /** Where the brush's ring was: AC x, AC z, seconds since the sample before. */
 export type Sample = [number, number, number];
 
-/** The brush as it is set: its size on the ground, the colour of its ring as it is and with Shift held. */
+/** The brush as it is set: its size on the ground, the colour of its ring as it is and with Shift held. marks: what a stroke where the
+    ring stands would delete is framed in its colour (Delete's brush). */
 export interface Brush {
   radius: number;
   colour: string;
   turnedColour: string;
+  marks?: boolean;
 }
 
 /** What is held with the wheel over the view for a tool to take it. */

@@ -19,6 +19,8 @@ import {oneByOne} from "./taskQueue";
 import {DEFAULT_CONTROLS, type Controls} from "./controls";
 import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing";
 import type {CopyPose} from "../tools/copying";
+import {alongStroke} from "../tools/deleteBrush";
+import type {Removed} from "../state/edits";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
@@ -207,6 +209,11 @@ export class TrackView {
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
   private belonging: ReturnType<typeof childrenOf> = new Map();        // what belongs to which of them
   private removed = new Set<string>();                  // the ids of the objects left out, those of the sorts below too
+  private brushGone = new Set<string>();                // left out by Delete's brush under way, not by the draft yet (showGone)
+  private brushMarks = new Map<string, THREE.Box3Helper>();    // framed: what Delete's brush would take where its ring stands (marks)
+  private markAt: [number, number] | null = null;      // where the ring stood when the frames were last asked for; a frame later they are
+  private marksDue = false;
+  private feet = new WeakMap<THREE.Mesh, {version: number; trees: {k: number; from: number; at: [number, number, number]}[]}>();   // billboards' feet, per mesh as its vertices are
   private removedSorts = new Set<string>();             // the sorts of trees and bushes left out
   private named: {ids: string[]; objectSorts: Set<string>} = {ids: [], objectSorts: new Set()};    // (as setRemoved was told)
   private listedOut = new Map<number, Piece[]>();       // what of the listed objects left out lies in each mesh, for one loading later
@@ -736,6 +743,7 @@ export class TrackView {
   setBrush(brush: Brush | null) {
     const was = this.brush;
     this.brush = brush;
+    if (!brush || !brush.marks) { this.markAt = null; this.markBrush(); }
     if (!brush) {
       this.cancelStroke();
       if (this.ring) {
@@ -1547,6 +1555,10 @@ export class TrackView {
       this.ring.scale.setScalar(this.brush.radius);
       (this.ring.material as THREE.LineBasicMaterial).color.set(turned ? this.brush.turnedColour : this.brush.colour);
     }
+    if (this.brush.marks || this.brushMarks.size) {
+      this.markAt = at ? [at.x, at.z] : null;
+      if (!this.marksDue) { this.marksDue = true; requestAnimationFrame(() => this.markBrush()); }
+    }
     this.dirty = true;
   }
 
@@ -1671,6 +1683,90 @@ export class TrackView {
   selectedOutside(groups: Marked[]) {
     return [...this.picks.values()].filter(({picked}) => !groups.some(g => (g.tree ? picked.sprite : picked.sort) === g.sort))
       .map(({picked}) => ({id: picked.id!, position: picked.position}));
+  }
+
+  /** What Delete's brush takes along a stroke (samples, radius in m; alongStroke): every object a click could delete whose place lies
+      there, where it stands now. Listed objects (built ones, copies, imported models) at their place as the draft moved them, only those
+      at the top (a house's sign goes with it) and not a span of wires (it goes with its poles); trees and bushes of the loaded billboard
+      meshes at the middle of their foot. What is left out already is not taken again. */
+  brushObjects(samples: Sample[], radius: number) {
+    if (!this.data || !samples.length) return [];
+    const xs = samples.map(s => s[0]), zs = samples.map(s => s[1]);
+    const [minX, maxX, minZ, maxZ] = [Math.min(...xs) - radius, Math.max(...xs) + radius, Math.min(...zs) - radius, Math.max(...zs) + radius];
+    const near = (x: number, z: number) => x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+    const found: Removed[] = [];
+    for (const [base, list] of Object.entries(this.data.objects)) list.at.forEach((_, k) => {
+      const id = `${base}#${k}`;
+      if (list.parents[k] >= 0 || !list.faces[k].length || NOT_MOVED.has(list.kinds[k]) || this.removed.has(id)) return;
+      const [x, y, z] = this.pivotOf(id) as [number, number, number];
+      if (near(x, z)) found.push({id, position: [x, y, z]});
+    });
+    const seen = new Set<string>();
+    for (const mesh of this.billboardMeshes()) {
+      const base = (mesh.userData.info as MeshInfo).base;
+      for (const {k, from, at} of this.treeFeet(mesh)) {
+        const id = `${base}#${k}`;
+        if (!near(at[0], at[2]) || seen.has(id) || this.removed.has(id) || this.removedSorts.has(this.spriteOf(mesh, from) ?? "")) continue;
+        seen.add(id); found.push({id, position: at});
+      }
+    }
+    return alongStroke(found, samples, radius);
+  }
+
+  /** Each billboard of a mesh part at the middle of its foot, worked out once while its vertices stay as they are (Move changes them). */
+  private treeFeet(mesh: THREE.Mesh) {
+    const position = mesh.geometry.getAttribute("position"), known = this.feet.get(mesh);
+    const version = position instanceof THREE.InterleavedBufferAttribute ? position.data.version : position.version;     // (interleaved: its buffer's)
+    if (known && known.version === version) return known.trees;
+    const indices = (mesh.userData.indices ?? mesh.geometry.getIndex()!.array) as Uint16Array, corner = new THREE.Vector3(), trees = [];
+    for (const [k, from, end] of this.billboardsOf(mesh)) {
+      const bounds = new THREE.Box3();
+      for (let i = from * 3; i < end * 3; i++) bounds.expandByPoint(corner.fromBufferAttribute(position, indices[i]));
+      const middle = bounds.getCenter(corner);
+      trees.push({k, from, at: [middle.x, bounds.min.y, middle.z] as [number, number, number]});
+    }
+    this.feet.set(mesh, {version, trees});
+    return trees;
+  }
+
+  // (a ring of 500 m over a forest: the frames stop here, the stroke still takes all)
+  private static readonly MOST_MARKS = 400;
+
+  /** The frames of what Delete's brush would take where the ring stands (markAt), asked for at most once a frame. */
+  private markBrush() {
+    this.marksDue = false;
+    const ids = this.brush?.marks && this.markAt ? this.brushObjects([[...this.markAt, 0]], this.brush.radius).slice(0, TrackView.MOST_MARKS).map(o => o.id) : [];
+    const keep = new Set(ids);
+    for (const [id, box] of this.brushMarks) if (!keep.has(id)) { this.removeFrame(box); this.brushMarks.delete(id); }
+    for (const id of ids) {
+      if (this.brushMarks.has(id)) continue;
+      const bounds = this.shownBounds(this.piecesOf(id));
+      if (!bounds) continue;
+      const box = this.frameOf(bounds);
+      (box.material as THREE.LineBasicMaterial).color.set(this.brush!.colour);
+      this.brushMarks.set(id, box);
+    }
+    performance.clearMarks("map2lap.delete.marks");
+    performance.mark("map2lap.delete.marks", {detail: {framed: this.brushMarks.size}});
+  }
+
+  /** Delete's brush under way: these are left out at once, those of the last call not among them come back; null: all come back.
+      What the draft leaves out stays out either way. */
+  showGone(ids: string[] | null) {
+    const next = new Set(ids ?? []);
+    for (const id of this.brushGone) if (!next.has(id) && !this.removed.has(id)) this.leaveOut(id, false);
+    for (const id of next) {
+      if (!this.brushGone.has(id) && !this.removed.has(id)) this.leaveOut(id, true);
+      const box = this.brushMarks.get(id);
+      if (box) { this.removeFrame(box); this.brushMarks.delete(id); }      // (gone: no frame round nothing)
+    }
+    this.brushGone = next;
+    this.dirty = true;
+  }
+
+  /** The stroke's objects stay out as they are: the draft leaves them out from now on (setRemoved). */
+  keepGone() {
+    this.brushGone = new Set();
   }
 
   /** Snapshot every highlighted tree or bush for Replace; a mixed selection is refused as a whole. */

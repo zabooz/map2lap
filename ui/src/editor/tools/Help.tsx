@@ -13,7 +13,8 @@ const KEYS: Record<Tool, [string, string][]> = {
               ["Ctrl + Alt + wheel", "soft edge"]],
   move: [["Drag", "move it along the ground"], ...TURN_RAISE_SIZE],
   copy: [["Click", "pick the source, then place copies"], ...TURN_RAISE_SIZE],
-  delete: [["Click", "delete what is under it"]],
+  delete: [["Click", "delete what is under it"], ["Shift", "switch between one and the brush"], ["Click or drag with the brush", "delete everything under the ring"],
+           ["Ctrl + wheel", "brush radius"]],
   model: [["Click", "place the chosen model"], ...TURN_RAISE_SIZE],
   group: [["Click or drag", "stamp or paint a mixture"], ["Shift + wheel", "brush radius"], ["Ctrl + wheel", "density"], ["Alt + wheel", "minimum spacing"]],
 };

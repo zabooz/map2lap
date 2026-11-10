@@ -6,6 +6,7 @@ import {CopyTool} from "./tools/Copy";
 import {TrackEdits, type EditState} from "./state/edits";
 import {EditNotes} from "./inspector/EditNotes";
 import {ElevationOptions, useElevation} from "./tools/Elevation";
+import {DeleteOptions, useDelete} from "./tools/Delete";
 import {MoveOptions, useMove} from "./tools/Move";
 import {Models} from "./tools/Models";
 import {Groups} from "./tools/Groups";
@@ -31,7 +32,7 @@ import {editorToasts} from "./editorToasts";
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
-  return (tool === "smooth" && editable && marked) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
+  return (tool === "smooth" && editable && marked) || (tool === "delete" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
 }
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
@@ -121,6 +122,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
   const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
+  const remover = useDelete({view, edits, enabled: deleting, onNote: setNote});
 
   /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
@@ -213,6 +215,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     else if (tool === "move") move.wheel(keys, by);
     else if (tool === "copy" || tool === "model" || tool === "group") copyWheel.current(keys, by);
     else if (tool === "smooth") band.wheel(keys, by);
+    else if (tool === "delete") remover.wheel(keys, by);
     else elevation.wheel(keys, by);
   });
 
@@ -333,6 +336,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
           <ToolChoice label="Add" on={selectAdd} hint="Add to the selection; click a picked object again to remove it (Ctrl + click)" onClick={thenView(view, () => setSelectAdd(!selectAdd))} />,
         ]} />}
       {elevating && <ElevationOptions elevation={elevation} view={view} />}
+      {deleting && <DeleteOptions remove={remover} view={view} />}
       {marking && <BandOptions band={band} view={view} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && <MoveOptions move={move} view={view} />}

@@ -1,7 +1,7 @@
 // The Editor's tools: the sidebar's groups, one tool at a time, the bar's keys, picking more than one, Smooth road, Camera.
 import type {Page} from "@playwright/test";
 import {centre, expect, openEditor, openSettings, scene, test, type Backend} from "./fixtures";
-import {AWAY, findCar, findTree, heights, picture} from "./edit-helpers";
+import {AWAY, NEAR_TREE, findCar, findTree, heights, picture, saved, stored} from "./edit-helpers";
 
 const CAMERA_BAR = "#edit-camera-set";
 
@@ -59,6 +59,37 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   await page.locator("#edit-elevation").focus();
   await page.keyboard.press("x");
   await expect(page.locator("#edit-click-deletes")).toHaveAttribute("aria-pressed", "true");
+});
+
+test("Delete's brush frames what is under its ring and deletes it as one Undo; Shift switches between One and Brush", async ({page}) => {
+  await openEditor(page);
+  await keysOnView(page);
+  await page.keyboard.press("x");
+  const bar = page.locator("#edit-delete-set"), one = bar.getByRole("button", {name: "One", exact: true}), brush = bar.getByRole("button", {name: "Brush", exact: true});
+  await expect(one).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Shift");
+  await expect(brush).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Control+Shift+z");     // (Redo: Shift with another key switches nothing)
+  await expect(brush).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Shift");
+  await expect(one).toHaveAttribute("aria-pressed", "true");
+  await brush.click();
+  await bar.getByLabel("Radius").fill("200");
+  await keysOnView(page);
+  const c = await centre(scene(page));
+  await page.mouse.move(c.x, c.y + 40);
+  await expect.poll(() => page.evaluate(() => (performance.getEntriesByName("map2lap.delete.marks").at(-1) as PerformanceMark | undefined)?.detail?.framed ?? 0))
+    .toBeGreaterThan(1);
+  await page.mouse.down(); await page.mouse.move(c.x + 30, c.y + 45, {steps: 5}); await page.mouse.up();
+  await expect(page.locator("#edit-count")).toHaveText(/^\d+ objects deleted$/);
+  await saved(page);
+  const deleted = (await stored(page)).deleted.map(d => d.id);
+  expect(deleted).toContain(NEAR_TREE);
+  expect(deleted.length).toBeGreaterThan(1);
+  await keysOnView(page);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  expect((await stored(page)).deleted).toEqual([]);
 });
 
 test("Help says how the Editor is worked and shows the keys of the tool that is on, changing with it", async ({page}) => {

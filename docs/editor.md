@@ -151,6 +151,14 @@ these shared normals before applying its deformation, so saving preserves the ed
 the correction on their next Save, without rebuilding their geometry from map data.
 
 Its buttons stand in the sidebar by groups (`ui/src/editor/tools/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Revert to saved, Library), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Help below them says how the Editor is worked and lists the keys of the tool that is on (`tools/Help.tsx`), changing with it. Transform (M) moves, turns, raises and sizes what is picked. Revert to saved asks before taking back changes since the last Save, as one undoable step. Previously saved edits remain; a track never saved in the Editor returns to its built state. A reopened unsaved draft reads the full saved recipe only when needed, through `/edits/saved`, so ordinary loading does not duplicate large height rasters. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
+Delete (X, `Delete.tsx`) has One and Brush; Shift pressed and let go alone switches them (with another key or the wheel between,
+as Ctrl+Shift+Z, it does not). One deletes what a click picks. While the ring stands still or moves, what a stroke there would take
+is framed red, at most 400 frames, at most once a frame (`view.markBrush`); the trees' feet are worked out once per mesh while its
+vertices stay. Brush deletes everything a click or drag of its red ring passes over, measured to the line between the mouse's places so a
+fast drag leaves no gap (`deleteBrush.alongStroke`), Ctrl + wheel its radius: every object a click could delete, where it stands now
+(`view.brushObjects`). Built, copied and imported objects at their moved place, only those at the top (a house's sign goes with it)
+and no span of wires (it goes with its poles); trees and bushes of the loaded billboard meshes at the middle of their foot. They go
+out of the view while the stroke runs; the stroke is one change and one Undo.
 Road camera (K) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
 Move (M, or Move in the context menu) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
 (`app/placement.py`), written into the kn5 by `app/trackplace.py` before the height changes; the view shows it at once and takes the server's
