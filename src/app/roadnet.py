@@ -88,6 +88,88 @@ def even_network(net, arms, strength):
     return result
 
 
+def _segment(a, b):
+    """A mapped segment as a line of points no further apart than the terrain step. Pure."""
+    a, b = np.asarray(a, np.float64), np.asarray(b, np.float64)
+    n = max(2, math.ceil(float(np.linalg.norm(b - a)) / trackheights.STEP) + 1)
+    return a + np.linspace(0, 1, n)[:, None] * (b - a)
+
+
+def _apart(shape, i0, j0, line, reach):
+    """Each lattice point's distance to a line, inf beyond reach of it. Pure."""
+    step = trackheights.STEP
+    out = np.full(shape, np.inf)
+    for a, b in zip(line, line[1:]):
+        low, high = np.minimum(a, b) - reach, np.maximum(a, b) + reach
+        x0, x1 = max(0, math.floor(low[0] / step) - i0), min(shape[1], math.ceil(high[0] / step) - i0 + 1)
+        z0, z1 = max(0, math.floor(low[1] / step) - j0), min(shape[0], math.ceil(high[1] / step) - j0 + 1)
+        if x0 >= x1 or z0 >= z1:
+            continue
+        x, z = np.meshgrid((np.arange(x0, x1) + i0) * step - a[0], (np.arange(z0, z1) + j0) * step - a[1])
+        v = b - a
+        t = np.clip((x * v[0] + z * v[1]) / max(float(v @ v), 1e-12), 0, 1)
+        out[z0:z1, x0:x1] = np.minimum(out[z0:z1, x0:x1], np.hypot(x - t * v[0], z - t * v[1]))
+    return out
+
+
+def owns(grid, i0, j0, lines, half, unselected, widths=None):
+    """(each arm's own road on the grid, the points mapped roads not selected hold within their mapped widths, the points within an arm's). An arm's road (trackband._own_road) goes on
+    where its line lies on a step and within its mapped width, onto no point another road holds: another arm, or a mapped road not selected (unselected: its
+    segments with their widths). A point another road holds stays that road's within its mapped width; beyond it, it goes to the arm whose line is nearer,
+    each by its half width (widths: each arm's on the map; None: 2 * half). Rechberg: a point 0.9 m off the upper road's line (half 2.75 m) and 4.9 m off
+    the lower's (half 4 m) is the upper road's, one 2.9 m off both is the lower's. Pure."""
+    halves = [half] * len(lines) if widths is None else [width / 2 for width in widths]
+    roads = [(trackband._own_road(grid, i0, j0, line, half), line, mapped) for line, mapped in zip(lines, halves)]
+    for edge in unselected:
+        line = _segment(edge["a"], edge["b"])
+        roads.append((trackband._own_road(grid, i0, j0, line, edge["width"] / 2), line, edge["width"] / 2))
+    # (a road's own points lie within its half width and the lanes read beyond it: two lattice steps and the rounding to one)
+    reach = max([half] + [mapped for _own, _line, mapped in roads]) + 3 * trackheights.STEP
+    ratio = [_apart(grid.shape, i0, j0, line, reach) / mapped for _own, line, mapped in roads]
+    result = []
+    for k, (line, mapped) in enumerate(zip(lines, halves)):
+        claimed = np.zeros(grid.shape, bool)
+        for n, (own, _line, _mapped) in enumerate(roads):
+            if n != k:
+                claimed |= own & (ratio[n] <= np.maximum(1.0, ratio[k]))
+        result.append(trackband._own_road(grid, i0, j0, line, half, claimed, mapped))
+    # (and an arm gives up such a point to the nearer one: held by both, it took the farther one's height, a step in its road)
+    taken = [mine.copy() for mine in result]
+    for n in range(len(result)):
+        for k in range(len(result)):
+            if k != n:
+                result[n] &= ~(taken[k] & (ratio[n] > 1) & (ratio[k] < ratio[n]))
+    held = np.zeros(grid.shape, bool)
+    for (own, _line, _mapped), share in zip(roads[len(lines):], ratio[len(lines):]):
+        held |= own & (share <= 1)
+    return result, held, np.logical_or.reduce([share <= 1 for share in ratio[:len(lines)]])
+
+
+def _over_steps(grid, i0, j0, line, half, lanes, *rows):
+    """rows of an arm's lane heights (lanes: how far off the line), without what is a wall's: where its line lies on a step between two levels as built (grid;
+    trackband._on_step) all of a cross-section, elsewhere a lane further off the middle's height than a road is across (CROSS_GRADE). Taken along from the lane's
+    points before and after, a lane with none from the nearest lane that has: the slant kept would keep the wall (Rechberg: 0.7 m of 2.2 m left across 2 m of
+    the smoothed road, a lane 3 m down by a wall's corner). Pure."""
+    step = trackband._on_step(trackband._read_across(grid, i0, j0, line, half)[1])
+    s = trackband._along(line)
+    centre = len(lanes) // 2
+    across = trackband.CROSS_GRADE * np.maximum(np.abs(lanes), trackheights.STEP)[:, None]
+    out = []
+    for heights in rows:
+        heights = np.where(step[None], np.nan, heights)
+        with np.errstate(invalid="ignore"):
+            heights[np.abs(heights - heights[centre]) > across] = np.nan
+        good = np.isfinite(heights)
+        if not good[centre].any():
+            return rows
+        filled = np.array([np.interp(s, s[ok], lane[ok]) if ok.any() else np.full(len(s), np.nan) for lane, ok in zip(heights, good)])
+        for k in np.flatnonzero(~good.any(axis=1)):
+            near = np.flatnonzero(good.any(axis=1))
+            filled[k] = filled[near[np.argmin(np.abs(near - k))]]
+        out.append(filled)
+    return tuple(out)
+
+
 def _arms(path, scan, moved, net):
     lines = [resample(line) for line in net["lines"]]
     width = max(edge["width"] for edge in net["segments"])
@@ -97,11 +179,10 @@ def _arms(path, scan, moved, net):
     built, i0, j0 = trackband._ground(path, scan, None, bounds, road_only=True)
     current = built if moved is None else trackband._ground(path, scan, moved, bounds, road_only=True)[0]
     arms = []
-    for line in lines:
+    for line, own in zip(lines, owns(built, i0, j0, lines, width / 2, net.get("unselected", []), net.get("widths"))[0]):
         lanes = trackband._across(width / 2)
         side = sideways(line)
         rows = [line + offset * side for offset in lanes]
-        own = trackband._own_road(built, i0, j0, line, width / 2)
         known = np.array([np.isfinite(trackband._on_grid(np.where(own, current, np.nan), i0, j0, row)) for row in rows]).any(axis=0)
         missing = np.flatnonzero(~known)
         if len(missing):
@@ -109,8 +190,8 @@ def _arms(path, scan, moved, net):
             s = trackband._along(line)
             if any(s[group[-1]] - s[group[0]] > trackband.SNAP_M for group in groups):
                 raise ValueError("Part of this road has no editable ground surface; exclude bridges, tunnels or gaps")
-        h = trackband._lanes(np.where(own, current, np.nan), i0, j0, rows)
-        b = trackband._lanes(np.where(own, built, np.nan), i0, j0, rows)
+        h, b = _over_steps(built, i0, j0, line, width / 2, lanes, trackband._lanes(np.where(own, current, np.nan), i0, j0, rows),
+                           trackband._lanes(np.where(own, built, np.nan), i0, j0, rows))
         before, after = trackband._onward(line[::-1]), trackband._onward(line)
         first = trackband._rise_onward(current, i0, j0, line[0], before)
         last = trackband._rise_onward(current, i0, j0, line[-1], after)
@@ -123,12 +204,13 @@ def _blend(value):
     return value * value * (3 - 2 * value)
 
 
-def _targets(arms, even, shape, i0, j0, width, terminals, strength):
-    """One nearest-arm target per lattice point; junction patches subsequently provide shared height/gradient."""
+def _targets(arms, even, shape, i0, j0, width, terminals, strength, own):
+    """One target per lattice point, from the nearest arm whose own road it is (own: per arm); junction patches subsequently provide shared height/gradient.
+    The nearest arm alone would raise a lower road beside an upper road's line to the upper road (Rechberg: by up to 4.2 m)."""
     step = trackheights.STEP
     distance, target, joining = np.full(shape, np.inf), np.zeros(shape), np.zeros(shape)
     original, correction = np.zeros(shape), np.zeros(shape)
-    for arm, rows in zip(arms, even):
+    for arm, rows, mine in zip(arms, even, own):
         line, lanes = arm["line"], arm["lanes"]
         along = trackband._along(line)
         for k, (a, b) in enumerate(zip(line, line[1:])):
@@ -157,7 +239,7 @@ def _targets(arms, even, shape, i0, j0, width, terminals, strength):
                 join *= _blend((s - trackband.HOLD_M) / trackband.JOIN_M)
             if _key(line[-1]) in terminals:
                 join *= _blend((along[-1] - s - trackband.HOLD_M) / trackband.JOIN_M)
-            nearer = d < distance[z0:z1, x0:x1]
+            nearer = (d < distance[z0:z1, x0:x1]) & mine[z0:z1, x0:x1]
             distance[z0:z1, x0:x1][nearer] = d[nearer]
             target[z0:z1, x0:x1][nearer] = value[nearer]
             original[z0:z1, x0:x1][nearer] = previous[nearer]
@@ -208,14 +290,21 @@ def _influence(op, weight):
     return {"material": "road_transition", "truncated": False, "tiles": tiles}
 
 
-def _check_grades(current, delta, active):
-    """Refuse a new road step steeper than the existing road limit; an already steep brush bump may improve."""
+def _check_grades(current, delta, active, built, own, selected):
+    """Refuse a new road step steeper than the existing road limit; an already steep brush bump may improve. Steps on one road only: between two changed
+    points of one arm's own road (own: per arm; a wall between two arms may grow), and between a changed point and one of the selected road (selected: the
+    painted region on the lattice within an arm's mapped width, no other road's) left as it was, where the surface as built goes on between them (built: its heights; points left out of the road between
+    changed ones made a ridge of 1.07 m in 2 m, Rechberg). An unselected road keeps its edge: the transition stops there."""
     after = current + delta
     for dz, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
         first = (slice(0, -dz or None), slice(0, -dx or None)) if dx >= 0 else (slice(0, -dz), slice(1, None))
         last = (slice(dz, None), slice(dx, None)) if dx >= 0 else (slice(dz, None), slice(0, -1))
-        on = active[first] & active[last]
         length = trackheights.STEP * math.hypot(dx, dz)
+        same = np.logical_or.reduce([mine[first] & mine[last] for mine in own])
+        with np.errstate(invalid="ignore"):
+            going_on = np.abs(built[first] - built[last]) <= trackband.CROSS_GRADE * length
+        left = (active[first] & selected[last] & ~active[last]) | (active[last] & selected[first] & ~active[first])
+        on = (active[first] & active[last] & same) | (left & going_on)
         before = np.abs(current[first] - current[last]) / length
         grade = np.abs(after[first] - after[last]) / length
         # MAX_GRADE is the existing road/wall distinction; 1mm/m covers raster rounding and float32 source vertices.
@@ -245,11 +334,9 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
     # Include terrain-cell corner vertices touched by the selected paint; the 2 m mesh can extend beyond its image edge.
     on = np.pad(selected, 1)
     active = np.logical_or.reduce([on[z:z + selected.shape[0], x:x + selected.shape[1]] for z in range(3) for x in range(3)])
-    own = np.zeros(built.shape, bool)
-    for arm in arms:
-        own |= trackband._own_road(built, i0, j0, arm["line"], width / 2)
-    active &= own & np.isfinite(current)
-    target, original, correction, distance, joining = _targets(arms, even, built.shape, i0, j0, width, {_key(p) for p in net["terminals"]}, strength)
+    own, held, mapped = owns(built, i0, j0, [arm["line"] for arm in arms], width / 2, net.get("unselected", []), net.get("widths"))
+    active &= np.logical_or.reduce(own) & np.isfinite(current)
+    target, original, correction, distance, joining = _targets(arms, even, built.shape, i0, j0, width, {_key(p) for p in net["terminals"]}, strength, own)
     source_height = np.nan_to_num(current)
     # Interpolated lane samples differ slightly from true vertices. Apply that correction continuously from zero too.
     target = source_height + (target - original) + correction * (original - source_height)
@@ -268,7 +355,7 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
     for point in net["held_junctions"]:
         delta *= _blend((np.hypot(x - point[0], z - point[1]) - trackband.HOLD_M) / trackband.JOIN_M)
     field, transition = _spread(delta, active, np.isfinite(built) & ~active, fade)
-    _check_grades(current, field, active)
+    _check_grades(current, field, active, built, own, selected & mapped & ~held)
     field[0] = field[-1] = 0
     field[:, 0] = field[:, -1] = 0
     mm = np.rint(field * 1000).astype(np.int64)
