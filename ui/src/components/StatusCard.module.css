@@ -6,7 +6,7 @@
          border-radius: 99px; background: var(--line); color: var(--muted); }
 .badge.run { background: var(--accent-soft); color: var(--accent); }
 .badge.ok { background: var(--ok-soft); color: var(--ok); }
-.badge.bad { background: var(--accent-soft); color: var(--accent); }
+.badge.bad { background: var(--error-soft); color: var(--error); }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
 .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -22,10 +22,10 @@
 .stats small { color: var(--muted); font-size: 11.5px; }
 .stats b { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.play { flex: none; height: 34px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--ok); color: #fff;
+.play { flex: none; height: 34px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--ok); color: var(--ok-ink);
         font-weight: 700; cursor: pointer; }
 .play:disabled { opacity: .6; cursor: default; }
-.err { color: var(--accent); font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4;
+.err { color: var(--error); font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4;
        -webkit-box-orient: vertical; }
 
 /* The picked track's code under it, with delete beside it */

@@ -8,5 +8,5 @@
 .buttons button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); cursor: pointer; }
 .buttons button:not(:disabled):hover { border-color: var(--accent); }
 .buttons button:disabled { opacity: .45; cursor: default; }
-.buttons .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.buttons .primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .note { margin: 0; color: var(--muted); font-size: 12px; }

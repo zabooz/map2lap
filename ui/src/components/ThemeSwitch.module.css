@@ -1,0 +1,9 @@
+.row { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+       padding-top: 12px; border-top: 1px solid var(--line); }
+.label { color: var(--muted); font-size: 12px; }
+.choices { display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: var(--raised); border: 1px solid var(--line); }
+.choices button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 4px 10px;
+                  border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.choices button:hover { color: var(--text); }
+.choices button[aria-pressed=true] { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-weight: 600; }
+.choices button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

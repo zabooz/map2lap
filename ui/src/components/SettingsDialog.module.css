@@ -24,7 +24,7 @@
                   cursor: pointer; }
 .pathRow button:disabled { opacity: .45; cursor: default; }
 .good { color: var(--ok); }
-.fault { color: var(--accent); font-weight: 600; }
+.fault { color: var(--error); font-weight: 600; }
 .verRow { min-height: 38px; }
 .verRow span { align-self: center; font-weight: 600; }
 .releaseNote { min-height: 1.4em; }     /* (empty while asking: the card doesn't shrink) */
