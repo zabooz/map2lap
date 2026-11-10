@@ -222,7 +222,10 @@ def _save(ac, name, copy_to, title, revision):
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
     changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"] or edits.get("models")
-    if not (changed or source or copy_to):
+    # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
+    built = trackview.recipe(ac, name) if source is None else None
+    held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
+    if not (changed or held or source or copy_to):
         raise Refused("Nothing to save: nothing is changed")
     objects = trackview.list_of(path)
     # (the first Save: the track as it is, kept before anything is written. Replaced, its file itself can stay as that; a copy leaves

@@ -650,6 +650,13 @@ class Handler(BaseHTTPRequestHandler):
                     if cost:
                         return self._send(200, objectlibrary.cost(cost[1]))
                     return self._send(404, {"error": "No model here"})
+                if (deleting := re.fullmatch(r"/api/library/models/([a-f0-9]{64})/delete", path.path)):
+                    if not self._own_page("application/json"):
+                        return self._send(403, {"error": "Only the page itself can delete a model"})
+                    if int(self.headers.get("Content-Length", 0)) > 4096:
+                        return self._send(413, {"error": "Too many model settings"})
+                    self._body()
+                    return self._send(200, {"deleted": objectlibrary.remove(deleting[1])})
                 upload = path.path == "/api/library/model-imports"
                 if not self._own_page("application/x-map2lap-glb" if upload else "application/json"):
                     return self._send(403, {"error": "Only the page itself can import a model"})

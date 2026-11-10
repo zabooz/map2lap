@@ -1,13 +1,9 @@
 """Legacy material RGB is decoded only by explicit choice; preview and retained models agree."""
-import hashlib
-import json
 from pathlib import Path
 import shutil
-import sys
 import tempfile
 import unittest
 from unittest import mock
-import zipfile
 
 import numpy as np
 
@@ -58,7 +54,7 @@ class ColourTest(unittest.TestCase):
             encoded = linear * 12.92 if linear <= .0031308 else 1.055 * linear ** (1 / 2.4) - .055
             self.assertAlmostEqual(byte / 255, encoded)
 
-    def test_preview_choice_is_isolated_and_add_retains_both_source_and_adjusted_glb(self):
+    def test_preview_choice_is_isolated_and_add_keeps_only_the_adjusted_glb(self):
         raw = coloured_model()
         prepared = objectlibrary.prepare('flower.glb', raw)
         token = prepared['token']
@@ -72,15 +68,15 @@ class ColourTest(unittest.TestCase):
         self.assertEqual('srgb', corrected['material_colours'])
         self.assertEqual(preview, objectlibrary.original(corrected['id']))
         self.assertEqual(raw, objectlibrary.original(original['id']))
+        # (only what was imported is kept: the corrected model, not the upload it came from)
         folder = objectlibrary._folder(corrected['id'])
-        source = objectlibrary.source_path(folder, corrected)
-        self.assertEqual(raw, source.read_bytes())
-        self.assertEqual(hashlib.sha256(raw).hexdigest(), corrected['source']['sha256'])
+        self.assertNotIn('source', corrected)
+        self.assertEqual(['model.glb'], sorted(p.name for p in (folder / 'original').iterdir()))
         snapshot = Path(self.temporary.name, 'retained')
         trackmodels._copy_original(folder, snapshot)
         shutil.rmtree(Path(self.temporary.name, 'cache'))
         shutil.rmtree(objectlibrary._folder(corrected['id']))
-        self.assertEqual(raw, objectlibrary.source_path(snapshot, corrected).read_bytes())
+        self.assertEqual(['model.glb'], sorted(p.name for p in (snapshot / 'original').iterdir()))
         self.assertEqual(preview, (snapshot / 'original/model.glb').read_bytes())
 
     def test_unknown_import_choice_never_publishes_a_package(self):
@@ -125,43 +121,6 @@ class ColourTest(unittest.TestCase):
             objectlibrary.supersede(new['id'], old['id'])
         shutil.rmtree(objectlibrary._folder(new['id']))
         self.assertEqual([old['id']], [m['id'] for m in objectlibrary.listing()['items']])
-
-    def test_curated_repair_checks_source_before_writing_and_is_repeatable(self):
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
-        import fix_kenney_colours
-        raw = coloured_model()
-        prepared = objectlibrary.prepare('flower.glb', raw)
-        old = objectlibrary.add({'token': prepared['token'], 'filename': 'flower.glb', 'name': 'Flower',
-                                 'source': 'https://kenney.nl/assets/nature-kit', 'license': 'CC0'})['model']
-        provenance = {'provider': 'Kenney', 'variant': None, 'original_file': 'Models/flower.glb',
-                      'original_file_sha256': hashlib.sha256(raw).hexdigest(), 'sha256': hashlib.sha256(raw).hexdigest()}
-        path = objectlibrary._folder(old['id']) / 'provenance.json'
-        path.write_text(json.dumps(provenance), encoding='utf-8')
-        archive = Path(self.temporary.name, 'pack.zip')
-        with zipfile.ZipFile(archive, 'w') as package:
-            package.writestr('Models/flower.glb', raw)
-        dry = fix_kenney_colours.correct(archive, self.temporary.name)
-        self.assertEqual(1, dry['candidates'])
-        self.assertEqual(1, objectlibrary.listing()['total'])
-        # Upgrade an already colour-corrected package from its retained raw upload, never decode it twice.
-        intermediate = objectlibrary.add({'token': prepared['token'], 'filename': 'flower.glb', 'name': 'Flower',
-                                         'source': 'https://kenney.nl/assets/nature-kit', 'material_colours': 'srgb'})['model']
-        objectlibrary.supersede(old['id'], intermediate['id'])
-        provenance['sha256'] = intermediate['model']['sha256']
-        path = objectlibrary._folder(intermediate['id']) / 'provenance.json'
-        path.write_text(json.dumps({**provenance, 'original_file_sha256': 'bad'}), encoding='utf-8')
-        with self.assertRaisesRegex(ValueError, 'source'):
-            fix_kenney_colours.correct(archive, self.temporary.name, apply=True)
-        self.assertEqual(1, objectlibrary.listing()['total'])
-        path.write_text(json.dumps(provenance), encoding='utf-8')
-        applied = fix_kenney_colours.correct(archive, self.temporary.name, apply=True)
-        self.assertEqual(1, len(applied['replacements']))
-        self.assertEqual(raw, objectlibrary.original(old['id']))
-        self.assertNotEqual(old['id'], objectlibrary.listing()['items'][0]['id'])
-        replacement = objectlibrary.get(objectlibrary.listing()['items'][0]['id'])
-        self.assertEqual('matte', replacement['material_lighting'])
-        self.assertEqual(objectlibrary.prepared_model(prepared['token'], 'srgb', 'matte'), objectlibrary.original(replacement['id']))
-        self.assertEqual(0, fix_kenney_colours.correct(archive, self.temporary.name, apply=True)['candidates'])
 
 
 if __name__ == '__main__':

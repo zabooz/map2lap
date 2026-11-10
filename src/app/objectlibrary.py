@@ -1,4 +1,4 @@
-"""Immutable model packages: canonical GLBs, retained source uploads and semantic import settings."""
+"""Immutable model packages: the canonical GLB that was imported and its semantic import settings; the upload it came from is not kept."""
 import hashlib
 import functools
 import json
@@ -11,7 +11,7 @@ import tempfile
 import threading
 from urllib.parse import urlsplit
 
-from app import materiallibrary, modeldata, modelimport, modelmesh, modelsimplify
+from app import libraryfolders, materiallibrary, modeldata, modelimport, modelmesh, modelsimplify
 from app.paths import ROOT
 
 SCHEMA = 1
@@ -35,7 +35,8 @@ def _filename(value):
 
 
 def _folder(id):
-    return Path(ROOT, "library", "objects", _key(id))
+    """The folder model id is read from: the user's import, else the one the release ships."""
+    return libraryfolders.found(ROOT, "objects", _key(id))
 
 
 def _cache(token):
@@ -56,8 +57,14 @@ def _summary(model):
             "track_cost": modelmesh.track_cost(model)}
 
 
+def identity(model_sha, meta):
+    """A package's id: its GLB's hash with the import settings that change where and how it stands. Pure."""
+    fields = {"schema": SCHEMA, "model": model_sha, **{k: meta[k] for k in ("category", "metres_per_unit", "anchor", "collision")}}
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
 def prepare(filename, raw):
-    """Validate a model upload and stage a self-contained GLB and its retained source bytes."""
+    """Validate a model upload and stage a self-contained GLB; an FBX/OBJ/ZIP upload is converted and not kept."""
     filename = _filename(filename)
     if not isinstance(raw, bytes) or not 0 < len(raw) <= modeldata.MAX_BYTES:
         raise ValueError("Choose a model up to 128 MB")
@@ -69,16 +76,11 @@ def prepare(filename, raw):
         model = modeldata.load(glb)
         data = {"version": PREPARATION, "token": token, "bytes": len(glb), "geometry": _summary(model), 'lighting_options': ['model', 'matte'],
                 "model_sha256": hashlib.sha256(glb).hexdigest(), "warnings": warnings}
-        if converted:
-            data['source'] = {"filename": filename, "sha256": token, "bytes": len(raw),
-                              "file": 'original/upload' + Path(filename).suffix.lower()}
         target.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".prepare_", dir=target.parent) as temporary:
             ready = Path(temporary, "ready")
             ready.mkdir()
             (ready / "model.glb").write_bytes(glb)
-            if converted:
-                (ready / 'upload').write_bytes(raw)
             materiallibrary._write_json(ready / "prepared.json", data)
             with _gate:
                 if target.exists():
@@ -160,8 +162,6 @@ def add(settings):
             if (data.get("version") != PREPARATION or data.get("token") != token
                     or _digest(staged / "model.glb") != data.get('model_sha256', token)):
                 raise ValueError("The prepared model has changed")
-            if data.get('source') and (_digest(staged / 'upload') != token or data['source']['filename'] != filename):
-                raise ValueError('The prepared source model has changed')
         except (OSError, ValueError) as error:
             raise ValueError("The prepared model is no longer available. Choose the file again.") from error
         colour_space = settings.get('material_colours', 'linear')
@@ -171,15 +171,14 @@ def add(settings):
         glb = modelimport.material_lighting(modelimport.material_colours(_variant(staged, side, percentage), colour_space), lighting)
         model_sha = hashlib.sha256(glb).hexdigest()
         meta = _settings(settings, data["geometry"])
-        identity = {"schema": SCHEMA, "model": model_sha,
-                    **{k: meta[k] for k in ("category", "metres_per_unit", "anchor", "collision")}}
-        id = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
-        target = _folder(id)
-        if (target / "asset.json").is_file():
+        id = identity(model_sha, meta)
+        if (_folder(id) / "asset.json").is_file():
+            libraryfolders.show(ROOT, "objects", id)
             return {"model": get(id), "duplicate": True}
+        target = libraryfolders.own(ROOT, "objects", id)
         geometry = data['geometry'] if percentage == 100 else _summary(modeldata.load(glb))
         asset = {"schema": SCHEMA, "kind": "model", "id": id, **meta, "geometry": geometry,
-                 "model": {"file": "original/model.glb", "filename": Path(filename).stem + '.glb' if data.get('source') else filename,
+                 "model": {"file": "original/model.glb", "filename": Path(filename).stem + '.glb',
                            "sha256": model_sha, "bytes": len(glb)}, "texture_side": side}
         if percentage != 100:
             asset.update(simplify_level=percentage, simplify_error=modelsimplify.ERROR)
@@ -187,23 +186,21 @@ def add(settings):
             asset['material_colours'] = colour_space
         if lighting == 'matte':
             asset['material_lighting'] = lighting
-        if data.get('source'):
-            asset['source'] = data['source']
-            asset['warnings'] = data.get('warnings', [])
-        elif model_sha != data.get('model_sha256', token):
-            asset['source'] = {'filename': filename, 'sha256': token, 'bytes': data['bytes'], 'file': 'original/upload.glb'}
         target.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".import_", dir=target.parent) as temporary:
             folder = Path(temporary, "ready")
             (folder / "original").mkdir(parents=True)
             (folder / 'original/model.glb').write_bytes(glb)
-            if data.get('source'):
-                shutil.copyfile(staged / 'upload', folder / data['source']['file'])
-            elif asset.get('source'):
-                shutil.copyfile(staged / 'model.glb', folder / asset['source']['file'])
             materiallibrary._write_json(folder / "asset.json", asset)
             os.replace(folder, target)
         return {"model": asset, "duplicate": False}
+
+
+def remove(id):
+    """Delete an imported package, or hide a shipped one (libraryfolders). Placed copies keep their own snapshot (trackmodels.snapshot),
+    so no track loses the model."""
+    with _gate:
+        return libraryfolders.remove(ROOT, "objects", _key(id), shutil.rmtree)
 
 
 def get(id):
@@ -274,20 +271,6 @@ def prepared_info(token, material_colours='linear', material_lighting='model', t
             'simplification': 'original' if simplify_level == 100 else 'no_gain' if after >= before else 'target_reached' if after <= before * simplify_level / 100 else 'limited'}
 
 
-def source_path(folder, asset):
-    """An optional retained FBX/OBJ/ZIP input, checked by its package-relative name and original byte hash."""
-    source = asset.get('source')
-    if source is None:
-        return None
-    suffix = Path(_filename(source.get('filename'))).suffix.lower()
-    if source.get('file') != 'original/upload' + suffix:
-        raise ValueError('Invalid original source model path')
-    path = Path(folder) / source['file']
-    if _digest(path) != _key(source.get('sha256')):
-        raise ValueError('The original source model has changed')
-    return path
-
-
 def _superseded():
     """Catalogue replacements are separate from immutable packages and do not change existing model references."""
     try:
@@ -352,15 +335,14 @@ def listing(query="", category="", offset=0, limit=40):
     if category and category not in CATEGORIES:
         raise ValueError("Choose a model category")
     offset, limit = max(0, int(offset)), max(1, min(100, int(limit)))
-    folder = Path(ROOT, "library", "objects")
     items = []
     with _gate:
         assets = []
-        for path in folder.iterdir() if folder.is_dir() else ():
-            if not materiallibrary.KEY.fullmatch(path.name):
+        for name, _path in libraryfolders.names(ROOT, "objects"):
+            if not materiallibrary.KEY.fullmatch(name):
                 continue
             try:
-                asset = get(path.name)
+                asset = get(name)
             except ValueError:
                 continue
             assets.append(asset)

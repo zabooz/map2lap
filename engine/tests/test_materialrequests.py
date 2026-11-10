@@ -59,6 +59,20 @@ class RequestsTest(unittest.TestCase):
         self.assertTrue(json.loads(raw)["deleted"])
         self.assertEqual(0, self.library.listing()["total"])
 
+    def test_a_library_model_is_deleted_over_http_by_the_page_only(self):
+        from app import objectlibrary
+        from test_modeldata import encode, fixture
+        patch = mock.patch.object(objectlibrary, "ROOT", self.tmp.name)
+        patch.start()
+        self.addCleanup(patch.stop)
+        prepared = objectlibrary.prepare("tree.glb", encode(*fixture()))
+        id = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Tree", "category": "tree"})["model"]["id"]
+        self.assertEqual(403, self.request(f"/api/library/models/{id}/delete", b"{}", "text/plain")[0])
+        code, raw = self.request(f"/api/library/models/{id}/delete", b"{}")
+        self.assertEqual(200, code)
+        self.assertTrue(json.loads(raw)["deleted"])
+        self.assertEqual(0, objectlibrary.listing()["total"])
+
     def test_cross_site_simple_uploads_and_oversized_requests_are_refused(self):
         path = "/api/library/imports?filename=grass.png"
         self.assertEqual(403, self.request(path, b"invalid", "text/plain")[0])

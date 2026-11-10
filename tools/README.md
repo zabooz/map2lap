@@ -38,5 +38,5 @@ line here (`engine/tests/test_tools.py`).
 | Build the Rust module, read a DLL's imports | `build_native.py`, `pe_imports.py` |
 | Make a release, test its update | `make_release.py`, `test_update.py` |
 | The CC0 textures a clone lacks | `get_textures.py` |
+| The Editor's shipped library (`assets/library`, packed by `make_release.py`): every shown CC0 object of `library/` simplified, textures as they are | `build_library.py [--level 25]` |
 | Build the bundled FBX/OBJ import converter for Windows and Linux | `build_modelconvert.py` |
-| Check/correct the curated Kenney library's washed-out material colours, keeping old packages and track references | `fix_kenney_colours.py <publisher zip> [--root <app folder>] [--apply]` |

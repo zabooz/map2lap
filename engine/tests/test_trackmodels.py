@@ -18,7 +18,7 @@ class ModelWorkflowTest(Base):
         patch = mock.patch.object(objectlibrary, "ROOT", self.ac)
         patch.start(); self.addCleanup(patch.stop)
 
-    def test_srgb_import_keeps_palette_and_upload_through_native_save_and_cold_resave(self):
+    def test_srgb_import_keeps_palette_through_native_save_and_cold_resave(self):
         import io
         from PIL import Image
         document, binary = fixture()
@@ -40,7 +40,7 @@ class ModelWorkflowTest(Base):
         self.assertEqual(1, len(trackview.index(self.ac, 'purple_model')['models']))
         trackcopy.save(self.ac, 'purple_model', 'purple_again', 'Purple again')
         retained = Path(self.ac, 'content/tracks/purple_again/data/map2lap_models/assets', instance['asset'])
-        self.assertEqual(raw, (retained / 'original/upload.glb').read_bytes())
+        self.assertEqual(['model.glb'], sorted(p.name for p in (retained / 'original').iterdir()))
         self.assertEqual(preview, (retained / 'original/model.glb').read_bytes())
         native = kn5.read(Path(self.ac, 'content/tracks/purple_again/purple_again.kn5'))
         part = next(m for m in kn5.walk_meshes(native['root']) if 'm2l_model' in m.name)
@@ -49,7 +49,7 @@ class ModelWorkflowTest(Base):
             # BC1 keeps 5 bits of red and blue, 6 of green: within one step of the palette colour
             np.testing.assert_allclose(image.convert('RGBA').getpixel((0, 0)), (159, 137, 255, 255), atol=4)
 
-    def test_converted_obj_and_source_upload_survive_portable_save_without_library_or_caches(self):
+    def test_a_converted_obj_survives_portable_save_without_library_or_caches_and_without_its_upload(self):
         raw = b'v 0 0 0\nv 2 0 0\nv 0 3 0\nf 1 2 3\n'
         prepared = objectlibrary.prepare('panel.obj', raw)
         asset = objectlibrary.add({'token': prepared['token'], 'filename': 'panel.obj', 'name': 'Panel'})['model']
@@ -59,14 +59,14 @@ class ModelWorkflowTest(Base):
         self.keep([instance])
         trackcopy.save(self.ac, self.name, 'converted_model', 'Converted model')
         retained = Path(self.ac, 'content/tracks/converted_model/data/map2lap_models/assets', instance['asset'])
-        self.assertEqual(raw, (retained / 'original/upload.obj').read_bytes())
+        self.assertEqual(['model.glb'], sorted(p.name for p in (retained / 'original').iterdir()))
         for relative in ('library', 'cache', 'out/sources', 'out/edits', 'out/model-assets'):
             shutil.rmtree(Path(self.ac, relative), ignore_errors=True)
         index = trackview.index(self.ac, 'converted_model')
         self.assertEqual(1, len(index['models']))
         trackcopy.save(self.ac, 'converted_model', 'converted_again', 'Converted again')
         copied = Path(self.ac, 'content/tracks/converted_again/data/map2lap_models/assets', instance['asset'])
-        self.assertEqual(raw, (copied / 'original/upload.obj').read_bytes())
+        self.assertEqual(['model.glb'], sorted(p.name for p in (copied / 'original').iterdir()))
 
     def keep(self, models, placed=(), heights=(), copies=()):
         now = trackedits.load(self.ac, self.name)
@@ -245,6 +245,26 @@ class ModelWorkflowTest(Base):
             shutil.rmtree(Path(self.ac, relative), ignore_errors=True)
         cold = trackedits.load(self.ac, "deleted_model")
         self.assertEqual([model["id"] + "#0"], [d["id"] for d in cold["deleted"]], "A real Delete must not resurrect a retained model after transfer")
+
+    def test_removing_the_last_cold_model_saves_in_place_and_undo_saves_it_back(self):
+        document, binary = fixture()
+        prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        asset = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Tree"})["model"]
+        now = trackedits.load(self.ac, self.name)
+        model = trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"],
+            "model": asset["id"], "at": [10, 0, 10]})["model"]
+        self.keep([model]); trackcopy.save(self.ac, self.name, "cold_place", "Cold place")
+        for relative in ("cache", "out/sources", "out/edits", "out/model-assets"):
+            shutil.rmtree(Path(self.ac, relative), ignore_errors=True)
+        path = Path(self.ac, "content/tracks/cold_place/cold_place.kn5")
+        model_meshes = lambda: [m.name for m in kn5.walk_meshes(kn5.read(path)["root"]) if "m2l_model" in m.name]
+        for models in ([], [model]):
+            now = trackedits.load(self.ac, "cold_place")
+            trackedits.save_telling(self.ac, "cold_place", {"base": now["base"], "revision": now["revision"], "id": f"m{len(models)}",
+                                                            "deleted": [], "models": models})
+            trackcopy.save(self.ac, "cold_place")      # (in its place: the installed track still holds what the list no longer does)
+            self.assertEqual(bool(models), bool(model_meshes()))
+            self.assertEqual(models, trackedits.load(self.ac, "cold_place")["models"])
 
     def test_replacement_prepares_the_current_source_pose_as_part_of_the_same_undo_change(self):
         document, binary = fixture(); prepared = objectlibrary.prepare("tree.glb", encode(document, binary))

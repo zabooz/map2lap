@@ -41,15 +41,14 @@ class ImportTest(unittest.TestCase):
         prepared = objectlibrary.prepare(filename, raw)
         return objectlibrary.add({'token': prepared['token'], 'filename': filename, 'name': 'Imported', 'category': 'other'})['model']
 
-    def test_obj_quad_becomes_triangles_and_keeps_upload_after_cache_removal(self):
+    def test_obj_quad_becomes_triangles_and_only_the_converted_model_is_kept(self):
         asset = self.publish('panel.obj', OBJ)
         shutil.rmtree(Path(self.temporary.name, 'cache'))
         model = modeldata.load(objectlibrary.original(asset['id']))
         self.assertEqual(2, sum(len(p.indices) for p in model.primitives))
         self.assertEqual([[0, 0, 0], [2, 3, 0]], model.bounds)
-        source = asset['source']
-        self.assertEqual('panel.obj', source['filename'])
-        self.assertEqual(OBJ, Path(self.temporary.name, 'library/objects', asset['id'], source['file']).read_bytes())
+        self.assertNotIn('source', asset)
+        self.assertEqual(['model.glb'], sorted(p.name for p in (Path(self.temporary.name, 'library/objects', asset['id'], 'original')).iterdir()))
         snapshot, _description = trackmodels.snapshot(asset['id'])
         self.assertTrue(snapshot)
 

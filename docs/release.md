@@ -14,7 +14,8 @@ The converter also links meshoptimizer 1.3 through meshopt 0.7.0 for optional im
 licence option; their notices are included beside the platform binary. No standalone gltfpack tool is included.
 
 User-imported assets live in `library/` beside the app on both systems. It is excluded even from accidentally tracked release
-inputs and is created by the app when needed. Never ship that folder: the start scripts replace the folders an update contains.
+inputs and is created by the app when needed. The Editor's shipped library is `assets/library/`: not in Git (too large), packed
+into both archives by `make_release.py`, which stops when it is missing, and replaced by every update like the rest of `assets/`. Never ship that folder: the start scripts replace the folders an update contains.
 The updater therefore also refuses ZIP or TAR.GZ archives with a `Map2Lap/library` entry before marking them ready to install.
 Failed downloads or archive checks remove their staging files. Editor saves and app updates refuse to start while the other
 is running, so the update restart cannot interrupt a Save.

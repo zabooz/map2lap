@@ -46,6 +46,16 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(raw, objectlibrary.original(asset["id"]))
         self.assertEqual("My tree", objectlibrary.listing(query="my", category="tree")["items"][0]["name"])
 
+    def test_remove_deletes_only_the_selected_package_and_is_idempotent(self):
+        _raw, prepared = self.prepare()
+        settings = {"token": prepared["token"], "filename": "tree.glb", "name": "Tree", "category": "tree"}
+        tree, mesh = objectlibrary.add(settings)["model"], objectlibrary.add({**settings, "collision": "mesh"})["model"]
+        self.assertTrue(objectlibrary.remove(tree["id"]))
+        self.assertFalse(objectlibrary.remove(tree["id"]))
+        self.assertEqual([mesh["id"]], [item["id"] for item in objectlibrary.listing()["items"]])
+        with self.assertRaises(ValueError):
+            objectlibrary.remove("../objects")
+
     def test_invalid_or_missing_imports_cannot_publish_a_model(self):
         _raw, prepared = self.prepare()
         settings = {"token": prepared["token"], "filename": "tree.glb", "name": "Tree", "category": "tree"}

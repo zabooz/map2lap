@@ -63,8 +63,8 @@ Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a s
 The bar over the view with what the tool on can be set to (`ui/src/editor/tools/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
 Select uses Shift for all matching objects or prepared ground areas, including separate ones; Ctrl adds to the selection.
 
-**Properties** (Editor):
-The docked right panel for the clicked selection, its material/texture and retained object details. Selection stays pinned
+**Inspector** (Editor):
+The docked right panel, with the time of day above its Properties and Details tabs, for the clicked selection, its material/texture and retained object details. Selection stays pinned
 while the separate Under pointer section follows the mouse. Details also contains track size, draft estimates and all edit
 notes/recovery actions. Its width comes from the 3D view's space; hiding it restores that space.
 
@@ -78,14 +78,14 @@ existing source and colour-only fields retain their lighting. Regional AC output
 roughness to an explicit specular-strength approximation; it does not implement PBR roughness.
 
 **Model package** (Editor):
-An immutable user asset under `library/objects/<id>`, with its self-contained GLB and a versioned description of source scale,
+An immutable asset under `library/objects/<id>` (own imports) or `assets/library/objects/<id>` (shipped with the release,
+replaced by updates), with its self-contained GLB and a versioned description of source scale,
 ground anchor, category and collision choice (`app/objectlibrary.py`). `app/modeldata.py` keeps primitive geometry shared
 between the GLB's scene nodes and retains material/image resources. The Editor imports, places and replaces trees from these
-packages, retaining their originals in saved tracks; native shading currently covers colour and alpha. FBX and OBJ imports
-also retain their unchanged source upload (a model file or ZIP with companion materials/textures) beside the converted GLB.
-An explicit sRGB material-colour import also keeps the source GLB unchanged beside its adjusted canonical GLB.
+packages, retaining their GLBs in saved tracks; native shading currently covers colour and alpha. A package keeps only
+the GLB that was imported (converted from FBX/OBJ, colour-corrected, sized, simplified), never the upload it came from.
 Optional **Geometry** import targets (Original/75%/50%/25%) bake conservative simplification into the canonical GLB;
-the retained upload, ground anchor, bounds and source-unit scale stay fixed. The target is bounded by protected seams
+the ground anchor, bounds and source-unit scale stay fixed. The target is bounded by protected seams
 and a 1% per-primitive error budget, so actual reduction can stop earlier.
 
 **Model snapshot and instance** (Editor):

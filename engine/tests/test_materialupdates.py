@@ -46,6 +46,19 @@ class MaterialUpdatesTest(unittest.TestCase):
                 for system in ("win", "linux"):
                     self.assertEqual(["src/server.py"], make_release.files(system))
 
+    def test_the_shipped_library_goes_into_both_systems_releases_and_a_missing_one_stops_the_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.object(make_release, "HERE", temporary):
+                with self.assertRaisesRegex(SystemExit, "library"):
+                    make_release.library()
+                for name in ("assets/library/objects/a/asset.json", "assets/library/objects/a/original/model.glb",
+                             "assets/library/materials/b/preview.png"):
+                    path = Path(temporary, name)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"shipped")
+                self.assertEqual(["assets/library/materials/b/preview.png", "assets/library/objects/a/asset.json",
+                                  "assets/library/objects/a/original/model.glb"], sorted(rel for _path, rel in make_release.library()))
+
     def test_update_archives_with_a_library_are_refused_before_the_install_is_marked_ready(self):
         for zip_format in (True, False):
             with self.subTest(zip=zip_format), tempfile.TemporaryDirectory() as temporary:

@@ -2,7 +2,8 @@
 "Map2Lap" inside: a new version can be unpacked over an old one and keeps its map data cache and settings)
 
 Contents: Map2Lap's files (from git, without the developer tools and the other system's start files and Rust module),
-BeamNG.Earth (what its server reads at runtime), the CC0 textures (colour maps only) and a Python of its own with the
+BeamNG.Earth (what its server reads at runtime), the CC0 textures (colour maps only), the Editor's shipped object and texture
+library (assets/library: an update replaces it, the user's own imports in library/ stay) and a Python of its own with the
 packages from requirements.txt. Users unpack it and double-click "Start Map2Lap.bat" (Windows) or Map2Lap.desktop
 (Linux, or run start.sh); nothing gets installed.
 
@@ -52,6 +53,7 @@ ONLY = {"win": ("Start Map2Lap.bat", "engine/earthfast.pyd", "src/bin/modelconve
         "linux": ("start.sh", "Map2Lap.desktop", "engine/earthfast.abi3.so", "src/bin/modelconvert-linux-x64")}
 EXECUTABLE = ("start.sh", "Map2Lap.desktop", "src/bin/modelconvert-linux-x64")
 TEXTURES = os.path.join("assets", "textures")
+LIBRARY = os.path.join("assets", "library")
 
 
 def files(system):
@@ -71,6 +73,14 @@ def textures():
         raise SystemExit("Textures missing: run tools\\get_textures.py first")
     return [(p, "/".join(("assets", "textures", os.path.basename(os.path.dirname(p)), os.path.basename(p))))
             for p in colour]
+
+
+def library():
+    """The Editor's shipped library, every file of its packages (not in git: too large): [(path, path in the release)]."""
+    paths = sorted(p for p in glob.glob(os.path.join(HERE, LIBRARY, "*", "*", "**", "*"), recursive=True) if os.path.isfile(p))
+    if not paths:
+        raise SystemExit("Shipped library missing: build assets/library first")
+    return [(p, os.path.relpath(p, HERE).replace(os.sep, "/")) for p in paths]
 
 
 def fetch(url, sha256=None):
@@ -118,7 +128,7 @@ def build_win():
     for f in fs:
         os.makedirs(os.path.dirname(os.path.join(dst, f)) or dst, exist_ok=True)
         shutil.copy2(os.path.join(HERE, f), os.path.join(dst, f))
-    for p, rel in textures():
+    for p, rel in textures() + library():
         out = os.path.join(dst, rel)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shutil.copy2(p, out)
@@ -152,7 +162,7 @@ def build_linux():
         with tarfile.open(archive + ".part", "w:gz", format=tarfile.PAX_FORMAT) as tar:
             for f in fs:
                 _add(tar, os.path.join(HERE, f), f"{NAME}/{f}", 0o755 if f in EXECUTABLE else 0o644)
-            for p, rel in textures():
+            for p, rel in textures() + library():
                 _add(tar, p, f"{NAME}/{rel}", 0o644)
             with tarfile.open(pbs) as src:          # (python/...: bin, lib with its symlinks and modes as built)
                 for m in src.getmembers():

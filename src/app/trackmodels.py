@@ -70,7 +70,6 @@ def _verified(folder, id):
     with (folder / "original/model.glb").open("rb") as file:
         if hashlib.file_digest(file, "sha256").hexdigest() != record["model"]["sha256"]:
             raise ValueError("The retained original model has changed")
-    objectlibrary.source_path(folder, record)
     return record
 
 
@@ -93,9 +92,6 @@ def _copy_original(folder, target):
     (target / "original").mkdir(parents=True)
     shutil.copyfile(folder / "asset.json", target / "asset.json")
     shutil.copyfile(folder / "original/model.glb", target / "original/model.glb")
-    source = objectlibrary.source_path(folder, json.loads((folder / 'asset.json').read_bytes()))
-    if source is not None:
-        shutil.copyfile(source, target / 'original' / source.name)
 
 
 def retain(ac, name, models):
@@ -122,9 +118,6 @@ def save_size(ac, name, models, scan):
     for asset in dict.fromkeys(m["asset"] for m in models):
         folder, _meta = resolve(ac, name, asset)
         size += (folder / "asset.json").stat().st_size + (folder / "original/model.glb").stat().st_size
-        source = objectlibrary.source_path(folder, _meta)
-        if source is not None:
-            size += source.stat().st_size
     existing = {t[0] for t in scan["textures"] if t[1] != 0}
     size += sum(len(raw) for texture, raw in scan.get("model_images", {}).items() if texture not in existing)
     return size + len(_json(models)) * 2 + 4096
@@ -412,9 +405,6 @@ def snapshot(asset):
             with tempfile.TemporaryDirectory(prefix=".model_", dir=destination.parent) as temporary:
                 ready = Path(temporary, "ready"); (ready / "original").mkdir(parents=True)
                 (ready / "original/model.glb").write_bytes(raw)
-                source = objectlibrary.source_path(objectlibrary._folder(asset), meta)
-                if source is not None:
-                    shutil.copyfile(source, ready / meta['source']['file'])
                 (ready / "asset.json").write_bytes(_json({**record, "id": id}))
                 ready.rename(destination)
     return id, record

@@ -14,6 +14,7 @@ import threading
 
 from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
 
+from app import libraryfolders
 from app.paths import ROOT
 from track.textures import dds_size
 
@@ -57,7 +58,8 @@ def _cache(token, role="colour"):
 
 
 def _folder(id):
-    return Path(ROOT, "library", "materials", _key(id))
+    """The folder material id is read from: the user's import, else the one the release ships."""
+    return libraryfolders.found(ROOT, "materials", _key(id))
 
 
 def _json(path):
@@ -235,11 +237,8 @@ def _map_settings(settings, token, filename):
 
 def _compatible_id(references, meta, values):
     """Find an immutable schema 1/2 package with the same map bytes and physical settings."""
-    root = Path(ROOT, "library", "materials")
-    if not root.is_dir():
-        return None
     maps = {role: ref["token"] for role, ref in references.items()}
-    for folder in sorted(root.iterdir()):
+    for _name, folder in libraryfolders.names(ROOT, "materials"):
         if not KEY.fullmatch(folder.name):
             continue
         try:
@@ -282,9 +281,11 @@ def add(settings):
                            "repeat": meta["repeat"], "variation": meta["variation"], "properties": values}, sort_keys=True, separators=(",", ":"))
     id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     with _gate:
-        target = _folder(id)
-        if (target / "asset.json").is_file():
+        if (_folder(id) / "asset.json").is_file():
+            libraryfolders.show(ROOT, "materials", id)
+            _catalog.cache_clear()
             return {"material": get(id), "duplicate": True}
+        target = libraryfolders.own(ROOT, "materials", id)
         compatible = _compatible_id(references, meta, values)
         if compatible is not None:
             return {"material": get(compatible), "duplicate": True}
@@ -317,28 +318,22 @@ def get(id):
 
 
 def remove(id):
-    """Delete only this library package; retained track snapshots and disposable prepared data remain independent."""
-    target = _folder(id)
-    root = Path(ROOT, "library", "materials").resolve()
-    if target.is_symlink() or target.is_junction() or target.resolve().parent != root:
-        raise ValueError("The texture package is outside the material library")
+    """Delete an imported package, or hide a shipped one (libraryfolders); retained track snapshots and prepared data remain."""
     with _gate:
-        if not target.exists():
-            return False
-        shutil.rmtree(target)
+        gone = libraryfolders.remove(ROOT, "materials", _key(id), shutil.rmtree)
         _catalog.cache_clear()
-    return True
+    return gone
 
 
 @functools.lru_cache(maxsize=4)
 def _catalog(root, changed):
-    """Only small immutable summaries are retained, until an import publishes a new package."""
+    """Only small immutable summaries are retained, until an import, a deletion or an update changes a folder (changed)."""
     items = []
-    for path in Path(root).iterdir():
-        if not KEY.fullmatch(path.name):
+    for name, _path in libraryfolders.names(root, "materials"):
+        if not KEY.fullmatch(name):
             continue
         try:
-            material = get(path.name)
+            material = get(name)
         except ValueError:
             continue
         items.append({**{key: material[key] for key in ("id", "name", "category", "repeat", "tags", "source", "prepared")}, "variation": varies(material)})
@@ -351,9 +346,8 @@ def listing(query="", category="", offset=0, limit=40):
         raise ValueError("Choose a material category")
     query = _text(query, 100, "the search").casefold()
     offset, limit = max(0, int(offset)), max(1, min(100, int(limit)))
-    folder = Path(ROOT, "library", "materials")
     with _gate:
-        items = _catalog(str(folder), folder.stat().st_mtime_ns) if folder.is_dir() else []
+        items = _catalog(str(ROOT), libraryfolders.changed(ROOT, "materials"))
         matches = [m for m in items if (not category or m["category"] == category)
                    and query in " ".join([m["name"], *m["tags"]]).casefold()]
         return {"items": matches[offset:offset + limit], "total": len(matches), "offset": offset}

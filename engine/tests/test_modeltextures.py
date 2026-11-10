@@ -108,12 +108,12 @@ class ImportTest(Base):
     def add(self, **settings):
         return objectlibrary.add({"token": self.prepared["token"], "filename": "big.glb", "name": "Big", **settings})["model"]
 
-    def test_1k_is_the_default_and_the_upload_stays_in_the_package(self):
+    def test_1k_is_the_default_and_only_the_sized_model_is_in_the_package(self):
         asset = self.add()
         self.assertEqual((1024, 512), images(objectlibrary.original(asset["id"]))[0].size)
         self.assertEqual(1024, asset["texture_side"])
         folder = Path(self.ac, "library/objects", asset["id"])
-        self.assertEqual(self.raw, (folder / asset["source"]["file"]).read_bytes())
+        self.assertEqual(["model.glb"], sorted(p.name for p in (folder / "original").iterdir()))
 
     def test_2k_keeps_the_size_and_is_another_model(self):
         small, large = self.add(), self.add(texture_side=2048)

@@ -66,7 +66,7 @@ turn that off or delete them. Existing saved preferences stay in effect.
 
 ## Light and the time of day
 
-The clock over the view (`SunClock`) shows the track's local time, 10:00 when a track opens. Nothing is saved or built; Play from
+The clock at the Inspector's top, above its tabs (`SunClock`), shows the track's local time, 10:00 when a track opens. Nothing is saved or built; Play from
 the Editor starts AC at that hour (`server.sun_angle`). `TrackView.setClock` sets sun, ambient, sky and the placed models' reflections together (`applyLight`); edited ground has
 its own scene and takes the same values over (`GroundFrame.followLights`).
 
@@ -91,7 +91,7 @@ the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside
 
 ## Tools and changes
 
-The right panel has Properties and Details tabs. Properties keeps the clicked selection independently of the pointer and
+The right panel, the Inspector, has Properties and Details tabs. Properties keeps the clicked selection independently of the pointer and
 shows Appearance with a small texture preview; painted-ground selections appear there too. Details contains selected mesh
 data, object details and live Under pointer information. Object details distinguish an object's own triangles
 and loaded dimensions from its surrounding merged mesh, show related ids and retained original build parameters where
@@ -137,7 +137,7 @@ outputs receive the same correction. Different heights and interior vertices sta
 these shared normals before applying its deformation, so saving preserves the edited lighting. Existing tracks receive
 the correction on their next Save, without rebuilding their geometry from map data.
 
-Its buttons stand in the sidebar by groups (`ui/src/editor/tools/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Discard all), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Discard all asks before taking back changes since the last Save, as one undoable step. Previously saved edits remain; a track never saved in the Editor returns to its built state. A reopened unsaved draft reads the full saved recipe only when needed, through `/edits/saved`, so ordinary loading does not duplicate large height rasters. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
+Its buttons stand in the sidebar by groups (`ui/src/editor/tools/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Revert to saved, Library), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Help below them says how the Editor is worked and lists the keys of the tool that is on (`tools/Help.tsx`), changing with it. Transform (M) moves, turns, raises and sizes what is picked. Revert to saved asks before taking back changes since the last Save, as one undoable step. Previously saved edits remain; a track never saved in the Editor returns to its built state. A reopened unsaved draft reads the full saved recipe only when needed, through `/edits/saved`, so ordinary loading does not duplicate large height rasters. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
 Road camera (K) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
 Move (M, or Move in the context menu) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
 (`app/placement.py`), written into the kn5 by `app/trackplace.py` before the height changes; the view shows it at once and takes the server's
@@ -149,7 +149,7 @@ Copy (C, or Duplicate in the context menu) keeps one source ready: each left cli
 Once its template is ready, the source is no longer selected: X switches to Delete and leaves the original intact.
 Right-clicking another object keeps that template; Choose another or Duplicate explicitly takes a new source. A placement
 clicked before leaving Copy still completes, as one undoable edit.
-Its preview and placed copies rest their foot on the clicked ground. Turn, Height and Size in its options apply to each new copy,
+Its preview and placed copies rest their foot on the clicked ground. Turn, Raise and Size in its options apply to each new copy,
 by number or Shift/Ctrl/Alt + wheel, as with Move; Height is the clearance above the clicked ground, Size relative to the frozen source.
 `app/trackcopies.py` keeps source member ids and frozen poses in the draft and recipe, with independent `copy_<id>#<member>` ids;
 houses take their children and collision, a copied pole has no wires. Generated meshes extend the index and object list without
@@ -191,7 +191,7 @@ a build adds is entered there as listed, counted or part of the track: `tools/ch
 
 ## Material library and imports
 
-Properties → Edit opens Textures and imports one colour image (PNG, JPG or two-dimensional BC1/BC2/BC3 DDS) through a file chooser or
+Library in File (under Revert to saved) opens the library where it was left, at Textures for a picked ground surface; Insert (I) opens it at Objects. Textures imports one colour image (PNG, JPG or two-dimensional BC1/BC2/BC3 DDS) through a file chooser or
 drag and drop. A modal shows its preview, name, category and the physical width/height of one repeat; tags, source URL and
 license are optional. Cancel prepares no permanent material. The library can be searched by name/tags, filtered by category
 and browsed in pages of 40; only small previews load, never the full original maps. Keyboard input in its fields stays there.
@@ -201,6 +201,10 @@ and Linux. The manifest contains relative paths and original file information; t
 bind image content, physical repeat size, variation and material properties. Importing that combination again reuses the existing material and name.
 Model packages use the parallel `library/objects/` layout described below. The library is excluded from Git and both release formats;
 the updater refuses an archive containing `Map2Lap/library`, so neither system's update step replaces user assets.
+The release ships its own packages in the same layout under `assets/library/` (not in Git; `tools/make_release.py` packs it,
+an update replaces it). Both read as one library (`app/libraryfolders.py`): a package in both is the same one, read from
+`library/`; importing a shipped package again adds nothing. Delete removes an own import, but only hides a shipped one in
+`library/<kind>/hidden.json`, as it would otherwise come back with the next update; importing it again shows it again.
 
 Material schema 2 adds optional `normal` and `roughness` maps and shader-independent `roughness`/`normal_scale` properties.
 The import API accepts role-bound uploads (`role=colour|normal|roughness`), then optional `maps` upload references when
@@ -242,7 +246,7 @@ alone changes no track. The user-facing picker is named Textures and opens from 
 It keeps search/filter/selection state between openings, pages a scrollable thumbnail grid and shows one larger preview.
 Objects uses the same library layout, search/category filters, paged asset grid, right-hand preview and footer. Its GLB
 import fields open in a separate Import object dialog, matching the texture import flow. Each tab keeps its own browsing
-state; only the selected object opens a live 3D preview.
+state; only the selected object opens a live 3D preview, turned by dragging and zoomed by the wheel. Delete object removes its library package only: placed copies keep their own snapshot (`trackmodels.snapshot`), so no track loses it.
 Import opens its own dialog; Apply changes the selected ground and closes the picker only after its preview succeeds.
 Select all previews at most 64 prepared ground tiles. An incomplete selection can apply to its highlighted part: the picker
 states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
@@ -290,7 +294,7 @@ this is a size budget, not an AC limit or an FPS prediction. New packages retain
 Old packages are measured only on selection through `/api/library/models/<id>/cost`, cached in memory by file revision
 and verified content hash, without rewriting their manifest, GLB or model id.
 
-**Geometry** defaults to **Original**, with optional targets of **75%, 50%, 25%** of the original triangles. The bundled
+The Import object dialog ("Import object: house.glb") shows the model large on the left, turned by dragging and zoomed by the wheel (a hint says so until it is first turned), with its cost, name and category below; its settings stand on the right. **Geometry**, a slider beside its level ("Geometry: 50%"), starts at **50%**, with **Original, 75%, 25%** to choose; while a level is measured the cost's numbers are spinners where they stand. The bundled
 `modelconvert` process uses meshopt 0.7.0 / meshoptimizer 1.3, with a relative 1% error budget per primitive and unit
 normal/UV weights. Each primitive stays independent, and its open borders (material edges, thin planes, leaf cards) stay
 locked. UV/normal seams are not locked: meshoptimizer finds them by shared positions and moves both sides together, so a seam
@@ -329,12 +333,8 @@ maps and tone mapping. The native colour/alpha path remains matte and retains th
 Retained Kenney packages prepared by Map2Lap's earlier sRGB-only step use the same browser material profile from their
 recorded source URL and colour mode; this changes their rendering without rewriting GLB bytes, draft bindings or poses.
 
-`tools/fix_kenney_colours.py` verifies the curated collection's provenance and source palette against the publisher ZIP
-before applying sRGB decoding and the explicit matte surface. Existing hand-coloured linear variants are excluded.
-Already colour-corrected packages are upgraded from their retained raw uploads, so RGB is decoded only once.
-It publishes new packages and records
-catalogue replacements in `library/objects/superseded.json`; the old immutable packages remain addressable, and existing
-placed models and saved tracks are unchanged. If a replacement package is removed, the old catalogue entry is shown again.
+The Kenney packages carry their sRGB colour correction in their GLB; the uncorrected originals are hidden through
+`library/objects/superseded.json`. A package keeps only the GLB that was imported, never the upload it came from.
 
 The separate converter process normalizes FBX file units and axes to glTF's metre/Y-up frame; OBJ defaults to metre/Y-up
 and the import scale remains adjustable. It triangulates polygons, retains node placements, hard normals and UV seams,
@@ -360,7 +360,7 @@ in glTF's Y-up metre frame. This core performs no shader conversion or physical 
 The importer bounds file size, JSON metadata, geometry, node references and image dimensions before publishing a package.
 External resources, required extensions, skinning, animations, morph targets, sparse accessors, non-triangle topology and
 additional vertex attributes are explicit import errors. Original material and image resources are never silently removed.
-The Objects tool group's **INSERT** button (I) opens the shared asset library on its **OBJECTS** tab; **TEXTURES** contains
+The Objects tool group's **Insert** button (I) opens the shared asset library on its **OBJECTS** tab; **TEXTURES** contains
 the ground picker used by Edit texture. Fields keep their typing shortcuts. Import a GLB, give it a name and metres per source unit, choose the default
 collision, then add it to the library. Object cards show rendered model pictures, including cutout leaves, just as texture
 cards show their images. Visible cards share one offscreen renderer; finished 512 px PNGs are cached in the browser
@@ -376,10 +376,10 @@ Right-clicking another member of a marked tree sort retains that selection. Repl
 clearance, turn and actual height, scaling the new model uniformly to preserve its proportions. A retained per-instance fit
 precedes its editable placement; Undo/Redo treats the whole replacement as one step. Save, cold reopen and Copy retain the fit.
 Before placement a translucent model follows the mouse over the ground. A click shows the model solid at once, where the ghost stood, sharing the ghost's loaded model; it gives way when
-the server's instance is drawn, and goes if the insert is refused or a later draft no longer has it. Its Turn, Height and Size options also affect each
+the server's instance is drawn, and goes if the insert is refused or a later draft no longer has it. Its Turn, Raise and Size options also affect each
 new placement, including the modifier-wheel controls used by Copy. Model previews and placed GLBs share viewport reflection
 lighting without altering imported metallic or roughness factors or the original terrain lighting.
-An already imported instance can receive a different asset without changing its instance id or pose. The normal Move tool
+An already imported instance can receive a different asset without changing its instance id or pose. The normal Transform tool
 provides dragging, turn, height and size; bindings and prepared source poses enter the same Undo/Redo step.
 Copy and Duplicate create a new model binding to the same frozen snapshot, preserving the source turn and size while
 placing its foot on the target ground. Existing source-object copies and model bindings save together.

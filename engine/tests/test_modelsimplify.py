@@ -152,7 +152,7 @@ class SimplificationTest(unittest.TestCase):
             model = modeldata.load(preview)
             self.assertEqual(modelmesh.track_cost(model), objectlibrary.cost(asset['id']))
             self.assertEqual(25, asset['simplify_level'])
-            self.assertEqual(raw, (Path(folder) / 'library/objects' / asset['id'] / 'original/upload.glb').read_bytes())
+            self.assertEqual(['model.glb'], sorted(p.name for p in (Path(folder) / 'library/objects' / asset['id'] / 'original').iterdir()))
 
     def test_invalid_levels_are_rejected(self):
         for value in (0, 24, True, '25', None):
@@ -186,4 +186,4 @@ class SimplifiedSaveTest(Base):
             trackcopy.save(self.ac, 'simplified_mesh', 'simplified_cold', 'Cold')
             retained = Path(self.ac, 'content/tracks/simplified_cold/data/map2lap_models/assets', instance['asset'])
             self.assertEqual(canonical, (retained / 'original/model.glb').read_bytes())
-            self.assertEqual(raw, (retained / 'original/upload.glb').read_bytes())
+            self.assertEqual(['model.glb'], sorted(p.name for p in (retained / 'original').iterdir()))

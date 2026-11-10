@@ -22,6 +22,9 @@ cache/
 # CC0 textures from ambientCG (tools/get_textures.py downloads them)
 assets/textures/
 
+# The Editor's shipped object and texture library (too large for git; tools/make_release.py packs it, an update replaces it)
+assets/library/
+
 # Single preview images in the project folder
 *_preview.png
 
