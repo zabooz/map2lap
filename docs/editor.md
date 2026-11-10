@@ -68,7 +68,8 @@ restart must wait until saving finishes. A saved track is its own work from then
 name is refused, by the server under the same lock and by `generator.build` and `finish_obj` for the tools too (`mytracks.saved_in_editor`;
 OBJ parts alone stay allowed, they don't go into AC), and Build as copy makes a new track from the map, which has none
 of the edits; sources no track of their AC folder names go at the next
-start, and none while that folder isn't there. Planned editing tools will use the kept build files; viewing needs only the
+start, and none while that folder isn't there. Delete track in File removes the open track as My tracks' delete does (`server.delete_track`),
+after asking. Planned editing tools will use the kept build files; viewing needs only the
 installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
 turn that off or delete them. Existing saved preferences stay in effect.
 
@@ -185,6 +186,13 @@ Smooth road (T) includes Mark road: two clicks bound a road region; further drag
 including a Y (`app/roadregion.py`, `ui/src/editor/tools/useBand.ts`). The retained map graph chooses the connections and separates
 mapped levels; it never uses the main driving route. The orange region follows the actual painted road mask, clips at the
 terminal cross-sections and excludes neighbouring unselected road segments, including a close leg of the same hairpin.
+What changes is each arm's own road as built (`trackband._own_road`, `roadnet.owns`): a lattice point takes its height from the nearest arm whose
+road it is, so a lower road beside an upper road's line stays down. Where the line lies on the step between two levels (a wall under it), a
+wall's corner leaves a point of the line's own level out, or the build put part of the road's mapped width on another level, the arm's road goes
+on from its points before and after over steps a road can take. A point another mapped road holds stays that road's within its mapped width;
+beyond it, it goes to the road whose line is nearer by each one's half width (Rechberg: 0.9 m off the upper road's line, half 2.75 m, and 4.9 m
+off the lower's, half 4 m: the upper road's). There the slant kept from the build leaves out what is a wall's: a whole cross-section where the
+line lies on a step, a lane further off the middle than a road is across (25 %).
 Strength starts at 0%, so marking alone changes nothing. Strength, Transition and point changes apply automatically after a
 short debounce; Enter and separate Apply/Cancel buttons are unnecessary. Mark road in the bar starts another region at 0%.
 Esc cancels pending work; already committed changes remain available to Undo.
@@ -197,7 +205,8 @@ branches; an unselected arm keeps its existing join. All arms contribute to one 
 height additions. The terminal points remain fixed. The terrain transition is shown with a separate faint, low-resolution
 orange mask; it stops at unselected roads. Transition sets its minimum width (6 m initially); large changes automatically
 need a wider fade under the existing side-slope rule. New road joins beyond the existing road-grade limit are refused unless
-an already steeper bump is being improved. Long gaps without editable ground, including deck/tunnel stretches, are refused.
+an already steeper bump is being improved: between points of one arm's road, and between a changed point and a selected one left as it was where
+the surface goes on. A wall between two arms may grow; a Y whose arms would need one in the fork they share is refused (reduce strength). Long gaps without editable ground, including deck/tunnel stretches, are refused.
 One region has at most 20 points, 3 km of selected road, 64 painted tiles and the usual height-raster point limit. Routing and
 compressed masks are cached separately; the map graph stays independent of draft revisions. Marks follow refreshed ground
 heights without an idle-frame raycast. The legacy linear band API remains for its solver tests and existing callers.

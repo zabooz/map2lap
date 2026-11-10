@@ -33,9 +33,9 @@ export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
     those hosts: V, X, K, M, H, T, Home, Delete, Esc, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
-    tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). */
+    tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
 export function EditTools({name, title, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost, hovered,
-  inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved}: {
+  inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
   name: string;
   title: string;
   visible: boolean;
@@ -55,6 +55,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   elevationSpeed: number;
   reopen: () => void;
   onSaved: (name: string) => void;
+  onDelete: () => void;
 }) {
   const [edits] = useState(() => new TrackEdits(name));
   const state = useSyncExternalStore(edits.subscribe, edits.state);
@@ -294,7 +295,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   return (
     <>
-      {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
+      {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} onLibrary={openLibrary} onDelete={onDelete} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={tool === "model" && editable}

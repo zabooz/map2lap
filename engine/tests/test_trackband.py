@@ -595,6 +595,22 @@ class ChangeOfTest(unittest.TestCase):
         self.assertGreater(int(own.sum()), 300)
         self.assertEqual(100.0, float(grid[own].max()))
 
+    def test_going_on_over_a_step_mixes_no_levels_at_a_slanted_wall_or_a_side_road_joined_far_on(self):
+        """As the Editor's network asks, with what other roads hold (here none): the cases above give the same."""
+        grid = np.full((30, 90), 100.0)
+        for j, i in np.ndindex(grid.shape):
+            if j * 2.0 > 22.0 + (i * 2.0) * 0.27:
+                grid[j, i] = 103.0
+        s = np.arange(0.0, 161.0, 2.0)
+        slanted = np.c_[s, 14.0 + 0.27 * s]
+        np.testing.assert_array_equal(trackband._own_road(grid, 0, 0, slanted, 7.0), trackband._own_road(grid, 0, 0, slanted, 7.0, np.zeros(grid.shape, bool)))
+        side = np.full((12, 60), 100.0)
+        side[6:, :] = 106.0
+        side[5, :] = np.nan
+        side[:, 50:] = np.linspace(100.0, 106.0, 12)[:, None]
+        line = np.c_[np.arange(0.0, 81.0, 2.0), np.full(41, 4.0)]
+        np.testing.assert_array_equal(trackband._own_road(side, 0, 0, line, 10.0), trackband._own_road(side, 0, 0, line, 10.0, np.zeros(side.shape, bool)))
+
     def test_the_foot_of_a_wall_is_not_the_road(self):
         """A build's road mesh runs up a wall at about 50 %, over several cells: in steps a road could take along, not across."""
         grid = np.full((14, 60), 100.0)

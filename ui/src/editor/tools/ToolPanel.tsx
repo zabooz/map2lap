@@ -30,9 +30,10 @@ function Section({title, children}: {title: string; children: ReactNode}) {
   );
 }
 
-/** Save, Play and Revert to saved under the track's choice in the sidebar's File, the library of textures and objects apart below them. onLibrary: it was pressed. */
-export function FileButtons({state, edits, view, saving, onLibrary}: {state: EditState; edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>;
-                                                                  onLibrary: () => void}) {
+/** Save, Play, Delete track and Revert to saved under the track's choice in the sidebar's File, the library of textures and objects apart below them. onLibrary,
+    onDelete: they were pressed (the track's deletion asks first). */
+export function FileButtons({state, edits, view, saving, onLibrary, onDelete}: {state: EditState; edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>;
+                                                                  onLibrary: () => void; onDelete: () => void}) {
   const then = (action: () => void) => thenView(view, action);
   return (
     <div className={`${styles.tools} ${styles.fileButtons}`}>
@@ -45,12 +46,16 @@ export function FileButtons({state, edits, view, saving, onLibrary}: {state: Edi
         <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save if needed, then drive it in Assetto Corsa"
                 onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : "▶ Play"}</button>
       </div>
-      <button type="button" disabled={!hasUnsavedChanges(state) || !edits.canEdit() || saving.busy}
-              title="Return to the last Save; Undo brings the changes back" onClick={then(() => {
-                if (confirm("Revert to the last Save?\n\nYour saved edits are kept. Undo brings the discarded changes back.")) {
-                  void edits.inTurn(() => edits.discard());
-                }
-              })}>Revert to saved</button>
+      <div className={styles.row}>
+        <button type="button" id="edit-delete-track" className={styles.danger} disabled={saving.busy}
+                title="Delete this track from Assetto Corsa" onClick={then(onDelete)}>Delete track</button>
+        <button type="button" disabled={!hasUnsavedChanges(state) || !edits.canEdit() || saving.busy}
+                title="Return to the last Save; Undo brings the changes back" onClick={then(() => {
+                  if (confirm("Revert to the last Save?\n\nYour saved edits are kept. Undo brings the discarded changes back.")) {
+                    void edits.inTurn(() => edits.discard());
+                  }
+                })}>Revert to saved</button>
+      </div>
       <button type="button" id="edit-library" className={styles.library} title="Textures and objects: import them, paint the picked ground, place models"
               onClick={then(onLibrary)}>Library</button>
     </div>

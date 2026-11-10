@@ -294,17 +294,36 @@ def _across(half):
     return STEP * np.arange(-n, n + 1, dtype=np.float64)
 
 
-def _own_road(grid, i0, j0, line, half):
-    """Of a grid of the road's heights as built, the lattice points of the road the line is on, within half: walking across from the line, as far as there is road
-    and no step steeper than CROSS_GRADE. A side road is 1ROAD too and can lie a cell beside it, at another level with a wall between, and join it at a junction
-    further on: so not by what can be reached along it. As built: a hill made in the Editor doesn't take a road out of its own band. Pure."""
+def _read_across(grid, i0, j0, line, half):
+    """(how far off the line its lanes lie, out to two lattice steps past half; per lane and point of the line the grid's height there, the middle of
+    OWN_MEDIAN points along: a spike of a lattice point or two on a road is no wall, a wall goes on). Pure."""
     lanes = _across(half + 2 * STEP)
     side = _sideways(line)
     read = np.array([_on_grid(grid, i0, j0, line + side * o) for o in lanes])
     around = np.lib.stride_tricks.sliding_window_view(np.pad(read, ((0, 0), (OWN_MEDIAN // 2, OWN_MEDIAN // 2)), mode="edge"), OWN_MEDIAN, axis=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)     # (no road at all around a point: NaN is the answer)
-        read = np.nanmedian(around, axis=2)
+        return lanes, np.nanmedian(around, axis=2)
+
+
+def _on_step(read):
+    """Per point of a line, of _read_across's heights: it lies on a step between two levels, its middle reading neither, the lanes beside it off it by more
+    than a road is across (CROSS_GRADE), at least one of them on road. Pure."""
+    middle = len(read) // 2
+    with np.errstate(invalid="ignore"):
+        apart = [~(np.abs(read[k] - read[middle]) <= CROSS_GRADE * STEP) for k in (middle - 1, middle + 1)]
+    return np.isfinite(read[middle]) & apart[0] & apart[1] & (np.isfinite(read[middle - 1]) | np.isfinite(read[middle + 1]))
+
+
+def _own_road(grid, i0, j0, line, half, claimed=None, mapped=None):
+    """Of a grid of the road's heights as built, the lattice points of the road the line is on, within half: walking across from the line, as far as there is road
+    and no step steeper than CROSS_GRADE. A side road is 1ROAD too and can lie a cell beside it, at another level with a wall between, and join it at a junction
+    further on: so not by what can be reached along it. As built: a hill made in the Editor doesn't take a road out of its own band.
+    claimed (a boolean grid, or None): the points other roads hold as their own. Given, where the line lies on a step between two levels (its middle reads
+    neither, both lanes beside it are off it: Rechberg, a wall running under the line for 6 m), the road goes on from its points before and after over steps a
+    road can take, within half and not onto a claimed point; so too onto a point within mapped (its own half width on the map, or None) on another level as
+    built: what the map gives the road is the road (Rechberg: a wall's corner put its east lane 3 m down). Pure."""
+    lanes, read = _read_across(grid, i0, j0, line, half)
     middle = len(lanes) // 2
     holds = np.zeros(read.shape, bool)
     holds[middle] = np.isfinite(read[middle])
@@ -313,6 +332,7 @@ def _own_road(grid, i0, j0, line, half):
             holds[lane] = holds[inner] & (np.abs(read[lane] - read[inner]) <= CROSS_GRADE * STEP)
     reach = float(lanes[-1])
     apart, own, said = np.full(grid.shape, np.inf), np.zeros(grid.shape, bool), np.zeros(grid.shape)
+    nearest = np.zeros(grid.shape, np.int64)
     for k, (a, b) in enumerate(zip(line, line[1:])):
         i_low, i_high = max(0, int((min(a[0], b[0]) - reach) // STEP) - i0), min(grid.shape[1], int((max(a[0], b[0]) + reach) // STEP) - i0 + 2)
         j_low, j_high = max(0, int((min(a[1], b[1]) - reach) // STEP) - j0), min(grid.shape[0], int((max(a[1], b[1]) + reach) // STEP) - j0 + 2)
@@ -329,9 +349,40 @@ def _own_road(grid, i0, j0, line, half):
         station = k + np.rint(t).astype(np.int64)
         own[j_low:j_high, i_low:i_high][nearer] = holds[lane, station][nearer]
         said[j_low:j_high, i_low:i_high][nearer] = read[lane, station][nearer]
+        nearest[j_low:j_high, i_low:i_high][nearer] = station[nearer]
     own &= (apart <= reach) & np.isfinite(grid)
     _leave_other_level(own, grid, np.abs(grid - said) > CROSS_GRADE * STEP)
-    return own
+    if claimed is None:
+        return own
+    on_step = _on_step(read)
+    # (a lane reading across a wall's corner leaves a point of the line's own level out: Rechberg, 1.27 m left standing beside its smoothed road)
+    with np.errstate(invalid="ignore"):
+        level = np.abs(grid - read[middle][nearest]) <= CROSS_GRADE * np.maximum(apart, STEP)
+    within = np.zeros(grid.shape, bool) if mapped is None else apart <= mapped
+    candidates = (on_step[nearest] | level | within) & (apart <= half) & np.isfinite(grid) & ~claimed & ~own
+    return _reached(own, grid, candidates)
+
+
+def _shifted(grid, dz, dx, fill):
+    """grid moved by dz rows and dx columns, fill where nothing comes in. Pure."""
+    out = np.full(grid.shape, fill, grid.dtype)
+    rows, cols = grid.shape
+    out[max(dz, 0):rows + min(dz, 0), max(dx, 0):cols + min(dx, 0)] = grid[max(-dz, 0):rows - max(dz, 0), max(-dx, 0):cols - max(dx, 0)]
+    return out
+
+
+def _reached(own, grid, candidates):
+    """own with the candidates reached from it, lattice point by lattice point, over steps no steeper than a road is across (CROSS_GRADE). Pure."""
+    reached = own.copy()
+    while True:
+        grown = np.zeros(own.shape, bool)
+        for dz, dx in ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)):
+            with np.errstate(invalid="ignore"):
+                near = np.abs(grid - _shifted(grid, dz, dx, np.nan)) <= CROSS_GRADE * STEP * math.hypot(dz, dx)
+            grown |= candidates & ~reached & _shifted(reached, dz, dx, False) & near
+        if not grown.any():
+            return reached
+        reached |= grown
 
 
 def _leave_other_level(own, grid, off):

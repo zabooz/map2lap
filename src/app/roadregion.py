@@ -125,19 +125,22 @@ def _network(data, points):
         raise ValueError("This road network is too long; smooth it in parts")
     # Split at every mapped junction, even if only two selected arms meet there: unselected arms must keep their join.
     breaks = {n for n in neighbours if len(neighbours[n]) != 2 or len(graph[n]) > 2}
-    lines, used = [], set()
+    lines, widths, used = [], [], set()
     for start in sorted(breaks):
         for next_ in sorted(neighbours[start]):
             if tuple(sorted((start, next_))) in used:
                 continue
             route, previous, here = [start], start, next_
+            widest = graph[start][next_]["width"]
             while True:
                 used.add(tuple(sorted((previous, here))))
                 route.append(here)
                 if here in breaks:
                     break
                 previous, here = here, next(iter(neighbours[here] - {previous}))
+                widest = max(widest, graph[previous][here]["width"])
             lines.append([positions[n].tolist() for n in route])
+            widths.append(widest)
     low = np.min([edge["a"] for edge in segments] + [edge["b"] for edge in segments], axis=0)
     high = np.max([edge["a"] for edge in segments] + [edge["b"] for edge in segments], axis=0)
     reach = max(edge["width"] for edge in segments) + 8
@@ -149,8 +152,8 @@ def _network(data, points):
                 continue
             if ((np.maximum(positions[a], positions[b]) >= low - reach).all()
                     and (np.minimum(positions[a], positions[b]) <= high + reach).all()):
-                excluded.append({"a": positions[a].tolist(), "b": positions[b].tolist()})
-    return {"lines": lines, "segments": segments, "unselected": excluded, "length": length,
+                excluded.append({"a": positions[a].tolist(), "b": positions[b].tolist(), "width": edge["width"]})
+    return {"lines": lines, "widths": widths, "segments": segments, "unselected": excluded, "length": length,
             "terminals": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) == 1],
             "junctions": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) > 2],
             "held_junctions": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) > 1 and len(graph[n]) > len(neighbours[n])],

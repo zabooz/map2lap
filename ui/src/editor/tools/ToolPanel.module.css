@@ -2,6 +2,8 @@
 .tools { display: flex; flex-direction: column; gap: 14px; font-size: 13px; }
 .fileButtons { gap: 6px; }     /* (Save and Play under the track's choice) */
 .fileButtons .library { margin-top: 6px; }     /* (no file action: a little apart from them) */
+.tools button.danger { color: var(--accent); border-color: var(--accent); }     /* (Delete: the track goes, after asking) */
+.tools button.danger:not(:disabled):hover { color: var(--accent-ink); background: var(--accent); }
 .group { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .title { margin: 0; font-size: 13px; font-weight: 600; }
 .row { display: flex; gap: 4px; }
