@@ -34,7 +34,30 @@ def panel():
 
 
 class SimplificationTest(unittest.TestCase):
-    def test_uv_and_hard_normal_seam_vertices_are_locked(self):
+    def test_a_uv_seam_simplifies_along_itself_and_stays_closed(self):
+        from dataclasses import replace
+        model = modeldata.load(panel())
+        part = model.primitives[0]
+        seam = np.flatnonzero(part.positions[:, 0] == part.positions[8, 0])      # (the column x = 0.8, 16 vertices)
+        copies = np.arange(len(part.positions), len(part.positions) + len(seam))
+        faces = part.indices.copy()
+        right = part.positions[faces].mean(axis=1)[:, 0] > part.positions[8, 0]
+        lookup = np.arange(len(part.positions) + len(seam)); lookup[seam] = copies
+        faces[right] = lookup[faces[right]]
+        changed = replace(part, positions=np.concatenate([part.positions, part.positions[seam]]),
+                          normals=np.concatenate([part.normals, part.normals[seam]]),
+                          uvs=np.concatenate([part.uvs, part.uvs[seam] + [1, 0]]), indices=faces)
+        altered = replace(model, primitives=(changed, model.primitives[1]))
+        raw = modelsimplify._encode(altered, [p.indices.ravel() for p in altered.primitives])
+        result = modeldata.load(modelsimplify.simplify(raw, 25)).primitives[0]
+        corners = result.positions[result.indices]
+        on_seam = corners[:, :, 0] == part.positions[8, 0]
+        side = corners.mean(axis=1)[:, 0] > part.positions[8, 0]
+        left = {tuple(c) for c in corners[~side][on_seam[~side]]}
+        self.assertEqual(left, {tuple(c) for c in corners[side][on_seam[side]]}, "Both sides keep the same seam points: no crack")
+        self.assertLess(len(left), len(seam), "The seam itself is simplified, not locked")
+
+    def test_uv_and_hard_normal_seam_vertices_survive_without_locks(self):
         from dataclasses import replace
         model = modeldata.load(panel())
         part = model.primitives[0]
@@ -50,7 +73,7 @@ class SimplificationTest(unittest.TestCase):
             changed = replace(part, positions=positions, normals=normals, uvs=uv)
             altered = replace(model, primitives=(changed, model.primitives[1]))
             locks = modelsimplify._locks(altered, 0)
-            self.assertTrue(locks[100]); self.assertTrue(locks[-1])
+            self.assertFalse(locks[100]); self.assertFalse(locks[-1])
             # Force both seam copies into rendered triangles, then verify they survive the actual simplifier.
             faces = changed.indices.copy(); faces[faces == 101] = 256
             changed = replace(changed, indices=faces)

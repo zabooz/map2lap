@@ -292,7 +292,9 @@ and verified content hash, without rewriting their manifest, GLB or model id.
 
 **Geometry** defaults to **Original**, with optional targets of **75%, 50%, 25%** of the original triangles. The bundled
 `modelconvert` process uses meshopt 0.7.0 / meshoptimizer 1.3, with a relative 1% error budget per primitive and unit
-normal/UV weights. Each primitive stays independent: materials, UV/normal seams and open borders remain protected.
+normal/UV weights. Each primitive stays independent, and its open borders (material edges, thin planes, leaf cards) stay
+locked. UV/normal seams are not locked: meshoptimizer finds them by shared positions and moves both sides together, so a seam
+is simplified along itself without cracks (Boulder - Weathered at 25%: 16,768 triangles, 0.57 MB per copy; 20,618 with seams locked).
 The existing Save weld first joins identical position/UV corners with normals less than 1 degree apart, so scan-export
 rounding splits do not block simplification. Missing normals retain flat faces and are not simplified. Positions never
 move; protected scene extrema and exact contact-footprint extrema preserve bounds, anchor and import scale. Tangents

@@ -12,7 +12,8 @@ fn reduce(
     error: f32,
 ) -> Vec<u32> {
     // Normal/UV errors have unit weight; a unit attribute change has the same weight as a mesh extent.
-    // LockBorder retains independent material/UV island boundaries, including two-triangle leaf cards.
+    // LockBorder keeps open edges: material boundaries between primitives, thin planes, two-triangle leaf cards.
+    // UV/normal seams stay free; meshoptimizer collapses both sides of a seam together, so it never cracks.
     meshopt::simplify_with_attributes_and_locks_decoder(
         indices,
         positions,

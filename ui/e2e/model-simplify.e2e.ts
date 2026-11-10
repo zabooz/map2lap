@@ -15,9 +15,23 @@ test('import geometry levels preview and publish the measured canonical model', 
   await expect(geometry).toHaveValue('100');
   const facts = dialog.getByLabel('Track geometry cost');
   await expect(facts).toContainText('900 triangles');
+  // The first level is held at the server: meanwhile the last preview, its cost and the dialog's height stay.
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(url => url.pathname.endsWith('/info') && url.searchParams.get('simplify_level') === '75',
+    async route => { await held; await route.continue(); });
+  const height = () => dialog.locator('form').evaluate(form => form.scrollHeight);
+  const before = await height();
   for (const level of [75, 50, 25]) {
     const info = page.waitForResponse(r => r.url().includes('/info?') && r.url().includes(`simplify_level=${level}`));
     await geometry.selectOption(String(level));
+    if (level === 75) {
+      await expect(dialog.getByRole('status')).toHaveText('Preparing selected geometry…');
+      await expect(dialog.getByLabel('Model preview').locator('canvas')).toBeVisible();
+      await expect(facts).toContainText('900 triangles');
+      expect(await height()).toBe(before);
+      release();
+    }
     const data = await (await info).json();
     expect(data.simplification).toBe('target_reached');
     expect(data.geometry.track_cost.triangles).toBeLessThanOrEqual(900 * level / 100);
