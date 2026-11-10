@@ -293,7 +293,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
   // ×'d, it stays away until its text changes)
   const problems = editorToasts({viewFailed, copyFailed, groupFailed, saveFailed: saving.failed, save: state.save, error: state.error, outdated: state.outdated,
-    saving: saving.busy},
+    saving: saving.busy, waiting: saving.waiting},
     dismissed, {reopen: thenView(view, reopen), readAgain: thenView(view, () => void readAgain()), giveUp: thenView(view, () => edits.discardOutdated())});
   useToasts(!visible ? [] : problems.map(t => ({...t, onDismiss: () => {
     setDismissed(previous => new Set(previous).add(t.key));

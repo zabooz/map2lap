@@ -44,7 +44,7 @@ export function FileButtons({state, edits, view, saving, onLibrary, onDelete}: {
                   disabled={!edits.canEdit() || saving.busy} onClick={saving.saveAs}>▾</button>
         </span>
         <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save if needed, then drive it in Assetto Corsa"
-                onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : "▶ Play"}</button>
+                onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : saving.waiting?.play ? "Waiting …" : "▶ Play"}</button>
       </div>
       <div className={styles.row}>
         <button type="button" id="edit-delete-track" className={styles.danger} disabled={saving.busy}

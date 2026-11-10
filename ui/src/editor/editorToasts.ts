@@ -3,7 +3,8 @@ import type {EditState} from "./state/edits";
 import type {EditorLoadStatus} from "../types";
 
 /** What can go wrong in the Editor outside any window. viewFailed: why the view is behind. copyFailed: a placement the server
-    refused, also after Copy ended. saveFailed: why a Save wrote nothing. save, error, outdated: of the draft (EditState). saving: a Save is writing the track. */
+    refused, also after Copy ended. saveFailed: why a Save wrote nothing. save, error, outdated: of the draft (EditState). saving: a Save is writing the track.
+    waiting: Save or Play was pressed while changes are still on their way, how many, and whether AC starts after. */
 export interface EditorProblems {
   viewFailed: string | null;
   copyFailed: string | null;
@@ -13,6 +14,7 @@ export interface EditorProblems {
   error: string | null;
   outdated: number;
   saving?: boolean;
+  waiting?: {changes: number; play: boolean} | null;
 }
 
 /** A toast with what makes it the same one: dismissed, it stays away until its text changes. */
@@ -21,8 +23,12 @@ export type EditorToast = Posted & {key: string};
 /** The Editor's problems as toasts, those in dismissed (by key) left out. Pure. */
 export function editorToasts(p: EditorProblems, dismissed: ReadonlySet<string>,
   actions: {reopen: () => void; readAgain: () => void; giveUp: () => void}): EditorToast[] {
+  const w = p.waiting, changes = w && (w.changes === 1 ? "1 change still on its way" : `${w.changes} changes still on their way`);
   const all: (Omit<EditorToast, "key"> | false)[] = [
-    !!p.saving && {id: "edit-saving", tone: "info", title: "Saving track", message: "Writing the track for Assetto Corsa …",
+    // (a Save or Play waits for the strokes still being placed: the click shows at once what it waits for, in the place Saving then takes)
+    !!w && {id: "edit-saving", tone: "info", title: w.play ? "Play" : "Saving track", dismissible: false, progress: {value: null, label: "Waiting"},
+      message: w.play ? `Waiting for ${changes}, then the track is saved and Assetto Corsa starts …` : `Waiting for ${changes}, then the track is written …`},
+    !w && !!p.saving && {id: "edit-saving", tone: "info", title: "Saving track", message: "Writing the track for Assetto Corsa …",
       progress: {value: null, label: "Saving track"}, dismissible: false},
     !!p.viewFailed && {id: "edit-view-failed", tone: "warning", title: "The view doesn't show the last change",
       message: `Your changes are kept. ${p.viewFailed}`, action: {label: "Load again", run: actions.reopen}},

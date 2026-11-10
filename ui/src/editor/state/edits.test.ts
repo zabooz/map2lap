@@ -2,6 +2,14 @@ import {expect, test} from "bun:test";
 import {isCurrent, TrackEdits, type Removed} from "./edits";
 import {tree, json, server, settle, started} from "./edits.fixture";
 
+test("changes still on their way are counted until each is done, a failed one too", async () => {
+  const {edits} = await started(); let go = () => {};
+  const gate = new Promise<void>(resolve => { go = resolve; });
+  const first = edits.inTurn(() => gate), second = edits.inTurn(() => { throw new Error("refused"); });
+  expect(edits.state().inTurn).toBe(2);
+  go(); await first; await second; expect(edits.state().inTurn).toBe(0);
+});
+
 test("a refused group is removed from all history in one operation while unrelated edits survive", async () => {
   const {edits} = await started(); edits.remove([tree(0)]);
   const models = [1, 2].map(n => ({id: `instance_${n}`, asset: "tree", at: [n, 0, 0] as [number, number, number], replaces: null, collision: "none" as const}));

@@ -43,6 +43,15 @@ test("Saving is a toast with a running bar and no ×", () => {
     {id: "edit-saving", tone: "info", title: "Saving track", progress: {value: null, label: "Saving track"}, dismissible: false}]);
 });
 
+test("Save or Play pressed while changes are still on their way says so at once, in the Saving toast", () => {
+  expect(editorToasts({...none, waiting: {changes: 3, play: false}}, new Set(), actions)).toMatchObject([
+    {id: "edit-saving", tone: "info", title: "Saving track", message: "Waiting for 3 changes still on their way, then the track is written …",
+      progress: {value: null}, dismissible: false}]);
+  expect(editorToasts({...none, waiting: {changes: 1, play: true}}, new Set(), actions)).toMatchObject([
+    {id: "edit-saving", title: "Play", message: "Waiting for 1 change still on its way, then the track is saved and Assetto Corsa starts …"}]);
+  expect(editorToasts({...none, saving: true, waiting: null}, new Set(), actions)[0].message).toBe("Writing the track for Assetto Corsa …");
+});
+
 test("loading is a toast with its bar; a first opening says why it takes longer; a failure or the memory limit stays to be read", () => {
   expect(loadingToast({text: ""})).toBeNull();
   expect(loadingToast({text: "12 parts loaded"})).toBeNull();

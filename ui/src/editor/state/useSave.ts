@@ -16,6 +16,7 @@ const clock = (at: number) => new Date(at * 1000).toLocaleTimeString([], {hour: 
 export function useSave({name, edits, state, view, onSaved}: {name: string; edits: TrackEdits; state: EditState; view: TrackView; onSaved: (name: string) => void}) {
   const [asking, setAsking] = useState<{play: boolean} | null>(null);     // (play: AC starts once it is saved)
   const [saving, setSaving] = useState<{busy: boolean; text: string | null}>({busy: false, text: null});
+  const [waiting, setWaiting] = useState<{play: boolean} | null>(null);   // (Save or Play pressed, changes still on their way)
   const {starting, play} = usePlay();
   const current = isCurrent(state), asBuilt = isAsBuilt(state);
   const canSave = edits.canEdit() && !saving.busy && !current && !asBuilt;
@@ -48,12 +49,20 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     return r.name;
   };
 
+  /** Done when the changes on their way are; while there are any, waiting says so (play: AC starts after). */
+  const settle = async (play: boolean) => {
+    if (!edits.state().inTurn) return edits.settled();
+    setWaiting({play});
+    try { await edits.settled(); } finally { setWaiting(null); }
+  };
+
   return {
     asking, canSave, starting,
+    waiting: waiting && {changes: state.inTurn, play: waiting.play},
     busy: saving.busy,
     failed: saving.text,
     savedText: saving.busy ? "Saving …" : current ? `Saved ${clock(state.recipe!.at)}` : asBuilt ? "" : "Not saved",
-    canPlay: !starting && !saving.busy && state.save !== "loading" && (current || asBuilt || canSave),
+    canPlay: !starting && !saving.busy && !waiting && state.save !== "loading" && (current || asBuilt || canSave),
     /** ▾: it asks, in its place or a new track. */
     saveAs: () => setAsking({play: false}),
     /** What the dialog chose, then AC if Play asked for it. */
@@ -69,7 +78,7 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     /** Save: a track never saved here asks once (in its place, or a new track), then it writes at once. After the strokes on their way:
         what it goes by is the list with them in it. */
     save: async () => {
-      await edits.settled();
+      await settle(false);
       const now = edits.state();
       if (!edits.canEdit() || saving.busy || isCurrent(now) || isAsBuilt(now)) return;
       if (now.recipe) void write();
@@ -77,7 +86,7 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     },
     /** Play: saved first if it isn't, the same way, after the strokes on their way too. */
     drive: async () => {
-      await edits.settled();
+      await settle(true);
       const now = edits.state();
       if (isCurrent(now) || isAsBuilt(now)) void play(name, view.clockHours());
       else if (!now.recipe) setAsking({play: true});

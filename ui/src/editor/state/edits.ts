@@ -61,6 +61,7 @@ export interface EditState {
   save: SaveState;
   outdated: number;             // changes kept from an older build of the track, not applied
   error: string | null;
+  inTurn: number;               // changes still on their way (inTurn): a stroke's placement, its draft write
 }
 
 const SAVE_AFTER_MS = 400;      // the changes of a quick series go in one save, a reload right after loses next to nothing
@@ -111,7 +112,7 @@ const sameEdits = (a: Edits, b: Edits) =>
     them. bind() says which state of the track file the view shows: the numbers in a list only mean anything for one, so nothing can
     be changed while the two differ. */
 export class TrackEdits {
-  private now: EditState = {...NONE, keptRevision: 0, recipe: null, canUndo: false, canRedo: false, save: "loading", outdated: 0, error: null};
+  private now: EditState = {...NONE, keptRevision: 0, recipe: null, canUndo: false, canRedo: false, save: "loading", outdated: 0, error: null, inTurn: 0};
   private onMeshes: (meshes: number[], revision: number) => void = () => {};
   private onTextures: (textures: {i: number; version: string; size: number}[], paints: string[]) => void = () => {};
   private turns: Promise<unknown> = Promise.resolve();
@@ -154,7 +155,8 @@ export class TrackEdits {
   /** action once all before it are done. Strokes on their way to the server go on in the order they were made, and what comes after
       one waits for it: an undo takes back the stroke just made, a Save writes it, however late its answer comes. */
   inTurn(action: () => unknown) {
-    this.turns = this.turns.then(action).catch(() => {});
+    this.set({inTurn: this.now.inTurn + 1});
+    this.turns = this.turns.then(action).catch(() => {}).finally(() => this.set({inTurn: this.now.inTurn - 1}));
     return this.turns;
   }
 
