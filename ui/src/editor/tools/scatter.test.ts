@@ -33,6 +33,20 @@ test("dense brushes stop at a bounded count and disclose truncation", () => {
   expect(result.length).toBeLessThanOrEqual(2000); expect(result.limited).toBe(true);
 });
 
+test("an object without random stands at its one size, unturned, where the random one would stand", () => {
+  const random = scatter([[0, 0, 0]], options);
+  const fixed = scatter([[0, 0, 0]], {...options, entries: [{...options.entries[0], random: false}, options.entries[1]]});
+  expect(fixed.map(p => [p.model, p.x, p.z])).toEqual(random.map(p => [p.model, p.x, p.z]));
+  for (const p of fixed.filter(p => p.model === "oak")) expect([p.turn, p.scale]).toEqual([0, .8]);
+  expect(fixed.filter(p => p.model === "bush").some(p => p.turn !== 0)).toBe(true);
+});
+
+test("without random position a stroke plants on the regular lattice, in rows at its spacing", () => {
+  const rows = scatter([[0, 0, 0]], {...options, regular: true}), grid = Math.sqrt(100 / options.density);
+  expect(rows.length).toBeGreaterThan(5);
+  for (const p of rows) for (const v of [p.x, p.z]) expect(Math.abs(v / grid - .5 - Math.round(v / grid - .5))).toBeLessThan(1e-9);
+});
+
 test("mixture sizes stay within the ordinary Transform tool's 10–1000% range", () => {
   for (const change of [{minScale: .05}, {maxScale: 20}])
     expect(() => scatter([[0, 0, 0]], {...options, entries: [{...options.entries[0], ...change}]})).toThrow();

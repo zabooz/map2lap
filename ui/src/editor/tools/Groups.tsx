@@ -39,7 +39,7 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
     let current: Stroke | null = null;
     const stroke = () => current ??= {key: crypto.randomUUID(), seed: crypto.getRandomValues(new Uint32Array(1))[0], version: 0};
     const calculate = async (samples: Sample[], s: Stroke) => {
-      const result = await worker.run(samples, {entries: group.entries, radius, density, spacing, seed: s.seed},
+      const result = await worker.run(samples, {entries: group.entries, radius, density, spacing, seed: s.seed, regular: group.randomPosition === false},
         [...occupied(), ...[...queued.values()].flat().map(p => ({x: p.at[0], z: p.at[2]}))]);
       const plants: GroupPlant[] = [], feet = await view.groupFeet(models);
       for (let i = 0; i < result.plants.length; i++) {

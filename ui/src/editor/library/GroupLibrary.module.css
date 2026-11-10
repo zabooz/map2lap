@@ -1,7 +1,15 @@
+/* The selected group on the right: its patch, its name, what it is made of, what it costs; the settings have a window of their own */
+.patch, .empty { aspect-ratio: 3 / 2; }     /* (smaller than square: the group's objects and cost stay in view) */
+.empty { display: grid; place-items: center; margin: 0; padding: 20px; text-align: center; color: var(--muted);
+         background: var(--raised); border: 1px dashed var(--line); border-radius: 7px; }
 .name { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 .name input { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--text); }
-.entry { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.entry strong { grid-column: 1 / -1; }
-.entry label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.entry input { width: 100%; box-sizing: border-box; padding: 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text); }
-.entry button { grid-column: 1 / -1; padding: 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text); cursor: pointer; }
+.mix { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.mix li { display: flex; justify-content: space-between; gap: 10px; }
+.mix span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mix b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.cost { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.cost dt { color: var(--muted); font-size: 12px; }
+.cost dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.remove { align-self: flex-start; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); cursor: pointer; }
+.remove:not(:disabled):hover { color: var(--error); border-color: var(--error); }

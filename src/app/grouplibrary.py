@@ -37,15 +37,19 @@ def _checked(body, assets=False):
                 or e["model"] in seen or not _number(e.get("weight"), 0, 1000)
                 or not _number(e.get("minScale"), placement.MIN_SCALE, placement.MAX_SCALE)
                 or not _number(e.get("maxScale"), placement.MIN_SCALE, placement.MAX_SCALE)
-                or e["minScale"] > e["maxScale"]):
+                or e["minScale"] > e["maxScale"] or type(e.get("random", True)) is not bool):
             raise ValueError("Choose distinct objects, non-negative weights and ordered size ranges (10–1000%)")
         seen.add(e["model"])
         if assets:
             objectlibrary.get(e["model"])
-        out.append({k: e[k] for k in ("model", "weight", "minScale", "maxScale")})
+        # random: a size between the two and a random turn; off, the smaller size and the model's own direction (groups saved before: on)
+        out.append({**{k: e[k] for k in ("model", "weight", "minScale", "maxScale")}, "random": e.get("random", True)})
     if not any(e["weight"] > 0 for e in out):
         raise ValueError("At least one object needs a positive weight")
-    return {"schema": 1, "name": body["name"].strip(), "entries": out}
+    # randomPosition: scattered by the brush; off, in rows at the brush's spacing (groups saved before: scattered)
+    if type(body.get("randomPosition", True)) is not bool:
+        raise ValueError("Random position is on or off")
+    return {"schema": 1, "name": body["name"].strip(), "entries": out, "randomPosition": body.get("randomPosition", True)}
 
 
 def get(id):

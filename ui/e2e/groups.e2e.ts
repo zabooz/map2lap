@@ -26,6 +26,61 @@ async function prepare(page: import("@playwright/test").Page) {
 const draft = async (page: import("@playwright/test").Page) => (await page.request.get("/api/editor/alpha/edits")).json();
 const preview = async (page: import("@playwright/test").Page) => page.evaluate(() => (performance.getEntriesByName("map2lap.groups.preview").at(-1) as PerformanceMark)?.detail);
 
+test("a group shows its mix as a 3D patch with what 100 objects cost; its settings window changes the mix; saved groups open by themselves", async ({page}, info) => {
+  await openEditor(page); const library = await prepare(page);
+  await expect(library.getByLabel("Group preview")).toBeVisible();
+  await expect(library.getByLabel("Group preview").locator("canvas")).toBeVisible();
+  await expect(library.getByRole("list", {name: "Mixture"}).getByRole("listitem")).toHaveText(["Group oak50 %", "Group bush50 %"]);
+  await expect(library.getByLabel("Cost of the group")).toContainText(/The group, 2 objects[\d,]+ triangles · [\d.]+ MB/);
+  await expect(library.getByLabel("Saved groups")).toHaveCount(0);
+  await library.getByRole("button", {name: "Settings …", exact: true}).click();
+  const settings = page.getByRole("dialog", {name: "Group settings"}), patch = settings.getByLabel("Group preview");
+  await expect(patch.locator("canvas")).toBeVisible();
+  const oak = settings.getByRole("button", {name: /^Group oak/});
+  await oak.hover();
+  const oakId = (await (await page.request.get("/api/library/models?q=Group%20oak")).json()).items[0].id;
+  await expect(patch).toHaveAttribute("data-highlight", oakId);
+  await expect(settings.getByLabel("Weight Group oak", {exact: true})).toBeDisabled();
+  await oak.click();
+  await expect(oak).toHaveAttribute("aria-expanded", "true");
+  await settings.getByLabel("Weight Group oak", {exact: true}).fill("3");
+  await expect(oak).toContainText("75 %");
+  await settings.getByRole("switch", {name: "Random Group oak"}).uncheck();
+  await expect(settings.getByLabel("Size Group oak", {exact: true})).toHaveValue("80");
+  await page.mouse.move(5, 5);
+  await expect(patch).toHaveAttribute("data-highlight", oakId);     // (the open object stays lit)
+  await settings.screenshot({path: info.outputPath("group-settings.png")});
+  await settings.getByRole("button", {name: "Cancel", exact: true}).click();
+  await expect(settings).toBeHidden();
+  await expect(library.getByRole("list", {name: "Mixture"}).getByRole("listitem")).toHaveText(["Group oak50 %", "Group bush50 %"]);
+  await library.getByRole("button", {name: "Settings …", exact: true}).click();
+  await settings.getByRole("button", {name: /^Group oak/}).click();
+  await settings.getByLabel("Weight Group oak", {exact: true}).fill("3");
+  await settings.getByRole("button", {name: "Save", exact: true}).click();
+  await expect(settings).toBeHidden();
+  await expect(library.getByRole("list", {name: "Mixture"}).getByRole("listitem")).toHaveText(["Group oak75 %", "Group bush25 %"]);
+  await library.getByRole("button", {name: "Save group", exact: true}).click();
+  await expect(library.getByLabel("Saved groups").locator("option")).toHaveText(["Waldrand"]);
+  await expect(library.getByRole("button", {name: "Save group", exact: true})).toHaveCount(0);
+  await library.getByRole("button", {name: "Settings …", exact: true}).click();
+  await settings.getByRole("button", {name: /^Group bush/}).click();
+  await settings.getByRole("switch", {name: "Random Group bush"}).uncheck();
+  await settings.getByRole("switch", {name: "Random position", exact: true}).uncheck();
+  await settings.getByRole("button", {name: "Save", exact: true}).click();
+  await expect.poll(async () => (await (await page.request.get("/api/library/groups")).json()).items[0].entries.map((e: {random: boolean}) => e.random)).toEqual([true, false]);
+  expect((await (await page.request.get("/api/library/groups")).json()).items[0].randomPosition).toBe(false);
+  await expect(library.getByRole("button", {name: "Save group", exact: true})).toHaveCount(0);
+  await library.screenshot({path: info.outputPath("groups-panel.png")});
+  await library.getByRole("button", {name: "New group", exact: true}).click();
+  await expect(library.getByLabel("Saved groups")).toHaveValue("");
+  await expect(library.getByLabel("Saved groups").locator("option:not([hidden])")).toHaveText(["Waldrand"]);
+  await page.getByRole("button", {name: "Cancel", exact: true}).click();
+  await page.reload(); await openEditor(page);
+  await page.getByRole("button", {name: "Insert", exact: true}).click();
+  await library.getByRole("tab", {name: "GROUPS", exact: true}).click();
+  await expect(library.getByLabel("Group name", {exact: true})).toHaveValue("Waldrand");
+});
+
 test("a saved mixture paints locally before any placement request and commits one undoable stroke", async ({page}, info) => {
   await openEditor(page); const library = await prepare(page);
   await library.screenshot({path: info.outputPath("groups-library.png")});

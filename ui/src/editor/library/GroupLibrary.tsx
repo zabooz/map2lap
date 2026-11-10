@@ -1,15 +1,31 @@
-import {useEffect, useState} from "react";
+import {useEffect, useRef, useState} from "react";
+import {createPortal} from "react-dom";
 import type {LibraryModel} from "./ModelLibrary";
 import {libraryJson} from "./library";
 import {LibraryBrowser, LibraryCard, LibraryCards, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection} from "./LibraryBrowser";
 import {ModelThumbnail} from "./ModelThumbnail";
 import type {GroupEntry, ObjectGroup} from "../tools/scatter";
 import type {TrackCost} from "./ModelCost";
-import {MIN_SCALE, MAX_SCALE} from "../tools/placing";
+import {entriesValid, groupCost, groupShares} from "./groupMix";
+import {GroupPatch} from "./GroupPatch";
+import {GroupSettings} from "./GroupSettings";
 import styles from "./GroupLibrary.module.css";
 
 const PAGE_SIZE = 40;
 interface Catalogue {items: LibraryModel[]; total: number; offset: number}
+/** A group's name and objects as the library keeps them (random on unless switched off), to see whether it changed. Pure. */
+const sameShape = (name: string, entries: GroupEntry[], randomPosition?: boolean) =>
+  [name.trim(), entries.map(e => ({...e, random: e.random !== false})), randomPosition !== false];
+
+/** The saved groups to open one of: none saved, no list (New group beside it makes one). A group not saved yet leaves it on an empty,
+    unselectable line. */
+export function GroupPicker({groups, id, disabled, onChoose}: {groups: ObjectGroup[]; id: string; disabled: boolean; onChoose: (group: ObjectGroup) => void}) {
+  if (!groups.length) return null;
+  return <select aria-label="Saved groups" value={id} disabled={disabled} onChange={event => { const group = groups.find(g => g.id === event.target.value); if (group) onChoose(group); }}>
+    {!id && <option value="" disabled hidden>Choose a saved group</option>}
+    {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+  </select>;
+}
 
 /** Saved groups are mixtures of library references; choosing Paint freezes a copy for this placement session. */
 export function GroupLibrary({open, onChoose, onClose, onBusy}: {open: boolean;
@@ -19,15 +35,20 @@ export function GroupLibrary({open, onChoose, onClose, onBusy}: {open: boolean;
   const [models, setModels] = useState<Record<string, LibraryModel>>({}), [costs, setCosts] = useState<Record<string, TrackCost>>({});
   const [query, setQuery] = useState(""), [page, setPage] = useState(0), [revision, setRevision] = useState(0);
   const [answer, setAnswer] = useState<{key: string; value: Catalogue} | null>(null), [fault, setFault] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false), [settings, setSettings] = useState(false), [randomPosition, setRandomPosition] = useState(true);
   const key = JSON.stringify([query, page]), result = answer?.key === key ? answer.value : null;
   const refs = entries.map(e => e.model).join(",");
+  const choose = (group?: ObjectGroup) => { setId(group?.id ?? ""); setName(group?.name ?? ""); setEntries(group?.entries.map(e => ({...e})) ?? []); setRandomPosition(group?.randomPosition !== false); setFault(null); };
+  const blank = useRef(true);     // (nothing chosen or begun: the first saved group opens once the list comes)
+  useEffect(() => { blank.current = !id && !name && !entries.length; });
   useEffect(() => { onBusy?.(busy); }, [busy, onBusy]);
   useEffect(() => {
     if (!open) return;
     const abort = new AbortController();
     void libraryJson<{items: ObjectGroup[]}>("/api/library/groups", {signal: abort.signal}).then(r => {
-      if (!abort.signal.aborted) setGroups(r.items);
+      if (abort.signal.aborted) return;
+      setGroups(r.items);
+      if (blank.current && r.items.length) choose(r.items[0]);
     }).catch(error => { if (!abort.signal.aborted) setFault((error as Error).message); });
     return () => abort.abort();
   }, [open, revision]);
@@ -52,19 +73,17 @@ export function GroupLibrary({open, onChoose, onClose, onBusy}: {open: boolean;
     }
     return () => abort.abort();
   }, [open, refs]);
-  const choose = (group?: ObjectGroup) => { setId(group?.id ?? ""); setName(group?.name ?? ""); setEntries(group?.entries.map(e => ({...e})) ?? []); setFault(null); };
-  const entryChange = (model: string, change: Partial<GroupEntry>) => setEntries(old => old.map(e => e.model === model ? {...e, ...change} : e));
-  const valid = !!name.trim() && name.trim().length <= 100 && entries.length > 0 && entries.length <= 32 && entries.some(e => e.weight > 0)
-    && entries.every(e => Number.isFinite(e.weight) && e.weight >= 0 && e.weight <= 1000
-      && Number.isFinite(e.minScale) && Number.isFinite(e.maxScale) && e.minScale >= MIN_SCALE && e.maxScale <= MAX_SCALE && e.minScale <= e.maxScale);
-  const save = async (paint = false) => {
-    if (!valid || busy) return;
+  const valid = !!name.trim() && name.trim().length <= 100 && entriesValid(entries);
+  // A saved group offers Save group only once it differs from the library's copy (its settings window saves by itself).
+  const saved = groups.find(g => g.id === id), changed = !saved || JSON.stringify(sameShape(saved.name, saved.entries, saved.randomPosition)) !== JSON.stringify(sameShape(name, entries, randomPosition));
+  const save = async (paint = false, list = entries, scattered = randomPosition) => {
+    if (!name.trim() || !entriesValid(list) || busy) return;
     setBusy(true); setFault(null);
     try {
       // Recheck current references before saving, including members outside the current catalogue page.
-      const resolved = await Promise.all(entries.map(e => libraryJson<LibraryModel>(`/api/library/models/${e.model}`)));
+      const resolved = await Promise.all(list.map(e => libraryJson<LibraryModel>(`/api/library/models/${e.model}`)));
       const r = await libraryJson<{group: ObjectGroup}>("/api/library/groups", {method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({...(id ? {id} : {}), name, entries})});
+        body: JSON.stringify({...(id ? {id} : {}), name, entries: list, randomPosition: scattered})});
       setId(r.group.id); setRevision(v => v + 1);
       setModels(old => ({...old, ...Object.fromEntries(resolved.map(m => [m.id, m]))}));
       if (paint) onChoose(r.group, resolved);
@@ -78,14 +97,12 @@ export function GroupLibrary({open, onChoose, onClose, onBusy}: {open: boolean;
       choose(); setRevision(v => v + 1);
     } catch (error) { setFault((error as Error).message); } finally { setBusy(false); }
   };
-  const total = entries.reduce((n, e) => n + e.weight, 0), measured = entries.length > 0 && entries.every(e => !!costs[e.model]);
-  const triangles = measured ? entries.reduce((n, e) => n + costs[e.model].triangles * e.weight / total * 100, 0) : 0;
+  const shares = groupShares(entries), cost = groupCost(entries, costs, models);
+  const nameOf = (model: string) => models[model]?.name ?? `Object ${model.slice(0, 8)}`;
   return <LibraryBrowser title="Groups" subtitle="Mix objects, then paint them onto the ground" onImport={() => choose()} importLabel="New group" disabled={busy}
     onFiles={() => setFault("Import objects in the Objects tab, then add them to a group.")}
     filters={<>
-      <select aria-label="Saved groups" value={id} disabled={busy} onChange={event => choose(groups.find(g => g.id === event.target.value))}>
-        <option value="">New group</option>{groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-      </select>
+      <GroupPicker groups={groups} id={id} disabled={busy} onChoose={choose} />
       <input type="search" aria-label="Search group objects" placeholder="Search objects to add" value={query}
         onChange={event => { setQuery(event.target.value); setPage(0); }} />
     </>}
@@ -96,25 +113,22 @@ export function GroupLibrary({open, onChoose, onClose, onBusy}: {open: boolean;
     pages={result && <LibraryPages page={page} offset={result.offset} total={result.total} limit={PAGE_SIZE} onPage={setPage} />}
     preview={<LibrarySelection>
       <label className={styles.name}>Group name<input aria-label="Group name" value={name} maxLength={100} disabled={busy} onChange={event => setName(event.target.value)} /></label>
-      {!entries.length && <p>Choose trees, bushes, grasses, rocks or other objects on the left.</p>}
-      {entries.map(e => <div key={e.model} className={styles.entry}>
-        <strong>{models[e.model]?.name ?? `Object ${e.model.slice(0, 8)}`}</strong>
-        <label>Weight<input aria-label={`Weight ${e.model}`} type="number" min={0} max={1000} value={e.weight} disabled={busy}
-          onChange={event => entryChange(e.model, {weight: event.target.valueAsNumber || 0})} /></label>
-        <label>Size min %<input aria-label={`Minimum size ${e.model}`} type="number" min={MIN_SCALE * 100} max={MAX_SCALE * 100} value={Math.round(e.minScale * 100)} disabled={busy}
-          onChange={event => entryChange(e.model, {minScale: (event.target.valueAsNumber || 0) / 100})} /></label>
-        <label>Size max %<input aria-label={`Maximum size ${e.model}`} type="number" min={MIN_SCALE * 100} max={MAX_SCALE * 100} value={Math.round(e.maxScale * 100)} disabled={busy}
-          onChange={event => entryChange(e.model, {maxScale: (event.target.valueAsNumber || 0) / 100})} /></label>
-        <button type="button" disabled={busy} onClick={() => setEntries(old => old.filter(x => x.model !== e.model))}>Remove {models[e.model]?.name ?? "object"}</button>
-      </div>)}
-      <p>{entries.length} object types. Rotation is random; plants stay upright.</p>
-      {measured && total > 0 && <p>About {Math.round(triangles).toLocaleString("en-US")} triangles per 100 plants. AC geometry grows with every plant.</p>}
-      {id && <button type="button" disabled={busy} onClick={() => void remove()}>Delete group</button>}
+      {entries.length && open ? <GroupPatch className={styles.patch} entries={entries} models={models} randomPosition={randomPosition} />
+        : <p className={styles.empty}>Choose trees, bushes, grasses, rocks or other objects on the left.</p>}
+      {entries.length > 0 && <ul className={styles.mix} aria-label="Mixture">{entries.map((e, i) =>
+        <li key={e.model}><span>{nameOf(e.model)}</span><b>{Math.round(shares[i] * 100)} %</b></li>)}</ul>}
+      {entries.length > 0 && <dl className={styles.cost} aria-label="Cost of the group">
+        <dt>The group{cost ? `, ${cost.objects.toLocaleString("en-US")} objects` : ""}</dt><dd>{cost ? `${Math.round(cost.triangles).toLocaleString("en-US")} triangles · ${(cost.bytes / 1_000_000).toFixed(2)} MB` : "Measuring …"}</dd>
+      </dl>}
+      {id && <button type="button" className={styles.remove} disabled={busy} onClick={() => void remove()}>Delete group</button>}
     </LibrarySelection>}
     notices={fault && <LibraryNotice error>{fault}</LibraryNotice>}
-    footer={<><div><strong>{name || "New group"}</strong><p>Weights control the mixture. Placed objects keep their own size and position.</p></div>
+    footer={<><div><strong>{name || "New group"}</strong></div>
       <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-      <button type="button" disabled={busy || !valid} onClick={() => void save()}>Save group</button>
+      <button type="button" disabled={busy || !entries.length} onClick={() => setSettings(true)}>Settings …</button>
+      {changed && <button type="button" disabled={busy || !valid} onClick={() => void save()}>Save group</button>}
       <LibraryPrimary disabled={busy || !valid} onClick={() => void save(true)}>Paint group</LibraryPrimary>
+      {settings && open && entries.length > 0 && createPortal(<GroupSettings name={name} entries={entries} randomPosition={randomPosition} models={models} disabled={busy}
+        onSave={(list, scattered) => { setEntries(list); setRandomPosition(scattered); setSettings(false); if (id) void save(false, list, scattered); }} onClose={() => setSettings(false)} />, document.body)}
     </>} />;
 }

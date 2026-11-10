@@ -89,7 +89,7 @@ test("appearance stays reachable in a short window and the Editor and reaches Se
   await openSettings(page);
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  expect(await dialog.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(32, 38, 40)");
+  expect(await dialog.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(26, 33, 35)");
   await page.getByRole("button", {name: "Close settings"}).click();
   await openEditor(page);
   await expect(dark).toBeInViewport();

@@ -404,7 +404,8 @@ requests. The larger static preview uses that same PNG, with no second model dow
 promotes its pending picture ahead of the remaining cards. Import and library pictures use reduced fill light and highlight
 compression so bright foliage retains its shading; source material colours are unchanged. **Place on ground** accepts
 repeated ground clicks until Esc. **Replace selected tree** accepts a picked tree or bush and preserves its current placement.
-Escape closes the active library dialog even from its search field and retains its search. Escape in a nested import
+Escape or a click beside it closes the active library dialog, even from its search field, and retains its search; a drag from a
+field out over the backdrop does not. Cards keep their pictures level: content from the top, two lines kept for the name. Escape in a nested import
 dialog cancels only that import, leaving the library open; portal cancel events do not close the parent library.
 With several trees selected, the context menu's Replace opens the object library for the whole highlighted selection.
 Right-clicking another member of a marked tree sort retains that selection. Replacement keeps each tree's position, terrain
@@ -483,19 +484,30 @@ and server geometry and KN5 geometry remain per instance. Automatic distance-dep
 ### Object groups
 
 The Library's **GROUPS** tab creates, edits and deletes named object mixtures. Add up to 32 distinct library models; each entry
-has a non-negative weight and a uniform size range. At least one weight must be positive. Weights are relative proportions,
-not guaranteed counts in a small stamp. The panel reports weighted triangles per 100 plants when model costs are available.
+has a non-negative weight, a uniform size range and a **Random size and turn** switch (off: the smaller size and the model's own
+direction). At least one weight must be positive. The group as it is holds each object as often as its weight, rounded, at least
+once above 0 (`groupMix.groupCounts`): weight 2 of an oak and 6 of a flower are 8 objects. The brush uses only the weights'
+proportions. The panel shows the group's name, a 3D patch of exactly those objects (`GroupPatch.tsx`, at most 400, in the same
+shares above that), each object's share and what the group as it is costs: its objects, triangles and kn5 MB, each object's
+bytes with its own collision. Opening the tab opens the first saved group; the saved groups' list holds only saved groups.
+**Settings …** opens a window on a copy of the objects: the patch on the left, a button per object on the right. Pointing at one
+lights its copies up in the patch; pressing it slides its weight, sizes and random switch down. The group's **Random position**
+stands above them: on, the brush scatters; off, it plants in rows on its lattice. Save takes the copy (and writes a saved group
+at once), Cancel drops it. **Save group** stands for a new group and for a saved one only once it differs from the library's copy.
 Definitions live under the user's `library/groups/<id>.json`, outside shipped assets, and are written atomically. Deleting a
 group does not remove planted models. A group whose model was removed stays readable so the missing entry can be removed.
+Groups saved before the two switches read as random.
 
 **Paint group** saves the mixture and opens the Groups brush: click to stamp, hold and move to paint. Radius (Shift + wheel),
 density in plants per 100 square metres (Ctrl + wheel) and minimum foot-to-foot spacing (Alt + wheel) control its distribution.
-Trees and other models stay upright with random yaw and uniformly scaled proportions. The browser worker
+Trees and other models stay upright with random yaw and uniformly scaled proportions, unless their entry's random is off.
+Without random position each candidate stands in its lattice cell's middle, so the plants stand in rows. The browser worker
 `tools/scatter.worker.ts` computes the distribution from a frozen per-stroke seed. Samples are resampled by distance, holds
 do not accumulate plants, and a spatial hash enforces spacing against earlier candidates and existing imported instances.
 The brush is bounded to 2,000 plants and 20,000 candidates per stroke; the tool reports a reached limit. Over the limit every
 candidate is kept with the same chance, so a 100 m brush thins evenly instead of filling from one side. Each candidate's place,
-model, turn and size come from its lattice cell and the stroke's seed alone, so a growing stroke never reshuffles what it shows.
+model, turn and size come from its lattice cell and the stroke's seed alone, so a growing stroke never reshuffles what it shows;
+switching random off draws the same numbers and only drops them, so no other plant moves.
 
 The browser projects each candidate onto the actual loaded terrain, roads included; missing terrain, water and bridge decks are
 not planting surfaces. A plant stands on the lowest ground under its foot, so on a slope or at a cliff edge nothing floats and

@@ -30,6 +30,19 @@ class GroupsTest(unittest.TestCase):
             with self.assertRaises(ValueError): grouplibrary.save({**self.body, **change})
         self.assertEqual([], grouplibrary.listing()['items'])
 
+    def test_an_object_keeps_its_random_switch_and_older_groups_stay_random(self):
+        entry = self.body['entries'][0]
+        saved = grouplibrary.save({**self.body, 'entries': [{**entry, 'random': False}]})
+        self.assertIs(False, grouplibrary.get(saved['id'])['entries'][0]['random'])
+        self.assertIs(True, grouplibrary.save(self.body)['entries'][0]['random'])
+        with self.assertRaises(ValueError): grouplibrary.save({**self.body, 'entries': [{**entry, 'random': 'no'}]})
+
+    def test_a_group_keeps_its_random_position_switch_and_older_groups_scatter(self):
+        saved = grouplibrary.save({**self.body, 'randomPosition': False})
+        self.assertIs(False, grouplibrary.get(saved['id'])['randomPosition'])
+        self.assertIs(True, grouplibrary.save(self.body)['randomPosition'])
+        with self.assertRaises(ValueError): grouplibrary.save({**self.body, 'randomPosition': 0})
+
     def test_deleted_assets_leave_a_visible_repairable_group(self):
         saved = grouplibrary.save(self.body)
         with mock.patch.object(objectlibrary, 'get', side_effect=ValueError('missing model')):

@@ -21,8 +21,9 @@ per tile and material; the list says which triangles of them make up each object
 track: `<its mesh>#<number>`.
 
 **Object group**:
-A reusable Library mixture of imported models, with a weight and size range for each entry. The Groups brush scatters
-it onto loaded ground. One completed stroke is one undoable change; the planted models keep independent bindings and poses.
+A reusable Library mixture of imported models, with a weight, size range and random switch for each entry. The group as it
+is holds each model as often as its weight (its preview and cost show that); the Groups brush plants it in those proportions
+onto loaded ground, scattered or, without random position, in rows. One completed stroke is one undoable change; the planted models keep independent bindings and poses.
 This is separate from a **Sort**, which identifies matching objects already in a track.
 
 **Sort**:

@@ -180,6 +180,45 @@ test("cancelled and invalid imports leave the library unchanged and typing canno
   await expect(dialog.getByRole("button", {name: "Add to library", exact: true})).toBeDisabled();
 });
 
+test("a click beside the library closes it; a drag out of it or a click beside an import over it does not", async ({page}) => {
+  await openEditor(page);
+  const library = page.getByRole("button", {name: "Library", exact: true}), panel = page.getByRole("dialog", {name: "Asset library"});
+  await library.click();
+  const search = await panel.getByLabel("Search textures").boundingBox();
+  await page.mouse.move(search!.x + 10, search!.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(5, 5);
+  await page.mouse.up();
+  await expect(panel).toBeVisible();
+  await panel.getByLabel('Texture file').setInputFiles(image);
+  const dialog = page.getByRole("dialog", {name: "Import texture"});
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeHidden();
+  await expect(panel).toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(panel).toBeHidden();
+  await expect(page.locator("#edit-select")).toHaveClass(/on/);
+});
+
+test("library cards keep their pictures level whether a name takes one line or two", async ({page}) => {
+  const item = (id: string, name: string) => ({id, name, category: "ground", tags: [], repeat: [2, 2],
+    source: {format: "png", size: [64, 64], alpha: false, bytes: 1}, prepared: {version: 1, size: [64, 64], format: "dds", bytes: 1}});
+  await page.route(url => url.pathname === "/api/library/materials", route => route.fulfill({json: {offset: 0, total: 3,
+    items: [item("a", "Asphalt - fine (1K)"), item("b", "Cliff - red desert rock with a long name (1K)"), item("c", "Gravel")]}}));
+  await openEditor(page);
+  await page.getByRole("button", {name: "Library", exact: true}).click();
+  const cards = page.getByRole("dialog", {name: "Asset library"}).locator("[data-library-browser] button[aria-pressed]");
+  await expect(cards.first()).toBeVisible();
+  const layout = await cards.evaluateAll(all => all.map(card => {
+    const box = card.getBoundingClientRect(), picture = card.firstElementChild!.getBoundingClientRect();
+    return {name: card.getAttribute("aria-label"), lines: Math.round(card.lastElementChild!.getBoundingClientRect().height / 15), height: box.height, offset: Math.round(picture.top - box.top)};
+  }));
+  expect(new Set(layout.map(card => card.lines)).size, JSON.stringify(layout)).toBeGreaterThan(1);
+  expect(new Set(layout.map(card => card.offset)).size, JSON.stringify(layout)).toBe(1);
+  expect(new Set(layout.map(card => card.height)).size, JSON.stringify(layout)).toBe(1);
+});
+
 test("library filters keep their keys instead of switching the active Editor tool", async ({page}) => {
   await openEditor(page);
   await page.getByRole("button", {name: "Library", exact: true}).click();

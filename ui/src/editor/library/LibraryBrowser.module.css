@@ -13,10 +13,11 @@
 .browser { flex: 1; overflow: auto; min-height: 0; padding: 2px; border: 1px solid var(--line); border-radius: 7px; }
 .browser > p { padding: 10px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; padding: 8px; }
-.card { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; text-align: left; font-size: 12px; }
+/* (a button centres its content: from the top instead, and two lines kept for the name, so pictures stand level in a row) */
+.card { display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; text-align: left; font-size: 12px; }
 .card[aria-pressed=true], .card:hover { border-color: var(--accent); }
 .card img, .card svg { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; margin-bottom: 6px; border-radius: 4px; }
-.card span { display: block; overflow-wrap: anywhere; }
+.card span { display: block; min-height: 2.5em; line-height: 1.25; overflow-wrap: anywhere; }
 .preview { overflow: auto; }
 .selected { display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
 .selected img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; }

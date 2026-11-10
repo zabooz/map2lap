@@ -4,19 +4,19 @@
 
 :root {
   color-scheme: light;
-  --bg: #e1e5e2; --panel: #f1f3f0; --raised: #e5e9e6; --text: #29332f; --muted: #4f5b54; --line: #cad2cc;
-  --accent: #1b716a; --accent-ink: #ffffff; --accent-soft: #d8e7e1; --map-route: #1b716a;
-  --ok: #277348; --ok-ink: #ffffff; --ok-soft: #dcebdd;
-  --error: #b33142; --error-ink: #ffffff; --error-soft: #f3dfe2;
-  --warn: #895314; --warn-soft: #f1e6d2; --scroll: #b4c0b8; --shadow: 0 10px 30px rgba(30, 42, 36, .15);
+  --bg: #cfd8d1; --panel: #e2e8e3; --raised: #d6ded8; --text: #18221e; --muted: #3f4c45; --line: #b6c3ba;
+  --accent: #006b60; --accent-ink: #ffffff; --accent-soft: #c4ded6; --map-route: #1b716a;
+  --ok: #1d7a43; --ok-ink: #ffffff; --ok-soft: #cce5d2;
+  --error: #b02035; --error-ink: #ffffff; --error-soft: #efd0d5;
+  --warn: #844c05; --warn-soft: #ead9bc; --scroll: #a6b4aa; --shadow: 0 10px 30px rgba(24, 38, 30, .18);
 }
 :root[data-theme=dark] {
   color-scheme: dark;
-  --bg: #14181a; --panel: #202628; --raised: #2b3335; --text: #e5eae8; --muted: #b8c4bf; --line: #414c4d;
-  --accent: #55b9b0; --accent-ink: #102725; --accent-soft: #253f3e;
-  --ok: #7bc99a; --ok-ink: #14291d; --ok-soft: #253e2e;
-  --error: #f294a0; --error-ink: #30161b; --error-soft: #462c33;
-  --warn: #e7b568; --warn-soft: #453924; --scroll: #52625d; --shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  --bg: #0f1416; --panel: #1a2123; --raised: #253033; --text: #f0f5f3; --muted: #b5c5bf; --line: #384648;
+  --accent: #33c3b2; --accent-ink: #062522; --accent-soft: #1b4642;
+  --ok: #62d391; --ok-ink: #0c2a19; --ok-soft: #1c4530;
+  --error: #ff8797; --error-ink: #330f16; --error-soft: #4c2630;
+  --warn: #f2b450; --warn-soft: #4a3820; --scroll: #4e605b; --shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
 /* Scrollbars: thin and round, in the page's colours (Firefox: width and colour only) */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

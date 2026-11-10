@@ -10,6 +10,7 @@ export function AssetLibrary({tab, onTab, onClose, busy, textures, objects, grou
   textures: ReactNode; objects: ReactNode; groups?: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), open = tab !== null;
+  const pressedBeside = useRef(false);     // (a drag from a field out over the backdrop ends in a click on the dialog too)
   useEffect(() => {
     const element = dialog.current!;
     if (open) element.showModal();
@@ -26,7 +27,11 @@ export function AssetLibrary({tab, onTab, onClose, busy, textures, objects, grou
         || event.target.closest("dialog") !== event.currentTarget) return;
       // Search inputs consume Escape themselves; closing the library keeps the search for next time.
       event.preventDefault(); if (!busy) onClose();
-    }}>
+    }}
+    // The tabs and the open tab fill the dialog: only the backdrop beside it is the dialog itself. An import's backdrop,
+    // a portal of its own, reaches here only through React and is not this dialog.
+    onPointerDown={event => { pressedBeside.current = event.target === event.currentTarget; }}
+    onClick={event => { if (pressedBeside.current && event.target === event.currentTarget && !busy) onClose(); }}>
     <div className={styles.tabs} role="tablist" aria-label="Library category">
       <button type="button" role="tab" aria-selected={tab === "textures"} disabled={busy} onClick={() => onTab("textures")}>TEXTURES</button>
       <button type="button" role="tab" aria-selected={tab === "objects"} disabled={busy} onClick={() => onTab("objects")}>OBJECTS</button>
