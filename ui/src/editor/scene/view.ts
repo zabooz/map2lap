@@ -589,7 +589,8 @@ export class TrackView {
     this.navigation.placeCamera(data);
     this.renderer.domElement.focus({preventScroll: true});     // (W A S D work at once, not in the track's dropdown)
     // Generated geometry has its own cancellable loader. Original MeshInfos never change when a copy is added or undone.
-    let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy), this.camera.position.toArray());
+    const sharedLayout = data.meshes.some(m => m.copy) && !!data.models?.length;
+    let queue = nearestLast<MeshInfo>(data.meshes.filter((m: MeshInfo) => !m.copy && !(sharedLayout && m.model)), this.camera.position.toArray());
     let sortedAt = this.camera.position.clone(), sortedWhen = performance.now();
     let total = data.meshes.length;
     let done = 0, copiedDone = 0, texturesDone = 0;
@@ -611,7 +612,7 @@ export class TrackView {
     };
     this.loadedTexture = () => { texturesDone++; report(); };
     const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data).then(() => {
-      copiedDone = data.meshes.filter((m: MeshInfo) => m.copy).length;
+      copiedDone = data.meshes.filter((m: MeshInfo) => m.copy || sharedLayout && m.model).length;
       report();
     }) : Promise.resolve();
     report();
@@ -1030,7 +1031,6 @@ export class TrackView {
   refreshMeshes(meshes: number[]) {
     if (meshes.includes(-2)) {
       void (async () => {
-        if (meshes.includes(-1)) { this.detachModelMeshes(); await this.syncCopies(); }
         await this.reloadModels();
         this.refreshMeshes(meshes.filter(i => i >= 0));
       })();
@@ -1057,11 +1057,6 @@ export class TrackView {
     this.usedBytes -= COPIES * meshBytes(info) + ((mesh.userData.indices as Uint16Array | undefined)?.byteLength ?? 0);
     this.materialAreas?.delete(info.i);
     this.geometryPreview.changedMeshes.delete(info.i); this.geometryPreview.replaced(info.i);
-  }
-
-  private detachModelMeshes() {
-    for (const mesh of this.modelMeshes()) this.dropModelMesh(mesh);
-    this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).model);
   }
 
   /** The loaded model meshes as the index now lays them out: those made from the same thing stay under their new numbers, with what is
@@ -1092,21 +1087,32 @@ export class TrackView {
       yet are downloaded. Returns how many model meshes the index has. */
   private async reloadModels(retries = 2): Promise<number | null> {
     const mine = this.token, asked = ++this.modelTransformVersion, signal = this.loading.signal;
+    ++this.copyVersion;
+    this.copyLoading?.abort();
     let reserved = 0;
     try {
       const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
       const wanted = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
       const loaded = new Set(this.modelMeshes().map(m => modelMeshKey(m.userData.info as MeshInfo)));
       const added = wanted.filter(info => !loaded.has(modelMeshKey(info)));
-      const buffers = await Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal))));
+      const copies = data.meshes.filter(info => info.copy);
+      const [buffers, copyBuffers] = await Promise.all([
+        Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
+        Promise.all(copies.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
+      ]);
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
-      if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) throw new Error("The models exceed the Editor memory limit");
+      const oldCopies = this.meshes.filter(m => (m.userData.info as MeshInfo).copy).reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0);
+      const copyBytes = copies.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
+      if (!fits(this.usedBytes - oldCopies, bytes + copyBytes, this.settings.memoryGb)) throw new Error("The models and copies exceed the Editor memory limit");
       this.usedBytes += bytes; reserved = bytes;
       if (data.models?.length) this.ensureModelLight();
       await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       const kept = this.keepModelMeshes(wanted);
+      // Copies precede models in the server's layout. Move kept model numbers before adding copies at their former numbers.
+      // Commit both layouts without an await: Revert and a late model index cannot resurrect or hide copied trees.
+      if (copies.length || this.meshes.some(m => (m.userData.info as MeshInfo).copy)) this.applyCopies(data, copyBuffers, this.heightsVersion);
       const previousRemoved = this.removed;
       this.data = data;
       this.objectPieces = objectIndex(data.objects); this.belonging = childrenOf(data.objects);
@@ -1140,6 +1146,8 @@ export class TrackView {
 
   /** Reload only generated meshes and object ids, keeping the camera and the source track's meshes. */
   private async syncCopies(initial?: TrackIndex, retries = 2): Promise<void> {
+    if (this.modelMeshes().length || this.data?.models?.length || initial?.models?.length) { await this.reloadModels(); return; }
+    ++this.modelTransformVersion;
     const mine = this.token, asked = ++this.copyVersion;
     this.copyLoading?.abort();
     this.copyLoading = new AbortController();
@@ -1163,45 +1171,53 @@ export class TrackView {
       })));
       if (mine !== this.token || asked !== this.copyVersion) return;
       if (!fits(this.usedBytes - wasBytes, newBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
-      for (const mesh of replacing) {
-        const info = mesh.userData.info as MeshInfo;
-        this.scene.remove(mesh);
-        mesh.geometry.boundsTree = undefined;
-        mesh.geometry.dispose();
-        this.byNumber.delete(info.i);
-        this.usedBytes -= COPIES * meshBytes(info);
-      }
-      this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).copy);
-      const sourceObjects = Object.fromEntries(Object.entries(this.data.objects).filter(([key]) => !key.startsWith("copy_")));
-      const copyObjects = Object.fromEntries(Object.entries(data.objects).filter(([key]) => key.startsWith("copy_")));
-      this.data = {...this.data, copy_revision: tag, draft: data.draft,
-        meshes: [...this.data.meshes.filter(info => !info.copy), ...added], objects: {...sourceObjects, ...copyObjects}};
-      // Only copied lists changed. Keep the source's piece/parent indexes, which can contain millions of entries.
-      for (const [key, pieces] of this.objectPieces) if (pieces[0]?.id.startsWith("copy_")) this.objectPieces.delete(key);
-      for (const [key, value] of objectIndex(copyObjects)) this.objectPieces.set(key, value);
-      for (const key of this.belonging.keys()) if (key.startsWith("copy_")) this.belonging.delete(key);
-      for (const [key, value] of childrenOf(copyObjects)) this.belonging.set(key, value);
-      this.removed = this.wanted();
-      this.noteListedOut();
-      added.forEach((info, k) => {
-        const bytes = COPIES * meshBytes(info);
-        this.usedBytes += bytes;
-        this.addMesh(this.trackName, this.data!, info, buffers[k]);
-        if (heightAsked !== this.heightsVersion) void this.refresh(info.i);
-      });
-      for (const id of [...this.picks.keys()]) {
-        const [base, k] = id.split("#");
-        if (base.startsWith("copy_") && !copyObjects[base]?.faces[Number(k)]?.length) this.dropPick(id);
-      }
-      this.reframePicks();
+      this.applyCopies(data, buffers, heightAsked);
       this.onViewFailed(null);
-      this.dirty = true;
-      this.hoverDue = true;
     } catch (e) {
       if (mine !== this.token || asked !== this.copyVersion || signal.aborted) return;
       if (e instanceof MeshFetchError && e.status === 409 && retries > 0) return this.syncCopies(undefined, retries - 1);
       this.onViewFailed((e as Error).message);
     }
+  }
+
+  /** Atomically replace generated copy geometry within the same layout as the model meshes. */
+  private applyCopies(data: TrackIndex, buffers: ArrayBuffer[], heightAsked: number) {
+    const current = this.data!;
+    const added = data.meshes.filter(info => info.copy), tag = data.copy_revision ?? "";
+    for (const mesh of this.meshes.filter(m => (m.userData.info as MeshInfo).copy)) {
+      const info = mesh.userData.info as MeshInfo;
+      this.scene.remove(mesh);
+      mesh.geometry.boundsTree = undefined;
+      mesh.geometry.dispose();
+      if (this.byNumber.get(info.i) === mesh) this.byNumber.delete(info.i);
+      this.usedBytes -= COPIES * meshBytes(info);
+    }
+    this.meshes = this.meshes.filter(m => !(m.userData.info as MeshInfo).copy);
+    const sourceObjects = Object.fromEntries(Object.entries(current.objects).filter(([key]) => !key.startsWith("copy_")));
+    const copyObjects = Object.fromEntries(Object.entries(data.objects).filter(([key]) => key.startsWith("copy_")));
+    this.data = {...current, copy_revision: tag, draft: data.draft,
+      meshes: [...current.meshes.filter(info => !info.copy), ...added], objects: {...sourceObjects, ...copyObjects}};
+    // Only copied lists changed. Keep the source's piece/parent indexes, which can contain millions of entries.
+    for (const [key, pieces] of this.objectPieces) if (pieces[0]?.id.startsWith("copy_")) this.objectPieces.delete(key);
+    for (const [key, value] of objectIndex(copyObjects)) this.objectPieces.set(key, value);
+    for (const key of this.belonging.keys()) if (key.startsWith("copy_")) this.belonging.delete(key);
+    for (const [key, value] of childrenOf(copyObjects)) this.belonging.set(key, value);
+    this.removed = this.wanted();
+    this.noteListedOut();
+    added.forEach((info, k) => {
+      const bytes = COPIES * meshBytes(info);
+      this.usedBytes += bytes;
+      this.addMesh(this.trackName, this.data!, info, buffers[k]);
+      if (heightAsked !== this.heightsVersion) void this.refresh(info.i);
+    });
+    for (const id of [...this.picks.keys()]) {
+      const [base, k] = id.split("#");
+      if (base.startsWith("copy_") && !copyObjects[base]?.faces[Number(k)]?.length) this.dropPick(id);
+    }
+    this.reframePicks();
+    this.settlePending(data);
+    this.dirty = true;
+    this.hoverDue = true;
   }
 
   /** A translucent source follows the mouse; each left click places another independent instance. */
@@ -1219,7 +1235,8 @@ export class TrackView {
     this.copyStamp = [];
     this.onCopyPlace = place;
     if (!source || !place) { this.dirty = true; return; }
-    const group = new THREE.Group();
+    const group = new THREE.Group(), solid = new THREE.Group();
+    const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = [];
     group.matrixAutoUpdate = false;
     const ids = [...takenAlong([source], this.belonging)].filter(id => this.canMove(id));
     for (const id of ids) for (const piece of this.piecesOf(id, false)) {
@@ -1241,9 +1258,18 @@ export class TrackView {
       material.opacity = 0.5;
       material.depthWrite = false;
       group.add(new THREE.Mesh(geometry, material));
+      const opaque = (m.material as THREE.Material).clone(); opaque.visible = true;
+      solid.add(new THREE.Mesh(geometry, opaque));
+      geometries.push(geometry); materials.push(material, opaque);
     }
     const box = new THREE.Box3().setFromObject(group), pivot = this.pivotOf(source);
     if (box.isEmpty()) return;
+    const releaseAsset = source.startsWith("instance_") ? this.modelDraw.hold(source.split("#")[0]) : () => {};
+    let holders = 1;
+    const release = () => { if (--holders === 0) { for (const g of geometries) g.dispose(); for (const m of materials) m.dispose(); releaseAsset(); } };
+    this.copyRelease = release;
+    this.modelGhostSolid = solid;
+    this.modelGhostHold = () => { holders++; let active = true; return () => { if (active) { active = false; release(); } }; };
     this.copyFoot.set(foot?.[0] ?? pivot[0], foot?.[1] ?? box.min.y, foot?.[2] ?? pivot[2]);
     this.copyGhost = group;
     this.scene.add(group);
@@ -1300,10 +1326,11 @@ export class TrackView {
 
   /** The ghost's model shown solid where the ghost stands, at once, until the server's instance is drawn (settlePending). Its key, null
       while the ghost's model loads. */
-  private addPending() {
+  addPending(at?: [number, number, number]) {
     if (!this.copyGhost || !this.modelGhostSolid || !this.modelGhostHold) return null;
     const root = new THREE.Group();
-    root.matrixAutoUpdate = false; root.matrix.copy(this.copyGhost.matrix); root.userData.pendingModel = true;
+    root.matrixAutoUpdate = false; root.matrix.copy(this.copyGhost.matrix); root.matrixWorldNeedsUpdate = true; root.userData.pendingModel = true;
+    if (at) this.copyMatrix(root.matrix, at);
     root.add(this.modelGhostSolid.clone(true));
     const key = ++this.pendingKey;
     this.pendingModels.set(key, {root, release: this.modelGhostHold()});
@@ -1332,9 +1359,15 @@ export class TrackView {
   private settlePending(data: TrackIndex) {
     for (const [key, {instance, draft}] of this.pendingModels) {
       if (instance === undefined) continue;
-      if (this.modelDraw.instance(instance) || (data.draft ?? 0) > draft! && !data.models?.some(m => m.id === instance)) this.dropPending(key);
+      const copied = instance.startsWith("copy_");
+      const exists = copied ? !!data.objects[instance] : data.models?.some(m => m.id === instance);
+      const drawn = copied ? this.meshes.some(m => (m.userData.info as MeshInfo).copy) && exists : this.modelDraw.instance(instance);
+      if (drawn || (data.draft ?? 0) > draft! && !exists) this.dropPending(key);
     }
   }
+
+  /** A failed background placement stays visible as an editor error even after leaving Copy. */
+  copyFailed(message: string) { this.onViewFailed(message); }
 
   /** Extra turn, height over the ground and size for the next copies, around their foot. */
   setCopyPose(pose: CopyPose) {
@@ -1349,6 +1382,15 @@ export class TrackView {
     return hit ? hit.point.toArray() as [number, number, number] : null;
   }
 
+  /** Freeze the clicked foot and current tool pose; a click can arrive before the ghost's next rendered frame. */
+  private copyMatrix(matrix: THREE.Matrix4, at: [number, number, number]) {
+    const {turn, y, scale} = this.copyPose;
+    matrix.makeTranslation(at[0], at[1] + y, at[2])
+      .multiply(new THREE.Matrix4().makeRotationY(turn * Math.PI / 180))
+      .multiply(new THREE.Matrix4().makeScale(scale, scale, scale))
+      .multiply(new THREE.Matrix4().makeTranslation(-this.copyFoot.x, -this.copyFoot.y, -this.copyFoot.z));
+  }
+
   private followCopy() {
     if (!this.copyGhost || !this.shown) return;
     const c = this.camera, p = c.position, q = c.quaternion;
@@ -1359,11 +1401,7 @@ export class TrackView {
     const at = this.copyAt();
     this.copyGhost.visible = !!at && !this.held;
     if (at) {
-      const {turn, y, scale} = this.copyPose;
-      this.copyGhost.matrix.makeTranslation(at[0], at[1] + y, at[2])
-        .multiply(new THREE.Matrix4().makeRotationY(turn * Math.PI / 180))
-        .multiply(new THREE.Matrix4().makeScale(scale, scale, scale))
-        .multiply(new THREE.Matrix4().makeTranslation(-this.copyFoot.x, -this.copyFoot.y, -this.copyFoot.z));
+      this.copyMatrix(this.copyGhost.matrix, at);
       this.copyGhost.matrixWorldNeedsUpdate = true;
       performance.clearMarks("map2lap.models.ghost");
       performance.mark("map2lap.models.ghost", {detail: {visible: this.copyGhost.visible,

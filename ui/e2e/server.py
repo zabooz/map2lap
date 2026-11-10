@@ -7,6 +7,7 @@ map data, the net). So a test can press Delete or Clear without any harm, and ne
 import json
 import math
 import os
+from pathlib import Path
 import shutil
 import struct
 import sys
@@ -28,7 +29,7 @@ import furniture  # noqa: E402
 import server  # noqa: E402
 from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, updater, version  # noqa: E402
 from scenery import cars, trees  # noqa: E402
-from track import editorinfo, kn5, objectlist  # noqa: E402
+from track import editorinfo, kn5, objectlist, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
 # Test an isolated UI build without replacing the live generator page's bundles.
@@ -308,6 +309,7 @@ def stand_ins():
     server.ROOT = mytracks.ROOT = TMP
     materiallibrary.ROOT = TMP
     objectlibrary.ROOT = TMP
+    surfaceindex.CACHE_ROOT = Path(TMP, "out", "editor-selection")
     server.MARK = os.path.join(TMP, "out", "build_running.json")
 
     def record(name, value=None):

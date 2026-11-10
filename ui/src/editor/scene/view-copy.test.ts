@@ -30,7 +30,19 @@ test("the Copy preview takes every member once, excludes a pole's wires, and use
   view.setCopy("t_0_0#0", () => {}, [0, -4, 0]);
   view.setCopyPose({turn: 90, y: 2, scale: 2});
   expect(new THREE.Box3().setFromObject(scene.children[0]).min.y).toBe(32);
+  Object.assign(view, {pendingModels: new Map(), pendingKey: 0});
+  const pending = (view as unknown as {addPending: () => number | null}).addPending();
+  expect(pending).not.toBeNull();
+  const solid = scene.children.find(c => c.userData.pendingModel)!;
+  expect(new THREE.Box3().setFromObject(solid).min.y).toBe(32);
+  expect(((solid.children[0] as THREE.Group).children[0] as THREE.Mesh).material).toMatchObject({opacity: 1});
+  const click = view.addPending([4, 30, 6])!;
+  const clicked = scene.children.filter(c => c.userData.pendingModel).at(-1)!;
+  expect(new THREE.Box3().setFromObject(clicked).min.y).toBe(42);
   view.setCopy(null, null);
+  expect(new THREE.Box3().setFromObject(solid).min.y).toBe(32);
+  view.dropPending(pending!);
+  view.dropPending(click);
   geometry.dispose(); mesh.material.dispose();
 });
 

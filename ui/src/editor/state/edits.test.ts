@@ -2,6 +2,22 @@ import {expect, test} from "bun:test";
 import {isCurrent, TrackEdits, type Removed} from "./edits";
 import {tree, json, server, settle, started} from "./edits.fixture";
 
+test("a refused background copy is removed from the draft and history without losing unrelated edits", async () => {
+  const {edits} = await started();
+  edits.remove([tree(0)]);
+  edits.addModel({id: "instance_failed", asset: "tree", at: [0, 0, 0], replaces: null, collision: "none"},
+    [{id: "instance_failed#0", x: 0, y: 1, z: 0, turn: 20, scale: 1}]);
+  edits.rejectCopy("instance_failed");
+  expect(edits.state().models).toEqual([]);
+  expect(edits.state().placed).toEqual([]);
+  expect(edits.state().removed).toEqual([tree(0)]);
+  edits.undo();
+  expect(edits.state().removed).toEqual([]);
+  edits.redo();
+  expect(edits.state().removed).toEqual([tree(0)]);
+  expect(edits.state().models).toEqual([]);
+});
+
 test("replacing multiple trees and their individual fitted poses is a single Undo step", async () => {
   const {edits} = await started();
   const models = [1, 2].map(i => ({id: `instance_${i}`, asset: "tree", at: [i, 0, 0] as [number, number, number],

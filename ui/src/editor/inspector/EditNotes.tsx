@@ -32,7 +32,7 @@ export function EditNotes({state, edits, view, note, viewFailed, saveFailed, mar
       {note && <p id="edit-tool-note" className={styles.line}>{note}</p>}
       {viewFailed && (
         <p id="edit-view-failed" className={styles.line}>
-          The view doesn&apos;t show the last change, it is kept all the same: {viewFailed}{" "}
+          The editor could not complete this operation: {viewFailed}{" "}
           <button type="button" onClick={then(reopen)}>Load again</button>
         </p>
       )}

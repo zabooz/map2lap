@@ -46,15 +46,29 @@ export function CopyTool({name, edits, view, picked, onWheel}: {name: string; ed
     if (!ready) return;
     const template = ready.template;
     const options = {turn: pose.turn, y: pose.y, scale: pose.scale};
+    let shown = view.addPending(at);
+    let created: string | null = null;
     void edits.inTurn(async () => {
-      if (!edits.canEdit()) return;
-      edits.saveNow();
-      const revision = await edits.saved();
-      if (revision === null) return;
-      const r = await post<{copy?: ObjectCopy; model?: ModelInstance; placed?: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/copy`,
-        {base: edits.boundRevision(), revision, template, at, pose: options});
-      if (r.error || (!r.copy && !r.model)) setFault(r.error ?? "Could not place the copy");
-      else { if (r.model) edits.addModel(r.model, r.placed); else edits.addCopy(r.copy!); setFault(null); }
+      try {
+        if (!edits.canEdit()) throw new Error("The copy could not be kept: the track cannot be edited.");
+        edits.saveNow();
+        const revision = await edits.saved();
+        if (revision === null || !edits.canEdit()) throw new Error("The copy could not be kept: the preceding changes could not be saved.");
+        const r = await post<{copy?: ObjectCopy; model?: ModelInstance; placed?: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/copy`,
+          {base: edits.boundRevision(), revision, template, at, pose: options});
+        if (r.error || (!r.copy && !r.model)) throw new Error(r.error ?? "Could not place the copy");
+        created = (r.model ?? r.copy)!.id;
+        if (shown !== null) view.confirmPending(shown, created, revision);
+        if (r.model) edits.addModel(r.model, r.placed); else edits.addCopy(r.copy!);
+        edits.saveNow();
+        if (await edits.saved() === null) throw new Error(edits.state().error ?? "Could not keep the copy");
+        shown = null;
+        setFault(null);
+      } catch (error) {
+        if (created) edits.rejectCopy(created);
+        const message = (error as Error).message;
+        setFault(message); view.copyFailed(`Copy failed: ${message}`);
+      } finally { if (shown !== null) view.dropPending(shown); }
     });
   });
 

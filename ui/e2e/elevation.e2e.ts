@@ -201,7 +201,7 @@ test("the brush: only what the server names is fetched again, and what can't be 
 
   await page.route(/\/mesh\/\d+\?/, r => r.fulfill({status: 503, json: {error: "no"}}));
   await brushStroke(page);
-  await expect(page.locator("#edit-view-failed")).toContainText("doesn't show the last change");
+  await expect(page.locator("#edit-view-failed")).toContainText("could not complete this operation");
   await page.unroute(/\/mesh\/\d+\?/);
   await page.getByRole("tab", {name: "Details", exact: true}).click();
   await page.locator("#edit-view-failed").getByRole("button", {name: "Load again"}).click();

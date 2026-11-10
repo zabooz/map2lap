@@ -54,6 +54,7 @@ export class ModelDraw {
   private instances = new Map<string, {asset: string; root: THREE.Group}>();
   private version = 0;
   private wanted = new Set<string>();
+  private held = new Map<string, number>();
   private environment: THREE.Texture | null = null;
   private power = 1;
 
@@ -73,6 +74,27 @@ export class ModelDraw {
               private report = true) {}
 
   instance(id: string) { return this.instances.get(id)?.root; }
+
+  /** Hold a Copy source's shared images even when Revert removes its binding. Release is idempotent. */
+  hold(instance: string) {
+    const id = this.instances.get(instance)?.asset;
+    if (!id) return () => {};
+    this.held.set(id, (this.held.get(id) ?? 0) + 1);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      const count = (this.held.get(id) ?? 1) - 1;
+      if (count) this.held.set(id, count); else this.held.delete(id);
+      this.releaseUnused();
+    };
+  }
+
+  private releaseUnused() {
+    for (const [id, asset] of this.assets) if (!this.wanted.has(id) && !this.held.has(id)) {
+      this.assets.delete(id); release(asset); this.reserve(-asset.bytes);
+    }
+  }
 
   stats() {
     return {assets: this.assets.size, instances: this.instances.size,
@@ -164,9 +186,7 @@ export class ModelDraw {
       }
       instance.root.matrix.fromArray(matrices[binding.id]); instance.root.matrixWorldNeedsUpdate = true;
     }
-    for (const [id, asset] of this.assets) if (!ids.has(id)) {
-      this.assets.delete(id); release(asset); this.reserve(-asset.bytes);
-    }
+    this.releaseUnused();
     if (this.report) {
       performance.clearMarks("map2lap.models.resources");
       performance.mark("map2lap.models.resources", {detail: this.stats()});
@@ -191,6 +211,7 @@ export class ModelDraw {
     this.instances.clear();
     for (const asset of this.assets.values()) { release(asset); this.reserve(-asset.bytes); }
     this.assets.clear();
+    this.held.clear();
     for (const pending of this.pending.values()) void pending.then(release, () => {});
     this.pending.clear();
   }
