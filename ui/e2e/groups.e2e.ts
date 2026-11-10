@@ -1,7 +1,7 @@
 import {execFileSync} from "node:child_process";
 import {join} from "node:path";
-import {expect, openEditor, scene, test} from "./fixtures";
-import {picture, saved} from "./edit-helpers";
+import {expect, openEditor, scene, stillView, test} from "./fixtures";
+import {AWAY, picture, saved} from "./edit-helpers";
 
 async function prepare(page: import("@playwright/test").Page) {
   const repo = join(import.meta.dirname, "../.."), python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
@@ -79,6 +79,24 @@ test("a group shows its mix as a 3D patch with what 100 objects cost; its settin
   await page.getByRole("button", {name: "Insert", exact: true}).click();
   await library.getByRole("tab", {name: "GROUPS", exact: true}).click();
   await expect(library.getByLabel("Group name", {exact: true})).toHaveValue("Waldrand");
+});
+
+test("the ring shows what a click would plant while it is moved, without asking the server; the click plants just those", async ({page}, info) => {
+  await openEditor(page); const library = await prepare(page);
+  await library.getByRole("button", {name: "Paint group", exact: true}).click();
+  await expect(page.locator("#edit-group-set")).toBeVisible();
+  let asked = 0;
+  page.on("request", r => { if (/\/api\/editor\/alpha\/(model|mesh\/|ground|height)/.test(r.url())) asked++; });
+  const box = (await scene(page).boundingBox())!;
+  await page.mouse.move(box.x + 590, box.y + 395); await page.mouse.move(box.x + 600, box.y + 400);
+  await expect.poll(async () => (await preview(page))?.key).toBe("hover");
+  const hovered = (await preview(page)).count;
+  expect(hovered).toBeGreaterThan(2);
+  await stillView(page); await scene(page).screenshot({path: info.outputPath("ring-preview.png")});
+  expect(asked).toBe(0);
+  await page.mouse.down(); await page.mouse.up();
+  await expect.poll(async () => (await draft(page)).models?.length ?? 0).toBe(hovered);
+  await page.mouse.move(box.x + 20, box.y + 20); await page.mouse.move(AWAY.x, AWAY.y);
 });
 
 test("a saved mixture paints locally before any placement request and commits one undoable stroke", async ({page}, info) => {

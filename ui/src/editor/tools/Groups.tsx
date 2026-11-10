@@ -11,6 +11,8 @@ import {ScatterWorker} from "./scatterWorker";
 import {stepped} from "./useBrush";
 import {ToolNumber, ToolOptions} from "./ToolOptions";
 
+const HOVER = "hover";       // (the group the ring shows before a click)
+
 /** A browser-only mixture preview becomes one ordinary batch of model bindings and poses per completed stroke. */
 export function Groups({name, view, edits, group, models, enabled, onWheel, onFailed}: {name: string; view: TrackView; edits: TrackEdits;
   group: ObjectGroup | null; models: LibraryModel[]; enabled: boolean; onWheel: (wheel: (keys: WheelKeys, by: number) => void) => void;
@@ -37,7 +39,31 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
     let calculations = Promise.resolve();
     interface Stroke {key: string; seed: number; version: number}
     let current: Stroke | null = null;
-    const stroke = () => current ??= {key: crypto.randomUUID(), seed: crypto.getRandomValues(new Uint32Array(1))[0], version: 0};
+    // The next stroke's seed is drawn before it: the ring shows what a click with it would plant, and the click plants just that.
+    const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
+    let nextSeed = newSeed();
+    const stroke = () => {
+      if (!current) { current = {key: crypto.randomUUID(), seed: nextSeed, version: 0}; nextSeed = newSeed(); ringAt = null; void view.dropGroup(HOVER); }
+      return current;
+    };
+    // While the ring moves without a stroke, what a click there would plant, cheaply: the brush's own scatter, every plant at the ring's
+    // ground height (no ground looked up under each; a slope shows them floating or sunk until the click sets each on its ground).
+    let ringAt: [number, number, number] | null = null, hovering = false;
+    const hover = async () => {
+      if (hovering) return;
+      hovering = true;
+      try {
+        for (let at = ringAt; at && !closing && !current; at = ringAt === at ? null : ringAt) {
+          const result = await worker.run([[at[0], at[2], 0]], {entries: group.entries, radius, density, spacing, seed: nextSeed, regular: group.randomPosition === false},
+            [...occupied(), ...[...queued.values()].flat().map(p => ({x: p.at[0], z: p.at[2]}))]);
+          if (closing || current || ringAt !== at) continue;
+          await view.showGroup(HOVER, result.plants.map(p => ({model: p.model, at: [p.x, at[1], p.z] as [number, number, number], turn: p.turn, scale: p.scale})), models);
+        }
+      } catch { /* (a hover that fails shows nothing; the click says why) */ }
+      finally { hovering = false; }
+      if (!ringAt && !current) void view.dropGroup(HOVER);
+    };
+    view.setRingMoved(at => { ringAt = at; if (at) void hover(); else void view.dropGroup(HOVER); });
     const calculate = async (samples: Sample[], s: Stroke) => {
       const result = await worker.run(samples, {entries: group.entries, radius, density, spacing, seed: s.seed, regular: group.randomPosition === false},
         [...occupied(), ...[...queued.values()].flat().map(p => ({x: p.at[0], z: p.at[2]}))]);
@@ -94,7 +120,7 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
       return null;
     }, why => setNote(why), () => { if (current) { void view.dropGroup(current.key); current = null; } });
     return () => {
-      closing = true; view.cancelStroke(); view.setBrush(null);
+      closing = true; view.setRingMoved(null); void view.dropGroup(HOVER); view.cancelStroke(); view.setBrush(null);
       view.setStroke(() => {}, () => Promise.resolve(null), () => {});
       if (current) void view.dropGroup(current.key);
       if (!finishing) worker.dispose();

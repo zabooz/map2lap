@@ -739,6 +739,13 @@ export class TrackView {
     });
   }
 
+  /** onRingMoved gets where the ring stands on the ground whenever it moves while no stroke runs, null off the ground (the Groups
+      brush shows there what a click would plant). */
+  private onRingMoved: (at: [number, number, number] | null) => void = () => {};
+  setRingMoved(onRingMoved: ((at: [number, number, number] | null) => void) | null) {
+    this.onRingMoved = onRingMoved ?? (() => {});
+  }
+
   /** The brush set, or none: while it is, the left button paints instead of picking. */
   setBrush(brush: Brush | null) {
     const was = this.brush;
@@ -1555,6 +1562,7 @@ export class TrackView {
       this.ring.scale.setScalar(this.brush.radius);
       (this.ring.material as THREE.LineBasicMaterial).color.set(turned ? this.brush.turnedColour : this.brush.colour);
     }
+    if (!this.stroke) this.onRingMoved(at ? [at.x, at.y, at.z] : null);
     if (this.brush.marks || this.brushMarks.size) {
       this.markAt = at ? [at.x, at.z] : null;
       if (!this.marksDue) { this.marksDue = true; requestAnimationFrame(() => this.markBrush()); }

@@ -506,7 +506,10 @@ Definitions live under the user's `library/groups/<id>.json`, outside shipped as
 group does not remove planted models. A group whose model was removed stays readable so the missing entry can be removed.
 Groups saved before the two switches read as random.
 
-**Paint group** saves the mixture and opens the Groups brush: click to stamp, hold and move to paint. Radius (Shift + wheel),
+**Paint group** saves the mixture and opens the Groups brush: click to stamp, hold and move to paint. While the ring moves without a
+stroke it shows what a click there would plant (`view.setRingMoved`): the next stroke's seed is drawn beforehand, the worker scatters
+with it, and every plant stands at the ring's ground height, with no ground looked up under each and no server request; the click
+plants just those, each on its own ground. Radius (Shift + wheel),
 density in plants per 100 square metres (Ctrl + wheel) and minimum foot-to-foot spacing (Alt + wheel) control its distribution.
 Trees and other models stay upright with random yaw and uniformly scaled proportions, unless their entry's random is off.
 Without random position each candidate stands in its lattice cell's middle, so the plants stand in rows. The browser worker
