@@ -1,11 +1,10 @@
-import {useEffect, useState, type ReactNode} from "react";
+import {useEffect, useState} from "react";
 import {surfaceName, type SurfacePoint, type SurfaceSelection} from "../scene/surfaces";
 import type {TrackView} from "../scene/view";
 
-/** Inspect one clicked painted surface. Selection never changes the draft; unmounting cancels the request and highlight. */
-export function SurfaceInfo({name, surfaces, view, children, onSelected}: {name: string; surfaces: SurfacePoint[]; view: TrackView;
-  onSelected?: (selection: SurfaceSelection | null) => void;
-  children?: (selection: SurfaceSelection | null) => ReactNode}) {
+/** Inspect one clicked painted surface: its materials' names. Selection never changes the draft; unmounting cancels the request and highlight. */
+export function SurfaceInfo({name, surfaces, view, onSelected}: {name: string; surfaces: SurfacePoint[]; view: TrackView;
+  onSelected?: (selection: SurfaceSelection | null) => void}) {
   const [selected, setSelected] = useState<SurfaceSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -44,6 +43,7 @@ export function SurfaceInfo({name, surfaces, view, children, onSelected}: {name:
     return () => { controller.abort(); void view.setSurface(null); onSelected?.(null); };
   }, [name, surfaces, view, onSelected]);
   if (error) return <p id="edit-surface-error" className="small muted">{error}</p>;
-  return <>{children?.(selected)}<p id="edit-surface" className="small muted">{selected ? `${(selected.materials ?? [selected.material]).map(surfaceName).join(", ")} selected. Esc clears the selection.` : "Selecting ground…"}
-    {selected?.truncated && " The surface continues beyond the highlighted area."}</p></>;
+  if (!selected) return <p className="small muted">Selecting ground…</p>;
+  return <><strong id="edit-surface">{(selected.materials ?? [selected.material]).map(surfaceName).join(", ")}</strong>
+    {selected.truncated && <p className="small muted">The surface continues beyond the highlighted area.</p>}</>;
 }

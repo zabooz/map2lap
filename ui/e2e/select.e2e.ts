@@ -78,3 +78,36 @@ test("Ctrl adds painted regions while Shift requests the whole connected road", 
   await expect.poll(() => urls.length).toBe(3);
   expect(JSON.parse(new URL(urls[2]).searchParams.get("points")!)[0].whole).toBe(true);
 });
+
+test("the Select bar offers what can be done with the picked ground or object, Alt does its Alt place, and T smooths from the picked road", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
+  await openEditor(page);
+  const bar = page.locator("#edit-select-set"), library = page.getByRole("dialog", {name: "Asset library"});
+  const road = await centre(scene(page));
+  await page.mouse.click(road.x, road.y);
+  await expect(page.locator("#edit-surface")).toContainText("Asphalt");
+  await expect(bar.locator("#edit-select-texture")).toBeVisible();
+  await expect(bar).toContainText("Alt");
+  await expect(bar.locator("#edit-select-move")).toHaveCount(0);
+  await bar.locator("#edit-select-texture").click();
+  await expect(library).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(library).toBeHidden();
+  await page.mouse.click(road.x, road.y);
+  await page.keyboard.press("Alt");
+  await expect(library).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.mouse.click(road.x, road.y);
+  await page.keyboard.press("t");
+  await expect(page.locator("#edit-band")).toContainText("A is set");
+  await page.keyboard.press("Escape");
+  const tree = await findTree(page);
+  await page.mouse.click(tree.x, tree.y);
+  await expect(bar.locator("#edit-select-replace")).toBeVisible();
+  await bar.locator("#edit-select-move").click();
+  await expect(page.locator("#edit-move-set")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.mouse.click(tree.x, tree.y);
+  await bar.locator("#edit-select-delete").click();
+  await expect.poll(async () => (await stored(page)).deleted.length).toBe(1);
+});

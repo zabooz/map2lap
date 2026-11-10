@@ -10,7 +10,7 @@ test("Edit changes repetition without reimport, and deleting its library entry p
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
   const properties = page.getByRole("complementary", {name: "Inspector"});
-  await expect(page.locator("#edit-surface")).toContainText("Meadow selected");
+  await expect(page.locator("#edit-surface")).toHaveText("Meadow");
   await page.getByRole("button", {name: "Library", exact: true}).click();
   const picker = page.getByRole("dialog", {name: "Asset library", exact: true});
   await picker.getByLabel('Texture file').setInputFiles(photo);

@@ -3,7 +3,7 @@ import type {EditState} from "../state/edits";
 import {HoverBox} from "./HoverBox";
 import {sortName} from "../scene/inspect";
 import {SurfaceInfo} from "./SurfaceInfo";
-import {surfaceName, type SurfacePoint, type SurfaceSelection} from "../scene/surfaces";
+import type {SurfacePoint, SurfaceSelection} from "../scene/surfaces";
 import type {Hovered, Marked, Picked} from "../types";
 import type {TrackView} from "../scene/view";
 import styles from "./Inspector.module.css";
@@ -88,7 +88,7 @@ interface TextureAppearance {
   name: string; preview: string; repeat: [number, number] | null; variation: boolean; original: boolean; mixed: boolean;
 }
 
-/** The active colour image, separated from source mesh/material diagnostics. */
+/** The active colour image, separated from source mesh/material diagnostics. onEdit: opens the textures, null where the paint can't change. */
 export function AppearanceCard({info, onEdit}: {info: TextureAppearance; onEdit: (() => void) | null}) {
   const [failed, setFailed] = useState(false);
   return <>
@@ -97,10 +97,26 @@ export function AppearanceCard({info, onEdit}: {info: TextureAppearance; onEdit:
     </button> : <img className={styles.preview} src={info.preview} alt="Selected texture" onError={() => setFailed(true)} />)}
     <strong>{info.name}</strong>
     {info.repeat && <p className="small muted">{info.repeat.join(" × ")} m per repeat{info.variation && " · Repetition variation"}</p>}
-    {info.original && <p className="small muted">Original track appearance.</p>}
     {info.mixed && <p className="small muted">Blended edge: showing the dominant texture at the selected point.</p>}
     {failed && <p className="small muted">Texture preview unavailable.</p>}
+    {onEdit && <button type="button" className={styles.change} onClick={onEdit}>Change texture…</button>}
   </>;
+}
+
+const fixed = (v: number, digits = 2) => v.toFixed(digits);
+
+/** The selection's few facts under its name: what sort and size an object is, its mesh and physics, where it is on the route (else
+    in AC's x, y, z). The whole list is the Details tab's. Pure. */
+export function SelectionFacts({hovered: h}: {hovered: Hovered}) {
+  const type = h.sort ? sortName(h.sort) : h.sprite;
+  return <dl className={`${styles.rows} ${styles.facts}`}>
+    {type && <Row label="Type">{type}</Row>}
+    {h.billboard?.height != null && <Row label="Height">{fixed(h.billboard.height, 1)} m</Row>}
+    <Row label="Mesh">{h.object}</Row>
+    <Row label="Physics">{h.physics}</Row>
+    {h.route ? <Row label="Route">{Math.round(h.route.metre)} m, {fixed(h.route.off, 1)} m off</Row>
+      : <Row label="At">{h.at.map(v => fixed(v)).join(", ")}</Row>}
+  </dl>;
 }
 
 function Appearance({name, picked, version, onEdit}: {name: string; picked: Picked; version: string; onEdit: (() => void) | null}) {
@@ -134,11 +150,12 @@ function Appearance({name, picked, version, onEdit}: {name: string; picked: Pick
 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
 export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, notes}: {
+  onMaterialOpen, notes, transform}: {
   name: string; picked: Picked | null; hovered: Hovered | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
   notes?: ReactNode;
+  transform?: ReactNode;      // (the picked objects' turn, raise and size to type, under the selection)
 }) {
   const [tab, setTab] = useState<"properties" | "details">("properties");
   const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
@@ -169,13 +186,16 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
         {chosen && !chosen.surface && <><strong>{chosen.all.length > 1 ? `${chosen.all.length} objects` : chosen.kind}</strong>
           {chosen.id && <p className={styles.identifier}>{chosen.id}</p>}</>}
         {marked.length > 0 && <p className="small">{marked.map(g => `All ${g.tree ? g.sort : sortName(g.sort)}`).join(", ")}</p>}
-        {surfaces.length > 0 && <SurfaceInfo key={JSON.stringify(surfaces)} name={name} surfaces={surfaces} view={view} onSelected={onSurface}>
-          {selected => selected && <strong>{(selected.materials ?? [selected.material]).map(surfaceName).join(", ")}</strong>}
-        </SurfaceInfo>}
+        {surfaces.length > 0 && <SurfaceInfo key={JSON.stringify(surfaces)} name={name} surfaces={surfaces} view={view} onSelected={onSurface} />}
+        {chosen?.inspection && chosen.all.length <= 1 && <SelectionFacts hovered={chosen.inspection.hovered} />}
+        {chosen && !chosen.surface && transform}
         {!chosen && !surfaces.length && !marked.length && <p className="small muted">Nothing selected. Click a surface or object in the view.</p>}
       </section>
       {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture}`}
         name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null} />}
+      <section id="inspect-pointer" className={styles.section}><h3>Under pointer</h3>
+        <HoverBox hovered={hovered} />
+      </section>
       </div>
       <div id="inspector-details" role="tabpanel" aria-labelledby="inspector-tab-details" hidden={tab !== "details"}>
       <TrackStatistics name={name} revision={state.keptRevision} active={tab === "details" && state.save === "saved"} />
@@ -184,9 +204,6 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
       {chosen?.inspection && <details className={styles.details}><summary>Selected mesh details</summary>
         <HoverBox id="inspect-mesh" hovered={chosen.inspection.hovered} />
       </details>}
-      <details className={styles.details} open><summary>Under pointer</summary>
-        {hovered ? <HoverBox hovered={hovered} /> : <p className="small muted">Point at the track to inspect its surface and position.</p>}
-      </details>
       </div>
     </aside>
   </>;

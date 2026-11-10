@@ -32,7 +32,7 @@ test("apply a grass material, undo, redo, reload and save a standalone copy", as
   await picker.getByRole("button", {name: "Cancel", exact: true}).click();
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
-  await expect(page.locator("#edit-surface")).toContainText("Meadow selected");
+  await expect(page.locator("#edit-surface")).toHaveText("Meadow");
   await panel.getByRole("button", {name: "Edit texture"}).click();
   const apply = picker.getByRole("button", {name: "Apply", exact: true});
   await expect(apply).toBeEnabled();

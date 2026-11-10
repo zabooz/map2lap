@@ -17,3 +17,10 @@ test("every tool has its keys, Elevation its soft edge", () => {
   }
   expect(renderToStaticMarkup(<Help tool="elevation" />)).toMatch(/Ctrl \+ Alt \+ wheel.*soft edge/);
 });
+
+test("Select's help names Alt and the right-click menu, Smooth road's that T starts at a picked road", () => {
+  const select = renderToStaticMarkup(<Help tool="select" />);
+  expect(select).toMatch(/Alt.*texture.*replace/);
+  expect(select).not.toContain("marks all of its sort");
+  expect(renderToStaticMarkup(<Help tool="smooth" />)).toMatch(/T.*picked road/);
+});

@@ -1,0 +1,9 @@
+/* A picked object's turn, raise and size under the selection: label, field, unit in rows */
+.fields { display: grid; gap: 4px; margin-top: 10px; }
+.field { display: grid; grid-template-columns: 88px minmax(0, 1fr) 24px; align-items: center; gap: 8px; }
+.label { color: var(--muted); }
+.field input { height: 26px; min-width: 0; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text);
+               font-variant-numeric: tabular-nums; }
+.unit { color: var(--muted); }
+.reset { justify-self: start; margin-top: 4px; height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); cursor: pointer; }
+.reset:hover { color: var(--accent); border-color: var(--accent); }

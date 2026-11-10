@@ -5,4 +5,3 @@
 .box dl { display: grid; grid-template-columns: 76px 1fr; gap: 1px 8px; margin: 0; }
 .box dt { color: var(--muted); }
 .box dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.box p { margin: 6px 0 0; color: var(--muted); }

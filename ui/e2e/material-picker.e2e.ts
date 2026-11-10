@@ -58,15 +58,16 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   expect(secondBytes.equals(appliedBytes)).toBe(false);
 });
 
-test("the right panel keeps technical mesh and pointer information in Details", async ({page}) => {
+test("Properties show the selection's facts and what is under the pointer; Details keep the selected mesh's whole list", async ({page}) => {
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
   const panel = page.getByRole("complementary", {name: "Inspector"});
   await expect(panel.getByRole("tab", {name: "Properties", exact: true})).toHaveAttribute("aria-selected", "true");
-  await expect(panel.getByText("Under pointer", {exact: true})).toBeHidden();
-  await panel.getByRole("tab", {name: "Details", exact: true}).click();
   await expect(panel.getByText("Under pointer", {exact: true})).toBeVisible();
+  await expect(panel.locator("#inspect-selection")).toContainText("Physics");
+  await panel.getByRole("tab", {name: "Details", exact: true}).click();
+  await expect(panel.getByText("Under pointer", {exact: true})).toBeHidden();
   await expect(panel.getByText("Selected mesh details", {exact: true})).toBeVisible();
   await panel.getByRole("tab", {name: "Properties", exact: true}).click();
   await expect(panel.locator("#inspect-selection")).toContainText("Asphalt");

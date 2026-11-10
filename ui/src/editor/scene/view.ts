@@ -18,6 +18,8 @@ import {makeTexture} from "./texture";
 import {oneByOne} from "./taskQueue";
 import {DEFAULT_CONTROLS, type Controls} from "./controls";
 import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing";
+import type {Tool} from "../tools/ToolPanel";
+import {cursorFor, type Pointed} from "./cursor";
 import type {CopyPose} from "../tools/copying";
 import {alongStroke} from "../tools/deleteBrush";
 import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
@@ -234,6 +236,8 @@ export class TrackView {
   private marking: ((x: number, z: number) => void) | null = null;
   private onClicked: (picked: Picked | null) => void = () => {};
   private moveTool = false;             // Move is on: a press picks, a drag takes what is picked along
+  private cursorTool: Tool = "select";  // (the tool the pointer speaks for, and what it last pointed at)
+  private pointed: Pointed | null = null;
   private onMoved: (objects: {id: string; x: number; y: number; z: number}[]) => void = () => {};
   private placed = new Map<string, Placement>();        // how the draft places objects now (setPlaced)
   private pendingPivots = new Map<string, number[]>();   // a released drag already shown, before its canonical placement arrives
@@ -257,7 +261,7 @@ export class TrackView {
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
     this.moves(this.renderer.domElement);
-    this.roadMarkers.attach(this.renderer.domElement, () => !!this.brush, event => {
+    this.roadMarkers.attach(this.renderer.domElement, () => !!this.brush, () => this.applyCursor(), event => {
       this.mouse = screenPoint(event, this.renderer.domElement);
       return this.brushAt();
     });
@@ -746,6 +750,7 @@ export class TrackView {
       this.onHover(null);
       this.placeRing(this.brushAt(), false);
     }
+    this.applyCursor();
     this.dirty = true;
   }
 
@@ -783,15 +788,24 @@ export class TrackView {
     this.wheelTaken = taken;
   }
 
+  /** The tool on, for the mouse pointer: it says what a click of it would do to what is under the mouse (cursor.ts). */
+  setCursorTool(tool: Tool) {
+    this.cursorTool = tool;
+    this.applyCursor();
+  }
+
+  private applyCursor() {
+    this.renderer.domElement.style.cursor = cursorFor({tool: this.cursorTool, dragging: !!this.dragging?.way.lengthSq(), pin: this.roadMarkers.overPin,
+      aiming: !!this.brush || !!this.onCopyPlace}, this.pointed);
+  }
+
   /** Move on or off; onMoved gets each object's displacement, including the change of ground height. Off cancels a drag. */
   setMove(on: boolean, onMoved: (objects: {id: string; x: number; y: number; z: number}[]) => void) {
     this.onMoved = onMoved;
     if (on === this.moveTool) return;
     this.moveTool = on;
-    if (!on) {
-      this.dropDrag();
-      this.renderer.domElement.style.cursor = "";
-    }
+    if (!on) this.dropDrag();
+    this.applyCursor();
   }
 
   /** How the draft places objects now: where each one's place is, to turn and scale it around. */
@@ -977,14 +991,14 @@ export class TrackView {
       const at = new THREE.Vector3();
       if (!this.picker.ray.intersectPlane(d.plane, at) || at.distanceTo(this.camera.position) > 2 * this.navigation.highest) return;    // (at the horizon)
       d.way.set(at.x - d.from.x, 0, at.z - d.from.z);
-      el.style.cursor = "grabbing";
+      this.applyCursor();
       this.dragOn(d.grabbed);
     });
     el.addEventListener("pointerup", e => {
       const d = this.dragging;
       if (!d || e.button !== LEFT_BUTTON) return;
       this.dragging = null;
-      el.style.cursor = "grab";
+      this.applyCursor();
       if (d.way.lengthSq()) {
         for (const id of d.ids) {
           const [x, y, z] = d.pivots.get(id)!;
@@ -1259,6 +1273,7 @@ export class TrackView {
     this.copyGhost = null; this.modelGhostSolid = null; this.modelGhostHold = null;
     this.copyStamp = [];
     this.onCopyPlace = place;
+    this.applyCursor();
     if (!source || !place) { this.dirty = true; return; }
     const group = new THREE.Group(), solid = new THREE.Group();
     const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = [];
@@ -1928,7 +1943,10 @@ export class TrackView {
     }
     const hit = timed("map2lap.hover", () => this.hit());
     const hovered = hit ? this.describe(hit) : null;
-    if (this.moveTool) this.renderer.domElement.style.cursor = hovered?.id && this.canMove(this.rootOf(hovered.id)) ? "grab" : "";
+    const taking = this.cursorTool === "move" || this.cursorTool === "copy";
+    this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
+      movable: taking && !!hovered.id && this.canMove(this.moveTool ? this.rootOf(hovered.id) : hovered.id)} : null;
+    this.applyCursor();
     this.onHover(hovered);
   }
 
@@ -2049,7 +2067,7 @@ export class TrackView {
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
   drawPins(pins: Place[]) {
     this.roadMarkers.drawPins(pins);
-    if (!pins.length) this.renderer.domElement.style.cursor = "";
+    this.applyCursor();
   }
   setPinned(moved: (pin: number, x: number, z: number) => void, taken: (pin: number) => void) { this.roadMarkers.setPinned(moved, taken); }
 

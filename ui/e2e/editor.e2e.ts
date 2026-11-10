@@ -58,7 +58,7 @@ test("a note only for a track without build files", async ({page}) => {
 
 test("the hover box: the road under the mouse with its data and place", async ({page}) => {
   await openEditor(page);
-  await expect(box(page)).toBeHidden();
+  await expect(box(page)).toHaveAttribute("data-empty", "");
   await hoverCentre(page);
   await expect(box(page)).toContainText("Road surface");
   await expect(box(page)).toContainText("1ROAD_ground_0_0");
@@ -69,7 +69,7 @@ test("the hover box: the road under the mouse with its data and place", async ({
   await expect(box(page)).toContainText(/Tile\s*0, 0/);
   await expect(box(page)).toContainText(/Route\s*[34]\d m/);
   await expect(box(page)).toContainText(/Lat, lon\s*42\.90\d+, 9\.36\d+/);
-  await expect(box(page)).toContainText("no ID of its own");
+  await expect(box(page)).toContainText(/ID\s*—/);
 });
 
 test("the hover box: a tree has its own id, kind and size; beside its crown the mouse sees what lies behind", async ({page}) => {
@@ -86,20 +86,20 @@ test("the hover box: a tree has its own id, kind and size; beside its crown the 
   await expect(box(page)).toContainText(/Height\s*30\.0 m/);
   await expect(box(page)).toContainText(/Stands at\s*128\.0, -130\.0/);
   await expect(box(page)).toContainText("trees.png");
-  await expect(box(page)).not.toContainText("no ID of its own");
+  await expect(box(page)).not.toContainText(/ID\s*—/);
 });
 
 test("the hover box goes over the sky and off the view", async ({page}) => {
   await openEditor(page);
   await hoverCentre(page);
-  await expect(box(page)).toBeVisible();
+  await expect(box(page)).not.toHaveAttribute("data-empty");
   const view = (await scene(page).boundingBox())!;
   await page.mouse.move(view.x + 200, view.y + 2);
-  await expect(box(page)).toBeHidden();
+  await expect(box(page)).toHaveAttribute("data-empty", "");
   await hoverCentre(page);
-  await expect(box(page)).toBeVisible();
+  await expect(box(page)).not.toHaveAttribute("data-empty");
   await page.mouse.move(100, 500);
-  await expect(box(page)).toBeHidden();
+  await expect(box(page)).toHaveAttribute("data-empty", "");
 });
 
 test("W moves and stops when let go; A too; the dropdown keeps its track", async ({page}) => {
@@ -189,7 +189,7 @@ test("zoomed below where the ground comes later: when it comes the camera is ove
   release();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await hoverCentre(page);
-  await expect(box(page)).toBeVisible();        // (from below, the ground isn't there for the mouse)
+  await expect(box(page)).not.toHaveAttribute("data-empty");        // (from below, the ground isn't there for the mouse)
 });
 
 test("the camera stays by the track: W and the wheel lead nowhere, Start brings it back", async ({page}) => {
@@ -207,7 +207,7 @@ test("the camera stays by the track: W and the wheel lead nowhere, Start brings 
   await stillView(page);
   await page.mouse.move(c.x - 2, c.y + 300);
   await page.mouse.move(c.x, c.y + 300);
-  await expect(box(page)).toBeVisible();          // (the map still there, under it)
+  await expect(box(page)).not.toHaveAttribute("data-empty");          // (the map still there, under it)
   await scene(page).focus();
   await page.keyboard.press("Home");
   await page.mouse.move(100, 500);
@@ -277,7 +277,7 @@ test("the fly speed's slider reaches the view", async ({page}) => {
     await dragMouse(page, c, {x: c.x, y: c.y + 400}, "middle");   // (straight down: what the mouse finds lies right below the camera)
     await stillView(page);
     await hoverCentre(page);
-    await expect(box(page)).toBeVisible();
+    await expect(box(page)).not.toHaveAttribute("data-empty");
     const before = await placed(page);
     await page.keyboard.down("w");
     await page.waitForTimeout(150);                               // (a time by nature: how long the key is held; the test track is small)
@@ -349,7 +349,7 @@ test("the wheel held turns around the view's middle, up to just over the horizon
   await dragMouse(page, c, {x: c.x, y: c.y - 600}, "middle");     // (far up: stops short of the sky)
   await page.mouse.move(c.x - 2, c.y + 200);
   await page.mouse.move(c.x, c.y + 200);
-  await expect(box(page)).toBeVisible();
+  await expect(box(page)).not.toHaveAttribute("data-empty");
 });
 
 test("inverted, the same drag looks the other way", async ({page}) => {

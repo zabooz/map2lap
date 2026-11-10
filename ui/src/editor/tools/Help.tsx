@@ -6,9 +6,9 @@ const TURN_RAISE_SIZE: [string, string][] = [["Shift + wheel", "turn"], ["Ctrl +
 /** Per tool, what a click, a held key or the wheel with one does: the keys its options' tooltips name too. */
 const KEYS: Record<Tool, [string, string][]> = {
   select: [["Click", "pick an object or a ground surface"], ["Ctrl + click", "add to it, or take one out"], ["Shift + click", "all matching"],
-           ["X or Delete", "delete what is picked"], ["Esc", "pick nothing"]],
+           ["Alt", "change the picked ground's texture, or replace the picked trees"], ["X or Delete", "delete what is picked"], ["Esc", "pick nothing"]],
   camera: [["Shift + wheel", "forwards, backwards along the track"], ["Ctrl + wheel", "height"], ["Alt + wheel", "speed of Ride"], ["Home", "back to the first view"]],
-  smooth: [["Click", "mark road points, drag them, add branches"], ["Shift + wheel", "strength"], ["Ctrl + wheel", "transition into the terrain"]],
+  smooth: [["T with a road picked", "starts at the picked road"], ["Click", "mark road points, drag them, add branches"], ["Shift + wheel", "strength"], ["Ctrl + wheel", "transition into the terrain"]],
   elevation: [["Click", "raise by its height; hold and move for more"], ["Shift", "lower instead"], ["Ctrl + wheel", "radius"], ["Alt + wheel", "height of a click"],
               ["Ctrl + Alt + wheel", "soft edge"]],
   move: [["Drag", "move it along the ground"], ...TURN_RAISE_SIZE],

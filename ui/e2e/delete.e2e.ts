@@ -221,7 +221,7 @@ test("a parked car on an older build says a new build can delete it, a tree ther
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const at = await findCar(page);
-  await expect(box(page)).toContainText("no ID of its own");
+  await expect(box(page)).toContainText(/ID\s*—/);
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toHaveText("Parked car: only a new build can delete it");
   await page.keyboard.press("Delete");

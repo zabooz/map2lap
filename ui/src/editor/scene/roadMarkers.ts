@@ -33,6 +33,7 @@ export class RoadMarkers {
   private pinMarks: THREE.Points | null = null;
   private pinTexture: THREE.Texture | null = null;
   private dragged: {pin: number; x: number; y: number; from: Place} | null = null;
+  overPin = false;                    // (the mouse is on a pin: the pointer says it can be taken)
   private onPinMoved: (pin: number, x: number, z: number) => void = () => {};
   onPinTaken: (pin: number) => void = () => {};
   private band: THREE.LineSegments | null = null;
@@ -70,6 +71,7 @@ export class RoadMarkers {
   drawPins(pins: Place[]) {
     this.pins = pins;
     this.dragged = null;
+    if (!pins.length) this.overPin = false;
     if (this.pinMarks) {
       this.scene.remove(this.pinMarks);
       this.pinMarks.geometry.dispose();
@@ -117,8 +119,8 @@ export class RoadMarkers {
     this.changed();
   }
 
-  /** The left button on a pin takes it along over the ground; let go, it says where. Under the mouse the pointer says that it can. */
-  attach(el: HTMLElement, brushed: () => boolean, pointAt: (event: PointerEvent) => THREE.Vector3 | null) {
+  /** The left button on a pin takes it along over the ground; let go, it says where. onPin: the mouse came onto a pin or left it (overPin). */
+  attach(el: HTMLElement, brushed: () => boolean, onPin: () => void, pointAt: (event: PointerEvent) => THREE.Vector3 | null) {
     el.addEventListener("pointerdown", e => {
       if (e.button !== LEFT_BUTTON || brushed()) return;
       const pin = this.pinAt(e, el);
@@ -128,7 +130,8 @@ export class RoadMarkers {
     });
     el.addEventListener("pointermove", e => {
       if (!this.dragged) {
-        if (this.pins.length) el.style.cursor = this.pinAt(e, el) >= 0 ? "grab" : "";
+        const over = this.pins.length > 0 && this.pinAt(e, el) >= 0;
+        if (over !== this.overPin) { this.overPin = over; onPin(); }
         return;
       }
       const at = pointAt(e);

@@ -8,24 +8,25 @@ import {thenView, ToolAction, ToolNumber, ToolOptions} from "./ToolOptions";
 import type {Picked, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
 
-const TURN_STEP = 5, HEIGHT_STEP = 0.1, SIZE_STEP = 1.05;      // a notch of the wheel: degrees, m, a factor (5 %): fine enough to set a bench straight
-const CM = 100, PERCENT = 100;
+export const TURN_STEP = 5, HEIGHT_STEP = 0.1, SIZE_STEP = 1.05;      // a notch of the wheel: degrees, m, a factor (5 %): fine enough to set a bench straight
+export const CM = 100, PERCENT = 100;
 
-/** Move on view. enabled: the tool is on. picked: what is picked now. onNote: what to say, null for nothing. */
+/** Move on view. enabled: the tool is on: the view drags, the wheel turns, raises and sizes. picked: what is picked now; its numbers can be set
+    with any tool (the inspector's fields). onNote: what to say, null for nothing. */
 export function useMove({name, view, edits, state, enabled, picked, onNote}: {name: string; view: TrackView; edits: TrackEdits; state: EditState; enabled: boolean; picked: Picked | null;
                                                                          onNote: (text: string | null) => void}) {
-  const ids = enabled ? (picked?.all ?? []).map(p => p.id).filter(id => view.canMove(id)) : [];
+  const targets = (picked?.all ?? []).map(p => p.id).filter(id => view.canMove(id)), ids = enabled ? targets : [];
   const now = (id: string) => edits.placementOf(id) ?? unplaced(id);
-  const shown = ids.length ? now(picked?.id && ids.includes(picked.id) ? picked.id : ids[0]) : unplaced("");
+  const shown = targets.length ? now(picked?.id && targets.includes(picked.id) ? picked.id : targets[0]) : unplaced("");
 
-  /** Each of ids changed by its own placement now, at once in the view; join: the notches of the wheel that go into one step to undo. */
+  /** Each of targets changed by its own placement now, at once in the view; join: the notches of the wheel that go into one step to undo. */
   const change = (to: (p: Placement) => Placement, join?: string) => {
-    if (!ids.length || !edits.canEdit()) return;
+    if (!targets.length || !edits.canEdit()) return;
     void edits.inTurn(() => {
       if (!edits.canEdit()) return;
-      const placed = ids.map(id => to(now(id)));
-      placed.forEach((p, k) => view.nudge([ids[k]], between(now(ids[k]), p)));
-      edits.place(placed, join && `${join} ${ids.join()}`);
+      const placed = targets.map(id => to(now(id)));
+      placed.forEach((p, k) => view.nudge([targets[k]], between(now(targets[k]), p)));
+      edits.place(placed, join && `${join} ${targets.join()}`);
     });
   };
 
@@ -64,11 +65,11 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
   const by = (n: Partial<Nudge>, join: string) => change(p => nudged(p, n), join);
   const set = (field: keyof Nudge, value: number) => change(p => nudged({...p, [field]: value}, {}));
   return {
-    ids, shown,
+    ids, targets, shown,
     setTurn: (degrees: number) => set("turn", degrees),
     setHeight: (cm: number) => set("y", cm / CM),
     setSize: (percent: number) => set("scale", percent / PERCENT),
-    reset: () => { void edits.inTurn(() => { if (ids.length && edits.canEdit()) edits.place(ids.map(unplaced)); }); },
+    reset: () => { void edits.inTurn(() => { if (targets.length && edits.canEdit()) edits.place(targets.map(unplaced)); }); },
     /** A notch of the wheel over the view, with those keys held: its numbers as they stand in the bar. */
     wheel: (keys: WheelKeys, notch: number) => {
       if (!ids.length) return onNote("Pick an object first: click it, Ctrl + click adds more");

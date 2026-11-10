@@ -38,9 +38,11 @@ export function ToolValue({label, hint, value}: {label: string; hint: string; va
   return <span className={styles.number} title={hint}>{label} <b className={styles.value}>{value}</b></span>;
 }
 
-/** A button of a tool that does one thing. hint: its tooltip. */
-export function ToolAction({id, label, hint, onClick}: {id?: string; label: string; hint: string; onClick: () => void}) {
-  return <button type="button" id={id} title={hint} onClick={onClick}>{label}</button>;
+/** A button of a tool that does one thing. hint: its tooltip. shortcut: the key that does it too, shown beside the label. */
+export function ToolAction({id, label, hint, shortcut, disabled, onClick}: {id?: string; label: string; hint: string; shortcut?: string; disabled?: boolean;
+                                                                            onClick: () => void}) {
+  return <button type="button" id={id} title={hint} disabled={disabled} onClick={onClick}>
+    {label}{shortcut && <kbd className={`${styles.key} ${styles.shortcut}`} aria-hidden="true">{shortcut}</kbd>}</button>;
 }
 
 /** One of a tool's either-or choices. hint: its tooltip. */

@@ -24,9 +24,12 @@ import type {Hovered, Marked, MenuAt, Picked, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
 import {ViewMenu} from "./tools/ViewMenu";
 import {Inspector} from "./inspector/Inspector";
+import {TransformFields} from "./inspector/TransformFields";
 import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
 import {usePaint} from "./tools/usePaint";
-import {ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
+import {ToolAction, ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
+import {ACTIONS, altAction, selectActions, smoothStart, type SelectAction} from "./tools/selectActions";
+import {AltAlone} from "./tools/held";
 import {useToasts} from "../components/toastStore";
 import {editorToasts} from "./editorToasts";
 
@@ -83,7 +86,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const [group, setGroup] = useState<ObjectGroup | null>(null), [groupModels, setGroupModels] = useState<LibraryModel[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
-  const replaceable = useMemo(() => menu && picked?.id ? view.replacementTargets(marked) : null, [view, menu, picked, marked]);
+  const replaceable = useMemo(() => (menu || tool === "select") && picked?.id ? view.replacementTargets(marked) : null, [view, menu, tool, picked, marked]);
   // (the right-click menu belongs to the click that opened it: a tool or the library taken up closes it, so the next click in the view acts)
   const openModels = () => { setMenu(null); setReplaceTargets(view.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
   const [textureRevision, setTextureRevision] = useState(0);
@@ -155,6 +158,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   useEffect(() => { view.setWheelTaken(takesWheel(tool, editable, band.line !== null)); }, [view, band.line, editable, tool]);
 
+  useEffect(() => { view.setCursorTool(editable ? tool : "select"); }, [view, tool, editable]);
   useEffect(() => { view.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
   useEffect(() => {
     view.setSelectMode(tool === "select", selectWhole, selectAdd);
@@ -247,9 +251,47 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       view.unpick();
     }
   };
-  /** A tool taken up, the one on laid down: Select. */
-  const takeUp = (t: Tool) => { setMenu(null); band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(tool === t ? "select" : t); };
+  /** A tool taken up, the one on laid down: Select. Smooth road taken up from Select starts at the road picked there. */
+  const takeUp = (t: Tool) => {
+    const next = tool === t ? "select" : t, road = editable ? smoothStart(tool, next, picked) : null;
+    setMenu(null); band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
+    if (road) band.start(road[0], road[1]);
+  };
   const closeMenu = useCallback(() => setMenu(null), []);
+  const startSmooth = (road: [number, number]) => { setMenu(null); setTool("smooth"); band.start(road[0], road[1]); setNote(null); view.focus(); };
+  /** Edit… of the menu: Select on, the picked ground selected, its textures open, the inspector shown. */
+  const editPicked = () => {
+    setTool("select");
+    if (picked?.surface) {
+      setSurfacePicks(previous => pickedSurfaces(tool === "select" ? previous : [], {surface: picked.surface, left: false}));
+      if (picked.surface.face === undefined) setMaterialOpen(true);
+    }
+    onInspectorCollapsed(false); view.focus();
+  };
+  const movable = editable && !!picked?.id && view.canMove(picked.id);
+  /** What can be done with what is picked, for the right-click menu and the Select bar: null where it can't now. */
+  const run: Record<SelectAction, (() => void) | null> = {
+    texture: picked?.surface ? editPicked : null,
+    move: movable ? () => { setTool("move"); setNote(null); view.focus(); } : null,
+    copy: movable ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null,
+    replace: editable && replaceable?.length ? openModels : null,
+    delete: editable && removable.length > 0 ? () => { remove(); view.focus(); } : null,
+  };
+
+  const offered = tool === "select" ? selectActions(picked) : [], altOffered = altAction(offered);
+  /** The Select bar's button of action, with the key of the tool it takes up. */
+  const actionButton = (action: SelectAction) => {
+    const {label, tool: keyed, hint} = ACTIONS[action], perform = run[action];
+    return <ToolAction key={action} id={`edit-select-${action}`} label={label} shortcut={TOOLS.find(t => t.tool === keyed)?.key} hint={hint}
+                       disabled={!perform} onClick={() => perform?.()} />;
+  };
+  const [altAlone] = useState(() => new AltAlone());
+  /** Alt let go by itself under Select: the bar's Alt place, the picked ground's texture or the picked objects' replacement. */
+  const altKey = useEffectEvent((e: KeyboardEvent) => {
+    if (!altAlone.up(e)) return;
+    e.preventDefault();      // (Firefox would open its menu bar)
+    if (altOffered) run[altOffered]?.();
+  });
 
   // (an effect event: Delete pressed right after a click reaches what that click picked, not the list of keys before it)
   const keys = useEffectEvent((e: KeyboardEvent) => {
@@ -260,6 +302,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     }
     if (["Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key) && (e.target as HTMLElement).closest('[role="tablist"]')) return;
     if (e.key !== "Escape" && e.key !== "Enter" && ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName)) return; // Fields keep their typing and option keys.
+    altAlone.down(e);
     const keyed = control ? undefined : TOOLS.find(t => t.key.toLowerCase() === key);
     if (e.key === "Delete") remove();
     else if (e.key === "Escape") {
@@ -287,10 +330,17 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   });
 
   useEffect(() => {
-    const on = [scene.current!, fileHost, toolsHost, notesHost, inspectorHost], listen = (e: KeyboardEvent) => keys(e);
-    for (const el of on) el?.addEventListener("keydown", listen);
-    return () => { for (const el of on) el?.removeEventListener("keydown", listen); };
-  }, [scene, fileHost, toolsHost, notesHost, inspectorHost]);
+    const on = [scene.current!, fileHost, toolsHost, notesHost, inspectorHost], listen = (e: KeyboardEvent) => keys(e), up = (e: KeyboardEvent) => altKey(e);
+    const modifier = () => altAlone.other();       // (Alt with a click or the wheel, or the window left: Alt+Tab)
+    for (const el of on) { el?.addEventListener("keydown", listen); el?.addEventListener("keyup", up); }
+    for (const type of ["pointerdown", "wheel"]) window.addEventListener(type, modifier, true);
+    window.addEventListener("blur", modifier);
+    return () => {
+      for (const el of on) { el?.removeEventListener("keydown", listen); el?.removeEventListener("keyup", up); }
+      for (const type of ["pointerdown", "wheel"]) window.removeEventListener(type, modifier, true);
+      window.removeEventListener("blur", modifier);
+    };
+  }, [scene, fileHost, toolsHost, notesHost, inspectorHost, altAlone]);
 
 
   // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
@@ -325,7 +375,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
         />}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
         collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
-        onMaterialOpen={() => setMaterialOpen(true)} textureRevision={textureRevision} />, inspectorHost)}
+        onMaterialOpen={() => setMaterialOpen(true)} textureRevision={textureRevision} transform={editable && <TransformFields move={move} />} />, inspectorHost)}
       {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
         options={[
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
@@ -334,7 +384,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
             else if (tree || sort) setMarked(selectWhole ? [] : [{sort: tree ?? sort!, tree: !!tree}]);
           })} />,
           <ToolChoice label="Add" on={selectAdd} hint="Add to the selection; click a picked object again to remove it (Ctrl + click)" onClick={thenView(view, () => setSelectAdd(!selectAdd))} />,
-        ]} />}
+          ...(altOffered ? [actionButton(altOffered)] : []),
+        ]} actions={offered.filter(action => action !== altOffered).map(actionButton)} />}
       {elevating && <ElevationOptions elevation={elevation} view={view} />}
       {deleting && <DeleteOptions remove={remover} view={view} />}
       {marking && <BandOptions band={band} view={view} />}
@@ -343,14 +394,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} onFailed={setCopyFailed} />}
       {menu && (
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
-                  onReplace={editable && replaceable?.length ? openModels : null}
-                  onEdit={() => { setTool("select"); if (picked?.surface) {
-                    setSurfacePicks(previous => pickedSurfaces(tool === "select" ? previous : [], {surface: picked.surface, left: false}));
-                    if (picked.surface.face === undefined) setMaterialOpen(true);
-                  } onInspectorCollapsed(false); view.focus(); }}
-                  onMove={editable && picked?.id && view.canMove(picked.id) ? () => { setTool("move"); setNote(null); view.focus(); } : null}
-                  onDuplicate={editable && picked?.id && view.canMove(picked.id) ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null}
-                  onSmooth={editable && picked?.road ? () => { setTool("smooth"); band.start(picked.road![0], picked.road![1]); setNote(null); view.focus(); } : null}
+                  onReplace={run.replace} onEdit={editPicked} onMove={run.move} onDuplicate={run.copy}
+                  onSmooth={editable && picked?.road ? () => startSmooth(picked.road!) : null}
                   onMark={() => { setMarked([sort ? {sort, tree: false} : {sort: tree!, tree: true}]); view.focus(); }}
                   onDelete={() => { remove(); view.focus(); }} />
       )}

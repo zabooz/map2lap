@@ -131,6 +131,16 @@ test("a number typed in the bar places what is picked at once", async ({page, ba
   expect((await placed(page))[0]).toMatchObject({id: "t_0_0#0", turn: 90});
 });
 
+test("a number typed in the inspector places the object picked with Select", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", house: true});
+  await openEditor(page);
+  const house = await findTitled(page, "Building");
+  await page.mouse.click(house.x, house.y);
+  await page.locator("#inspect-transform").getByLabel("Turn").fill("90");
+  await saved(page);
+  expect((await placed(page))[0]).toMatchObject({id: "t_0_0#0", turn: 90});
+});
+
 test("Move follows a slope and keeps a raised object's clearance, including after another drag", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true});
   await openEditor(page);

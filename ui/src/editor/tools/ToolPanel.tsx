@@ -10,9 +10,9 @@ import {Help} from "./Help";
 export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model" | "group";
 type Group = "general" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
-  {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click an object to pick it, Ctrl + click adds more, Shift + click selects all matching, X or Delete takes them out; a right click marks all of its sort (V)"},
+  {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click a ground surface or object to pick it, Ctrl + click adds more, Shift + click selects all matching; Alt changes the ground's texture or replaces trees; X or Delete takes them out (V)"},
   {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
-  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "T", hint: "Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (T)"},
+  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "T", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (T)"},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
   {tool: "move", group: "objects", id: "edit-move", label: "Transform", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
   {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},

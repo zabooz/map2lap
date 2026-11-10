@@ -38,3 +38,26 @@ export function useHeld() {
   }, []);
   return heldOf({shiftKey: (keys & SHIFT) > 0, ctrlKey: (keys & CTRL) > 0, altKey: (keys & ALT) > 0});
 }
+
+type KeyOfEvent = Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "repeat">;
+
+/** Alt pressed and let go by itself, as a key of its own (Select's Alt place). Another key, a click or the wheel while it is held make it
+    a modifier: other() says so; AltGr (Ctrl and Alt) and a window switch (Alt+Tab) never count. */
+export class AltAlone {
+  private armed = false;
+
+  down(e: KeyOfEvent) {
+    if (e.key === "Alt" && e.repeat) return;
+    this.armed = e.key === "Alt" && !e.ctrlKey && !e.shiftKey && !e.metaKey;
+  }
+
+  other() { this.armed = false; }
+
+  /** Whether this key's release is Alt let go by itself. */
+  up(e: KeyOfEvent) {
+    if (e.key !== "Alt") return false;
+    const alone = this.armed;
+    this.armed = false;
+    return alone;
+  }
+}
