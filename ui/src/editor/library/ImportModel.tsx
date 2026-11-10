@@ -3,15 +3,15 @@ import {libraryJson, MODEL_CATEGORIES, prepareModelFile} from "./library";
 import type {LibraryModel} from "./ModelLibrary";
 import {ModelPreview} from "./ModelPreview";
 import styles from "./ImportModel.module.css";
-
-interface Prepared {token: string; geometry: {bounds: number[][]}; warnings?: string[]; lighting_options?: string[]}
+import type {PreparedModel} from "./library";
+import {ModelCost} from "./ModelCost";
 
 /** Preview the prepared model used by placement and Save; publishing it does not place it on the track. */
 export function ImportModel({file, categories = ["tree", "building", "other"], onCancel, onImported, onBusy}: {
   file: File; categories?: string[]; onCancel: () => void; onImported: (model: LibraryModel) => void; onBusy: (busy: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [prepared, setPrepared] = useState<Prepared | null>(null), [error, setError] = useState<string | null>(null);
+  const [prepared, setPrepared] = useState<PreparedModel | null>(null), [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(() => file.name.replace(/\.(glb|fbx|obj|zip)$/i, "").replace(/[_-]+/g, " ").slice(0, 80));
   const [category, setCategory] = useState("tree"), [units, setUnits] = useState("1");
   const [collision, setCollision] = useState<"none" | "mesh">("none");
@@ -45,6 +45,7 @@ export function ImportModel({file, categories = ["tree", "building", "other"], o
       <h2>Import object</h2><p className={styles.note}>{file.name}</p>
       {prepared && <>
         <ModelPreview url={`/api/library/model-imports/${prepared.token}/preview?${new URLSearchParams({material_colours: materialColours, material_lighting: materialLighting, texture_side: String(textureSide)})}`} height={155} />
+        {prepared.geometry.track_cost && <ModelCost cost={prepared.geometry.track_cost} collision={collision} />}
         <label className={styles.field}>Texture size<select value={textureSide} disabled={saving} onChange={event => setTextureSide(Number(event.target.value))}>
           <option value={1024}>1024 px (recommended)</option><option value={2048}>2048 px</option>
         </select></label>

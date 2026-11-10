@@ -643,6 +643,9 @@ class Handler(BaseHTTPRequestHandler):
                     original = re.fullmatch(r"/api/library/models/([a-f0-9]{64})/original", path.path)
                     if original:
                         return self._send(200, objectlibrary.original(original[1]), "model/gltf-binary")
+                    cost = re.fullmatch(r"/api/library/models/([a-f0-9]{64})/cost", path.path)
+                    if cost:
+                        return self._send(200, objectlibrary.cost(cost[1]))
                     return self._send(404, {"error": "No model here"})
                 upload = path.path == "/api/library/model-imports"
                 if not self._own_page("application/x-map2lap-glb" if upload else "application/json"):

@@ -281,6 +281,15 @@ library and portable saved model snapshots. `original/model.glb` is the validate
 the preview, placement and Save; default GLB imports remain byte-identical. Preparation tokens identify the upload,
 while immutable model ids use the canonical GLB hash and semantic import settings.
 
+The import dialog and selected library object's information show scene-expanded triangle counts and native geometry MB
+per instance, both without collision and with model-mesh collision. `modelmesh.track_cost` uses the native geometry and
+21,845-triangle pieces, including flat-normal expansion and repeated vertices at piece boundaries. Double-sided render
+faces count once; mesh collision additionally counts both sides. These are decimal MB of vertices and indices, excluding
+shared textures and mesh headers. At 0.5 MB for the selected collision mode, a visible advisory warns about many copies;
+this is a size budget, not an AC limit or an FPS prediction. New packages retain the small facts in their geometry summary.
+Old packages are measured only on selection through `/api/library/models/<id>/cost`, cached in memory by file revision
+and verified content hash, without rewriting their manifest, GLB or model id. Importing does not simplify geometry.
+
 **Texture size** is 1024 px by default, 2048 px at most. Import reduces every longer image to it on its long side, never
 enlarging one, in the canonical `original/model.glb` that preview, placement and Save read; the unchanged upload stays as
 `original/upload.glb`, so the choice also gives a model of its own id. Colour images are averaged in linear light, weighted by

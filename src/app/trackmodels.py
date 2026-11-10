@@ -259,13 +259,6 @@ def images(ac, name, scan):
     return {texture: modelmesh.dds(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
 
 
-def _pieces(vertices, faces):
-    """A part's faces in pieces within a kn5 mesh's 65,535 vertices: (their vertices, triangles numbered within). Pure."""
-    for start in range(0, len(faces), 21845):
-        used, inverse = np.unique(faces[start:start + 21845].ravel(), return_inverse=True)
-        yield vertices[used], inverse.reshape(-1, 3).astype("<u2")
-
-
 TILE = 256                  # m, as object copies are bundled (trackcopies): AC still culls each bundle on its own
 FLAGS = ("material", "active", "visible", "renderable", "cast_shadows", "transparent", "layer", "lod_in", "lod_out")
 
@@ -383,13 +376,13 @@ def extend(ac, name, scan, objects, models):
                     "radius": float(np.linalg.norm(data["pos"] - center, axis=1).max())})
             # A double-sided material's faces are written once: CSP draws them from both sides (trackvariation). Collision keeps
             # both sides, as a back face of its own.
-            for data, triangles in _pieces(vertices, faces):
+            for data, triangles in modelmesh.pieces(vertices, faces):
                 add("nocol_", data, triangles, 1)
                 if instance["collision"] == "mesh" and not double:
                     add("1WALL_", data, triangles, 0)
             if instance["collision"] == "mesh" and double:
                 back = vertices.copy(); back["normal"] *= -1
-                for data, triangles in _pieces(np.concatenate([vertices, back]), np.concatenate([faces, faces[:, ::-1] + len(vertices)])):
+                for data, triangles in modelmesh.pieces(np.concatenate([vertices, back]), np.concatenate([faces, faces[:, ::-1] + len(vertices)])):
                     add("1WALL_", data, triangles, 0)
     names = {t[0] for t in scan["textures"]}
     textures = [*scan["textures"], *[(n, 0, recipe["bytes"]) for n, recipe in resources.items() if n not in names]]

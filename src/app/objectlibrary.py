@@ -1,5 +1,6 @@
 """Immutable model packages: canonical GLBs, retained source uploads and semantic import settings."""
 import hashlib
+import functools
 import json
 import math
 import os
@@ -10,7 +11,7 @@ import tempfile
 import threading
 from urllib.parse import urlsplit
 
-from app import materiallibrary, modeldata, modelimport
+from app import materiallibrary, modeldata, modelimport, modelmesh
 from app.paths import ROOT
 
 SCHEMA = 1
@@ -51,7 +52,8 @@ def _summary(model):
     return {"vertices": sum(len(part.positions) for part in model.primitives), "triangles": sum(len(part.indices) for part in model.primitives),
             "primitives": len(model.primitives), "instances": len(model.instances), "materials": len(model.materials), "images": len(model.images),
             "bounds": model.bounds, "anchor": model.anchor,
-            "alpha_modes": sorted({material.get("alphaMode", "OPAQUE") for material in model.materials})}
+            "alpha_modes": sorted({material.get("alphaMode", "OPAQUE") for material in model.materials}),
+            "track_cost": modelmesh.track_cost(model)}
 
 
 def prepare(filename, raw):
@@ -204,6 +206,26 @@ def original(id):
     if hashlib.sha256(raw).hexdigest() != _key(asset["model"]["sha256"]):
         raise ValueError("The retained original model has changed")
     return raw
+
+
+@functools.lru_cache(maxsize=32)
+def _cost_at(path, stamp, digest):
+    """Small geometry facts cached by immutable source hash and file revision; no GLB buffers are retained."""
+    raw = Path(path).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("The retained original model has changed")
+    return modelmesh.track_cost(modeldata.load(raw))
+
+
+def cost(id):
+    """Native geometry facts for one selected library model, including old packages without stored costs."""
+    asset = get(id)
+    known = asset["geometry"].get("track_cost")
+    if known and known.get("version") == 1:
+        return known
+    path = _folder(id) / "original/model.glb"
+    stat = path.stat()
+    return _cost_at(str(path), (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size), asset["model"]["sha256"])
 
 
 def prepared_model(token, material_colours='linear', material_lighting='model', texture_side=modelimport.TEXTURE_SIDES[0]):

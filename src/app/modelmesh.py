@@ -146,3 +146,37 @@ def geometry(model, meta):
             result.append({"vertices": vertices, "faces": np.asarray(faces, "<u4"), "material": source.material,
                            "primitive": number, "node": node.node, "tangent_handedness": handedness})
     return result
+
+
+def pieces(vertices, faces):
+    """A part's faces in pieces within a kn5 mesh's 65,535 vertices: (their vertices, triangles numbered within). Pure."""
+    for start in range(0, len(faces), 21845):
+        used, inverse = np.unique(faces[start:start + 21845].ravel(), return_inverse=True)
+        yield vertices[used], inverse.reshape(-1, 3).astype("<u2")
+
+
+def track_cost(model):
+    """A GLB's per-instance native vertex/index bytes, without textures or node headers. Pure.
+
+    Save writes the same pieces, each owning its used vertices, including repeats at piece seams. CSP draws double-sided
+    render faces once; mesh collision additionally owns front and back faces.
+    """
+    def payload(vertices, faces):
+        return sum(len(data) * kn5.VERTEX.itemsize + triangles.size * 2 for data, triangles in pieces(vertices, faces))
+
+    visible, collision, triangles = 0, 0, 0
+    for part in geometry(model, {"anchor": model.anchor, "metres_per_unit": 1.}):
+        vertices, faces = part["vertices"], part["faces"]
+        size = payload(vertices, faces)
+        visible += size
+        triangles += len(faces)
+        definition = model.materials[part["material"]] if part["material"] is not None else {}
+        if definition.get("doubleSided", False):
+            size = payload(np.concatenate([vertices, vertices]), np.concatenate([faces, faces[:, ::-1] + len(vertices)]))
+        collision += size
+    # Advisory budget: 100 copies at 0.5 decimal MB already add 50 MB of geometry, before textures.
+    # This is no AC capability limit; a single detailed landmark may reasonably exceed it.
+    budget = 500_000
+    sizes = {"none": visible, "mesh": visible + collision}
+    return {"version": 1, "triangles": triangles, "bytes": sizes, "warning_bytes": budget,
+            "heavy": {mode: size >= budget for mode, size in sizes.items()}}
