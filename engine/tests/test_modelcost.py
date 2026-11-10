@@ -59,14 +59,14 @@ class CostTest(Base):
                     self.assertEqual(sum(m["vertices"] * 44 + m["indices"] * 2 for m in meshes), cost["bytes"][collision])
                     self.assertTrue(cost["heavy"][collision])
 
-    def test_piece_boundary_counts_shared_vertices_again(self):
+    def test_a_part_within_the_vertex_limit_counts_its_vertices_once_however_many_triangles(self):
         from dataclasses import replace
         model = modeldata.load(encode(*fixture()))
         primitive = replace(model.primitives[0], normals=np.tile([0., 0., 1.], (3, 1)),
                             indices=np.tile([[0, 1, 2]], (21846, 1)).astype("<u4"))
         model = replace(model, primitives=(primitive,))
         cost = modelmesh.track_cost(model)
-        self.assertEqual(6 * 44 + 21846 * 6, cost["bytes"]["none"])
+        self.assertEqual(3 * 44 + 21846 * 6, cost["bytes"]["none"])
 
     def test_old_package_cost_is_lazy_cached_and_does_not_rewrite_the_package(self):
         _raw, prepared = self.prepare()

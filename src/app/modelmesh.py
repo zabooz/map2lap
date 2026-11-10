@@ -148,29 +148,49 @@ def geometry(model, meta):
     return result
 
 
-def pieces(vertices, faces):
-    """A part's faces in pieces within a kn5 mesh's 65,535 vertices: (their vertices, triangles numbered within). Pure."""
-    for start in range(0, len(faces), 21845):
-        used, inverse = np.unique(faces[start:start + 21845].ravel(), return_inverse=True)
+LIMIT = 65535           # (a kn5 mesh numbers its vertices in 16 bits)
+COST_VERSION = 2        # (track_cost's rule: stored costs of another version are measured again)
+
+
+def pieces(vertices, faces, blended=False):
+    """A part's faces in pieces within a kn5 mesh's 65,535 vertices, in their order: (their vertices, triangles numbered within).
+    A piece ends only where its next triangle would pass the limit, so few vertices repeat at seams: a scanned boulder of 67,042
+    vertices writes 70,940 instead of 104,022 when cut every 21,845 triangles. A blended part keeps pieces of 21,845 triangles:
+    AC sorts each transparent mesh as a whole, so other seams would change what shows in front. Pure."""
+    flat, start = faces.ravel(), 0
+    order = np.argsort(flat, kind="stable")
+    same = flat[order[1:]] == flat[order[:-1]]
+    previous = np.full(len(flat), -1)
+    previous[order[1:][same]] = order[:-1][same]        # (where each corner's vertex was used before, -1 at its first use)
+    while start < len(faces):
+        if blended:
+            end = start + LIMIT // 3
+        else:
+            # (vertices used from the piece's start up to each of its triangles: a corner adds one where its vertex was not
+            # used since the start; at worst three per triangle, so a piece never holds fewer than 21,845 triangles)
+            counted = np.cumsum(previous[3 * start:] < 3 * start)[2::3]
+            end = start + int(np.searchsorted(counted, LIMIT, side="right"))
+        used, inverse = np.unique(faces[start:end].ravel(), return_inverse=True)
         yield vertices[used], inverse.reshape(-1, 3).astype("<u2")
+        start = end
 
 
 def track_cost(model):
     """A GLB's per-instance native vertex/index bytes, without textures or node headers. Pure.
 
-    Save writes the same pieces, each owning its used vertices, including repeats at piece seams. CSP draws double-sided
+    Save writes the same pieces (pieces), each owning its used vertices, including repeats at piece seams. CSP draws double-sided
     render faces once; mesh collision additionally owns front and back faces.
     """
-    def payload(vertices, faces):
-        return sum(len(data) * kn5.VERTEX.itemsize + triangles.size * 2 for data, triangles in pieces(vertices, faces))
+    def payload(vertices, faces, blended=False):
+        return sum(len(data) * kn5.VERTEX.itemsize + triangles.size * 2 for data, triangles in pieces(vertices, faces, blended))
 
     visible, collision, triangles = 0, 0, 0
     for part in geometry(model, {"anchor": model.anchor, "metres_per_unit": 1.}):
         vertices, faces = part["vertices"], part["faces"]
-        size = payload(vertices, faces)
+        definition = model.materials[part["material"]] if part["material"] is not None else {}
+        size = payload(vertices, faces, definition.get("alphaMode") == "BLEND")
         visible += size
         triangles += len(faces)
-        definition = model.materials[part["material"]] if part["material"] is not None else {}
         if definition.get("doubleSided", False):
             size = payload(np.concatenate([vertices, vertices]), np.concatenate([faces, faces[:, ::-1] + len(vertices)]))
         collision += size
@@ -178,5 +198,5 @@ def track_cost(model):
     # This is no AC capability limit; a single detailed landmark may reasonably exceed it.
     budget = 500_000
     sizes = {"none": visible, "mesh": visible + collision}
-    return {"version": 1, "triangles": triangles, "bytes": sizes, "warning_bytes": budget,
+    return {"version": COST_VERSION, "triangles": triangles, "bytes": sizes, "warning_bytes": budget,
             "heavy": {mode: size >= budget for mode, size in sizes.items()}}

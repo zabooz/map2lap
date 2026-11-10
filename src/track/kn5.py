@@ -431,8 +431,12 @@ def node_bytes(n, children=None):
         else:
             assert len(n.vertices) <= 65535, f"{n.name}: {len(n.vertices)} vertices > 65535"
             v = np.ascontiguousarray(n.vertices, VERTEX)
+            indices = np.asarray(n.indices)
+            if indices.size and (indices.min() < 0 or indices.max() >= len(v)):
+                # (16 bits would wrap a number past the vertices silently: 65,536 becomes vertex 0, a triangle torn across the mesh)
+                raise ValueError(f"{n.name}: a triangle names vertex {indices.max()} of {len(v)}")
             out.extend([struct.pack("<BBB", n.cast_shadows, n.visible, n.transparent), struct.pack("<i", len(v)),
-                        v.tobytes(), struct.pack("<i", len(n.indices)), np.asarray(n.indices, "<u2").tobytes(),
+                        v.tobytes(), struct.pack("<i", len(indices)), indices.astype("<u2").tobytes(),
                         struct.pack("<ii", n.material, n.layer), struct.pack("<ff", n.lod_in, n.lod_out),
                         struct.pack("<3ff", *n.bs_center, n.bs_radius), struct.pack("<B", n.renderable)])
         if recurse:

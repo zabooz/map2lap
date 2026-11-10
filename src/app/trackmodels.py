@@ -376,7 +376,7 @@ def extend(ac, name, scan, objects, models):
                     "radius": float(np.linalg.norm(data["pos"] - center, axis=1).max())})
             # A double-sided material's faces are written once: CSP draws them from both sides (trackvariation). Collision keeps
             # both sides, as a back face of its own.
-            for data, triangles in modelmesh.pieces(vertices, faces):
+            for data, triangles in modelmesh.pieces(vertices, faces, definition.get("alphaMode") == "BLEND"):
                 add("nocol_", data, triangles, 1)
                 if instance["collision"] == "mesh" and not double:
                     add("1WALL_", data, triangles, 0)

@@ -221,7 +221,7 @@ def cost(id):
     """Native geometry facts for one selected library model, including old packages without stored costs."""
     asset = get(id)
     known = asset["geometry"].get("track_cost")
-    if known and known.get("version") == 1:
+    if known and known.get("version") == modelmesh.COST_VERSION:
         return known
     path = _folder(id) / "original/model.glb"
     stat = path.stat()

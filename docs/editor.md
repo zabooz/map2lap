@@ -283,9 +283,9 @@ while immutable model ids use the canonical GLB hash and semantic import setting
 
 The import dialog and selected library object's information show scene-expanded triangle counts and native geometry MB
 per instance, both without collision and with model-mesh collision. `modelmesh.track_cost` uses the native geometry and
-21,845-triangle pieces, including flat-normal expansion and repeated vertices at piece boundaries. Double-sided render
-faces count once; mesh collision additionally counts both sides. These are decimal MB of vertices and indices, excluding
-shared textures and mesh headers. At 0.5 MB for the selected collision mode, a visible advisory warns about many copies;
+the pieces Save writes (`modelmesh.pieces`), including flat-normal expansion and repeated vertices at piece boundaries.
+Double-sided render faces count once; mesh collision additionally counts both sides. These are decimal MB of vertices and
+indices, excluding shared textures and mesh headers. A stored cost of another `COST_VERSION` is measured again. At 0.5 MB for the selected collision mode, a visible advisory warns about many copies;
 this is a size budget, not an AC limit or an FPS prediction. New packages retain the small facts in their geometry summary.
 Old packages are measured only on selection through `/api/library/models/<id>/cost`, cached in memory by file revision
 and verified content hash, without rewriting their manifest, GLB or model id. Importing does not simplify geometry.
@@ -380,7 +380,7 @@ normals and ignore supplied tangents; mirrored node transforms reverse triangle 
 Materials take the track's own light values: plants (tree, bush, grass, flower, plant) those of its trees, other
 models those of its other objects; every import category places, as a tree, a bush, a house or a model. Double-sided materials write their faces once: Save's own CSP include gives them `CULL_MODE = NONE`, so CSP draws
 both sides (without CSP their back faces stay unseen); `1WALL_` collision keeps a back face of its own. This halved every
-library model's kn5 bytes per copy (a Quaternius Twisted Tree: 2.5 to 1.3 MB). Parts split below KN5's 65,535-vertex limit. `none` creates `nocol_` render meshes;
+library model's kn5 bytes per copy (a Quaternius Twisted Tree: 2.5 to 1.3 MB). A part is cut only where a piece would pass KN5's 65,535 vertices, in its triangle order, so few vertices repeat at the seams (a scanned boulder: 70,940 vertices instead of 104,022 when cut every 21,845 triangles); a BLEND part keeps pieces of 21,845 triangles, since AC sorts each transparent mesh as a whole. The kn5 writer refuses a triangle naming a vertex its mesh lacks: 16 bits would wrap it silently. `none` creates `nocol_` render meshes;
 `mesh` additionally creates invisible `1WALL_` collision. Visual source replacement removes only the selected `nocol_` faces;
 source collision and unrelated vertices/indices remain unchanged.
 
