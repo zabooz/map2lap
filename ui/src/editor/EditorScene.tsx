@@ -8,8 +8,8 @@ import {TrackView, type Say} from "./scene/view";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
     source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
-    onStatus gets what is loading; onSaved the track saved, by its name (a copy: another one). */
-export default function EditorScene({name, title, taken, built, visible, controls, fileHost, savedHost, toolsHost, notesHost, onStatus, onSaved}: {
+    onStatus gets what is loading; onSaved the track saved, by its name (a copy: another one); onDelete: its Delete was pressed. */
+export default function EditorScene({name, title, taken, built, visible, controls, fileHost, savedHost, toolsHost, notesHost, onStatus, onSaved, onDelete}: {
   name: string;
   title: string;
   taken: string[];
@@ -22,6 +22,7 @@ export default function EditorScene({name, title, taken, built, visible, control
   notesHost: HTMLElement | null;
   onStatus: Say;
   onSaved: (name: string) => void;
+  onDelete: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<HTMLDivElement>(null);
@@ -53,7 +54,7 @@ export default function EditorScene({name, title, taken, built, visible, control
                                   inspectorHost={inspectorHost} hovered={hovered}
                                   inspectorWidth={inspectorWidth} onInspectorWidth={setInspectorWidth}
                                   inspectorCollapsed={inspectorCollapsed} onInspectorCollapsed={setInspectorCollapsed}
-                                  reopen={() => void view.open(name, onStatus)} onSaved={onSaved} />}
+                                  reopen={() => void view.open(name, onStatus)} onSaved={onSaved} onDelete={onDelete} />}
       </div>
       <div className={styles.inspectorHost} ref={setInspectorHost} />
     </div>

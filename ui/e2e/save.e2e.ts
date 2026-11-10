@@ -34,6 +34,24 @@ test("Revert to saved in File asks before clearing edits, can be cancelled and u
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
 });
 
+test("Delete track in File asks first, then the open track is gone from Assetto Corsa and the Editor's list", async ({page}) => {
+  await openEditor(page);
+  const file = page.locator("#editor section").filter({has: page.getByRole("heading", {name: "File", exact: true})});
+  const remove = file.getByRole("button", {name: "Delete track", exact: true});
+  page.removeAllListeners("dialog");
+  const asked = page.waitForEvent("dialog");
+  const firstClick = remove.click();
+  const question = await asked;
+  expect(question.type()).toBe("confirm");
+  expect(question.message()).toContain("cannot be undone");
+  await question.dismiss();
+  await firstClick;
+  await expect(page.locator('#edit-track option[value="alpha"]')).toHaveCount(1);
+  page.once("dialog", d => void d.accept());
+  await remove.click();
+  await expect(page.locator('#edit-track option[value="alpha"]')).toHaveCount(0);
+});
+
 test("Save: asked once, then written at once; the kn5 AC drives is without the tree, the work stays shown; Play saves first", async ({page}) => {
   await openEditor(page);
   const trees = (await meshes(page))["nocol_trees_0_0"];

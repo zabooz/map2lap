@@ -121,12 +121,13 @@ export function App() {
     setEditTrack(name);
   }, [reload, setEditTrack]);
 
-  const deletePicked = async () => {
-    if (!picked || !confirm(`Delete “${picked.title}”?\n\nIt is removed from Assetto Corsa. This cannot be undone.`)) return;
-    const r = await post("/api/delete", {name: picked.name});
+  /** One of our tracks deleted, once asked: the one picked in My tracks or the one open in the Editor. */
+  const deleteTrack = async (gone: {name: string; title: string}) => {
+    if (!confirm(`Delete “${gone.title}”?\n\nIt is removed from Assetto Corsa. This cannot be undone.`)) return;
+    const r = await post("/api/delete", {name: gone.name});
     if (r.error) alert(r.error);
     else {
-      setPick(null);
+      if (picked?.name === gone.name) setPick(null);
       void reload();
     }
   };
@@ -182,7 +183,7 @@ export function App() {
           <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
                       selection={track.selection} width={track.width} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
                       playButton={playButton} footer={!busy && !result && picked && (
-            <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deletePicked()} />
+            <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
           )} />
 
           <div id="actions" className={`${styles.actions}${mine ? ` ${styles.mine}` : ""}`}>
@@ -212,7 +213,7 @@ export function App() {
             <Suspense fallback={null}>
               <EditorScene name={shownEditTrack} title={editing?.title ?? ""} taken={tracks.filter(t => t !== editing).map(t => t.title)}
                            built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost}
-                           onStatus={reportEditLoad} onSaved={onSaved} />
+                           onStatus={reportEditLoad} onSaved={onSaved} onDelete={() => { if (editing) void deleteTrack(editing); }} />
             </Suspense>
           </ErrorBoundary>
         )}

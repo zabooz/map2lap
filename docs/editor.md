@@ -68,7 +68,8 @@ restart must wait until saving finishes. A saved track is its own work from then
 name is refused, by the server under the same lock and by `generator.build` and `finish_obj` for the tools too (`mytracks.saved_in_editor`;
 OBJ parts alone stay allowed, they don't go into AC), and Build as copy makes a new track from the map, which has none
 of the edits; sources no track of their AC folder names go at the next
-start, and none while that folder isn't there. Planned editing tools will use the kept build files; viewing needs only the
+start, and none while that folder isn't there. Delete track in File removes the open track as My tracks' delete does (`server.delete_track`),
+after asking. Planned editing tools will use the kept build files; viewing needs only the
 installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
 turn that off or delete them. Existing saved preferences stay in effect.
 
