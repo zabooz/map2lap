@@ -27,6 +27,23 @@ class TextureTest(unittest.TestCase):
             self.assertLess(d.mean(), 2.55)     # (under 1 % of a weight on average)
             self.assertLessEqual(np.abs(before.astype(int).sum(-1) - after.astype(int).sum(-1)).max(), 12)
 
+    def test_a_saved_mask_is_an_eighth_as_wide_its_weights_averaged_and_summing_to_one(self):
+        import numpy as np
+        from track.textures import coarse_weights, dds_weights, weight_levels
+        values = np.zeros((2304, 2304, 4), np.uint8)
+        values[:, :1152, 0], values[:, 1152:, 3] = 255, 255           # (one material left, the original tile right)
+        values[:8, :8] = np.repeat(np.eye(4, dtype=np.uint8) * 255, 2, axis=0)   # (two columns each of four materials)
+        coarse = weight_levels(coarse_weights(dds_weights(Image.fromarray(values))))
+        self.assertEqual((288, 288, 4), coarse[0].shape)              # (1 m a texel on a 2048 px tile's ring canvas)
+        self.assertEqual([255, 0, 0, 0], coarse[0][100, 100].tolist())
+        self.assertEqual([0, 0, 0, 255], coarse[0][100, 200].tolist())
+        self.assertTrue(np.allclose(coarse[0][0, 0], 63.75, atol=1))    # (an 8×8 block of four materials: a quarter each)
+        for level in coarse:
+            self.assertTrue((level.astype(int).sum(-1) == 255).all())
+        self.assertEqual(1, coarse[-1].shape[0])
+        small = dds_weights(Image.fromarray(values[:36, :36]))       # (a 32 px tile's canvas: an eighth would lose its ring)
+        self.assertEqual(small, coarse_weights(small))
+
     def test_a_bc7_mask_reads_back_as_lossless_weights_for_the_browser(self):
         import numpy as np
         from track.textures import dds_weights, bc7_weights, browser_weights

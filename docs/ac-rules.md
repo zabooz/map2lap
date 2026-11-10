@@ -57,7 +57,10 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   retain a unit total; the Editor works on them as lossless RGBA8 DDS, not BC3, whose independent colour/alpha
   quantization changes that total. Save writes them as BC7 (`textures.bc7_weights`, each lossless mip level encoded
   with linear error): a quarter of the size (27 -> 6.8 MiB for a 2304 px tile canvas), weights off by about 0.1/255 on
-  average and their sum by a few 255ths at sharp edges, under 2 % brightness. Tried in AC with CSP (2026-11-09); a
+  average and their sum by a few 255ths at sharp edges, under 2 % brightness. Before that a tile's ring canvas is
+  reduced to a texel per metre (`textures.coarse_weights`, 2304 -> 288 px: 6.8 -> 0.11 MiB): the materials keep their
+  resolution, only their seams soften over about a metre; at 50 cm and 1 m no difference was seen in AC (2026-11-10).
+  The Editor reads a saved mask back at its own resolution (`trackdetail._source_image`). Tried in AC with CSP (2026-11-09); a
   track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The browser has no BC7 decoder:
   the server unpacks a saved mask for it (`textures.browser_weights`).
 - Saved material variation uses a managed CSP replacement to `ksMultilayer_objsp_nm4`, with separate tiling-fix flags for

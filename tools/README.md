@@ -39,4 +39,5 @@ line here (`engine/tests/test_tools.py`).
 | Make a release, test its update | `make_release.py`, `test_update.py` |
 | The CC0 textures a clone lacks | `get_textures.py` |
 | The Editor's shipped library (`assets/library`, packed by `make_release.py`): every shown CC0 object of `library/` simplified, textures as they are | `build_library.py [--level 25]` |
+| Painted ground materials for `library/`: every look the build draws (land covers, roads, verge, streams, rock faces) and snow/rock/scree/grass mixtures, in the build's colours, with normal and roughness maps | `painted_ground.py --out <folder> [--import] [--only <names>]` |
 | Build the bundled FBX/OBJ import converter for Windows and Linux | `build_modelconvert.py` |

@@ -2,6 +2,7 @@
 import hashlib
 import functools
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -269,10 +270,23 @@ def image(ac, name, recipe, side=None):
     return modelmesh.image(_model(ac, name, recipe["asset"]), recipe, side)
 
 
-def images(ac, name, scan):
-    """The new native textures of an extended scan as {name: DDS bytes}, each asset's original read once: only Save pays for them."""
+def images(ac, name, scan, kept=None):
+    """The new native textures of an extended scan as {name: DDS bytes}, each asset's original read once: only Save pays for them.
+    kept: a kn5, the track's last Save, whose textures of the same name and size are taken as they are, not encoded again: a
+    name covers every input of its pixels (modelmesh._recipe). 15 textures of a painted Heiligenblut copy: 2.7 s a Save."""
     load = functools.lru_cache(maxsize=1)(lambda asset: _model(ac, name, asset))
-    return {texture: modelmesh.dds(load(recipe["asset"]), recipe) for texture, recipe in scan.get("model_textures", {}).items()}
+    saved = _saved_images(kept, {texture: recipe["bytes"] for texture, recipe in scan.get("model_textures", {}).items()})
+    return {texture: saved.get(texture) or modelmesh.dds(load(recipe["asset"]), recipe)
+            for texture, recipe in scan.get("model_textures", {}).items()}
+
+
+def _saved_images(path, sizes):
+    """{name: DDS bytes} of the textures in the kn5 at path (None or missing: none) whose name is in sizes with that byte size."""
+    if not sizes or not path or not os.path.exists(path):
+        return {}
+    found = [(texture, at, size) for texture, at, size in kn5.scan(path)["textures"] if sizes.get(texture) == size]
+    with open(path, "rb") as f:
+        return {texture: (f.seek(at), f.read(size))[1] for texture, at, size in found}
 
 
 TILE = 256                  # m, as object copies are bundled (trackcopies): AC still culls each bundle on its own

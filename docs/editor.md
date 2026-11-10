@@ -604,9 +604,15 @@ region's mask once for all ground pieces of its tile and keeps the packed masks 
 its fields within its bounds and two-pixel halo, bounds, palette and phase did not change, so a small change remakes only the
 masks around it, and afterwards deletes those it did not use. The Save's preparation (`trackdetail.native_descriptors`) reads
 each tile's weight fields for its regions and keeps the masks' keys, not the fields: the export reads a tile's fields again only
-for a mask not kept. The retained paint files are checked again just before the track is replaced. The packed photos and tile images lie beside them, named by
-`tracknative._photo_key` (source bytes; for a tile's own image its guard, ring canvas and tile; alpha; detail map and its properties). Heiligenblut's copy with
-ten painted tiles: 66.6 s before, 26.4 s with an empty cache, 6.4 s with everything kept (167 MiB). Imported normal
+for a mask not kept. That description of a tile (regions, images, mask keys) is kept too, beside the view's `layers.json` under
+`out/paint-views/<version>/native.json`: the version covers the tile's source image, the track's state and its paints, so a Save
+that changed nothing on a tile reads none of its fields (`NATIVE_PROFILE`). The retained paint files are checked again just before the track is replaced. The packed photos and tile images lie beside them, named by
+`tracknative._photo_key` (source bytes; for a tile's own image its guard, ring canvas and tile; alpha; detail map and its properties).
+So do the ground pieces' region copies, clipped and deduplicated (`tracknative._copy_key`: the piece's vertices and triangles, the
+region, the UV origins; `GEOMETRY_CACHE_VERSION`): the size check makes or takes them before the export, and a piece raised or moved
+since is clipped again. Imported models' textures are taken from the track's last saved kn5 by name, which covers every input of
+their pixels (`trackmodels.images`). Heiligenblut's copy with 99 painted tiles and 86 models: 26.4 s a Save before these three,
+4.9 s with one model moved, 150.6 s with an empty cache (119 s of it encoding masks and tile images). Imported normal
 maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to
 a specular-strength approximation in photo alpha; this is not PBR roughness. Regional render copies are `nocol_`; the edited
 source is hidden for rendering while its collision vertices and indices remain byte-identical. Global UV origins and native

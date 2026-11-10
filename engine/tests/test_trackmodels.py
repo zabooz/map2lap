@@ -246,6 +246,23 @@ class ModelWorkflowTest(Base):
         cold = trackedits.load(self.ac, "deleted_model")
         self.assertEqual([model["id"] + "#0"], [d["id"] for d in cold["deleted"]], "A real Delete must not resurrect a retained model after transfer")
 
+    def test_a_resave_takes_the_model_textures_from_the_saved_track_without_encoding_them_again(self):
+        from app import modelmesh
+        document, binary = fixture()
+        prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        asset = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Tree"})["model"]
+        now = trackedits.load(self.ac, self.name)
+        model = trackedits.model(self.ac, self.name, {"base": now["base"], "revision": now["revision"],
+            "model": asset["id"], "at": [10, 0, 10]})["model"]
+        self.keep([model]); trackcopy.save(self.ac, self.name)
+        path = Path(self.ac, "content/tracks", self.name, self.name + ".kn5")
+        textures = lambda: {name: data for name, _active, data in kn5.read(path)["textures"] if name.startswith("map2lap_model_")}
+        first = textures()
+        self.assertTrue(first)
+        with mock.patch.object(modelmesh, "dds", side_effect=AssertionError("encoded again")):
+            trackcopy.save(self.ac, self.name)
+        self.assertEqual(first, textures())
+
     def test_removing_the_last_cold_model_saves_in_place_and_undo_saves_it_back(self):
         document, binary = fixture()
         prepared = objectlibrary.prepare("tree.glb", encode(document, binary))

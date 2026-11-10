@@ -249,7 +249,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     inherited = trackmodels.compiled(ac, name, path)
     copied_scan, objects = trackcopies.build(path, source_scan, objects, edits["copies"])
     scan, objects = trackmodels.extend(ac, name, {**copied_scan, "model_source_path": path}, objects, edits.get("models", []))
-    scan = {**scan, "model_images": trackmodels.images(ac, name, scan)}
+    scan = {**scan, "model_images": trackmodels.images(ac, name, scan, own)}       # (the last Save holds them already)
     # (bundled before placements, heights and deletions: they all work on face ranges, as in the source's own shared meshes)
     scan, objects = trackmodels.bundle(scan, objects, edits["placed"])
     added = scan["meshes"][len(source_scan["meshes"]):]
@@ -260,7 +260,9 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         trackpaint.validate(ac, name, edits["base"], edits["paints"])
         descriptors = trackpaint.descriptors(ac, name, edits["base"], edits["paints"])
         textures = {d["i"]: d for d in trackdetail.native_descriptors(ac, name, descriptors)}
-        extra += trackdetail.save_size(textures.values(), source_scan, path) + trackpaint.bundle_size(ac, name, edits["paints"])
+        from app import tracknative
+        extra += (trackdetail.save_size(textures.values(), source_scan, path, tracknative._mask_folder(name))     # (its last Save's region copies)
+                  + trackpaint.bundle_size(ac, name, edits["paints"]))
         extra += trackdetail.binding_size(ac, name, path, textures.values(), source_scan)
     except (ValueError, OSError) as error:
         raise Refused(str(error)) from error

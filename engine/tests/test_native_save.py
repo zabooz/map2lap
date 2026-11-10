@@ -164,6 +164,58 @@ class RegionMaskTest(unittest.TestCase):
         self.assertEqual(1, self.tiles_read_by_export())
         self.assertEqual(0, self.tiles_read_by_export())
 
+    def test_a_save_without_ground_changes_prepares_no_tile_again_and_writes_what_it_wrote(self):
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        first = self.saved(self.name)
+        with mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as semantic:
+            trackcopy.save(self.ac, self.name)
+        semantic.assert_not_called()
+        self.assertEqual(first, self.saved(self.name))
+
+    def region_meshes(self, folder):
+        """{name: (vertex bytes, index bytes)} of the saved track's region copies."""
+        saved = kn5.read(str(Path(self.ac, "content/tracks", folder, folder + ".kn5")))
+        return {node.name: (node.vertices.tobytes(), node.indices.tobytes()) for node in kn5.walk_meshes(saved["root"])
+                if "m2l_region" in node.name}
+
+    def test_a_save_without_ground_changes_clips_no_ground_again_and_writes_the_same_copies(self):
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        first = self.region_meshes(self.name)
+        with mock.patch.object(trackground, "clip_region", wraps=trackground.clip_region) as clipped:
+            trackcopy.save(self.ac, self.name)
+        clipped.assert_not_called()
+        self.assertTrue(first)
+        self.assertEqual(first, self.region_meshes(self.name))
+
+    def test_a_ground_piece_raised_since_the_last_save_is_clipped_again_where_it_is_now(self):
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        before = self.region_meshes(self.name)
+        source = trackview.served(self.ac, self.name)[0]
+        with open(source, "rb") as file:
+            moved = kn5.mesh_arrays(file, kn5.scan(source)["meshes"][0])[0].copy()
+        moved["pos"][:, 1] += 5
+        with (mock.patch.object(groundnormals, "changed", side_effect=lambda _path, _change: kn5.Moved({0: moved}, {}, {})),
+              mock.patch.object(trackground, "clip_region", wraps=trackground.clip_region) as clipped):
+            trackcopy.save(self.ac, self.name)
+        self.assertTrue(clipped.called)
+        after = self.region_meshes(self.name)
+        self.assertEqual(before.keys(), after.keys())
+        raised = [name for name in after if name.startswith(tracknative.PREFIX + "region_0_")]
+        self.assertTrue(raised)
+        for name in raised:
+            self.assertNotEqual(before[name], after[name])
+
+    def test_a_kept_tile_description_of_another_profile_is_made_again(self):
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        with (mock.patch.object(trackdetail, "NATIVE_PROFILE", trackdetail.NATIVE_PROFILE + 1),
+              mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as semantic):
+            trackcopy.save(self.ac, self.name)
+        self.assertEqual(1, semantic.call_count)
+
     def test_a_mask_gone_from_the_cache_reads_its_tile_and_makes_that_mask_alone(self):
         self.keep(self.painted(5))
         trackcopy.save(self.ac, self.name)

@@ -3,6 +3,7 @@ import functools
 import gzip
 import hashlib
 import io
+import json
 import struct
 from dataclasses import replace
 from pathlib import Path
@@ -12,9 +13,12 @@ from PIL import Image
 
 from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
-from track.textures import bc7_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, weight_extent
+from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, weight_extent
 
 PROFILE = 10
+# A painted tile's Save description kept under its version (_native_layout): raise it when native_descriptors,
+# tracknative.palette_regions or mask_keys give another one for the same tile.
+NATIVE_PROFILE = 1
 BINDINGS_SCHEMA = 1
 BINDINGS_FILE = Path("data", "map2lap_ground_layers.json")
 
@@ -103,9 +107,15 @@ def _source_image(path, scan, i, revision, mode="RGBA", *, source=None, tile=Non
             raise ValueError("The source ground selection image is too large")
         if source and source.get('mask_extent', [1,1]) != [1,1]:
             width,height=dimensions
-            xs=(np.arange(width)+tile[0]*width)%image.width
-            ys=(np.arange(height)+(-tile[1]-1)*height)%image.height
-            return np.asarray(image.convert(mode))[ys[:,None],xs[None,:]]
+            canvas=image.convert(mode)
+            # (a saved mask is coarser than its tile (textures.coarse_weights): back to a texel per tile pixel first, band by
+            # band, as its weights are independent, so the phase-locked indices below find the same place, not a repeat)
+            size=tuple(round(s*e) for s,e in zip(dimensions,source['mask_extent']))
+            if canvas.size!=size:
+                canvas=Image.merge(mode,[band.resize(size,Image.Resampling.BILINEAR) for band in canvas.split()])
+            xs=(np.arange(width)+tile[0]*width)%canvas.width
+            ys=(np.arange(height)+(-tile[1]-1)*height)%canvas.height
+            return np.asarray(canvas)[ys[:,None],xs[None,:]]
         return np.array(image.convert(mode))
 
 
@@ -579,31 +589,50 @@ def sample_source_mask(path,scan,source,revision,u,v,tile):
 def native_descriptors(ac, name, descriptors, keys=True):
     """Select real native PBR output even for one to three materials, independently of the browser adapter. keys: also
     keep what tracknative.build reads of a tile, for an export to need its weight fields only for a mask not kept."""
-    from app import tracknative
     result, resolved = [], {}
     for descriptor in descriptors:
         layout = descriptor.get("layers", {})
         pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
         if pbr or "ground" in layout:
-            record, path, scan, filename = _view(ac, name, descriptor["version"])
-            semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename, resolved)
-            if "ground" not in layout:
-                tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
-                # Only what tracknative reads of "ground": the browser's passes and atlases (trackregions.compile) aren't.
-                ground = {"dimensions": semantic["dimensions"], "uv_origin": [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]}
-                layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
-            fields = tracknative.with_base(weights)
-            layout = {**layout, "native_regions": tracknative.palette_regions(fields)}
-            if keys:
-                layout = {**layout, "native_tile": {k: semantic[k] for k in ("images", "base", "dimensions")},
-                          "native_mask_keys": tracknative.mask_keys(fields, layout["native_regions"], layout)}
-            descriptor = {**descriptor, "layers": layout}
+            descriptor = {**descriptor, "layers": _native_layout(ac, name, descriptor, keys, resolved)}
         result.append(descriptor)
     return result
 
 
-def save_size(descriptors, scan, path):
-    """Preflight shared photographs/data maps and bounded native masks/geometry before output is allocated."""
+def _native_layout(ac, name, descriptor, keys, resolved):
+    """A painted tile's layout as native_descriptors gives it, kept beside its view's layers.json: the version covers the tile's
+    source image, the track's state and its paints, so a Save that changed nothing there reads none of its fields (99 tiles of
+    a painted Heiligenblut copy: 9 s a Save). Read back as JSON either way, so a kept and a new one are alike."""
+    from app import tracknative
+    layout = descriptor.get("layers", {})
+    stamp = {"profile": NATIVE_PROFILE, "masks": tracknative.MASK_CACHE_VERSION, "keys": keys, "layout": trackpaint._digest(layout)}
+    target = trackpaint._out("paint-views", descriptor["version"]) / "native.json"
+    try:
+        saved = trackpaint._read(target)
+        if saved.get("stamp") == stamp:
+            return json.loads(json.dumps(saved["layout"]))     # (a copy: the read is shared)
+    except ValueError:
+        pass
+    record, path, scan, filename = _view(ac, name, descriptor["version"])
+    semantic, weights, _coverage = _semantic(ac, name, record, path, scan, filename, resolved)
+    if "ground" not in layout:
+        tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+        # Only what tracknative reads of "ground": the browser's passes and atlases (trackregions.compile) aren't.
+        ground = {"dimensions": semantic["dimensions"], "uv_origin": [tile[0], -tile[1]] if semantic["source"]["global_uv"] else [0, 0]}
+        layout = {**{k: v for k, v in semantic.items() if k not in {"source", "dimensions"}}, "ground": ground}
+    fields = tracknative.with_base(weights)
+    layout = {**layout, "native_regions": tracknative.palette_regions(fields)}
+    if keys:
+        layout = {**layout, "native_tile": {k: semantic[k] for k in ("images", "base", "dimensions")},
+                  "native_mask_keys": tracknative.mask_keys(fields, layout["native_regions"], layout)}
+    raw = trackpaint._json_bytes({"stamp": stamp, "layout": layout})
+    trackpaint._atomic(target, raw)
+    return json.loads(raw)["layout"]
+
+
+def save_size(descriptors, scan, path, kept=None):
+    """Preflight shared photographs/data maps and bounded native masks/geometry before output is allocated. kept: the track's
+    tracknative._mask_folder, whose region copies of its last Save are counted, not clipped again."""
     known = {t[0] for t in scan["textures"]}
     sizes = {}
     for descriptor in descriptors:
@@ -619,14 +648,14 @@ def save_size(descriptors, scan, path):
                 if "detail" in ref:
                     key = ref["detail"]["key"] + trackpaint._digest(ref.get("properties", {}))
                     sizes.setdefault(key, ref["detail"]["size"] + 65536)
-            sizes[layout["base"]["name"] + ":native"] = tracknative.save_size(layout, scan, path)
+            sizes[layout["base"]["name"] + ":native"] = tracknative.save_size(layout, scan, path, kept)
             continue
         for ref in layout["images"]:
             if ref["name"] not in known:
                 sizes[ref["name"]] = ref["size"]
-        # The mask is written as BC7 (bc7_weights), the tile image on the same canvas as BC3 at most (ringed_base): a
-        # byte per pixel each, a quarter of the lossless RGBA8 mask's size.
-        sizes[layout["mask"]["name"]] = layout["mask"]["size"] // 4 + 256
+        # The mask is written coarser (coarse_weights) and as BC7 (bc7_weights): a byte per pixel of a 64th of the
+        # lossless RGBA8 mask's pixels; the tile image on the mask's canvas as BC3 at most (ringed_base), a byte per pixel.
+        sizes[layout["mask"]["name"]] = layout["mask"]["size"] // (4 * SAVED_WEIGHT_STEP ** 2) + 256
         sizes[layout["base"]["name"] + ":ring"] = layout["mask"]["size"] // 4 + 256
     return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures() if name not in known)
 
@@ -691,7 +720,8 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
             continue
         if "ground" in layout:
             continue
-        resources[layout["mask"]["name"]] = bc7_weights(mask(ac, name, descriptor["version"]))     # (AC gets BC7: a quarter)
+        # (AC gets it at 1 m a texel (coarse_weights) and as BC7: a 64th of the pixels, a quarter of the bytes each)
+        resources[layout["mask"]["name"]] = bc7_weights(coarse_weights(mask(ac, name, descriptor["version"])))
         for ref in layout["images"]:
             if "asset" in ref:
                 resources[ref["name"]] = image(ac, name, ref["asset"])

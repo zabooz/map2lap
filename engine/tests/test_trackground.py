@@ -125,7 +125,7 @@ class RegionalWeightTest(unittest.TestCase):
         meshes=[]
         for i,(bound,_palette) in enumerate(regions):
             points=trackground.clip_region(vertices,faces,np.array(bound)/16,[0,0])
-            tracknative._append(meshes,source,points,0,f'nocol_ground_m2l_{i}')
+            tracknative._append(meshes,source,tracknative._batches(points,{'origin':[0,0]},np.ones(2)),0,f'nocol_ground_m2l_{i}')
         actual=sum(m['vertices']*44+m['indices']*2+256 for m in meshes)
         self.assertGreaterEqual(budget,actual)
         self.assertLess(budget,200_000)

@@ -216,6 +216,29 @@ def bc7_weights(raw):
     return _bc7_header(levels[0].shape[1], levels[0].shape[0], len(levels)) + b"".join(blocks)
 
 
+# A saved mask texel per SAVED_WEIGHT_STEP of the Editor's: 1 m on a 2048 px / 256 m tile instead of 12.5 cm. A mask is only
+# where materials meet, the materials keep their own resolution: their seams soften over about a metre, within the road
+# verge's band (roadtex.make_edge; at 50 cm and at 1 m a texel no difference was seen in AC, 2026-11-10), and a mask takes a
+# 64th of the room (6.75 -> 0.11 MiB at BC7; 97 masks of a painted Heiligenblut copy: 655 -> 11 MiB) and of the encoding time.
+# The canvas's ring keeps its share (weight_extent), so UVs stay; the Editor reads a saved one back at its own resolution
+# (trackdetail._source_image).
+SAVED_WEIGHT_STEP = 8
+
+
+def coarse_weights(raw, step=SAVED_WEIGHT_STEP):
+    """An RGBA8 weight DDS (dds_weights) step times coarser: every step × step block averaged, mips anew, each summing to 255.
+    Only a ring canvas (pad_weights) whose tile and ring both divide by step, as a 2048 px tile's 2304 does, so the coarse
+    canvas keeps the same ring share and every UV; others, and other textures, pass unchanged. Pure."""
+    if not _is_rgba8(raw):
+        return raw
+    height, width = struct.unpack_from("<2I", raw, 12)
+    if any(size % (18 * step) for size in (width, height)):      # (canvas = tile × 18/16: the tile a multiple of 16 × step)
+        return raw
+    level = Image.fromarray(weight_levels(raw)[0])
+    # (band by band: Pillow reduces RGBA with its alpha premultiplied, and A here is a weight: R under A = 0 would vanish)
+    return dds_weights(Image.merge("RGBA", [band.reduce(step) for band in level.split()]))
+
+
 def browser_weights(raw):
     """A BC7 weight DDS as lossless RGBA8 for the Editor's browser view, whose DDS loader has no BC7. Pure."""
     if not _is_bc7(raw):

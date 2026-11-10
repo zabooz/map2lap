@@ -15,7 +15,7 @@ from PIL import Image
 
 from app import trackground
 from track import kn5
-from track.textures import bc7_weights, pad_weights, weight_extent
+from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, pad_weights, weight_extent
 
 PREFIX = "nocol_ground_m2l_"
 # The packed region masks a track's last Save wrote, by the digest of their inputs (_mask_key). Raise it when
@@ -24,6 +24,9 @@ MASK_CACHE_VERSION = 1
 # The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
 # pad_weights or dds_mipmaps write other bytes for the same inputs.
 PHOTO_CACHE_VERSION = 1
+# The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region or
+# _batches give other vertices for the same inputs.
+GEOMETRY_CACHE_VERSION = 1
 SOURCE_FILE = Path("data", "map2lap_regional_source.json")
 OWN_TEXTURE = re.compile(r"map2lap_native_[0-9a-f]{64}\.(?:png|dds)\Z")
 
@@ -199,9 +202,10 @@ def canvas_size(bounds,width,height):
     return [span+2*max(2,min(128,span//2)) for span in spans]
 
 
-def save_size(layout,scan,path):
-    """Bound regional source copies and full-resolution mask storage; never multiply by photo repeat. Keeps the clips in
-    layout['native_clips'], {mesh: (digest of the vertices clipped, {region: points})}, for build."""
+def save_size(layout,scan,path,kept=None):
+    """Bound regional source copies and full-resolution mask storage; never multiply by photo repeat. kept: the track's
+    _mask_folder; each ground piece's region copy (_batches) is then taken from there or made and kept there, and in
+    layout['native_copies'], {_copy_key: batches}, for build: a Save clips its unchanged ground once, a Save after it none."""
     width,height=layout['ground']['dimensions']
     regions=layout.get('native_regions',[])
     # A byte per pixel and its mips: BC7 (bc7_weights); the rare RGBA16F mask (region_mask) stays 8 and is left out here.
@@ -209,7 +213,7 @@ def save_size(layout,scan,path):
     ring=weight_extent(width,height)
     masks+=round(width*ring[0])*round(height*ring[1])*4//3+256    # (the tile image on its ring canvas, as BC3 at most)
     geometry=0
-    clips=layout.setdefault('native_clips',{})
+    copies=layout.setdefault('native_copies',{})
     with open(path,'rb') as file:
         for source_i,info in enumerate(scan['meshes']):
             if info['material'] not in layout['materials']: continue
@@ -217,12 +221,18 @@ def save_size(layout,scan,path):
             extent=next((p[2] for p in scan['materials'][info['material']].props if p[0]=='m2lMaskExtent'),(1.,1.))
             vertices=_tile_uvs(vertices,scan['materials'][info['material']])
             if extent != (1.,1.): vertices=vertices.copy(); vertices['uv']*=extent
-            clips[source_i]=_field_digest(vertices),{}
-            clipped=clips[source_i][1]
+            piece=_piece(vertices,faces) if kept else None
             for number,(bounds,_palette) in enumerate(regions):
-                points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],layout['ground']['uv_origin'])
-                clipped[number]=points
-                geometry+=len(points)*46+256
+                uv_bounds=[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height]
+                clip=lambda uv_bounds=uv_bounds: trackground.clip_region(vertices,faces,uv_bounds,layout['ground']['uv_origin'])
+                if kept:
+                    key=_copy_key(piece,uv_bounds,layout,width,height,bounds)
+                    cw,ch=canvas_size(bounds,width,height)
+                    copies[key]=_unpacked(_stored(kept,key,lambda: _packed(_batches(clip(),layout,np.array([cw/width,ch/height])))))
+                    corners=sum(len(indices) for _vertices,indices in copies[key])
+                else:
+                    corners=len(clip())
+                geometry+=corners*46+256
     return masks+geometry
 
 
@@ -235,11 +245,44 @@ def _tile_uvs(vertices,material):
     return vertices
 
 
-def _append(meshes,source,points,material,name):
-    """Deduplicate render-only regional triangles without touching source vertices or indices."""
-    if not len(points): return
-    unique,inverse=np.unique(points,return_inverse=True)
-    batches=[(unique,inverse)] if len(unique)<=65535 else [np.unique(points[k:k+65535],return_inverse=True) for k in range(0,len(points),65535)]
+def _piece(vertices,faces):
+    """The digest of a ground piece's vertices and triangles as it is clipped: what its region copies depend on. Pure."""
+    return _field_digest(vertices)+_field_digest(faces)
+
+
+def _copy_key(piece,uv_bounds,layout,width,height,bounds):
+    """The file name of a ground piece's render copy in a region (_batches): its _piece, the region's UV bounds, the tile's UV
+    origins and the region's canvas share. Pure."""
+    from app import trackpaint
+    cw,ch=canvas_size(bounds,width,height)
+    return trackpaint._digest([GEOMETRY_CACHE_VERSION,piece,[float(b) for b in uv_bounds],[float(o) for o in layout['ground']['uv_origin']],
+                               [float(o) for o in layout['origin']],[cw/width,ch/height]])+'.npz'
+
+
+def _batches(points,layout,extent):
+    """A region's clipped points as render copy batches [(vertices, corner indices)], the UVs on the region's canvas, each within
+    65,535 vertices: np.unique's deduplication, 4.8 s of the 99 painted tiles of a Heiligenblut copy. Pure."""
+    if not len(points): return []
+    output=points.copy(); output['uv']=(output['uv']+layout['origin'])/extent
+    unique,inverse=np.unique(output,return_inverse=True)
+    if len(unique)<=65535: return [(unique,inverse)]
+    return [np.unique(output[k:k+65535],return_inverse=True) for k in range(0,len(output),65535)]
+
+
+def _packed(batches):
+    """Batches as the bytes of an .npz. Pure."""
+    buffer=io.BytesIO(); np.savez(buffer,*[array for batch in batches for array in batch]); return buffer.getvalue()
+
+
+def _unpacked(raw):
+    """The batches of _packed's bytes. Pure."""
+    with np.load(io.BytesIO(raw),allow_pickle=False) as arrays:
+        flat=[arrays[f'arr_{k}'] for k in range(len(arrays.files))]
+    return list(zip(flat[::2],flat[1::2]))
+
+
+def _append(meshes,source,batches,material,name):
+    """Render-only regional triangles from their batches (_batches) without touching source vertices or indices."""
     for number,(vertices,indices) in enumerate(batches):
         center=(vertices['pos'].min(axis=0).astype(np.float64)+vertices['pos'].max(axis=0))/2
         meshes.append({**source,'name':f'{name}_{number}','material':material,'cast_shadows':0,'active':1,'renderable':1,'visible':1,'transparent':0,
@@ -283,7 +326,7 @@ def build(ac,name,descriptors,scan,change,path,added):
             refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
             base_material=materials[layout['materials'][0]]
             origin=layout['ground']['uv_origin']
-            clips=layout.get('native_clips',{})
+            copies=layout.get('native_copies',{}); used.update(copies)     # (the size check's: the next one takes them)
             # A region's mask depends on the tile's fields, its bounds and palette and the tile's phase, not on the ground
             # piece clipped to it: made once per region, though a tile's ground comes in several pieces (1ROAD_, 1GRASS_,
             # split ones). First made where it was first needed, so the kn5 keeps its texture order.
@@ -298,21 +341,28 @@ def build(ac,name,descriptors,scan,change,path,added):
                 previous=trackview._mask_extent(original)
                 if previous != [1.,1.]: vertices=vertices.copy(); vertices['uv']*=previous
                 hidden[source_i]=0
-                # (the size check clipped this ground before: its clips hold unless the vertices changed since)
-                digest,clipped=clips.get(source_i,(None,{}))
-                if digest!=_field_digest(vertices): clipped={}
+                # (the size check made the region copies of this ground, as it was before heights and border normals: they
+                # hold unless its vertices changed since; one of the last Save holds while its piece, region and origins do)
+                piece=_piece(vertices,faces)
                 for number,(bounds,palette) in enumerate(regions):
                     cw,ch=canvas_size(bounds,width,height)
                     extent=np.array([cw/width,ch/height])
-                    points=clipped.pop(number,None)
-                    if points is None: points=trackground.clip_region(vertices,faces,[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height],origin)
-                    if not len(points): continue
+                    uv_bounds=[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height]
+                    stored=_copy_key(piece,uv_bounds,layout,width,height,bounds)
+                    batches=copies.get(stored)
+                    if batches is None:
+                        made=lambda uv_bounds=uv_bounds,extent=extent: _packed(_batches(trackground.clip_region(vertices,faces,uv_bounds,origin),layout,extent))
+                        batches=_unpacked(_stored(kept,stored,made))
+                    used.add(stored)
+                    if not batches: continue
                     if number not in masks:
                         phase=_mask_phase(layout,width,height)
                         key=keys[number] if keys else _mask_key(fields(),bounds,palette,phase)
-                        # (AC gets BC7: a quarter; one unchanged since the last Save is taken from then)
-                        raw=_stored(kept,key+'.dds',lambda: bc7_weights(region_mask(fields(),bounds,palette,phase=phase)))
-                        used.add(key+'.dds')
+                        # (AC gets it at 1 m a texel (textures.coarse_weights) and as BC7: a 64th of the pixels, a quarter of
+                        # the bytes each; one unchanged since the last Save is taken from then)
+                        stored=f'{key}_c{SAVED_WEIGHT_STEP}.dds'
+                        raw=_stored(kept,stored,lambda: bc7_weights(coarse_weights(region_mask(fields(),bounds,palette,phase=phase))))
+                        used.add(stored)
                         masks[number]=resource(raw,'.dds')
                     mask=masks[number]
                     props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
@@ -351,8 +401,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                     index=unused.pop() if unused else len(materials)
                     if index==len(materials): materials.append(material)
                     else: materials[index]=material
-                    output=points.copy(); output['uv']=(output['uv']+layout['origin'])/extent
-                    _append(meshes,info,output,index,f'{PREFIX}region_{source_i}_{number}')
+                    _append(meshes,info,batches,index,f'{PREFIX}region_{source_i}_{number}')
     for i in unused: materials[i]=replace(materials[i],maps=[])
     _keep_only(kept,used)
     return materials,textures,meshes,'',owned|set(textures),{'renderable':hidden}
