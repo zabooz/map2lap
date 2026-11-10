@@ -97,16 +97,22 @@ def _side(value):
 
 def _sized(folder, side):
     """The staged GLB with its images reduced to side, made once per prepared upload and size; the staged GLB stays as it is."""
-    path = folder / f"textures-{side}.glb"
-    try:
-        return path.read_bytes()
-    except FileNotFoundError:
-        pass
-    raw = modelimport.texture_size((folder / "model.glb").read_bytes(), side)
-    with tempfile.NamedTemporaryFile(dir=folder, prefix=".sized_", delete=False) as file:
-        file.write(raw)
-    os.replace(file.name, path)
-    return raw
+    # The original preview and simplified geometry info arrive together. Share creation with _variant: on Windows,
+    # replacing a file another request is reading fails, although the prepared upload is still perfectly valid.
+    with _gate:
+        path = folder / f"textures-{side}.glb"
+        try:
+            return path.read_bytes()
+        except FileNotFoundError:
+            pass
+        raw = modelimport.texture_size((folder / "model.glb").read_bytes(), side)
+        with tempfile.NamedTemporaryFile(dir=folder, prefix=".sized_", delete=False) as file:
+            file.write(raw)
+        try:
+            os.replace(file.name, path)
+        finally:
+            Path(file.name).unlink(missing_ok=True)
+        return raw
 
 
 def _variant(folder, side, percentage):

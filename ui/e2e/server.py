@@ -323,6 +323,8 @@ def stand_ins():
                                   "onlyone": [{"name": "Onlytown, Somewhere, Country, Far", "lat": 47.0, "lon": 11.0}]}.get(q.lower(), [])
     version.latest = lambda fresh=False: dict(release) or {"version": version.VERSION, "url": "https://example.invalid/", "archive": None}
     updater.possible = lambda root=None: False
+    # Ordinary page tests start with a working patch; installation warnings supply their own local-status responses.
+    server.csp.inspect = lambda ac: {"status": "installed", "version": "0.2.11", "build": 3465, "enabled": True}
     mapcache.usage = lambda: (5000000, 3)
     mapcache.clear = lambda: (calls.append(["map data cleared"]), 5000000)[1]
     server.play = lambda name, clock=None: (calls.append(["play", name]), (200, {"ok": True}))[1]
