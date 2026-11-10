@@ -111,6 +111,7 @@ const textureTurn = oneByOne(TEXTURES_AT_A_TIME);
 export class TrackView {
   private copyVersion = 0;
   private copyLoading: AbortController | null = null;
+  private loadedCopyRevision: string | null = null;   // the geometry committed to the scene, not just an index received
   private copyStamp: number[] = [];
   private groundVersion = 0;
   private copyGhost: THREE.Group | null = null;
@@ -1101,14 +1102,16 @@ export class TrackView {
       const wanted = data.meshes.filter(m => m.model), jobs = oneByOne(PARALLEL);
       const loaded = new Set(this.modelMeshes().map(m => modelMeshKey(m.userData.info as MeshInfo)));
       const added = wanted.filter(info => !loaded.has(modelMeshKey(info)));
-      const copies = data.meshes.filter(info => info.copy);
+      // Copies are generated before models, from copy descriptors alone. A model insert or move cannot change their numbers.
+      const copiesChanged = this.loadedCopyRevision !== (data.copy_revision ?? "");
+      const copies = copiesChanged ? data.meshes.filter(info => info.copy) : [];
       const [buffers, copyBuffers] = await Promise.all([
         Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
         Promise.all(copies.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
       ]);
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
-      const oldCopies = this.meshes.filter(m => (m.userData.info as MeshInfo).copy).reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0);
+      const oldCopies = copiesChanged ? this.meshes.filter(m => (m.userData.info as MeshInfo).copy).reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0) : 0;
       const copyBytes = copies.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
       if (!fits(this.usedBytes - oldCopies, bytes + copyBytes, this.settings.memoryGb)) throw new Error("The models and copies exceed the Editor memory limit");
       this.usedBytes += bytes; reserved = bytes;
@@ -1118,7 +1121,7 @@ export class TrackView {
       const kept = this.keepModelMeshes(wanted);
       // Copies precede models in the server's layout. Move kept model numbers before adding copies at their former numbers.
       // Commit both layouts without an await: Revert and a late model index cannot resurrect or hide copied trees.
-      if (copies.length || this.meshes.some(m => (m.userData.info as MeshInfo).copy)) this.applyCopies(data, copyBuffers, this.heightsVersion);
+      if (copiesChanged && (copies.length || oldCopies)) this.applyCopies(data, copyBuffers, this.heightsVersion);
       const previousRemoved = this.removed;
       this.data = data;
       this.objectPieces = objectIndex(data.objects); this.belonging = childrenOf(data.objects);
@@ -1130,6 +1133,7 @@ export class TrackView {
       // (what a kept mesh was asked anew for under the old draft or number hasn't come: asked again as the index says now)
       for (const mesh of kept) if (mesh.userData.behind) void this.refresh((mesh.userData.info as MeshInfo).i);
       this.settlePending(data);
+      this.loadedCopyRevision = data.copy_revision ?? "";
       for (const id of [...this.picks.keys()]) if (id.startsWith("instance_") && !data.objects[id.split("#")[0]]) this.dropPick(id);
       this.reframePicks(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
       return wanted.length;
@@ -1165,6 +1169,11 @@ export class TrackView {
       }
       if (mine !== this.token || asked !== this.copyVersion) return;
       if (data.revision !== this.data?.revision) throw new Error("The track changed");
+      if (this.loadedCopyRevision === (data.copy_revision ?? "")) {
+        this.data = {...this.data, draft: data.draft};
+        this.settlePending(data); this.onViewFailed(null);
+        return;
+      }
       const added = data.meshes.filter(info => info.copy);
       const replacing = this.meshes.filter(m => (m.userData.info as MeshInfo).copy);
       const wasBytes = replacing.reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0);
@@ -1178,6 +1187,7 @@ export class TrackView {
       if (mine !== this.token || asked !== this.copyVersion) return;
       if (!fits(this.usedBytes - wasBytes, newBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
       this.applyCopies(data, buffers, heightAsked);
+      this.loadedCopyRevision = data.copy_revision ?? "";
       this.onViewFailed(null);
     } catch (e) {
       if (mine !== this.token || asked !== this.copyVersion || signal.aborted) return;
@@ -1996,6 +2006,7 @@ export class TrackView {
     this.modelLight?.dispose(); this.modelLight = null;
     this.copyVersion++;
     this.copyLoading?.abort();
+    this.loadedCopyRevision = null;
     this.navigation.stopRide();
     for (const m of this.meshes) {
       this.scene.remove(m);
