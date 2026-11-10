@@ -2,11 +2,16 @@
 import math
 import base64
 import heapq
+import json
+import threading
 
 import numpy as np
 
 from app import roadregion, trackband, trackheights
 from track import editorinfo
+
+_kept_lock, _kept = threading.Lock(), {}     # (_roads: of the networks marked last)
+KEPT = 2                                      # (one marked network at a time, and the one before it: a tab marks anew while another adjusts)
 
 
 def resample(line):
@@ -170,16 +175,52 @@ def _over_steps(grid, i0, j0, line, half, lanes, *rows):
     return tuple(out)
 
 
-def _arms(path, scan, moved, net):
+def _roads(path, scan, net):
+    """The marked network's roads as built in the kn5 at path (scan): {"lines": its arms' lines, "width": the widest, "bounds", "built": the road's heights
+    there, "i0", "j0": the lattice numbers of their first point, "own", "held", "mapped": owns there}. Of the file and the network alone, not of the draft or the
+    strength: kept while both stay, so moving the strength doesn't reckon them again (Rechberg: owns, twice a request, 40 of 110 ms). Read-only arrays."""
+    unselected, widths = net.get("unselected", []), net.get("widths")
+    key = (path, editorinfo._stamp(path), json.dumps([net["lines"], unselected, widths], default=lambda v: np.asarray(v).tolist()))
+    with _kept_lock:
+        if key in _kept:
+            return _kept[key]
     lines = [resample(line) for line in net["lines"]]
     width = max(edge["width"] for edge in net["segments"])
     points = np.vstack(lines)
-    margin = width / 2 + trackband.SLOPE_OVER_M
+    # (the slope read beyond the ends; and an unselected road holding a point of an arm's within its half width has its line inside, so its own road is
+    # the same on this grid as on change_of's larger one: a wide road beside the network, half 20 m, would lie outside SLOPE_OVER_M)
+    widest = max([edge["width"] for edge in unselected], default=0)
+    margin = width / 2 + max(trackband.SLOPE_OVER_M, widest / 2 + 3 * trackheights.STEP)
     bounds = np.vstack([points.min(axis=0) - margin, points.max(axis=0) + margin])
     built, i0, j0 = trackband._ground(path, scan, None, bounds, road_only=True)
+    own, held, mapped = owns(built, i0, j0, lines, width / 2, unselected, widths)
+    for array in [built, held, mapped, *own]:
+        array.setflags(write=False)
+    roads = {"lines": lines, "width": width, "bounds": bounds, "built": built, "i0": i0, "j0": j0, "own": own, "held": held, "mapped": mapped}
+    with _kept_lock:
+        while len(_kept) >= KEPT:
+            _kept.pop(next(iter(_kept)))
+        _kept[key] = roads
+    return roads
+
+
+def _placed(mask, i0, j0, shape, at_i0, at_j0):
+    """A boolean grid whose first point has the lattice numbers i0, j0, on one of shape whose first point has at_i0, at_j0: False beyond it. Pure."""
+    out = np.zeros(shape, bool)
+    di, dj = i0 - at_i0, j0 - at_j0
+    z0, z1 = max(0, dj), min(shape[0], dj + mask.shape[0])
+    x0, x1 = max(0, di), min(shape[1], di + mask.shape[1])
+    if z0 < z1 and x0 < x1:
+        out[z0:z1, x0:x1] = mask[z0 - dj:z1 - dj, x0 - di:x1 - di]
+    return out
+
+
+def _arms(path, scan, moved, roads):
+    """Each arm of the network (roads: _roads) with its lanes' heights now (moved: the draft's other changes) and as built, and its slopes beyond its ends."""
+    lines, width, bounds, built, i0, j0 = (roads[k] for k in ("lines", "width", "bounds", "built", "i0", "j0"))
     current = built if moved is None else trackband._ground(path, scan, moved, bounds, road_only=True)[0]
     arms = []
-    for line, own in zip(lines, owns(built, i0, j0, lines, width / 2, net.get("unselected", []), net.get("widths"))[0]):
+    for line, own in zip(lines, roads["own"]):
         lanes = trackband._across(width / 2)
         side = sideways(line)
         rows = [line + offset * side for offset in lanes]
@@ -320,7 +361,8 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
         raise ValueError("Transition must be between 2 and 60 metres")
     if strength == 0:
         raise trackband.Refused("It is smooth here already")
-    arms = _arms(path, scan, moved, net)
+    roads = _roads(path, scan, net)
+    arms = _arms(path, scan, moved, roads)
     even = even_network(net, arms, strength)
     largest = max(float(np.abs(value - arm["heights"]).max()) for arm, value in zip(arms, even))
     fade = max(blend, trackband.SOFT_STEEPEST * largest / trackband.SIDE_SLOPE)
@@ -334,7 +376,10 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
     # Include terrain-cell corner vertices touched by the selected paint; the 2 m mesh can extend beyond its image edge.
     on = np.pad(selected, 1)
     active = np.logical_or.reduce([on[z:z + selected.shape[0], x:x + selected.shape[1]] for z in range(3) for x in range(3)])
-    own, held, mapped = owns(built, i0, j0, [arm["line"] for arm in arms], width / 2, net.get("unselected", []), net.get("widths"))
+    # (owns lies within the arms' half width: on _roads' grid, all of it)
+    def placed(mask):
+        return _placed(mask, roads["i0"], roads["j0"], built.shape, i0, j0)
+    own, held, mapped = [placed(mask) for mask in roads["own"]], placed(roads["held"]), placed(roads["mapped"])
     active &= np.logical_or.reduce(own) & np.isfinite(current)
     target, original, correction, distance, joining = _targets(arms, even, built.shape, i0, j0, width, {_key(p) for p in net["terminals"]}, strength, own)
     source_height = np.nan_to_num(current)

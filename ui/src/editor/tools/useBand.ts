@@ -8,7 +8,8 @@ import type {SurfaceSelection} from "../scene/surfaces";
 import type {Place, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
 
-const APPLY_AFTER_MS = 180, PREVIEW_AFTER_MS = 120;
+// (a wheel's notches come closer than APPLY_AFTER_MS: one request; a digit typed after another may start one, the session then asks only the newest)
+const APPLY_AFTER_MS = 80, PREVIEW_AFTER_MS = 120;
 const MIN_BLEND = 2, MAX_BLEND = 60, INITIAL_BLEND = 6;
 interface Way {lines?: Place[][]; region?: SurfaceSelection}
 

@@ -198,7 +198,10 @@ short debounce; Enter and separate Apply/Cancel buttons are unnecessary. Mark ro
 Esc cancels pending work; already committed changes remain available to Undo.
 `smoothing.ts` owns one active height operation: adjustments replace it as one Undo step, and returning to 0% removes it.
 The server calculates replacements using `trackedits.moved_without`, excluding that operation from the current height field;
-slider changes cannot compound the same smoothing. Undo closes the active range instead of applying it again. Late answers
+slider changes cannot compound the same smoothing. What a new strength leaves as it was is not reckoned again: each arm's own road
+(`roadnet._roads`, per kn5 state and network) and the draft without the operation (`trackedits._changed`, per its height ids and placements).
+The request also reckons the draft with the new operation; the meshes the page fetches once it is saved take that (Rechberg: input to the
+changed frame 430 -> 260 ms, with the debounce down from 180 to 80 ms). Undo closes the active range instead of applying it again. Late answers
 after Escape or a range change cannot enter the draft. Roads offer Smooth road directly in their context menu, starting at
 the clicked point. `roadnet.py` retains the arm spline/crossfall calculation but uses a shared junction plane for selected
 branches; an unselected arm keeps its existing join. All arms contribute to one 2 m height raster, avoiding overlapping

@@ -28,6 +28,8 @@ _now_lock, _now = threading.Lock(), {}      # (moved_now's last answer)
 _context_lock, _context_cache = threading.RLock(), {}  # one validated draft/scan, shared by thousands of mesh GETs
 _meshes_of = {}                     # (remember_meshes: a height change's id and the placements it was made under: the meshes it moves)
 MAX_REMEMBERED = 4096               # (more than a day's strokes; forgotten, they are reckoned again)
+_reckoned_lock, _reckoned = threading.Lock(), {}    # (_changed: the drafts' states reckoned last, by what they hold; _heights_and_moved holds _now_lock)
+RECKONED = 3                        # (a smoothing's draft without its change and with it, and the one before: each a kn5.Moved, of a large stroke many MB)
 
 
 class Invalid(Exception):
@@ -343,7 +345,28 @@ def moved_without(ac, name, revision, omit):
     if not isinstance(omit, str) or not any(h["id"] == omit for h in heights):
         raise ValueError("The smoothing operation changed: mark the road again")
     path, scan, objects = context(ac, name, revision)
-    return trackplace.changed(path, scan, objects, [h for h in heights if h["id"] != omit], placed)
+    return _changed(path, scan, objects, [h for h in heights if h["id"] != omit], placed)
+
+
+def _state_key(path, scan, heights, placed):
+    """What a draft's kn5.Moved goes by: the kn5, its copies and models (scan), its height changes by id in their order, its placements. Pure."""
+    models = json.dumps([scan.get("models", []), scan.get("model_heights", {})], sort_keys=True, default=str)
+    return path, scan.get("copy_key"), models, tuple(h["id"] for h in heights), _placed_key(placed)
+
+
+def _changed(path, scan, objects, heights, placed):
+    """trackplace.changed, kept for the drafts' states reckoned last: moving a smoothing's strength replaces its change, the draft without it stays
+    (moved_without), and the meshes handed out once it is saved take the draft with it its request reckoned (remember_meshes). InTheWay as it."""
+    key = _state_key(path, scan, heights, placed)
+    with _reckoned_lock:
+        if key in _reckoned:
+            return _reckoned[key]
+    value = trackplace.changed(path, scan, objects, heights, placed)
+    with _reckoned_lock:
+        while len(_reckoned) >= RECKONED:
+            _reckoned.pop(next(iter(_reckoned)))
+        _reckoned[key] = value
+    return value
 
 
 def _heights_and_moved(ac, name, revision):
@@ -397,7 +420,7 @@ def _moved_or_none(ac, name, revision, heights, placed):
         return None
     path, scan, objects = context(ac, name, revision)
     try:
-        return trackplace.changed(path, scan, objects, heights, placed)
+        return _changed(path, scan, objects, heights, placed)
     except trackheights.InTheWay:
         return trackplace.moved(path, scan, objects, placed) if placed else None
 
@@ -467,11 +490,25 @@ def _meshes_of_height(path, scan, objects, placed, op, refuse=False):
     return known
 
 
-def remember_meshes(ac, name, revision, op):
-    """The meshes the height change op moves on the track as its draft places its objects now, reckoned while it is made: saving it needn't
-    reckon them again. InTheWay if it can't be applied (trackheights.moved)."""
+def remember_meshes(ac, name, revision, op, replace=None):
+    """The draft with the height change op added last, in place of the change replace (a smoothing's before: the page puts it there), and the meshes op
+    moves, reckoned while it is made: those otherwise with it than without it. Saving it and the meshes handed out then needn't reckon them again.
+    InTheWay if it can't be applied (trackheights.moved)."""
     path, scan, objects = context(ac, name, revision)
-    _meshes_of_height(path, scan, objects, _heights_and_moved(ac, name, revision)[1], op, refuse=True)
+    heights, placed, _moved = _heights_and_moved(ac, name, revision)
+    others = [h for h in heights if h["id"] != replace]
+    before, after = _changed(path, scan, objects, others, placed), _changed(path, scan, objects, others + [op], placed)
+    both = before.vertices.keys() & after.vertices.keys()
+    known = sorted((before.vertices.keys() ^ after.vertices.keys()) | {i for i in both if not _alike(before.vertices[i], after.vertices[i])})
+    with _now_lock:
+        if len(_meshes_of) > MAX_REMEMBERED:
+            _meshes_of.clear()
+        _meshes_of[(path, op["id"], _placed_key(placed), scan.get("copy_key"))] = known
+
+
+def _alike(a, b):
+    """Whether two meshes' vertices (kn5.VERTEX) are the same where a height change moves them: heights and normals. Pure."""
+    return a is b or (len(a) == len(b) and np.array_equal(a["pos"][:, 1], b["pos"][:, 1]) and np.array_equal(a["normal"], b["normal"]))
 
 
 def _meshes_between(path, scan, objects, before, after):

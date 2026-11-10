@@ -282,6 +282,21 @@ class LevelsTest(unittest.TestCase):
         change = field.at(x.ravel()[on_lower], z.ravel()[on_lower])[0]
         self.assertLess(float(np.abs(change).max()), .5, msg=change)
 
+    def test_another_strength_reads_the_roads_as_built_once(self):
+        """Which road a point is (owns) goes by the roads as built and the network alone: moving the strength reckoned it twice a time (Rechberg: 40 of 110 ms)."""
+        with mock.patch.object(roadnet, "owns", wraps=roadnet.owns) as reckoned:
+            for strength in (.3, .6, .3):
+                self.change([[1, -50], [1, 80]], strength)
+        self.assertEqual(1, reckoned.call_count)
+
+    def test_the_roads_kept_give_the_change_reckoned_anew(self):
+        points = [[1, -50], [1, 80]]
+        self.change(points, .3)
+        kept = self.change(points, .6)
+        roadnet._kept.clear()
+        x, z = np.meshgrid(np.arange(-10.0, 20.0, 2.0), np.arange(-20.0, 60.0, 2.0))
+        np.testing.assert_array_equal(kept.at(x.ravel(), z.ravel())[0], self.change(points, .6).at(x.ravel(), z.ravel())[0])
+
 
 class ParallelTest(unittest.TestCase):
     """Two roads side by side, the upper 3 m up behind a wall, its line on the wall's top for 20 m: the lower road's lanes lie within the upper road's reach."""

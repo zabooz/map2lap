@@ -58,6 +58,8 @@ class Base(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
         self.file = trackedits.path_of(self.name)
+        trackedits._reckoned.clear()
+        trackedits._meshes_of.clear()
 
     def load(self):
         return trackedits.load(self.ac, self.name)
@@ -73,6 +75,41 @@ class Base(unittest.TestCase):
             self.assertEqual([other], changed.call_args.args[3])
             with self.assertRaises(ValueError):
                 trackedits.moved_without(self.ac, self.name, "base", "undone")
+
+    def test_the_draft_without_a_smoothing_is_reckoned_once_while_its_strength_moves(self):
+        """Each new strength replaces the smoothing's change by one of a new id: the draft without it stays the same (40 to 55 ms on a track with edits)."""
+        brush = {"id": "brush"}
+        drafts = [([brush, {"id": "smooth1"}], [], object()), ([brush, {"id": "smooth2"}], [], object())]
+        with mock.patch.object(trackedits, "_heights_and_moved", side_effect=drafts), \
+             mock.patch.object(trackedits, "context", return_value=("source", {}, {})), \
+             mock.patch.object(trackedits.trackplace, "changed", return_value=kn5.Moved({}, {}, {})) as changed:
+            trackedits.moved_without(self.ac, self.name, "base", "smooth1")
+            trackedits.moved_without(self.ac, self.name, "base", "smooth2")
+        self.assertEqual(1, changed.call_count)
+
+    def test_the_meshes_handed_out_after_a_change_take_the_draft_its_request_reckoned(self):
+        """The meshes the page fetches once the change is saved: their request reckoned the draft with it once more (Rechberg: 40 ms, the first ones waiting)."""
+        brush, op, moved = {"id": "brush"}, {"id": "smooth"}, kn5.Moved({}, {}, {})
+        with mock.patch.object(trackedits, "_heights_and_moved", return_value=([brush], [], None)), \
+             mock.patch.object(trackedits, "context", return_value=("source", {}, {})), \
+             mock.patch.object(trackedits.trackplace, "changed", return_value=moved) as changed:
+            trackedits.remember_meshes(self.ac, self.name, "base", op)
+            reckoned = changed.call_count
+            self.assertIs(moved, trackedits._moved_or_none(self.ac, self.name, "base", [brush, op], []))
+        self.assertEqual(reckoned, changed.call_count)
+
+    def test_a_change_moves_the_meshes_it_makes_otherwise(self):
+        """What the view fetches anew: the meshes that are otherwise with the change than without it, not those the draft's other changes move alike."""
+        same = np.zeros(2, kn5.VERTEX)
+        other = same.copy()
+        other["pos"][:, 1] = 1
+        before, after = kn5.Moved({1: same, 2: same}, {}, {}), kn5.Moved({1: same.copy(), 2: other, 3: same}, {}, {})
+        with mock.patch.object(trackedits, "_heights_and_moved", return_value=([{"id": "brush"}], [], None)), \
+             mock.patch.object(trackedits, "context", return_value=("source", {}, {})), \
+             mock.patch.object(trackedits.trackplace, "changed", side_effect=[before, after]):
+            trackedits.remember_meshes(self.ac, self.name, "base", {"id": "smooth"})
+        with mock.patch.object(trackedits.trackheights, "moved", side_effect=AssertionError("reckoned again")):
+            self.assertEqual([2, 3], trackedits._meshes_of_height("source", {}, {}, [], {"id": "smooth"}))
 
     def save(self, deleted, **changed):
         now = self.load()
