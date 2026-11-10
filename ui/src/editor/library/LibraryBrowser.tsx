@@ -2,14 +2,15 @@ import {Fragment, type ButtonHTMLAttributes, type ReactNode} from "react";
 import styles from "./LibraryBrowser.module.css";
 
 /** The common library layout: heading, filters, asset grid, preview and reserved actions. */
-export function LibraryBrowser({title, titleId, subtitle, onImport, disabled, filters, browser, preview, pages, notices, footer, onFiles}: {
+export function LibraryBrowser({title, titleId, subtitle, onImport, disabled, filters, browser, preview, pages, notices, footer, onFiles, importLabel = "Import…"}: {
   title: string; titleId?: string; subtitle: string; onImport: () => void; disabled: boolean;
   filters: ReactNode; browser: ReactNode; preview: ReactNode; pages?: ReactNode; notices?: ReactNode; footer: ReactNode;
   onFiles: (files: FileList) => void;
+  importLabel?: string;
 }) {
   return <div className={styles.shell}>
     <div className={styles.heading}><div><h2 id={titleId}>{title}</h2><p>{subtitle}</p></div>
-      <button type="button" onClick={onImport} disabled={disabled}>Import…</button></div>
+      <button type="button" onClick={onImport} disabled={disabled}>{importLabel}</button></div>
     <div className={styles.filters}>{filters}</div>
     <div className={styles.content}>
       <div className={styles.column}>

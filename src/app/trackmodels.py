@@ -488,6 +488,8 @@ def _replacements(ac, name, now, body, asset, meta, targets):
 
 def create(ac, name, now, body):
     """Prepare placement or an atomic group replacement; the page commits bindings and poses in one Undo step."""
+    if "instances" in body:
+        return _mixture(now, body["instances"])
     asset, meta = snapshot(body.get("model"))
     target = body.get("replace")
     if type(body.get("keep_height", False)) is not bool:
@@ -507,6 +509,30 @@ def create(ac, name, now, body):
     instance["at"] = list(point)
     instance["at"][1] -= float(trackheights.Field(now["heights"]).at(point[0], point[2])[0])
     return {"model": instance, "placed": []}
+
+
+def _mixture(now, entries):
+    """Prepare one bounded browser-generated stroke; verify every pose before freezing any asset."""
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 2000:
+        raise ValueError("Place between 1 and 2000 objects per stroke")
+    for e in entries:
+        if (not isinstance(e, dict) or not isinstance(e.get("model"), str) or not KEY.fullmatch(e["model"])
+                or not isinstance(e.get("at"), list) or len(e["at"]) != 3
+                or any(type(v) not in (int, float) or not np.isfinite(v) for v in e["at"])
+                or type(e.get("turn")) not in (int, float) or not np.isfinite(e["turn"]) or not -180 <= e["turn"] <= 180
+                or type(e.get("scale")) not in (int, float) or not np.isfinite(e["scale"]) or not placement.MIN_SCALE <= e["scale"] <= placement.MAX_SCALE):
+            raise ValueError("Choose finite positions, turns and sizes (10–1000%) for every object")
+    snapshots = {id: snapshot(id) for id in dict.fromkeys(e["model"] for e in entries)}
+    models, posed = [], []
+    field = trackheights.Field(now["heights"])
+    for e in entries:
+        asset, meta = snapshots[e["model"]]
+        at = list(e["at"])
+        at[1] -= float(field.at(at[0], at[2])[0])
+        id = "instance_" + secrets.token_hex(12)
+        models.append({"id": id, "asset": asset, "at": at, "replaces": None, "collision": meta["collision"]})
+        posed.append({"id": id + "#0", "x": 0, "y": 0, "z": 0, "turn": e["turn"], "scale": e["scale"]})
+    return {"models": models, "placed": posed}
 
 
 def copy_template(ac, name, now, instance):

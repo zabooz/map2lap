@@ -8,6 +8,10 @@ import {EditNotes} from "./inspector/EditNotes";
 import {ElevationOptions, useElevation} from "./tools/Elevation";
 import {MoveOptions, useMove} from "./tools/Move";
 import {Models} from "./tools/Models";
+import {Groups} from "./tools/Groups";
+import {GroupLibrary} from "./library/GroupLibrary";
+import type {ObjectGroup} from "./tools/scatter";
+import type {LibraryModel} from "./library/ModelLibrary";
 import {AssetLibrary, type LibraryTab} from "./library/AssetLibrary";
 import {MaterialLibrary} from "./library/MaterialLibrary";
 import {NOT_ALL, sortName} from "./scene/inspect";
@@ -27,7 +31,7 @@ import {editorToasts} from "./editorToasts";
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
-  return (tool === "smooth" && editable && marked) || tool === "camera" || tool === "copy" || tool === "model" || (tool === "move" && editable);
+  return (tool === "smooth" && editable && marked) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
 }
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
@@ -71,8 +75,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const [note, setNote] = useState<string | null>(null);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState<string | null>(null);
+  const [groupFailed, setGroupFailed] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   const [libraryTab, setLibraryTab] = useState<LibraryTab | null>(null);
+  const [group, setGroup] = useState<ObjectGroup | null>(null), [groupModels, setGroupModels] = useState<LibraryModel[]>([]);
+  const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
   const replaceable = useMemo(() => menu && picked?.id ? view.replacementTargets(marked) : null, [view, menu, picked, marked]);
   // (the right-click menu belongs to the click that opened it: a tool or the library taken up closes it, so the next click in the view acts)
@@ -82,7 +89,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   // (File's Library opens where it was left, at Textures for a picked ground surface; Insert always at Objects)
   const [lastTab, setLastTab] = useState<LibraryTab>("textures");
   if (libraryTab && libraryTab !== lastTab) setLastTab(libraryTab);
-  const openLibrary = () => { if (lastTab === "objects" && !surfacePicks.length && editable) openModels(); else { setMenu(null); setLibraryTab("textures"); } };
+  const openLibrary = () => { if (lastTab === "objects" && !surfacePicks.length && editable) openModels(); else { setMenu(null); setLibraryTab(surfacePicks.length ? "textures" : lastTab); } };
   const setMaterialOpen = useCallback((open: boolean) => setLibraryTab(open ? "textures" : null), []);
   const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
   const setCopyWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { copyWheel.current = wheel; }, []);
@@ -203,7 +210,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const toolWheel = useEffectEvent((keys: Parameters<typeof elevation.wheel>[0], by: number) => {
     if (tool === "camera") camera.wheel(keys, by);
     else if (tool === "move") move.wheel(keys, by);
-    else if (tool === "copy" || tool === "model") copyWheel.current(keys, by);
+    else if (tool === "copy" || tool === "model" || tool === "group") copyWheel.current(keys, by);
     else if (tool === "smooth") band.wheel(keys, by);
     else elevation.wheel(keys, by);
   });
@@ -284,12 +291,13 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
   // ×'d, it stays away until its text changes)
-  const problems = editorToasts({viewFailed, copyFailed, saveFailed: saving.failed, save: state.save, error: state.error, outdated: state.outdated,
+  const problems = editorToasts({viewFailed, copyFailed, groupFailed, saveFailed: saving.failed, save: state.save, error: state.error, outdated: state.outdated,
     saving: saving.busy},
     dismissed, {reopen: thenView(view, reopen), readAgain: thenView(view, () => void readAgain()), giveUp: thenView(view, () => edits.discardOutdated())});
   useToasts(!visible ? [] : problems.map(t => ({...t, onDismiss: () => {
     setDismissed(previous => new Set(previous).add(t.key));
     if (t.id === "edit-copy-failed") setCopyFailed(null);
+    if (t.id === "edit-group-failed") setGroupFailed(null);
   }})));
 
   return (
@@ -300,8 +308,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={tool === "model" && editable}
         onWheel={setCopyWheel}
         choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => setTool("model")}
-        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy} objects={objects}
+        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy || groupBusy} objects={objects}
+          groups={<GroupLibrary open={libraryTab === "groups"} onBusy={setGroupBusy} onClose={closeMaterial} onChoose={(chosen, models) => {
+            setGroup(chosen); setGroupModels(models); setTool("group"); closeMaterial(); view.focus();
+          }} />}
           textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={limitedTiles} busy={painting.busy} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
+      <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
         notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}

@@ -57,6 +57,10 @@ export class ModelDraw {
   private held = new Map<string, number>();
   private environment: THREE.Texture | null = null;
   private power = 1;
+  private batches = new Map<string, THREE.InstancedMesh>();
+  private blended: THREE.Mesh[] = [];
+  private batchBytes = 0;
+  private changed = true;
 
   setEnvironment(texture: THREE.Texture, power = 1) {
     this.environment = texture; this.power = power;
@@ -98,7 +102,8 @@ export class ModelDraw {
 
   stats() {
     return {assets: this.assets.size, instances: this.instances.size,
-      reservedBytes: [...this.assets.values()].reduce((sum, asset) => sum + asset.bytes, 0),
+      reservedBytes: this.batchBytes + [...this.assets.values()].reduce((sum, asset) => sum + asset.bytes, 0),
+      instanceBufferBytes: this.batchBytes, renderBatches: this.batches.size, blendedParts: this.blended.length,
       shared: [...this.assets].map(([id, asset]) => ({asset: id,
         instances: [...this.instances.values()].filter(instance => instance.asset === id).length,
         geometryCpuBytes: asset.geometryCpuBytes, geometryGpuBytes: asset.geometryGpuBytes,
@@ -121,6 +126,7 @@ export class ModelDraw {
       const root = this.instance(id);
       if (root) { root.matrix.fromArray(values); root.matrixWorldNeedsUpdate = true; }
     }
+    this.changed = true;
   }
 
   private async asset(id: string, description: Asset) {
@@ -172,9 +178,10 @@ export class ModelDraw {
       throw new Error("The models exceed the Editor memory limit");
     }
     for (const [id, asset] of additions) { this.assets.set(id, asset); this.pending.delete(id); }
-    const wanted = new Set(bindings.map(b => b.id));
-    for (const [id, instance] of this.instances) if (!wanted.has(id) || bindings.find(b => b.id === id)!.asset !== instance.asset) {
-      this.scene.remove(instance.root); this.instances.delete(id);
+    const before = new Map(this.instances), beforeMatrices = new Map([...before].map(([id, i]) => [id, i.root.matrix.clone()]));
+    const wanted = new Map(bindings.map(b => [b.id, b.asset]));
+    for (const [id, instance] of this.instances) if (wanted.get(id) !== instance.asset) {
+      this.instances.delete(id);
     }
     for (const binding of bindings) {
       let instance = this.instances.get(binding.id);
@@ -182,9 +189,20 @@ export class ModelDraw {
         const root = loaded.get(binding.asset)!.root.clone(true);
         root.matrixAutoUpdate = false;
         root.traverse(node => { node.receiveShadow = true; });
-        instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance); this.scene.add(root);
+        instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance);
       }
       instance.root.matrix.fromArray(matrices[binding.id]); instance.root.matrixWorldNeedsUpdate = true;
+    }
+    this.changed = true;
+    try { this.flush(); }
+    catch (error) {
+      this.instances = before;
+      for (const [id, matrix] of beforeMatrices) { this.instances.get(id)!.root.matrix.copy(matrix); this.instances.get(id)!.root.matrixWorldNeedsUpdate = true; }
+      this.wanted = new Set([...before.values()].map(i => i.asset));
+      for (const [id, asset] of additions) { this.assets.delete(id); release(asset); }
+      if (bytes) this.reserve(-bytes);
+      this.changed = false;
+      throw error;
     }
     this.releaseUnused();
     if (this.report) {
@@ -193,7 +211,53 @@ export class ModelDraw {
     }
   }
 
-  visible(id: string, visible: boolean) { const instance = this.instance(id); if (instance) instance.visible = visible; }
+  visible(id: string, visible: boolean) { const instance = this.instance(id); if (instance && instance.visible !== visible) { instance.visible = visible; this.changed = true; } }
+
+  /** Submit repeated opaque/cutout parts per asset and 256 m cell; blended parts retain independent sorting. */
+  flush() {
+    if (!this.changed) return;
+    const groups = new Map<string, {part: THREE.Mesh; matrices: THREE.Matrix4[]; capacity: number}>(), blended: THREE.Mesh[] = [];
+    for (const {asset, root} of this.instances.values()) {
+      root.updateMatrixWorld(true);
+      root.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        let visible = root.visible;
+        for (let p: THREE.Object3D | null = node; p && p !== root; p = p.parent) visible &&= p.visible;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        if (materials.some(m => m.transparent)) {
+          if (!visible) return;
+          const part = new THREE.Mesh(node.geometry, node.material); part.matrixAutoUpdate = false;
+          part.matrix.copy(node.matrixWorld); part.receiveShadow = true; blended.push(part); return;
+        }
+        const p = new THREE.Vector3().setFromMatrixPosition(root.matrix);
+        const key = `${asset}/${node.geometry.uuid}/${materials.map(m => m.uuid).join(",")}/${Math.floor(p.x / 256)},${Math.floor(p.z / 256)}`;
+        const group = groups.get(key) ?? {part: node, matrices: [] as THREE.Matrix4[], capacity: 0};
+        group.capacity++; if (visible) group.matrices.push(node.matrixWorld.clone()); groups.set(key, group);
+      });
+    }
+    const bytes = [...groups].reduce((n, [key, g]) => n + Math.max(g.capacity, this.batches.get(key)?.instanceMatrix.count ?? 0) * 16 * 4 * 2, 0);
+    // Count the CPU transform buffer and its GPU upload; shared model resources are reserved separately.
+    const delta = bytes - this.batchBytes;
+    if (delta > 0 && !this.reserve(delta)) throw new Error("The model instances exceed the Editor memory limit");
+    const next = new Map<string, THREE.InstancedMesh>();
+    for (const [key, {part, matrices, capacity}] of groups) {
+      let batch = this.batches.get(key);
+      if (!batch || batch.instanceMatrix.count < capacity) {
+        batch = new THREE.InstancedMesh(part.geometry, part.material, capacity);
+        batch.receiveShadow = true; batch.matrixAutoUpdate = false; batch.userData.modelBatch = true;
+      }
+      matrices.forEach((m, i) => batch!.setMatrixAt(i, m)); batch.count = matrices.length;
+      batch.instanceMatrix.needsUpdate = true; batch.computeBoundingSphere();
+      next.set(key, batch);
+    }
+    for (const [key, batch] of this.batches) if (next.get(key) !== batch) { this.scene.remove(batch); batch.dispose(); }
+    for (const batch of next.values()) if (!batch.parent) this.scene.add(batch);
+    for (const mesh of this.blended) this.scene.remove(mesh);
+    for (const mesh of blended) this.scene.add(mesh);
+    this.batches = next; this.blended = blended;
+    if (delta < 0) this.reserve(delta);
+    this.batchBytes = bytes; this.changed = false;
+  }
 
   nudge(id: string, pivot: number[], transform: THREE.Matrix4, initial?: THREE.Matrix4) {
     const root = this.instance(id);
@@ -202,6 +266,7 @@ export class ModelDraw {
     root.matrix.premultiply(new THREE.Matrix4().makeTranslation(-pivot[0], -pivot[1], -pivot[2]))
       .premultiply(transform).premultiply(new THREE.Matrix4().makeTranslation(...pivot as [number, number, number]));
     root.matrixWorldNeedsUpdate = true;
+    this.changed = true;
   }
 
   dispose() {
@@ -209,6 +274,10 @@ export class ModelDraw {
     this.wanted.clear();
     for (const instance of this.instances.values()) this.scene.remove(instance.root);
     this.instances.clear();
+    for (const batch of this.batches.values()) { this.scene.remove(batch); batch.dispose(); }
+    for (const mesh of this.blended) this.scene.remove(mesh);
+    this.batches.clear(); this.blended = [];
+    this.reserve(-this.batchBytes); this.batchBytes = 0; this.changed = true;
     for (const asset of this.assets.values()) { release(asset); this.reserve(-asset.bytes); }
     this.assets.clear();
     this.held.clear();

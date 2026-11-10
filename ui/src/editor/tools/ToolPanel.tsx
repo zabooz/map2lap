@@ -7,7 +7,7 @@ import type {useSave} from "../state/useSave";
 import type {TrackView} from "../scene/view";
 import {Help} from "./Help";
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model" | "group";
 type Group = "general" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click an object to pick it, Ctrl + click adds more, Shift + click selects all matching, X or Delete takes them out; a right click marks all of its sort (V)"},

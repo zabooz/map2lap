@@ -22,6 +22,8 @@ import type {CopyPose} from "../tools/copying";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
+import {GroupDraw, type GroupPlant} from "./groupDraw";
+import type {LibraryModel} from "../library/ModelLibrary";
 import {modelLight} from "./modelLighting";
 import {bindLightShares, takesGroundLight} from "./lightShare";
 import {NightSky} from "./nightSky";
@@ -751,11 +753,13 @@ export class TrackView {
   /** onStroke gets a stroke when it ends: where the ring was and for how long, and whether Shift was held when it began. askPreview gets it while it lasts,
       and answers with what it changes so far (trackedits.preview), or why it can't be: then it ends there, onStrokeRefused gets that;
       null: no answer this time. */
+  private onStrokeCancelled: () => void = () => {};
   setStroke(onStroke: (samples: Sample[], turned: boolean) => void, askPreview: (samples: Sample[], turned: boolean) => Promise<ArrayBuffer | string | null>,
-            onStrokeRefused: (why: string) => void) {
+            onStrokeRefused: (why: string) => void, onCancelled: () => void = () => {}) {
     this.onStroke = onStroke;
     this.askPreview = askPreview;
     this.onStrokeRefused = onStrokeRefused;
+    this.onStrokeCancelled = onCancelled;
   }
 
   /** The stroke under way is dropped, the meshes back as they were; whether there was one. */
@@ -763,6 +767,7 @@ export class TrackView {
     if (!this.stroke) return false;
     clearInterval(this.stroke.timer);
     this.stroke = null;
+    this.onStrokeCancelled();
     this.takeBackPreview();
     return true;
   }
@@ -994,6 +999,26 @@ export class TrackView {
     return this.groundAt(x, z) ?? this.navigation.lastGround;
   }
 
+  /** A vegetation foot on loaded terrain only. Bridges, water and missing terrain are not planting surfaces. */
+  plantGround(x: number, z: number): [number, number, number] | null {
+    const hit = this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0));
+    return hit && BRUSHED.test(hit.object.name) ? [x, hit.point.y, z] : null;
+  }
+
+  private groupDraw: GroupDraw | null = null;
+  async showGroup(key: string, plants: GroupPlant[], models: LibraryModel[]) {
+    this.groupDraw ??= new GroupDraw(this.scene, bytes => {
+      if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+      this.usedBytes += bytes; return true;
+    });
+    this.groupDraw.environment(this.ensureModelLight(), this.reflections());
+    await this.groupDraw.show(key, plants, models); this.dirty = true;
+    performance.clearMarks("map2lap.groups.preview");
+    performance.mark("map2lap.groups.preview", {detail: {key, count: plants.length}});
+  }
+  async dropGroup(key: string) { await this.groupDraw?.drop(key); this.dirty = true; }
+  confirmGroup(key: string, ids: string[], draft: number) { this.groupDraw?.confirm(key, ids, draft); }
+
   /** The ground under an object, null outside the loaded terrain: moving there preserves its current height. */
   private groundAt(x: number, z: number) {
     return this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0))?.point.y ?? null;
@@ -1105,14 +1130,17 @@ export class TrackView {
       // Copies are generated before models, from copy descriptors alone. A model insert or move cannot change their numbers.
       const copiesChanged = this.loadedCopyRevision !== (data.copy_revision ?? "");
       const copies = copiesChanged ? data.meshes.filter(info => info.copy) : [];
+      const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
+      const oldCopies = copiesChanged ? this.meshes.filter(m => (m.userData.info as MeshInfo).copy).reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0) : 0;
+      const copyBytes = copies.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
+      // A forest's CPU selection meshes can exceed the budget even when its shared render geometry fits.
+      // Refuse from index sizes before downloading thousands of buffers; check again after concurrent asset loads.
+      if (!fits(this.usedBytes - oldCopies, bytes + copyBytes, this.settings.memoryGb)) throw new Error("The models and copies exceed the Editor memory limit");
       const [buffers, copyBuffers] = await Promise.all([
         Promise.all(added.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
         Promise.all(copies.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal)))),
       ]);
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
-      const bytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
-      const oldCopies = copiesChanged ? this.meshes.filter(m => (m.userData.info as MeshInfo).copy).reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0) : 0;
-      const copyBytes = copies.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
       if (!fits(this.usedBytes - oldCopies, bytes + copyBytes, this.settings.memoryGb)) throw new Error("The models and copies exceed the Editor memory limit");
       this.usedBytes += bytes; reserved = bytes;
       if (data.models?.length) this.ensureModelLight();
@@ -1373,6 +1401,8 @@ export class TrackView {
 
   /** Shown models whose instance is drawn now go, and those a later draft no longer has (undone). An older index keeps them. */
   private settlePending(data: TrackIndex) {
+    if (this.groupDraw) void this.groupDraw.settle(data.draft ?? 0, new Set(data.models?.map(m => m.id)), id => !!this.modelDraw.instance(id))
+      .then(() => { this.dirty = true; }).catch(error => this.onViewFailed((error as Error).message));
     for (const [key, {instance, draft}] of this.pendingModels) {
       if (instance === undefined) continue;
       const copied = instance.startsWith("copy_");
@@ -1949,6 +1979,7 @@ export class TrackView {
         if (info.model) this.modelDraw.visible(info.model.instance, m.visible && !this.removed.has(info.model.instance + "#0"));
       }
       this.surfaceOverlay?.follow();
+      this.modelDraw.flush();
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
       this.nightSky.follow(this.camera.position);
@@ -1984,6 +2015,7 @@ export class TrackView {
     this.lampGlass = [];
     this.modelTransformVersion++;
     this.modelDraw.dispose();
+    this.groupDraw?.dispose(); this.groupDraw = null;
     for (const layer of this.groundLayers?.values() ?? []) layer.dispose();
     this.groundLayers?.clear(); this.groundFrame?.dispose(); this.groundFrame = null;
     this.paintVersion++;

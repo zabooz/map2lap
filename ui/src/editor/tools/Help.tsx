@@ -15,11 +15,12 @@ const KEYS: Record<Tool, [string, string][]> = {
   copy: [["Click", "pick the source, then place copies"], ...TURN_RAISE_SIZE],
   delete: [["Click", "delete what is under it"]],
   model: [["Click", "place the chosen model"], ...TURN_RAISE_SIZE],
+  group: [["Click or drag", "stamp or paint a mixture"], ["Shift + wheel", "brush radius"], ["Ctrl + wheel", "density"], ["Alt + wheel", "minimum spacing"]],
 };
 
 /** How the Editor is worked, then the keys of `tool`, the one on: short, and what is said holds now. */
 export function Help({tool}: {tool: Tool}) {
-  const on = TOOLS.find(t => t.tool === tool)!;
+  const on = TOOLS.find(t => t.tool === tool) ?? {label: "Groups", key: "Library"};
   return (
     <details id="edit-help" className={styles.help}>
       <summary className={styles.helpTitle}>Help</summary>

@@ -320,8 +320,14 @@ export class TrackEdits {
 
   /** Remove a refused background copy from every history snapshot; other user edits keep their order. */
   rejectCopy(id: string) {
-    const without = (e: Edits): Edits => ({...e, copies: e.copies.filter(c => c.id !== id), models: e.models.filter(m => m.id !== id),
-      placed: e.placed.filter(p => p.id !== `${id}#0`), removed: e.removed.filter(d => !d.id.startsWith(`${id}#`))});
+    this.rejectModels([id]);
+  }
+
+  /** Remove a refused batch and its poses from every history snapshot in one pass. */
+  rejectModels(ids: string[]) {
+    const rejected = new Set(ids), owner = (id: string) => id.split("#")[0];
+    const without = (e: Edits): Edits => ({...e, copies: e.copies.filter(c => !rejected.has(c.id)), models: e.models.filter(m => !rejected.has(m.id)),
+      placed: e.placed.filter(p => !rejected.has(owner(p.id))), removed: e.removed.filter(d => !rejected.has(owner(d.id)))});
     const clean = without(this.edits());
     const distinct = (history: Edits[]) => history.map(without).filter((e, i, all) => !sameEdits(e, all[i + 1] ?? clean));
     this.past = distinct(this.past); this.future = distinct(this.future);

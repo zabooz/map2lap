@@ -8,6 +8,11 @@ test("a working Editor shows no toast", () => {
   expect(editorToasts(none, new Set(), actions)).toEqual([]);
 });
 
+test("a rejected group remains visible as a placement error after its brush closes", () => {
+  const result = editorToasts({...none, groupFailed: "Group draft rejected"}, new Set(), actions);
+  expect(result).toMatchObject([{id: "edit-group-failed", tone: "error", title: "Group placement failed", message: "Group draft rejected"}]);
+});
+
 test("each problem without a window of its own is a toast with its way out", () => {
   const all = editorToasts({viewFailed: "The models exceed the Editor memory limit", copyFailed: "Copy was refused",
     saveFailed: "The track could not be kept", save: "stuck", error: "This track was changed elsewhere", outdated: 2}, new Set(), actions);

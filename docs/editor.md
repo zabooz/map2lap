@@ -455,9 +455,41 @@ at binding, rather than ignored; additional vertex colours and UV sets are refus
 Server geometry is still copied per instance. Save bundles model parts like object copies: per 256 m tile of the
 instance's final place, prefix (`nocol_`/`1WALL_`) and mesh flags, each bundle within 65,535 vertices, before placements,
 heights and deletions, which all work on face ranges; the object list keeps each instance's own range. Blended parts stay
-alone. The Editor keeps a mesh per instance part. Twenty Quaternius trees went from 40 meshes to 6; heavy scans hardly bundle
-(twenty boulders: 80 to 60), and bundling saves no bytes. Browser draw counts still grow with instance count. Forest-scale batching,
-LOD/performance evidence and the remaining native material coverage are separate open release requirements.
+alone. Twenty Quaternius trees went from 40 meshes to 6; heavy scans hardly bundle (twenty boulders: 80 to 60), and bundling saves
+no bytes. The Editor draws opaque and cutout model parts through `InstancedMesh`, grouped by asset, geometry, material and
+256 m world cell. Logical instance roots retain individual transforms for Copy and movement. Bounds are recomputed when
+transforms change. Blended parts retain independent meshes for transparent sorting. Instance buffers count toward the Editor
+memory limit; hiding instances reuses their allocated capacity. CPU selection still uses the ordinary per-instance mesh data,
+and server geometry and KN5 geometry remain per instance. Automatic distance-dependent model simplification is not implemented.
+
+### Object groups
+
+The Library's **GROUPS** tab creates, edits and deletes named object mixtures. Add up to 32 distinct library models; each entry
+has a non-negative weight and a uniform size range. At least one weight must be positive. Weights are relative proportions,
+not guaranteed counts in a small stamp. The panel reports weighted triangles per 100 plants when model costs are available.
+Definitions live under the user's `library/groups/<id>.json`, outside shipped assets, and are written atomically. Deleting a
+group does not remove planted models. A group whose model was removed stays readable so the missing entry can be removed.
+
+**Paint group** saves the mixture and opens the Groups brush: click to stamp, hold and move to paint. Radius (Shift + wheel),
+density in plants per 100 square metres (Ctrl + wheel) and minimum foot-to-foot spacing (Alt + wheel) control its distribution.
+Trees and other models stay upright with random yaw and uniformly scaled proportions. The browser worker
+`tools/scatter.worker.ts` computes the distribution from a frozen per-stroke seed. Samples are resampled by distance, holds
+do not accumulate plants, and a spatial hash enforces spacing against earlier candidates and existing imported instances.
+The brush is bounded to 2,000 plants and 20,000 candidate attempts per stroke; the tool reports a reached limit.
+
+The browser projects each candidate onto the actual loaded terrain; missing terrain, water and bridge decks are not planting
+surfaces. It does not invent a height from the camera's last ground. Local shared model resources render the preview while
+the button is held, without height-preview requests or generated geometry from the server. Model files are ordinary library
+downloads. Completed strokes keep a solid local group through Esc and draft synchronization until all canonical instances
+are drawn. Cancelling an unfinished stroke removes its preview. A refused placement or draft write removes the entire local
+group and reports a placement error, including after the tool ends.
+
+`GET/POST /api/library/groups` lists/publishes definitions; `POST /api/library/groups/<id>/delete` removes one.
+`GET /api/library/models/<id>` resolves a member's current metadata. Completed strokes use the existing
+`POST /api/editor/<track>/model` with a bounded `instances` array of library id, ground anchor, turn and size. Every pose is
+validated before snapshot preparation, each unique asset is frozen once, and the response prepares bindings and poses without
+changing the draft. The page commits the whole response through `TrackEdits.addModels` as one Undo step and verifies its draft
+write. These ordinary bindings retain existing native Save, portable model snapshots, Undo/Redo and individual editing.
 
 ## Ground texture changes
 

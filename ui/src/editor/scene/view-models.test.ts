@@ -196,6 +196,16 @@ test("inserting a model downloads only the new one and keeps what is loaded", as
   } finally { done(); }
 });
 
+test("an oversized model group is refused before downloading its per-instance picking geometry", async () => {
+  const {view, served, urls, errors, done} = setUp();
+  try {
+    served.parts = [{...part(0, "a"), vertices: 1000000}];
+    Object.assign(view, {settings: {memoryGb: .001}});
+    expect(await view.reloadModels()).toBeNull();
+    expect(urls.length).toBe(0); expect(errors.join(" ")).toContain("memory limit"); expect(view.usedBytes).toBe(0);
+  } finally { done(); }
+});
+
 test("a model mesh takes no material regions: it is always picked as its object", async () => {
   const {view, served, done} = setUp();
   try {
