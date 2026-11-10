@@ -192,7 +192,7 @@ a build adds is entered there as listed, counted or part of the track: `tools/ch
 ## Material library and imports
 
 Library in File (under Revert to saved) opens the library where it was left, at Textures for a picked ground surface; Insert (I) opens it at Objects. Textures imports one colour image (PNG, JPG or two-dimensional BC1/BC2/BC3 DDS) through a file chooser or
-drag and drop. A modal shows its preview, name, category and the physical width/height of one repeat; tags, source URL and
+drag and drop. A modal in the object import's look ("Import texture: meadow.png", shared `ImportDialog.module.css`) shows its preview, name, category and the physical width/height of one repeat on the left; tags, source URL and
 license are optional. Cancel prepares no permanent material. The library can be searched by name/tags, filtered by category
 and browsed in pages of 40; only small previews load, never the full original maps. Keyboard input in its fields stays there.
 

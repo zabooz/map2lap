@@ -1,28 +1,10 @@
-.dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 20px; border: 1px solid var(--line);
-          border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
-.dialog::backdrop { background: rgba(0, 0, 0, .45); }
-.form { display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
-.form h2 { font-size: 17px; margin: 0; }
-.note { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-.preview { width: 100%; height: 155px; object-fit: contain; border-radius: 7px; background: var(--raised); border: 1px solid var(--line); }
-.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* What only the texture import has; its frame, columns and rows are ImportDialog.module.css */
+.preview { width: 100%; object-fit: contain; border-radius: 7px; background: var(--raised); border: 1px solid var(--line); }
+/* Repeat: width × height in one row, as wide as any other input */
+.repeat { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.repeat input { flex: 1; min-width: 0; }
+/* A surface map: its row, then how it is coming along and its Remove under the input */
+.map { display: flex; flex-direction: column; gap: 5px; }
+.mapState { display: flex; align-items: center; gap: 8px; margin: 0 0 0 calc(8.5em + 10px); color: var(--muted); font-size: 12px; }
+.mapState button { font-size: 12px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); cursor: pointer; }
 .variation { display: flex; align-items: center; gap: 7px; }
-.field input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); color: var(--text); }
-.repeat { display: flex; gap: 12px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px 10px; margin: 0; }
-.repeat .field { flex: 1; }
-.repeat legend { padding: 0 4px; color: var(--muted); font-size: 12px; }
-.maps { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px 10px; margin: 0; }
-.maps legend { padding: 0 4px; color: var(--muted); font-size: 12px; }
-.map { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
-.map .field { width: 100%; }
-.map button { font-size: 12px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); cursor: pointer; }
-.more summary { cursor: pointer; color: var(--muted); }
-.more .field { margin-top: 8px; }
-.buttons { display: flex; justify-content: flex-end; gap: 8px; position: sticky; bottom: -20px; z-index: 1;
-           margin: 0 -20px -20px; padding: 12px 20px; background: var(--panel); border-top: 1px solid var(--line); }
-.buttons button { height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
-.buttons button:disabled { opacity: .5; cursor: default; }
-.buttons .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.error { color: var(--warn); margin: 0; }
-.waiting { display: flex; flex-direction: column; gap: 8px; color: var(--muted); }
-.waiting progress { width: 100%; height: 6px; accent-color: var(--accent); }

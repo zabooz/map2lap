@@ -1,12 +1,14 @@
 import {useEffect, useRef, useState} from "react";
 import {libraryJson, MATERIAL_CATEGORIES, materialPreview, prepareMaterialImage, repeatHeight, type LibraryMaterial, type PreparedImport} from "./library";
 import styles from "./ImportMaterial.module.css";
+import frame from "./ImportDialog.module.css";
 
 type ExtraRole = "normal" | "roughness";
 interface ExtraMap {file: File; prepared?: PreparedImport; error?: string}
 const EXTRA_MAPS = [["normal", "Normal map"], ["roughness", "Roughness map"]] as const;
 
-/** A portable material, previewed before importing copies. Native modal focus keeps typing out of Editor shortcuts. */
+/** A portable material, previewed before importing copies, in the object import's look (ImportDialog.module.css). Native modal focus
+    keeps typing out of Editor shortcuts. */
 export function ImportMaterial({file, onCancel, onImported}: {file: File; onCancel: () => void;
   onImported: (material: LibraryMaterial, duplicate: boolean) => void}) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -83,52 +85,56 @@ export function ImportMaterial({file, onCancel, onImported}: {file: File; onCanc
     }
   };
 
-  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="import-material-title"
+  return <dialog ref={dialog} className={frame.dialog} aria-label="Import texture"
     onCancel={e => { e.preventDefault(); if (!saving) onCancel(); }}
     onClick={e => { const r = e.currentTarget.getBoundingClientRect();
       if (e.target === e.currentTarget && !saving && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) onCancel(); }}>
-    <form className={styles.form} onSubmit={e => { e.preventDefault(); void submit(); }}>
-      <h2 id="import-material-title">Import texture</h2>
-      <p className={styles.note}>{file.name} · The original image is kept in your library.</p>
-      {!prepared && !error && <div role="status" className={styles.waiting}>Preparing image…<progress aria-label="Preparing material" /></div>}
-      {prepared && <>
+    <form className={frame.form} onSubmit={e => { e.preventDefault(); void submit(); }}>
+      <h2 title={file.name}>Import texture: <span className={frame.file}>{file.name}</span></h2>
+      {!prepared && !error && <div role="status" className={frame.waiting}>Preparing image…<progress aria-label="Preparing material" /></div>}
+      {prepared && <div className={frame.columns}><div className={frame.look}>
         <img className={styles.preview} src={materialPreview(prepared.token, true)} alt="Texture preview" />
-        <p className={styles.note}>Original: {prepared.source.size.join(" × ")} px. Prepared: {prepared.prepared.size.join(" × ")} px.
-          {prepared.source.alpha && " Contains transparency."}</p>
-        <label className={styles.field}>Name<input type="text" value={name} onChange={e => setName(e.target.value)} maxLength={80} required autoFocus disabled={saving} /></label>
-        <label className={styles.field}>Category<select value={category} onChange={e => setCategory(e.target.value)} disabled={saving}>
-          {MATERIAL_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-        <fieldset className={styles.maps}><legend>Surface maps</legend>
-          <p className={styles.note}>Normal: +Y. Roughness: black is smooth, white is rough. Original files are kept.</p>
-          {EXTRA_MAPS.map(([role, label]) => <div key={role} className={styles.map}>
-            <label className={styles.field}>{label} (optional)<input type="file" accept=".png,.jpg,.jpeg,.dds"
+        <p className={frame.note}>{prepared.source.size.join(" × ")} px original · {prepared.prepared.size.join(" × ")} px prepared
+          {prepared.source.alpha && " · Contains transparency"}</p>
+        <div className={frame.rows}>
+          <label className={frame.field}>Name<input type="text" value={name} onChange={e => setName(e.target.value)} maxLength={80} required autoFocus disabled={saving} /></label>
+          <label className={frame.field}>Category<select value={category} onChange={e => setCategory(e.target.value)} disabled={saving}>
+            {MATERIAL_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+          <div className={frame.field}><span className={frame.hinted} title="The ground one texture repeat covers, in metres.">Repeat (m)</span>
+            <span className={styles.repeat}>
+              <input type="number" aria-label="Width (m)" min="0.01" max="10000" step="any" value={width} onChange={e => setWidth(e.target.value)} required disabled={saving} />
+              ×
+              <input type="number" aria-label="Height (m)" min="0.01" max="10000" step="any" value={height ?? defaultHeight} onChange={e => setHeight(e.target.value)} required disabled={saving} />
+            </span></div>
+        </div>
+      </div><div className={frame.settings}>
+        {EXTRA_MAPS.map(([role, label]) => <div key={role} className={styles.map}>
+          <label className={frame.field}><span className={frame.hinted} title={role === "normal" ? "Optional. Normal: +Y. The original file is kept."
+            : "Optional. Black is smooth, white is rough. The original file is kept."}>{label}</span>
+            <input type="file" accept=".png,.jpg,.jpeg,.dds" aria-label={`${label} (optional)`}
               ref={input => { mapInputs.current[role] = input ?? undefined; }} disabled={saving}
               onChange={e => { const file = e.target.files?.[0]; if (file) chooseMap(role, file); }} /></label>
-            {maps[role] && <>
-              {maps[role].error ? <span role="alert" className={styles.error}>{label}: {maps[role].error}</span>
-                : !maps[role].prepared ? <span role="status" className={styles.note}>Preparing {label.toLowerCase()}…</span>
-                  : <span className={styles.note}>{maps[role].prepared.source.size.join(" × ")} px original · Ready</span>}
-              <button type="button" onClick={() => chooseMap(role)} disabled={saving}>Remove {label.toLowerCase()}</button>
-            </>}
-          </div>)}
-        </fieldset>
-        <fieldset className={styles.repeat}><legend>One texture repeat covers</legend>
-          <label className={styles.field}>Width (m)<input type="number" min="0.01" max="10000" step="any" value={width} onChange={e => setWidth(e.target.value)} required disabled={saving} /></label>
-          <label className={styles.field}>Height (m)<input type="number" min="0.01" max="10000" step="any" value={height ?? defaultHeight} onChange={e => setHeight(e.target.value)} required disabled={saving} /></label>
-        </fieldset>
-        <label className={styles.variation}><input type="checkbox" checked={variation ?? natural}
-          onChange={e => setVariation(e.target.checked)} disabled={saving} />Break up texture repetition</label>
-        <p className={styles.note}>Variation in the game requires CSP. Leave it off for regular patterns such as tiles or brickwork.</p>
-        <details className={styles.more}><summary>Tags and source</summary>
-          <label className={styles.field}>Tags (comma separated)<input type="text" value={tags} onChange={e => setTags(e.target.value)} maxLength={800} disabled={saving} /></label>
-          <label className={styles.field}>Source URL<input type="url" value={source} onChange={e => setSource(e.target.value)} maxLength={500} disabled={saving} /></label>
-          <label className={styles.field}>License<input type="text" value={license} onChange={e => setLicense(e.target.value)} maxLength={200} disabled={saving} /></label>
-        </details>
-      </>}
-      {error && <p role="alert" className={styles.error}>{error}</p>}
-      {saving && <div role="status" className={styles.waiting}>Adding to library…<progress aria-label="Importing material" /></div>}
-      <div className={styles.buttons}><button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className={styles.primary} disabled={!prepared || !mapsReady || saving}>Add to library</button></div>
+          {maps[role] && <p className={styles.mapState}>
+            {maps[role].error ? <span role="alert" className={frame.error}>{label}: {maps[role].error}</span>
+              : !maps[role].prepared ? <span role="status">Preparing {label.toLowerCase()}…</span>
+                : <span>{maps[role].prepared.source.size.join(" × ")} px original · Ready</span>}
+            <button type="button" onClick={() => chooseMap(role)} disabled={saving}>Remove {label.toLowerCase()}</button>
+          </p>}
+        </div>)}
+        <label className={styles.variation} title="Variation in the game requires CSP. Leave it off for regular patterns such as tiles or brickwork.">
+          <input type="checkbox" checked={variation ?? natural} onChange={e => setVariation(e.target.checked)} disabled={saving} />
+          <span className={frame.hinted}>Break up texture repetition</span></label>
+        <div className={frame.rows}>
+          <label className={frame.field}><span className={frame.hinted} title="Comma separated">Tags</span>
+            <input type="text" value={tags} onChange={e => setTags(e.target.value)} maxLength={800} disabled={saving} /></label>
+          <label className={frame.field}>Source URL<input type="url" value={source} onChange={e => setSource(e.target.value)} maxLength={500} disabled={saving} /></label>
+          <label className={frame.field}>License<input type="text" value={license} onChange={e => setLicense(e.target.value)} maxLength={200} disabled={saving} /></label>
+        </div>
+      </div></div>}
+      {error && <p role="alert" className={frame.error}>{error}</p>}
+      {saving && <div role="status" className={frame.waiting}>Adding to library…<progress aria-label="Importing material" /></div>}
+      <div className={frame.buttons}><button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
+        <button type="submit" className={frame.primary} disabled={!prepared || !mapsReady || saving}>Add to library</button></div>
     </form>
   </dialog>;
 }
