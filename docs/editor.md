@@ -612,7 +612,9 @@ So do the ground pieces' region copies, clipped and deduplicated (`tracknative._
 region, the UV origins; `GEOMETRY_CACHE_VERSION`): the size check makes or takes them before the export, and a piece raised or moved
 since is clipped again. Imported models' textures are taken from the track's last saved kn5 by name, which covers every input of
 their pixels (`trackmodels.images`). Heiligenblut's copy with 99 painted tiles and 86 models: 26.4 s a Save before these three,
-4.9 s with one model moved, 150.6 s with an empty cache (119 s of it encoding masks and tile images). Imported normal
+4.9 s with one model moved, 91.5 s with an empty cache. A region mask whose canvas the saved mask's step divides is
+averaged to its metre texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
+255th off the one made coarse after); the tile images on their ring canvases take 33 s of an empty cache. Imported normal
 maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to
 a specular-strength approximation in photo alpha; this is not PBR roughness. Regional render copies are `nocol_`; the edited
 source is hidden for rendering while its collision vertices and indices remain byte-identical. Global UV origins and native

@@ -15,7 +15,7 @@ from PIL import Image
 
 from app import trackground
 from track import kn5
-from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, pad_weights, weight_extent
+from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_weights, pad_weights, weight_extent
 
 PREFIX = "nocol_ground_m2l_"
 # The packed region masks a track's last Save wrote, by the digest of their inputs (_mask_key). Raise it when
@@ -143,9 +143,11 @@ def palette_regions(fields, halo=2):
     return result
 
 
-def region_mask(fields, bounds, palette, phase=(0,0)):
-    """RGBA16F weights with exact near-field support; far cross-region filtering remains a release gate. Pure."""
-    import struct
+def region_mask(fields, bounds, palette, phase=(0,0), step=1):
+    """RGBA16F weights with exact near-field support; far cross-region filtering remains a release gate. Pure.
+    step: as textures.coarse_weights makes the mask step times coarser. A canvas it divides is averaged in step × step
+    blocks before rounding, with no full-size mips (115 masks of a painted Heiligenblut copy: 65 s); any other, or one
+    whose coarse weights need more than 8 bits, is made full size and given to coarse_weights as before."""
     height,width = next(iter(fields.values())).shape
     x0,y0,x1,y1=bounds
     # Keep a genuine two-source-texel halo. Extend its edge for coarser per-region
@@ -163,19 +165,36 @@ def region_mask(fields, bounds, palette, phase=(0,0)):
     total=level.sum(axis=2)
     if not np.all(total>0): raise ValueError('A regional ground palette has an uncovered filter halo')
     level/=total[...,None]
+    if step>1 and not any(size%(18*step) for size in (cw,ch)):
+        small=level.reshape(ch//step,step,cw//step,step,4).mean(axis=(1,3))
+        quantized=_quantized(small)
+        if np.max(abs(quantized.astype(np.float32)/255-small))<=2/255:
+            return dds_weights(Image.fromarray(quantized))
+    full=_full_mask(level,cw,ch)
+    return coarse_weights(full,step) if step>1 else full
+
+
+def _quantized(values):
+    """Float weights summing to one as uint8 summing to 255: a weight above 0 keeps at least 1, the largest takes the rest.
+    Pure."""
+    q=np.maximum(np.rint(values*255).astype(np.int16),(values>0).astype(np.int16))
+    winner=values.argmax(axis=2)
+    yy,xx=np.indices(winner.shape)
+    q[yy,xx,winner]+=255-q.sum(axis=2)
+    return q.astype(np.uint8)
+
+
+def _full_mask(level,cw,ch):
+    """A region's weights (ch, cw, 4) as a full-size DDS with every mip: RGBA8, or RGBA16F where 8 bits are off by more
+    than 2/255. Pure."""
+    import struct
     levels=[]
     while True:
         levels.append(level)
         if level.shape[:2]==(1,1): break
         h,w=level.shape[:2]
         level=np.stack([np.asarray(Image.fromarray(level[...,c]).resize((max(1,w//2),max(1,h//2)),Image.Resampling.BOX),np.float32) for c in range(4)],axis=2)
-    quantized=[]
-    for values in levels:
-        q=np.maximum(np.rint(values*255).astype(np.int16),(values>0).astype(np.int16))
-        winner=values.argmax(axis=2)
-        yy,xx=np.indices(winner.shape)
-        q[yy,xx,winner]+=255-q.sum(axis=2)
-        quantized.append(q.astype(np.uint8))
+    quantized=[_quantized(values) for values in levels]
     if all(np.max(abs(q.astype(np.float32)/255-values))<=2/255 for q,values in zip(quantized,levels)):
         header=None; payload=[]
         for q in quantized:
@@ -359,9 +378,11 @@ def build(ac,name,descriptors,scan,change,path,added):
                         phase=_mask_phase(layout,width,height)
                         key=keys[number] if keys else _mask_key(fields(),bounds,palette,phase)
                         # (AC gets it at 1 m a texel (textures.coarse_weights) and as BC7: a 64th of the pixels, a quarter of
-                        # the bytes each; one unchanged since the last Save is taken from then)
-                        stored=f'{key}_c{SAVED_WEIGHT_STEP}.dds'
-                        raw=_stored(kept,stored,lambda: bc7_weights(coarse_weights(region_mask(fields(),bounds,palette,phase=phase))))
+                        # the bytes each; one unchanged since the last Save is taken from then. A canvas the step divides is
+                        # averaged before rounding since 2026-11-10, a 255th off the one made coarse after at most: a name of its own)
+                        direct='' if any(size%(18*SAVED_WEIGHT_STEP) for size in canvas_size(bounds,width,height)) else 'd'
+                        stored=f'{key}_c{SAVED_WEIGHT_STEP}{direct}.dds'
+                        raw=_stored(kept,stored,lambda: bc7_weights(region_mask(fields(),bounds,palette,phase=phase,step=SAVED_WEIGHT_STEP)))
                         used.add(stored)
                         masks[number]=resource(raw,'.dds')
                     mask=masks[number]

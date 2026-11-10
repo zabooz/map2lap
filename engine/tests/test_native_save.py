@@ -207,6 +207,10 @@ class RegionMaskTest(unittest.TestCase):
         self.assertTrue(raised)
         for name in raised:
             self.assertNotEqual(before[name], after[name])
+        shutil.rmtree(tracknative._mask_folder(self.name))
+        with mock.patch.object(groundnormals, "changed", side_effect=lambda _path, _change: kn5.Moved({0: moved}, {}, {})):
+            trackcopy.save(self.ac, self.name)
+        self.assertEqual(after, self.region_meshes(self.name))      # (as a Save from nothing makes it)
 
     def test_a_kept_tile_description_of_another_profile_is_made_again(self):
         self.keep(self.painted(5))
@@ -395,6 +399,32 @@ class KnHashTest(unittest.TestCase):
         self.path.write_bytes(b"second, longer")
         self.assertEqual(hashlib.sha256(b"second, longer").hexdigest(), trackdetail._kn5_digest(self.path))
         self.assertNotEqual(first, trackdetail._kn5_digest(self.path))
+
+
+class CoarseRegionMaskTest(unittest.TestCase):
+    """A saved region mask made at 1 m a texel straight away, as coarse_weights would make it of the full one."""
+
+    def setUp(self):
+        y, x = np.mgrid[:320, :320].astype(np.float32)
+        a = np.clip((x - 100) / 60, 0, 1)                         # (a soft seam between a and b)
+        c = ((x - 220) ** 2 + (y - 160) ** 2 < 40 ** 2).astype(np.float32)     # (a sharp-edged patch of c)
+        self.fields = {"a": a * (1 - c), "b": (1 - a) * (1 - c), "c": c}
+        self.bounds, self.palette = [0, 0, 320, 320], ["a", "b", "c"]          # (a 576 px canvas: 72 at a step of 8)
+
+    def test_it_is_what_the_full_mask_made_coarse_is_within_a_255th_at_every_level(self):
+        old = textures.weight_levels(textures.coarse_weights(tracknative.region_mask(self.fields, self.bounds, self.palette), 8))
+        with mock.patch.object(tracknative, "coarse_weights", side_effect=AssertionError("made at full size")):
+            new = textures.weight_levels(tracknative.region_mask(self.fields, self.bounds, self.palette, step=8))
+        self.assertEqual((72, 72, 4), new[0].shape)
+        self.assertEqual(len(old), len(new))
+        for before, after in zip(old, new):
+            self.assertLessEqual(np.abs(before.astype(int) - after.astype(int)).max(), 1)
+            self.assertTrue((after.astype(int).sum(axis=2) == 255).all())
+
+    def test_a_canvas_a_step_does_not_divide_is_made_as_before(self):
+        self.bounds = [0, 0, 300, 300]
+        old = textures.coarse_weights(tracknative.region_mask(self.fields, self.bounds, self.palette), 8)
+        self.assertEqual(old, tracknative.region_mask(self.fields, self.bounds, self.palette, step=8))
 
 
 class MaskKeyTest(unittest.TestCase):
