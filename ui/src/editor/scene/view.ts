@@ -36,18 +36,15 @@ import {TrackObjects} from "./trackObjects";
 import {ViewBrush} from "./brush";
 import {PlacementGhost} from "./ghost";
 import {ObjectMover} from "./mover";
+import {Pointing} from "./pointing";
 import {Selection, ROAD} from "./selection";
-import {billboardFaces, billboardOf, COPIES, fits, kindName, kindOf, latLonOf, nearestLast, physicsOf, routeMetre, sortOf,
-        spriteAt, tileOf} from "./inspect";
+import {COPIES, fits, nearestLast} from "./inspect";
 
 const PARALLEL = 6;                 // meshes asked for at a time
 const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
 const RESORT_M = 100, RESORT_EVERY_MS = 500;    // the queue of meshes sorted again when the view moved this far, at most this often: 66,000 take a while
 const GROUND = /^(1ROAD|1GRASS|1GRAVEL)_ground|^1ROAD_deck|^nocol_water|^nocol_far/;   // the meshes the view stays above: over a river's surface, not its bed
 const HOVER_EVERY_MS = 60;          // how often the mouse's target is looked up: the box follows, the view stays smooth
-const WIRE = /_wire_/;
-const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
-const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
 const FOOT_RING = 8;                // points round a plant's foot: the lowest side of a slope lies within 22.5° of one, so at most 8 % of its drop is missed
 
@@ -58,16 +55,6 @@ function timed<T>(name: string, fn: () => T) {
   const result = fn();
   performance.measure(name, {start: started});
   return result;
-}
-
-/** An image's pixels, to read. (A plain canvas: not every browser has OffscreenCanvas.) */
-function pixelsOf(image: ImageBitmap) {
-  const canvas = document.createElement("canvas");
-  canvas.width = image.width;
-  canvas.height = image.height;
-  const can = canvas.getContext("2d", {willReadFrequently: true});
-  can?.drawImage(image, 0, 0);
-  return can ? can.getImageData(0, 0, image.width, image.height) : null;
 }
 
 
@@ -117,6 +104,7 @@ export class TrackView {
   readonly brush: ViewBrush;             // the ring, strokes and their preview, Delete's frames
   readonly ghost: PlacementGhost;        // what Copy and Insert would place, under the mouse, and what they placed until it is drawn
   readonly mover: ObjectMover;           // Move: what is picked dragged over the ground, turned, raised and sized
+  private pointing: Pointing;           // what lies under the mouse
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -130,7 +118,6 @@ export class TrackView {
   private hoverDue = false;
   private lastHover = 0;
   private picker = new THREE.Raycaster();
-  private alphaOf = new Map<THREE.Texture, ImageData | null>();
   private onMenu: (at: MenuAt) => void = () => {};
   private onIndexed: (revision: string | null) => void = () => {};
   private materialAreas = new Map<number, MaterialRegions>();
@@ -157,11 +144,7 @@ export class TrackView {
       reserve: bytes => { if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false; this.usedBytes += bytes; return true; },
       release: bytes => { this.usedBytes -= bytes; },
       limited: () => { this.overLimit = true; },
-      forgetAlpha: texture => {
-        const alpha = this.alphaOf.get(texture);
-        if (alpha) this.usedBytes -= alpha.data.byteLength;
-        this.alphaOf.delete(texture);
-      },
+      forgetAlpha: texture => this.pointing.forget(texture),
       changed: () => { this.dirty = true; },
       failed: message => this.onViewFailed(message),
     });
@@ -208,6 +191,10 @@ export class TrackView {
         this.refreshMeshes([]);
       },
       cursorChanged: () => this.applyCursor(), changed: () => { this.dirty = true; },
+    });
+    this.pointing = new Pointing({
+      camera: this.camera, objects: this.objects, data: () => this.data, meshes: () => this.meshes, models: () => this.modelDraw,
+      height: () => this.renderer.domElement.clientHeight, take: bytes => { this.usedBytes += bytes; }, release: bytes => { this.usedBytes -= bytes; },
     });
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
@@ -505,7 +492,7 @@ export class TrackView {
       this.navigation.stopRide();
       if (!this.data || this.held) return;      // (a button held: that drag goes by the camera as it was)
       this.mouse = screenPoint(e, el);
-      const hit = this.hit(), {ray} = this.picker;
+      const hit = this.pointing.hit(this.mouse), {ray} = this.pointing;
       this.navigation.zoomAt(e, hit, ray.direction);
     }, {passive: false});
   }
@@ -895,8 +882,8 @@ export class TrackView {
   private pick(e: PointerEvent, el: HTMLElement): Picked | null {
     if (!this.data) return null;
     this.mouse = screenPoint(e, el);
-    const hit = this.hit();
-    return this.selection.pick(e, hit, hit ? this.describe(hit) : null);
+    const hit = this.pointing.hit(this.mouse);
+    return this.selection.pick(e, hit, hit ? this.pointing.describe(hit) : null);
   }
 
   /** onMenu gets where a right click asks for the picked object's menu, in the view's pixels, with the view's size. */
@@ -910,23 +897,6 @@ export class TrackView {
     return [size.x, size.y, size.z];
   }
 
-  /** Whether a cut-out texture is solid at the hit's uv: its see-through parts are nothing to point at (a billboard's quad
-      is far wider than its tree). A compressed one can't be read here: solid. */
-  private solidAt(hit: THREE.Intersection) {
-    const m = (hit.object as THREE.Mesh).material as THREE.MeshLambertMaterial;
-    if (!m.alphaTest || !m.map || !hit.uv) return true;
-    let pixels = this.alphaOf.get(m.map);
-    if (pixels === undefined) {
-      pixels = m.map.image instanceof ImageBitmap ? pixelsOf(m.map.image) : null;
-      this.alphaOf.set(m.map, pixels);
-      if (pixels) this.usedBytes += pixels.data.byteLength;
-    }
-    if (!pixels) return true;
-    const x = Math.floor((hit.uv.x - Math.floor(hit.uv.x)) * pixels.width);
-    const y = Math.floor((hit.uv.y - Math.floor(hit.uv.y)) * pixels.height);
-    return pixels.data[(y * pixels.width + x) * 4 + 3] / 255 >= m.alphaTest;
-  }
-
   /** What the mouse points at now, told to onHover. */
   private hover() {
     if (!this.mouse || !this.data || this.brush.current) return;     // (the brush shows its ring instead)
@@ -934,106 +904,13 @@ export class TrackView {
       const at = this.brushAt();
       if (at) this.marking(at.x, at.z);
     }
-    const hit = timed("map2lap.hover", () => this.hit());
-    const hovered = hit ? this.describe(hit) : null;
+    const mouse = this.mouse, hit = timed("map2lap.hover", () => this.pointing.hit(mouse));
+    const hovered = hit ? this.pointing.describe(hit) : null;
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
       movable: taking && !!hovered.id && this.mover.canMove(this.mover.on ? this.objects.rootOf(hovered.id) : hovered.id)} : null;
     this.applyCursor();
     this.onHover(hovered);
-  }
-
-  /** The first solid thing under the mouse, or a wire near it in front of that. */
-  private hit() {
-    this.picker.setFromCamera(this.mouse!, this.camera);
-    const hits = [...this.picker.intersectObjects(this.meshes.filter(m => m.visible), false), ...this.modelDraw.intersections(this.picker)];
-    const solid = hits.sort((a, b) => a.distance - b.distance).find(h => this.solidAt(h));
-    return this.wireNear(solid?.distance ?? Infinity) ?? solid;
-  }
-
-  /** The wire nearest the mouse within WIRE_REACH_PX and closer than limit. */
-  private wireNear(limit: number): THREE.Intersection | undefined {
-    const {ray} = this.picker, height = this.renderer.domElement.clientHeight || 1;
-    const perM = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) / height * WIRE_REACH_PX;
-    const a = new THREE.Vector3(), b = new THREE.Vector3(), onRay = new THREE.Vector3(), onWire = new THREE.Vector3();
-    let best: THREE.Intersection | undefined, bestD = limit;
-    for (const mesh of this.meshes) {
-      if (!mesh.visible || !WIRE.test(mesh.name)) continue;
-      const sphere = mesh.geometry.boundingSphere!, along = ray.direction.dot(sphere.center.clone().sub(ray.origin));
-      if (ray.distanceSqToPoint(sphere.center) > (sphere.radius + Math.max(along, 0) * perM) ** 2) continue;
-      const index = mesh.geometry.getIndex()!.array, position = mesh.geometry.getAttribute("position");
-      for (let f = 0; f * 3 < index.length; f += FACES_PER_WIRE_SEGMENT) {
-        if (index[f * 3] === index[f * 3 + 1]) continue;       // (left out)
-        a.fromBufferAttribute(position, index[f * 3]);
-        b.fromBufferAttribute(position, index[f * 3 + 1]);
-        const off = ray.distanceSqToSegment(a, b, onRay, onWire), d = onRay.distanceTo(ray.origin);
-        if (d < bestD && off <= (d * perM) ** 2) {
-          bestD = d;
-          best = {distance: d, point: onWire.clone(), object: mesh, faceIndex: f} as THREE.Intersection;
-        }
-      }
-    }
-    return best;
-  }
-
-  private describe(hit: THREE.Intersection): Hovered {
-    const data = this.data!, mesh = hit.object as THREE.Mesh;
-    const instance = mesh.userData.modelInstance as string | undefined;
-    const materialNumber = (mesh.material as THREE.Material).userData.modelMaterial ?? -1;
-    const modelMaterial = materialNumber < 0 ? null : materialNumber;
-    const primitive = mesh.userData.modelPrimitive as number | undefined;
-    const info = instance ? data.meshes.find(m => m.model?.instance === instance && m.model.material === modelMaterial
-      && (primitive === undefined || m.model.primitive === primitive))! : mesh.userData.info as MeshInfo;
-    const material = data.materials[info.material];
-    const texture = data.textures.find(t => t.name === material.texture);
-    const {x, y, z} = hit.point, face = hit.faceIndex ?? 0, uv = hit.uv ? ([hit.uv.x, hit.uv.y] as [number, number]) : null;
-    const isBillboard = info.first_face !== null && info.first_face !== undefined;
-    const number = isBillboard ? billboardOf(face, info.first_face!) : null;
-    const listed = instance ? instance + "#0" : this.objects.objectAt(info.i, face);
-    const tile = listed ? data.objects[listed.slice(0, listed.lastIndexOf("#"))] : null;
-    const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
-    const atlasTree = isBillboard || (!info.model && !!tile && ["tree", "bush"].includes(tile.kinds[k]));
-    return {
-      id: listed ?? (number !== null ? `${info.base}#${number}` : null),
-      kind: listed ? kindName(tile!.kinds[k]) : kindOf(info.name),
-      sprite: atlasTree && uv ? spriteAt(data.atlas, uv[0], uv[1]) : null,
-      sort: listed && !atlasTree ? sortOf(tile!, k) : null,
-      object: info.name,
-      physics: physicsOf(info.name),
-      material: material.name,
-      shader: material.shader,
-      texture: material.texture,
-      textureBytes: texture?.size ?? null,
-      vertices: info.vertices,
-      triangles: info.indices / 3,
-      triangle: face,
-      uv,
-      shownTo: info.lod_out,
-      billboard: isBillboard ? this.billboard(mesh, info, face) : null,
-      at: [x, y, z],
-      tile: tileOf(x, z),
-      route: routeMetre(data.route, x, z),
-      latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null,
-      distance: hit.distance,
-    };
-  }
-
-  /** The tree or bush a triangle belongs to, measured from its corners. Lying across two parts of a mesh (a few per tile),
-      only its number is sure. */
-  private billboard(mesh: THREE.Mesh, info: MeshInfo, face: number): NonNullable<Hovered["billboard"]> {
-    const first = info.first_face!, number = billboardOf(face, first);
-    const [from, end] = billboardFaces(number, first, info.indices / 3);
-    if (end - from < 8) return {number, height: null, width: null, foot: null};
-    const index = mesh.geometry.getIndex()!, position = mesh.geometry.getAttribute("position");
-    const bounds = new THREE.Box3(), corner = new THREE.Vector3(), base = new THREE.Vector3();
-    for (let k = from * 3; k < end * 3; k++) {
-      corner.fromBufferAttribute(position, index.getX(k));
-      bounds.expandByPoint(corner);
-      if (k === from * 3) base.copy(corner);
-    }
-    corner.fromBufferAttribute(position, index.getX(from * 3 + 1));      // (a quad's second corner: trees.billboards)
-    const foot = bounds.getCenter(new THREE.Vector3());
-    return {number, height: bounds.max.y - bounds.min.y, width: base.distanceTo(corner), foot: [foot.x, foot.z]};
   }
 
   /** The first ground a ray meets. */
@@ -1155,7 +1032,7 @@ export class TrackView {
     this.overLimit = false;
     this.data = null;
     this.navigation.data = null;
-    this.alphaOf.clear();
+    this.pointing.clear();
     this.byNumber.clear();
     this.mover.clear();
     this.materialAreas?.clear();
