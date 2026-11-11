@@ -274,12 +274,14 @@ def _surface_tile(scan, mesh):
 
 
 def prepare_surface(ac, name, mesh, revision):
-    """Prepare one loaded ground tile's material regions; files survive restarts and saved-source copies."""
+    """Prepare loaded ground tiles' material regions, of mesh: a ground mesh's number or a list of them (the page sends those
+    loaded since its last request: several are made on several processes, surfaceindex.prepare); files survive restarts and
+    saved-source copies."""
     path, scan, current = _scanned(ac, name)
     if current != revision:
         raise Unreadable("The track changed")
-    tx, ty = _surface_tile(scan, mesh)
-    result = surfaceindex.prepare(path, [f"{tx}_{ty}"])
+    tiles = dict.fromkeys("{}_{}".format(*_surface_tile(scan, m)) for m in (mesh if isinstance(mesh, list) else [mesh]))
+    result = surfaceindex.prepare(path, list(tiles))
     if _revision(os.stat(path)) != revision:
         raise Unreadable("The track changed while selection was being prepared")
     return result

@@ -49,6 +49,7 @@ interface SplatImageEntry {
 interface SplatPending {keys: Set<string>; done: Promise<void>}
 
 const PARALLEL = 6;                 // meshes asked for at a time
+const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
 // Textures on their way or being decoded at a time. A 307 km track up to a limit of 8 GB: 6: 70 s, 12: 52 s, 24: 53 s; 4 GB without any
 // limit 34 s against 23 s with 12: hundreds at once stand in the meshes' way.
 const TEXTURES_AT_A_TIME = 12;
@@ -613,7 +614,21 @@ export class TrackView {
     let sortedAt = this.camera.position.clone(), sortedWhen = performance.now();
     const total = data.meshes.filter(m => !m.model).length;
     let done = 0, copiedDone = 0, texturesDone = 0;
-    const prepareTurn = oneByOne(2), prepared = new Map<string, Promise<void>>();
+    // Ground tiles whose selection sections are prepared: one request at a time takes those loaded since the last, at most
+    // PREPARE_BATCH; the server makes several on several processes (surfaceindex.prepare)
+    const prepared = new Set<string>(), waiting: MeshInfo[] = [], preparing: Promise<void>[] = [];
+    let sending = false;
+    const prepareWaiting = async () => {
+      sending = true;
+      try {
+        while (waiting.length && !signal.aborted && mine === this.token) {
+          const batch = waiting.splice(0, PREPARE_BATCH);
+          await fetchBytes(`/api/editor/${encodeURIComponent(name)}/surface/prepare?${batch.map(m => `mesh=${m.i}`).join("&")}&r=${data.revision}`, signal);
+          preparedDone += batch.length;
+          report();
+        }
+      } finally { sending = false; }
+    };
     const available = new Set<string>(data.surface_tiles ?? []);
     const tiles = new Set(data.meshes.map(m => groundTile(m.name)).filter((tile): tile is string => tile !== null && available.has(tile)));
     const neededImages = new Set(data.meshes.filter(m => !m.model).flatMap((m: MeshInfo) => materialImages(data.materials[m.material])));
@@ -656,15 +671,14 @@ export class TrackView {
         this.addMesh(name, data, info, buf);
         const tile = groundTile(info.name);
         if (tile && available.has(tile) && !prepared.has(tile)) {
-          const preparation = prepareTurn(async () => {
-            if (signal.aborted || mine !== this.token) return;
-            await fetchBytes(`/api/editor/${encodeURIComponent(name)}/surface/prepare?mesh=${info.i}&r=${data.revision}`, signal);
-            preparedDone++;
-            report();
-          });
-          prepared.set(tile, preparation);
-          // Attach a rejection handler immediately, before the source queue finishes; load reports the error below.
-          void preparation.catch(() => {});
+          prepared.add(tile);
+          waiting.push(info);
+          if (!sending) {
+            const preparation = prepareWaiting();
+            preparing.push(preparation);
+            // Attach a rejection handler immediately, before the source queue finishes; load reports the error below.
+            void preparation.catch(() => {});
+          }
         }
         if (asked !== this.heightsVersion) void this.refresh(info.i);      // (changed on its way)
         done++;
@@ -680,7 +694,7 @@ export class TrackView {
     await Promise.all([...this.splatPending.values()].map(p => p.done));
     if (mine !== this.token) return;
     if (preparedDone < prepared.size) report();
-    await Promise.all(prepared.values());
+    await Promise.all(preparing);
     if (mine !== this.token) return;
     this.loadedTexture = null;
     say(this.overLimit ? `Memory limit reached (Settings): ${done} of ${total} parts, the nearest ones` : `${total} parts loaded`, undefined,

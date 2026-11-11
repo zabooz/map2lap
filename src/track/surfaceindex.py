@@ -214,16 +214,40 @@ def _build_tile(folder, target, key, roads, chains):
             os.remove(temporary)
 
 
-def prepare(kn5, tiles=None):
-    """Prepare requested available tiles during loading. Complete files are reused across sessions and saved copies."""
+# From this many tiles to prepare, a request makes them on several processes: starting them costs about a second, a tile
+# about 0.7 s on one (10 Heiligenblut tiles 6.9 s, 3c32ced). Below it, here.
+POOL_FROM = 4
+GB_PER_TILE = 0.5       # (a 2048 px tile's scratch, measured 263 MiB, and its process's own modules)
+
+
+def prepare(kn5, tiles=None, processes=None):
+    """Prepare requested available tiles during loading. Complete files are reused across sessions and saved copies.
+    processes: how many make them (None: below POOL_FROM missing tiles here, else all logical cores but one as free RAM
+    allows, GB_PER_TILE each)."""
+    from track import parallel
     folder, target, available, roads, chains = _context(kn5)
     keys = available if tiles is None else [key for key in tiles if key in available]
-    for key in keys:
-        if not (target / (key + ".npz")).is_file():
-            with _preparing:  # bounded scratch memory; two loading views must not compute the same archive twice
-                if not (target / (key + ".npz")).is_file():
-                    _build_tile(folder, target, key, roads.get(key, []), chains)
+    with _preparing:  # bounded scratch memory; two loading views must not compute the same archive twice
+        missing = [key for key in keys if not (target / (key + ".npz")).is_file()]
+        if processes is None:
+            processes = 1 if len(missing) < POOL_FROM else _processes(len(missing))
+        if processes <= 1 or len(missing) <= 1:
+            for key in missing:
+                _build_tile(folder, target, key, roads.get(key, []), chains)
+        else:
+            with parallel.pool(processes) as pool:
+                for job in [pool.submit(_build_tile, folder, target, key, roads.get(key, []), chains) for key in missing]:
+                    job.result()
     return {"prepared": len(keys)}
+
+
+def _processes(jobs):
+    """Processes for jobs tiles: all logical cores but one, at most as many as free RAM holds at GB_PER_TILE (the Windows
+    pool's limit 61). Not pure: reads the machine."""
+    from app import system
+    n = min(61, max(1, (os.cpu_count() or 2) - 1), jobs)
+    ram = system.free_ram_gb()
+    return n if ram is None else min(n, max(1, int(ram / GB_PER_TILE)))
 
 
 def unprepared(kn5):

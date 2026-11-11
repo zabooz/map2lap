@@ -118,6 +118,37 @@ class SurfaceIndexTest(unittest.TestCase):
                 with Image.open(io.BytesIO(saved[f"w{k}"].tobytes())) as image:
                     np.testing.assert_array_equal(np.rint(weight * 255).astype(np.uint8), np.asarray(image), err_msg=name)
 
+    def saved_arrays(self, keys):
+        """{tile: {array name: bytes}} of the prepared sections of keys."""
+        _folder, target, *_rest = surfaceindex._context(str(self.kn5))
+        out = {}
+        for key in keys:
+            with np.load(target / (key + ".npz")) as saved:
+                out[key] = {name: saved[name].tobytes() for name in saved.files}
+        return out
+
+    def test_tiles_prepared_on_several_processes_are_those_one_process_prepares(self):
+        from track import parallel
+        keys = [f"{x}_0" for x in range(5)]
+        editorinfo.install(str(self.kn5), [self.tile(x) for x in range(5)])
+        surfaceindex.prepare(str(self.kn5), keys, processes=1)
+        alone = self.saved_arrays(keys)
+        _folder, target, *_rest = surfaceindex._context(str(self.kn5))
+        for key in keys:
+            (target / (key + ".npz")).unlink()
+        started = []
+        real = parallel.pool
+        with mock.patch.object(parallel, "pool", side_effect=lambda *a: started.append(a) or real(*a)):
+            surfaceindex.prepare(str(self.kn5), keys, processes=2)
+        self.assertTrue(started)
+        self.assertEqual(alone, self.saved_arrays(keys))
+
+    def test_a_few_tiles_are_prepared_here_without_starting_processes(self):
+        from track import parallel
+        editorinfo.install(str(self.kn5), [self.tile(x) for x in range(2)])
+        with mock.patch.object(parallel, "pool", side_effect=AssertionError("processes started for two tiles")):
+            self.assertEqual(2, surfaceindex.prepare(str(self.kn5), ["0_0", "1_0"])["prepared"])
+
     def test_unprepared_counts_the_sections_a_first_opening_still_computes(self):
         editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 1)])
         self.assertEqual(2, surfaceindex.unprepared(str(self.kn5)))

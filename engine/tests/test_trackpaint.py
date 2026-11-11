@@ -308,6 +308,18 @@ class PaintTest(unittest.TestCase):
             trackpaint.create(self.ac, self.name, "old", asset, [{"mesh": 0, "u": 0.1, "v": -0.5}])
 
 
+class PreparedSurfacesTest(unittest.TestCase):
+    setUp = PaintTest.setUp
+
+    def test_one_request_prepares_the_sections_of_several_loaded_tiles(self):
+        from track import surfaceindex
+        _folder, target, *_rest = surfaceindex._context(str(self.path))
+        for key in ("0_0", "1_0"):
+            (target / (key + ".npz")).unlink()
+        self.assertEqual({"prepared": 2}, trackview.prepare_surface(self.ac, self.name, [0, 1], self.revision))
+        self.assertTrue((target / "0_0.npz").is_file() and (target / "1_0.npz").is_file())
+
+
 class PortionedApplyTest(unittest.TestCase):
     """An Apply reads and writes its tiles' masks a portion of tiles at a time (trackpaint.PORTION), so a selection of any size
     holds no more than a portion's masks; it stays one paint, one Undo."""

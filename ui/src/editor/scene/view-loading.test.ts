@@ -85,6 +85,42 @@ test("parts are ready only after the loaded ground's selection index is prepared
   } finally { release(); globalThis.fetch = before; }
 });
 
+test("ground loaded while a tile's selection is being prepared goes in the next request together", async () => {
+  let release!: () => void, arrived!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), first = new Promise<void>(r => { arrived = r; });
+  const before = globalThis.fetch, prepares: string[] = [];
+  let meshesFetched = 0, allFetched!: () => void;
+  const fetchedAll = new Promise<void>(r => { allFetched = r; });
+  globalThis.fetch = (async input => {
+    const url = String(input);
+    if (url.endsWith("/index")) return Response.json({revision: "source", meshes: [0, 1, 2].map(k => ({...info(k, 3), name: `1ROAD_ground_${k}_0`})),
+      surface_tiles: ["0_0", "1_0", "2_0"], objects: {}, materials: [], textures: [], route: [], start: null, atlas: {sprites: [], cols: 1, rows: 1}});
+    if (url.includes("/surface/prepare?")) {
+      prepares.push(url);
+      if (prepares.length === 1) { arrived(); await gate; }
+      return Response.json({prepared: 1});
+    }
+    if (++meshesFetched === 3) allFetched();
+    return new Response(bytes(3));
+  }) as typeof fetch;
+  const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
+  Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
+    renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
+    materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {},
+    nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(), leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
+  sceneModules(view as unknown as TrackView);
+  try {
+    const pending = view.load("alpha", 1, new AbortController().signal, () => {});
+    await first; await fetchedAll;
+    release(); await pending;
+    const meshes = prepares.map(url => new URL(url, "http://x").searchParams.getAll("mesh").map(Number).sort());
+    expect(meshes).toHaveLength(2);         // (one tile first; the two loaded meanwhile in one request after it)
+    expect(meshes[1]).toHaveLength(2);
+    expect(meshes.flat().sort()).toEqual([0, 1, 2]);
+  } finally { release(); globalThis.fetch = before; }
+});
+
 for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during initial loading cannot re-add obsolete queued geometry`, async () => {
   const original = Array.from({length: 6}, (_, k) => info(k, 3));
   const data = (changed: boolean) => ({revision: "source", draft: changed ? 2 : 1, copy_revision: changed ? "b" : "a",

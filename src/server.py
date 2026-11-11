@@ -617,7 +617,8 @@ class Handler(BaseHTTPRequestHandler):
     def _prepare_surface(self, name):
         try:
             q = parse_qs(urlsplit(self.path).query, strict_parsing=True)
-            self._edits_answer(lambda: trackview.prepare_surface(settings.ac_path(), generator.slug(name), int(q["mesh"][0]), q["r"][0]))
+            meshes = [int(m) for m in q["mesh"]]
+            self._edits_answer(lambda: trackview.prepare_surface(settings.ac_path(), generator.slug(name), meshes, q["r"][0]))
         except (KeyError, ValueError, IndexError) as e:
             self._send(400, {"error": str(e)})
 
