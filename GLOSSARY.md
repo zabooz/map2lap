@@ -125,6 +125,7 @@ Disposable prepared paint components and alpha masks (`track/surfaceindex.py`, `
 load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes all matching
 prepared regions of the material, including disconnected areas. The bounded preview reports an incomplete selection.
 Separate material meshes, including the road verge (`edge_dirt`), get connected face regions while their geometry loads.
+The verge can be deleted by those triangles (a draft's `surfaces`, `app/tracksurfaces.py`), as it is no object.
 
 **Source**:
 A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`

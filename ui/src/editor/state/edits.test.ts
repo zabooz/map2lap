@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import {isCurrent, TrackEdits, type Removed} from "./edits";
 import {tree, json, server, settle, started} from "./edits.fixture";
+import type {SurfaceCut} from "../scene/surfaceCuts";
 
 test("changes still on their way are counted until each is done, a failed one too", async () => {
   const {edits} = await started(); let go = () => {};
@@ -292,4 +293,31 @@ test("discarding is one step that can be undone", async () => {
   expect(edits.state().removed).toEqual([]);
   edits.undo();
   expect(edits.state().removed).toHaveLength(2);
+});
+
+test("a stretch of road verge leaves by its triangles: joined with what went before, saved, one Undo", async () => {
+  const {s, edits} = await started();
+  const verge = "nocol_road_edge_dirt_0_0";
+  edits.removeSurfaces([{mesh: verge, faces: [[4, 2]]}]);
+  edits.removeSurfaces([{mesh: verge, faces: [[0, 4], [10, 1]]}, {mesh: "nocol_road_edge_dirt_1_0", faces: [[0, 3]]}]);
+  expect(edits.state().surfaces).toEqual([{mesh: verge, faces: [[0, 6], [10, 1]]}, {mesh: "nocol_road_edge_dirt_1_0", faces: [[0, 3]]}]);
+  expect(edits.changed()).toBe(true);
+  await new Promise(ok => setTimeout(ok, 450));
+  expect((s.asked[0].body as {surfaces?: unknown}).surfaces).toEqual(edits.state().surfaces);
+  edits.undo();
+  expect(edits.state().surfaces).toEqual([{mesh: verge, faces: [[4, 2]]}]);
+  edits.markSaved();
+  expect(isCurrent(edits.state())).toBe(true);
+  edits.undo();
+  expect(isCurrent(edits.state())).toBe(false);
+});
+
+test("the verge a draft or the last Save left out is read back", async () => {
+  const surfaces: SurfaceCut[] = [{mesh: "nocol_road_edge_dirt_0_0", faces: [[0, 2]]}];
+  const saved = {at: 1, deleted: [], sorts: [], object_sorts: [], surfaces};
+  const edits = new TrackEdits("verge", async () => json({base: "b", revision: 0, deleted: [], surfaces, saved}));
+  edits.bind("b");
+  await edits.start();
+  expect(edits.state().surfaces).toEqual(surfaces);
+  expect(isCurrent(edits.state())).toBe(true);
 });

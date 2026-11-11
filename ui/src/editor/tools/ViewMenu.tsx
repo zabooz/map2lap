@@ -5,7 +5,7 @@ const WIDTH = 230;
 
 /** Actions at the right-clicked object or ground. onSmooth: the click is on a smoothable road, else null. mark: "Mark all …" or null
     (houses, what can't be deleted). A click beside it closes it. */
-export function ViewMenu({at, mark, object, canDelete, onEdit, onReplace, onMove, onDuplicate, onSmooth, onMark, onDelete, onClose}: {
+export function ViewMenu({at, mark, object, canDelete, onEdit, onReplace, onMove, onDuplicate, onSmooth, onMark, onDelete, onDeleteSurface, onClose}: {
   at: MenuAt;
   mark: string | null;
   object: boolean;
@@ -17,10 +17,11 @@ export function ViewMenu({at, mark, object, canDelete, onEdit, onReplace, onMove
   onSmooth: (() => void) | null;
   onMark: () => void;
   onDelete: () => void;
+  onDeleteSurface?: (() => void) | null;     // (a material area of a separate mesh, the road verge: it goes by its triangles)
   onClose: () => void;
 }) {
   const left = at.x + WIDTH > at.width ? Math.max(0, at.x - WIDTH) : at.x;
-  const height = 10 + 28 * (1 + Number(!!onSmooth) + (object ? 4 + Number(!!mark) : 0)); // Padding/border and 28 px rows.
+  const height = 10 + 28 * (1 + Number(!!onSmooth) + (object ? 4 + Number(!!mark) : Number(!!onDeleteSurface))); // Padding/border and 28 px rows.
   const top = at.y + height > at.height ? Math.max(0, at.y - height) : at.y;
   const then = (action: () => void) => () => { onClose(); action(); };
   return (
@@ -36,6 +37,7 @@ export function ViewMenu({at, mark, object, canDelete, onEdit, onReplace, onMove
         {mark && <button type="button" role="menuitem" onClick={then(onMark)}>{mark}</button>}
         <button type="button" role="menuitem" disabled={!canDelete} onClick={then(onDelete)}>Delete</button>
         </>}
+        {!object && onDeleteSurface && <button type="button" role="menuitem" onClick={then(onDeleteSurface)}>Delete</button>}
       </div>
     </div>
   );

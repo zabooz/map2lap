@@ -1,5 +1,5 @@
 """What the Editor tab changed on a built track, its draft: the objects it leaves out, single or all of a sort, the objects it places anew
-(placement, trackplace) and the height changes it makes (trackheights). It lies in out/edits, so nothing of a track's folder changes
+(placement, trackplace), the height changes it makes (trackheights) and the road verge it leaves out by its triangles (tracksurfaces). It lies in out/edits, so nothing of a track's folder changes
 until Save writes it (trackcopy), and holds for one state of the kn5 the Editor shows (trackview.served, "base"): an object's id is its
 number in that file, its position only a check for later. Built again, the list stays but is not applied: the numbers may mean other
 trees now, and a neighbour must never go in the place of the one that was picked. No file: the track's recipe, what its last Save was
@@ -15,7 +15,7 @@ import threading
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, trackpaint, trackplace, trackview
+from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, trackpaint, trackplace, tracksurfaces, trackview
 from track import objectlist
 
 SCHEMA = 2
@@ -94,13 +94,15 @@ def _parts(stored):
     return ([d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ()),
             [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored),
             [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))),
-            [json.dumps(m, sort_keys=True) for m in stored.get("models", ())])
+            [json.dumps(m, sort_keys=True) for m in stored.get("models", ())],
+            [json.dumps(x, sort_keys=True) for x in stored.get("surfaces", ())])
 
 
 def _count(stored):
     """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
     return (len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
-            + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ())))
+            + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ()))
+            + len(stored.get("surfaces", ())))
 
 
 def _names(value):
@@ -116,7 +118,7 @@ def _well_formed(d):
             and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
             and trackheights.problems(d.get("heights", [])) is None and placement.problems(d.get("placed", [])) is None
             and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None
-            and trackmodels.problems(d.get("models", [])) is None)
+            and trackmodels.problems(d.get("models", [])) is None and tracksurfaces.problems(d.get("surfaces", [])) is None)
 
 
 def _stored(path, saved=None):
@@ -132,10 +134,11 @@ def _stored(path, saved=None):
         if saved:
             if (trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", []))
                     or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", []))
-                    or trackmodels.problems(saved.get("models", []))):
+                    or trackmodels.problems(saved.get("models", [])) or tracksurfaces.problems(saved.get("surfaces", []))):
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
-                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", [])}
+                    "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", []),
+                    "surfaces": saved.get("surfaces", [])}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -162,12 +165,14 @@ def load(ac, name):
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
             "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
             "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "paints": s.get("paints", []) if same else [],
-            "models": s.get("models", []) if same else [], "outdated": _old(s, revision), "saved": saved and {
+            "models": s.get("models", []) if same else [], "surfaces": s.get("surfaces", []) if same else [],
+            "outdated": _old(s, revision), "saved": saved and {
                 "at": saved["saved"], "needs_save": _needs_material_save(saved), "deleted": [d["id"] for d in saved["deleted"]],
                 "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
                 "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else [],
                 "placed": saved.get("placed", []) if not s.get("broken") else [], "copies": saved.get("copies", []) if not s.get("broken") else [],
-                "paints": saved.get("paints", []) if not s.get("broken") else [], "models": saved.get("models", []) if not s.get("broken") else []}}
+                "paints": saved.get("paints", []) if not s.get("broken") else [], "models": saved.get("models", []) if not s.get("broken") else [],
+                "surfaces": saved.get("surfaces", []) if not s.get("broken") else []}}
 
 
 def saved_edits(ac, name):
@@ -178,7 +183,7 @@ def saved_edits(ac, name):
     if saved and saved["base"] != revision:
         raise Conflict("The saved track changed; read it again")
     return {"base": revision, **{key: (saved or {}).get(key, []) for key in
-            ("deleted", "sorts", "object_sorts", "heights", "placed", "copies", "paints", "models")}}
+            ("deleted", "sorts", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces")}}
 
 
 def context(ac, name, revision, copies=None, models=None):
@@ -545,8 +550,8 @@ def save(ac, name, body):
 
 
 def save_telling(ac, name, body):
-    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "placed", "id", "unanswered"} instead of the one
-    on disk, if it was made from that one and for this kn5 (else Conflict). No "heights" or "placed": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
+    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "placed", "surfaces", "id", "unanswered"} instead
+    of the one on disk, if it was made from that one and for this kn5 (else Conflict). No "heights", "placed" or "surfaces": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
     of them, the page's revision is only behind by an answer lost on the way (or a page closing with a save under way). An outdated
     or broken list goes only by an empty one, asked for. Returns {"revision": the new one, "meshes": the numbers of those it changed
     the height changes or placements of, for the view to fetch anew}."""
@@ -587,6 +592,10 @@ def save_telling(ac, name, body):
         object_sorts = _checked_sorts(body.get("object_sorts") or [], listed_sorts, "objects")
         heights = _checked_heights(body["heights"]) if "heights" in body else s.get("heights", []) if s["base"] == revision else []
         placed = _checked_placed(body["placed"], counts) if "placed" in body else s.get("placed", []) if s["base"] == revision else []
+        try:
+            surfaces = tracksurfaces.checked(body["surfaces"] if "surfaces" in body else s.get("surfaces", []) if s["base"] == revision else [], scan)
+        except ValueError as error:
+            raise Invalid(str(error)) from error
         previous_paints = s.get("paints", []) if s["base"] == revision else []
         paints = body.get("paints", previous_paints)
         if trackpaint.problems(paints):
@@ -596,7 +605,7 @@ def save_telling(ac, name, body):
             trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
         except ValueError as error:
             raise Invalid(str(error)) from error
-        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints or models) and _old(s, revision)):
+        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints or models or surfaces) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
@@ -605,7 +614,8 @@ def save_telling(ac, name, body):
         except ValueError as error:
             raise Invalid(str(error)) from error
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
-                      "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models})
+                      "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models,
+                      "surfaces": surfaces})
         same = s["base"] == revision
         before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else []}
         # What was built to check this list is the draft now: the index reads it, and the answer below stays this save's after the lock.

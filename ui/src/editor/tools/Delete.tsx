@@ -57,7 +57,7 @@ export function useDelete({view, edits, enabled, onNote}: {view: TrackView; edit
 export function DeleteOptions({remove: d, view}: {remove: ReturnType<typeof useDelete>; view: TrackView}) {
   return (
     <ToolOptions id="edit-delete-set" title="Delete"
-      note={d.painting ? "Click or drag: everything framed red under the ring goes. Shift: one at a time." : "Click an object to delete it. Shift: the brush."}
+      note={d.painting ? "Click or drag: everything framed red under the ring goes. Shift: one at a time." : "Click an object or a stretch of road verge to delete it. Shift: the brush."}
       options={[
         <>
           <ToolChoice label="One" on={!d.painting} hint="A click deletes what is under it (Shift switches to the brush)" onClick={thenView(view, () => d.setBrush(false))} />

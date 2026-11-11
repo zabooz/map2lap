@@ -13,7 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, trackvariation, trackview
+from app import (mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
+                 trackvariation, trackview)
 from track import editorinfo, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -221,7 +222,7 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"] or edits.get("models")
+    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"] or edits.get("models") or edits.get("surfaces")
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
@@ -285,6 +286,8 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     shutil.rmtree(temporary, ignore_errors=True)        # (left by a Map2Lap that ended halfway)
     going, seen = faces_left_out(path, scan, objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
                                  trackview._atlas(), edits["object_sorts"])
+    for i, mask in tracksurfaces.going(scan, edits.get("surfaces", [])).items():
+        going[i] = going.get(i, np.zeros_like(mask)) | mask
     from app import tracknative
     for i, mesh in enumerate(scan["meshes"]):
         if mesh["name"].startswith(tracknative.PREFIX):
@@ -329,7 +332,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
-                  "models": edits.get("models", []), "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
+                  "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "detail_profile": trackdetail.PROFILE, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         if inherited:
             recipe["model_source"] = inherited
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})

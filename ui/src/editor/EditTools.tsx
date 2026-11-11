@@ -33,6 +33,8 @@ import {AltAlone} from "./tools/held";
 import {useToasts} from "../components/toastStore";
 import {editorToasts} from "./editorToasts";
 
+const VERGE_DELETED = "Road verge deleted. Undo brings it back.";
+
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
   return (tool === "smooth" && editable && marked) || (tool === "delete" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
@@ -127,6 +129,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
   const remover = useDelete({view, edits, enabled: deleting, onNote: setNote});
 
+  /** The connected stretch of road verge at a picked point, as cuts of the draft; null if it is no verge or no longer loaded. */
+  const vergeAt = (point: SurfacePoint) => {
+    try { return view.surfaceCuts(view.materialSelection(point).meshes ?? []); } catch { return null; }
+  };
+
   /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
     if (marking && p?.left) return view.unpick();
@@ -140,6 +147,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     }
     if (deleting && p?.id && p.left) {
       edits.remove([{id: p.id, position: p.position}]);
+      view.unpick();
+    } else if (deleting && p?.left && p.surface?.face !== undefined) {
+      // (the road verge is no object: a click takes the connected stretch of it, by its triangles)
+      const cuts = vergeAt(p.surface);
+      if (cuts) { edits.removeSurfaces(cuts); setNote(VERGE_DELETED); }
       view.unpick();
     }
   });
@@ -193,6 +205,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   useEffect(() => { view.setRemoved(state.removed.map(r => r.id), state.sorts, state.objectSorts); },
             [view, state.removed, state.sorts, state.objectSorts]);
+  useEffect(() => { view.setRemovedSurfaces(state.surfaces); }, [view, state.surfaces]);
 
   useEffect(() => {
     view.setMarked(marked);
@@ -237,15 +250,22 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   };
 
   const removable = picked?.all ?? [];
+  // (a selected stretch of road verge, or all of it loaded with Shift: Delete takes those triangles)
+  const vergeCuts = selection?.meshes?.length && !selection.tiles.length ? view.surfaceCuts(selection.meshes) : null;
   const ids = state.removed.map(r => r.id);
   const sort = picked?.id && picked.sort && !NOT_ALL.has(picked.sort) ? picked.sort : null;
   const tree = picked?.id && picked.sprite ? picked.sprite : null;
   const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.countOfListed(sort, ids, state.objectSorts)})`
     : tree ? `Mark all ${tree} (loaded: ${view.countOf(tree)})` : null;
 
-  const remove = () => {
+  const remove = (cuts = vergeCuts) => {
     if (!editable) return;
-    if (marked.length || removable.length) {
+    if (cuts) {
+      edits.removeSurfaces(cuts);
+      setSurfacePicks([]);
+      setNote(VERGE_DELETED);
+      view.unpick();
+    } else if (marked.length || removable.length) {
       edits.removeSelected(view.selectedOutside(marked), marked);
       setMarked([]);
       view.unpick();
@@ -275,7 +295,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     move: movable ? () => { setTool("move"); setNote(null); view.focus(); } : null,
     copy: movable ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null,
     replace: editable && replaceable?.length ? openModels : null,
-    delete: editable && removable.length > 0 ? () => { remove(); view.focus(); } : null,
+    delete: editable && (removable.length > 0 || !!vergeCuts) ? () => { remove(); view.focus(); } : null,
   };
 
   const offered = tool === "select" ? selectActions(picked) : [], altOffered = altAction(offered);
@@ -317,7 +337,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
     }
-    else if ((marked.length || removable.length) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
+    else if ((marked.length || removable.length || vergeCuts) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
     else if (keyed?.tool === "model") { if (editable) openModels(); }
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
@@ -397,7 +417,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
                   onReplace={run.replace} onEdit={editPicked} onMove={run.move} onDuplicate={run.copy}
                   onSmooth={editable && picked?.road ? () => startSmooth(picked.road!) : null}
                   onMark={() => { setMarked([sort ? {sort, tree: false} : {sort: tree!, tree: true}]); view.focus(); }}
-                  onDelete={() => { remove(); view.focus(); }} />
+                  onDelete={() => { remove(); view.focus(); }}
+                  onDeleteSurface={editable && !picked?.id && picked?.surface?.face !== undefined
+                    ? () => { remove(vergeCuts ?? vergeAt(picked.surface!)); view.focus(); } : null} />
       )}
       {saving.asking && <SaveDialog title={title} taken={taken} canOverwrite={saving.canSave} onOverwrite={() => void saving.chosen(null)}
                                     onSaveNew={t => void saving.chosen(t)} onCancel={saving.cancel} />}

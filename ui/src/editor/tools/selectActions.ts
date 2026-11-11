@@ -19,7 +19,8 @@ export const ACTIONS: Record<SelectAction, {label: string; tool?: Tool; hint: st
 export function selectActions(picked: Pick<Picked, "id" | "road" | "surface"> | null): SelectAction[] {
   if (!picked) return [];
   if (picked.id) return ["replace", "move", "copy", "delete"];
-  return picked.surface && picked.surface.face === undefined ? ["texture"] : [];
+  // (a material area of a separate mesh, the road verge, has no texture to change yet; it goes by its triangles)
+  return !picked.surface ? [] : picked.surface.face === undefined ? ["texture"] : ["delete"];
 }
 
 /** The action Alt does among actions, in the bar's Alt place: the ground's texture or the objects' replacement. Pure. */

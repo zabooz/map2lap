@@ -9,8 +9,8 @@ test("The Select bar offers what can be done with what is picked, never a tool t
   // (Smooth road and Elevation work on the ground around too: the picked surface would look like all they change)
   expect(selectActions({id: null, road: [10, 20], surface: ground})).toEqual(["texture"]);
   expect(selectActions({id: null, road: null, surface: ground})).toEqual(["texture"]);
-  // (a material area of a separate mesh can't be painted yet)
-  expect(selectActions({id: null, road: null, surface: {...ground, face: 7}})).toEqual([]);
+  // (a material area of a separate mesh, the road verge, can't be painted yet, but it can be deleted)
+  expect(selectActions({id: null, road: null, surface: {...ground, face: 7}})).toEqual(["delete"]);
   expect(selectActions({id: null, road: null, surface: undefined})).toEqual([]);
 });
 

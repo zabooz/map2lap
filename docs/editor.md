@@ -734,6 +734,11 @@ listed objects by sort, never all houses). Mixed explicit objects and sorts dele
 Mesh loading also identifies connected material faces, keeping listed-object ownership separate and joining duplicated vertices
 by their shared edges (`ui/src/editor/scene/materials.ts`). The separate `edge_dirt` road verge can therefore be selected without paint
 metadata; Shift includes its other loaded matching regions. Its highlight owns its geometry and follows live height changes.
+The verge is no object but can be deleted: Delete, X or the context menu on a selected stretch, or a click with the Delete tool, takes
+those triangles (`app/tracksurfaces.py`, `scene/surfaceCuts.ts`). The draft's `surfaces` hold them by mesh name and ranges of triangles
+of the served kn5, joined, one Undo per deletion; the view shrinks them to a point as it does objects, Save leaves them out with
+`kn5.without_faces`. Only `nocol_road_edge_dirt_` meshes go this way: the verge is a decal 3 mm over the ground without collision,
+so the road and the ground under it, and what a car feels, stay. Its texture can't be changed yet.
 This material information is groundwork for later texture tools; clicking a house still selects the house as an object.
 Esc or another tool cancels pending surface work and releases the highlight's memory.
 

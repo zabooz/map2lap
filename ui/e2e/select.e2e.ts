@@ -45,7 +45,7 @@ test("Select all and Add buttons apply the same actions as their modifiers", asy
   await expect.poll(async () => (await stored(page)).deleted.length).toBe(2);
 });
 
-test("the bankett is a prepared material region and cannot delete the underlying road", async ({page, backend}) => {
+test("the bankett is a prepared material region: Delete takes its triangles, never the road under it, and Undo brings them back", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", verge: true, trees: false});
   await openEditor(page);
   const middle = await centre(scene(page));
@@ -55,9 +55,25 @@ test("the bankett is a prepared material region and cannot delete the underlying
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-surface")).toContainText("Road verge");
   await page.keyboard.press("Delete");
+  await expect.poll(async () => (await stored(page)).surfaces).toEqual([{mesh: "nocol_road_edge_dirt_0_0", faces: [[0, 2]]}]);
   expect((await stored(page)).deleted).toEqual([]);
-  await page.keyboard.press("Escape");
   await expect(page.locator("#edit-surface")).toHaveCount(0);
+  await page.mouse.move(at.x, at.y + 1);
+  await expect(page.locator("#hover-box h4").first()).not.toHaveText("Road edge");
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await stored(page)).surfaces).toEqual([]);
+  await page.mouse.move(at.x, at.y);
+  await expect(page.locator("#hover-box h4").first()).toHaveText("Road edge");
+});
+
+test("the Delete tool takes a clicked stretch of bankett", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", verge: true, trees: false});
+  await openEditor(page);
+  const middle = await centre(scene(page));
+  const at = {x: middle.x + 130, y: middle.y};
+  await page.keyboard.press("x");
+  await page.mouse.click(at.x, at.y);
+  await expect.poll(async () => (await stored(page)).surfaces).toEqual([{mesh: "nocol_road_edge_dirt_0_0", faces: [[0, 2]]}]);
 });
 
 test("Ctrl adds painted regions while Shift requests the whole connected road", async ({page}) => {

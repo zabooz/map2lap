@@ -26,6 +26,7 @@ import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
 import type {Removed} from "../state/edits";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
+import {cutsOf, type SurfaceCut} from "./surfaceCuts";
 import {ModelDraw} from "./modelDraw";
 import {GroupDraw, type GroupPlant} from "./groupDraw";
 import type {LibraryModel} from "../library/ModelLibrary";
@@ -212,6 +213,7 @@ export class TrackView {
   private byNumber = new Map<number, THREE.Mesh>();     // the loaded meshes by number
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
   private belonging: ReturnType<typeof childrenOf> = new Map();        // what belongs to which of them
+  private surfacesOut = new Map<string, [number, number][]>();   // the verge's triangles left out, by mesh name (as setRemovedSurfaces was told)
   private removed = new Set<string>();                  // the ids of the objects left out, those of the sorts below too
   private brushGone = new Set<string>();                // left out by Delete's brush under way, not by the draft yet (showGone)
   private brushMarks = new Map<string, THREE.Box3Helper>();    // framed: what Delete's brush would take where its ring stands (marks)
@@ -447,6 +449,26 @@ export class TrackView {
     if (this.marked) this.frameMarked();
     this.dirty = true;
     this.hoverDue = true;
+  }
+
+  /** The road verge's triangles the draft leaves out (surfaceCuts), each mesh's as it loads too; those no longer named come back.
+      A verge mesh holds no objects, so its triangles are only ever left out this way. */
+  setRemovedSurfaces(cuts: SurfaceCut[]) {
+    const before = this.surfacesOut;
+    this.surfacesOut = new Map(cuts.map(cut => [cut.mesh, cut.faces]));
+    for (const mesh of this.byNumber.values()) {
+      const info = mesh.userData.info as MeshInfo;
+      if (!before.has(info.name) && !this.surfacesOut.has(info.name)) continue;
+      for (const [from, count] of before.get(info.name) ?? []) this.leaveOutIn(mesh, {mesh: info.i, from, end: from + count}, false);
+      for (const [from, count] of this.surfacesOut.get(info.name) ?? []) this.leaveOutIn(mesh, {mesh: info.i, from, end: from + count}, true);
+    }
+    this.dirty = true;
+    this.hoverDue = true;
+  }
+
+  /** A selection's triangles as cuts of the draft, null unless all of it is road verge. */
+  surfaceCuts(meshes: {mesh: number; faces: number[]}[]) {
+    return cutsOf(meshes, new Map((this.data?.meshes ?? []).map(m => [m.i, m.name])));
   }
 
   /** The ids to leave out: those named, and the listed objects of the sorts named. */
@@ -2662,6 +2684,7 @@ export class TrackView {
     void this.roadInfluenceOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     this.geometryPreview.apply(info.i);
     for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(m, piece, true);
+    for (const [from, count] of this.surfacesOut?.get(info.name) ?? []) this.leaveOutIn(m, {mesh: info.i, from, end: from + count}, true);
     if (info.base !== null && info.base !== undefined) {
       for (const id of this.billboardsOut.get(info.base) ?? []) {
         for (const piece of this.piecesOf(id)) if (piece.mesh === info.i) this.leaveOutIn(m, piece, true);

@@ -275,6 +275,51 @@ class FilterTest(Base):
             self.assertEqual({21.0}, corners(objects["faces"][4]))
 
 
+class VergeTest(Base):
+    """The road verge goes by its triangles (tracksurfaces), not as an object."""
+    VERGE = "nocol_road_edge_dirt_0_0"
+
+    def setUp(self):
+        super().setUp()
+        root = kn5.read(self.kn5)["root"]
+        root.children.insert(-1, boxes(self.VERGE, 0, [40, 41, 42]))     # 6: three stretches of verge, 2 triangles each
+        kn5.write(self.kn5, [("t.png", b"png")], [material("m"), material("trees")], root)
+        objectlist.write(self.kn5, self.objects)
+
+    def surfaces(self, surfaces):
+        now = trackedits.load(self.ac, "t")
+        trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x", "deleted": [], "surfaces": surfaces})
+
+    def test_the_triangles_named_go_and_the_rest_of_the_verge_stays(self):
+        self.surfaces([{"mesh": self.VERGE, "faces": [[2, 2]]}])
+        self.copy()
+        meshes = self.meshes(self.new()["root"])
+        self.assertEqual([40.0] * 6 + [42.0] * 6, self.xs(meshes[self.VERGE]))
+        self.assertEqual({10.0, 11.0, 12.0}, set(self.xs(meshes["1WALL_cars_0_0"])))
+
+    def test_a_verge_without_triangles_left_is_no_mesh(self):
+        self.surfaces([{"mesh": self.VERGE, "faces": [[0, 6]]}])
+        self.copy()
+        self.assertNotIn(self.VERGE, self.meshes(self.new()["root"]))
+
+    def test_the_draft_and_the_recipe_hold_them_and_saved_again_they_come_back(self):
+        self.surfaces([{"mesh": self.VERGE, "faces": [[0, 2]]}])
+        self.assertEqual(1, trackedits.changes(self.ac, "t"))
+        trackcopy.save(self.ac, "t")
+        now = trackedits.load(self.ac, "t")
+        self.assertEqual([{"mesh": self.VERGE, "faces": [[0, 2]]}], now["surfaces"])
+        self.assertEqual(now["surfaces"], now["saved"]["surfaces"])
+        self.assertEqual(0, trackedits.changes(self.ac, "t"))
+        self.assertEqual(now["surfaces"], trackedits.saved_edits(self.ac, "t")["surfaces"])
+        self.surfaces([])
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([40.0] * 6 + [41.0] * 6 + [42.0] * 6, self.xs(self.meshes(kn5.read(self.own())["root"])[self.VERGE]))
+
+    def test_the_road_itself_can_not_go_by_its_triangles(self):
+        with self.assertRaisesRegex(trackedits.Invalid, "1ROAD_ground_0_0"):
+            self.surfaces([{"mesh": "1ROAD_ground_0_0", "faces": [[0, 1]]}])
+
+
 class SaveTest(Base):
     def test_overwritten_in_place_the_editor_shows_the_unchanged_source_with_every_object(self):
         self.edits(["t_0_0#1"])
