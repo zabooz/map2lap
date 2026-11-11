@@ -479,12 +479,15 @@ def prepare(ac,name,descriptors,scan,path,processes=None):
     if processes is None:
         cores=max(1,round((os.cpu_count() or 2)*settings.load()['cores']/100))
         processes=1 if len(todo)<POOL_FROM else min(parallel.workers(len(todo)),cores)
-    state=((mytracks.ROOT,materiallibrary.ROOT),ac,name,scan,path)
+    state=((mytracks.ROOT,materiallibrary.ROOT),ac,name,path)
     pool=None
     if processes<=1:
-        _init_prepare(*state)
+        _init_prepare(*state,scan)
         jobs=[(lambda d=d: _prepare_tile(d)) for d in todo]
     else:
+        # (a worker reads the scan itself: its start data goes through a pipe, and past the pipe's 64 KiB the next worker
+        # waits for this one to read them; a 1.7 GB Heiligenblut copy's scan, 0.9 MiB, let 15 of 31 workers start in 2.3 s,
+        # without it all 31 in 1.2 s)
         pool=parallel.pool(processes,_init_prepare,state)
         jobs=[pool.submit(_prepare_tile,d).result for d in todo]
     try:
@@ -508,11 +511,12 @@ def _kept_tile(name,descriptor):
     return all((kept/_mask_file(key,bounds,width,height)).exists() for (bounds,_palette),key in zip(layout['native_regions'],layout['native_mask_keys']))
 
 
-def _init_prepare(roots,ac,name,scan,path):
-    """A prepare worker's state: its parent's roots (a test's) and the track's."""
+def _init_prepare(roots,ac,name,path,scan=None):
+    """A prepare worker's state: its parent's roots (a test's) and the track's, the scan of the kn5 at path read here when
+    not given."""
     from app import materiallibrary,mytracks
     mytracks.ROOT,materiallibrary.ROOT=roots
-    _job.update(ac=ac,name=name,scan=scan,path=path)
+    _job.update(ac=ac,name=name,scan=kn5.scan(path) if scan is None else scan,path=path)
 
 
 def _prepare_tile(descriptor):

@@ -222,6 +222,26 @@ class RegionMaskTest(unittest.TestCase):
             trackcopy.save(self.ac, self.name)
         return made
 
+    def test_a_prepare_worker_starts_with_small_data_and_reads_the_scan_itself(self):
+        import pickle
+        from track import parallel
+        paints = self.painted(5)
+        started = []
+        real = parallel.pool
+
+        def pool(processes, initializer, initargs):
+            started.append(initargs)
+            return real(processes, initializer, initargs)
+        with mock.patch.object(parallel, "pool", pool):
+            tracknative.prepare(self.ac, self.name, trackpaint.descriptors(self.ac, self.name, self.revision, paints),
+                                kn5.scan(str(self.path)), str(self.path), processes=2)
+        self.assertTrue(tracknative._kept_tile(self.name, trackpaint.descriptors(self.ac, self.name, self.revision, paints)[0]))
+        # (a worker's start data goes through a pipe: past its 64 KiB buffer the next worker waits for this one to read it,
+        # and 31 workers start one after another; a long track's scan alone is about a MiB)
+        self.assertTrue(started)
+        self.assertFalse([arg for args in started for arg in args if isinstance(arg, dict) and "meshes" in arg])
+        self.assertLess(max(len(pickle.dumps(args)) for args in started), 4096)
+
     def test_a_save_from_nothing_prepares_its_tiles_first_and_writes_what_a_save_without_that_writes(self):
         # (a real build's ground has its border lighting already; this fixture's would be changed after preparing it)
         patch = mock.patch.object(groundnormals, "changed", side_effect=lambda _path, change: change)
