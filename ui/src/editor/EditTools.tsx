@@ -331,7 +331,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       setSelectWhole(false);
       setSelectAdd(false);
       setSurfacePicks([]);
-      view.cancelStroke();
+      view.brush.cancelStroke();
       band.clear();
       view.selection.unpick();
       setTool("select");        // (with it go a marking and a ride)

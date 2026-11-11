@@ -65,8 +65,8 @@ export function useBrush({view, edits, url, enabled, colour, turnedColour, body,
   const refused = useEffectEvent((why: string) => onNote(`Not changed: ${why}`));
 
   useEffect(() => {
-    view.setStroke((samples, turned) => stroked(samples, turned), (samples, turned) => askPreview(samples, turned), why => refused(why));
-    return () => view.setStroke(() => {}, () => Promise.resolve(null), () => {});
+    view.brush.setStroke((samples, turned) => stroked(samples, turned), (samples, turned) => askPreview(samples, turned), why => refused(why));
+    return () => view.brush.setStroke(() => {}, () => Promise.resolve(null), () => {});
   }, [view]);
 
   return {radius, soft, setRadius, setSoft};

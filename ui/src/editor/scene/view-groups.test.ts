@@ -25,14 +25,6 @@ test("on a slope or a cliff edge a plant stands on the lowest ground under its f
   expect(ground((x) => x < -.5 ? -8 : 0, (x) => x < -.5 ? "1ROAD_deck_0" : "1GRASS_ground_0_0").plantGround(0, 0, 1)[1]).toBe(0);
 });
 
-test("pointer cancellation also releases the tool's local stroke preview", () => {
-  const view = Object.create(TrackView.prototype); let cancelled = 0;
-  Object.assign(view, {stroke: {timer: setInterval(() => {}, 1000)}, takeBackPreview: () => {}});
-  view.setStroke(() => {}, async () => null, () => {}, () => cancelled++);
-  expect(view.cancelStroke()).toBe(true); expect(cancelled).toBe(1);
-  expect(view.cancelStroke()).toBe(false); expect(cancelled).toBe(1);
-});
-
 test("a refused model batch is reported once and the view still draws", () => {
   const view = Object.create(TrackView.prototype), failed: string[] = [];
   Object.assign(view, {modelDraw: {flush: () => { throw new Error("The model instances exceed the Editor memory limit"); }}, onViewFailed: (m: string) => failed.push(m)});

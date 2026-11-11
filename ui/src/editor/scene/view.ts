@@ -2,7 +2,7 @@
 // over the ground, the wheel zooms towards the mouse, held it turns and tilts around the view's middle, as in a building game. Meshes
 // load nearest first, so the spot in view comes first on a long track. A click picks what is under the mouse; with Move on, a press picks
 // it and a drag takes it along over the ground.
-import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, MeshInfo, TrackIndex} from "../types";
+import type {Hovered, Picked, MenuAt, Place, Brush, WheelKeys, MeshInfo, TrackIndex} from "../types";
 import type {LoadAbout} from "../../types";
 
 /** What loading says: its text, how far (undefined: done, null: not known) and about it (a first opening, why it failed). */
@@ -12,7 +12,6 @@ import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeome
 import {screenPoint, LEFT_BUTTON, LEFT_HELD, CLICK_PX} from "./pointer";
 import {RoadMarkers} from "./roadMarkers";
 import {GeometryPreview} from "./geometryPreview";
-import {addSample} from "./strokeSamples";
 import * as THREE from "three";
 import {makeTexture} from "./texture";
 import {oneByOne} from "./taskQueue";
@@ -21,9 +20,7 @@ import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing
 import type {Tool} from "../tools/ToolPanel";
 import {cursorFor, type Pointed} from "./cursor";
 import type {CopyPose} from "../tools/copying";
-import {alongStroke} from "../tools/deleteBrush";
 import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
-import type {Removed} from "../state/edits";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
@@ -37,8 +34,9 @@ import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
 import {materialImages, type GroundMaterial} from "./colourBlend";
 import {TrackTextures} from "./trackTextures";
-import {TrackObjects} from "./trackObjects";
-import {Selection, frameOf, removeFrame, ROAD} from "./selection";
+import {NOT_MOVED, TrackObjects} from "./trackObjects";
+import {ViewBrush} from "./brush";
+import {Selection, ROAD} from "./selection";
 import {billboardFaces, billboardOf, COPIES, fits, kindName, kindOf, latLonOf, nearestLast, physicsOf, routeMetre, sortOf,
         spriteAt, tileOf} from "./inspect";
 
@@ -50,12 +48,8 @@ const HOVER_EVERY_MS = 60;          // how often the mouse's target is looked up
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
-const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
 const FOOT_RING = 8;                // points round a plant's foot: the lowest side of a slope lies within 22.5° of one, so at most 8 % of its drop is missed
-const SAMPLE_EVERY_MS = 50;         // where the ring is, this often while the mouse is held: finer than a hand moves it, and it counts the time where it stands
-const PREVIEW_EVERY_MS = 200;       // how often a stroke under way is asked for: at most one at a time, what is newest when it is answered goes next
-const RING_POINTS = 64;
 
 /** fn, its time to read in the browser's performance tools under name (only the last one is kept). */
 function timed<T>(name: string, fn: () => T) {
@@ -140,6 +134,7 @@ export class TrackView {
   readonly textures: TrackTextures;      // the track's textures and materials, painted ground with them
   readonly objects: TrackObjects;        // the track's objects: their triangles, what belongs to which, what is left out
   readonly selection: Selection;         // what is picked and the frames of a marked sort
+  readonly brush: ViewBrush;             // the ring, strokes and their preview, Delete's frames
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -158,21 +153,11 @@ export class TrackView {
   private onIndexed: (revision: string | null) => void = () => {};
   private materialAreas = new Map<number, MaterialRegions>();
   private byNumber = new Map<number, THREE.Mesh>();     // the loaded meshes by number
-  private brushGone = new Set<string>();                // left out by Delete's brush under way, not by the draft yet (showGone)
-  private brushMarks = new Map<string, THREE.Box3Helper>();    // framed: what Delete's brush would take where its ring stands (marks)
-  private markAt: [number, number] | null = null;      // where the ring stood when the frames were last asked for; a frame later they are
-  private marksDue = false;
   private trackName = "";
   private heightsVersion = 0;           // a new number: the server hands out other meshes than a request on its way will bring
   private onViewFailed: (text: string | null) => void = () => {};
   private refreshes = oneByOne(PARALLEL);
-  private brush: Brush | null = null;
-  private onStroke: (samples: Sample[], turned: boolean) => void = () => {};
-  private askPreview: (samples: Sample[], turned: boolean) => Promise<ArrayBuffer | string | null> = () => Promise.resolve(null);
-  private onStrokeRefused: (why: string) => void = () => {};
   private onToolWheel: (keys: WheelKeys, by: number) => void = () => {};
-  private ring: THREE.LineLoop | null = null;
-  private stroke: {samples: Sample[]; turned: boolean; at: number; timer: ReturnType<typeof setInterval>; asked: number; asking: boolean; look: string} | null = null;
   private wheelTaken = false;           // Ctrl and Alt with the wheel are the tool's
   private marking: ((x: number, z: number) => void) | null = null;
   private onClicked: (picked: Picked | null) => void = () => {};
@@ -215,6 +200,15 @@ export class TrackView {
       scene: this.scene, objects: this.objects, data: () => this.data, moveTool: () => this.moveTool,
       materialArea: i => this.materialAreas.has(i), changed: () => { this.dirty = true; },
     });
+    this.brush = new ViewBrush({
+      scene: this.scene, objects: this.objects, data: () => this.data,
+      point: e => { this.mouse = screenPoint(e, this.renderer.domElement); },
+      ground: () => this.brushAt(),
+      look: () => this.mouse && `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`,
+      wheelTaken: () => this.wheelTaken, pivotOf: id => this.pivotOf(id),
+      showPreview: bytes => this.showPreview(bytes), keepPreview: () => this.keepPreview(), takeBackPreview: () => this.takeBackPreview(),
+      changed: () => { this.dirty = true; },
+    });
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
     this.lampCones = new LampCones(this.scene);
@@ -227,11 +221,11 @@ export class TrackView {
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
     this.moves(this.renderer.domElement);
-    this.roadMarkers.attach(this.renderer.domElement, () => !!this.brush, () => this.applyCursor(), event => {
+    this.roadMarkers.attach(this.renderer.domElement, () => !!this.brush.current, () => this.applyCursor(), event => {
       this.mouse = screenPoint(event, this.renderer.domElement);
       return this.brushAt();
     });
-    this.strokes(this.renderer.domElement);
+    this.brush.attach(this.renderer.domElement);
     this.resizing = new ResizeObserver(() => this.resize());
     this.resizing.observe(host);
     this.renderer.setAnimationLoop(() => this.frame());
@@ -503,7 +497,7 @@ export class TrackView {
       e.preventDefault();
       // (Shift with the wheel is Smooth's: the brush has it for its way. Some browsers make it a sideways wheel: deltaX)
       const keys: WheelKeys | null = e.ctrlKey && e.altKey ? "ctrlAlt" : e.altKey ? "alt" : e.ctrlKey ? "ctrl" : e.shiftKey && this.wheelTaken ? "shift" : null;
-      if ((this.brush || this.wheelTaken) && keys) {
+      if ((this.brush.current || this.wheelTaken) && keys) {
         const notch = e.deltaY || e.deltaX;
         if (notch) this.onToolWheel(keys, notch < 0 ? 1 : -1);
         return;
@@ -535,57 +529,19 @@ export class TrackView {
     });
   }
 
-  /** onRingMoved gets where the ring stands on the ground whenever it moves while no stroke runs, null off the ground (the Groups
-      brush shows there what a click would plant). */
-  private onRingMoved: (at: [number, number, number] | null) => void = () => {};
-  setRingMoved(onRingMoved: ((at: [number, number, number] | null) => void) | null) {
-    this.onRingMoved = onRingMoved ?? (() => {});
-  }
-
   /** The brush set, or none: while it is, the left button paints instead of picking. */
   setBrush(brush: Brush | null) {
-    const was = this.brush;
-    this.brush = brush;
-    if (!brush || !brush.marks) { this.markAt = null; this.markBrush(); }
-    if (!brush) {
-      this.cancelStroke();
-      if (this.ring) {
-        this.scene.remove(this.ring);
-        this.ring.geometry.dispose();
-        this.ring = null;
-      }
-    } else {
+    const was = this.brush.current;
+    this.brush.set(brush);
+    if (brush) {
       if (!was) this.selection.unpick();
       this.onHover(null);
-      this.placeRing(this.brushAt(), false);
     }
     this.applyCursor();
     this.dirty = true;
   }
 
-  /** onStroke gets a stroke when it ends: where the ring was and for how long, and whether Shift was held when it began. askPreview gets it while it lasts,
-      and answers with what it changes so far (trackedits.preview), or why it can't be: then it ends there, onStrokeRefused gets that;
-      null: no answer this time. */
-  private onStrokeCancelled: () => void = () => {};
-  setStroke(onStroke: (samples: Sample[], turned: boolean) => void, askPreview: (samples: Sample[], turned: boolean) => Promise<ArrayBuffer | string | null>,
-            onStrokeRefused: (why: string) => void, onCancelled: () => void = () => {}) {
-    this.onStroke = onStroke;
-    this.askPreview = askPreview;
-    this.onStrokeRefused = onStrokeRefused;
-    this.onStrokeCancelled = onCancelled;
-  }
-
-  /** The stroke under way is dropped, the meshes back as they were; whether there was one. */
-  cancelStroke() {
-    if (!this.stroke) return false;
-    clearInterval(this.stroke.timer);
-    this.stroke = null;
-    this.onStrokeCancelled();
-    this.takeBackPreview();
-    return true;
-  }
-
-  /** ... it wasn't: they are fetched as they are. */
+  /** A stroke's preview (ViewBrush.setStroke) was kept, but the change it showed wasn't made: the meshes fetched as they are. */
   dropPreview() {
     const shown = [...this.geometryPreview.changedMeshes];
     this.geometryPreview.changedMeshes.clear();
@@ -605,7 +561,7 @@ export class TrackView {
 
   private applyCursor() {
     this.renderer.domElement.style.cursor = cursorFor({tool: this.cursorTool, dragging: !!this.dragging?.way.lengthSq(), pin: this.roadMarkers.overPin,
-      aiming: !!this.brush || !!this.onCopyPlace}, this.pointed);
+      aiming: !!this.brush.current || !!this.onCopyPlace}, this.pointed);
   }
 
   /** Move on or off; onMoved gets each object's displacement, including the change of ground height. Off cancels a drag. */
@@ -756,7 +712,7 @@ export class TrackView {
       over the ground, keeping each one's clearance; let go, onMoved says how far. */
   private moves(el: HTMLElement) {
     el.addEventListener("pointerdown", e => {
-      if (!this.moveTool || this.brush || e.button !== LEFT_BUTTON) return;
+      if (!this.moveTool || this.brush.current || e.button !== LEFT_BUTTON) return;
       const picked = this.pick(e, el);
       if (!picked?.id || !this.selection.has(picked.id)) return;
       const ids = this.selection.ids().filter(id => this.canMove(id));
@@ -860,35 +816,6 @@ export class TrackView {
   /** The ground under an object, null outside the loaded terrain: moving there preserves its current height. */
   private groundAt(x: number, z: number) {
     return this.groundAlong(new THREE.Vector3(x, VIEW_M, z), new THREE.Vector3(0, -1, 0))?.point.y ?? null;
-  }
-
-  /** The ring's place now noted, and if it is time the stroke asked for as it is. */
-  private sample() {
-    const s = this.stroke;
-    if (!s || !this.mouse) return;
-    const now = performance.now(), seconds = (now - s.at) / 1000, last = s.samples.at(-1)!;
-    s.at = now;
-    // (the mouse and the camera still: it stands where it stood, however the ground grows up towards the camera under the ray)
-    const look = `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`;
-    if (look === s.look) addSample(s.samples, last[0], last[1], seconds);
-    else {
-      const at = this.brushAt();
-      s.look = look;
-      this.placeRing(at, s.turned);
-      if (at) addSample(s.samples, at.x, at.z, seconds);    // (off the ground it paints nothing, and its time doesn't count)
-    }
-    if (!s.asking && now - s.asked >= PREVIEW_EVERY_MS) {
-      s.asking = true;
-      s.asked = now;
-      void this.askPreview(s.samples.map(x => [...x] as Sample), s.turned).then(answer => {
-        s.asking = false;
-        if (this.stroke !== s) return;      // (an answer about a stroke that is over says nothing about the next one)
-        if (typeof answer === "string") {
-          this.cancelStroke();
-          this.onStrokeRefused(answer);
-        } else if (answer) this.showPreview(answer);
-      }, () => { s.asking = false; });
-    }
   }
 
   /** onToolWheel gets the wheel over the view with the brush set or the wheel taken, and those keys held: a notch up, 1, down, -1. */
@@ -1295,81 +1222,13 @@ export class TrackView {
     return hit && BRUSHED.test(hit.object.name) ? hit.point : null;
   }
 
-  /** The ring on the ground, of the brush's true size, in its colour (turned: with Shift held); hidden over what it can't paint. */
-  private placeRing(at: THREE.Vector3 | null, turned: boolean) {
-    if (!this.brush) return;
-    if (!this.ring) {
-      const points = Array.from({length: RING_POINTS}, (_, k) => {
-        const angle = k / RING_POINTS * 2 * Math.PI;
-        return new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
-      });
-      this.ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({depthTest: false, transparent: true}));
-      this.ring.renderOrder = 10;
-      this.ring.frustumCulled = false;
-      this.scene.add(this.ring);
-    }
-    this.ring.visible = !!at;
-    if (at) {
-      this.ring.position.copy(at);
-      this.ring.scale.setScalar(this.brush.radius);
-      (this.ring.material as THREE.LineBasicMaterial).color.set(turned ? this.brush.turnedColour : this.brush.colour);
-    }
-    if (!this.stroke) this.onRingMoved(at ? [at.x, at.y, at.z] : null);
-    if (this.brush.marks || this.brushMarks.size) {
-      this.markAt = at ? [at.x, at.z] : null;
-      if (!this.marksDue) { this.marksDue = true; requestAnimationFrame(() => this.markBrush()); }
-    }
-    this.dirty = true;
-  }
-
-  /** The left button with the brush set: pressed on the ground a stroke starts, a move adds to it, let go it ends, a click is a stamp. */
-  private strokes(el: HTMLElement) {
-    el.addEventListener("pointerdown", e => {
-      if (!this.brush || e.button !== LEFT_BUTTON) return;
-      this.mouse = screenPoint(e, el);
-      const at = this.brushAt();
-      if (!at) return;
-      const now = performance.now();
-      this.stroke = {samples: [[at.x, at.z, 0]], turned: e.shiftKey, at: now, asked: now, asking: false,
-                     look: `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`, timer: setInterval(() => this.sample(), SAMPLE_EVERY_MS)};
-      el.setPointerCapture(e.pointerId);
-    });
-    for (const type of ["keydown", "keyup"] as const) {     // (Alt with the wheel: alone, some browsers then go to their menu)
-      el.addEventListener(type, e => {
-        if ((this.brush || this.wheelTaken) && e.key === "Alt") e.preventDefault();
-      });
-    }
-    el.addEventListener("pointermove", e => {
-      if (!this.brush) return;
-      this.mouse = screenPoint(e, el);
-      if (!this.stroke) this.placeRing(this.brushAt(), e.shiftKey);       // (held: the samples move it)
-    });
-    el.addEventListener("pointerup", e => {
-      if (!this.stroke || e.button !== LEFT_BUTTON) return;
-      this.mouse = screenPoint(e, el);
-      this.sample();
-      const {samples, turned, timer} = this.stroke;
-      clearInterval(timer);
-      this.stroke = null;
-      this.keepPreview();
-      this.onStroke(samples, turned);
-    });
-    el.addEventListener("pointercancel", () => this.cancelStroke());
-    el.addEventListener("pointerleave", () => {
-      if (this.ring && !this.stroke) {
-        this.ring.visible = false;
-        this.dirty = true;
-      }
-    });
-  }
-
   /** A press and release without moving (away and back is a drag too): the left button picks what is under the mouse, the right one picks it and asks for its
       menu (a right drag moves the view, as before). With the brush set the left button is the brush's, with Move on moves'. */
   private clicks(el: HTMLElement) {
     let from: {x: number; y: number; button: number} | null = null;
     el.addEventListener("pointerdown", e => {
       // (a press on a pin is the pin's: it is dragged, a right click takes it away)
-      from = (e.button === 0 && !this.brush && !this.moveTool && this.roadMarkers.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
+      from = (e.button === 0 && !this.brush.current && !this.moveTool && this.roadMarkers.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
     });
     el.addEventListener("pointermove", e => {
       if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_PX) from = null;
@@ -1394,79 +1253,12 @@ export class TrackView {
     el.addEventListener("contextmenu", e => e.preventDefault());
   }
 
-  /** What Delete's brush takes along a stroke (samples, radius in m; alongStroke): every object a click could delete whose place lies
-      there, where it stands now. Listed objects (built ones, copies, imported models) at their place as the draft moved them, only those
-      at the top (a house's sign goes with it) and not a span of wires (it goes with its poles); trees and bushes of the loaded billboard
-      meshes at the middle of their foot. What is left out already is not taken again. */
-  brushObjects(samples: Sample[], radius: number) {
-    if (!this.data || !samples.length) return [];
-    const xs = samples.map(s => s[0]), zs = samples.map(s => s[1]);
-    const [minX, maxX, minZ, maxZ] = [Math.min(...xs) - radius, Math.max(...xs) + radius, Math.min(...zs) - radius, Math.max(...zs) + radius];
-    const near = (x: number, z: number) => x >= minX && x <= maxX && z >= minZ && z <= maxZ;
-    const found: Removed[] = [];
-    for (const [base, list] of Object.entries(this.data.objects)) list.at.forEach((_, k) => {
-      const id = `${base}#${k}`;
-      if (list.parents[k] >= 0 || !list.faces[k].length || NOT_MOVED.has(list.kinds[k]) || this.objects.removed.has(id)) return;
-      const [x, y, z] = this.pivotOf(id) as [number, number, number];
-      if (near(x, z)) found.push({id, position: [x, y, z]});
-    });
-    const seen = new Set<string>();
-    for (const mesh of this.objects.billboardMeshes()) {
-      const base = (mesh.userData.info as MeshInfo).base;
-      for (const {k, from, at} of this.objects.treeFeet(mesh)) {
-        const id = `${base}#${k}`;
-        if (!near(at[0], at[2]) || seen.has(id) || this.objects.removed.has(id) || this.objects.sortRemoved(mesh, from)) continue;
-        seen.add(id); found.push({id, position: at});
-      }
-    }
-    return alongStroke(found, samples, radius);
-  }
-
-  // (a ring of 500 m over a forest: the frames stop here, the stroke still takes all)
-  private static readonly MOST_MARKS = 400;
-
-  /** The frames of what Delete's brush would take where the ring stands (markAt), asked for at most once a frame. */
-  private markBrush() {
-    this.marksDue = false;
-    const ids = this.brush?.marks && this.markAt ? this.brushObjects([[...this.markAt, 0]], this.brush.radius).slice(0, TrackView.MOST_MARKS).map(o => o.id) : [];
-    const keep = new Set(ids);
-    for (const [id, box] of this.brushMarks) if (!keep.has(id)) { removeFrame(this.scene, box, () => { this.dirty = true; }); this.brushMarks.delete(id); }
-    for (const id of ids) {
-      if (this.brushMarks.has(id)) continue;
-      const bounds = this.objects.shownObjectBounds(id);
-      if (!bounds) continue;
-      const box = frameOf(this.scene, bounds, () => { this.dirty = true; });
-      (box.material as THREE.LineBasicMaterial).color.set(this.brush!.colour);
-      this.brushMarks.set(id, box);
-    }
-    performance.clearMarks("map2lap.delete.marks");
-    performance.mark("map2lap.delete.marks", {detail: {framed: this.brushMarks.size}});
-  }
-
-  /** Delete's brush under way: these are left out at once, those of the last call not among them come back; null: all come back.
-      What the draft leaves out stays out either way. */
-  showGone(ids: string[] | null) {
-    const next = new Set(ids ?? []);
-    for (const id of this.brushGone) if (!next.has(id) && !this.objects.removed.has(id)) this.objects.leaveOut(id, false);
-    for (const id of next) {
-      if (!this.brushGone.has(id) && !this.objects.removed.has(id)) this.objects.leaveOut(id, true);
-      const box = this.brushMarks.get(id);
-      if (box) { removeFrame(this.scene, box, () => { this.dirty = true; }); this.brushMarks.delete(id); }      // (gone: no frame round nothing)
-    }
-    this.brushGone = next;
-    this.dirty = true;
-  }
-
   /** Imported models beyond their distance or left out hidden: by the draft, or by Delete's brush under way (showGone), whose models
       would otherwise stand until the draft answers. */
   private cullModels() {
-    const out = this.brushGone.size ? new Set([...this.objects.removed, ...this.brushGone]) : this.objects.removed;
+    const gone = this.brush.goneNow;
+    const out = gone.size ? new Set([...this.objects.removed, ...gone]) : this.objects.removed;
     this.modelDraw.cull(this.camera.position, out, this.data?.meshes.find(m => m.model)?.lod_out ?? 1000);
-  }
-
-  /** The stroke's objects stay out as they are: the draft leaves them out from now on (setRemoved). */
-  keepGone() {
-    this.brushGone = new Set();
   }
 
   /** What a click picks (Selection.pick) of what is under the mouse at e. */
@@ -1507,7 +1299,7 @@ export class TrackView {
 
   /** What the mouse points at now, told to onHover. */
   private hover() {
-    if (!this.mouse || !this.data || this.brush) return;     // (the brush shows its ring instead)
+    if (!this.mouse || !this.data || this.brush.current) return;     // (the brush shows its ring instead)
     if (this.marking) {
       const at = this.brushAt();
       if (at) this.marking(at.x, at.z);

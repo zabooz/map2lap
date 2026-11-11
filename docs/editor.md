@@ -17,7 +17,8 @@ The Editor source in `ui/src/editor/` is grouped by responsibility. `EditorScene
   textures and materials: their loading against the memory limit, painted ground (Apply, Undo, a draft's paints) and its
   release when another track opens. Pages reach it as `view.textures`. `trackObjects.ts` (`view.objects`) knows which
   triangles each object takes, what belongs to which and what the draft leaves out; `selection.ts` (`view.selection`)
-  holds what is picked, its frames and the frames of a marked sort.
+  holds what is picked, its frames and the frames of a marked sort; `brush.ts` (`view.brush`) the ring, strokes and their
+  preview, and Delete's frames and objects gone while its stroke runs.
 - `tools/`: tool controls, pointer modifiers, brush sampling, movement, copying, smoothing and material application.
 - `library/`: browsing, imports and model pictures/previews.
 - `inspector/`: selected-object properties, appearance, hover information and track statistics.

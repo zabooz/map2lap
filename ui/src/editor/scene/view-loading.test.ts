@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
-import {objectsOf, selectionOf} from "./trackObjects.fixture";
+import {objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {Navigation} from "./navigation";
 import {GeometryPreview} from "./geometryPreview";

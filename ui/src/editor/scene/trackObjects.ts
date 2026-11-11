@@ -6,6 +6,8 @@ import type {MeshInfo, TrackIndex} from "../types";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, idsOfSorts, objectAt, objectIndex, spriteAt, takenAlong} from "./inspect";
 import {cutsOf, type SurfaceCut} from "./surfaceCuts";
 
+export const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
+
 /** The triangles of a mesh that make up an object. */
 export interface Piece {
   mesh: number;

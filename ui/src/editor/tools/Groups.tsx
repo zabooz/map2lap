@@ -64,7 +64,7 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
       finally { hovering = false; }
       if (!ringAt && !current) void view.dropGroup(HOVER);
     };
-    view.setRingMoved(at => { ringAt = at; if (at) void hover(); else void view.dropGroup(HOVER); });
+    view.brush.setRingMoved(at => { ringAt = at; if (at) void hover(); else void view.dropGroup(HOVER); });
     const calculate = async (samples: Sample[], s: Stroke) => {
       const result = await worker.run(samples, {entries: group.entries, radius, density, spacing, seed: s.seed, regular: group.randomPosition === false},
         [...occupied(), ...[...queued.values()].flat().map(p => ({x: p.at[0], z: p.at[2]}))]);
@@ -77,7 +77,7 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
       return {...result, plants};
     };
     view.setBrush({radius, colour: "#72b96a", turnedColour: "#72b96a"});
-    view.setStroke(samples => {
+    view.brush.setStroke(samples => {
       const s = stroke(); current = null; s.version++; finishing++;
       // Local calculation starts immediately, while the queue reserves the click's place before a later Undo or Save.
       const ready = calculations.then(async () => {
@@ -121,8 +121,8 @@ export function Groups({name, view, edits, group, models, enabled, onWheel, onFa
       return null;
     }, why => setNote(why), () => { if (current) { void view.dropGroup(current.key); current = null; } });
     return () => {
-      closing = true; view.setRingMoved(null); void view.dropGroup(HOVER); view.cancelStroke(); view.setBrush(null);
-      view.setStroke(() => {}, () => Promise.resolve(null), () => {});
+      closing = true; view.brush.setRingMoved(null); void view.dropGroup(HOVER); view.brush.cancelStroke(); view.setBrush(null);
+      view.brush.setStroke(() => {}, () => Promise.resolve(null), () => {});
       if (current) void view.dropGroup(current.key);
       if (!finishing) worker.dispose();
     };

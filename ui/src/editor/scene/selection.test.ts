@@ -2,7 +2,7 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import type {Hovered, Picked} from "../types";
 import {Selection} from "./selection";
-import {objectsOf} from "./trackObjects.fixture";
+import {objectsOf} from "./view.fixture";
 import type {TrackObjects} from "./trackObjects";
 
 /** A Selection over objects in a scene of its own, the track's index data. */

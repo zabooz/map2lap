@@ -31,19 +31,19 @@ export function useDelete({view, edits, enabled, onNote}: {view: TrackView; edit
     };
   }, [enabled]);
 
-  const stroked = useEffectEvent((items: ReturnType<TrackView["brushObjects"]>) => {
-    if (!items.length) { view.showGone(null); return onNote("Nothing to delete there."); }
-    if (!edits.canEdit()) { view.showGone(null); return onNote("This track can't be changed now."); }
-    view.showGone(items.map(o => o.id)); view.keepGone(); edits.remove(items); onNote(deletedText(items.length));
+  const stroked = useEffectEvent((items: ReturnType<TrackView["brush"]["objectsAlong"]>) => {
+    if (!items.length) { view.brush.showGone(null); return onNote("Nothing to delete there."); }
+    if (!edits.canEdit()) { view.brush.showGone(null); return onNote("This track can't be changed now."); }
+    view.brush.showGone(items.map(o => o.id)); view.brush.keepGone(); edits.remove(items); onNote(deletedText(items.length));
   });
 
   useEffect(() => {
     if (!painting) return;
     view.setBrush({radius, colour: RING, turnedColour: RING, marks: true});
-    view.setStroke(samples => stroked(view.brushObjects(samples, radius)),
-      samples => { view.showGone(view.brushObjects(samples, radius).map(o => o.id)); return Promise.resolve(null); },
-      why => onNote(why), () => view.showGone(null));
-    return () => { view.setBrush(null); view.setStroke(() => {}, () => Promise.resolve(null), () => {}); view.showGone(null); };
+    view.brush.setStroke(samples => stroked(view.brush.objectsAlong(samples, radius)),
+      samples => { view.brush.showGone(view.brush.objectsAlong(samples, radius).map(o => o.id)); return Promise.resolve(null); },
+      why => onNote(why), () => view.brush.showGone(null));
+    return () => { view.setBrush(null); view.brush.setStroke(() => {}, () => Promise.resolve(null), () => {}); view.brush.showGone(null); };
   }, [view, painting, radius, onNote]);
 
   return {

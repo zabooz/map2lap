@@ -7,7 +7,7 @@ test("Insert takes Shift, Ctrl and Alt wheel input; leaving placement restores c
   const view = Object.create(TrackView.prototype) as Pick<TrackView, "setToolWheel" | "setWheelTaken"> & {zoomWheel: (el: HTMLElement) => void};
   const target = new EventTarget(), received: [WheelKeys, number][] = [];
   let cameraInputs = 0;
-  Object.assign(view, {brush: null, navigation: {stopRide: () => { cameraInputs++; }}});
+  Object.assign(view, {brush: {current: null}, navigation: {stopRide: () => { cameraInputs++; }}});
   view.setToolWheel((keys, by) => received.push([keys, by]));
   view.zoomWheel(target as HTMLElement);
   const wheel = (keys: string, deltaY = -100, deltaX = 0) => {

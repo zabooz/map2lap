@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
-import {objectsOf, selectionOf} from "./trackObjects.fixture";
+import {brushOf, objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {GeometryPreview} from "./geometryPreview";
 import {ModelDraw} from "./modelDraw";
@@ -302,27 +302,29 @@ test("a second model stroke keeps only semantic metadata and downloads zero inst
   } finally { done(); }
 });
 
-interface BrushView {
-  brush: unknown; markAt: [number, number] | null; brushMarks: Map<string, THREE.Box3Helper>; brushGone: Set<string>;
-  placed: Map<string, unknown>; pendingPivots: Map<string, number[]>; camera: THREE.Camera;
-  markBrush: () => void; showGone: (ids: string[] | null) => void; cullModels: () => void;
+/** Inside a ViewBrush: its choice, where its ring stood, its frames, and what makes them. */
+interface BrushInside {
+  brush: unknown; markAt: [number, number] | null; marks: Map<string, THREE.Box3Helper>; markBrush: () => void;
+  showGone: (ids: string[] | null) => void;
 }
 
 test("Delete's brush frames an imported model under its ring and hides it during the stroke, before the draft answers", async () => {
   const {view, draw, served, done} = setUp();
-  const brush = view as unknown as View & BrushView;
+  const cull = view as unknown as {cullModels: () => void};
   try {
     served.parts = [part(0, "a")];
     await view.reloadModels();
-    Object.assign(brush, {brush: {radius: 5, colour: "#e5484d", turnedColour: "#e5484d", marks: true}, markAt: [0, 0], brushMarks: new Map(), brushGone: new Set(),
-      placed: new Map(), pendingPivots: new Map(), camera: new THREE.PerspectiveCamera()});
+    Object.assign(view, {placed: new Map(), pendingPivots: new Map(), camera: new THREE.PerspectiveCamera()});
+    const brush = brushOf(view) as unknown as BrushInside;
+    Object.assign(view, {brush});
+    Object.assign(brush, {brush: {radius: 5, colour: "#e5484d", turnedColour: "#e5484d", marks: true}, markAt: [0, 0]});
     brush.markBrush();
-    expect([...brush.brushMarks.keys()]).toEqual(["a#0"]);
+    expect([...brush.marks.keys()]).toEqual(["a#0"]);
     brush.showGone(["a#0"]);
-    brush.cullModels();
+    cull.cullModels();
     expect(draw.instance("a")!.visible).toBe(false);
     brush.showGone(null);
-    brush.cullModels();
+    cull.cullModels();
     expect(draw.instance("a")!.visible).toBe(true);
   } finally { done(); }
 });

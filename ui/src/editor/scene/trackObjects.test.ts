@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {objectsOf} from "./trackObjects.fixture";
+import {objectsOf} from "./view.fixture";
 
 const VERGE = "nocol_road_edge_dirt_0_0";
 
