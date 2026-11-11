@@ -62,8 +62,17 @@ class Bc7TileTest(unittest.TestCase):
         self.assertTrue(textures._is_bc7(trackdetail.ringed_base(pixels, (0, 0), "ground_0_0.dds", bc7=True)))
         self.assertEqual(b"DXT1", trackdetail.ringed_base(pixels, (0, 0), "ground_0_0.dds")[84:88])
 
+    def test_a_tile_images_copy_keeps_its_format_bc7_with_roads_else_bc3(self):
+        from track import kn5
+        material = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, [], [])
+        for bc7, fourcc in ((True, b"DX10"), (False, b"DXT5")):
+            with self.subTest(bc7=bc7):
+                tile = textures.dds_mipmaps(Image.fromarray(stripes()), bc7=bc7)
+                copy = tracknative._photo_colour(tile, {"id": "base"}, material, (0, 0), 77, None)
+                self.assertEqual(fourcc, copy[84:88])       # (BC3: BC1's colour, the gloss in its own alpha)
+
     def test_a_saved_photo_is_bc7_with_its_gloss_in_alpha(self):
-        raw = tracknative._photo_colour(png(stripes()), {"id": "a"}, None, (0, 0), 77, None)
+        raw = tracknative._photo_colour(png(stripes()), {"id": "a", "asset": "a" * 64}, None, (0, 0), 77, None)
         self.assertTrue(textures._is_bc7(raw))
         level = textures.weight_levels(raw)[0]
         self.assertTrue((np.abs(level[..., 3].astype(int) - 77) <= 6).all())      # (BC7 shares a block's bits with the colour)

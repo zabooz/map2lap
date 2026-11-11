@@ -24,7 +24,7 @@ PREFIX = "nocol_ground_m2l_"
 MASK_CACHE_VERSION = 1
 # The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
 # pad_weights or dds_mipmaps write other bytes for the same inputs.
-PHOTO_CACHE_VERSION = 2
+PHOTO_CACHE_VERSION = 3
 # The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region or
 # _batches give other vertices for the same inputs.
 GEOMETRY_CACHE_VERSION = 1
@@ -631,11 +631,13 @@ def _rgba(raw):
 
 
 def _photo_colour(raw, ref, material, tile, sheen, detail):
-    """A ground photo as a BC7 DDS: its colour (a tile's own image on its mask's ring canvas), in alpha its gloss from
-    detail, a function giving the detail map's pixels, or else sheen. Pure. BC7 is BC3's size: BC3's colour has BC1's
-    two ends a block, which turned asphalt beside verge green (textures.dds_mipmaps)."""
+    """A ground photo as a DDS: its colour (a tile's own image on its mask's ring canvas), in alpha its gloss from detail,
+    a function giving the detail map's pixels, or else sheen. Pure. A library photo is BC7, BC3's size: BC3's colour has
+    BC1's two ends a block, which turned asphalt beside verge green (textures.dds_mipmaps). A tile's own image keeps its
+    source's format, BC7 for a tile with roads, else BC3: BC7 took 2.2 s a 2304 px copy with its mips, BC3 0.2 s, and a tile
+    without roads has no such edges (39 of Heiligenblut's 106 tiles)."""
     from app import trackdetail
-    from track.textures import dds_mipmaps
+    from track.textures import _is_bc7, dds_mipmaps
     if ref["id"] == "base":
         colour = pad_weights(Image.fromarray(trackdetail.tile_base(raw, material, tile)), tile).convert("RGBA")
     else:
@@ -647,7 +649,7 @@ def _photo_colour(raw, ref, material, tile, sheen, detail):
         gloss = np.rint((1 - np.clip(detail()[..., 3] / 255 * ref.get("properties", {}).get("roughness", 1.), 0, 1)) * 255).astype(np.uint8)
         alpha = Image.fromarray(gloss).resize(colour.size, Image.Resampling.BILINEAR)
     colour.putalpha(alpha)
-    return dds_mipmaps(colour, alpha=True, smallest=1, independent=True, bc7=True)
+    return dds_mipmaps(colour, alpha=True, smallest=1, independent=True, bc7="asset" in ref or _is_bc7(raw))
 
 
 def _photo_normals(data, ref):
