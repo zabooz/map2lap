@@ -83,9 +83,10 @@ User-imported material maps and their physical repeat size, variation, category 
 `library/materials/<id>` keep the original image, preview and relative-path manifest. Prepared colour maps are disposable
 under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. Importing a material alone does
 not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
-the import dialog accepts all three roles. The Editor preview uses normal and roughness maps for imported PBR materials;
-existing source and colour-only fields retain their lighting. Regional AC output binds normals through CSP nm4 and converts
-roughness to an explicit specular-strength approximation; it does not implement PBR roughness.
+the import dialog accepts all three roles. Applied square-repeat materials use PBR in the Editor and CSP
+`fuPBR_multilayer` in AC, including colour-only photos with flat normal/roughness data. Normal maps and real roughness
+remain separate from colour. Rectangular repeats retain the previous float2 shader path. Unedited generator ground
+still uses its neutral `ksMultilayer` material. PBR repetition variation is currently disabled; the preference is retained.
 
 **Model package** (Editor):
 An immutable asset under `library/objects/<id>` (own imports) or `assets/library/objects/<id>` (shipped with the release,
@@ -113,17 +114,22 @@ public release from the official site on request (`app/csp.py`). CSP runs inside
 
 **Ground texture edit** (Editor):
 An immutable selected-ground mask and retained library colour texture snapshot (`app/trackpaint.py`). Ordered ids in the draft/recipe
-select separately repeated full-resolution colour layers (`app/trackdetail.py`), leaving positions, triangles and physics unchanged.
+select separately repeated full-resolution colour layers (`app/trackdetail.py`). The Editor shares the source geometry;
+regional Save adds render copies and retains the source collision vertices and triangles unchanged.
 Semantic edits and preview keep unrestricted contributions. Regional native materials have at most four local contributors;
 Save explicitly refuses denser transition/filter halos while the draft remains intact. Exact float2 repeat sizes and UV
-origins align the photos. Dense six-way and distant-filter support remain open release requirements.
+origins align the photos; square repeats use scalar world-space scales in CSP PBR. Preview masks normally use the same
+50-cm step as Save; nondivisible canvases retain their own resolution. Dense six-way and distant-filter support remain
+open release requirements.
 Saved tracks keep their active inputs in `data/map2lap_paints`; derived mask/colour DDS under `cache/track-details` can be rebuilt
 without the library.
 
 **Selection index** (Editor):
 Disposable prepared paint components and alpha masks (`track/surfaceindex.py`, `out/editor-selection`), made while ground tiles
 load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes all matching
-prepared regions of the material, including disconnected areas. The bounded preview reports an incomplete selection.
+prepared regions of the material, including disconnected areas, without a tile-count cap. Unprepared areas are reported
+as incomplete. Apply freezes the displayed tile subset and reads its masks in bounded portions; highlighting decodes
+only loaded ground within the view's memory budget.
 Separate material meshes, including the road verge (`edge_dirt`), get connected face regions while their geometry loads.
 The verge can be deleted by those triangles (a draft's `surfaces`, `app/tracksurfaces.py`), as it is no object.
 
@@ -136,9 +142,9 @@ AC folder: another one's tidying leaves it.
 
 **Edit list**:
 What the Editor changed on a track, its draft: `out/edits/<track>.json` (`app/trackedits.py`), for one state of the kn5 the Editor shows (the
-list's "base"). So far the objects it leaves out, each by its id with its position as a check, and whole sorts of trees ("sorts") and of
-listed objects ("object_sorts"), each a rule, not ids. Built again, the list stays but is not applied ("outdated"). No file: the
-recipe, while it counts.
+list's "base"). It keeps deleted object ids and sorts, verge triangle ranges (`surfaces`), placements, height changes,
+copies, imported model bindings and ground-paint operations. Built again, the list stays but is not applied ("outdated"):
+ids and triangle ranges belong to the old source. No file: the recipe, while it counts.
 
 **Build facts** (Editor):
 `data/map2lap_editor/`, the kn5-bound manifest and per-tile archives of painted material layers, source features and generated

@@ -47,7 +47,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Ground materials use the standard AC `ksMultilayer` shader (`track/groundmaterial.py`): the existing tile image stays
   in `txDiffuse`, with its UVs and lighting values unchanged. A shared 4 px mask selects a shared white detail image,
   so the initial detail multiplier is exactly one. RGBA slots allow later masked detail textures without another
-  material format. No separate geometry, higher-resolution base image or CSP dependency is introduced by this setup.
+  material format. This neutral generator setup adds no geometry or higher-resolution base image. It is not PBR;
+  tracks still use CSP for the effects and edited materials described below.
 - `groundmaterial.dual_layer` builds a colour-only `ksPerPixel_dual_layer` material for a square repeating image:
   `txDiffuse` samples the new image at the scaled UV, `txLayer1` retains the existing tile at its original UV,
   and the red channel of `txLayer1_Mask` mixes between them (white keeps the tile). Reflection is disabled in this
@@ -58,7 +59,13 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Editor ground assignments use CSP `fuPBR_multilayer`: a white multiplier, an RGBA weight mask and four shared material
   layers per region. Albedo RGB/AO alpha and normal XY/metalness/roughness are separate textures. Each layer's scalar
   multiplier is in world X/Z metres; mask UVs retain their region canvas. A rectangular physical repeat retains the
-  legacy float2 `ksMultilayer_objsp_nm4` path rather than changing its proportions. Collision stays unchanged.
+  legacy float2 path rather than changing its proportions (`ksMultilayer_objsp`, with the CSP nm4 replacement for regional
+  normal maps or variation). Collision stays unchanged. The native slot names remain editable; the managed CSP include
+  maps their images to the PBR shader's inputs.
+- In that PBR shader, details use world X/Z while `txDiffuse` and the weight mask use mesh UVs. Export keeps `txDiffuse`
+  white, so it does not multiply the baked road colours into every imported photograph. The original tile is another
+  weighted detail layer and currently needs a separate image on the world-phase ring canvas. The original source image
+  is retained for later edits; adopting PBR alone does not remove this duplicate.
 - The editor's RGBA selection channels are independent weights. Their mipmaps average each channel independently and
   retain a unit total; the Editor works on them as lossless RGBA8 DDS, not BC3, whose independent colour/alpha
   quantization changes that total. Save writes them as BC7 (`textures.bc7_weights`, each lossless mip level encoded

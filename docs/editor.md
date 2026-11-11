@@ -261,10 +261,12 @@ roughness 1; normal scale defaults to 1. Schema 1 packages retain their ids and 
 The import dialog accepts colour and optional normal/roughness files, with independent repeat width/height and variation.
 Preparation is queued across roles and dialog reopenings; pending, replaced or invalid maps cannot enter the committed material.
 The Editor preview uses tangent normal and roughness maps for imported PBR materials. A shared linear texture retains
-normal RGB and roughness A; photographs stay sRGB. Data and colour use the same repeat and variation offsets.
-Original tile pixels and existing colour-only assignments retain Lambert lighting beside PBR fields; imported PBR uses
-physical lighting. Undo, Redo and reopening use the same immutable inputs. Production AC output currently keeps the colour fallback
-and the native adapter still limits one tile to three replacement materials.
+normal RGB and roughness A; photographs stay sRGB. Data and colour use the same repeat coordinates. Applied square-repeat
+materials use physical lighting, including colour-only photos and the retained tile within a painted material. Unedited
+generator ground retains its original lighting; rectangular repeats retain their previous preview and native shader path.
+Undo, Redo and reopening use the same immutable inputs. AC uses stock CSP `fuPBR_multilayer` for square-repeat assignments;
+regional Save supports at most four local contributors per region, including the original where it contributes.
+More replacement materials can share a tile when their regions satisfy that local limit.
 
 Save retains versioned compiled slot provenance separately in `data/map2lap_ground_layers.json`, bound to the written KN5's
 SHA256. It identifies the exact material snapshot for each native slot, including assets with identical photographs and repeat
@@ -277,9 +279,10 @@ per side/32 megapixels; two queued uploads bound the input buffers and image pre
 orientation/embedded colour profiles, strips metadata from derived images and prepares at most 2K power-of-two colour maps.
 Each axis has at least 4 pixels so BC1 uploads have a valid base block in WebGL.
 Prepared library colour maps remain lossless PNGs; the unused standalone library DDS path has been removed. Applied ground
-colours lazily encode one shared BC1 DDS with mipmaps down to 1 px. Transparent source images remain available in the library
-for future cutouts but cannot be applied to ground. `track/textures.py`
-shares Pillow's portable DDS encoder with `obj_to_kn5`; its older build profile retains the exact previous mip chain and bytes.
+colours lazily encode shared DDS mipmaps down to 1 px: BC1 in the classic preview path and BC7 for native regional photos.
+Transparent source images remain available in the library for future cutouts but cannot be applied to ground.
+`track/textures.py` shares Pillow's portable DDS encoder with `obj_to_kn5`; its older build profile retains the exact previous
+mip chain and bytes.
 High-bit-depth images are refused with an 8-bit colour-image message. ICC conversion retains original colour channels until
 the profile transform, including CMYK, then restores alpha. Image preparation is serialized separately from library reads;
 warm colour/DDS reads do not wait for another import to decode.
@@ -290,17 +293,21 @@ original, including after Settings clears the cache. Listing caches only small s
 `/api/library/imports` prepares a bounded upload, and the final JSON POST imports the chosen settings. Importing a material
 alone changes no track. The user-facing picker is named Textures and opens from Edit, a painted-ground Appearance image or ground Edit.
 It keeps search/filter/selection state between openings, pages a scrollable thumbnail grid and shows one larger preview.
-Objects uses the same library layout, search/category filters, paged asset grid, right-hand preview and footer. Its GLB
+Objects uses the same library layout, search/category filters, paged asset grid, right-hand preview and footer. Its model
 import fields open in a separate Import object dialog, matching the texture import flow. Each tab keeps its own browsing
-state; only the selected object opens a live 3D preview, turned by dragging and zoomed by the wheel. Delete object removes its library package only: placed copies keep their own snapshot (`trackmodels.snapshot`), so no track loses it.
+state; library cards and the selected object's larger picture share a cached static thumbnail. The import dialog has a live
+3D preview, turned by dragging and zoomed by the wheel. Delete object removes its library package only: placed copies keep
+their own snapshot (`trackmodels.snapshot`), so no track loses it.
 Import opens its own dialog; Apply changes the selected ground and closes the picker only after its preview succeeds.
 Select all takes every prepared ground tile of the material, however many. A selection with tiles not loaded yet is incomplete
 and can apply to its highlighted part: the picker states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
 authoritative source masks; later loading cannot change the chosen tiles. Unscoped incomplete Select all requests remain refused.
 Escape closes the picker without clearing the ground selection, including from its search field.
 The selected texture's repetition variation can be changed before Apply without reimporting; this setting belongs to that
-application and is retained by Undo/Redo and Save. Delete texture asks for confirmation and removes only the selected
-library package. Already applied colours, retained snapshots and saved tracks remain independent of that package.
+application and is retained by Undo/Redo and Save. Current PBR rendering leaves it inactive because CSP's shared switch
+would also shift the baked tile image; rectangular legacy materials retain their variation. Delete texture asks for
+confirmation and removes only the selected library package. Already applied colours, retained snapshots and saved tracks
+remain independent of that package.
 
 Appearance resolves the displayed texture at the selected ground point against its immutable displayed version. It shows
 the retained imported name, a small preview of that photo and the metre repeat size, rather than a whole composited tile.
@@ -314,8 +321,9 @@ source mesh/material/shader diagnostics remain under Details.
 `app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with a canonical
 `original/model.glb`. Their ids bind the GLB content, category, metres per source unit, model-local anchor and explicit
 collision choice (`none` by default, or `mesh`). These import settings are independent of future scene placements. Name,
-tags, source and licence remain with the package. Prepared uploads under `cache/models` are disposable; original bytes
-remain available and hash-checked after clearing that cache. No model collection is shipped.
+tags, source and licence remain with the package. Prepared uploads under `cache/models` are disposable; canonical GLB bytes
+remain available and hash-checked after clearing that cache. Shipped packages under `assets/library/objects` share the catalogue
+with own imports; an own package of the same id takes precedence.
 
 The object catalogue offers trees, bushes, grass, flowers, plants, rocks, buildings, street furniture and other objects.
 Legacy entries from the curated Kenney, Quaternius and Poly Haven collections use their publisher's model-family filename
@@ -326,10 +334,10 @@ remain searchable and unchanged in their packages.
 
 The object importer accepts GLB, FBX and OBJ, or a ZIP containing exactly one FBX/OBJ and its companion MTL/images.
 `app/modelimport.py` converts FBX/OBJ with the bundled `src/bin/modelconvert-*` ufbx reader; Blender is not required.
-The unchanged input is kept as `original/upload.fbx`, `.obj` or `.zip`, with its own hash and original filename, in the
-library and portable saved model snapshots. `original/model.glb` is the validated canonical representation consumed by
-the preview, placement and Save; default GLB imports remain byte-identical. Preparation tokens identify the upload,
-while immutable model ids use the canonical GLB hash and semantic import settings.
+The upload is converted to a self-contained GLB in the preparation cache. Library packages and portable saved model
+snapshots retain the chosen canonical `original/model.glb`, not the FBX, OBJ, ZIP or a second unchanged upload.
+Preview, placement and Save consume that canonical GLB. Preparation tokens identify the upload, while immutable model
+ids use the canonical GLB hash and semantic import settings, including the chosen transformations.
 
 The import dialog and selected library object's information show scene-expanded triangle counts and native geometry MB
 per instance, both without collision and with model-mesh collision. `modelmesh.track_cost` uses the native geometry and
@@ -350,25 +358,27 @@ rounding splits do not block simplification. Missing normals retain flat faces a
 move; protected scene extrema and exact contact-footprint extrema preserve bounds, anchor and import scale. Tangents
 are calculated from the final normals, UVs and triangles. No permissive/sloppy fallback removes leaf cards or hard edges.
 
-The selected geometry is baked into the canonical GLB used by the actual preview, placement and Save, while the original
-upload remains intact. Prepared variants are cached by upload, algorithm version, level, error budget and texture size.
+The selected geometry is baked into the canonical GLB used by the actual preview, placement and Save. The staged,
+unsimplified GLB remains in the disposable preparation cache; it is not a second original in the published package.
+Prepared variants are cached by upload, algorithm version, level, error budget and texture size.
 `/api/library/model-imports/<token>/info` reports actual native costs for that same variant. The dialog prevents Add until
 the current choice is ready and reports limited reduction or **No further reduction possible** when the target cannot be
 reached. Existing model ids/packages remain addressable and Original retains the old identity rules.
 
 **Texture size** is 1024 px by default, 2048 px at most. Import reduces every longer image to it on its long side, never
-enlarging one, in the canonical `original/model.glb` that preview, placement and Save read; the unchanged upload stays as
-`original/upload.glb`, so the choice also gives a model of its own id. Colour images are averaged in linear light, weighted by
-alpha so transparent pixels lend no colour; normal maps get unit vectors again; other maps keep each channel apart. An image
+enlarging one, in the canonical `original/model.glb` that preview, placement and Save read. The choice changes the canonical
+bytes and therefore the model id; a second unchanged upload is not retained in the package. Colour images are averaged in
+linear light, weighted by alpha so transparent pixels lend no colour; normal maps get unit vectors again; other maps keep
+each channel apart. An image
 used as a normal map and otherwise keeps its size. Alternative WebP/KTX2 sources leave the canonical GLB, so a browser shows the
 reduced image. Packages imported before keep their images. A 4K house went from 49.8 to 5.1 MB, in 2.3 s once at import.
 
 **Material colours** defaults to **As stored in model**. The explicit **sRGB (for washed-out colours)** choice decodes
 only material base-colour RGB factors from sRGB to linear, as needed for the legacy Kenney Nature Kit palette. Alpha,
 texture bytes, emissive factors and geometry remain unchanged. The import preview updates directly from
-`/api/library/model-imports/<token>/preview?material_colours=srgb`; Add publishes those same bytes. An adjusted GLB also
-keeps its unchanged input as `original/upload.glb`, alongside the canonical `original/model.glb`, in library packages and
-portable track snapshots. No colour-space choice is inferred from model names or brightness.
+`/api/library/model-imports/<token>/preview?material_colours=srgb`; Add publishes those same canonical bytes, which are also
+retained in portable track snapshots. The unadjusted input is not retained as a second file in the package.
+No colour-space choice is inferred from model names or brightness.
 
 **Surface** defaults to **From model**. **Matte colour (no reflections)** explicitly prepares flat-colour artwork as
 rough non-metallic materials, with `extras.map2lap.lighting = "matte"` in their canonical GLB. The browser uses the
@@ -584,19 +594,22 @@ repeat sizes; identical photos and normal maps share their DDS, without cutting 
 Immutable layouts bind the source and ordered operations. First preparation resolves masks and publishes a small layout;
 subsequent draft/index reads reuse that metadata. The Editor's masks are at the saved step, 50 cm a texel, as AC gets them
 (`trackdetail._preview_step`, `PREVIEW`): made from the tile's fields directly (`_coarse_mask`, `_regional_inputs`), a
-16th of the pixels; a tile whose side does not divide into 16 of them keeps its own resolution. Save writes a simple tile's
-mask as the Editor shows it, and makes a regional tile's from its full fields. 64 painted tiles of Heiligenblut's copy:
+16th of the pixels. Downsampling requires both source dimensions to be divisible by `16 * SAVED_WEIGHT_STEP` (64 at the
+current step of 4), so the ring and UVs remain aligned; otherwise the preview keeps its source resolution. Save writes a
+simple tile's mask as the Editor shows it, and makes a regional tile's from its full fields. 64 painted tiles of Heiligenblut's copy:
 an Apply 49.9 -> 13.3 s on the server, 1.7 GiB -> 108 MiB in the browser. From 4 tiles an Apply describes its tiles
-on several processes first (`trackdetail.prepare_views`, `POOL_FROM`): 64 tiles 9.8 -> 2.8 s on 32 cores. A mask texture is filtered when magnified. They do not composite colour tiles or encode DDS. The mask and shared
+on several processes first (`trackdetail.prepare_views`, `POOL_FROM`): 64 tiles 9.8 -> 2.8 s on 32 cores. A mask texture is
+filtered when magnified. Preparing views does not composite colour tiles or encode DDS. The mask and shared
 colour DDS endpoints encode missing cached files lazily under `cache/track-details`; cache hits bypass the encoder lock.
 Prepared mask pixels are retained as a lossless PNG in disposable cache, avoiding repeated weight calculation after an
 in-memory eviction or restart. A missing PNG is rebuilt from the retained operation masks. RGBA mask channels are independent
 weights, not alpha-associated colour: each mip is filtered independently and its weights sum to 255. Masks use lossless
 uncompressed RGBA8 DDS, avoiding BC3 colour/alpha quantization changing their brightness. The classic colour path uses BC1
 photos; regional PBR photos use BC7 with AO alpha (`tracknative._photo_colour`), BC3's size without its two colours a block. A local FP16 mask is retained when RGBA8 exceeds the weight
-error budget. A full
+error budget. As a full-resolution fallback, a
 2048² mask including mips occupies about 22.4 MB instead of 5.6 MB for BC3. The descriptor, memory budget and Save's disk
-estimate include the actual size. This preserves 12.5 cm mask resolution instead of silently downsampling road boundaries.
+estimate include the actual size. Ordinary 2048-px tiles instead use 512-px masks before the ring is added, at 50 cm per texel;
+the full-size fallback does not change the resolution of the colour photographs.
 The renderer samples masks as linear data and colours as sRGB, blends the retained original tile with the repeating photos,
 counts all images in loading progress and the memory limit, and releases unused images after Undo or replacement. Stale
 downloads cannot overwrite a newer selection. Until a complete layout fits and loads, the previous appearance remains.
@@ -623,12 +636,14 @@ So do the ground pieces' region copies, clipped and deduplicated (`tracknative._
 region, the UV origins; `GEOMETRY_CACHE_VERSION`): the size check makes or takes them before the export, and a piece raised or moved
 since is clipped again. Imported models' textures are taken from the track's last saved kn5 by name, which covers every input of
 their pixels (`trackmodels.images`). Heiligenblut's copy with 99 painted tiles and 86 models: 26.4 s a Save before these three,
-4.9 s with one model moved, 17.5 s with an empty cache (90.6 s on one process). Before the export, `tracknative.prepare` makes
+4.9 s with one model moved, 17.5 s with an empty cache (90.6 s on one process), measured before the later BC7/PBR changes;
+these are scenario measurements, not timings promised for the current Save. Before the export, `tracknative.prepare` makes
 what the last Save did not leave of each painted tile on several processes (Settings' cores, as RAM allows; below `POOL_FROM`
 tiles in the server's own): one reads a tile's fields once and keeps its description, region copies, masks and own images;
 the export then takes them from the cache, as a warm Save does, and writes the same bytes. A region mask whose canvas the saved mask's step divides is
 averaged to its coarse texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
-255th off the one made coarse after); the tile images on their ring canvases take 33 s of an empty cache. Imported normal
+255th off the one made coarse after). The earlier 33 s for cold ring images used the older encoding profile; current tile
+copies retain BC7 for BC7 sources and otherwise use BC3. Imported normal
 maps and linear roughness use the managed CSP `fuPBR_multilayer` replacement: albedo RGB/AO alpha and normal XY/metalness/
 roughness are separate resources, with the retained normal and roughness factors applied once. Flat nonmetal data fills
 missing maps. Rectangular physical repeats retain `ksMultilayer_objsp_nm4` with float2 scaling rather than stretching the
@@ -724,8 +739,9 @@ indexes without rebuilding the track or changing edits. A click queries `/surfac
 up prepared components without evaluating paint or flooding pixels again. Layers with the same material contribute together.
 Normal road selection follows one mapped chain, stopping at branches and changes between a road and a link; same-kind degree-two
 map splits join only on the same mapped level. This uses retained map topology, not visual junction guessing. Shift selects all
-matching prepared material regions instead, including disconnected areas and distant tiles. Selection is bounded to 64 prepared
-tiles; unprepared tiles or further matching areas are reported as incomplete, and an incomplete Select all cannot be applied.
+matching prepared material regions instead, including disconnected areas and distant tiles, without a tile-count cap.
+Unprepared tiles make the selection incomplete. Apply may use the explicitly displayed subset, frozen in its request;
+an incomplete Select all without that scope is refused. Its 64-tile portions bound mask processing, not selection size.
 The page highlights
 the lossless mask over the loaded ground meshes, sharing their live geometry, so height edits remain aligned. Only masks for
 loaded tiles are decoded, within the preview memory limit. Selection changes no draft and enables no Delete, Move or Copy

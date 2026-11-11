@@ -16,9 +16,8 @@ Built on the world generator of [BeamNG.Earth](https://github.com/TecnaGamer/Bea
 
 **You need:** Windows 10/11 64-bit or a 64-bit Linux (glibc 2.35 or newer: Ubuntu 22.04, Fedora 36, Arch, SteamOS 3
 or later), [Assetto Corsa](https://store.steampowered.com/app/244210/Assetto_Corsa/) on Steam, an internet
-connection, 16 GB RAM recommended. [Content Manager](https://acstuff.club/app/) and
-[Custom Shaders Patch](https://acstuff.club/patch/) are recommended (animated water needs CSP); **▶ Play** works
-without them.
+connection, [Custom Shaders Patch](https://acstuff.club/patch/) for track effects and edited ground materials,
+and 16 GB RAM recommended. [Content Manager](https://acstuff.club/app/) is optional; **▶ Play** can start Assetto Corsa directly.
 
 ### On Linux
 
@@ -63,8 +62,9 @@ track's file once more, a new track twice: tens of GB for a track of hundreds of
 Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 
 Build files are kept by default. Under **Settings → Editor → Build files** you can turn that off or delete them to
-recover disk space. Viewing a track in the Editor needs only the installed track; planned editing tools will need its
-build files. The Editor's memory limit is under **Settings → Editor → 3D view**; when reached, some parts or textures
+recover disk space. The Editor uses the installed track and its retained editing data; current tools do not require kept
+build files. Older tracks without ground-selection data need rebuilding to add that data. The Editor's memory limit is under
+**Settings → Editor → 3D view**; when reached, some parts or textures
 stay out of the preview.
 
 ## Troubleshooting

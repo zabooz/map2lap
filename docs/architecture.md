@@ -33,6 +33,22 @@ The Editor's three.js code loads on the first visit to its tab; camera and mesh 
 
 The Editor's loading, drafts, saving and tools: [editor.md](editor.md).
 
+The generator and Editor currently use different ground-lighting paths. A new build writes neutral `ksMultilayer`
+materials around its baked tile images (`track/groundmaterial.py`). Editor square-repeat assignments use PBR in the
+browser and stock CSP `fuPBR_multilayer` after Save; rectangular repeats keep the legacy float2 path. Save emits only
+track-local configuration and textures, not global CSP shader files. Shader inputs and limits:
+[ac-rules.md](ac-rules.md#how-the-ground-is-built).
+
+In the browser, `scene/view.ts` coordinates the scene and `scene/trackTextures.ts` owns texture/material loading, paint
+updates and their lifetime. Meshes load nearest first and remain until the track changes. The memory limit stops further
+loading; moving the camera does not evict distant meshes and resume loading around its new position.
+
+An Editor Save starts from the retained source and reapplies the draft, rather than modifying the last output in place.
+Before writing, it prepares missing native masks, photos and regional geometry on a bounded pool and reuses complete
+content-addressed cache entries (`app/tracknative.py`). It still writes and validates a complete replacement KN5.
+Regional painted ground currently retains the original tile image and an additional ring/phase-adjusted image for its shader;
+PBR does not remove that copy. The source and portable paint bundle remain necessary for subsequent edits and transfer.
+
 ## Parallel (`track/parallel.py`)
 
 Tiles, scenery, minimap and kn5 meshes run per tile in a `ProcessPoolExecutor` (cores − 1 processes or the share set in
@@ -49,6 +65,13 @@ Settings, on Windows at most 61, at most free RAM / 2 GB). Processes rather than
 - Processes are not recycled (`max_tasks_per_child` hangs under Python 3.12, CPython gh-115634).
 - On Windows they run as `Map2Lap Worker.exe`, a build as `Map2Lap Build.exe`, the generator page as `Map2Lap Server.exe`:
   named copies of python.exe (`app/named.py`), in `python/` or, with a venv, `out/python/`.
+
+Editor work also uses bounded process pools. Selection preparation (`track/surfaceindex.py`) evaluates missing loaded tiles
+from four tiles onward, using at most logical cores minus one and free RAM / 0.5 GB; the browser submits batches of at most
+32 tiles. Completed selection files are reused across openings and saved copies. Apply describes missing paint views from
+four tiles onward (`app/trackdetail.prepare_views`); Save prepares missing native resources from six tiles onward
+(`app/tracknative.prepare`). These two use the configured core share and the build pool's RAM bound. Below their thresholds,
+the work stays in the server process. Apply reads selection masks in portions of 64 tiles; that is not a selection cap.
 
 ## Imports
 
