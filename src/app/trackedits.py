@@ -15,7 +15,7 @@ import threading
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, trackpaint, trackplace, tracksurfaces, trackview
+from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, tracknative, trackpaint, trackplace, tracksurfaces, trackview
 from track import objectlist
 
 SCHEMA = 2
@@ -80,8 +80,10 @@ def changes(ac, name):
 
 
 def _needs_material_save(saved):
-    """Whether saved paint operations still use an older native material layout. Pure."""
-    return bool(saved.get("paints")) and saved.get("detail_profile") != trackdetail.PROFILE
+    """Whether saved paint operations still use an older native material layout, or region copies of an older geometry
+    (tracknative.GEOMETRY_CACHE_VERSION; before 2 they left a slit at the tile edges, recorded since). Pure."""
+    return bool(saved.get("paints")) and (saved.get("detail_profile") != trackdetail.PROFILE
+                                          or saved.get("region_geometry", 1) != tracknative.GEOMETRY_CACHE_VERSION)
 
 
 def _placements(stored):

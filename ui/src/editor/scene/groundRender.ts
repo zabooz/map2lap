@@ -22,6 +22,14 @@ interface RegionNode {
   children?: [RegionNode, RegionNode];
 }
 
+/** Region bounds in whole-tile UVs as they cut the ground: open where they meet the tile's edge (tracknative._cuts). The
+ * ground piece ends there itself, its UVs need not: a guarded build's 4-place UVs end 6.6 mm past the tile, a wall step lifts
+ * them past it on purpose. Not Infinity: GLSL ES need not keep it in a uniform; 1e30 lies past any tile's UVs. Pure. */
+export function regionCut(bounds: number[]) {
+  return [bounds[0] > 0 ? bounds[0] : -1e30, bounds[1] > 0 ? bounds[1] : -1e30,
+    bounds[2] < 1 ? bounds[2] : 1e30, bounds[3] < 1 ? bounds[3] : 1e30];
+}
+
 /** Build a balanced UV-box hierarchy for arbitrary, overlapping region bounds. Pure. */
 function regionTree(regions: RegionNode[]): RegionNode {
   if (regions.length === 1) return regions[0];
@@ -40,7 +48,7 @@ function regionTree(regions: RegionNode[]): RegionNode {
  * tile texture outside the mesh UVs (ColourSplat.uv_guard); bounds cover the whole tile. Pure. */
 export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: number[][], origin: number[], guard = 0) {
   const regions = new Map<string, RegionNode>();
-  for (const box of bounds) if (!regions.has(box.join(","))) regions.set(box.join(","), {bounds: box, kept: []});
+  for (const box of bounds) if (!regions.has(box.join(","))) regions.set(box.join(","), {bounds: regionCut(box), kept: []});
   if (!regions.size) return;
   const root = regionTree([...regions.values()]), stack: RegionNode[] = [];
   const indices = source.getIndex()!, uv = source.getAttribute("uv");
@@ -191,7 +199,7 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       m2lFrames: {value: pass.frames.map(f => new THREE.Vector4(...f.atlas))}, m2lSources: {value: pass.frames.map(f => new THREE.Vector2(...f.source))},
       m2lConstants: {value: pass.frames.map(f => f.constant ?? -1)},
       m2lScale: {value: new THREE.Vector2(...scale)}, m2lPhase: {value: new THREE.Vector2(...phase)},
-      m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lGuard: {value: layers.uv_guard ?? 0}, m2lBounds: {value: new THREE.Vector4(...pass.bounds)},
+      m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lGuard: {value: layers.uv_guard ?? 0}, m2lBounds: {value: new THREE.Vector4(...regionCut(pass.bounds))},
       m2lData: {value: data}, m2lNoiseFrequency: {value: 1.6},
       m2lProperties: {value: new THREE.Vector3(ref?.properties?.normal_scale ?? 1, ref?.properties?.roughness ?? 1, ref?.properties?.roughness_offset ?? 0)}});
     // m2lRaw samples the original tile at its mesh UV; m2lLocal is the whole tile's UV, which weights and bounds cover.
@@ -208,7 +216,8 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       vec2 m2lUV = vec2(m2lLocal.x, m2lLocal.y + 1.0);
       vec2 m2lDx = dFdx(m2lUV) * m2lSize, m2lDy = dFdy(m2lUV) * m2lSize;
       float m2lLOD = clamp(log2(max(length(m2lDx),length(m2lDy))),0.0,log2(max(m2lSize.x,m2lSize.y)));
-      float m2lMass = mix(m2lAt(m2lUV,floor(m2lLOD)),m2lAt(m2lUV,ceil(m2lLOD)),fract(m2lLOD));
+      vec2 m2lEdge = clamp(m2lUV, 0.0, 1.0);    // (ground past the tile's edge takes the edge's weights: regionCut)
+      float m2lMass = mix(m2lAt(m2lEdge,floor(m2lLOD)),m2lAt(m2lEdge,ceil(m2lLOD)),fract(m2lLOD));
       vec2 m2lPhotoUV = ${pass.image < 0 ? "m2lRaw" : "m2lLocal * m2lScale + m2lPhase"};
       diffuseColor *= ${ref?.variation ? "m2lVary" : "texture2D"}(map,m2lPhotoUV);
       ${pbr ? `vec4 m2lPacked = ${ref?.variation ? "m2lVaryData(map,m2lData," : "texture2D(m2lData,"}m2lPhotoUV);` : ""}

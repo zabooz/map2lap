@@ -680,7 +680,13 @@ maps and linear roughness use the managed CSP `fuPBR_multilayer` replacement: al
 roughness are separate resources, with the retained normal and roughness factors applied once. Flat nonmetal data fills
 missing maps. Rectangular physical repeats retain `ksMultilayer_objsp_nm4` with float2 scaling rather than stretching the
 image. Regional render copies are `nocol_`; the edited
-source is hidden for rendering while its collision vertices and indices remain byte-identical. Global UV origins and native
+source is hidden for rendering while its collision vertices and indices remain byte-identical. A tile's copies cut its ground
+in tile UVs, which their masks are sampled by, only between its regions: a region at the tile's edge takes everything of the
+ground on that side (`tracknative._cuts`; the Editor's view likewise, `groundRender.regionCut`). The ground ends at the tile's
+edge itself, its UVs need not: a guarded build writes them to four places (0.0156 for 32/2048), so tile u is 1.0000257 at
+x 4096.0, and a wall step lifts them past the edge on purpose. Cutting at the edge took 6.6 mm off each tile there, a
+12.9 mm slit between Heiligenblut's painted tiles; tracks saved so (a recipe without `region_geometry` 2, the
+`GEOMETRY_CACHE_VERSION` it was saved with) count as needing a Save, which writes new copies and keeps masks and photos. Global UV origins and native
 world multipliers keep square physical repeats exact. Cold reopen retains the editable source; removing paints restores its render
 flag on Save. The source is retained for Undo/Discard, and the saved recipe/bundle carries
 the operation masks and normalized colour snapshots. Saving a transferred track also retains the material snapshots referenced

@@ -14,7 +14,7 @@ import numpy as np
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
 from app import materiallibrary, trackcopy, trackdetail, trackground, trackinspect, trackmodels, tracknative, trackpaint, trackregions, trackview
-from track import editorinfo, groundnormals, kn5, textures
+from track import editorinfo, groundmaterial, groundnormals, kn5, textures
 
 
 class RegionMaskTest(unittest.TestCase):
@@ -23,12 +23,21 @@ class RegionMaskTest(unittest.TestCase):
     keep = paintfixture.PaintTest.keep
     build = guarded.GuardedSaveTest.build
 
-    def painted(self, stripes):
+    def painted(self, stripes, guard=False):
         """Tile 0 in two pieces of one material, as a build splits big ground, its seven stripes painted from the second
-        on with that many greys (more than three: a regional Save). The paint ids."""
+        on with that many greys (more than three: a regional Save). guard: its UVs as a guarded build writes them, on the
+        texture's inside (groundmaterial.UV_GUARD) to 4 places (make_obj). The paint ids."""
         self.build(0, stripes=7)
         native = kn5.read(str(self.path))
         whole = native["root"].children[0]
+        if guard:
+            g = groundmaterial.UV_GUARD
+            whole.vertices = whole.vertices.copy()
+            whole.vertices["uv"] = np.round(np.c_[g + (whole.vertices["pos"][:, 0] / 256) * (1 - 2 * g),
+                                                  -(g - (whole.vertices["pos"][:, 2] / 256) * (1 - 2 * g))], 4)
+            m = native["materials"][0]
+            native["materials"][0] = kn5.Material(m.name, m.shader, m.blend, m.alpha_tested, m.depth_mode,
+                                                  [*m.props, groundmaterial.guard_prop()], m.maps)
         second = copy.deepcopy(whole)
         second.name = whole.name + "_1"
         whole.indices, second.indices = whole.indices[:3].copy(), whole.indices[3:].copy()
@@ -181,6 +190,45 @@ class RegionMaskTest(unittest.TestCase):
         clipped.assert_not_called()
         self.assertTrue(first)
         self.assertEqual(first, self.region_meshes(self.name))
+
+    def region_triangles(self, folder):
+        """The saved track's region copies' triangles (k, 3, 3) and its other meshes {name: (position bytes, index bytes)}."""
+        saved = kn5.read(str(Path(self.ac, "content/tracks", folder, folder + ".kn5")))
+        meshes = list(kn5.walk_meshes(saved["root"]))
+        triangles = np.concatenate([node.vertices["pos"][node.indices].reshape(-1, 3, 3) for node in meshes if "m2l_region" in node.name])
+        return triangles.astype(np.float64), {node.name: (node.vertices["pos"].tobytes(), node.indices.tobytes())
+                                              for node in meshes if "m2l_region" not in node.name}
+
+    def assert_whole_tile(self, triangles):
+        """The region copies cover tile 0 (x 0 to 256, z -256 to 0, flat) up to its edges, nothing twice."""
+        self.assertEqual([0., -256.], [triangles[..., 0].min(), triangles[..., 2].min()])
+        self.assertEqual([256., 0.], [triangles[..., 0].max(), triangles[..., 2].max()])
+        area = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])[:, 1]
+        self.assertAlmostEqual(256 * 256, float(abs(area).sum() / 2), places=2)
+
+    def test_a_guarded_tile_s_region_copies_reach_its_edges_and_its_collision_stays(self):
+        # A guarded build's UVs end 6.6 mm inside or past the tile's edge (0.0156 for 32/2048): a cut there left a slit.
+        self.keep(self.painted(5, guard=True))
+        source = kn5.read(str(trackview.served(self.ac, self.name)[0]))
+        collision = {node.name: (node.vertices["pos"].tobytes(), node.indices.tobytes()) for node in kn5.walk_meshes(source["root"])}
+        trackcopy.save(self.ac, self.name)
+        cold, others = self.region_triangles(self.name)
+        self.assert_whole_tile(cold)
+        self.assertEqual(collision, others)
+        trackcopy.save(self.ac, self.name)
+        self.assertEqual(cold.tobytes(), self.region_triangles(self.name)[0].tobytes())     # (warm: from the cache)
+
+    def test_region_copies_and_a_file_list_kept_before_the_edge_fix_are_not_taken_again(self):
+        # As a Save before GEOMETRY_CACHE_VERSION 2 cut them: at the tile's edges too, its copies and prepare's list kept.
+        self.keep(self.painted(5, guard=True))
+        old = lambda bounds, width, height: [bounds[0] / width, bounds[1] / height, bounds[2] / width, bounds[3] / height]
+        with mock.patch.object(tracknative, "GEOMETRY_CACHE_VERSION", 1), mock.patch.object(tracknative, "_cuts", old):
+            trackcopy.save(self.ac, self.name)
+        self.assertLess(self.region_triangles(self.name)[0][..., 0].max(), 256)
+        stale = {path.name for path in tracknative._mask_folder(self.name).glob("*.npz")}
+        trackcopy.save(self.ac, self.name)
+        self.assert_whole_tile(self.region_triangles(self.name)[0])
+        self.assertFalse(stale & {path.name for path in tracknative._mask_folder(self.name).glob("*.npz")})
 
     def test_a_ground_piece_raised_since_the_last_save_is_clipped_again_where_it_is_now(self):
         self.keep(self.painted(5))

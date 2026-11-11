@@ -115,7 +115,8 @@ public release from the official site on request (`app/csp.py`). CSP runs inside
 **Ground texture edit** (Editor):
 An immutable selected-ground mask and retained library colour texture snapshot (`app/trackpaint.py`). Ordered ids in the draft/recipe
 select separately repeated full-resolution colour layers (`app/trackdetail.py`). The Editor shares the source geometry;
-regional Save adds render copies and retains the source collision vertices and triangles unchanged.
+regional Save adds render copies and retains the source collision vertices and triangles unchanged. The copies of a tile cut its
+ground only between its regions; at the tile's edges they end where the ground does (`tracknative._cuts`).
 Semantic edits and preview keep unrestricted contributions. Regional native materials have at most four local contributors;
 Save explicitly refuses denser transition/filter halos while the draft remains intact. Exact float2 repeat sizes and UV
 origins align the photos; square repeats use scalar world-space scales in CSP PBR. Preview masks normally use the same

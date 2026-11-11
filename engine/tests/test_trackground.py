@@ -272,4 +272,97 @@ class RegionalWeightTest(unittest.TestCase):
         self.assertEqual(0, info["positive_lost"])
 
 
+class RegionCopyEdgeTest(unittest.TestCase):
+    """A painted tile's region copies (tracknative.save_size, as a Save makes them) cover its ground piece exactly: up to
+    its edges, where the neighbouring tile's copies start, and across its regions without a gap or an overlap."""
+    REGIONS = [([0, 0, 200, 300], ['a']), ([200, 0, 512, 300], ['b']), ([0, 300, 512, 512], ['c'])]
+
+    def piece(self, tx=0, ty=0, guard=1/64, global_uv=False, n=33):
+        """Tile (tx, ty)'s ground on an 8 m lattice over a slope and a hill (kn5: z = -north), UVs as make_obj writes a
+        build's: 4 places, on a guarded texture's inside or global. (vertices, faces)."""
+        from track import kn5
+        y, x = np.mgrid[:n, :n] / (n - 1)
+        vertices = np.zeros(n * n, kn5.VERTEX)
+        east, north = tx * 256 + 256 * x.ravel(), ty * 256 + 256 * y.ravel()
+        vertices['pos'] = np.c_[east, 40 * y.ravel() + 12 * np.sin(6 * x.ravel()), -north]
+        u, v = guard + x.ravel() * (1 - 2 * guard), guard + y.ravel() * (1 - 2 * guard)
+        if global_uv: u, v = u + tx, v + ty
+        vertices['uv'] = np.c_[np.round(u, 4), -np.round(v, 4)]
+        vertices['normal'] = (0, 1, 0)
+        cells = (np.arange(n - 1)[None, :] + n * np.arange(n - 1)[:, None]).ravel()
+        faces = np.r_[np.c_[cells, cells + n, cells + 1], np.c_[cells + 1, cells + n, cells + n + 1]].astype('<u2')
+        return vertices, faces
+
+    def copies(self, vertices, faces, material, uv_origin=(0, 0)):
+        """The region copies' triangles [(k, 3, 3) positions] of the piece, one array a region."""
+        import tempfile
+        from unittest import mock
+        from app import tracknative
+        from track import kn5
+        layout = {'ground': {'dimensions': [512, 512], 'uv_origin': list(uv_origin)}, 'origin': [0, 0], 'materials': [0],
+                  'native_regions': self.REGIONS}
+        scan = {'meshes': [{'name': '1GRASS_ground_0_0', 'material': 0}], 'materials': [material]}
+        with tempfile.TemporaryDirectory() as kept, mock.patch.object(kn5, 'mesh_arrays', return_value=(vertices, faces)):
+            tracknative.save_size(layout, scan, __file__, Path(kept))
+        keys = [tracknative._copy_key(tracknative._piece(tracknative._tile_uvs(vertices, material), faces),
+                                      [b / 512 for b in bounds], layout, 512, 512, bounds) for bounds, _p in self.REGIONS]
+        return [np.concatenate([batch[0]['pos'][batch[1]] for batch in layout['native_copies'][key]]
+                               or [np.zeros((0, 3), np.float32)]).reshape(-1, 3, 3).astype(np.float64) for key in keys]
+
+    @staticmethod
+    def area(triangles):
+        return float(np.linalg.norm(np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]), axis=1).sum() / 2)
+
+    def assert_covers(self, vertices, faces, regions):
+        source = vertices['pos'][faces].astype(np.float64)
+        everything = np.concatenate(regions)
+        for axis in (0, 2):
+            self.assertEqual(source[..., axis].min(), everything[..., axis].min())
+            self.assertEqual(source[..., axis].max(), everything[..., axis].max())
+        self.assertAlmostEqual(self.area(source), self.area(everything), delta=self.area(source) * 1e-6)
+
+    def test_a_guarded_build_s_rounded_uvs_leave_no_slit_at_the_tile_edges(self):
+        # 32/2048 written 0.0156 and 0.984375 written 0.9844: the tile's UVs end 6.6 mm short of 0 and past 1 on each side.
+        from track import groundmaterial, kn5
+        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [groundmaterial.guard_prop()], [])
+        for tx, ty in ((15, -9), (16, -9)):         # (two neighbours: their copies must both reach x 4096.0)
+            vertices, faces = self.piece(tx, ty)
+            self.assert_covers(vertices, faces, self.copies(vertices, faces, material))
+
+    def test_a_global_uv_tile_without_a_guard_is_covered_up_to_its_edges(self):
+        from track import kn5
+        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [], [])
+        vertices, faces = self.piece(-41, 37, guard=0, global_uv=True)
+        self.assert_covers(vertices, faces, self.copies(vertices, faces, material, uv_origin=(-41, -37)))
+
+    def test_a_wall_step_whose_uvs_reach_past_the_tile_stays_in_its_edge_region(self):
+        # A wall between two roads lifts its UVs along its face (scenery/ground.py, along.lift): at the tile's north edge
+        # they go past it, though its foot stays on the tile. (Unguarded: only the wall leaves the tile's UVs.)
+        from track import kn5
+        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [], [])
+        vertices, faces = self.piece(guard=0)
+        wall = np.zeros(3, vertices.dtype)
+        wall['pos'] = [(100, 40, -255), (110, 40, -255), (105, 46, -255)]
+        wall['uv'] = [(.4, -.99), (.44, -.99), (.42, -1.02)]
+        wall['normal'] = (0, 0, 1)
+        faces = np.r_[faces, [[len(vertices), len(vertices) + 1, len(vertices) + 2]]].astype('<u2')
+        vertices = np.r_[vertices, wall]
+        self.assert_covers(vertices, faces, self.copies(vertices, faces, material))
+
+    def test_regions_inside_the_tile_meet_without_a_gap(self):
+        from track import groundmaterial, kn5
+        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [groundmaterial.guard_prop()], [])
+        vertices, faces = self.piece()
+        regions = self.copies(vertices, faces, material)
+        for region in regions:
+            self.assertGreater(len(region), 0)
+        # Each copy keeps to its region inside the tile (mask row 0 is its north edge, z -256): a, b and c share their
+        # cuts, x 100 m and z -106 m (up to the 4-place UVs' 1.3 cm), with the same points on both sides.
+        a, b, c = regions
+        self.assertLess(a[..., 0].max(), 100.02); self.assertGreater(b[..., 0].min(), 99.98)
+        self.assertLess(a[..., 2].max(), -105.98); self.assertGreater(c[..., 2].min(), -106.02)
+        cut = lambda triangles: {tuple(p) for p in triangles.reshape(-1, 3).round(4) if abs(p[0] - b[..., 0].min()) < 1e-3}
+        self.assertEqual(cut(a), cut(b))
+
+
 if __name__ == "__main__": unittest.main()

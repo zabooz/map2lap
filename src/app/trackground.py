@@ -30,7 +30,8 @@ def native_frame(bounds, repeat, texel, variation=False):
 
 
 def clip_region(vertices, faces, bounds, uv_origin, coordinates=None):
-    """Exact render-only triangle clipping in tile UVs; interpolate position, normal, UV and tangent. Pure."""
+    """Exact render-only triangle clipping in tile UVs; interpolate position, normal, UV and tangent. An infinite bound
+    cuts nothing (tracknative._cuts: a region at the tile's edge). Pure."""
     flat = vertices.view("<f4").reshape(-1, 11).astype(np.float64)
     if coordinates is None:
         coordinates = flat[:, 6:8] - uv_origin + [0, 1]

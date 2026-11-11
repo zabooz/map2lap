@@ -1,6 +1,6 @@
 import {expect, spyOn, test} from "bun:test";
 import * as THREE from "three";
-import {GroundFrame, GroundLayer, groundRegionGeometry, groundRegionGeometries} from "./groundRender";
+import {GroundFrame, GroundLayer, groundRegionGeometry, groundRegionGeometries, regionCut} from "./groundRender";
 import type {ColourSplat, GroundPass} from "./colourBlend";
 
 test("regional PBR uses physical materials for both the original tile and a colour-only photo", () => {
@@ -19,9 +19,9 @@ test("regional PBR uses physical materials for both the original tile and a colo
   layer.dispose(); frame.dispose();
 });
 
-/** The original per-region UV-box scan, independent of the spatial assignment. Pure. */
-function originalIndices(source: THREE.BufferGeometry, bounds: number[], origin: number[]) {
-  const indices = source.getIndex()!, uv = source.getAttribute("uv"), kept: number[] = [];
+/** The original per-region UV-box scan, independent of the spatial assignment, open at the tile's edges. Pure. */
+function originalIndices(source: THREE.BufferGeometry, box: number[], origin: number[]) {
+  const bounds = regionCut(box), indices = source.getIndex()!, uv = source.getAttribute("uv"), kept: number[] = [];
   for (let i = 0; i < indices.count; i += 3) {
     const triangle = [indices.getX(i), indices.getX(i + 1), indices.getX(i + 2)];
     const x = triangle.map(k => uv.getX(k) - origin[0]), y = triangle.map(k => uv.getY(k) - origin[1] + 1);
@@ -181,6 +181,34 @@ test("a guarded tile's triangles fall into the regions their whole-tile UVs reac
   const west = [0, 0, .11, 1];
   expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0], guard)).get(west.join(","))!.getIndex()!.array)).toEqual([0, 1, 2]);
   expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0])).get(west.join(","))!.getIndex()!.array)).toEqual([]);
+});
+
+test("a region at the tile's edge takes the ground past it, as a Save's copies do", () => {
+  // A wall step lifts its UVs past the tile's north edge (y < 0) on purpose; a guarded build's 4-place UVs end 6.6 mm past it.
+  const source = new THREE.BufferGeometry();
+  source.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  source.setAttribute("uv", new THREE.BufferAttribute(Float32Array.from([.4, -1.01, .44, -1.01, .42, -1.03]), 2));
+  source.setIndex([0, 1, 2]);
+  const edge = [0, 0, .5, .5], inside = [0, .5, .5, 1];
+  const regions = new Map(groundRegionGeometries(source, [edge, inside], [0, 0]));
+  expect(Array.from(regions.get(edge.join(","))!.getIndex()!.array)).toEqual([0, 1, 2]);
+  expect(Array.from(regions.get(inside.join(","))!.getIndex()!.array)).toEqual([]);
+  const frame = new GroundFrame({} as THREE.WebGLRenderer, new THREE.Scene(), () => true, () => {});
+  const pass: GroundPass = {image: -1, first: 0, bounds: [.25, 0, 1, .5],
+    frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
+  const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0], images: [],
+    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass]}};
+  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null], new THREE.Color());
+  layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
+  const material = (frame.scene.children[0].children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader,
+    fragmentShader: THREE.ShaderLib.lambert.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.fragmentShader).toContain("m2lAt(m2lEdge,floor(m2lLOD))");
+  const [west, north, east, south] = shader.uniforms.m2lBounds.value.toArray();
+  expect([west, south]).toEqual([.25, .5]);         // (inside the tile it cuts where its mask does)
+  expect(north).toBeLessThan(-1e9); expect(east).toBeGreaterThan(1e9);
+  layer.dispose(); frame.dispose();
 });
 
 test("a regional layer made matte or smooth takes its roughness offset, with and without a roughness map", () => {

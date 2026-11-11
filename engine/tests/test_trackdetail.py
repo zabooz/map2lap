@@ -773,6 +773,19 @@ class DetailTest(unittest.TestCase):
         self.assertFalse(trackedits.load(self.ac, "upgrade")["saved"].get("needs_save"))
         self.assertEqual(0, trackedits.changes(self.ac, "upgrade"))
 
+    def test_paints_saved_before_the_region_copies_reached_the_tile_edges_can_be_saved_again(self):
+        # Their region copies left a 12.9 mm slit between tiles (tracknative._cuts): a Save writes them anew.
+        self.keep([self.operation(self.detail_asset())])
+        trackcopy.save(self.ac, self.name, "slit", "Slit")
+        self.assertFalse(trackedits.load(self.ac, "slit")["saved"].get("needs_save"))
+        metadata = Path(self.ac, "content/tracks/slit/data/map2lap.json")
+        info = json.loads(metadata.read_text(encoding="utf-8"))
+        info["edits"].pop("region_geometry")
+        metadata.write_text(json.dumps(info), encoding="utf-8")
+        self.assertTrue(trackedits.load(self.ac, "slit")["saved"].get("needs_save"))
+        trackcopy.save(self.ac, "slit")
+        self.assertFalse(trackedits.load(self.ac, "slit")["saved"].get("needs_save"))
+
     def test_apply_describes_a_separate_full_resolution_image_and_mask_without_compositing(self):
         from app import trackdetail, trackpaint
         op = self.operation(self.detail_asset())

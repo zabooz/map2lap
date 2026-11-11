@@ -25,9 +25,10 @@ MASK_CACHE_VERSION = 1
 # The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
 # pad_weights or dds_mipmaps write other bytes for the same inputs.
 PHOTO_CACHE_VERSION = 4
-# The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region or
-# _batches give other vertices for the same inputs.
-GEOMETRY_CACHE_VERSION = 1
+# The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region,
+# _cuts or _batches give other vertices for the same inputs. A track's recipe keeps the one it was saved with: an older one
+# makes its paints need a Save (trackedits._needs_material_save). (2: copies reach the tile's edges, _cuts.)
+GEOMETRY_CACHE_VERSION = 2
 SOURCE_FILE = Path("data", "map2lap_regional_source.json")
 OWN_TEXTURE = re.compile(r"map2lap_native_[0-9a-f]{64}\.(?:png|dds)\Z")
 
@@ -244,7 +245,7 @@ def save_size(layout,scan,path,kept=None):
             piece=_piece(vertices,faces) if kept else None
             for number,(bounds,_palette) in enumerate(regions):
                 uv_bounds=[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height]
-                clip=lambda uv_bounds=uv_bounds: trackground.clip_region(vertices,faces,uv_bounds,layout['ground']['uv_origin'])
+                clip=lambda bounds=bounds: trackground.clip_region(vertices,faces,_cuts(bounds,width,height),layout['ground']['uv_origin'])
                 if kept:
                     key=_copy_key(piece,uv_bounds,layout,width,height,bounds)
                     cw,ch=canvas_size(bounds,width,height)
@@ -263,6 +264,18 @@ def _tile_uvs(vertices,material):
     if not guard: return vertices
     vertices=vertices.copy(); vertices['uv']=np.array(trackview.tile_uv(vertices['uv'][:,0],vertices['uv'][:,1],guard,False,0,0)).T
     return vertices
+
+
+def _cuts(bounds,width,height):
+    """Where a region of pixels bounds on its tile's width x height mask cuts the tile's ground (trackground.clip_region): in
+    tile UVs, which its mask is sampled by, and not at all where it meets the tile's edge. The ground piece ends there itself,
+    its UVs need not: a guarded build writes them to 4 places (make_obj), 32/2048 as 0.0156 and 0.984375 as 0.9844, so tile u
+    is 1.0000257 at x 4096.0 and -0.0000258 at x 3840.0, and a cut at 1 and 0 took 6.6 mm off both tiles there, a 12.9 mm
+    slit; a wall step lifts its UVs past the edge on purpose (scenery/ground.py, along.lift). Inside the tile both sides of a
+    cut take the same points of the same UVs, so they meet whatever the rounding. Pure."""
+    x0,y0,x1,y1=bounds
+    return [x0/width if x0>0 else -math.inf,y0/height if y0>0 else -math.inf,
+            x1/width if x1<width else math.inf,y1/height if y1<height else math.inf]
 
 
 def _piece(vertices,faces):
@@ -367,7 +380,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                     stored=_copy_key(piece,uv_bounds,layout,width,height,bounds)
                     batches=copies.get(stored)
                     if batches is None:
-                        made=lambda uv_bounds=uv_bounds,extent=extent: _packed(_batches(trackground.clip_region(vertices,faces,uv_bounds,origin),layout,extent))
+                        made=lambda bounds=bounds,extent=extent: _packed(_batches(trackground.clip_region(vertices,faces,_cuts(bounds,width,height),origin),layout,extent))
                         batches=_unpacked(_stored(kept,stored,made))
                     used.add(stored)
                     if not batches: continue
