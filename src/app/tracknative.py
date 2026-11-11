@@ -1,5 +1,6 @@
 """Stock-CSP render passes compiled directly from the Editor's retained semantic ground inputs."""
 import hashlib
+import importlib.metadata
 import io
 import math
 import os
@@ -22,9 +23,10 @@ PREFIX = "nocol_ground_m2l_"
 # The packed region masks a track's last Save wrote, by the digest of their inputs (_mask_key). Raise it when
 # region_mask, canvas_size or bc7_weights write other bytes for the same inputs: the files would no longer match.
 MASK_CACHE_VERSION = 1
-# The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals or dds_mipmaps
-# write other bytes for the same inputs.
-PHOTO_CACHE_VERSION = 5
+# The same for the packed photos (_colour_key, _normals_key), a source's own beside the masks, a library material's in
+# _library_folder: raise it when _photo_colour, _photo_normals or dds_mipmaps write other bytes for the same inputs.
+# (6: a photo's colour and data map have keys of their own, a library material's are shared by all tracks.)
+PHOTO_CACHE_VERSION = 6
 # The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region,
 # _cuts or _batches give other vertices for the same inputs. A track's recipe keeps the one it was saved with: an older one
 # makes its paints need a Save (trackedits._needs_material_save). (2: copies reach the tile's edges, _cuts; 3: a build's
@@ -337,8 +339,8 @@ def build(ac,name,descriptors,scan,change,path,added):
         textures.setdefault(key,raw); return key
     white=resource(dict(groundmaterial.textures())[groundmaterial.WHITE],'.png')
     flat=resource(_png(np.full((4,4,4),[128,128,255,255],np.uint8)),'.png')
-    prepared={}
-    kept,used=_mask_folder(name),set()
+    prepared,raws={},{}
+    kept,used,library=_mask_folder(name),set(),_library_folder()
     with open(path,'rb') as file:
         for descriptor in descriptors:
             layout=descriptor['layers']; record,_p,_s,filename=trackdetail._view(ac,name,descriptor['version'])
@@ -413,21 +415,10 @@ def build(ac,name,descriptors,scan,change,path,added):
                                 used.add(stored)
                                 prepared[key]=(resource(colour,'.dds'),resource(_pbr_flat(1-sheen/255),'.png') if pbr else flat)
                             if key not in prepared:
-                                folder=trackpaint._resolve(ac,name,'materials',ref['asset'])
-                                raw=(folder/'colour.png').read_bytes()
-                                sheen=_sheen(source_values,specular,ref)
-                                detail=None
-                                if 'detail' in ref and 'asset' in ref:
-                                    detail=functools.cache(lambda asset=ref['asset']: _rgba(trackdetail.detail_image(ac,name,asset)))
-                                # (a tile's images unchanged since the last Save are taken from then, as its masks are)
-                                stored=_photo_key(raw,ref,base_material,tile,sheen,pbr=pbr)
+                                # (a library material's images, made once for all tracks: by prepare, or here)
+                                files=[_stored(library,file,make) for file,make in _library_parts(ac,name,ref,pbr,raws)]
                                 normal_name=resource(_pbr_flat(trackdetail.flat_roughness(ref.get('properties',{}))),'.png') if pbr else flat
-                                if detail:
-                                    normal_name=resource(_stored(kept,stored+'.png',lambda: _photo_normals(detail(),ref,pbr=pbr)),'.png')
-                                    used.add(stored+'.png')
-                                colour=_stored(kept,stored+'.dds',lambda: _photo_colour(raw,ref,base_material,tile,sheen,detail,pbr=pbr))
-                                used.add(stored+'.dds')
-                                prepared[key]=(resource(colour,'.dds'),normal_name)
+                                prepared[key]=(resource(files[0],'.dds'),resource(files[1],'.png') if len(files)>1 else normal_name)
                             photo,normal=prepared[key]; scale=ref.get('scale',[1.,1.])
                         # fuPBR samples each layer in world X/Z metres (scale a tile, 256 m); mask UVs retain the region canvas.
                         # Its single variation switch would also displace the baked road image, so it stays off.
@@ -479,11 +470,11 @@ def _saved_mask(fields,bounds,palette,phase):
 
 def _own_photo(kept,path,scan,revision,ref,material,tile,sheen,*,pbr=False):
     """(cache name, DDS) of a source's image ref as _photo_colour packs it, from the kn5 at path in revision, kept under its
-    _photo_key."""
+    _colour_key."""
     from app import trackview
     _n,at,size=scan['textures'][ref['i']]
     raw=trackview._read(path,at,size,revision)
-    stored=_photo_key(raw,ref,material,tile,sheen,pbr=pbr)+'.dds'
+    stored=_colour_key(raw,ref,sheen,pbr=pbr)+'.dds'
     return stored,_stored(kept,stored,lambda: _photo_colour(raw,ref,material,tile,sheen,None,pbr=pbr))
 
 
@@ -494,34 +485,41 @@ _job = {}
 
 
 def prepare(ac,name,descriptors,scan,path,processes=None):
-    """Make and keep what a Save makes of each painted tile the last one did not leave (_prepare_tile), several tiles at once:
-    the Save then takes it all from the cache, as a warm one does, and writes what it would have written. A tile a worker
-    fails on, the Save makes itself. scan, path: the source kn5's. processes: how many (None: as a build may use, as RAM
-    allows, here below POOL_FROM tiles; 1: here)."""
+    """Make and keep what a Save makes, several at once: first each painted tile the last Save did not leave (_prepare_tile),
+    then each library image their regions need that no track made yet (_library_todo), each once. The Save then takes it
+    all from the caches, as a warm one does, and writes what it would have written. What a worker fails on, the Save makes
+    itself. scan, path: the source kn5's. processes: how many (None: as a build may use, as RAM allows, here below POOL_FROM
+    jobs; 1: here)."""
     from app import materiallibrary,mytracks,settings,trackdetail
     from track import parallel
-    todo=[d for d in descriptors if trackdetail._native(d.get('layers',{})) and not _kept_tile(name,d)]
-    if not todo: return
-    if processes is None:
-        cores=max(1,round((os.cpu_count() or 2)*settings.load()['cores']/100))
-        processes=1 if len(todo)<POOL_FROM else min(parallel.workers(len(todo)),cores)
+    native=[d for d in descriptors if trackdetail._native(d.get('layers',{}))]
     state=((mytracks.ROOT,materiallibrary.ROOT),ac,name,path)
     pool=None
-    if processes<=1:
-        _init_prepare(*state,scan)
-        jobs=[(lambda d=d: _prepare_tile(d)) for d in todo]
-    else:
-        # (a worker reads the scan itself: its start data goes through a pipe, and past the pipe's 64 KiB the next worker
-        # waits for this one to read them; a 1.7 GB Heiligenblut copy's scan, 0.9 MiB, let 15 of 31 workers start in 2.3 s,
-        # without it all 31 in 1.2 s)
-        pool=parallel.pool(processes,_init_prepare,state)
-        jobs=[pool.submit(_prepare_tile,d).result for d in todo]
-    try:
+    def run(function,args):
+        nonlocal pool
+        if not args: return
+        count=processes
+        if count is None:
+            cores=max(1,round((os.cpu_count() or 2)*settings.load()['cores']/100))
+            count=1 if len(args)<POOL_FROM else min(parallel.workers(),cores)
+        if pool is None and count>1:
+            # (a worker reads the scan itself: its start data goes through a pipe, and past the pipe's 64 KiB the next worker
+            # waits for this one to read them; a 1.7 GB Heiligenblut copy's scan, 0.9 MiB, let 15 of 31 workers start in 2.3 s,
+            # without it all 31 in 1.2 s. The pool starts a worker per waiting job up to count: a few tiles start a few.)
+            pool=parallel.pool(count,_init_prepare,state)
+        if pool is None:
+            _init_prepare(*state,scan)
+            jobs=[(lambda a=a: function(a)) for a in args]
+        else:
+            jobs=[pool.submit(function,a).result for a in args]
         for job in jobs:
             try:
                 job()
-            except Exception:       # (the Save makes that tile itself, and says what went wrong)
+            except Exception:       # (the Save makes that itself, and says what went wrong)
                 pass
+    try:
+        run(_prepare_tile,[d for d in native if not _kept_tile(name,d)])
+        run(_prepare_library,_library_todo(ac,name,native))
     finally:
         if pool: pool.shutdown()
 
@@ -613,6 +611,55 @@ def _mask_folder(name):
     return Path(trackpaint.mytracks.ROOT, "cache", "native-masks", hashlib.sha256(name.encode()).hexdigest()[:32])
 
 
+def _library_folder():
+    """The folder of library materials' packed photos and data maps, shared by all tracks: named by what their bytes depend
+    on alone (_colour_key, _normals_key), so a track or a copy takes those another one made. A track's deleting (forget) and
+    its Save's tidying (_keep_only) leave it."""
+    from app import trackpaint
+    return Path(trackpaint.mytracks.ROOT, "cache", "native-library")
+
+
+def _library_parts(ac, name, ref, pbr, raws):
+    """[(file in _library_folder, make)] of a library material's layer ref in a region of PBR or not: its colour DDS and,
+    with a detail map, its data PNG. raws: {asset: its colour.png}, filled as read."""
+    from app import trackdetail, trackpaint
+    asset = ref["asset"]
+    if asset not in raws:
+        raws[asset] = (trackpaint._resolve(ac, name, "materials", asset) / "colour.png").read_bytes()
+    raw = raws[asset]
+    detail = functools.cache(lambda: _rgba(trackdetail.detail_image(ac, name, asset))) if "detail" in ref else None
+    # (a library photo has no sheen: _sheen)
+    parts = [(_colour_key(raw, ref, 0, pbr=pbr) + ".dds", lambda: _photo_colour(raw, ref, None, None, 0, detail, pbr=pbr))]
+    if detail:
+        parts.append((_normals_key(ref, pbr=pbr) + ".png", lambda: _photo_normals(detail(), ref, pbr=pbr)))
+    return parts
+
+
+def _library_todo(ac, name, descriptors):
+    """[(ref, pbr, file)] of the library images the painted tiles' regions need that _library_folder lacks, each file once,
+    from each tile's kept description (_prepare_tile's; a tile without one the Save makes itself)."""
+    from app import trackdetail
+    folder, raws, todo = _library_folder(), {}, {}
+    for descriptor in descriptors:
+        layout = trackdetail._kept_native(descriptor, True)
+        if layout is None:
+            continue
+        refs, _tile = _tile_refs(layout["native_tile"], 1.)
+        for _bounds, palette in layout["native_regions"]:
+            pbr = _pbr_palette(refs, palette)
+            for ref in (refs[key] for key in palette if "asset" in refs[key]):
+                for file, _make in _library_parts(ac, name, ref, pbr, raws):
+                    if file not in todo and not (folder / file).exists():
+                        todo[file] = (ref, pbr, file)
+    return list(todo.values())
+
+
+def _prepare_library(job):
+    """Make and keep one library image of _library_todo, (ref, pbr, file), in _library_folder."""
+    ref, pbr, file = job
+    _stored(_library_folder(), file, dict(_library_parts(_job["ac"], _job["name"], ref, pbr, {}))[file])
+
+
 def forget(name):
     """Delete what track name's Saves kept here, when the track is deleted."""
     shutil.rmtree(_mask_folder(name), ignore_errors=True)
@@ -674,15 +721,34 @@ def _keep_only(folder, used):
             path.unlink(missing_ok=True)
 
 
-def _photo_key(raw, ref, material, tile, sheen, *, pbr=False):
-    """The digest of all that _photo_colour and _photo_normals read: the encoded source, the alpha of a photo without a
-    gloss map (sheen), a detail map and its properties. Pure."""
+@functools.cache
+def _encoder():
+    """The BC7 encoder and its version: a library photo's bytes depend on it beside PIL's."""
+    return "etcpak " + importlib.metadata.version("etcpak")
+
+
+def _colour_key(raw, ref, sheen, *, pbr=False):
+    """The digest of all that _photo_colour reads: the encoded photo, whether it is a library material's (BC7), the alpha it
+    gets (PBR: none, its AO is 255; the legacy shader's gloss: a detail map's roughness, else sheen) and the encoders. A
+    data map's own change, as a roughness slider's for PBR, keeps it (_normals_key). Pure."""
     from app import trackpaint
     properties = ref.get("properties", {})
-    detail = [ref["detail"]["key"], properties.get("normal_scale", 1.), properties.get("roughness", 1.)] if "detail" in ref and "asset" in ref else None
-    if detail and "roughness_offset" in properties:         # (absent for untouched materials, whose keys stay as they were)
-        detail.append(properties["roughness_offset"])
-    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, detail, pbr])
+    if pbr:
+        alpha = None
+    elif "detail" in ref and "asset" in ref:
+        alpha = [ref["detail"]["key"], properties.get("roughness", 1.), properties.get("roughness_offset", 0.)]
+    else:
+        alpha = sheen
+    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, _encoder(), hashlib.sha256(raw).hexdigest(), "asset" in ref, pbr, alpha])
+
+
+def _normals_key(ref, *, pbr=False):
+    """The digest of all that _photo_normals reads: the detail map's maps (their digest is its key), the normal strength and,
+    for PBR, whose alpha is the roughness, the roughness. Pure."""
+    from app import trackpaint
+    properties = ref.get("properties", {})
+    rough = [properties.get("roughness", 1.), properties.get("roughness_offset", 0.)] if pbr else None
+    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, ref["detail"]["key"], properties.get("normal_scale", 1.), pbr, rough])
 
 
 def _rgba(raw):

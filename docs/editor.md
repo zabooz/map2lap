@@ -664,8 +664,12 @@ masks around it, and afterwards deletes those it did not use. The Save's prepara
 each tile's weight fields for its regions and keeps the masks' keys, not the fields: the export reads a tile's fields again only
 for a mask not kept. That description of a tile (regions, images, mask keys) is kept too, beside the view's `layers.json` under
 `out/paint-views/<version>/native.json`: the version covers the tile's source image, the track's state and its paints, so a Save
-that changed nothing on a tile reads none of its fields (`NATIVE_PROFILE`). The retained paint files are checked again just before the track is replaced. The packed photos and tile images lie beside them, named by
-`tracknative._photo_key` (source bytes; alpha; detail map and its properties).
+that changed nothing on a tile reads none of its fields (`NATIVE_PROFILE`). The retained paint files are checked again just before the track is replaced. A source's own packed photos lie beside them, named by
+`tracknative._colour_key` (source bytes; alpha). A library material's colour DDS and data PNG are shared by all tracks under
+`cache/native-library`, each named by what its bytes alone depend on: the colour by `_colour_key` (photo bytes, PBR or not,
+for the legacy shader its gloss; PIL and etcpak versions), the data map by `_normals_key` (its maps, normal strength, for PBR
+its roughness). A new track or a copy takes those another one made, and a roughness slider remakes the data map alone; a
+track's Save or its deleting leaves that folder.
 So do the ground pieces' region copies, clipped and deduplicated (`tracknative._copy_key`: the piece's vertices and triangles, the
 region, the UV origins; `GEOMETRY_CACHE_VERSION`): the size check makes or takes them before the export, and a piece raised or moved
 since is clipped again. Imported models' textures are taken from the track's last saved kn5 by name, which covers every input of
@@ -673,10 +677,11 @@ their pixels (`trackmodels.images`). Heiligenblut's copy with 99 painted tiles a
 4.9 s with one model moved, 17.5 s with an empty cache (90.6 s on one process), measured before the later BC7/PBR changes;
 these are scenario measurements, not timings promised for the current Save. Before the export, `tracknative.prepare` makes
 what the last Save did not leave of each painted tile on several processes (Settings' cores, as RAM allows; below `POOL_FROM`
-tiles in the server's own): one reads a tile's fields once and keeps its description, region copies, masks and its sources' images;
-the export then takes them from the cache, as a warm Save does, and writes the same bytes. A region mask whose canvas the saved mask's step divides is
+jobs in the server's own): one reads a tile's fields once and keeps its description, region copies, masks and its sources' images;
+then each library image those tiles' regions need and no track made yet is made once, on the same processes
+(`tracknative._library_todo`); the export then takes them from the caches, as a warm Save does, and writes the same bytes. A region mask whose canvas the saved mask's step divides is
 averaged to its coarse texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
-255th off the one made coarse after). A Save encodes no tile image: it samples the build's (until 2026-11-12 it encoded a
+255th off the one made coarse after). A Save encodes no tile image: it samples the build's (until 2026-11-11 it encoded a
 copy on the mask's ring canvas, 2.2 s a BC7 tile on one core). Imported normal
 maps and linear roughness go into the `fuPBR_multilayer` material itself: albedo RGB/AO alpha and normal XY/metalness/
 roughness are separate resources, with the retained normal and roughness factors applied once. Flat nonmetal data fills

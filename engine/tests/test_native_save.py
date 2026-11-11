@@ -13,7 +13,7 @@ import numpy as np
 
 import test_ground_guard_editor as guarded
 import test_trackpaint as paintfixture
-from app import materiallibrary, trackcopy, trackdetail, trackground, trackinspect, trackmodels, tracknative, trackpaint, trackregions, trackview
+from app import materiallibrary, trackcopy, trackdetail, trackedits, trackground, trackinspect, trackmodels, tracknative, trackpaint, trackregions, trackview
 from track import editorinfo, groundmaterial, groundnormals, kn5, textures
 
 
@@ -259,8 +259,8 @@ class RegionMaskTest(unittest.TestCase):
                   mock.patch.object(trackground, "clip_region", wraps=trackground.clip_region) as clips,
                   mock.patch.object(trackdetail, "_semantic", wraps=trackdetail._semantic) as fields):
                 result = real(*args)
-            own = sum("asset" not in call.args[1] for call in photos.call_args_list)     # (shared library images: the Save's)
-            made.update(masks=masks.call_count, photos=own, clips=clips.call_count, fields=fields.call_count)
+            own = sum("asset" not in call.args[1] for call in photos.call_args_list)
+            made.update(masks=masks.call_count, photos=own, library=photos.call_count - own, clips=clips.call_count, fields=fields.call_count)
             return result
         with mock.patch.object(tracknative, "build", build):
             trackcopy.save(self.ac, self.name)
@@ -298,12 +298,13 @@ class RegionMaskTest(unittest.TestCase):
         for processes in (1, 2):
             with self.subTest(processes=processes):
                 shutil.rmtree(tracknative._mask_folder(self.name))
+                shutil.rmtree(tracknative._library_folder())
                 for kept in Path(self.ac, "out", "paint-views").glob("*/native.json"):
                     kept.unlink()
                 real = tracknative.prepare
                 with mock.patch.object(tracknative, "prepare", lambda *a: real(*a, processes=processes)):
                     made = self.export_makes()
-                self.assertEqual({"masks": 0, "photos": 0, "clips": 0, "fields": 0}, made)
+                self.assertEqual({"masks": 0, "photos": 0, "library": 0, "clips": 0, "fields": 0}, made)
                 self.assertEqual(unprepared, path.read_bytes())
 
     def test_a_kept_tile_description_of_another_profile_is_made_again(self):
@@ -392,6 +393,62 @@ class RegionMaskTest(unittest.TestCase):
         with mock.patch.object(server.settings, "ac_path", return_value=self.ac):
             self.assertEqual(200, server.delete_track(self.name)[0])
         self.assertFalse(folder.exists())
+        self.assertTrue(list(tracknative._library_folder().glob("*.dds")))      # (the library's: other tracks take them)
+
+    def data_material(self):
+        """A library material with a normal and a roughness map."""
+        colour = materiallibrary.prepare("colour.png", paintfixture.png(np.full((16, 16, 3), 130, np.uint8)))
+        normal = materiallibrary.prepare("normal.png", paintfixture.png(np.full((16, 16, 3), (170, 205, 224), np.uint8)), role="normal")
+        rough = materiallibrary.prepare("rough.png", paintfixture.png(np.full((16, 16), 10, np.uint8)), role="roughness")
+        return materiallibrary.add({"token": colour["token"], "filename": "colour.png", "name": "Shiny grass",
+                                    "category": "grass", "repeat": [2, 2], "variation": False,
+                                    "maps": {"normal": {"token": normal["token"], "filename": "normal.png"},
+                                             "roughness": {"token": rough["token"], "filename": "rough.png"}}})["material"]["id"]
+
+    def painted_with_data(self):
+        """painted(4) and a fifth stripe of data_material (data_stripe): the paint ids."""
+        self.data = self.data_material()
+        return self.painted(4) + [self.data_stripe()]
+
+    def data_stripe(self, look=None):
+        return trackpaint.create(self.ac, self.name, self.revision, self.data, [{"mesh": 0, "u": 5.5 / 7, "v": -.5, "whole": False}], look=look)
+
+    def library_made(self, save):
+        """What save() makes of library materials, here or in prepare: (colour DDSs, data PNGs)."""
+        with (mock.patch.object(tracknative, "_photo_colour", wraps=tracknative._photo_colour) as colours,
+              mock.patch.object(tracknative, "_photo_normals", wraps=tracknative._photo_normals) as normals):
+            save()
+        return sum("asset" in call.args[1] for call in colours.call_args_list), normals.call_count
+
+    def test_a_library_material_made_for_one_track_is_taken_by_another_and_saves_the_same(self):
+        paints = self.painted_with_data()
+        self.keep(paints)
+        trackcopy.save(self.ac, self.name, "first", "First")
+        self.assertEqual(6, len(list(tracknative._library_folder().iterdir())))      # (five colours, a data map)
+        shutil.rmtree(tracknative._mask_folder(self.name))         # (what another track has not made)
+        self.keep(paints)
+        self.assertEqual((0, 0), self.library_made(lambda: trackcopy.save(self.ac, self.name, "second", "Second")))
+        self.assertEqual(self.textures("first"), self.textures("second"))
+
+    def test_a_roughness_change_makes_the_data_map_again_and_takes_the_colour_as_it_was(self):
+        paints = self.painted_with_data()
+        self.keep(paints)
+        trackcopy.save(self.ac, self.name)
+        self.keep(paints[:4] + [self.data_stripe({**trackpaint.LOOK, "roughness_shift": .5})])
+        self.assertEqual((0, 1), self.library_made(lambda: trackcopy.save(self.ac, self.name)))
+
+    def test_prepare_makes_each_library_image_once_and_the_export_none(self):
+        self.keep(self.painted_with_data())
+        descriptors = trackpaint.descriptors(self.ac, self.name, self.revision, trackedits.load(self.ac, self.name)["paints"])
+        scan = kn5.scan(str(self.path))
+        made = self.library_made(lambda: tracknative.prepare(self.ac, self.name, descriptors, scan, str(self.path), processes=1))
+        files = sorted(path.name for path in tracknative._library_folder().iterdir())
+        self.assertEqual((5, 1), made)
+        self.assertEqual(6, len(files))
+        self.assertEqual((0, 0), self.library_made(lambda: trackcopy.save(self.ac, self.name)))
+        shutil.rmtree(tracknative._library_folder())
+        tracknative.prepare(self.ac, self.name, descriptors, scan, str(self.path), processes=2)
+        self.assertEqual(files, sorted(path.name for path in tracknative._library_folder().iterdir()))
 
 
 class RegionalLayoutTest(unittest.TestCase):
@@ -438,24 +495,45 @@ class RegionalLayoutTest(unittest.TestCase):
 
 
 class PhotoKeyTest(unittest.TestCase):
-    """_photo_key against what a ground photo's packed images are made from."""
+    """_colour_key and _normals_key against what a ground photo's colour DDS and its data PNG are each made from."""
 
-    def key(self, raw=b"a", ref=None, tile=(1, -2), sheen=0):
-        material = kn5.Material("m", "ksMultilayer_objsp", 0, 0, 0, [], [])
-        return tracknative._photo_key(raw, ref or {"id": "source:3:0"}, material, tile, sheen)
+    @staticmethod
+    def ref(detail="k", scale=1., rough=.5, offset=None):
+        properties = {"normal_scale": scale, "roughness": rough, **({"roughness_offset": offset} if offset is not None else {})}
+        return {"id": "asset:a", "asset": "a", "detail": {"key": detail}, "properties": properties}
 
-    def test_a_source_s_image_depends_on_its_bytes_and_alpha_not_on_the_tile(self):
-        same = self.key()
-        self.assertEqual(same, self.key(tile=(7, 7)))
-        for other in (self.key(raw=b"b"), self.key(sheen=9)):
+    def test_a_source_s_image_depends_on_its_bytes_and_alpha(self):
+        same = tracknative._colour_key(b"a", {"id": "source:3:0"}, 0)
+        for other in (tracknative._colour_key(b"b", {"id": "source:3:0"}, 0), tracknative._colour_key(b"a", {"id": "source:3:0"}, 9),
+                      tracknative._colour_key(b"a", {"id": "source:3:0"}, 0, pbr=True)):
             self.assertNotEqual(same, other)
 
-    def test_a_photo_with_a_detail_map_depends_on_it_and_its_properties(self):
-        def ref(detail="k", scale=1., rough=.5):
-            return {"id": "asset:a", "asset": "a", "detail": {"key": detail}, "properties": {"normal_scale": scale, "roughness": rough}}
-        same = self.key(ref=ref())
-        for other in (ref(detail="l"), ref(scale=.5), ref(rough=.8)):
-            self.assertNotEqual(same, self.key(ref=other))
+    def test_a_pbr_colour_depends_on_its_photo_alone_not_on_the_data_map_or_its_properties(self):
+        same = tracknative._colour_key(b"a", self.ref(), 0, pbr=True)
+        for other in (self.ref(detail="l"), self.ref(scale=.5), self.ref(rough=.8), self.ref(offset=.3)):
+            self.assertEqual(same, tracknative._colour_key(b"a", other, 0, pbr=True))
+        self.assertNotEqual(same, tracknative._colour_key(b"b", self.ref(), 0, pbr=True))
+
+    def test_a_legacy_colour_carries_the_roughness_as_gloss_but_not_the_normals(self):
+        same = tracknative._colour_key(b"a", self.ref(), 0)
+        self.assertEqual(same, tracknative._colour_key(b"a", self.ref(scale=.5), 0))
+        for other in (self.ref(detail="l"), self.ref(rough=.8), self.ref(offset=.3)):
+            self.assertNotEqual(same, tracknative._colour_key(b"a", other, 0))
+
+    def test_a_colour_depends_on_the_encoder_s_version(self):
+        same = tracknative._colour_key(b"a", self.ref(), 0, pbr=True)
+        with mock.patch.object(tracknative, "_encoder", return_value="etcpak 0.0.1"):
+            self.assertNotEqual(same, tracknative._colour_key(b"a", self.ref(), 0, pbr=True))
+
+    def test_a_data_map_depends_on_its_maps_and_normal_strength_and_for_pbr_on_its_roughness(self):
+        for pbr, rough_counts in ((True, True), (False, False)):
+            with self.subTest(pbr=pbr):
+                same = tracknative._normals_key(self.ref(), pbr=pbr)
+                for other in (self.ref(detail="l"), self.ref(scale=.5)):
+                    self.assertNotEqual(same, tracknative._normals_key(other, pbr=pbr))
+                for other in (self.ref(rough=.8), self.ref(offset=.3)):
+                    self.assertEqual(not rough_counts, same == tracknative._normals_key(other, pbr=pbr))
+        self.assertNotEqual(tracknative._normals_key(self.ref(), pbr=True), tracknative._normals_key(self.ref()))
 
 
 class KnHashTest(unittest.TestCase):

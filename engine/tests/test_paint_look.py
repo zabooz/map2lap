@@ -255,8 +255,8 @@ class PackingTest(unittest.TestCase):
         with Image.open(io.BytesIO(legacy)) as image:
             self.assertLessEqual(abs(image.convert("RGBA").getpixel((0, 0))[3] - 127), 2)
         plain = {**ref, "properties": {"normal_scale": 1., "roughness": .5}}
-        self.assertNotEqual(tracknative._photo_key(raw, ref, material, (0, 0), 34, pbr=True),
-                            tracknative._photo_key(raw, plain, material, (0, 0), 34, pbr=True))
+        self.assertNotEqual(tracknative._normals_key(ref, pbr=True), tracknative._normals_key(plain, pbr=True))
+        self.assertNotEqual(tracknative._colour_key(raw, ref, 34), tracknative._colour_key(raw, plain, 34))
 
     def test_a_colour_only_material_made_matte_or_smooth_needs_the_native_layout(self):
         self.assertFalse(trackdetail._native({"images": [{"properties": {"roughness": 1., "normal_scale": 1.}}]}))

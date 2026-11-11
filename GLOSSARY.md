@@ -81,7 +81,8 @@ counts; what went wrong is a toast at the top centre. Its width comes from the 3
 **Material library** (Editor):
 User-imported material maps and their physical repeat size, variation, category and source information. Versioned immutable packages under
 `library/materials/<id>` keep the original image, preview and relative-path manifest. Prepared colour maps are disposable
-under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. Importing a material alone does
+under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. What a Save packs of a material
+for AC (its colour DDS, its data PNG) lies under `cache/native-library`, shared by all tracks. Importing a material alone does
 not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
 the import dialog accepts all three roles. Applied square-repeat materials use PBR in the Editor and CSP
 `fuPBR_multilayer` in AC, written straight into the kn5 material, including colour-only photos with flat normal/roughness

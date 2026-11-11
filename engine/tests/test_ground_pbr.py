@@ -38,8 +38,7 @@ class PackingTest(unittest.TestCase):
             self.assertGreaterEqual(image.convert("RGBA").getchannel("A").getextrema()[0], 254)  # BC7 rounds opaque alpha by at most 1/255.
             self.assertLess(max(abs(a - b) for a, b in zip(image.convert("RGB").getpixel((0, 0)), (90, 110, 130))), 6)
         detail.assert_not_called()
-        self.assertNotEqual(tracknative._photo_key(raw, ref, material, (0, 0), 34),
-                            tracknative._photo_key(raw, ref, material, (0, 0), 34, pbr=True))
+        self.assertNotEqual(tracknative._colour_key(raw, ref, 34), tracknative._colour_key(raw, ref, 34, pbr=True))
 
     def test_rectangular_repeats_keep_the_float2_path(self):
         refs = {"square": {"scale": [128, 128]}, "cliff": {"scale": [128, 256]}}
