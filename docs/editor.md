@@ -266,6 +266,9 @@ Each original remains unchanged under `original/`; normalized per-role PNGs are 
 conversion. Packed DDS normals and unapplied EXIF orientation on normals are refused. Missing maps use flat normals and
 roughness 1; normal scale defaults to 1. Schema 1 packages retain their ids and remain readable.
 The import dialog accepts colour and optional normal/roughness files, with independent repeat width/height and variation.
+A short note under each says what it does (`MAP_HELP`): colour is the surface's colour and pattern; a normal map adds small
+bumps in the light and changes neither geometry nor driving, without one there are none; a roughness map is light where
+rough and matte, dark where smooth and shiny, without one the surface is rough.
 Preparation is queued across roles and dialog reopenings; pending, replaced or invalid maps cannot enter the committed material.
 The Editor preview uses tangent normal and roughness maps for imported PBR materials. A shared linear texture retains
 normal RGB and roughness A; photographs stay sRGB. Data and colour use the same repeat coordinates. Applied square-repeat
@@ -310,11 +313,14 @@ Select all takes every prepared ground tile of the material, however many. A sel
 and can apply to its highlighted part: the picker states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
 authoritative source masks; later loading cannot change the chosen tiles. Unscoped incomplete Select all requests remain refused.
 Escape closes the picker without clearing the ground selection, including from its search field.
-The selected texture's repetition variation can be changed before Apply without reimporting; this setting belongs to that
-application and is retained by Undo/Redo and Save. Current PBR rendering leaves it inactive because CSP's shared switch
-would also shift the baked tile image; rectangular legacy materials retain their variation. Delete texture asks for
-confirmation and removes only the selected library package. Already applied colours, retained snapshots and saved tracks
-remain independent of that package.
+Settings… under the selected texture opens its texture settings for the next Apply, without reimporting and without
+changing the library package (`library/TextureSettings.tsx`, in the group settings' look): Use normal map and Normal strength
+(0 % adds no bumps, 100 % is as imported), Use roughness map, and Roughness from Smoother through As imported to Matter.
+A map the texture lacks is named, not switched. Breaking up the repetition is offered for rectangular repeats only: square
+repeats are drawn with PBR, whose shared CSP switch would also shift the baked tile image, so their preference rests and the
+Inspector does not show it. Cancel drops the dialog's changes, OK keeps them for the next Apply, and the line beside the button
+names those that differ from As imported. Delete texture asks for confirmation and removes only the selected library package.
+Already applied colours, retained snapshots and saved tracks remain independent of that package.
 
 Appearance resolves the displayed texture at the selected ground point against its immutable displayed version. It shows
 the retained imported name, a small preview of that photo and the metre repeat size, rather than a whole composited tile.
@@ -322,6 +328,11 @@ The original ground remains labelled as such at untouched points; soft edges ind
 These selection requests read existing layer masks and do not bake colour tiles. Previews come from retained assets,
 so they also work after library removal or on portable saved copies. A changed selection/version cancels its old request;
 source mesh/material/shader diagnostics remain under Details.
+Where an applied texture shows, Appearance names its settings and offers Settings… (the same dialog, with Apply). The change
+reaches that one application, the edit shown at the point (`trackinspect._application`: the last edit of the tile with that
+snapshot whose mask covers it, as the last one wins there); at a blended edge it is the dominant texture, and the dialog says
+so with its tile count. Other applications of the texture and the library stay as they are. A saved copy's embedded layer
+without its edit offers no Settings.
 
 ## Imported models
 
@@ -589,6 +600,18 @@ New material snapshots use asset schema 2, preserving the complete imported desc
 maps independently of their library entry. Save validates their digests and includes these files in its disk estimate. Older
 schema 1 snapshots remain readable with their retained colour image; originals absent from those snapshots cannot be recovered.
 The operation format still assigns a material id to selected areas and contains no shader channels or render-region palette.
+
+An application's texture settings live in its snapshot as `look` (`trackpaint.LOOK`), written only when they differ from the
+defaults, so earlier snapshots keep their ids. A switched-off map stays in the snapshot and only leaves `trackpaint.data_maps`,
+so it can be switched on again; the detail texture and its cache key are made from the maps in use. `trackpaint.rendered`
+gives the properties the Editor and Save both draw with: the normal scale times the strength, and roughness as
+`roughness_offset + map * roughness`. Matte moves each value r to r + (1 - r) * shift, so even a black map gets rough, smoother
+to r * (1 + shift); without a map in use the map counts as 1. `roughness_offset` is absent at 0, so untouched materials keep
+their cache keys; a colour-only material made smoother or matte needs the regional native layout (`trackdetail.flat_roughness`).
+Changing the settings after Apply (`/paint-settings`, `trackpaint.restyle`) writes a new edit with the same masks and build and a
+snapshot that differs only in them; the page puts it in the old one's place as one Undo step, so Redo, Revert, Save and reopen
+work on the ordinary paint list. Settings equal to another edit's give that edit again. On a saved track, an edit is accepted
+if it belongs to the served build or to one whose edits the track adopted (`trackpaint._adopted`), as a copy of such an edit does.
 
 `app/trackdetail.py` retains imported images as separately repeated full-resolution layers. Semantic operations and the
 browser retain all material contributions, including soft overlaps. Native Save partitions an edited tile into spatial

@@ -1,4 +1,5 @@
 import {memo, useEffect, useState, type ReactNode} from "react";
+import {createPortal} from "react-dom";
 import type {EditState} from "../state/edits";
 import {HoverBox} from "./HoverBox";
 import {sortName} from "../scene/inspect";
@@ -9,6 +10,8 @@ import type {TrackView} from "../scene/view";
 import styles from "./Inspector.module.css";
 import {SunClock} from "../scene/SunClock";
 import {TrackStatistics} from "./TrackStatistics";
+import {TextureSettings} from "../library/TextureSettings";
+import {lookSummary, type TextureLook, type TextureMaps} from "../library/textureLook";
 
 function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;
@@ -86,10 +89,16 @@ const ObjectDetails = memo(function ObjectDetails({name, picked, view, state}: {
 
 interface TextureAppearance {
   name: string; preview: string; repeat: [number, number] | null; variation: boolean; original: boolean; mixed: boolean;
+  /** The applied texture edit shown here and its settings (trackinspect._application); absent where nothing was applied. */
+  paint?: string; look?: TextureLook; maps?: TextureMaps; rectangular?: boolean; tiles?: number;
 }
 
-/** The active colour image, separated from source mesh/material diagnostics. onEdit: opens the textures, null where the paint can't change. */
-export function AppearanceCard({info, onEdit}: {info: TextureAppearance; onEdit: (() => void) | null}) {
+/** What Settings… in the Inspector changes the shown texture's settings with (usePaint). */
+export interface Restyling {busy: boolean; error: string | null; restyle: (paint: string, look: TextureLook, variation?: boolean) => Promise<boolean>}
+
+/** The active colour image, separated from source mesh/material diagnostics. onEdit: opens the textures, null where the paint can't change.
+    onSettings: opens the applied texture's settings, null where they can't change. */
+export function AppearanceCard({info, onEdit, onSettings = null}: {info: TextureAppearance; onEdit: (() => void) | null; onSettings?: (() => void) | null}) {
   const [failed, setFailed] = useState(false);
   return <>
     {info.preview && !failed && (onEdit ? <button type="button" className={styles.appearance} aria-label="Edit texture" onClick={onEdit}>
@@ -98,8 +107,12 @@ export function AppearanceCard({info, onEdit}: {info: TextureAppearance; onEdit:
     <strong>{info.name}</strong>
     {info.repeat && <p className="small muted">{info.repeat.join(" × ")} m per repeat{info.variation && " · Repetition variation"}</p>}
     {info.mixed && <p className="small muted">Blended edge: showing the dominant texture at the selected point.</p>}
+    {info.paint && info.look && info.maps && <p className="small muted">{lookSummary(info.look, info.maps)}</p>}
     {failed && <p className="small muted">Texture preview unavailable.</p>}
-    {onEdit && <button type="button" className={styles.change} onClick={onEdit}>Change texture…</button>}
+    {(onEdit || (onSettings && info.paint)) && <div className={styles.actions}>
+      {onEdit && <button type="button" className={styles.change} onClick={onEdit}>Change texture…</button>}
+      {onSettings && info.paint && <button type="button" className={styles.change} onClick={onSettings}>Settings…</button>}
+    </div>}
   </>;
 }
 
@@ -119,8 +132,10 @@ export function SelectionFacts({hovered: h}: {hovered: Hovered}) {
   </dl>;
 }
 
-function Appearance({name, picked, version, onEdit}: {name: string; picked: Picked; version: string; onEdit: (() => void) | null}) {
+function Appearance({name, picked, version, onEdit, restyling}: {name: string; picked: Picked; version: string; onEdit: (() => void) | null;
+  restyling: Restyling | null}) {
   const [answer, setAnswer] = useState<{key: string; info?: TextureAppearance; error?: string} | null>(null);
+  const [settings, setSettings] = useState<TextureAppearance | null>(null);
   const source = picked.inspection!, point = picked.surface;
   const ground = !!point && point.face === undefined;
   const query = new URLSearchParams({mesh: String(point?.mesh), u: String(point?.u), v: String(point?.v), r: source.revision, p: version});
@@ -143,17 +158,26 @@ function Appearance({name, picked, version, onEdit}: {name: string; picked: Pick
   };
   return <section id="inspect-appearance" className={styles.section}>
     <h3>Appearance</h3>
-    {info ? <AppearanceCard key={info.preview} info={info} onEdit={onEdit} /> : <p className="small muted">
+    {info ? <AppearanceCard key={info.preview} info={info} onEdit={onEdit}
+      onSettings={restyling && onEdit ? () => setSettings(info) : null} /> : <p className="small muted">
       {answer?.key === key && answer.error ? answer.error : "Reading applied texture…"}</p>}
+    {settings?.paint && restyling && createPortal(<TextureSettings name={settings.name} preview={settings.preview}
+      maps={settings.maps ?? {normal: false, roughness: false}} rectangular={!!settings.rectangular} look={settings.look!} variation={settings.variation}
+      confirm="Apply" busy={restyling.busy} error={restyling.error} onClose={() => setSettings(null)}
+      scope={`Changes “${settings.name}” where it was applied here${settings.tiles ? ` (${settings.tiles} ${settings.tiles === 1 ? "tile" : "tiles"})` : ""}${
+        settings.mixed ? ", the dominant texture at this blended edge" : ""}. Other places with this texture and the library stay as they are. Undo takes it back.`}
+      onSave={(look, variation) => void restyling.restyle(settings.paint!, look, settings.rectangular ? variation : undefined)
+        .then(done => { if (done) setSettings(null); })} />, document.body)}
   </section>;
 }
 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
 export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, notes, transform}: {
+  onMaterialOpen, restyling = null, notes, transform}: {
   name: string; picked: Picked | null; hovered: Hovered | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
+  restyling?: Restyling | null;      // (null: the track can't be edited now)
   notes?: ReactNode;
   transform?: ReactNode;      // (the picked objects' turn, raise and size to type, under the selection)
 }) {
@@ -192,7 +216,8 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
         {!chosen && !surfaces.length && !marked.length && <p className="small muted">Nothing selected. Click a surface or object in the view.</p>}
       </section>
       {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture}`}
-        name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null} />}
+        name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null}
+        restyling={restyling} />}
       <section id="inspect-pointer" className={styles.section}><h3>Under pointer</h3>
         <HoverBox hovered={hovered} />
       </section>

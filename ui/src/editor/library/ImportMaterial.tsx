@@ -6,6 +6,12 @@ import frame from "./ImportDialog.module.css";
 type ExtraRole = "normal" | "roughness";
 interface ExtraMap {file: File; prepared?: PreparedImport; error?: string}
 const EXTRA_MAPS = [["normal", "Normal map"], ["roughness", "Roughness map"]] as const;
+/** What each map does, shown under its field, and what the surface is without it. */
+export const MAP_HELP: Record<"colour" | ExtraRole, string> = {
+  colour: "Colour: the colour and pattern of the surface.",
+  normal: "Small bumps in the light; changes neither the geometry nor the driving. Without one, the surface adds no bumps.",
+  roughness: "Light is rough and matte, dark smooth and shiny. Without one, the surface is rough.",
+};
 
 /** A portable material, previewed before importing copies, in the object import's look (ImportDialog.module.css). Native modal focus
     keeps typing out of Editor shortcuts. */
@@ -96,6 +102,7 @@ export function ImportMaterial({file, onCancel, onImported}: {file: File; onCanc
         <img className={styles.preview} src={materialPreview(prepared.token, true)} alt="Texture preview" />
         <p className={frame.note}>{prepared.source.size.join(" × ")} px original · {prepared.prepared.size.join(" × ")} px prepared
           {prepared.source.alpha && " · Contains transparency"}</p>
+        <p className={frame.note}>{MAP_HELP.colour}</p>
         <div className={frame.rows}>
           <label className={frame.field}>Name<input type="text" value={name} onChange={e => setName(e.target.value)} maxLength={80} required autoFocus disabled={saving} /></label>
           <label className={frame.field}>Category<select value={category} onChange={e => setCategory(e.target.value)} disabled={saving}>
@@ -114,6 +121,7 @@ export function ImportMaterial({file, onCancel, onImported}: {file: File; onCanc
             <input type="file" accept=".png,.jpg,.jpeg,.dds" aria-label={`${label} (optional)`}
               ref={input => { mapInputs.current[role] = input ?? undefined; }} disabled={saving}
               onChange={e => { const file = e.target.files?.[0]; if (file) chooseMap(role, file); }} /></label>
+          <p className={frame.note}>Optional. {MAP_HELP[role]}</p>
           {maps[role] && <p className={styles.mapState}>
             {maps[role].error ? <span role="alert" className={frame.error}>{label}: {maps[role].error}</span>
               : !maps[role].prepared ? <span role="status">Preparing {label.toLowerCase()}…</span>

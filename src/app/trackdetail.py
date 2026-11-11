@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import os
 import struct
 from dataclasses import replace
@@ -127,7 +128,7 @@ def _source_image(path, scan, i, revision, mode="RGBA", *, source=None, tile=Non
 
 def _detail(ac, name, asset, meta):
     """Shared linear normal/roughness input descriptor, without decoding the colour photograph."""
-    maps = {role: ref for role, ref in meta.get("maps", {}).items() if role in {"normal", "roughness"}}
+    maps = trackpaint.data_maps(meta)          # (a map its settings switch off is left out, as if not imported)
     if not maps:
         return None
     folder = trackpaint._resolve(ac, name, "materials", asset)
@@ -181,7 +182,7 @@ def _retained_ref(ac, name, ref, asset, resolved):
     """Resolve a compiled slot to its full portable snapshot, including two assets with the same colour/repeat."""
     if asset not in resolved:
         _path, meta, _dimensions = _asset(ac, name, asset)
-        attributes = {"asset": asset, "properties": materiallibrary.properties(meta)}
+        attributes = {"asset": asset, "properties": trackpaint.rendered(meta)}
         detail = _detail(ac, name, asset, meta)
         if detail:
             attributes["detail"] = {**detail, "url": _url(name, "paint-data", asset)}
@@ -286,7 +287,7 @@ def _semantic(ac, name, record, path, scan, filename, resolved=None):
                                  "variation": materiallibrary.varies(meta),
                                  "scale": [256. / v for v in meta["repeat"]], "repeat": list(meta["repeat"]),
                                  "maps": meta.get("maps", {"colour": {"file": "colour.png", "sha256": meta["image"], "colour_space": "srgb"}}),
-                                 "properties": materiallibrary.properties(meta)}
+                                 "properties": trackpaint.rendered(meta)}
                 if detail:
                     images[token]["detail"] = detail
                 weights[token] = np.zeros((height, width), np.float32)
@@ -602,7 +603,7 @@ def detail_image(ac, name, asset):
         size = tuple(descriptor["dimensions"])
         bands = [Image.new("L", size, value) for value in (128, 128, 255, 255)]
         for role in ("normal", "roughness"):
-            if role not in meta["maps"]:
+            if role not in trackpaint.data_maps(meta):
                 continue
             with Image.open(folder / (role + ".png")) as image:
                 channels = image.convert("RGB").split() if role == "normal" else [image.convert("RGB").getchannel("R")]
@@ -727,8 +728,13 @@ def native_descriptors(ac, name, descriptors, keys=True):
 
 def _native(layout):
     """Whether the layout needs regional geometry or retained detail maps. Pure."""
-    pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
+    pbr = any("detail" in ref or not math.isclose(flat_roughness(ref.get("properties", {})), 1.) for ref in layout.get("images", []))
     return pbr or "ground" in layout
+
+
+def flat_roughness(properties):
+    """The roughness of a layer without a roughness map (trackpaint.rendered). Pure."""
+    return properties.get("roughness_offset", 0.) + properties.get("roughness", 1.)
 
 
 def _native_stamp(descriptor, keys):

@@ -321,3 +321,19 @@ test("the verge a draft or the last Save left out is read back", async () => {
   expect(edits.state().surfaces).toEqual(surfaces);
   expect(isCurrent(edits.state())).toBe(true);
 });
+
+test("other texture settings replace one paint in its place as one undo step, the others stay", async () => {
+  const {edits} = await started();
+  edits.addPaint("meadow");
+  edits.addPaint("road");
+  edits.addPaint("verge");
+  edits.replacePaint("road", "matte road");
+  expect(edits.state().paints).toEqual(["meadow", "matte road", "verge"]);
+  edits.undo();
+  expect(edits.state().paints).toEqual(["meadow", "road", "verge"]);
+  edits.redo();
+  expect(edits.state().paints).toEqual(["meadow", "matte road", "verge"]);
+  const before = edits.state();
+  edits.replacePaint("matte road", "matte road");
+  expect(edits.state()).toBe(before);
+});

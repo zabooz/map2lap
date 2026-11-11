@@ -124,6 +124,12 @@ open release requirements.
 Saved tracks keep their active inputs in `data/map2lap_paints`; derived mask/colour DDS under `cache/track-details` can be rebuilt
 without the library.
 
+**Texture settings** (Editor):
+One application's choice of how its texture is drawn: normal map on or off and its strength, roughness map on or off, roughness
+toward smooth or matte, and repetition variation (`look` in its snapshot, `trackpaint.LOOK`). Set with Settings… before Apply
+or in the Inspector after it; the library package and other applications stay as they are. The Editor and Save draw it through
+`trackpaint.rendered`. _Avoid_: material properties (the library's `roughness`/`normal_scale`, which the settings start from).
+
 **Selection index** (Editor):
 Disposable prepared paint components and alpha masks (`track/surfaceindex.py`, `out/editor-selection`), made while ground tiles
 load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes all matching

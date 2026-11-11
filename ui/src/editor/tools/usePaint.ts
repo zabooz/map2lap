@@ -3,6 +3,7 @@ import {get, post} from "../../api";
 import type {TrackEdits} from "../state/edits";
 import type {SurfacePoint} from "../scene/surfaces";
 import type {TrackView} from "../scene/view";
+import type {TextureLook} from "../library/textureLook";
 
 /** How far an Apply is: its tiles' masks taken and described on the server ("masks", "preview"), then the page's textures
  *  loaded ("loading"). */
@@ -17,8 +18,11 @@ export function usePaint(name: string, edits: TrackEdits, view: TrackView) {
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(false), pending = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const apply = useCallback((material: string, points: SurfacePoint[], variation?: boolean, tiles?: [number, number][]) => {
-    if (pending.current || !points.length || !edits.canEdit()) return Promise.resolve(false);
+  /** One server-made texture edit into the draft: ask(base, revision) makes it, put(id) adds it as one Undo step; true once its
+      preview has loaded. failure: the message when the server gives none. */
+  const commit = useCallback((ask: (base: string, revision: number) => Promise<{paint?: string; error?: string}>,
+    put: (id: string) => void, failure: string) => {
+    if (pending.current || !edits.canEdit()) return Promise.resolve(false);
     pending.current = true; setBusy(true); setError(null);
     let applied = false;
     return edits.inTurn(async () => {
@@ -27,25 +31,35 @@ export function usePaint(name: string, edits: TrackEdits, view: TrackView) {
         const revision = await edits.saved(), base = edits.boundRevision();
         if (!alive.current) return;
         if (revision === null || !base || !edits.canEdit()) throw new Error("The current changes could not be kept. Try again after reloading them.");
-        const asking = setInterval(() => void get<Partial<PaintProgress>>(`/api/editor/${encodeURIComponent(name)}/paint-progress`)
-          .then(p => { if (alive.current && p?.phase) setProgress(p as PaintProgress); }), ASK_EVERY_MS);
-        const result = await post<{paint: string}>(`/api/editor/${encodeURIComponent(name)}/paint`, {base, revision, material, points, variation, tiles})
-          .finally(() => clearInterval(asking));
+        const result = await ask(base, revision);
         if (!alive.current) return;
-        if (result.error || !result.paint) throw new Error(result.error ?? "Could not apply this material");
-        edits.addPaint(result.paint);
+        if (result.error || !result.paint) throw new Error(result.error ?? failure);
+        put(result.paint);
         edits.saveNow();
         if (await edits.saved() === null) throw new Error("The material change could not be kept.");
         await view.textures.syncPaints(edits.state().paints);
         await view.textures.ready((done, total) => { if (alive.current) setProgress({phase: "loading", done, total}); });
         applied = true;
       } catch (e) {
-        if (alive.current) setError(e instanceof Error ? e.message : "Could not apply this material");
+        if (alive.current) setError(e instanceof Error ? e.message : failure);
       } finally {
         pending.current = false;
         if (alive.current) { setBusy(false); setProgress(null); }
       }
     }).then(() => applied);
-  }, [name, edits, view]);
-  return {busy, progress, error, apply};
+  }, [edits, view]);
+  const apply = useCallback((material: string, points: SurfacePoint[], variation?: boolean, tiles?: [number, number][], look?: TextureLook) => {
+    if (!points.length) return Promise.resolve(false);
+    return commit(async (base, revision) => {
+      const asking = setInterval(() => void get<Partial<PaintProgress>>(`/api/editor/${encodeURIComponent(name)}/paint-progress`)
+        .then(p => { if (alive.current && p?.phase) setProgress(p as PaintProgress); }), ASK_EVERY_MS);
+      return post<{paint: string}>(`/api/editor/${encodeURIComponent(name)}/paint`, {base, revision, material, points, variation, tiles, look})
+        .finally(() => clearInterval(asking));
+    }, id => edits.addPaint(id), "Could not apply this material");
+  }, [name, edits, commit]);
+  /** Applied texture paint again with other settings, in its place: other applications of the texture stay as they are. */
+  const restyle = useCallback((paint: string, look: TextureLook, variation?: boolean) => commit(
+    (base, revision) => post<{paint: string}>(`/api/editor/${encodeURIComponent(name)}/paint-settings`, {base, revision, paint, look, variation}),
+    id => edits.replacePaint(paint, id), "Could not change the texture settings"), [name, edits, commit]);
+  return {busy, progress, error, apply, restyle};
 }

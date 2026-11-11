@@ -201,3 +201,44 @@ test("a click beside the library closes it; a drag out of it or a click beside a
   await expect(panel).toBeHidden();
   await expect(page.locator("#edit-select")).toHaveClass(/on/);
 });
+
+libraryTest("the import dialog says what each map does and what the surface is without it", async ({page}) => {
+  await openLibrary(page);
+  await page.getByRole("dialog", {name: "Asset library"}).getByLabel('Texture file').setInputFiles(image);
+  const dialog = page.getByRole("dialog", {name: "Import texture"});
+  await expect(dialog).toContainText("Colour: the colour and pattern of the surface.");
+  await expect(dialog).toContainText("changes neither the geometry nor the driving. Without one, the surface adds no bumps.");
+  await expect(dialog).toContainText("Light is rough and matte, dark smooth and shiny. Without one, the surface is rough.");
+});
+
+libraryTest("Settings… choose the next Apply's maps and roughness: Cancel drops them, OK keeps them, the library stays", async ({page}) => {
+  await openLibrary(page);
+  const panel = page.getByRole("dialog", {name: "Asset library"});
+  await panel.getByLabel('Texture file').setInputFiles(image);
+  const importer = page.getByRole("dialog", {name: "Import texture"});
+  await importer.getByLabel("Normal map (optional)", {exact: true}).setInputFiles(normal);
+  await importer.getByLabel("Name", {exact: true}).fill("Glossy meadow");
+  await importer.getByRole("button", {name: "Add to library", exact: true}).click();
+  await expect(importer).toBeHidden();
+  const settings = page.getByRole("dialog", {name: "Texture settings"});
+  await panel.getByRole("button", {name: "Settings…", exact: true}).click();
+  await expect(settings.getByRole("switch", {name: "Use normal map"})).toBeChecked();
+  await expect(settings.getByRole("switch", {name: "Use roughness map"})).toHaveCount(0);       // (none imported)
+  await expect(settings).toContainText("No roughness map: the surface is rough.");
+  await expect(settings.getByLabel("Break up texture repetition")).toHaveCount(0);              // (a square repeat)
+  await settings.getByRole("slider", {name: "Roughness"}).fill("-40");
+  await settings.getByRole("button", {name: "Cancel", exact: true}).click();
+  await expect(settings).toBeHidden();
+  await expect(panel).toContainText("As imported");
+  await panel.getByRole("button", {name: "Settings…", exact: true}).click();
+  await expect(settings.getByRole("slider", {name: "Roughness"})).toHaveValue("0");
+  await settings.getByRole("switch", {name: "Use normal map"}).uncheck();
+  await expect(settings.getByRole("slider", {name: "Normal strength"})).toBeDisabled();
+  await settings.getByRole("slider", {name: "Roughness"}).fill("-40");
+  await settings.getByRole("button", {name: "OK", exact: true}).click();
+  await expect(panel).toContainText("Normal map off · Roughness 40 % smoother");
+  await expect(panel).toBeVisible();                                                             // (Escape and keys stayed in the settings)
+  const {items} = await (await page.request.get("/api/library/materials")).json();
+  const id = items.find((value: {name: string}) => value.name === "Glossy meadow").id;
+  expect((await (await page.request.get(`/api/library/materials/${id}`)).json()).look).toBeUndefined();
+});

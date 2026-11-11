@@ -182,3 +182,25 @@ test("a guarded tile's triangles fall into the regions their whole-tile UVs reac
   expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0], guard)).get(west.join(","))!.getIndex()!.array)).toEqual([0, 1, 2]);
   expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0])).get(west.join(","))!.getIndex()!.array)).toEqual([]);
 });
+
+test("a regional layer made matte or smooth takes its roughness offset, with and without a roughness map", () => {
+  const frame = new GroundFrame({} as THREE.WebGLRenderer, new THREE.Scene(), () => true, () => {});
+  const pass: GroundPass = {image: 0, first: 0, bounds: [0, 0, 1, 1],
+    frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
+  const layers: ColourSplat = {pbr: true, base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0],
+    images: [{name: "photo", scale: [128, 128], properties: {roughness: .2, normal_scale: 1, roughness_offset: .4}}],
+    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass]}};
+  const flat = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [null], [null], new THREE.Color());
+  flat.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
+  expect(((frame.scene.children[0].children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial).roughness).toBeCloseTo(.6);
+  flat.dispose();
+  const mapped = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [new THREE.Texture()], [null], new THREE.Color());
+  mapped.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
+  const material = (frame.scene.children.at(-1)!.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.fragmentShader).toContain("m2lProperties.z + m2lPacked.a * m2lProperties.y");
+  expect(shader.uniforms.m2lProperties.value.toArray()).toEqual([1, .2, .4]);
+  mapped.dispose(); frame.dispose();
+});

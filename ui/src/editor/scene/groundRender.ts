@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {SunLight} from "three/addons/lights/SunLight.js";
-import {tangentFrame, variationShader, type ColourSplat, type GroundPass, type GroundMaterial} from "./colourBlend";
+import {flatRoughness, tangentFrame, variationShader, type ColourSplat, type GroundPass, type GroundMaterial} from "./colourBlend";
 
 function fitRegion(geometry: THREE.BufferGeometry) {
   const positions = geometry.getAttribute("position"), indices = geometry.getIndex()!;
@@ -179,7 +179,7 @@ function weights(pass: GroundPass) {
 function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Texture, data: THREE.Texture | null, weight: THREE.Texture | null) {
   const ref = layers.images[pass.image], pbr = !!data;
   const material = pbr || layers.pbr
-    ? new THREE.MeshStandardMaterial({map: photo, roughness: ref?.properties?.roughness ?? (pass.image < 0 ? 221 / 255 : 1), metalness: 0})
+    ? new THREE.MeshStandardMaterial({map: photo, roughness: ref ? flatRoughness(ref.properties) : pass.image < 0 ? 221 / 255 : 1, metalness: 0})
     : new THREE.MeshLambertMaterial({map: photo});
   material.transparent = true; material.depthWrite = false; material.blending = THREE.CustomBlending;
   material.blendEquation = THREE.AddEquation; material.blendSrc = material.blendDst = THREE.OneFactor;
@@ -193,7 +193,7 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       m2lScale: {value: new THREE.Vector2(...scale)}, m2lPhase: {value: new THREE.Vector2(...phase)},
       m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lGuard: {value: layers.uv_guard ?? 0}, m2lBounds: {value: new THREE.Vector4(...pass.bounds)},
       m2lData: {value: data}, m2lNoiseFrequency: {value: 1.6},
-      m2lProperties: {value: new THREE.Vector2(ref?.properties?.normal_scale ?? 1, ref?.properties?.roughness ?? 1)}});
+      m2lProperties: {value: new THREE.Vector3(ref?.properties?.normal_scale ?? 1, ref?.properties?.roughness ?? 1, ref?.properties?.roughness_offset ?? 0)}});
     // m2lRaw samples the original tile at its mesh UV; m2lLocal is the whole tile's UV, which weights and bounds cover.
     shader.vertexShader = shader.vertexShader.replace("#include <common>",
       "#include <common>\nuniform vec2 m2lUVOrigin; uniform float m2lGuard; varying vec2 m2lLocal, m2lRaw;")
@@ -202,7 +202,7 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
     if (ref?.variation) shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 m2lWorldXZ;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nm2lWorldXZ = (modelMatrix * vec4(transformed,1.0)).xz;");
     shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `#include <map_pars_fragment>
-      varying vec2 m2lLocal, m2lRaw; uniform vec2 m2lScale, m2lPhase, m2lProperties; uniform vec4 m2lBounds;
+      varying vec2 m2lLocal, m2lRaw; uniform vec2 m2lScale, m2lPhase; uniform vec3 m2lProperties; uniform vec4 m2lBounds;
       uniform sampler2D m2lData; ${weights(pass)} ${pbr ? tangentFrame : ""} ${ref?.variation ? variationShader : ""}
     `).replace("#include <map_fragment>", `
       vec2 m2lUV = vec2(m2lLocal.x, m2lLocal.y + 1.0);
@@ -213,7 +213,7 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       diffuseColor *= ${ref?.variation ? "m2lVary" : "texture2D"}(map,m2lPhotoUV);
       ${pbr ? `vec4 m2lPacked = ${ref?.variation ? "m2lVaryData(map,m2lData," : "texture2D(m2lData,"}m2lPhotoUV);` : ""}
     `);
-    if (pbr) shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", "float roughnessFactor = m2lPacked.a * m2lProperties.y;")
+    if (pbr) shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", "float roughnessFactor = m2lProperties.z + m2lPacked.a * m2lProperties.y;")
       .replace("#include <normal_fragment_maps>", `vec3 m2lN = m2lPacked.xyz * 2.0 - 1.0; m2lN.xy *= m2lProperties.x;
         normal = normalize(m2lTangentFrame(-vViewPosition, normal, m2lLocal) * normalize(m2lN));`);
     shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", `

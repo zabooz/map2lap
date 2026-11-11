@@ -27,6 +27,7 @@ import {Inspector} from "./inspector/Inspector";
 import {TransformFields} from "./inspector/TransformFields";
 import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
 import {usePaint} from "./tools/usePaint";
+import type {TextureLook} from "./library/textureLook";
 import {ToolAction, ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
 import {ACTIONS, altAction, selectActions, smoothStart, type SelectAction} from "./tools/selectActions";
 import {AltAlone} from "./tools/held";
@@ -119,9 +120,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     : selection?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
     : !materialTarget ? "Select a painted ground surface to apply a material." : null;
   const paintSurface = painting.apply;
-  const applyMaterial = useCallback((id: string, variation?: boolean) => materialTarget && !materialReason
+  const applyMaterial = useCallback((id: string, variation?: boolean, look?: TextureLook) => materialTarget && !materialReason
     // (the tiles shown go with it: ground loaded since does not change what Apply changes)
-    ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile)) : Promise.resolve(false),
+    ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile), look) : Promise.resolve(false),
     [materialTarget, materialReason, paintSurface, surfacePicks, selection]);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
@@ -395,7 +396,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
         />}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
         collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
-        onMaterialOpen={() => setMaterialOpen(true)} textureRevision={textureRevision} transform={editable && <TransformFields move={move} />} />, inspectorHost)}
+        onMaterialOpen={() => setMaterialOpen(true)} restyling={editable ? painting : null} textureRevision={textureRevision} transform={editable && <TransformFields move={move} />} />, inspectorHost)}
       {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
         options={[
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {

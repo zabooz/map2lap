@@ -368,6 +368,12 @@ export class TrackEdits {
     this.change({...this.edits(), paints: [...this.now.paints.filter(p => p !== id), id]});
   }
 
+  /** One applied texture with other settings: its new edit takes the old one's place, so what lies over it still does. */
+  replacePaint(old: string, id: string) {
+    if (old === id || !this.now.paints.includes(old)) return;
+    this.change({...this.edits(), paints: this.now.paints.filter(p => p !== id).map(p => p === old ? id : p)});
+  }
+
   /** Objects placed anew, each instead of how it was placed before; one placed as built is left out. join: a key, the change goes with the
       last one into one step to undo if that had the same key and came a moment ago (the notches of a wheel). */
   place(items: Placement[], join?: string) {

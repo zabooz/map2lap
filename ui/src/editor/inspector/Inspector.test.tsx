@@ -42,3 +42,15 @@ test("An object's facts name its type and size", () => {
   expect(html).toContain("Oak");
   expect(html).toContain("12.3 m");
 });
+
+test("an applied texture offers its settings and says which ones it uses; the original ground has none", () => {
+  const info = {name: "Meadow", preview: "/meadow.png", repeat: [2, 2] as [number, number], variation: false, original: false, mixed: true,
+    paint: "a".repeat(64), look: {normal: false, normal_strength: 1, roughness_map: true, roughness_shift: .4},
+    maps: {normal: true, roughness: true}, rectangular: false, tiles: 3};
+  const html = renderToStaticMarkup(<AppearanceCard info={info} onEdit={() => {}} onSettings={() => {}} />);
+  expect(html).toContain("Settings…");
+  expect(html).toContain("Normal map off · Roughness 40 % matter");
+  expect(renderToStaticMarkup(<AppearanceCard info={info} onEdit={() => {}} onSettings={null} />)).not.toContain("Settings…");
+  const original = {name: "Original ground", preview: "/thumbnail.png", repeat: null, variation: false, original: true, mixed: false};
+  expect(renderToStaticMarkup(<AppearanceCard info={original} onEdit={() => {}} onSettings={() => {}} />)).not.toContain("Settings…");
+});

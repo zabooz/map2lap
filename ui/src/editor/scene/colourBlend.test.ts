@@ -20,7 +20,7 @@ test("PBR layers use retained linear detail data for tangent normals and roughne
   expect(shader.fragmentShader.indexOf("mat3 m2lFrame =")).toBeLessThan(shader.fragmentShader.indexOf("if (m2lContribution > 0.0)"));
   expect(shader.fragmentShader).toContain("m2lPacked0.xyz * 2.0 - 1.0");
   expect(shader.fragmentShader).toContain("m2lPacked0.a * m2lProperties0.y");
-  expect(shader.uniforms.m2lProperties0.value.toArray()).toEqual([2, .7]);
+  expect(shader.uniforms.m2lProperties0.value.toArray()).toEqual([2, .7, 0]);
 });
 
 test("the original tile beside a PBR field keeps the sun, and its shadow", () => {
@@ -107,4 +107,30 @@ test("PBR ground lights colour-only photographs and the retained road tile physi
   expect(shader.fragmentShader).toContain("m2lContribution += m2lWeights.r");
   expect(shader.fragmentShader).not.toContain("m2lSourceLight");
   expect(shader.fragmentShader).not.toContain("m2lVary");
+});
+
+test("a layer made matte lifts its roughness map by the offset, and a flat layer by the same rule", () => {
+  const material = new THREE.MeshStandardMaterial({map: new THREE.Texture()});
+  bindSplat(material, new THREE.Texture(), [new THREE.Texture(), new THREE.Texture()], {
+    pbr: true, base: {name: "original"}, mask: {name: "mask"}, origin: [0, 0],
+    images: [{name: "photo", scale: [128, 128], detail: {name: "data", linear: true}, properties: {roughness: .5, normal_scale: 1, roughness_offset: .5}},
+      {name: "flat", scale: [128, 128], properties: {roughness: .2, normal_scale: 1, roughness_offset: .4}}],
+  }, [new THREE.Texture(), null]);
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.fragmentShader).toContain("(m2lProperties0.z + m2lPacked0.a * m2lProperties0.y)");
+  expect(shader.uniforms.m2lProperties0.value.toArray()).toEqual([1, .5, .5]);
+  expect(shader.fragmentShader).toContain("0.60000000 * m2lWeights.g");
+});
+
+test("tiles whose flat layers differ in roughness compile apart, as their roughness is written into the shader", () => {
+  const key = (roughness: number) => {
+    const material = new THREE.MeshStandardMaterial({map: new THREE.Texture()});
+    bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {pbr: true, base: {name: "original"}, mask: {name: "mask"}, origin: [0, 0],
+      images: [{name: "photo", scale: [128, 128], properties: {roughness, normal_scale: 1}}]});
+    return material.customProgramCacheKey();
+  };
+  expect(key(.6)).not.toBe(key(1));
+  expect(key(.6)).toBe(key(.6));
 });

@@ -982,7 +982,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "No valid CSP installation request"})
         if urlsplit(self.path).path.startswith("/api/library/"):
             return self._library()
-        paint = re.fullmatch(r"/api/editor/([^/]+)/(paint|textures)", self.path)
+        paint = re.fullmatch(r"/api/editor/([^/]+)/(paint|paint-settings|textures)", self.path)
         if paint:
             if not self._own_page():
                 return self._send(403, {"error": "Only the page itself can edit materials"})
@@ -998,6 +998,8 @@ class Handler(BaseHTTPRequestHandler):
                             {name: {"phase": phase, "done": done, "total": total}}))
                     finally:
                         painting.pop(name, None)
+                if paint[2] == "paint-settings":
+                    return trackedits.restyle(ac, name, body)
                 try:
                     return {"paints": body["paints"], "textures": trackpaint.descriptors(ac, name, body["base"], body["paints"])}
                 except (ValueError, KeyError, TypeError) as e:

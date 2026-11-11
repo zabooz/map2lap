@@ -4,7 +4,12 @@ import type {WeightBundleRef} from "./weightBundle";
 export interface ColourLayers {base: string; mask: string; scale: number}
 export interface ColourImage {name: string; i?: number; key?: string; url?: string; size?: number; linear?: boolean; bundle?: WeightBundleRef}
 export interface ColourPhoto extends ColourImage {scale: [number, number]; channel?: number; asset?: string; variation?: boolean;
-  detail?: ColourImage; properties?: {roughness: number; normal_scale: number}}
+  detail?: ColourImage; properties?: LayerProperties}
+/** How a layer is lit (trackpaint.rendered): roughness = roughness_offset + map * roughness, the map 1 where there is none. */
+export interface LayerProperties {roughness: number; normal_scale: number; roughness_offset?: number}
+
+/** A layer's roughness without a roughness map. Pure. */
+export const flatRoughness = (properties?: Partial<LayerProperties>) => (properties?.roughness_offset ?? 0) + (properties?.roughness ?? 1);
 export type GroundMaterial = THREE.MeshLambertMaterial | THREE.MeshStandardMaterial;
 export interface GroundPass {image: number; first: number; bounds: [number, number, number, number];
   frames: {source: [number, number]; atlas: [number, number, number, number]; constant?: number}[]; weight: ColourImage}
@@ -55,7 +60,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
       if (details[i]) {
         shader.uniforms[`m2lData${i}`] = {value: details[i]};
         const properties = layers.images[i].properties ?? {normal_scale: 1, roughness: 1};
-        shader.uniforms[`m2lProperties${i}`] = {value: new THREE.Vector2(properties.normal_scale, properties.roughness)};
+        shader.uniforms[`m2lProperties${i}`] = {value: new THREE.Vector3(properties.normal_scale, properties.roughness, properties.roughness_offset ?? 0)};
       }
     }
     shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
@@ -67,7 +72,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
       uniform float m2lGuard;
       ${varied ? variationShader : ""}
       ${images.map((_p, i) => `uniform sampler2D m2lPhoto${i}; uniform vec2 m2lScale${i};`).join("\n")}
-      ${details.map((p, i) => p ? `uniform sampler2D m2lData${i}; uniform vec2 m2lProperties${i};` : "").join("\n")}
+      ${details.map((p, i) => p ? `uniform sampler2D m2lData${i}; uniform vec3 m2lProperties${i};` : "").join("\n")}
       ${pbr ? tangentFrame : ""}
     `).replace("#include <map_fragment>", `
       #ifdef USE_MAP
@@ -85,11 +90,11 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
           vec3 m2lNormal${i} = m2lPacked${i}.xyz * 2.0 - 1.0;
           m2lNormal${i}.xy *= m2lProperties${i}.x;
           m2lNormal += normalize(m2lNormal${i}) * m2lWeights.${channels[i]};
-          m2lRoughness += m2lPacked${i}.a * m2lProperties${i}.y * m2lWeights.${channels[i]};
+          m2lRoughness += (m2lProperties${i}.z + m2lPacked${i}.a * m2lProperties${i}.y) * m2lWeights.${channels[i]};
           m2lContribution += m2lWeights.${channels[i]};
         ` : fullPbr ? `
           m2lNormal += vec3(0.0, 0.0, m2lWeights.${channels[i]});
-          m2lRoughness += ${(layers.images[i].properties?.roughness ?? 1).toFixed(8)} * m2lWeights.${channels[i]};
+          m2lRoughness += ${flatRoughness(layers.images[i].properties).toFixed(8)} * m2lWeights.${channels[i]};
           m2lContribution += m2lWeights.${channels[i]};
         ` : "").join("\n") : ""}
         diffuseColor *= vec4(${pbr ? "m2lColour / max(0.000001, m2lContribution)" : "m2lColour"}, 1.0);
@@ -121,7 +126,9 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
         `);
     }
   };
-  material.customProgramCacheKey = () => "map2lap-splat-7-" + Number(pbr) + Number(fullPbr) + Number(!!layers.base_extent) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])).join("");
+  // (a flat layer's roughness is written into the shader, so it is part of the program)
+  material.customProgramCacheKey = () => "map2lap-splat-7-" + Number(pbr) + Number(fullPbr) + Number(!!layers.base_extent) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])
+    + (fullPbr && !details[i] ? flatRoughness(layers.images[i].properties).toFixed(8) : "")).join("");
   material.needsUpdate = true;
 }
 

@@ -128,10 +128,40 @@ def _appearance_ref(ac, name, revision, scan, ref):
             found = _saved_image(str(folder), folder.stat().st_mtime_ns, ref["name"], tuple(repeat))
     if found:
         asset, meta = found
+        # (a square repeat is drawn with PBR, whose one variation switch would move the road image too: its preference rests)
         return {"name": meta["name"], "preview": f"/api/editor/{name}/paint-preview/{asset}", "repeat": meta["repeat"],
-                "variation": materiallibrary.varies(meta), "original": False}
+                "variation": materiallibrary.varies(meta) and not math.isclose(*meta["repeat"], rel_tol=1e-6), "original": False}
     return {"name": "Embedded texture", "preview": f"/api/editor/{name}/thumbnail?texture={ref['i']}&r={revision}",
             "repeat": repeat, "variation": ref.get("variation", False), "original": False}
+
+
+def _application(ac, name, version, ref, u, v):
+    """The edit that shows snapshot ref["asset"] at canonical tile u, v and its texture settings, for the Inspector's
+    Settings: the last edit of the tile with that snapshot whose mask covers the point, as the last edit wins there
+    (trackdetail._semantic). {} where none does, as for a saved copy's embedded layer without its edit."""
+    if "asset" not in ref:
+        return {}
+    record, _path, _scan, filename = trackdetail._view(ac, name, version)
+    key = list(map(int, trackpaint.GROUND_IMAGE.fullmatch(filename).groups()))
+    adopted = trackpaint._adopted(ac, name, _path)
+    for id in reversed(record["paints"]):
+        folder, edit = trackpaint.operation(ac, name, id, record["base"], adopted)
+        if edit["asset"] != ref["asset"]:
+            continue
+        for tile in edit["tiles"]:
+            if tile["tile"] == key and any(_covers(folder / mask["file"], u, v) for mask in tile["masks"]):
+                meta = trackpaint._verified(trackpaint._resolve(ac, name, "materials", ref["asset"]) / "asset.json", ref["asset"])
+                return {"paint": id, "look": trackpaint.look_of(meta), "tiles": len(edit["tiles"]),
+                        "maps": {role: role in meta.get("maps", {}) for role in ("normal", "roughness")},
+                        "rectangular": not math.isclose(*meta["repeat"], rel_tol=1e-6)}
+    return {}
+
+
+def _covers(path, u, v):
+    """Whether a selection mask is set at canonical tile u=[0,1], v=[-1,0], row 0 at v=-1 as in its tile's weights."""
+    with Image.open(path) as mask:
+        width, height = mask.size
+        return mask.convert("L").getpixel((min(width - 1, max(0, int(u * width))), min(height - 1, max(0, int((1 + v) * height))))) > 0
 
 
 def _regional_at(ac, name, version, layout, u, v):
@@ -184,7 +214,8 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
             weights = _regional_at(ac, name, version, layout, u, v)
             residual = max(0., 1. - sum(weights))
             if weights and max(weights) > residual:
-                result.update(_appearance_ref(ac, name, revision, scan, layout["images"][weights.index(max(weights))]))
+                ref = layout["images"][weights.index(max(weights))]
+                result.update(_appearance_ref(ac, name, revision, scan, ref), **_application(ac, name, version, ref, u, v))
             result["mixed"] = sum(value > .05 for value in [*weights, residual]) > 1
             trackview._scan_of(ac, name, revision)
             return result
@@ -203,7 +234,7 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
     weights = [255 - pixel[0]] if dual else [pixel[ref.get("channel", j)] for j, ref in enumerate(refs)]
     if weights and max(weights) > 255 - sum(weights):
         ref = refs[weights.index(max(weights))]
-        result.update(_appearance_ref(ac, name, revision, scan, ref))
+        result.update(_appearance_ref(ac, name, revision, scan, ref), **(_application(ac, name, version, ref, u, v) if version else {}))
     # Ignore contributions below about 5% when labelling a soft edge: BC3 rounding alone should not say "mixed".
     result["mixed"] = sum(w > 12 for w in [*weights, max(0, 255 - sum(weights))]) > 1
     trackview._scan_of(ac, name, revision)

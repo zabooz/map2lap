@@ -404,7 +404,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                                     detail=functools.cache(lambda asset=ref['asset']: _rgba(trackdetail.detail_image(ac,name,asset)))
                                 # (a tile's images unchanged since the last Save are taken from then, as its masks are)
                                 stored=_photo_key(raw,ref,base_material,tile,sheen,pbr=pbr)
-                                normal_name=resource(_pbr_flat(ref.get('properties',{}).get('roughness',1.)),'.png') if pbr else flat
+                                normal_name=resource(_pbr_flat(trackdetail.flat_roughness(ref.get('properties',{}))),'.png') if pbr else flat
                                 if detail:
                                     normal_name=resource(_stored(kept,stored+'.png',lambda: _photo_normals(detail(),ref,pbr=pbr)),'.png')
                                     used.add(stored+'.png')
@@ -662,6 +662,8 @@ def _photo_key(raw, ref, material, tile, sheen, *, pbr=False):
     properties = ref.get("properties", {})
     base = [[int(t) for t in tile], trackview._prop(material, "m2lUVGuard", 0.), trackdetail.base_extent(material)] if ref["id"] == "base" else None
     detail = [ref["detail"]["key"], properties.get("normal_scale", 1.), properties.get("roughness", 1.)] if "detail" in ref and "asset" in ref else None
+    if detail and "roughness_offset" in properties:         # (absent for untouched materials, whose keys stay as they were)
+        detail.append(properties["roughness_offset"])
     return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, base, detail, pbr])
 
 
@@ -690,7 +692,7 @@ def _photo_colour(raw, ref, material, tile, sheen, detail, *, pbr=False):
     elif detail is None:
         alpha = Image.new("L", colour.size, sheen)
     else:
-        gloss = np.rint((1 - np.clip(detail()[..., 3] / 255 * ref.get("properties", {}).get("roughness", 1.), 0, 1)) * 255).astype(np.uint8)
+        gloss = np.rint((1 - np.clip(_roughness(detail()[..., 3], ref) / 255, 0, 1)) * 255).astype(np.uint8)
         alpha = Image.fromarray(gloss).resize(colour.size, Image.Resampling.BILINEAR)
     colour.putalpha(alpha)
     return dds_mipmaps(colour, alpha=True, smallest=1, independent=True, bc7="asset" in ref or _is_bc7(raw))
@@ -708,8 +710,14 @@ def _photo_normals(data, ref, *, pbr=False):
         # fuPBR's tangent X has the opposite sign to nm4. Blue is metalness; alpha is real roughness.
         normals[..., 0] = 255 - normals[..., 0]
         normals[..., 2] = 0
-        normals[..., 3] = np.rint(data[..., 3].astype(np.float64) * ref.get("properties", {}).get("roughness", 1.)).clip(0, 255).astype(np.uint8)
+        normals[..., 3] = np.rint(_roughness(data[..., 3], ref)).clip(0, 255).astype(np.uint8)
     return _png(normals)
+
+
+def _roughness(values, ref):
+    """A roughness map's 0..255 values under the layer's properties (trackpaint.rendered), as float 0..255. Pure."""
+    properties = ref.get("properties", {})
+    return properties.get("roughness_offset", 0.) * 255 + values.astype(np.float64) * properties.get("roughness", 1.)
 
 
 def _pbr_palette(refs, palette):

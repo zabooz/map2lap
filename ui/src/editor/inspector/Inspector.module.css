@@ -26,6 +26,7 @@
 .tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
 .appearance { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .appearance:hover .preview { border-color: var(--accent); }
-.change { margin-top: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.change { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
 .change:hover { color: var(--accent); border-color: var(--accent); }
 .facts { margin-top: 6px; }

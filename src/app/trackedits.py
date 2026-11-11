@@ -637,8 +637,28 @@ def paint(ac, name, body, progress=None):
             raise Conflict(name)
     try:
         id = trackpaint.create(ac, name, now["base"], body.get("material"), body.get("points"), body.get("variation"), body.get("tiles"),
-                               progress)
+                               progress, body.get("look"))
         trackpaint.descriptors(ac, name, now["base"], [*[p for p in now.get("paints", []) if p != id], id], progress=progress)
+    except (ValueError, KeyError, TypeError) as error:
+        raise Invalid(str(error)) from error
+    return {"paint": id}
+
+
+def restyle(ac, name, body):
+    """Prepare texture edit body["paint"] of the draft again with other settings (body["look"], body["variation"]); the page
+    puts the answer's id in its place as one undoable change."""
+    if not isinstance(body, dict):
+        raise Invalid("Choose a texture edit and its settings")
+    with _saving:
+        now = load(ac, name)
+        if now["outdated"] or body.get("base") != now["base"] or body.get("revision") != now["revision"]:
+            raise Conflict(name)
+    if body.get("paint") not in now.get("paints", []):
+        raise Invalid("This texture edit is no longer in the track; select the ground again")
+    try:
+        id = trackpaint.restyle(ac, name, now["base"], body["paint"], body.get("look"), body.get("variation"))
+        # (as the page will have it: back to settings an edit in the draft has, that edit, once, at the old one's place)
+        trackpaint.descriptors(ac, name, now["base"], [id if p == body["paint"] else p for p in now["paints"] if p != id])
     except (ValueError, KeyError, TypeError) as error:
         raise Invalid(str(error)) from error
     return {"paint": id}

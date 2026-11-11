@@ -24,6 +24,10 @@ MAX_PAINTS = 4096
 KEY = re.compile(r"[a-f0-9]{64}")
 GROUND_IMAGE = re.compile(r"ground_(-?\d+)_(-?\d+)\.(?:dds|png|jpe?g)", re.IGNORECASE)
 BUNDLE = Path("data", "map2lap_paints")
+# An application's texture settings, kept in its snapshot as "look" when they differ from these: the snapshot's own maps
+# used as imported. normal_strength 0..1 scales the normals' tilt; roughness_shift -1..1 moves roughness toward smooth (0)
+# or matte (1), 0 keeps the map. Switched-off maps stay in the snapshot, so they can be switched on again.
+LOOK = {"normal": True, "normal_strength": 1., "roughness_map": True, "roughness_shift": 0.}
 _writing = threading.RLock()
 _rendering = threading.Lock()  # One bounded tile compositor at a time, shared by index, preview requests and Save.
 
@@ -103,7 +107,8 @@ def _resolve(ac, name, folder, id):
     raise ValueError("Texture edit data is missing; restore the track's saved material package")
 
 
-def operation(ac, name, id, revision=None):
+def operation(ac, name, id, revision=None, adopted=()):
+    """An edit's folder and record, checked. revision: the build it must have been made on, or one of adopted (_adopted)."""
     folder = _resolve(ac, name, "operations", id)
     record = _verified(folder / "paint.json", id)
     if record.get("schema") != SCHEMA or not isinstance(record.get("tiles"), list):
@@ -113,7 +118,7 @@ def operation(ac, name, id, revision=None):
     _verified(asset / "asset.json", record["asset"])
     if not (asset / "colour.png").is_file():
         raise ValueError("The retained material image is missing")
-    if revision is not None and record.get("base") != revision:
+    if revision is not None and record.get("base") != revision and record.get("base") not in adopted:
         raise ValueError("The material selection belongs to another build of this track")
     for tile in record["tiles"]:
         if not isinstance(tile.get("tile"), list) or len(tile["tile"]) != 2 or not all(type(v) is int for v in tile["tile"]):
@@ -125,6 +130,20 @@ def operation(ac, name, id, revision=None):
             if not (folder / expected).is_file():
                 raise ValueError("The retained material selection is missing")
     return folder, record
+
+
+def _adopted(ac, name, path):
+    """The builds whose edits the saved track at path adopted (tracknative.inherited). A restyled copy of such an edit
+    (restyle) keeps its masks and build, so it belongs to the track as much as the edit does. An unreadable edit adopts
+    nothing; reading it reports it where it is used."""
+    from app import tracknative
+    bases = set()
+    for id in tracknative.inherited(ac, name, path)["paints"]:
+        try:
+            bases.add(operation(ac, name, id)[1]["base"])
+        except (ValueError, OSError):
+            continue
+    return frozenset(bases)
 
 
 def problems(paints):
@@ -140,9 +159,9 @@ def validate(ac, name, revision, paints):
         raise ValueError(problems(paints))
     from app import tracknative
     path, _scan = trackview._scan_of(ac, name, revision)
-    inherited = set(tracknative.inherited(ac, name, path)["paints"])
+    adopted = _adopted(ac, name, path)
     for id in paints:
-        folder, record = operation(ac, name, id, None if id in inherited else revision)
+        folder, record = operation(ac, name, id, revision, adopted)
         asset = _resolve(ac, name, "materials", record["asset"])
         description = _verified(asset / "asset.json", record["asset"])
         _validate_asset(asset, description)
@@ -183,7 +202,56 @@ def _validate_asset(folder, description):
         raise ValueError("The retained material image has changed")
 
 
-def _snapshot(material, variation=None):
+def look(value, roles):
+    """Validated texture settings of one application. value: {key of LOOK: value} or None for the defaults; roles: the data
+    maps its snapshot has ("normal", "roughness"). A missing map's switch and strength are left at their defaults, so they
+    make no second snapshot. Numbers are kept to 1/1000, as finely as a slider sets them. Pure."""
+    if value is None:
+        return dict(LOOK)
+    if not isinstance(value, dict) or set(value) - set(LOOK):
+        raise ValueError("Check the texture settings")
+    result = {**LOOK, **value}
+    if any(type(result[key]) is not bool for key in ("normal", "roughness_map")):
+        raise ValueError("Check the texture settings")
+    for key, low in (("normal_strength", 0.), ("roughness_shift", -1.)):
+        if type(result[key]) not in (int, float) or not low <= result[key] <= 1.:   # (NaN fails the range too)
+            raise ValueError("Check the texture settings")
+        result[key] = round(float(result[key]), 3)
+    if "normal" not in roles:
+        result.update(normal=True, normal_strength=1.)
+    if "roughness" not in roles:
+        result["roughness_map"] = True
+    return result
+
+
+def look_of(meta):
+    """The texture settings of a snapshot description. Pure."""
+    return {**LOOK, **meta.get("look", {})}
+
+
+def data_maps(meta):
+    """A snapshot's normal and roughness maps that its settings use: {role: map}. Pure."""
+    settings = look_of(meta)
+    used = {"normal": settings["normal"], "roughness": settings["roughness_map"]}
+    return {role: ref for role, ref in meta.get("maps", {}).items() if used.get(role)}
+
+
+def rendered(meta):
+    """The properties the Editor and Save draw a snapshot with: normal_scale, roughness (a factor on the roughness map, or on
+    1 without one) and roughness_offset (added after it; absent means 0, so untouched materials keep their cache keys).
+    Matte moves each value r to r + (1 - r) * shift, which lifts even a black map; smooth to r * (1 + shift). Pure."""
+    result = materiallibrary.properties(meta)
+    settings = look_of(meta)
+    result["normal_scale"] *= settings["normal_strength"]
+    shift = settings["roughness_shift"]
+    if shift:
+        result["roughness"] *= 1. - abs(shift)
+        if shift > 0:
+            result["roughness_offset"] = shift
+    return result
+
+
+def _snapshot(material, variation=None, settings=None):
     description = materiallibrary.get(material)
     raw = materiallibrary.colour(material)
     # Older library metadata could miss palette transparency; validate the normalized pixels before retaining anything.
@@ -204,6 +272,9 @@ def _snapshot(material, variation=None):
             maps[role]["convention"] = "+Y"
     record.update(schema=ASSET_SCHEMA, library=material, image=hashlib.sha256(raw).hexdigest(), maps=maps,
                   properties=materiallibrary.properties(description), original=description)
+    settings = look(settings, set(maps) - {"colour"})
+    if settings != LOOK:
+        record["look"] = settings
     id = _digest(record)
     folder = _out("paint-assets", id)
     if not (folder / "asset.json").is_file():
@@ -218,11 +289,11 @@ def _snapshot(material, variation=None):
 PORTION = 64
 
 
-def create(ac, name, revision, material, points, variation=None, tiles=None, progress=None):
+def create(ac, name, revision, material, points, variation=None, tiles=None, progress=None, look=None):
     """Capture authoritative painted-ground masks and a material; the draft is not changed here. tiles: the tiles the page
     showed, which the selection keeps to (ground loaded since does not change it). The masks are read and written a PORTION
     of tiles at a time into a folder of their own, which becomes the paint once all are there: a failure leaves no paint.
-    progress(phase, done, total): how many tiles' masks are taken ("masks")."""
+    progress(phase, done, total): how many tiles' masks are taken ("masks"). look: the texture settings (LOOK)."""
     if variation is not None and type(variation) is not bool:
         raise ValueError("Choose whether the texture varies its repeats")
     description = materiallibrary.get(material)
@@ -259,7 +330,7 @@ def create(ac, name, revision, material, points, variation=None, tiles=None, pro
     try:
         selected = _stage_masks(path, groups, keys, staging, progress or (lambda *_: None))
         with _writing:
-            record = {"schema": SCHEMA, "base": revision, "asset": _snapshot(material, variation),
+            record = {"schema": SCHEMA, "base": revision, "asset": _snapshot(material, variation, look),
                       "tiles": [{"tile": list(key), "masks": sorted(value, key=lambda m: m["material"])} for key, value in sorted(selected.items())]}
             id = _digest(record)
             folder = _out("paints", id)
@@ -295,6 +366,56 @@ def _stage_masks(path, groups, keys, staging, progress):
     return selected
 
 
+def restyle(ac, name, revision, id, settings, variation=None):
+    """Edit id again with other texture settings (look) and, if given, repetition variation: a new edit with the same
+    masks and build whose snapshot differs only in these. The edit, its snapshot, the library and every other application
+    of the material stay as they are; the page replaces id by the answer in its draft as one undoable change. Settings
+    equal to an earlier snapshot's give that edit's id again (back to the defaults: the original). revision: the draft's."""
+    if variation is not None and type(variation) is not bool:
+        raise ValueError("Choose whether the texture varies its repeats")
+    path, _scan = trackview._scan_of(ac, name, revision)
+    folder, record = operation(ac, name, id, revision, _adopted(ac, name, path))
+    source = _resolve(ac, name, "materials", record["asset"])
+    description = _verified(source / "asset.json", record["asset"])
+    _validate_asset(source, description)
+    changed = {key: value for key, value in description.items() if key != "look"}
+    settings = look(settings, set(description.get("maps", {})) - {"colour"})
+    if settings != LOOK:
+        changed["look"] = settings
+    if variation is not None:
+        changed["variation"] = variation
+    asset = _digest(changed)
+    with _writing:
+        _copied(source, _out("paint-assets", asset), "asset.json", changed)
+        copy = {**record, "asset": asset}
+        result = _digest(copy)
+        _copied(folder, _out("paints", result), "paint.json", copy)
+    return result
+
+
+def _copied(source, target, manifest, record):
+    """Folder target as source with its manifest file written from record, unless target is complete already. The other
+    files are immutable, so they are linked where the disk allows (a 2K snapshot's maps and originals: tens of MB)."""
+    if (target / manifest).is_file():
+        return
+    staging = Path(mytracks.ROOT, "out", "paints-staging", uuid.uuid4().hex)
+    try:
+        for path in source.rglob("*"):
+            if path.is_file() and path.name != manifest:
+                copy = staging / path.relative_to(source)
+                copy.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(path, copy)
+                except OSError:
+                    shutil.copyfile(path, copy)
+        _atomic(staging / manifest, _json_bytes(record))
+        shutil.rmtree(target, ignore_errors=True)       # (one left without its manifest)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(staging, target)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 @functools.lru_cache(maxsize=512)  # Digests only, not source image bytes.
 def _source_digest(path, revision, i, offset, size):
     return hashlib.sha256(trackview._read(path, offset, size, revision)).hexdigest()
@@ -304,21 +425,21 @@ def _plan(ac, name, revision, paints, errors=None):
     from app import trackdetail, tracknative
     path, scan = trackview._scan_of(ac, name, revision)
     retained = tracknative.inherited(ac, name, path)
-    inherited = set(retained["paints"])
+    adopted = _adopted(ac, name, path)
     # Regional sources retain the untouched base plus their complete editable
     # paint list. An explicit empty draft therefore means restore that base.
     effective = list(dict.fromkeys(paints if 'render_sources' in retained else [*retained["paints"], *paints]))
     grouped = {}
     for id in effective:
         try:
-            _folder, record = operation(ac, name, id, None if id in inherited else revision)
+            _folder, record = operation(ac, name, id, revision, adopted)
         except (ValueError, OSError) as error:
             if errors is None:
                 raise
             errors.append(str(error))
             continue
         for tile in record["tiles"]:
-            if id in inherited and tile["tile"] not in retained["tiles"]:
+            if record["base"] != revision and tile["tile"] not in retained["tiles"]:
                 continue
             grouped.setdefault(tuple(tile["tile"]), []).append(id)
     result = {}
@@ -394,11 +515,11 @@ def changed(ac, name, revision, before, after):
 
 def _layers(ac, name, revision, paints, key):
     from app import tracknative
-    retained = set(tracknative.inherited(ac, name, trackview._scan_of(ac, name, revision)[0])["paints"])
+    adopted = _adopted(ac, name, trackview._scan_of(ac, name, revision)[0])
     layers, assets = [], {}
     numbers = {}
     for id in paints:
-        folder, record = operation(ac, name, id, None if id in retained else revision)
+        folder, record = operation(ac, name, id, revision, adopted)
         asset = record["asset"]
         if asset not in numbers:
             asset_folder = _resolve(ac, name, "materials", asset)

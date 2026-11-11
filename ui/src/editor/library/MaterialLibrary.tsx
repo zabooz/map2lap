@@ -2,6 +2,8 @@ import {memo, useCallback, useEffect, useRef, useState} from "react";
 import type {PaintProgress} from "../tools/usePaint";
 import {createPortal} from "react-dom";
 import {ImportMaterial} from "./ImportMaterial";
+import {TextureSettings} from "./TextureSettings";
+import {LOOK, lookSummary, type TextureLook} from "./textureLook";
 import {LibraryBrowser, LibraryCard, LibraryCards, LibraryFacts, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection, webSource} from "./LibraryBrowser";
 import {groundTextureProblem, libraryJson, MATERIAL_CATEGORIES, materialPreview, type LibraryMaterial, type MaterialSummary} from "./library";
 import styles from "./MaterialLibrary.module.css";
@@ -9,9 +11,11 @@ import styles from "./MaterialLibrary.module.css";
 interface Page {items: MaterialSummary[]; total: number; offset: number}
 const PAGE_SIZE = 40;
 
-function MaterialDetails({material, variation, onVariation, onDelete, disabled}: {material: MaterialSummary; variation: boolean;
-  onVariation: (value: boolean) => void; onDelete: () => void; disabled: boolean}) {
+/** The selected texture: its picture and facts, and Settings… for the next Apply (look, variation), which leave the library as it is. */
+function MaterialDetails({material, variation, look, onSettings, onDelete, disabled}: {material: MaterialSummary; variation: boolean;
+  look: TextureLook; onSettings: (look: TextureLook, variation: boolean) => void; onDelete: () => void; disabled: boolean}) {
   const [info, setInfo] = useState<LibraryMaterial | null>(null);
+  const [settings, setSettings] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void libraryJson<LibraryMaterial>(`/api/library/materials/${material.id}`, {signal: controller.signal})
@@ -19,14 +23,15 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
     return () => controller.abort();
   }, [material.id]);
   const source = webSource(info?.source_url);
+  const maps = {normal: !!info?.maps.normal, roughness: !!info?.maps.roughness};
+  const rectangular = material.repeat[0] !== material.repeat[1];
   return <LibrarySelection>
     <img src={materialPreview(material.id)} alt="Texture preview" />
     <strong>{material.name}</strong>
     <span>{MATERIAL_CATEGORIES.find(([id]) => id === material.category)?.[1] ?? material.category}</span>
     <span>{material.repeat.join(" × ")} m per repeat{material.source.alpha && " · Contains transparency"}</span>
-    <label className={styles.variation}><input type="checkbox" checked={variation} disabled={disabled}
-      onChange={e => onVariation(e.target.checked)} />Break up texture repetition</label>
-    <span>Variation in the game requires CSP.</span>
+    <span className={styles.settings}><button type="button" onClick={() => setSettings(true)} disabled={disabled || !info}>Settings…</button>
+      {info ? lookSummary(look, maps) + (rectangular && variation ? " · Repetition varied" : "") : "…"}</span>
     <LibraryFacts rows={[
       ["Size", `${material.source.size.join(" × ")} px original · ${material.prepared.size.join(" × ")} px prepared`],
       ["Source", source ? <a href={source} target="_blank" rel="noopener noreferrer">View source</a> : info ? "Not specified" : "…"],
@@ -35,6 +40,10 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
       ...info?.maps.normal ? [["Normal map", info.maps.normal.filename] as [string, string]] : [],
       ...info?.maps.roughness ? [["Roughness map", info.maps.roughness.filename] as [string, string]] : []]} />
     <button type="button" className={styles.delete} onClick={onDelete} disabled={disabled}>Delete texture</button>
+    {settings && info && createPortal(<TextureSettings name={material.name} preview={materialPreview(material.id)} maps={maps}
+      rectangular={rectangular} look={look} variation={variation} confirm="OK" onClose={() => setSettings(false)}
+      scope="For the next Apply of this texture. The library's texture and the places it is already applied stay as they are."
+      onSave={(chosen, varied) => { onSettings(chosen, varied); setSettings(false); }} />, document.body)}
   </LibrarySelection>;
 }
 
@@ -44,7 +53,7 @@ const STEPS: Record<string, string> = {masks: "Taking the selection", preview: "
 /** A modal material picker. Browsing changes no track; selection and filters survive closing it. */
 export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, limitedTiles, busy, progress, error, onApply, onClose, embedded = false}: {
   open: boolean; target: string | null; reason: string | null; busy: boolean; error: string | null;
-  onApply: (id: string, variation?: boolean) => Promise<boolean>; onClose: () => void; embedded?: boolean;
+  onApply: (id: string, variation?: boolean, look?: TextureLook) => Promise<boolean>; onClose: () => void; embedded?: boolean;
   limitedTiles?: number; progress?: PaintProgress | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -57,6 +66,7 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
   const [failed, setFailed] = useState<{key: string; text: string} | null>(null);
   const [selected, setSelected] = useState<MaterialSummary | null>(null);
   const [variation, setVariation] = useState<boolean | null>(null);
+  const [look, setLook] = useState<TextureLook>(LOOK);
   const [removing, setRemoving] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -92,7 +102,7 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
     setNote(null); setFile(files[0]);
   };
   const imported = (material: LibraryMaterial, duplicate: boolean) => {
-    setFile(null); setSelected(material); setVariation(null);
+    setFile(null); setSelected(material); setVariation(null); setLook(LOOK);
     setNote(duplicate ? "This texture is already in your library." : "Texture added to your library.");
     setQuery(""); setCategory(""); setPage(0); setRevision(v => v + 1);
   };
@@ -124,10 +134,10 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
         browser={fault ? <p role="alert">{fault}</p> : !result ? <p role="status">Loading textures…</p>
               : !result.items.length ? <p className="muted">{query || category ? "No matching textures." : "No textures yet. Import or drop a colour image here · PNG, JPG, DDS."}</p>
               : <LibraryCards>{result.items.map(material => <LibraryCard key={material.id} label={material.name}
-                selected={selected?.id === material.id} onClick={() => { setSelected(material); setVariation(null); }} disabled={blocked}
+                selected={selected?.id === material.id} onClick={() => { if (selected?.id !== material.id) { setSelected(material); setVariation(null); setLook(LOOK); } }} disabled={blocked}
                 thumbnail={<img src={materialPreview(material.id)} alt="" loading="lazy" decoding="async" />} />)}</LibraryCards>}
-        preview={selected ? <MaterialDetails key={selected.id} material={selected} variation={varied}
-            onVariation={setVariation} onDelete={() => void remove()} disabled={blocked} />
+        preview={selected ? <MaterialDetails key={selected.id} material={selected} variation={varied} look={look}
+            onSettings={(chosen, varies) => { setLook(chosen); setVariation(varies); }} onDelete={() => void remove()} disabled={blocked} />
             : <p className="muted">Choose a texture to preview it. The track changes only when you apply it.</p>}
         pages={result && <LibraryPages page={page} offset={result.offset} total={result.total} limit={PAGE_SIZE} onPage={setPage} />}
         notices={<>{note && <LibraryNotice>{note}</LibraryNotice>}{error && <LibraryNotice error>{error}</LibraryNotice>}</>}
@@ -141,7 +151,7 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
               : <progress aria-label="Applying material" />)}</div>
           <button type="button" disabled={blocked} onClick={onClose}>Cancel</button>
           <LibraryPrimary disabled={!selected || !target || !!applyProblem || blocked}
-            onClick={() => { if (selected) void onApply(selected.id, varied).then(applied => { if (applied) onClose(); }); }}>
+            onClick={() => { if (selected) void onApply(selected.id, varied, look).then(applied => { if (applied) onClose(); }); }}>
             {busy ? "Applying…" : limitedTiles ? `Apply to ${limitedTiles} tiles` : "Apply"}</LibraryPrimary>
         </>} />
     {file && createPortal(<ImportMaterial file={file} onCancel={cancel} onImported={imported} />, document.body)}
