@@ -39,6 +39,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   tile fills the inner 1984 px (12.9 cm/px) and its edge pixels repeat 32 px around it; the ground UVs run from 32/2048
   to 2016/2048 (`ground.GUARD_PX`). Without that ring each tile edge mixed in the opposite edge, 256 m away: a thin
   green line across the roads. Tracks built before still have UVs 0..1.
+- The tile images go into the kn5 as DDS (`obj_to_kn5.dds_texture`): BC7 where the tile has a `1ROAD_` object
+  (`obj_to_kn5.bc7_images`), else BC1. BC1 keeps two end colours per 4×4 block (50 cm, 1 m one mip down): grey asphalt
+  beside green verge and a white marking turned green in places, on every track before (seen in AC, 2026-11-11). BC7 is
+  twice the size (2.7 -> 5.3 MiB a tile), hence only tiles with roads. The Editor draws BC7 as BPTC
+  (`ui/src/editor/scene/texture.ts`).
 - Ground materials use the standard AC `ksMultilayer` shader (`track/groundmaterial.py`): the existing tile image stays
   in `txDiffuse`, with its UVs and lighting values unchanged. A shared 4 px mask selects a shared white detail image,
   so the initial detail multiplier is exactly one. RGBA slots allow later masked detail textures without another
@@ -62,11 +67,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   resolution, only their seams soften over about half a metre. At 1 m a painted edge on asphalt let the tile image under
   it show as a band (2026-11-11). The Editor shows its masks at the same step, and reads a saved mask of any step back at
   its own resolution (`trackdetail._source_image`). Tried in AC with CSP (2026-11-09); a
-  track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The browser has no BC7 decoder:
-  the server unpacks a saved mask for it (`textures.browser_weights`).
+  track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The Editor takes masks as lossless
+  RGBA8: the server unpacks a saved mask for it (`textures.browser_weights`), a texture in a `txMask` slot only.
 - Saved material variation uses a managed CSP replacement to `ksMultilayer_objsp_nm4`, with separate tiling-fix flags for
-  imported RGB layers and no variation of the original A tile or mask. The native material remains a usable fallback
-  without CSP. This native colour-only setup supplies flat normal maps; retained imported PBR maps are used independently
+  imported RGB layers and no variation of the original A tile or mask. Map2Lap tracks need CSP (the user's rule,
+  2026-11-11): no look is kept working without it. This native colour-only setup supplies flat normal maps; retained imported PBR maps are used independently
   by the Editor preview.
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
   as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);

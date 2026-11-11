@@ -106,6 +106,28 @@ class GroundMaterialTest(unittest.TestCase):
             self.assertEqual("ksMultilayer", materials["ground_1_0"].shader)
             self.assertEqual("ksPerPixel", materials["water"].shader)
 
+    def test_a_tile_image_with_road_is_bc7_others_stay_bc1(self):
+        from track import textures
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("ground_0_0", "ground_1_0", "water"):
+                Image.new("RGB", (16, 16), (65, 110, 40)).save(root / (name + ".jpg"))
+            (root / "t_0_0.mtl").write_text("".join(
+                f"newmtl {name}\nmap_Kd {name}.jpg\n" for name in ("ground_0_0", "ground_1_0", "water")))
+            part = root / "t_0_0.obj"
+            obj = make_obj.Obj(str(part))
+            for i, (mesh, material) in enumerate((("1GRASS_ground_0_0", "ground_0_0"), ("1ROAD_ground_0_0", "ground_0_0"),
+                                                   ("1GRASS_ground_1_0", "ground_1_0"), ("1ROAD_water_0_0", "water"))):
+                obj.add(mesh, material, np.array([[i * 4, 0, 0], [i * 4 + 2, 0, 0], [i * 4, 2, 0]], float),
+                        np.array([[0, 0], [1, 0], [0, 1]], float), np.array([[0, 1, 2]]))
+            obj.close()
+            obj_to_kn5.dds_texture(str(root / "ground_0_0.jpg"))      # (a BC1 one kept from a build before)
+            obj_to_kn5.convert(str(part), str(root / "t.kn5"), parts=[str(part)], log=lambda _: None)
+            images = {name: raw for name, _active, raw in kn5.read(str(root / "t.kn5"))["textures"]}
+        self.assertTrue(textures._is_bc7(images["ground_0_0.dds"]))
+        self.assertEqual(b"DXT1", images["ground_1_0.dds"][84:88])
+        self.assertEqual(b"DXT1", images["water.dds"][84:88])
+
 
 if __name__ == "__main__":
     unittest.main()

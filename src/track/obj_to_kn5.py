@@ -98,24 +98,33 @@ def view(name):
     return VIEW_DEFAULT
 
 
-def dds_bc1(path):
-    """JPG -> DDS (BC1/DXT1) with mipmaps down to 4 px, stored next to it (reused while newer than the JPG); returns the
-    path or None (sides not a multiple of 4). AC unpacks JPG to RGBA in video memory: 2048 px = 22 MB with mipmaps,
-    BC1 2.8 MB (2400 terrain textures: 53 GB -> 7 GB)."""
+def dds_texture(path, bc7=False):
+    """JPG -> DDS (BC1/DXT1, or BC7 with bc7) with mipmaps down to 4 px, stored next to it (reused while newer than the JPG
+    and in that format); returns the path or None (sides not a multiple of 4). AC unpacks JPG to RGBA in video memory:
+    2048 px = 22 MB with mipmaps, BC1 2.8 MB (2400 terrain textures: 53 GB -> 7 GB), BC7 5.6 MB (bc7_images)."""
     from PIL import Image
-    from track.textures import dds_mipmaps
+    from track.textures import _is_bc7, dds_mipmaps
     out = os.path.splitext(path)[0] + ".dds"
     if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(path):
-        return out
+        with open(out, "rb") as f:
+            if _is_bc7(f.read(148)) == bc7:
+                return out
     with Image.open(path) as im:
         if im.width % 4 or im.height % 4:
             return None
-        data = dds_mipmaps(im)
+        data = dds_mipmaps(im, bc7=bc7)
     tmp = out + ".tmp"
     with open(tmp, "wb") as f:
         f.write(data)
     os.replace(tmp, out)
     return out
+
+
+def bc7_images(mtl, road_materials):
+    """The JPGs of mtl ({material: image}) to write as BC7: the ground tile images of materials with a 1ROAD_ object
+    (road_materials), where asphalt meets verge and markings (textures.dds_mipmaps). The others stay BC1: BC7 is twice
+    the size, a 2400-tile route's ground ~7 -> ~13 GB of video memory if every tile were BC7. Pure."""
+    return {mtl[m] for m in road_materials if groundmaterial.is_ground(m) and mtl.get(m, "").lower().endswith(".jpg")}
 
 
 def obj_index(s, n):
@@ -431,7 +440,7 @@ START_NEAR_M = 1000.0      # road objects this close to the start of the route (
 def _part_chunk(path, chunk_path, mat_index, near_xz):
     """Mesh nodes of an OBJ (part) file as finished kn5 bytes to chunk_path (worker process); returns (nodes, vertices,
     road objects near one of the points near_xz for the grid slots and the finish line; all if near_xz is None, its list of
-    single objects with node numbers from this chunk's start: objectlist)."""
+    single objects with node numbers from this chunk's start: objectlist, the materials of its 1ROAD_ objects: bc7_images)."""
     normals = {}
     objs = read_obj(path, normals)
     n_nodes = n_verts = 0
@@ -458,7 +467,7 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
             P = v[1]
             if near_xz is None or any((np.hypot(P[:, 0] - x, P[:, 2] - z) < START_NEAR_M).any() for x, z in near_xz):
                 roads[k] = v
-    return n_nodes, n_verts, roads, objects
+    return n_nodes, n_verts, roads, objects, {v[0] for k, v in objs.items() if k.startswith("1ROAD_")}
 
 
 def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
@@ -493,17 +502,19 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
     n_nodes = sum(r[0] for r in results)
     n_verts = sum(r[1] for r in results)
     objs = {}
-    for _, _, roads, _ in results:
+    for _, _, roads, _, _ in results:
         objs.update(roads)
-    # JPG as DDS (dds_bc1); PNG (alpha: trees, furniture, water) stays
+    # JPG as DDS (dds_texture); PNG (alpha: trees, furniture, water) stays
     jpgs = sorted({mtl[m] for m in used if mtl[m].lower().endswith(".jpg")})
+    bc7 = bc7_images(mtl, set().union(*(r[4] for r in results)))
+    flags = [p in bc7 for p in jpgs]
     if len(jpgs) > 1:
         n = parallel.workers(len(jpgs))
         log(f"DDS textures with {n} processes ...")
         with parallel.pool(n) as ex:
-            dds = dict(zip(jpgs, ex.map(dds_bc1, jpgs, chunksize=max(1, len(jpgs) // (4 * n)))))
+            dds = dict(zip(jpgs, ex.map(dds_texture, jpgs, flags, chunksize=max(1, len(jpgs) // (4 * n)))))
     else:
-        dds = {p: dds_bc1(p) for p in jpgs}
+        dds = {p: dds_texture(p, f) for p, f in zip(jpgs, flags)}
     tex = {m: dds.get(mtl[m]) or mtl[m] for m in used}
     textures, seen = [], set()      # (once per file: the 3 brightness levels of a facade colour share one texture)
     for m in used:

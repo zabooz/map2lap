@@ -37,6 +37,28 @@ function rgbaDds(width = 2, height = 2) {
   return bytes;
 }
 
+function bc7Dds(width: number, height: number, levels: number) {
+  // (a DX10 DDS of BC7_UNORM blocks, as textures.dds_mipmaps writes a tile image with roads)
+  let size = 0;
+  for (let k = 0, w = width, h = height; k < levels; k++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1))
+    size += Math.ceil(w / 4) * Math.ceil(h / 4) * 16;
+  const bytes = new ArrayBuffer(148 + size), header = new Int32Array(bytes, 0, 37);
+  header[0] = 0x20534444; header[1] = 124; header[2] = 0xa1007; header[3] = height; header[4] = width; header[7] = levels;
+  header[19] = 32; header[20] = 4; header[21] = 0x30315844; header[32] = 98; header[33] = 3; header[35] = 1;
+  new Uint8Array(bytes, 148).fill(7);
+  return bytes;
+}
+
+test("a BC7 tile image goes to the GPU as BPTC blocks with every mip level, as AC draws it", async () => {
+  const texture = await makeTexture(bc7Dds(8, 4, 3), "ground_0_0.dds", 8) as THREE.CompressedTexture;
+  expect(texture.format).toBe(THREE.RGBA_BPTC_Format);
+  expect([texture.image.width, texture.image.height]).toEqual([8, 4]);
+  expect((texture.mipmaps as ImageData[]).map(m => [m.width, m.height, m.data.length])).toEqual([[8, 4, 32], [4, 2, 16], [2, 1, 16]]);
+  expect(texture.minFilter).toBe(THREE.LinearMipmapLinearFilter);
+  expect(texture.colorSpace).toBe(THREE.SRGBColorSpace);
+  texture.dispose();
+});
+
 test("an uncompressed weight mask is filtered when the view comes close, as AC filters it", async () => {
   const texture = await makeTexture(rgbaDds(), "map2lap_mask_a.dds", 8, true);
   expect(texture.magFilter).toBe(THREE.LinearFilter);

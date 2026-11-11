@@ -12,7 +12,7 @@ export async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: nu
     t = new THREE.DataTexture(new Uint16Array(buf, 12), width, height, THREE.RedFormat, THREE.HalfFloatType);
     t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false;
   } else if (/\.dds$/i.test(file)) {
-    const d = new DDSLoader().parse(buf, true);
+    const d = bc7(buf) ?? new DDSLoader().parse(buf, true);
     if (d.format === THREE.RGBAFormat) {
       t = new THREE.DataTexture(d.mipmaps[0].data, d.width, d.height, THREE.RGBAFormat);
       t.mipmaps = d.mipmaps as ImageData[];
@@ -34,4 +34,20 @@ export async function makeTexture(buf: ArrayBuffer, file: string, anisotropy: nu
   t.colorSpace = linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
   t.needsUpdate = true;
   return t;
+}
+
+/** A DX10 DDS of BC7 blocks (a tile image with roads: textures.dds_mipmaps) as DDSLoader parses others; null for another DDS.
+ *  DDSLoader knows no BC7; WebGL draws it as BPTC (EXT_texture_compression_bptc). */
+function bc7(buf: ArrayBuffer) {
+  const header = new DataView(buf);
+  if (buf.byteLength < 148 || header.getUint32(84, true) !== 0x30315844 || header.getUint32(128, true) !== 98) return null;
+  const height = header.getUint32(12, true), width = header.getUint32(16, true);
+  const count = Math.max(1, header.getUint32(28, true)), mipmaps = [];
+  for (let k = 0, at = 148, w = width, h = height; k < count; k++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) {
+    const size = Math.ceil(w / 4) * Math.ceil(h / 4) * 16;
+    if (at + size > buf.byteLength) throw new Error("Invalid BC7 texture length");
+    mipmaps.push({data: new Uint8Array(buf, at, size), width: w, height: h});
+    at += size;
+  }
+  return {mipmaps, width, height, format: THREE.RGBA_BPTC_Format, mipmapCount: count};
 }

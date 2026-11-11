@@ -142,7 +142,8 @@ photos in the preview shaders (`uv_guard` in a paint layout), the colour composi
 mesh UV in the preview. Save writes whole-tile UVs and puts the tile image, under its own name and number, on its mask's ring
 canvas (`trackdetail.ringed_base`, `m2lBaseExtent`): the edited material samples image and mask at one UV, and the ring keeps the
 opposite tile edge out of AC's repeating filter. Older tracks get the same ring on painted tiles at their next Save. A saved copy
-without its source reads the ringed image back to the tile (`trackdetail.tile_base`). An opaque tile stays BC1; the ring canvas
+without its source reads the ringed image back to the tile (`trackdetail.tile_base`). An opaque tile keeps its format, BC7 for a
+tile with roads, else BC1, as does a tile painted with the colour compositor (`paintimage.encoded`); the ring canvas
 is 2304 px for a 2048 px tile (26.6 % more than the tile it replaces, only on painted tiles).
 Terrain pieces meeting at exactly the same 3D point on a 256 m tile boundary share area-weighted geometric normals and
 orthogonal tangents. Preview and Save apply small cached patches without modifying the retained source; new generator
@@ -586,7 +587,7 @@ Prepared mask pixels are retained as a lossless PNG in disposable cache, avoidin
 in-memory eviction or restart. A missing PNG is rebuilt from the retained operation masks. RGBA mask channels are independent
 weights, not alpha-associated colour: each mip is filtered independently and its weights sum to 255. Masks use lossless
 uncompressed RGBA8 DDS, avoiding BC3 colour/alpha quantization changing their brightness. The classic colour path uses BC1
-photos; regional photos use BC3 with independent gloss alpha. A local FP16 mask is retained when RGBA8 exceeds the weight
+photos; regional photos use BC7 with independent gloss alpha (`tracknative._photo_colour`), BC3's size without its two colours a block. A local FP16 mask is retained when RGBA8 exceeds the weight
 error budget. A full
 2048² mask including mips occupies about 22.4 MB instead of 5.6 MB for BC3. The descriptor, memory budget and Save's disk
 estimate include the actual size. This preserves 12.5 cm mask resolution instead of silently downsampling road boundaries.
@@ -643,8 +644,8 @@ unchanged. No bigger colour tile or extra photo copies are produced.
 Save keeps the native `ksMultilayer_objsp` material as a regular-repeating fallback. A managed include in the saved track's
 `extension/ext_config.ini` selects CSP's `ksMultilayer_objsp_nm4` for marked materials, enables only the imported layers'
 `tilingFixR/G/B/A` for the applicable imported channels. Missing normal maps are filled with flat defaults. The owned include is
-regenerated during Save and removed when no source/edited materials need it; unrelated effects remain. Without CSP the
-track remains driveable with ordinary repetition. The browser and CSP use the same two-sample mixing rule, but CSP's
+regenerated during Save and removed when no source/edited materials need it; unrelated effects remain. Tracks need CSP;
+nothing is kept working without it. The browser and CSP use the same two-sample mixing rule, but CSP's
 internal noise differs from the browser's deterministic field, so individual shifted patches need not occupy identical places.
 The implementation adds texture samples; frame-rate cost is not inferred from unit tests. Normal orientation, specular
 calibration, distant filtering and large-track performance still need native validation.

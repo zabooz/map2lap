@@ -459,5 +459,13 @@ def texture_bytes(ac, name, i, revision, version="", side=None):
     if version:
         from app import trackpaint
         return tex, trackpaint.texture(ac, name, i, revision, version)
+    raw = _read(path, offset, size, revision)
+    if tex not in _masks(s["materials"]):
+        return tex, raw         # (a BC7 tile image too: the page draws it as BPTC, as AC does)
     from track.textures import browser_weights
-    return tex, browser_weights(_read(path, offset, size, revision))     # (a saved BC7 mask: the browser has no BC7)
+    return tex, browser_weights(raw)     # (a saved BC7 mask: the page takes masks as lossless RGBA8 weights)
+
+
+def _masks(materials):
+    """The names of the textures the materials use as weight masks. Pure."""
+    return {tex for m in materials for slot, _n, tex in m.maps if slot in ("txMask", "txLayer1_Mask")}

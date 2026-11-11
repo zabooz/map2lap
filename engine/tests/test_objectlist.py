@@ -77,7 +77,7 @@ class WholeWayTest(unittest.TestCase):
         """The OBJ part as far as a kn5: (its path, its scan, the tile's list)."""
         obj.close()
         chunk = os.path.join(self.dir, "c.bin")
-        nodes, _verts, _roads, objects = obj_to_kn5._part_chunk(self.part, chunk, {"m": 0}, None)
+        nodes, _verts, _roads, objects, _road_materials = obj_to_kn5._part_chunk(self.part, chunk, {"m": 0}, None)
         path = os.path.join(self.dir, "x.kn5")
         kn5.write_streamed(path, [], [kn5.Material("m", "ksPerPixel", 0, 0, 0, [], [])],
                            kn5.Node(1, "map2lap", 1, matrix=IDENTITY), [chunk], nodes)

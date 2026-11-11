@@ -13,7 +13,7 @@ from PIL import Image
 
 from app import materiallibrary, trackpaint, trackview
 from track import groundmaterial, kn5
-from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, ring_indices, weight_extent
+from track.textures import SAVED_WEIGHT_STEP, _is_bc7, bc7_weights, coarse_weights, dds_mipmaps, dds_size, dds_weights, pad_weights, ring_indices, weight_extent
 
 PROFILE = 10
 # The Editor shows a painted tile's material borders as AC gets them, at 50 cm a texel (SAVED_WEIGHT_STEP, _preview_step),
@@ -777,14 +777,15 @@ def tile_base(raw, material, tile):
     return pixels
 
 
-def ringed_base(pixels, tile, filename):
-    """The tile image on the same world-phase ring canvas as its saved mask (pad_weights), in filename's format. Pure.
+def ringed_base(pixels, tile, filename, bc7=False):
+    """The tile image on the same world-phase ring canvas as its saved mask (pad_weights), in filename's format, a DDS as
+    BC7 with bc7 (a tile with roads: textures.dds_mipmaps). Pure.
     The edited material samples image and mask at one UV; the ring keeps the opposite tile edge out of AC's repeating
     filter, as the build's guard does (scenery/ground.py)."""
     alpha = bool((pixels[..., 3] < 255).any())      # (an opaque tile stays BC1 / RGB, half the size of BC3)
     image = pad_weights(Image.fromarray(pixels), tile)
     if filename.lower().endswith(".dds"):
-        return dds_mipmaps(image, alpha=alpha, smallest=1)
+        return dds_mipmaps(image, alpha=alpha, smallest=1, bc7=bc7)
     output = io.BytesIO()
     if filename.lower().endswith(".png"):
         image.convert("RGBA" if alpha else "RGB").save(output, "PNG")
@@ -824,8 +825,8 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
         tile = tuple(map(int, trackpaint.GROUND_IMAGE.fullmatch(base).groups()))
         _name, offset, size = scan["textures"][layout["base"]["i"]]
         # (the tile image of the source; it replaces the old one under its name, so there is no second copy)
-        ringed[base] = ringed_base(tile_base(trackview._read(path, offset, size, revision), materials[layout["materials"][0]], tile),
-                                   tile, base)
+        raw = trackview._read(path, offset, size, revision)
+        ringed[base] = ringed_base(tile_base(raw, materials[layout["materials"][0]], tile), tile, base, bc7=_is_bc7(raw))
         for i in layout["materials"]:
             original = materials[i]
             extent = layout.get('mask_extent',[1.,1.])

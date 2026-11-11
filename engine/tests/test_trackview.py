@@ -131,6 +131,21 @@ class TrackViewTest(unittest.TestCase):
         self.assertEqual([0.0, 1.0, 2.0, 3.0, 4.0], np.frombuffer(b, kn5.VERTEX, 5)["pos"][:, 0].tolist())
         self.assertEqual(("b.dds", b"DDS"), trackview.texture_bytes(self.ac, self.name, 1, revision))
 
+    def test_a_bc7_tile_image_comes_as_in_the_file_only_a_bc7_mask_is_unpacked(self):
+        from PIL import Image
+        from track import textures
+        tile = textures.dds_mipmaps(Image.new("RGB", (8, 8), (200, 200, 200)), bc7=True)
+        weights = np.zeros((8, 8, 4), np.uint8)
+        weights[..., 3] = 255
+        mask = textures.bc7_weights(textures.dds_weights(Image.fromarray(weights)))
+        material = kn5.Material("ground_0_0", "ksMultilayer_objsp", 0, 0, 0, [],
+                                [("txDiffuse", 0, "white.dds"), ("txMask", 1, "mask.dds"), ("txDetailA", 2, "tile.dds")])
+        kn5.write(self.path, [("tile.dds", tile), ("mask.dds", mask)], [material],
+                  kn5.Node(1, "map2lap", 1, matrix=IDENTITY, children=[mesh("1ROAD_ground_0_0", 3)]))
+        revision = trackview.index(self.ac, self.name)["revision"]
+        self.assertEqual(("tile.dds", tile), trackview.texture_bytes(self.ac, self.name, 0, revision))
+        self.assertEqual(textures.browser_weights(mask), trackview.texture_bytes(self.ac, self.name, 1, revision)[1])
+
     def test_numbers_from_an_older_file_are_refused(self):
         revision = trackview.index(self.ac, self.name)["revision"]
         with open(self.path, "ab") as f:        # (a build replaced it: mesh 2 could be anything now)

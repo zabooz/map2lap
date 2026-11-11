@@ -445,7 +445,7 @@ class DetailTest(unittest.TestCase):
             for channel in 'RGBA':
                 with Image.open(io.BytesIO(payloads[maps['txDetail'+channel]])) as image:
                     pixel = image.convert('RGBA').getpixel((0,0))
-                if abs(pixel[0]-130)<=4 and pixel[3] == 223:
+                if abs(pixel[0]-130)<=4 and abs(pixel[3]-223)<=2:     # (BC7: alpha a step or two off)
                     with Image.open(io.BytesIO(payloads[maps['txNormal'+channel]])) as image:
                         self.assertEqual((128,128,255), image.convert('RGB').getpixel((0,0)))
                     matched.append(channel)

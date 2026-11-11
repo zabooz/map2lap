@@ -24,7 +24,7 @@ PREFIX = "nocol_ground_m2l_"
 MASK_CACHE_VERSION = 1
 # The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
 # pad_weights or dds_mipmaps write other bytes for the same inputs.
-PHOTO_CACHE_VERSION = 1
+PHOTO_CACHE_VERSION = 2
 # The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region or
 # _batches give other vertices for the same inputs.
 GEOMETRY_CACHE_VERSION = 1
@@ -627,8 +627,9 @@ def _rgba(raw):
 
 
 def _photo_colour(raw, ref, material, tile, sheen, detail):
-    """A ground photo as an RGBA DDS: its colour (a tile's own image on its mask's ring canvas), in alpha its gloss from
-    detail, a function giving the detail map's pixels, or else sheen. Pure."""
+    """A ground photo as a BC7 DDS: its colour (a tile's own image on its mask's ring canvas), in alpha its gloss from
+    detail, a function giving the detail map's pixels, or else sheen. Pure. BC7 is BC3's size: BC3's colour has BC1's
+    two ends a block, which turned asphalt beside verge green (textures.dds_mipmaps)."""
     from app import trackdetail
     from track.textures import dds_mipmaps
     if ref["id"] == "base":
@@ -642,7 +643,7 @@ def _photo_colour(raw, ref, material, tile, sheen, detail):
         gloss = np.rint((1 - np.clip(detail()[..., 3] / 255 * ref.get("properties", {}).get("roughness", 1.), 0, 1)) * 255).astype(np.uint8)
         alpha = Image.fromarray(gloss).resize(colour.size, Image.Resampling.BILINEAR)
     colour.putalpha(alpha)
-    return dds_mipmaps(colour, alpha=True, smallest=1, independent=True)
+    return dds_mipmaps(colour, alpha=True, smallest=1, independent=True, bc7=True)
 
 
 def _photo_normals(data, ref):

@@ -118,6 +118,34 @@ class TextureTest(unittest.TestCase):
         header += struct.pack("<2I4s5I", 32, 4, b"DXT1", 0, 0, 0, 0, 0) + struct.pack("<5I", 0x401008, 0, 0, 0, 0)
         self.assertEqual(header + b"".join(levels), dds_mipmaps(image))
 
+    def test_a_road_tile_image_as_bc7_keeps_asphalt_grey_next_to_verge_and_marking(self):
+        import numpy as np
+        from track.textures import _is_bc7, dds_mipmaps
+        # (every 4×4 block holds three colours: asphalt, a white marking and green verge; BC1 has two ends a block)
+        pixels = np.empty((32, 32, 3), np.uint8)
+        pixels[:] = (90, 90, 92)
+        pixels[:, 1::4] = (235, 235, 235)
+        pixels[:, 3::4] = (70, 140, 50)
+        for bc7, worst in ((False, 12), (True, 6)):
+            raw = dds_mipmaps(Image.fromarray(pixels), bc7=bc7)
+            self.assertEqual(bc7, _is_bc7(raw))
+            self.assertEqual(struct.unpack_from("<I", dds_mipmaps(Image.fromarray(pixels)), 28), struct.unpack_from("<I", raw, 28))
+            with Image.open(io.BytesIO(raw)) as image:
+                asphalt = np.array(image.convert("RGB")).astype(int)[:, 0::4]
+            greener = asphalt[..., 1] - (asphalt[..., 0] + asphalt[..., 2]) / 2
+            (self.assertGreater if not bc7 else self.assertLess)(greener.max(), worst)
+
+    def test_a_bc7_colour_image_has_mips_down_to_one_pixel_and_its_alpha(self):
+        import numpy as np
+        from track.textures import dds_mipmaps, weight_levels
+        pixels = np.zeros((32, 16, 4), np.uint8)
+        pixels[..., 1], pixels[..., 3] = 160, 40
+        raw = dds_mipmaps(Image.fromarray(pixels), alpha=True, smallest=1, independent=True, bc7=True)
+        levels = weight_levels(raw)
+        self.assertEqual([(32, 16), (16, 8), (8, 4), (4, 2), (2, 1), (1, 1)], [level.shape[:2] for level in levels])
+        for level in levels:
+            self.assertTrue((np.abs(level.astype(int) - (0, 160, 0, 40)) <= 2).all())
+
     def test_new_materials_have_mips_down_to_one_pixel_in_both_dimensions(self):
         from track.textures import dds_mipmaps
         result = dds_mipmaps(Image.new("RGB", (32, 16), "green"), smallest=1)

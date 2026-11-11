@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 from track import editorinfo
-from track.textures import dds_mipmaps, preserve_blocks
+from track.textures import _is_bc7, dds_mipmaps, preserve_blocks
 
 ROWS = 128  # A 2K tile needs only a few MiB of float colour buffers, instead of whole-tile copies for each overlay.
 
@@ -79,11 +79,11 @@ def composite(original, tile, layers, assets, guard=0.):
 
 
 def encoded(original, filename, tile, layers, assets, guard=0.):
-    """Composite a tile once, in its existing image format; unchanged DDS blocks remain byte-identical."""
+    """Composite a tile once, in its existing image format (a tile with roads BC7); unchanged DDS blocks remain byte-identical."""
     pixels, touched = composite(original, tile, layers, assets, guard)
     image = Image.fromarray(pixels)
     if filename.lower().endswith(".dds"):
-        return preserve_blocks(original, dds_mipmaps(image, smallest=1), touched)
+        return preserve_blocks(original, dds_mipmaps(image, smallest=1, bc7=_is_bc7(original)), touched)
     output = io.BytesIO()
     image.save(output, "PNG" if filename.lower().endswith(".png") else "JPEG", **({} if filename.lower().endswith(".png") else {"quality": 95, "subsampling": 0}))
     return output.getvalue()

@@ -16,20 +16,26 @@ def dds_size(width, height, alpha=False, *, uncompressed=False):
         width, height = max(1, width // 2), max(1, height // 2)
 
 
-def dds_mipmaps(image, alpha=False, smallest=4, *, independent=False):
-    """RGB/RGBA as BC1/BC3 DDS. Pure. Independent data channels are averaged without alpha association.
+def dds_mipmaps(image, alpha=False, smallest=4, *, independent=False, bc7=False):
+    """RGB/RGBA as BC1/BC3 DDS, or as BC7 with bc7. Pure. Independent data channels are averaged without alpha association.
 
     smallest=4 preserves the build profile; 1 makes a full chain. For weight masks A is another weight,
     not transparency: Pillow's premultiplied RGBA resize would erase RGB wherever A is zero.
+    BC7 is for a ground tile image with roads: BC1 has two end colours a 4×4 block (50 cm, 1 m one mip down), so grey asphalt
+    beside green verge and a white marking turned green in places (seen in AC, 2026-11-11). BC7 splits a block into parts with
+    ends of their own, at twice BC1's size.
     """
     im = image.convert("RGBA" if alpha else "RGB")
     w0, h0 = w, h = im.size
     fourcc = "DXT5" if alpha else "DXT1"
     levels = []
     while True:
-        output = io.BytesIO()
-        im.save(output, "DDS", pixel_format=fourcc)
-        levels.append(output.getvalue()[128:])
+        if bc7:
+            levels.append(_bc7_level(np.asarray(im.convert("RGBA")), _bc7_params()))
+        else:
+            output = io.BytesIO()
+            im.save(output, "DDS", pixel_format=fourcc)
+            levels.append(output.getvalue()[128:])
         if smallest == 1:
             if w == h == 1:
                 break
@@ -38,7 +44,7 @@ def dds_mipmaps(image, alpha=False, smallest=4, *, independent=False):
         w, h = max(1, w // 2), max(1, h // 2)
         im = (Image.merge(im.mode, [band.resize((w, h), Image.Resampling.BOX) for band in im.split()]) if independent
               else im.resize((w, h), Image.Resampling.BOX))
-    return _dds_file(levels, w0, h0, fourcc)
+    return _bc7_header(w0, h0, len(levels)) + b"".join(levels) if bc7 else _dds_file(levels, w0, h0, fourcc)
 
 
 def _dds_file(levels, width, height, fourcc):
@@ -202,18 +208,25 @@ def bc7_weights(raw):
     AC with CSP (2026-11-09); other textures, and RGBA16F region masks, pass unchanged."""
     if not _is_rgba8(raw):
         return raw
-    import etcpak
-    import numpy as np
-    params = etcpak.BC7CompressBlockParams()
+    params = _bc7_params()
     params.init_linear_weights()
     params.m_uber_level = 2
     levels = weight_levels(raw)
-    blocks = []
-    for level in levels:
-        h, w = level.shape[:2]
-        padded = np.ascontiguousarray(np.pad(level, ((0, -h % 4), (0, -w % 4), (0, 0)), mode="edge"))
-        blocks.append(etcpak.compress_bc7(padded.tobytes(), padded.shape[1], padded.shape[0], params))
-    return _bc7_header(levels[0].shape[1], levels[0].shape[0], len(levels)) + b"".join(blocks)
+    return _bc7_header(levels[0].shape[1], levels[0].shape[0], len(levels)) + b"".join(_bc7_level(level, params) for level in levels)
+
+
+def _bc7_params():
+    """etcpak's BC7 settings as it sets them: perceptual colour error, as for the tile images tried in AC (2026-11-11)."""
+    import etcpak
+    return etcpak.BC7CompressBlockParams()
+
+
+def _bc7_level(pixels, params):
+    """One mip level (H, W, 4 uint8 RGBA) as BC7 blocks, a side short of 4 filled with its edge. Pure."""
+    import etcpak
+    h, w = pixels.shape[:2]
+    padded = np.ascontiguousarray(np.pad(pixels, ((0, -h % 4), (0, -w % 4), (0, 0)), mode="edge"))
+    return etcpak.compress_bc7(padded.tobytes(), padded.shape[1], padded.shape[0], params)
 
 
 # A saved mask texel per SAVED_WEIGHT_STEP of a tile's pixels: 50 cm on a 2048 px / 256 m tile instead of 12.5 cm. A mask is
@@ -240,7 +253,7 @@ def coarse_weights(raw, step=SAVED_WEIGHT_STEP):
 
 
 def browser_weights(raw):
-    """A BC7 weight DDS as lossless RGBA8 for the Editor's browser view, whose DDS loader has no BC7. Pure."""
+    """A BC7 weight DDS as lossless RGBA8 for the Editor's browser view, which takes masks as RGBA8 weights. Pure."""
     if not _is_bc7(raw):
         return raw
     return dds_weights(Image.fromarray(weight_levels(raw)[0]))
@@ -272,17 +285,18 @@ def ring_indices(width, height, tile):
 
 
 def preserve_blocks(original, changed, mask):
-    """Reuse untouched BC1/BC3 blocks at each common mip level. Pure. Other formats keep the newly encoded image."""
+    """Reuse untouched BC1/BC3/BC7 blocks at each common mip level. Pure. Other formats keep the newly encoded image."""
     import numpy as np
+    bc7 = _is_bc7(original) and _is_bc7(changed)
     if (original[:4] != b"DDS " or changed[:4] != b"DDS " or original[84:88] != changed[84:88]
-            or original[12:20] != changed[12:20] or changed[84:88] not in (b"DXT1", b"DXT5")):
+            or original[12:20] != changed[12:20] or not (bc7 or changed[84:88] in (b"DXT1", b"DXT5"))):
         return changed
     height, width = struct.unpack_from("<2I", changed, 12)
     if mask.shape != (height, width):
         raise ValueError("The texture mask has another size")
     block_bytes = 8 if changed[84:88] == b"DXT1" else 16
     count = min(max(1, struct.unpack_from("<I", data, 28)[0]) for data in (original, changed))
-    result, offset = bytearray(changed), 128
+    result, offset = bytearray(changed), 148 if bc7 else 128
     on = np.asarray(mask, bool)
     for _ in range(count):
         rows, cols = (height + 3) // 4, (width + 3) // 4
