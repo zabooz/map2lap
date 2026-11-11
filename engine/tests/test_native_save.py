@@ -222,6 +222,23 @@ class RegionMaskTest(unittest.TestCase):
             trackcopy.save(self.ac, self.name)
         return made
 
+    def test_tile_image_copies_gone_from_the_cache_are_made_by_prepare_and_the_export_encodes_none(self):
+        import re
+        # (a real build's ground has its border lighting already; this fixture's would be changed after preparing it)
+        patch = mock.patch.object(groundnormals, "changed", side_effect=lambda _path, change: change)
+        patch.start(); self.addCleanup(patch.stop)
+        self.keep(self.painted(5))
+        trackcopy.save(self.ac, self.name)
+        path = Path(self.ac, "content/tracks", self.name, self.name + ".kn5")
+        first = path.read_bytes()
+        copies = [p for p in tracknative._mask_folder(self.name).iterdir() if re.fullmatch(r"[0-9a-f]{64}\.dds", p.name)]
+        self.assertTrue(copies)
+        for copy in copies:         # (the descriptions and masks stay: only the tile image copies are gone)
+            copy.unlink()
+        self.assertEqual({"masks": 0, "photos": 0, "clips": 0, "fields": 0}, self.export_makes())
+        self.assertTrue(all(copy.exists() for copy in copies))
+        self.assertEqual(first, path.read_bytes())
+
     def test_a_prepare_worker_starts_with_small_data_and_reads_the_scan_itself(self):
         import pickle
         from track import parallel

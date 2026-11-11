@@ -501,14 +501,41 @@ def prepare(ac,name,descriptors,scan,path,processes=None):
 
 
 def _kept_tile(name,descriptor):
-    """Whether the track's last Save left a painted tile's description and all its masks: then nothing of it needs its fields.
-    (Its region copies and images are not looked at: the Save makes one missing itself.)"""
+    """Whether the track's last Save, or a prepare, left all a painted tile needs: its description, its masks, its own image
+    copies and its ground's region copies (_kept_files). Then nothing of it needs making; else prepare makes it on its pool,
+    as the export would on one core (106 tile image copies after a PHOTO_CACHE_VERSION change: a Save 208 s)."""
     from app import trackdetail
     layout=trackdetail._kept_native(descriptor,True)
     if layout is None: return False
     width,height=layout['native_tile']['dimensions']
     kept=_mask_folder(name)
-    return all((kept/_mask_file(key,bounds,width,height)).exists() for (bounds,_palette),key in zip(layout['native_regions'],layout['native_mask_keys']))
+    files=_kept_files(descriptor)
+    return (files is not None and all((kept/file).exists() for file in files)
+            and all((kept/_mask_file(key,bounds,width,height)).exists() for (bounds,_palette),key in zip(layout['native_regions'],layout['native_mask_keys'])))
+
+
+def _files_record(descriptor):
+    """Where prepare keeps the list of a painted tile's files (_kept_files): beside its description."""
+    from app import trackpaint
+    return trackpaint._out("paint-views",descriptor['version'])/"native-files.json"
+
+
+def _files_stamp(descriptor):
+    """What a kept list of a tile's files (_kept_files) must have been made with: its description's stamp and the caches'
+    versions, whose change renames the files. Pure."""
+    from app import trackdetail
+    return {"native": trackdetail._native_stamp(descriptor,True),"photos":PHOTO_CACHE_VERSION,"geometry":GEOMETRY_CACHE_VERSION}
+
+
+def _kept_files(descriptor):
+    """The names in _mask_folder of a painted tile's own image copies and region copies, as its last prepare kept them;
+    None if none, or one made with other caches."""
+    from app import trackpaint
+    try:
+        saved=trackpaint._read(_files_record(descriptor))
+    except ValueError:
+        return None
+    return saved['files'] if saved.get('stamp')==_files_stamp(descriptor) else None
 
 
 def _init_prepare(roots,ac,name,path,scan=None):
@@ -529,6 +556,7 @@ def _prepare_tile(descriptor):
     layout=trackdetail._native_layout(ac,name,descriptor,True,{},read)
     kept=_mask_folder(name)
     save_size(layout,scan,path,kept)
+    files=set(layout['native_copies'])
     fields=functools.cache(lambda: with_base(read()[1]))
     semantic=layout['native_tile']; width,height=semantic['dimensions']
     phase=_mask_phase(layout,width,height)
@@ -544,7 +572,9 @@ def _prepare_tile(descriptor):
         for ref in (refs[key] for _bounds,palette in layout['native_regions'] for key in palette):
             if 'asset' not in ref and (ref['id'],ref.get('i'),specular) not in done:
                 done.add((ref['id'],ref.get('i'),specular))
-                _own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref))
+                files.add(_own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref))[0])
+    from app import trackpaint
+    trackpaint._atomic(_files_record(descriptor),trackpaint._json_bytes({'stamp':_files_stamp(descriptor),'files':sorted(files)}))
 
 
 def _mask_folder(name):
