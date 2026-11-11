@@ -1,17 +1,18 @@
-/* Smaller than the import dialogs it shares its look with (ImportDialog.module.css): a picture and a few settings */
-.dialog { width: min(760px, calc(100vw - 60px)); height: auto; max-height: calc(100dvh - 60px); }
-/* The picture and what the change reaches on the left, the settings on the right; one below the other in a narrow window */
-.columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 20px; align-items: start; }
-@media (max-width: 700px) { .columns { grid-template-columns: minmax(0, 1fr); } }
-.look { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.preview { width: 100%; aspect-ratio: 1; object-fit: cover; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); }
-.fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.group { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); }
-.group strong { font-size: 13px; }
+/* A small window, as high as its few settings (dialog.dialog: over the import dialogs' fixed size, ImportDialog.module.css) */
+dialog.dialog { width: min(460px, calc(100vw - 60px)); height: fit-content; max-height: calc(100dvh - 60px); }
+form.form { min-height: 0; }
+/* A small picture beside the name and what the change reaches */
+.head { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.head > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.preview { flex: none; width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); }
+.fields { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.group { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); }
+.group .title { display: flex; justify-content: space-between; gap: 8px; margin: 0; font-size: 13px; }
+.value { color: var(--muted); font-weight: normal; font-variant-numeric: tabular-nums; }
 .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .switch input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 /* A slider between its two ends' names, or after its name with its value behind it */
-.slider { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; color: var(--muted); }
-.slider input { width: 100%; margin: 0; accent-color: var(--accent); }
-.slider output { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+.slider { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--muted); }
+.slider input { width: 100%; min-width: 0; margin: 0; accent-color: var(--accent); }
+.slider output { min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .reset { margin-right: auto; }

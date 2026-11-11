@@ -30,3 +30,7 @@
 .change { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
 .change:hover { color: var(--accent); border-color: var(--accent); }
 .facts { margin-top: 6px; }
+/* The applied texture's settings under its picture, changed in place */
+.look { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.look h4 { margin: 0; font-size: 12px; }
+.error { margin: 0; color: var(--error); overflow-wrap: anywhere; }

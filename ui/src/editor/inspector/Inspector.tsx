@@ -1,5 +1,4 @@
 import {memo, useEffect, useState, type ReactNode} from "react";
-import {createPortal} from "react-dom";
 import type {EditState} from "../state/edits";
 import {HoverBox} from "./HoverBox";
 import {sortName} from "../scene/inspect";
@@ -10,8 +9,8 @@ import type {TrackView} from "../scene/view";
 import styles from "./Inspector.module.css";
 import {SunClock} from "../scene/SunClock";
 import {TrackStatistics} from "./TrackStatistics";
-import {TextureSettings} from "../library/TextureSettings";
-import {lookSummary, type TextureLook, type TextureMaps} from "../library/textureLook";
+import {TextureLookFields} from "../library/TextureSettings";
+import {LOOK, lookSummary, type TextureLook, type TextureMaps} from "../library/textureLook";
 
 function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;
@@ -93,12 +92,12 @@ interface TextureAppearance {
   paint?: string; look?: TextureLook; maps?: TextureMaps; rectangular?: boolean; tiles?: number;
 }
 
-/** What Settings… in the Inspector changes the shown texture's settings with (usePaint). */
+/** What the Inspector changes the shown texture's settings with (usePaint). */
 export interface Restyling {busy: boolean; error: string | null; restyle: (paint: string, look: TextureLook, variation?: boolean) => Promise<boolean>}
 
 /** The active colour image, separated from source mesh/material diagnostics. onEdit: opens the textures, null where the paint can't change.
-    onSettings: opens the applied texture's settings, null where they can't change. */
-export function AppearanceCard({info, onEdit, onSettings = null}: {info: TextureAppearance; onEdit: (() => void) | null; onSettings?: (() => void) | null}) {
+    settings: the applied texture's settings to change in place, in place of their summary; absent where they can't change. */
+export function AppearanceCard({info, onEdit, settings}: {info: TextureAppearance; onEdit: (() => void) | null; settings?: ReactNode}) {
   const [failed, setFailed] = useState(false);
   return <>
     {info.preview && !failed && (onEdit ? <button type="button" className={styles.appearance} aria-label="Edit texture" onClick={onEdit}>
@@ -107,13 +106,42 @@ export function AppearanceCard({info, onEdit, onSettings = null}: {info: Texture
     <strong>{info.name}</strong>
     {info.repeat && <p className="small muted">{info.repeat.join(" × ")} m per repeat{info.variation && " · Repetition variation"}</p>}
     {info.mixed && <p className="small muted">Blended edge: showing the dominant texture at the selected point.</p>}
-    {info.paint && info.look && info.maps && <p className="small muted">{lookSummary(info.look, info.maps)}</p>}
+    {!settings && info.paint && info.look && info.maps && <p className="small muted">{lookSummary(info.look, info.maps)}</p>}
     {failed && <p className="small muted">Texture preview unavailable.</p>}
-    {(onEdit || (onSettings && info.paint)) && <div className={styles.actions}>
-      {onEdit && <button type="button" className={styles.change} onClick={onEdit}>Change texture…</button>}
-      {onSettings && info.paint && <button type="button" className={styles.change} onClick={onSettings}>Settings…</button>}
+    {onEdit && <div className={styles.actions}>
+      <button type="button" className={styles.change} onClick={onEdit}>Change texture…</button>
     </div>}
+    {settings}
   </>;
+}
+
+/** The applied texture's settings in the panel (info.paint, look, maps), changed in place for this application only: a switch at
+    once, a slider when it is let go, each one Undo step (restyling). A refused change goes back to what the track has; a new edit
+    at the point (Undo, Revert, another change) brings its settings. stale: info is the point's before the last change, so the
+    controls wait for the edit that replaced it. */
+function LookControls({info, stale, restyling}: {info: TextureAppearance; stale: boolean; restyling: Restyling}) {
+  const now = {look: info.look!, variation: info.variation};
+  const [draft, setDraft] = useState(now), [paint, setPaint] = useState(info.paint);
+  if (paint !== info.paint) { setPaint(info.paint); setDraft(now); }
+  const apply = (look: TextureLook, variation: boolean) => {
+    setDraft({look, variation});
+    if (JSON.stringify({look, variation}) === JSON.stringify(now)) return;
+    void restyling.restyle(info.paint!, look, info.rectangular ? variation : undefined).then(done => { if (!done) setDraft(now); });
+  };
+  const tiles = info.tiles ? ` (${info.tiles} ${info.tiles === 1 ? "tile" : "tiles"})` : "";
+  return <div className={styles.look} role="group" aria-label="Texture settings">
+    <h4>Texture settings</h4>
+    <TextureLookFields maps={info.maps ?? {normal: false, roughness: false}} rectangular={!!info.rectangular} look={draft.look}
+      variation={draft.variation} disabled={restyling.busy || stale}
+      onChange={(look, variation, done) => done ? apply(look, variation) : setDraft({look, variation})} />
+    <p className="small muted">This application only{tiles}{info.mixed ? ", the dominant texture at this blended edge" : ""}. Other places
+      and the library stay as they are; Undo takes it back.</p>
+    {restyling.error && <p role="alert" className={styles.error}>{restyling.error}</p>}
+    <div className={styles.actions}>
+      <button type="button" className={styles.change} disabled={restyling.busy || stale} onClick={() => apply(LOOK, draft.variation)}>As imported</button>
+      {restyling.busy && <span className="small muted" role="status">Applying…</span>}
+    </div>
+  </div>;
 }
 
 const fixed = (v: number, digits = 2) => v.toFixed(digits);
@@ -134,12 +162,11 @@ export function SelectionFacts({hovered: h}: {hovered: Hovered}) {
 
 function Appearance({name, picked, version, onEdit, restyling}: {name: string; picked: Picked; version: string; onEdit: (() => void) | null;
   restyling: Restyling | null}) {
-  const [answer, setAnswer] = useState<{key: string; info?: TextureAppearance; error?: string} | null>(null);
-  const [settings, setSettings] = useState<TextureAppearance | null>(null);
+  const [answer, setAnswer] = useState<{key: string; spot: string; info?: TextureAppearance; error?: string} | null>(null);
   const source = picked.inspection!, point = picked.surface;
   const ground = !!point && point.face === undefined;
   const query = new URLSearchParams({mesh: String(point?.mesh), u: String(point?.u), v: String(point?.v), r: source.revision, p: version});
-  const key = `/api/editor/${encodeURIComponent(name)}/appearance?${query}`;
+  const key = `/api/editor/${encodeURIComponent(name)}/appearance?${query}`, spot = `${point?.mesh}|${point?.u}|${point?.v}`;
   useEffect(() => {
     if (!ground) return;
     const controller = new AbortController();
@@ -147,27 +174,22 @@ function Appearance({name, picked, version, onEdit, restyling}: {name: string; p
       .then(async response => {
         const result = await response.json() as TextureAppearance & {error?: string};
         if (!response.ok) throw new Error(result.error ?? "Could not read the applied texture");
-        if (!controller.signal.aborted) setAnswer({key, info: result});
-      }).catch((e: Error) => { if (!controller.signal.aborted) setAnswer({key, error: e.message}); });
+        if (!controller.signal.aborted) setAnswer({key, spot, info: result});
+      }).catch((e: Error) => { if (!controller.signal.aborted) setAnswer({key, spot, error: e.message}); });
     return () => controller.abort();
-  }, [key, ground]);
-  const info: TextureAppearance | undefined = ground ? answer?.key === key ? answer.info : undefined : {
+  }, [key, spot, ground]);
+  // (after an edit the point's last answer stays while the new one comes, so the panel keeps its place and focus)
+  const stale = answer?.key !== key;
+  const info: TextureAppearance | undefined = ground ? answer?.spot === spot ? answer.info : undefined : {
     name: source.hovered.texture ?? "No texture", preview: source.texture !== null && source.texture >= 0
       ? `/api/editor/${encodeURIComponent(name)}/thumbnail?${new URLSearchParams({texture: String(source.texture), r: source.revision})}` : "",
     repeat: null, variation: false, original: false, mixed: false,
   };
   return <section id="inspect-appearance" className={styles.section}>
     <h3>Appearance</h3>
-    {info ? <AppearanceCard key={info.preview} info={info} onEdit={onEdit}
-      onSettings={restyling && onEdit ? () => setSettings(info) : null} /> : <p className="small muted">
+    {info ? <AppearanceCard key={info.preview} info={info} onEdit={onEdit} settings={restyling && onEdit && info.paint && info.look
+      ? <LookControls key={spot} info={info} stale={stale} restyling={restyling} /> : undefined} /> : <p className="small muted">
       {answer?.key === key && answer.error ? answer.error : "Reading applied texture…"}</p>}
-    {settings?.paint && restyling && createPortal(<TextureSettings name={settings.name} preview={settings.preview}
-      maps={settings.maps ?? {normal: false, roughness: false}} rectangular={!!settings.rectangular} look={settings.look!} variation={settings.variation}
-      confirm="Apply" busy={restyling.busy} error={restyling.error} onClose={() => setSettings(null)}
-      scope={`Changes “${settings.name}” where it was applied here${settings.tiles ? ` (${settings.tiles} ${settings.tiles === 1 ? "tile" : "tiles"})` : ""}${
-        settings.mixed ? ", the dominant texture at this blended edge" : ""}. Other places with this texture and the library stay as they are. Undo takes it back.`}
-      onSave={(look, variation) => void restyling.restyle(settings.paint!, look, settings.rectangular ? variation : undefined)
-        .then(done => { if (done) setSettings(null); })} />, document.body)}
   </section>;
 }
 

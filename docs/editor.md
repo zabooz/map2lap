@@ -313,13 +313,13 @@ Select all takes every prepared ground tile of the material, however many. A sel
 and can apply to its highlighted part: the picker states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
 authoritative source masks; later loading cannot change the chosen tiles. Unscoped incomplete Select all requests remain refused.
 Escape closes the picker without clearing the ground selection, including from its search field.
-Settings… under the selected texture opens its texture settings for the next Apply, without reimporting and without
-changing the library package (`library/TextureSettings.tsx`, in the group settings' look): Use normal map and Normal strength
+Settings…, between Cancel and Apply, opens the selected texture's settings for the next Apply in a small window, without
+reimporting and without changing the library package (`library/TextureSettings.tsx`): Use normal map and Normal strength
 (0 % adds no bumps, 100 % is as imported), Use roughness map, and Roughness from Smoother through As imported to Matter.
 A map the texture lacks is named, not switched. Breaking up the repetition is offered for rectangular repeats only: square
 repeats are drawn with PBR, whose shared CSP switch would also shift the baked tile image, so their preference rests and the
-Inspector does not show it. Cancel drops the dialog's changes, OK keeps them for the next Apply, and the line beside the button
-names those that differ from As imported. Delete texture asks for confirmation and removes only the selected library package.
+Inspector does not show it. Cancel drops the dialog's changes, OK keeps them for the next Apply, and the selected texture's
+Settings line names those that differ from As imported. Delete texture asks for confirmation and removes only the selected library package.
 Already applied colours, retained snapshots and saved tracks remain independent of that package.
 
 Appearance resolves the displayed texture at the selected ground point against its immutable displayed version. It shows
@@ -328,9 +328,11 @@ The original ground remains labelled as such at untouched points; soft edges ind
 These selection requests read existing layer masks and do not bake colour tiles. Previews come from retained assets,
 so they also work after library removal or on portable saved copies. A changed selection/version cancels its old request;
 source mesh/material/shader diagnostics remain under Details.
-Where an applied texture shows, Appearance names its settings and offers Settings… (the same dialog, with Apply). The change
+Where an applied texture shows, Appearance has the same settings in place (`TextureLookFields`): a switch applies at once, a
+slider when it is let go or set by key, each one Undo step; while the changed edit is read back the point's last answer stays
+and the controls wait, so the panel keeps its place and focus. A refused change goes back to what the track has. The change
 reaches that one application, the edit shown at the point (`trackinspect._application`: the last edit of the tile with that
-snapshot whose mask covers it, as the last one wins there); at a blended edge it is the dominant texture, and the dialog says
+snapshot whose mask covers it, as the last one wins there); at a blended edge it is the dominant texture, and the panel says
 so with its tile count. Other applications of the texture and the library stay as they are. A saved copy's embedded layer
 without its edit offers no Settings.
 
