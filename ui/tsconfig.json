@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "e2e", "tools", "dev.ts", "build.ts", "playwright.config.ts"]
+  "include": ["src", "e2e", "probes", "tools", "dev.ts", "build.ts", "playwright*.config.ts"]
 }

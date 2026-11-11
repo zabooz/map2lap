@@ -1,14 +1,13 @@
 import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
-import {expect, openEditor, test} from './fixtures';
+import {expect, openLibrary, test} from './library-fixtures';
 
 test('import geometry levels preview and publish the measured canonical model', async ({page}, testInfo) => {
   // The shared Python fixture has independent wall/roof primitives, UVs and explicit normals.
   const repo = join(import.meta.dirname, '../..');
   const python = process.platform === 'win32' ? join(repo, '.venv/Scripts/python.exe') : join(repo, '.venv/bin/python');
   const buffer = execFileSync(python, ['-c', "import sys; sys.path[:0]=['engine/tests','src']; from test_modelsimplify import panel; sys.stdout.buffer.write(panel())"], {cwd: repo});
-  await openEditor(page);
-  await page.getByRole('button', {name: 'Insert', exact: true}).click();
+  await openLibrary(page, "objects");
   const half = page.waitForResponse(r => r.url().includes('/info?') && r.url().includes('simplify_level=50'));
   await page.getByLabel('Model file').setInputFiles({name: 'house.glb', mimeType: 'model/gltf-binary', buffer});
   const dialog = page.getByRole('dialog', {name: 'Import object', exact: true});

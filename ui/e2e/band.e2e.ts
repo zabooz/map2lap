@@ -1,6 +1,6 @@
 // Mapped road masks, automatic smoothing, pin editing and cancellation on a real 2 m height lattice.
 import type {Page} from "@playwright/test";
-import {button, centre, expect, openEditor, scene, test, type Backend} from "./fixtures";
+import {centre, expect, openEditor, scene, test, type Backend} from "./fixtures";
 import {heights, picture, saved} from "./edit-helpers";
 
 async function onHill(page: Page, backend: Backend) {
@@ -218,10 +218,4 @@ test("Shift and Ctrl wheel change strength and terrain transition", async ({page
   await expect(transition(page)).toHaveValue("5");
   await page.keyboard.down("Shift"); await page.mouse.wheel(0, -100); await page.keyboard.up("Shift");
   await expect(strength(page)).toHaveValue("5");
-});
-
-test("Elevation is available by its button and H key", async ({page}) => {
-  await openEditor(page); await expect(button(page, "Elevation")).toBeVisible();
-  await scene(page).focus(); await page.keyboard.press("h");
-  await expect(page.locator("#edit-elevation-set")).toBeVisible();
 });

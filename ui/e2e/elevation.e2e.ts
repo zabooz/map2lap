@@ -1,6 +1,6 @@
 // Elevation, the Editor's brush: a click, held, its keys, strokes on their way; and X, where each click deletes.
 import {button, centre, expect, openEditor, openSettings, scene, test} from "./fixtures";
-import {box, brushStroke, deleteTree, findTree, heights, picture, saveTrack, saved} from "./edit-helpers";
+import {box, brushStroke, deleteTree, findTree, heights, NEAR_TREE, picture, saveTrack, saved} from "./edit-helpers";
 
 test("the brush: a stroke raises the ground with what stands there, shows at once, Ctrl+Z takes it back whole", async ({page}) => {
   await openEditor(page);
@@ -357,5 +357,6 @@ test("the brush: while it is on, a click picks nothing", async ({page}) => {
   await page.locator("#edit-elevation-set").getByLabel("Radius").fill("3");
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toHaveCount(0);
-  await expect(box(page)).toBeHidden();
+  await expect(box(page)).toHaveAttribute("data-empty", "");
+  await expect(box(page)).not.toContainText(NEAR_TREE);
 });

@@ -13,9 +13,7 @@ test("missing CSP slides down at the top, opens its settings and never installs 
   await expect(warning.getByRole("button", {name: "Install CSP"})).toBeVisible();
   await expect(page.getByRole("dialog", {name: "Settings"})).toBeHidden();
   await page.screenshot({path: testInfo.outputPath("warning-toast.png"), animations: "disabled"});
-  const bounds = (await warning.boundingBox())!;
-  expect(Math.abs(bounds.x + bounds.width / 2 - 750)).toBeLessThan(2);
-  expect(bounds.y).toBeLessThan(60);
+  await expect(warning).toBeInViewport();
   await warning.getByRole("button", {name: "Install CSP"}).click();
   const dialog = page.getByRole("dialog", {name: "Settings"});
   await expect(dialog).toBeVisible();

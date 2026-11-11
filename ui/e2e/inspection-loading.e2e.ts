@@ -22,7 +22,7 @@ test("selection metadata appears while its overlay is still decoding", async ({p
     name: "Fine grass", preview: "", repeat: [2, 2], original: false, mixed: false, variation: false,
   }}));
   await page.addScriptTag({content: script});
-  await expect(page.locator("#inspect-selection")).toContainText("Meadow selected", {timeout: 1500});
+  await expect(page.locator("#inspect-selection #edit-surface")).toHaveText("Meadow", {timeout: 1500});
 });
 
 test("other tiles finishing cannot restart the selected texture request or erase its card", async ({page}) => {

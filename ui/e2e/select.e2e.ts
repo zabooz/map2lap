@@ -83,7 +83,11 @@ test("the Select bar offers what can be done with the picked ground or object, A
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
   await openEditor(page);
   const bar = page.locator("#edit-select-set"), library = page.getByRole("dialog", {name: "Asset library"});
-  const road = await centre(scene(page));
+  // The listed car stands in the middle of this fixture. Use and verify the exposed road beside it.
+  const view = (await scene(page).boundingBox())!;
+  const road = {x: view.x + view.width * .3, y: view.y + view.height * .65};
+  await page.mouse.move(road.x, road.y);
+  await expect(page.locator("#hover-box")).toContainText("1ROAD_ground_0_0");
   await page.mouse.click(road.x, road.y);
   await expect(page.locator("#edit-surface")).toContainText("Asphalt");
   await expect(bar.locator("#edit-select-texture")).toBeVisible();

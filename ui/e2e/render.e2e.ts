@@ -9,7 +9,8 @@ test.use({viewport: {width: 1825, height: 900}});
 
 async function openEditor(page: Page, name = "alpha") {
   await loadEditor(page, name);
-  await page.getByRole("tab", {name: "Details", exact: true}).click();
+  // Pointer metadata belongs to Properties; Details deliberately hides it.
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
   await scene(page).focus();
 }
 
@@ -113,7 +114,7 @@ test("a tree shows where the mouse finds one, and through its empty parts lies w
   const empty = await picture(page, await stillView(page));
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await page.getByRole("tab", {name: "Details", exact: true}).click();
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
   await page.mouse.move(AWAY.x, AWAY.y);
   const view = (await scene(page).boundingBox())!;
   const full = await picture(page, await stillView(page));

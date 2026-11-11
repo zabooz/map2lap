@@ -1,4 +1,4 @@
-import {expect, openEditor, test} from "./fixtures";
+import {expect, openLibrary, test} from "./library-fixtures";
 
 /** An uneven indexed grid without NORMAL: native flat shading expands every triangle's corners, and no two neighbours lie
  * flat enough to share them again. Pure. */
@@ -27,8 +27,7 @@ function detailedPanel() {
 }
 
 test("native geometry cost and heavy warning survive import into the selected library model", async ({page}, testInfo) => {
-  await openEditor(page);
-  await page.getByRole("button", {name: "Insert", exact: true}).click();
+  await openLibrary(page, "objects");
   const library = page.getByRole("dialog", {name: "Asset library"});
   const prepared = page.waitForResponse(r => r.url().includes("/model-imports?filename="));
   await library.getByLabel("Model file").setInputFiles({name: "detailed-panel.glb", mimeType: "model/gltf-binary", buffer: detailedPanel()});
