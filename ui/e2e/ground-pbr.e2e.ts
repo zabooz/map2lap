@@ -72,6 +72,8 @@ test("adding PBR to another material preserves the existing colour-only field on
     return picture(page);
   }
   const existing = await apply(.4, "Existing colour only");
+  // This is the black field's interior, not the filtered transition to its neighbour.
+  expect(Math.max(...await rgb(page, existing, .4, .65))).toBeLessThanOrEqual(1);
   const adjacent = await apply(.7, "Adjacent PBR");
   expect(await untouchedDelta(page, existing, adjacent, .4)).toBeLessThanOrEqual(1);
   expect(adjacent.equals(existing)).toBe(false);

@@ -189,8 +189,10 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         atlas = f.read()
     textures = [("ground_0_0.dds", dds(*ROAD_FIELDS)), ("ground_-1_0.dds", dds(((60, 130, 50),))), ("trees.png", atlas),
                 ("ground_far.dds", dds(((80, 120, 90),)))]
-    if ground_materials:
-        # This fixture generates its physical 256px source directly; the renderer never enlarges a smaller mask.
+    if ground_materials or ground_split:
+        # A 256px source is 1 m/texel; the preview's four-texel average spans 4 m. The split-field checks sample at
+        # least 3.5 m from the boundary (their 32px crop stays >2 m away), outside its bilinear filter footprint.
+        # The ordinary 8px source makes 32 m texels: those same points are mixed, so they cannot test untouched ground.
         pixels = np.empty((256, 256, 3), np.uint8)
         for row in range(2):
             for col in range(2):
@@ -248,7 +250,8 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                 for label in labels:
                     paint.layer(label, soft)
             elif ground_split:
-                ids = np.broadcast_to((np.arange(32) >= 16).astype(np.uint8), (32, 32)).copy()
+                # Match the source resolution so the split's two material fields have the same physical UV boundary.
+                ids = np.broadcast_to((np.arange(256) >= 128).astype(np.uint8), (256, 256)).copy()
                 paint.base(["gc_meadow", "road_asphalt"], ids)
             else:
                 paint.base([ground_material or ("gc_meadow" if grass else "road_asphalt")], np.zeros((32, 32), np.uint8))
