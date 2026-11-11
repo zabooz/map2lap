@@ -1,4 +1,4 @@
-// The page's browser tests: `bun run e2e` (Chrome), `bun run e2e:all` (the other browsers too). e2e/server.py stands behind them.
+// The page's browser tests: `bun run e2e` (Chrome), `bun run e2e:all` (Firefox too). e2e/server.py stands behind them.
 import {existsSync} from "node:fs";
 import {defineConfig} from "@playwright/test";
 
@@ -17,11 +17,10 @@ export default defineConfig({
   timeout: 60000,
   expect: {timeout: 15000},
   use: {viewport: {width: 1500, height: 900}, trace: "retain-on-failure", screenshot: "only-on-failure"},
+  // Chrome and Firefox only: Edge is Chromium like Chrome, and WebKit (Safari) has no users on Windows or Linux.
   projects: [
     // (Chrome when installed, else Playwright's own Chromium: installing Chrome takes administrator rights)
     {name: "chrome", use: {browserName: "chromium", channel: CHROME.some(existsSync) ? "chrome" : "chromium", launchOptions: {args: SOFTWARE_3D}}},
-    {name: "edge", use: {browserName: "chromium", channel: "msedge", launchOptions: {args: SOFTWARE_3D}}},
     {name: "firefox", use: {browserName: "firefox"}},
-    {name: "webkit", use: {browserName: "webkit"}},
   ],
 });

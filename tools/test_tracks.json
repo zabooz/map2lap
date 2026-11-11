@@ -105,8 +105,8 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 579,
-   "over_05g_m": 16,
-   "lanes_over_05g_m": 26,
+   "over_05g_m": 15,
+   "lanes_over_05g_m": 25,
    "max_g": 2.19,
    "max_g_at_m": 356.0,
    "edges_m": 0,
@@ -114,7 +114,7 @@
    "max_g_transition": 2.19,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 370.0
+   "max_warp_at_m": 383.0
   }
  },
  "friedensbruecke_test": {
@@ -468,7 +468,7 @@
    "max_over_deck": 0.128,
    "length_m": 12681,
    "over_05g_m": 20,
-   "lanes_over_05g_m": 121,
+   "lanes_over_05g_m": 122,
    "max_g": 3.19,
    "max_g_at_m": 12551.0,
    "edges_m": 0,
@@ -779,10 +779,10 @@
    "max_over_deck": 0.0,
    "length_m": 240,
    "over_05g_m": 6,
-   "lanes_over_05g_m": 48,
+   "lanes_over_05g_m": 21,
    "max_g": 1.16,
    "max_g_at_m": 119.0,
-   "edges_m": 15,
+   "edges_m": 3,
    "transitions": 2,
    "max_g_transition": 1.16,
    "warp_m": 0,
