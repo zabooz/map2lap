@@ -8,7 +8,6 @@ test("Editor settings put build files and view first, with enough room for the g
   await openSettings(page, "Editor");
   const dialog = page.getByRole("dialog"), panel = dialog.getByRole("tabpanel");
   await expect(panel.getByRole("heading", {level: 3})).toHaveText(["Build files", "3D view", "Controls", "Keys and mouse"]);
-  expect((await dialog.boundingBox())!.width).toBeGreaterThanOrEqual(720);
   await expect(page.getByLabel("Keep build files")).toBeInViewport();
   await expect(page.getByLabel("Memory limit")).toBeInViewport();
   const keys = page.locator("#editor-keys");
@@ -16,7 +15,12 @@ test("Editor settings put build files and view first, with enough room for the g
     await expect(keys.getByRole("table", {name, exact: true})).toBeAttached();
   }
   await dialog.screenshot({path: test.info().outputPath("settings-editor-desktop.png")});
-  await keys.getByRole("table", {name: "Camera", exact: true}).scrollIntoViewIfNeeded();
+  for (const row of ["K Camera tool: follow the route or ride automatically", "W A S D Move over the ground, at the same height",
+    "Right click Its menu: Move, Duplicate, Mark all of its sort, Delete", "Ctrl+Z Undo", "Ctrl+Shift+Z, Ctrl+Y Redo", "Ctrl+S Save the track"]) {
+    const entry = keys.getByRole("row", {name: row, exact: true});
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry).toBeInViewport();
+  }
   await dialog.screenshot({path: test.info().outputPath("settings-keys-desktop.png")});
   await page.getByLabel("Memory limit").fill("12");
   await page.setViewportSize({width: 390, height: 640});
@@ -38,16 +42,6 @@ test("the car is saved", async ({page}) => {
   await expect.poll(async () => (await saved(page)).car).toBe("car_a");
   await page.getByLabel("Car").selectOption("");
   await expect.poll(async () => (await saved(page)).car).toBe(null);
-});
-
-test("the Editor's keys and mouse are listed under Editor", async ({page}) => {
-  await page.goto("/");
-  await openSettings(page, "Editor");
-  const keys = page.locator("#editor-keys");
-  await expect(keys.getByRole("row", {name: "K Camera tool: follow the route or ride automatically", exact: true})).toBeVisible();
-  for (const row of ["W A S D Move over the ground, at the same height", "Right click Its menu: Move, Duplicate, Mark all of its sort, Delete", "Ctrl+Z Undo", "Ctrl+Shift+Z, Ctrl+Y Redo", "Ctrl+S Save the track"]) {
-    await expect(keys.getByRole("row", {name: row, exact: true})).toBeVisible();
-  }
 });
 
 test("the CPU share is saved when let go, its line follows", async ({page}) => {

@@ -1,7 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import type {Locator, Page} from '@playwright/test';
-import {test, expect, openEditor} from './fixtures';
+import {test, expect, openLibrary} from './library-fixtures';
 
 async function pictureColours(page: Page, importer: Locator) {
   // (the level the dialog starts at is measured first: until then the preview is drawn anew when it arrives)
@@ -26,8 +26,7 @@ test('material colour choice updates the preview, matches a colour texture and i
   const repo = join(import.meta.dirname, '../..');
   const python = join(repo, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
   const model = (textured: boolean) => execFileSync(python, [join(repo, 'ui/e2e/model_fixture.py'), textured ? '--palette-texture' : '--palette-factor']);
-  await openEditor(page);
-  await page.getByRole('button', {name: 'Insert', exact: true}).click();
+  await openLibrary(page, "objects");
   const library = page.getByRole('dialog', {name: 'Asset library'});
   await library.getByLabel('Model file').setInputFiles({name: 'purple.glb', mimeType: 'model/gltf-binary', buffer: model(false)});
   const importer = page.getByRole('dialog', {name: 'Import object', exact: true});
@@ -64,8 +63,7 @@ test('explicit matte colour changes the preview without changing the palette and
   const repo = join(import.meta.dirname, '../..');
   const python = join(repo, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
   const raw = execFileSync(python, [join(repo, 'ui/e2e/model_fixture.py'), '--palette-grass']);
-  await openEditor(page);
-  await page.getByRole('button', {name: 'Insert', exact: true}).click();
+  await openLibrary(page, "objects");
   const library = page.getByRole('dialog', {name: 'Asset library'});
   await library.getByLabel('Model file').setInputFiles({name: 'teal.glb', mimeType: 'model/gltf-binary', buffer: raw});
   const importer = page.getByRole('dialog', {name: 'Import object', exact: true});

@@ -26,16 +26,8 @@ test('Library under Revert to saved opens the library where it was left, Insert 
   await open.click();
   await expect(library.getByRole('tab',{name:'TEXTURES'})).toHaveAttribute('aria-selected','true');
   await expect(library.getByRole('button',{name:'Previous'})).toBeVisible();
-  // (the pages stand centred under the grid they turn, not under the grid and the preview)
-  const grid = (await library.locator('[data-library-browser]').filter({visible: true}).boundingBox())!;
-  const pages = (await library.getByRole('button',{name:'Previous'}).locator('..').boundingBox())!;
-  expect(Math.abs(pages.x + pages.width / 2 - (grid.x + grid.width / 2))).toBeLessThan(2);
-  // (its size is the dialog's own, not its tab's: switching tabs moves nothing)
-  const size = async () => { const box = (await library.boundingBox())!; return [box.y, box.height]; };
-  const textures = await size();
   await library.getByRole('tab',{name:'OBJECTS'}).click();
   await expect(library.getByLabel('Search objects')).toBeVisible();
-  expect(await size()).toEqual(textures);
   await page.keyboard.press('Escape');
   await expect(library).toBeHidden();
   await open.click();

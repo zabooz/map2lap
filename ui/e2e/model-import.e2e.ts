@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import {expect, openEditor, scene, test} from './fixtures';
+import {openLibrary, test as libraryTest} from './library-fixtures';
 import {saved} from './edit-helpers';
 
 const obj = Buffer.from('v -1 0 0\nv 1 0 0\nv 1 3 0\nv -1 3 0\nf 1 2 3 4\n');
@@ -50,9 +51,8 @@ for (const format of ['obj', 'fbx', 'zip'] as const) {
   });
 }
 
-test('an OBJ with missing MTL files explains how to include companion files', async ({page}) => {
-  await openEditor(page);
-  await page.getByRole('button', {name: 'Insert', exact: true}).click();
+libraryTest('an OBJ with missing MTL files explains how to include companion files', async ({page}) => {
+  await openLibrary(page, "objects");
   await page.getByLabel('Model file').setInputFiles({name: 'missing.obj', mimeType: 'text/plain', buffer: Buffer.concat([Buffer.from('mtllib missing.mtl\n'), obj])});
   const importer = page.getByRole('dialog', {name: 'Import object', exact: true});
   await expect(importer.getByRole('alert')).toContainText('Missing model file: missing.mtl');

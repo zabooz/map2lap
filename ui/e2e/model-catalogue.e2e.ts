@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
-import {test, expect, openEditor} from './fixtures';
+import {test, expect, openLibrary} from './library-fixtures';
 
 test('objects filter by their actual category and show creator credit beside clean object titles', async ({page, backend}, info) => {
   const repo = join(import.meta.dirname, '../..');
@@ -20,8 +20,7 @@ test('objects filter by their actual category and show creator credit beside cle
     });
     expect(added.ok()).toBe(true);
   }
-  await openEditor(page);
-  await page.getByRole('button', {name: 'Insert', exact: true}).click();
+  await openLibrary(page, "objects");
   const library = page.getByRole('dialog', {name: 'Asset library'});
   const categories = library.getByLabel('Filter objects');
   await expect(categories.locator('option')).toHaveCount(10, {timeout: 5000});

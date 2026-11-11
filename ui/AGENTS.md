@@ -10,6 +10,7 @@ bun run check                 # types, React's hook rules and the page's tests
 bun run build                 # into src/web
 bun run e2e                   # builds, then the browser tests in Chrome (Playwright, ui/e2e), ~2 min; `playwright test` alone runs on the src/web as last built
 bun run e2e:all               # also in Edge, Firefox and WebKit; once per machine: bunx playwright install
+bun run e2e:probes            # standalone WebGL experiments in Chrome (ui/probes), separate from product regression tests
 ```
 
 Which browser tests when: while working the test file of the change in Chrome (`bun run build`, then `bunx playwright test e2e/editor.e2e.ts --project=chrome`, `-g` for single tests); before a commit `bun run e2e`; before a merge or a release `bun run e2e:all`, and before a commit that changes the camera, mouse or keys, where browsers differ.
@@ -18,6 +19,11 @@ The browser tests run against `ui/e2e/server.py`: the real server with an AC fol
 stand-ins for builds, AC, updates, map data and the net. They test that things work, not where they sit; only the 3D view is
 tested down to the pixel (`render.e2e.ts`). `--update-snapshots` takes new reference images after a wanted change of its look.
 Set `MAP2LAP_TEST_WEB` to an absolute bundle directory to test a separate UI build without replacing the live `src/web`.
+
+Library-only import, preview and catalogue cases use `e2e/library-fixtures.ts`: the real library components, their CSS and the
+same test server, without loading an Editor track. The fixture rejects any `/api/editor/` request. Placement, painting and
+Editor keyboard isolation use `e2e/fixtures.ts` with the full Editor. The shared `openEditor` wait is a prerequisite for those
+cases; dedicated loading behavior lives in `loading.e2e.ts`. Renderer prototypes live in `probes/` and run with `e2e:probes`.
 
 - Function components and hooks; state lives where it is used, what can be worked out from it is worked out while rendering.
 - An effect only talks to something outside React (server, Leaflet, three.js) and cleans up after itself (`StrictMode` is on).

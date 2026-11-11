@@ -1,6 +1,6 @@
 import {execFileSync} from "node:child_process";
 import {join} from "node:path";
-import {test, expect, openEditor} from "./fixtures";
+import {test, expect, openLibrary} from "./library-fixtures";
 
 test("object cards show distinct model pictures and reuse them after reopening and reloading", async ({page, backend}, info) => {
   const repo = join(import.meta.dirname, "../..");
@@ -20,8 +20,7 @@ test("object cards show distinct model pictures and reuse them after reopening a
   const sources: string[] = [];
   page.on("request", request => { if (/\/api\/library\/models\/[^/]+\/original$/.test(request.url())) sources.push(request.url()); });
   const open = async () => {
-    await openEditor(page);
-    await page.getByRole("button", {name: "Insert", exact: true}).click();
+    await openLibrary(page, "objects");
   };
   await open();
   const library = page.getByRole("dialog", {name: "Asset library"});
