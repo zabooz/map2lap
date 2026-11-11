@@ -37,23 +37,23 @@ export function Models({name, view, edits, replace: replaceTargets, enabled, cho
         if (answer.error || !models.length) setFault(answer.error ?? "Could not place the model");
         else {
           const placed = !replace && !isUnplaced(options) ? [...answer.placed ?? [], {...options, id: `${models[0].id}#0`}] : answer.placed;
-          if (shown !== null) { view.confirmPending(shown, models[0].id, revision); shown = null; }
+          if (shown !== null) { view.ghost.confirmPending(shown, models[0].id, revision); shown = null; }
           edits.addModels(models, placed); setFault(null);
           if (replace) view.selection.unpick();
         }
-      } finally { if (shown !== null) view.dropPending(shown); }
+      } finally { if (shown !== null) view.ghost.dropPending(shown); }
     });
   }, [pose, name, edits, view]);
   const place = useEffectEvent((at: [number, number, number], pending: number | null) => {
     if (selected) apply(selected, at, undefined, pending);
-    else if (pending !== null) view.dropPending(pending);
+    else if (pending !== null) view.ghost.dropPending(pending);
   });
   useEffect(() => {
     if (!enabled || !selected) return;
-    void view.setModelGhost(selected, (at, pending) => place(at, pending));
-    return () => view.setCopy(null, null);
+    void view.ghost.setModel(selected, (at, pending) => place(at, pending));
+    return () => view.ghost.setCopy(null, null);
   }, [view, enabled, selected]);
-  useEffect(() => { if (enabled) view.setCopyPose(pose); }, [view, enabled, selected, pose]);
+  useEffect(() => { if (enabled) view.ghost.setPose(pose); }, [view, enabled, selected, pose]);
   const library = <ModelLibrary embedded={!!renderLibrary} open={choosing} onBusy={setLibraryBusy} replace={replaceTargets.length} onClose={onClose} onChoose={(model, replace) => {
       if (replace && replaceTargets.length) apply(model, undefined, replaceTargets);
       else { setSelected(model); onPlace(); }

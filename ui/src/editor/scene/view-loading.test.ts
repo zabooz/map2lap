@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
-import {objectsOf, selectionOf} from "./view.fixture";
+import {ghostOf, objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {Navigation} from "./navigation";
 import {GeometryPreview} from "./geometryPreview";
@@ -37,8 +37,8 @@ test("obsolete model mesh descriptors never start a download or a retry", async 
     return Response.json({error: "The models changed"}, {status: 409});
   }) as typeof fetch;
   const view = Object.create(TrackView.prototype) as {reloadModels: () => Promise<number | null>};
-  Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), loading: new AbortController(), trackName: "alpha", usedBytes: 0,
-    settings: {memoryGb: 1}, meshes: [], objects: objectsOf(view), selection: selectionOf(view),
+  Object.assign(view, {token: 1, modelTransformVersion: 0, loading: new AbortController(), trackName: "alpha", usedBytes: 0,
+    settings: {memoryGb: 1}, meshes: [], objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view),
     modelDraw: {sync: async () => {}}, detachModelMeshes: () => {},
     onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
   try {
@@ -67,7 +67,7 @@ test("parts are ready only after the loaded ground's selection index is prepared
   const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objects: objectsOf(view), selection: selectionOf(view), pendingModels: new Map(), textures: plainTextures(),
+    byNumber: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view), textures: plainTextures(),
     materialAreas: new Map(), onIndexed: () => {},
     nightGlow: {bind: () => {}}, onViewFailed: () => {}});
   sceneModules(view as unknown as TrackView);
@@ -108,7 +108,7 @@ test("ground loaded while a tile's selection is being prepared goes in the next 
   const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objects: objectsOf(view), selection: selectionOf(view), pendingModels: new Map(), textures: plainTextures(),
+    byNumber: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view), textures: plainTextures(),
     materialAreas: new Map(), onIndexed: () => {},
     nightGlow: {bind: () => {}}, onViewFailed: () => {}});
   sceneModules(view as unknown as TrackView);
@@ -146,7 +146,7 @@ for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during 
   };
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objects: objectsOf(view), selection: selectionOf(view), pendingModels: new Map(), textures: plainTextures(),
+    byNumber: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view), textures: plainTextures(),
     onIndexed: () => {},
     nightGlow: {bind: () => {}}, onViewFailed: (s: string | null) => { if (s) throw new Error(s); }});
   sceneModules(view as unknown as TrackView);

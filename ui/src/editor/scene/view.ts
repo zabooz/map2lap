@@ -19,7 +19,6 @@ import {DEFAULT_CONTROLS, type Controls} from "./controls";
 import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing";
 import type {Tool} from "../tools/ToolPanel";
 import {cursorFor, type Pointed} from "./cursor";
-import type {CopyPose} from "../tools/copying";
 import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
@@ -36,6 +35,7 @@ import {materialImages, type GroundMaterial} from "./colourBlend";
 import {TrackTextures} from "./trackTextures";
 import {NOT_MOVED, TrackObjects} from "./trackObjects";
 import {ViewBrush} from "./brush";
+import {PlacementGhost} from "./ghost";
 import {Selection, ROAD} from "./selection";
 import {billboardFaces, billboardOf, COPIES, fits, kindName, kindOf, latLonOf, nearestLast, physicsOf, routeMetre, sortOf,
         spriteAt, tileOf} from "./inspect";
@@ -86,15 +86,7 @@ export class TrackView {
   private copyVersion = 0;
   private copyLoading: AbortController | null = null;
   private loadedCopyRevision: string | null = null;   // the geometry committed to the scene, not just an index received
-  private copyStamp: number[] = [];
   private groundVersion = 0;
-  private copyGhost: THREE.Group | null = null;
-  private copyRelease: (() => void) | null = null;
-  private modelGhostVersion = 0;
-  private modelGhostSolid: THREE.Object3D | null = null;       // the placement ghost's model with its own materials, for a click to show at once
-  private modelGhostHold: (() => () => void) | null = null;    // keeps the ghost's loaded model until the returned call
-  private pendingModels = new Map<number, {root: THREE.Group; release: () => void; instance?: string; draft?: number}>();
-  private pendingKey = 0;
   private modelLight: THREE.WebGLRenderTarget | null = null;
   private ambient = new THREE.AmbientLight();
   private sun = sunLight();
@@ -106,9 +98,6 @@ export class TrackView {
   private nightSky = new NightSky();
   private place = trackPlace(null);                     // where the open track lies: its sun
   private clock = 10;                                   // the hour shown (setClock)
-  private copyFoot = new THREE.Vector3();
-  private copyPose: CopyPose = {turn: 0, y: 0, scale: 1};
-  private onCopyPlace: ((at: [number, number, number]) => void) | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private modelDraw = new ModelDraw(this.scene, undefined, bytes => {
@@ -135,6 +124,7 @@ export class TrackView {
   readonly objects: TrackObjects;        // the track's objects: their triangles, what belongs to which, what is left out
   readonly selection: Selection;         // what is picked and the frames of a marked sort
   readonly brush: ViewBrush;             // the ring, strokes and their preview, Delete's frames
+  readonly ghost: PlacementGhost;        // what Copy and Insert would place, under the mouse, and what they placed until it is drawn
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -208,6 +198,19 @@ export class TrackView {
       wheelTaken: () => this.wheelTaken, pivotOf: id => this.pivotOf(id),
       showPreview: bytes => this.showPreview(bytes), keepPreview: () => this.keepPreview(), takeBackPreview: () => this.takeBackPreview(),
       changed: () => { this.dirty = true; },
+    });
+    this.ghost = new PlacementGhost({
+      scene: this.scene, objects: this.objects, models: () => this.modelDraw, mesh: i => this.byNumber.get(i),
+      canMove: id => this.canMove(id), pivotOf: id => this.pivotOf(id), ground: () => this.copyAt(),
+      look: () => {
+        const c = this.camera, p = c.position, q = c.quaternion;
+        return [this.mouse?.x ?? Infinity, this.mouse?.y ?? Infinity, p.x, p.y, p.z, q.x, q.y, q.z, q.w, c.aspect, c.fov, this.groundVersion, this.held ? 1 : 0];
+      },
+      shown: () => this.shown, held: () => !!this.held,
+      modelLight: () => this.ensureModelLight(), reflections: () => this.reflections(),
+      reserve: bytes => { if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false; this.usedBytes += bytes; return true; },
+      release: bytes => { this.usedBytes -= bytes; },
+      failed: message => this.onViewFailed(message), changed: () => { this.dirty = true; }, placingChanged: () => this.applyCursor(),
     });
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
@@ -561,7 +564,7 @@ export class TrackView {
 
   private applyCursor() {
     this.renderer.domElement.style.cursor = cursorFor({tool: this.cursorTool, dragging: !!this.dragging?.way.lengthSq(), pin: this.roadMarkers.overPin,
-      aiming: !!this.brush.current || !!this.onCopyPlace}, this.pointed);
+      aiming: !!this.brush.current || this.ghost.placing}, this.pointed);
   }
 
   /** Move on or off; onMoved gets each object's displacement, including the change of ground height. Off cancels a drag. */
@@ -965,78 +968,6 @@ export class TrackView {
     this.hoverDue = true;
   }
 
-  /** A translucent source follows the mouse; each left click places another independent instance. */
-  setCopy(source: string | null, place: ((at: [number, number, number]) => void) | null, foot?: number[]) {
-    this.modelGhostVersion++;
-    if (this.copyGhost) {
-      this.scene.remove(this.copyGhost);
-      if (!this.copyRelease) for (const child of this.copyGhost.children as THREE.Mesh[]) {
-        child.geometry.dispose();
-        (child.material as THREE.Material).dispose();
-      }
-    }
-    this.copyRelease?.(); this.copyRelease = null;
-    this.copyGhost = null; this.modelGhostSolid = null; this.modelGhostHold = null;
-    this.copyStamp = [];
-    this.onCopyPlace = place;
-    this.applyCursor();
-    if (!source || !place) { this.dirty = true; return; }
-    const group = new THREE.Group(), solid = new THREE.Group();
-    const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = [];
-    group.matrixAutoUpdate = false;
-    const ids = [...this.objects.withMembers([source])].filter(id => this.canMove(id));
-    const model = source.startsWith("instance_") ? this.modelDraw.instance(source.split("#")[0]) : undefined;
-    if (model) {
-      // Copy previews hold the same GLB geometry; only their translucent materials belong to the preview.
-      const original = model.clone(true), translucent = model.clone(true);
-      original.visible = translucent.visible = true;
-      translucent.traverse(node => {
-        if (!(node instanceof THREE.Mesh)) return;
-        const fade = (material: THREE.Material) => {
-          const copy = material.clone(); copy.transparent = true; copy.opacity *= .5; copy.depthWrite = false;
-          materials.push(copy); return copy;
-        };
-        node.material = Array.isArray(node.material) ? node.material.map(fade) : fade(node.material);
-      });
-      solid.add(original); group.add(translucent);
-    }
-    for (const id of model ? [] : ids) for (const piece of this.objects.piecesOf(id, false)) {
-      const m = this.byNumber.get(piece.mesh);
-      if (!m) continue;
-      const indices = m.geometry.getIndex()!.array;
-      const shown: number[] = [];
-      for (let k = piece.from * 3; k < piece.end * 3; k += 3) {
-        if (indices[k] !== indices[k + 1] && indices[k + 1] !== indices[k + 2] && indices[k] !== indices[k + 2]) shown.push(indices[k], indices[k + 1], indices[k + 2]);
-      }
-      if (!shown.length) continue;
-      const part = m.geometry.clone();
-      part.setIndex(shown);
-      const geometry = part.toNonIndexed();
-      part.dispose();
-      const material = (m.material as THREE.Material).clone();
-      material.visible = true;
-      material.transparent = true;
-      material.opacity = 0.5;
-      material.depthWrite = false;
-      group.add(new THREE.Mesh(geometry, material));
-      const opaque = (m.material as THREE.Material).clone(); opaque.visible = true;
-      solid.add(new THREE.Mesh(geometry, opaque));
-      geometries.push(geometry); materials.push(material, opaque);
-    }
-    const box = new THREE.Box3().setFromObject(group), pivot = this.pivotOf(source);
-    if (box.isEmpty()) return;
-    const releaseAsset = source.startsWith("instance_") ? this.modelDraw.hold(source.split("#")[0]) : () => {};
-    let holders = 1;
-    const release = () => { if (--holders === 0) { for (const g of geometries) g.dispose(); for (const m of materials) m.dispose(); releaseAsset(); } };
-    this.copyRelease = release;
-    this.modelGhostSolid = solid;
-    this.modelGhostHold = () => { holders++; let active = true; return () => { if (active) { active = false; release(); } }; };
-    this.copyFoot.set(foot?.[0] ?? pivot[0], foot?.[1] ?? box.min.y, foot?.[2] ?? pivot[2]);
-    this.copyGhost = group;
-    this.scene.add(group);
-    this.followCopy();
-  }
-
   private ensureModelLight() {
     if (!this.modelLight) {
       const target = modelLight(this.renderer);
@@ -1048,126 +979,19 @@ export class TrackView {
     return this.modelLight.texture;
   }
 
-  /** A library preview has no draft instance yet; its decoded resources live until placement mode ends and the last model a click
-      showed with them is replaced by the server's (addPending). place gets the click's ground point and that shown model's key. */
-  async setModelGhost(model: {id: string; anchor: number[]; metres_per_unit: number}, place: (at: [number, number, number], pending: number | null) => void) {
-    this.setCopy(null, at => place(at, this.addPending()));
-    const version = this.modelGhostVersion, holder = new THREE.Scene();
-    const draw = new ModelDraw(holder, undefined, bytes => {
-      if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
-      this.usedBytes += bytes; return true;
-    }, false);
-    let holders = 1;
-    const letGo = () => { if (--holders === 0) draw.dispose(); };
-    const ghostMaterials: THREE.Material[] = [];
-    this.copyRelease = () => { for (const m of ghostMaterials) m.dispose(); letGo(); };
-    const transform = new THREE.Matrix4().makeScale(model.metres_per_unit, model.metres_per_unit, model.metres_per_unit)
-      .multiply(new THREE.Matrix4().makeTranslation(-model.anchor[0], -model.anchor[1], -model.anchor[2]));
-    try {
-      draw.setEnvironment(this.ensureModelLight(), this.reflections());
-      await draw.sync([{id: "ghost", asset: model.id}], {[model.id]: {url: `/api/library/models/${model.id}/original`}}, {ghost: transform.toArray()});
-      if (version !== this.modelGhostVersion) { draw.dispose(); return; }
-      const root = draw.instance("ghost")!, group = new THREE.Group();
-      this.modelGhostSolid = root.clone(true);
-      this.modelGhostHold = () => { holders++; let held = true; return () => { if (held) { held = false; letGo(); } }; };
-      // (translucent copies: the loaded materials stay solid for what a click shows; textures stay shared)
-      const translucent = (original: THREE.Material) => {
-        const m = original.clone(); ghostMaterials.push(m);
-        m.transparent = true; m.opacity *= .5; m.depthWrite = false;
-        return m;
-      };
-      root.traverse(node => {
-        if (node instanceof THREE.Mesh) node.material = Array.isArray(node.material) ? node.material.map(translucent) : translucent(node.material);
-      });
-      group.matrixAutoUpdate = false; group.add(root);
-      this.copyGhost = group; this.copyFoot.set(0, 0, 0); this.copyStamp = [];
-      this.scene.add(group); this.followCopy();
-    } catch (error) { draw.dispose(); if (version === this.modelGhostVersion) this.onViewFailed((error as Error).message); }
-  }
-
-  /** The ghost's model shown solid where the ghost stands, at once, until the server's instance is drawn (settlePending). Its key, null
-      while the ghost's model loads. */
-  addPending(at?: [number, number, number]) {
-    if (!this.copyGhost || !this.modelGhostSolid || !this.modelGhostHold) return null;
-    const root = new THREE.Group();
-    root.matrixAutoUpdate = false; root.matrix.copy(this.copyGhost.matrix); root.matrixWorldNeedsUpdate = true; root.userData.pendingModel = true;
-    if (at) this.copyMatrix(root.matrix, at);
-    root.add(this.modelGhostSolid.clone(true));
-    const key = ++this.pendingKey;
-    this.pendingModels.set(key, {root, release: this.modelGhostHold()});
-    this.scene.add(root); this.dirty = true;
-    return key;
-  }
-
-  /** A shown model became the server's instance, added to the draft after its revision draft. */
-  confirmPending(key: number, instance: string, draft: number) {
-    const pending = this.pendingModels.get(key);
-    if (pending) Object.assign(pending, {instance, draft});
-  }
-
-  /** A shown model that won't become an instance: refused, or the edit could not be made. */
-  dropPending(key: number) {
-    const pending = this.pendingModels.get(key);
-    if (!pending) return;
-    this.scene.remove(pending.root); pending.release(); this.pendingModels.delete(key); this.dirty = true;
-  }
-
-  private dropAllPending() {
-    for (const key of [...this.pendingModels.keys()]) this.dropPending(key);
-  }
-
-  /** Shown models whose instance is drawn now go, and those a later draft no longer has (undone). An older index keeps them. */
+  /** What Groups and the ghost showed before the draft had it goes once data draws it, or once a later draft no longer has it. */
   private settlePending(data: TrackIndex) {
     if (this.groupDraw) void this.groupDraw.settle(data.draft ?? 0, new Set(data.models?.map(m => m.id)), id => !!this.modelDraw.instance(id))
       .then(() => { this.dirty = true; }).catch(error => this.onViewFailed((error as Error).message));
-    for (const [key, {instance, draft}] of this.pendingModels) {
-      if (instance === undefined) continue;
-      const copied = instance.startsWith("copy_");
-      const exists = copied ? !!data.objects[instance] : data.models?.some(m => m.id === instance);
-      const drawn = copied ? this.meshes.some(m => (m.userData.info as MeshInfo).copy) && exists : this.modelDraw.instance(instance);
-      if (drawn || (data.draft ?? 0) > draft! && !exists) this.dropPending(key);
-    }
+    this.ghost.settle(data, this.meshes.some(m => (m.userData.info as MeshInfo).copy));
   }
 
-  /** Extra turn, height over the ground and size for the next copies, around their foot. */
-  setCopyPose(pose: CopyPose) {
-    this.copyPose = {turn: pose.turn, y: pose.y, scale: pose.scale};
-    this.followCopy();
-  }
-
+  /** The ground under the mouse, whatever it is (Copy places on bridges and water too), or null. */
   private copyAt(): [number, number, number] | null {
     if (!this.mouse) return null;
     this.picker.setFromCamera(this.mouse, this.camera);
     const hit = this.groundAlong(this.picker.ray.origin, this.picker.ray.direction);
     return hit ? hit.point.toArray() as [number, number, number] : null;
-  }
-
-  /** Freeze the clicked foot and current tool pose; a click can arrive before the ghost's next rendered frame. */
-  private copyMatrix(matrix: THREE.Matrix4, at: [number, number, number]) {
-    const {turn, y, scale} = this.copyPose;
-    matrix.makeTranslation(at[0], at[1] + y, at[2])
-      .multiply(new THREE.Matrix4().makeRotationY(turn * Math.PI / 180))
-      .multiply(new THREE.Matrix4().makeScale(scale, scale, scale))
-      .multiply(new THREE.Matrix4().makeTranslation(-this.copyFoot.x, -this.copyFoot.y, -this.copyFoot.z));
-  }
-
-  private followCopy() {
-    if (!this.copyGhost || !this.shown) return;
-    const c = this.camera, p = c.position, q = c.quaternion;
-    const stamp = [this.mouse?.x ?? Infinity, this.mouse?.y ?? Infinity, p.x, p.y, p.z, q.x, q.y, q.z, q.w, c.aspect, c.fov,
-      this.copyPose.turn, this.copyPose.y, this.copyPose.scale, this.groundVersion, this.held ? 1 : 0];
-    if (stamp.every((v, k) => v === this.copyStamp[k])) return;
-    this.copyStamp = stamp;
-    const at = this.copyAt();
-    this.copyGhost.visible = !!at && !this.held;
-    if (at) {
-      this.copyMatrix(this.copyGhost.matrix, at);
-      this.copyGhost.matrixWorldNeedsUpdate = true;
-      performance.clearMarks("map2lap.models.ghost");
-      performance.mark("map2lap.models.ghost", {detail: {visible: this.copyGhost.visible,
-        matrix: this.copyGhost.matrix.clone().multiply(this.copyGhost.children[0]?.matrix ?? new THREE.Matrix4()).toArray()}});
-    }
-    this.dirty = true;
   }
 
   /** onViewFailed gets what went wrong when the view can't show a change that was made, null when that is over. */
@@ -1237,10 +1061,9 @@ export class TrackView {
       const pin = from?.button === 2 && e.button === 2 ? this.roadMarkers.pinAt(e, el) : -1;
       if (pin >= 0) this.roadMarkers.onPinTaken(pin);
       else if (from && e.button === from.button) {
-        if (e.button === LEFT_BUTTON && this.onCopyPlace) {
+        if (e.button === LEFT_BUTTON && this.ghost.placing) {
           this.mouse = screenPoint(e, el);
-          const at = this.copyAt();
-          if (at) this.onCopyPlace(at);
+          this.ghost.place();
           from = null;
           return;
         }
@@ -1461,7 +1284,7 @@ export class TrackView {
     if (this.shown && this.navigation.flying.size) this.navigation.fly(seconds);
     if (this.shown && this.navigation.zoomLeft) this.navigation.glideZoom(seconds);
     if (!this.shown) return;
-    this.followCopy();
+    this.ghost.follow();
     if (this.dirty) {
       this.dirty = false;
       for (const m of this.meshes) {  // the distances AC shows each mesh at (trees, bushes, furniture go far away)
@@ -1505,8 +1328,8 @@ export class TrackView {
     this.surfaceOverlay?.clear();
     this.roadRegionOverlay?.clear();
     this.roadInfluenceOverlay?.clear();
-    this.setCopy(null, null);
-    this.dropAllPending();
+    this.ghost.setCopy(null, null);
+    this.ghost.dropAll();
     this.modelLight?.dispose(); this.modelLight = null;
     this.copyVersion++;
     this.copyLoading?.abort();

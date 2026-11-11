@@ -46,7 +46,7 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
     if (!ready) return;
     const template = ready.template;
     const options = {turn: pose.turn, y: pose.y, scale: pose.scale};
-    let shown = view.addPending(at);
+    let shown = view.ghost.addPending(at);
     let created: string | null = null;
     void edits.inTurn(async () => {
       try {
@@ -58,7 +58,7 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
           {base: edits.boundRevision(), revision, template, at, pose: options});
         if (r.error || (!r.copy && !r.model)) throw new Error(r.error ?? "Could not place the copy");
         created = (r.model ?? r.copy)!.id;
-        if (shown !== null) view.confirmPending(shown, created, revision);
+        if (shown !== null) view.ghost.confirmPending(shown, created, revision);
         if (r.model) edits.addModel(r.model, r.placed); else edits.addCopy(r.copy!);
         edits.saveNow();
         if (await edits.saved() === null) throw new Error(edits.state().error ?? "Could not keep the copy");
@@ -68,16 +68,16 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
         if (created) edits.rejectCopy(created);
         const message = (error as Error).message;
         onFailed(message);
-      } finally { if (shown !== null) view.dropPending(shown); }
+      } finally { if (shown !== null) view.ghost.dropPending(shown); }
     });
   });
 
   useEffect(() => {
-    view.setCopy(ready?.source ?? null, ready ? at => place(at) : null, ready?.at);
-    return () => view.setCopy(null, null);
+    view.ghost.setCopy(ready?.source ?? null, ready ? at => place(at) : null, ready?.at);
+    return () => view.ghost.setCopy(null, null);
   }, [view, ready]);
 
-  useEffect(() => { view.setCopyPose(pose); }, [view, pose, ready]);
+  useEffect(() => { view.ghost.setPose(pose); }, [view, pose, ready]);
 
   const note = fault ?? (ready ? `Click to place ${ready.kind}; keep clicking for more copies. Esc ends Copy.`
     : source && !view.canMove(source) ? "A power line goes with its poles; pick an object to copy."

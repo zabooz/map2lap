@@ -1,10 +1,11 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
-import {brushOf, objectsOf, selectionOf} from "./view.fixture";
+import {brushOf, ghostOf, objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {GeometryPreview} from "./geometryPreview";
 import {ModelDraw} from "./modelDraw";
+import type {PlacementGhost} from "./ghost";
 import type {MeshInfo} from "../types";
 
 const part = (i: number, instance: string, asset = "tree", at = [0, 0, 0], scale = 1) => ({i, vertices: 3, indices: 3, name: `nocol_m2l_model_${instance}_0`,
@@ -45,8 +46,8 @@ function setUp() {
     const root = new THREE.Group(); root.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial())); return root;
   });
   const byNumber = new Map<number, THREE.Mesh>();
-  Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), pendingKey: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
-    meshes: [], byNumber, grounds: [], materialAreas: new Map(), objects: objectsOf(view), selection: selectionOf(view),
+  Object.assign(view, {token: 1, modelTransformVersion: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
+    meshes: [], byNumber, grounds: [], materialAreas: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view),
     data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
     copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(),
     ensureModelLight: () => {},
@@ -220,21 +221,15 @@ test("the per-instance native size never reserves picking geometry; shared asset
   } finally { done(); }
 });
 
-interface Pending {
-  addPending: () => number | null; confirmPending: (key: number, instance: string, draft: number) => void; dropPending: (key: number) => void;
-  dropAllPending: () => void; scene: THREE.Scene; copyGhost: THREE.Group | null; modelGhostSolid: THREE.Object3D | null; modelGhostHold: (() => () => void) | null;
-}
-
-/** A placement ghost at a place, its solid model and a count of who holds the ghost's loaded model. */
+/** A placement ghost at a place, its solid model and a count of who holds the ghost's loaded model; scene: the view's. */
 function ghostAt(view: View, instances: Set<string>) {
-  const pending = view as unknown as Pending, held = {count: 0};
+  const pending = (view as unknown as {ghost: PlacementGhost}).ghost, held = {count: 0}, scene = (view as unknown as {scene: THREE.Scene}).scene;
   const solid = new THREE.Group(); solid.add(new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial()));
-  pending.copyGhost = new THREE.Group(); pending.copyGhost.matrix.makeTranslation(4, 5, 6);
-  pending.modelGhostSolid = solid;
-  pending.modelGhostHold = () => { held.count++; let done = false; return () => { if (!done) { done = true; held.count--; } }; };
+  const ghost = new THREE.Group(); ghost.matrix.makeTranslation(4, 5, 6);
+  Object.assign(pending, {ghost, solid, hold: () => { held.count++; let done = false; return () => { if (!done) { done = true; held.count--; } }; }});
   (view as unknown as {modelDraw: object}).modelDraw = {sync: async () => {},
     instance: (id: string) => instances.has(id) ? new THREE.Group() : undefined};
-  return {pending, held, solid};
+  return {pending, held, solid, scene};
 }
 
 const shown = (scene: THREE.Scene) => scene.children.filter(c => c.userData.pendingModel);
@@ -242,14 +237,14 @@ const shown = (scene: THREE.Scene) => scene.children.filter(c => c.userData.pend
 test("a click shows the model at once, solid, where the ghost stands, and holds its loaded model", () => {
   const {view, done} = setUp();
   try {
-    const {pending, held, solid} = ghostAt(view, new Set());
+    const {pending, held, solid, scene} = ghostAt(view, new Set());
     const key = pending.addPending()!;
-    const [copy] = shown(pending.scene);
+    const [copy] = shown(scene);
     expect(copy.matrix.elements[12]).toBe(4);
     expect((copy.children[0].children[0] as THREE.Mesh).material).toBe((solid.children[0] as THREE.Mesh).material);
     expect(held.count).toBe(1);
     pending.dropPending(key);
-    expect(shown(pending.scene)).toHaveLength(0);
+    expect(shown(scene)).toHaveLength(0);
     expect(held.count).toBe(0);
   } finally { done(); }
 });
@@ -257,15 +252,15 @@ test("a click shows the model at once, solid, where the ghost stands, and holds 
 test("the shown model goes when the server's instance is drawn, or when a later draft no longer has it", async () => {
   const {view, served, done} = setUp();
   try {
-    const instances = new Set<string>(), {pending, held} = ghostAt(view, instances);
+    const instances = new Set<string>(), {pending, held, scene} = ghostAt(view, instances);
     const first = pending.addPending()!, second = pending.addPending()!;
     pending.confirmPending(first, "a", 1); pending.confirmPending(second, "b", 1);
     served.draft = 1;
     await view.reloadModels();
-    expect(shown(pending.scene)).toHaveLength(2);        // (an index from before the insert's save: keep showing)
+    expect(shown(scene)).toHaveLength(2);        // (an index from before the insert's save: keep showing)
     instances.add("a"); served.parts = [part(0, "a")]; served.draft = 2;
     await view.reloadModels();
-    expect(shown(pending.scene)).toHaveLength(0);        // (a drawn, b undone)
+    expect(shown(scene)).toHaveLength(0);        // (a drawn, b undone)
     expect(held.count).toBe(0);
   } finally { done(); }
 });
@@ -273,10 +268,10 @@ test("the shown model goes when the server's instance is drawn, or when a later 
 test("another track drops what is still shown", () => {
   const {view, done} = setUp();
   try {
-    const {pending, held} = ghostAt(view, new Set());
+    const {pending, held, scene} = ghostAt(view, new Set());
     pending.addPending(); pending.addPending();
-    pending.dropAllPending();
-    expect(shown(pending.scene)).toHaveLength(0);
+    pending.dropAll();
+    expect(shown(scene)).toHaveLength(0);
     expect(held.count).toBe(0);
   } finally { done(); }
 });
@@ -284,7 +279,7 @@ test("another track drops what is still shown", () => {
 test("no ghost model loaded yet: a click shows nothing", () => {
   const {view, done} = setUp();
   try {
-    expect((view as unknown as Pending).addPending()).toBeNull();
+    expect((view as unknown as {ghost: PlacementGhost}).ghost.addPending()).toBeNull();
   } finally { done(); }
 });
 
