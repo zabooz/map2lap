@@ -186,10 +186,12 @@ def _build_tile(folder, target, key, roads, chains):
     strongest = np.full((size, size), -1.0, np.float32)
     dominant = np.zeros((size, size), np.uint8)
     arrays = {}
+    # (each layer's alpha as floats once a tile, not once a material: 10 Heiligenblut tiles 9.0 -> 6.9 s, the same bytes; the
+    # scratch memory a tile 159 -> 263 MiB, a float copy of each layer)
+    layers = [(material, alpha.astype(np.float32) / 255.0) for material, alpha in layers]
     for k, name in enumerate(names):
         weight = np.asarray([b == name for b in data["base"]])[base].astype(np.float32)
-        for material, alpha in layers:
-            a = alpha.astype(np.float32) / 255.0
+        for material, a in layers:
             weight *= 1 - a
             if material == name:
                 weight += a

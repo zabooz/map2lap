@@ -62,6 +62,62 @@ class SurfaceIndexTest(unittest.TestCase):
         self.assertTrue((mask[29:35] == 255).all())
         self.assertTrue((mask[:28] == 0).all())
 
+    def test_each_materials_weights_are_the_layers_painted_in_order_over_the_base(self):
+        rng = np.random.default_rng(5)
+        part = self.root / "t_0_0.obj"
+        paint = editorinfo.Paint(str(part), 0, 0, 64)
+        base = (np.arange(64)[:, None] // 32 + np.zeros((1, 64), int)).astype(np.uint8)
+        paint.base(["gc_meadow", "gc_forest"], base)
+        layers = [("road_asphalt", rng.integers(0, 256, (64, 64), dtype=np.uint8)),
+                  ("gc_rock", np.tile(np.linspace(0, 255, 64).astype(np.uint8), (64, 1))),
+                  ("road_asphalt", (rng.random((64, 64)) > .7).astype(np.uint8) * 200)]
+        for material, alpha in layers:
+            paint.layer(material, alpha)
+        paint.finish()
+        editorinfo.install(str(self.kn5), [str(part)])
+        surfaceindex.prepare(str(self.kn5))
+        _folder, target, *_rest = surfaceindex._context(str(self.kn5))
+        names = ["gc_meadow", "gc_forest", "road_asphalt", "gc_rock"]
+        with np.load(target / "0_0.npz") as saved:
+            self.assertEqual(names, json.loads(saved["meta"].tobytes())["materials"])
+            for k, name in enumerate(names):
+                weight = (base == names.index(name)).astype(np.float32) if k < 2 else np.zeros((64, 64), np.float32)
+                for material, alpha in layers:      # (each layer covers what is under it by its alpha)
+                    a = alpha.astype(np.float32) / 255.0
+                    weight *= 1 - a
+                    if material == name:
+                        weight += a
+                with Image.open(io.BytesIO(saved[f"w{k}"].tobytes())) as image:
+                    np.testing.assert_array_equal(np.rint(weight * 255).astype(np.uint8), np.asarray(image), err_msg=name)
+
+    def test_each_materials_weights_are_the_layers_painted_in_order_over_the_base(self):
+        rng = np.random.default_rng(5)
+        part = self.root / "t_0_0.obj"
+        paint = editorinfo.Paint(str(part), 0, 0, 64)
+        base = (np.arange(64)[:, None] // 32 + np.zeros((1, 64), int)).astype(np.uint8)
+        paint.base(["gc_meadow", "gc_forest"], base)
+        layers = [("road_asphalt", rng.integers(0, 256, (64, 64), dtype=np.uint8)),
+                  ("gc_rock", np.tile(np.linspace(0, 255, 64).astype(np.uint8), (64, 1))),
+                  ("road_asphalt", (rng.random((64, 64)) > .7).astype(np.uint8) * 200)]
+        for material, alpha in layers:
+            paint.layer(material, alpha)
+        paint.finish()
+        editorinfo.install(str(self.kn5), [str(part)])
+        surfaceindex.prepare(str(self.kn5))
+        _folder, target, *_rest = surfaceindex._context(str(self.kn5))
+        names = ["gc_meadow", "gc_forest", "road_asphalt", "gc_rock"]
+        with np.load(target / "0_0.npz") as saved:
+            self.assertEqual(names, json.loads(saved["meta"].tobytes())["materials"])
+            for k, name in enumerate(names):
+                weight = (base == names.index(name)).astype(np.float32) if k < 2 else np.zeros((64, 64), np.float32)
+                for material, alpha in layers:      # (each layer covers what is under it by its alpha)
+                    a = alpha.astype(np.float32) / 255.0
+                    weight *= 1 - a
+                    if material == name:
+                        weight += a
+                with Image.open(io.BytesIO(saved[f"w{k}"].tobytes())) as image:
+                    np.testing.assert_array_equal(np.rint(weight * 255).astype(np.uint8), np.asarray(image), err_msg=name)
+
     def test_unprepared_counts_the_sections_a_first_opening_still_computes(self):
         editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 1)])
         self.assertEqual(2, surfaceindex.unprepared(str(self.kn5)))
