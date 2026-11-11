@@ -202,6 +202,27 @@ class EditorRequestsTest(TrackViewTest):
         except urllib.error.HTTPError as e:
             return e.code, e.read()
 
+    def test_an_apply_running_tells_its_progress_and_none_once_done(self):
+        from app import trackedits
+        told, release = threading.Event(), threading.Event()
+
+        def paint(_ac, _name, _body, progress):
+            progress("masks", 120, 300)
+            told.set()
+            release.wait(5)
+            return {"paint": "a" * 64}
+        with mock.patch.object(trackedits, "paint", side_effect=paint):
+            request = urllib.request.Request(self.url + "/paint", data=b"{}", headers={"Content-Type": "application/json"})
+            answer = {}
+            thread = threading.Thread(target=lambda: answer.update(json.loads(urllib.request.urlopen(request).read())))
+            thread.start()
+            self.assertTrue(told.wait(5))
+            self.assertEqual((200, {"phase": "masks", "done": 120, "total": 300}), (lambda r: (r[0], json.loads(r[1])))(self.get("/paint-progress")))
+            release.set()
+            thread.join(5)
+        self.assertEqual("a" * 64, answer["paint"])
+        self.assertEqual({}, json.loads(self.get("/paint-progress")[1]))
+
     def test_a_mesh_with_its_revision(self):
         code, body = self.get("/index")
         self.assertEqual(200, code)

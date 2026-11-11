@@ -1,4 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
+import type {PaintProgress} from "../tools/usePaint";
 import {createPortal} from "react-dom";
 import {ImportMaterial} from "./ImportMaterial";
 import {LibraryBrowser, LibraryCard, LibraryCards, LibraryFacts, LibraryNotice, LibraryPages, LibraryPrimary, LibrarySelection, webSource} from "./LibraryBrowser";
@@ -37,11 +38,14 @@ function MaterialDetails({material, variation, onVariation, onDelete, disabled}:
   </LibrarySelection>;
 }
 
+/** What an Apply's bar says at each of its steps (usePaint's progress). */
+const STEPS: Record<string, string> = {masks: "Taking the selection", preview: "Preparing the preview", loading: "Loading the preview"};
+
 /** A modal material picker. Browsing changes no track; selection and filters survive closing it. */
-export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, limitedTiles, busy, error, onApply, onClose, embedded = false}: {
+export const MaterialLibrary = memo(function MaterialLibrary({open, target, reason, limitedTiles, busy, progress, error, onApply, onClose, embedded = false}: {
   open: boolean; target: string | null; reason: string | null; busy: boolean; error: string | null;
   onApply: (id: string, variation?: boolean) => Promise<boolean>; onClose: () => void; embedded?: boolean;
-  limitedTiles?: number;
+  limitedTiles?: number; progress?: PaintProgress | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -131,7 +135,10 @@ export const MaterialLibrary = memo(function MaterialLibrary({open, target, reas
           <div><strong>{target ? `Apply to: ${target}` : "No editable surface selected"}</strong>
             <p>{applyProblem ?? "Appearance changes only. The driving surface stays unchanged."}</p>
             {!!limitedTiles && <p>Selection is incomplete. Only the highlighted areas in {limitedTiles} tiles will change; the rest stays unchanged.</p>}
-            {busy && <progress aria-label="Applying material" />}</div>
+            {busy && (progress?.total
+              ? <><progress aria-label="Applying material" value={progress.done} max={progress.total} />
+                <p>{STEPS[progress.phase] ?? "Applying"}: {progress.done} of {progress.total}{progress.phase === "loading" ? "" : " tiles"}</p></>
+              : <progress aria-label="Applying material" />)}</div>
           <button type="button" disabled={blocked} onClick={onClose}>Cancel</button>
           <LibraryPrimary disabled={!selected || !target || !!applyProblem || blocked}
             onClick={() => { if (selected) void onApply(selected.id, varied).then(applied => { if (applied) onClose(); }); }}>

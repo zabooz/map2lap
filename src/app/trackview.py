@@ -287,13 +287,22 @@ def prepare_surface(ac, name, mesh, revision):
 
 def surface(ac, name, mesh, u, v, revision, whole=False):
     """A connected ground region or all matching prepared regions, from the source's lossless build facts."""
+    path, _scan, _current = _scanned(ac, name)
+    result = surfaceindex._with_masks(path, surface_region(ac, name, mesh, u, v, revision, whole))
+    if _revision(os.stat(path)) != revision:
+        raise Unreadable("The track changed while the surface was being selected")
+    return result
+
+
+def surface_region(ac, name, mesh, u, v, revision, whole=False):
+    """What surface selects, without its masks (surfaceindex.regions): their tiles, read a portion at a time by Apply."""
     path, scan, current = _scanned(ac, name)
     if current != revision:
         raise Unreadable("The track changed")
     tx, ty = _surface_tile(scan, mesh)
     u, v = material_uv(scan["materials"][scan["meshes"][mesh]["material"]], tx, ty, float(u), float(v))
     # kn5 UV v is negated by the writer; the masks use ordinary north-pointing v.
-    result = surfaceindex.select(path, tx, ty, float(u), -float(v), whole)
+    result = surfaceindex.regions(path, tx, ty, float(u), -float(v), whole)
     if _revision(os.stat(path)) != revision:
         raise Unreadable("The track changed while the surface was being selected")
     return result

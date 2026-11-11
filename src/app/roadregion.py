@@ -266,8 +266,6 @@ def _selection(path, _stamp, points):
                 on = footprint(part, x, z, weight[z0:z1, x0:x1] > 0, owners[z0:z1, x0:x1])
                 mask[z0:z1, x0:x1] = np.maximum(mask[z0:z1, x0:x1], np.where(on, weight[z0:z1, x0:x1], 0))
         if mask.any():
-            if len(selected) == editorinfo.MAX_TILES:
-                raise ValueError("This road region reaches more than 64 tiles; choose a smaller area")
             selected.append({"tile": [tx, ty], "mask": base64.b64encode(editorinfo._png(mask)).decode("ascii")})
     if not selected:
         raise ValueError("No painted ground road was found in this region")

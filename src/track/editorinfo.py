@@ -23,7 +23,6 @@ from track import objectlist
 FOLDER = os.path.join("data", "map2lap_editor")
 SCHEMA = 1
 TILE_M = 256
-MAX_TILES = 64       # a preview stays bounded even on a continuous meadow over a continent-sized build
 TILE_KEY = re.compile(r"-?\d+_-?\d+")
 
 
@@ -291,9 +290,6 @@ def select(kn5, tx, ty, u, v):
         x, y, seeds = queue.popleft()
         key = f"{x}_{y}"
         if key not in available:
-            continue
-        if key not in selected and len(selected) >= MAX_TILES:
-            truncated = True
             continue
         before = None
         if key in selected:

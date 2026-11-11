@@ -99,7 +99,7 @@ test("asphalt can use an imported material without changing its driving surface"
   await expect(page.locator("#edit-paints")).toHaveCount(0);
 });
 
-test("an oversized combined ground selection explains its limit before Apply", async ({page}) => {
+test("a ground selection of more than 64 tiles has no limit before Apply", async ({page}) => {
   await page.route("**/api/editor/alpha/surface?**", async route => {
     const response = await route.fetch();
     const data = await response.json() as {tiles: {tile: number[]; mask: string}[]};
@@ -111,6 +111,6 @@ test("an oversized combined ground selection explains its limit before Apply", a
   await page.mouse.click(at.x, at.y);
   await page.getByRole("button", {name: "Edit texture"}).click();
   const picker = page.getByRole("dialog", {name: "Asset library"});
-  await expect(picker).toContainText("at most 64 ground tiles");
-  await expect(picker.getByRole("button", {name: "Apply", exact: true})).toBeDisabled();
+  await expect(picker).toContainText("Appearance changes only");
+  await expect(picker).not.toContainText("at most 64");
 });

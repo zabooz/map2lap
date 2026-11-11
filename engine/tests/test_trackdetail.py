@@ -1,6 +1,7 @@
 """The normal ground-material workflow retains repeating detail maps through draft, Save and portable reload."""
 import io
 import base64
+import contextlib
 import hashlib
 import json
 from pathlib import Path
@@ -20,6 +21,16 @@ from PIL import Image
 import test_trackpaint as fixture
 from app import materiallibrary, trackcopy, trackdetail, trackedits, trackview
 from track import editorinfo, groundmaterial, kn5, surfaceindex
+
+
+@contextlib.contextmanager
+def selected_masks(merged, material="gc_meadow"):
+    """trackpaint.create takes merged's tiles ({"tiles": [{"tile", "mask"}]}) as what its points select."""
+    by_key = {"_".join(map(str, tile["tile"])): tile for tile in merged["tiles"]}
+    region = {"material": material, "truncated": False, "whole": False, "regions": dict.fromkeys(by_key)}
+    with (mock.patch.object(trackview, "surface_region", return_value=region),
+          mock.patch.object(surfaceindex, "region_masks", side_effect=lambda _kn5, _region, keys: [by_key[k] for k in keys])):
+        yield
 
 
 class DetailTest(unittest.TestCase):
@@ -479,8 +490,7 @@ class DetailTest(unittest.TestCase):
             mask = np.zeros((32, 32), np.uint8)
             y0, y1, x0, x1 = bounds; mask[y0:y1, x0:x1] = 255
             merged = {"tiles": [{"tile": [tile, 0], "mask": base64.b64encode(fixture.png(mask)).decode()} for tile in tiles]}
-            with (mock.patch.object(trackview, "surface", return_value={"material": "gc_meadow", "truncated": False}),
-                  mock.patch.object(surfaceindex, "merge", return_value=merged)):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + k * 30, 70, 100)),
                                                     [{"mesh": 0, "u": .1, "v": -.1}]))
         self.keep(operations)
@@ -524,8 +534,7 @@ class DetailTest(unittest.TestCase):
                 mask[:, :16] = 128
             tile = 0 if k < 4 else 1
             merged = {"tiles": [{"tile": [tile, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
-            with (mock.patch.object(trackview, "surface", return_value={"material": "gc_meadow", "truncated": False}),
-                  mock.patch.object(surfaceindex, "merge", return_value=merged)):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + 30 * k, 60, 100)),
                                                     [{"mesh": tile, "u": .1, "v": -.1}]))
         self.keep(operations)
@@ -569,8 +578,7 @@ class DetailTest(unittest.TestCase):
         for k in range(4):
             mask = np.zeros((32, 32), np.uint8); mask[16:, k * 8:(k + 1) * 8] = 128
             merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
-            with (mock.patch.object(trackview, "surface", return_value={"material": "gc_meadow", "truncated": False}),
-                  mock.patch.object(surfaceindex, "merge", return_value=merged)):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + 30 * k, 60, 100)),
                                                     [{"mesh": 0, "u": .1, "v": -.1}]))
         self.keep(operations)
@@ -623,8 +631,7 @@ class DetailTest(unittest.TestCase):
         for k, mask in enumerate(masks):
             merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
             asset = old_asset if k == 0 else self.material((30 + 30 * k, 60, 100))
-            with (mock.patch.object(trackview, "surface", return_value={"material": "gc_meadow", "truncated": False}),
-                  mock.patch.object(surfaceindex, "merge", return_value=merged)):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, asset, [{"mesh": 0, "u": .1, "v": -.1}]))
             if k == 0:
                 self.keep(operations)
@@ -820,9 +827,8 @@ class DetailTest(unittest.TestCase):
         (folder / "data/map2lap.json").write_text('{"title":"portable"}', encoding="utf-8")
         revision = trackview.index(self.ac, "portable")["revision"]
         selected = np.zeros((32, 32), np.uint8); selected[:8, :8] = 255
-        chosen = {"material": "gc_meadow", "truncated": False}
         merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(selected)).decode()}]}
-        with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+        with selected_masks(merged):
             op = trackpaint.create(self.ac, "portable", revision, self.material((20, 30, 200)), [{"mesh": 0, "u": .1, "v": -.5}])
         descriptors = trackpaint.descriptors(self.ac, "portable", revision, [op])
         source_images = [p for p in descriptors[0]["layers"]["images"] if "i" in p]
@@ -872,9 +878,8 @@ class DetailTest(unittest.TestCase):
         self.assertEqual([2, 2], original["repeat"])
         selected = np.zeros((32, 32), np.uint8)
         selected[:8, :8] = 255
-        chosen = {"material": "gc_meadow", "truncated": False}
         merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(selected)).decode()}]}
-        with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+        with selected_masks(merged):
             op = self.operation(self.detail_asset())
         descriptor = trackpaint.descriptors(self.ac, self.name, self.revision, [op])[0]
         layout = descriptor["layers"]
@@ -1001,9 +1006,8 @@ class DetailTest(unittest.TestCase):
         for i in range(4):
             mask = np.zeros((32, 32), np.uint8)
             mask[i * 8:(i + 1) * 8] = 255
-            chosen = {"material": "gc_meadow", "truncated": False}
             merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
-            with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + 40 * i, 30, 40)),
                                                    [{"mesh": 0, "u": .1, "v": -.5}]))
         self.keep(operations[:3])
@@ -1026,9 +1030,8 @@ class DetailTest(unittest.TestCase):
         for i in range(4):
             mask = np.zeros((32, 32), np.uint8)
             mask[i * 8:(i + 1) * 8] = 255
-            chosen = {"material": "gc_meadow", "truncated": False}
             merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
-            with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + 40 * i, 30, 40)),
                                                    [{"mesh": 0, "u": .1, "v": -.5}]))
         self.keep(operations[:3])
@@ -1047,9 +1050,8 @@ class DetailTest(unittest.TestCase):
         for i in range(4):
             mask = np.zeros((32, 32), np.uint8)
             mask[i * 8:(i + 1) * 8] = 255
-            chosen = {"material": "gc_meadow", "truncated": False}
             merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
-            with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+            with selected_masks(merged):
                 operations.append(trackpaint.create(self.ac, self.name, self.revision, self.material((30 + 40 * i, 30, 40)),
                                                    [{"mesh": 0, "u": .1, "v": -.5}]))
         self.keep(operations[:3])
@@ -1166,9 +1168,8 @@ class SavedStepMaskTest(unittest.TestCase):
         mask[rows] = 255
         if soft is not None:
             mask[soft] = 128
-        chosen = {"material": "gc_meadow", "truncated": False}
         merged = {"tiles": [{"tile": [0, 0], "mask": base64.b64encode(fixture.png(mask)).decode()}]}
-        with mock.patch.object(trackview, "surface", return_value=chosen), mock.patch.object(surfaceindex, "merge", return_value=merged):
+        with selected_masks(merged):
             return trackpaint.create(self.ac, self.name, self.revision, self.material(colour), [{"mesh": 0, "u": .1, "v": -.5}])
 
     def test_a_painted_tile_shows_its_borders_at_the_saved_step_made_without_its_full_size_mask(self):

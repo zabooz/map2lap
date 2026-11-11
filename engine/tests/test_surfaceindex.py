@@ -87,18 +87,22 @@ class SurfaceIndexTest(unittest.TestCase):
         np.testing.assert_array_equal(alpha, self.mask(all_, (3, 0)))
         self.assertFalse(all_["truncated"])
 
-    def test_select_all_reports_its_preview_limit_and_unprepared_matching_area(self):
+    def test_select_all_reports_unprepared_matching_area(self):
         editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 3, 8)])
         surfaceindex.prepare(str(self.kn5), ["0_0", "3_0"])
         partial = surfaceindex.select(str(self.kn5), 0, 0, 0.5, 0.5, whole=True)
         self.assertEqual(2, len(partial["tiles"]))
         self.assertTrue(partial["truncated"])
+
+    def test_a_click_and_select_all_reach_every_tile_however_many(self):
+        editorinfo.install(str(self.kn5), [self.tile(x) for x in range(66)])     # (one road across 66 tiles)
         surfaceindex.prepare(str(self.kn5))
-        with mock.patch.object(editorinfo, "MAX_TILES", 2):
-            limited = surfaceindex.select(str(self.kn5), 8, 0, 0.5, 0.5, whole=True)
-        self.assertEqual(2, len(limited["tiles"]))
-        self.assertIn([8, 0], [tile["tile"] for tile in limited["tiles"]])
-        self.assertTrue(limited["truncated"])
+        for whole in (False, True):
+            with self.subTest(whole=whole):
+                region = surfaceindex.regions(str(self.kn5), 0, 0, 0.5, 0.5, whole)
+                self.assertEqual(66, len(region["regions"]))
+                self.assertFalse(region["truncated"])
+        self.assertEqual(66, len(surfaceindex.tile_scope([[x, 0] for x in range(66)])))
 
     @staticmethod
     def road(id_, points, link=False, layer="0"):
@@ -108,11 +112,10 @@ class SurfaceIndexTest(unittest.TestCase):
     def test_explicit_tile_scope_keeps_the_highlighted_subset_after_more_tiles_load(self):
         editorinfo.install(str(self.kn5), [self.tile(x) for x in (0, 3, 8)])
         surfaceindex.prepare(str(self.kn5), ["0_0", "8_0"])
-        with mock.patch.object(editorinfo, "MAX_TILES", 2):
-            preview = surfaceindex.select(str(self.kn5), 0, 0, .5, .5, whole=True)
-            self.assertTrue(preview["truncated"])
-            surfaceindex.prepare(str(self.kn5), ["3_0"])
-            scoped = surfaceindex.matching_tiles(str(self.kn5), preview["material"], [(0, 0), (8, 0)])
+        preview = surfaceindex.select(str(self.kn5), 0, 0, .5, .5, whole=True)
+        self.assertTrue(preview["truncated"])                   # (tile 3 not loaded yet)
+        surfaceindex.prepare(str(self.kn5), ["3_0"])
+        scoped = surfaceindex.matching_tiles(str(self.kn5), preview["material"], [(0, 0), (8, 0)])
         self.assertEqual({(0, 0), (8, 0)}, {tuple(tile["tile"]) for tile in scoped["tiles"]})
         self.assertFalse(scoped["truncated"])
         np.testing.assert_array_equal(self.mask(preview, (8, 0)), self.mask(scoped, (8, 0)))

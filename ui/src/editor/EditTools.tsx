@@ -115,12 +115,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const materialReason = !editable ? "This track cannot be edited right now."
     : surfacePicks.length && !selection ? "Preparing the selected surface…"
     : selection?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
-    : selection && new Set(selection.tiles.map(t => t.tile.join(","))).size > 64 ? "Select at most 64 ground tiles to apply a material."
     : !materialTarget ? "Select a painted ground surface to apply a material." : null;
   const paintSurface = painting.apply;
   const applyMaterial = useCallback((id: string, variation?: boolean) => materialTarget && !materialReason
-    ? paintSurface(id, surfacePicks, variation, limitedTiles ? selection?.tiles.map(t => t.tile) : undefined) : Promise.resolve(false),
-    [materialTarget, materialReason, paintSurface, surfacePicks, limitedTiles, selection]);
+    // (the tiles shown go with it: ground loaded since does not change what Apply changes)
+    ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile)) : Promise.resolve(false),
+    [materialTarget, materialReason, paintSurface, surfacePicks, selection]);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
@@ -366,7 +366,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
           groups={<GroupLibrary open={libraryTab === "groups"} onBusy={setGroupBusy} onClose={closeMaterial} onChoose={(chosen, models) => {
             setGroup(chosen); setGroupModels(models); setTool("group"); closeMaterial(); view.focus();
           }} />}
-          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={limitedTiles} busy={painting.busy} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
+          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={limitedTiles} busy={painting.busy} progress={painting.progress} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
         notes={<EditNotes state={state} note={note}

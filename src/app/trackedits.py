@@ -616,8 +616,9 @@ def save_telling(ac, name, body):
             "textures": textures}
 
 
-def paint(ac, name, body):
-    """Prepare one texture edit for the page's source/draft revision; the page adds its id as one undoable change."""
+def paint(ac, name, body, progress=None):
+    """Prepare one texture edit for the page's source/draft revision; the page adds its id as one undoable change.
+    progress(phase, done, total): its tiles' masks taken ("masks"), then described for the preview ("preview")."""
     if not isinstance(body, dict):
         raise Invalid("Select a ground area and a material")
     with _saving:
@@ -625,8 +626,9 @@ def paint(ac, name, body):
         if now["outdated"] or body.get("base") != now["base"] or body.get("revision") != now["revision"]:
             raise Conflict(name)
     try:
-        id = trackpaint.create(ac, name, now["base"], body.get("material"), body.get("points"), body.get("variation"), body.get("tiles"))
-        trackpaint.descriptors(ac, name, now["base"], [*[p for p in now.get("paints", []) if p != id], id])
+        id = trackpaint.create(ac, name, now["base"], body.get("material"), body.get("points"), body.get("variation"), body.get("tiles"),
+                               progress)
+        trackpaint.descriptors(ac, name, now["base"], [*[p for p in now.get("paints", []) if p != id], id], progress=progress)
     except (ValueError, KeyError, TypeError) as error:
         raise Invalid(str(error)) from error
     return {"paint": id}

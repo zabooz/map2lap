@@ -292,8 +292,8 @@ Objects uses the same library layout, search/category filters, paged asset grid,
 import fields open in a separate Import object dialog, matching the texture import flow. Each tab keeps its own browsing
 state; only the selected object opens a live 3D preview, turned by dragging and zoomed by the wheel. Delete object removes its library package only: placed copies keep their own snapshot (`trackmodels.snapshot`), so no track loses it.
 Import opens its own dialog; Apply changes the selected ground and closes the picker only after its preview succeeds.
-Select all previews at most 64 prepared ground tiles. An incomplete selection can apply to its highlighted part: the picker
-states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
+Select all takes every prepared ground tile of the material, however many. A selection with tiles not loaded yet is incomplete
+and can apply to its highlighted part: the picker states the tile count and labels its action accordingly. The request freezes that tile subset, and the server reads its
 authoritative source masks; later loading cannot change the chosen tiles. Unscoped incomplete Select all requests remain refused.
 Escape closes the picker without clearing the ground selection, including from its search field.
 The selected texture's repetition variation can be changed before Apply without reimporting; this setting belongs to that
@@ -555,9 +555,12 @@ write. These ordinary bindings retain existing native Save, portable model snaps
 All build-recorded painted-ground materials can receive an imported colour texture, including shrubland, forest, rock and
 roads. Ctrl combines selections; Shift takes all matching prepared areas, including disconnected regions. Ground Edit and
 clicking the Appearance image open the same picker. Roads retain their existing driving physics when given a different image.
-Separate mesh materials, including the road verge and buildings, are not handled by ground texture assignment. The client
-and server enforce a union of at most 64 tiles per application. The picker explains oversized selections and refuses incomplete
-Select all requests, so it cannot silently apply to only part of the requested material.
+Separate mesh materials, including the road verge and buildings, are not handled by ground texture assignment. A selection
+has no tile limit. Apply sends the tiles it showed, and the server keeps to them (ground loaded since does not change it). It
+reads, checks and writes their masks `trackpaint.PORTION` tiles at a time into a folder of its own, which becomes the paint
+once all are there: one Apply, one Undo, and a failure leaves no paint. The picker's bar shows each step, from the server
+(`/paint-progress`: masks taken, tiles described) and the page (textures loaded). Incomplete Select all requests without
+their tiles are refused, so Apply cannot silently change only part of the requested material.
 
 `app/trackpaint.py` captures authoritative selection masks and a material snapshot as immutable ids. Ordered `paints` in the
 draft and saved recipe participate in Undo, Redo, Discard and Save. Operations and normalized source images remain under

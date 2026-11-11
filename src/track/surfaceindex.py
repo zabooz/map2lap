@@ -296,8 +296,8 @@ def merge(selections):
 
 
 def _all_matching(target, available, material, clicked):
-    """All prepared contributions of one material, including disconnected regions; keep the preview bounded."""
-    tiles, truncated = [], False
+    """All prepared contributions of one material, including disconnected regions, as a region (regions)."""
+    keys, truncated = [], False
     for key in [clicked, *sorted(set(available) - {clicked})]:
         path = target / (key + ".npz")
         if not path.is_file():
@@ -306,26 +306,50 @@ def _all_matching(target, available, material, clicked):
         tile = _load(path, material)
         if tile is None or not len(tile["runs"]):
             continue
-        if len(tiles) == editorinfo.MAX_TILES:
-            truncated = True
-            break
-        tiles.append({"tile": list(map(int, key.split("_"))), "mask": base64.b64encode(tile["alpha"].tobytes()).decode("ascii")})
-    return {"material": material, "truncated": truncated, "whole": True, "tiles": tiles}
+        keys.append(key)
+    return {"material": material, "truncated": truncated, "whole": True, "regions": dict.fromkeys(keys)}
+
+
+def region_masks(kn5, region, keys):
+    """The selection masks of a region's (regions) tiles keys, as select gives them: [{"tile", "mask": base64 PNG}]. Apply
+    reads a portion of tiles at a time, so a selection of any size holds only that portion's masks."""
+    _folder, target, _available, _roads, _chains = _context(kn5)
+    tiles = []
+    for key in keys:
+        tile = _load(target / (key + ".npz"), region["material"])
+        components = region["regions"][key]
+        if components is None:      # (the tile's whole share of the material: Select all)
+            mask = tile["alpha"].tobytes()
+        else:
+            with Image.open(io.BytesIO(tile["alpha"].tobytes())) as image:
+                alpha = np.asarray(image)
+            chosen = np.zeros_like(alpha, bool)
+            for run in tile["runs"][np.isin(tile["runs"]["local"], list(components))]:
+                chosen[int(run["row"]), int(run["start"]):int(run["end"])] = True
+            mask = editorinfo._png(np.where(chosen, alpha, 0))
+        tiles.append({"tile": list(map(int, key.split("_"))), "mask": base64.b64encode(mask).decode("ascii")})
+    return tiles
+
+
+def _with_masks(kn5, region):
+    """A region (regions) as select gives it, every tile's mask with it."""
+    return {"material": region["material"], "truncated": region["truncated"], "whole": region["whole"],
+            "tiles": region_masks(kn5, region, list(region["regions"]))}
 
 
 def tile_scope(tiles):
-    """Validate the explicit displayed subset of at most MAX_TILES ground coordinates. Pure."""
-    if (not isinstance(tiles, (list, tuple)) or not 1 <= len(tiles) <= editorinfo.MAX_TILES
+    """Validate the explicit displayed subset of ground coordinates. Pure."""
+    if (not isinstance(tiles, (list, tuple)) or not tiles
             or any(not isinstance(t, (list, tuple)) or len(t) != 2 or any(type(v) is not int for v in t) for t in tiles)):
-        raise ValueError("Select at most 64 valid ground tiles")
+        raise ValueError("Select valid ground tiles")
     keys = {tuple(t) for t in tiles}
     if len(keys) != len(tiles):
         raise ValueError("The highlighted ground tiles must be unique")
     return keys
 
 
-def matching_tiles(kn5, material, tiles):
-    """Read authoritative whole-material masks for exactly the displayed tiles, independent of later loading."""
+def matching_regions(kn5, material, tiles):
+    """The whole-material region (regions) of exactly the displayed tiles, independent of later loading."""
     keys = [f"{x}_{y}" for x, y in sorted(tile_scope(tiles))]
     _folder, target, available, _roads, _chains = _context(kn5)
     if not set(keys) <= set(available):
@@ -336,8 +360,19 @@ def matching_tiles(kn5, material, tiles):
     return result
 
 
+def matching_tiles(kn5, material, tiles):
+    """Read authoritative whole-material masks for exactly the displayed tiles, independent of later loading."""
+    return _with_masks(kn5, matching_regions(kn5, material, tiles))
+
+
 def select(kn5, tx, ty, u, v, whole=False):
-    """Look up the local connected region, or all matching prepared ground; never evaluate painting on a click."""
+    """Look up the local connected region, or all matching prepared ground, with its masks; never evaluate painting on a click."""
+    return _with_masks(kn5, regions(kn5, tx, ty, u, v, whole))
+
+
+def regions(kn5, tx, ty, u, v, whole=False):
+    """What select selects, without masks: {"material", "truncated", "whole", "regions": {tile key: its connected
+    components, or None for the tile's whole share of the material}}, the clicked tile first."""
     _folder, target, available, _roads, _chains = _context(kn5)
     key = f"{tx}_{ty}"
     if key not in available:
@@ -363,9 +398,6 @@ def select(kn5, tx, ty, u, v, whole=False):
         key = f"{x}_{y}"
         new = wanted - selected.get(key, set())
         if not new:
-            continue
-        if key not in selected and len(selected) >= editorinfo.MAX_TILES:
-            truncated = True
             continue
         path = target / (key + ".npz")
         if not path.is_file():
@@ -394,14 +426,4 @@ def select(kn5, tx, ty, u, v, whole=False):
             components = set(map(int, other[hits, column])) - {0}
             if components:
                 queue.append((nx, ny, components))
-    tiles = []
-    for key, components in selected.items():
-        tile = _load(target / (key + ".npz"), material)
-        with Image.open(io.BytesIO(tile["alpha"].tobytes())) as image:
-            alpha = np.asarray(image)
-        chosen = np.zeros_like(alpha, bool)
-        for run in tile["runs"][np.isin(tile["runs"][field], list(components))]:
-            chosen[int(run["row"]), int(run["start"]):int(run["end"])] = True
-        mask = editorinfo._png(np.where(chosen, alpha, 0))
-        tiles.append({"tile": list(map(int, key.split("_"))), "mask": base64.b64encode(mask).decode("ascii")})
-    return {"material": material, "truncated": truncated, "whole": whole, "tiles": tiles}
+    return {"material": material, "truncated": truncated, "whole": whole, "regions": selected}

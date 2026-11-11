@@ -2300,9 +2300,15 @@ export class TrackView {
     }
   }
 
-  async texturesReady() {
-    await Promise.all([...this.textureChanges.values()].map(t => t.done));
-    await Promise.all([...(this.splatPending?.values() ?? [])].map(t => t.done));
+  /** Wait for the painted ground's textures; progress(done, total): how many of them are loaded. */
+  async texturesReady(progress?: (done: number, total: number) => void) {
+    const counted = (loads: Promise<unknown>[]) => {
+      let done = 0;
+      progress?.(0, loads.length);
+      return Promise.all(loads.map(load => load.then(() => progress?.(++done, loads.length))));
+    };
+    await counted([...this.textureChanges.values()].map(t => t.done));
+    await counted([...(this.splatPending?.values() ?? [])].map(t => t.done));
     if (this.paintFailure) throw new Error(this.paintFailure);
   }
 

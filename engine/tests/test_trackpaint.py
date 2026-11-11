@@ -153,10 +153,13 @@ class PaintTest(unittest.TestCase):
         body = {"base": now["base"], "revision": now["revision"], "material": asset,
                 "points": [{"mesh": 0, "u": .1, "v": -.5, "whole": True}]}
         untouched = trackview.texture_bytes(self.ac, self.name, 1, self.revision)[1]
-        with mock.patch.object(editorinfo, "MAX_TILES", 1):
-            with self.assertRaisesRegex(trackedits.Invalid, "incomplete"):
-                trackedits.paint(self.ac, self.name, body)
-            op = trackedits.paint(self.ac, self.name, {**body, "tiles": [[0, 0]]})["paint"]
+        from track import surfaceindex
+        _folder, target, *_rest = surfaceindex._context(str(self.path))
+        (target / "1_0.npz").unlink()                       # (tile 1 not loaded yet: Select all is incomplete)
+        surfaceindex.clear_memory()
+        with self.assertRaisesRegex(trackedits.Invalid, "incomplete"):
+            trackedits.paint(self.ac, self.name, body)
+        op = trackedits.paint(self.ac, self.name, {**body, "tiles": [[0, 0]]})["paint"]
         self.assertEqual([[0, 0]], [t["tile"] for t in trackpaint.operation(self.ac, self.name, op)[1]["tiles"]])
         image, _ = self.image([op])
         self.assertEqual([200, 30, 40], image[5, 5].tolist())
@@ -305,6 +308,54 @@ class PaintTest(unittest.TestCase):
             trackpaint.create(self.ac, self.name, "old", asset, [{"mesh": 0, "u": 0.1, "v": -0.5}])
 
 
+class PortionedApplyTest(unittest.TestCase):
+    """An Apply reads and writes its tiles' masks a portion of tiles at a time (trackpaint.PORTION), so a selection of any size
+    holds no more than a portion's masks; it stays one paint, one Undo."""
+    setUp = PaintTest.setUp
+    material = PaintTest.material
+
+    def apply(self, **kwargs):
+        from app import trackpaint
+        return trackpaint.create(self.ac, self.name, self.revision, self.material((200, 30, 40)),
+                                 [{"mesh": 0, "u": .1, "v": -.5, "whole": True}], **kwargs)
+
+    def paints(self):
+        return {path.name for path in Path(self.ac, "out", "paints").iterdir()} if Path(self.ac, "out", "paints").is_dir() else set()
+
+    def test_masks_read_a_portion_at_a_time_make_the_same_paint(self):
+        from app import trackpaint
+        from track import surfaceindex
+        whole = self.apply()
+        shutil.rmtree(Path(self.ac, "out", "paints"))
+        with (mock.patch.object(trackpaint, "PORTION", 1),
+              mock.patch.object(surfaceindex, "region_masks", wraps=surfaceindex.region_masks) as read):
+            self.assertEqual(whole, self.apply())
+        self.assertEqual([1, 1], [len(call.args[2]) for call in read.call_args_list])
+        self.assertEqual(2, len(trackpaint.operation(self.ac, self.name, whole)[1]["tiles"]))
+
+    def test_an_apply_tells_how_many_tiles_it_has_taken(self):
+        from app import trackpaint
+        seen = []
+        with mock.patch.object(trackpaint, "PORTION", 1):
+            self.apply(progress=lambda phase, done, total: seen.append((phase, done, total)))
+        self.assertEqual([("masks", 0, 2), ("masks", 1, 2), ("masks", 2, 2)], seen)
+
+    def test_an_apply_failing_part_way_leaves_no_paint(self):
+        from app import trackpaint
+        from track import surfaceindex
+        real, calls = surfaceindex.region_masks, []
+
+        def second_fails(*args):
+            calls.append(args)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            return real(*args)
+        with (mock.patch.object(trackpaint, "PORTION", 1), mock.patch.object(surfaceindex, "region_masks", second_fails),
+              self.assertRaises(OSError)):
+            self.apply()
+        self.assertEqual(set(), self.paints())
+
+
 class ParallelViewsTest(unittest.TestCase):
     """An Apply describes its painted tiles on several processes (trackdetail.prepare_views), as one process does."""
     setUp = PaintTest.setUp
@@ -331,6 +382,18 @@ class ParallelViewsTest(unittest.TestCase):
         with mock.patch.object(trackdetail, "_semantic", side_effect=AssertionError("read again")):
             self.assertEqual(alone, trackpaint.descriptors(self.ac, self.name, self.revision, paints))
             self.assertEqual(masks, {v: trackdetail.mask(self.ac, self.name, v) for v in masks})
+
+    def test_preparing_the_preview_tells_how_many_tiles_are_described_alone_and_on_several_processes(self):
+        from app import trackdetail, trackpaint
+        paints = self.paints()
+        for pool_from in (100, 2):
+            with self.subTest(pool_from=pool_from):
+                self.forget_views()
+                seen = []
+                with mock.patch.object(trackdetail, "POOL_FROM", pool_from):
+                    trackpaint.descriptors(self.ac, self.name, self.revision, paints,
+                                           progress=lambda phase, done, total: seen.append((phase, done, total)))
+                self.assertEqual([("preview", 0, 2), ("preview", 1, 2), ("preview", 2, 2)], seen)
 
     def test_an_apply_of_many_tiles_describes_them_on_several_processes(self):
         from app import trackdetail, trackpaint

@@ -411,24 +411,32 @@ POOL_FROM = 4
 _job = {}
 
 
-def prepare_views(ac, name, versions, processes=None):
+def prepare_views(ac, name, versions, processes=None, progress=None):
     """Describe the tiles of versions whose description is not kept (describe), several at once: an Apply then takes them
     from the cache. A tile a worker fails on, describe makes itself and says why. processes: how many (None: as a build
-    may use, as RAM allows, none below POOL_FROM tiles)."""
+    may use, as RAM allows, none below POOL_FROM tiles). progress(done): how many of versions are described, those kept
+    included. Whether it described them."""
+    from concurrent.futures import as_completed
     from app import settings
     from track import parallel
-    todo = [version for version in dict.fromkeys(versions) if _kept_view(version) is None]
+    versions = list(dict.fromkeys(versions))
+    todo = [version for version in versions if _kept_view(version) is None]
     if processes is None:
         cores = max(1, round((os.cpu_count() or 2) * settings.load()["cores"] / 100))
         processes = 1 if len(todo) < POOL_FROM else min(parallel.workers(len(todo)), cores)
     if processes <= 1 or not todo:
-        return
+        return False
+    report, done = progress or (lambda _done: None), len(versions) - len(todo)
+    report(done)
     with parallel.pool(processes, _init_views, ((trackpaint.mytracks.ROOT, materiallibrary.ROOT), ac, name)) as pool:
-        for job in [pool.submit(_describe_view, version) for version in todo]:
+        for job in as_completed([pool.submit(_describe_view, version) for version in todo]):
             try:
                 job.result()
             except Exception:       # (describe makes that tile itself, and says what went wrong)
                 pass
+            done += 1
+            report(done)
+    return True
 
 
 def _init_views(roots, ac, name):

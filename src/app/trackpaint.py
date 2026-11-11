@@ -10,6 +10,7 @@ import re
 import shutil
 import tempfile
 import threading
+import uuid
 
 from PIL import Image
 
@@ -105,7 +106,7 @@ def _resolve(ac, name, folder, id):
 def operation(ac, name, id, revision=None):
     folder = _resolve(ac, name, "operations", id)
     record = _verified(folder / "paint.json", id)
-    if record.get("schema") != SCHEMA or not isinstance(record.get("tiles"), list) or len(record["tiles"]) > editorinfo.MAX_TILES:
+    if record.get("schema") != SCHEMA or not isinstance(record.get("tiles"), list):
         raise ValueError("Invalid texture edit")
     _key(record.get("asset"))
     asset = _resolve(ac, name, "materials", record["asset"])
@@ -212,8 +213,16 @@ def _snapshot(material, variation=None):
     return id
 
 
-def create(ac, name, revision, material, points, variation=None, tiles=None):
-    """Capture authoritative painted-ground masks and a material; the draft is not changed here."""
+# An Apply reads, checks and writes its tiles' selection masks this many tiles at a time, then lets them go: a working budget,
+# not a limit of the selection. A 2048 px tile's mask is up to about 0.5 MB as PNG (Heiligenblut's 106 meadow tiles: 10 MiB).
+PORTION = 64
+
+
+def create(ac, name, revision, material, points, variation=None, tiles=None, progress=None):
+    """Capture authoritative painted-ground masks and a material; the draft is not changed here. tiles: the tiles the page
+    showed, which the selection keeps to (ground loaded since does not change it). The masks are read and written a PORTION
+    of tiles at a time into a folder of their own, which becomes the paint once all are there: a failure leaves no paint.
+    progress(phase, done, total): how many tiles' masks are taken ("masks")."""
     if variation is not None and type(variation) is not bool:
         raise ValueError("Choose whether the texture varies its repeats")
     description = materiallibrary.get(material)
@@ -227,43 +236,63 @@ def create(ac, name, revision, material, points, variation=None, tiles=None):
     scope = surfaceindex.tile_scope(tiles) if tiles is not None else None
     groups = {}
     for point in points:
-        selected = trackview.surface(ac, name, int(point["mesh"]), float(point["u"]), float(point["v"]), revision, bool(point.get("whole")))
+        region = trackview.surface_region(ac, name, int(point["mesh"]), float(point["u"]), float(point["v"]), revision, bool(point.get("whole")))
         if point.get("whole") and scope is not None:
             # Loading more tiles must not expand or change the subset the user saw before Apply.
-            selected = surfaceindex.matching_tiles(path, selected["material"], sorted(scope))
-        if point.get("whole") and selected["truncated"]:
-            raise ValueError("Select all is incomplete: finish loading or select a smaller area (at most 64 ground tiles)")
-        if not MATERIAL.fullmatch(selected["material"]):
+            region = surfaceindex.matching_regions(path, region["material"], sorted(scope))
+        if point.get("whole") and region["truncated"]:
+            raise ValueError("Select all is incomplete: wait until the track has loaded, or apply to the highlighted part")
+        if not MATERIAL.fullmatch(region["material"]):
             raise ValueError("Invalid ground material")
-        groups.setdefault(selected["material"], []).append(selected)
-    tiles, masks = {}, {}
-    for source, selections in groups.items():
-        for tile in surfaceindex.merge(selections)["tiles"]:
-            key = tuple(tile["tile"])
-            if scope is not None and key not in scope:
-                continue
-            filename = f"{key[0]}_{key[1]}_{source}.png"
-            raw = base64.b64decode(tile["mask"], validate=True)
-            masks[filename] = raw
-            tiles.setdefault(key, []).append({"material": source, "file": filename, "sha256": hashlib.sha256(raw).hexdigest()})
-    if not tiles or len(tiles) > editorinfo.MAX_TILES:
-        raise ValueError("Select at most 64 ground tiles")
-    if scope is not None and set(tiles) != scope:
+        groups.setdefault(region["material"], []).append(region)
+    keys = sorted({tuple(map(int, key.split("_"))) for regions in groups.values() for region in regions for key in region["regions"]})
+    if scope is not None:
+        keys = [key for key in keys if key in scope]
+    if not keys:
+        raise ValueError("Select a ground area first")
+    if scope is not None and set(keys) != scope:
         raise ValueError("The highlighted ground selection changed; select it again")
     images = {tuple(map(int, match.groups())) for tex in scan["textures"] if (match := GROUND_IMAGE.fullmatch(tex[0]))}
-    if not set(tiles) <= images:
+    if not set(keys) <= images:
         raise ValueError("This track has no editable ground image for part of the selection")
-    with _writing:
-        record = {"schema": SCHEMA, "base": revision, "asset": _snapshot(material, variation),
-                  "tiles": [{"tile": list(key), "masks": sorted(value, key=lambda m: m["material"])} for key, value in sorted(tiles.items())]}
-        id = _digest(record)
-        folder = _out("paints", id)
-        if not (folder / "paint.json").is_file():
-            for filename, raw in masks.items():
-                _atomic(folder / filename, raw)
-            _atomic(folder / "paint.json", _json_bytes(record))
+    staging = Path(mytracks.ROOT, "out", "paints-staging", uuid.uuid4().hex)
+    try:
+        selected = _stage_masks(path, groups, keys, staging, progress or (lambda *_: None))
+        with _writing:
+            record = {"schema": SCHEMA, "base": revision, "asset": _snapshot(material, variation),
+                      "tiles": [{"tile": list(key), "masks": sorted(value, key=lambda m: m["material"])} for key, value in sorted(selected.items())]}
+            id = _digest(record)
+            folder = _out("paints", id)
+            if not (folder / "paint.json").is_file():
+                _atomic(staging / "paint.json", _json_bytes(record))
+                shutil.rmtree(folder, ignore_errors=True)       # (one left without its paint.json)
+                folder.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staging, folder)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     trackview._scan_of(ac, name, revision)
     return id
+
+
+def _stage_masks(path, groups, keys, staging, progress):
+    """Write the selection masks of tiles keys [(tx, ty)] into staging, a PORTION of tiles at a time: {tile: [{"material",
+    "file", "sha256"}]}. groups: {source material: [its regions (surfaceindex.regions)]}, of the kn5 at path."""
+    selected = {}
+    progress("masks", 0, len(keys))
+    for start in range(0, len(keys), PORTION):
+        names = [f"{x}_{y}" for x, y in keys[start:start + PORTION]]
+        for source, regions in groups.items():
+            selections = [{"material": source, "truncated": False,
+                           "tiles": surfaceindex.region_masks(path, region, [n for n in names if n in region["regions"]])}
+                          for region in regions]
+            for tile in surfaceindex.merge(selections)["tiles"]:
+                key = tuple(tile["tile"])
+                filename = f"{key[0]}_{key[1]}_{source}.png"
+                raw = base64.b64decode(tile["mask"], validate=True)
+                _atomic(staging / filename, raw)
+                selected.setdefault(key, []).append({"material": source, "file": filename, "sha256": hashlib.sha256(raw).hexdigest()})
+        progress("masks", min(len(keys), start + PORTION), len(keys))
+    return selected
 
 
 @functools.lru_cache(maxsize=512)  # Digests only, not source image bytes.
@@ -319,8 +348,9 @@ def _output_size(path, revision, i, offset, size):
     return dds_size(width, height)
 
 
-def descriptors(ac, name, revision, paints, reset=(), errors=None):
-    """Immutable versions and allocation bounds; never composite or encode a texture here."""
+def descriptors(ac, name, revision, paints, reset=(), errors=None, progress=None):
+    """Immutable versions and allocation bounds; never composite or encode a texture here. progress(phase, done, total): how
+    many painted tiles are described ("preview")."""
     if problems(paints):
         raise ValueError(problems(paints))
     path, scan = trackview._scan_of(ac, name, revision)
@@ -328,14 +358,21 @@ def descriptors(ac, name, revision, paints, reset=(), errors=None):
     result = []
     resolved = {}
     from app import trackdetail
-    trackdetail.prepare_views(ac, name, list(plan.values()))
-    for i, version in plan.items():
+    report = progress or (lambda *_: None)
+    pooled = trackdetail.prepare_views(ac, name, list(plan.values()), progress=lambda done: report("preview", done, len(plan)))
+    if not pooled:
+        report("preview", 0, len(plan))
+    for n, (i, version) in enumerate(plan.items(), 1):
         try:
             layers = trackdetail.describe(ac, name, version, resolved)
         except (ValueError, OSError) as error:
             if errors is None:
                 raise
             errors.append(str(error))
+            layers = None
+        if not pooled:
+            report("preview", n, len(plan))
+        if layers is None:
             continue
         result.append({"i": i, "version": version, "size": scan["textures"][i][2], "layers": layers,
                        "materials": layers["materials"]})

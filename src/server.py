@@ -57,6 +57,8 @@ SAVE_PATH = re.compile(r"/api/editor/([^/]+)/save")
 BRUSH_PATH = re.compile(r"/api/editor/([^/]+)/brush(/preview)?")
 COPY_PATH = re.compile(r"/api/editor/([^/]+)/copy")
 MOVE_PATH = re.compile(r"/api/editor/([^/]+)/move")
+PROGRESS_PATH = re.compile(r"/api/editor/([^/]+)/paint-progress")
+painting = {}       # {track: {"phase", "done", "total"}} of the Apply running on it (trackedits.paint), for the page's bar
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
@@ -868,6 +870,9 @@ class Handler(BaseHTTPRequestHandler):
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
+        progress = PROGRESS_PATH.fullmatch(self.path)
+        if progress:
+            return self._send(200, painting.get(generator.slug(progress[1]), {}))
         weights = re.fullmatch(r"/api/editor/([^/]+)/paint-weights/([a-f0-9]{64})", self.path)
         if weights:
             try:
@@ -987,7 +992,11 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body()
                 ac, name = settings.ac_path(), generator.slug(paint[1])
                 if paint[2] == "paint":
-                    return trackedits.paint(ac, name, body)
+                    try:
+                        return trackedits.paint(ac, name, body, lambda phase, done, total: painting.update(
+                            {name: {"phase": phase, "done": done, "total": total}}))
+                    finally:
+                        painting.pop(name, None)
                 try:
                     return {"paints": body["paints"], "textures": trackpaint.descriptors(ac, name, body["base"], body["paints"])}
                 except (ValueError, KeyError, TypeError) as e:

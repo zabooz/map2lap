@@ -325,8 +325,6 @@ def _influence(op, weight):
             part = image.transform((128, 128), Image.Transform.AFFINE,
                                    (1, 0, (tx * 256 - op["x"]) / 2 + .5, 0, 1, (-(ty + 1) * 256 - op["z"]) / 2 + .5), Image.Resampling.BILINEAR)
             if part.getbbox():
-                if len(tiles) == editorinfo.MAX_TILES:
-                    raise ValueError("The transition reaches too many tiles; choose a smaller road region")
                 tiles.append({"tile": [tx, ty], "mask": base64.b64encode(editorinfo._png(np.asarray(part))).decode("ascii")})
     return {"material": "road_transition", "truncated": False, "tiles": tiles}
 
