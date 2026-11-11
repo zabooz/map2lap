@@ -36,9 +36,14 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   stays in its cell's object, by the same sample.
 - Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px): comic ground, the roads on top in
   BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`). AC samples it repeating, so the
-  tile fills the inner 1984 px (12.9 cm/px) and its edge pixels repeat 32 px around it; the ground UVs run from 32/2048
-  to 2016/2048 (`ground.GUARD_PX`). Without that ring each tile edge mixed in the opposite edge, 256 m away: a thin
-  green line across the roads. Tracks built before still have UVs 0..1.
+  tile fills 1984 px (12.9 cm/px) and its edge pixels repeat 32 px on each side (`ground.GUARD_PX`). Without that ring
+  each tile edge mixed in the opposite edge, 256 m away: a thin green line across the roads. It protects through mip 5
+  (4 m a pixel): both rings lie side by side in one 64 px gap, at a mip-6 block. The texture lies at the world's phase
+  (`ground.phased`, `textures.ring_indices`): a column holds the world pixel of its column modulo 2048, and a ground UV
+  is the world position in tiles times 1984/2048 (`groundmaterial.UV_SCALE`; u east, kn5 v south; marked
+  `m2lUVGlobal`, `m2lUVScale`). fuPBR's layers sample world X/Z times a multiplier and no offset, so a painted Save samples
+  the build's image itself at UV_SCALE / 256 per metre, with no copy of it. Tracks built before (`m2lUVGuard`, their ring
+  at the texture's edge) are built again before painting.
 - The tile images go into the kn5 as DDS (`obj_to_kn5.dds_texture`): BC7 where the tile has a `1ROAD_` object
   (`obj_to_kn5.bc7_images`), else BC1. BC1 keeps two end colours per 4×4 block (50 cm, 1 m one mip down): grey asphalt
   beside green verge and a white marking turned green in places, on every track before (seen in AC, 2026-11-11). BC7 is
@@ -68,8 +73,7 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   replacement for regional normal maps or variation). Collision stays unchanged.
 - In that PBR shader, details use world X/Z while `txDiffuse` and the weight mask use mesh UVs. Export keeps `txDiffuse`
   white, so it does not multiply the baked road colours into every imported photograph. The original tile is another
-  weighted detail layer and currently needs a separate image on the world-phase ring canvas. The original source image
-  is retained for later edits; adopting PBR alone does not remove this duplicate.
+  weighted detail layer: the build's own image, at its scale (`m2lBaseScale`), the kn5 holding it once.
 - The editor's RGBA selection channels are independent weights. Their mipmaps average each channel independently and
   retain a unit total; the Editor works on them as lossless RGBA8 DDS, not BC3, whose independent colour/alpha
   quantization changes that total. Save writes them as BC7 (`textures.bc7_weights`, each lossless mip level encoded

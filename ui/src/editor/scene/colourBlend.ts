@@ -17,10 +17,11 @@ export interface RegionalGround {dimensions: [number, number]; uv_origin: [numbe
 export interface ColourSplat {base: ColourImage; mask: ColourImage; images: ColourPhoto[]; origin: [number, number]; materials?: number[]; ground?: RegionalGround;
   pbr?: boolean;
   mask_extent?: [number, number]; mask_origin?: [number, number];
-  /** The share of a guarded tile texture's edge outside the mesh UVs (groundmaterial.UV_GUARD); masks cover the whole tile. */
-  uv_guard?: number;
-  /** Set when the original tile image lies on the mask's ring canvas (a saved copy): it is sampled where the mask is. */
-  base_extent?: [number, number]}
+  /** What the mesh UVs are scaled by: a build's are world tiles times groundmaterial.UV_SCALE; masks cover the whole tile. */
+  uv_scale?: number;
+  /** Set when the mesh UVs no longer reach the tile image (a saved tile's lie on its mask's canvas): the image, at the
+   * world's phase, is sampled at the world position in tiles times its scale (trackview.base_scale). */
+  base_scale?: [number, number]}
 export interface GroundTextureUpdate {i: number; size: number; version: string; layers?: ColourSplat; materials?: number[]}
 interface MaterialImages {texture: string | null; dual_layer?: ColourLayers; splat?: ColourSplat}
 
@@ -42,7 +43,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
   const varied = layers.images.some(p => p.variation);
   const pbr = material instanceof THREE.MeshStandardMaterial;
   const fullPbr = !!layers.pbr;
-  const original = layers.base_extent ? "texture2D(map, (m2lTile + m2lMaskOrigin) / m2lMaskExtent)" : "texture2D(map, vMapUv)";
+  const original = layers.base_scale ? "texture2D(map, (m2lTile + m2lMaskOrigin) * m2lBaseScale)" : "texture2D(map, vMapUv)";
   material.onBeforeCompile = shader => {
     if (varied) {
       // CSP's nm4 procedural reference converts its noise multiplier to cells using a factor of 32.
@@ -53,7 +54,8 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
     }
     Object.assign(shader.uniforms, {m2lKeep: {value: keep}, m2lOrigin: {value: new THREE.Vector2(...layers.origin)}});
     Object.assign(shader.uniforms, {m2lMaskExtent: {value: new THREE.Vector2(...(layers.mask_extent ?? [1, 1]))},
-      m2lMaskOrigin: {value: new THREE.Vector2(...(layers.mask_origin ?? [0, 0]))}, m2lGuard: {value: layers.uv_guard ?? 0}});
+      m2lMaskOrigin: {value: new THREE.Vector2(...(layers.mask_origin ?? [0, 0]))}, m2lUVScale: {value: layers.uv_scale ?? 1},
+      m2lBaseScale: {value: new THREE.Vector2(...(layers.base_scale ?? [1, 1]))}});
     for (let i = 0; i < images.length; i++) {
       shader.uniforms[`m2lPhoto${i}`] = {value: images[i]};
       shader.uniforms[`m2lScale${i}`] = {value: new THREE.Vector2(...layers.images[i].scale)};
@@ -69,7 +71,8 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
       uniform vec2 m2lOrigin;
       uniform vec2 m2lMaskExtent;
       uniform vec2 m2lMaskOrigin;
-      uniform float m2lGuard;
+      uniform float m2lUVScale;
+      uniform vec2 m2lBaseScale;
       ${varied ? variationShader : ""}
       ${images.map((_p, i) => `uniform sampler2D m2lPhoto${i}; uniform vec2 m2lScale${i};`).join("\n")}
       ${details.map((p, i) => p ? `uniform sampler2D m2lData${i}; uniform vec3 m2lProperties${i};` : "").join("\n")}
@@ -77,7 +80,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
     `).replace("#include <map_fragment>", `
       #ifdef USE_MAP
         // The original tile keeps its mesh UV; masks and photos take the whole tile's (kn5 v is negated).
-        vec2 m2lTile = (vMapUv - vec2(m2lGuard, -m2lGuard)) / (1.0 - 2.0 * m2lGuard);
+        vec2 m2lTile = vMapUv / m2lUVScale;
         vec4 m2lWeights = texture2D(m2lKeep, (m2lTile + m2lMaskOrigin) / m2lMaskExtent);
         vec3 m2lColour = ${!pbr || fullPbr ? `${original}.rgb * m2lWeights.a` : "vec3(0.0)"};
         ${pbr ? `vec3 m2lOriginalColour = ${original}.rgb * diffuseColor.rgb * m2lWeights.a;
@@ -127,7 +130,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
     }
   };
   // (a flat layer's roughness is written into the shader, so it is part of the program)
-  material.customProgramCacheKey = () => "map2lap-splat-7-" + Number(pbr) + Number(fullPbr) + Number(!!layers.base_extent) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])
+  material.customProgramCacheKey = () => "map2lap-splat-7-" + Number(pbr) + Number(fullPbr) + Number(!!layers.base_scale) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])
     + (fullPbr && !details[i] ? flatRoughness(layers.images[i].properties).toFixed(8) : "")).join("");
   material.needsUpdate = true;
 }

@@ -273,10 +273,12 @@ def pad_weights(image, tile):
     return Image.fromarray(np.asarray(image.convert('RGBA'))[ys[:, None], xs[None, :]])
 
 
-def ring_indices(width, height, tile):
-    """(columns, rows) of a width × height tile's pixels on its ring canvas (pad_weights), its edges extruded. Pure."""
+def ring_indices(width, height, tile, canvas=None):
+    """(columns, rows) of a width × height tile's pixels on its ring canvas, its edges extruded: the canvas repeats with the
+    world, a column at a world pixel's column modulo its width. canvas: (columns, rows), the masks' (weight_extent) when
+    None; a ground tile's texture's TEX_PX (scenery/ground.phased). Pure."""
     import numpy as np
-    cw, ch = (round(size * extent) for size, extent in zip((width, height), weight_extent(width, height)))
+    cw, ch = canvas or (round(size * extent) for size, extent in zip((width, height), weight_extent(width, height)))
     # UV V spans [-1, 0] inside a tile; its image rows span [0, height].
     phase = (tile[0] * width, (-tile[1] - 1) * height)
     xs = (np.arange(cw) - phase[0] + (cw-width)//2) % cw - (cw-width)//2

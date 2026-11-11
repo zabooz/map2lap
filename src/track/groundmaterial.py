@@ -10,9 +10,13 @@ from PIL import Image
 WHITE = "map2lap_detail_white.png"
 MASK = "map2lap_detail_base.png"
 GROUND = re.compile(r"ground_-?\d+_-?\d+")
-# The share of a ground tile texture's edge that is its guard ring (scenery/ground.py, GUARD_PX of TEX_PX): its UVs
-# run from UV_GUARD to 1 - UV_GUARD. Built tracks carry it as the material property m2lUVGuard; older ones have none.
+# The share of a ground tile texture's edge that is its guard ring (scenery/ground.py, GUARD_PX of TEX_PX).
 UV_GUARD = 32 / 2048
+# The share of a tile texture one tile covers (scenery/ground.phased): the texture repeats every 256 m / UV_SCALE and lies
+# at the world's phase, so a mesh's UV is its world position in tiles times UV_SCALE (u east, kn5 v south), and fuPBR's
+# layers, sampled at world X/Z times a multiplier, show the same texture at UV_SCALE / 256 (tracknative: a Save's tile
+# image). Ground materials carry it as m2lUVScale with m2lUVGlobal; tracks built before (m2lUVGuard) are built again.
+UV_SCALE = 1 - 2 * UV_GUARD
 PBR = "fuPBR_multilayer"
 # How a saved track holds its PBR ground; a track's recipe keeps the one it was saved with, an older one makes its paints
 # need a Save (trackedits._needs_material_save). 2: the shader itself in the kn5 (pbr); 1: a CSP replacement, black in AC.
@@ -33,9 +37,9 @@ def is_ground(name):
     return bool(GROUND.fullmatch(name))
 
 
-def guard_prop(fraction=UV_GUARD):
-    """The kn5 property marking a ground material's guarded UVs. Pure."""
-    return ("m2lUVGuard", fraction, (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))
+def uv_props(scale=UV_SCALE):
+    """The kn5 properties marking a ground material's UVs as world tiles times scale (UV_SCALE). Pure."""
+    return [("m2lUVGlobal", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)), ("m2lUVScale", scale, (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))]
 
 
 def pbr(material, diffuse, mask, layers, normal2=FLAT_NORMAL):

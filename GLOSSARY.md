@@ -174,6 +174,12 @@ _Avoid_: the server
 A 256 m square of the anchor frame (`roads.TILE`); a build makes roads, terrain and scenery per tile.
 _Avoid_: block, chunk, cell
 
+**Tile image**:
+A tile's ground texture (`ground_<tx>_<ty>`, 2048 px): the tile shrunk to 1984 px with its edges repeated 32 px around it,
+lying at the world's phase (`scenery/ground.phased`), so ground UVs are world tiles times `groundmaterial.UV_SCALE` and a
+painted Save samples the same image in world X/Z, with no copy.
+_Avoid_: base copy, ring image
+
 **Geotile**:
 A square of a global Web-Mercator grid (zoom 17, about 240 m) with its own frame; bridge and tunnel chains are solved
 in it, so they come out the same whatever the anchor.

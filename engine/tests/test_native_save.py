@@ -21,23 +21,19 @@ class RegionMaskTest(unittest.TestCase):
     setUp = paintfixture.PaintTest.setUp
     material = paintfixture.PaintTest.material
     keep = paintfixture.PaintTest.keep
-    build = guarded.GuardedSaveTest.build
+    build = guarded.PhasedSaveTest.build
+    quad = guarded.PhasedSaveTest.quad
 
-    def painted(self, stripes, guard=False):
+    def painted(self, stripes, phased=False):
         """Tile 0 in two pieces of one material, as a build splits big ground, its seven stripes painted from the second
-        on with that many greys (more than three: a regional Save). guard: its UVs as a guarded build writes them, on the
-        texture's inside (groundmaterial.UV_GUARD) to 4 places (make_obj). The paint ids."""
-        self.build(0, stripes=7)
+        on with that many greys (more than three: a regional Save). phased: its UVs as a build writes them, world tiles times
+        groundmaterial.UV_SCALE to 4 places (make_obj), else the tile's own. The paint ids."""
+        self.scale = groundmaterial.UV_SCALE if phased else 1
+        self.build(stripes=7, scale=self.scale)
         native = kn5.read(str(self.path))
         whole = native["root"].children[0]
-        if guard:
-            g = groundmaterial.UV_GUARD
-            whole.vertices = whole.vertices.copy()
-            whole.vertices["uv"] = np.round(np.c_[g + (whole.vertices["pos"][:, 0] / 256) * (1 - 2 * g),
-                                                  -(g - (whole.vertices["pos"][:, 2] / 256) * (1 - 2 * g))], 4)
-            m = native["materials"][0]
-            native["materials"][0] = kn5.Material(m.name, m.shader, m.blend, m.alpha_tested, m.depth_mode,
-                                                  [*m.props, groundmaterial.guard_prop()], m.maps)
+        whole.vertices = whole.vertices.copy()
+        whole.vertices["uv"] = np.round(whole.vertices["uv"], 4)
         second = copy.deepcopy(whole)
         second.name = whole.name + "_1"
         whole.indices, second.indices = whole.indices[:3].copy(), whole.indices[3:].copy()
@@ -54,7 +50,7 @@ class RegionMaskTest(unittest.TestCase):
 
     def stripe(self, k):
         return trackpaint.create(self.ac, self.name, self.revision, self.material((60 + 30 * k,) * 3),
-                                 [{"mesh": 0, "u": (k + 1.5) / 7, "v": -.5, "whole": False}])
+                                 [{"mesh": 0, "u": (k + 1.5) / 7 * self.scale, "v": -.5 * self.scale, "whole": False}])
 
     def saved(self, folder):
         """The saved track's kn5: its region copies' names and its region masks {name: bytes}."""
@@ -206,9 +202,9 @@ class RegionMaskTest(unittest.TestCase):
         area = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])[:, 1]
         self.assertAlmostEqual(256 * 256, float(abs(area).sum() / 2), places=2)
 
-    def test_a_guarded_tile_s_region_copies_reach_its_edges_and_its_collision_stays(self):
-        # A guarded build's UVs end 6.6 mm inside or past the tile's edge (0.0156 for 32/2048): a cut there left a slit.
-        self.keep(self.painted(5, guard=True))
+    def test_a_built_tile_s_region_copies_reach_its_edges_and_its_collision_stays(self):
+        # A build's UVs end up to 1.3 cm inside or past the tile's edge (0.9688 for 0.96875): a cut there left a slit.
+        self.keep(self.painted(5, phased=True))
         source = kn5.read(str(trackview.served(self.ac, self.name)[0]))
         collision = {node.name: (node.vertices["pos"].tobytes(), node.indices.tobytes()) for node in kn5.walk_meshes(source["root"])}
         trackcopy.save(self.ac, self.name)
@@ -220,7 +216,7 @@ class RegionMaskTest(unittest.TestCase):
 
     def test_region_copies_and_a_file_list_kept_before_the_edge_fix_are_not_taken_again(self):
         # As a Save before GEOMETRY_CACHE_VERSION 2 cut them: at the tile's edges too, its copies and prepare's list kept.
-        self.keep(self.painted(5, guard=True))
+        self.keep(self.painted(5, phased=True))
         old = lambda bounds, width, height: [bounds[0] / width, bounds[1] / height, bounds[2] / width, bounds[3] / height]
         with mock.patch.object(tracknative, "GEOMETRY_CACHE_VERSION", 1), mock.patch.object(tracknative, "_cuts", old):
             trackcopy.save(self.ac, self.name)
@@ -269,23 +265,6 @@ class RegionMaskTest(unittest.TestCase):
         with mock.patch.object(tracknative, "build", build):
             trackcopy.save(self.ac, self.name)
         return made
-
-    def test_tile_image_copies_gone_from_the_cache_are_made_by_prepare_and_the_export_encodes_none(self):
-        import re
-        # (a real build's ground has its border lighting already; this fixture's would be changed after preparing it)
-        patch = mock.patch.object(groundnormals, "changed", side_effect=lambda _path, change: change)
-        patch.start(); self.addCleanup(patch.stop)
-        self.keep(self.painted(5))
-        trackcopy.save(self.ac, self.name)
-        path = Path(self.ac, "content/tracks", self.name, self.name + ".kn5")
-        first = path.read_bytes()
-        copies = [p for p in tracknative._mask_folder(self.name).iterdir() if re.fullmatch(r"[0-9a-f]{64}\.dds", p.name)]
-        self.assertTrue(copies)
-        for copy in copies:         # (the descriptions and masks stay: only the tile image copies are gone)
-            copy.unlink()
-        self.assertEqual({"masks": 0, "photos": 0, "clips": 0, "fields": 0}, self.export_makes())
-        self.assertTrue(all(copy.exists() for copy in copies))
-        self.assertEqual(first, path.read_bytes())
 
     def test_a_prepare_worker_starts_with_small_data_and_reads_the_scan_itself(self):
         import pickle
@@ -385,11 +364,9 @@ class RegionMaskTest(unittest.TestCase):
         self.keep(self.painted(5))
         trackcopy.save(self.ac, self.name)
         first = self.textures(self.name)
-        with (mock.patch.object(textures, "dds_mipmaps", wraps=textures.dds_mipmaps) as packed,
-              mock.patch.object(trackdetail, "tile_base", wraps=trackdetail.tile_base) as tiles):
+        with mock.patch.object(textures, "dds_mipmaps", wraps=textures.dds_mipmaps) as packed:
             trackcopy.save(self.ac, self.name)
         packed.assert_not_called()
-        tiles.assert_not_called()
         self.assertEqual(first, self.textures(self.name))
         shutil.rmtree(tracknative._mask_folder(self.name))
         trackcopy.save(self.ac, self.name)
@@ -422,7 +399,8 @@ class RegionalLayoutTest(unittest.TestCase):
     setUp = paintfixture.PaintTest.setUp
     material = paintfixture.PaintTest.material
     keep = paintfixture.PaintTest.keep
-    build = guarded.GuardedSaveTest.build
+    build = guarded.PhasedSaveTest.build
+    quad = guarded.PhasedSaveTest.quad
     painted = RegionMaskTest.painted
     stripe = RegionMaskTest.stripe
 
@@ -462,28 +440,15 @@ class RegionalLayoutTest(unittest.TestCase):
 class PhotoKeyTest(unittest.TestCase):
     """_photo_key against what a ground photo's packed images are made from."""
 
-    @staticmethod
-    def material(guard=0., extent=None):
-        empty = ((0., 0.), (0., 0., 0.), (0., 0., 0., 0.))
-        props = [("m2lUVGuard", guard, *empty)] if guard else []
-        if extent:
-            props.append(("m2lBaseExtent", 0., tuple(extent), *empty[1:]))
-        return kn5.Material("m", "ksMultilayer_objsp", 0, 0, 0, props, [])
+    def key(self, raw=b"a", ref=None, tile=(1, -2), sheen=0):
+        material = kn5.Material("m", "ksMultilayer_objsp", 0, 0, 0, [], [])
+        return tracknative._photo_key(raw, ref or {"id": "source:3:0"}, material, tile, sheen)
 
-    def key(self, raw=b"a", ref=None, material=None, tile=(1, -2), sheen=0):
-        return tracknative._photo_key(raw, ref or {"id": "base"}, material or self.material(), tile, sheen)
-
-    def test_a_tiles_own_image_depends_on_its_bytes_tile_guard_ring_and_alpha(self):
+    def test_a_source_s_image_depends_on_its_bytes_and_alpha_not_on_the_tile(self):
         same = self.key()
-        self.assertEqual(same, self.key())
-        for other in (self.key(raw=b"b"), self.key(tile=(2, -2)), self.key(material=self.material(guard=.1)),
-                      self.key(material=self.material(extent=(1.25, 1.25))), self.key(sheen=9)):
+        self.assertEqual(same, self.key(tile=(7, 7)))
+        for other in (self.key(raw=b"b"), self.key(sheen=9)):
             self.assertNotEqual(same, other)
-
-    def test_a_shared_photo_does_not_depend_on_the_tile(self):
-        source = {"id": "source:3:0"}
-        self.assertEqual(self.key(ref=source), self.key(ref=source, tile=(7, 7), material=self.material(guard=.1)))
-        self.assertNotEqual(self.key(ref=source), self.key())
 
     def test_a_photo_with_a_detail_map_depends_on_it_and_its_properties(self):
         def ref(detail="k", scale=1., rough=.5):

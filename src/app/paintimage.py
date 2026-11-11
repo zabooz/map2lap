@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 from track import editorinfo
-from track.textures import _is_bc7, dds_mipmaps, preserve_blocks
+from track.textures import _is_bc7, dds_mipmaps, preserve_blocks, ring_indices
 
 ROWS = 128  # A 2K tile needs only a few MiB of float colour buffers, instead of whole-tile copies for each overlay.
 
@@ -34,14 +34,15 @@ def _sample(image, x, z, repeat, texture_width, texture_height):
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
 
 
-def composite(original, tile, layers, assets, guard=0.):
+def composite(original, tile, layers, assets, scale=1.):
     """Original encoded tile, (tx,ty), ordered (asset,material,mask bytes) and asset paths/repeats -> RGB and changed mask.
-    guard: the share of each edge of a guarded tile texture (groundmaterial.UV_GUARD) around the tile, whose masks cover only
-    the tile: they go onto the inside, their edges repeated over the ring, as the build made the texture."""
+    scale: the share of the texture the tile covers (groundmaterial.UV_SCALE): the masks cover the tile, so they go where
+    the texture holds it (scenery/ground.phased), their edges repeated over its ring, as the build made the texture."""
     with Image.open(io.BytesIO(original)) as source:
         base = np.array(source.convert("RGB"))
     height, width = base.shape[:2]
-    gx, gy = round(guard * width), round(guard * height)
+    inside = round(width * scale), round(height * scale)
+    xs, ys = ring_indices(*inside, tile, (width, height))
     owners, weights = {}, {}
     for asset, material, raw in layers:
         if material not in owners:
@@ -50,15 +51,14 @@ def composite(original, tile, layers, assets, guard=0.):
         with Image.open(io.BytesIO(raw)) as mask:
             if max(mask.size) > 2048:
                 raise ValueError("Invalid material mask")
-            alpha = np.pad(np.array(mask.convert("L").resize((width - 2 * gx, height - 2 * gy), Image.Resampling.BOX)),
-                           ((gy, gy), (gx, gx)), mode="edge")
+            alpha = np.array(mask.convert("L").resize(inside, Image.Resampling.BOX))[ys[:, None], xs[None, :]]
         on = alpha > 0
         owners[material][on], weights[material][on] = asset, alpha[on]
     output, touched = base.copy(), np.zeros((height, width), bool)
-    x = tile[0] * editorinfo.TILE_M + (np.arange(width) + 0.5 - gx) * editorinfo.TILE_M / (width - 2 * gx)
+    x = tile[0] * editorinfo.TILE_M + (xs + 0.5) * editorinfo.TILE_M / inside[0]
     for row in range(0, height, ROWS):
         end = min(height, row + ROWS)
-        z = -(tile[1] + 1) * editorinfo.TILE_M + (np.arange(row, end) + 0.5 - gy) * editorinfo.TILE_M / (height - 2 * gy)
+        z = -(tile[1] + 1) * editorinfo.TILE_M + (ys[row:end] + 0.5) * editorinfo.TILE_M / inside[1]
         colour = np.zeros((end - row, width, 3), np.float32)
         coverage = np.zeros((end - row, width), np.float32)
         for material, owner in owners.items():
@@ -78,9 +78,9 @@ def composite(original, tile, layers, assets, guard=0.):
     return output, touched
 
 
-def encoded(original, filename, tile, layers, assets, guard=0.):
+def encoded(original, filename, tile, layers, assets, scale=1.):
     """Composite a tile once, in its existing image format (a tile with roads BC7); unchanged DDS blocks remain byte-identical."""
-    pixels, touched = composite(original, tile, layers, assets, guard)
+    pixels, touched = composite(original, tile, layers, assets, scale)
     image = Image.fromarray(pixels)
     if filename.lower().endswith(".dds"):
         return preserve_blocks(original, dds_mipmaps(image, smallest=1, bc7=_is_bc7(original)), touched)

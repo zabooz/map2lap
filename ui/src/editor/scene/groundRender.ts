@@ -23,7 +23,7 @@ interface RegionNode {
 }
 
 /** Region bounds in whole-tile UVs as they cut the ground: open where they meet the tile's edge (tracknative._cuts). The
- * ground piece ends there itself, its UVs need not: a guarded build's 4-place UVs end 6.6 mm past the tile, a wall step lifts
+ * ground piece ends there itself, its UVs need not: a build's 4-place UVs end up to 1.3 cm past the tile, a wall step lifts
  * them past it on purpose. Not Infinity: GLSL ES need not keep it in a uniform; 1e30 lies past any tile's UVs. Pure. */
 export function regionCut(bounds: number[]) {
   return [bounds[0] > 0 ? bounds[0] : -1e30, bounds[1] > 0 ? bounds[1] : -1e30,
@@ -44,9 +44,9 @@ function regionTree(regions: RegionNode[]): RegionNode {
   return {bounds, children: [regionTree(regions.slice(0, middle)), regionTree(regions.slice(middle))]};
 }
 
-/** Assign source triangles once through UV bounds; yield owned indices with borrowed vertices. guard: the share of a guarded
- * tile texture outside the mesh UVs (ColourSplat.uv_guard); bounds cover the whole tile. Pure. */
-export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: number[][], origin: number[], guard = 0) {
+/** Assign source triangles once through UV bounds; yield owned indices with borrowed vertices. scale: what the mesh UVs are
+ * scaled by (ColourSplat.uv_scale); bounds cover the whole tile. Pure. */
+export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: number[][], origin: number[], scale = 1) {
   const regions = new Map<string, RegionNode>();
   for (const box of bounds) if (!regions.has(box.join(","))) regions.set(box.join(","), {bounds: regionCut(box), kept: []});
   if (!regions.size) return;
@@ -54,7 +54,7 @@ export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: nu
   const indices = source.getIndex()!, uv = source.getAttribute("uv");
   for (let i = 0; i < indices.count; i += 3) {
     const a = indices.getX(i), b = indices.getX(i + 1), c = indices.getX(i + 2);
-    const s = 1 - 2 * guard, x = (k: number) => (uv.getX(k) - origin[0] - guard) / s, y = (k: number) => (uv.getY(k) - origin[1] + guard) / s + 1;
+    const x = (k: number) => uv.getX(k) / scale - origin[0], y = (k: number) => uv.getY(k) / scale - origin[1] + 1;
     const ax = x(a), bx = x(b), cx = x(c), ay = y(a), by = y(b), cy = y(c);
     const minX = Math.min(ax, bx, cx), maxX = Math.max(ax, bx, cx), minY = Math.min(ay, by, cy), maxY = Math.max(ay, by, cy);
     stack.push(root);
@@ -74,8 +74,8 @@ export function* groundRegionGeometries(source: THREE.BufferGeometry, bounds: nu
 }
 
 /** Only UV-intersecting triangles are submitted; edge fragments retain exact world-UV clipping. Pure. */
-export function groundRegionGeometry(source: THREE.BufferGeometry, bounds: number[], origin: number[], guard = 0) {
-  return groundRegionGeometries(source, [bounds], origin, guard).next().value![1];
+export function groundRegionGeometry(source: THREE.BufferGeometry, bounds: number[], origin: number[], scale = 1) {
+  return groundRegionGeometries(source, [bounds], origin, scale).next().value![1];
 }
 
 function disposeRegion(geometry: THREE.BufferGeometry) {
@@ -199,14 +199,15 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       m2lFrames: {value: pass.frames.map(f => new THREE.Vector4(...f.atlas))}, m2lSources: {value: pass.frames.map(f => new THREE.Vector2(...f.source))},
       m2lConstants: {value: pass.frames.map(f => f.constant ?? -1)},
       m2lScale: {value: new THREE.Vector2(...scale)}, m2lPhase: {value: new THREE.Vector2(...phase)},
-      m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lGuard: {value: layers.uv_guard ?? 0}, m2lBounds: {value: new THREE.Vector4(...regionCut(pass.bounds))},
+      m2lUVOrigin: {value: new THREE.Vector2(...origin)}, m2lUVScale: {value: layers.uv_scale ?? 1}, m2lBounds: {value: new THREE.Vector4(...regionCut(pass.bounds))},
       m2lData: {value: data}, m2lNoiseFrequency: {value: 1.6},
       m2lProperties: {value: new THREE.Vector3(ref?.properties?.normal_scale ?? 1, ref?.properties?.roughness ?? 1, ref?.properties?.roughness_offset ?? 0)}});
-    // m2lRaw samples the original tile at its mesh UV; m2lLocal is the whole tile's UV, which weights and bounds cover.
+    // m2lRaw samples the original tile at its mesh UV (less whole repeats); m2lLocal is the whole tile's UV, which weights
+    // and bounds cover.
     shader.vertexShader = shader.vertexShader.replace("#include <common>",
-      "#include <common>\nuniform vec2 m2lUVOrigin; uniform float m2lGuard; varying vec2 m2lLocal, m2lRaw;")
+      "#include <common>\nuniform vec2 m2lUVOrigin; uniform float m2lUVScale; varying vec2 m2lLocal, m2lRaw;")
       .replace("#include <uv_vertex>",
-        "#include <uv_vertex>\nm2lRaw = uv - m2lUVOrigin; m2lLocal = (m2lRaw - vec2(m2lGuard, -m2lGuard)) / (1.0 - 2.0 * m2lGuard);");
+        "#include <uv_vertex>\nm2lRaw = uv - m2lUVOrigin; m2lLocal = uv / m2lUVScale - m2lUVOrigin;");
     if (ref?.variation) shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 m2lWorldXZ;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nm2lWorldXZ = (modelMatrix * vec4(transformed,1.0)).xz;");
     shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `#include <map_pars_fragment>
@@ -258,7 +259,7 @@ export class GroundLayer {
     let bytes = 0;
     try {
       for (const [key, geometry] of groundRegionGeometries(source.geometry,
-        this.layers.ground!.passes.map(pass => pass.bounds), this.layers.ground!.uv_origin, this.layers.uv_guard ?? 0)) {
+        this.layers.ground!.passes.map(pass => pass.bounds), this.layers.ground!.uv_origin, this.layers.uv_scale ?? 1)) {
         regions.set(key, geometry);
         const size = geometry.getIndex()!.array.byteLength;
         this.frame.reserveIndices(size); bytes += size;

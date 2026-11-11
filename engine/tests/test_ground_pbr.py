@@ -87,6 +87,7 @@ class PbrSaveTest(unittest.TestCase):
     material = paintfixture.PaintTest.material
     keep = paintfixture.PaintTest.keep
     build = savefixture.RegionMaskTest.build
+    quad = savefixture.RegionMaskTest.quad
     painted = savefixture.RegionMaskTest.painted
     stripe = savefixture.RegionMaskTest.stripe
 
@@ -100,8 +101,8 @@ class PbrSaveTest(unittest.TestCase):
         self.assertEqual(groundmaterial.PBR,material.shader)
         self.assertEqual(list(groundmaterial.PBR_SLOTS),[slot for slot,_index,_image in material.maps])
         values={p[0]:p[1] for p in material.props}
-        mask_extent=next(p[2] for p in material.props if p[0]=='m2lMaskExtent')
-        self.assertAlmostEqual(1/mask_extent[0]/256,values['multA'])        # (the tile image on its ring, a tile a ring)
+        self.assertAlmostEqual(values['m2lBaseScale']/256,values['multA'])     # (the build's tile image, at the world's phase)
+        self.assertIn(('txDetailAAlbedoAO','ground_0_0.png'),[(slot,image) for slot,_index,image in material.maps])
         names={t[0] for t in saved['textures']}
         self.assertTrue(all(image in names for _slot,_index,image in material.maps))
         config=folder/'extension/map2lap_ground.ini'

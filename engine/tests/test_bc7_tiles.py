@@ -10,7 +10,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from app import paintimage, trackdetail, tracknative  # noqa: E402
+from app import paintimage, tracknative  # noqa: E402
 from track import textures  # noqa: E402
 
 
@@ -56,20 +56,6 @@ class Bc7TileTest(unittest.TestCase):
             raw = paintimage.encoded(original, "ground_0_0.dds", (0, 0), [(1, "grass", png(mask))], {1: (path, (2, 2))})
         self.assertTrue(textures._is_bc7(raw))
         self.assertEqual(original[148 + 3 * 16:148 + 4 * 16], raw[148 + 3 * 16:148 + 4 * 16])     # (an untouched block)
-
-    def test_a_saved_tile_image_on_its_ring_canvas_keeps_bc7(self):
-        pixels = np.dstack([stripes(), np.full((16, 16), 255, np.uint8)])
-        self.assertTrue(textures._is_bc7(trackdetail.ringed_base(pixels, (0, 0), "ground_0_0.dds", bc7=True)))
-        self.assertEqual(b"DXT1", trackdetail.ringed_base(pixels, (0, 0), "ground_0_0.dds")[84:88])
-
-    def test_a_tile_images_copy_keeps_its_format_bc7_with_roads_else_bc3(self):
-        from track import kn5
-        material = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, [], [])
-        for bc7, fourcc in ((True, b"DX10"), (False, b"DXT5")):
-            with self.subTest(bc7=bc7):
-                tile = textures.dds_mipmaps(Image.fromarray(stripes()), bc7=bc7)
-                copy = tracknative._photo_colour(tile, {"id": "base"}, material, (0, 0), 77, None)
-                self.assertEqual(fourcc, copy[84:88])       # (BC3: BC1's colour, the gloss in its own alpha)
 
     def test_a_saved_photo_is_bc7_with_its_gloss_in_alpha(self):
         raw = tracknative._photo_colour(png(stripes()), {"id": "a", "asset": "a" * 64}, None, (0, 0), 77, None)

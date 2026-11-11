@@ -528,8 +528,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
                  for k in ("ksAmbient", "ksDiffuse", "ksSpecular", "ksSpecularEXP")]
         props += [("ksEmissive", 0.0, (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)),
                   ("ksAlphaRef", ALPHA_REF.get(m, 0.0), (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))]
-        if groundmaterial.is_ground(m):     # (its UVs cover the inside of a guarded tile texture: scenery/ground.py)
-            props.append(groundmaterial.guard_prop())
+        if groundmaterial.is_ground(m):     # (its UVs: world tiles on a phased tile texture, scenery/ground.phased)
+            props.extend(groundmaterial.uv_props())
         shader, alpha_tested = SHADERS.get(m, ("ksPerPixel", 0))
         material = kn5.Material(m, shader, 0, alpha_tested, 0, props,
                                [("txDiffuse", 0, os.path.basename(tex[m]))])

@@ -75,7 +75,8 @@ class ApplicationTest(unittest.TestCase):
         fixture.PaintTest.setUp(self)
 
     keep = fixture.PaintTest.keep
-    build = guarded.GuardedSaveTest.build
+    build = guarded.PhasedSaveTest.build
+    quad = guarded.PhasedSaveTest.quad
 
     def pbr_material(self):
         colour = materiallibrary.prepare("colour.png", fixture.png(np.full((16, 16, 3), 130, np.uint8)))
@@ -128,7 +129,7 @@ class ApplicationTest(unittest.TestCase):
         self.assertEqual(first, trackpaint.restyle(self.ac, self.name, self.revision, matte, None), "back to default is the original")
 
     def test_switched_off_maps_and_matte_reach_the_editor_and_the_saved_kn5(self):
-        self.build(0)                       # (one quad over the whole tile, as regional Save needs: test_native_save)
+        self.build(scale=1)                 # (one quad over the whole tile, as regional Save needs: test_native_save)
         self.revision = trackview.index(self.ac, self.name)["revision"]
         trackview.prepare_surface(self.ac, self.name, 0, self.revision)
         op = trackpaint.restyle(self.ac, self.name, self.revision, self.apply(self.pbr_material()),

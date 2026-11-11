@@ -277,16 +277,19 @@ class RegionCopyEdgeTest(unittest.TestCase):
     its edges, where the neighbouring tile's copies start, and across its regions without a gap or an overlap."""
     REGIONS = [([0, 0, 200, 300], ['a']), ([200, 0, 512, 300], ['b']), ([0, 300, 512, 512], ['c'])]
 
-    def piece(self, tx=0, ty=0, guard=1/64, global_uv=False, n=33):
+    def piece(self, tx=0, ty=0, scale=None, global_uv=True, n=33):
         """Tile (tx, ty)'s ground on an 8 m lattice over a slope and a hill (kn5: z = -north), UVs as make_obj writes a
-        build's: 4 places, on a guarded texture's inside or global. (vertices, faces)."""
+        build's: 4 places, world tiles times scale (groundmaterial.UV_SCALE), or the tile's own. (vertices, faces)."""
+        from track import groundmaterial
+        scale = groundmaterial.UV_SCALE if scale is None else scale
         from track import kn5
         y, x = np.mgrid[:n, :n] / (n - 1)
         vertices = np.zeros(n * n, kn5.VERTEX)
         east, north = tx * 256 + 256 * x.ravel(), ty * 256 + 256 * y.ravel()
         vertices['pos'] = np.c_[east, 40 * y.ravel() + 12 * np.sin(6 * x.ravel()), -north]
-        u, v = guard + x.ravel() * (1 - 2 * guard), guard + y.ravel() * (1 - 2 * guard)
+        u, v = x.ravel(), y.ravel()
         if global_uv: u, v = u + tx, v + ty
+        u, v = u * scale, v * scale
         vertices['uv'] = np.c_[np.round(u, 4), -np.round(v, 4)]
         vertices['normal'] = (0, 1, 0)
         cells = (np.arange(n - 1)[None, :] + n * np.arange(n - 1)[:, None]).ravel()
@@ -321,26 +324,26 @@ class RegionCopyEdgeTest(unittest.TestCase):
             self.assertEqual(source[..., axis].max(), everything[..., axis].max())
         self.assertAlmostEqual(self.area(source), self.area(everything), delta=self.area(source) * 1e-6)
 
-    def test_a_guarded_build_s_rounded_uvs_leave_no_slit_at_the_tile_edges(self):
-        # 32/2048 written 0.0156 and 0.984375 written 0.9844: the tile's UVs end 6.6 mm short of 0 and past 1 on each side.
+    def test_a_build_s_rounded_uvs_leave_no_slit_at_the_tile_edges(self):
+        # 15 * 0.96875 = 14.53125, written 14.5312: a tile's UVs end up to 1.3 cm short of or past its edges.
         from track import groundmaterial, kn5
-        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [groundmaterial.guard_prop()], [])
+        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, groundmaterial.uv_props(), [])
         for tx, ty in ((15, -9), (16, -9)):         # (two neighbours: their copies must both reach x 4096.0)
             vertices, faces = self.piece(tx, ty)
-            self.assert_covers(vertices, faces, self.copies(vertices, faces, material))
+            self.assert_covers(vertices, faces, self.copies(vertices, faces, material, uv_origin=(tx, -ty)))
 
-    def test_a_global_uv_tile_without_a_guard_is_covered_up_to_its_edges(self):
+    def test_a_global_uv_tile_without_a_scale_is_covered_up_to_its_edges(self):
         from track import kn5
         material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [], [])
-        vertices, faces = self.piece(-41, 37, guard=0, global_uv=True)
+        vertices, faces = self.piece(-41, 37, scale=1)
         self.assert_covers(vertices, faces, self.copies(vertices, faces, material, uv_origin=(-41, -37)))
 
     def test_a_wall_step_whose_uvs_reach_past_the_tile_stays_in_its_edge_region(self):
         # A wall between two roads lifts its UVs along its face (scenery/ground.py, along.lift): at the tile's north edge
-        # they go past it, though its foot stays on the tile. (Unguarded: only the wall leaves the tile's UVs.)
+        # they go past it, though its foot stays on the tile. (Unscaled: only the wall leaves the tile's UVs.)
         from track import kn5
         material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [], [])
-        vertices, faces = self.piece(guard=0)
+        vertices, faces = self.piece(scale=1, global_uv=False)
         wall = np.zeros(3, vertices.dtype)
         wall['pos'] = [(100, 40, -255), (110, 40, -255), (105, 46, -255)]
         wall['uv'] = [(.4, -.99), (.44, -.99), (.42, -1.02)]
@@ -351,7 +354,7 @@ class RegionCopyEdgeTest(unittest.TestCase):
 
     def test_regions_inside_the_tile_meet_without_a_gap(self):
         from track import groundmaterial, kn5
-        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, [groundmaterial.guard_prop()], [])
+        material = kn5.Material('ground_0_0', 'ksMultilayer', 0, 0, 0, groundmaterial.uv_props(), [])
         vertices, faces = self.piece()
         regions = self.copies(vertices, faces, material)
         for region in regions:

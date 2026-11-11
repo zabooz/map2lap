@@ -68,7 +68,7 @@ class GroundMaterialTest(unittest.TestCase):
     def test_pbr_names_its_images_by_the_shader_s_own_slots_and_numbers(self):
         # Bound so, AC loads them with the material; bound by a CSP replacement's RESOURCE_TEXTURE they stayed black.
         base = kn5.Material("ground_0_0", "ksMultilayer", 0, 0, 0,
-                            [("ksAmbient", .41, (0, 0), (0, 0, 0), (0, 0, 0, 0)), groundmaterial.guard_prop(),
+                            [("ksAmbient", .41, (0, 0), (0, 0, 0), (0, 0, 0, 0)), *groundmaterial.uv_props(),
                              ("multA", 1., (1., 1.), (0, 0, 0), (0, 0, 0, 0)), ("ksEmissive", 0., (0, 0), (0, 0, 0), (0, 0, 0, 0))],
                             [("txDiffuse", 0, "ground_0_0.dds")])
         result = groundmaterial.pbr(base, "white.png", "mask.dds", {"R": ("grass.dds", "grass_data.png", .25),
@@ -89,13 +89,13 @@ class GroundMaterialTest(unittest.TestCase):
                          {k: values[k][1] for k in ("pbrF0", "detailNMMult", "magicMult", "ksAlphaRef", "pbrBlurCubemap")})
         self.assertNotIn("pbrFlags", values)
         self.assertEqual(.41, values["ksAmbient"][1])
-        self.assertEqual(groundmaterial.UV_GUARD, values["m2lUVGuard"][1])
+        self.assertEqual(groundmaterial.UV_SCALE, values["m2lUVScale"][1])
         for bad in ({"X": ("a", "b", 1.)}, {"R": ("a", "b", 0.)}, {"R": ("a", "b", float("nan"))}):
             with self.assertRaises(ValueError):
                 groundmaterial.pbr(base, "white.png", "mask.dds", bad)
 
     def test_generated_ground_keeps_its_baked_colours_under_pbr(self):
-        base = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, [groundmaterial.guard_prop()], [("txDiffuse", 0, "ground_0_0.dds")])
+        base = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, groundmaterial.uv_props(), [("txDiffuse", 0, "ground_0_0.dds")])
         result = groundmaterial.ground(base)
         self.assertEqual("fuPBR_multilayer", result.shader)
         slots = {slot: name for slot, _index, name in result.maps}

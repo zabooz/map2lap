@@ -1132,17 +1132,8 @@ class DetailTest(unittest.TestCase):
         saved = kn5.read(str(copied))
         textures = {name: raw for name, _active, raw in saved["textures"]}
         self.assertEqual([t[0] for t in before["textures"]], [t[0] for t in saved["textures"]][:len(before["textures"])])
-        ringed = {m.name + ".png": m for m in saved["materials"] if trackdetail.base_extent(m) != [1., 1.]}
-        self.assertIn("ground_0_0.png", ringed)
-        for name, _active, raw in before["textures"]:
-            if name not in ringed:
-                self.assertEqual(raw, textures[name])
-                continue
-            # An edited tile's image lies on its mask's ring canvas, in its place and under its name (trackdetail.ringed_base).
-            with Image.open(io.BytesIO(raw)) as image:
-                original = np.array(image.convert("RGBA"))
-            tile = (int(name.split("_")[1]), 0)
-            np.testing.assert_array_equal(original, trackdetail.tile_base(textures[name], ringed[name], tile))
+        for name, _active, raw in before["textures"]:     # (an edited tile samples the build's image itself, at its scale)
+            self.assertEqual(raw, textures[name])
         self.assertEqual("ksMultilayer_objsp", saved["materials"][0].shader)
         maps = {slot: name for slot, _i, name in saved["materials"][0].maps}
         self.assertEqual(groundmaterial.WHITE, maps["txDiffuse"])

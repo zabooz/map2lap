@@ -16,19 +16,20 @@ from PIL import Image
 
 from app import trackground
 from track import kn5
-from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_weights, pad_weights, weight_extent
+from track.textures import SAVED_WEIGHT_STEP, bc7_weights, coarse_weights, dds_weights
 
 PREFIX = "nocol_ground_m2l_"
 # The packed region masks a track's last Save wrote, by the digest of their inputs (_mask_key). Raise it when
 # region_mask, canvas_size or bc7_weights write other bytes for the same inputs: the files would no longer match.
 MASK_CACHE_VERSION = 1
-# The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
-# pad_weights or dds_mipmaps write other bytes for the same inputs.
-PHOTO_CACHE_VERSION = 4
+# The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals or dds_mipmaps
+# write other bytes for the same inputs.
+PHOTO_CACHE_VERSION = 5
 # The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region,
 # _cuts or _batches give other vertices for the same inputs. A track's recipe keeps the one it was saved with: an older one
-# makes its paints need a Save (trackedits._needs_material_save). (2: copies reach the tile's edges, _cuts.)
-GEOMETRY_CACHE_VERSION = 2
+# makes its paints need a Save (trackedits._needs_material_save). (2: copies reach the tile's edges, _cuts; 3: a build's
+# UVs are world tiles times groundmaterial.UV_SCALE, _tile_uvs.)
+GEOMETRY_CACHE_VERSION = 3
 SOURCE_FILE = Path("data", "map2lap_regional_source.json")
 OWN_TEXTURE = re.compile(r"map2lap_native_[0-9a-f]{64}\.(?:png|dds)\Z")
 
@@ -231,8 +232,6 @@ def save_size(layout,scan,path,kept=None):
     regions=layout.get('native_regions',[])
     # A byte per pixel and its mips: BC7 (bc7_weights); the rare RGBA16F mask (region_mask) stays 8 and is left out here.
     masks=sum((canvas_size(bounds,width,height)[0]*canvas_size(bounds,width,height)[1]*4//3+256) for bounds,_palette in regions)
-    ring=weight_extent(width,height)
-    masks+=round(width*ring[0])*round(height*ring[1])*4//3+256    # (the tile image on its ring canvas, as BC3 at most)
     geometry=0
     copies=layout.setdefault('native_copies',{})
     with open(path,'rb') as file:
@@ -258,11 +257,11 @@ def save_size(layout,scan,path,kept=None):
 
 
 def _tile_uvs(vertices,material):
-    """vertices with the whole tile's UVs where a guarded build's cover only its texture's inside (trackview.tile_uv). Pure."""
+    """vertices with UVs over the whole tile, a build's divided by their scale (trackview.tile_uv). Pure."""
     from app import trackview
-    guard=trackview._prop(material,'m2lUVGuard',0.)
-    if not guard: return vertices
-    vertices=vertices.copy(); vertices['uv']=np.array(trackview.tile_uv(vertices['uv'][:,0],vertices['uv'][:,1],guard,False,0,0)).T
+    scale=trackview.uv_scale(material)
+    if scale==1: return vertices
+    vertices=vertices.copy(); vertices['uv']=np.array(trackview.tile_uv(vertices['uv'][:,0],vertices['uv'][:,1],scale,False,0,0)).T
     return vertices
 
 
@@ -351,8 +350,8 @@ def build(ac,name,descriptors,scan,change,path,added):
             width,height=semantic['dimensions']
             regions=layout.get('native_regions') or palette_regions(fields())
             keys=layout.get('native_mask_keys')
-            refs,tile=_tile_refs(semantic,width,height)
             base_material=materials[layout['materials'][0]]
+            refs,tile=_tile_refs(semantic,trackview.base_scale(base_material))
             origin=layout['ground']['uv_origin']
             copies=layout.get('native_copies',{}); used.update(copies)     # (the size check's: the next one takes them)
             # A region's mask depends on the tile's fields, its bounds and palette and the tile's phase, not on the ground
@@ -403,6 +402,10 @@ def build(ac,name,descriptors,scan,change,path,added):
                         if ref is not None:
                             # (each tile has its own image under the same id 'base': its texture number tells them apart)
                             key=(ref['id'],ref.get('i'),specular,pbr)
+                            if key not in prepared and ref['id']=='base':
+                                # (the build's own image, in the kn5 already: sampled at the world's phase, no copy of it)
+                                sheen=_sheen(source_values,specular,ref)
+                                prepared[key]=(semantic['base']['name'],resource(_pbr_flat(1-sheen/255),'.png') if pbr else flat)
                             if key not in prepared and 'asset' not in ref:
                                 # (a tile's own images unchanged since the last Save, or made by prepare, come from the cache)
                                 sheen=_sheen(source_values,specular,ref)
@@ -446,14 +449,13 @@ def build(ac,name,descriptors,scan,change,path,added):
     return materials,textures,meshes,'',owned|set(textures),{'renderable':hidden}
 
 
-def _tile_refs(semantic,width,height):
-    """({id: image} of a painted tile's description, the tile (tx, ty)). The tile image on its mask's ring canvas
-    (trackdetail.ringed_base) is sampled as one more repeating photo, 'base': its edge must not reach the opposite one. Pure."""
+def _tile_refs(semantic,scale):
+    """({id: image} of a painted tile's description, the tile (tx, ty)). The build's tile image, at the world's phase
+    (scenery/ground.phased), is sampled as one more repeating photo, 'base', at its scale (trackview.base_scale). Pure."""
     from app import trackpaint
     refs={ref['id']:ref for ref in semantic['images']}
     tile=tuple(map(int,trackpaint.GROUND_IMAGE.fullmatch(semantic['base']['name']).groups()))
-    ring=weight_extent(width,height)
-    refs['base']={**semantic['base'],'id':'base','scale':[1/ring[0],1/ring[1]],'variation':False}
+    refs['base']={**semantic['base'],'id':'base','scale':[scale,scale],'variation':False}
     return refs,tile
 
 
@@ -476,8 +478,8 @@ def _saved_mask(fields,bounds,palette,phase):
 
 
 def _own_photo(kept,path,scan,revision,ref,material,tile,sheen,*,pbr=False):
-    """(cache name, DDS) of a tile's own image ref ('base' or a source's) as _photo_colour packs it, from the kn5 at path in
-    revision, kept under its _photo_key."""
+    """(cache name, DDS) of a source's image ref as _photo_colour packs it, from the kn5 at path in revision, kept under its
+    _photo_key."""
     from app import trackview
     _n,at,size=scan['textures'][ref['i']]
     raw=trackview._read(path,at,size,revision)
@@ -572,8 +574,9 @@ def _init_prepare(roots,ac,name,path,scan=None):
 
 def _prepare_tile(descriptor):
     """Make and keep what a Save makes of one painted tile apart from the others, its fields read once: its description
-    (trackdetail._native_layout), its ground's region copies (save_size), its region masks and its own images."""
-    from app import trackdetail
+    (trackdetail._native_layout), its ground's region copies (save_size), its region masks and its sources' own images (the
+    tile image needs none: build samples the build's own)."""
+    from app import trackdetail,trackview
     ac,name,scan,path=(_job[k] for k in ('ac','name','scan','path'))
     record,_p,_s,filename=trackdetail._view(ac,name,descriptor['version'])
     read=functools.cache(lambda: trackdetail._semantic(ac,name,record,path,scan,filename))
@@ -586,8 +589,8 @@ def _prepare_tile(descriptor):
     phase=_mask_phase(layout,width,height)
     for (bounds,palette),key in zip(layout['native_regions'],layout['native_mask_keys']):
         _stored(kept,_mask_file(key,bounds,width,height),lambda: _saved_mask(fields(),bounds,palette,phase))
-    refs,tile=_tile_refs(semantic,width,height)
     base_material=scan['materials'][layout['materials'][0]]
+    refs,tile=_tile_refs(semantic,trackview.base_scale(base_material))
     done=set()
     for info in scan['meshes']:
         if info['material'] not in layout['materials']: continue
@@ -597,7 +600,7 @@ def _prepare_tile(descriptor):
             pbr=_pbr_palette(refs,palette)
             for ref in (refs[key] for key in palette):
                 key=(ref['id'],ref.get('i'),specular,pbr)
-                if 'asset' not in ref and key not in done:
+                if 'asset' not in ref and ref['id']!='base' and key not in done:
                     done.add(key)
                     files.add(_own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref),pbr=pbr)[0])
     from app import trackpaint
@@ -672,15 +675,14 @@ def _keep_only(folder, used):
 
 
 def _photo_key(raw, ref, material, tile, sheen, *, pbr=False):
-    """The digest of all that _photo_colour and _photo_normals read: the encoded source, for a tile's own image its guard,
-    ring canvas and tile, the alpha of a photo without a gloss map (sheen), a detail map and its properties. Pure."""
-    from app import trackdetail, trackpaint, trackview
+    """The digest of all that _photo_colour and _photo_normals read: the encoded source, the alpha of a photo without a
+    gloss map (sheen), a detail map and its properties. Pure."""
+    from app import trackpaint
     properties = ref.get("properties", {})
-    base = [[int(t) for t in tile], trackview._prop(material, "m2lUVGuard", 0.), trackdetail.base_extent(material)] if ref["id"] == "base" else None
     detail = [ref["detail"]["key"], properties.get("normal_scale", 1.), properties.get("roughness", 1.)] if "detail" in ref and "asset" in ref else None
     if detail and "roughness_offset" in properties:         # (absent for untouched materials, whose keys stay as they were)
         detail.append(properties["roughness_offset"])
-    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, base, detail, pbr])
+    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, detail, pbr])
 
 
 def _rgba(raw):
@@ -690,18 +692,12 @@ def _rgba(raw):
 
 
 def _photo_colour(raw, ref, material, tile, sheen, detail, *, pbr=False):
-    """A ground photo as a DDS: its colour (a tile's own image on its mask's ring canvas), alpha 255 for PBR AO;
-    the legacy float2 path instead packs gloss from detail or sheen. Pure. A library photo is BC7, BC3's size: BC3's colour has
-    BC1's two ends a block, which turned asphalt beside verge green (textures.dds_mipmaps). A tile's own image keeps its
-    source's format, BC7 for a tile with roads, else BC3: BC7 took 2.2 s a 2304 px copy with its mips, BC3 0.2 s, and a tile
-    without roads has no such edges (39 of Heiligenblut's 106 tiles)."""
-    from app import trackdetail
+    """A ground photo as a DDS: its colour, alpha 255 for PBR AO; the legacy float2 path instead packs gloss from detail or
+    sheen. Pure. A library photo is BC7, BC3's size: BC3's colour has BC1's two ends a block, which turned asphalt beside
+    verge green (textures.dds_mipmaps); a source's image keeps its format."""
     from track.textures import _is_bc7, dds_mipmaps
-    if ref["id"] == "base":
-        colour = pad_weights(Image.fromarray(trackdetail.tile_base(raw, material, tile)), tile).convert("RGBA")
-    else:
-        with Image.open(io.BytesIO(raw)) as image:
-            colour = image.convert("RGBA")
+    with Image.open(io.BytesIO(raw)) as image:
+        colour = image.convert("RGBA")
     if pbr:
         # fuPBR reads local ambient occlusion here, not specular strength. No authored AO means unoccluded.
         alpha = Image.new("L", colour.size, 255)
@@ -750,8 +746,9 @@ def _pbr_flat(roughness):
 
 
 def pbr_simple(material, layout, resources):
-    """A simple colour assignment as PBR ground itself (groundmaterial.pbr): its photos in R, G and B, the tile image on its
-    mask's ring in A, each with flat nonmetal data. Rectangular repeats keep the float2 shader. Pure but for resources."""
+    """A simple colour assignment as PBR ground itself (groundmaterial.pbr): its photos in R, G and B, the build's tile image
+    in A at its scale (m2lBaseScale), each with flat nonmetal data. Rectangular repeats keep the float2 shader. Pure but
+    for resources."""
     if any(not math.isclose(*ref['scale'],rel_tol=1e-6) for ref in layout['images']):
         return material
     from track import groundmaterial
@@ -764,7 +761,7 @@ def pbr_simple(material, layout, resources):
     for j,channel in enumerate('RGBA'):
         # (the photos repeat in tile UVs on the old shader, in world metres here: a tile is 256 m)
         scale=layout['images'][j]['scale'][0] if j<len(layout['images']) and j<3 else 1.
-        if channel=='A': scale=1/layout.get('mask_extent',[1.,1.])[0]
+        if channel=='A': scale=next(p[1] for p in material.props if p[0]=='m2lBaseScale')
         layers[channel]=(maps['txDetail'+channel],image(_pbr_flat(221/255 if channel=='A' else 1.)),scale/256)
     props=[p for p in material.props if p[0]!='m2lPBR']+[('m2lPBR',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))]
     return groundmaterial.pbr(replace(material,props=props),maps['txDiffuse'],maps['txMask'],layers,

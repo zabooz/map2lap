@@ -146,16 +146,15 @@ writes the guarded masks into AC without a track build. Native regional masks re
 extend it by at most 128 pixels per axis, capped at half that region's span. This bounds each ordinary region canvas to
 four times its unpadded area; tiny regions retain the minimum halo. Large regions gain filtering room through mip seven,
 while the complete cross-region far-filtering contract remains separate.
-Tracks built since the ground texture guard (`ground.GUARD_PX`, `docs/ac-rules.md`) have ground UVs that cover only the inside
-of their tile image, 32/2048 to 2016/2048; their ground materials say so in `m2lUVGuard`. The Editor's masks and selections cover
-the whole tile, so every lookup takes the tile's own UV (`trackview.tile_uv`): picking and Appearance on the server, masks and
-photos in the preview shaders (`uv_guard` in a paint layout), the colour compositor and Save. The original tile image keeps its
-mesh UV in the preview. Save writes whole-tile UVs and puts the tile image, under its own name and number, on its mask's ring
-canvas (`trackdetail.ringed_base`, `m2lBaseExtent`): the edited material samples image and mask at one UV, and the ring keeps the
-opposite tile edge out of AC's repeating filter. Older tracks get the same ring on painted tiles at their next Save. A saved copy
-without its source reads the ringed image back to the tile (`trackdetail.tile_base`). An opaque tile keeps its format, BC7 for a
-tile with roads, else BC1, as does a tile painted with the colour compositor (`paintimage.encoded`); the ring canvas
-is 2304 px for a 2048 px tile (26.6 % more than the tile it replaces, only on painted tiles).
+A build's tile image lies at the world's phase (`ground.phased`, `docs/ac-rules.md`): its ground UVs are the world position
+in tiles times `groundmaterial.UV_SCALE` (1984/2048), marked `m2lUVGlobal` and `m2lUVScale`. The Editor's masks and selections
+cover the whole tile, so every lookup divides by that scale and takes the tile's own UV (`trackview.tile_uv`): picking and
+Appearance on the server, masks and photos in the preview shaders (`uv_scale` in a paint layout), the colour compositor
+(`paintimage.composite`, which paints where the phased texture holds the tile) and Save. The original tile image keeps its
+mesh UV in the preview. Save samples the build's image itself, at the world position times its scale (`trackview.base_scale`,
+`base_scale` in a layout): a regional Save as fuPBR's layer A at `UV_SCALE / 256` per metre, a simple one with its mesh UVs on
+the mask's canvas and `m2lBaseScale` in place of `m2lUVScale`. The kn5 keeps one tile image, its bytes unchanged; nothing is
+encoded for it. A track built before (`m2lUVGuard`) is built again: painting it says so (`trackview.uv_scale`).
 Terrain pieces meeting at exactly the same 3D point on a 256 m tile boundary share area-weighted geometric normals and
 orthogonal tangents. Preview and Save apply small cached patches without modifying the retained source; new generator
 outputs receive the same correction. Different heights and interior vertices stay separate. A height edit starts from
@@ -666,7 +665,7 @@ each tile's weight fields for its regions and keeps the masks' keys, not the fie
 for a mask not kept. That description of a tile (regions, images, mask keys) is kept too, beside the view's `layers.json` under
 `out/paint-views/<version>/native.json`: the version covers the tile's source image, the track's state and its paints, so a Save
 that changed nothing on a tile reads none of its fields (`NATIVE_PROFILE`). The retained paint files are checked again just before the track is replaced. The packed photos and tile images lie beside them, named by
-`tracknative._photo_key` (source bytes; for a tile's own image its guard, ring canvas and tile; alpha; detail map and its properties).
+`tracknative._photo_key` (source bytes; alpha; detail map and its properties).
 So do the ground pieces' region copies, clipped and deduplicated (`tracknative._copy_key`: the piece's vertices and triangles, the
 region, the UV origins; `GEOMETRY_CACHE_VERSION`): the size check makes or takes them before the export, and a piece raised or moved
 since is clipped again. Imported models' textures are taken from the track's last saved kn5 by name, which covers every input of
@@ -674,11 +673,11 @@ their pixels (`trackmodels.images`). Heiligenblut's copy with 99 painted tiles a
 4.9 s with one model moved, 17.5 s with an empty cache (90.6 s on one process), measured before the later BC7/PBR changes;
 these are scenario measurements, not timings promised for the current Save. Before the export, `tracknative.prepare` makes
 what the last Save did not leave of each painted tile on several processes (Settings' cores, as RAM allows; below `POOL_FROM`
-tiles in the server's own): one reads a tile's fields once and keeps its description, region copies, masks and own images;
+tiles in the server's own): one reads a tile's fields once and keeps its description, region copies, masks and its sources' images;
 the export then takes them from the cache, as a warm Save does, and writes the same bytes. A region mask whose canvas the saved mask's step divides is
 averaged to its coarse texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
-255th off the one made coarse after). The earlier 33 s for cold ring images used the older encoding profile; current tile
-copies retain BC7 for BC7 sources and otherwise use BC3. Imported normal
+255th off the one made coarse after). A Save encodes no tile image: it samples the build's (until 2026-11-12 it encoded a
+copy on the mask's ring canvas, 2.2 s a BC7 tile on one core). Imported normal
 maps and linear roughness go into the `fuPBR_multilayer` material itself: albedo RGB/AO alpha and normal XY/metalness/
 roughness are separate resources, with the retained normal and roughness factors applied once. Flat nonmetal data fills
 missing maps. Rectangular physical repeats retain `ksMultilayer_objsp_nm4` with float2 scaling rather than stretching the
@@ -686,10 +685,11 @@ image. Regional render copies are `nocol_`; the edited
 source is hidden for rendering while its collision vertices and indices remain byte-identical. A tile's copies cut its ground
 in tile UVs, which their masks are sampled by, only between its regions: a region at the tile's edge takes everything of the
 ground on that side (`tracknative._cuts`; the Editor's view likewise, `groundRender.regionCut`). The ground ends at the tile's
-edge itself, its UVs need not: a guarded build writes them to four places (0.0156 for 32/2048), so tile u is 1.0000257 at
-x 4096.0, and a wall step lifts them past the edge on purpose. Cutting at the edge took 6.6 mm off each tile there, a
-12.9 mm slit between Heiligenblut's painted tiles; tracks saved so (a recipe without `region_geometry` 2, the
-`GEOMETRY_CACHE_VERSION` it was saved with) count as needing a Save, which writes new copies and keeps masks and photos. Global UV origins and native
+edge itself, its UVs need not: a build writes them to four places (15 * 0.96875 = 14.53125 written 14.5312), so they end up
+to 1.3 cm short of or past the tile's edge, and a wall step lifts them past the edge on purpose. Cutting at the edge took
+6.6 mm off each tile there, a 12.9 mm slit between Heiligenblut's painted tiles; tracks saved with an older
+`GEOMETRY_CACHE_VERSION` (the recipe's `region_geometry`) count as needing a Save, which writes new copies and keeps masks
+and photos. Global UV origins and native
 world multipliers keep square physical repeats exact. Cold reopen retains the editable source; removing paints restores its render
 flag on Save. The source is retained for Undo/Discard, and the saved recipe/bundle carries
 the operation masks and normalized colour snapshots. Saving a transferred track also retains the material snapshots referenced

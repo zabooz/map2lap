@@ -106,19 +106,34 @@ def _mask_extent(material):
     return next((list(p[2]) for p in material.props if p[0] == 'm2lMaskExtent'), [1., 1.])
 
 
-def tile_uv(u, v, guard, global_uv, tx, ty):
+def tile_uv(u, v, scale, global_uv, tx, ty):
     """A ground mesh's UV (kn5's: v negated) as its tile's own, u 0..1 and v -1..0 over the whole 256 m, which the
-    Editor's masks cover: less a global UV's tile origin, and out of a guarded texture's inside (groundmaterial.UV_GUARD). Pure."""
+    Editor's masks cover: divided by its scale (a build's: world tiles times groundmaterial.UV_SCALE), less a global UV's
+    tile origin. Pure."""
+    u, v = u / scale, v / scale
     if global_uv:
         u, v = u - tx, v + ty
-    if guard:
-        u, v = (u - guard) / (1 - 2 * guard), (v + guard) / (1 - 2 * guard)
     return u, v
+
+
+def uv_scale(material):
+    """What a ground material's mesh UVs are scaled by (groundmaterial.uv_props; 1 without). A track built while its tile
+    textures had their guard at the texture's edge (m2lUVGuard) is built again: its tile images don't lie at the world's
+    phase, a Save would need a copy of each. Pure."""
+    if _prop(material, "m2lUVGuard", 0.):
+        raise ValueError("This track was built before Map2Lap 0.6: its ground is painted once it is built again")
+    return _prop(material, "m2lUVScale", 1.)
+
+
+def base_scale(material):
+    """The scale its tile image lies at (groundmaterial.UV_SCALE): a Save's m2lBaseScale, whose mesh UVs are its mask's
+    canvas, else its mesh UVs'. Pure."""
+    return _prop(material, "m2lBaseScale", 0.) or uv_scale(material)
 
 
 def material_uv(material, tx, ty, u, v):
     """tile_uv by what the ground material of tile (tx, ty) says of its UVs. Pure."""
-    return tile_uv(u, v, _prop(material, "m2lUVGuard", 0.), _prop(material, "m2lUVGlobal", 0) == 1, tx, ty)
+    return tile_uv(u, v, uv_scale(material), _prop(material, "m2lUVGlobal", 0) == 1, tx, ty)
 
 
 def _material(material):
@@ -143,7 +158,7 @@ def _material(material):
     elif material.shader == groundmaterial.PBR:
         maps = {slot: tex for slot, _n, tex in material.maps}
         base = maps.get("txDetailAAlbedoAO")
-        if base and base != groundmaterial.WHITE and maps.get("txMask"):    # (painted: its tile image on the mask's ring in A)
+        if base and base != groundmaterial.WHITE and maps.get("txMask"):    # (painted: its tile image in A, world X/Z)
             images = []
             for channel in "RGB":
                 filename = maps.get(f"txDetail{channel}AlbedoAO")
@@ -151,10 +166,8 @@ def _material(material):
                     scale = 256. * _prop(material, "mult" + channel, 1 / 256)       # (repeats a tile; the shader's are a metre)
                     images.append({"name": filename, "scale": [scale, scale], "channel": "RGB".index(channel), "variation": False})
             result.update(texture=base, splat={"base": {"name": base}, "mask": {"name": maps["txMask"], "linear": True},
-                          "images": images, "origin": [0, 0], "mask_extent": _mask_extent(material), "mask_origin": [0, 0], "pbr": True})
-            ring = next((list(p[2]) for p in material.props if p[0] == "m2lBaseExtent"), None)
-            if ring:
-                result["splat"]["base_extent"] = ring
+                          "images": images, "origin": [0, 0], "mask_extent": _mask_extent(material), "mask_origin": [0, 0], "pbr": True,
+                          "base_scale": [base_scale(material)] * 2})
         else:               # (generated: its tile image in txDiffuse under one white layer, groundmaterial.ground)
             result["pbr"] = {"roughness": groundmaterial.GROUND_ROUGHNESS}
     elif material.shader == "ksMultilayer_objsp":
@@ -170,10 +183,7 @@ def _material(material):
                                    "variation": _prop(material, "m2lVariation" + channel, 0) == 1})
             result.update(texture=maps["txDetailA"], splat={"base": {"name": maps["txDetailA"]},
                           "mask": {"name": maps["txMask"], "linear": True}, "images": images, "origin": [0, 0],
-                          "mask_extent": extent, "mask_origin": [0,0]})
-            ring = next((list(p[2]) for p in material.props if p[0] == "m2lBaseExtent"), None)
-            if ring:            # (the tile image lies on the mask's ring canvas: trackdetail.ringed_base)
-                result["splat"]["base_extent"] = ring
+                          "mask_extent": extent, "mask_origin": [0,0], "base_scale": [base_scale(material)] * 2})
     return result
 
 

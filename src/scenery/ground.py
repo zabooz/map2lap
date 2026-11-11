@@ -30,6 +30,7 @@ import surface as surfacemod
 
 from scenery import groundcover, leisure, wallcut, water
 from track import groundmaterial
+from track.textures import ring_indices
 
 CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
 TILE = roadsmod.TILE            # 256 m
@@ -37,10 +38,12 @@ LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
 TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); groundmaterial adds neutral detail slots
 # AC and the Editor sample a tile's texture repeating (a kn5 material has no clamp): at UV 0 or 1 bilinear filtering mixes
 # in the opposite edge, 256 m away, half and half on every mip level: a thin green line across a road at each tile edge.
-# The tile is baked into TEX_PX - 2 * GUARD_PX pixels and its edge pixels repeated around it (guarded, guarded_uv): no
-# memory, 3.1 % of the resolution (12.5 -> 12.9 cm). Protects through mip 6 (8 m per pixel, a pixel on the screen some
-# hundreds of metres away); beyond, and with anisotropic filtering looking across the edge, the mix comes back, far off.
-# The kn5 marks it on each ground material (groundmaterial.UV_GUARD), so the Editor maps UVs back to the whole tile.
+# The tile is baked into TEX_PX - 2 * GUARD_PX pixels and its edge pixels repeated around it (phased, phased_uv): no
+# memory, 3.1 % of the resolution (12.5 -> 12.9 cm). Protects through mip 5 (4 m per pixel, a pixel on the screen some
+# hundreds of metres away), less where filtering looks across the edge; beyond, the mix comes back, far off. (Mip 6 mixes:
+# both guards lie side by side in one 64 px gap, and a tile's edge, at a world pixel 1984 * tx, on a 64 px block's edge.)
+# The texture lies at the world's phase (groundmaterial.UV_SCALE): a painted Save samples the same image in world X/Z,
+# with no copy of it (tracknative.build). The kn5 marks it on each ground material (groundmaterial.uv_props).
 GUARD_PX = round(groundmaterial.UV_GUARD * TEX_PX)
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX
 TERRAIN_UV_M = 8.0              # m per repeat of the comic ground textures
@@ -98,17 +101,20 @@ def _to_px(a):
     return np.asarray(Image.fromarray(np.asarray(a, np.float32), "F").resize((TEX_PX, TEX_PX), Image.BILINEAR))
 
 
-def guarded(img, guard):
-    """img (N, N, 3) uint8, the whole tile, as a texture of the same size: the tile shrunk to N - 2 * guard pixels, its
-    edge pixels repeated guard times around it (GUARD_PX). Pure."""
+def phased(img, tile):
+    """img (N, N, 3) uint8, the whole tile (tx, ty), as a texture of the same size: the tile shrunk to N - 2 * GUARD_PX
+    pixels, its edge pixels repeated GUARD_PX times around it, the whole rolled to the world's phase (textures.ring_indices:
+    a column at a world pixel's column modulo N). Pure."""
     n = img.shape[0]
-    inside = np.asarray(Image.fromarray(img).resize((n - 2 * guard, n - 2 * guard), Image.LANCZOS))
-    return np.pad(inside, ((guard, guard), (guard, guard), (0, 0)), mode="edge")
+    inside = np.asarray(Image.fromarray(img).resize((n - 2 * GUARD_PX, n - 2 * GUARD_PX), Image.LANCZOS))
+    xs, ys = ring_indices(n - 2 * GUARD_PX, n - 2 * GUARD_PX, tile, (n, n))
+    return inside[ys[:, None], xs[None, :]]
 
 
-def guarded_uv(uv, guard, px):
-    """uv (k, 2) over the whole tile (0..1) onto the inside of a guarded texture of px pixels. Pure."""
-    return guard / px + np.asarray(uv, np.float64) * ((px - 2 * guard) / px)
+def phased_uv(uv, tile):
+    """uv (k, 2) over the whole tile (tx, ty) (0..1, v north) onto its phased texture: the world position in tiles times
+    groundmaterial.UV_SCALE, the kn5 negating v. Pure."""
+    return (np.asarray(tile, np.float64) + np.asarray(uv, np.float64)) * groundmaterial.UV_SCALE
 
 
 def _sample(tex, x, y, repeat_m):
@@ -410,8 +416,7 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         m = drawn & (surf == pre)
         groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]], along.T[surf[along.cells[along.owner]] == pre]]
     P = np.r_[np.c_[P[:, :2], along.u.ravel()], along.P]
-    UV = guarded_uv(np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE],
-                    GUARD_PX, TEX_PX)
+    UV = phased_uv(np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE], (tx, ty))
 
     # looks: comic ground, the roads on top
     sp = TILE / TEX_PX
@@ -529,5 +534,5 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
             segs, hws, look = got
             _paint_looks(img, np.ascontiguousarray(segs, np.float64), np.ascontiguousarray(hws, np.float64),
                          np.ascontiguousarray(look, np.uint8), wx, wy, sp, gc_dir, worn=True, paint=paint)
-    Image.fromarray(guarded(np.clip(img, 0, 255).astype(np.uint8), GUARD_PX)).save(out_tex, quality=88)
+    Image.fromarray(phased(np.clip(img, 0, 255).astype(np.uint8), (tx, ty))).save(out_tex, quality=88)
     return P, UV, groups, out_tex

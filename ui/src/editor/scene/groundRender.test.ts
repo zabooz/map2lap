@@ -171,20 +171,20 @@ test("painted ground takes shadows in each pass, and throws none", () => {
   layer.dispose();
 });
 
-test("a guarded tile's triangles fall into the regions their whole-tile UVs reach", () => {
-  // Guarded ground UVs cover only the inside of the tile texture (groundmaterial.UV_GUARD); masks and region bounds the whole tile.
-  const guard = 1 / 8, inside = (u: number) => guard + u * (1 - 2 * guard);
+test("a built tile's triangles fall into the regions their whole-tile UVs reach", () => {
+  // A build's UVs are world tiles times its scale (groundmaterial.UV_SCALE); masks and region bounds cover the tile (3, -2).
+  const scale = 3 / 4, u = (x: number) => (3 + x) * scale, v = (north: number) => -(-2 + north) * scale;
   const source = new THREE.BufferGeometry();
   source.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  source.setAttribute("uv", new THREE.BufferAttribute(Float32Array.from([inside(0), -inside(.5), inside(.1), -inside(.5), inside(0), -inside(.4)]), 2));
+  source.setAttribute("uv", new THREE.BufferAttribute(Float32Array.from([u(.45), v(.5), u(.55), v(.5), u(.45), v(.6)]), 2));
   source.setIndex([0, 1, 2]);
-  const west = [0, 0, .11, 1];
-  expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0], guard)).get(west.join(","))!.getIndex()!.array)).toEqual([0, 1, 2]);
-  expect(Array.from(new Map(groundRegionGeometries(source, [west], [0, 0])).get(west.join(","))!.getIndex()!.array)).toEqual([]);
+  const middle = [.4, 0, .6, 1];
+  expect(Array.from(new Map(groundRegionGeometries(source, [middle], [3, 2], scale)).get(middle.join(","))!.getIndex()!.array)).toEqual([0, 1, 2]);
+  expect(Array.from(new Map(groundRegionGeometries(source, [middle], [3, 2])).get(middle.join(","))!.getIndex()!.array)).toEqual([]);
 });
 
 test("a region at the tile's edge takes the ground past it, as a Save's copies do", () => {
-  // A wall step lifts its UVs past the tile's north edge (y < 0) on purpose; a guarded build's 4-place UVs end 6.6 mm past it.
+  // A wall step lifts its UVs past the tile's north edge (y < 0) on purpose; a build's 4-place UVs end up to 1.3 cm past it.
   const source = new THREE.BufferGeometry();
   source.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
   source.setAttribute("uv", new THREE.BufferAttribute(Float32Array.from([.4, -1.01, .44, -1.01, .42, -1.03]), 2));
