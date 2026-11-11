@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
+import {objectsOf, selectionOf} from "./trackObjects.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {GeometryPreview} from "./geometryPreview";
 import {ModelDraw} from "./modelDraw";
@@ -20,13 +21,13 @@ const bytes = (x = 0) => {
 
 interface View {
   syncCopies: () => Promise<void>;
-  reloadModels: () => Promise<number | null>; refresh: (i: number) => Promise<void>; removed: Set<string>;
+  reloadModels: () => Promise<number | null>; refresh: (i: number) => Promise<void>;
   meshes: THREE.Mesh[]; byNumber: Map<number, THREE.Mesh>; materialAreas: Map<number, unknown>; usedBytes: number; dragging: unknown;
 }
 
 /** A view of no track but its models, and a server whose index and meshes follow `served`; urls holds the meshes asked for. */
 function setUp() {
-  const served = {parts: [] as MeshInfo[], copies: [] as MeshInfo[], copyRevision: "", draft: 1, x: 0, removed: [] as string[]}, urls: string[] = [], errors: string[] = [], before = globalThis.fetch;
+  const served = {parts: [] as MeshInfo[], copies: [] as MeshInfo[], copyRevision: "", draft: 1, x: 0}, urls: string[] = [], errors: string[] = [], before = globalThis.fetch;
   globalThis.fetch = (async input => {
     const url = String(input);
     if (url.endsWith("/copies")) return Response.json({revision: "source", draft: served.draft, copy_revision: served.copyRevision, meshes: served.copies, objects: {}});
@@ -45,10 +46,10 @@ function setUp() {
   });
   const byNumber = new Map<number, THREE.Mesh>();
   Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), pendingKey: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
-    meshes: [], byNumber, parts: new Map(), grounds: [], materialAreas: new Map(), objectPieces: new Map(), belonging: new Map(), picks: new Map(),
+    meshes: [], byNumber, grounds: [], materialAreas: new Map(), objects: objectsOf(view), selection: selectionOf(view),
     data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
     copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(),
-    listedOut: new Map(), billboardsOut: new Map(), removed: new Set(), removedSorts: new Set(), wanted: () => new Set(served.removed), ensureModelLight: () => {}, reframePicks: () => {},
+    ensureModelLight: () => {},
     modelDraw: draw, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
     geometryPreview: new GeometryPreview(i => byNumber.get(i), () => {}), onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
   return {view, draw, served, urls, errors, done: () => { draw.dispose(); globalThis.fetch = before; }};
@@ -302,7 +303,7 @@ test("a second model stroke keeps only semantic metadata and downloads zero inst
 });
 
 interface BrushView {
-  brush: unknown; markAt: [number, number] | null; brushMarks: Map<string, THREE.Box3Helper>; brushGone: Set<string>; parts: Map<string, THREE.Mesh[]>;
+  brush: unknown; markAt: [number, number] | null; brushMarks: Map<string, THREE.Box3Helper>; brushGone: Set<string>;
   placed: Map<string, unknown>; pendingPivots: Map<string, number[]>; camera: THREE.Camera;
   markBrush: () => void; showGone: (ids: string[] | null) => void; cullModels: () => void;
 }
@@ -314,7 +315,7 @@ test("Delete's brush frames an imported model under its ring and hides it during
     served.parts = [part(0, "a")];
     await view.reloadModels();
     Object.assign(brush, {brush: {radius: 5, colour: "#e5484d", turnedColour: "#e5484d", marks: true}, markAt: [0, 0], brushMarks: new Map(), brushGone: new Set(),
-      placed: new Map(), pendingPivots: new Map(), camera: new THREE.PerspectiveCamera(), leaveOut: () => {}});
+      placed: new Map(), pendingPivots: new Map(), camera: new THREE.PerspectiveCamera()});
     brush.markBrush();
     expect([...brush.brushMarks.keys()]).toEqual(["a#0"]);
     brush.showGone(["a#0"]);

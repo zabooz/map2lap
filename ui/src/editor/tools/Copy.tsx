@@ -36,7 +36,7 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
       else {
         setReady({template: r.template, at: r.at, kind: r.kind, source});
         setFault(null);
-        view.unpick();     // The source is now a template; X should take up Delete instead of deleting the original.
+        view.selection.unpick();     // The source is now a template; X should take up Delete instead of deleting the original.
       }
     });
     return () => { current = false; };
@@ -91,5 +91,5 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
       <ToolNumber label="Size" unit="%" hint="Size of each copy against its source (Alt + wheel)" min={10} max={1000} step={5}
         value={Math.round(pose.scale * 100)} onChange={percent => setPose(p => nudged({...p, scale: percent / 100}, {}))} />,
     ]}
-    actions={ready && <ToolAction label="Choose another" hint="Pick a different source object" onClick={thenView(view, () => { setReady(null); setFault(null); view.unpick(); })} />} />;
+    actions={ready && <ToolAction label="Choose another" hint="Pick a different source object" onClick={thenView(view, () => { setReady(null); setFault(null); view.selection.unpick(); })} />} />;
 }

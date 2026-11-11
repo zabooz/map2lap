@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
+import {objectsOf} from "./trackObjects.fixture";
 
 test("the Copy preview takes every member once, excludes a pole's wires, and uses only visible triangles", () => {
   const geometry = new THREE.BufferGeometry();
@@ -12,7 +13,7 @@ test("the Copy preview takes every member once, excludes a pole's wires, and use
   const view = Object.create(TrackView.prototype) as TrackView;
   Object.assign(view, {
     scene, byNumber: new Map([[0, mesh]]), copyFoot: new THREE.Vector3(), copyPose: {turn: 0, y: 0, scale: 1}, placed: new Map(), pendingPivots: new Map(),
-    mouse: null, belonging: new Map([["t_0_0#0", ["t_0_0#1", "t_0_0#2"]]]), renderer: {domElement: {style: {}}}, roadMarkers: {overPin: false},
+    mouse: null, objects: objectsOf(view, new Map([["t_0_0#0", ["t_0_0#1", "t_0_0#2"]]])), renderer: {domElement: {style: {}}}, roadMarkers: {overPin: false},
     data: {objects: {t_0_0: {kinds: ["house", "door", "power line"], parents: [-1, 0, 0], at: [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
       faces: [[[0, 0, 1]], [[0, 1, 1]], [[0, 2, 1]]]}}},
   });
@@ -70,7 +71,7 @@ test("an imported Copy preview and its pending solid share the asset geometry an
   root.matrix.makeTranslation(3, 4, 5);
   const scene = new THREE.Scene(), view = Object.create(TrackView.prototype) as TrackView;
   let held = 0;
-  Object.assign(view, {scene, data: {objects: {}}, belonging: new Map(), byNumber: new Map(), pendingModels: new Map(), pendingKey: 0,
+  Object.assign(view, {scene, data: {objects: {}}, objects: objectsOf(view), byNumber: new Map(), pendingModels: new Map(), pendingKey: 0,
     copyFoot: new THREE.Vector3(), pivotOf: () => [3, 4, 5], mouse: null, renderer: {domElement: {style: {}}}, roadMarkers: {overPin: false},
     modelDraw: {instance: () => root, hold: () => { held++; return () => { held--; }; }}});
   view.setCopy("instance_a#0", () => {});

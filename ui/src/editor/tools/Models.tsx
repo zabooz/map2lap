@@ -39,7 +39,7 @@ export function Models({name, view, edits, replace: replaceTargets, enabled, cho
           const placed = !replace && !isUnplaced(options) ? [...answer.placed ?? [], {...options, id: `${models[0].id}#0`}] : answer.placed;
           if (shown !== null) { view.confirmPending(shown, models[0].id, revision); shown = null; }
           edits.addModels(models, placed); setFault(null);
-          if (replace) view.unpick();
+          if (replace) view.selection.unpick();
         }
       } finally { if (shown !== null) view.dropPending(shown); }
     });

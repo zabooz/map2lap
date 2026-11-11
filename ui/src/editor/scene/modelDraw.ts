@@ -166,7 +166,7 @@ export class ModelDraw {
   }
 
   /** Distance uses the asset's local bounds and current pose, independently of server mesh numbers. */
-  cull(camera: THREE.Vector3, removed: Set<string>, distance: number) {
+  cull(camera: THREE.Vector3, removed: ReadonlySet<string>, distance: number) {
     const center = new THREE.Vector3();
     for (const [id, instance] of this.instances) {
       center.copy(this.assets.get(instance.asset)!.center).applyMatrix4(instance.root.matrix);

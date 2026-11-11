@@ -2,7 +2,7 @@
 // over the ground, the wheel zooms towards the mouse, held it turns and tilts around the view's middle, as in a building game. Meshes
 // load nearest first, so the spot in view comes first on a long track. A click picks what is under the mouse; with Move on, a press picks
 // it and a drag takes it along over the ground.
-import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, Marked, MeshInfo, TrackIndex} from "../types";
+import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, MeshInfo, TrackIndex} from "../types";
 import type {LoadAbout} from "../../types";
 
 /** What loading says: its text, how far (undefined: done, null: not known) and about it (a first opening, why it failed). */
@@ -26,7 +26,6 @@ import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
 import type {Removed} from "../state/edits";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
-import {cutsOf, type SurfaceCut} from "./surfaceCuts";
 import {ModelDraw} from "./modelDraw";
 import {GroupDraw, type GroupPlant} from "./groupDraw";
 import type {LibraryModel} from "../library/ModelLibrary";
@@ -38,27 +37,22 @@ import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
 import {materialImages, type GroundMaterial} from "./colourBlend";
 import {TrackTextures} from "./trackTextures";
-import {billboardFaces, billboardOf, childrenOf, COPIES, countOfSort, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt,
-        objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf} from "./inspect";
+import {TrackObjects} from "./trackObjects";
+import {Selection, frameOf, removeFrame, ROAD} from "./selection";
+import {billboardFaces, billboardOf, COPIES, fits, kindName, kindOf, latLonOf, nearestLast, physicsOf, routeMetre, sortOf,
+        spriteAt, tileOf} from "./inspect";
 
 const PARALLEL = 6;                 // meshes asked for at a time
 const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
 const RESORT_M = 100, RESORT_EVERY_MS = 500;    // the queue of meshes sorted again when the view moved this far, at most this often: 66,000 take a while
 const GROUND = /^(1ROAD|1GRASS|1GRAVEL)_ground|^1ROAD_deck|^nocol_water|^nocol_far/;   // the meshes the view stays above: over a river's surface, not its bed
 const HOVER_EVERY_MS = 60;          // how often the mouse's target is looked up: the box follows, the view stays smooth
-const PICKED_COLOUR = "#ffd21f";
-const MARK_EVERY_MS = 300;          // the frames of a marked sort follow meshes loading at most this often
-const BOX_EDGES = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6],
-                   [3, 7]];         // (a box's 12 edges by their corners' numbers: bits x 1, y 2, z 4)
-// what the build lists (src/track/objectlist.py, LISTED): an older track's can't be picked yet
-const IN_THE_LIST = /^(?!.*_sub_).*(_cars_|_bld|_props_|_wire_|_pylon_|_rocks_|_fence|_fuel_|_signs_|_pool_|_play_|_sport_|_graves_|_tower_|_fountain_)/;
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
 const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
 const BRUSHED = /^(1ROAD|1GRASS|1GRAVEL)_ground/;   // what a stroke goes on: the ground itself, no bridge or water, whatever else the camera keeps above
 const FOOT_RING = 8;                // points round a plant's foot: the lowest side of a slope lies within 22.5° of one, so at most 8 % of its drop is missed
-const ROAD = /^1ROAD_ground/;       // what a click marks a band on (trackband: the road is this)
 const SAMPLE_EVERY_MS = 50;         // where the ring is, this often while the mouse is held: finer than a hand moves it, and it counts the time where it stands
 const PREVIEW_EVERY_MS = 200;       // how often a stroke under way is asked for: at most one at a time, what is newest when it is answered goes next
 const RING_POINTS = 64;
@@ -70,13 +64,6 @@ function timed<T>(name: string, fn: () => T) {
   const result = fn();
   performance.measure(name, {start: started});
   return result;
-}
-
-/** The triangles of a mesh that make up an object. */
-interface Piece {
-  mesh: number;
-  from: number;
-  end: number;
 }
 
 /** The vertices of an object in one mesh as they were when it was taken up: their numbers, their floats in that order. */
@@ -151,6 +138,8 @@ export class TrackView {
   private meshes: THREE.Mesh[] = [];
   private grounds: THREE.Mesh[] = [];
   readonly textures: TrackTextures;      // the track's textures and materials, painted ground with them
+  readonly objects: TrackObjects;        // the track's objects: their triangles, what belongs to which, what is left out
+  readonly selection: Selection;         // what is picked and the frames of a marked sort
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -165,33 +154,14 @@ export class TrackView {
   private lastHover = 0;
   private picker = new THREE.Raycaster();
   private alphaOf = new Map<THREE.Texture, ImageData | null>();
-  private onPick: (picked: Picked | null) => void = () => {};
   private onMenu: (at: MenuAt) => void = () => {};
-  private marked: Marked | Marked[] | null = null;
-  private markedLines: THREE.LineSegments | null = null;
-  private markDue = false;              // (meshes loaded since the frames were drawn)
-  private lastMark = 0;
-  private markEvery = MARK_EVERY_MS;
   private onIndexed: (revision: string | null) => void = () => {};
-  private picks = new Map<string, {box: THREE.Box3Helper; picked: Picked}>();   // (by id, as they were picked, each with its frame)
-  private adding = false;               // Ctrl with the left button adds to what is picked
-  private selectMode = {enabled: false, whole: false, add: false};
   private materialAreas = new Map<number, MaterialRegions>();
-  private parts = new Map<string, THREE.Mesh[]>();      // a tile's billboard meshes by their base name
   private byNumber = new Map<number, THREE.Mesh>();     // the loaded meshes by number
-  private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
-  private belonging: ReturnType<typeof childrenOf> = new Map();        // what belongs to which of them
-  private surfacesOut = new Map<string, [number, number][]>();   // the verge's triangles left out, by mesh name (as setRemovedSurfaces was told)
-  private removed = new Set<string>();                  // the ids of the objects left out, those of the sorts below too
   private brushGone = new Set<string>();                // left out by Delete's brush under way, not by the draft yet (showGone)
   private brushMarks = new Map<string, THREE.Box3Helper>();    // framed: what Delete's brush would take where its ring stands (marks)
   private markAt: [number, number] | null = null;      // where the ring stood when the frames were last asked for; a frame later they are
   private marksDue = false;
-  private feet = new WeakMap<THREE.Mesh, {version: number; trees: {k: number; from: number; at: [number, number, number]}[]}>();   // billboards' feet, per mesh as its vertices are
-  private removedSorts = new Set<string>();             // the sorts of trees and bushes left out
-  private named: {ids: string[]; objectSorts: Set<string>} = {ids: [], objectSorts: new Set()};    // (as setRemoved was told)
-  private listedOut = new Map<number, Piece[]>();       // what of the listed objects left out lies in each mesh, for one loading later
-  private billboardsOut = new Map<string, string[]>();  // the trees and bushes left out by id, by the base of their meshes, the same
   private trackName = "";
   private heightsVersion = 0;           // a new number: the server hands out other meshes than a request on its way will bring
   private onViewFailed: (text: string | null) => void = () => {};
@@ -233,6 +203,17 @@ export class TrackView {
       },
       changed: () => { this.dirty = true; },
       failed: message => this.onViewFailed(message),
+    });
+    this.objects = new TrackObjects({
+      data: () => this.data, mesh: i => this.byNumber.get(i), loaded: () => this.byNumber.values(),
+      modelBounds: base => this.modelDraw.bounds(base),
+      take: bytes => { this.usedBytes += bytes; },
+      changed: () => { this.dirty = true; this.hoverDue = true; },
+      removedChanged: () => { this.selection.reframeMarked(); this.dirty = true; this.hoverDue = true; },
+    });
+    this.selection = new Selection({
+      scene: this.scene, objects: this.objects, data: () => this.data, moveTool: () => this.moveTool,
+      materialArea: i => this.materialAreas.has(i), changed: () => { this.dirty = true; },
     });
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
@@ -326,11 +307,6 @@ export class TrackView {
     this.onHover = onHover;
   }
 
-  /** onPick gets what a click picked, null when nothing or when that's over. */
-  setPick(onPick: (picked: Picked | null) => void) {
-    this.onPick = onPick;
-  }
-
   /** A painted ground region, highlighted independently of deletable objects. Null releases all mask memory. */
   async setSurface(selection: SurfaceSelection | null, failed: (message: string) => void = () => {}) {
     this.surfaceFailed = failed;
@@ -374,19 +350,6 @@ export class TrackView {
     this.renderer.domElement.focus({preventScroll: true});
   }
 
-  /** What was picked is no more. */
-  unpick() {
-    this.forgetPicks();
-    this.onPick(null);
-  }
-
-  /** Whether Ctrl with the left button adds to what is picked, or takes one out again; else it is a click like any. */
-  setAdding(adding: boolean) {
-    this.adding = adding;
-  }
-
-  setSelectMode(enabled: boolean, whole = false, add = false) { this.selectMode = {enabled, whole, add}; }
-
   /** Material regions were identified as their meshes loaded; no topology search belongs to a click. */
   materialSelection(point: SurfacePoint): SurfaceSelection {
     const source = this.byNumber.get(point.mesh), region = this.materialAreas.get(point.mesh);
@@ -402,174 +365,6 @@ export class TrackView {
     return {material: this.data.materials[info.material].name, truncated: false, tiles: [], meshes};
   }
 
-  /** The objects with these ids ("<mesh as built>#<number>"), the trees and bushes of sorts and the listed objects of objectSorts
-      are left out from now on, those not named come back. A left out one's triangles shrink to a point: nothing draws or hits them,
-      the others keep their numbers. What goes is what any of them takes along: a span two poles share stays out while one does. */
-  setRemoved(ids: string[], sorts: string[] = [], objectSorts: string[] = []) {
-    this.named = {ids, objectSorts: new Set(objectSorts)};
-    const wantedSorts = new Set(sorts);
-    const wanted = new Set([...ids, ...idsOfSorts(this.data?.objects ?? {}, new Set([...objectSorts, ...sorts]))]);
-    const sortsChanged = sorts.length !== this.removedSorts.size || sorts.some(sort => !this.removedSorts.has(sort));
-    let back = false;
-    for (const id of this.removed) {
-      if (!wanted.has(id)) {
-        this.leaveOut(id, false);
-        back = true;
-      }
-    }
-    if (sortsChanged) {
-      this.removedSorts = wantedSorts;
-      for (const mesh of this.billboardMeshes()) this.restore(mesh);
-      back = true;
-    }
-    // (what came back may have held a part of what stays out: a house back, its sign deleted by itself)
-    for (const id of wanted) if (back || !this.removed.has(id)) this.leaveOut(id, true);
-    // (the sorts of trees last: a tree brought back by its id may be of a sort that stays out)
-    if (back && this.removedSorts.size) for (const mesh of this.billboardMeshes()) this.leaveOutSorts(mesh);
-    this.removed = wanted;
-    this.noteListedOut();
-    if (this.marked) this.frameMarked();
-    this.dirty = true;
-    this.hoverDue = true;
-  }
-
-  /** The road verge's triangles the draft leaves out (surfaceCuts), each mesh's as it loads too; those no longer named come back.
-      A verge mesh holds no objects, so its triangles are only ever left out this way. */
-  setRemovedSurfaces(cuts: SurfaceCut[]) {
-    const before = this.surfacesOut;
-    this.surfacesOut = new Map(cuts.map(cut => [cut.mesh, cut.faces]));
-    for (const mesh of this.byNumber.values()) {
-      const info = mesh.userData.info as MeshInfo;
-      if (!before.has(info.name) && !this.surfacesOut.has(info.name)) continue;
-      for (const [from, count] of before.get(info.name) ?? []) this.leaveOutIn(mesh, {mesh: info.i, from, end: from + count}, false);
-      for (const [from, count] of this.surfacesOut.get(info.name) ?? []) this.leaveOutIn(mesh, {mesh: info.i, from, end: from + count}, true);
-    }
-    this.dirty = true;
-    this.hoverDue = true;
-  }
-
-  /** A selection's triangles as cuts of the draft, null unless all of it is road verge. */
-  surfaceCuts(meshes: {mesh: number; faces: number[]}[]) {
-    return cutsOf(meshes, new Map((this.data?.meshes ?? []).map(m => [m.i, m.name])));
-  }
-
-  /** The ids to leave out: those named, and the listed objects of the sorts named. */
-  private wanted(named = this.named) {
-    return new Set([...named.ids, ...(this.data?.model_replacements ?? []), ...idsOfSorts(this.data?.objects ?? {}, named.objectSorts), ...idsOfSorts(this.data?.objects ?? {}, this.removedSorts)]);
-  }
-
-  /** listedOut and billboardsOut for what is left out now: a whole sort of a long track is thousands of objects, too many to look
-      through for each mesh that loads. */
-  private noteListedOut() {
-    this.listedOut = new Map();
-    this.billboardsOut = new Map();
-    for (const id of this.removed) {
-      const base = id.slice(0, id.lastIndexOf("#"));
-      if (!this.data?.objects?.[base]) {
-        if (!this.billboardsOut.has(base)) this.billboardsOut.set(base, []);
-        this.billboardsOut.get(base)!.push(id);
-        continue;
-      }
-      for (const piece of this.piecesOf(id)) {
-        if (!this.listedOut.has(piece.mesh)) this.listedOut.set(piece.mesh, []);
-        this.listedOut.get(piece.mesh)!.push(piece);
-      }
-    }
-  }
-
-  /** How many objects of a listed sort the track still shows, over all of it, with these edits (the page's, as it renders: the
-      view takes them only after): what the button to delete them all says. */
-  countOfListed(sort: string, ids: string[], objectSorts: string[]) {
-    if (!this.data) return 0;
-    return countOfSort(this.data.objects, sort, takenAlong(this.wanted({ids, objectSorts: new Set(objectSorts)}), this.belonging));
-  }
-
-  private billboardMeshes() {
-    return [...this.parts.values()].flat();
-  }
-
-  /** A mesh's indices as built, all it left out back. */
-  private restore(mesh: THREE.Mesh) {
-    const original = mesh.userData.indices as Uint16Array | undefined;
-    if (!original) return;
-    const index = mesh.geometry.getIndex()!;
-    (index.array as Uint16Array).set(original);
-    index.needsUpdate = true;
-  }
-
-  /** The billboards of a mesh part: [number, first triangle, end]. */
-  private *billboardsOf(mesh: THREE.Mesh): Generator<[number, number, number]> {
-    const info = mesh.userData.info as MeshInfo, faces = info.indices / 3, first = info.first_face!;
-    for (let k = billboardOf(0, first); k <= billboardOf(Math.max(0, faces - 1), first); k++) {
-      const [from, end] = billboardFaces(k, first, faces);
-      if (from < end) yield [k, from, end];
-    }
-  }
-
-  /** The sort of the billboard whose triangles start at face in mesh, by where its first triangle lies on the atlas. */
-  private spriteOf(mesh: THREE.Mesh, face: number) {
-    const uv = mesh.geometry.getAttribute("uv");
-    const indices = (mesh.userData.indices ?? mesh.geometry.getIndex()!.array) as Uint16Array;
-    const [a, b, c] = [indices[face * 3], indices[face * 3 + 1], indices[face * 3 + 2]];
-    return spriteAt(this.data!.atlas, (uv.getX(a) + uv.getX(b) + uv.getX(c)) / 3, (uv.getY(a) + uv.getY(b) + uv.getY(c)) / 3);
-  }
-
-  private leaveOutSorts(mesh: THREE.Mesh) {
-    if (!this.removedSorts.size || !this.data) return;
-    const info = mesh.userData.info as MeshInfo;
-    for (const [, from, end] of this.billboardsOf(mesh)) {
-      const sprite = this.spriteOf(mesh, from);
-      if (sprite && this.removedSorts.has(sprite)) this.leaveOutIn(mesh, {mesh: info.i, from, end}, true);
-    }
-  }
-
-  /** How many trees or bushes of a sort are loaded. */
-  countOf(sprite: string) {
-    const seen = new Set<string>();
-    for (const mesh of this.billboardMeshes()) {
-      const info = mesh.userData.info as MeshInfo;
-      for (const [k, from] of this.billboardsOf(mesh)) if (this.spriteOf(mesh, from) === sprite) seen.add(`${info.base}#${k}`);
-    }
-    for (const id of idsOfSorts(this.data?.objects ?? {}, new Set([sprite]))) {
-      if (!this.removed.has(id) && this.shownObjectBounds(id)) seen.add(id);
-    }
-    return seen.size;
-  }
-
-  /** All triangles of an object and what belongs to it that are known by now: a billboard's in the parts of its mesh loaded so
-      far. */
-  private piecesOf(id: string, withChildren = true): Piece[] {
-    const at = id.lastIndexOf("#"), base = id.slice(0, at), number = Number(id.slice(at + 1));
-    const listed = this.data?.objects?.[base]?.faces[number];
-    if (listed) {
-      return [...listed.map(([mesh, from, count]) => ({mesh, from, end: from + count})),
-              ...(withChildren ? (this.belonging.get(id) ?? []).flatMap(child => this.piecesOf(child)) : [])];
-    }
-    return (this.parts.get(base) ?? []).map(part => {
-      const info = part.userData.info as MeshInfo, [from, end] = billboardFaces(number, info.first_face!, info.indices / 3);
-      return {mesh: info.i, from, end};
-    }).filter(p => p.from < p.end);
-  }
-
-  private leaveOut(id: string, out: boolean) {
-    for (const piece of this.piecesOf(id)) {
-      const mesh = this.byNumber.get(piece.mesh);
-      if (mesh) this.leaveOutIn(mesh, piece, out);
-    }
-  }
-
-  /** A piece of an object left out of, or back in its mesh. The first change of a mesh keeps a copy of its indices. */
-  private leaveOutIn(mesh: THREE.Mesh, {from, end}: Piece, out: boolean) {
-    const index = mesh.geometry.getIndex()!, array = index.array as Uint16Array;
-    if (!mesh.userData.indices) {
-      mesh.userData.indices = array.slice();
-      this.usedBytes += array.byteLength;
-    }
-    if (out) array.fill(0, from * 3, end * 3);
-    else array.set((mesh.userData.indices as Uint16Array).subarray(from * 3, end * 3), from * 3);
-    index.needsUpdate = true;
-  }
-
   /** Show the track name; say(text) gets the progress or the fault. Returns when all is loaded (or another track was asked
       for: what the older one still says or fails with is nobody's business any more). */
   async open(name: string, say: Say) {
@@ -582,7 +377,7 @@ export class TrackView {
     this.onViewFailed(null);
     this.dirty = true;
     this.onHover(null);
-    this.onPick(null);
+    this.selection.unpick();
     this.onIndexed(null);
     say(name ? "Reading the track …" : "", name ? null : undefined);
     if (!name) return;
@@ -605,10 +400,8 @@ export class TrackView {
     if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
     if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Revert to saved removes them while they are unsaved.`);
-    this.objectPieces = objectIndex(data.objects);
-    this.belonging = childrenOf(data.objects);
-    this.removed = this.wanted();           // (the sorts named before the list was there; no mesh is loaded yet)
-    this.noteListedOut();
+    this.objects.index(data.objects);
+    this.objects.rewant();                  // (the sorts named before the list was there; no mesh is loaded yet)
     this.onIndexed(data.revision);
     this.navigation.placeCamera(data);
     this.renderer.domElement.focus({preventScroll: true});     // (W A S D work at once, not in the track's dropdown)
@@ -762,7 +555,7 @@ export class TrackView {
         this.ring = null;
       }
     } else {
-      if (!was) this.unpick();
+      if (!was) this.selection.unpick();
       this.onHover(null);
       this.placeRing(this.brushAt(), false);
     }
@@ -842,20 +635,6 @@ export class TrackView {
     this.refreshMeshes([]);
   }
 
-  /** The object an object belongs to, at the top (a house for its sign and door); a tree or bush: itself. */
-  private rootOf(id: string) {
-    const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
-    let k = Number(id.slice(at + 1));
-    while (list && list.parents[k] >= 0) k = list.parents[k];
-    return list ? `${id.slice(0, at)}#${k}` : id;
-  }
-
-  /** What a listed object is called, for the hover box and the notes. */
-  private namesOf(id: string) {
-    const at = id.lastIndexOf("#"), list = this.data!.objects[id.slice(0, at)], k = Number(id.slice(at + 1));
-    return {id, kind: kindName(list.kinds[k]), sort: sortOf(list, k)};
-  }
-
   /** Whether Move can take it: not a span of wires, which goes where its poles go. */
   canMove(id: string) {
     const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
@@ -872,7 +651,7 @@ export class TrackView {
       const [x, y, z] = list.at[Number(id.slice(at + 1))], p = this.placed.get(id);
       return [x + (p?.x ?? 0), y + (p?.y ?? 0), z + (p?.z ?? 0)];
     }
-    const box = this.boundsOf(id), middle = box.getCenter(new THREE.Vector3());
+    const box = this.objects.boundsOf(id), middle = box.getCenter(new THREE.Vector3());
     return [middle.x, box.min.y, middle.z];
   }
 
@@ -883,7 +662,7 @@ export class TrackView {
       const modelMatrix = this.modelDraw.instance(id.split("#")[0])?.matrix.clone();
       if (modelMatrix) { out.push({id, modelMatrix}); continue; }
       const byMesh = new Map<number, Set<number>>();
-      for (const {mesh, from, end} of this.piecesOf(id)) {
+      for (const {mesh, from, end} of this.objects.piecesOf(id)) {
         const part = this.byNumber.get(mesh);
         if (!part) continue;
         const indices = (part.userData.indices ?? part.geometry.getIndex()!.array) as Uint16Array;
@@ -921,7 +700,7 @@ export class TrackView {
         this.geometryPreview.changedMeshes.add(g.mesh);
       }
     }
-    this.reframePicks();
+    this.selection.reframe();
     this.dirty = true;
   }
 
@@ -973,22 +752,14 @@ export class TrackView {
     if (d) this.nudgeGrabbed(d.grabbed, d.pivots, () => STILL);
   }
 
-  /** The frames of what is picked round it as it stands now. */
-  private reframePicks() {
-    for (const [id, {box}] of this.picks) {
-      const bounds = this.boundsOf(id);
-      if (!bounds.isEmpty()) box.box.copy(bounds);
-    }
-  }
-
   /** With Move on, the left button pressed picks what is under the mouse (Ctrl: adds it); held and moved, it takes all that is picked along
       over the ground, keeping each one's clearance; let go, onMoved says how far. */
   private moves(el: HTMLElement) {
     el.addEventListener("pointerdown", e => {
       if (!this.moveTool || this.brush || e.button !== LEFT_BUTTON) return;
       const picked = this.pick(e, el);
-      if (!picked?.id || !this.picks.has(picked.id)) return;
-      const ids = [...this.picks.keys()].filter(id => this.canMove(id));
+      if (!picked?.id || !this.selection.has(picked.id)) return;
+      const ids = this.selection.ids().filter(id => this.canMove(id));
       if (!ids.includes(picked.id)) return;
       const pivots = new Map(ids.map(id => [id, this.pivotOf(id)]));
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pivots.get(picked.id)![1]), from = new THREE.Vector3();
@@ -1165,16 +936,13 @@ export class TrackView {
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       // Models own no numbered scene meshes. Copies can take their former numbers without displacing an instance.
       if (copiesChanged && (copies.length || oldCopies)) this.applyCopies(data, copyBuffers, this.heightsVersion);
-      const previousRemoved = this.removed;
       this.data = data;
-      this.objectPieces = objectIndex(data.objects); this.belonging = childrenOf(data.objects);
-      this.removed = this.wanted(); this.noteListedOut();
-      for (const id of previousRemoved) if (!this.removed.has(id)) this.leaveOut(id, false);
-      for (const id of this.removed) if (!previousRemoved.has(id)) this.leaveOut(id, true);
+      this.objects.index(data.objects);
+      this.objects.rewant(true);
       this.settlePending(data);
       this.loadedCopyRevision = data.copy_revision ?? "";
-      for (const id of [...this.picks.keys()]) if (id.startsWith("instance_") && !data.objects[id.split("#")[0]]) this.dropPick(id);
-      this.reframePicks(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
+      this.selection.dropGone(id => id.startsWith("instance_") && !data.objects[id.split("#")[0]]);
+      this.selection.reframe(); this.onViewFailed(null); this.dirty = true; this.hoverDue = true;
       return data.models?.length ?? 0;
     } catch (error) {
       if (mine === this.token && asked === this.modelTransformVersion && !signal.aborted) this.onViewFailed((error as Error).message);
@@ -1189,7 +957,7 @@ export class TrackView {
       if (mine !== this.token || asked !== this.modelTransformVersion) return;
       this.modelDraw.transforms(data.model_matrices ?? {});
       if (this.dragging) this.dragOn(this.dragging.grabbed.filter(g => "modelMatrix" in g));
-      this.reframePicks(); this.dirty = true; this.hoverDue = true;
+      this.selection.reframe(); this.dirty = true; this.hoverDue = true;
     } catch (error) { if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message); }
   }
 
@@ -1252,24 +1020,19 @@ export class TrackView {
     const copyObjects = Object.fromEntries(Object.entries(data.objects).filter(([key]) => key.startsWith("copy_")));
     this.data = {...current, copy_revision: tag, draft: data.draft,
       meshes: [...current.meshes.filter(info => !info.copy), ...added], objects: {...sourceObjects, ...copyObjects}};
-    // Only copied lists changed. Keep the source's piece/parent indexes, which can contain millions of entries.
-    for (const [key, pieces] of this.objectPieces) if (pieces[0]?.id.startsWith("copy_")) this.objectPieces.delete(key);
-    for (const [key, value] of objectIndex(copyObjects)) this.objectPieces.set(key, value);
-    for (const key of this.belonging.keys()) if (key.startsWith("copy_")) this.belonging.delete(key);
-    for (const [key, value] of childrenOf(copyObjects)) this.belonging.set(key, value);
-    this.removed = this.wanted();
-    this.noteListedOut();
+    this.objects.indexCopies(copyObjects);
+    this.objects.rewant();
     added.forEach((info, k) => {
       const bytes = COPIES * meshBytes(info);
       this.usedBytes += bytes;
       this.addMesh(this.trackName, this.data!, info, buffers[k]);
       if (heightAsked !== this.heightsVersion) void this.refresh(info.i);
     });
-    for (const id of [...this.picks.keys()]) {
+    this.selection.dropGone(id => {
       const [base, k] = id.split("#");
-      if (base.startsWith("copy_") && !copyObjects[base]?.faces[Number(k)]?.length) this.dropPick(id);
-    }
-    this.reframePicks();
+      return base.startsWith("copy_") && !copyObjects[base]?.faces[Number(k)]?.length;
+    });
+    this.selection.reframe();
     this.settlePending(data);
     this.dirty = true;
     this.hoverDue = true;
@@ -1294,7 +1057,7 @@ export class TrackView {
     const group = new THREE.Group(), solid = new THREE.Group();
     const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = [];
     group.matrixAutoUpdate = false;
-    const ids = [...takenAlong([source], this.belonging)].filter(id => this.canMove(id));
+    const ids = [...this.objects.withMembers([source])].filter(id => this.canMove(id));
     const model = source.startsWith("instance_") ? this.modelDraw.instance(source.split("#")[0]) : undefined;
     if (model) {
       // Copy previews hold the same GLB geometry; only their translucent materials belong to the preview.
@@ -1310,7 +1073,7 @@ export class TrackView {
       });
       solid.add(original); group.add(translucent);
     }
-    for (const id of model ? [] : ids) for (const piece of this.piecesOf(id, false)) {
+    for (const id of model ? [] : ids) for (const piece of this.objects.piecesOf(id, false)) {
       const m = this.byNumber.get(piece.mesh);
       if (!m) continue;
       const indices = m.geometry.getIndex()!.array;
@@ -1518,8 +1281,8 @@ export class TrackView {
     g.boundsTree?.refit();
     if (GROUND.test(info.name)) this.roadMarkers.followGround(g.boundingBox!);
     this.geometryPreview.apply(info.i);
-    if (this.marked) this.markDue = true;
-    this.reframePicks();
+    this.selection.markLater();
+    this.selection.reframe();
     this.dirty = true;
     this.hoverDue = true;
   }
@@ -1631,57 +1394,6 @@ export class TrackView {
     el.addEventListener("contextmenu", e => e.preventDefault());
   }
 
-  private pick(e: PointerEvent, el: HTMLElement): Picked | null {
-    if (!this.data) return null;
-    this.mouse = screenPoint(e, el);
-    const hit = this.hit();
-    const hovered = hit ? this.describe(hit) : null;
-    const adding = this.adding && (e.ctrlKey || e.metaKey || this.selectMode?.enabled && this.selectMode.add) && e.button === LEFT_BUTTON;
-    const whole = this.selectMode?.enabled && (e.shiftKey || this.selectMode.whole) && e.button === LEFT_BUTTON;
-    const id = hovered?.id && this.moveTool ? this.rootOf(hovered.id) : hovered?.id ?? null;     // (Move takes a house with its sign and door)
-    if (hovered && id && id !== hovered.id) Object.assign(hovered, this.namesOf(id));
-    if (!hovered) {
-      if (!adding) this.unpick();
-      return null;
-    }
-    const info = hit?.object.userData.info as MeshInfo | undefined;
-    let surface: SurfacePoint | undefined;
-    if (info && hit?.uv && hovered && !id && (groundTile(hovered.object) || this.materialAreas?.has(info.i))) {
-      surface = {mesh: info.i, u: hit.uv.x, v: hit.uv.y, revision: this.data.revision, whole: !!whole};
-      if (!groundTile(hovered.object)) { surface.face = hit.faceIndex ?? 0; surface.object = null; }
-    }
-    if (adding && !id && !surface) return null;
-    if (adding && id && this.picks.has(id)) return this.dropPick(id, true);
-    const groups = !this.marked ? [] : Array.isArray(this.marked) ? this.marked : [this.marked];
-    const keeping = e.button !== LEFT_BUTTON && !!id && (this.picks.has(id)
-      || groups.some(group => (group.tree ? hovered.sprite : hovered.sort) === group.sort));
-    if (!adding && !keeping) this.forgetPicks();     // A context menu on a marked member acts on the whole selection.
-    const bounds = id ? this.boundsOf(id) : null;
-    const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
-    const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
-                            sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
-                            road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: [],
-                            adding: !!adding, keeping, whole: !!whole, surface,
-                            inspection: {hovered, revision: this.data.revision,
-                              texture: this.data.textures.findIndex(t => t.name === hovered.texture),
-                              listed: !!id && !!this.data.objects[id.slice(0, id.lastIndexOf("#"))]}};
-    if (id && bounds) this.picks.set(id, {box: this.picks.get(id)?.box ?? this.frameOf(bounds), picked});
-    picked.all = this.allPicked();
-    this.onPick(picked);
-    return picked;
-  }
-
-  /** What can be deleted of all that is picked now. */
-  private allPicked() {
-    return [...this.picks.values()].map(({picked}) => ({id: picked.id!, position: picked.position}));
-  }
-
-  /** Explicit picks outside the selected whole sorts; a sort's own member needs no redundant draft entry. */
-  selectedOutside(groups: Marked[]) {
-    return [...this.picks.values()].filter(({picked}) => !groups.some(g => (g.tree ? picked.sprite : picked.sort) === g.sort))
-      .map(({picked}) => ({id: picked.id!, position: picked.position}));
-  }
-
   /** What Delete's brush takes along a stroke (samples, radius in m; alongStroke): every object a click could delete whose place lies
       there, where it stands now. Listed objects (built ones, copies, imported models) at their place as the draft moved them, only those
       at the top (a house's sign goes with it) and not a span of wires (it goes with its poles); trees and bushes of the loaded billboard
@@ -1694,36 +1406,20 @@ export class TrackView {
     const found: Removed[] = [];
     for (const [base, list] of Object.entries(this.data.objects)) list.at.forEach((_, k) => {
       const id = `${base}#${k}`;
-      if (list.parents[k] >= 0 || !list.faces[k].length || NOT_MOVED.has(list.kinds[k]) || this.removed.has(id)) return;
+      if (list.parents[k] >= 0 || !list.faces[k].length || NOT_MOVED.has(list.kinds[k]) || this.objects.removed.has(id)) return;
       const [x, y, z] = this.pivotOf(id) as [number, number, number];
       if (near(x, z)) found.push({id, position: [x, y, z]});
     });
     const seen = new Set<string>();
-    for (const mesh of this.billboardMeshes()) {
+    for (const mesh of this.objects.billboardMeshes()) {
       const base = (mesh.userData.info as MeshInfo).base;
-      for (const {k, from, at} of this.treeFeet(mesh)) {
+      for (const {k, from, at} of this.objects.treeFeet(mesh)) {
         const id = `${base}#${k}`;
-        if (!near(at[0], at[2]) || seen.has(id) || this.removed.has(id) || this.removedSorts.has(this.spriteOf(mesh, from) ?? "")) continue;
+        if (!near(at[0], at[2]) || seen.has(id) || this.objects.removed.has(id) || this.objects.sortRemoved(mesh, from)) continue;
         seen.add(id); found.push({id, position: at});
       }
     }
     return alongStroke(found, samples, radius);
-  }
-
-  /** Each billboard of a mesh part at the middle of its foot, worked out once while its vertices stay as they are (Move changes them). */
-  private treeFeet(mesh: THREE.Mesh) {
-    const position = mesh.geometry.getAttribute("position"), known = this.feet.get(mesh);
-    const version = position instanceof THREE.InterleavedBufferAttribute ? position.data.version : position.version;     // (interleaved: its buffer's)
-    if (known && known.version === version) return known.trees;
-    const indices = (mesh.userData.indices ?? mesh.geometry.getIndex()!.array) as Uint16Array, corner = new THREE.Vector3(), trees = [];
-    for (const [k, from, end] of this.billboardsOf(mesh)) {
-      const bounds = new THREE.Box3();
-      for (let i = from * 3; i < end * 3; i++) bounds.expandByPoint(corner.fromBufferAttribute(position, indices[i]));
-      const middle = bounds.getCenter(corner);
-      trees.push({k, from, at: [middle.x, bounds.min.y, middle.z] as [number, number, number]});
-    }
-    this.feet.set(mesh, {version, trees});
-    return trees;
   }
 
   // (a ring of 500 m over a forest: the frames stop here, the stroke still takes all)
@@ -1734,12 +1430,12 @@ export class TrackView {
     this.marksDue = false;
     const ids = this.brush?.marks && this.markAt ? this.brushObjects([[...this.markAt, 0]], this.brush.radius).slice(0, TrackView.MOST_MARKS).map(o => o.id) : [];
     const keep = new Set(ids);
-    for (const [id, box] of this.brushMarks) if (!keep.has(id)) { this.removeFrame(box); this.brushMarks.delete(id); }
+    for (const [id, box] of this.brushMarks) if (!keep.has(id)) { removeFrame(this.scene, box, () => { this.dirty = true; }); this.brushMarks.delete(id); }
     for (const id of ids) {
       if (this.brushMarks.has(id)) continue;
-      const bounds = this.shownObjectBounds(id);
+      const bounds = this.objects.shownObjectBounds(id);
       if (!bounds) continue;
-      const box = this.frameOf(bounds);
+      const box = frameOf(this.scene, bounds, () => { this.dirty = true; });
       (box.material as THREE.LineBasicMaterial).color.set(this.brush!.colour);
       this.brushMarks.set(id, box);
     }
@@ -1751,11 +1447,11 @@ export class TrackView {
       What the draft leaves out stays out either way. */
   showGone(ids: string[] | null) {
     const next = new Set(ids ?? []);
-    for (const id of this.brushGone) if (!next.has(id) && !this.removed.has(id)) this.leaveOut(id, false);
+    for (const id of this.brushGone) if (!next.has(id) && !this.objects.removed.has(id)) this.objects.leaveOut(id, false);
     for (const id of next) {
-      if (!this.brushGone.has(id) && !this.removed.has(id)) this.leaveOut(id, true);
+      if (!this.brushGone.has(id) && !this.objects.removed.has(id)) this.objects.leaveOut(id, true);
       const box = this.brushMarks.get(id);
-      if (box) { this.removeFrame(box); this.brushMarks.delete(id); }      // (gone: no frame round nothing)
+      if (box) { removeFrame(this.scene, box, () => { this.dirty = true; }); this.brushMarks.delete(id); }      // (gone: no frame round nothing)
     }
     this.brushGone = next;
     this.dirty = true;
@@ -1764,7 +1460,7 @@ export class TrackView {
   /** Imported models beyond their distance or left out hidden: by the draft, or by Delete's brush under way (showGone), whose models
       would otherwise stand until the draft answers. */
   private cullModels() {
-    const out = this.brushGone.size ? new Set([...this.removed, ...this.brushGone]) : this.removed;
+    const out = this.brushGone.size ? new Set([...this.objects.removed, ...this.brushGone]) : this.objects.removed;
     this.modelDraw.cull(this.camera.position, out, this.data?.meshes.find(m => m.model)?.lod_out ?? 1000);
   }
 
@@ -1773,39 +1469,12 @@ export class TrackView {
     this.brushGone = new Set();
   }
 
-  /** Snapshot every highlighted tree or bush for Replace; a mixed selection is refused as a whole. */
-  replacementTargets(groups: Marked[]): string[] | null {
+  /** What a click picks (Selection.pick) of what is under the mouse at e. */
+  private pick(e: PointerEvent, el: HTMLElement): Picked | null {
     if (!this.data) return null;
-    const ids = new Set<string>();
-    for (const [id, {picked}] of this.picks) {
-      if (picked.kind !== "Tree" && picked.kind !== "Bush") return null;
-      if (this.shownObjectBounds(id)) ids.add(id);
-    }
-    const sprites = new Set(groups.filter(g => g.tree).map(g => g.sort));
-    for (const mesh of this.billboardMeshes()) {
-      const info = mesh.userData.info as MeshInfo;
-      for (const [k, from, end] of this.billboardsOf(mesh)) {
-        if (sprites.has(this.spriteOf(mesh, from)!) && this.shownBounds([{mesh: info.i, from, end}])) ids.add(`${info.base}#${k}`);
-      }
-    }
-    for (const id of idsOfSorts(this.data.objects, new Set(groups.map(g => g.sort)))) {
-      const at = id.lastIndexOf("#"), kind = this.data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
-      if (kind !== "tree" && kind !== "bush") return null;
-      if (this.shownObjectBounds(id)) ids.add(id);
-    }
-    return [...ids];
-  }
-
-  /** The picked one id out again: what was picked before it is what is spoken of, or nothing is left. */
-  private dropPick(id: string, adding = false) {
-    const removed = this.picks.get(id)!.picked;
-    this.removeFrame(this.picks.get(id)!.box);
-    this.picks.delete(id);
-    const last = [...this.picks.values()].at(-1)?.picked ?? null;
-    if (last) last.all = this.allPicked();
-    const result = last ? {...last, adding, whole: false} : adding ? {...removed, id: null, kind: "", all: [], adding, whole: false, surface: undefined} : null;
-    this.onPick(result);
-    return result;
+    this.mouse = screenPoint(e, el);
+    const hit = this.hit();
+    return this.selection.pick(e, hit, hit ? this.describe(hit) : null);
   }
 
   /** onMenu gets where a right click asks for the picked object's menu, in the view's pixels, with the view's size. */
@@ -1813,122 +1482,10 @@ export class TrackView {
     this.onMenu = onMenu;
   }
 
-  /** Every object of a sort the view shows gets a frame (listed: the build's sort; tree: an atlas image), null: none. */
-  setMarked(marked: Marked | Marked[] | null) {
-    this.marked = marked;
-    this.frameMarked();
-  }
-
-  /** The frames of setMarked, anew: one line mesh for all, a long track's sort can be thousands. */
-  private frameMarked() {
-    this.markDue = false;
-    if (this.markedLines) {
-      this.scene.remove(this.markedLines);
-      this.markedLines.geometry.dispose();
-      (this.markedLines.material as THREE.Material).dispose();
-      this.markedLines = null;
-    }
-    this.dirty = true;
-    if (!this.marked || !this.data) return;
-    const groups = Array.isArray(this.marked) ? this.marked : [this.marked];
-    const boxes = groups.flatMap(group => group.tree ? this.treesOf(group.sort) : this.listedOf(group.sort));
-    const points = new Float32Array(boxes.length * 24 * 3), corner = new THREE.Vector3();
-    boxes.forEach((box, b) => {
-      BOX_EDGES.forEach(([p, q], e) => {
-        for (const [k, c] of [p, q].entries()) {
-          corner.set(c & 1 ? box.max.x : box.min.x, c & 2 ? box.max.y : box.min.y, c & 4 ? box.max.z : box.min.z);
-          corner.toArray(points, (b * 24 + e * 2 + k) * 3);
-        }
-      });
-    });
-    const geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(points, 3));
-    this.markedLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color: PICKED_COLOUR, depthTest: false}));
-    this.markedLines.renderOrder = 1;
-    this.scene.add(this.markedLines);
-  }
-
-  /** The room each listed object of a sort takes that is shown now, by its own triangles (a pole's frame not round its wires). */
-  private listedOf(sort: string) {
-    const boxes: THREE.Box3[] = [];
-    for (const id of idsOfSorts(this.data!.objects, new Set([sort]))) {
-      const box = this.shownObjectBounds(id);
-      if (box) boxes.push(box);
-    }
-    return boxes;
-  }
-
-  /** The same for the trees or bushes of an atlas image that are loaded. */
-  private treesOf(sprite: string) {
-    const byId = new Map<string, Piece[]>();
-    for (const mesh of this.billboardMeshes()) {
-      const info = mesh.userData.info as MeshInfo;
-      for (const [k, from, end] of this.billboardsOf(mesh)) {
-        if (this.spriteOf(mesh, from) !== sprite) continue;
-        const id = `${info.base}#${k}`;
-        byId.set(id, [...(byId.get(id) ?? []), {mesh: info.i, from, end}]);
-      }
-    }
-    return [...byId.values()].map(pieces => this.shownBounds(pieces)).filter(box => box !== null).concat(this.listedOf(sprite));
-  }
-
-  private shownObjectBounds(id: string) {
-    if (this.removed.has(id)) return null;
-    return this.modelDraw.bounds(id.split("#")[0]) ?? this.shownBounds(this.piecesOf(id));
-  }
-
-  /** The room the pieces take that are loaded and not left out, or null. */
-  private shownBounds(pieces: Piece[]) {
-    const box = new THREE.Box3(), corner = new THREE.Vector3();
-    for (const {mesh, from, end} of pieces) {
-      const part = this.byNumber.get(mesh);
-      const now = part?.geometry.getIndex()!.array as Uint16Array | undefined;
-      if (!part || !now || from >= end || now[from * 3] === now[from * 3 + 1]) continue;     // (left out: shrunk to a point)
-      const position = part.geometry.getAttribute("position");
-      for (let k = from * 3; k < end * 3; k++) box.expandByPoint(corner.fromBufferAttribute(position, now[k]));
-    }
-    return box.isEmpty() ? null : box;
-  }
-
-  /** A frame around bounds. */
-  private frameOf(bounds: THREE.Box3) {
-    const box = new THREE.Box3Helper(bounds, new THREE.Color(PICKED_COLOUR));
-    (box.material as THREE.LineBasicMaterial).depthTest = false;     // (seen through what stands before it)
-    this.scene.add(box);
-    this.dirty = true;
-    return box;
-  }
-
-  private removeFrame(box: THREE.Box3Helper) {
-    this.scene.remove(box);
-    box.dispose();
-    this.dirty = true;
-  }
-
-  /** Nothing is picked any more, in the view. */
-  private forgetPicks() {
-    for (const {box} of this.picks.values()) this.removeFrame(box);
-    this.picks.clear();
-  }
-
   /** Current dimensions from loaded object triangles, independent of the surrounding merged mesh. */
   dimensionsOf(id: string): [number, number, number] {
-    const size = this.boundsOf(id).getSize(new THREE.Vector3());
+    const size = this.objects.boundsOf(id).getSize(new THREE.Vector3());
     return [size.x, size.y, size.z];
-  }
-
-  /** The room an object takes, over all its triangles that are loaded. */
-  private boundsOf(id: string) {
-    const model = this.modelDraw.bounds(id.split("#")[0]);
-    if (model) return model;
-    const bounds = new THREE.Box3(), corner = new THREE.Vector3();
-    for (const {mesh, from, end} of this.piecesOf(id)) {
-      const part = this.byNumber.get(mesh);
-      if (!part) continue;
-      const position = part.geometry.getAttribute("position");
-      const indices = (part.userData.indices ?? part.geometry.getIndex()!.array) as Uint16Array;
-      for (let k = from * 3; k < end * 3; k++) bounds.expandByPoint(corner.fromBufferAttribute(position, indices[k]));
-    }
-    return bounds;
   }
 
   /** Whether a cut-out texture is solid at the hit's uv: its see-through parts are nothing to point at (a billboard's quad
@@ -1959,7 +1516,7 @@ export class TrackView {
     const hovered = hit ? this.describe(hit) : null;
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
-      movable: taking && !!hovered.id && this.canMove(this.moveTool ? this.rootOf(hovered.id) : hovered.id)} : null;
+      movable: taking && !!hovered.id && this.canMove(this.moveTool ? this.objects.rootOf(hovered.id) : hovered.id)} : null;
     this.applyCursor();
     this.onHover(hovered);
   }
@@ -2010,7 +1567,7 @@ export class TrackView {
     const {x, y, z} = hit.point, face = hit.faceIndex ?? 0, uv = hit.uv ? ([hit.uv.x, hit.uv.y] as [number, number]) : null;
     const isBillboard = info.first_face !== null && info.first_face !== undefined;
     const number = isBillboard ? billboardOf(face, info.first_face!) : null;
-    const listed = instance ? instance + "#0" : objectAt(this.objectPieces.get(info.i), face);
+    const listed = instance ? instance + "#0" : this.objects.objectAt(info.i, face);
     const tile = listed ? data.objects[listed.slice(0, listed.lastIndexOf("#"))] : null;
     const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
     const atlasTree = isBillboard || (!info.model && !!tile && ["tree", "bush"].includes(tile.kinds[k]));
@@ -2143,12 +1700,7 @@ export class TrackView {
       this.lastHover = now;
       this.hover();
     }
-    if (this.markDue && now - this.lastMark >= this.markEvery) {
-      const from = performance.now();
-      this.frameMarked();
-      this.lastMark = now;      // (a long track's frames take long: at most a quarter of the time while meshes load)
-      this.markEvery = Math.max(MARK_EVERY_MS, 4 * (performance.now() - from));
-    }
+    this.selection.follow(now);
   }
 
   private clear() {
@@ -2182,13 +1734,11 @@ export class TrackView {
     this.data = null;
     this.navigation.data = null;
     this.alphaOf.clear();
-    this.parts.clear();
     this.byNumber.clear();
     this.pendingPivots.clear();
     this.materialAreas?.clear();
-    this.objectPieces = new Map();
-    this.belonging = new Map();
-    this.forgetPicks();
+    this.objects.clear();
+    this.selection.forget();
   }
 
   private addMesh(name: string, data: TrackIndex, info: MeshInfo, buf: ArrayBuffer) {
@@ -2205,30 +1755,20 @@ export class TrackView {
     this.scene.add(m);
     this.textures.attach(m);
     this.meshes.push(m);
-    if (info.base !== null && info.base !== undefined) {
-      if (!this.parts.has(info.base)) this.parts.set(info.base, []);
-      this.parts.get(info.base)!.push(m);
-    }
+    this.objects.add(m);
     this.byNumber.set(info.i, m);
     // (a model is always picked as its object: it never reaches the search for a material's connected faces)
-    if (!info.model && !groundTile(info.name) && info.first_face == null && (this.objectPieces.has(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
+    if (!info.model && !groundTile(info.name) && info.first_face == null && (this.objects.holds(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
       this.materialAreas ??= new Map();
       this.materialAreas.set(info.i, new MaterialRegions(m.geometry.getAttribute("position"),
-        (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objectPieces.get(info.i) ?? []));
+        (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objects.piecesIn(info.i) ?? []));
     }
     void this.surfaceOverlay?.add(m).catch(e => this.surfaceFailed(String(e.message ?? e)));
     void this.roadRegionOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     void this.roadInfluenceOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     this.geometryPreview.apply(info.i);
-    for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(m, piece, true);
-    for (const [from, count] of this.surfacesOut?.get(info.name) ?? []) this.leaveOutIn(m, {mesh: info.i, from, end: from + count}, true);
-    if (info.base !== null && info.base !== undefined) {
-      for (const id of this.billboardsOut.get(info.base) ?? []) {
-        for (const piece of this.piecesOf(id)) if (piece.mesh === info.i) this.leaveOutIn(m, piece, true);
-      }
-      this.leaveOutSorts(m);
-    }
-    if (this.marked) this.markDue = true;
+    this.objects.hideIn(m);
+    this.selection.markLater();
     if (GROUND.test(info.name)) {
       this.groundVersion++;
       this.usedBytes += speedUpRays(m);

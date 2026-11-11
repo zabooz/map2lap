@@ -88,9 +88,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const [group, setGroup] = useState<ObjectGroup | null>(null), [groupModels, setGroupModels] = useState<LibraryModel[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
-  const replaceable = useMemo(() => (menu || tool === "select") && picked?.id ? view.replacementTargets(marked) : null, [view, menu, tool, picked, marked]);
+  const replaceable = useMemo(() => (menu || tool === "select") && picked?.id ? view.selection.replacementTargets(marked) : null, [view, menu, tool, picked, marked]);
   // (the right-click menu belongs to the click that opened it: a tool or the library taken up closes it, so the next click in the view acts)
-  const openModels = () => { setMenu(null); setReplaceTargets(view.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
+  const openModels = () => { setMenu(null); setReplaceTargets(view.selection.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
   const [textureRevision, setTextureRevision] = useState(0);
   const closeMaterial = useCallback(() => setLibraryTab(null), []);
   // (File's Library opens where it was left, at Textures for a picked ground surface; Insert always at Objects)
@@ -131,12 +131,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   /** The connected stretch of road verge at a picked point, as cuts of the draft; null if it is no verge or no longer loaded. */
   const vergeAt = (point: SurfacePoint) => {
-    try { return view.surfaceCuts(view.materialSelection(point).meshes ?? []); } catch { return null; }
+    try { return view.objects.surfaceCuts(view.materialSelection(point).meshes ?? []); } catch { return null; }
   };
 
   /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
-    if (marking && p?.left) return view.unpick();
+    if (marking && p?.left) return view.selection.unpick();
     setPicked(p);
     if (!p?.adding && !p?.keeping) setMarked([]);
     if (tool === "select") setSurfacePicks(previous => pickedSurfaces(previous, p));
@@ -147,12 +147,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     }
     if (deleting && p?.id && p.left) {
       edits.remove([{id: p.id, position: p.position}]);
-      view.unpick();
+      view.selection.unpick();
     } else if (deleting && p?.left && p.surface?.face !== undefined) {
       // (the road verge is no object: a click takes the connected stretch of it, by its triangles)
       const cuts = vergeAt(p.surface);
       if (cuts) { edits.removeSurfaces(cuts); setNote(VERGE_DELETED); }
-      view.unpick();
+      view.selection.unpick();
     }
   });
 
@@ -171,10 +171,10 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   useEffect(() => { view.setWheelTaken(takesWheel(tool, editable, band.line !== null)); }, [view, band.line, editable, tool]);
 
   useEffect(() => { view.setCursorTool(editable ? tool : "select"); }, [view, tool, editable]);
-  useEffect(() => { view.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
+  useEffect(() => { view.selection.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
   useEffect(() => {
-    view.setSelectMode(tool === "select", selectWhole, selectAdd);
-    return () => view.setSelectMode(false);
+    view.selection.setSelectMode(tool === "select", selectWhole, selectAdd);
+    return () => view.selection.setSelectMode(false);
   }, [view, tool, selectWhole, selectAdd]);
 
   useEffect(() => {
@@ -193,23 +193,23 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   }, [edits]);
 
   useEffect(() => {
-    view.setPick(p => onPicked(p));
+    view.selection.setPick(p => onPicked(p));
     view.setMenu(setMenu);
     view.setIndexed(revision => edits.bind(revision));
     return () => {
-      view.setPick(() => {});
+      view.selection.setPick(() => {});
       view.setMenu(() => {});
       view.setIndexed(() => {});
     };
   }, [view, edits]);
 
-  useEffect(() => { view.setRemoved(state.removed.map(r => r.id), state.sorts, state.objectSorts); },
+  useEffect(() => { view.objects.setRemoved(state.removed.map(r => r.id), state.sorts, state.objectSorts); },
             [view, state.removed, state.sorts, state.objectSorts]);
-  useEffect(() => { view.setRemovedSurfaces(state.surfaces); }, [view, state.surfaces]);
+  useEffect(() => { view.objects.setRemovedSurfaces(state.surfaces); }, [view, state.surfaces]);
 
   useEffect(() => {
-    view.setMarked(marked);
-    return () => view.setMarked(null);
+    view.selection.setMarked(marked);
+    return () => view.selection.setMarked(null);
   }, [view, marked]);
 
   useEffect(() => {
@@ -251,12 +251,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   const removable = picked?.all ?? [];
   // (a selected stretch of road verge, or all of it loaded with Shift: Delete takes those triangles)
-  const vergeCuts = selection?.meshes?.length && !selection.tiles.length ? view.surfaceCuts(selection.meshes) : null;
+  const vergeCuts = selection?.meshes?.length && !selection.tiles.length ? view.objects.surfaceCuts(selection.meshes) : null;
   const ids = state.removed.map(r => r.id);
   const sort = picked?.id && picked.sort && !NOT_ALL.has(picked.sort) ? picked.sort : null;
   const tree = picked?.id && picked.sprite ? picked.sprite : null;
-  const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.countOfListed(sort, ids, state.objectSorts)})`
-    : tree ? `Mark all ${tree} (loaded: ${view.countOf(tree)})` : null;
+  const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.objects.countOfListed(sort, ids, state.objectSorts)})`
+    : tree ? `Mark all ${tree} (loaded: ${view.objects.countOf(tree)})` : null;
 
   const remove = (cuts = vergeCuts) => {
     if (!editable) return;
@@ -264,11 +264,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       edits.removeSurfaces(cuts);
       setSurfacePicks([]);
       setNote(VERGE_DELETED);
-      view.unpick();
+      view.selection.unpick();
     } else if (marked.length || removable.length) {
-      edits.removeSelected(view.selectedOutside(marked), marked);
+      edits.removeSelected(view.selection.selectedOutside(marked), marked);
       setMarked([]);
-      view.unpick();
+      view.selection.unpick();
     }
   };
   /** A tool taken up, the one on laid down: Select. Smooth road taken up from Select starts at the road picked there. */
@@ -333,7 +333,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       setSurfacePicks([]);
       view.cancelStroke();
       band.clear();
-      view.unpick();
+      view.selection.unpick();
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
     }

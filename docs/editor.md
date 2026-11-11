@@ -15,7 +15,9 @@ The Editor source in `ui/src/editor/` is grouped by responsibility. `EditorScene
   `navigation.ts` owns camera movement and route riding, `roadMarkers.ts` owns road pins and their geometry,
   `geometryPreview.ts` owns temporary height/normal changes over canonical meshes, and `trackTextures.ts` owns the track's
   textures and materials: their loading against the memory limit, painted ground (Apply, Undo, a draft's paints) and its
-  release when another track opens. Pages reach it as `view.textures`.
+  release when another track opens. Pages reach it as `view.textures`. `trackObjects.ts` (`view.objects`) knows which
+  triangles each object takes, what belongs to which and what the draft leaves out; `selection.ts` (`view.selection`)
+  holds what is picked, its frames and the frames of a marked sort.
 - `tools/`: tool controls, pointer modifiers, brush sampling, movement, copying, smoothing and material application.
 - `library/`: browsing, imports and model pictures/previews.
 - `inspector/`: selected-object properties, appearance, hover information and track statistics.
