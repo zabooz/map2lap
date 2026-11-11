@@ -581,7 +581,8 @@ subsequent draft/index reads reuse that metadata. The Editor's masks are at the 
 (`trackdetail._preview_step`, `PREVIEW`): made from the tile's fields directly (`_coarse_mask`, `_regional_inputs`), a
 16th of the pixels; a tile whose side does not divide into 16 of them keeps its own resolution. Save writes a simple tile's
 mask as the Editor shows it, and makes a regional tile's from its full fields. 64 painted tiles of Heiligenblut's copy:
-an Apply 49.9 -> 13.3 s on the server, 1.7 GiB -> 108 MiB in the browser. A mask texture is filtered when magnified. They do not composite colour tiles or encode DDS. The mask and shared
+an Apply 49.9 -> 13.3 s on the server, 1.7 GiB -> 108 MiB in the browser. From 4 tiles an Apply describes its tiles
+on several processes first (`trackdetail.prepare_views`, `POOL_FROM`): 64 tiles 9.8 -> 2.8 s on 32 cores. A mask texture is filtered when magnified. They do not composite colour tiles or encode DDS. The mask and shared
 colour DDS endpoints encode missing cached files lazily under `cache/track-details`; cache hits bypass the encoder lock.
 Prepared mask pixels are retained as a lossless PNG in disposable cache, avoiding repeated weight calculation after an
 in-memory eviction or restart. A missing PNG is rebuilt from the retained operation masks. RGBA mask channels are independent

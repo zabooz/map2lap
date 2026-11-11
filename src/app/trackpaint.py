@@ -328,6 +328,7 @@ def descriptors(ac, name, revision, paints, reset=(), errors=None):
     result = []
     resolved = {}
     from app import trackdetail
+    trackdetail.prepare_views(ac, name, list(plan.values()))
     for i, version in plan.items():
         try:
             layers = trackdetail.describe(ac, name, version, resolved)

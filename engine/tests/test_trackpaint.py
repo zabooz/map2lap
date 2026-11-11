@@ -305,5 +305,41 @@ class PaintTest(unittest.TestCase):
             trackpaint.create(self.ac, self.name, "old", asset, [{"mesh": 0, "u": 0.1, "v": -0.5}])
 
 
+class ParallelViewsTest(unittest.TestCase):
+    """An Apply describes its painted tiles on several processes (trackdetail.prepare_views), as one process does."""
+    setUp = PaintTest.setUp
+    material = PaintTest.material
+
+    def paints(self):
+        from app import trackpaint
+        return [trackpaint.create(self.ac, self.name, self.revision, self.material((200, 30, 40)),
+                                  [{"mesh": mesh, "u": 0.5, "v": -0.5, "whole": False}]) for mesh in (0, 1)]
+
+    def forget_views(self):
+        """Drop the tiles' kept descriptions and masks, keeping what Apply's plan wrote (view.json)."""
+        for path in Path(self.ac, "out", "paint-views").glob("*/layers.json"):
+            path.unlink()
+        shutil.rmtree(Path(self.ac, "cache", "track-details"), ignore_errors=True)
+
+    def test_views_made_on_two_processes_are_those_one_process_makes(self):
+        from app import trackdetail, trackpaint
+        paints = self.paints()
+        alone = trackpaint.descriptors(self.ac, self.name, self.revision, paints)
+        masks = {d["version"]: trackdetail.mask(self.ac, self.name, d["version"]) for d in alone}
+        self.forget_views()
+        trackdetail.prepare_views(self.ac, self.name, [d["version"] for d in alone], processes=2)
+        with mock.patch.object(trackdetail, "_semantic", side_effect=AssertionError("read again")):
+            self.assertEqual(alone, trackpaint.descriptors(self.ac, self.name, self.revision, paints))
+            self.assertEqual(masks, {v: trackdetail.mask(self.ac, self.name, v) for v in masks})
+
+    def test_an_apply_of_many_tiles_describes_them_on_several_processes(self):
+        from app import trackdetail, trackpaint
+        paints = self.paints()
+        with (mock.patch.object(trackdetail, "POOL_FROM", 2),
+              mock.patch.object(trackdetail, "prepare_views", wraps=trackdetail.prepare_views) as prepared):
+            trackpaint.descriptors(self.ac, self.name, self.revision, paints)
+        self.assertEqual(2, len(prepared.call_args.args[2]))
+
+
 if __name__ == "__main__":
     unittest.main()

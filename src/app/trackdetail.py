@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import struct
 from dataclasses import replace
 from pathlib import Path
@@ -388,24 +389,70 @@ def _keep_weights(version, pixels):
     trackpaint._atomic(_cache(version, "weights").with_suffix(".png"), output.getvalue())
 
 
+def _kept_view(version):
+    """A tile's kept description (describe's layers.json) if it is of this PROFILE, PREVIEW and BLOCK, else None."""
+    from app import trackregions
+    try:
+        saved = trackpaint._read(trackpaint._out("paint-views", version) / "layers.json")
+    except ValueError:
+        return None
+    # (the block is the Editor's alone: PROFILE would count every saved painted track as changed, trackedits)
+    if (saved.get("profile") == PROFILE and saved.get("preview") == PREVIEW
+            and ("ground" not in saved["layout"] or saved.get("block") == trackregions.BLOCK)
+            and saved.get("digest") == trackpaint._digest({k: v for k, v in saved.items() if k != "digest"})):
+        return saved
+    return None
+
+
+# Below this many tiles to describe, an Apply stays in this process: starting the workers (spawn, each importing the
+# modules) costs more than they save. A painted Heiligenblut copy's Apply on 32 cores, from a script: 4 tiles 0.86 s alone,
+# 0.78 s with workers; 8 tiles 1.48 -> 0.98 s; 64 tiles 9.8 -> 2.8 s (2026-11-11).
+POOL_FROM = 4
+_job = {}
+
+
+def prepare_views(ac, name, versions, processes=None):
+    """Describe the tiles of versions whose description is not kept (describe), several at once: an Apply then takes them
+    from the cache. A tile a worker fails on, describe makes itself and says why. processes: how many (None: as a build
+    may use, as RAM allows, none below POOL_FROM tiles)."""
+    from app import settings
+    from track import parallel
+    todo = [version for version in dict.fromkeys(versions) if _kept_view(version) is None]
+    if processes is None:
+        cores = max(1, round((os.cpu_count() or 2) * settings.load()["cores"] / 100))
+        processes = 1 if len(todo) < POOL_FROM else min(parallel.workers(len(todo)), cores)
+    if processes <= 1 or not todo:
+        return
+    with parallel.pool(processes, _init_views, ((trackpaint.mytracks.ROOT, materiallibrary.ROOT), ac, name)) as pool:
+        for job in [pool.submit(_describe_view, version) for version in todo]:
+            try:
+                job.result()
+            except Exception:       # (describe makes that tile itself, and says what went wrong)
+                pass
+
+
+def _init_views(roots, ac, name):
+    """A prepare_views worker's state: its parent's roots (a test's) and the track."""
+    trackpaint.mytracks.ROOT, materiallibrary.ROOT = roots
+    _job.update(ac=ac, name=name)
+
+
+def _describe_view(version):
+    describe(_job["ac"], _job["name"], version)
+
+
 def describe(ac, name, version, resolved=None):
     """Small immutable layout; cached metadata avoids pixel work on repeated PUTs and index reads."""
     from app import trackregions
     record, path, scan, filename = _view(ac, name, version)
     resolved = {} if resolved is None else resolved
     target = trackpaint._out("paint-views", version) / "layers.json"
-    try:
-        saved = trackpaint._read(target)
-        # (the block is the Editor's alone: PROFILE would count every saved painted track as changed, trackedits)
-        if (saved.get("profile") == PROFILE and saved.get("preview") == PREVIEW
-                and ("ground" not in saved["layout"] or saved.get("block") == trackregions.BLOCK)
-                and saved.get("digest") == trackpaint._digest({k: v for k, v in saved.items() if k != "digest"})):
-            for ref in saved["layout"]["images"]:
-                if "asset" in ref:
-                    _resolved_asset(ac, name, ref["asset"], resolved)
-            return _with_urls(name, version, saved["layout"])
-    except ValueError:
-        pass
+    saved = _kept_view(version)
+    if saved is not None:
+        for ref in saved["layout"]["images"]:
+            if "asset" in ref:
+                _resolved_asset(ac, name, ref["asset"], resolved)
+        return _with_urls(name, version, saved["layout"])
     composition = _semantic(ac, name, record, path, scan, filename, resolved)
     if len(composition[1]) > 3:
         semantic, weights, _coverage = composition
