@@ -16,7 +16,7 @@ test("receiving canonical ground geometry updates the road pins on that ground",
   roadMarkers.drawPins([[0, 10, 0], [100, 10, 100]]);
   const markers = scene.children[0] as THREE.Points;
   const geometryPreview = new GeometryPreview(() => ground, () => {});
-  Object.assign(view, {groundVersion: 0, geometryPreview, roadMarkers, selection: {markLater: () => {}, reframe: () => {}}});
+  Object.assign(view, {groundVersion: 0, geometryPreview, roadMarkers, selection: {markLater: () => {}, reframe: () => {}}, mover: {followMesh: () => {}}});
   const bytes = new Float32Array(11); bytes[1] = 42;
   (view as unknown as {takeVertices: (mesh: THREE.Mesh, bytes: ArrayBuffer) => void}).takeVertices(ground, bytes.buffer);
   expect(markers.geometry.getAttribute("position").getY(0)).toBeCloseTo(42.3);

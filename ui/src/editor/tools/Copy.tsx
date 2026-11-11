@@ -23,7 +23,7 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
   }, [onWheel]);
   const source = picked?.id ?? null;
   useEffect(() => {
-    if (ready || !source || !view.canMove(source)) return;
+    if (ready || !source || !view.mover.canMove(source)) return;
     let current = true;
     void edits.inTurn(async () => {
       edits.saveNow();
@@ -80,7 +80,7 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
   useEffect(() => { view.ghost.setPose(pose); }, [view, pose, ready]);
 
   const note = fault ?? (ready ? `Click to place ${ready.kind}; keep clicking for more copies. Esc ends Copy.`
-    : source && !view.canMove(source) ? "A power line goes with its poles; pick an object to copy."
+    : source && !view.mover.canMove(source) ? "A power line goes with its poles; pick an object to copy."
     : source ? "Preparing the copy …" : "Click an object to copy it, then click where to place it. Esc ends Copy.");
   return <ToolOptions id="edit-copy-set" title="Copy" note={note}
     options={[

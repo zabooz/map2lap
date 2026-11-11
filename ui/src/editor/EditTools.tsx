@@ -288,7 +288,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     }
     onInspectorCollapsed(false); view.focus();
   };
-  const movable = editable && !!picked?.id && view.canMove(picked.id);
+  const movable = editable && !!picked?.id && view.mover.canMove(picked.id);
   /** What can be done with what is picked, for the right-click menu and the Select bar: null where it can't now. */
   const run: Record<SelectAction, (() => void) | null> = {
     texture: picked?.surface ? editPicked : null,

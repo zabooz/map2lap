@@ -9,14 +9,13 @@ import type {LoadAbout} from "../../types";
 export type Say = (text: string, progress?: number | null, about?: LoadAbout) => void;
 import {Navigation, VIEW_M, FLY_MAX_STEP_S} from "./navigation";
 import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeometry} from "./geometry";
-import {screenPoint, LEFT_BUTTON, LEFT_HELD, CLICK_PX} from "./pointer";
+import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {RoadMarkers} from "./roadMarkers";
 import {GeometryPreview} from "./geometryPreview";
 import * as THREE from "three";
 import {makeTexture} from "./texture";
 import {oneByOne} from "./taskQueue";
 import {DEFAULT_CONTROLS, type Controls} from "./controls";
-import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing";
 import type {Tool} from "../tools/ToolPanel";
 import {cursorFor, type Pointed} from "./cursor";
 import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
@@ -33,9 +32,10 @@ import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
 import {materialImages, type GroundMaterial} from "./colourBlend";
 import {TrackTextures} from "./trackTextures";
-import {NOT_MOVED, TrackObjects} from "./trackObjects";
+import {TrackObjects} from "./trackObjects";
 import {ViewBrush} from "./brush";
 import {PlacementGhost} from "./ghost";
+import {ObjectMover} from "./mover";
 import {Selection, ROAD} from "./selection";
 import {billboardFaces, billboardOf, COPIES, fits, kindName, kindOf, latLonOf, nearestLast, physicsOf, routeMetre, sortOf,
         spriteAt, tileOf} from "./inspect";
@@ -59,15 +59,6 @@ function timed<T>(name: string, fn: () => T) {
   performance.measure(name, {start: started});
   return result;
 }
-
-/** The vertices of an object in one mesh as they were when it was taken up: their numbers, their floats in that order. */
-interface GrabbedVertices {
-  id: string;
-  mesh: number;
-  numbers: Uint32Array;
-  floats: Float32Array;
-}
-type Grabbed = GrabbedVertices | {id: string; modelMatrix: THREE.Matrix4};
 
 /** An image's pixels, to read. (A plain canvas: not every browser has OffscreenCanvas.) */
 function pixelsOf(image: ImageBitmap) {
@@ -125,6 +116,7 @@ export class TrackView {
   readonly selection: Selection;         // what is picked and the frames of a marked sort
   readonly brush: ViewBrush;             // the ring, strokes and their preview, Delete's frames
   readonly ghost: PlacementGhost;        // what Copy and Insert would place, under the mouse, and what they placed until it is drawn
+  readonly mover: ObjectMover;           // Move: what is picked dragged over the ground, turned, raised and sized
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -151,14 +143,8 @@ export class TrackView {
   private wheelTaken = false;           // Ctrl and Alt with the wheel are the tool's
   private marking: ((x: number, z: number) => void) | null = null;
   private onClicked: (picked: Picked | null) => void = () => {};
-  private moveTool = false;             // Move is on: a press picks, a drag takes what is picked along
   private cursorTool: Tool = "select";  // (the tool the pointer speaks for, and what it last pointed at)
   private pointed: Pointed | null = null;
-  private onMoved: (objects: {id: string; x: number; y: number; z: number}[]) => void = () => {};
-  private placed = new Map<string, Placement>();        // how the draft places objects now (setPlaced)
-  private pendingPivots = new Map<string, number[]>();   // a released drag already shown, before its canonical placement arrives
-  private dragging: {ids: string[]; plane: THREE.Plane; from: THREE.Vector3; x: number; y: number; grabbed: Grabbed[]; pivots: Map<string, number[]>;
-    ground: Map<string, number | null>; rises: Map<string, number>; way: THREE.Vector3} | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -187,7 +173,7 @@ export class TrackView {
       removedChanged: () => { this.selection.reframeMarked(); this.dirty = true; this.hoverDue = true; },
     });
     this.selection = new Selection({
-      scene: this.scene, objects: this.objects, data: () => this.data, moveTool: () => this.moveTool,
+      scene: this.scene, objects: this.objects, data: () => this.data, moveTool: () => this.mover.on,
       materialArea: i => this.materialAreas.has(i), changed: () => { this.dirty = true; },
     });
     this.brush = new ViewBrush({
@@ -195,13 +181,13 @@ export class TrackView {
       point: e => { this.mouse = screenPoint(e, this.renderer.domElement); },
       ground: () => this.brushAt(),
       look: () => this.mouse && `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`,
-      wheelTaken: () => this.wheelTaken, pivotOf: id => this.pivotOf(id),
+      wheelTaken: () => this.wheelTaken, pivotOf: id => this.mover.pivotOf(id),
       showPreview: bytes => this.showPreview(bytes), keepPreview: () => this.keepPreview(), takeBackPreview: () => this.takeBackPreview(),
       changed: () => { this.dirty = true; },
     });
     this.ghost = new PlacementGhost({
       scene: this.scene, objects: this.objects, models: () => this.modelDraw, mesh: i => this.byNumber.get(i),
-      canMove: id => this.canMove(id), pivotOf: id => this.pivotOf(id), ground: () => this.copyAt(),
+      canMove: id => this.mover.canMove(id), pivotOf: id => this.mover.pivotOf(id), ground: () => this.copyAt(),
       look: () => {
         const c = this.camera, p = c.position, q = c.quaternion;
         return [this.mouse?.x ?? Infinity, this.mouse?.y ?? Infinity, p.x, p.y, p.z, q.x, q.y, q.z, q.w, c.aspect, c.fov, this.groundVersion, this.held ? 1 : 0];
@@ -211,6 +197,17 @@ export class TrackView {
       reserve: bytes => { if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false; this.usedBytes += bytes; return true; },
       release: bytes => { this.usedBytes -= bytes; },
       failed: message => this.onViewFailed(message), changed: () => { this.dirty = true; }, placingChanged: () => this.applyCursor(),
+    });
+    this.mover = new ObjectMover({
+      camera: this.camera, objects: this.objects, selection: this.selection, models: () => this.modelDraw, data: () => this.data,
+      mesh: i => this.byNumber.get(i), pick: (e, el) => this.pick(e, el), groundAt: (x, z) => this.groundAt(x, z),
+      farthest: () => 2 * this.navigation.highest, busy: () => !!this.brush.current,
+      meshChanged: i => { this.geometryPreview.changedMeshes.add(i); },
+      reloadKept: ids => {
+        if (ids.some(id => id.startsWith("instance_"))) void this.refreshModelTransforms();
+        this.refreshMeshes([]);
+      },
+      cursorChanged: () => this.applyCursor(), changed: () => { this.dirty = true; },
     });
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
@@ -223,7 +220,7 @@ export class TrackView {
     this.navigation.flyKeys(this.renderer.domElement);
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
-    this.moves(this.renderer.domElement);
+    this.mover.attach(this.renderer.domElement);
     this.roadMarkers.attach(this.renderer.domElement, () => !!this.brush.current, () => this.applyCursor(), event => {
       this.mouse = screenPoint(event, this.renderer.domElement);
       return this.brushAt();
@@ -563,197 +560,8 @@ export class TrackView {
   }
 
   private applyCursor() {
-    this.renderer.domElement.style.cursor = cursorFor({tool: this.cursorTool, dragging: !!this.dragging?.way.lengthSq(), pin: this.roadMarkers.overPin,
+    this.renderer.domElement.style.cursor = cursorFor({tool: this.cursorTool, dragging: this.mover.draggingNow, pin: this.roadMarkers.overPin,
       aiming: !!this.brush.current || this.ghost.placing}, this.pointed);
-  }
-
-  /** Move on or off; onMoved gets each object's displacement, including the change of ground height. Off cancels a drag. */
-  setMove(on: boolean, onMoved: (objects: {id: string; x: number; y: number; z: number}[]) => void) {
-    this.onMoved = onMoved;
-    if (on === this.moveTool) return;
-    this.moveTool = on;
-    if (!on) this.dropDrag();
-    this.applyCursor();
-  }
-
-  /** How the draft places objects now: where each one's place is, to turn and scale it around. */
-  setPlaced(placed: Placement[]) {
-    this.placed = new Map(placed.map(p => [p.id, p]));
-    for (const [id, at] of this.pendingPivots) {
-      const split = id.lastIndexOf("#"), base = this.data?.objects?.[id.slice(0, split)]?.at[Number(id.slice(split + 1))];
-      const p = this.placed.get(id);
-      if (base && Math.abs(base[0] + (p?.x ?? 0) - at[0]) < 0.002 && Math.abs(base[2] + (p?.z ?? 0) - at[2]) < 0.002) this.pendingPivots.delete(id);
-    }
-  }
-
-  /** A drag that could not be accepted returns to the server's kept geometry, including any drag made while it was pending. */
-  rejectMove(ids: string[]) {
-    for (const id of ids) this.pendingPivots.delete(id);
-    if (this.dragging?.ids.some(id => ids.includes(id))) this.dropDrag();
-    if (ids.some(id => id.startsWith("instance_"))) void this.refreshModelTransforms();
-    this.refreshMeshes([]);
-  }
-
-  /** Whether Move can take it: not a span of wires, which goes where its poles go. */
-  canMove(id: string) {
-    const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
-    return !list || !NOT_MOVED.has(list.kinds[Number(id.slice(at + 1))]);
-  }
-
-  /** Where an object stands now, what it is turned and scaled around (placement.py): a listed one's place as the draft moved it; a tree's or
-      bush's the middle of its foot. */
-  private pivotOf(id: string) {
-    const pending = this.pendingPivots.get(id);
-    if (pending) return pending;
-    const at = id.lastIndexOf("#"), list = this.data?.objects?.[id.slice(0, at)];
-    if (list) {
-      const [x, y, z] = list.at[Number(id.slice(at + 1))], p = this.placed.get(id);
-      return [x + (p?.x ?? 0), y + (p?.y ?? 0), z + (p?.z ?? 0)];
-    }
-    const box = this.objects.boundsOf(id), middle = box.getCenter(new THREE.Vector3());
-    return [middle.x, box.min.y, middle.z];
-  }
-
-  /** The vertices the objects and what belongs to them have in the meshes loaded, as they are now. */
-  private grab(ids: string[]): Grabbed[] {
-    const out: Grabbed[] = [];
-    for (const id of ids) {
-      const modelMatrix = this.modelDraw.instance(id.split("#")[0])?.matrix.clone();
-      if (modelMatrix) { out.push({id, modelMatrix}); continue; }
-      const byMesh = new Map<number, Set<number>>();
-      for (const {mesh, from, end} of this.objects.piecesOf(id)) {
-        const part = this.byNumber.get(mesh);
-        if (!part) continue;
-        const indices = (part.userData.indices ?? part.geometry.getIndex()!.array) as Uint16Array;
-        if (!byMesh.has(mesh)) byMesh.set(mesh, new Set());
-        for (let k = from * 3; k < end * 3; k++) byMesh.get(mesh)!.add(indices[k]);
-      }
-      for (const [mesh, vertices] of byMesh) {
-        const numbers = Uint32Array.from(vertices), array = this.vertexArray(mesh), floats = new Float32Array(numbers.length * FLOATS_PER_VERTEX);
-        numbers.forEach((v, k) => floats.set(array.subarray(v * FLOATS_PER_VERTEX, (v + 1) * FLOATS_PER_VERTEX), k * FLOATS_PER_VERTEX));
-        out.push({id, mesh, numbers, floats});
-      }
-    }
-    return out;
-  }
-
-  private vertexArray(mesh: number) {
-    return (this.byNumber.get(mesh)!.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data.array as Float32Array;
-  }
-
-  /** The vertices grabbed as nudges (by id; none: as they were) move them around pivots, in the view only: the server's meshes take
-      their place when its answer comes (refreshMeshes). */
-  private nudgeGrabbed(grabbed: Grabbed[], pivots: Map<string, number[]>, nudges: (id: string) => Nudge) {
-    for (const g of grabbed) {
-      if ("modelMatrix" in g) {
-        const n = nudges(g.id);
-        const transform = new THREE.Matrix4().makeScale(n.scale, n.scale, n.scale)
-          .premultiply(new THREE.Matrix4().makeRotationY(n.turn * Math.PI / 180))
-          .premultiply(new THREE.Matrix4().makeTranslation(n.x, n.y, n.z));
-        this.modelDraw.nudge(g.id.split("#")[0], pivots.get(g.id)!, transform, g.modelMatrix);
-      } else {
-        nudgeVertices(g.floats, this.vertexArray(g.mesh), g.numbers, FLOATS_PER_VERTEX, pivots.get(g.id)!, nudges(g.id));
-        const m = this.byNumber.get(g.mesh)!;
-        (m.geometry.getAttribute("position") as THREE.InterleavedBufferAttribute).data.needsUpdate = true;
-        fitSphere(m.geometry, m.userData.info as MeshInfo); m.geometry.boundsTree?.refit();
-        this.geometryPreview.changedMeshes.add(g.mesh);
-      }
-    }
-    this.selection.reframe();
-    this.dirty = true;
-  }
-
-  /** The objects ids turned, raised or scaled at once, each around where it stands, until the server's meshes come: a notch of the wheel.
-      While they are dragged, what was taken up is nudged too: the next move of the mouse shows them as they are now, not as they were. */
-  nudge(ids: string[], n: Partial<Nudge>) {
-    const nudge = {...STILL, ...n}, d = this.dragging;
-    if (d && ids.every(id => d.ids.includes(id))) {
-      for (const g of d.grabbed) {
-        if (!ids.includes(g.id)) continue;
-        if ("modelMatrix" in g) {
-          const root = this.modelDraw.instance(g.id.split("#")[0]);
-          if (root) {
-            this.modelDraw.nudge(g.id.split("#")[0], d.pivots.get(g.id)!, new THREE.Matrix4().makeScale(nudge.scale, nudge.scale, nudge.scale)
-              .premultiply(new THREE.Matrix4().makeRotationY(nudge.turn * Math.PI / 180))
-              .premultiply(new THREE.Matrix4().makeTranslation(nudge.x, nudge.y, nudge.z)), g.modelMatrix);
-            g.modelMatrix = root.matrix.clone();
-          }
-          continue;
-        }
-        const out = new Float32Array(g.floats.length);
-        nudgeVertices(g.floats, out, Array.from(g.numbers, (_, k) => k), FLOATS_PER_VERTEX, d.pivots.get(g.id)!, nudge);
-        g.floats = out;
-      }
-      for (const id of ids) {
-        const [x, y, z] = d.pivots.get(id)!;
-        d.pivots.set(id, [x + nudge.x, y + nudge.y, z + nudge.z]);
-      }
-      return this.dragOn(d.grabbed);
-    }
-    this.nudgeGrabbed(this.grab(ids), new Map(ids.map(id => [id, this.pivotOf(id)])), () => nudge);
-  }
-
-  /** The vertices of grabbed shown as taken up and moved the way dragged so far. */
-  private dragOn(grabbed: Grabbed[]) {
-    const d = this.dragging!;
-    for (const id of d.ids) {
-      const [x, , z] = d.pivots.get(id)!, before = d.ground.get(id);
-      const after = this.groundAt(x + d.way.x, z + d.way.z);
-      d.rises.set(id, before != null && after != null ? after - before : 0);
-    }
-    this.nudgeGrabbed(grabbed, d.pivots, id => ({...STILL, x: d.way.x, y: d.rises.get(id) ?? 0, z: d.way.z}));
-  }
-
-  /** A drag under way goes back, nothing moved. */
-  private dropDrag() {
-    const d = this.dragging;
-    this.dragging = null;
-    if (d) this.nudgeGrabbed(d.grabbed, d.pivots, () => STILL);
-  }
-
-  /** With Move on, the left button pressed picks what is under the mouse (Ctrl: adds it); held and moved, it takes all that is picked along
-      over the ground, keeping each one's clearance; let go, onMoved says how far. */
-  private moves(el: HTMLElement) {
-    el.addEventListener("pointerdown", e => {
-      if (!this.moveTool || this.brush.current || e.button !== LEFT_BUTTON) return;
-      const picked = this.pick(e, el);
-      if (!picked?.id || !this.selection.has(picked.id)) return;
-      const ids = this.selection.ids().filter(id => this.canMove(id));
-      if (!ids.includes(picked.id)) return;
-      const pivots = new Map(ids.map(id => [id, this.pivotOf(id)]));
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pivots.get(picked.id)![1]), from = new THREE.Vector3();
-      this.picker.setFromCamera(screenPoint(e, el), this.camera);
-      if (!this.picker.ray.intersectPlane(plane, from)) return;
-      const ground = new Map(ids.map(id => { const [x, , z] = pivots.get(id)!; return [id, this.groundAt(x, z)]; }));
-      this.dragging = {ids, plane, from, x: e.clientX, y: e.clientY, grabbed: this.grab(ids), pivots, ground, rises: new Map(), way: new THREE.Vector3()};
-      el.setPointerCapture(e.pointerId);
-    });
-    el.addEventListener("pointermove", e => {
-      const d = this.dragging;
-      if (!d) return;
-      if (!(e.buttons & LEFT_HELD)) return this.dropDrag();
-      if (!d.way.lengthSq() && Math.hypot(e.clientX - d.x, e.clientY - d.y) < CLICK_PX) return;     // (a click with a shaky hand)
-      this.picker.setFromCamera(screenPoint(e, el), this.camera);
-      const at = new THREE.Vector3();
-      if (!this.picker.ray.intersectPlane(d.plane, at) || at.distanceTo(this.camera.position) > 2 * this.navigation.highest) return;    // (at the horizon)
-      d.way.set(at.x - d.from.x, 0, at.z - d.from.z);
-      this.applyCursor();
-      this.dragOn(d.grabbed);
-    });
-    el.addEventListener("pointerup", e => {
-      const d = this.dragging;
-      if (!d || e.button !== LEFT_BUTTON) return;
-      this.dragging = null;
-      this.applyCursor();
-      if (d.way.lengthSq()) {
-        for (const id of d.ids) {
-          const [x, y, z] = d.pivots.get(id)!;
-          this.pendingPivots.set(id, [x + d.way.x, y + (d.rises.get(id) ?? 0), z + d.way.z]);
-        }
-        this.onMoved(d.ids.map(id => ({id, x: d.way.x, y: d.rises.get(id) ?? 0, z: d.way.z})));
-      }
-    });
-    el.addEventListener("pointercancel", () => this.dropDrag());
   }
 
   /** onClicked gets what the left button clicked, null for nothing there: picked already, and what a marking goes by. */
@@ -886,7 +694,7 @@ export class TrackView {
       const data = await fetchJson<TrackIndex>(`/api/editor/${encodeURIComponent(this.trackName)}/index`, signal);
       if (mine !== this.token || asked !== this.modelTransformVersion) return;
       this.modelDraw.transforms(data.model_matrices ?? {});
-      if (this.dragging) this.dragOn(this.dragging.grabbed.filter(g => "modelMatrix" in g));
+      this.mover.followModels();
       this.selection.reframe(); this.dirty = true; this.hoverDue = true;
     } catch (error) { if (mine === this.token && !signal.aborted) this.onViewFailed((error as Error).message); }
   }
@@ -1026,8 +834,7 @@ export class TrackView {
     data.needsUpdate = true;
     this.geometryPreview.replaced(info.i);       // (what it covered is no more: what lies under it is what just came)
     // (what is being dragged stays where the mouse has it: the server's mesh has it where it was taken up)
-    const dragged = this.dragging?.grabbed.filter(g => "mesh" in g && g.mesh === info.i) ?? [];
-    if (dragged.length) this.dragOn(dragged);
+    this.mover.followMesh(info.i);
     fitSphere(g, info);
     g.boundsTree?.refit();
     if (GROUND.test(info.name)) this.roadMarkers.followGround(g.boundingBox!);
@@ -1052,7 +859,7 @@ export class TrackView {
     let from: {x: number; y: number; button: number} | null = null;
     el.addEventListener("pointerdown", e => {
       // (a press on a pin is the pin's: it is dragged, a right click takes it away)
-      from = (e.button === 0 && !this.brush.current && !this.moveTool && this.roadMarkers.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
+      from = (e.button === 0 && !this.brush.current && !this.mover.on && this.roadMarkers.pinAt(e, el) < 0) || e.button === 2 ? {x: e.clientX, y: e.clientY, button: e.button} : null;
     });
     el.addEventListener("pointermove", e => {
       if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) >= CLICK_PX) from = null;
@@ -1131,7 +938,7 @@ export class TrackView {
     const hovered = hit ? this.describe(hit) : null;
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
-      movable: taking && !!hovered.id && this.canMove(this.moveTool ? this.objects.rootOf(hovered.id) : hovered.id)} : null;
+      movable: taking && !!hovered.id && this.mover.canMove(this.mover.on ? this.objects.rootOf(hovered.id) : hovered.id)} : null;
     this.applyCursor();
     this.onHover(hovered);
   }
@@ -1350,7 +1157,7 @@ export class TrackView {
     this.navigation.data = null;
     this.alphaOf.clear();
     this.byNumber.clear();
-    this.pendingPivots.clear();
+    this.mover.clear();
     this.materialAreas?.clear();
     this.objects.clear();
     this.selection.forget();

@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
-import {brushOf, ghostOf, objectsOf, selectionOf} from "./view.fixture";
+import {brushOf, ghostOf, moverOf, objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {GeometryPreview} from "./geometryPreview";
 import {ModelDraw} from "./modelDraw";
@@ -23,7 +23,7 @@ const bytes = (x = 0) => {
 interface View {
   syncCopies: () => Promise<void>;
   reloadModels: () => Promise<number | null>; refresh: (i: number) => Promise<void>;
-  meshes: THREE.Mesh[]; byNumber: Map<number, THREE.Mesh>; materialAreas: Map<number, unknown>; usedBytes: number; dragging: unknown;
+  meshes: THREE.Mesh[]; byNumber: Map<number, THREE.Mesh>; materialAreas: Map<number, unknown>; usedBytes: number;
 }
 
 /** A view of no track but its models, and a server whose index and meshes follow `served`; urls holds the meshes asked for. */
@@ -47,7 +47,7 @@ function setUp() {
   });
   const byNumber = new Map<number, THREE.Mesh>();
   Object.assign(view, {token: 1, modelTransformVersion: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
-    meshes: [], byNumber, grounds: [], materialAreas: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view),
+    meshes: [], byNumber, grounds: [], materialAreas: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view), mover: moverOf(view),
     data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
     copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(),
     ensureModelLight: () => {},
@@ -309,7 +309,7 @@ test("Delete's brush frames an imported model under its ring and hides it during
   try {
     served.parts = [part(0, "a")];
     await view.reloadModels();
-    Object.assign(view, {placed: new Map(), pendingPivots: new Map(), camera: new THREE.PerspectiveCamera()});
+    Object.assign(view, {camera: new THREE.PerspectiveCamera(), mover: moverOf(view)});
     const brush = brushOf(view) as unknown as BrushInside;
     Object.assign(view, {brush});
     Object.assign(brush, {brush: {radius: 5, colour: "#e5484d", turnedColour: "#e5484d", marks: true}, markAt: [0, 0]});

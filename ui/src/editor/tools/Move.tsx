@@ -15,7 +15,7 @@ export const CM = 100, PERCENT = 100;
     with any tool (the inspector's fields). onNote: what to say, null for nothing. */
 export function useMove({name, view, edits, state, enabled, picked, onNote}: {name: string; view: TrackView; edits: TrackEdits; state: EditState; enabled: boolean; picked: Picked | null;
                                                                          onNote: (text: string | null) => void}) {
-  const targets = (picked?.all ?? []).map(p => p.id).filter(id => view.canMove(id)), ids = enabled ? targets : [];
+  const targets = (picked?.all ?? []).map(p => p.id).filter(id => view.mover.canMove(id)), ids = enabled ? targets : [];
   const now = (id: string) => edits.placementOf(id) ?? unplaced(id);
   const shown = targets.length ? now(picked?.id && targets.includes(picked.id) ? picked.id : targets[0]) : unplaced("");
 
@@ -25,14 +25,14 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
     void edits.inTurn(() => {
       if (!edits.canEdit()) return;
       const placed = targets.map(id => to(now(id)));
-      placed.forEach((p, k) => view.nudge([targets[k]], between(now(targets[k]), p)));
+      placed.forEach((p, k) => view.mover.nudge([targets[k]], between(now(targets[k]), p)));
       edits.place(placed, join && `${join} ${targets.join()}`);
     });
   };
 
   const moved = useEffectEvent((dragged: {id: string; x: number; y: number; z: number}[]) => {
     const ids = dragged.map(p => p.id);
-    if (!edits.canEdit()) return view.rejectMove(ids);
+    if (!edits.canEdit()) return view.mover.rejectMove(ids);
     if (!state.heights.length) {
       edits.place(dragged.map(({id, ...by}) => nudged(now(id), by)));
       onNote(null);
@@ -50,17 +50,17 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
         if (r.error || !r.placed) onNote(r.error ?? "Could not move the objects");
         else if (edits.canEdit()) { edits.place(r.placed); accepted = true; onNote(null); }
       } finally {
-        if (!accepted) view.rejectMove(ids);
+        if (!accepted) view.mover.rejectMove(ids);
       }
     });
   });
 
   useEffect(() => {
-    view.setMove(enabled, dragged => moved(dragged));
-    return () => view.setMove(false, () => {});
+    view.mover.setMove(enabled, dragged => moved(dragged));
+    return () => view.mover.setMove(false, () => {});
   }, [view, enabled]);
 
-  useEffect(() => { view.setPlaced(state.placed); }, [view, state.placed]);
+  useEffect(() => { view.mover.setPlaced(state.placed); }, [view, state.placed]);
 
   const by = (n: Partial<Nudge>, join: string) => change(p => nudged(p, n), join);
   const set = (field: keyof Nudge, value: number) => change(p => nudged({...p, [field]: value}, {}));
