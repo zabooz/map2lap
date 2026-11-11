@@ -93,3 +93,18 @@ test("a saved tile image on its mask's ring canvas is sampled where the mask is"
   material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
   expect(shader.fragmentShader).toContain("texture2D(map, (m2lTile + m2lMaskOrigin) / m2lMaskExtent).rgb * m2lWeights.a");
 });
+test("PBR ground lights colour-only photographs and the retained road tile physically", () => {
+  const material = new THREE.MeshStandardMaterial({map: new THREE.Texture()});
+  bindSplat(material, new THREE.Texture(), [new THREE.Texture()], {
+    pbr: true, base: {name: "original"}, mask: {name: "mask"}, origin: [0, 0],
+    images: [{name: "photo", scale: [128, 128], properties: {roughness: .6, normal_scale: 1}}],
+  });
+  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.fragmentShader).toContain("texture2D(map, vMapUv).rgb * m2lWeights.a");
+  expect(shader.fragmentShader).toContain("0.60000000 * m2lWeights.r");
+  expect(shader.fragmentShader).toContain("m2lContribution += m2lWeights.r");
+  expect(shader.fragmentShader).not.toContain("m2lSourceLight");
+  expect(shader.fragmentShader).not.toContain("m2lVary");
+});

@@ -178,7 +178,9 @@ function weights(pass: GroundPass) {
 
 function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Texture, data: THREE.Texture | null, weight: THREE.Texture | null) {
   const ref = layers.images[pass.image], pbr = !!data;
-  const material = pbr ? new THREE.MeshStandardMaterial({map: photo, roughness: 1, metalness: 0}) : new THREE.MeshLambertMaterial({map: photo});
+  const material = pbr || layers.pbr
+    ? new THREE.MeshStandardMaterial({map: photo, roughness: ref?.properties?.roughness ?? (pass.image < 0 ? 221 / 255 : 1), metalness: 0})
+    : new THREE.MeshLambertMaterial({map: photo});
   material.transparent = true; material.depthWrite = false; material.blending = THREE.CustomBlending;
   material.blendEquation = THREE.AddEquation; material.blendSrc = material.blendDst = THREE.OneFactor;
   material.polygonOffset = true; material.polygonOffsetFactor = -1; material.polygonOffsetUnits = -1;

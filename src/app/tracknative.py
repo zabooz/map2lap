@@ -24,7 +24,7 @@ PREFIX = "nocol_ground_m2l_"
 MASK_CACHE_VERSION = 1
 # The same for the packed photos kept beside them (_photo_key): raise it when _photo_colour, _photo_normals, tile_base,
 # pad_weights or dds_mipmaps write other bytes for the same inputs.
-PHOTO_CACHE_VERSION = 3
+PHOTO_CACHE_VERSION = 4
 # The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region or
 # _batches give other vertices for the same inputs.
 GEOMETRY_CACHE_VERSION = 1
@@ -34,7 +34,7 @@ OWN_TEXTURE = re.compile(r"map2lap_native_[0-9a-f]{64}\.(?:png|dds)\Z")
 
 def _owned_material(material):
     return material.name.startswith(("m2l_ground_black_", "m2l_ground_pbr_", "m2l_ground_region_")) and any(
-        p[0] == "m2lGroundPass" and p[1] in (1., 2., 3.) for p in material.props)
+        p[0] == "m2lGroundPass" and p[1] in (1., 2., 3., 4.) for p in material.props)
 
 
 def _owned_images(materials):
@@ -360,6 +360,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                 # hold unless its vertices changed since; one of the last Save holds while its piece, region and origins do)
                 piece=_piece(vertices,faces)
                 for number,(bounds,palette) in enumerate(regions):
+                    pbr = _pbr_palette(refs, palette)
                     cw,ch=canvas_size(bounds,width,height)
                     extent=np.array([cw/width,ch/height])
                     uv_bounds=[bounds[0]/width,bounds[1]/height,bounds[2]/width,bounds[3]/height]
@@ -380,19 +381,20 @@ def build(ac,name,descriptors,scan,change,path,added):
                         masks[number]=resource(raw,'.dds')
                     mask=masks[number]
                     props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
-                    props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
+                    props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',4. if pbr else 3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
                     maps=[('txDiffuse',0,white),('txMask',1,mask)]
                     for j,channel in enumerate('RGBA'):
                         ref=refs[palette[j]] if j<len(palette) else None
-                        photo,normal,scale,varies=white,flat,[1.,1.],False
+                        photo,normal,scale=white,resource(_pbr_flat(1.),'.png') if pbr else flat,[1.,1.]
                         if ref is not None:
                             # (each tile has its own image under the same id 'base': its texture number tells them apart)
-                            key=(ref['id'],ref.get('i'),specular)
+                            key=(ref['id'],ref.get('i'),specular,pbr)
                             if key not in prepared and 'asset' not in ref:
                                 # (a tile's own images unchanged since the last Save, or made by prepare, come from the cache)
-                                stored,colour=_own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref))
+                                sheen=_sheen(source_values,specular,ref)
+                                stored,colour=_own_photo(kept,path,scan,record['base'],ref,base_material,tile,sheen,pbr=pbr)
                                 used.add(stored)
-                                prepared[key]=(resource(colour,'.dds'),flat)
+                                prepared[key]=(resource(colour,'.dds'),resource(_pbr_flat(1-sheen/255),'.png') if pbr else flat)
                             if key not in prepared:
                                 folder=trackpaint._resolve(ac,name,'materials',ref['asset'])
                                 raw=(folder/'colour.png').read_bytes()
@@ -401,17 +403,23 @@ def build(ac,name,descriptors,scan,change,path,added):
                                 if 'detail' in ref and 'asset' in ref:
                                     detail=functools.cache(lambda asset=ref['asset']: _rgba(trackdetail.detail_image(ac,name,asset)))
                                 # (a tile's images unchanged since the last Save are taken from then, as its masks are)
-                                stored=_photo_key(raw,ref,base_material,tile,sheen)
-                                normal_name=flat
+                                stored=_photo_key(raw,ref,base_material,tile,sheen,pbr=pbr)
+                                normal_name=resource(_pbr_flat(ref.get('properties',{}).get('roughness',1.)),'.png') if pbr else flat
                                 if detail:
-                                    normal_name=resource(_stored(kept,stored+'.png',lambda: _photo_normals(detail(),ref)),'.png')
+                                    normal_name=resource(_stored(kept,stored+'.png',lambda: _photo_normals(detail(),ref,pbr=pbr)),'.png')
                                     used.add(stored+'.png')
-                                colour=_stored(kept,stored+'.dds',lambda: _photo_colour(raw,ref,base_material,tile,sheen,detail))
+                                colour=_stored(kept,stored+'.dds',lambda: _photo_colour(raw,ref,base_material,tile,sheen,detail,pbr=pbr))
                                 used.add(stored+'.dds')
                                 prepared[key]=(resource(colour,'.dds'),normal_name)
-                            photo,normal=prepared[key]; scale=ref.get('scale',[1.,1.]); varies=bool(ref.get('variation'))
-                        props.extend([('mult'+channel,1.,tuple(np.asarray(scale)*extent),(0.,0.,0.),(0.,0.,0.,0.)),('m2lVariation'+channel,float(varies),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
+                            photo,normal=prepared[key]; scale=ref.get('scale',[1.,1.])
+                        # fuPBR samples each layer in world X/Z metres; mask UVs retain the region canvas.
+                        # Its single variation switch would also displace the baked road image, so it stays off.
+                        props.extend([('mult'+channel,1.,tuple(np.asarray(scale)*extent),(0.,0.,0.),(0.,0.,0.,0.)),('m2lVariation'+channel,float(not pbr and bool(ref and ref.get('variation'))),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
+                        if pbr:
+                            props.append(('m2lPbrScale'+channel,float(scale[0]/256),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
                         maps.extend([('txDetail'+channel,j+2,photo),('txNormal'+channel,j+6,normal)])
+                    if pbr:
+                        maps.append(('txNormal2',10,flat))
                     material=kn5.Material(f'm2l_ground_region_{source_i}_{number}','ksMultilayer_objsp',0,0,0,props,maps)
                     index=unused.pop() if unused else len(materials)
                     if index==len(materials): materials.append(material)
@@ -451,14 +459,14 @@ def _saved_mask(fields,bounds,palette,phase):
     return bc7_weights(region_mask(fields,bounds,palette,phase=phase,step=SAVED_WEIGHT_STEP))
 
 
-def _own_photo(kept,path,scan,revision,ref,material,tile,sheen):
+def _own_photo(kept,path,scan,revision,ref,material,tile,sheen,*,pbr=False):
     """(cache name, DDS) of a tile's own image ref ('base' or a source's) as _photo_colour packs it, from the kn5 at path in
     revision, kept under its _photo_key."""
     from app import trackview
     _n,at,size=scan['textures'][ref['i']]
     raw=trackview._read(path,at,size,revision)
-    stored=_photo_key(raw,ref,material,tile,sheen)+'.dds'
-    return stored,_stored(kept,stored,lambda: _photo_colour(raw,ref,material,tile,sheen,None))
+    stored=_photo_key(raw,ref,material,tile,sheen,pbr=pbr)+'.dds'
+    return stored,_stored(kept,stored,lambda: _photo_colour(raw,ref,material,tile,sheen,None,pbr=pbr))
 
 
 # Below this many painted tiles to make, prepare stays in this process: starting the workers (spawn, each importing the
@@ -569,10 +577,13 @@ def _prepare_tile(descriptor):
         if info['material'] not in layout['materials']: continue
         source_values={p[0]:p[1] for p in scan['materials'][info['material']].props}
         specular=max(.15,source_values.get('ksSpecular',0.))
-        for ref in (refs[key] for _bounds,palette in layout['native_regions'] for key in palette):
-            if 'asset' not in ref and (ref['id'],ref.get('i'),specular) not in done:
-                done.add((ref['id'],ref.get('i'),specular))
-                files.add(_own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref))[0])
+        for _bounds,palette in layout['native_regions']:
+            pbr=_pbr_palette(refs,palette)
+            for ref in (refs[key] for key in palette):
+                key=(ref['id'],ref.get('i'),specular,pbr)
+                if 'asset' not in ref and key not in done:
+                    done.add(key)
+                    files.add(_own_photo(kept,path,scan,record['base'],ref,base_material,tile,_sheen(source_values,specular,ref),pbr=pbr)[0])
     from app import trackpaint
     trackpaint._atomic(_files_record(descriptor),trackpaint._json_bytes({'stamp':_files_stamp(descriptor),'files':sorted(files)}))
 
@@ -644,14 +655,14 @@ def _keep_only(folder, used):
             path.unlink(missing_ok=True)
 
 
-def _photo_key(raw, ref, material, tile, sheen):
+def _photo_key(raw, ref, material, tile, sheen, *, pbr=False):
     """The digest of all that _photo_colour and _photo_normals read: the encoded source, for a tile's own image its guard,
     ring canvas and tile, the alpha of a photo without a gloss map (sheen), a detail map and its properties. Pure."""
     from app import trackdetail, trackpaint, trackview
     properties = ref.get("properties", {})
     base = [[int(t) for t in tile], trackview._prop(material, "m2lUVGuard", 0.), trackdetail.base_extent(material)] if ref["id"] == "base" else None
     detail = [ref["detail"]["key"], properties.get("normal_scale", 1.), properties.get("roughness", 1.)] if "detail" in ref and "asset" in ref else None
-    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, base, detail])
+    return trackpaint._digest([PHOTO_CACHE_VERSION, PIL.__version__, hashlib.sha256(raw).hexdigest(), sheen, base, detail, pbr])
 
 
 def _rgba(raw):
@@ -660,9 +671,9 @@ def _rgba(raw):
         return np.array(image.convert("RGBA"))
 
 
-def _photo_colour(raw, ref, material, tile, sheen, detail):
-    """A ground photo as a DDS: its colour (a tile's own image on its mask's ring canvas), in alpha its gloss from detail,
-    a function giving the detail map's pixels, or else sheen. Pure. A library photo is BC7, BC3's size: BC3's colour has
+def _photo_colour(raw, ref, material, tile, sheen, detail, *, pbr=False):
+    """A ground photo as a DDS: its colour (a tile's own image on its mask's ring canvas), alpha 255 for PBR AO;
+    the legacy float2 path instead packs gloss from detail or sheen. Pure. A library photo is BC7, BC3's size: BC3's colour has
     BC1's two ends a block, which turned asphalt beside verge green (textures.dds_mipmaps). A tile's own image keeps its
     source's format, BC7 for a tile with roads, else BC3: BC7 took 2.2 s a 2304 px copy with its mips, BC3 0.2 s, and a tile
     without roads has no such edges (39 of Heiligenblut's 106 tiles)."""
@@ -673,7 +684,10 @@ def _photo_colour(raw, ref, material, tile, sheen, detail):
     else:
         with Image.open(io.BytesIO(raw)) as image:
             colour = image.convert("RGBA")
-    if detail is None:
+    if pbr:
+        # fuPBR reads local ambient occlusion here, not specular strength. No authored AO means unoccluded.
+        alpha = Image.new("L", colour.size, 255)
+    elif detail is None:
         alpha = Image.new("L", colour.size, sheen)
     else:
         gloss = np.rint((1 - np.clip(detail()[..., 3] / 255 * ref.get("properties", {}).get("roughness", 1.), 0, 1)) * 255).astype(np.uint8)
@@ -682,15 +696,53 @@ def _photo_colour(raw, ref, material, tile, sheen, detail):
     return dds_mipmaps(colour, alpha=True, smallest=1, independent=True, bc7="asset" in ref or _is_bc7(raw))
 
 
-def _photo_normals(data, ref):
-    """A detail map's (H, W, 4) pixels as a PNG of its normals, scaled by the material's normal_scale. Pure."""
+def _photo_normals(data, ref, *, pbr=False):
+    """A detail map's (H, W, 4) pixels as a PNG: NmMeRo for PBR, else normal RGB, with the retained factors applied. Pure."""
     values = data[..., :3].astype(np.float64) / 255 * 2 - 1
     values[..., :2] *= ref.get("properties", {}).get("normal_scale", 1.)
     values /= np.maximum(np.linalg.norm(values, axis=2, keepdims=True), 1e-20)
     normals = np.empty_like(data)
     normals[..., :3] = np.rint((values * .5 + .5) * 255).clip(0, 255).astype(np.uint8)
     normals[..., 3] = 255
+    if pbr:
+        # fuPBR's tangent X has the opposite sign to nm4. Blue is metalness; alpha is real roughness.
+        normals[..., 0] = 255 - normals[..., 0]
+        normals[..., 2] = 0
+        normals[..., 3] = np.rint(data[..., 3].astype(np.float64) * ref.get("properties", {}).get("roughness", 1.)).clip(0, 255).astype(np.uint8)
     return _png(normals)
+
+
+def _pbr_palette(refs, palette):
+    """Whether this region's material repeats fit stock fuPBR's scalar world multipliers. Pure.
+
+    A rectangular repeat keeps the old float2 shader rather than stretching the photograph.
+    """
+    return all(math.isclose(*refs[key].get('scale',[1.,1.]),rel_tol=1e-6) for key in palette)
+
+
+def _pbr_flat(roughness):
+    """A shared flat nonmetal NmMeRo texture at linear roughness, clamped as in the Editor. Pure."""
+    return _png(np.full((4,4,4),[127,128,0,round(np.clip(roughness,0,1)*255)],np.uint8))
+
+
+def pbr_simple(material, layout, resources):
+    """Add stock-PBR data to a simple colour assignment, keeping its source slots and editable bindings."""
+    if any(not math.isclose(*ref['scale'],rel_tol=1e-6) for ref in layout['images']):
+        return material
+    def image(raw):
+        name='map2lap_native_'+hashlib.sha256(raw).hexdigest()+'.png'
+        resources.setdefault(name,raw)
+        return name
+    maps=list(material.maps)
+    props=[p for p in material.props if p[0]!='m2lPBR' and not p[0].startswith('m2lPbrScale')]
+    props.append(('m2lPBR',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
+    for j,channel in enumerate('RGBA'):
+        scale=layout['images'][j]['scale'][0] if j<len(layout['images']) and j<3 else 1.
+        if channel=='A': scale=1/layout.get('mask_extent',[1.,1.])[0]
+        props.append(('m2lPbrScale'+channel,float(scale/256),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
+        maps.append(('txNormal'+channel,j+6,image(_pbr_flat(221/255 if channel=='A' else 1.))))
+    maps.append(('txNormal2',10,image(_png(np.full((4,4,4),[128,128,255,255],np.uint8)))))
+    return replace(material,props=props,maps=maps)
 
 
 def _png(values):

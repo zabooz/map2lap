@@ -2494,7 +2494,7 @@ export class TrackView {
         data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
       } else {
         const layers = next.layers, colour = old.color.clone();
-        const material: GroundMaterial = !layers.ground && layers.images.some(ref => ref.detail)
+        const material: GroundMaterial = !layers.ground && (layers.pbr || layers.images.some(ref => ref.detail))
           ? new THREE.MeshStandardMaterial({color: colour, roughness: 1, metalness: 0})
           : new THREE.MeshLambertMaterial({color: colour});
         this.prepareSplat(k, material, layers, () => {
@@ -2580,7 +2580,7 @@ export class TrackView {
     const d = data.materials[k], b = Math.min(1, d.bright);
     this.ensureSplatState();
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
-    const m: GroundMaterial = !d.splat?.ground && d.splat?.images.some(ref => ref.detail)
+    const m: GroundMaterial = !d.splat?.ground && (d.splat?.pbr || d.splat?.images.some(ref => ref.detail))
       ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: 1, metalness: 0})
       : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;

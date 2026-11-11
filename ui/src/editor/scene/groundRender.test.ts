@@ -3,6 +3,22 @@ import * as THREE from "three";
 import {GroundFrame, GroundLayer, groundRegionGeometry, groundRegionGeometries} from "./groundRender";
 import type {ColourSplat, GroundPass} from "./colourBlend";
 
+test("regional PBR uses physical materials for both the original tile and a colour-only photo", () => {
+  const frame = new GroundFrame({} as THREE.WebGLRenderer, new THREE.Scene(), () => true, () => {});
+  const pass: GroundPass = {image: -1, first: 0, bounds: [0, 0, 1, 1],
+    frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
+  const layers: ColourSplat = {pbr: true, base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0],
+    images: [{name: "photo", scale: [128, 128], properties: {roughness: .6, normal_scale: 1}}],
+    ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass, {...pass, image: 0}]}};
+  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [null], [null, null], new THREE.Color());
+  layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
+  const materials = frame.scene.children[0].children.map(child => (child as THREE.Mesh).material as THREE.MeshStandardMaterial);
+  expect(materials).toHaveLength(2);
+  expect(materials.every(m => m instanceof THREE.MeshStandardMaterial)).toBe(true);
+  expect(materials.map(m => m.roughness)).toEqual([221 / 255, .6]);
+  layer.dispose(); frame.dispose();
+});
+
 /** The original per-region UV-box scan, independent of the spatial assignment. Pure. */
 function originalIndices(source: THREE.BufferGeometry, bounds: number[], origin: number[]) {
   const indices = source.getIndex()!, uv = source.getAttribute("uv"), kept: number[] = [];

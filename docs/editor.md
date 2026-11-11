@@ -591,7 +591,7 @@ Prepared mask pixels are retained as a lossless PNG in disposable cache, avoidin
 in-memory eviction or restart. A missing PNG is rebuilt from the retained operation masks. RGBA mask channels are independent
 weights, not alpha-associated colour: each mip is filtered independently and its weights sum to 255. Masks use lossless
 uncompressed RGBA8 DDS, avoiding BC3 colour/alpha quantization changing their brightness. The classic colour path uses BC1
-photos; regional photos use BC7 with independent gloss alpha (`tracknative._photo_colour`), BC3's size without its two colours a block. A local FP16 mask is retained when RGBA8 exceeds the weight
+photos; regional PBR photos use BC7 with AO alpha (`tracknative._photo_colour`), BC3's size without its two colours a block. A local FP16 mask is retained when RGBA8 exceeds the weight
 error budget. A full
 2048² mask including mips occupies about 22.4 MB instead of 5.6 MB for BC3. The descriptor, memory budget and Save's disk
 estimate include the actual size. This preserves 12.5 cm mask resolution instead of silently downsampling road boundaries.
@@ -607,7 +607,7 @@ decompression. The viewer keeps per-atlas texture identities and memory accounti
 bundle separately, and copies each atlas before releasing that bundle. Cancelling one consumer leaves others running;
 cancelling the last releases the transfer. Existing individual weight endpoints remain available.
 
-Save writes cropped RGBA region masks with filter halos and shared photos in `ksMultilayer_objsp` materials. It makes each
+Save writes cropped RGBA region masks with filter halos and shared photos for CSP `fuPBR_multilayer`. It makes each
 region's mask once for all ground pieces of its tile and keeps the packed masks of a track's last Save under
 `cache/native-masks`, named by the digest of all their inputs (`tracknative._mask_key`): a Save takes a mask from there if
 its fields within its bounds and two-pixel halo, bounds, palette and phase did not change, so a small change remakes only the
@@ -627,10 +627,12 @@ tiles in the server's own): one reads a tile's fields once and keeps its descrip
 the export then takes them from the cache, as a warm Save does, and writes the same bytes. A region mask whose canvas the saved mask's step divides is
 averaged to its coarse texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
 255th off the one made coarse after); the tile images on their ring canvases take 33 s of an empty cache. Imported normal
-maps and repetition variation use the managed CSP `ksMultilayer_objsp_nm4` replacement. Roughness is currently converted to
-a specular-strength approximation in photo alpha; this is not PBR roughness. Regional render copies are `nocol_`; the edited
+maps and linear roughness use the managed CSP `fuPBR_multilayer` replacement: albedo RGB/AO alpha and normal XY/metalness/
+roughness are separate resources, with the retained normal and roughness factors applied once. Flat nonmetal data fills
+missing maps. Rectangular physical repeats retain `ksMultilayer_objsp_nm4` with float2 scaling rather than stretching the
+image. Regional render copies are `nocol_`; the edited
 source is hidden for rendering while its collision vertices and indices remain byte-identical. Global UV origins and native
-float2 multipliers keep physical repeats exact. Cold reopen retains the editable source; removing paints restores its render
+world multipliers keep square physical repeats exact. Cold reopen retains the editable source; removing paints restores its render
 flag on Save. The source is retained for Undo/Discard, and the saved recipe/bundle carries
 the operation masks and normalized colour snapshots. Saving a transferred track also retains the material snapshots referenced
 by its native source layers, so another edit or Save as copy keeps their names, physical sizes and previews. Legacy full-surface
@@ -640,19 +642,15 @@ warning; Save refuses incomplete data. Saved recipes record the detail layout pr
 so their retained edits can be written with sharp layers without rebuilding. `paintimage.py` remains the low-resolution tile/thumbnail compatibility compositor;
 the normal Apply renderer and Save use the separate detail layers.
 
-Imported materials also retain a repetition-variation flag. Natural ground categories enable it by default; structured
-patterns can disable it at import. Older natural imports use the same default. The Editor blends two translated photo
-samples with explicit UV gradients and a static world-space noise field. The selected mask and original tile in A remain
-unchanged. No bigger colour tile or extra photo copies are produced.
-
-Save keeps the native `ksMultilayer_objsp` material as a regular-repeating fallback. A managed include in the saved track's
-`extension/ext_config.ini` selects CSP's `ksMultilayer_objsp_nm4` for marked materials, enables only the imported layers'
-`tilingFixR/G/B/A` for the applicable imported channels. Missing normal maps are filled with flat defaults. The owned include is
-regenerated during Save and removed when no source/edited materials need it; unrelated effects remain. Tracks need CSP;
-nothing is kept working without it. The browser and CSP use the same two-sample mixing rule, but CSP's
-internal noise differs from the browser's deterministic field, so individual shifted patches need not occupy identical places.
-The implementation adds texture samples; frame-rate cost is not inferred from unit tests. Normal orientation, specular
-calibration, distant filtering and large-track performance still need native validation.
+Imported materials retain their repetition-variation preference, but current PBR preview and newly saved PBR regions render
+regular repeats. Stock fuPBR has one common variation switch: enabling it would move the baked road image as well as the
+photographs. A managed include in the saved track's `extension/ext_config.ini` binds the PBR shader and the KN5's embedded
+resources; no global CSP shader files are installed. The owned include is regenerated during Save and removed when no
+source/edited materials need it; unrelated effects remain. Tracks need CSP. The Editor uses physical lighting for all applied
+square-repeat materials, including colour-only photos and the retained tile; normal and roughness maps remain portable
+source data. Rectangular repeats retain their previous shader, lighting and variation. Native source slot names and float2
+repeat metadata remain readable; separate scalar properties and the CSP include bind those inputs to the PBR shader.
+The Heiligenblut driving trial used CSP 0.2.11. Further native filtering and lighting comparisons remain user driving work.
 
 The Inspector's **Details** tab holds all edit counts, selection notes, errors and recovery actions previously below the
 tools. A persistent attention button also works with the Inspector collapsed. Track statistics measure the current KN5 file

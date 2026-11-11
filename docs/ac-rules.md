@@ -55,9 +55,10 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - `groundmaterial.world_colour` fully replaces an opaque surface using a white base and the shared red mask. Its colour
   repeats in world X/Z metres, independent of the old UVs. This keeps the physical pattern size consistent on a bridge's
   slab and overlaid road strip, whose original UVs have different scales, without changing vertices or collision.
-- Editor ground assignments use `ksMultilayer_objsp`: a white multiplier, an RGBA weight mask, original tile in A and up to
-  three full-resolution colours in RGB. Every `multR/G/B/A` is a float2 in this shader. Integer tile origins are added to
-  saved UVs to align repeats across tiles; positions, triangles and collision names stay unchanged.
+- Editor ground assignments use CSP `fuPBR_multilayer`: a white multiplier, an RGBA weight mask and four shared material
+  layers per region. Albedo RGB/AO alpha and normal XY/metalness/roughness are separate textures. Each layer's scalar
+  multiplier is in world X/Z metres; mask UVs retain their region canvas. A rectangular physical repeat retains the
+  legacy float2 `ksMultilayer_objsp_nm4` path rather than changing its proportions. Collision stays unchanged.
 - The editor's RGBA selection channels are independent weights. Their mipmaps average each channel independently and
   retain a unit total; the Editor works on them as lossless RGBA8 DDS, not BC3, whose independent colour/alpha
   quantization changes that total. Save writes them as BC7 (`textures.bc7_weights`, each lossless mip level encoded
@@ -69,10 +70,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   its own resolution (`trackdetail._source_image`). Tried in AC with CSP (2026-11-09); a
   track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The Editor takes masks as lossless
   RGBA8: the server unpacks a saved mask for it (`textures.browser_weights`), a texture in a `txMask` slot only.
-- Saved material variation uses a managed CSP replacement to `ksMultilayer_objsp_nm4`, with separate tiling-fix flags for
-  imported RGB layers and no variation of the original A tile or mask. Map2Lap tracks need CSP (the user's rule,
-  2026-11-11): no look is kept working without it. This native colour-only setup supplies flat normal maps; retained imported PBR maps are used independently
-  by the Editor preview.
+- Painted ground's PBR replacement is a managed include in the track's `extension/ext_config.ini`; no global shader
+  files are installed. Map2Lap tracks need CSP. Procedural variation is disabled in PBR previews and newly saved PBR regions:
+  stock fuPBR's common switch would displace the baked road image as well as the repeating photographs.
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
   as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);
   `rail` likewise with `railcol`.

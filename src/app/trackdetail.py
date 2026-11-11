@@ -24,7 +24,7 @@ PROFILE = 10
 PREVIEW = 2
 # A painted tile's Save description kept under its version (_native_layout): raise it when native_descriptors,
 # tracknative.palette_regions or mask_keys give another one for the same tile.
-NATIVE_PROFILE = 1
+NATIVE_PROFILE = 2
 BINDINGS_SCHEMA = 1
 BINDINGS_FILE = Path("data", "map2lap_ground_layers.json")
 
@@ -508,13 +508,14 @@ def _mask_target(version, layout):
 def _with_urls(name, version, layout):
     """Bind retained content to this track's endpoints; a saved copy may outlive the original track. Pure."""
     bundles = _weight_offsets(name, version, layout)
-    return {**layout,
+    pbr = all(np.isclose(*ref['scale'],rtol=1e-6) for ref in layout['images'])
+    return {**layout, "pbr": pbr,
             **({"ground": {**layout["ground"], "passes": [{**p, "weight": {**p["weight"],
                 "url": f"/api/editor/{name}/paint-region/{version}/{p['weight']['key']}",
                 **({"bundle": bundles[p['weight']['key']]} if p['weight']['size'] else {})}} for p in layout["ground"]["passes"]]}}
                if "ground" in layout else {}),
             "mask": {**layout["mask"], "url": _url(name, "paint-mask", version)},
-            "images": [{**ref, **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
+            "images": [{**ref, "variation": False if pbr else ref.get('variation',False), **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
                         **({"detail": {**ref["detail"], "url": _url(name, "paint-data", ref["asset"])}} if "detail" in ref else {})}
                        for ref in layout["images"]]}
 
@@ -725,8 +726,7 @@ def native_descriptors(ac, name, descriptors, keys=True):
 
 
 def _native(layout):
-    """Whether a painted tile of this layout is saved as regional native ground (tracknative.build): a ground layout, or an
-    image with a detail map or a roughness. Pure."""
+    """Whether the layout needs regional geometry or retained detail maps. Pure."""
     pbr = any("detail" in ref or ref.get("properties", {}).get("roughness", 1.) != 1. for ref in layout.get("images", []))
     return pbr or "ground" in layout
 
@@ -900,7 +900,7 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
             maps.extend(("txDetail" + channel, j + 2, layout["images"][j]["name"] if j < len(layout["images"]) else groundmaterial.WHITE)
                         for j, channel in enumerate("RGB"))
             maps.append(("txDetailA", 5, layout["base"]["name"]))
-            materials[i] = replace(original, shader="ksMultilayer_objsp", props=props, maps=maps)
+            materials[i] = tracknative.pbr_simple(replace(original, shader="ksMultilayer_objsp", props=props, maps=maps), layout, resources)
             origins[i] = (layout["origin"], extent, trackview._mask_extent(original), trackview._prop(original, "m2lUVGuard", 0.))
     def finish(table, moved):
         referenced = {n for m in materials for _slot, _i, n in m.maps}

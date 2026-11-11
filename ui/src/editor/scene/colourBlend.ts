@@ -10,6 +10,7 @@ export interface GroundPass {image: number; first: number; bounds: [number, numb
   frames: {source: [number, number]; atlas: [number, number, number, number]; constant?: number}[]; weight: ColourImage}
 export interface RegionalGround {dimensions: [number, number]; uv_origin: [number, number]; passes: GroundPass[]; bytes: number; split: number}
 export interface ColourSplat {base: ColourImage; mask: ColourImage; images: ColourPhoto[]; origin: [number, number]; materials?: number[]; ground?: RegionalGround;
+  pbr?: boolean;
   mask_extent?: [number, number]; mask_origin?: [number, number];
   /** The share of a guarded tile texture's edge outside the mesh UVs (groundmaterial.UV_GUARD); masks cover the whole tile. */
   uv_guard?: number;
@@ -35,6 +36,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
   const channels = layers.images.map((p, i) => "rgb"[p.channel ?? i]);
   const varied = layers.images.some(p => p.variation);
   const pbr = material instanceof THREE.MeshStandardMaterial;
+  const fullPbr = !!layers.pbr;
   const original = layers.base_extent ? "texture2D(map, (m2lTile + m2lMaskOrigin) / m2lMaskExtent)" : "texture2D(map, vMapUv)";
   material.onBeforeCompile = shader => {
     if (varied) {
@@ -72,17 +74,22 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
         // The original tile keeps its mesh UV; masks and photos take the whole tile's (kn5 v is negated).
         vec2 m2lTile = (vMapUv - vec2(m2lGuard, -m2lGuard)) / (1.0 - 2.0 * m2lGuard);
         vec4 m2lWeights = texture2D(m2lKeep, (m2lTile + m2lMaskOrigin) / m2lMaskExtent);
-        vec3 m2lColour = ${pbr ? "vec3(0.0)" : `${original}.rgb * m2lWeights.a`};
+        vec3 m2lColour = ${!pbr || fullPbr ? `${original}.rgb * m2lWeights.a` : "vec3(0.0)"};
         ${pbr ? `vec3 m2lOriginalColour = ${original}.rgb * diffuseColor.rgb * m2lWeights.a;
-          float m2lContribution = 0.0;
-          vec3 m2lNormal = vec3(0.0); float m2lRoughness = 0.0;` : ""}
-        ${images.map((_p, i) => `${pbr && !details[i] ? "m2lOriginalColour" : "m2lColour"} += ${layers.images[i].variation ? "m2lVary" : "texture2D"}(m2lPhoto${i}, (m2lTile + m2lOrigin) * m2lScale${i}).rgb * m2lWeights.${channels[i]}${pbr && !details[i] ? " * diffuseColor.rgb" : ""};`).join("\n")}
+          float m2lContribution = ${fullPbr ? "m2lWeights.a" : "0.0"};
+          vec3 m2lNormal = ${fullPbr ? "vec3(0.0, 0.0, m2lWeights.a)" : "vec3(0.0)"};
+          float m2lRoughness = ${fullPbr ? "(221.0 / 255.0) * m2lWeights.a" : "0.0"};` : ""}
+        ${images.map((_p, i) => `${pbr && !details[i] && !fullPbr ? "m2lOriginalColour" : "m2lColour"} += ${layers.images[i].variation ? "m2lVary" : "texture2D"}(m2lPhoto${i}, (m2lTile + m2lOrigin) * m2lScale${i}).rgb * m2lWeights.${channels[i]}${pbr && !details[i] && !fullPbr ? " * diffuseColor.rgb" : ""};`).join("\n")}
         ${pbr ? images.map((_p, i) => details[i] ? `
           vec4 m2lPacked${i} = ${layers.images[i].variation ? `m2lVaryData(m2lPhoto${i}, m2lData${i},` : `texture2D(m2lData${i},`} (m2lTile + m2lOrigin) * m2lScale${i});
           vec3 m2lNormal${i} = m2lPacked${i}.xyz * 2.0 - 1.0;
           m2lNormal${i}.xy *= m2lProperties${i}.x;
           m2lNormal += normalize(m2lNormal${i}) * m2lWeights.${channels[i]};
           m2lRoughness += m2lPacked${i}.a * m2lProperties${i}.y * m2lWeights.${channels[i]};
+          m2lContribution += m2lWeights.${channels[i]};
+        ` : fullPbr ? `
+          m2lNormal += vec3(0.0, 0.0, m2lWeights.${channels[i]});
+          m2lRoughness += ${(layers.images[i].properties?.roughness ?? 1).toFixed(8)} * m2lWeights.${channels[i]};
           m2lContribution += m2lWeights.${channels[i]};
         ` : "").join("\n") : ""}
         diffuseColor *= vec4(${pbr ? "m2lColour / max(0.000001, m2lContribution)" : "m2lColour"}, 1.0);
@@ -94,7 +101,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
         .replace("#include <normal_fragment_maps>", `vec3 m2lSourceNormal = normal;
           mat3 m2lFrame = m2lTangentFrame(-vViewPosition, normal, vMapUv);
           if (m2lContribution > 0.0) normal = normalize(m2lFrame * normalize(m2lNormal));`)
-        .replace("#include <opaque_fragment>", `
+        .replace("#include <opaque_fragment>", fullPbr ? "#include <opaque_fragment>" : `
           // The source tile and existing colour-only fields retain their Lambert lighting next to a PBR field.
           vec3 m2lSourceLight = ambientLightColor * m2lShade;
           #if NUM_SUN_LIGHTS > 0
@@ -114,7 +121,7 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
         `);
     }
   };
-  material.customProgramCacheKey = () => "map2lap-splat-6-" + Number(pbr) + Number(!!layers.base_extent) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])).join("");
+  material.customProgramCacheKey = () => "map2lap-splat-7-" + Number(pbr) + Number(fullPbr) + Number(!!layers.base_extent) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])).join("");
   material.needsUpdate = true;
 }
 
