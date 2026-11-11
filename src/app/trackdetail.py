@@ -96,6 +96,11 @@ def _source(scan, i):
                 scale = next((list(p[2]) for p in material.props if p[0] == "mult" + channel), [1., 1.])
                 result["images"].append({"i": numbers[texture], "scale": [v/e for v,e in zip(scale,extent)], "channel": "RGB".index(channel),
                                          "variation": trackview._prop(material, "m2lVariation" + channel, 0) == 1})
+    elif material.shader == groundmaterial.PBR and (splat := trackview._material(material).get("splat")):
+        if any(maps.get(slot) not in numbers for slot in ("txMask", "txDetailAAlbedoAO")):
+            raise ValueError("The source ground material has a missing layer image")
+        result.update(kind="splat", mask=numbers[maps["txMask"]], mask_extent=splat["mask_extent"],
+                      images=[{**{k: ref[k] for k in ("scale", "channel", "variation")}, "i": numbers[ref["name"]]} for ref in splat["images"]])
     elif scale := trackview._material(material).get("world_scale"):
         texture = maps.get("txDetailR")
         if texture not in numbers:
@@ -811,7 +816,9 @@ def save_size(descriptors, scan, path, kept=None):
         step = layout["mask"].get("step", 1)
         sizes[layout["mask"]["name"]] = layout["mask"]["size"] * step ** 2 // (4 * SAVED_WEIGHT_STEP ** 2) + 256
         sizes[layout["base"]["name"] + ":ring"] = layout["mask"]["size"] * step ** 2 // 4 + 256
-    return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures() if name not in known)
+    # (a Save's materials take the white and the mask; the flat PBR data are generated ground's, its kn5 holds them)
+    return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures()
+                                     if name not in known and name in (groundmaterial.WHITE, groundmaterial.MASK))
 
 
 def base_extent(material):
@@ -915,7 +922,8 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
         return table, images, moved, added, native_config, (owned - referenced) & present, {**native_files, "replace": ringed}
     if not origins:
         return finish(materials if regional else None, change)
-    resources.update(groundmaterial.textures())
+    used = {image for m in materials for _slot, _i, image in m.maps}
+    resources.update((n, raw) for n, raw in groundmaterial.textures() if n in used)      # (only those its materials take)
     vertices = dict(change.vertices)
     with open(path, "rb") as file:
         for i, mesh in enumerate(scan["meshes"]):

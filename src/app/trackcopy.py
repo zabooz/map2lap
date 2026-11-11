@@ -15,7 +15,7 @@ import numpy as np
 
 from app import (mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
                  trackvariation, trackview)
-from track import editorinfo, kn5, objectlist
+from track import editorinfo, groundmaterial, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -333,7 +333,8 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "detail_profile": trackdetail.PROFILE,
-                  "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
+                  "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "pbr_format": groundmaterial.PBR_FORMAT,
+                  "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         if inherited:
             recipe["model_source"] = inherited
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})

@@ -106,6 +106,7 @@ export interface MaterialInfo {
   blend: boolean;
   dual_layer?: ColourLayers;
   world_scale?: [number, number];
+  pbr?: {roughness: number};    // generated ground as CSP's PBR shader (trackview._material): drawn physically
   splat?: ColourSplat;
   source?: MaterialInfo;
 }

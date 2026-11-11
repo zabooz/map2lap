@@ -147,8 +147,8 @@ class ApplicationTest(unittest.TestCase):
         for material in native["materials"]:
             maps = {slot: name for slot, _index, name in material.maps}
             for channel in "RGBA":
-                if "txNormal" + channel in maps and maps["txNormal" + channel] in payloads:
-                    with Image.open(io.BytesIO(payloads[maps["txNormal" + channel]])) as image:
+                if f"txDetail{channel}NmMeRo" in maps and maps[f"txDetail{channel}NmMeRo"] in payloads:
+                    with Image.open(io.BytesIO(payloads[maps[f"txDetail{channel}NmMeRo"]])) as image:
                         pixel = image.convert("RGBA").getpixel((0, 0))
                     if pixel[3] not in (221, 255):
                         rough.append(pixel)

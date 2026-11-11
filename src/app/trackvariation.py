@@ -19,10 +19,7 @@ def config(materials):
     """CSP replacements for marked generated ground materials; no mesh duplication or per-frame adjustments. Pure."""
     sections = []
     for material in materials:
-        if not material.maps:
-            continue
-        if any((p[0] == 'm2lGroundPass' and p[1] == 4) or (p[0] == 'm2lPBR' and p[1] == 1) for p in material.props):
-            sections.append(_pbr_config(material))
+        if not material.maps or material.shader == groundmaterial.PBR:     # (PBR ground is its shader itself, nothing to replace)
             continue
         flags = _flags(material)
         regional = any(p[0]=='m2lGroundPass' and p[1]==3 for p in material.props)
@@ -37,22 +34,6 @@ def config(materials):
               for line in (f'RESOURCE_{j}=txNormal{channel}',f'RESOURCE_TEXTURE_{j}={texture}')],
         ]))
     return "\n\n".join(sections) + "\n" if sections else ""
-
-
-def _pbr_config(material):
-    """A stock CSP PBR replacement with portable embedded colour/AO and normal/metal/roughness inputs. Pure."""
-    values = {p[0]: p[1] for p in material.props}
-    props = [('pbrF0','0.04'),('pbrAlbedoGain','1, 1, 1'),('pbrBlurCubemap','0'),
-             ('ksEmissive','0, 0, 0'),('ksAlphaRef','0'),('pbrFlags','24'),
-             ('detailNMMult','1'),('magicMult','1')]
-    props += [('mult'+c,format(values['m2lPbrScale'+c],'.12g')) for c in 'RGBA']
-    slots={**{'txDetail'+c:'txDetail'+c+'AlbedoAO' for c in 'RGBA'},
-           **{'txNormal'+c:'txDetail'+c+'NmMeRo' for c in 'RGBA'}}
-    return '\n'.join(['[SHADER_REPLACEMENT_...]','MATERIALS = '+material.name,
-        'SHADER = fuPBR_multilayer','FILL_MISSING_TEXTURES = 1',
-        *[f'PROP_{i} = {key}, {value}' for i,(key,value) in enumerate(props)],
-        *[line for i,(slot,_index,image) in enumerate(material.maps)
-          for line in (f'RESOURCE_{i} = {slots.get(slot,slot)}',f'RESOURCE_TEXTURE_{i} = {image}')]])
 
 
 def model_config(materials):

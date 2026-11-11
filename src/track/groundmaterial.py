@@ -1,4 +1,4 @@
-"""Shared AC ground materials: neutral detail slots and a colour-only two-layer blend."""
+"""Shared AC ground materials: stock CSP PBR ground, neutral detail slots and a colour-only two-layer blend."""
 from dataclasses import replace
 import functools
 import io
@@ -13,6 +13,19 @@ GROUND = re.compile(r"ground_-?\d+_-?\d+")
 # The share of a ground tile texture's edge that is its guard ring (scenery/ground.py, GUARD_PX of TEX_PX): its UVs
 # run from UV_GUARD to 1 - UV_GUARD. Built tracks carry it as the material property m2lUVGuard; older ones have none.
 UV_GUARD = 32 / 2048
+PBR = "fuPBR_multilayer"
+# How a saved track holds its PBR ground; a track's recipe keeps the one it was saved with, an older one makes its paints
+# need a Save (trackedits._needs_material_save). 2: the shader itself in the kn5 (pbr); 1: a CSP replacement, black in AC.
+PBR_FORMAT = 2
+# Its texture registers t0..t10 as CSP's compiled shader declares them: a kn5 material names its images by these slots
+# and numbers, and AC loads them with the material. Bound instead by a [SHADER_REPLACEMENT] over another shader
+# (RESOURCE_TEXTURE or RESOURCE_REF), they stayed unbound in AC: black, mirroring ground (Heiligenblut, 2026-11-11).
+PBR_SLOTS = ("txDiffuse", "txMask", *(f"txDetail{c}{kind}" for c in "RGBA" for kind in ("AlbedoAO", "NmMeRo")), "txNormal2")
+# Matte natural ground: the roughness the Editor and Save already give a tile's own image, so generated and painted
+# ground shine alike.
+GROUND_ROUGHNESS = 221 / 255
+FLAT_DATA = "map2lap_detail_flat_rough.png"        # (normal/metal/roughness: flat, no metal, GROUND_ROUGHNESS)
+FLAT_NORMAL = "map2lap_detail_flat_normal.png"     # (txNormal2, the shader's second normal map: flat)
 
 
 def is_ground(name):
@@ -23,6 +36,40 @@ def is_ground(name):
 def guard_prop(fraction=UV_GUARD):
     """The kn5 property marking a ground material's guarded UVs. Pure."""
     return ("m2lUVGuard", fraction, (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))
+
+
+def pbr(material, diffuse, mask, layers, normal2=FLAT_NORMAL):
+    """material as fuPBR_multilayer itself, its images in the shader's slots (PBR_SLOTS). Pure.
+
+    The shader multiplies diffuse (at the mesh UV) by the layers mixed by mask (at the mesh UV). layers: {channel:
+    (albedo/AO image, normal/metal/roughness image, multiplier)}; a layer repeats every 1 / multiplier m in world X/Z.
+    A missing channel gets white with flat data. Without pbrFlags: kn5 properties are floats, the shader reads a uint,
+    and with them 0 it uses no flag (its material AO, bit 8, stays off).
+    """
+    if set(layers) - set("RGBA"):
+        raise ValueError("Ground layers use the R, G, B and A mask channels")
+    if any(not math.isfinite(m) or m <= 0 for _a, _d, m in layers.values()):
+        raise ValueError("Ground layer multipliers must be positive and finite")
+    images = {"txDiffuse": diffuse, "txMask": mask, "txNormal2": normal2}
+    for channel in "RGBA":
+        albedo, data, _m = layers.get(channel, (WHITE, FLAT_DATA, 1.))
+        images |= {f"txDetail{channel}AlbedoAO": albedo, f"txDetail{channel}NmMeRo": data}
+    values = {**{"mult" + c: layers.get(c, (0, 0, 1.))[2] for c in "RGBA"},
+              "pbrF0": .04, "pbrBlurCubemap": 0., "detailNMMult": 1., "magicMult": 1., "ksAlphaRef": 0.}
+    vectors = {"pbrAlbedoGain": (1., 1., 1.), "ksEmissive": (0., 0., 0.)}
+    props = [p for p in material.props if p[0] not in {*values, *vectors, "pbrFlags"}]
+    props += [(name, float(value), (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)) for name, value in values.items()]
+    props += [(name, 0., (0., 0.), value, (0., 0., 0., 0.)) for name, value in vectors.items()]
+    return replace(material, shader=PBR, props=props, maps=[(slot, i, images[slot]) for i, slot in enumerate(PBR_SLOTS)])
+
+
+def ground(material):
+    """A generated tile's ground as PBR: its baked image in txDiffuse, the red mask choosing one white layer with
+    flat data, so its colours stay as baked. Pure."""
+    base = next((name for slot, _index, name in material.maps if slot == "txDiffuse"), None)
+    if not base:
+        raise ValueError("The ground material has no base image")
+    return pbr(material, base, MASK, {"R": (WHITE, FLAT_DATA, 1.)})
 
 
 def layered(material, mask=MASK, details=None, scales=None):
@@ -88,9 +135,11 @@ def world_colour(material, detail, repeat_m):
 
 @functools.lru_cache(maxsize=1)
 def textures():
-    """The two shared 4px neutral texture payloads; generated once, with no disk or source-image reads."""
+    """The shared 4px neutral texture payloads; generated once, with no disk or source-image reads. Flat data's X is 127:
+    fuPBR's tangent X has the opposite sign (tracknative._photo_normals)."""
     result = []
-    for name, colour in ((WHITE, (255, 255, 255, 255)), (MASK, (255, 0, 0, 0))):
+    for name, colour in ((WHITE, (255, 255, 255, 255)), (MASK, (255, 0, 0, 0)),
+                         (FLAT_DATA, (127, 128, 0, round(GROUND_ROUGHNESS * 255))), (FLAT_NORMAL, (128, 128, 255, 255))):
         stream = io.BytesIO()
         Image.new("RGBA", (4, 4), colour).save(stream, "PNG")
         result.append((name, stream.getvalue()))

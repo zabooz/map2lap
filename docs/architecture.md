@@ -33,9 +33,9 @@ The Editor's three.js code loads on the first visit to its tab; camera and mesh 
 
 The Editor's loading, drafts, saving and tools: [editor.md](editor.md).
 
-The generator and Editor currently use different ground-lighting paths. A new build writes neutral `ksMultilayer`
-materials around its baked tile images (`track/groundmaterial.py`). Editor square-repeat assignments use PBR in the
-browser and stock CSP `fuPBR_multilayer` after Save; rectangular repeats keep the legacy float2 path. Save emits only
+The generator and the Editor's Save write the same ground material, stock CSP `fuPBR_multilayer` straight in the kn5
+(`track/groundmaterial.py`, `pbr`): a new build around its baked tile images, Save for square-repeat assignments; the
+browser draws both physically. Rectangular repeats keep the legacy float2 path. Save emits only
 track-local configuration and textures, not global CSP shader files. Shader inputs and limits:
 [ac-rules.md](ac-rules.md#how-the-ground-is-built).
 

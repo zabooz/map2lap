@@ -11,7 +11,7 @@ from PIL import Image
 import test_native_save as savefixture
 import test_trackpaint as paintfixture
 from app import trackcopy, trackdetail, tracknative
-from track import kn5
+from track import groundmaterial, kn5
 
 
 class PackingTest(unittest.TestCase):
@@ -61,6 +61,27 @@ class PackingTest(unittest.TestCase):
         self.assertTrue(rectangular['images'][0]['variation'])
 
 
+class PbrSourceTest(unittest.TestCase):
+    def test_a_painted_pbr_tile_is_a_splat_source_of_its_photos_mask_and_tile_image(self):
+        # (a transferred track without its source: its saved ground is what new paints go over)
+        tile = kn5.Material("ground_0_0", "ksMultilayer_objsp", 0, 0, 0, [("m2lMaskExtent", 1., (1.125, 1.125), (0, 0, 0), (0, 0, 0, 0))], [])
+        material = groundmaterial.pbr(tile, groundmaterial.WHITE, "mask.dds",
+                                      {"R": ("grass.dds", "flat.png", .5), "A": ("ground_0_0.png", "flat.png", 1 / 1.125 / 256)})
+        names = ["ground_0_0.png", "mask.dds", "grass.dds", "flat.png", groundmaterial.WHITE,
+                 groundmaterial.FLAT_DATA, groundmaterial.FLAT_NORMAL]
+        source = trackdetail._source({"textures": [(n, 0, 1) for n in names], "materials": [material]}, 0)
+        self.assertEqual("splat", source["kind"])
+        self.assertEqual(1, source["mask"])
+        self.assertEqual([1.125, 1.125], source["mask_extent"])
+        self.assertEqual([{"i": 2, "scale": [128., 128.], "channel": 0, "variation": False}], source["images"])
+
+    def test_generated_pbr_ground_is_a_base_source(self):
+        tile = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, [], [("txDiffuse", 0, "ground_0_0.dds")])
+        names = ["ground_0_0.dds", *(n for n, _raw in groundmaterial.textures())]
+        source = trackdetail._source({"textures": [(n, 0, 1) for n in names], "materials": [groundmaterial.ground(tile)]}, 0)
+        self.assertEqual("base", source["kind"])
+
+
 class PbrSaveTest(unittest.TestCase):
     setUp = paintfixture.PaintTest.setUp
     material = paintfixture.PaintTest.material
@@ -69,48 +90,49 @@ class PbrSaveTest(unittest.TestCase):
     painted = savefixture.RegionMaskTest.painted
     stripe = savefixture.RegionMaskTest.stripe
 
-    def test_one_colour_save_uses_pbr_and_keeps_its_editable_source_slots(self):
+    def test_one_colour_save_writes_pbr_ground_straight_into_the_kn5(self):
         self.keep(self.painted(1))
         trackcopy.save(self.ac,self.name,'simple','Simple')
         folder=Path(self.ac,'content/tracks/simple')
         saved=kn5.read(str(folder/'simple.kn5'))
         material=next(m for m in saved['materials'] if m.name=='ground_0_0')
         self.assertIn(('m2lPBR',1.),[(p[0],p[1]) for p in material.props])
-        self.assertEqual('ksMultilayer_objsp',material.shader)
-        self.assertIn('txDetailA',[slot for slot,_index,_image in material.maps])
-        config=(folder/'extension/map2lap_ground.ini').read_text(encoding='utf-8')
-        self.assertIn('SHADER = fuPBR_multilayer',config)
-        self.assertIn('txDetailRNmMeRo',config)
+        self.assertEqual(groundmaterial.PBR,material.shader)
+        self.assertEqual(list(groundmaterial.PBR_SLOTS),[slot for slot,_index,_image in material.maps])
+        values={p[0]:p[1] for p in material.props}
+        mask_extent=next(p[2] for p in material.props if p[0]=='m2lMaskExtent')
+        self.assertAlmostEqual(1/mask_extent[0]/256,values['multA'])        # (the tile image on its ring, a tile a ring)
+        names={t[0] for t in saved['textures']}
+        self.assertTrue(all(image in names for _slot,_index,image in material.maps))
+        config=folder/'extension/map2lap_ground.ini'
+        self.assertNotIn('fuPBR',config.read_text(encoding='utf-8') if config.exists() else '')
 
-    def test_save_embeds_all_pbr_inputs_and_stock_config_without_changing_collision(self):
+    def test_save_writes_pbr_ground_straight_into_the_kn5_without_changing_collision(self):
+        # A CSP replacement binding the images by name (RESOURCE_TEXTURE) left them unbound in AC: black, mirroring ground.
         self.keep(self.painted(5))
         original = kn5.read(str(self.path))
         trackcopy.save(self.ac, self.name, "pbr", "PBR")
         folder = Path(self.ac, "content/tracks/pbr")
         saved = kn5.read(str(folder / "pbr.kn5"))
         resources = {name: raw for name, _active, raw in saved["textures"]}
-        config = (folder / "extension/map2lap_ground.ini").read_text(encoding="utf-8")
         regions = [m for m in saved["materials"] if any(p[0] == "m2lGroundPass" and p[1] == 4 for p in m.props)]
         self.assertTrue(regions)
         for material in regions:
-            slots = {name: (slot, image) for name, slot, image in material.maps}
-            self.assertEqual({"txDiffuse", "txMask", "txNormal2", *[prefix + c for c in "RGBA"
-                              for prefix in ("txDetail", "txNormal")]}, set(slots))
-            self.assertTrue(all(image in resources for _slot, image in slots.values()))
-            self.assertEqual(11, len({slot for slot, _image in slots.values()}))
-            self.assertIn("MATERIALS = " + material.name, config)
+            self.assertEqual(groundmaterial.PBR, material.shader)
+            self.assertEqual(list(groundmaterial.PBR_SLOTS), [slot for slot, _i, _image in material.maps])
+            self.assertEqual(list(range(11)), [i for _slot, i, _image in material.maps])
+            slots = {slot: image for slot, _i, image in material.maps}
+            self.assertTrue(all(image in resources for image in slots.values()))
             self.assertTrue(tracknative._owned_material(material))
             values = {p[0]: p[1] for p in material.props}
-            self.assertAlmostEqual(.5, values["m2lPbrScaleR"])
+            self.assertAlmostEqual(.5, values["multR"])
             for c in "RGBA":
-                with Image.open(io.BytesIO(resources[slots["txDetail" + c][1]])) as image:
+                with Image.open(io.BytesIO(resources[slots[f"txDetail{c}AlbedoAO"]])) as image:
                     self.assertGreaterEqual(image.convert("RGBA").getchannel("A").getextrema()[0], 254)
-                with Image.open(io.BytesIO(resources[slots["txNormal" + c][1]])) as image:
+                with Image.open(io.BytesIO(resources[slots[f"txDetail{c}NmMeRo"]])) as image:
                     self.assertEqual((0, 0), image.getchannel("B").getextrema())
-        self.assertIn("SHADER = fuPBR_multilayer", config)
-        self.assertIn("pbrFlags, 24", config)  # AO and perceptual roughness; the shared variation flag stays off.
-        self.assertNotIn("RESOURCE_FILE", config)
-        self.assertNotIn("tilingFix", config)
+        config = folder / "extension/map2lap_ground.ini"
+        self.assertNotIn("fuPBR", config.read_text(encoding="utf-8") if config.exists() else "")
         for before, after in zip(original["root"].children, saved["root"].children):
             self.assertEqual(before.vertices["pos"].tobytes(), after.vertices["pos"].tobytes())
             self.assertEqual(before.indices.tobytes(), after.indices.tobytes())

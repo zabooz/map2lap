@@ -168,7 +168,7 @@ class GuardedSaveTest(unittest.TestCase):
         saved = kn5.read(str(Path(self.ac, "content/tracks/copy/copy.kn5")))
         material = next(m for m in saved["materials"] if m.name == "ground_0_0")
         # The tile image is replaced in its place, not copied beside the original.
-        self.assertEqual("ground_0_0.png", next(name for slot, _i, name in material.maps if slot == "txDetailA"))
+        self.assertEqual("ground_0_0.png", next(name for slot, _i, name in material.maps if slot == "txDetailAAlbedoAO"))
         self.assertEqual(1, sum(n.startswith("ground_0_0") for n, _a, _raw in saved["textures"]))
         return saved
 
@@ -176,12 +176,12 @@ class GuardedSaveTest(unittest.TestCase):
         material = next(m for m in saved["materials"] if m.name == "ground_0_0")
         self.assertEqual(0, trackview._prop(material, "m2lUVGuard", 0))
         maps = {slot: name for slot, _i, name in material.maps}
-        with Image.open(io.BytesIO(next(raw for n, _a, raw in saved["textures"] if n == maps["txDetailA"]))) as image:
+        with Image.open(io.BytesIO(next(raw for n, _a, raw in saved["textures"] if n == maps["txDetailAAlbedoAO"]))) as image:
             base = np.array(image.convert("RGB"))
-        mult = next(p[2] for p in material.props if p[0] == "multA")
-        uv = saved["root"].children[0].vertices["uv"]
+        mult = trackview._prop(material, "multA", 0.)       # (fuPBR samples the layer at world X/Z times multA)
+        pos = saved["root"].children[0].vertices["pos"]
         for k, colour in ((0, 0), (1, 2)):          # tile u 0: red, tile u 1: blue
-            sample = wrapped(base, uv[k, 0] * mult[0], (uv[k, 1] - 0.5 / 256) * mult[1])
+            sample = wrapped(base, pos[k, 0] * mult, (pos[k, 2] - 0.5) * mult)
             self.assertGreater(sample[colour], 200, f"vertex {k}: {sample}")
             self.assertLess(sample[2 - colour], 30, f"vertex {k}: {sample}")
 
@@ -225,13 +225,13 @@ class GuardedSaveTest(unittest.TestCase):
             material = saved["materials"][node.material]
             for slot, _i, name in material.maps:
                 with Image.open(io.BytesIO(textures[name])) as image:
-                    if not slot.startswith("txDetail") or image.size[0] != 36:      # (the tile image on its ring canvas)
+                    if not slot.endswith("AlbedoAO") or image.size[0] != 36:      # (the tile image on its ring canvas)
                         continue
                     pixels = np.array(image.convert("RGB"))
-                mult = next(p[2] for p in material.props if p[0] == "mult" + slot[-1])
+                mult = trackview._prop(material, "mult" + slot[8], 0.)     # (fuPBR samples a layer at world X/Z times it)
                 inside = [v for v in node.vertices if 300 < v["pos"][0] < 470 and 40 < -v["pos"][2] < 216]
                 for vertex in inside:
-                    sample = wrapped(pixels, vertex["uv"][0] * mult[0], vertex["uv"][1] * mult[1])
+                    sample = wrapped(pixels, vertex["pos"][0] * mult, vertex["pos"][2] * mult)
                     self.assertGreater(min(sample[0], sample[1]), 200, f"tile 1 shows another tile's image: {sample}")
                     seen += 1
         self.assertGreater(seen, 0)
@@ -264,16 +264,16 @@ class GuardedSaveTest(unittest.TestCase):
         found = set()
         for node, material in regions:
             for slot, _i, name in material.maps:
-                if not slot.startswith("txDetail") or name not in textures:
+                if not slot.endswith("AlbedoAO") or name not in textures:
                     continue
                 with Image.open(io.BytesIO(textures[name])) as image:
                     pixels = np.array(image.convert("RGB"))
-                mult = next(p[2] for p in material.props if p[0] == "mult" + slot[-1])
+                mult = trackview._prop(material, "mult" + slot[8], 0.)     # (fuPBR samples a layer at world X/Z times it)
                 for vertex in node.vertices:
                     x = float(vertex["pos"][0])
                     if x not in edges:
                         continue
-                    sample = wrapped(pixels, vertex["uv"][0] * mult[0], vertex["uv"][1] * mult[1])
+                    sample = wrapped(pixels, x * mult, float(vertex["pos"][2]) * mult)
                     if sample[edges[x]] > 200 and sample[1] < 100:     # (the tile image; not white, grey or the field)
                         self.assertLess(sample[2 - edges[x]], 30, f"{name} at x {x}: {sample}")
                         found.add(x)

@@ -41,6 +41,14 @@ export interface TextureHost {
 }
 
 /** The textures and materials of the track a view shows. clear() drops them all. */
+/** The grey AC multiplies a ground material's colour by: the classic shaders take ksAmbient + ksDiffuse (MaterialInfo.bright),
+ * CSP's fuPBR neither (its INPUT_DIFFUSE_K and INPUT_AMBIENT_K are 1). Decided by the PBR marks, not by the three.js class
+ * (detail maps alone make a standard material): the paint's (layers, else info.splat: square repeats) when there is one,
+ * else generated ground's (info.pbr). Pure. */
+export function groundTint(info: MaterialInfo, layers = info.splat) {
+  return (layers ? layers.pbr : info.pbr) ? 1 : Math.min(1, info.bright);
+}
+
 export class TrackTextures {
   private pool: (Promise<THREE.Texture | null> | undefined)[] = [];     // the track's textures by index, shared by its materials
   private textureBytes = new WeakMap<THREE.Texture, number>();
@@ -383,7 +391,7 @@ export class TrackTextures {
       } else if (!old) {
         data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
       } else {
-        const layers = next.layers, colour = old.color.clone();
+        const layers = next.layers, tint = groundTint(source, layers), colour = new THREE.Color(tint, tint, tint);
         const material: GroundMaterial = !layers.ground && (layers.pbr || layers.images.some(ref => ref.detail))
           ? new THREE.MeshStandardMaterial({color: colour, roughness: 1, metalness: 0})
           : new THREE.MeshLambertMaterial({color: colour});
@@ -466,10 +474,10 @@ export class TrackTextures {
   material(name: string, data: TrackIndex, k: number) {
     const have = this.materials[k];
     if (have) return have;
-    const d = data.materials[k], b = Math.min(1, d.bright);
+    const d = data.materials[k], b = groundTint(d);
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
-    const m: GroundMaterial = !d.splat?.ground && (d.splat?.pbr || d.splat?.images.some(ref => ref.detail))
-      ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: 1, metalness: 0})
+    const m: GroundMaterial = d.pbr || (!d.splat?.ground && (d.splat?.pbr || d.splat?.images.some(ref => ref.detail)))
+      ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: d.pbr?.roughness ?? 1, metalness: 0})
       : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
     if (d.blend) {

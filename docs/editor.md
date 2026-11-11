@@ -33,7 +33,9 @@ Unit tests and component CSS stay beside their owner. Pure geometry, sampling an
 separate test files with a shared server fixture. Browser workflows and exact rendered-picture checks remain in `ui/e2e/`.
 The experimental texture-array renderer and its tests live in `ui/tools/ground/`, outside the production Editor.
 
-Generated ground uses a neutral `ksMultilayer` material around its existing baked image, leaving its colour unchanged.
+Generated ground is CSP's `fuPBR_multilayer` around its existing baked image (`groundmaterial.ground`), leaving its colour
+unchanged; the Editor draws it physically at the same roughness (`trackview._material`: `pbr`). Tracks built before keep
+a neutral `ksMultilayer` material, drawn as before.
 The preview also reads colour-only `ksPerPixel_dual_layer` materials: the new image uses its UV multiplier, the original
 tile and keep mask use the original UVs. A white-base, red-only `ksMultilayer` colour replacement is sampled in world X/Z
 metres, including bridge road strips. These images share the existing texture pool, loading progress, memory limit and
@@ -274,7 +276,8 @@ The Editor preview uses tangent normal and roughness maps for imported PBR mater
 normal RGB and roughness A; photographs stay sRGB. Data and colour use the same repeat coordinates. Applied square-repeat
 materials use physical lighting, including colour-only photos and the retained tile within a painted material. Unedited
 generator ground retains its original lighting; rectangular repeats retain their previous preview and native shader path.
-Undo, Redo and reopening use the same immutable inputs. AC uses stock CSP `fuPBR_multilayer` for square-repeat assignments;
+Undo, Redo and reopening use the same immutable inputs. AC uses stock CSP `fuPBR_multilayer`, written straight into the
+kn5 material (`groundmaterial.pbr`), for square-repeat assignments;
 regional Save supports at most four local contributors per region, including the original where it contributes.
 More replacement materials can share a tile when their regions satisfy that local limit.
 
@@ -676,7 +679,7 @@ the export then takes them from the cache, as a warm Save does, and writes the s
 averaged to its coarse texels before rounding, with no full-size mips (`tracknative.region_mask`: 96 masks 71 -> 17 s, at most a
 255th off the one made coarse after). The earlier 33 s for cold ring images used the older encoding profile; current tile
 copies retain BC7 for BC7 sources and otherwise use BC3. Imported normal
-maps and linear roughness use the managed CSP `fuPBR_multilayer` replacement: albedo RGB/AO alpha and normal XY/metalness/
+maps and linear roughness go into the `fuPBR_multilayer` material itself: albedo RGB/AO alpha and normal XY/metalness/
 roughness are separate resources, with the retained normal and roughness factors applied once. Flat nonmetal data fills
 missing maps. Rectangular physical repeats retain `ksMultilayer_objsp_nm4` with float2 scaling rather than stretching the
 image. Regional render copies are `nocol_`; the edited
@@ -699,12 +702,15 @@ the normal Apply renderer and Save use the separate detail layers.
 
 Imported materials retain their repetition-variation preference, but current PBR preview and newly saved PBR regions render
 regular repeats. Stock fuPBR has one common variation switch: enabling it would move the baked road image as well as the
-photographs. A managed include in the saved track's `extension/ext_config.ini` binds the PBR shader and the KN5's embedded
-resources; no global CSP shader files are installed. The owned include is regenerated during Save and removed when no
-source/edited materials need it; unrelated effects remain. Tracks need CSP. The Editor uses physical lighting for all applied
+photographs. PBR ground is its shader itself, its images in the shader's slots (`groundmaterial.PBR_SLOTS`): a CSP
+replacement binding the KN5's embedded images by name left them unbound in AC, black ground (see ac-rules.md, "How the
+ground is built"). A track's recipe keeps its `pbr_format`; paints saved before 2 count as needing a Save, which writes the
+shader itself. A managed include in the saved track's `extension/ext_config.ini` holds the remaining nm4 and model
+replacements; no global CSP shader files are installed. The owned include is regenerated during Save and removed when
+nothing needs it; unrelated effects remain. Tracks need CSP. The Editor uses physical lighting for all applied
 square-repeat materials, including colour-only photos and the retained tile; normal and roughness maps remain portable
-source data. Rectangular repeats retain their previous shader, lighting and variation. Native source slot names and float2
-repeat metadata remain readable; separate scalar properties and the CSP include bind those inputs to the PBR shader.
+source data. Rectangular repeats retain their previous shader, lighting and variation. A saved PBR tile reads back from
+its shader's slots (`trackview._material`, `trackdetail._source`).
 The Heiligenblut driving trial used CSP 0.2.11. Further native filtering and lighting comparisons remain user driving work.
 
 The Inspector's **Details** tab holds all edit counts, selection notes, errors and recovery actions previously below the

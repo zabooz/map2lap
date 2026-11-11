@@ -396,6 +396,7 @@ def build(ac,name,descriptors,scan,change,path,added):
                     props=[p for p in original.props if p[0] not in {'multR','multG','multB','multA','magicMult','m2lUVGlobal','m2lMaskExtent','ksSpecular',*('m2lVariation'+c for c in 'RGBA')}]
                     props.extend([('magicMult',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('m2lGroundPass',4. if pbr else 3.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)),('ksSpecular',specular,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
                     maps=[('txDiffuse',0,white),('txMask',1,mask)]
+                    layers={}
                     for j,channel in enumerate('RGBA'):
                         ref=refs[palette[j]] if j<len(palette) else None
                         photo,normal,scale=white,resource(_pbr_flat(1.),'.png') if pbr else flat,[1.,1.]
@@ -425,15 +426,17 @@ def build(ac,name,descriptors,scan,change,path,added):
                                 used.add(stored+'.dds')
                                 prepared[key]=(resource(colour,'.dds'),normal_name)
                             photo,normal=prepared[key]; scale=ref.get('scale',[1.,1.])
-                        # fuPBR samples each layer in world X/Z metres; mask UVs retain the region canvas.
+                        # fuPBR samples each layer in world X/Z metres (scale a tile, 256 m); mask UVs retain the region canvas.
                         # Its single variation switch would also displace the baked road image, so it stays off.
-                        props.extend([('mult'+channel,1.,tuple(np.asarray(scale)*extent),(0.,0.,0.),(0.,0.,0.,0.)),('m2lVariation'+channel,float(not pbr and bool(ref and ref.get('variation'))),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))])
+                        props.append(('m2lVariation'+channel,float(not pbr and bool(ref and ref.get('variation'))),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
                         if pbr:
-                            props.append(('m2lPbrScale'+channel,float(scale[0]/256),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
-                        maps.extend([('txDetail'+channel,j+2,photo),('txNormal'+channel,j+6,normal)])
-                    if pbr:
-                        maps.append(('txNormal2',10,flat))
+                            layers[channel]=(photo,normal,scale[0]/256)
+                        else:
+                            props.append(('mult'+channel,1.,tuple(np.asarray(scale)*extent),(0.,0.,0.),(0.,0.,0.,0.)))
+                            maps.extend([('txDetail'+channel,j+2,photo),('txNormal'+channel,j+6,normal)])
                     material=kn5.Material(f'm2l_ground_region_{source_i}_{number}','ksMultilayer_objsp',0,0,0,props,maps)
+                    if pbr:     # (the shader itself, its images in its own slots: groundmaterial.PBR_SLOTS)
+                        material=groundmaterial.pbr(material,white,mask,layers,normal2=flat)
                     index=unused.pop() if unused else len(materials)
                     if index==len(materials): materials.append(material)
                     else: materials[index]=material
@@ -747,23 +750,25 @@ def _pbr_flat(roughness):
 
 
 def pbr_simple(material, layout, resources):
-    """Add stock-PBR data to a simple colour assignment, keeping its source slots and editable bindings."""
+    """A simple colour assignment as PBR ground itself (groundmaterial.pbr): its photos in R, G and B, the tile image on its
+    mask's ring in A, each with flat nonmetal data. Rectangular repeats keep the float2 shader. Pure but for resources."""
     if any(not math.isclose(*ref['scale'],rel_tol=1e-6) for ref in layout['images']):
         return material
+    from track import groundmaterial
     def image(raw):
         name='map2lap_native_'+hashlib.sha256(raw).hexdigest()+'.png'
         resources.setdefault(name,raw)
         return name
-    maps=list(material.maps)
-    props=[p for p in material.props if p[0]!='m2lPBR' and not p[0].startswith('m2lPbrScale')]
-    props.append(('m2lPBR',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
+    maps={slot:name for slot,_index,name in material.maps}
+    layers={}
     for j,channel in enumerate('RGBA'):
+        # (the photos repeat in tile UVs on the old shader, in world metres here: a tile is 256 m)
         scale=layout['images'][j]['scale'][0] if j<len(layout['images']) and j<3 else 1.
         if channel=='A': scale=1/layout.get('mask_extent',[1.,1.])[0]
-        props.append(('m2lPbrScale'+channel,float(scale/256),(0.,0.),(0.,0.,0.),(0.,0.,0.,0.)))
-        maps.append(('txNormal'+channel,j+6,image(_pbr_flat(221/255 if channel=='A' else 1.))))
-    maps.append(('txNormal2',10,image(_png(np.full((4,4,4),[128,128,255,255],np.uint8)))))
-    return replace(material,props=props,maps=maps)
+        layers[channel]=(maps['txDetail'+channel],image(_pbr_flat(221/255 if channel=='A' else 1.)),scale/256)
+    props=[p for p in material.props if p[0]!='m2lPBR']+[('m2lPBR',1.,(0.,0.),(0.,0.,0.),(0.,0.,0.,0.))]
+    return groundmaterial.pbr(replace(material,props=props),maps['txDiffuse'],maps['txMask'],layers,
+                              normal2=image(_png(np.full((4,4,4),[128,128,255,255],np.uint8))))
 
 
 def _png(values):

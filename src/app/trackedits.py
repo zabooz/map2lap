@@ -16,7 +16,7 @@ import threading
 import numpy as np
 
 from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, tracknative, trackpaint, trackplace, tracksurfaces, trackview
-from track import objectlist
+from track import groundmaterial, objectlist
 
 SCHEMA = 2
 MAX_BYTES = 16 * 1024 * 1024        # about 150,000 objects: far more than anyone clicks away, far less than fills the memory
@@ -80,10 +80,12 @@ def changes(ac, name):
 
 
 def _needs_material_save(saved):
-    """Whether saved paint operations still use an older native material layout, or region copies of an older geometry
-    (tracknative.GEOMETRY_CACHE_VERSION; before 2 they left a slit at the tile edges, recorded since). Pure."""
+    """Whether saved paint operations still use an older native material layout, region copies of an older geometry
+    (tracknative.GEOMETRY_CACHE_VERSION; before 2 they left a slit at the tile edges, recorded since) or an older PBR
+    ground (groundmaterial.PBR_FORMAT; before 2 black in AC). Pure."""
     return bool(saved.get("paints")) and (saved.get("detail_profile") != trackdetail.PROFILE
-                                          or saved.get("region_geometry", 1) != tracknative.GEOMETRY_CACHE_VERSION)
+                                          or saved.get("region_geometry", 1) != tracknative.GEOMETRY_CACHE_VERSION
+                                          or saved.get("pbr_format", 1) != groundmaterial.PBR_FORMAT)
 
 
 def _placements(stored):

@@ -786,6 +786,18 @@ class DetailTest(unittest.TestCase):
         trackcopy.save(self.ac, "slit")
         self.assertFalse(trackedits.load(self.ac, "slit")["saved"].get("needs_save"))
 
+    def test_paints_saved_with_pbr_ground_as_a_csp_replacement_can_be_saved_again(self):
+        # Their PBR images were bound by a CSP replacement and stayed black in AC: a Save writes the shader itself.
+        self.keep([self.operation(self.detail_asset())])
+        trackcopy.save(self.ac, self.name, "black", "Black")
+        metadata = Path(self.ac, "content/tracks/black/data/map2lap.json")
+        info = json.loads(metadata.read_text(encoding="utf-8"))
+        info["edits"].pop("pbr_format")
+        metadata.write_text(json.dumps(info), encoding="utf-8")
+        self.assertTrue(trackedits.load(self.ac, "black")["saved"].get("needs_save"))
+        trackcopy.save(self.ac, "black")
+        self.assertFalse(trackedits.load(self.ac, "black")["saved"].get("needs_save"))
+
     def test_apply_describes_a_separate_full_resolution_image_and_mask_without_compositing(self):
         from app import trackdetail, trackpaint
         op = self.operation(self.detail_asset())

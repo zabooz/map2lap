@@ -5,7 +5,7 @@ Modelled on a file written by ksEditor (kn5.py reads it completely):
   (AC_START_n, AC_PIT_n, AC_HOTLAP_START_0, AC_TIME_0_L/R or AC_AB_*) as matrix nodes; the car faces local +Z.
 - vertex: position, normal, UV (v negated), tangent; 16 bit indices (<= 65535 vertices per mesh).
 - materials with ksAmbient, ksDiffuse, ksSpecular, ksSpecularEXP, ksEmissive, ksAlphaRef and txDiffuse;
-  tile ground uses ksMultilayer with neutral detail slots, retaining the baked image's appearance.
+  tile ground uses CSP's fuPBR_multilayer (groundmaterial.ground), retaining the baked image's colours.
 
     python -m track.obj_to_kn5 <track.obj> <target.kn5> [anchor.json]
 """
@@ -533,8 +533,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         shader, alpha_tested = SHADERS.get(m, ("ksPerPixel", 0))
         material = kn5.Material(m, shader, 0, alpha_tested, 0, props,
                                [("txDiffuse", 0, os.path.basename(tex[m]))])
-        materials.append(groundmaterial.layered(material) if groundmaterial.is_ground(m) else material)
-    if any(m.shader == "ksMultilayer" for m in materials):
+        materials.append(groundmaterial.ground(material) if groundmaterial.is_ground(m) else material)
+    if any(m.shader == groundmaterial.PBR for m in materials):
         textures.extend(groundmaterial.textures())
     root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
     empties, base = start_empties(objs, anchor, log)

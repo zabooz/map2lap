@@ -140,6 +140,23 @@ def _material(material):
         if (texture == groundmaterial.WHITE and maps.get("txMask") == groundmaterial.MASK and maps.get("txDetailR")
                 and _prop(material, "magicMult", 1.) == 1 and math.isfinite(scale) and scale > 0):
             result.update(texture=maps["txDetailR"], world_scale=[scale, scale])
+    elif material.shader == groundmaterial.PBR:
+        maps = {slot: tex for slot, _n, tex in material.maps}
+        base = maps.get("txDetailAAlbedoAO")
+        if base and base != groundmaterial.WHITE and maps.get("txMask"):    # (painted: its tile image on the mask's ring in A)
+            images = []
+            for channel in "RGB":
+                filename = maps.get(f"txDetail{channel}AlbedoAO")
+                if filename and filename != groundmaterial.WHITE:
+                    scale = 256. * _prop(material, "mult" + channel, 1 / 256)       # (repeats a tile; the shader's are a metre)
+                    images.append({"name": filename, "scale": [scale, scale], "channel": "RGB".index(channel), "variation": False})
+            result.update(texture=base, splat={"base": {"name": base}, "mask": {"name": maps["txMask"], "linear": True},
+                          "images": images, "origin": [0, 0], "mask_extent": _mask_extent(material), "mask_origin": [0, 0], "pbr": True})
+            ring = next((list(p[2]) for p in material.props if p[0] == "m2lBaseExtent"), None)
+            if ring:
+                result["splat"]["base_extent"] = ring
+        else:               # (generated: its tile image in txDiffuse under one white layer, groundmaterial.ground)
+            result["pbr"] = {"roughness": groundmaterial.GROUND_ROUGHNESS}
     elif material.shader == "ksMultilayer_objsp":
         maps = {slot: tex for slot, _n, tex in material.maps}
         extent = _mask_extent(material)

@@ -96,6 +96,31 @@ class TrackViewTest(unittest.TestCase):
         self.assertEqual("photo.dds", got["texture"])
         self.assertEqual([.5, .5], got["world_scale"])
 
+    def test_generated_pbr_ground_shows_its_tile_image_with_the_ground_roughness(self):
+        from track import groundmaterial
+        tile = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, [], [("txDiffuse", 0, "ground_0_0.dds")])
+        got = trackview._material(groundmaterial.ground(tile))
+        self.assertEqual("ground_0_0.dds", got["texture"])
+        self.assertEqual({"roughness": groundmaterial.GROUND_ROUGHNESS}, got["pbr"])
+        self.assertNotIn("splat", got)
+
+    def test_painted_pbr_ground_shows_its_photos_and_its_tile_image_on_the_mask_s_ring(self):
+        from track import groundmaterial
+        tile = kn5.Material("ground_0_0", "ksMultilayer_objsp", 0, 0, 0,
+                            [("m2lMaskExtent", 1., (1.125, 1.125), (0, 0, 0), (0, 0, 0, 0)),
+                             ("m2lBaseExtent", 1., (1.125, 1.125), (0, 0, 0), (0, 0, 0, 0))], [])
+        material = groundmaterial.pbr(tile, groundmaterial.WHITE, "mask.dds",
+                                      {"R": ("grass.dds", "flat.png", 128 / 256), "A": ("ground_0_0.png", "flat.png", 1 / 1.125 / 256)})
+        got = trackview._material(material)
+        self.assertEqual("ground_0_0.png", got["texture"])
+        splat = got["splat"]
+        self.assertEqual({"name": "ground_0_0.png"}, splat["base"])
+        self.assertEqual({"name": "mask.dds", "linear": True}, splat["mask"])
+        self.assertEqual([{"name": "grass.dds", "scale": [128., 128.], "channel": 0, "variation": False}], splat["images"])
+        self.assertEqual([1.125, 1.125], splat["mask_extent"])
+        self.assertEqual([1.125, 1.125], splat["base_extent"])
+        self.assertTrue(splat["pbr"])
+
     def test_index_leaves_out_invisible_meshes_and_finds_the_start(self):
         got = trackview.index(self.ac, self.name)
         self.assertEqual(["1ROAD_x", "nocol_y"], [m["name"] for m in got["meshes"]])

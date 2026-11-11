@@ -84,9 +84,9 @@ User-imported material maps and their physical repeat size, variation, category 
 under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. Importing a material alone does
 not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
 the import dialog accepts all three roles. Applied square-repeat materials use PBR in the Editor and CSP
-`fuPBR_multilayer` in AC, including colour-only photos with flat normal/roughness data. Normal maps and real roughness
-remain separate from colour. Rectangular repeats retain the previous float2 shader path. Unedited generator ground
-still uses its neutral `ksMultilayer` material. PBR repetition variation is currently disabled; the preference is retained.
+`fuPBR_multilayer` in AC, written straight into the kn5 material, including colour-only photos with flat normal/roughness
+data. Normal maps and real roughness remain separate from colour. Rectangular repeats retain the previous float2 shader
+path. Generated ground is `fuPBR_multilayer` too (tracks built before: a neutral `ksMultilayer`). PBR repetition variation is currently disabled; the preference is retained.
 
 **Model package** (Editor):
 An immutable asset under `library/objects/<id>` (own imports) or `assets/library/objects/<id>` (shipped with the release,

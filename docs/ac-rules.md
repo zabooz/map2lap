@@ -44,11 +44,16 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   beside green verge and a white marking turned green in places, on every track before (seen in AC, 2026-11-11). BC7 is
   twice the size (2.7 -> 5.3 MiB a tile), hence only tiles with roads. The Editor draws BC7 as BPTC
   (`ui/src/editor/scene/texture.ts`).
-- Ground materials use the standard AC `ksMultilayer` shader (`track/groundmaterial.py`): the existing tile image stays
-  in `txDiffuse`, with its UVs and lighting values unchanged. A shared 4 px mask selects a shared white detail image,
-  so the initial detail multiplier is exactly one. RGBA slots allow later masked detail textures without another
-  material format. This neutral generator setup adds no geometry or higher-resolution base image. It is not PBR;
-  tracks still use CSP for the effects and edited materials described below.
+- Ground materials are CSP's `fuPBR_multilayer` itself (`groundmaterial.ground`, written by `groundmaterial.pbr`): the
+  tile image stays in `txDiffuse` with its UVs, a shared 4 px mask selects one white layer with flat data (no metal,
+  roughness `GROUND_ROUGHNESS`), so the baked colours stay as they are. It adds no geometry or higher-resolution image.
+- A PBR ground material names its images by the shader's own slots and numbers, t0..t10 as CSP's compiled shader
+  declares them (`groundmaterial.PBR_SLOTS`): `txDiffuse` 0, `txMask` 1, `txDetail?AlbedoAO`/`txDetail?NmMeRo` 2/3, 4/5,
+  6/7, 8/9, `txNormal2` 10; its values (`multR`..`multA`, `pbrF0`, ...) are kn5 properties. AC then loads the images with
+  the material. Bound instead by a `[SHADER_REPLACEMENT]` over another shader with `RESOURCE_TEXTURE` or `RESOURCE_REF`,
+  the embedded images stayed unbound in AC: black ground mirroring the sky and road (Heiligenblut, 2026-11-11; the same
+  bytes as `RESOURCE_FILE` worked). Why is not known. `pbrFlags` stays unset: kn5 properties are floats, the shader reads
+  a uint, and at 0 it uses no flag (its material AO, bit 8, stays off).
 - `groundmaterial.dual_layer` builds a colour-only `ksPerPixel_dual_layer` material for a square repeating image:
   `txDiffuse` samples the new image at the scaled UV, `txLayer1` retains the existing tile at its original UV,
   and the red channel of `txLayer1_Mask` mixes between them (white keeps the tile). Reflection is disabled in this
@@ -56,12 +61,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - `groundmaterial.world_colour` fully replaces an opaque surface using a white base and the shared red mask. Its colour
   repeats in world X/Z metres, independent of the old UVs. This keeps the physical pattern size consistent on a bridge's
   slab and overlaid road strip, whose original UVs have different scales, without changing vertices or collision.
-- Editor ground assignments use CSP `fuPBR_multilayer`: a white multiplier, an RGBA weight mask and four shared material
-  layers per region. Albedo RGB/AO alpha and normal XY/metalness/roughness are separate textures. Each layer's scalar
-  multiplier is in world X/Z metres; mask UVs retain their region canvas. A rectangular physical repeat retains the
-  legacy float2 path rather than changing its proportions (`ksMultilayer_objsp`, with the CSP nm4 replacement for regional
-  normal maps or variation). Collision stays unchanged. The native slot names remain editable; the managed CSP include
-  maps their images to the PBR shader's inputs.
+- Editor ground assignments are `fuPBR_multilayer` materials the same way: a white multiplier, an RGBA weight mask and
+  four shared material layers per region. Albedo RGB/AO alpha and normal XY/metalness/roughness are separate textures.
+  Each layer's scalar multiplier is in world X/Z metres; mask UVs retain their region canvas. A rectangular physical
+  repeat retains the legacy float2 path rather than changing its proportions (`ksMultilayer_objsp`, with the CSP nm4
+  replacement for regional normal maps or variation). Collision stays unchanged.
 - In that PBR shader, details use world X/Z while `txDiffuse` and the weight mask use mesh UVs. Export keeps `txDiffuse`
   white, so it does not multiply the baked road colours into every imported photograph. The original tile is another
   weighted detail layer and currently needs a separate image on the world-phase ring canvas. The original source image
@@ -77,8 +81,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   its own resolution (`trackdetail._source_image`). Tried in AC with CSP (2026-11-09); a
   track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The Editor takes masks as lossless
   RGBA8: the server unpacks a saved mask for it (`textures.browser_weights`), a texture in a `txMask` slot only.
-- Painted ground's PBR replacement is a managed include in the track's `extension/ext_config.ini`; no global shader
-  files are installed. Map2Lap tracks need CSP. Procedural variation is disabled in PBR previews and newly saved PBR regions:
+- PBR ground needs no config. A managed include in the track's `extension/ext_config.ini` holds the remaining nm4 and
+  model replacements; no global shader files are installed. Map2Lap tracks need CSP. Procedural variation is disabled in
+  PBR previews and newly saved PBR regions:
   stock fuPBR's common switch would displace the baked road image as well as the repeating photographs.
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
   as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);

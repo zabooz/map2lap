@@ -1,7 +1,9 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {fakeTextures} from "./trackTextures.fixture";
+import {groundTint} from "./trackTextures";
 import type {TrackIndex} from "../types";
+import type {ColourSplat} from "./colourBlend";
 
 function dds() {
   const bytes = new ArrayBuffer(136), header = new Int32Array(bytes, 0, 31);
@@ -101,4 +103,39 @@ test("bridge asphalt samples in world metres without changing the original UVs o
     expect(view.used).toBe(272);
     expect(material.map!.repeat.toArray()).toEqual([1, 1]);
   } finally { globalThis.fetch = before; await cleanup(); }
+});
+
+test("generated PBR ground is drawn physically with its ground roughness, other ground stays Lambert", async () => {
+  const {inside, cleanup} = fixture();
+  const {textures} = fakeTextures({});
+  const plain = {name: "ground_0_0", shader: "ksMultilayer", texture: "ground_0_0.dds", bright: .68, alpha_ref: 0, blend: false};
+  const data = {revision: "source", textures: [{name: "ground_0_0.dds", size: 136}],
+    materials: [{...plain, shader: "fuPBR_multilayer", pbr: {roughness: 221 / 255}}, plain]} as unknown as TrackIndex;
+  const before = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(dds())) as unknown as typeof fetch;
+  try {
+    const pbr = textures.material("test", data, 0), lambert = textures.material("test", data, 1);
+    expect(pbr).toBeInstanceOf(THREE.MeshStandardMaterial);
+    expect((pbr as THREE.MeshStandardMaterial).roughness).toBeCloseTo(221 / 255);
+    expect((pbr as THREE.MeshStandardMaterial).metalness).toBe(0);
+    expect((pbr as THREE.MeshStandardMaterial).color.toArray()).toEqual([1, 1, 1]);     // (fuPBR takes no ksAmbient/ksDiffuse)
+    expect(lambert).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect((lambert as THREE.MeshLambertMaterial).color.toArray()).toEqual([.68, .68, .68]);
+  } finally { globalThis.fetch = before; await cleanup(); for (const m of inside.materials) m?.dispose(); }
+});
+
+test("only PBR ground goes untinted: AC's fuPBR takes no ksAmbient/ksDiffuse, the classic shaders do", () => {
+  const classic = {name: "ground_0_0", shader: "ksMultilayer", texture: "t.dds", bright: .68, alpha_ref: 0, blend: false};
+  const layers = (pbr: boolean) => ({pbr, base: {name: "t.dds"}, mask: {name: "m.dds"}, origin: [0, 0], images: []}) as ColourSplat;
+  expect(groundTint(classic)).toBe(.68);
+  expect(groundTint({...classic, bright: 1.3})).toBe(1);
+  expect(groundTint({...classic, pbr: {roughness: .8}})).toBe(1);                 // generated PBR ground
+  expect(groundTint({...classic, splat: layers(true)})).toBe(1);                    // saved PBR paint
+  expect(groundTint({...classic, splat: layers(false)})).toBe(.68);                 // a rectangular repeat: the float2 shader
+  expect(groundTint(classic, layers(true))).toBe(1);                                // applied square paint, simple or regional
+  expect(groundTint(classic, layers(false))).toBe(.68);
+  expect(groundTint({...classic, pbr: {roughness: .8}}, layers(false))).toBe(.68);  // (painted over: the paint's shader counts)
+  // (detail maps alone make a three.js standard material, but not PBR in AC: the class does not decide)
+  const detailed = {...layers(false), images: [{name: "a", scale: [2, 3], detail: {name: "d"}}]} as unknown as ColourSplat;
+  expect(groundTint({...classic, splat: detailed})).toBe(.68);
 });
