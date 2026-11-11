@@ -169,7 +169,7 @@ export const variationShader = `
   }
 `;
 
-/** Blend the scaled map with the original tile using its keep mask; textures remain owned by TrackView's shared pool. */
+/** Blend the scaled map with the original tile using its keep mask; textures remain owned by TrackTextures' shared pool. */
 export function bindColourBlend(material: GroundMaterial, base: THREE.Texture, keep: THREE.Texture, scale: number) {
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, {m2lBase: {value: base}, m2lKeep: {value: keep}, m2lScale: {value: scale}});

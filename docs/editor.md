@@ -12,8 +12,10 @@ The Editor source in `ui/src/editor/` is grouped by responsibility. `EditorScene
 `EditTools.tsx` connects the active tool, selection and dialogs. Shared selection and track-index contracts live in `types.ts`.
 
 - `scene/`: rendering, mesh/image loading, picking and surface overlays. `view.ts` coordinates the scene;
-  `navigation.ts` owns camera movement and route riding, `roadMarkers.ts` owns road pins and their geometry, and
-  `geometryPreview.ts` owns temporary height/normal changes over canonical meshes.
+  `navigation.ts` owns camera movement and route riding, `roadMarkers.ts` owns road pins and their geometry,
+  `geometryPreview.ts` owns temporary height/normal changes over canonical meshes, and `trackTextures.ts` owns the track's
+  textures and materials: their loading against the memory limit, painted ground (Apply, Undo, a draft's paints) and its
+  release when another track opens. Pages reach it as `view.textures`.
 - `tools/`: tool controls, pointer modifiers, brush sampling, movement, copying, smoothing and material application.
 - `library/`: browsing, imports and model pictures/previews.
 - `inspector/`: selected-object properties, appearance, hover information and track statistics.

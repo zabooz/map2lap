@@ -36,8 +36,8 @@ export function usePaint(name: string, edits: TrackEdits, view: TrackView) {
         edits.addPaint(result.paint);
         edits.saveNow();
         if (await edits.saved() === null) throw new Error("The material change could not be kept.");
-        await view.syncPaints(edits.state().paints);
-        await view.texturesReady((done, total) => { if (alive.current) setProgress({phase: "loading", done, total}); });
+        await view.textures.syncPaints(edits.state().paints);
+        await view.textures.ready((done, total) => { if (alive.current) setProgress({phase: "loading", done, total}); });
         applied = true;
       } catch (e) {
         if (alive.current) setError(e instanceof Error ? e.message : "Could not apply this material");

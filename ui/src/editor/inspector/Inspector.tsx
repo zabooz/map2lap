@@ -159,7 +159,7 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
 }) {
   const [tab, setTab] = useState<"properties" | "details">("properties");
   const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
-  const textureVersion = chosen?.inspection?.texture != null ? view.textureVersion(chosen.inspection.texture) : "";
+  const textureVersion = chosen?.inspection?.texture != null ? view.textures.version(chosen.inspection.texture) : "";
   const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
   return <>
     {collapsed && <button className={styles.show} onClick={() => onCollapsed(false)} aria-label="Show inspector">Inspector ‹</button>}

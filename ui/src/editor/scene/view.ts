@@ -2,7 +2,7 @@
 // over the ground, the wheel zooms towards the mouse, held it turns and tilts around the view's middle, as in a building game. Meshes
 // load nearest first, so the spot in view comes first on a long track. A click picks what is under the mouse; with Move on, a press picks
 // it and a drag takes it along over the ground.
-import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, Marked, MeshInfo, MaterialInfo, TrackIndex} from "../types";
+import type {Hovered, Picked, MenuAt, Place, Sample, Brush, WheelKeys, Marked, MeshInfo, TrackIndex} from "../types";
 import type {LoadAbout} from "../../types";
 
 /** What loading says: its text, how far (undefined: done, null: not known) and about it (a first opening, why it failed). */
@@ -31,34 +31,19 @@ import {ModelDraw} from "./modelDraw";
 import {GroupDraw, type GroupPlant} from "./groupDraw";
 import type {LibraryModel} from "../library/ModelLibrary";
 import {modelLight} from "./modelLighting";
-import {bindLightShares, takesGroundLight} from "./lightShare";
 import {NightSky} from "./nightSky";
 import {SunShadows, sunLight, takeShadows} from "./sunShadows";
 import {LampCones, NightGlow, isLampGlass, lampsOn} from "./nightGlow";
 import {lightAt, moonDirection, MOON_COLOUR, sunDirection, sunHeight, trackPlace} from "./sun";
 import {fetchBytes, fetchJson, MeshFetchError} from "./requests";
-import {WeightBundles} from "./weightBundle";
-import {GroundFrame, GroundLayer} from "./groundRender";
-import {bindColourBlend, bindWorldColour, bindSplat, materialImages, type GroundMaterial, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
-import {billboardFaces, billboardOf, childrenOf, countOfSort, decodedBytes, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt,
+import {materialImages, type GroundMaterial} from "./colourBlend";
+import {TrackTextures} from "./trackTextures";
+import {billboardFaces, billboardOf, childrenOf, COPIES, countOfSort, fits, idsOfSorts, kindName, kindOf, latLonOf, nearestLast, objectAt,
         objectIndex, physicsOf, routeMetre, sortOf, spriteAt, takenAlong, tileOf} from "./inspect";
-
-interface SplatImageEntry {
-  done: Promise<THREE.Texture | null>; controller: AbortController; bytes: number; token: number;
-  texture?: THREE.Texture; disposed: boolean;
-}
-interface SplatPending {keys: Set<string>; done: Promise<void>}
 
 const PARALLEL = 6;                 // meshes asked for at a time
 const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
-// Textures on their way or being decoded at a time. A 307 km track up to a limit of 8 GB: 6: 70 s, 12: 52 s, 24: 53 s; 4 GB without any
-// limit 34 s against 23 s with 12: hundreds at once stand in the meshes' way.
-const TEXTURES_AT_A_TIME = 12;
 const RESORT_M = 100, RESORT_EVERY_MS = 500;    // the queue of meshes sorted again when the view moved this far, at most this often: 66,000 take a while
-// The memory limit (the settings): a long track's kn5 can reach 10 GB, more than a browser tab can hold. What lies furthest
-// from the view then stays out. A mesh or compressed texture counts twice: it stays here for the mouse and the ground, and
-// the graphics card holds a copy. An estimate: the browser's own overhead is not counted.
-const COPIES = 2;
 const GROUND = /^(1ROAD|1GRASS|1GRAVEL)_ground|^1ROAD_deck|^nocol_water|^nocol_far/;   // the meshes the view stays above: over a river's surface, not its bed
 const HOVER_EVERY_MS = 60;          // how often the mouse's target is looked up: the box follows, the view stays smooth
 const PICKED_COLOUR = "#ffd21f";
@@ -113,8 +98,6 @@ function pixelsOf(image: ImageBitmap) {
   return can ? can.getImageData(0, 0, image.width, image.height) : null;
 }
 
-const textureTurn = oneByOne(TEXTURES_AT_A_TIME);
-
 
 
 /** three.js in the element host, showing one track. dispose() ends it. */
@@ -167,22 +150,7 @@ export class TrackView {
   private token = 0;                // a new number: another track was asked for, what still loads is dropped
   private meshes: THREE.Mesh[] = [];
   private grounds: THREE.Mesh[] = [];
-  private textures: (Promise<THREE.Texture | null> | undefined)[] = [];
-  private textureBytes = new WeakMap<THREE.Texture, number>();
-  private textureChanges = new Map<number, {abort: () => void; done: Promise<void>; version: string}>();
-  private displayedTextures = new Map<number, string>();
-  private paintFailure: string | null = null;
-  private onTexturesChanged: () => void = () => {};
-  private paintVersion = 0;
-  private paintLoading: AbortController | null = null;
-  private loadedTexture: (() => void) | null = null;
-  private materials: (GroundMaterial | undefined)[] = [];
-  private splatImages = new Map<string, SplatImageEntry>();
-  private splatBindings = new Map<number, Set<string>>();
-  private splatPending = new Map<number, SplatPending>();
-  private sourceMaterials = new Map<number, MaterialInfo>();
-  private groundLayers = new Map<number, GroundLayer>();
-  private groundFrame: GroundFrame | null = null;
+  readonly textures: TrackTextures;      // the track's textures and materials, painted ground with them
   private usedBytes = 0;
   private overLimit = false;            // something stayed out because of the memory limit
   private loading = new AbortController();  // what is on its way for the track shown: stopped when another is asked for
@@ -252,6 +220,20 @@ export class TrackView {
     this.renderer = new THREE.WebGLRenderer({antialias: true, logarithmicDepthBuffer: true});
     this.renderer.setPixelRatio(window.devicePixelRatio);
     host.appendChild(this.renderer.domElement);
+    this.textures = new TrackTextures({
+      renderer: this.renderer, scene: this.scene,
+      token: () => this.token, signal: () => this.loading.signal, trackName: () => this.trackName, data: () => this.data, meshes: () => this.meshes,
+      reserve: bytes => { if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false; this.usedBytes += bytes; return true; },
+      release: bytes => { this.usedBytes -= bytes; },
+      limited: () => { this.overLimit = true; },
+      forgetAlpha: texture => {
+        const alpha = this.alphaOf.get(texture);
+        if (alpha) this.usedBytes -= alpha.data.byteLength;
+        this.alphaOf.delete(texture);
+      },
+      changed: () => { this.dirty = true; },
+      failed: message => this.onViewFailed(message),
+    });
     this.scene.add(this.ambient, this.sun, this.moon, this.nightSky.group);
     this.sunShadows = new SunShadows(this.renderer, this.scene, this.sun);
     this.lampCones = new LampCones(this.scene);
@@ -309,7 +291,7 @@ export class TrackView {
     this.moon.intensity = light.moon; this.moon.position.fromArray(moon);
     this.nightSky.set(moon, light.night);
     this.nightGlow.set(lampsOn(sunHeight(this.place, this.clock)));
-    this.groundFrame?.followLights();
+    this.textures.followLights();
     if (this.modelLight) this.modelDraw.setEnvironment(this.modelLight.texture, this.reflections());
     this.dirty = true;
   }
@@ -608,7 +590,7 @@ export class TrackView {
       await this.load(name, mine, signal, say);
     } catch (e) {
       if (mine !== this.token) return;
-      this.loadedTexture = null;
+      this.textures.setLoaded(null);
       this.loading.abort();
       say(`Could not load this track: ${(e as Error).message}`, undefined, {failed: (e as Error).message});
     }
@@ -622,7 +604,6 @@ export class TrackView {
     this.applyLight();
     if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
-    this.ensureSplatState();
     if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Revert to saved removes them while they are unsaved.`);
     this.objectPieces = objectIndex(data.objects);
     this.belonging = childrenOf(data.objects);
@@ -666,7 +647,7 @@ export class TrackView {
       // Task counts describe work done, not time remaining. Only the final status ends the loading indicator.
       say(text, Math.min(1, (done + copiedDone + texturesDone + preparedDone) / Math.max(1, tasks)), {first});
     };
-    this.loadedTexture = () => { texturesDone++; report(); };
+    this.textures.setLoaded(() => { texturesDone++; report(); });
     const copied = data.meshes.some((m: MeshInfo) => m.copy) ? this.syncCopies(data).then(() => {
       copiedDone = data.meshes.filter((m: MeshInfo) => m.copy).length;
       report();
@@ -712,13 +693,12 @@ export class TrackView {
     if (mine !== this.token) return;
     meshesReady = true;
     report();
-    await Promise.all(this.textures);
-    await Promise.all([...this.splatPending.values()].map(p => p.done));
+    await this.textures.settled();
     if (mine !== this.token) return;
     if (preparedDone < prepared.size) report();
     await Promise.all(preparing);
     if (mine !== this.token) return;
-    this.loadedTexture = null;
+    this.textures.setLoaded(null);
     say(this.overLimit ? `Memory limit reached (Settings): ${done} of ${total} parts, the nearest ones` : `${total} parts loaded`, undefined,
       {limited: this.overLimit});
   }
@@ -1505,8 +1485,6 @@ export class TrackView {
     this.onViewFailed = onViewFailed;
   }
 
-  setTexturesChanged(onChanged: () => void) { this.onTexturesChanged = onChanged; }
-
   /** Mesh number i fetched again, as the server hands it out now. Only the last answer per mesh counts. */
   private async refresh(i: number) {
     const mine = this.token, {signal} = this.loading, m = this.byNumber.get(i);
@@ -2150,8 +2128,7 @@ export class TrackView {
       this.lampCones.update(this.lampGlass, this.nightGlow.on);
       const renderStarted = performance.now();
       this.sunShadows.draw(this.camera, this.navigation.height);
-      try { for (const layer of this.groundLayers?.values() ?? []) layer.follow(); this.groundFrame?.render(this.camera); }
-      catch (error) { const message = String((error as Error).message ?? error); if (message !== this.paintFailure) { this.paintFailure = message; this.onViewFailed(message); } }
+      this.textures.render(this.camera);
       this.renderer.render(this.scene, this.camera);
       if (this.data?.models?.length) {
         performance.clearMarks("map2lap.models.frame");
@@ -2180,20 +2157,7 @@ export class TrackView {
     this.modelTransformVersion++;
     this.modelDraw.dispose();
     this.groupDraw?.dispose(); this.groupDraw = null;
-    for (const layer of this.groundLayers?.values() ?? []) layer.dispose();
-    this.groundLayers?.clear(); this.groundFrame?.dispose(); this.groundFrame = null;
-    this.paintVersion++;
-    this.paintLoading?.abort();
-    for (const change of this.textureChanges.values()) change.abort();
-    this.textureChanges.clear();
-    this.displayedTextures.clear();
-    this.paintFailure = null;
-    this.loadedTexture = null;
-    for (const entry of this.splatImages.values()) this.disposeSplatImage(entry);
-    this.splatImages.clear();
-    this.splatBindings.clear();
-    this.splatPending.clear();
-    this.sourceMaterials.clear();
+    this.textures.clear();
     this.surfaceOverlay?.clear();
     this.roadRegionOverlay?.clear();
     this.roadInfluenceOverlay?.clear();
@@ -2209,21 +2173,10 @@ export class TrackView {
       m.geometry.boundsTree = undefined;
       m.geometry.dispose();
     }
-    for (const t of this.textures) {
-      t?.then(x => {
-        if (!x) return;
-        const image = x.image;
-        x.dispose();
-        if (image instanceof ImageBitmap) image.close();    // (dispose frees the graphics card's copy only)
-      }, () => {});       // (a failed texture is reported by load)
-    }
-    for (const m of this.materials) m?.dispose();
     this.geometryPreview.keepPreview();
     this.geometryPreview.changedMeshes.clear();
     this.meshes = [];
     this.grounds = [];
-    this.textures = [];
-    this.materials = [];
     this.usedBytes = 0;
     this.overLimit = false;
     this.data = null;
@@ -2238,424 +2191,9 @@ export class TrackView {
     this.forgetPicks();
   }
 
-  private texture(name: string, data: TrackIndex, i: number) {
-    let t = this.textures[i];
-    if (!t) {
-      const descriptor = {...data.textures[i]};
-      if (descriptor.layers) { descriptor.version = ""; descriptor.size = descriptor.source_size ?? descriptor.size; }
-      const reserved = COPIES * descriptor.size, mine = this.token;
-      if (!fits(this.usedBytes, reserved, this.settings.memoryGb)) {
-        this.overLimit = true;
-        return Promise.resolve(null);     // (the mesh stays plain grey)
-      }
-      this.usedBytes += reserved;
-      const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-      const signal = this.loading.signal;
-      let allocated = reserved;
-      let displayedVersion = descriptor.version ?? "";
-      t = textureTurn(async () => {
-        let bytes: ArrayBuffer;
-        try {
-          bytes = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/texture/${i}?r=${data.revision}${descriptor.version ? `&p=${descriptor.version}` : ""}`, signal);
-        } catch (error) {
-          if (!descriptor.version || signal.aborted || mine !== this.token) throw error;
-          this.onViewFailed(`A material edit could not be shown: ${String(error)}. Its original texture is shown; you can discard the edit.`);
-          displayedVersion = "";
-          bytes = await fetchBytes(`/api/editor/${encodeURIComponent(name)}/texture/${i}?r=${data.revision}`, signal);
-        }
-        return makeTexture(bytes, descriptor.name, anisotropy, descriptor.linear);
-      }, true) // Ordinary images and source tiles go ahead of queued masks and replacement photos.
-        .then(made => {
-          // (a PNG takes far more decoded than its file says; the next parts see what it really took)
-          if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap && mine === this.token) {
-            const extra = decodedBytes(made.image.width, made.image.height) - reserved;
-            if (!fits(this.usedBytes, extra, this.settings.memoryGb)) {
-              this.usedBytes -= reserved;
-              this.overLimit = true;
-              made.dispose();
-              made.image.close();
-              return null;
-            }
-            this.usedBytes += extra;
-            allocated += extra;
-          }
-          if (mine === this.token) {
-            this.textureBytes.set(made, allocated);
-            (this.displayedTextures ??= new Map()).set(i, displayedVersion);
-          }
-          return made;
-        }).then(made => {
-          if (mine === this.token) this.loadedTexture?.();
-          return made;
-        });
-      this.textures[i] = t;
-    }
-    return t;
-  }
-
-  textureVersion(i: number) { return this.displayedTextures?.get(i) ?? ""; }
-
-  /** One acknowledged draft; immutable versions survive unrelated writes and older requests are cancelled. */
-  refreshPaints(textures: GroundTextureUpdate[], paints: string[]) {
-    this.paintFailure = null;
-    this.paintVersion++;
-    this.paintLoading?.abort();
-    if (!this.data) return;
-    this.ensureSplatState();
-    this.data.paints = paints;
-    const active = new Set(textures.filter(t => t.version).map(t => t.i));
-    const updates = [...textures], explicit = new Set(textures.map(t => t.i));
-    this.data.textures.forEach((t, i) => {
-      if (t.version && !active.has(i) && !explicit.has(i)) updates.push({i, size: t.source_size ?? t.size, version: ""});
-    });
-    for (const next of updates) {
-      const descriptor = this.data.textures[next.i];
-      if (!descriptor) continue;
-      if (next.layers || descriptor.layers) this.refreshSplat(next);
-      else this.refreshTexture(next);
-    }
-  }
-
-  /** Reconcile an index loaded before the draft. The requested recipe belongs to this tab, never another tab's latest edits. */
-  async syncPaints(paints: string[]) {
-    const data = this.data;
-    if (!data || (!this.paintFailure && JSON.stringify(data.paints ?? []) === JSON.stringify(paints))) return;
-    const epoch = ++this.paintVersion, mine = this.token;
-    this.paintLoading?.abort();
-    const controller = this.paintLoading = new AbortController();
-    try {
-      const answer = await fetchJson<{textures: GroundTextureUpdate[]}>(`/api/editor/${encodeURIComponent(this.trackName)}/textures`, controller.signal, {method: "POST",
-        headers: {"Content-Type": "application/json"}, body: JSON.stringify({base: data.revision, paints})});
-      if (controller.signal.aborted || mine !== this.token || epoch !== this.paintVersion) return;
-      const active = new Set(answer.textures.map(t => t.i));
-      data.textures.forEach((t, i) => { if (t.version && !active.has(i)) answer.textures.push({i, size: t.source_size ?? t.size, version: ""}); });
-      this.paintFailure = null;
-      this.refreshPaints(answer.textures, paints);
-    } catch (e) {
-      if (!controller.signal.aborted && mine === this.token) this.onViewFailed(e instanceof Error ? e.message : "Could not read ground materials");
-    }
-  }
-
-  /** Wait for the painted ground's textures; progress(done, total): how many of them are loaded. */
-  async texturesReady(progress?: (done: number, total: number) => void) {
-    const counted = (loads: Promise<unknown>[]) => {
-      let done = 0;
-      progress?.(0, loads.length);
-      return Promise.all(loads.map(load => load.then(() => progress?.(++done, loads.length))));
-    };
-    await counted([...this.textureChanges.values()].map(t => t.done));
-    await counted([...(this.splatPending?.values() ?? [])].map(t => t.done));
-    if (this.paintFailure) throw new Error(this.paintFailure);
-  }
-
-  private ensureSplatState() {
-    this.splatImages ??= new Map(); this.splatBindings ??= new Map();
-    this.splatPending ??= new Map(); this.sourceMaterials ??= new Map();
-  }
-
-  private weightBundles?: WeightBundles;
-
-  private disposeSplatImage(entry: SplatImageEntry) {
-    if (entry.disposed) return;
-    entry.disposed = true; entry.controller.abort();
-    if (entry.token === this.token) this.usedBytes -= entry.bytes;
-    entry.texture?.dispose();
-    if (typeof ImageBitmap !== "undefined" && entry.texture?.image instanceof ImageBitmap) entry.texture.image.close();
-  }
-
-  private pruneSplatImages() {
-    const needed = new Set([...this.splatBindings.values(), ...[...this.splatPending.values()].map(p => p.keys)].flatMap(k => [...k]));
-    for (const [key, entry] of this.splatImages) if (!needed.has(key)) {
-      this.splatImages.delete(key); this.disposeSplatImage(entry);
-    }
-  }
-
-  private splatTexture(ref: ColourImage, data: TrackIndex, keys: Set<string>) {
-    if (!ref.url) {
-      const i = ref.i ?? data.textures.findIndex(t => t.name === ref.name);
-      return i < 0 ? Promise.resolve(null) : this.texture(this.trackName, data, i);
-    }
-    const key = `${ref.linear ? "mask" : "colour"}:${ref.key ?? ref.url}`;
-    keys.add(key);
-    const found = this.splatImages.get(key);
-    if (found) return found.done;
-    const bytes = COPIES * (ref.size ?? 0), mine = this.token;
-    if (!bytes || !fits(this.usedBytes, bytes, this.settings.memoryGb)) {
-      this.overLimit = true; return Promise.resolve(null);
-    }
-    this.usedBytes += bytes;
-    const controller = new AbortController();
-    const entry: SplatImageEntry = {done: Promise.resolve(null), controller, bytes, token: mine, disposed: false};
-    this.splatImages.set(key, entry);
-    const signal = AbortSignal.any([controller.signal, this.loading.signal]);
-    this.weightBundles ??= new WeightBundles(size => {
-      if (!fits(this.usedBytes, size, this.settings.memoryGb)) return false;
-      this.usedBytes += size; return true;
-    }, size => { this.usedBytes -= size; });
-    const bundled = ref.bundle ? this.weightBundles.acquire(ref.bundle, ref.size!, signal) : undefined;
-    if (bundled === null) {
-      this.splatImages.delete(key); this.disposeSplatImage(entry);
-      this.overLimit = true; return Promise.resolve(null);
-    }
-    entry.done = textureTurn(async () => {
-      if (signal.aborted) return null;
-      const raw = bundled ? await bundled.read() : await fetchBytes(ref.url!, signal);
-      if (signal.aborted) return null;
-      return makeTexture(raw, ref.name, this.renderer.capabilities.getMaxAnisotropy(), ref.linear);
-    }).then(texture => {
-      if (entry.disposed || mine !== this.token) { texture?.dispose(); return null; }
-      if (texture) { entry.texture = texture; this.loadedTexture?.(); }
-      return texture;
-    }).catch(error => {
-      if (this.splatImages.get(key) === entry) this.splatImages.delete(key);
-      this.disposeSplatImage(entry);
-      throw error;
-    }).finally(() => bundled?.release());
-    void entry.done.catch(() => {}); // Its material job reports a current failure; obsolete downloads are cancelled.
-    return entry.done;
-  }
-
-  private prepareSplat(k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) {
-    if (layers.ground) { this.prepareGround(k, material, layers, ready); return; }
-    this.ensureSplatState();
-    const data = this.data!, mine = this.token, keys = new Set<string>();
-    const entry: SplatPending = {keys, done: Promise.resolve()};
-    this.splatPending.set(k, entry);
-    const current = () => mine === this.token && this.splatPending.get(k) === entry && !this.loading.signal.aborted;
-    const base = this.splatTexture(layers.base, data, keys);
-    void base.then(texture => { if (texture && current()) { material.map = texture; material.needsUpdate = true; this.dirty = true; } }, () => {});
-    const mask = this.splatTexture(layers.mask, data, keys);
-    const colours = layers.images.map(ref => this.splatTexture(ref, data, keys));
-    const details = layers.images.map(ref => ref.detail ? this.splatTexture(ref.detail, data, keys) : Promise.resolve(null));
-    this.pruneSplatImages();
-    entry.done = Promise.all([base, mask, ...colours, ...details]).then(([original, keep, ...loaded]) => {
-      if (!current()) return;
-      const images = loaded.slice(0, colours.length), packed = loaded.slice(colours.length);
-      if (!original || !keep || images.some(image => !image) || packed.some((image, i) => layers.images[i].detail && !image)) {
-        throw new Error("Not enough editor memory for this material. Increase the limit and reopen the track.");
-      }
-      material.map = original;
-      bindSplat(material, keep, images as THREE.Texture[], layers, packed);
-      this.removeGround(k);
-      this.splatBindings.set(k, keys);
-      ready(); this.dirty = true;
-    }).catch(error => {
-      if (current()) {
-        this.paintFailure = error instanceof Error ? error.message : "Could not load this material";
-        this.onViewFailed(this.paintFailure);
-      }
-    }).finally(() => {
-      if (this.splatPending.get(k) === entry) this.splatPending.delete(k);
-      if (mine === this.token) {
-        if (this.materials[k] !== material) material.dispose();
-        this.pruneSplatImages();
-      }
-    });
-  }
-
-  private removeGround(k: number) {
-    this.groundLayers?.get(k)?.dispose(); this.groundLayers?.delete(k);
-    if (!this.groundLayers?.size) { this.groundFrame?.dispose(); this.groundFrame = null; }
-  }
-
-  private prepareGround(k: number, material: GroundMaterial, layers: ColourSplat, ready: () => void) {
-    this.ensureSplatState(); this.groundLayers ??= new Map();
-    const data = this.data!, mine = this.token, keys = new Set<string>();
-    const entry: SplatPending = {keys, done: Promise.resolve()}; this.splatPending.set(k, entry);
-    const current = () => mine === this.token && this.splatPending.get(k) === entry && !this.loading.signal.aborted;
-    const base = this.splatTexture(layers.base, data, keys);
-    // Show the source tile while regional weights and photos load; an existing displayed map stays intact.
-    void base.then(texture => {
-      if (texture && current() && !material.map) { material.map = texture; material.needsUpdate = true; this.dirty = true; }
-    }, () => {});
-    const photos = layers.images.map(ref => this.splatTexture(ref, data, keys));
-    const maps = layers.images.map(ref => ref.detail ? this.splatTexture(ref.detail, data, keys) : Promise.resolve(null));
-    const masks = layers.ground!.passes.map(pass => pass.weight.size ? this.splatTexture(pass.weight, data, keys) : Promise.resolve(null));
-    entry.done = Promise.all([base, ...photos, ...maps, ...masks]).then(loaded => {
-      if (!current()) return;
-      const original = loaded[0], images = loaded.slice(1, 1 + photos.length), packed = loaded.slice(1 + photos.length, 1 + photos.length + maps.length);
-      const weights = loaded.slice(1 + photos.length + maps.length);
-      if (!original || images.some(p => !p) || weights.some((p, i) => layers.ground!.passes[i].weight.size && !p) || packed.some((p, i) => layers.images[i].detail && !p)) throw new Error("Not enough editor memory for these ground materials");
-      const frame = this.groundFrame ?? new GroundFrame(this.renderer, this.scene,
-        bytes => { if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false; this.usedBytes += bytes; return true; },
-        bytes => { this.usedBytes -= bytes; });
-      const replacement = new GroundLayer(frame, layers, original, images as THREE.Texture[], packed, weights, material.color);
-      try {
-        for (const mesh of this.meshes) if (mesh.userData.info.material === k) replacement.attach(mesh);
-        frame.bind(material);
-      } catch (error) { replacement.dispose(); if (!this.groundFrame) frame.dispose(); throw error; }
-      this.groundFrame = frame;
-      this.groundLayers.get(k)?.dispose(); this.groundLayers.set(k, replacement);
-      this.splatBindings.set(k, keys); ready(); this.dirty = true;
-    }).catch(error => { if (current()) { this.paintFailure = String(error.message ?? error); this.onViewFailed(this.paintFailure); } })
-      .finally(() => {
-        if (this.splatPending.get(k) === entry) this.splatPending.delete(k);
-        if (mine === this.token) { if (this.materials[k] !== material) material.dispose(); this.pruneSplatImages(); }
-      });
-  }
-
-  private refreshSplat(next: GroundTextureUpdate) {
-    const data = this.data!, descriptor = data.textures[next.i], oldLayers = descriptor.layers;
-    if (descriptor.version === next.version && this.textureVersion(next.i) === next.version && !!oldLayers === !!next.layers) return;
-    const indices = next.materials ?? next.layers?.materials ?? oldLayers?.materials ?? [];
-    Object.assign(descriptor, {version: next.version, size: next.size, layers: next.layers});
-    for (const k of indices) {
-      const source = this.sourceMaterials.get(k) ?? data.materials[k].source ?? data.materials[k];
-      this.sourceMaterials.set(k, source);
-      const old = this.materials[k];
-      if (!next.layers) {
-        this.removeGround(k);
-        this.splatPending.delete(k); this.splatBindings.delete(k);
-        data.materials[k] = source;
-        this.materials[k] = undefined;
-        const restored = old ? this.material(this.trackName, data, k) : null;
-        for (const mesh of this.meshes) if (mesh.userData.info.material === k && restored) mesh.material = restored;
-        old?.dispose();
-        this.displayedTextures.set(next.i, "");
-      } else if (!old) {
-        data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
-      } else {
-        const layers = next.layers, colour = old.color.clone();
-        const material: GroundMaterial = !layers.ground && (layers.pbr || layers.images.some(ref => ref.detail))
-          ? new THREE.MeshStandardMaterial({color: colour, roughness: 1, metalness: 0})
-          : new THREE.MeshLambertMaterial({color: colour});
-        this.prepareSplat(k, material, layers, () => {
-          const previous = this.materials[k];
-          this.materials[k] = material; data.materials[k] = {...source, splat: layers};
-          for (const mesh of this.meshes) if (mesh.userData.info.material === k) mesh.material = material;
-          previous?.dispose();
-          this.displayedTextures.set(next.i, next.version);
-          this.onTexturesChanged?.();
-        });
-      }
-    }
-    this.pruneSplatImages(); this.dirty = true;
-    if (!next.layers) this.onTexturesChanged?.();
-  }
-
-  /** Keep a texture's identity: all loaded materials and Copy previews retain their existing reference. */
-  private refreshTexture(next: {i: number; size: number; version: string}) {
-    const data = this.data, descriptor = data?.textures[next.i];
-    if (!data || !descriptor || this.textureChanges.get(next.i)?.version === next.version) return;
-    if ((descriptor.version ?? "") === next.version && (!this.textures[next.i] || this.textureVersion(next.i) === next.version)) return;
-    Object.assign(descriptor, {version: next.version, size: next.size});
-    this.textureChanges.get(next.i)?.abort();
-    const old = this.textures[next.i];
-    if (!old) return; // Still outside the memory limit or not requested: its eventual load uses the new descriptor.
-    const mine = this.token, controller = new AbortController();
-    let reserved = 0;
-    const release = () => { if (mine === this.token) this.usedBytes -= reserved; reserved = 0; };
-    const entry = {abort: () => { controller.abort(); release(); }, done: Promise.resolve(), version: next.version};
-    this.textureChanges.set(next.i, entry);
-    const signal = AbortSignal.any([controller.signal, this.loading.signal]);
-    const current = () => !signal.aborted && mine === this.token && this.textureChanges.get(next.i) === entry;
-    entry.done = (async () => {
-      let made: THREE.Texture | null = null;
-      try {
-        const target = await old;
-        if (!target || !current()) return;
-        made = await textureTurn(async () => {
-          if (!current()) return null;
-          const needed = COPIES * next.size;
-          if (!fits(this.usedBytes, needed, this.settings.memoryGb)) throw new Error("Not enough editor memory to update this ground texture. Increase the memory limit and reopen the track.");
-          this.usedBytes += needed; reserved = needed;
-          const bytes = await fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/texture/${next.i}?r=${data.revision}${next.version ? `&p=${next.version}` : ""}`, signal);
-          if (!current()) return null;
-          return makeTexture(bytes, descriptor.name, this.renderer.capabilities.getMaxAnisotropy(), descriptor.linear);
-        });
-        if (!made || !current()) return;
-        if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap) {
-          const extra = decodedBytes(made.image.width, made.image.height) - reserved;
-          if (!fits(this.usedBytes, extra, this.settings.memoryGb)) throw new Error("Not enough editor memory to update this ground texture. Increase the memory limit and reopen the track.");
-          this.usedBytes += extra; reserved += extra;
-        }
-        const previousImage = target.image;
-        this.usedBytes -= this.textureBytes.get(target) ?? 0;
-        this.textureBytes.set(target, reserved); reserved = 0;
-        const alpha = this.alphaOf.get(target);
-        if (alpha) this.usedBytes -= alpha.data.byteLength;
-        this.alphaOf.delete(target);
-        target.dispose();
-        target.copy(made); target.needsUpdate = true;
-        for (const m of this.materials) if (m?.map === target) m.needsUpdate = true;
-        if (typeof ImageBitmap !== "undefined" && previousImage instanceof ImageBitmap) previousImage.close();
-        made = null; // Its bitmap is now owned by target; the temporary texture never reached the GPU.
-        (this.displayedTextures ??= new Map()).set(next.i, next.version);
-        this.onTexturesChanged?.();
-        this.dirty = true;
-      } catch (e) {
-        if (current()) {
-          this.paintFailure = e instanceof Error ? e.message : "Could not update ground materials";
-          this.onViewFailed(this.paintFailure);
-        }
-      } finally {
-        if (made) { made.dispose(); if (typeof ImageBitmap !== "undefined" && made.image instanceof ImageBitmap) made.image.close(); }
-        release();
-        if (this.textureChanges.get(next.i) === entry) this.textureChanges.delete(next.i);
-      }
-    })();
-  }
-
-  private material(name: string, data: TrackIndex, k: number) {
-    const have = this.materials[k];
-    if (have) return have;
-    const d = data.materials[k], b = Math.min(1, d.bright);
-    this.ensureSplatState();
-    if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
-    const m: GroundMaterial = !d.splat?.ground && (d.splat?.pbr || d.splat?.images.some(ref => ref.detail))
-      ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: 1, metalness: 0})
-      : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
-    if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
-    if (d.blend) {
-      m.transparent = true;
-      m.depthWrite = false;
-    }
-    this.materials[k] = m;
-    if (d.splat) {
-      this.prepareSplat(k, m, d.splat, () => {
-        const i = d.splat!.base.i ?? data.textures.findIndex(t => t.name === d.splat!.base.name);
-        if (i >= 0) this.displayedTextures.set(i, data.textures[i].version ?? "");
-        this.onTexturesChanged?.();
-      });
-      return m;
-    }
-    if (d.dual_layer) {
-      const mine = this.token, layers = d.dual_layer;
-      const image = (file: string | null) => {
-        const index = data.textures.findIndex(t => t.name === file);
-        return index < 0 ? Promise.resolve(null) : this.texture(name, data, index);
-      };
-      // Reserve the original tile first. Until all three images fit and arrive, show that tile unchanged.
-      const base = image(layers.base), keep = image(layers.mask), detail = image(d.texture);
-      void base.then(texture => {
-        if (texture && mine === this.token) { m.map = texture; m.needsUpdate = true; this.dirty = true; }
-      }, () => {});
-      void Promise.all([base, keep, detail]).then(([original, mask, colour]) => {
-        if (!original || !mask || !colour || mine !== this.token) return;
-        m.map = colour;
-        bindColourBlend(m, original, mask, layers.scale);
-        this.dirty = true;
-      }, () => {}); // The shared loader reports failed images and owns their memory and disposal.
-      return m;
-    }
-    if (d.ambient !== undefined && d.diffuse !== undefined && !d.world_scale && !takesGroundLight(d.name)) bindLightShares(m, d.ambient, d.diffuse);
-    const i = data.textures.findIndex(t => t.name === d.texture);
-    if (i >= 0) {
-      const mine = this.token;
-      void this.texture(name, data, i).then(t => {
-        if (!t || mine !== this.token) return;
-        m.map = t;
-        if (d.world_scale) bindWorldColour(m, d.world_scale);
-        m.needsUpdate = true;
-        this.dirty = true;
-      }, () => {});       // (load awaits the textures and reports their failures)
-    }
-    return m;
-  }
-
   private addMesh(name: string, data: TrackIndex, info: MeshInfo, buf: ArrayBuffer) {
     if (this.byNumber.has(info.i)) return;
-    const m = new THREE.Mesh(makeGeometry(info, buf), this.material(name, data, info.material));
+    const m = new THREE.Mesh(makeGeometry(info, buf), this.textures.material(name, data, info.material));
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
     takeShadows(m);
@@ -2665,8 +2203,7 @@ export class TrackView {
       this.nightGlow.bind(m.material as GroundMaterial, material);
     }
     this.scene.add(m);
-    try { this.groundLayers?.get(info.material)?.attach(m); }
-    catch (error) { this.paintFailure = String((error as Error).message ?? error); this.onViewFailed(this.paintFailure); }
+    this.textures.attach(m);
     this.meshes.push(m);
     if (info.base !== null && info.base !== undefined) {
       if (!this.parts.has(info.base)) this.parts.set(info.base, []);

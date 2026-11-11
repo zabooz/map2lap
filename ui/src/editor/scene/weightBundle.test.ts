@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import {WeightBundles} from "./weightBundle";
-import {TrackView} from "./view";
+import {fakeTextures} from "./trackTextures.fixture";
 import * as THREE from "three";
 import type {ColourImage} from "./colourBlend";
 
@@ -49,18 +49,15 @@ test("the View loads two regional textures from one bundle and keeps only their 
   }
   let calls = 0;
   globalThis.fetch = (async () => { calls++; return new Response(raw); }) as unknown as typeof fetch;
-  const view = Object.create(TrackView.prototype) as TrackView;
-  const fields = {token: 1, loading: new AbortController(), usedBytes: 0, settings: {memoryGb: 1},
-    renderer: {capabilities: {getMaxAnisotropy: () => 1}}, splatImages: new Map(), data: {textures: []}};
-  Object.assign(view, fields);
-  const state = view as unknown as typeof fields & {splatTexture: (ref: ColourImage, data: unknown, keys: Set<string>) => Promise<THREE.DataTexture>};
+  const {view, inside} = fakeTextures();
+  const state = inside as typeof inside & {splatTexture: (ref: ColourImage, data: unknown, keys: Set<string>) => Promise<THREE.DataTexture>};
   try {
     const refs = [0, 14].map((offset, i) => ({name: `${i}.r16`, key: `${i}`, url: `/old/${i}`, linear: true, size: 14,
       bundle: {url: "/tile", offset, size: 28}}));
-    const textures = await Promise.all(refs.map(ref => state.splatTexture(ref, fields.data, new Set())));
-    expect(calls).toBe(1); expect(state.usedBytes).toBe(56);
+    const textures = await Promise.all(refs.map(ref => state.splatTexture(ref, {textures: []}, new Set())));
+    expect(calls).toBe(1); expect(view.used).toBe(56);
     expect(textures.map(texture => texture.image.data![0])).toEqual([0x3c00, 0x3800]);
     expect(textures.map(texture => texture.image.data!.buffer.byteLength)).toEqual([14, 14]);
     for (const texture of textures) texture.dispose();
-  } finally { fields.loading.abort(); globalThis.fetch = before; }
+  } finally { view.loading.abort(); globalThis.fetch = before; }
 });

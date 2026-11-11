@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
+import {plainTextures} from "./trackTextures.fixture";
 import {GeometryPreview} from "./geometryPreview";
 import {ModelDraw} from "./modelDraw";
 import type {MeshInfo} from "../types";
@@ -46,7 +47,7 @@ function setUp() {
   Object.assign(view, {token: 1, modelTransformVersion: 0, pendingModels: new Map(), pendingKey: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
     meshes: [], byNumber, parts: new Map(), grounds: [], materialAreas: new Map(), objectPieces: new Map(), belonging: new Map(), picks: new Map(),
     data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
-    copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(),
+    copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(),
     listedOut: new Map(), billboardsOut: new Map(), removed: new Set(), removedSorts: new Set(), wanted: () => new Set(served.removed), ensureModelLight: () => {}, reframePicks: () => {},
     modelDraw: draw, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
     geometryPreview: new GeometryPreview(i => byNumber.get(i), () => {}), onViewFailed: (message: string | null) => { if (message) errors.push(message); }});

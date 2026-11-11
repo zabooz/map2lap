@@ -1,6 +1,7 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
+import {plainTextures} from "./trackTextures.fixture";
 import {Navigation} from "./navigation";
 import {GeometryPreview} from "./geometryPreview";
 
@@ -65,9 +66,9 @@ test("parts are ready only after the loaded ground's selection index is prepared
   const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: plainTextures(),
     materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {},
-    nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(), leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
+    nightGlow: {bind: () => {}}, leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
   sceneModules(view as unknown as TrackView);
   try {
     const pending = view.load("alpha", 1, new AbortController().signal, (s: string, value?: number | null) => { statuses.push(s); progress.push(value); if (s.includes("Preparing selection")) phase(); });
@@ -106,9 +107,9 @@ test("ground loaded while a tile's selection is being prepared goes in the next 
   const view = Object.create(TrackView.prototype) as {load: (name: string, token: number, signal: AbortSignal, say: (s: string) => void) => Promise<void>; token: number};
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: plainTextures(),
     materialAreas: new Map(), wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {},
-    nightGlow: {bind: () => {}}, material: () => new THREE.MeshBasicMaterial(), leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
+    nightGlow: {bind: () => {}}, leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: () => {}});
   sceneModules(view as unknown as TrackView);
   try {
     const pending = view.load("alpha", 1, new AbortController().signal, () => {});
@@ -144,8 +145,8 @@ for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during 
   };
   Object.assign(view, {token: 1, loading: new AbortController(), trackName: "alpha", camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene(), applyLight: () => {},
     renderer: {domElement: {focus: () => {}}}, settings: {memoryGb: 8}, usedBytes: 0, heightsVersion: 0, copyVersion: 0, meshes: [], grounds: [],
-    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: [],
-    wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {}, material: () => new THREE.MeshBasicMaterial(),
+    byNumber: new Map(), objectPieces: new Map(), belonging: new Map(), parts: new Map(), picks: new Map(), pendingModels: new Map(), listedOut: new Map(), billboardsOut: new Map(), textures: plainTextures(),
+    wanted: () => new Set(), noteListedOut: () => {}, onIndexed: () => {},
     nightGlow: {bind: () => {}}, leaveOutSorts: () => {}, reframePicks: () => {}, onViewFailed: (s: string | null) => { if (s) throw new Error(s); }});
   sceneModules(view as unknown as TrackView);
   try {

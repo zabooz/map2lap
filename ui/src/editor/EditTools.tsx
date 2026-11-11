@@ -214,18 +214,18 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   useEffect(() => {
     edits.setOnMeshes(meshes => view.refreshMeshes(meshes));
-    edits.setOnTextures((textures, paints) => view.refreshPaints(textures, paints));
+    edits.setOnTextures((textures, paints) => view.textures.refreshPaints(textures, paints));
     view.setViewFailed(setViewFailed);
-    view.setTexturesChanged(() => setTextureRevision(value => value + 1));
+    view.textures.setChanged(() => setTextureRevision(value => value + 1));
     return () => {
       edits.setOnMeshes(() => {});
       edits.setOnTextures(() => {});
       view.setViewFailed(() => {});
-      view.setTexturesChanged(() => {});
+      view.textures.setChanged(() => {});
     };
   }, [view, edits]);
 
-  useEffect(() => { if (state.save === "saved" && edits.canEdit()) void view.syncPaints(state.paints); }, [view, edits, state]);
+  useEffect(() => { if (state.save === "saved" && edits.canEdit()) void view.textures.syncPaints(state.paints); }, [view, edits, state]);
 
   const toolWheel = useEffectEvent((keys: Parameters<typeof elevation.wheel>[0], by: number) => {
     if (tool === "camera") camera.wheel(keys, by);

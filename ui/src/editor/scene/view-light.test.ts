@@ -2,6 +2,7 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {TrackView} from "./view";
 import {GroundFrame} from "./groundRender";
+import {fakeTextures} from "./trackTextures.fixture";
 import {ModelDraw} from "./modelDraw";
 import {NightSky} from "./nightSky";
 import {lightAt, moonDirection, sunDirection, sunHeight, type Place} from "./sun";
@@ -16,7 +17,7 @@ function bareView(extra = {}) {
   const view = Object.create(TrackView.prototype) as TrackView;
   const scene = new THREE.Scene(), ambient = new THREE.AmbientLight(), sun = new THREE.DirectionalLight(), moon = new THREE.DirectionalLight();
   scene.add(ambient, sun, moon);
-  const fields = {scene, ambient, sun, moon, nightSky: new NightSky(), nightGlow: new NightGlow(async () => null), place: RECHBERG, clock: 10, dirty: false, groundFrame: null as GroundFrame | null,
+  const fields = {scene, ambient, sun, moon, nightSky: new NightSky(), nightGlow: new NightGlow(async () => null), place: RECHBERG, clock: 10, dirty: false, textures: fakeTextures().textures,
     modelLight: null as {texture: THREE.Texture} | null, modelDraw: new ModelDraw(scene), ...extra};
   Object.assign(view, fields);
   return {view, state: view as unknown as typeof fields};
@@ -63,9 +64,9 @@ test("by day there is no moonlight and no night sky", () => {
 });
 
 test("edited ground gets the moon too", () => {
-  const {view, state} = bareView();
+  const {textures, inside} = fakeTextures(), {view, state} = bareView({textures});
   const frame = new GroundFrame({} as THREE.WebGLRenderer, state.scene, () => true, () => {});
-  state.groundFrame = frame;
+  inside.groundFrame = frame;
   view.setClock(1);
   const moon = frame.scene.children[2] as THREE.DirectionalLight;
   expect(moon.intensity).toBe(state.moon.intensity);
@@ -74,9 +75,9 @@ test("edited ground gets the moon too", () => {
 });
 
 test("edited ground gets the same light as the rest", () => {
-  const {view, state} = bareView();
+  const {textures, inside} = fakeTextures(), {view, state} = bareView({textures});
   const frame = new GroundFrame({} as THREE.WebGLRenderer, state.scene, () => true, () => {});
-  state.groundFrame = frame;
+  inside.groundFrame = frame;
   view.setClock(17);
   const [ambient, sun] = frame.scene.children as [THREE.AmbientLight, THREE.DirectionalLight];
   expect(ambient.intensity).toBe(state.ambient.intensity);

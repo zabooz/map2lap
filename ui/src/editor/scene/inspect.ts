@@ -30,6 +30,11 @@ export function nearestLast<T extends {center: number[]; radius: number}>(items:
   return [...items].sort((a, b) => begins.get(b)! - begins.get(a)!);
 }
 
+// The memory limit (the settings): a long track's kn5 can reach 10 GB, more than a browser tab can hold. What lies furthest
+// from the view then stays out. A mesh or compressed texture counts twice: it stays here for the mouse and the ground, and
+// the graphics card holds a copy. An estimate: the browser's own overhead is not counted.
+export const COPIES = 2;
+
 export function fits(used: number, bytes: number, gb: number) {
   return used + bytes <= gb * 1024 ** 3;
 }
