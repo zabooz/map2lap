@@ -1,6 +1,9 @@
 -- Map2Lap precipitation on public CSP 0.2.11: own rain and snow, independent of RainFX.
--- v4: one batched mesh. All particles live in one vertex buffer that Lua rewrites each frame
+-- One batched mesh. All particles live in one vertex buffer that Lua rewrites each frame
 -- and one render.mesh call draws, instead of one render.shaderedQuad call per particle.
+-- Experimental windscreen overlay is retained for later work, disabled in the normal preview.
+local WINDSCREEN_ENABLED = false
+local glass, veil
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
 local sim = ac.getSim()
 local elapsed, polling, heartbeat = 0, 0, 0
@@ -374,6 +377,15 @@ function script.frameBegin(dt, gameDT)
   end
   elapsed, frameDt = elapsed + gameDT, gameDT
   ac.getWindVelocityTo(wind)
+  if glass and glass.mesh then
+    local car = ac.getCar(0)
+    local offset = glass.pass.values.gFlowOffset
+    -- Gravity slides beads down at rest; stronger airflow pushes them back up the slanted glass.
+    -- Integrate displacement so changing speed or wind does not jump the whole pattern.
+    local speed = max(0, car.speedKmh) / 3.6
+    offset.y = offset.y + (-0.012 + min(0.05, max(0, speed - 10) * 0.002)) * gameDT
+    offset.x = offset.x + (wind.x * car.side.x + wind.y * car.side.y + wind.z * car.side.z) * 0.001 * gameDT
+  end
   cameraVelocity:set(sim.cameraPositionDelta):scale(1 / max(dt, 0.001))
   driftX, driftZ = driftX + wind.x * gameDT, driftZ + wind.z * gameDT
   polling, heartbeat, beginCount = polling + dt, heartbeat + dt, beginCount + 1
@@ -422,6 +434,10 @@ function script.frameBegin(dt, gameDT)
     ac.log(string.format('M2L_SHELTER track0=%.3fms(%.1f) track1=%.3fms(%.1f) physics=%.3fms(%.1f) roofs=%d [%s]',
       (t1 - t0) * 1000, a, (t2 - t1) * 1000, b, (t3 - t2) * 1000, p, #roofs, table.concat(roofs, ' ')))
     ac.log(string.format('M2L_WIND actualKmh=%.2f vectorMs=%s type=%s', sim.windSpeedKmh, tostring(wind), tostring(ac.getConditionsSet().currentType)))
+    local car = ac.getCar(0)
+    ac.log(string.format('M2L_CAR pos=%s side=%s up=%s look=%s camera=%s mode=%d', tostring(car.position), tostring(car.side),
+      tostring(car.up), tostring(car.look), tostring(sim.cameraPosition), sim.cameraMode))
+    if glass and glass.mesh then ac.log('M2L_GLASS flowOffset=' .. tostring(glass.pass.values.gFlowOffset)) end
     ac.log(string.format('M2L_VISIBILITY sky=%s horizon=%s sun=%s color=%s fov=%.2f',
       tostring(sim.skyColor), tostring(sim.horizonColor), tostring(sim.lightColor), tostring(batch.values.gColor), sim.cameraFOV))
   end
@@ -454,7 +470,71 @@ function script.draw3D()
   veil.values.gDensity = density * (snow and 0.006 or 0.003)
   render.fullscreenPass(veil)
   render.mesh(batch)
+  if glass and glass.mesh then
+    local car = ac.getCar(0)
+    local v = glass.pass.values
+    v.gTime = elapsed
+    -- Melting flakes leave fewer drops than rain.
+    v.gAmount = density * (snow and 0.35 or 1)
+    v.gColor.r, v.gColor.g, v.gColor.b = max(0.06, horizon.r * 1.6), max(0.065, horizon.g * 1.6), max(0.07, horizon.b * 1.6)
+    v.gCameraPos:set(sim.cameraPosition)
+    v.gCarPos:set(car.position)
+    v.gCarSide:set(car.side)
+    v.gCarUp:set(car.up)
+    v.gCarLook:set(car.look)
+    render.mesh(glass.pass)
+  end
   frames = frames + 1
+end
+
+-- Windscreen drops: the player's ksWindscreen meshes are drawn once more with a droplet shader. The pattern
+-- lives in car-local metres (PosC is camera-relative and world-oriented; the car's basis vectors turn it), so
+-- it needs no car-specific UV layout or texture. This overlay does not animate wipers or clear their sweep.
+if WINDSCREEN_ENABLED then
+glass = {mesh = nil}
+do
+  local found = ac.findNodes('carRoot:0'):findMeshes('shader:ksWindscreen')
+  if #found > 0 then glass.mesh = found end
+  ac.log(string.format('M2L_GLASS windscreen meshes=%d', #found))
+end
+glass.pass = {
+  mesh = glass.mesh,
+  transform = 'original',
+  async = true,
+  cacheKey = 8,
+  values = {gTime = 0, gAmount = 0, gColor = rgb(0.3, 0.33, 0.37),
+    gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3(), gFlowOffset = vec2()},
+  shader = [[
+    float hash2(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+    float4 main(PS_IN pin) {
+      float3 d = pin.PosC + gCameraPos - gCarPos;
+      // Unroll the slanted glass: height plus a share of the forward distance.
+      float2 p = float2(dot(d, gCarSide), dot(d, gCarUp) + dot(d, gCarLook) * 0.35);
+      float amount = saturate(gAmount);
+
+      // Sparse beads about 1-2.6 mm across: the glass is close to the driver's eyes, so larger beads dominate.
+      float x = p.x - gFlowOffset.x;
+      float col = floor(x / 0.016);
+      float rate = 0.55 + 1.2 * hash2(float2(col, 11.7));
+      float2 ua = float2(x, p.y - gFlowOffset.y * rate) / 0.016;
+      float2 ca = floor(ua), fa = frac(ua) - 0.5;
+      float ha = hash2(ca), hb = hash2(ca + 7.3), hc = hash2(ca + 19.1);
+      float2 oa = (float2(ha, hb) - 0.5) * 0.5;
+      float ra = 0.035 + 0.045 * hc;
+      float lifeA = frac(gTime * 0.04 + ha * 3.7);
+      float presentA = step(hb, amount * 0.2) * smoothstep(0, 0.08, lifeA) * (1 - smoothstep(0.9, 1, lifeA));
+      float da = length((fa - oa) * float2(1, 0.9)) / ra;
+      float bead = (1 - smoothstep(0.7, 1, da)) * presentA;
+      float shine = (1 - smoothstep(0, 0.65, length(fa - oa - float2(-0.3, 0.35) * ra) / ra)) * presentA;
+      float rim = smoothstep(0.35, 0.65, da) * (1 - smoothstep(0.8, 1.05, da)) * presentA;
+
+      // Small highlights on nearly transparent beads. Long, pale run cards looked like white paint on the glass.
+      float alpha = saturate(bead * 0.18 + rim * 0.3 + shine * 0.55);
+      float3 color = gColor * (0.04 + 2 * shine);
+      return float4(color, alpha);
+    }
+  ]]
+}
 end
 
 -- Beyond the particle volume rain and snow still take contrast out of the scene. A depth-aware fullscreen pass
@@ -481,4 +561,4 @@ veil = {
   ]]
 }
 
-ac.log('M2L_WEATHER look=v4: one batched mesh for every particle')
+ac.log('M2L_WEATHER batched rain/snow, shelter, veil and splashes; windscreen=' .. tostring(WINDSCREEN_ENABLED))
