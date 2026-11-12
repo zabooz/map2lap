@@ -16,6 +16,8 @@ export class WeatherPreview {
     uniforms: {cameraAt: {value: new THREE.Vector3()}, drift: {value: this.drift}, elapsed: {value: 0},
       snow: {value: 0}, opacity: {value: 1}, streak: {value: new THREE.Vector2(0, 1)}, boxSize: {value: BOX}},
     vertexShader: `
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
       uniform vec3 cameraAt, drift, boxSize;
       uniform float elapsed, snow;
       varying float alpha;
@@ -27,10 +29,13 @@ export class WeatherPreview {
         vec3 offset = mod(at - cameraAt + boxSize * .5, boxSize) - boxSize * .5;
         vec4 viewed = modelViewMatrix * vec4(cameraAt + offset, 1.0);
         gl_Position = projectionMatrix * viewed;
+        // TrackView uses logarithmic depth for long tracks; particles must use the same depth as terrain.
+        #include <logdepthbuf_vertex>
         gl_PointSize = mix(13.0, 3.0 + seed * 3.0, snow);
         alpha = smoothstep(1.2, 3.0, length(offset)) * (1.0 - smoothstep(12.0, 18.0, length(offset)));
       }`,
     fragmentShader: `
+      #include <logdepthbuf_pars_fragment>
       uniform float snow, opacity;
       uniform vec2 streak;
       varying float alpha;
@@ -40,6 +45,7 @@ export class WeatherPreview {
         float rain = exp(-across * across * 65.0) * (1.0 - smoothstep(.6, 1.0, abs(along)));
         float flake = exp(-dot(p,p) * 3.0) * (1.0 - smoothstep(.4, 1.0, length(p)));
         gl_FragColor = vec4(vec3(.8,.86,.92), mix(rain, flake, snow) * alpha * opacity * .65);
+        #include <logdepthbuf_fragment>
       }`});
   private points = new THREE.Points(this.geometry, this.material);
 
