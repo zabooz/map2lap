@@ -10,6 +10,18 @@ It exits with its exact AC process handle. This worker changes falling-snow geom
 This is currently preview integration: release build/package/startup must ship and start the precompiled helper
 before it becomes a default of exported tracks or product Play. End users must never need to compile it.
 
+The preview's separate `tools/weather_preview/rain_worker.rs` owns glass-water droplets on front/side panes,
+using `AcTools.CSP.Limited.Map2Lap.RainHybrid.v3`. Build/start with `tools/weather_preview/rain_rust.py`;
+the ignored binary is `out/rust-rain/rain-worker.exe`. Lua submits nonblocking requests and rasterizes
+same-texture height sprites for the existing GPU glass pass. Rust handles small and large droplets together,
+merges, gravity/vehicle airflow projected onto the car's actual glass triangles, and blade water transport.
+The surface derivatives are sampled once on a 17 by 9 grid per pane; frame requests reuse that grid.
+Rust stores positions and velocities in the car glass's X/S metre chart; camera state is absent from its
+protocol. The rain renderer samples that chart through fixed UVs baked into private copies of the glass
+meshes, rather than reconstructing pane coordinates from camera-relative pixel positions.
+`rainrust|rainlua` select the backend; native weather
+and the accepted falling-rain/snow rendering are independent. Release packaging/startup is still pending.
+
 The Editor's independent browser kernel is `native/editorgeometry/regions.rs`. Build it with
 `.venv\Scripts\python.exe tools\build_editor_geometry.py` after installing `rustup target add wasm32-unknown-unknown`.
 It has no third-party Rust dependencies. The checked-in `ui/assets/editorgeometry.wasm` is copied into `src/web` by

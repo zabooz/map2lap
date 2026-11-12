@@ -7,6 +7,7 @@ line here (`engine/tests/test_tools.py`).
 |---|---|
 | Preview visual rain/snow, native fog and wind on Heiligenblut in public CSP, with reversible launch and live reload | `weather_preview/run.py [--mode auto\|rain\|snow\|off]`, `weather_preview/update.py [--check]`; see `weather_preview/README.md` |
 | Try Rust snow geometry in an owned running AC preview, with automatic Lua fallback | `weather_preview/snow_rust.py [--stop]`; switch with `weather_preview/run.py --mode snowrust\|snowlua` |
+| Build/start the Rust rain-bead simulation for front and side glass in the owned AC preview | `weather_preview/rain_rust.py [--stop]`; `weather_preview/run.py --mode rainrust\|rainlua` selects the backend |
 | Pass/fail checks: unit tests and a short kn5 build | `check.py [--fast | <test file>]` |
 | A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
 | All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface, vegetation | `spot.py <track> --route <m>` |

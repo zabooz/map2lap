@@ -71,9 +71,35 @@ remains an approximation at edges and for wind blowing in from the side. Unknown
 columns initially allow particles. Covers more than 60 m overhead are outside its range.
 
 There are no wet-road reflections, ground snow accumulation or vehicle-physics changes.
-Glass uses height shading rather than scene refraction; support across different cars remains unestablished.
+Rain uses a separate HDR background copy for screen-space refraction, with subdued reflections and a
+wetness-controlled mip blur cleared by the wipers. Snow retains its height shading. If the background copy
+is unavailable, contact shading remains as a fallback. Support across different cars/VR remains unestablished.
+`run.py --mode glassred` colours rain footprints solid red for visual diagnosis without altering movement;
+`run.py --mode glass` restores the water material. Wiper water is included in the red footprint view.
 
-## Rust snow geometry
+## Rust rain on glass
+
+`<python> tools/weather_preview/rain_rust.py` builds/starts the standalone rain helper in the owned AC preview.
+Preview launch and hot reload start the existing `out/rust-rain/rain-worker.exe` automatically.
+`run.py --mode rainrust|rainlua` switches backend without changing the native weather. `rain_rust.py --stop`
+stops only this helper. No compiler is required once the development binary exists.
+
+The Rust backend owns both small pinned beads and larger running drops: gravity, vehicle airflow,
+size-dependent adhesion, swept-path pickup, volume-preserving merges, blade collection and edge drainage.
+Each of the front and up to two detected side panes has 4096 slots. At capacity new water grows the nearest
+existing bead. A local spatial grid limits collision work. One asynchronous shared-memory request feeds
+batched height sprites; the existing GPU field/shading and separate side bindings remain in use.
+Lua remains the fallback if the worker is unavailable. Snow deposits and falling precipitation are unchanged.
+The car's actual glass triangles are read once into a 17 by 9 surface-derivative grid. Rust projects gravity
+and vehicle airflow onto that curved surface using its local metric. Weather wind affects outdoor
+precipitation and snow; rain movement on glass uses the vehicle's velocity. A wetness mask retains running
+drop footprints and blade-edge water; it is a visual film approximation, not a mass-conserving fluid solver.
+Rain rendering uses private glass-mesh copies with X/S-derived fixed UVs. Rust's persistent positions,
+the fields and the wiper paths all use that same car-glass chart. Camera movement only changes projection;
+it is not an input to the Rust worker or the UV lookup. Original car meshes/material UVs are untouched.
+This is preview integration; release packaging and product startup remain pending, as for the snow helper.
+
+## Rust falling snow
 
 Rust is the default geometry backend when the worker is available, with automatic Lua fallback.
 Build/start once with `<python> tools/weather_preview/snow_rust.py`; subsequent preview launch and hot reload
