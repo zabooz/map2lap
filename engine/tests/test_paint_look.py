@@ -252,7 +252,7 @@ class PackingTest(unittest.TestCase):
         ref = {"id": "asset:a", "asset": "a", "detail": {"key": "k"}, "properties": {"normal_scale": 1., "roughness": .5,
                                                                                      "roughness_offset": .5}}
         raw = fixture.png(np.full((8, 8, 3), 90, np.uint8))
-        with Image.open(io.BytesIO(tracknative._photo_colour(raw, ref, lambda: data))) as image:
+        with Image.open(io.BytesIO(tracknative._photo_colour(raw, ref, lambda: data[..., 3]))) as image:
             self.assertLessEqual(abs(image.convert("RGBA").getpixel((0, 0))[3] - 127), 2)
         plain = {**ref, "properties": {"normal_scale": 1., "roughness": .5}}
         self.assertNotEqual(tracknative._colour_key(raw, ref), tracknative._colour_key(raw, plain))

@@ -29,7 +29,7 @@ class PackingTest(unittest.TestCase):
     def test_a_roughness_map_becomes_gloss_in_the_photo_alpha(self):
         raw = paintfixture.png(np.full((8, 8, 3), [90, 110, 130], np.uint8))
         ref = {"id": "asset:a", "asset": "a", "properties": {"roughness": .5}}
-        detail = lambda: np.full((8, 8, 4), [128, 128, 255, 200], np.uint8)
+        detail = lambda: np.full((8, 8), 200, np.uint8)
         with Image.open(io.BytesIO(tracknative._photo_colour(raw, ref, detail))) as image:
             alpha = image.convert("RGBA").getchannel("A").getextrema()
         self.assertLess(abs(alpha[0] - round(255 * (1 - 100 / 255))), 3)       # (roughness 200 * .5: gloss 1 - 100/255)
@@ -244,6 +244,30 @@ class ClassicSaveTest(unittest.TestCase):
         with mock.patch.object(tracknative, "_photo_colour", wraps=tracknative._photo_colour) as encode:
             trackcopy.save(self.ac, self.name, "pooled", "Pooled")
         self.assertEqual(0, encode.call_count)
+
+    def test_a_photo_s_gloss_is_the_same_whatever_its_normal_map_s_size_or_switch(self):
+        # (colour 32 px, normal 64 px, roughness 16 px: the gloss comes from the roughness map alone, at the colour's size, so
+        # one cache name has one content whether the normal map is on or off)
+        from app import materiallibrary, trackpaint
+        prepare = lambda name, pixels, role: materiallibrary.prepare(name, paintfixture.png(pixels), role=role)    # noqa: E731
+        colour = prepare("colour.png", np.full((32, 32, 3), 120, np.uint8), "colour")
+        normal = prepare("normal.png", np.full((64, 64, 3), (160, 120, 245), np.uint8), "normal")
+        rough = np.random.default_rng(3).integers(0, 256, (16, 16), dtype=np.uint8)
+        roughness = prepare("roughness.png", rough, "roughness")
+        asset = materiallibrary.add({"token": colour["token"], "filename": "colour.png", "name": "Sizes", "category": "soil",
+                                     "repeat": [2, 2], "maps": {"normal": {"token": normal["token"], "filename": "normal.png"},
+                                                                "roughness": {"token": roughness["token"], "filename": "roughness.png"}}})["material"]["id"]
+        self.build(scale=1)
+        self.revision = trackview.index(self.ac, self.name)["revision"]
+        trackview.prepare_surface(self.ac, self.name, 0, self.revision)
+        made = []
+        for look in (trackpaint.LOOK, {**trackpaint.LOOK, "normal": False}):
+            op = trackpaint.create(self.ac, self.name, self.revision, asset, [{"mesh": 0, "u": .1, "v": -.5}], look=look)
+            ref = trackpaint.descriptors(self.ac, self.name, self.revision, [op])[0]["layers"]["images"][0]
+            file, make = tracknative._library_parts(self.ac, self.name, ref, {})[0]
+            made.append((file, make()))
+        self.assertEqual(made[0][0], made[1][0])
+        self.assertEqual(made[0][1], made[1][1])
 
     def test_a_simple_save_s_size_counts_its_photos_as_written(self):
         from app import trackedits, trackpaint

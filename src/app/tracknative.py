@@ -25,8 +25,8 @@ PREFIX = "nocol_ground_m2l_"
 MASK_CACHE_VERSION = 1
 # The same for a library material's packed photos and normal maps in _library_folder (_colour_key, _normals_key): raise it
 # when _photo_colour, _photo_normals or dds_mipmaps write other bytes for the same inputs. (6: shared by all tracks; 7: gloss
-# alpha for the classic shader, normals as tangent RGB.)
-PHOTO_CACHE_VERSION = 7
+# alpha for the classic shader, normals as tangent RGB; 8: gloss from the roughness map at its own size.)
+PHOTO_CACHE_VERSION = 8
 # The same for the ground pieces' region copies kept beside them (_copy_key): raise it when trackground.clip_region,
 # _cuts or _batches give other vertices for the same inputs. A track's recipe keeps the one it was saved with: an older one
 # makes its paints need a Save (trackedits._needs_material_save). (2: copies reach the tile's edges, _cuts; 3: a build's
@@ -586,8 +586,10 @@ def _library_parts(ac, name, ref, raws):
         raws[asset] = (trackpaint._resolve(ac, name, "materials", asset) / "colour.png").read_bytes()
     raw = raws[asset]
     detail = functools.cache(lambda: _rgba(trackdetail.detail_image(ac, name, asset))) if "detail" in ref else None
-    # (its gloss alpha from the detail map only with a roughness map in it: without, the flat roughness gives the same bytes)
-    parts = [(_colour_key(raw, ref) + ".dds", lambda: _photo_colour(raw, ref, detail if _roughness_map(ref) else None))]
+    # (its gloss alpha from the roughness map alone, not from the detail map, which takes the larger of the normal and the
+    # roughness map's sizes: a normal map switched on or off would give the same name other bytes)
+    rough = (lambda: _roughness_pixels(ac, name, asset)) if _roughness_map(ref) else None
+    parts = [(_colour_key(raw, ref) + ".dds", lambda: _photo_colour(raw, ref, rough))]
     if detail:
         parts.append((_normals_key(ref) + ".png", lambda: _photo_normals(detail(), ref)))
     return parts
@@ -724,9 +726,26 @@ def _rgba(raw):
         return np.array(image.convert("RGBA"))
 
 
-def _photo_colour(raw, ref, detail):
-    """A ground photo as a DDS: its colour, in alpha its gloss, 1 - roughness: from detail, a function giving the detail map's
-    pixels, else the layer's flat roughness (trackdetail.flat_roughness; 1 as imported: none). The classic shader's gloss is
+def _roughness_pixels(ac, name, asset):
+    """The roughness map a material snapshot uses, as the detail map reads it (trackdetail.detail_image: its red channel),
+    (H, W) uint8 at its own size; None if its settings switch it off or it has none."""
+    from app import trackpaint
+    folder = trackpaint._resolve(ac, name, "materials", asset)
+    meta = trackpaint._verified(folder / "asset.json", asset)
+    used = trackpaint.data_maps(meta).get("roughness")
+    if used is None:
+        return None
+    path = folder / "roughness.png"
+    if trackpaint._file_digest(path) != used["sha256"]:
+        raise ValueError("The retained material image has changed")
+    with Image.open(path) as image:
+        return np.array(image.convert("RGB").getchannel("R"))
+
+
+def _photo_colour(raw, ref, roughness):
+    """A ground photo as a DDS: its colour, in alpha its gloss, 1 - roughness: from roughness, a function giving the roughness
+    map's (H, W) pixels (_roughness_pixels; None: none), resized to the photo, else the layer's flat roughness
+    (trackdetail.flat_roughness; 1 as imported: none). The classic shader's gloss is
     the material's ksSpecular times it, the ground's own (tracknative.build): a photo shines at most as the ground. Pure. A
     library photo is BC7, BC3's size: BC3's colour has BC1's two ends a block, which turned asphalt beside verge green
     (textures.dds_mipmaps); a source's image keeps its format."""
@@ -734,10 +753,11 @@ def _photo_colour(raw, ref, detail):
     from track.textures import _is_bc7, dds_mipmaps
     with Image.open(io.BytesIO(raw)) as image:
         colour = image.convert("RGBA")
-    if detail is None:
+    pixels = roughness() if roughness else None
+    if pixels is None:
         alpha = Image.new("L", colour.size, round(255 * (1 - min(1., max(0., trackdetail.flat_roughness(ref.get("properties", {})))))))
     else:
-        gloss = np.rint((1 - np.clip(_roughness(detail()[..., 3], ref) / 255, 0, 1)) * 255).astype(np.uint8)
+        gloss = np.rint((1 - np.clip(_roughness(pixels, ref) / 255, 0, 1)) * 255).astype(np.uint8)
         alpha = Image.fromarray(gloss).resize(colour.size, Image.Resampling.BILINEAR)
     colour.putalpha(alpha)
     return dds_mipmaps(colour, alpha=True, smallest=1, independent=True, bc7="asset" in ref or _is_bc7(raw))

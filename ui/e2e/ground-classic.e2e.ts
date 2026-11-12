@@ -160,8 +160,8 @@ test("four then six real mapped materials Apply and reopen with original soft ju
   const roughAsset = await addMaterial(page, "Directed regional roughness", 64, 35, 160, 0, colours[2]);
   await applyAPI(2, roughAsset); await page.reload(); await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const roughPicture = await picture(page), directedRough = await rgb(page, roughPicture, .4, .65);
-  // (a smoother map shines a little more at most: gloss is capped at the ground's ksSpecular 0.02, as in AC)
-  expect(Math.max(...directedRough.map((v, i) => Math.abs(v - directedNormal[i])))).toBeLessThanOrEqual(8);
+  // (this ground has no ksSpecular: a smoother map does not shine more, as in AC; gloss: "a smooth photo shines ...")
+  expect(Math.max(...directedRough.map((v, i) => Math.abs(v - directedNormal[i])))).toBeLessThanOrEqual(1);
   await setPaints(originalPaints);
   await expect.poll(async () => (await picture(page)).equals(six)).toBe(true);
   const frame = await page.evaluate(() => { const measure = performance.getEntriesByName("map2lap.ground.draw").at(-1) as PerformanceMeasure;
@@ -210,8 +210,8 @@ test("a mapped Apply preserves untouched source lighting and +Y normals follow t
   const roughPixel = await rgb(page, rough, .4, .65);
   const smooth = await apply("Smooth aligned normal");
   const smoothPixel = await rgb(page, smooth, .4, .65);
-  // (the classic light: a smoother photo shines at most as the ground, ksSpecular 0.02, a highlight of a few levels at most)
-  expect(Math.abs(smoothPixel[0] - roughPixel[0]), "gloss stays within the ground's").toBeLessThanOrEqual(8);
+  // (this ground has no ksSpecular: as in AC, a photo then does not shine, however smooth; gloss: the test below)
+  expect(Math.max(...smoothPixel.map((v, i) => Math.abs(v - roughPixel[i]))), "no gloss without the ground's ksSpecular").toBeLessThanOrEqual(1);
   const smoothUntouched = await rgb(page, smooth, .7, .65);
   expect(Math.max(...untouched.map((v, i) => Math.abs(v - smoothUntouched[i])))).toBeLessThanOrEqual(1);
   const untouchedRoiMax = await untouchedDelta(page, original, smooth);
@@ -238,3 +238,46 @@ test("a mapped Apply preserves untouched source lighting and +Y normals follow t
   await writeFile(test.info().outputPath("source.png"), original);
   await writeFile(test.info().outputPath("pbr-saved-reopened.png"), smooth);
 });
+
+test("a smooth photo shines on glossy ground, a rough one does not, and neither more than the ground's own gloss allows", async ({page, backend}) => {
+  // The ground's ksSpecular is the most a photo shines (tracknative._photo_colour): a strong one here, so the highlight shows.
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_split: true, ground_specular: [1, 4]});
+  await openEditor(page);
+  await addMaterial(page, "Smooth flat", 128, 0, 128);
+  await addMaterial(page, "Rough flat", 128, 255, 128);
+  const view = (await scene(page).boundingBox())!;
+  async function apply(name: string) {
+    await page.mouse.click(view.x + view.width * .4, view.y + view.height * .65);
+    await page.getByRole("complementary", {name: "Inspector"}).getByRole("button", {name: "Edit texture"}).click();
+    const picker = page.getByRole("dialog", {name: "Asset library"});
+    await picker.getByRole("button", {name, exact: true}).click();
+    await picker.getByRole("button", {name: "Apply", exact: true}).click();
+    await expect(picker).toBeHidden(); await saved(page);
+    await scene(page).focus(); await page.keyboard.press("Escape");
+    return picture(page);
+  }
+  const rough = await apply("Rough flat"), smooth = await apply("Smooth flat");
+  const shine = await brighter(page, rough, smooth, .4, .65);
+  await writeFile(test.info().outputPath("gloss.json"), JSON.stringify(shine));
+  expect(shine.most, "a smooth photo shines where the rough one does not").toBeGreaterThan(6);
+  expect(shine.least, "gloss only adds light").toBeGreaterThanOrEqual(-1);
+});
+
+/** How much brighter after is than before in a 64 px square around (x, y) of the picture: {most, least} of a channel. */
+async function brighter(page: Page, before: Buffer, after: Buffer, x: number, y: number) {
+  return page.evaluate(async ({images, x, y}) => {
+    const crops: Uint8ClampedArray[] = [];
+    for (const raw of images) {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${raw}`)).blob());
+      const canvas = document.createElement("canvas"); canvas.width = canvas.height = 64;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, Math.floor(bitmap.width * x) - 32, Math.floor(bitmap.height * y) - 32, 64, 64, 0, 0, 64, 64);
+      crops.push(ctx.getImageData(0, 0, 64, 64).data); bitmap.close();
+    }
+    let most = -255, least = 255;
+    for (let i = 0; i < crops[0].length; i++) if (i % 4 !== 3) {
+      most = Math.max(most, crops[1][i] - crops[0][i]); least = Math.min(least, crops[1][i] - crops[0][i]);
+    }
+    return {most, least};
+  }, {images: [before.toString("base64"), after.toString("base64")], x, y});
+}
