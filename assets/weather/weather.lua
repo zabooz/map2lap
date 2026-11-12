@@ -544,6 +544,7 @@ function glass.setup()
   end
   if chosen then
     glass.mesh = chosen
+    glass.root = root
     -- Unrolled frame: S runs up the glass from the bottom front edge (lo.y, hi.z) to the top rear edge (hi.y, lo.z).
     local dy, dz = hi.y - lo.y, hi.z - lo.z
     local len = sqrt(dy * dy + dz * dz)
@@ -727,17 +728,15 @@ function glass.setup()
   end
 
   local function updateDrops(dt, gx, gs, airx, airs, airMag, impinge)
-    -- Rain lands as small beads, more of them the harder the rain hits the glass (6.7 m/s standing in rain).
-    spawnBudget = min(4, spawnBudget + 16 * rainAmount * impinge / 6.7 * dt)
+    -- The field holds the beads; this list holds the few big drops that run and leave trails.
+    spawnBudget = min(4, spawnBudget + 2.5 * rainAmount * impinge / 6.7 * dt)
     while spawnBudget >= 1 do
       spawnBudget = spawnBudget - 1
       local r = rand()
       -- With every slot taken, the impact lands on a bead already there and grows it instead.
-      local r0 = 0.0016 + r * r * 0.0022
-      if not spawnDrop(x0 + rand() * xw, s0 + rand() * sw, r0) then
-        local i = floor(rand() * DROPS)
-        if dAlive[i] then dR[i] = min(0.007, cbrt(dR[i] ^ 3 + r0 ^ 3)); dKick[i] = 0.4 end
-      end
+      local r0 = 0.0028 + r * 0.002
+      local i = spawnDrop(x0 + rand() * xw, s0 + rand() * sw, r0)
+      if i then dKick[i] = 1 + rand() * 2 end
     end
     for i = 0, NX * NY - 1 do head[i] = -1 end
     aliveCount = 0
@@ -823,7 +822,7 @@ function glass.setup()
 
   -- Shader constants: drops as float4 pairs packed in matrices (4 rows each), blades as one matrix each.
   local DMATS = DROPS / 2
-  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gSeed = vec2(),
+  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gBead = 0, gSnowMode = 0, gSeed = vec2(),
     gW0 = mat4x4.identity(), gW1 = mat4x4.identity()}
   local dropMats = {}
   for k = 0, DMATS - 1 do
@@ -856,7 +855,7 @@ function glass.setup()
 
   local dropCalls = {}
   for k = 0, DMATS - 1 do
-    dropCalls[#dropCalls + 1] = string.format('  drop(gD%d[0], gD%d[1], p, h, film);\n  drop(gD%d[2], gD%d[3], p, h, film);', k, k, k, k)
+    dropCalls[#dropCalls + 1] = string.format('  drop(gD%d[0], gD%d[1], p, hd, film);\n  drop(gD%d[2], gD%d[3], p, hd, film);', k, k, k, k)
   end
   glass.sim = {
     async = true,
@@ -895,6 +894,7 @@ function glass.setup()
           film = film * 0.1 + 0.03 * step(0.02, film + snow + slush);
           snow = 0;
           slush *= 0.05;
+          h = 0;
         }
         float2 e = B1 - A1;
         float t = saturate(dot(p - A1, e) / max(1e-9, dot(e, e)));
@@ -941,12 +941,27 @@ function glass.setup()
         float toWater = slush * 0.12 * dt;
         slush -= toWater;
         film = min(1, film + toWater * 0.8);
-        float h = 0;
+        // Rain beads persist like snow clumps: round domes 1.5 to 3.5 mm in radius land at a bounded random rate,
+        // dry slowly, and the blade clears them. Height in millimetres.
+        float h = max(0, prev.a - 0.02 * dt);
+        float2 bcell = floor(p / 0.008);
+        [unroll] for (int bj = -1; bj <= 1; bj++) [unroll] for (int bi = -1; bi <= 1; bi++) {
+          float2 c = bcell + float2(bi, bj);
+          float hv = hash12(c * 1.3 + gSeed);
+          if (hv < gBead) {
+            float2 centre = (c + 0.5 + (float2(hash12(c * 2.1 + gSeed.yx), hash12(c * 2.9 + gSeed)) - 0.5) * 0.6) * 0.008;
+            float R = 0.0015 + 0.002 * hash12(c * 3.7 + gSeed) * hash12(c * 4.3 + gSeed);
+            float2 q = p - centre;
+            float d2 = dot(q, q);
+            if (d2 < R * R) h = max(h, R * 500 * sqrt(1 - d2 / (R * R)));
+          }
+        }
+        float hd = 0;
         blade(gW0, p, film, snow, slush, h);
         blade(gW1, p, film, snow, slush, h);
 ]] .. table.concat(dropCalls, '\n') .. [[
 
-        return float4(film, snow, slush, h);
+        return float4(film, snow, gSnowMode > 0.5 ? slush : hd, h);
       }
     ]]
   }
@@ -957,12 +972,13 @@ function glass.setup()
     async = true,
     cacheKey = 32,
     textures = {txField = false},
-    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1, gTime = 0, gWhite = 1,
+    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1, gTime = 0, gWhite = 1, gSnowMode = 0,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3()},
     shader = [[
-      float height(float4 f) { return f.a + f.r * 0.08 + f.b * 1.2 + f.g * 2.2; }
+      float hash12(float2 p) { float3 p3 = frac(float3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return frac((p3.x + p3.y) * p3.z); }
+      float height(float4 f) { return f.a + f.r * 0.08 + f.b + f.g * 2.2; }
       float4 main(PS_IN pin) {
         float3 d = pin.PosC + gCameraPos - gCarPos;
         float x = dot(d, gCarSide);
@@ -982,7 +998,7 @@ function glass.setup()
         // Water, without a scene sample (CSP's dynamic scene textures are not dependable in this pass): a bead
         // dims the view through its body, goes darker on its steep rim, and reflects the sky on its crest as a
         // faint crescent. The wet film greys and dims the view where the blades have not been.
-        float body = saturate(f.a * 2.5);
+        float body = saturate((f.a + (gSnowMode > 0.5 ? 0 : f.b)) * 2.5);
         // The film edge is softened over about 4 mm, so the swept fan does not end in a hard line.
         float2 e3 = gTexel.xy * 3;
         float filmSum = f.r + txField.Sample(samLinearSimple, uv + float2(e3.x, e3.y * 0.5)).r + txField.Sample(samLinearSimple, uv - float2(e3.x, e3.y * 0.5)).r
@@ -990,19 +1006,23 @@ function glass.setup()
         float film = saturate(filmSum * 0.2 * 1.5);
         float steep = saturate(length(n.xy) * 3);
         float spec = pow(saturate(R.y), 5) * saturate(steep * 1.5 + 0.2);
-        float3 bodyColor = gColor * 0.35;
-        float3 rimColor = gColor * 0.1;
-        float3 specColor = gColor * 1.5;
-        float3 filmColor = gColor * 0.45;
-        float bodyA = body * 0.3;
-        float rimA = steep * body * 0.6;
-        float specA = spec * body * 0.45;
-        float filmA = film * 0.22;
+        float3 bodyColor = gColor * 0.55;
+        float3 rimColor = gColor * 0.12;
+        float3 specColor = gColor * 1.7;
+        // Wet sheen: a carpet of tiny beads, each with a faint crest highlight, over a slight dimming.
+        float2 cell = floor(float2(x, s) * 300);
+        float2 inCell = frac(float2(x, s) * 300) - 0.5 - (float2(hash12(cell), hash12(cell + 7.1)) - 0.5) * 0.5;
+        float speck = (1 - smoothstep(0.08, 0.22, length(inCell))) * step(0.35, hash12(cell + 3.3));
+        float3 filmColor = gColor * (0.2 + 1.0 * speck * saturate(R.y + 0.3));
+        float bodyA = body * 0.42;
+        float rimA = steep * body * 0.32;
+        float specA = spec * body * 0.6;
+        float filmA = film * (0.03 + 0.18 * speck);
         float wAlpha = saturate(bodyA + rimA + specA + filmA);
         float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA + filmColor * filmA) / max(wAlpha, 1e-4);
         // Snow: matte white with cheap height shading from above; slush grey and translucent.
         float snowA = saturate(f.g * 2.2);
-        float slushA = saturate(f.b * 1.2) * 0.55;
+        float slushA = gSnowMode > 0.5 ? saturate(f.b * 1.2) * 0.55 : 0;
         float lit = 0.55 + 0.45 * saturate(nW.y * 0.6 + 0.6) + 0.15 * saturate(n.y * 2);
         float3 sColor = gSnowColor * lit;
         float3 slColor = gSnowColor * 0.55 * lit;
@@ -1016,18 +1036,22 @@ function glass.setup()
   }
 
   local airVec = vec3()
-  -- Called from frameBegin: airflow, drops, blades, shader constants.
+  -- Called from frameBegin: airflow, drops, shader constants, field step.
   function glass.update(dt)
     dt = min(dt, 0.1)
     local car = ac.getCar(0)
-    local w2l = car.worldToLocal
-    local side, up, look = car.side, car.up, car.look
+    -- The car's root node, not the physics state: blade nodes and the glass mesh hang under it, so their
+    -- positions stay consistent to the millimetre at speed (the physics transform lags the scene by a step).
+    local rootM = glass.rootM or car.bodyTransform
+    local side, up, look = rootM.row1, rootM.row2, rootM.row3
     rainAmount = mode == 'rain' and density or 0
     snowRate = mode == 'snow' and density or 0
     -- Air relative to the car, in car-local axes: wind minus the car's own motion. Driving makes airflow on its own.
     local vel = car.velocity
     airVec:set(wind):sub(vel)
-    local ax, ay, az = airVec:dot(side), airVec:dot(up), airVec:dot(look)
+    local ax = airVec.x * side.x + airVec.y * side.y + airVec.z * side.z
+    local ay = airVec.x * up.x + airVec.y * up.y + airVec.z * up.z
+    local az = airVec.x * look.x + airVec.y * look.y + airVec.z * look.z
     local ty, tz = glass.ty, glass.tz
     -- Glass frame: tangent T = (0, ty, tz) up the glass, outward normal N = (0, -tz, ty).
     local tanX, tanS = ax, ay * ty + az * tz
@@ -1038,10 +1062,8 @@ function glass.setup()
     -- Gravity along the glass, from the world's down axis in car-local terms.
     local gx = -9.81 * side.y
     local gs = -9.81 * (up.y * ty + look.y * tz)
-    local anyActive = updateBlades(dt, w2l)
+    local anyActive = glass.anyActive or false
     updateDrops(dt, gx, gs, tanX, tanS, airMag, impinge)
-    -- Melting flakes feed a few beads of water as well.
-    if snowRate > 0 and rand() < snowRate * dt * 1.5 then spawnDrop(x0 + rand() * xw, s0 + rand() * sw, 0.0008 + rand() * 0.0008) end
     -- Heat: AC has no defroster control. The approximation uses engine coolant temperature as the heater supply
     -- (a warm engine warms the cabin air blown at the glass) plus ambient air above freezing.
     local heat = min(1, max(0, (car.waterTemperature - 50) / 40))
@@ -1056,6 +1078,9 @@ function glass.setup()
     v.gParams:set(dt, 0.02, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
     v.gAir:set(tanX, tanS, airMag, impinge)
     v.gMelt = melt
+    v.gSnowMode = snowRate > 0 and 1 or 0
+    -- Beads land at about 45 a second over the glass standing in heavy rain; 8 mm cells, 3 x 3 looked up.
+    v.gBead = 45 * rainAmount * impinge / 6.7 * dt / ((xw / 0.008) * (sw / 0.008))
     -- Standing in heavy rain the glass is fully wet in about 35 s, about twice as fast when driving into it
     -- (capped: a faster build-up turns the fan's edge into a hard line between sweeps).
     v.gWet = rainAmount * min(impinge, 13) / 6.7 * 0.03
@@ -1076,10 +1101,15 @@ function glass.setup()
   function glass.draw()
     if glass.quiet then return end
     local car = ac.getCar(0)
+    -- Blade lines and the glass mapping come from the scene transforms as they are drawn this frame; the field
+    -- step at the next frame start uses these lines. Reading them at frame start was a frame behind the mesh.
+    local rootM = glass.root:getWorldTransformationRaw()
+    glass.rootM = rootM
+    glass.anyActive = updateBlades(max(frameDt, 1e-4), rootM:inverse())
     local v = glass.pass.values
     v.gRaw = glassRaw and 1 or 0
     v.gTime = elapsed
-    v.gWhite = sim.whiteReferencePoint or 1
+    v.gSnowMode = snowRate > 0 and 1 or 0
     local size = render.getRenderTargetSize()
     v.gScreen:set(max(1, size.x), max(1, size.y))
     local horizon = sim.horizonColor
@@ -1089,10 +1119,11 @@ function glass.setup()
     local brightness = min(1, max(0.04, sqrt(max(0, illumination)) * 2.5))
     v.gSnowColor.r, v.gSnowColor.g, v.gSnowColor.b = 0.82 * brightness, 0.86 * brightness, 0.9 * brightness
     v.gCameraPos:set(sim.cameraPosition)
-    v.gCarPos:set(car.position)
-    v.gCarSide:set(car.side)
-    v.gCarUp:set(car.up)
-    v.gCarLook:set(car.look)
+    local m = glass.rootM or car.bodyTransform
+    v.gCarPos:set(m.row4.x, m.row4.y, m.row4.z)
+    v.gCarSide:set(m.row1.x, m.row1.y, m.row1.z)
+    v.gCarUp:set(m.row2.x, m.row2.y, m.row2.z)
+    v.gCarLook:set(m.row3.x, m.row3.y, m.row3.z)
     glass.pass.textures.txField = glass.read
     render.setBlendMode(render.BlendMode.AlphaBlend)
     render.setCullMode(render.CullMode.None)
