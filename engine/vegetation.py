@@ -34,10 +34,11 @@ import staging
 
 log = logging.getLogger("earthd.vegetation")
 
-VERSION = 20         # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
+VERSION = 21        # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
                       # drawn widths and sidewalks kept clear; 17: BC's lidar canopy heights, mapdata's canopy layer 2;
                       # 18: the rounded junction corners kept clear, roadcorners.py; 19: land in the water layer
-                      # bears trees, mapgeom.water_areas; 20: tops thinned by ground m, not Web Mercator m)
+                      # bears trees, mapgeom.water_areas; 20: tops thinned by ground m, not Web Mercator m; 21: the bushes' grids and the
+                      # edge band too)
 TREE_MIN_M = 3.0
 CROWN_SPACING = 0.5          # tops kept this many crown radii apart (0.8 looked sparse)
 BUSH_MIN_M = 1.0
@@ -349,9 +350,7 @@ class Vegetation:
             tops |= moved
         blocked |= road
         jj, ii = np.nonzero(tops)
-        # one top per crown (flat crowns had several); a CHM pixel is chm.dx Web Mercator m, cos(lat) of that on the
-        # ground (the cell's middle: a cell spans a few hundredths of a degree)
-        jj, ii = _thin(jj, ii, hs[jj, ii], chm.dx * math.cos(math.radians((lat0 + lat1) / 2)))
+        jj, ii = _thin(jj, ii, hs[jj, ii], chm.dx * _ground_k(cd.bounds))   # one top per crown (flat crowns had several)
         th = hs[jj, ii]
         tlon, tlat = _to4326(mx[ii], my[jj])
         is_tree = th >= TREE_MIN_M
@@ -409,12 +408,13 @@ class Vegetation:
         lon0, lat0, lon1, lat1 = cd.bounds
         if _dry_west(np.array([(lat0 + lat1) / 2]), np.array([(lon0 + lon1) / 2]))[0]:
             return _empty()
-        band = _dilate(road, max(1, int(round(EDGE_M / chm.dx)))) & ~blocked
+        k = _ground_k(cd.bounds)
+        band = _dilate(road, max(1, int(round(EDGE_M / (chm.dx * k))))) & ~blocked
         if not band.any():
             return _empty()
         ex0, ey0 = _to3857(lon0, lat0)
         ex1, ey1 = _to3857(lon1, lat1)
-        s = EDGE_CELL_M
+        s = EDGE_CELL_M / k
         GI, GJ = np.meshgrid(np.arange(math.floor(ex0 / s), math.ceil(ex1 / s)),
                              np.arange(math.floor(ey0 / s), math.ceil(ey1 / s)))
         GI, GJ = GI.ravel(), GJ.ravel()
@@ -466,7 +466,7 @@ class Vegetation:
         lon0, lat0, lon1, lat1 = cd.bounds
         ex0, ey0 = _to3857(lon0, lat0)
         ex1, ey1 = _to3857(lon1, lat1)
-        s = SCATTER_CELL_M
+        s = SCATTER_CELL_M / _ground_k(cd.bounds)
         gi = np.arange(math.floor(ex0 / s), math.ceil(ex1 / s))
         gj = np.arange(math.floor(ey0 / s), math.ceil(ey1 / s))
         GI, GJ = np.meshgrid(gi, gj)
@@ -518,6 +518,14 @@ class Vegetation:
                      _hash01(GI[sel], GJ[sel], 15).astype(np.float32),
                      (_hash01(GI[sel], GJ[sel], 16) * 360.0).astype(np.float32),
                      (0.8 + 0.4 * _hash01(GI[sel], GJ[sel], 17)).astype(np.float32)) if n else _empty()
+
+
+def _ground_k(bounds):
+    """Ground m per Web Mercator m in the cell of bounds (lon0, lat0, lon1, lat1): cos of its middle latitude (a cell spans
+    a few hundredths of a degree). The CHM grid and the hashed grids are Web Mercator, every distance here ground m: a
+    Mercator metre is 1 / cos(lat) of a ground metre (Rauma's tops stood half their spacing apart, its bushes four times as
+    dense). Grids sized by it shift a little from one cell to the next: at a cell's border two bushes may stand closer. Pure."""
+    return math.cos(math.radians((bounds[1] + bounds[3]) / 2))
 
 
 def _thin(jj, ii, h, px):

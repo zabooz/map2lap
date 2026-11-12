@@ -245,15 +245,16 @@ class VegetationTest(unittest.TestCase):
         tx, ty = int(np.floor(e[0] / veg.TILE)), int(np.floor(n[0] / veg.TILE))
         ground = lambda la, lo: np.full(np.shape(la), 12.0)        # noqa: E731
         full = veg.tile_items(f, tx, ty, v, lambda k: True, ground)
-        self.assertGreater(len(full), 20)
+        cap = 5
+        self.assertGreater(len(full), 2 * cap)
         old = veg.TILE_ROWS_MAX
-        veg.TILE_ROWS_MAX = 10
+        veg.TILE_ROWS_MAX = cap
         try:
             capped = veg.tile_items(f, tx, ty, v, lambda k: True, ground)
         finally:
             veg.TILE_ROWS_MAX = old
-        self.assertEqual(len(capped), 10)
-        lowest = sorted(r[7] for r in full)[:10]
+        self.assertEqual(len(capped), cap)
+        lowest = sorted(r[7] for r in full)[:cap]
         self.assertEqual(sorted(r[7] for r in capped), lowest)
         self.assertEqual([r for r in full if r in capped], capped, "in the tile's own order")
 
@@ -330,6 +331,62 @@ class RegionalTest(unittest.TestCase):
         self.assertEqual(self.g(veg.G_SHRUB, 1, 22.3, -4.6, 60), veg.G_DESERT_SHRUB, "the Sahara")
         self.assertEqual(self.g(veg.G_ROCK, 1, -25.0, 133.0, 20), veg.G_DESERT_ROCK, "inner Australia")
         self.assertEqual(self.g(veg.G_SHRUB, 1, 52.0, 5.0, 20), veg.G_SHRUB, "Dutch shrubland: no desert")
+
+
+def forest_cell(lat, n=1024):
+    """(cd, lc, chm, hs) of the cell at lat, all forest (WorldCover tree) under 10 m canopy on an n x n CHM over the cell."""
+    k = mapcells.cell_of(lat, 10.0)
+    lon0, lat0, lon1, lat1 = k.bounds()
+    x0, y1 = veg._to3857(lon0, lat1)
+    x1, _ = veg._to3857(lon1, lat0)
+
+    class Forest(Raster):
+        def sample(self, lon, lat):
+            return np.full(np.shape(lon), veg.WC["tree"], np.uint8)
+    chm = Raster(np.full((n, n), 10, np.uint8), x0, y1, (x1 - x0) / n)
+    return SimpleNamespace(bounds=k.bounds(), layers={}), Forest(None, 0, 0, 1), chm, np.full((n, n), 10.0, np.float32)
+
+
+def ground_km2(cd):
+    """The cell's area on the ground."""
+    lon0, lat0, lon1, lat1 = cd.bounds
+    (x0, y0), (x1, y1) = veg._to3857(lon0, lat0), veg._to3857(lon1, lat1)
+    return (x1 - x0) * (y1 - y0) * np.cos(np.radians((lat0 + lat1) / 2)) ** 2 / 1e6
+
+
+class GroundMetresTest(unittest.TestCase):
+    """The bushes' grids and the forest edge's band are ground metres: in Web Mercator m, Rauma's (61 deg) bushes stood
+    four times as dense as the equator's, its edge thicket half as deep."""
+
+    def per_km2(self, lat, make):
+        cd, lc, chm, hs = forest_cell(lat)
+        return len(make(veg.Vegetation(None, None), cd, lc, chm, hs)) / ground_km2(cd)
+
+    def test_scattered_bushes_as_dense_at_60_degrees(self):
+        def scatter(v, cd, lc, chm, hs):
+            return v._scatter(cd, lc, np.zeros(hs.shape, bool), chm, hs)
+        south, north = self.per_km2(0.5, scatter), self.per_km2(60.0, scatter)
+        self.assertGreater(south, 0)
+        self.assertAlmostEqual(north / south, 1.0, delta=0.05)
+
+    def test_edge_bushes_as_dense_at_60_degrees(self):
+        def edge(v, cd, lc, chm, hs):
+            return v._edge(cd, lc, np.zeros(hs.shape, bool), np.ones(hs.shape, bool), chm, hs)
+        south, north = self.per_km2(0.5, edge), self.per_km2(60.0, edge)
+        self.assertGreater(south, 0)
+        self.assertAlmostEqual(north / south, 1.0, delta=0.05)
+
+    def test_edge_band_reaches_edge_m_on_the_ground(self):
+        cd, lc, chm, hs = forest_cell(60.0)
+        road = np.zeros(hs.shape, bool)
+        row = hs.shape[0] // 2
+        road[row] = True
+        it = veg.Vegetation(None, None)._edge(cd, lc, road.copy(), road, chm, hs)
+        y_road = chm.y0 - (row + 0.5) * chm.dy
+        _, y = veg._to3857(it.lon, it.lat)
+        far = np.abs(y - y_road).max() * np.cos(np.radians(60.0))
+        self.assertGreater(far, veg.EDGE_M - 1.0)
+        self.assertLess(far, veg.EDGE_M + 2.0)
 
 
 class DilateTest(unittest.TestCase):
