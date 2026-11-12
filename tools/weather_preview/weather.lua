@@ -25,6 +25,7 @@ local nativeParticles = {
   [ac.WeatherType.HeavySnow] = {'snow', 1},
 }
 local frames, drawn, luaMs, submitMs = 0, 0, 0, 0
+local beginCount, shelteredCount, shelterMs = 0, 0, 0
 local held = false
 local wind = vec3()
 local cameraVelocity = vec3()
@@ -42,7 +43,7 @@ local function rand()
   random = random * 16807 % 2147483647
   return random / 2147483647
 end
-local COUNT = 4096
+local COUNT = 8192
 -- The camera-wrapped volume: 28 m wide and deep, 14 m tall, so a particle leaving one side enters the other.
 local BOX, HALF, BOXY, HALFY = 28, 14, 14, 7
 local px, py, pz, weight, size, phase, aspect = {}, {}, {}, {}, {}, {}, {}
@@ -126,6 +127,54 @@ local function setMode(nextMode)
   notify()
 end
 
+-- Shelter: a 7 x 7 grid of 4 m columns around the camera. Two upward rays per frame refresh one column each,
+-- so the whole box is rechecked about six times a second. A particle below a column's roof is not drawn:
+-- rain stops under a bridge or in a tunnel instead of falling through the ceiling. Cars are ignored.
+local GRID, CELL = 7, 4
+local floor, max = math.floor, math.max
+local roofIx, roofIz, roofY = {}, {}, {}
+for i = 0, GRID * GRID - 1 do roofIx[i], roofIz[i], roofY[i] = nil, nil, -1 end
+local roofCursor, trackCursor, trackPhase = 0, 0, 0
+local rayOrigin, rayUp = vec3(), vec3(0, 1, 0)
+-- Physics meshes (collidable road, bridge decks, tunnel linings) answer in about 0.01 ms, the full track mesh
+-- in about 0.5 ms (measured on Heiligenblut). So every frame two columns ask the physics meshes, and every
+-- fourth frame one column asks the track mesh as well, which also finds non-collidable roofs and tree crowns.
+local function castRoof(ix, iz, cy, method)
+  -- From a little below eye level, so a tunnel ceiling or bridge deck above the road is found.
+  rayOrigin:set((ix + 0.5) * CELL, cy - 1, (iz + 0.5) * CELL)
+  local ray = render.createRay(rayOrigin, rayUp, 60)
+  local hit = method == 'track' and ray:track(0) or ray:physics()
+  return hit > 0 and cy - 1 + hit or -1e9
+end
+local function updateShelter(cx, cy, cz)
+  local baseX, baseZ = floor(cx / CELL) - 3, floor(cz / CELL) - 3
+  for _ = 1, 2 do
+    local cell = roofCursor
+    roofCursor = (roofCursor + 1) % (GRID * GRID)
+    local ix, iz = baseX + cell % GRID, baseZ + floor(cell / GRID)
+    local slot = (ix % GRID) * GRID + iz % GRID
+    local roof = castRoof(ix, iz, cy, 'physics')
+    -- A fresh column forgets the old track answer; a known column keeps the higher of the two roofs.
+    if roofIx[slot] ~= ix or roofIz[slot] ~= iz then roofIx[slot], roofIz[slot], roofY[slot] = ix, iz, roof
+    else roofY[slot] = max(roofY[slot], roof) end
+  end
+  trackPhase = (trackPhase + 1) % 4
+  if trackPhase == 0 then
+    local cell = trackCursor
+    trackCursor = (trackCursor + 1) % (GRID * GRID)
+    local ix, iz = baseX + cell % GRID, baseZ + floor(cell / GRID)
+    local slot = (ix % GRID) * GRID + iz % GRID
+    if roofIx[slot] == ix and roofIz[slot] == iz then
+      roofY[slot] = max(roofY[slot], castRoof(ix, iz, cy, 'track'))
+    end
+  end
+end
+local function sheltered(wx, wy, wz)
+  local ix, iz = floor(wx / CELL), floor(wz / CELL)
+  local slot = (ix % GRID) * GRID + iz % GRID
+  return roofIx[slot] == ix and roofIz[slot] == iz and wy < roofY[slot]
+end
+
 local activeCount = 0
 local function hide(from, to)
   for i = from, to - 1 do
@@ -138,6 +187,102 @@ local function hide(from, to)
 end
 
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
+local raw = vertices.raw
+
+-- Writes one particle's quad: centre c, half side vector s, half axis vector e, packed alpha/softness.
+local function place(b, cx, cy, cz, sx, sy, sz, ex, ey, ez, aq)
+  local v = raw[b]
+  v.pos.x, v.pos.y, v.pos.z, v.uv.y = cx - sx - ex, cy - sy - ey, cz - sz - ez, aq
+  v = raw[b + 1]
+  v.pos.x, v.pos.y, v.pos.z, v.uv.y = cx - sx + ex, cy - sy + ey, cz - sz + ez, aq + 0.998
+  v = raw[b + 2]
+  v.pos.x, v.pos.y, v.pos.z, v.uv.y = cx + sx + ex, cy + sy + ey, cz + sz + ez, aq + 0.998
+  v = raw[b + 3]
+  v.pos.x, v.pos.y, v.pos.z, v.uv.y = cx + sx - ex, cy + sy - ey, cz + sz - ez, aq
+end
+
+-- Collapses one particle's quad to a point below the world.
+local function drop(b, cx, cy, cz)
+  for c = 0, 3 do
+    local v = raw[b + c]
+    v.pos.x, v.pos.y, v.pos.z = cx, cy - 10000, cz
+  end
+end
+
+-- Rain and snow have their own loops: one loop with both branches ran four times slower under LuaJIT.
+local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, vz)
+  for i = 0, count - 1 do
+    local w = weight[i]
+    local speed = 5.5 + w * 3.5
+    -- World-phase wrapping: moving the camera reveals particles without dragging them along.
+    local x = (px[i] + driftX - cx + HALF) % BOX - HALF
+    local y = (py[i] - elapsed * speed - cy + HALFY) % BOXY - HALFY
+    local z = (pz[i] + driftZ - cz + HALF) % BOX - HALF
+    local d2 = x * x + y * y + z * z
+    local b = i * 4
+    local covered = sheltered(cx + x, cy + y, cz + z)
+    if covered then shelteredCount = shelteredCount + 1 end
+    if not covered and d2 > 2 and d2 < 225 and x * lx + y * ly + z * lz > -0.3 then
+      local distance = sqrt(d2)
+      local pixelMetres = metrePerPixel * distance
+      local edge = min(1, (15 - distance) / 4) * min(1, (distance - 1.4) / 1.2)
+      -- The streak follows the apparent velocity: fall plus wind, minus the camera's own motion.
+      local vy = vy0 - speed
+      local relative = sqrt(vx * vx + vy * vy + vz * vz)
+      local ux, uy, uz = -vx / relative, -vy / relative, -vz / relative
+      -- 16 ms of shutter smear along the apparent velocity.
+      local hh = min(0.6, max(0.05, relative * 0.016)) * 0.5
+      local width = (0.0025 + w * 0.003) * size[i]
+      local shown = max(width, pixelMetres * 1.3)
+      local hw = shown * 0.5
+      -- A streak thinner than a pixel is drawn a pixel wide but fainter, so no uniform white bars appear.
+      local alpha = (0.3 + w * 0.25) * edge * max(0.35, sqrt(width / shown))
+      -- The side vector lies across the streak and across the view direction.
+      local sx, sy, sz = uy * z - uz * y, uz * x - ux * z, ux * y - uy * x
+      local sl = sqrt(sx * sx + sy * sy + sz * sz)
+      if sl < 1e-6 then sx, sy, sz, sl = 1, 0, 0, 1 end
+      local k = hw / sl
+      place(b, cx + x, cy + y, cz + z, sx * k, sy * k, sz * k, ux * hh, uy * hh, uz * hh,
+        floor(min(99, max(0, alpha * 100))))
+      drawn = drawn + 1
+    else
+      drop(b, cx, cy, cz)
+    end
+  end
+end
+
+local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, upz, sdx, sdy, sdz)
+  for i = 0, count - 1 do
+    local w = weight[i]
+    local speed = 0.45 + w * 0.85
+    local ph = phase[i]
+    -- Each flake sways and tumbles at its own rate.
+    local x = (px[i] + driftX + sin(elapsed * (0.8 + w) + ph) * 0.18 - cx + HALF) % BOX - HALF
+    local y = (py[i] - elapsed * speed - cy + HALFY) % BOXY - HALFY
+    local z = (pz[i] + driftZ + cos(elapsed * 0.65 + ph) * 0.15 - cz + HALF) % BOX - HALF
+    local d2 = x * x + y * y + z * z
+    local b = i * 4
+    local covered = sheltered(cx + x, cy + y, cz + z)
+    if covered then shelteredCount = shelteredCount + 1 end
+    if not covered and d2 > 2 and d2 < 225 and x * lx + y * ly + z * lz > -0.3 then
+      local distance = sqrt(d2)
+      local pixelMetres = metrePerPixel * distance
+      local edge = min(1, (15 - distance) / 4) * min(1, (distance - 1.4) / 1.2)
+      -- Flakes from 6 to 30 mm, most of them medium; the soft core needs 2.5 px, 14 px caps nearby discs.
+      local width = (0.006 + w * w * 0.025) * size[i]
+      local shown = min(pixelMetres * 14, max(width, pixelMetres * 2.5))
+      local hw, hh = shown * 0.5, shown * aspect[i] * 0.5
+      local alpha = (0.5 + w * 0.3) * edge
+      -- Within about 4 m a flake is out of focus for a driver's eye.
+      local soft = max(0, 1 - distance / 4)
+      place(b, cx + x, cy + y, cz + z, sdx * hw, sdy * hw, sdz * hw, upx * hh, upy * hh, upz * hh,
+        floor(min(99, max(0, alpha * 100))) + floor(soft * 9 + 0.5) * 100)
+      drawn = drawn + 1
+    else
+      drop(b, cx, cy, cz)
+    end
+  end
+end
 
 -- Rewrites the vertex buffer for this frame's camera, wind and time.
 local function build()
@@ -146,91 +291,22 @@ local function build()
   local cx, cy, cz = camera.x, camera.y, camera.z
   local lx, ly, lz = look.x, look.y, look.z
   local upv, sidev = sim.cameraUp, sim.cameraSide
-  local count = floor(COUNT * density * (snow and 0.6 or 1))
+  local count = floor(COUNT * density * (snow and 1 or 0.7))
   if count < activeCount then hide(count, activeCount) end
   activeCount = count
+  local shelterStart = os.preciseClock()
+  updateShelter(cx, cy, cz)
+  shelterMs = (os.preciseClock() - shelterStart) * 1000
+  shelteredCount = 0
   local targetHeight = max(1, render.getRenderTargetSize().y)
   local metrePerPixel = 2 * math.tan(sim.cameraFOV * math.pi / 360) / targetHeight
   local wx, wz = wind.x, wind.z
   local vcx, vcy, vcz = cameraVelocity.x, cameraVelocity.y, cameraVelocity.z
   drawn = 0
-  for i = 0, count - 1 do
-    local w = weight[i]
-    local speed = snow and (0.45 + w * 0.85) or (5.5 + w * 3.5)
-    local flutter = snow and sin(elapsed * (0.8 + w) + phase[i]) or 0
-    -- World-phase wrapping: moving the camera reveals particles without dragging them along.
-    local x = (px[i] + driftX + flutter * 0.18 - cx + HALF) % BOX - HALF
-    local y = (py[i] - elapsed * speed - cy + HALFY) % BOXY - HALFY
-    local z = (pz[i] + driftZ + (snow and cos(elapsed * 0.65 + phase[i]) * 0.15 or 0) - cz + HALF) % BOX - HALF
-    local d2 = x * x + y * y + z * z
-    local b = i * 4
-    if d2 > 2 and d2 < 225 and x * lx + y * ly + z * lz > -0.3 then
-      local distance = sqrt(d2)
-      local pixelMetres = metrePerPixel * distance
-      local edge = min(1, (15 - distance) / 4) * min(1, (distance - 1.4) / 1.2)
-      local hw, hh, ux, uy, uz, alpha
-      local soft = 0
-      if snow then
-        -- Mostly millimetre flakes with a few larger clumps; the soft core needs 2.5 px, 14 px caps nearby discs.
-        local width = (0.006 + w * w * w * 0.03) * size[i]
-        local shown = min(pixelMetres * 14, max(width, pixelMetres * 2.5))
-        hw, hh = shown * 0.5, shown * aspect[i] * 0.5
-        alpha = (0.5 + w * 0.3) * edge
-        -- Within about 4 m a flake is out of focus for a driver's eye.
-        soft = max(0, 1 - distance / 4)
-        local sx, sy, sz = sidev.x * hw, sidev.y * hw, sidev.z * hw
-        local ex, ey, ez = upv.x * hh, upv.y * hh, upv.z * hh
-        local v = vertices.raw[b]
-        v.pos.x, v.pos.y, v.pos.z = cx + x - sx - ex, cy + y - sy - ey, cz + z - sz - ez
-        v = vertices.raw[b + 1]
-        v.pos.x, v.pos.y, v.pos.z = cx + x - sx + ex, cy + y - sy + ey, cz + z - sz + ez
-        v = vertices.raw[b + 2]
-        v.pos.x, v.pos.y, v.pos.z = cx + x + sx + ex, cy + y + sy + ey, cz + z + sz + ez
-        v = vertices.raw[b + 3]
-        v.pos.x, v.pos.y, v.pos.z = cx + x + sx - ex, cy + y + sy - ey, cz + z + sz - ez
-      else
-        -- The streak follows the apparent velocity: fall plus wind, minus the camera's own motion.
-        local vx, vy, vz = wx - vcx, -speed - vcy, wz - vcz
-        local relative = sqrt(vx * vx + vy * vy + vz * vz)
-        ux, uy, uz = -vx / relative, -vy / relative, -vz / relative
-        -- 16 ms of shutter smear along the apparent velocity.
-        hh = min(0.6, max(0.05, relative * 0.016)) * 0.5
-        local width = (0.0025 + w * 0.003) * size[i]
-        local shown = max(width, pixelMetres * 1.3)
-        hw = shown * 0.5
-        -- A streak thinner than a pixel is drawn a pixel wide but fainter, so no uniform white bars appear.
-        alpha = (0.3 + w * 0.25) * edge * max(0.35, sqrt(width / shown))
-        -- The side vector lies across the streak and across the view direction.
-        local sx, sy, sz = uy * z - uz * y, uz * x - ux * z, ux * y - uy * x
-        local sl = sqrt(sx * sx + sy * sy + sz * sz)
-        if sl < 1e-6 then sx, sy, sz, sl = 1, 0, 0, 1 end
-        sx, sy, sz = sx / sl * hw, sy / sl * hw, sz / sl * hw
-        local ex, ey, ez = ux * hh, uy * hh, uz * hh
-        local v = vertices.raw[b]
-        v.pos.x, v.pos.y, v.pos.z = cx + x - sx - ex, cy + y - sy - ey, cz + z - sz - ez
-        v = vertices.raw[b + 1]
-        v.pos.x, v.pos.y, v.pos.z = cx + x - sx + ex, cy + y - sy + ey, cz + z - sz + ez
-        v = vertices.raw[b + 2]
-        v.pos.x, v.pos.y, v.pos.z = cx + x + sx + ex, cy + y + sy + ey, cz + z + sz + ez
-        v = vertices.raw[b + 3]
-        v.pos.x, v.pos.y, v.pos.z = cx + x + sx - ex, cy + y + sy - ey, cz + z + sz - ez
-      end
-      local aq = floor(min(99, max(0, alpha * 100))) + floor(soft * 9 + 0.5) * 100
-      vertices.raw[b].uv.y = aq
-      vertices.raw[b + 1].uv.y = aq + 0.998
-      vertices.raw[b + 2].uv.y = aq + 0.998
-      vertices.raw[b + 3].uv.y = aq
-      drawn = drawn + 1
-    else
-      local v = vertices.raw[b]
-      v.pos.x, v.pos.y, v.pos.z = cx, cy - 10000, cz
-      v = vertices.raw[b + 1]
-      v.pos.x, v.pos.y, v.pos.z = cx, cy - 10000, cz
-      v = vertices.raw[b + 2]
-      v.pos.x, v.pos.y, v.pos.z = cx, cy - 10000, cz
-      v = vertices.raw[b + 3]
-      v.pos.x, v.pos.y, v.pos.z = cx, cy - 10000, cz
-    end
+  if snow then
+    buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upv.x, upv.y, upv.z, sidev.x, sidev.y, sidev.z)
+  else
+    buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, wx - vcx, -vcy, wz - vcz)
   end
 end
 
@@ -247,7 +323,7 @@ function script.frameBegin(dt, gameDT)
   ac.getWindVelocityTo(wind)
   cameraVelocity:set(sim.cameraPositionDelta):scale(1 / max(dt, 0.001))
   driftX, driftZ = driftX + wind.x * gameDT, driftZ + wind.z * gameDT
-  polling, heartbeat = polling + dt, heartbeat + dt
+  polling, heartbeat, beginCount = polling + dt, heartbeat + dt, beginCount + 1
   local modifier = ui.keyboardButtonDown(0x11) and ui.keyboardButtonDown(0x12)
   local r, s, o = ui.keyboardButtonDown(0x52), ui.keyboardButtonDown(0x53), ui.keyboardButtonDown(0x30)
   local f, w, d = ui.keyboardButtonDown(0x46), ui.keyboardButtonDown(0x57), ui.keyboardButtonDown(0x44)
@@ -272,9 +348,26 @@ function script.frameBegin(dt, gameDT)
     luaMs, submitMs = (built - start) * 1000, (os.preciseClock() - built) * 1000
   end
   if heartbeat > 5 then
-    heartbeat = 0
-    ac.log(string.format('M2L_WEATHER frames=%d drawn=%d build_ms=%.3f upload_ms=%.3f fps=%.1f camera=%s',
-      frames, drawn, luaMs, submitMs, sim.fps, tostring(sim.cameraPosition)))
+    -- avg_fps is frames per real second over the whole heartbeat, the number for cost comparisons.
+    ac.log(string.format('M2L_WEATHER mode=%s frames=%d drawn=%d sheltered=%d build_ms=%.3f rays_ms=%.3f upload_ms=%.3f avg_fps=%.1f camera=%s',
+      mode, frames, drawn, shelteredCount, luaMs, shelterMs, submitMs, beginCount / heartbeat, tostring(sim.cameraPosition)))
+    heartbeat, beginCount = 0, 0
+    -- Diagnostic: cost of one upward ray per method, and the roof grid relative to the camera.
+    local c = sim.cameraPosition
+    rayOrigin:set(c.x, c.y - 1, c.z)
+    local t0 = os.preciseClock()
+    local a = render.createRay(rayOrigin, rayUp, 60):track(0)
+    local t1 = os.preciseClock()
+    local b = render.createRay(rayOrigin, rayUp, 60):track(1)
+    local t2 = os.preciseClock()
+    local p = render.createRay(rayOrigin, rayUp, 60):physics()
+    local t3 = os.preciseClock()
+    local roofs = {}
+    for slot = 0, GRID * GRID - 1 do
+      if roofY[slot] > -1e8 then roofs[#roofs + 1] = string.format('%d,%d:%+.0f', roofIx[slot] - floor(c.x / CELL), roofIz[slot] - floor(c.z / CELL), roofY[slot] - c.y) end
+    end
+    ac.log(string.format('M2L_SHELTER track0=%.3fms(%.1f) track1=%.3fms(%.1f) physics=%.3fms(%.1f) roofs=%d [%s]',
+      (t1 - t0) * 1000, a, (t2 - t1) * 1000, b, (t3 - t2) * 1000, p, #roofs, table.concat(roofs, ' ')))
     ac.log(string.format('M2L_WIND actualKmh=%.2f vectorMs=%s type=%s', sim.windSpeedKmh, tostring(wind), tostring(ac.getConditionsSet().currentType)))
     ac.log(string.format('M2L_VISIBILITY sky=%s horizon=%s sun=%s color=%s fov=%.2f',
       tostring(sim.skyColor), tostring(sim.horizonColor), tostring(sim.lightColor), tostring(batch.values.gColor), sim.cameraFOV))
