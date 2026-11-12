@@ -241,6 +241,11 @@ _Avoid_: waypoint, stop
 **Height pin**:
 A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`, `plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
 
+**TreeFX trees**: trees as CSP draws them from 3D models (`scenery/treefx.py`): a track's `extension/trees/trees.txt` places
+`.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. Our models stand for the billboard
+sprites that have a 3D form (`treefx.MODEL_OF`); the others stay billboards. Only a trial track has them so far; the
+Editor learns them before the generator writes them.
+
 **Cheap bushes**: billboards on painted shrubland that no map measures (`scenery/bushes.py`, objects `nocol_bush_<tx>_<ty>`): noise gives them groups, gaps and now and then a row; near only and without shadows. The bushes the canopy data finds stay `nocol_trees_bush_`.
 
 **Debug stretch**:
