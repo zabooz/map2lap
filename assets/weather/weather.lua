@@ -667,6 +667,13 @@ function glass.setup()
   end
 
   local function updateBlades(dt, w2l)
+    -- A parked blade vibrates with the engine/body. Only a changing native wiper phase can sweep or push
+    -- snow: scene-transform jitter alone otherwise draws a false ridge when the driver revs the engine.
+    if glass.bladeTime == elapsed then return glass.anyActive or false end
+    glass.bladeTime = elapsed
+    local progress = ac.getCar(0).wiperProgress
+    local phaseMoved = glass.bladeProgress ~= nil and math.abs(progress - glass.bladeProgress) > 1e-6
+    glass.bladeProgress = progress
     local anyActive = false
     for _, blade in ipairs(glass.blades) do
       local m = blade.node:getWorldTransformationRaw()
@@ -682,7 +689,7 @@ function glass.setup()
         local moved = sqrt(mx * mx + ms * ms)
         local stepX, stepS = ((ax + bx) - (blade.ax + blade.bx)) / 2, ((as + bs) - (blade.as + blade.bs)) / 2
         local step = sqrt(stepX * stepX + stepS * stepS)
-        if moved > 0.0003 then
+        if phaseMoved and moved > 0.0003 then
           local dirx, dirs = mx / moved, ms / moved
           -- Reversal: the ridge stays where the blade turned, ahead of its previous motion.
           if blade.dx and dirx * blade.dx + dirs * blade.ds < 0 then releaseRidge(blade, blade.lax, blade.las, blade.lbx, blade.lbs, blade.dx, blade.ds) end
@@ -714,7 +721,11 @@ function glass.setup()
           blade.lax, blade.las, blade.lbx, blade.lbs = ax, as, bx, bs
         else
           blade.active = 0
-          if step < 0.0001 then
+          if not phaseMoved then
+            -- Track the parked pose without accumulating vibration into a later sweep.
+            blade.lax, blade.las, blade.lbx, blade.lbs = ax, as, bx, bs
+          end
+          if not phaseMoved or step < 0.0001 then
             blade.idle = blade.idle + dt
             if blade.idle > 0.25 and blade.ridge > 0 and blade.dx then releaseRidge(blade, ax, as, bx, bs, blade.dx, blade.ds) end
           end
@@ -822,7 +833,7 @@ function glass.setup()
 
   -- Shader constants: drops as float4 pairs packed in matrices (4 rows each), blades as one matrix each.
   local DMATS = DROPS / 2
-  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gBead = 0, gSnowMode = 0, gSeed = vec2(),
+  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gBead = 0, gSnowMode = 0, gSeed = vec2(), gLandingStep = 0,
     gW0 = mat4x4.identity(), gW1 = mat4x4.identity()}
   local dropMats = {}
   for k = 0, DMATS - 1 do
@@ -859,12 +870,21 @@ function glass.setup()
   end
   glass.sim = {
     async = true,
-    cacheKey = 31,
+    cacheKey = 36,
     blendMode = render.BlendMode.Opaque,
     textures = {txPrev = false},
     values = values,
     shader = [[
       float hash12(float2 p) { float3 p3 = frac(float3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return frac((p3.x + p3.y) * p3.z); }
+      // Landing probabilities are much smaller than the float hash's rounding step. Its frequent exact zeros
+      // made light, medium and heavy snow land almost equally often. Keep 24 random bits for this decision.
+      float landingRandom(int2 cell, uint stream) {
+        uint h = uint(cell.x) * 1597334677u ^ uint(cell.y) * 3812015801u ^ uint(gLandingStep) * 2798796415u ^ stream * 747796405u;
+        h ^= h >> 16; h *= 2146121005u;
+        h ^= h >> 15; h *= 2221713035u;
+        h ^= h >> 16;
+        return float(h >> 8) * (1.0 / 16777216.0);
+      }
       float cross2(float2 a, float2 b) { return a.x * b.y - a.y * b.x; }
       bool inTri(float2 p, float2 a, float2 b, float2 c) {
         float s1 = cross2(b - a, p - a), s2 = cross2(c - b, p - b), s3 = cross2(a - c, p - c);
@@ -897,11 +917,17 @@ function glass.setup()
           h = 0;
         }
         float2 e = B1 - A1;
-        float t = saturate(dot(p - A1, e) / max(1e-9, dot(e, e)));
+        float len2 = dot(e, e);
+        if (len2 < 1e-9) return;
+        float len = sqrt(len2);
+        float t = dot(p - A1, e) / len2;
         float2 off = p - (A1 + e * t);
-        float ahead = dot(off, W[2].xy);
+        float normalMotion = cross2(e, W[2].xy) / len;
+        // Width is measured perpendicular to the blade. Projecting onto its motion instead made nearly
+        // parallel motion/jitter stretch a millimetre ridge into a large white patch across the glass.
+        float ahead = cross2(e, off) / len * sign(normalMotion);
         // The ridge starts just ahead of the line: what lies behind it was swept this frame and stays clear.
-        if (t > 0.01 && t < 0.99 && ahead > 0.0004) {
+        if (abs(normalMotion) > 0.05 && t > 0.01 && t < 0.99 && ahead > 0.0004) {
           if (W[2].z > 0 && ahead < W[2].z) h = max(h, 1.3 * (1 - ahead / W[2].z) * (0.7 + 0.3 * hash12(floor(p * 700))));
           if (W[2].w > 0 && ahead < W[2].w) snow = max(snow, 0.8 * (1 - ahead / W[2].w) * (0.6 + 0.4 * hash12(floor(p * 500))));
         }
@@ -911,24 +937,35 @@ function glass.setup()
         float2 p = float2(gFrame.x + uv.x / gFrame.z, gFrame.y + (1 - uv.y) / gFrame.w);
         float dt = gParams.x;
         float4 prev = txPrev.SampleLevel(samLinearSimple, uv, 0);
-        // The film dries; slush drains down the glass as it turns to water.
+        // Sticky slush stays at the deposit and melts locally into the thin water film. Transporting all slush
+        // down the glass at a fixed speed made every melting flake paint a growing, bright vertical stripe.
         // Rain wets the whole glass with a film of tiny beads that bends the view; it dries slowly.
         float film = min(1, max(0, prev.r - gParams.z * dt) + gWet * dt);
         float snow = prev.g;
-        float slush = txPrev.SampleLevel(samLinearSimple, uv - float2(0, gParams.y * dt * gFrame.w), 0).b;
-        // Snow lands as irregular clumps 4 to 11 mm across, a bounded random number of them each frame.
+        float slush = prev.b;
+        // Cells only accelerate the neighbour lookup. Land anywhere inside each cell, including its edges,
+        // so old deposits can join across cell boundaries without leaving a visible lattice of empty gaps.
         float2 cell = floor(p / 0.012);
         float add = 0;
         [unroll] for (int j = -1; j <= 1; j++) [unroll] for (int i = -1; i <= 1; i++) {
           float2 c = cell + float2(i, j);
-          float hv = hash12(c + gSeed);
+          int2 id = int2(c);
+          float hv = landingRandom(id, 0u);
           if (hv < gParams.w) {
-            float2 centre = (c + 0.5 + (float2(hash12(c * 1.7 + gSeed.yx), hash12(c * 2.3 + gSeed)) - 0.5) * 0.5) * 0.012;
-            float R = 0.002 + 0.0035 * hash12(c * 3.1 + gSeed);
+            // Shape streams are independent of the rare-event decision: accepted hv values are all near
+            // zero and cannot supply a useful rotation or silhouette. Elliptical stretching preserves area.
+            float2 centre = (c + float2(landingRandom(id, 1u), landingRandom(id, 2u))) * 0.012;
+            float R = 0.002 + 0.0035 * landingRandom(id, 3u);
             float2 q = p - centre;
+            float rotation = landingRandom(id, 4u) * 6.283185;
+            float cr = cos(rotation), sr = sin(rotation);
+            float stretch = lerp(0.7, 1.4, landingRandom(id, 5u));
+            q = float2(cr * q.x - sr * q.y, sr * q.x + cr * q.y) * float2(stretch, 1 / stretch);
             float ang = atan2(q.y, q.x);
-            float rr = R * (0.75 + 0.25 * sin(ang * 3 + hv * 40) + 0.12 * sin(ang * 7 + hv * 90));
-            add += smoothstep(rr, rr * 0.45, length(q)) * (0.45 + 0.55 * hash12(c * 4.7 + gSeed));
+            float lobes = 2 + floor(landingRandom(id, 6u) * 4);
+            float phase = landingRandom(id, 7u) * 6.283185;
+            float rr = R * (0.75 + 0.25 * sin(ang * lobes + phase) + 0.12 * sin(ang * (lobes + 2) - phase * 1.7));
+            add += smoothstep(rr, rr * 0.45, length(q)) * (0.45 + 0.55 * landingRandom(id, 8u));
           }
         }
         snow = min(2, snow + add);
@@ -1070,12 +1107,17 @@ function glass.setup()
     local ambient = sim.ambientTemperature or 0
     local melt = 0.004 + 0.05 * heat + max(0, ambient) * 0.004
     -- Snow on the glass, a coarse estimate for the ridge ahead of a blade: deposits raise it, sweeps and melt lower it.
-    local clumpsPerSecond = 25 * snowRate * min(impinge, 12) / 3
-    snowOnGlass = max(0, min(1, snowOnGlass + clumpsPerSecond * dt * 0.01 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
+    local snowImpact = snowRate * min(impinge, 12)
+    -- User-tuned visual flux: about 150/450/700 millimetre clumps per second at rest in light/medium/heavy.
+    -- Stronger tiers add increasingly more clumps between identical wipes.
+    -- Scale with incoming normal velocity; this tunes glass deposits without changing falling snow outside.
+    local clumpsPerSecond = snowImpact * (snowRate > 0.65 and 700 or snowRate > 0.3 and (450 / 0.65) or (150 / 0.3))
+    -- The ridge estimate follows incoming flux, independently of how many visual clumps represent it.
+    snowOnGlass = max(0, min(1, snowOnGlass + snowImpact * dt / 12 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
     glass.quiet = elapsed > wetUntil and aliveCount == 0
     local v = values
-    v.gParams:set(dt, 0.02, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
+    v.gParams:set(dt, 0, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
     v.gAir:set(tanX, tanS, airMag, impinge)
     v.gMelt = melt
     v.gSnowMode = snowRate > 0 and 1 or 0
@@ -1085,6 +1127,7 @@ function glass.setup()
     -- (capped: a faster build-up turns the fan's edge into a hard line between sweeps).
     v.gWet = rainAmount * min(impinge, 13) / 6.7 * 0.03
     v.gSeed:set((frames % 977) * 0.173 + 0.31, (frames % 1013) * 0.291 + 0.17)
+    v.gLandingStep = frames % 16777216
     fillBladeMat(v.gW0, glass.blades[1], snowOnGlass * 0.014)
     fillBladeMat(v.gW1, glass.blades[2], snowOnGlass * 0.014)
     fillDropMats()
@@ -1136,7 +1179,8 @@ function glass.setup()
     return string.format('drops=%d snowEst=%.2f melt=%.3f air=%.1f impinge=%.1f quiet=%s blade=%s ridge=%.2e progress=%.2f',
       aliveCount, snowOnGlass, glass.melt or 0, glass.air or 0, glass.impinge or 0, tostring(glass.quiet),
       b and b.ax and string.format('(%.2f,%.2f)-(%.2f,%.2f) active=%d', b.ax, b.as, b.bx, b.bs, b.active) or 'none',
-      b and b.ridge or 0, ac.getCar(0).wiperProgress) .. string.format(' whiteRef=%s exposure=%s mult=%s', tostring(sim.whiteReferencePoint), tostring(sim.cameraExposure), tostring(sim.exposureMultiplier))
+      b and b.ridge or 0, ac.getCar(0).wiperProgress) .. string.format(' snowDensity=%.2f landingsPerSecond=%.1f whiteRef=%s exposure=%s mult=%s', snowRate,
+        values.gParams.w / max(values.gParams.x, 1e-6) * ((xw / 0.012) * (sw / 0.012)), tostring(sim.whiteReferencePoint), tostring(sim.cameraExposure), tostring(sim.exposureMultiplier))
   end
   return true
 end
