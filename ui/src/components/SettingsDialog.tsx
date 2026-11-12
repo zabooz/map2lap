@@ -202,10 +202,11 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
   ]},
   {title: "Objects", rows: [
     ["V", "Select: click an object"],
+    ["Left drag", "Select objects in a rectangle; Add or Ctrl keeps existing picks"],
     ["Shift+Click", "Select all matching objects or ground areas, including separate ones"],
     ["Ctrl+Click", "Add to the selection, or remove an object from it"],
     ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"],
-    ["T", "Transform: drag selected objects along the terrain"],
+    ["T", "Transform: move selected objects together; walls edit their top in Options"],
     ["E", "Insert: open the object library to import or place a model"],
     ["C", "Copy: pick once, then click to place repeatedly"],
     ["Delete", "Delete the selection or marked objects"],

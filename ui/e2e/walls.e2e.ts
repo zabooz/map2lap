@@ -3,6 +3,41 @@ import {findTitled, saved} from "./edit-helpers";
 
 const image = {name: "wall.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVQIHWP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64")};
 
+test("wall Transform opens cap controls from the selection, T and context menu, with texture first", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, walls: true});
+  await openEditor(page);
+  const at = await findTitled(page, "Retaining wall", 320);
+  await page.mouse.click(at.x, at.y);
+  const panel = page.getByRole("complementary", {name: "Inspector"});
+  const options = panel.locator("#inspect-options");
+  await expect(options.getByRole("button").first()).toHaveText("Change texture…");
+  await page.locator("#edit-select-move").click();
+  await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
+  await expect(panel.getByLabel("Top offset")).toBeVisible();
+  await expect(page.locator("#edit-move-set")).toContainText("wall top");
+  await expect(page.locator("#edit-move-set input")).toHaveCount(0);
+  await panel.getByLabel("Top offset").fill("-50");
+  await panel.getByRole("button", {name: "Set height"}).click(); await saved(page);
+  const draft = async () => (await page.request.get("/api/editor/alpha/edits")).json();
+  await expect.poll(async () => (await draft()).walls[0]?.rise).toBe(-.5);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
+  await expect.poll(async () => (await draft()).walls).toEqual([]);
+  await page.getByRole("button", {name: /Redo/}).click(); await saved(page);
+  await expect(panel.getByLabel("Top offset")).toHaveValue("-50");
+  await page.keyboard.press("Escape");
+  const lowered = await findTitled(page, "Retaining wall", 320);
+  await page.mouse.click(lowered.x, lowered.y);
+  await panel.getByRole("tab", {name: "Properties", exact: true}).click();
+  await page.locator("#scene canvas").focus();
+  await page.keyboard.press("t");
+  await expect(panel.getByLabel("Top offset")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.mouse.click(lowered.x, lowered.y, {button: "right"});
+  await page.getByRole("menuitem", {name: "Transform", exact: true}).click();
+  await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
+  await expect(panel.getByLabel("Top offset")).toHaveValue("-50");
+});
+
 test("retaining-wall height and texture use one object, survive Undo and reload, and save", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, walls: true});
   await openEditor(page);
@@ -21,6 +56,9 @@ test("retaining-wall height and texture use one object, survive Undo and reload,
   await expect.poll(async () => (await draft()).walls).toEqual([]);
   await page.getByRole("button", {name: /Redo/}).click(); await saved(page);
   await expect(panel.getByLabel("Top offset")).toHaveValue("120");
+  await panel.getByLabel("Top offset").fill("-50");
+  await panel.getByRole("button", {name: "Set height"}).click(); await saved(page);
+  await expect.poll(async () => (await draft()).walls[0]?.rise).toBe(-.5);
   await panel.getByRole("button", {name: "Change texture…"}).click();
   const library = page.getByRole("dialog", {name: "Asset library"});
   await expect(library).toContainText("whole wall");
@@ -39,7 +77,7 @@ test("retaining-wall height and texture use one object, survive Undo and reload,
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const again = await findTitled(page, "Retaining wall", 320);
   await page.mouse.click(again.x, again.y);
-  await expect(panel.getByLabel("Top offset")).toHaveValue("120");
+  await expect(panel.getByLabel("Top offset")).toHaveValue("-50");
   await expect(panel.getByRole("button", {name: "Original texture", exact: true})).toBeVisible();
   await page.locator("#edit-save").click();
   await expect(page.locator("#save-dialog")).toBeVisible();

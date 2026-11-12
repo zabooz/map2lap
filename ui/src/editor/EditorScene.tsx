@@ -6,6 +6,7 @@ import {EditTools} from "./EditTools";
 import type {Hovered} from "./types";
 import {TrackView, type Say} from "./scene/view";
 import {PointerInfo} from "./inspector/PointerInfo";
+import type {SelectionRectangle} from "./scene/marquee";
 
 /** The track name in 3D; built: when it was built, built again it loads again (a Save leaves it: the view shows the track's
     source). title: its title, taken: the other tracks'. visible: its tab is open. controls: how it moves. fileHost, toolsHost, notesHost: where in the sidebar its buttons are drawn.
@@ -29,6 +30,7 @@ export default function EditorScene({name, title, taken, built, visible, control
   const scene = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<TrackView | null>(null);
   const [hovered, setHovered] = useState<Hovered | null>(null);
+  const [rectangle, setRectangle] = useState<SelectionRectangle | null>(null);
   const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
   const [inspectorWidth, setInspectorWidth] = useState(320);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
@@ -36,6 +38,7 @@ export default function EditorScene({name, title, taken, built, visible, control
   useEffect(() => {
     const v = new TrackView(host.current!);
     v.setHover(setHovered);
+    v.setSelectionRectangle(setRectangle);
     setView(v);
     return () => { v.dispose(); setView(null); };
   }, []);
@@ -51,6 +54,8 @@ export default function EditorScene({name, title, taken, built, visible, control
       style={{"--inspector-space": name && !inspectorCollapsed ? `min(${inspectorWidth + 5}px, 48%)` : "0px"} as CSSProperties}>
       <div id="scene" className={styles.scene} ref={scene}>
         <div className={styles.view} ref={host} />
+        {rectangle && <div className={styles.rectangle} aria-label="Selection rectangle"
+          style={{left: rectangle.x, top: rectangle.y, width: rectangle.width, height: rectangle.height}} />}
         {view && name && <PointerInfo hovered={hovered} inspectorCollapsed={inspectorCollapsed} />}
       {view && name && <EditTools key={`${name} ${built}`} name={name} title={title} visible={visible} taken={taken} view={view} scene={scene} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost} elevationSpeed={controls.elevationSpeed}
                                   inspectorHost={inspectorHost}

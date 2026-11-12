@@ -10,6 +10,7 @@ export type Say = (text: string, progress?: number | null, about?: LoadAbout) =>
 import {Navigation, VIEW_M, FLY_MAX_STEP_S} from "./navigation";
 import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeometry} from "./geometry";
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
+import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
 import {RoadMarkers} from "./roadMarkers";
 import {GeometryPreview} from "./geometryPreview";
 import * as THREE from "three";
@@ -126,6 +127,8 @@ export class TrackView {
   private settings = DEFAULT_CONTROLS;
   private data: TrackIndex | null = null;
   private onHover: (hovered: Hovered | null) => void = () => {};
+  private marquee: Marquee;
+  private onRectangle: (rect: SelectionRectangle | null) => void = () => {};
   private mouse: THREE.Vector2 | null = null;       // where the mouse is over the view (-1 .. 1); null: not over it
   private held = 0;                     // the mouse buttons down, as its last event over the view said
   private hoverDue = false;
@@ -222,6 +225,12 @@ export class TrackView {
     this.navigation.flyKeys(this.renderer.domElement);
     this.followMouse(this.renderer.domElement);
     this.clicks(this.renderer.domElement);
+    this.marquee = new Marquee(this.renderer.domElement,
+      () => !!this.data && this.cursorTool === "select" && !this.brush.current && !this.ghost.placing,
+      rect => this.onRectangle(rect), (rect, add) => {
+        const {width, height} = this.renderer.domElement.getBoundingClientRect();
+        this.selection.inRectangle(selectionVolume(this.camera, rect, width, height), add, id => this.pointing.describeObject(id));
+      });
     this.mover.attach(this.renderer.domElement);
     this.roadMarkers.attach(this.renderer.domElement, () => !!this.brush.current, () => this.applyCursor(), event => {
       this.mouse = screenPoint(event, this.renderer.domElement);
@@ -237,6 +246,7 @@ export class TrackView {
     this.token++;
     this.loading.abort();
     this.clear();
+    this.marquee.dispose();
     this.modelLight?.dispose();
     this.nightSky.dispose();
     this.sun.dispose();
@@ -302,6 +312,9 @@ export class TrackView {
   setHover(onHover: (hovered: Hovered | null) => void) {
     this.onHover = onHover;
   }
+
+  /** The selection rectangle is presentation; object bounds stay in the scene. */
+  setSelectionRectangle(show: (rect: SelectionRectangle | null) => void) { this.onRectangle = show; }
 
   /** A painted ground region, highlighted independently of deletable objects. Null releases all mask memory. */
   async setSurface(selection: SurfaceSelection | null, failed: (message: string) => void = () => {}) {
@@ -559,6 +572,7 @@ export class TrackView {
 
   /** The tool on, for the mouse pointer: it says what a click of it would do to what is under the mouse (cursor.ts). */
   setCursorTool(tool: Tool) {
+    if (tool !== this.cursorTool) this.marquee.cancel();
     this.cursorTool = tool;
     this.applyCursor();
   }
@@ -1085,6 +1099,7 @@ export class TrackView {
   }
 
   private clear() {
+    this.marquee.cancel();
     this.nightGlow.clear();
     this.lampGlass = [];
     this.modelTransformVersion++;

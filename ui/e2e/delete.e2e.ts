@@ -401,11 +401,11 @@ test("the road can't be deleted: with click deletes it says so, Delete does noth
   expect((await stored(page)).revision).toBe(0);
 });
 
-test("dragging over a tree picks nothing; the sky ends a pick", async ({page}) => {
+test("a selection rectangle picks a tree; a sky click ends the pick", async ({page}) => {
   await openEditor(page);
   const at = await findTree(page);
   await dragMouse(page, at, {x: at.x + 60, y: at.y}, "left");
-  await expect(page.locator("#edit-picked")).toHaveCount(0);
+  await expect(page.locator("#inspect-selection")).toContainText("Tree");
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const again = await findTree(page);

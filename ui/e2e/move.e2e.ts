@@ -24,6 +24,7 @@ test("Transform in the context menu keeps the clicked house picked and opens its
   await openEditor(page);
   const house = await findTitled(page, "Building");
   await page.mouse.click(house.x, house.y, {button: "right"});
+  await expect(page.getByRole("menuitem").first()).toHaveText("Edit…");
   await page.getByRole("menuitem", {name: "Transform", exact: true}).click();
   await expect(page.locator("#view-menu")).toBeHidden();
   await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
@@ -42,6 +43,7 @@ test("terrain has Edit instead of object movement actions in its context menu", 
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y, {button: "right"});
+  await expect(page.getByRole("menuitem").first()).toHaveText("Edit…");
   await expect(page.getByRole("menuitem", {name: "Transform", exact: true})).toHaveCount(0);
   await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeEnabled();
 });

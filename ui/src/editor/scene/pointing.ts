@@ -153,6 +153,26 @@ export class Pointing {
     };
   }
 
+  /** The same object facts for rectangle selection, without claiming a hit triangle or UV. */
+  describeObject(id: string): Hovered | null {
+    const data = this.host.data(), bounds = this.host.objects.shownObjectBounds(id);
+    if (!data || !bounds) return null;
+    const point = bounds.getCenter(new THREE.Vector3()).setY(bounds.min.y), distance = point.distanceTo(this.host.camera.position);
+    if (this.host.trees().facts(id)) return this.describeTree(data, id, {point, distance} as THREE.Intersection);
+    const base = id.slice(0, id.lastIndexOf("#")), k = Number(id.slice(id.lastIndexOf("#") + 1)), list = data.objects[base];
+    const piece = this.host.objects.piecesOf(id)[0];
+    const info = piece ? data.meshes.find(m => m.i === piece.mesh) : data.meshes.find(m => m.model?.instance === base);
+    if (!list || !info) return null;
+    const material = data.materials[info.material];
+    if (!material) return null;
+    const texture = data.textures.find(t => t.name === material.texture);
+    const {x, y, z} = point;
+    return {id, kind: kindName(list.kinds[k]), sort: sortOf(list, k), object: info.name, physics: physicsOf(info.name),
+      material: material.name, shader: material.shader, texture: material.texture, textureBytes: texture?.size ?? null,
+      vertices: info.vertices, triangles: info.indices / 3, triangle: piece?.from ?? 0, uv: null, shownTo: info.lod_out,
+      at: [x, y, z], tile: tileOf(x, z), route: routeMetre(data.route, x, z), latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null, distance};
+  }
+
   /** What the hover box says of a TreeFX tree: its model is its sort (all of a model go at once as a listed sort does). */
   private describeTree(data: TrackIndex, id: string, hit: THREE.Intersection): Hovered {
     const facts = this.host.trees().facts(id, hit)!, {x, y, z} = hit.point, file = `${facts.model}.bin`;

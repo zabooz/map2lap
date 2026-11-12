@@ -9,7 +9,7 @@ import {Help} from "./Help";
 export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "model" | "group";
 type Group = "general" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
-  {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click a ground surface or object to pick it, Ctrl + click adds more, Shift + click selects all matching; Alt changes the ground's texture or replaces trees; X or Delete takes them out (V)"},
+  {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click to pick a surface or object; left drag selects objects in a rectangle. Add or Ctrl adds more, Shift + click selects all matching; Alt changes the ground's texture or replaces trees; X or Delete takes them out (V)"},
   {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
   {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "R", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (R)"},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},

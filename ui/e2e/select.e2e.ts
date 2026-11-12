@@ -1,5 +1,44 @@
-import {centre, expect, openEditor, scene, test} from "./fixtures";
-import {findCar, findTree, stored} from "./edit-helpers";
+import {centre, dragMouse, expect, openEditor, scene, test} from "./fixtures";
+import {findCar, findTree, saved, stored} from "./edit-helpers";
+
+test("Transform drags the entire Add selection as one Undo step", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
+  await openEditor(page);
+  const tree = await findTree(page), car = await findCar(page);
+  await page.mouse.click(tree.x, tree.y);
+  await page.locator("#edit-select-set").getByRole("button", {name: "Add", exact: true}).click();
+  await page.mouse.click(car.x, car.y);
+  await expect(page.locator("#inspect-selection")).toContainText("2 objects");
+  await page.keyboard.press("t");
+  await dragMouse(page, tree, {x: tree.x + 45, y: tree.y}); await saved(page);
+  await expect.poll(async () => (await stored(page)).placed.length).toBe(2);
+  const placed = (await stored(page)).placed;
+  expect(placed.map(p => p.id).sort()).toEqual(["t_0_0#0", "trees#1"]);
+  expect(placed[0].x).toBeCloseTo(placed[1].x, 4);
+  expect(placed[0].z).toBeCloseTo(placed[1].z, 4);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
+  await expect.poll(async () => (await stored(page)).placed).toEqual([]);
+});
+
+test("left drag shows a selection rectangle; Add keeps an existing pick and the group can be moved", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
+  await openEditor(page);
+  const tree = await findTree(page), car = await findCar(page);
+  await page.mouse.click(car.x, car.y);
+  await page.locator("#edit-select-set").getByRole("button", {name: "Add", exact: true}).click();
+  await page.mouse.move(tree.x - 10, tree.y - 10);
+  await page.mouse.down();
+  await page.mouse.move(tree.x + 10, tree.y + 10, {steps: 4});
+  await expect(page.getByLabel("Selection rectangle")).toBeVisible();
+  await page.mouse.up();
+  await expect(page.getByLabel("Selection rectangle")).toHaveCount(0);
+  await expect(page.locator("#inspect-selection")).toContainText("2 objects");
+  await page.keyboard.press("t");
+  await dragMouse(page, car, {x: car.x + 35, y: car.y}); await saved(page);
+  await expect.poll(async () => (await stored(page)).placed.length).toBe(2);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
+  await expect.poll(async () => (await stored(page)).placed).toEqual([]);
+});
 
 test("Select uses the shared tool bar; Shift selects a whole sort and Ctrl adds another object", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});

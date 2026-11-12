@@ -28,8 +28,8 @@ def problems(edits):
             return "Each wall needs a unique object id"
         seen.add(edit["id"])
         rise = edit.get("rise")
-        if type(rise) not in (int, float) or not math.isfinite(rise) or not 0 <= rise <= placement.MAX_MOVE_M:
-            return "The wall top must stay at or above its original height"
+        if type(rise) not in (int, float) or not math.isfinite(rise) or abs(rise) > placement.MAX_MOVE_M:
+            return "The wall top offset must be a finite distance within the movement limit"
         material = edit.get("material")
         if material is not None and (not isinstance(material, str) or len(material) != 64 or any(c not in "0123456789abcdef" for c in material)):
             return "No retained wall texture"
@@ -122,8 +122,21 @@ def prepare(ac, name, objects, previous, ids, *, rise=None, material=False, rese
     return result
 
 
+def _check_lowering(positions, profile, rise):
+    """Reject a lowered cap touching either fixed foot, from all owned source positions. Pure."""
+    tops = {tuple(p) for p in np.asarray(profile["tops"], np.float32)}
+    feet = {}
+    for p in positions:
+        if tuple(p) not in tops:
+            key = (p[0], p[2])
+            feet[key] = max(feet.get(key, -math.inf), float(p[1]))
+    # One centimetre of vertical wall keeps its faces from collapsing or turning inside out at the fixed feet.
+    if any(float(y) + rise < feet.get((x, z), -math.inf) + 0.01 for x, y, z in tops):
+        raise ValueError("The wall top must stay above both fixed feet")
+
+
 def _vertices(vertices, faces, profile, rise, repeat=None):
-    """Own vertices as a raised cap; both front and rear feet stay, UV height follows vertical masonry. Pure."""
+    """Own vertices with an offset cap; both feet stay, UV height follows vertical masonry. Pure."""
     used, inverse = np.unique(faces.ravel(), return_inverse=True)
     v, tri = vertices[used].copy(), inverse.reshape(-1, 3)
     tops = {tuple(p) for p in np.asarray(profile["tops"], np.float32)}
@@ -160,6 +173,13 @@ def extend(path, scan, objects, edits, assets=None):
         for edit in edits:
             source_arrays = {}
             entry, k, profile = _wall(objects, edit["id"])
+            for i, _first, _count in entry["faces"][k]:
+                if i not in source_arrays:
+                    source_arrays[i] = kn5.mesh_arrays(f, scan["meshes"][i])
+            if edit["rise"] < 0:
+                positions = np.concatenate([source_arrays[i][0]["pos"][np.unique(source_arrays[i][1][first:first + count])]
+                                            for i, first, count in entry["faces"][k]])
+                _check_lowering(positions, profile, edit["rise"])
             new_faces = listed[edit["id"].rsplit("#", 1)[0]]["faces"][k] = []
             material = edit["material"]
             saved_profile = listed[edit["id"].rsplit("#", 1)[0]]["details"][k]["wall"]

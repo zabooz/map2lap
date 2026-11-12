@@ -6,10 +6,38 @@ import {objectsOf} from "./view.fixture";
 import type {TrackObjects} from "./trackObjects";
 
 /** A Selection over objects in a scene of its own, the track's index data. */
-function selectionOf(objects: TrackObjects, data: unknown) {
-  return new Selection({scene: new THREE.Scene(), objects, data: () => data as never, moveTool: () => false,
+function selectionOf(objects: TrackObjects, data: unknown, moving = false) {
+  return new Selection({scene: new THREE.Scene(), objects, data: () => data as never, moveTool: () => moving,
     materialArea: () => false, changed: () => {}});
 }
+
+test("grabbing an already selected object with Transform keeps the entire Add selection", () => {
+  const bounds = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 8, 1));
+  const data = {revision: "source", textures: [], objects: {}};
+  const objects = Object.assign(objectsOf({data}), {boundsOf: () => bounds, rootOf: (id: string) => id});
+  const selection = selectionOf(objects, data, true);
+  const source = {id: "trees#0", kind: "Tree", sort: "spruce", position: [0, 0, 0] as [number, number, number]};
+  picked(selection, [source, {...source, id: "trees#1"}]);
+  const hovered = {...source, at: [0, 0, 0], object: "spruce.bin"} as unknown as Hovered;
+  const result = selection.pick({button: 0} as PointerEvent, undefined, hovered)!;
+  expect(result.all.map(p => p.id)).toEqual(["trees#0", "trees#1"]);
+});
+
+test("rectangle selection takes intersecting loaded objects and Add unions without toggling existing members", () => {
+  const boxes = [0, 5, 20].map(x => new THREE.Box3(new THREE.Vector3(x, 0, 0), new THREE.Vector3(x + 1, 1, 1)));
+  const objects = Object.assign(objectsOf({}), {
+    selectableBounds: function* () { for (let i = 0; i < boxes.length; i++) yield {id: `tile#${i}`, bounds: boxes[i]}; },
+  });
+  const selection = selectionOf(objects, {objects: {tile: {kinds: ["car", "car", "car"]}}});
+  selection.setSelectMode(true);
+  const volume = (x: number) => new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().makeScale(1 / x, 1, 1));
+  selection.inRectangle(volume(7), false);
+  expect(selection.ids()).toEqual(["tile#0", "tile#1"]);
+  selection.inRectangle(volume(30), true);
+  expect(selection.ids()).toEqual(["tile#0", "tile#1", "tile#2"]);
+  selection.inRectangle(volume(2), false);
+  expect(selection.ids()).toEqual(["tile#0"]);
+});
 
 /** Picks already made, each with a frame, inside selection. */
 function picked(selection: Selection, picks: Partial<Picked>[]) {

@@ -396,7 +396,7 @@ export class TreeFxDraw {
     const geometry = (hit?.object as THREE.Mesh | undefined)?.geometry ?? model.lods[0].parts[0].geometry;
     return {...tree, height: model.height * tree.size, width: model.width * tree.size * tree.width,
             vertices: geometry.getAttribute("position").count, triangles: (geometry.index?.count ?? 0) / 3,
-            texture: ((hit?.object as THREE.Mesh | undefined)?.material as THREE.MeshLambertMaterial | undefined)?.map?.name ?? null};
+            texture: (((hit?.object as THREE.Mesh | undefined)?.material ?? model.lods[0].parts[0].material) as THREE.MeshLambertMaterial)?.map?.name ?? null};
   }
 
   /** The room a tree takes as drawn (its model's height and width, as turned), null for none; shown: null too while it is left out. */
@@ -434,8 +434,8 @@ export class TreeFxDraw {
   }
 
   /** The ids of the trees of a model shown now. */
-  idsOf(model: string) {
-    return [...this.trees].filter(([id, tree]) => tree.model === model && !this.out.has(id)).map(([id]) => id);
+  idsOf(model?: string) {
+    return [...this.trees].filter(([id, tree]) => (!model || tree.model === model) && !this.out.has(id)).map(([id]) => id);
   }
 
   /** How many trees of a model stay with these edits (ids and object sorts left out, as the page has them). */

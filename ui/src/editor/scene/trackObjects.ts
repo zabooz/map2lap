@@ -21,7 +21,7 @@ export interface TreeRooms {
   bounds(id: string, shown?: boolean): THREE.Box3 | null;
   boxesOf(model: string): THREE.Box3[];
   countOf(model: string, ids: ReadonlySet<string>, sorts: ReadonlySet<string>): number;
-  idsOf(model: string): string[];
+  idsOf(model?: string): string[];
 }
 
 /** What TrackObjects needs of the view it serves. */
@@ -244,6 +244,23 @@ export class TrackObjects {
 
   /** The TreeFX trees of a model shown now (Replace takes them). */
   treesOfModel(model: string) { return this.host.trees().idsOf(model); }
+
+  /** Loaded object bounds, evaluated once when a selection rectangle is released. */
+  *selectableBounds() {
+    const data = this.host.data();
+    if (!data) return;
+    for (const [base, list] of Object.entries(data.objects)) {
+      for (let k = 0; k < list.kinds.length; k++) {
+        if (!list.faces[k]?.length) continue;
+        const id = `${base}#${k}`, bounds = this.shownObjectBounds(id);
+        if (bounds) yield {id, bounds};
+      }
+    }
+    for (const id of this.host.trees().idsOf()) {
+      const bounds = this.shownObjectBounds(id);
+      if (bounds) yield {id, bounds};
+    }
+  }
 
   /** The room an object takes that is shown now, null when it is left out or not loaded. */
   shownObjectBounds(id: string) {

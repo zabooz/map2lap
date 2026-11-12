@@ -1,6 +1,7 @@
 // What the tests of the Editor's editing share (delete, save, brush, draft).
 import type {Page} from "@playwright/test";
 import {centre, expect, scene, stillView} from "./fixtures";
+import type {Placement} from "../src/editor/tools/placing";
 
 export const AWAY = {x: 100, y: 500};              // (the mouse off the view: no hover box in the picture)
 
@@ -40,7 +41,7 @@ export async function points(page: Page, at: {x: number; y: number}) {
 /** The list as the server has it. */
 export async function stored(page: Page, name = "alpha") {
   return (await (await page.request.get(`/api/editor/${name}/edits`)).json()) as {base: string; revision: number; outdated: number; object_sorts: string[];
-    deleted: {id: string; kind: string; position: number[]}[]; surfaces: {mesh: string; faces: [number, number][]}[]};
+    deleted: {id: string; kind: string; position: number[]}[]; surfaces: {mesh: string; faces: [number, number][]}[]; placed: Placement[]};
 }
 
 /** The near tree picked and deleted, and saved. */

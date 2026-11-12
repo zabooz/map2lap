@@ -328,7 +328,7 @@ The mouth of a tunnel.
 **Retaining wall and parapet** (Editor):
 A retaining wall supports a cut or the step between roads; a parapet is the narrow wall at a road's falling edge
 (`roads/walls.py`, `parapet=True`). Builds record them as separate selectable object kinds, including their original top
-profile. Both use masonry across their entire cap. The Editor changes their whole-wall colour texture or raises the top
+profile. Both use masonry across their entire cap. The Editor changes their whole-wall colour texture or offsets the top
 with both feet held in place (`app/trackwalls.py`); a change never moves the terrain cut.
 
 **Hull**:

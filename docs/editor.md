@@ -94,9 +94,11 @@ turn that off or delete them. Existing saved preferences stay in effect.
 
 Generated retaining walls and parapets are listed separately. Their triangle ownership follows the CDAE vertex remapping,
 material splitting and reversed KN5 wall faces. Tracks built before this ownership was recorded need one new build.
-The wall Inspector changes the entire wall's colour texture and metre repeat through the existing library, or raises its
-top above the built profile while keeping both front and rear feet fixed. Reset restores the built top and material;
-lowering below the built top and ordinary object movement are unavailable because the wall meets a fixed terrain cut or
+Transform opens the wall's controls in Options, from the selection bar, T or the context menu. Change texture comes first,
+followed by the cap offset. The whole wall's colour texture and metre repeat use the existing library. Positive and negative
+top offsets keep both front and rear feet fixed; lowering is rejected if any top point would come within one centimetre of
+either fixed foot. The bound is measured from the actual source geometry, including all mesh splits. Reset restores the
+built top and material. Ordinary translation and rotation remain unavailable because the wall meets a fixed terrain cut or
 road edge. Overlapping pieces across tiles receive the same edit. Wall edits belong to the draft, Undo/Redo and saved
 recipe; only edited walls leave their shared source meshes. Retained materials travel with saved tracks independently of
 the library. The generator uses the masonry material across the whole cap, including a broad retaining wall's back strip.
@@ -138,6 +140,12 @@ and list hidden as well as visible parts.
 Under pointer floats over the top-right corner of the view, left of the Inspector, on a translucent background. Its toggle
 collapses the live hit details to AC and latitude/longitude coordinates. The Inspector can be hidden or resized by dragging
 its divider (arrow keys on the divider also resize it). The 3D view and its tool bar use the remaining width.
+Select's left drag draws a rectangle and selects loaded object bounds intersecting its view volume. Add or Ctrl unions
+those objects with the existing selection; a plain rectangle replaces it. A short press remains an ordinary surface or
+object click. In Transform, grabbing an already selected object preserves the whole selection and drags it together;
+one completed group drag is one Undo step.
+Context menus keep Edit, Replace, Transform, Duplicate and Mark all in that order where applicable, followed by
+context-specific actions such as Smooth road. Delete is always last.
 Right-clicking ground and choosing Edit uses the active ground selection, including Select all and added regions.
 Without a ground selection, the right-clicked surface becomes the selection; a left click selects a new surface.
 

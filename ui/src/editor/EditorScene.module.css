@@ -4,3 +4,5 @@
 .inspectorHost { position: absolute; right: 0; top: 0; bottom: 0; width: var(--inspector-space); display: flex; }
 .view { position: absolute; inset: 0; }
 .view canvas { display: block; outline: none; }
+.rectangle { position: absolute; pointer-events: none; z-index: 2; border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent); }

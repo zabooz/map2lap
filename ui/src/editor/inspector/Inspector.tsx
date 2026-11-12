@@ -11,6 +11,7 @@ import {SunClock} from "../scene/SunClock";
 import {TrackStatistics} from "./TrackStatistics";
 import {TextureLookFields} from "../library/TextureSettings";
 import {LOOK, lookSummary, type TextureLook, type TextureMaps} from "../library/textureLook";
+import type {Tool} from "../tools/ToolPanel";
 
 function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;
@@ -204,19 +205,20 @@ function Appearance({name, picked, version, onEdit, restyling, options}: {name: 
 const INSPECTOR_TABS = ["selection", "properties", "details"] as const;
 
 export function Inspector({name, picked, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, restyling = null, notes, transform}: {
+  onMaterialOpen, restyling = null, notes, transform, activeTool}: {
   name: string; picked: Picked | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
   restyling?: Restyling | null;      // (null: the track can't be edited now)
   notes?: ReactNode;
   transform?: ReactNode;      // the picked object's controls, below Appearance in Options
+  activeTool?: Tool;
 }) {
   const [tab, setTab] = useState<(typeof INSPECTOR_TABS)[number]>("selection");
-  const [previousPick, setPreviousPick] = useState(picked);
-  if (previousPick !== picked) {
-    setPreviousPick(picked);
-    if (picked?.kind) setTab("selection");
+  const [previous, setPrevious] = useState({picked, tool: activeTool});
+  if (previous.picked !== picked || previous.tool !== activeTool) {
+    setPrevious({picked, tool: activeTool});
+    if (previous.picked !== picked && picked?.kind || previous.tool !== activeTool && activeTool === "move") setTab("selection");
   }
   const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
   const textureVersion = chosen?.inspection?.texture != null ? view.textures.version(chosen.inspection.texture) : "";

@@ -103,8 +103,8 @@ export class Selection {
     if (adding && !id && !surface) return null;
     if (adding && id && this.picks.has(id)) return this.drop(id, true);
     const groups = !this.marked ? [] : Array.isArray(this.marked) ? this.marked : [this.marked];
-    const keeping = e.button !== LEFT_BUTTON && !!id && (this.picks.has(id)
-      || groups.some(group => hovered.sort === group.sort));
+    const keeping = !!id && !adding && (e.button !== LEFT_BUTTON || this.host.moveTool()) && (this.picks.has(id)
+      || e.button !== LEFT_BUTTON && groups.some(group => hovered.sort === group.sort));
     if (!adding && !keeping) this.forget();     // A context menu on a marked member acts on the whole selection.
     const bounds = id ? this.host.objects.boundsOf(id) : null;
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
@@ -130,6 +130,28 @@ export class Selection {
   /** What can be deleted of all that is picked now. */
   private allPicked() {
     return [...this.picks.values()].map(({picked}) => ({id: picked.id!, position: picked.position}));
+  }
+
+  /** Objects intersecting the dragged screen rectangle's frustum; Add unions rather than toggling. */
+  inRectangle(volume: THREE.Frustum, add: boolean, describe: (id: string) => Hovered | null = () => null) {
+    const data = this.host.data();
+    if (!data) return;
+    const adding = add || this.selectMode.add;
+    if (!adding) this.forget();
+    let last: Picked | null = null;
+    for (const {id, bounds} of this.host.objects.selectableBounds()) {
+      if (!volume.intersectsBox(bounds)) continue;
+      const base = id.slice(0, id.lastIndexOf("#")), k = Number(id.slice(id.lastIndexOf("#") + 1));
+      const list = data.objects[base], hovered = describe(id), centre = bounds.getCenter(new THREE.Vector3()).setY(bounds.min.y);
+      last = {id, afterBuild: false, kind: hovered?.kind ?? kindName(list.kinds[k]), sort: hovered?.sort ?? sortOf(list, k),
+        position: centre.toArray() as [number, number, number], left: true, road: null, all: [], adding, whole: false,
+        ...(hovered ? {inspection: {hovered, revision: data.revision,
+          texture: data.textures.findIndex(t => t.name === hovered.texture), listed: !!list}} : {})};
+      this.picks.set(id, {box: this.picks.get(id)?.box ?? this.frameOf(bounds), picked: last});
+    }
+    last ??= [...this.picks.values()].at(-1)?.picked ?? null;
+    if (last) last.all = this.allPicked();
+    this.onPick(last);
   }
 
   /** Explicit picks outside the selected whole sorts; a sort's own member needs no redundant draft entry. */

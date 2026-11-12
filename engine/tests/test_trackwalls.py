@@ -67,8 +67,22 @@ class WallEditsTest(unittest.TestCase):
         self.assertAlmostEqual(float(source["uv"][:, 0].max()) * 0.5, float(result["uv"][:, 0].max()), places=4)
         self.assertAlmostEqual(float(source["uv"][:, 1].min()) * 2, float(result["uv"][:, 1].min()), places=4)
 
-    def test_refuses_a_non_wall_and_a_negative_rise(self):
-        for edits in ([{"id": "t_0_0#99", "rise": 1, "material": None}], [{"id": "t_0_0#0", "rise": -1, "material": None}]):
+    def test_lowering_keeps_both_feet_and_moves_only_the_cap(self):
+        scan, _ = trackwalls.extend(self.path, self.scan, self.objects, [{"id": "t_0_0#0", "rise": -1, "material": None}])
+        with open(self.path, "rb") as f:
+            before, _ = kn5.mesh_arrays(f, self.scan["meshes"][0])
+        after = np.concatenate([m["data"][0] for m in scan["meshes"] if m.get("wall")])
+        top = {tuple(p) for p in np.asarray(self.profile["tops"], np.float32)}
+        expected = {tuple(np.asarray(p + (np.array([0, -1, 0]) if tuple(p) in top else 0), np.float32)) for p in before["pos"]
+                    if p[2] > -10}
+        self.assertEqual(expected, set(map(tuple, after["pos"])))
+        self.assertTrue(np.isfinite(after["normal"]).all())
+        self.assertTrue(np.allclose(np.linalg.norm(after["normal"], axis=1), 1))
+
+    def test_refuses_a_non_wall_and_lowering_through_either_foot(self):
+        for edits in ([{"id": "t_0_0#99", "rise": 1, "material": None}],
+                      [{"id": "t_0_0#0", "rise": -2, "material": None}],
+                      [{"id": "t_0_0#1", "rise": -3, "material": None}]):
             with self.assertRaises(ValueError):
                 trackwalls.extend(self.path, self.scan, self.objects, edits)
 
@@ -130,7 +144,7 @@ class WallEditsTest(unittest.TestCase):
                                             "category": "rock", "repeat": [6, 1.5]})["material"]["id"]
             now = trackedits.load(str(root), "t")
             walls = trackedits.wall_edit(str(root), "t", {"base": now["base"], "revision": now["revision"],
-                                                          "objects": ["t_0_0#0"], "rise": 1.25, "material": material})["walls"]
+                                                          "objects": ["t_0_0#0"], "rise": -0.5, "material": material})["walls"]
             trackedits.save(str(root), "t", {"base": now["base"], "revision": now["revision"], "id": "texture",
                                              "deleted": [], "walls": walls})
             shown = trackview.index(str(root), "t")
@@ -153,7 +167,7 @@ class WallEditsTest(unittest.TestCase):
             trackcopy.save(str(portable), "t_copy", copy_to="t_raised")
             got = kn5.read(str(portable / "content/tracks/t_raised/t_raised.kn5"))
             added = [n for n in kn5.walk_meshes(got["root"]) if n.name.startswith("1WALL_wall_")]
-            self.assertAlmostEqual(16.75, max(float(n.vertices["pos"][:, 1].max()) for n in added))
+            self.assertAlmostEqual(15.0, max(float(n.vertices["pos"][:, 1].max()) for n in added))
 
 
 if __name__ == "__main__":

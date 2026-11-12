@@ -110,7 +110,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const saving = useSave({name, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
   const walls = useWalls(name, edits);
-  const wallIds = tool === "select" && editable ? view.objects.wallIds((picked?.all ?? []).map(p => p.id)) : [];
+  const wallIds = (tool === "select" || tool === "move") && editable ? view.objects.wallIds((picked?.all ?? []).map(p => p.id)) : [];
   const wallSettings = state.walls.find(w => w.id === (picked?.id ?? wallIds[0]));
   const selection = surfaceInfo?.points === surfacePicks ? surfaceInfo.selection : null;
   const materials = selection?.materials ?? (selection ? [selection.material] : []);
@@ -278,6 +278,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   /** A tool taken up, the one on laid down: Select. Smooth road taken up from Select starts at the road picked there. */
   const takeUp = (t: Tool) => {
     const next = tool === t ? "select" : t, road = editable ? smoothStart(tool, next, picked) : null;
+    if (next === "move" && wallIds.length) onInspectorCollapsed(false);
     setMenu(null); band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
     if (road) band.start(road[0], road[1]);
   };
@@ -296,7 +297,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   /** What can be done with what is picked, for the right-click menu and the Select bar: null where it can't now. */
   const run: Record<SelectAction, (() => void) | null> = {
     texture: picked?.surface ? editPicked : null,
-    move: movable ? () => { setTool("move"); setNote(null); view.focus(); } : null,
+    move: movable || wallIds.length ? () => { setTool("move"); setNote(null); onInspectorCollapsed(false); view.focus(); } : null,
     copy: movable ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null,
     replace: editable && replaceable?.length ? openModels : null,
     delete: editable && (removable.length > 0 || !!vergeCuts) ? () => { remove(); view.focus(); } : null,
@@ -393,7 +394,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
           textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={wallIds.length ? undefined : limitedTiles} colourOnly={!!wallIds.length}
             busy={painting.busy || walls.busy} progress={wallIds.length ? null : painting.progress} error={wallIds.length ? walls.error : painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
-      {inspectorHost && createPortal(<Inspector name={name} picked={picked} surfaces={tool === "select" ? surfacePicks : []}
+      {inspectorHost && createPortal(<Inspector name={name} picked={picked} surfaces={tool === "select" ? surfacePicks : []} activeTool={tool}
         notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}
@@ -404,7 +405,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
         transform={editable && (wallIds.length ? <WallFields rise={wallSettings?.rise ?? 0} textured={!!wallSettings?.material} busy={walls.busy} error={walls.error}
           onHeight={rise => walls.change(wallIds, {rise})} onTexture={() => { setMenu(null); setLibraryTab("textures"); }}
           onOriginal={() => walls.change(wallIds, {material: null})} onReset={() => walls.change(wallIds, {reset: true})} /> : <TransformFields move={move} />)} />, inspectorHost)}
-      {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
+      {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click to pick; left drag selects objects in a rectangle. Add or Ctrl adds to the selection."
         options={[
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
             setSelectWhole(!selectWhole);
@@ -418,7 +419,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {deleting && <DeleteOptions remove={remover} view={view} />}
       {marking && <BandOptions band={band} view={view} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
-      {moving && <MoveOptions move={move} view={view} />}
+      {moving && (wallIds.length ? <ToolOptions id="edit-move-set" title="Transform"
+        note="Change the wall top in Options; both feet stay fixed." /> : <MoveOptions move={move} view={view} />)}
       {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} onFailed={setCopyFailed} />}
       {menu && (
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}

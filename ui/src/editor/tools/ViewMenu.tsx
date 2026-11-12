@@ -28,15 +28,15 @@ export function ViewMenu({at, mark, object, canDelete, onEdit, onReplace, onMove
     <div className={styles.back} onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
          onContextMenu={e => e.preventDefault()}>{/* (the right click that opened it ends with this event, over the layer) */}
       <div id="view-menu" className={styles.menu} role="menu" style={{left, top}}>
-        {onSmooth && <button type="button" role="menuitem" onClick={then(onSmooth)}>Smooth road</button>}
         <button type="button" role="menuitem" onClick={then(onEdit)}>Edit…</button>
         {object && <>
         <button type="button" role="menuitem" disabled={!onReplace} onClick={then(() => onReplace?.())}>Replace…</button>
         <button type="button" role="menuitem" disabled={!onMove} onClick={then(() => onMove?.())}>Transform</button>
         <button type="button" role="menuitem" disabled={!onDuplicate} onClick={then(() => onDuplicate?.())}>Duplicate</button>
         {mark && <button type="button" role="menuitem" onClick={then(onMark)}>{mark}</button>}
-        <button type="button" role="menuitem" disabled={!canDelete} onClick={then(onDelete)}>Delete</button>
         </>}
+        {onSmooth && <button type="button" role="menuitem" onClick={then(onSmooth)}>Smooth road</button>}
+        {object && <button type="button" role="menuitem" disabled={!canDelete} onClick={then(onDelete)}>Delete</button>}
         {!object && onDeleteSurface && <button type="button" role="menuitem" onClick={then(onDeleteSurface)}>Delete</button>}
       </div>
     </div>
