@@ -22,6 +22,7 @@ import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";
 import {MaterialRegions} from "./materials";
 import {ModelDraw} from "./modelDraw";
+import {TreeFxDraw, type TreeFxModel, type TreeFxTrees} from "./treeFx";
 import {GroupDraw, type GroupPlant} from "./groupDraw";
 import type {LibraryModel} from "../library/ModelLibrary";
 import {modelLight} from "./modelLighting";
@@ -83,6 +84,15 @@ export class TrackView {
     this.usedBytes += bytes; return true;
   });
   private modelTransformVersion = 0;
+  private treeFx = new TreeFxDraw(this.scene, {
+    trees: () => fetchJson<TreeFxTrees>(this.treeUrl(""), this.loading.signal),
+    model: name => fetchJson<TreeFxModel>(this.treeUrl(`/${name}`), this.loading.signal),
+    texture: async (name, file) => makeTexture(await fetchBytes(this.treeUrl(`/${name}/${file}`), this.loading.signal), file,
+                                                this.renderer.capabilities.getMaxAnisotropy()),
+  }, bytes => {
+    if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+    this.usedBytes += bytes; return true;
+  });
   private surfaceOverlay: SurfaceOverlay | null = null;
   private roadRegionOverlay: SurfaceOverlay | null = null;
   private roadInfluenceOverlay: SurfaceOverlay | null = null;
@@ -153,7 +163,7 @@ export class TrackView {
       modelBounds: base => this.modelDraw.bounds(base),
       take: bytes => { this.usedBytes += bytes; },
       changed: () => { this.dirty = true; this.hoverDue = true; },
-      removedChanged: () => { this.selection.reframeMarked(); this.dirty = true; this.hoverDue = true; },
+      removedChanged: () => { this.leaveOutTrees(); this.selection.reframeMarked(); this.dirty = true; this.hoverDue = true; },
     });
     this.selection = new Selection({
       scene: this.scene, objects: this.objects, data: () => this.data, moveTool: () => this.mover.on,
@@ -384,6 +394,7 @@ export class TrackView {
     if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Revert to saved removes them while they are unsaved.`);
     this.objects.index(data.objects);
     this.objects.rewant();                  // (the sorts named before the list was there; no mesh is loaded yet)
+    if (data.treefx) void this.loadTrees();
     this.onIndexed(data.revision);
     this.navigation.placeCamera(data);
     this.renderer.domElement.focus({preventScroll: true});     // (W A S D work at once, not in the track's dropdown)
@@ -625,6 +636,10 @@ export class TrackView {
   /** The meshes by number the server now hands out otherwise (it says which: only it knows what moves with a change), its list in that
       revision: those loaded are fetched anew. The changes aren't reckoned here: there is one reckoning, the server's, which Save uses too. */
   refreshMeshes(meshes: number[]) {
+    if (meshes.includes(-3)) {            // (the TreeFX trees stand elsewhere now: trackedits answers "treefx")
+      void this.loadTrees();
+      meshes = meshes.filter(i => i !== -3);
+    }
     if (meshes.includes(-2)) {
       void (async () => {
         await this.reloadModels();
@@ -762,6 +777,26 @@ export class TrackView {
     this.settlePending(data);
     this.dirty = true;
     this.hoverDue = true;
+  }
+
+  /** A TreeFX request's URL: the trees, a model or its image. */
+  private treeUrl(rest: string) { return `/api/editor/${encodeURIComponent(this.trackName)}/treefx${rest}`; }
+
+  /** The TreeFX trees as the server hands them out now (trackview.treefx), with what the draft leaves out. Only the last answer counts. */
+  private async loadTrees() {
+    const mine = this.token;
+    try {
+      await this.treeFx.load();
+      if (mine !== this.token) return;
+      this.leaveOutTrees();
+      this.dirty = true;
+    } catch (error) {
+      if (mine === this.token && !this.loading.signal.aborted) this.onViewFailed((error as Error).message);
+    }
+  }
+
+  private leaveOutTrees() {
+    if (this.treeFx.leaveOut(this.objects.removed, this.objects.removedObjectSorts)) this.dirty = true;
   }
 
   private ensureModelLight() {
@@ -978,6 +1013,7 @@ export class TrackView {
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
       }
       this.cullModels();
+      this.treeFx.follow(this.camera.position);
       this.surfaceOverlay?.follow();
       this.flushModels();
       this.roadRegionOverlay?.follow();
@@ -1009,6 +1045,7 @@ export class TrackView {
     this.lampGlass = [];
     this.modelTransformVersion++;
     this.modelDraw.dispose();
+    this.treeFx.dispose();
     this.groupDraw?.dispose(); this.groupDraw = null;
     this.textures.clear();
     this.surfaceOverlay?.clear();

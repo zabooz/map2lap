@@ -502,7 +502,7 @@ export class TrackEdits {
       this.revision = d.revision;
       this.onServer = edits;
       this.unanswered = this.unanswered.filter(u => u.number > number);
-      this.onMeshes(d.meshes ?? [], d.revision);
+      this.onMeshes(d.treefx ? [-3, ...(d.meshes ?? [])] : d.meshes ?? [], d.revision);     // (-3: the TreeFX trees moved)
       this.onTextures(d.textures ?? [], edits.paints);
       this.set({keptRevision: d.revision});
       if (!this.isSaved()) return void this.flush(leaving);

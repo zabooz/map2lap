@@ -117,6 +117,7 @@ export interface TrackIndex {
   model_assets?: Record<string, {url: string}>;
   model_matrices?: Record<string, number[]>;
   model_replacements?: string[];
+  treefx?: number;                 // how many TreeFX trees the served list holds (treeFx.ts draws them)
   paint_errors?: string[];
   paints?: string[];
   surface_tiles?: string[];

@@ -47,6 +47,9 @@ export class TrackObjects {
   /** The ids of the objects left out now. */
   get removed(): ReadonlySet<string> { return this.removedIds; }
 
+  /** The sorts of listed objects named to leave out (the models of TreeFX trees among them: treeFx leaves those out itself). */
+  get removedObjectSorts(): ReadonlySet<string> { return this.named.objectSorts; }
+
   /** The objects of an index, all of them (a track opened or its models reloaded); what to leave out follows with rewant. */
   index(objects: TrackIndex["objects"]) {
     this.objectPieces = objectIndex(objects);
