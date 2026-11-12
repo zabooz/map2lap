@@ -124,6 +124,10 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - AC drives along **+Z** of the start point (`obj_to_kn5.empty`). Start slots move up to the first road on the route.
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
+- Point-to-point grid, pit and hotlap spawns use the actual start gate: the first car's centre is 3 m before its
+  timing plane, with the other slots 8 m apart behind it along the route, including at bends. The clock remains AC's
+  line-crossing timer. If the whole grid cannot stand on road before the gate, the build reports that instead of
+  placing cars beyond the start. Circuits and areas retain their original spawn placement.
 - BeamNG/Torque winds triangles clockwise → flip them (`shape_parts`), else houses turn black.
 - `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
 - Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).

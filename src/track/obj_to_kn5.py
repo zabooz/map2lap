@@ -54,6 +54,9 @@ FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make
 BUILDING_AMBIENT, BUILDING_DIFFUSE = 0.75, 1.3
 MAX_VERTS = 65535
 SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
+# Metres from the first car's centre to the timing plane: a normal road car's nose stays behind the line.
+# Very long vehicles can need more clearance; all following slots stay farther back along the road.
+STAGE_START_GAP_M = 3.0
 # View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC draws every tile up
 # to the horizon, kerbs and markings too (a 2400-tile track: 22 fps; a 25-tile one: 90+).
 # No shadows for flat and thin things (invisible, but every shadow cascade pays for them). AC measures from the mesh
@@ -298,10 +301,11 @@ def road_height(objs, x, z, prefixes=("1ROAD_", "1GRAVEL_")):
     return best
 
 
-def route_slots(objs, route, n, gap, log=print):
+def route_slots(objs, route, n, gap, log=print, front_m=None):
     """n grid slots along the route (ENU polyline): slot 0 at the front, the others behind it; each (position,
     direction). If the route starts on a way that isn't built (driveway, car park aisle: BeamNG.Earth leaves them out),
-    the slots move forward to the first place where all of them stand on road."""
+    the slots move forward to the first place where all of them stand on road. With front_m, the first slot is fixed
+    at that route metre and the others behind it: no forward search past a stage's start line."""
     xy = np.asarray(route, float)
     seg = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     s = np.r_[0.0, np.cumsum(seg)]
@@ -312,6 +316,11 @@ def route_slots(objs, route, n, gap, log=print):
         h = math.atan2(y2 - y, x2 - x)
         yy = road_height(objs, x, -y)
         return (np.array([x, yy, -y]) if yy is not None else None, np.array([math.cos(h), 0.0, -math.sin(h)]))
+
+    if front_m is not None:
+        if front_m < gap * (n - 1) or front_m > s[-1]:
+            return [(None, None)] * n
+        return [slot(front_m - gap * k) for k in range(n)]
 
     for d0 in np.arange(2.0, min(400.0, s[-1] - gap * n), 2.0):
         out = [slot(d0 + gap * (n - 1 - k)) for k in range(n)]
@@ -373,13 +382,35 @@ def ab_gates(objs, route, timing, log=print):
     return nodes
 
 
+def _start_distance(route, gates, near_m):
+    """Route metre crossing the native start plane, nearest its requested near_m. Pure."""
+    xy = np.asarray(route, float)
+    delta = np.diff(xy, axis=0)
+    seg = np.linalg.norm(delta, axis=1)
+    s = np.r_[0.0, np.cumsum(seg)]
+    left, right = (np.asarray(node.matrix[12:15]) for node in gates[:2])
+    centre = ((left + right) / 2)[[0, 2]] * [1, -1]
+    normal = np.asarray(gates[0].matrix[8:11])[[0, 2]] * [1, -1]
+    den = delta @ normal
+    t = np.divide((centre - xy[:-1]) @ normal, den, out=np.full(len(seg), np.nan), where=den > 0)
+    hits = np.flatnonzero((t >= 0) & (t <= 1))
+    if not len(hits):
+        raise RuntimeError("The start gate does not cross the route in its driving direction")
+    at = s[hits] + t[hits] * seg[hits]
+    return float(at[np.argmin(np.abs(at - near_m))])
+
+
 def start_empties(objs, anchor, log=print):
-    """Start right at the beginning of the route on the road (slots along the route); without a route at the asphalt
-    point nearest the centre along the road's axis. With anchor["timing"] (point-to-point route) start and finish
-    lines (ab_gates) instead of the lap line AC_TIME_0."""
+    """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
+    use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
     route = (anchor or {}).get("route")
     if route and len(route) > 1:
-        slots = route_slots(objs, route, SLOTS, SLOT_GAP, log)
+        timing = anchor.get("timing")
+        gates = ab_gates(objs, route, timing, log) if timing else []
+        front_m = _start_distance(route, gates, timing["start_m"]) - STAGE_START_GAP_M if gates else None
+        slots = route_slots(objs, route, SLOTS, SLOT_GAP, log, front_m=front_m)
+        if gates and any(p is None for p, _ in slots):
+            raise RuntimeError("No road for all grid slots before the start line")
         if all(p is not None for p, _ in slots):
             nodes = []
             for k, (p, fwd) in enumerate(slots):
@@ -389,7 +420,6 @@ def start_empties(objs, anchor, log=print):
             base, fwd = slots[0][0] + np.array([0.0, START_LIFT, 0.0]), slots[0][1]
             side = np.cross([0.0, 1.0, 0.0], fwd)
             nodes.append(empty("AC_HOTLAP_START_0", base, fwd))
-            gates = ab_gates(objs, route, anchor["timing"], log) if anchor.get("timing") else []
             if gates:
                 nodes += gates
             else:

@@ -39,9 +39,9 @@ NOMINATIM = "https://nominatim.openstreetmap.org/"
 SAMPLE_M = 20.0             # m: spacing of the route points for choosing the tiles
 MAX_ROUTE_M = 500000.0      # beyond ~50 km from the anchor float32 gets coarse in AC (cm)
 WARN_TILES = 150
-# Point-to-point timing (obj_to_kn5.ab_gates): the start line this far after the start pin (flying start), the
-# finish line this far after the end pin on the same road, run-off behind it (built too). When start and finish are
-# closer than LOOP_M it is a circuit: the lap line stays there.
+# Point-to-point timing (obj_to_kn5.ab_gates): the start line this far after the start pin, with grid slots just
+# before it. The finish line is this far after the end pin on the same road, with run-off behind it (built too).
+# When start and finish are closer than LOOP_M it is a circuit: the lap line stays there.
 START_LINE_M, FINISH_AFTER_M, RUNOUT_M, LOOP_M = 100.0, 50.0, 100.0, 100.0
 # Progress phases (build(progress=...), shown by the generator page): route, road tiles, terrain/trees/houses
 # (make_obj), distant view (farview), kn5, tidying up (map data cache, temporary data)
