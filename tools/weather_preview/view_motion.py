@@ -15,13 +15,8 @@ def read_dds(path):
         raise ValueError('Not a DDS image')
     height, width = struct.unpack_from('<II', raw, 12)
     fourcc = struct.unpack_from('<I', raw, 84)[0]
-    if fourcc in (111, 112, 113):  # D3DFMT_R16F, G16R16F, A16B16G16R16F.
-        channels = {111: 1, 112: 2, 113: 4}[fourcc]
-        data = np.frombuffer(raw, dtype='<f2', offset=128).reshape(height, width, channels)
-        rgba = np.zeros((height, width, 4), np.float32)
-        rgba[:, :, 3] = 1
-        rgba[:, :, :channels] = data
-        return rgba
+    if fourcc == 113:  # D3DFMT_A16B16G16R16F, the depth canvas.
+        return np.frombuffer(raw, dtype='<f2', offset=128).reshape(height, width, 4).astype(np.float32)
     if fourcc != 0:
         raise ValueError(f'Unsupported DDS format {fourcc}')
     words = np.frombuffer(raw, dtype='<u4', offset=128).reshape(height, width)

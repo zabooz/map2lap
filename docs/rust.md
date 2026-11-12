@@ -10,17 +10,23 @@ It exits with its exact AC process handle. This worker changes falling-snow geom
 This is currently preview integration: release build/package/startup must ship and start the precompiled helper
 before it becomes a default of exported tracks or product Play. End users must never need to compile it.
 
-The rain preview uses `tools/weather_preview/rain_worker.rs`, a CPU port of librain's
-particle calculations, with GPU depth rasterization, normals, refraction and blur in CSP.
-Build/start with `<python> tools/weather_preview/rain_rust.py`; stop only this helper with
-`--stop`. Preview launch/hot reload start an existing development binary automatically.
-The channel is `AcTools.CSP.Limited.Map2Lap.Librain.v4`, protocol 4, 1,085,728 bytes.
-It retains particle state/history, uses one nonblocking request and exits with its exact
-owned AC process. No legacy rain fallback runs. Ambient wind is zero for glass; vehicle
-airflow remains independent. The front pane is active, side liquid awaits acceptance.
-See [`third_party/librain/PORT.md`](../third_party/librain/PORT.md) for upstream attribution,
-adaptations and unresolved motion/material issues. This is not a completed full port.
-Release packaging must provide precompiled helpers; end users must not need Rust.
+The rain preview is being replaced with a GPU librain classic-path port; see
+[`third_party/librain/PORT.md`](../third_party/librain/PORT.md) for its exact scope.
+The old rain helper is stopped and automatic startup is disabled. No new Rust
+preparation backend is implemented yet. The description below records the
+checkpointed experiment, not the currently active rain simulation.
+
+The experimental `tools/weather_preview/rain_worker.rs` owns glass-water droplets on front/side panes,
+using `AcTools.CSP.Limited.Map2Lap.RainHybrid.v3`. Build/start with `tools/weather_preview/rain_rust.py`;
+the ignored binary is `out/rust-rain/rain-worker.exe`. Lua submits nonblocking requests and rasterizes
+same-texture height sprites for the existing GPU glass pass. Rust handles small and large droplets together,
+merges, gravity/vehicle airflow projected onto the car's actual glass triangles, and blade water transport.
+The surface derivatives are sampled once on a 17 by 9 grid per pane; frame requests reuse that grid.
+Rust stores positions and velocities in the car glass's X/S metre chart; camera state is absent from its
+protocol. The rain renderer samples that chart through fixed UVs baked into private copies of the glass
+meshes, rather than reconstructing pane coordinates from camera-relative pixel positions.
+`rainrust|rainlua` select the backend; native weather
+and the accepted falling-rain/snow rendering are independent. Release packaging/startup is still pending.
 
 The Editor's independent browser kernel is `native/editorgeometry/regions.rs`. Build it with
 `.venv\Scripts\python.exe tools\build_editor_geometry.py` after installing `rustup target add wasm32-unknown-unknown`.

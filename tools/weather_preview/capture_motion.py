@@ -1,7 +1,6 @@
 """Record bounded, same-draw glass depth, scene and motion metadata from the owned AC preview."""
 import argparse
 import ctypes
-from contextlib import contextmanager
 import json
 import mmap
 import struct
@@ -17,21 +16,10 @@ VIEW = 4194304
 SIZE = 32 + META + DEPTH + VIEW
 
 
-@contextmanager
-def capture_mapping():
-    """Disable capture even after timeout or interruption, before closing the mapping."""
-    with mmap.mmap(-1, SIZE, tagname=CHANNEL, access=mmap.ACCESS_WRITE) as shared:
-        try:
-            yield shared
-        finally:
-            struct.pack_into('<I', shared, 4, 0)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--seconds', type=float, default=6)
     parser.add_argument('--hz', type=float, default=10)
-    parser.add_argument('--buffers', action='store_true', help='Capture HDR, pre-water, post-refraction and scene-depth quadrants')
     args = parser.parse_args()
     if not 0 < args.seconds <= 20 or not 0 < args.hz <= 20:
         parser.error('Capture is bounded to 20 seconds and 20 samples/second')
@@ -50,8 +38,8 @@ def main():
     count = 0
     started = time.monotonic()
     try:
-        with capture_mapping() as shared:
-            struct.pack_into('<8I', shared, 0, MAGIC, 2 if args.buffers else 1, 0, 0, 0, 0, 0, 0)
+        with mmap.mmap(-1, SIZE, tagname=CHANNEL, access=mmap.ACCESS_WRITE) as shared:
+            struct.pack_into('<8I', shared, 0, MAGIC, 1, 0, 0, 0, 0, 0, 0)
             MODE.write_text('glasscapture', encoding='utf-8')
             with (destination / 'frames.jsonl').open('w') as metadata:
                 while time.monotonic() - started < args.seconds + 3:

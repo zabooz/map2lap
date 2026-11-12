@@ -4,7 +4,7 @@
 -- Experimental windscreen overlay enabled for this development preview.
 local WINDSCREEN_ENABLED = true
 local DEBUG = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'DEBUG', false)
-local glass, veil, mirrorWeather, rustSnow
+local glass, veil, mirrorWeather, rustSnow, rustRain
 local glassMs, glassOff, glassRaw, glassRed = 0, false, false, false
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
@@ -723,7 +723,8 @@ end)
 -- come from the car's own meshes and node transforms.
 if WINDSCREEN_ENABLED then
 glass = {mesh = nil, blades = {}, sides = {}}
-local FIELD_W, FIELD_H = 1536, 768
+local FIELD_W, FIELD_H, DROPS = 1536, 768, 128
+local function cbrt(v) return v ^ (1 / 3) end
 local emptyRef = ac.emptySceneReference()
 
 -- Car-local AABB of one mesh: its mesh-local box through the owning node's world transform and the car's inverse.
@@ -945,8 +946,208 @@ function glass.setup()
   glass.fieldB:clear(rgbm(0, 0, 0, 0))
   glass.read, glass.write = glass.fieldA, glass.fieldB
 
+  -- All rain beads, including the small pinned ones, belong to one persistent Rust simulation per pane.
+  -- Rasterize local sprites in one same-texture UI batch; never run thousands of drop tests per field pixel.
+  -- The existing field/shading/wiper pass remains responsible for glass geometry and snow.
+  rustRain = {enabled = false, active = true, debt = 0, drawing = 0, panes = {glass}}
+  for _, pane in ipairs(glass.sides) do rustRain.panes[#rustRain.panes + 1] = pane end
+  local function connectRainWorker()
+    local ok, mapping = pcall(ac.writeMemoryMappedFile, 'AcTools.CSP.Limited.Map2Lap.RainHybrid.v3', [[
+      uint32_t magic; uint32_t protocol; uint32_t ac_pid; uint32_t request; uint32_t response; uint32_t shutdown;
+      uint32_t count[3]; uint32_t pad; double reserved;
+      double params[3][16]; double blades[2][12]; double stats[3][4]; float drops[3][4096][8];
+      float trails[3][4096][4];
+      float surface[3][153][2];
+    ]])
+    if ok then return mapping end
+    if DEBUG then ac.log('M2L_RAIN_ENGINE connect failed: ' .. tostring(mapping)) end
+  end
+  local function rainHeight(pane, index, mapping)
+    local r = rustRain
+    if not r.stamp then
+      r.stamp = ui.ExtraCanvas(vec2(128, 64), 1):setName('M2L rain dome')
+      r.stampPass = {async = true, cacheKey = 91, blendMode = render.BlendMode.Opaque, shader = [[
+        float4 main(PS_IN pin) {
+          float2 q = float2(frac(pin.Tex.x * 2), pin.Tex.y) * 2 - 1;
+          // Running drops retain a broad leading contact patch and a narrow tail, rather than a capsule.
+          if (pin.Tex.x > 0.5) q.y /= lerp(0.58, 1.05, smoothstep(-0.9, 0.35, q.x));
+          float r2 = dot(q, q);
+          return float4(pow(saturate(1 - r2), 0.7), 0, 0, 1 - smoothstep(0.78, 1, r2));
+        }
+      ]]}
+    end
+    if not r.stampReady then r.stampReady = r.stamp:updateWithShader(r.stampPass) end
+    if not r.stampReady then return false end
+    if not pane.rainCanvas then
+      pane.rainWidth, pane.rainHeight = index == 0 and FIELD_W or 512, index == 0 and FIELD_H or 256
+      pane.rainCanvas = ui.ExtraCanvas(vec2(pane.rainWidth, pane.rainHeight), 1,
+        render.TextureFormat.R16G16B16A16.Float):setName('M2L Rust rain ' .. index)
+    end
+    local count = min(4096, tonumber(mapping.count[index]))
+    pane.rainCount = count
+    pane.rainCanvas:clear(rgbm(0, 0, 0, 0))
+    r.drawing = r.drawing + 1
+    pane.rainCanvas:update(function()
+      local sx, ss = pane.rainWidth / pane.xw, -pane.rainHeight / pane.sw
+      local a, b, c, d, color = vec2(), vec2(), vec2(), vec2(), rgbm(1, 1, 1, 1)
+      local uv1, uv2, uv3, uv4 = vec2(), vec2(), vec2(), vec2()
+      -- Green is a wet footprint, retained in the film field. Draw it before the red height domes.
+      for i = 0, count - 1 do
+        local q, t = mapping.drops[index][i], mapping.trails[index][i]
+        if t[3] > 0 then
+          a:set((t[0] - pane.x0) * sx, pane.rainHeight + (t[1] - pane.s0) * ss)
+          b:set((q[0] - pane.x0) * sx, pane.rainHeight + (q[1] - pane.s0) * ss)
+          ui.drawLine(a, b, rgbm(0, t[3], 0, 1), max(0.65, t[2] * sqrt(-sx * ss) * 2))
+        end
+      end
+      for i = 0, count - 1 do
+        local q = mapping.drops[index][i]
+        local x = (q[0] - pane.x0) * sx
+        local s = pane.rainHeight + (q[1] - pane.s0) * ss
+        local ax, as, bx, bs = q[2] * sx, q[3] * ss, q[4] * sx, q[5] * ss
+        a:set(x - ax - bx, s - as - bs); b:set(x + ax - bx, s + as - bs)
+        c:set(x + ax + bx, s + as + bs); d:set(x - ax + bx, s - as + bs)
+        color.r = q[6]
+        local u = q[7] > 0.5 and 0.5 or 0
+        uv1:set(u, 0); uv2:set(u + 0.5, 0); uv3:set(u + 0.5, 1); uv4:set(u, 1)
+        ui.drawImageQuad(r.stamp, a, b, c, d, color, uv1, uv2, uv3, uv4)
+      end
+      r.drawing = r.drawing - 1
+    end)
+    return true
+  end
+  local function updateRain(dt, ax, ay, az, gx, gs, tanX, tanS, airMag, impinge, rootM, rain)
+    local r = rustRain
+    if not r.enabled or glassOff then r.active = false; return end
+    if rain <= 0 and not r.active and not r.pending then return end
+    if not r.mapping then r.mapping = connectRainWorker() end
+    local m = r.mapping
+    if not m or m.magic ~= 0x4d32524e or m.protocol ~= 3 or m.shutdown ~= 0 then
+      r.active, r.pending, r.initialized = false, false, false
+      return
+    end
+    if r.seq and m.request < r.seq then r.active, r.pending, r.initialized = false, false, false end
+    r.debt = min(0.1, r.debt + dt)
+    if r.pending and m.response == r.seq then
+      r.pending = false
+      if not r.announced then
+        r.announced = true
+        if DEBUG then ac.log('M2L_RAIN_ENGINE connected bytes=' .. ffi.sizeof(m[0]) .. ' capacity=4096/pane') end
+      end
+      local ready = true
+      for i, pane in ipairs(r.panes) do ready = rainHeight(pane, i - 1, m) and ready end
+      if ready then
+        r.active = rain > 0 or m.count[0] + m.count[1] + m.count[2] > 0 or m.stats[0][2] + m.stats[0][3] > 1e-12
+        for i, blade in ipairs(glass.blades) do
+          if i <= 2 then blade.ridge = m.stats[0][i + 1] end
+        end
+      end
+    end
+    -- Availability timeout, not a blocking wait or benchmark: return to Lua if the helper stops responding.
+    if r.pending and elapsed - r.posted > 0.2 then r.active = false end
+    -- The mapping is stable until every canvas callback has consumed it. No waits on CSP's render thread.
+    if not r.pending and r.drawing == 0 then
+      if not r.seq or m.request < r.seq then r.initialized = false end
+      if m.request ~= m.response then return end
+      for i, pane in ipairs(r.panes) do
+        local p = m.params[i - 1]
+        p[0], p[1], p[2], p[3], p[4] = r.debt, pane.x0, pane.xw, pane.s0, pane.sw
+        p[11], p[12] = rain, r.initialized and 0 or 1
+        if not r.initialized then
+          for k = 0, 152 do
+            local slope, out = pane.surface and pane.surface[k], m.surface[i - 1][k]
+            out[0], out[1] = slope and slope[1] or 0, slope and slope[2] or 0
+          end
+        end
+        if i == 1 then
+          p[5] = (rain > 0.8 and 900 or 450) * rain * min(3, impinge / 6.7)
+          p[6], p[7], p[8], p[9], p[10] = gx, gs, tanX, tanS, airMag
+          p[13] = -9.81 * (-rootM.row2.y * pane.tz + rootM.row3.y * pane.ty)
+          p[14] = -ay * pane.tz + az * pane.ty
+        else
+          local tangent = ax * pane.tx + ay * pane.ty
+          local normal = pane.sign * (ax * pane.ty - (ay - 8) * pane.tx)
+          local exposure = min(2, max(0.5, -normal / 6.7))
+          p[5] = 450 * rain * (pane.xw * pane.sw / (xw * sw)) * exposure
+          p[6] = -9.81 * rootM.row3.y
+          p[7] = -9.81 * (rootM.row1.y * pane.tx + rootM.row2.y * pane.ty)
+          p[8], p[9], p[10] = az, tangent, sqrt(az * az + tangent * tangent)
+          p[13] = -9.81 * pane.sign * (rootM.row1.y * pane.ty - rootM.row2.y * pane.tx)
+          p[14] = pane.sign * (ax * pane.ty - ay * pane.tx)
+        end
+      end
+      for i = 1, 2 do
+        local b, o = glass.blades[i], m.blades[i - 1]
+        if b and b.pax then
+          o[0], o[1], o[2], o[3] = b.pax, b.pas, b.pbx, b.pbs
+          o[4], o[5], o[6], o[7] = b.ax, b.as, b.bx, b.bs
+          o[8], o[9], o[10], o[11] = b.dx or 0, b.ds or 0, b.active, b.speed or 0
+        else
+          for k = 0, 11 do o[k] = 0 end
+        end
+      end
+      r.seq, r.debt, r.initialized = m.request + 1, 0, true
+      r.pending, r.posted = true, elapsed
+      m.request = r.seq
+    end
+  end
+
+  -- Droplets: bounded slots. Each has its own mobility and adhesion, so no two run alike.
+  local dAlive, dX, dS, dR, dVx, dVs, dPx, dPs, dMob, dAdh = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+  -- Age since landing and the time left of a kick: a bead that lets go runs with a weak contact line for a while.
+  local dAge, dKick = {}, {}
+  for i = 0, DROPS - 1 do
+    dAlive[i], dX[i], dS[i], dR[i], dVx[i], dVs[i], dPx[i], dPs[i], dAge[i], dKick[i] = false, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    dMob[i], dAdh[i] = 0.7 + rand() * 0.6, 0.8 + rand() * 0.5
+  end
+  local freeCursor, spawnBudget, aliveCount = 0, 0, 0
+  local function spawnDrop(x, s, r, vx, vs)
+    for k = 0, DROPS - 1 do
+      local i = (freeCursor + k) % DROPS
+      if not dAlive[i] then
+        freeCursor = i + 1
+        dAlive[i], dX[i], dS[i], dR[i], dVx[i], dVs[i], dPx[i], dPs[i], dAge[i], dKick[i] = true, x, s, r, vx or 0, vs or 0, x, s, 0, 0
+        return i
+      end
+    end
+    return nil
+  end
+  -- Merge bins: 25 mm cells, larger than two of the biggest drops touching; a drop meets only its 3 x 3 neighbourhood.
+  local CELL = 0.025
+  local NX, NY = floor(xw / CELL) + 2, floor(sw / CELL) + 2
+  local head, nxt = {}, {}
+  for i = 0, NX * NY - 1 do head[i] = -1 end
+  for i = 0, DROPS - 1 do nxt[i] = -1 end
+
+  -- Point in triangle, either winding. Pure.
+  local function inTri(px, py, ax, ay, bx, by, cx, cy)
+    local s1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    local s2 = (cx - bx) * (py - by) - (cy - by) * (px - bx)
+    local s3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx)
+    return (s1 >= 0 and s2 >= 0 and s3 >= 0) or (s1 <= 0 and s2 <= 0 and s3 <= 0)
+  end
+
+  -- Physical scaling, tuned for look: weight grows with r^3 and air drag with r^2 v^2, while the contact line pins
+  -- a drop with a force growing with r. So gravity wins at r^2 and airflow at r v^2 against a fixed threshold.
+  -- KG: a 2.7 mm bead at rest on this glass (5.4 m/s^2 along it) is just about to run. KA: at about 80 km/h a 1.5 mm
+  -- bead starts to creep up the glass, at 60 km/h a 3 mm drop hangs. KV: unit excess drive moves a drop at 10 cm/s.
+  local KG, KA, KV = 26000, 1.4, 0.1
   local snowOnGlass, wetUntil = 0, 0
   local rainAmount, snowRate = 0, 0
+
+  local function releaseRidge(blade, ax, as, bx, bs, dirx, dirs)
+    if rustRain.active then return end
+    local v = blade.ridge
+    blade.ridge = 0
+    if v < 1e-10 then return end
+    local n = min(5, max(1, floor(cbrt(v) / 0.0025)))
+    local r = min(0.005, max(0.0012, cbrt(v / n)))
+    for _ = 1, n do
+      local t = 0.1 + rand() * 0.8
+      spawnDrop(ax + (bx - ax) * t + dirx * 0.004, as + (bs - as) * t + dirs * 0.004, r, dirx * 0.04, dirs * 0.04)
+    end
+  end
+
   local function updateBlades(dt, w2l)
     -- A parked blade vibrates with the engine/body. Only a changing native wiper phase can sweep or push
     -- snow: scene-transform jitter alone otherwise draws a false ridge when the driver revs the engine.
@@ -972,8 +1173,34 @@ function glass.setup()
         local step = sqrt(stepX * stepX + stepS * stepS)
         if phaseMoved and moved > 0.0003 then
           local dirx, dirs = mx / moved, ms / moved
+          -- Reversal: the ridge stays where the blade turned, ahead of its previous motion.
+          if blade.dx and dirx * blade.dx + dirs * blade.ds < 0 then releaseRidge(blade, blade.lax, blade.las, blade.lbx, blade.lbs, blade.dx, blade.ds) end
           blade.dx, blade.ds, blade.speed, blade.idle, blade.active = dirx, dirs, step / dt, 0, 1
           anyActive = true
+          if not rustRain.active then
+          -- Drops in the swept quad join the ridge riding ahead of the blade.
+          for i = 0, DROPS - 1 do
+            if dAlive[i] then
+              local px, ps = dX[i], dS[i]
+              if inTri(px, ps, blade.lax, blade.las, blade.lbx, blade.lbs, bx, bs) or inTri(px, ps, blade.lax, blade.las, bx, bs, ax, as) then
+                blade.ridge = blade.ridge + dR[i] ^ 3
+                dAlive[i] = false
+              end
+            end
+          end
+          -- Water escapes at the blade's outer tip while it moves.
+          local leak = blade.ridge * 0.5 * dt
+          blade.ridge, blade.leaked = blade.ridge - leak, blade.leaked + leak
+          if blade.leaked > 0.0016 ^ 3 then
+            local P = w2l:transformPoint(blade.pivot:getWorldTransformationRaw().position)
+            local pxv, psv = P.x, P.y * glass.ty + P.z * glass.tz - glass.sc
+            local da, db = (ax - pxv) ^ 2 + (as - psv) ^ 2, (bx - pxv) ^ 2 + (bs - psv) ^ 2
+            local tx, ts = ax, as
+            if db > da then tx, ts = bx, bs end
+            spawnDrop(tx - dirx * 0.006, ts - dirs * 0.006, cbrt(blade.leaked), 0, 0)
+            blade.leaked = 0
+          end
+          end
           blade.pax, blade.pas, blade.pbx, blade.pbs = blade.lax, blade.las, blade.lbx, blade.lbs
           blade.lax, blade.las, blade.lbx, blade.lbs = ax, as, bx, bs
         else
@@ -984,6 +1211,7 @@ function glass.setup()
           end
           if not phaseMoved or step < 0.0001 then
             blade.idle = blade.idle + dt
+            if blade.idle > 0.25 and blade.ridge > 0 and blade.dx then releaseRidge(blade, ax, as, bx, bs, blade.dx, blade.ds) end
           end
         end
       else
@@ -994,21 +1222,134 @@ function glass.setup()
     return anyActive
   end
 
-  -- Snow and thaw own this field. Liquid rain is exclusively the librain pipeline.
-  local values = {gFrame = vec4(x0,s0,1/xw,1/sw),gParams=vec4(),gAir=vec4(),
-    gMelt=0,gSnowMode=0,gSeed=vec2(),gLandingStep=0,
-    gW0=mat4x4.identity(),gW1=mat4x4.identity()}
-  local rows = {'row1','row2','row3','row4'}
+  local function updateDrops(dt, gx, gs, airx, airs, airMag, impinge)
+    -- The field holds the beads; this list holds the few big drops that run and leave trails.
+    spawnBudget = min(4, spawnBudget + 2.5 * rainAmount * impinge / 6.7 * dt)
+    while spawnBudget >= 1 do
+      spawnBudget = spawnBudget - 1
+      local r = rand()
+      -- With every slot taken, the impact lands on a bead already there and grows it instead.
+      local r0 = 0.0028 + r * 0.002
+      local i = spawnDrop(x0 + rand() * xw, s0 + rand() * sw, r0)
+      if i then dKick[i] = 1 + rand() * 2 end
+    end
+    for i = 0, NX * NY - 1 do head[i] = -1 end
+    aliveCount = 0
+    for i = 0, DROPS - 1 do
+      if dAlive[i] then
+        local r = dR[i]
+        -- Pinned beads collect further rain; without rain they slowly dry.
+        r = r + impinge * rainAmount * 0.000012 * (0.5 + rand()) * dt - 0.00004 * (1 - rainAmount) * dt
+        if r < 0.0004 then
+          dAlive[i] = false
+        else
+          local nx = gx * r * r * KG + airx * airMag * r * KA
+          local ns = gs * r * r * KG + airs * airMag * r * KA
+          local nm = sqrt(nx * nx + ns * ns)
+          local moving = dVx[i] ~= 0 or dVs[i] ~= 0
+          dAge[i] = dAge[i] + dt
+          -- A pinned bead lets go now and then: the chance grows with its age and size, as impacts and vibration
+          -- shake it loose. For a kick's duration its contact line holds much less, so gravity moves it.
+          if not moving and dKick[i] <= 0 and rand() < dt * (0.03 + dAge[i] * 0.004 + r * 12) then
+            dKick[i], dAge[i] = 0.3 + rand() * 0.6, 0
+          end
+          dKick[i] = dKick[i] - dt
+          -- A running drop keeps running on a thinner contact line than it took to depin it.
+          local thr = dAdh[i] * (dKick[i] > 0 and 0.2 or moving and 0.6 or 1)
+          dPx[i], dPs[i] = dX[i], dS[i]
+          if nm > thr then
+            local ex = (nm - thr) / nm * KV * dMob[i]
+            local vx, vs = nx * ex + (rand() - 0.5) * 0.03, ns * ex
+            local v = sqrt(vx * vx + vs * vs)
+            if v > 0.45 then vx, vs, v = vx * 0.45 / v, vs * 0.45 / v, 0.45 end
+            dVx[i], dVs[i] = vx, vs
+            local x, s = dX[i] + vx * dt, dS[i] + vs * dt
+            -- The trail it leaves takes a little of its water.
+            r = r - v * dt * 0.0005
+            if x < x0 or x > x0 + xw or s < s0 or s > s0 + sw then dAlive[i] = false else dX[i], dS[i] = x, s end
+          else
+            dVx[i], dVs[i] = 0, 0
+          end
+          dR[i] = r
+          if dAlive[i] then
+            local cell = floor((dX[i] - x0) / CELL) + floor((dS[i] - s0) / CELL) * NX
+            if cell >= 0 and cell < NX * NY then nxt[i], head[cell] = head[cell], i end
+            aliveCount = aliveCount + 1
+          end
+        end
+      end
+    end
+    -- Merging: neighbours whose beads touch become one drop of the same water volume, at the weighted position.
+    for i = 0, DROPS - 1 do
+      if dAlive[i] then
+        local cx, cy = floor((dX[i] - x0) / CELL), floor((dS[i] - s0) / CELL)
+        for oy = -1, 1 do
+          for ox = -1, 1 do
+            local gx2, gy2 = cx + ox, cy + oy
+            if gx2 >= 0 and gx2 < NX and gy2 >= 0 and gy2 < NY then
+              local j = head[gx2 + gy2 * NX]
+              while j >= 0 do
+                if j > i and dAlive[j] and dAlive[i] then
+                  local ddx, dds = dX[j] - dX[i], dS[j] - dS[i]
+                  local ri, rj = dR[i], dR[j]
+                  if ddx * ddx + dds * dds < ((ri + rj) * 0.8) ^ 2 then
+                    local vi, vj = ri ^ 3, rj ^ 3
+                    local v = vi + vj
+                    local big, small = i, j
+                    if rj > ri then big, small = j, i end
+                    dX[big] = (dX[i] * vi + dX[j] * vj) / v
+                    dS[big] = (dS[i] * vi + dS[j] * vj) / v
+                    dVx[big] = (dVx[i] * vi + dVx[j] * vj) / v
+                    dVs[big] = (dVs[i] * vi + dVs[j] * vj) / v - 0.01
+                    dR[big] = min(0.007, cbrt(v))
+                    dAlive[small] = false
+                    aliveCount = aliveCount - 1
+                  end
+                end
+                j = nxt[j]
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- Shader constants: drops as float4 pairs packed in matrices (4 rows each), blades as one matrix each.
+  local DMATS = DROPS / 2
+  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gBead = 0, gSnowMode = 0, gSeed = vec2(), gLandingStep = 0, gRustRain = 0,
+    gW0 = mat4x4.identity(), gW1 = mat4x4.identity()}
+  local dropMats = {}
+  for k = 0, DMATS - 1 do
+    local m = mat4x4.identity()
+    values['gD' .. k] = m
+    dropMats[k] = m
+  end
+  local rows = {'row1', 'row2', 'row3', 'row4'}
+  local function fillDropMats()
+    for i = 0, DROPS - 1 do
+      local m = dropMats[floor(i / 2)]
+      local cur, prev = m[rows[(i % 2) * 2 + 1]], m[rows[(i % 2) * 2 + 2]]
+      if dAlive[i] then
+        cur:set(dX[i], dS[i], dR[i], 1)
+        prev:set(dPx[i], dPs[i], dVx[i], dVs[i])
+      else
+        cur:set(0, 0, 0, 0)
+        prev:set(0, 0, 0, 0)
+      end
+    end
+  end
   local function fillBladeMat(m, blade, snowBand)
     if not blade or not blade.pax or blade.active == 0 then m.row4:set(0, 0, 0, 0); return end
     m.row1:set(blade.pax, blade.pas, blade.pbx, blade.pbs)
     m.row2:set(blade.ax, blade.as, blade.bx, blade.bs)
-    m.row3:set(blade.dx, blade.ds, 0, snowBand)
+    local water = blade.ridge > 1e-11 and min(0.012, cbrt(blade.ridge) * 2.5) or 0
+    m.row3:set(blade.dx, blade.ds, water, snowBand)
     m.row4:set(blade.speed, 1, 0, 0)
   end
 
 
-  -- Librain particle path. Depth is independent of the accepted snow field.
+  -- Librain classic render-texture path. Depth is independent of the accepted snow field.
   -- Fixed X/S chart: U increases to car +X, V increases DOWN the pane. All lengths below are metres.
   -- No camera input participates in this update. Ambient wind and driving airflow have separate gains.
   local lr = {debt = 0, tick = 0, ambientGain = 0, vehicleGain = 1}
@@ -1023,31 +1364,18 @@ function glass.setup()
       ]])
     end
     local m = lr.captureMap
-    if m.magic ~= 0x4d324c43 or m.enabled == 0 or m.request == m.response then return end
+    if m.magic ~= 0x4d324c43 or m.enabled ~= 1 or m.request == m.response then return end
     local ok, err = pcall(function()
       if not lr.captureView then
         lr.captureView = ui.ExtraCanvas(vec2(960,540),1)
         lr.capturePass = {async = true, cacheKey = 205, blendMode = render.BlendMode.Opaque,
-          textures = {txSource = 'dynamic::hdr',txBefore=false,txAfter=false,txDepth='dynamic::depth'},
-          values={gBuffers=0},shader = [[
+          textures = {txSource = 'dynamic::hdr'}, shader = [[
             float4 main(PS_IN pin) {
-              float2 uv=pin.Tex;
-              float3 c;
-              if(gBuffers>0.5) {
-                uv=frac(uv*2);
-                if(pin.Tex.y<0.5) c=pin.Tex.x<0.5 ? txSource.SampleLevel(samLinearSimple,uv,0).rgb
-                  : txBefore.SampleLevel(samLinearSimple,uv,0).rgb;
-                else if(pin.Tex.x<0.5) c=txAfter.SampleLevel(samLinearSimple,uv,0).rgb;
-                else { float d=txDepth.SampleLevel(samLinearSimple,uv,0).r; return float4(pow(d,64).xxx,1); }
-              } else c=txSource.SampleLevel(samLinearSimple,uv,0).rgb;
-              c=max(0,c);
+              float3 c=max(0,txSource.SampleLevel(samLinearSimple,pin.Tex,0).rgb);
               return float4(pow(c/(1+c),1/2.2),1);
             }
           ]]}
       end
-      lr.capturePass.values.gBuffers=m.enabled==2 and 1 or 0
-      lr.capturePass.textures.txBefore=lr.scene or false
-      lr.capturePass.textures.txAfter=lr.smudgeScene or false
       if not lr.captureView:updateSceneWithShader(lr.capturePass) then return end
       local depth, view = lr.read:encode(), lr.captureView:encode()
       if not depth or not view then error('Canvas encode returned no DDS data') end
@@ -1056,35 +1384,37 @@ function glass.setup()
         blades[#blades+1] = {b.ax,b.as,b.bx,b.bs,b.active,b.pax,b.pas,b.pbx,b.pbs}
       end
       local v = lr.sim.values
-      local particles=lr.captureParticles or {}
-      -- Diagnostic projection of the SAME particle identities. Never fed back into movement.
-      local projected={}
-      local root=glass.root:getWorldTransformationRaw()
-      local size=render.getRenderTargetSize()
-      local function project(u,v)
-        local x,s=glass.x0+u*glass.xw,glass.s0+v*glass.xw
-        local n=-1e30
-        for _,t in ipairs(glass.chartTriangles) do
-          local dx,ds=x-t.a[1],s-t.a[2]
-          local det=t.ux*t.vs-t.us*t.vx
-          local a,b=(dx*t.vs-ds*t.vx)/det,(t.ux*ds-t.us*dx)/det
-          if a>=0 and b>=0 and a+b<=1 then n=max(n,t.a[3]+t.hx*dx+t.hs*ds) end
-        end
-        if n==-1e30 then return nil end
-        local p=vec3(x,glass.ty*(s+glass.sc)-glass.tz*n,glass.tz*(s+glass.sc)+glass.ty*n)
-        local q=ui.projectPoint(root:transformPoint(p),false)
-        return q and {q.x/size.x,q.y/size.y} or nil
+      local projected = {}
+      local root = glass.root:getWorldTransformationRaw()
+      local size = render.getRenderTargetSize()
+      local function screenPoint(x,s,n)
+        local q = vec3(x,glass.ty*(s+glass.sc)-glass.tz*n,glass.tz*(s+glass.sc)+glass.ty*n)
+        local screen = ui.projectPoint(root:transformPoint(q),false)
+        if not screen or math.abs(screen.x)>1e8 or math.abs(screen.y)>1e8 then return nil end
+        return {screen.x/size.x,screen.y/size.y}
       end
-      for _,p in ipairs(particles) do
-        local a,b=project(p[2],p[3]),project(p[2]+p[4]*0.2,p[3]+p[5]*0.2)
-        if a and b then projected[#projected+1]={p[1],a[1],a[2],b[1],b[2]} end
+      for k = 0,152 do
+        local p,h=glass.surfacePoints[k],glass.surface[k]
+        local hx,hs=h[1],h[2]
+        local function tangent(f)
+          local det=1+hx*hx+hs*hs
+          return ((1+hs*hs)*f.x-hx*hs*f.y+hx*f.z)/det,
+            ((1+hx*hx)*f.y-hx*hs*f.x+hs*f.z)/det
+        end
+        local gx,gs=tangent(v.gGravity3)
+        local ax,as=tangent(v.gAir3)
+        local speed=sqrt(ax*ax+as*as+(hx*ax+hs*as)^2)
+        local scale=speed>0.0001 and min(1,speed/40)^1.85/speed or 0
+        local dx,ds=(gx/9.81*0.25*v.gRain^2+ax*scale)*0.1,(gs/9.81*0.25*v.gRain^2+as*scale)*0.1
+        local from=screenPoint(p[1],p[2],p[3])
+        local to=screenPoint(p[1]+dx,p[2]+ds,p[3]+hx*dx+hs*ds)
+        if from and to then projected[#projected+1]={k,from[1],from[2],to[1],to[2],dx,ds} end
       end
       local meta = JSON.stringify({time=elapsed, tick=lr.tick, frame=frames, rain=v.gRain,
         phase=ac.getCar(0).wiperProgress, blades=blades, surface=glass.surface,
         gravity={v.gGravity3.x,v.gGravity3.y,v.gGravity3.z},
         air={v.gAir3.x,v.gAir3.y,v.gAir3.z}, chart={glass.x0,glass.s0,glass.xw,glass.sw},
-        camera={sim.cameraPosition.x,sim.cameraPosition.y,sim.cameraPosition.z},particles=particles,
-        projected=projected,backend="librain-particles-v4",buffers=m.enabled==2})
+        camera={sim.cameraPosition.x,sim.cameraPosition.y,sim.cameraPosition.z},projected=projected})
       if #depth>8388608 or #view>4194304 or #meta>65536 then error('Capture buffer capacity exceeded') end
       m.depth,m.view,m.meta = depth,view,meta
       m.depth_bytes,m.view_bytes,m.meta_bytes,m.error = #depth,#view,#meta,0
@@ -1107,12 +1437,10 @@ function glass.setup()
         return float4(depth > 0.025 ? float3(1,0,0) : float3(gridShade,gridShade,gridShade),1);
       }
     ]]}
-  -- Match librain's compute-path spatial resolution; half-size depth produced
-  -- pixel-shaped lenses and stair-stepped thin tails in the close cockpit view.
-  lr.width = 2048
+  lr.width = 1024
   lr.height = math.max(128, math.floor(lr.width * sw / xw + 0.5))
-  lr.a = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16.Float)
-  lr.b = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16.Float)
+  lr.a = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
+  lr.b = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
   lr.a:clear(rgbm(0, 0, 0, 0)); lr.b:clear(rgbm(0, 0, 0, 0))
   lr.read, lr.write = lr.a, lr.b
   lr.mask = ui.ExtraCanvas(vec2(lr.width,lr.height),1)
@@ -1124,139 +1452,152 @@ function glass.setup()
         uv(t.a[1]+t.vx,t.a[2]+t.vs),rgbm(1,1,1,1))
     end
   end)
-  lr.norm = ui.ExtraCanvas(vec2(lr.width, lr.height), 8, render.TextureFormat.R16G16.Float)
+  lr.norm = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
   lr.norm:clear(rgbm(0.5, 0.5, 0, 1))
   lr.normalPass = {async = true, cacheKey = 202, blendMode = render.BlendMode.Opaque,
     textures = {txDepth = false}, values = {gStep = vec2(1/lr.width, 1/lr.height)}, shader = [[
     // CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
     // Adapted from librain rain_stage2.frag; full notice below, license in third_party/librain/COPYING.txt.
-    // Liquid COMPUTE_VARIANT: weighted depth differences and upstream atan compression.
+    // Liquid-only central differences and upstream atan compression. No aircraft thrust stretch.
     float depth(float2 uv) { return txDepth.SampleLevel(samLinearSimple, saturate(uv), 0).r; }
     float4 main(PS_IN pin) {
-      float dx = 0.67*(depth(pin.Tex-float2(gStep.x,0))-depth(pin.Tex+float2(gStep.x,0)))
-        +0.33*(depth(pin.Tex-float2(2*gStep.x,0))-depth(pin.Tex+float2(2*gStep.x,0)));
-      float dy = 0.67*(depth(pin.Tex-float2(0,gStep.y))-depth(pin.Tex+float2(0,gStep.y)))
-        +0.33*(depth(pin.Tex-float2(0,2*gStep.y))-depth(pin.Tex+float2(0,2*gStep.y)));
+      float dx = depth(pin.Tex-float2(gStep.x,0))-depth(pin.Tex+float2(gStep.x,0));
+      float dy = depth(pin.Tex-float2(0,gStep.y))-depth(pin.Tex+float2(0,gStep.y));
       return float4(saturate(float2(atan(dx),atan(dy))/1.57079632679+0.5),0,1);
     }
   ]]}
-  -- CDDL HEADER START
-  -- This file and its contents are supplied under the Common Development and
-  -- Distribution License (CDDL), version 1.0. Use only in accordance with that
-  -- license. See third_party/librain/COPYING.txt or http://www.illumos.org/license/CDDL.
-  -- CDDL HEADER END
-  -- Copyright 2018, 2019 Saso Kiselkov. All rights reserved.
-  -- Adapted droplets.glsl/droplets.vert/droplets.frag: a nine-triangle fan with
-  -- alpha 1 at its centre and 0 at its outline. One cached stamp preserves that
-  -- interpolation; per-drop affine transforms come from the persistent worker.
-  lr.sim = {values={gGravity3=vec3(),gAir3=vec3(),gWind=0,gRain=0,
-    gW0=mat4x4.identity(),gW1=mat4x4.identity()}}
-  lr.stamp=ui.ExtraCanvas(vec2(512,256),1)
-  lr.stampPass={async=true,cacheKey=211,blendMode=render.BlendMode.Opaque,shader=[[
-    float cross2(float2 a,float2 b) { return a.x*b.y-a.y*b.x; }
-    float2 ring(int i) {
-      float a=6.28318530718*i/9;
-      float x=sin(a), y=cos(a)-0.6;
-      if(i==1 || i==8) x*=1.25;
-      if(i>=3 && i<=6) x*=0.75;
-      if(i==4 || i==5) y=cos(a)-0.72;
-      return float2(x,y);
-    }
-    float4 main(PS_IN pin) {
-      if(pin.Tex.x>=0.5) {
-        // tails.frag: quantity times linear distance from centre of the line.
-        return float4(1,0,0,saturate(1-abs(pin.Tex.x*4-3))*(1-pin.Tex.y));
-      }
-      float2 p=float2(pin.Tex.x*2,pin.Tex.y)*4-2;
-      float alpha=0;
-      [unroll] for(int i=0;i<9;i++) {
-        float2 a=ring(i), b=ring((i+1)%9);
-        float det=cross2(a,b);
-        float u=cross2(p,b)/det, v=cross2(a,p)/det;
-        if(u>=0 && v>=0 && u+v<=1) alpha=max(alpha,1-u-v);
-      }
-      return float4(1,0,0,alpha);
-    }
-  ]]}
-  lr.raster=ui.ExtraCanvas(vec2(lr.width,lr.height),1,render.TextureFormat.R16.Float)
-  lr.depthPass={async=true,cacheKey=212,blendMode=render.BlendMode.Opaque,
-    textures={txRaster=lr.raster,txGlassMask=lr.mask},
-    values={gFrame=vec4(x0,s0,xw,sw),gW0=mat4x4.identity(),gW1=mat4x4.identity()},shader=[[
-      bool swept(float2 p,float4x4 W) {
-        if(W[3].y<0.5) return false;
-        float2 d=p-W[0].xy; float r=length(d);
-        float a=atan2(d.x,d.y);
-        a+=floor((W[1].x-a)/6.28318530718+0.5)*6.28318530718;
-        return r>=W[0].z && r<=W[0].w*1.02 && a>=W[1].y && a<=W[1].z;
-      }
-      float4 main(PS_IN pin) {
-        float2 p=float2(gFrame.x+pin.Tex.x*gFrame.z,gFrame.y+(1-pin.Tex.y)*gFrame.w);
-        if(txGlassMask.SampleLevel(samLinearSimple,pin.Tex,0).r<0.5
-            || swept(p,gW0) || swept(p,gW1)) return 0;
-        return float4(saturate(txRaster.SampleLevel(samLinearSimple,pin.Tex,0).r),0,0,1);
-      }
-    ]]}
-  local function connectLibrain()
-    return ac.writeMemoryMappedFile('AcTools.CSP.Limited.Map2Lap.Librain.v4', [[
-      uint32_t magic; uint32_t protocol; uint32_t ac_pid; uint32_t request; uint32_t response; uint32_t shutdown;
-      uint32_t count[3]; uint32_t pad;
-      double params[3][16]; double blades[2][12]; double stats[3][4];
-      float drops[3][4096][10]; float tails[3][256][48][4]; float surface[3][153][2];
-    ]])
+  -- The grid is sampled from actual glass triangles in the rendered-model frame.
+  -- Embed immutable geometry in this pane's shader; no readback or image simulation on the CPU.
+  local surfaceConstants = {}
+  for k = 0, 152 do
+    local slope = glass.surface and glass.surface[k] or {0, 0}
+    surfaceConstants[#surfaceConstants+1] = string.format('float2(%.9f,%.9f)', slope[1], slope[2])
   end
-  local function paintLibrain(m)
-    if not lr.stampReady then lr.stampReady=lr.stamp:updateWithShader(lr.stampPass) end
-    if not lr.stampReady then return false end
-    lr.raster:clear(rgbm(0,0,0,0))
-    lr.raster:update(function()
-      local a,b,c,d=vec2(),vec2(),vec2(),vec2()
-      local ua,ub,uc,ud=vec2(),vec2(),vec2(),vec2()
-      local color=rgbm(1,1,1,1)
-      local function point(out,x,y) out:set(x*lr.width,lr.height-y*lr.width) end
-      -- librain paints heads first and streamer segments second with alpha blending.
-      for i=0,min(4096,tonumber(m.count[0]))-1 do
-        local q=m.drops[0][i]
-        local sx,sy=q[4]*(1-0.2*q[5]),q[4]*(1+q[5])
-        local ax,ay=q[3]*sx,-q[2]*sx
-        local bx,by=q[2]*sy,q[3]*sy
-        point(a,q[0]-2*ax-2*bx,q[1]-2*ay-2*by)
-        point(b,q[0]+2*ax-2*bx,q[1]+2*ay-2*by)
-        point(c,q[0]+2*ax+2*bx,q[1]+2*ay+2*by)
-        point(d,q[0]-2*ax+2*bx,q[1]-2*ay+2*by)
-        ua:set(0,0);ub:set(0.5,0);uc:set(0.5,1);ud:set(0,1)
-        ui.drawImageQuad(lr.stamp,a,b,c,d,color,ua,ub,uc,ud)
-      end
-      for i=0,255 do
-        local tail=m.tails[0][i]
-        for j=0,46 do
-          local p,q=tail[j],tail[j+1]
-          local dx,dy=q[0]-p[0],q[1]-p[1]
-          local length=sqrt(dx*dx+dy*dy)
-          if p[3]>0 and q[3]>0 and length>1e-7 and p[2]>0 then
-            local nx,ny=-dy/length*10/2048,dx/length*10/2048
-            point(a,p[0]-nx*p[2],p[1]-ny*p[2]);point(b,p[0]+nx*p[2],p[1]+ny*p[2])
-            point(c,q[0]+nx*q[2],q[1]+ny*q[2]);point(d,q[0]-nx*q[2],q[1]-ny*q[2])
-            ua:set(0.5,1-p[2]);ub:set(1,1-p[2]);uc:set(1,1-q[2]);ud:set(0.5,1-q[2])
-            ui.drawImageQuad(lr.stamp,a,b,c,d,color,ua,ub,uc,ud)
-          end
-        end
-      end
-    end)
-    if not lr.write:updateWithShader(lr.depthPass) then return false end
-    lr.read,lr.write=lr.write,lr.read
-    lr.normalPass.textures.txDepth=lr.read
-    if lr.norm:updateWithShader(lr.normalPass) then lr.norm:mipsUpdate() end
-    if glass.captureRequested and lr.captureMap and lr.captureMap.enabled>0 then
-      lr.captureParticles={}
-      for i=0,min(128,tonumber(m.count[0]))-1 do
-        local q=m.drops[0][i]
-        lr.captureParticles[#lr.captureParticles+1]={q[7],q[0],q[1],q[8],q[9],q[4],q[5]}
-      end
-    end
-    glass.rainCount=tonumber(m.count[0])
-    lr.tick=lr.tick+1
-    return true
-  end
+  lr.sim = {async = true, cacheKey = 204, blendMode = render.BlendMode.Opaque,
+    textures = {txDepth = false,txGlassMask=lr.mask}, values = {
+      gSize = vec2(lr.width, lr.height), gFrame = vec4(x0, s0, xw, sw),
+      gFlow = vec2(), gRain = 0, gSeed = 0, gWind = 0, gGravity3 = vec3(), gAir3 = vec3(),
+      gW0 = mat4x4.identity(), gW1 = mat4x4.identity()},
+    shader = 'static const float2 glassSurface[153] = {' .. table.concat(surfaceConstants, ',') .. '};\n' .. [[
+/*
+ * CDDL HEADER START
+ *
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * http://www.illumos.org/license/CDDL.
+ *
+ * CDDL HEADER END
+*/
+/*
+ * Copyright 2018 Saso Kiselkov. All rights reserved.
+ */
+
+
+// Map2Lap adaptation of rain_stage1.frag (classic, liquid-only).
+// Temperature/icing remain in the separate snow backend. Wind/gravity directions are
+// glass-frame vectors instead of X-Plane configurable radial source points.
+// Gold Noise copyright 2017-2018 dcerisano@standard3d.com (upstream noise.glsl).
+float gold_noise(float2 p, float seed) {
+  return frac(sin(dot(p * (seed + 0.16180339887498948),
+    float2(0.16180339887498948, 0.3141592653589793))) * 14142.13562373095);
+}
+bool droplet_gen_check(float2 p) {
+  return gold_noise(p, gSeed) > 1 - 0.1 * gRain * 0.0117 * max(1 - gWind, 0.35);
+}
+float read_depth(float2 uv) {
+  // Drain at the chart boundary: never wrap or clamp inflowing water from the opposite edge.
+  if (any(uv < 0) || any(uv > 1) || txGlassMask.SampleLevel(samLinearSimple,uv,0).r<0.5) return 0;
+  return txDepth.SampleLevel(samLinearSimple, uv, 0).r;
+}
+float read_blade_origin(float2 uv) {
+  if (any(uv<0) || any(uv>1) || txGlassMask.SampleLevel(samLinearSimple,uv,0).r<0.5) return 0;
+  return txDepth.SampleLevel(samLinearSimple,uv,0).b;
+}
+float2 surfaceSlope(float2 uv) {
+  float2 q = saturate(float2(uv.x,1-uv.y))*float2(16,8);
+  int2 cell = min(int2(floor(q)),int2(15,7));
+  float2 f = q-cell;
+  int k = cell.x+cell.y*17;
+  return lerp(lerp(glassSurface[k],glassSurface[k+1],f.x),
+    lerp(glassSurface[k+17],glassSurface[k+18],f.x),f.y);
+}
+float2 tangentComponents(float3 force, float2 slope) {
+  // Inverse metric of P(X,S)=(X,S,N(X,S)). The normal component matters:
+  // a curved corner must not inherit the central pane's direction of steepest descent.
+  float hx=slope.x, hs=slope.y;
+  return float2((1+hs*hs)*force.x-hx*hs*force.y+hx*force.z,
+    (1+hx*hx)*force.y-hx*hs*force.x+hs*force.z)/(1+hx*hx+hs*hs);
+}
+float2 localFlow(float2 uv) {
+  float2 slope = surfaceSlope(uv);
+  float2 gravity = tangentComponents(gGravity3,slope);
+  float2 air = tangentComponents(gAir3,slope);
+  // Convert the chart velocity back to a 3D tangent length before normalization.
+  float tangentSpeed = sqrt(dot(air,air)+pow(dot(air,slope),2));
+  float windFactor = min(1,tangentSpeed/40);
+  float airScale = tangentSpeed > 0.0001 ? pow(windFactor,1.85)/tangentSpeed : 0;
+  float2 metres = gravity/9.81*0.25*gRain*gRain + air*airScale;
+  return metres*float2(1/gFrame.z,-1/gFrame.w);
+}
+float cross2(float2 a, float2 b) { return a.x * b.y - a.y * b.x; }
+bool sweptTriangle(float2 p, float2 a, float2 b, float2 c) {
+  if (abs(cross2(b-a, c-a)) < 1e-10) return false;
+  float3 d = float3(cross2(b-a,p-a), cross2(c-b,p-b), cross2(a-c,p-c));
+  return all(d >= 0) || all(d <= 0);
+}
+// rain_stage1.frag radial wipe and leading-edge accumulation, in metric pane coordinates.
+// CSP adaptation: clear only the angles crossed since the last successful depth update.
+// The upstream 0.5-second smear zone repeatedly erased fresh rain behind the car blade.
+float wiper_coeff(float2 p, float4x4 W, float noise) {
+  if (W[3].y < 0.5) return 0;
+  float2 offset = p-W[0].xy;
+  float dist = length(offset);
+  if (dist < W[0].z || dist > W[0].w*1.02) return 0;
+  float angle = atan2(offset.x,offset.y);
+  angle += round((W[1].x-angle)/6.28318530718)*6.28318530718;
+  // Keep upstream's narrow angular accumulation band on the leading side only.
+  float ahead = (angle-W[1].x)*W[2].x;
+  if (ahead >= 0 && ahead < radians(0.8+0.3*noise)) return 2;
+  return angle >= W[1].y && angle <= W[1].z ? 1 : 0;
+}
+float4 main(PS_IN pin) {
+  if (txGlassMask.SampleLevel(samLinearSimple,pin.Tex,0).r<0.5) return 0;
+  float2 pos = pin.Tex * gSize;
+  float new_depth = 0;
+  bool water_added = false;
+  if (droplet_gen_check(pos)) { new_depth = 3; water_added = true; }
+  else if (droplet_gen_check(pos+float2(1,0)) || droplet_gen_check(pos-float2(1,0))
+    || droplet_gen_check(pos+float2(0,1)) || droplet_gen_check(pos-float2(0,1))) {
+    new_depth = 1; water_added = true;
+  }
+  float old_depth = read_depth(pin.Tex) * 0.39;
+  float prev_depth = read_depth(pin.Tex - localFlow(pin.Tex) / 60);
+  float depth = new_depth + old_depth + prev_depth * 0.601;
+  // Diagnostic provenance only: track depth introduced by the blade multiplier in B.
+  // R remains the actual simulation; neither movement nor rendering reads this marker.
+  float blade_origin = read_blade_origin(pin.Tex)*0.39
+    + read_blade_origin(pin.Tex-localFlow(pin.Tex)/60)*0.601;
+  float depth_before_erosion = depth;
+  if (!water_added) depth = max(0, min(depth, min(old_depth+prev_depth,3) - 3*0.01));
+  blade_origin *= depth_before_erosion>0 ? depth/depth_before_erosion : 0;
+  depth = max(depth,0.001);
+  float2 p = float2(gFrame.x + pin.Tex.x*gFrame.z, gFrame.y+(1-pin.Tex.y)*gFrame.w);
+  float noise = sin((pos.x+pos.y)/25)*cos((pos.x+pos.y)/(25*0.31415));
+  float c0 = wiper_coeff(p,gW0,noise), c1 = wiper_coeff(p,gW1,noise);
+  if (max(c0,c1) > 1) { blade_origin += depth*9; depth *= 10; }
+  else {
+    float remaining = 1-saturate(1.1*sqrt(max(c0,c1)));
+    depth *= remaining; blade_origin *= remaining;
+  }
+  blade_origin *= depth>3 ? 3/depth : 1;
+  return float4(clamp(depth,0,3),new_depth,min(blade_origin,3),1);
+}
+]]}
   -- CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
   -- librain.c wiper_setup_prog() radial geometry with a consumed sweep interval.
   -- Persist all crossed angles until a GPU tick succeeds: a faster render cadence must
@@ -1295,65 +1636,44 @@ function glass.setup()
     lr.sim.values.gW1.row4:set(0,0,0,0)
   end
   function lr.update(dt, gx, gs, driveX, driveS, weatherX, weatherS, rain, gn, driveN, weatherN)
-    local v=lr.sim.values
+    lr.debt = min(lr.debt + dt, 0.1)
+    local v = lr.sim.values
+    local airX = driveX * lr.vehicleGain + weatherX * lr.ambientGain
+    local airS = driveS * lr.vehicleGain + weatherS * lr.ambientGain
     v.gGravity3:set(gx,gs,gn)
-    v.gAir3:set(driveX*lr.vehicleGain+weatherX*lr.ambientGain,
-      driveS*lr.vehicleGain+weatherS*lr.ambientGain,driveN*lr.vehicleGain+weatherN*lr.ambientGain)
-    v.gRain=rain; v.gWind=min(1,v.gAir3:length()/100)
-    updateLibrainWiper(1,v.gW0);updateLibrainWiper(2,v.gW1)
-    lr.debt=min(0.1,lr.debt+dt)
-    if not lr.mapping then
-      local ok,m=pcall(connectLibrain)
-      if ok then lr.mapping=m end
+    v.gAir3:set(airX,airS,driveN*lr.vehicleGain+weatherN*lr.ambientGain)
+    local speed = sqrt(airX*airX + airS*airS)
+    -- update_vectors(): normalize combined relative airspeed AFTER combining separately controlled inputs.
+    -- 40 m/s is the car airflow normalization speed (144 km/h), replacing aircraft max_tas.
+    v.gWind = min(1, speed/40)
+    local airScale = speed > 0.0001 and v.gWind^1.85 / speed or 0
+    -- The classic shader's gravity and airflow coefficients, in metres then UV units.
+    v.gFlow:set((gx/9.81 * 0.25 * rain^2 + airX*airScale)/xw,
+      -(gs/9.81 * 0.25 * rain^2 + airS*airScale)/sw)
+    v.gRain = rain
+    updateLibrainWiper(1,v.gW0); updateLibrainWiper(2,v.gW1)
+    -- Upstream deposition/retention is per step; a fixed tick keeps it independent of render cadence.
+    while lr.debt >= 1/60 do
+      v.gSeed = (lr.tick * 0.61803398875) % 1
+      lr.sim.textures.txDepth = lr.read
+      if not lr.write:updateWithShader(lr.sim) then break end
+      lr.read, lr.write = lr.write, lr.read
+      consumeLibrainSweeps()
+      lr.tick, lr.debt = lr.tick + 1, lr.debt - 1/60
     end
-    local m=lr.mapping
-    if not m or m.magic~=0x4d32524e or m.protocol~=4 or m.shutdown~=0 then
-      lr.pending,lr.initialized=false,false
-      return -- Never fall back to a second liquid simulation.
-    end
-    if lr.seq and m.request<lr.seq then lr.pending,lr.initialized=false,false end
-    if lr.pending and m.response==lr.seq then
-      if not paintLibrain(m) then return end
-      lr.pending=false
-      if not lr.announced then
-        lr.announced=true
-        ac.log('M2L_LIBRAIN particle worker connected bytes='..ffi.sizeof(m[0])..' protocol=4')
-      end
-    end
-    if lr.pending or m.request~=m.response or lr.debt<1/60 then return end
-    local p=m.params[0]
-    p[0],p[1],p[2],p[3],p[4],p[5]=lr.debt,x0,xw,s0,sw,rain
-    p[6],p[7],p[8]=gx,gs,gn
-    p[9],p[10],p[11]=v.gAir3.x,v.gAir3.y,v.gAir3.z
-    p[12],p[13],p[14],p[15]=lr.initialized and 0 or 1,math.abs(gn)/9.81,lr.ambientGain,0
-    if not lr.initialized then
-      for k=0,152 do
-        local h=glass.surface and glass.surface[k] or {0,0}
-        m.surface[0][k][0],m.surface[0][k][1]=h[1],h[2]
-      end
-      -- Side resources are not activated before front-glass visual acceptance.
-      for pane=1,2 do for k=0,15 do m.params[pane][k]=0 end end
-    end
-    for k=0,1 do
-      local W=k==0 and v.gW0 or v.gW1
-      local o=m.blades[k]
-      o[0],o[1],o[2],o[3]=W.row1.x,W.row1.y,W.row1.z,W.row1.w
-      o[4],o[5],o[6],o[7],o[8]=W.row2.x,W.row2.y,W.row2.z,W.row3.x,W.row4.y
-      o[9],o[10],o[11]=0,0,0
-      local target=k==0 and lr.depthPass.values.gW0 or lr.depthPass.values.gW1
-      target.row1:set(W.row1);target.row2:set(W.row2);target.row3:set(W.row3);target.row4:set(W.row4)
-    end
-    consumeLibrainSweeps()
-    lr.seq,lr.debt,lr.initialized=m.request+1,0,true
-    lr.pending=true
-    m.request=lr.seq
+    lr.normalPass.textures.txDepth = lr.read
+    lr.norm:updateWithShader(lr.normalPass)
   end
 
+  local dropCalls = {}
+  for k = 0, DMATS - 1 do
+    dropCalls[#dropCalls + 1] = string.format('  drop(gD%d[0], gD%d[1], p, hd, film);\n  drop(gD%d[2], gD%d[3], p, hd, film);', k, k, k, k)
+  end
   glass.sim = {
     async = true,
     cacheKey = 70,
     blendMode = render.BlendMode.Opaque,
-    textures = {txPrev = false},
+    textures = {txPrev = false, txRustWater = false},
     values = values,
     shader = [[
       float hash12(float2 p) { float3 p3 = frac(float3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return frac((p3.x + p3.y) * p3.z); }
@@ -1372,6 +1692,21 @@ function glass.setup()
         return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
       }
       #ifndef M2L_SIDE_GLASS
+      // One drop: a dome of water, height in millimetres (contact angle about 60 degrees: half the radius high),
+      // and the trail it left this frame between its previous and current position.
+      void drop(float4 a, float4 b, float2 p, inout float h, inout float film) {
+        if (a.w < 0.5) return;
+        float2 q = p - a.xy;
+        float d2 = dot(q, q), r2 = a.z * a.z;
+        if (d2 < r2) h = max(h, a.z * 500 * sqrt(1 - d2 / r2));
+        float2 e = a.xy - b.xy;
+        float el = dot(e, e);
+        if (el > 1e-9) {
+          float t = saturate(dot(p - b.xy, e) / el);
+          float dd = length(p - (b.xy + e * t));
+          film = max(film, smoothstep(a.z * 0.4, a.z * 0.2, dd) * 0.35);
+        }
+      }
       // One blade: clears what lies between its previous and current line, leaving thin streaks and a few
       // percent of the snow, and keeps a ridge of water and snow just ahead of its current line.
       void blade(float4x4 W, float2 p, inout float film, inout float snow, inout float slush, inout float h) {
@@ -1423,8 +1758,9 @@ function glass.setup()
         #endif
         // Sticky slush stays at the deposit and melts locally into the thin water film. Transporting all slush
         // down the glass at a fixed speed made every melting flake paint a growing, bright vertical stripe.
-        // Retained snow melt dries slowly; rain does not deposit into this field.
-        float film = max(0,prev.r-gParams.z*dt);
+        // Rain wets the whole glass with a film of tiny beads that bends the view; it dries slowly.
+        float film = min(1, max(0, prev.r - gParams.z * dt) + gWet * dt);
+        if (gRustRain > 0.5) film = max(film, txRustWater.SampleLevel(samLinearSimple, uv, 0).g);
         float snow = prev.g;
         float slush = prev.b;
         // Cells only accelerate the neighbour lookup. Land anywhere inside each cell, including its edges,
@@ -1466,13 +1802,41 @@ function glass.setup()
         float toWater = slush * 0.12 * dt;
         slush -= toWater;
         film = min(1, film + toWater * 0.8);
-        float h = 0; // Snow/thaw height is carried in G/B; no second rain depth field.
+        // Rain beads persist like snow clumps: round domes 1.5 to 3.5 mm in radius land at a bounded random rate,
+        // dry slowly, and the blade clears them. Height in millimetres.
+        float h = gRustRain > 0.5 ? txRustWater.SampleLevel(samLinearSimple, uv, 0).r * 8 : max(0, prev.a - 0.02 * dt);
+        if (gRustRain < 0.5) {
+        float2 bcell = floor(p / 0.008);
+        [unroll] for (int bj = -1; bj <= 1; bj++) [unroll] for (int bi = -1; bi <= 1; bi++) {
+          float2 c = bcell + float2(bi, bj);
+          int2 id = int2(c);
+          #ifdef M2L_SIDE_GLASS
+          float hv = landingRandom(id, 100u);
+          #else
+          float hv = hash12(c * 1.3 + gSeed);
+          #endif
+          if (hv < gBead) {
+            // Keep the existing landing rate, but use independent full-cell positions. The former central
+            // 60% jitter left regular gaps between rows, increasingly visible as the glass filled up.
+            float2 centre = (c + float2(landingRandom(id, 101u), landingRandom(id, 102u))) * 0.008;
+            float R = 0.0015 + 0.002 * landingRandom(id, 103u) * landingRandom(id, 104u);
+            float2 q = p - centre;
+            float d2 = dot(q, q);
+            if (d2 < R * R) h = max(h, R * 500 * sqrt(1 - d2 / (R * R)));
+          }
+        }
+        }
         #ifdef M2L_SIDE_GLASS
         return float4(film, snow, slush, h);
         #else
+        float hd = 0;
         blade(gW0, p, film, snow, slush, h);
         blade(gW1, p, film, snow, slush, h);
-        return float4(film, snow, slush, h);
+        if (gRustRain < 0.5) {
+]] .. table.concat(dropCalls, '\n') .. [[
+        }
+
+        return float4(film, snow, gSnowMode > 0.5 ? slush : hd, h);
         #endif
       }
     ]]
@@ -1483,23 +1847,24 @@ function glass.setup()
     transform = 'original',
     async = true,
     cacheKey = 71,
-    textures = {txField = false, txSceneCopy = false, txSceneDepth = 'dynamic::depth', txLibrain = false, txLibrainNormal = false},
-    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 0, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0, gDebugDrops = 0, gPaneUV = 0, gLibrain = 0, gLibrainBlur = 0,
-      -- User requested no water reflections: disable displaced scene colour and
-      -- its associated darkening, retaining only a subpixel wet-glass blur.
-      gLibrainRefractionGain = 0, gLibrainBlurGain = 0.15,
+    textures = {txField = false, txRainDome = false, txSceneCopy = false, txLibrain = false, txLibrainNormal = false},
+    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 0, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0, gRustLook = 0, gDebugDrops = 0, gPaneUV = 0, gLibrain = 0, gLibrainBlur = 0,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3(),
       gRidge0 = mat4x4.identity(), gRidge1 = mat4x4.identity()},
     shader = [[
       float height(float4 f) { return f.a + f.r * 0.08 + f.b + f.g * 2.2; }
-      float2 waterBackgroundUV(float2 samplePixel, float glassDepth, float2 originalPixel) {
-        float2 uv=saturate(samplePixel/gScreen);
-        // A refracted background ray must not sample the hand, wheel or blade
-        // in FRONT of this glass. Fall back to the undisplaced background.
-        float sceneDepth=txSceneDepth.SampleLevel(samLinearSimple,uv,0).r;
-        return sceneDepth<glassDepth-0.000001 ? originalPixel/gScreen : uv;
+      bool waterRidge(float4x4 W, float2 p) {
+        if (W[3].y < 0.5 || W[2].z <= 0) return false;
+        float2 e = W[1].zw - W[1].xy;
+        float len2 = dot(e, e);
+        if (len2 < 1e-9) return false;
+        float t = dot(p - W[1].xy, e) / len2;
+        float2 off = p - (W[1].xy + e * t);
+        float motion = e.x * W[2].y - e.y * W[2].x;
+        float ahead = (e.x * off.y - e.y * off.x) / sqrt(len2) * sign(motion);
+        return t > 0.01 && t < 0.99 && ahead > 0.0004 && ahead < W[2].z;
       }
       float4 main(PS_IN pin) {
         float3 across = gSideGlass == 0 ? gCarSide : gCarLook;
@@ -1526,24 +1891,24 @@ function glass.setup()
           // CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
           // ws_rain.frag: depth normals displace a separate scene copy, then darken slightly.
           if (gRefract < 0.5 || depth <= 0.001) return 0;
-          float2 normal = 2 * txLibrainNormal.Sample(samLinearSimple,uv).xy - 1;
-          float2 displacement = normal * gScreen.yx/10*gLibrainRefractionGain;
+          float2 normal = 2 * txLibrainNormal.SampleLevel(samLinearSimple,uv,0).xy - 1;
+          float2 displacement = normal * 200;
           if (gLibrainBlur < 0.5) {
             float3 refracted = txSceneCopy.SampleLevel(samLinearSimple,
-              waterBackgroundUV(pin.PosH.xy+displacement,pin.PosH.z,pin.PosH.xy),0).rgb;
-            float darkening = length(displacement)/(max(gScreen.x,gScreen.y)/10)/2;
+              saturate((pin.PosH.xy+displacement)/gScreen),0).rgb;
+            float darkening = length(displacement)/800/2;
             return float4(refracted*(1-darkening*darkening),1);
           }
           // ws_smudge.frag: blur the completed refracted screen image with the same depth.
           float2 centre = pin.PosH.xy;
-          float depthRatio = depth*gLibrainBlurGain;
+          float depthRatio = depth/3;
           float3 colour = 0;
           [unroll] for (int y = -2; y <= 2; y++) {
             [unroll] for (int x = -2; x <= 2; x++) {
               float wx = x == 0 ? 0.4 : (abs(x) == 1 ? 0.2 : 0.1);
               float wy = y == 0 ? 0.4 : (abs(y) == 1 ? 0.2 : 0.1);
               colour += txSceneCopy.SampleLevel(samLinearSimple,
-                waterBackgroundUV(centre+depthRatio*float2(x,y),pin.PosH.z,centre),0).rgb * wx*wy;
+                saturate((centre + depthRatio*float2(x,y))/gScreen),0).rgb * wx*wy;
             }
           }
           return float4(colour,1);
@@ -1585,11 +1950,50 @@ function glass.setup()
         float rimA = steep * body * lerp(0.45, 0.68, sideWater);
         float specA = spec * body * lerp(0.45, 0.72, sideWater);
         float filmA = film * 0.04;
+        if (gRustLook > 0.5 && gSnowMode < 0.5) {
+          // Classify the physical blade band, not the newer canvas. Side fields update at 30 Hz while
+          // sprites can advance every frame; comparing their positions made moving beads flash legacy white.
+          bool ridge = gSideGlass == 0 && (waterRidge(gRidge0, float2(x, s)) || waterRidge(gRidge1, float2(x, s)));
+          float dome = f.a;
+          if (dome > 0.015) {
+            // Transparent body, narrow contact reflection: a broad painted ring reads as a white bacterium.
+            bodyA = body * 0.11;
+            rimA = pow(saturate(length(n.xy) * 1.2), 2) * body * 0.24;
+            specA = spec * body * 0.045;
+            bodyColor = gColor * 0.025;
+            rimColor = gColor * 0.01;
+            specColor = gColor * 0.18;
+          }
+          // A wet unwiped pane is a continuous film. Tiny thickness ripples supply restrained sheen,
+          // and trails/ridge footprints join it rather than becoming chains of disconnected painted beads.
+          float ripple = sin(x * 109 + s * 41) * sin(s * 87 - x * 13);
+          filmA = film * (0.09 + 0.025 * ripple);
+          if (gRefract > 0.5) {
+            // Sample a separate colour copy, never the render target this mesh is writing into.
+            // Local height gradients bend the background; a narrow reflection replaces the painted ring.
+            float2 screenUv = pin.PosH.xy / gScreen;
+            float2 filmBend = float2(cos(x * 109 + s * 41), sin(s * 87 - x * 13)) * film * 0.0008;
+            float2 bend = clamp(float2(ddx(f.a), ddy(f.a)) * 0.035, -0.018, 0.018) + filmBend;
+            float4 base = txSceneCopy.SampleLevel(samLinearSimple, saturate(screenUv), 0);
+            float wetBlur = film * 1.35;
+            float4 lens = txSceneCopy.SampleLevel(samLinearSimple, saturate(screenUv + bend), wetBlur * 0.3);
+            if (base.a > 0.5 && lens.a > 0.5) {
+              if (dome > 0.015) {
+                bodyA = body * (ridge ? 0.68 : 0.82);
+                bodyColor = lens.rgb * 0.99;
+                rimA *= 0.15;
+                specA *= 0.45;
+              }
+              filmColor = txSceneCopy.SampleLevel(samLinearSimple, saturate(screenUv + filmBend), wetBlur).rgb * 0.99;
+              filmA = film * 0.42;
+            }
+          }
+        }
         float waterWeight = bodyA + rimA + specA + filmA;
         float wAlpha = saturate(waterWeight);
         // A wet unwiped pane can have both a lens and a full film. Normalize their colour by the actual
         // weights, not clamped alpha: dividing 1.24 parts of colour by 1 made unwiped beads glow too brightly.
-        float colorWeight = wAlpha;
+        float colorWeight = gRustLook > 0.5 && gSnowMode < 0.5 ? waterWeight : wAlpha;
         float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA + filmColor * filmA) / max(colorWeight, 1e-4);
         // Snow: matte white with cheap height shading from above; slush grey and translucent.
         // Side deposits start fading as soon as they thaw, instead of staying clipped white then vanishing.
@@ -1607,8 +2011,8 @@ function glass.setup()
     ]]
   }
 
-  -- Side snow uses independent fields at at most 30 Hz, without front-wiper bindings.
-  -- Liquid side resources are deferred until front-glass acceptance.
+  -- Side panes use small independent fields at at most 30 Hz. They share bead/snow shapes and shading,
+  -- compile out CPU-drop/wiper logic, and allocate textures only when precipitation first reaches the car.
   local SIDE_W, SIDE_H = 512, 256
   local sideClock = 0
   local function sideRand(side)
@@ -1631,9 +2035,9 @@ function glass.setup()
           -- Separate cache/binding instances from the windscreen, and include the side define in the source
           -- identity itself. A side pass must never inherit the front field or its animated wiper constants.
           side.sim = {async = true, cacheKey = 80 + i, blendMode = render.BlendMode.Opaque,
-            textures = {txPrev = false}, shader = '#define M2L_SIDE_GLASS 1\n' .. glass.sim.shader,
+            textures = {txPrev = false, txRustWater = false}, shader = '#define M2L_SIDE_GLASS 1\n' .. glass.sim.shader,
             values = {gFrame = vec4(side.x0, side.s0, 1 / side.xw, 1 / side.sw), gParams = vec4(), gAir = vec4(),
-              gMelt = 0, gRainFlow = vec2(), gLandingStep = 0, gGusts = mat4x4.identity()}}
+              gMelt = 0, gWet = 0, gBead = 0, gRainFlow = vec2(), gLandingStep = 0, gGusts = mat4x4.identity(), gRustRain = 0}}
           local pv = {}
           for k, value in pairs(glass.pass.values) do pv[k] = value end
           pv.gFrame = vec4(side.x0, side.s0, 1 / side.xw, 1 / side.sw)
@@ -1645,15 +2049,22 @@ function glass.setup()
           side.parent = side.mesh:getParent()
           side.drawTransform = mat4x4.identity()
           side.pass = {mesh = side.mesh, transform = side.drawTransform, async = true, cacheKey = 60 + i,
-            textures = {txField = false, txSceneCopy = false, txSceneDepth = 'dynamic::depth', txLibrain = false, txLibrainNormal = false}, values = pv, shader = '// Independent side pane ' .. i .. '\n' .. glass.pass.shader}
+            textures = {txField = false, txRainDome = false, txSceneCopy = false, txLibrain = false, txLibrainNormal = false}, values = pv, shader = '// Independent side pane ' .. i .. '\n' .. glass.pass.shader}
         end
         local tangent = ax * side.tx + ay * side.ty
         local normal = side.sign * (ax * side.ty - (ay - 1.2) * side.tx)
         -- Snow flutter reaches near-vertical glass too; windward panes catch more. Area scaling and 20%
         -- of the frontal flux slow the build-up, without shortening the life of snow already on the pane.
         local landings = snowFlux * 0.20 * (side.xw * side.sw / (xw * sw)) * min(2, max(0.5, -normal))
+        local rainNormal = side.sign * (ax * side.ty - (ay - 8) * side.tx)
+        local rainExposure = min(2, max(0.5, -rainNormal / 6.7))
+        local rainLandings = 450 * rainAmount * (side.xw * side.sw / (xw * sw)) * rainExposure
         local sv = side.sim.values
+        sv.gRustRain = 1 -- This field owns snow/thaw only; never procedural rain or old sprites.
+        side.sim.textures.txRustWater = false
         sv.gParams:set(step, 0, 0.005, landings * step / ((side.xw / 0.012) * (side.sw / 0.012)))
+        sv.gBead = 0
+        sv.gWet = 0
         -- Relative headwind runs toward the rear; gravity drains liquid down the sloped side pane.
         local driveTangent = driveX * side.tx + driveY * side.ty
         local waterU = min(0.12, max(-0.12, driveZ * math.abs(driveZ) * 0.0002))
@@ -1743,19 +2154,24 @@ function glass.setup()
     -- The ridge estimate follows incoming flux, independently of how many visual clumps represent it.
     snowOnGlass = max(0, min(1, snowOnGlass + snowImpact * dt / 12 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
-    glass.quiet = elapsed > wetUntil and (glass.rainCount or 0) == 0
+    glass.quiet = elapsed > wetUntil and aliveCount == 0
     local v = values
+    v.gRustRain = 1 -- Snow/thaw only; disable both legacy rain deposition and sprite input.
+    glass.sim.textures.txRustWater = false
     v.gParams:set(dt, 0, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
     v.gAir:set(tanX, tanS, airMag, impinge)
     v.gMelt = melt
     v.gSnowMode = snowRate > 0 and 1 or 0
     -- Nominal rain landing probability over 8 mm cells, with a 3 x 3 neighbour lookup.
+    v.gBead = 0 -- Liquid deposition belongs exclusively to librain.
     -- Standing in heavy rain the glass is fully wet in about 35 s, about twice as fast when driving into it
     -- (capped: a faster build-up turns the fan's edge into a hard line between sweeps).
+    v.gWet = 0 -- No legacy rain film.
     v.gSeed:set((frames % 977) * 0.173 + 0.31, (frames % 1013) * 0.291 + 0.17)
     v.gLandingStep = frames % 16777216
     fillBladeMat(v.gW0, glass.blades[1], snowOnGlass * 0.014)
     fillBladeMat(v.gW1, glass.blades[2], snowOnGlass * 0.014)
+    if not rustRain.active then fillDropMats() end
     glass.melt, glass.air, glass.impinge = melt, airMag, impinge
     -- One field step into the other canvas, before the frame's rendering starts (like CSP's own canvas updates).
     if not glass.quiet and not glassOff then
@@ -1788,6 +2204,7 @@ function glass.setup()
     v.gDebugDrops = glassRed and 1 or 0
     v.gTime = elapsed
     v.gSnowMode = snowRate > 0 and 1 or 0
+    v.gRustLook = 0 -- The legacy material is used only for snow and its thaw.
     local fixedPane = snowRate == 0 and glass.coatingMesh ~= nil
     v.gPaneUV = fixedPane and 1 or 0
     glass.pass.mesh = fixedPane and glass.coatingMesh or glass.mesh
@@ -1800,8 +2217,8 @@ function glass.setup()
     local size = render.getRenderTargetSize()
     v.gScreen:set(max(1, size.x), max(1, size.y))
     v.gRefract = 0
-    if snowRate == 0 then
-      local r = lr
+    if rustRain.active and snowRate == 0 then
+      local r = rustRain
       if not r.scene or r.scene:size().x ~= size.x or r.scene:size().y ~= size.y then
         if r.scene then r.scene:dispose() end
         if lr.smudgeScene then lr.smudgeScene:dispose() end
@@ -1834,6 +2251,7 @@ function glass.setup()
     v.gCarUp:set(m.row2.x, m.row2.y, m.row2.z)
     v.gCarLook:set(m.row3.x, m.row3.y, m.row3.z)
     glass.pass.textures.txField = glass.read
+    glass.pass.textures.txRainDome = glass.rainCanvas or false
     render.setBlendMode(render.BlendMode.AlphaBlend)
     render.setCullMode(render.CullMode.None)
     render.setDepthMode(render.DepthMode.ReadOnly)
@@ -1841,17 +2259,12 @@ function glass.setup()
       v.gLibrainBlur = 0
       render.mesh(glass.pass)
       if not glassRed and v.gLibrain > 0.5 and v.gRefract > 0.5
-          and lr.smudgeScene:updateSceneWithShader(lr.scenePass) then
-        -- Offscreen copies set opaque blending. Restore glass state before returning
-        -- to the scene, including transparent dry pixels in the smudge pass.
-        render.setBlendMode(render.BlendMode.AlphaBlend)
-        render.setCullMode(render.CullMode.None)
-        render.setDepthMode(render.DepthMode.ReadOnly)
+          and lr.smudgeScene:updateSceneWithShader(rustRain.scenePass) then
         glass.pass.textures.txSceneCopy = lr.smudgeScene
         v.gLibrainBlur = 1
         render.mesh(glass.pass)
         v.gLibrainBlur = 0
-        glass.pass.textures.txSceneCopy = lr.scene
+        glass.pass.textures.txSceneCopy = rustRain.scene
       end
     end
     for _, side in ipairs(glass.sides) do
@@ -1863,13 +2276,14 @@ function glass.setup()
         local fixedSide = snowRate == 0 and side.coatingMesh ~= nil
         pv.gPaneUV = fixedSide and 1 or 0
         side.pass.mesh = fixedSide and side.coatingMesh or side.mesh
-        pv.gSnowMode, pv.gRefract = v.gSnowMode, v.gRefract
+        pv.gRustLook, pv.gSnowMode, pv.gRefract = v.gRustLook, v.gSnowMode, v.gRefract
         pv.gScreen:set(v.gScreen)
         pv.gCameraPos:set(v.gCameraPos); pv.gCarPos:set(v.gCarPos)
         pv.gCarSide:set(v.gCarSide); pv.gCarUp:set(v.gCarUp); pv.gCarLook:set(v.gCarLook)
         pv.gColor:set(v.gColor); pv.gSnowColor:set(v.gSnowColor)
         side.pass.textures.txField = side.read
-        side.pass.textures.txSceneCopy = lr.scene or false
+        side.pass.textures.txRainDome = side.rainCanvas or false
+        side.pass.textures.txSceneCopy = rustRain.scene or false
         -- Coat the outer surface, 4 mm beyond the original pane, so the inner door/window trim occludes
         -- its edge. Reusing the inner glass position made clumps appear pasted onto the cabin side.
         local sm = side.drawTransform:set(side.parent:getWorldTransformationRaw())
@@ -1891,9 +2305,9 @@ function glass.setup()
   function glass.status()
     local b = glass.blades[1]
     return string.format('drops=%d snowEst=%.2f melt=%.3f air=%.1f impinge=%.1f quiet=%s blade=%s ridge=%.2e progress=%.2f',
-      glass.rainCount or 0, snowOnGlass, glass.melt or 0, glass.air or 0, glass.impinge or 0, tostring(glass.quiet),
+      rustRain.active and (glass.rainCount or 0) or aliveCount, snowOnGlass, glass.melt or 0, glass.air or 0, glass.impinge or 0, tostring(glass.quiet),
       b and b.ax and string.format('(%.2f,%.2f)-(%.2f,%.2f) active=%d', b.ax, b.as, b.bx, b.bs, b.active) or 'none',
-      b and b.ridge or 0, ac.getCar(0).wiperProgress) .. string.format(' librainParticles drive=%.6f ambientGain=%.1f ticks=%d', lr.sim.values.gWind, lr.ambientGain, lr.tick) .. string.format(' snowDensity=%.2f landingsPerSecond=%.1f whiteRef=%s exposure=%s mult=%s', snowRate,
+      b and b.ridge or 0, ac.getCar(0).wiperProgress) .. string.format(' librainFlowUV=(%.6f,%.6f) drive=%.6f ambientGain=%.1f ticks=%d', lr.sim.values.gFlow.x, lr.sim.values.gFlow.y, lr.sim.values.gWind, lr.ambientGain, lr.tick) .. string.format(' snowDensity=%.2f landingsPerSecond=%.1f whiteRef=%s exposure=%s mult=%s', snowRate,
         values.gParams.w / max(values.gParams.x, 1e-6) * ((xw / 0.012) * (sw / 0.012)), tostring(sim.whiteReferencePoint), tostring(sim.cameraExposure), tostring(sim.exposureMultiplier))
   end
   return true
