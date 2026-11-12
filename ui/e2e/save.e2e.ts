@@ -194,7 +194,8 @@ test("Play starts Assetto Corsa at the hour the Editor's clock shows", async ({p
   await page.locator("#sun-clock").getByRole("slider", {name: "Time of day"}).fill("1110");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
-  expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5});
+  expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5,
+    weather: {kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false}});
 });
 
 test("while the track is written nothing changes: Saved means what was written, and undo works afterwards", async ({page}) => {

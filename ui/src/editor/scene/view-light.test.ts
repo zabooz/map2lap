@@ -40,6 +40,19 @@ test("the view tells the hour it shows, for Play to start AC at", () => {
   expect(view.clockHours()).toBe(21.5);
 });
 
+test("weather changes the sky, light and visibility together and restores clear weather", () => {
+  const {view, state} = bareView();
+  view.setClock(12);
+  const sunny = state.sun.intensity;
+  view.setWeather({kind: "snow", intensity: "heavy", windDirection: 90, windSpeed: 20, fog: false});
+  expect(state.sun.intensity).toBeLessThan(sunny);
+  expect(state.scene.fog).toBeInstanceOf(THREE.FogExp2);
+  expect(view.weatherOptions().kind).toBe("snow");
+  view.setWeather({kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false});
+  expect(state.sun.intensity).toBe(sunny);
+  expect(state.scene.fog).toBeNull();
+});
+
 test("at midnight there is no sun and the sky is dark", () => {
   const {view, state} = bareView();
   view.setClock(0);

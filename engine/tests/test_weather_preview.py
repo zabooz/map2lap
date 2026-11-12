@@ -16,6 +16,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'tools' / 'weather_preview'
+sys.path.insert(0, str(ROOT / 'src'))
 if extra := os.environ.get('MAP2LAP_LUA_TESTS'):
     sys.path.insert(0, extra)
 try:
@@ -54,6 +55,7 @@ ac = {WeatherType=enums, FolderID={CurrentTrack=0}, getFolder=function() return 
   getSim=function() return sim end, getConditionsSet=function() return condition end,
   getWindVelocityTo=function(v) v:set(0,0,0) end, setMessage=function() end, log=function() end,
   setAppOpen=function() end, getPatchVersion=function() return 'test' end, getPatchVersionCode=function() return 3465 end}
+ac.INIConfig = {trackConfig=function() return {get=function() return true end} end}
 function ac.findNodes(path)
   assert(path=='luaRoot:yes', 'Disabled windscreen must not query car meshes')
   return {createNode=function() return holder end}
@@ -117,7 +119,7 @@ class WeatherLuaTest(unittest.TestCase):
     def setUp(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(HOST)
-        self.api = self.lua.execute((SOURCE / 'weather.lua').read_text(encoding='utf-8') + EXPORT)
+        self.api = self.lua.execute((ROOT / 'assets/weather/weather.lua').read_text(encoding='utf-8') + EXPORT)
 
     def test_shelter_finds_roof_and_leaves_open_sky_clear(self):
         self.lua.execute('testHost.physicsRoofs={10}')
@@ -157,6 +159,41 @@ class WeatherLuaTest(unittest.TestCase):
         self.api.step('rain', 1, 0.01)
         self.api.draw()
         self.assertEqual(self.lua.globals().testHost.draws, 1)
+
+
+@unittest.skipUnless(LuaRuntime, 'Optional LuaJIT test runtime not installed (see weather preview README)')
+class WeatherControllerTest(unittest.TestCase):
+    def load(self, fog):
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        lua.execute(HOST)
+        lua.globals().extraFog = fog
+        lua.execute('''
+          ac.WeatherType.Fog=20
+          ac.INIConfig.raceConfig=function() return {get=function() return extraFog end} end
+          ac.ConditionsSet=function() return {} end
+          ac.getInputWeatherType=function() return 11 end
+          ac.getInputTemperatures=function() return {} end
+          ac.getInputWind=function() return {direction=82,speedFrom=25,speedTo=25} end
+          ac.getInputHumidity=function() return 0.5 end
+          ac.getInputPressure=function() return 101325 end
+          ac.getInputTrackState=function() return {} end
+          ac.setConditionsSet2=function(c) chosen=c end
+          package.preload['shared/sim/weather']=function()
+            return {setRainIntensity=function(c) c.rainIntensity=0 end, debugAware=function() return false end}
+          end
+        ''')
+        lua.execute((ROOT / 'assets/weather/controller.lua').read_text(encoding='utf-8'))
+        return lua.globals().chosen
+
+    def test_additional_native_fog_keeps_the_selected_snow_type_and_wind(self):
+        c = self.load(True)
+        self.assertEqual((c.currentType, c.upcomingType, c.transition), (11, 20, .65))
+        self.assertEqual((c.wind.direction, c.wind.speedFrom, c.wind.speedTo), (82, 25, 25))
+        self.assertEqual((c.rainWetness, c.rainWater), (0, 0))
+
+    def test_without_additional_fog_the_native_weather_is_unchanged(self):
+        c = self.load(False)
+        self.assertEqual((c.currentType, c.upcomingType, c.transition), (11, 11, 0))
 
 
 class PreviewFilesTest(unittest.TestCase):

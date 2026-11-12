@@ -68,8 +68,9 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     /** What the dialog chose, then AC if Play asked for it. */
     chosen: async (copyTitle: string | null) => {
       view.focus();
+      const hour = view.clockHours(), weather = view.weatherOptions();
       const then = asking?.play, saved = await write(copyTitle);
-      if (saved && then) void play(saved, view.clockHours());
+      if (saved && then) void play(saved, hour, weather);
     },
     cancel: useCallback(() => {
       setAsking(null);
@@ -88,9 +89,10 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
     drive: async () => {
       await settle(true);
       const now = edits.state();
-      if (isCurrent(now) || isAsBuilt(now)) void play(name, view.clockHours());
+      const hour = view.clockHours(), weather = view.weatherOptions();
+      if (isCurrent(now) || isAsBuilt(now)) void play(name, hour, weather);
       else if (!now.recipe) setAsking({play: true});
-      else if (await write()) void play(name, view.clockHours());
+      else if (await write()) void play(name, hour, weather);
     },
   };
 }

@@ -33,7 +33,7 @@ import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
 from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracknative, tracksource,  # noqa: E402
-                 trackdetail, trackinspect, trackpaint, trackview, updater, version)
+                 trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 
 PORT = 8800
@@ -329,7 +329,7 @@ def valid_clock(clock):
     return isinstance(clock, (int, float)) and not isinstance(clock, bool) and 0 <= clock < 24     # (NaN compares false)
 
 
-def play(name, clock=None):
+def play(name, clock=None, weather_options=None):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
     settings (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
@@ -337,6 +337,10 @@ def play(name, clock=None):
     import configparser
     if clock is not None and not valid_clock(clock):
         return 400, {"error": "The time of day is not an hour of the day"}
+    try:
+        selected_weather = weather.parse(weather_options) if weather_options is not None else None
+    except ValueError as error:
+        return 400, {"error": str(error)}
     ac = settings.ac_path()
     if not os.path.exists(os.path.join(ac, "content", "tracks", name, name + ".kn5")):
         return 404, {"error": "This track has no track file (build it again)"}
@@ -383,6 +387,14 @@ def play(name, clock=None):
         if not ini.has_section("LIGHTING"):
             ini.add_section("LIGHTING")
         ini.set("LIGHTING", "SUN_ANGLE", f"{sun_angle(clock):.2f}")
+    if selected_weather is not None:
+        weather.apply_session(ini, selected_weather)
+    try:
+        weather.install_track(os.path.join(ac, 'content', 'tracks', name))
+        if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
+            weather.install_controller(ac)
+    except OSError as error:
+        return 409, {"error": f"Weather could not be prepared: {error}"}
     with open(race_ini(), "w", encoding="utf-8") as f:
         ini.write(f, space_around_delimiters=False)
     with lock:
@@ -1128,7 +1140,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], info.get("width"),
                                         info.get("area")))
             elif self.path == "/api/play":
-                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock")))
+                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather")))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":

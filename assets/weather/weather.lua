@@ -3,6 +3,7 @@
 -- and one render.mesh call draws, instead of one render.shaderedQuad call per particle.
 -- Experimental windscreen overlay is retained for later work, disabled in the normal preview.
 local WINDSCREEN_ENABLED = false
+local DEBUG = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'DEBUG', false)
 local glass, veil
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
@@ -12,7 +13,7 @@ local mode = 'off'
 local needsReset = true
 local density = 1
 local previousWeather = nil
-local lastFileMode = (io.load(folder .. 'map2lap_weather_probe_mode.txt') or ''):match('%a+')
+local lastFileMode = DEBUG and (io.load(folder .. 'map2lap_weather_probe_mode.txt') or ''):match('%a+') or nil
 -- RainFX is absent, so rainIntensity stays zero even for a rainy weather type.
 -- The selected weather type decides the visual fallback instead.
 local nativeParticles = {
@@ -37,6 +38,7 @@ local cameraVelocity = vec3()
 local driftX, driftZ = 0, 0
 
 local function notify()
+  if not DEBUG then return end
   local weatherType = ac.getConditionsSet().currentType
   ac.setMessage(string.format('Map2Lap: %s | weather type %d | wind %.0f km/h', mode, weatherType, sim.windSpeedKmh),
     'Follows CSP weather | Ctrl+Alt+W: weather controls | R/S/0: temporary particle test (with Ctrl+Alt)', nil, 8)
@@ -140,7 +142,7 @@ local function setMode(nextMode)
   if nextMode == mode then return end
   mode = nextMode
   needsReset = true
-  ac.log('M2L_WEATHER mode=' .. mode .. ' CSP=' .. ac.getPatchVersion() .. ' build=' .. ac.getPatchVersionCode())
+  if DEBUG then ac.log('M2L_WEATHER mode=' .. mode .. ' CSP=' .. ac.getPatchVersion() .. ' build=' .. ac.getPatchVersionCode()) end
   notify()
 end
 
@@ -396,7 +398,7 @@ function script.frameBegin(dt, gameDT)
     local spec = nativeParticles[weatherType]
     density = spec and spec[2] or 1
     setMode(spec and spec[1] or 'off')
-    ac.log(string.format('M2L_WEATHER automatic type=%d mode=%s density=%.2f', weatherType, mode, density))
+    if DEBUG then ac.log(string.format('M2L_WEATHER automatic type=%d mode=%s density=%.2f', weatherType, mode, density)) end
   end
   elapsed, frameDt = elapsed + gameDT, gameDT
   ac.getWindVelocityTo(wind)
@@ -412,6 +414,7 @@ function script.frameBegin(dt, gameDT)
   cameraVelocity:set(sim.cameraPositionDelta):scale(1 / max(dt, 0.001))
   driftX, driftZ = driftX + wind.x * gameDT, driftZ + wind.z * gameDT
   polling, heartbeat, beginCount = polling + dt, heartbeat + dt, beginCount + 1
+  if DEBUG then
   local modifier = ui.keyboardButtonDown(0x11) and ui.keyboardButtonDown(0x12)
   local r, s, o = ui.keyboardButtonDown(0x52), ui.keyboardButtonDown(0x53), ui.keyboardButtonDown(0x30)
   local f, w, d = ui.keyboardButtonDown(0x46), ui.keyboardButtonDown(0x57), ui.keyboardButtonDown(0x44)
@@ -428,6 +431,7 @@ function script.frameBegin(dt, gameDT)
       setMode(nextMode)
     end
   end
+  end
   if mode ~= 'off' and mesh then
     local start = os.preciseClock()
     build()
@@ -437,7 +441,7 @@ function script.frameBegin(dt, gameDT)
   else
     drawn, shelteredCount, luaMs, shelterMs, submitMs = 0, 0, 0, 0, 0
   end
-  if heartbeat > 5 then
+  if DEBUG and heartbeat > 5 then
     -- avg_fps is frames per real second over the whole heartbeat, the number for cost comparisons.
     ac.log(string.format('M2L_WEATHER mode=%s frames=%d drawn=%d sheltered=%d build_ms=%.3f rays_ms=%.3f upload_ms=%.3f avg_fps=%.1f camera=%s',
       mode, frames, drawn, shelteredCount, luaMs, shelterMs, submitMs, beginCount / heartbeat, tostring(sim.cameraPosition)))
@@ -566,4 +570,4 @@ veil = {
   ]]
 }
 
-ac.log('M2L_WEATHER batched rain/snow, shelter, veil and splashes; windscreen=' .. tostring(WINDSCREEN_ENABLED))
+if DEBUG then ac.log('M2L_WEATHER batched rain/snow, shelter, veil and splashes; windscreen=' .. tostring(WINDSCREEN_ENABLED)) end

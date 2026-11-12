@@ -3,8 +3,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-SOURCE = Path(__file__).resolve().parent
-REPO = SOURCE.parent.parent
+REPO = Path(__file__).resolve().parents[2]
+SOURCE = REPO / 'assets' / 'weather'
 COMMON_ROOT = Path(subprocess.check_output(
     ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'],
     cwd=REPO, text=True,

@@ -10,7 +10,7 @@ import sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-from app import settings, version
+from app import settings, version, weather
 from app.paths import ROOT
 from scenery import facades, lamps, treefx
 from track import parallel
@@ -209,6 +209,7 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
     with open(os.path.join(root, "extension", "ext_config.ini"), "w", encoding="utf-8") as f:
         f.write(EXT_CONFIG)
     write_trees(root, trees)
+    weather.install_track(root)
     facades.write_glow(os.path.join(root, "extension"))
     tex_dir = os.path.join(os.path.dirname(obj), "textures")
     if os.path.exists(os.path.join(tex_dir, "water_waves.png")):

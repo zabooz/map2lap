@@ -128,12 +128,33 @@ placed from the glass as it stands, so that it follows a lamp moved or deleted. 
 At night a weak full moon stands across the sky from the sun (`moonDirection`) and lights the track from one side; its disc and
 the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside the headlights, which the Editor doesn't have.
 
+## Weather
+
+Properties places Weather below Time of day. Dry offers Clear, Partly cloudy and Overcast; Rain and Snow offer Light,
+Moderate and Heavy. Heavy Rain uses CSP's Heavy Thunderstorm preset, including its native lightning. Heavy Snow already
+has the base weather's strongest fog. Additional fog blends toward CSP Fog while retaining the selected precipitation type.
+Wind direction is a compass bearing (where it comes from), with Random before 0 degrees; 360 is also north. Wind speed is
+0–35 km/h, CSP's normal conditions limit. Random is resolved once for each Play. The app does not change CSP's global
+experimental limits.
+
+These controls are session-only like the clock: no draft change, Save or Undo entry. A track opens with dry, clear weather,
+random direction and no wind. `weatherPreview.ts` gives a small GPU particle field, approximate lighting and distance fog;
+AC uses CSP's actual sky, clouds, light and wind. Weather and the clock travel together through Save-as-new-track followed
+by Play. Wind-only changes leave the editor's lighting/reflection maps alone.
+
+`app/weather.py` validates the settings and writes the session. It installs an owned Map2Lap controller alongside CSP's
+controllers, without changing the stock ones. Generated and saved tracks include `assets/weather/weather.lua` as a
+track-local script through an owned include; Play also prepares older tracks. The asset is shipped in releases independently
+of CSP, which remains a separate installation. Debug controls and mode-file polling are enabled only by the developer
+preview helper. The windscreen experiment stays disabled. Water and wetness are zero in our controller; no extended
+physics or surface-grip changes are enabled.
+
 ## Tools and changes
 
 The right panel, the Inspector, has Selection, Properties and Details tabs. Clicking a surface or object opens Selection;
 hovering keeps the active tab. Selection keeps the clicked selection independently of the pointer, then shows Appearance
 with a texture preview, followed by Options. Change texture and all editable object or applied-texture controls live in
-Options. TreeFX previews use the track's own model images. Properties holds Time of day. Details contains selected mesh
+Options. TreeFX previews use the track's own model images. Properties holds Time of day and Weather. Details contains selected mesh
 data, object details, track statistics and edit notes. Object details distinguish an object's own triangles and loaded
 dimensions from its surrounding merged mesh, show related ids and retained original build parameters where available,
 and list hidden as well as visible parts.

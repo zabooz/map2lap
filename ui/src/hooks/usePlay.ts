@@ -1,5 +1,6 @@
 import {useState} from "react";
 import {post} from "../api";
+import type {WeatherOptions} from "../editor/scene/weather";
 
 const STARTING_MS = 5000;       // how long Play stays "Starting …": AC's window takes a while, the server answers at once
 
@@ -7,9 +8,9 @@ const STARTING_MS = 5000;       // how long Play stays "Starting …": AC's wind
 export function usePlay() {
   const [starting, setStarting] = useState(false);
 
-  const play = async (name: string, clock?: number) => {
+  const play = async (name: string, clock?: number, weather?: WeatherOptions) => {
     setStarting(true);
-    const r = await post("/api/play", {name, clock});
+    const r = await post("/api/play", {name, clock, weather});
     if (r.error) alert(r.error);
     setTimeout(() => setStarting(false), r.error ? 0 : STARTING_MS);
   };

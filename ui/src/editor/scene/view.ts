@@ -41,6 +41,8 @@ import {ObjectMover} from "./mover";
 import {Pointing} from "./pointing";
 import {Selection, ROAD} from "./selection";
 import {COPIES, fits, nearestLast} from "./inspect";
+import {DEFAULT_WEATHER, weatherAppearance, type WeatherOptions} from "./weather";
+import {WeatherPreview} from "./weatherPreview";
 
 const PARALLEL = 6;                 // meshes asked for at a time
 const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
@@ -80,6 +82,8 @@ export class TrackView {
   private clock = 10;                                   // the hour shown (setClock)
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
+  private weatherState = {...DEFAULT_WEATHER};
+  private weatherPreview = new WeatherPreview(this.scene);
   private modelDraw = new ModelDraw(this.scene, undefined, bytes => {
     if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
     this.usedBytes += bytes; return true;
@@ -249,6 +253,7 @@ export class TrackView {
     this.marquee.dispose();
     this.modelLight?.dispose();
     this.nightSky.dispose();
+    this.weatherPreview?.dispose();
     this.sun.dispose();
     this.lampCones.dispose();
     this.roadMarkers.dispose();
@@ -267,16 +272,30 @@ export class TrackView {
   /** The hour shown: Play starts AC at it. */
   clockHours() { return this.clock; }
 
+  /** Session-only weather: preview it here and send the same settings to AC on Play. */
+  setWeather(options: WeatherOptions) {
+    const previous = this.weatherState ?? DEFAULT_WEATHER;
+    this.weatherState = {...options};
+    this.weatherPreview?.set(options);
+    if (previous.kind !== options.kind || previous.intensity !== options.intensity || previous.fog !== options.fog) this.applyLight();
+    else this.dirty = true;
+  }
+
+  weatherOptions(): WeatherOptions { return {...(this.weatherState ?? DEFAULT_WEATHER)}; }
+
   /** Sun, ambient, sky and reflections from the place and the clock, the same values for all that is drawn. */
   private applyLight() {
     const light = lightAt(sunHeight(this.place, this.clock));
-    this.scene.background = new THREE.Color(light.sky);
-    this.ambient.color.set(light.ambientColour); this.ambient.intensity = light.ambient;
-    this.sun.color.set(light.sunColour); this.sun.intensity = light.sun;
+    const mood = weatherAppearance(this.weatherState ?? DEFAULT_WEATHER);
+    const sky = new THREE.Color(light.sky).lerp(new THREE.Color(mood.sky).multiplyScalar(Math.max(.02, light.ambient / 2)), mood.clouds * .85);
+    this.scene.background = sky;
+    this.scene.fog = mood.fog > 0 ? new THREE.FogExp2(sky, mood.fog * .0025) : null;
+    this.ambient.color.set(light.ambientColour); this.ambient.intensity = light.ambient * mood.ambient;
+    this.sun.color.set(light.sunColour); this.sun.intensity = light.sun * mood.sun;
     this.sun.position.fromArray(sunDirection(this.place, this.clock));
     const moon = moonDirection(this.place, this.clock);
-    this.moon.intensity = light.moon; this.moon.position.fromArray(moon);
-    this.nightSky.set(moon, light.night);
+    this.moon.intensity = light.moon * mood.sun; this.moon.position.fromArray(moon);
+    this.nightSky.set(moon, light.night * (1 - mood.clouds * .8));
     this.nightGlow.set(lampsOn(sunHeight(this.place, this.clock)));
     this.textures.followLights();
     if (this.modelLight) this.modelDraw.setEnvironment(this.modelLight.texture, this.reflections());
@@ -1061,6 +1080,7 @@ export class TrackView {
     if (this.shown && this.navigation.flying.size) this.navigation.fly(seconds);
     if (this.shown && this.navigation.zoomLeft) this.navigation.glideZoom(seconds);
     if (!this.shown) return;
+    if (this.weatherPreview?.update(seconds, this.camera, this.ambient.intensity)) this.dirty = true;
     this.ghost.follow();
     if (this.dirty) {
       this.dirty = false;

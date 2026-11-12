@@ -8,6 +8,7 @@ import subprocess
 import time
 
 from context import AC, DOCS, EXT, MODE, MODES, RUNTIME, SCRIPT, SOURCE, STATE, TRACK, system
+from app import weather
 
 CONFIG = EXT / 'ext_config.ini'
 
@@ -56,7 +57,7 @@ def main():
     race, video = DOCS / 'cfg/race.ini', DOCS / 'cfg/video.ini'
     before = {CONFIG: original_config, race: race.read_bytes(), video: video.read_bytes()}
     writes = {
-        CONFIG: original_config + b'\n[SCRIPT_...]\nACTIVE=1\nSCRIPT=map2lap_weather_probe.lua\n',
+        CONFIG: weather.without_config(original_config) + b'\n[MAP2LAP_WEATHER]\nDEBUG=1\n[SCRIPT_...]\nACTIVE=1\nSCRIPT=map2lap_weather_probe.lua\n',
         SCRIPT: (SOURCE / 'weather.lua').read_bytes(),
         MODE: b'off',
         race: ini_bytes(before[race], {

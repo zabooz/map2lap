@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from app import (mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
-                 tracktrees, trackvariation, trackview, trackwalls)
+                 tracktrees, trackvariation, trackview, trackwalls, weather)
 from track import editorinfo, groundmaterial, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -310,6 +310,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         modeltrees.export(ac, name, scan, temporary, edits)
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
+        weather.install_track(temporary)
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []), "walls": walls,

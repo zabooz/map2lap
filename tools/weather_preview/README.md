@@ -1,7 +1,7 @@
 # Weather preview
 
 Versioned public-CSP rain/snow prototype and helpers for the existing `heiligenblut_test`
-track. `weather.lua` batches up to 8,192 rain/snow particles into one dynamic mesh
+track. The shipped source `assets/weather/weather.lua` batches up to 8,192 rain/snow particles into one dynamic mesh
 with custom HLSL, native weather selection and actual CSP wind. A depth-aware
 distance veil and ground splash crowns complement native WeatherFX fog.
 It requires no RainFX or custom DLL. The experimental windscreen overlay is kept
@@ -27,11 +27,12 @@ next native weather-type change; `auto` explicitly returns to current conditions
 
 ## Shared runtime
 
-`context.py` finds the main checkout through Git's common directory. Source stays
-in this worktree; runtime files stay in the main checkout's ignored
+`context.py` finds the main checkout through Git's common directory. Source is read
+from this checkout's `assets/weather/`; runtime files stay in the main checkout's ignored
 `out/weather-probe/`. That includes `session.json`, backup manifests, update
 receipts, screenshots and logs. The existing personal AC setting is read from the
-main checkout without copying it into the worktree or committing it.
+main checkout without copying it into the worktree or committing it. The launcher enables
+debug keys, mode-file polling and messages only in its temporary configuration.
 
 All worktrees share one installed AC script and one preview session. Use one writer.
 Read `session.json` and check its process before launching or updating. Keep the

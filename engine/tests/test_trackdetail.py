@@ -755,12 +755,15 @@ class DetailTest(unittest.TestCase):
                 elif slots["txDetail" + c] != groundmaterial.WHITE:
                     self.assertEqual(1., values["tilingFix" + c])
         self.assertFalse((extension / "map2lap_ground.ini").exists())
-        self.assertEqual(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
+        # Saving adds the independent weather include; changing ground details must leave it and WATER_FX intact.
+        with_weather = (extension / "ext_config.ini").read_text(encoding="utf-8")
+        self.assertTrue(with_weather.startswith(original))
+        self.assertIn('[INCLUDE: map2lap_weather.ini]', with_weather)
         trackcopy.save(self.ac, self.name)
-        self.assertEqual(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
+        self.assertEqual(with_weather, (extension / "ext_config.ini").read_text(encoding="utf-8"))
         self.keep([])
         trackcopy.save(self.ac, self.name)
-        self.assertEqual(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
+        self.assertEqual(with_weather, (extension / "ext_config.ini").read_text(encoding="utf-8"))
         self.assertFalse((extension / "map2lap_ground.ini").exists())
 
     def test_imported_material_variation_is_immutable_and_can_be_disabled(self):

@@ -76,6 +76,20 @@ class PlayAtAnHourTest(unittest.TestCase):
             self.assertEqual((400, False), self.started(wrong), wrong)
         self.assertEqual(RACE, self.race.read_text())
 
+    def test_editor_weather_reaches_native_csp_and_installs_its_track_script(self):
+        self.assertEqual((200, True), self.started(10, {'kind': 'snow', 'intensity': 'heavy',
+                                                       'windDirection': 90, 'windSpeed': 20, 'fog': True}))
+        ini = self.ini()
+        self.assertEqual(ini.getint('LIGHTING', '__CM_WEATHER_TYPE'), 11)
+        self.assertEqual(ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER'), 'map2lap')
+        self.assertEqual(ini.getint('WIND', 'DIRECTION_DEG'), 270)
+        self.assertTrue((self.ac / 'content/tracks/one/extension/map2lap_weather.lua').is_file())
+        self.assertTrue((self.ac / 'extension/weather-controllers/map2lap/controller.lua').is_file())
+
+    def test_invalid_weather_does_not_start_or_rewrite_the_session(self):
+        self.assertEqual((400, False), self.started(10, {'windSpeed': 36}))
+        self.assertEqual(RACE, self.race.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

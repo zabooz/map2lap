@@ -1,0 +1,7 @@
+.weather { display: flex; flex-direction: column; gap: 14px; padding: 16px 0 6px; font-size: 13px; }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
+.field select, .field input { width: 100%; min-width: 0; }
+.value { color: var(--text); font-variant-numeric: tabular-nums; }
+.toggle { display: flex; align-items: center; gap: 7px; }
+.hint { margin: -6px 0 0; color: var(--muted); font-size: 12px; }
