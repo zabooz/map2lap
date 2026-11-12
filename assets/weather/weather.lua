@@ -4,7 +4,7 @@
 -- Experimental windscreen overlay enabled for this development preview.
 local WINDSCREEN_ENABLED = true
 local DEBUG = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'DEBUG', false)
-local glass, veil, mirrorSnow
+local glass, veil, mirrorWeather
 local glassMs, glassOff, glassRaw = 0, false, false
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
@@ -51,12 +51,15 @@ local function rand()
   random = random * 16807 % 2147483647
   return random / 2147483647
 end
--- Reserve the extra heavy-snow slots while keeping the accepted rain and light-snow budgets unchanged.
+-- Reserve bounded storage for heavy snow; rain and snow tiers choose their own active counts below.
 local BASE_COUNT, COUNT = 8192, 14057
 local function snowScale()
   if density > 0.65 then return 1.584, 1.716 end
   local scale = density > 0.3 and 1.15 or 1
   return scale, scale
+end
+local function rainScale()
+  return density > 0.65 and 1.5 or density > 0.35 and 1.2 or 1
 end
 -- The camera-wrapped volume: 28 m wide and deep, 14 m tall, so a particle leaving one side enters the other.
 local BOX, HALF, BOXY, HALFY = 28, 14, 14, 7
@@ -253,7 +256,7 @@ local function drop(b, cx, cy, cz)
 end
 
 -- Rain and snow have their own loops: one loop with both branches ran four times slower under LuaJIT.
-local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, vz)
+local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, vz, scale)
   for i = 0, count - 1 do
     local w = weight[i]
     local speed = 5.5 + w * 3.5
@@ -275,9 +278,9 @@ local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, 
       local relative = max(1e-6, sqrt(vx * vx + vy * vy + vz * vz))
       local ux, uy, uz = -vx / relative, -vy / relative, -vz / relative
       -- 16 ms of shutter smear along the apparent velocity.
-      local hh = min(0.6, max(0.05, relative * 0.016)) * 0.5
-      local width = (0.0025 + w * 0.003) * size[i]
-      local shown = max(width, pixelMetres * 1.3)
+      local hh = min(0.6, max(0.05, relative * 0.016)) * 0.5 * scale
+      local width = (0.0025 + w * 0.003) * size[i] * scale
+      local shown = max(width, pixelMetres * 1.3 * scale)
       local hw = shown * 0.5
       -- A streak thinner than a pixel is drawn a pixel wide but fainter, so no uniform white bars appear.
       local alpha = (0.3 + w * 0.25) * edge * max(0.35, sqrt(width / shown))
@@ -384,8 +387,8 @@ local function build()
   local lx, ly, lz = look.x, look.y, look.z
   local upv, sidev = sim.cameraUp, sim.cameraSide
   local scale, amount = 1, 1
-  if snow then scale, amount = snowScale() end
-  local count = floor(BASE_COUNT * density * (snow and amount or 0.7))
+  if snow then scale, amount = snowScale() else scale = rainScale(); amount = scale end
+  local count = floor(BASE_COUNT * density * (snow and amount or 0.7 * amount))
   if count < activeCount then hide(count, activeCount) end
   activeCount = count
   local shelterStart = os.preciseClock()
@@ -400,7 +403,7 @@ local function build()
   if snow then
     buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upv.x, upv.y, upv.z, sidev.x, sidev.y, sidev.z, scale)
   else
-    buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, wx - vcx, -vcy, wz - vcz)
+    buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, wx - vcx, -vcy, wz - vcz, scale)
     updateSplashes(frameDt, cx, cy, cz, lx, lz, sidev.x, sidev.y, sidev.z)
   end
 end
@@ -452,7 +455,7 @@ function script.frameBegin(dt, gameDT)
   else
     drawn, shelteredCount, luaMs, shelterMs, submitMs = 0, 0, 0, 0, 0
   end
-  if mirrorSnow then mirrorSnow.update() end
+  if mirrorWeather then mirrorWeather.update() end
   if DEBUG and heartbeat > 5 then
     -- avg_fps is frames per real second over the whole heartbeat, the number for cost comparisons.
     ac.log(string.format('M2L_WEATHER mode=%s frames=%d drawn=%d sheltered=%d build_ms=%.3f rays_ms=%.3f upload_ms=%.3f avg_fps=%.1f camera=%s',
@@ -503,14 +506,15 @@ function script.draw3D()
 end
 
 -- Mirrors have their own render pass; draw3D and the front-culled main particle buffer cannot supply it.
--- Reuse the snow shader, seeds, wind and clock with at most 5,272 simple quads, updated once per frame for all
+-- Reuse the precipitation shader, seeds, wind and clock with at most 5,272 quads, updated once per frame for all
 -- mirrors. No extra collision rays, distance veil, glass redraw or reflection-cubemap rendering.
-mirrorSnow = {active = false}
-function mirrorSnow.update()
-  mirrorSnow.active = mode == 'snow'
-  if not mirrorSnow.active then return end
+mirrorWeather = {active = false}
+function mirrorWeather.update()
+  mirrorWeather.active = mode == 'snow' or mode == 'rain'
+  if not mirrorWeather.active then return end
+  local snow = mode == 'snow'
   local budget = 5272
-  if not mirrorSnow.mesh then
+  if not mirrorWeather.mesh then
     local vb, ib = ac.VertexBuffer(budget * 4), ac.IndicesBuffer(budget * 6)
     for i = 0, budget - 1 do
       local b = i * 4
@@ -522,34 +526,57 @@ function mirrorSnow.update()
         v.normal:set(0, 1, 0)
       end
     end
-    mirrorSnow.holder = ac.findNodes('luaRoot:yes'):createNode('M2L_MIRROR_SNOW', false)
-    mirrorSnow.mesh = mirrorSnow.holder:createMesh('M2L_MIRROR_SNOW', 'M2L_MIRROR_SNOW', vb, ib, false, false)
-    mirrorSnow.mesh:setVisible(false)
-    mirrorSnow.vertices, mirrorSnow.indices = vb, ib
-    mirrorSnow.pass = {mesh = mirrorSnow.mesh, transform = identity, async = true, cacheKey = 4,
+    mirrorWeather.holder = ac.findNodes('luaRoot:yes'):createNode('M2L_MIRROR_WEATHER', false)
+    mirrorWeather.mesh = mirrorWeather.holder:createMesh('M2L_MIRROR_WEATHER', 'M2L_MIRROR_WEATHER', vb, ib, false, false)
+    mirrorWeather.mesh:setVisible(false)
+    mirrorWeather.vertices, mirrorWeather.indices = vb, ib
+    mirrorWeather.pass = {mesh = mirrorWeather.mesh, transform = identity, async = true, cacheKey = 4,
       shader = batch.shader, values = {gSnow = 1, gTime = 0, gColor = rgb()}}
   end
   local car = ac.getCar(0)
   local centre, side = car.position, car.side
   local cx, cy, cz = centre.x, centre.y + 1.2, centre.z
-  local scale, amount = snowScale()
-  -- Three times the previous mirror population, still following the native light/medium/heavy tiers.
+  local scale, amount = 1, 0.7
+  if snow then scale, amount = snowScale() else scale = rainScale(); amount = 0.7 * scale end
+  -- Both precipitation types follow native strength. Preserve the accepted snow size/count boosts;
+  -- rain starts from its 70% budget with medium/heavy boosts and fast fall, without snow flutter/softness.
   local count = floor(3072 * density * amount)
-  local mr = mirrorSnow.vertices.raw
+  local mr = mirrorWeather.vertices.raw
+  local velocity = car.velocity
+  local vx, vy, vz = wind.x - velocity.x, -velocity.y, wind.z - velocity.z
   for i = 0, budget - 1 do
     -- 11 and the fixed power-of-two seed pool are coprime: enlarged render budgets cannot duplicate flakes.
     local seed = i * 11 % BASE_COUNT
     local w, ph = weight[seed], phase[seed]
-    local x = (px[seed] + driftX + sin(elapsed * (0.8 + w) + ph) * 0.18 - cx + HALF) % BOX - HALF
-    local y = (py[seed] - elapsed * (0.45 + w * 0.85) - cy + HALFY) % BOXY - HALFY
-    local z = (pz[seed] + driftZ + cos(elapsed * 0.65 + ph) * 0.15 - cz + HALF) % BOX - HALF
+    local fall = snow and (0.45 + w * 0.85) or (5.5 + w * 3.5)
+    local flutterX = snow and sin(elapsed * (0.8 + w) + ph) * 0.18 or 0
+    local flutterZ = snow and cos(elapsed * 0.65 + ph) * 0.15 or 0
+    local x = (px[seed] + driftX + flutterX - cx + HALF) % BOX - HALF
+    local y = (py[seed] - elapsed * fall - cy + HALFY) % BOXY - HALFY
+    local z = (pz[seed] + driftZ + flutterZ - cz + HALF) % BOX - HALF
     local d2 = x * x + y * y + z * z
     local visible = i < count and d2 > 2 and d2 < 225 and not sheltered(cx + x, cy + y, cz + z)
     local dist = sqrt(max(1e-6, d2))
     local width = min(0.06, max((0.006 + w * w * 0.025) * size[seed], dist * 0.004)) * scale
     local hw, hh = width * 0.5, width * aspect[seed] * 0.5
-    local alpha = (0.5 + w * 0.3) * min(1, (15 - dist) / 4) * min(1, (dist - 1.4) / 1.2)
-    local packed = floor(min(99, max(0, alpha * 100))) + floor(max(0, 1 - dist / 4) * 9 + 0.5) * 100
+    local edge = min(1, (15 - dist) / 4) * min(1, (dist - 1.4) / 1.2)
+    local alpha = (0.5 + w * 0.3) * edge
+    local sx, sy, sz, ex, ey, ez = side.x, side.y, side.z, 0, 1, 0
+    if not snow then
+      local relativeY = vy - fall
+      local speed = max(1e-6, sqrt(vx * vx + relativeY * relativeY + vz * vz))
+      ex, ey, ez = -vx / speed, -relativeY / speed, -vz / speed
+      sx, sy, sz = ey * z - ez * y, ez * x - ex * z, ex * y - ey * x
+      local length = sqrt(sx * sx + sy * sy + sz * sz)
+      if length < 1e-6 then sx, sy, sz, length = side.x, side.y, side.z, 1 end
+      sx, sy, sz = sx / length, sy / length, sz / length
+      local physicalWidth = (0.0025 + w * 0.003) * size[seed]
+      width = max(physicalWidth, min(0.03, dist * 0.002)) * scale
+      hw, hh = width * 0.5, min(0.6, max(0.05, speed * 0.016)) * 0.5 * scale
+      alpha = (0.3 + w * 0.25) * edge * max(0.35, sqrt(physicalWidth * scale / width))
+    end
+    local packed = floor(min(99, max(0, alpha * 100)))
+    if snow then packed = packed + floor(max(0, 1 - dist / 4) * 9 + 0.5) * 100 end
     for c = 0, 3 do
       local v = mr[i * 4 + c]
       local u = (c == 2 or c == 3) and 0.998 or 0
@@ -557,26 +584,31 @@ function mirrorSnow.update()
       v.uv:set(seed + u, packed + t)
       if visible then
         local across, vertical = (u > 0 and 1 or -1) * hw, (t > 0 and 1 or -1) * hh
-        v.pos:set(cx + x + side.x * across, cy + y + side.y * across + vertical, cz + z + side.z * across)
+        v.pos:set(cx + x + sx * across + ex * vertical, cy + y + sy * across + ey * vertical, cz + z + sz * across + ez * vertical)
       else
         v.pos:set(cx, cy - 10000, cz)
       end
     end
   end
-  mirrorSnow.mesh:alterVertices(mirrorSnow.vertices)
+  mirrorWeather.mesh:alterVertices(mirrorWeather.vertices)
 end
 
-mirrorSnow.listener = render.on('mirror.root.transparent', function()
-  if not mirrorSnow.active or not mirrorSnow.pass then return end
-  local v = mirrorSnow.pass.values
+mirrorWeather.listener = render.on('mirror.root.transparent', function()
+  if not mirrorWeather.active or not mirrorWeather.pass then return end
+  local v = mirrorWeather.pass.values
   v.gTime = elapsed
+  v.gSnow = mode == 'snow' and 1 or 0
   local sky, horizon = sim.skyColor, sim.horizonColor
-  local brightness = min(1, max(0.04, sqrt(max(0, (sky.r + sky.g + sky.b + horizon.r + horizon.g + horizon.b) / 6)) * 2.5))
-  v.gColor:set(0.82 * brightness, 0.86 * brightness, 0.9 * brightness)
+  if mode == 'snow' then
+    local brightness = min(1, max(0.04, sqrt(max(0, (sky.r + sky.g + sky.b + horizon.r + horizon.g + horizon.b) / 6)) * 2.5))
+    v.gColor:set(0.82 * brightness, 0.86 * brightness, 0.9 * brightness)
+  else
+    v.gColor:set(max(0.06, horizon.r * 1.8), max(0.065, horizon.g * 1.8), max(0.07, horizon.b * 1.8))
+  end
   render.setBlendMode(render.BlendMode.AlphaBlend)
   render.setCullMode(render.CullMode.None)
   render.setDepthMode(render.DepthMode.ReadOnly)
-  render.mesh(mirrorSnow.pass)
+  render.mesh(mirrorWeather.pass)
 end)
 
 -- Windscreen water and snow. The glass is unrolled into a 2D frame in car-local metres: X across the car, S up the
@@ -977,7 +1009,7 @@ function glass.setup()
   end
   glass.sim = {
     async = true,
-    cacheKey = 41,
+    cacheKey = 70,
     blendMode = render.BlendMode.Opaque,
     textures = {txPrev = false},
     values = values,
@@ -1047,6 +1079,10 @@ function glass.setup()
         float dt = gParams.x;
         float4 prev = txPrev.SampleLevel(samLinearSimple, uv, 0);
         #ifdef M2L_SIDE_GLASS
+        // Only liquid water moves along the pane; adhered snow and slush retain their stationary field.
+        float2 waterFrom = uv - gRainFlow * dt;
+        prev.a = txPrev.SampleLevel(samLinearSimple, saturate(waterFrom), 0).a;
+        prev.a *= (waterFrom.x >= 0 && waterFrom.x <= 1 && waterFrom.y >= 0 && waterFrom.y <= 1) ? 1 : 0;
         // Clumps adhere in place. Gusts tear off small patches instead of smearing the entire field.
         [unroll] for (int g = 0; g < 4; g++) {
           float4 gust = gGusts[g];
@@ -1099,24 +1135,31 @@ function glass.setup()
         float toWater = slush * 0.12 * dt;
         slush -= toWater;
         film = min(1, film + toWater * 0.8);
-        #ifdef M2L_SIDE_GLASS
-        return float4(film, snow, slush, 0);
-        #else
         // Rain beads persist like snow clumps: round domes 1.5 to 3.5 mm in radius land at a bounded random rate,
         // dry slowly, and the blade clears them. Height in millimetres.
         float h = max(0, prev.a - 0.02 * dt);
         float2 bcell = floor(p / 0.008);
         [unroll] for (int bj = -1; bj <= 1; bj++) [unroll] for (int bi = -1; bi <= 1; bi++) {
           float2 c = bcell + float2(bi, bj);
+          int2 id = int2(c);
+          #ifdef M2L_SIDE_GLASS
+          float hv = landingRandom(id, 100u);
+          #else
           float hv = hash12(c * 1.3 + gSeed);
+          #endif
           if (hv < gBead) {
-            float2 centre = (c + 0.5 + (float2(hash12(c * 2.1 + gSeed.yx), hash12(c * 2.9 + gSeed)) - 0.5) * 0.6) * 0.008;
-            float R = 0.0015 + 0.002 * hash12(c * 3.7 + gSeed) * hash12(c * 4.3 + gSeed);
+            // Keep the existing landing rate, but use independent full-cell positions. The former central
+            // 60% jitter left regular gaps between rows, increasingly visible as the glass filled up.
+            float2 centre = (c + float2(landingRandom(id, 101u), landingRandom(id, 102u))) * 0.008;
+            float R = 0.0015 + 0.002 * landingRandom(id, 103u) * landingRandom(id, 104u);
             float2 q = p - centre;
             float d2 = dot(q, q);
             if (d2 < R * R) h = max(h, R * 500 * sqrt(1 - d2 / (R * R)));
           }
         }
+        #ifdef M2L_SIDE_GLASS
+        return float4(film, snow, slush, h);
+        #else
         float hd = 0;
         blade(gW0, p, film, snow, slush, h);
         blade(gW1, p, film, snow, slush, h);
@@ -1132,14 +1175,13 @@ function glass.setup()
     mesh = glass.mesh,
     transform = 'original',
     async = true,
-    cacheKey = 40,
+    cacheKey = 71,
     textures = {txField = false},
     values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3()},
     shader = [[
-      float hash12(float2 p) { float3 p3 = frac(float3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return frac((p3.x + p3.y) * p3.z); }
       float height(float4 f) { return f.a + f.r * 0.08 + f.b + f.g * 2.2; }
       float4 main(PS_IN pin) {
         float3 d = pin.PosC + gCameraPos - gCarPos;
@@ -1171,18 +1213,19 @@ function glass.setup()
         float film = saturate(filmSum * 0.2 * 1.5);
         float steep = saturate(length(n.xy) * 3);
         float spec = pow(saturate(R.y), 8) * saturate(steep * 1.5 + 0.2);
-        float3 bodyColor = gColor * 0.3;
-        float3 rimColor = gColor * 0.08;
-        float3 specColor = gColor * 1.6;
-        // Wet sheen: a carpet of tiny beads, each with a faint crest highlight, over a slight dimming.
-        float2 cell = floor(float2(x, s) * 300);
-        float2 inCell = frac(float2(x, s) * 300) - 0.5 - (float2(hash12(cell), hash12(cell + 7.1)) - 0.5) * 0.5;
-        float speck = (1 - smoothstep(0.08, 0.22, length(inCell))) * step(0.35, hash12(cell + 3.3));
-        float3 filmColor = gColor * (0.2 + 1.0 * speck * saturate(R.y + 0.3));
-        float bodyA = body * 0.26;
-        float rimA = steep * body * 0.45;
-        float specA = spec * body * 0.45;
-        float filmA = film * (0.03 + 0.18 * speck);
+        // Side panes have a smaller, oblique view of the beads: give liquid stronger edge contrast and
+        // a clearer crest highlight, while retaining the accepted windscreen and matte snow shading.
+        float sideWater = gSideGlass == 0 ? 0 : 1;
+        float3 bodyColor = gColor * lerp(0.3, 0.24, sideWater);
+        float3 rimColor = gColor * lerp(0.08, 0.045, sideWater);
+        float3 specColor = gColor * lerp(1.6, 2.0, sideWater);
+        // The thin film has a calm sheen. Actual deposited beads supply highlights; an extra procedural
+        // grid of identical micro-beads made the whole wet pane look regularly dotted even after wiping.
+        float3 filmColor = gColor * 0.2;
+        float bodyA = body * lerp(0.26, 0.38, sideWater);
+        float rimA = steep * body * lerp(0.45, 0.68, sideWater);
+        float specA = spec * body * lerp(0.45, 0.72, sideWater);
+        float filmA = film * 0.04;
         float wAlpha = saturate(bodyA + rimA + specA + filmA);
         float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA + filmColor * filmA) / max(wAlpha, 1e-4);
         // Snow: matte white with cheap height shading from above; slush grey and translucent.
@@ -1201,8 +1244,8 @@ function glass.setup()
     ]]
   }
 
-  -- Side panes use small independent fields at at most 30 Hz. They share the snow shape and shading,
-  -- compile out droplets/wipers, and allocate their textures only when snow first reaches the car.
+  -- Side panes use small independent fields at at most 30 Hz. They share bead/snow shapes and shading,
+  -- compile out CPU-drop/wiper logic, and allocate textures only when precipitation first reaches the car.
   local SIDE_W, SIDE_H = 512, 256
   local sideClock = 0
   local function sideRand(side)
@@ -1215,19 +1258,20 @@ function glass.setup()
     local step = min(sideClock, 0.1)
     sideClock = 0
     for i, side in ipairs(glass.sides) do
-      if snowRate > 0 then side.activeUntil = elapsed + 6000 end
+      if snowRate > 0 then side.activeUntil = elapsed + 6000
+      elseif rainAmount > 0 then side.activeUntil = max(side.activeUntil, elapsed + 150) end
       side.active = elapsed < side.activeUntil
       if side.active then
         if not side.read then
-          side.read = ui.ExtraCanvas(vec2(SIDE_W, SIDE_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L side snow ' .. i .. ' A')
-          side.write = ui.ExtraCanvas(vec2(SIDE_W, SIDE_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L side snow ' .. i .. ' B')
+          side.read = ui.ExtraCanvas(vec2(SIDE_W, SIDE_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L side glass ' .. i .. ' A')
+          side.write = ui.ExtraCanvas(vec2(SIDE_W, SIDE_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L side glass ' .. i .. ' B')
           side.read:clear(rgbm(0, 0, 0, 0)); side.write:clear(rgbm(0, 0, 0, 0))
           -- Separate cache/binding instances from the windscreen, and include the side define in the source
           -- identity itself. A side pass must never inherit the front field or its animated wiper constants.
-          side.sim = {async = true, cacheKey = 50 + i, blendMode = render.BlendMode.Opaque,
+          side.sim = {async = true, cacheKey = 80 + i, blendMode = render.BlendMode.Opaque,
             textures = {txPrev = false}, shader = '#define M2L_SIDE_GLASS 1\n' .. glass.sim.shader,
             values = {gFrame = vec4(side.x0, side.s0, 1 / side.xw, 1 / side.sw), gParams = vec4(), gAir = vec4(),
-              gMelt = 0, gWet = 0, gLandingStep = 0, gGusts = mat4x4.identity()}}
+              gMelt = 0, gWet = 0, gBead = 0, gRainFlow = vec2(), gLandingStep = 0, gGusts = mat4x4.identity()}}
           local pv = {}
           for k, value in pairs(glass.pass.values) do pv[k] = value end
           pv.gFrame = vec4(side.x0, side.s0, 1 / side.xw, 1 / side.sw)
@@ -1246,8 +1290,17 @@ function glass.setup()
         -- Snow flutter reaches near-vertical glass too; windward panes catch more. Area scaling and 10%
         -- of the frontal flux slow the build-up, without shortening the life of snow already on the pane.
         local landings = snowFlux * 0.10 * (side.xw * side.sw / (xw * sw)) * min(2, max(0.5, -normal))
+        local rainNormal = side.sign * (ax * side.ty - (ay - 8) * side.tx)
+        local rainExposure = min(2, max(0.5, -rainNormal / 6.7))
+        local rainLandings = 450 * rainAmount * (side.xw * side.sw / (xw * sw)) * rainExposure
         local sv = side.sim.values
-        sv.gParams:set(step, 0, 0.02, landings * step / ((side.xw / 0.012) * (side.sw / 0.012)))
+        sv.gParams:set(step, 0, 0.005, landings * step / ((side.xw / 0.012) * (side.sw / 0.012)))
+        sv.gBead = rainLandings * step / ((side.xw / 0.008) * (side.sw / 0.008))
+        sv.gWet = rainAmount * rainExposure * 0.02
+        -- Relative headwind runs toward the rear; gravity drains liquid down the sloped side pane.
+        local waterU = min(0.12, max(-0.12, az * math.abs(az) * 0.0002))
+        local waterS = min(0.04, max(-0.04, tangent * math.abs(tangent) * 0.0002 - 0.003))
+        sv.gRainFlow:set(waterU / side.xw, -waterS / side.sw)
         sv.gAir:set(az, tangent, sqrt(az * az + tangent * tangent), max(0, -normal))
         -- Cold side glass retains settled clumps during snowfall: at rest they can only accumulate, with
         -- no random disappearance. When snow stops, slow thaw resumes; moving air tears patches off.
@@ -1326,7 +1379,7 @@ function glass.setup()
     v.gAir:set(tanX, tanS, airMag, impinge)
     v.gMelt = melt
     v.gSnowMode = snowRate > 0 and 1 or 0
-    -- Beads land at about 45 a second over the glass standing in heavy rain; 8 mm cells, 3 x 3 looked up.
+    -- Nominal rain landing probability over 8 mm cells, with a 3 x 3 neighbour lookup.
     v.gBead = 30 * rainAmount * impinge / 6.7 * dt / ((xw / 0.008) * (sw / 0.008))
     -- Standing in heavy rain the glass is fully wet in about 35 s, about twice as fast when driving into it
     -- (capped: a faster build-up turns the fan's edge into a hard line between sweeps).
