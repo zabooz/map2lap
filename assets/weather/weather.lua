@@ -1023,18 +1023,31 @@ function glass.setup()
       ]])
     end
     local m = lr.captureMap
-    if m.magic ~= 0x4d324c43 or m.enabled ~= 1 or m.request == m.response then return end
+    if m.magic ~= 0x4d324c43 or m.enabled == 0 or m.request == m.response then return end
     local ok, err = pcall(function()
       if not lr.captureView then
         lr.captureView = ui.ExtraCanvas(vec2(960,540),1)
         lr.capturePass = {async = true, cacheKey = 205, blendMode = render.BlendMode.Opaque,
-          textures = {txSource = 'dynamic::hdr'}, shader = [[
+          textures = {txSource = 'dynamic::hdr',txBefore=false,txAfter=false,txDepth='dynamic::depth'},
+          values={gBuffers=0},shader = [[
             float4 main(PS_IN pin) {
-              float3 c=max(0,txSource.SampleLevel(samLinearSimple,pin.Tex,0).rgb);
+              float2 uv=pin.Tex;
+              float3 c;
+              if(gBuffers>0.5) {
+                uv=frac(uv*2);
+                if(pin.Tex.y<0.5) c=pin.Tex.x<0.5 ? txSource.SampleLevel(samLinearSimple,uv,0).rgb
+                  : txBefore.SampleLevel(samLinearSimple,uv,0).rgb;
+                else if(pin.Tex.x<0.5) c=txAfter.SampleLevel(samLinearSimple,uv,0).rgb;
+                else { float d=txDepth.SampleLevel(samLinearSimple,uv,0).r; return float4(pow(d,64).xxx,1); }
+              } else c=txSource.SampleLevel(samLinearSimple,uv,0).rgb;
+              c=max(0,c);
               return float4(pow(c/(1+c),1/2.2),1);
             }
           ]]}
       end
+      lr.capturePass.values.gBuffers=m.enabled==2 and 1 or 0
+      lr.capturePass.textures.txBefore=lr.scene or false
+      lr.capturePass.textures.txAfter=lr.smudgeScene or false
       if not lr.captureView:updateSceneWithShader(lr.capturePass) then return end
       local depth, view = lr.read:encode(), lr.captureView:encode()
       if not depth or not view then error('Canvas encode returned no DDS data') end
@@ -1071,7 +1084,7 @@ function glass.setup()
         gravity={v.gGravity3.x,v.gGravity3.y,v.gGravity3.z},
         air={v.gAir3.x,v.gAir3.y,v.gAir3.z}, chart={glass.x0,glass.s0,glass.xw,glass.sw},
         camera={sim.cameraPosition.x,sim.cameraPosition.y,sim.cameraPosition.z},particles=particles,
-        projected=projected,backend="librain-particles-v4"})
+        projected=projected,backend="librain-particles-v4",buffers=m.enabled==2})
       if #depth>8388608 or #view>4194304 or #meta>65536 then error('Capture buffer capacity exceeded') end
       m.depth,m.view,m.meta = depth,view,meta
       m.depth_bytes,m.view_bytes,m.meta_bytes,m.error = #depth,#view,#meta,0
@@ -1094,10 +1107,12 @@ function glass.setup()
         return float4(depth > 0.025 ? float3(1,0,0) : float3(gridShade,gridShade,gridShade),1);
       }
     ]]}
-  lr.width = 1024
+  -- Match librain's compute-path spatial resolution; half-size depth produced
+  -- pixel-shaped lenses and stair-stepped thin tails in the close cockpit view.
+  lr.width = 2048
   lr.height = math.max(128, math.floor(lr.width * sw / xw + 0.5))
-  lr.a = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
-  lr.b = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
+  lr.a = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16.Float)
+  lr.b = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16.Float)
   lr.a:clear(rgbm(0, 0, 0, 0)); lr.b:clear(rgbm(0, 0, 0, 0))
   lr.read, lr.write = lr.a, lr.b
   lr.mask = ui.ExtraCanvas(vec2(lr.width,lr.height),1)
@@ -1109,7 +1124,7 @@ function glass.setup()
         uv(t.a[1]+t.vx,t.a[2]+t.vs),rgbm(1,1,1,1))
     end
   end)
-  lr.norm = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
+  lr.norm = ui.ExtraCanvas(vec2(lr.width, lr.height), 8, render.TextureFormat.R16G16.Float)
   lr.norm:clear(rgbm(0.5, 0.5, 0, 1))
   lr.normalPass = {async = true, cacheKey = 202, blendMode = render.BlendMode.Opaque,
     textures = {txDepth = false}, values = {gStep = vec2(1/lr.width, 1/lr.height)}, shader = [[
@@ -1163,7 +1178,7 @@ function glass.setup()
       return float4(1,0,0,alpha);
     }
   ]]}
-  lr.raster=ui.ExtraCanvas(vec2(lr.width,lr.height),1,render.TextureFormat.R16G16B16A16.Float)
+  lr.raster=ui.ExtraCanvas(vec2(lr.width,lr.height),1,render.TextureFormat.R16.Float)
   lr.depthPass={async=true,cacheKey=212,blendMode=render.BlendMode.Opaque,
     textures={txRaster=lr.raster,txGlassMask=lr.mask},
     values={gFrame=vec4(x0,s0,xw,sw),gW0=mat4x4.identity(),gW1=mat4x4.identity()},shader=[[
@@ -1230,8 +1245,8 @@ function glass.setup()
     if not lr.write:updateWithShader(lr.depthPass) then return false end
     lr.read,lr.write=lr.write,lr.read
     lr.normalPass.textures.txDepth=lr.read
-    lr.norm:updateWithShader(lr.normalPass)
-    if glass.captureRequested and lr.captureMap and lr.captureMap.enabled==1 then
+    if lr.norm:updateWithShader(lr.normalPass) then lr.norm:mipsUpdate() end
+    if glass.captureRequested and lr.captureMap and lr.captureMap.enabled>0 then
       lr.captureParticles={}
       for i=0,min(128,tonumber(m.count[0]))-1 do
         local q=m.drops[0][i]
@@ -1468,14 +1483,24 @@ function glass.setup()
     transform = 'original',
     async = true,
     cacheKey = 71,
-    textures = {txField = false, txSceneCopy = false, txLibrain = false, txLibrainNormal = false},
+    textures = {txField = false, txSceneCopy = false, txSceneDepth = 'dynamic::depth', txLibrain = false, txLibrainNormal = false},
     values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 0, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0, gDebugDrops = 0, gPaneUV = 0, gLibrain = 0, gLibrainBlur = 0,
+      -- User requested no water reflections: disable displaced scene colour and
+      -- its associated darkening, retaining only a subpixel wet-glass blur.
+      gLibrainRefractionGain = 0, gLibrainBlurGain = 0.15,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3(),
       gRidge0 = mat4x4.identity(), gRidge1 = mat4x4.identity()},
     shader = [[
       float height(float4 f) { return f.a + f.r * 0.08 + f.b + f.g * 2.2; }
+      float2 waterBackgroundUV(float2 samplePixel, float glassDepth, float2 originalPixel) {
+        float2 uv=saturate(samplePixel/gScreen);
+        // A refracted background ray must not sample the hand, wheel or blade
+        // in FRONT of this glass. Fall back to the undisplaced background.
+        float sceneDepth=txSceneDepth.SampleLevel(samLinearSimple,uv,0).r;
+        return sceneDepth<glassDepth-0.000001 ? originalPixel/gScreen : uv;
+      }
       float4 main(PS_IN pin) {
         float3 across = gSideGlass == 0 ? gCarSide : gCarLook;
         float3 slope = gSideGlass == 0 ? gCarLook : gCarSide;
@@ -1501,24 +1526,24 @@ function glass.setup()
           // CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
           // ws_rain.frag: depth normals displace a separate scene copy, then darken slightly.
           if (gRefract < 0.5 || depth <= 0.001) return 0;
-          float2 normal = 2 * txLibrainNormal.SampleLevel(samLinearSimple,uv,0).xy - 1;
-          float2 displacement = normal * gScreen.yx/10;
+          float2 normal = 2 * txLibrainNormal.Sample(samLinearSimple,uv).xy - 1;
+          float2 displacement = normal * gScreen.yx/10*gLibrainRefractionGain;
           if (gLibrainBlur < 0.5) {
             float3 refracted = txSceneCopy.SampleLevel(samLinearSimple,
-              saturate((pin.PosH.xy+displacement)/gScreen),0).rgb;
+              waterBackgroundUV(pin.PosH.xy+displacement,pin.PosH.z,pin.PosH.xy),0).rgb;
             float darkening = length(displacement)/(max(gScreen.x,gScreen.y)/10)/2;
             return float4(refracted*(1-darkening*darkening),1);
           }
           // ws_smudge.frag: blur the completed refracted screen image with the same depth.
           float2 centre = pin.PosH.xy;
-          float depthRatio = depth;
+          float depthRatio = depth*gLibrainBlurGain;
           float3 colour = 0;
           [unroll] for (int y = -2; y <= 2; y++) {
             [unroll] for (int x = -2; x <= 2; x++) {
               float wx = x == 0 ? 0.4 : (abs(x) == 1 ? 0.2 : 0.1);
               float wy = y == 0 ? 0.4 : (abs(y) == 1 ? 0.2 : 0.1);
               colour += txSceneCopy.SampleLevel(samLinearSimple,
-                saturate((centre + depthRatio*float2(x,y))/gScreen),0).rgb * wx*wy;
+                waterBackgroundUV(centre+depthRatio*float2(x,y),pin.PosH.z,centre),0).rgb * wx*wy;
             }
           }
           return float4(colour,1);
@@ -1620,7 +1645,7 @@ function glass.setup()
           side.parent = side.mesh:getParent()
           side.drawTransform = mat4x4.identity()
           side.pass = {mesh = side.mesh, transform = side.drawTransform, async = true, cacheKey = 60 + i,
-            textures = {txField = false, txSceneCopy = false, txLibrain = false, txLibrainNormal = false}, values = pv, shader = '// Independent side pane ' .. i .. '\n' .. glass.pass.shader}
+            textures = {txField = false, txSceneCopy = false, txSceneDepth = 'dynamic::depth', txLibrain = false, txLibrainNormal = false}, values = pv, shader = '// Independent side pane ' .. i .. '\n' .. glass.pass.shader}
         end
         local tangent = ax * side.tx + ay * side.ty
         local normal = side.sign * (ax * side.ty - (ay - 1.2) * side.tx)

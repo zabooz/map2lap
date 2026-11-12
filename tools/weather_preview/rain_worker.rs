@@ -93,6 +93,7 @@ struct Drop {
     tail_t: f64,
     // Car-wiper coupling, absent from upstream's compute variant.
     blade: Option<usize>,
+    runoff: bool,
     radius: f64,
     direction: f64,
 }
@@ -113,6 +114,7 @@ impl Default for Drop {
             spd: 0.,
             tail_t: 0.,
             blade: None,
+            runoff: false,
             radius: 0.,
             direction: 0.,
         }
@@ -152,7 +154,7 @@ fn tangent(f: &[f64], h: V) -> V {
         ((1. + h.x * h.x) * f[1] - h.x * h.y * f[0] + h.y * f[2]) / det,
     )
 }
-fn forces(p: V, params: &[f64; 16], grid: &[[f32; 2]; 153]) -> V {
+fn forces(p: V, params: &[f64; 16], grid: &[[f32; 2]; 153], runoff: bool) -> V {
     let h = slope(grid, p, params[4] / params[2]);
     let g = tangent(&params[6..9], h);
     let a = tangent(&params[9..12], h);
@@ -166,7 +168,7 @@ fn forces(p: V, params: &[f64; 16], grid: &[[f32; 2]; 153]) -> V {
     // earlier unvalidated car override of 40, which made modest driving lift water.
     g.unit()
         .mul(0.15 * (1.5 - params[13].clamp(0., 1.)))
-        .add(a.unit().mul((speed / 100.).min(1.)))
+        .add(a.unit().mul(if runoff { 0. } else { (speed / 100.).min(1.) }))
 }
 fn inside(p: V, aspect: f64) -> bool {
     p.x > 0. && p.x < 1. && p.y > 0. && p.y < aspect
@@ -244,6 +246,7 @@ impl Pane {
                 d.quant = 0.;
                 d.valid.fill(false);
                 d.blade = None;
+                d.runoff = false;
                 if now - d.regen_t >= 0.5 + id as f64 / 1024. {
                     d.regen_t = now;
                     let coord = V::new(id as f64, 0.);
@@ -254,7 +257,7 @@ impl Pane {
                         d.quant =
                             (20. + 60. * rain) + (120. - 20. - 60. * rain) * gold(coord, seeds[7]);
                         d.bump_sz = 0.;
-                        d.velocity = forces(pos, &p, grid).mul(gold(pos, seeds[3]));
+                        d.velocity = forces(pos, &p, grid, false).mul(gold(pos, seeds[3]));
                         // Upstream leaves previous speed/drag/tail filters intact on regeneration.
                     }
                 }
@@ -269,12 +272,16 @@ impl Pane {
                         d.velocity = V::default();
                     } else {
                         d.blade = None;
-                        d.velocity = V::default();
+                        // Wiper-collected water is scuttle runoff, not a newly exposed
+                        // bead. Release it along gravity using upstream's init-velocity
+                        // relationship; keep vehicle airflow on ordinary rain drops.
+                        d.velocity = forces(d.pos[0], &p, grid, true).mul(gold(d.pos[0], seeds[3]));
+                        d.drag = 0.;
                     }
                 }
                 if d.blade.is_none() {
                     let old = d.pos[0];
-                    let force = forces(old, &p, grid);
+                    let force = forces(old, &p, grid, d.runoff);
                     d.spd += (d.velocity.len() - d.spd) * (dt / 0.2);
                     // update_static_drag_len(): preserve upstream's literal clamp, not a remapped fraction.
                     let target = 7.5 * (1. - d.spd.clamp(0., 0.01)) / q.max(1.);
@@ -334,6 +341,7 @@ impl Pane {
                         if d.blade.is_none() && wiped(d.pos[0], w, &p) {
                             let (_, radius) = angle_at(d.pos[0], w, &p);
                             d.blade = Some(k);
+                            d.runoff = true;
                             d.radius = radius;
                             d.direction = w[7];
                             d.pos.fill(blade_position(radius, w, &p));
