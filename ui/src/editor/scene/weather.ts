@@ -10,7 +10,7 @@ export function weatherAppearance(options: WeatherOptions) {
   const clouds = ({dry: [0, .5, 1], rain: [.5, .7, 1], snow: [.4, .6, .8]})[options.kind][i];
   const nativeFog = ({dry: [0, 0, 0], rain: [.1, .25, .9], snow: [.2, .4, 1]})[options.kind][i];
   return {clouds, sun: 1 - clouds * .95, ambient: 1 - clouds * .3,
-    fog: nativeFog + (options.fog ? (1 - nativeFog) * .65 : 0), density: [.3, .65, 1][i],
+    fog: nativeFog + (options.fog ? (1 - nativeFog) * .65 : 0), density: [.18, .5, 1][i],
     sky: options.kind === "snow" ? "#9eafbd" : options.kind === "rain" ? "#929ca6" : "#b5bbc0"};
 }
 

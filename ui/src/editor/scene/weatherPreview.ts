@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {DEFAULT_WEATHER, weatherAppearance, windVelocity, type WeatherOptions} from "./weather";
 
-const COUNT = 600, BOX = new THREE.Vector3(36, 24, 36);
+const COUNT = 1000, BOX = new THREE.Vector3(36, 24, 36);
 
 /** One small GPU particle field giving the editor a rain/snow indication; geometry stays unchanged while animating. */
 export class WeatherPreview {
