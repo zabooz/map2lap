@@ -44,8 +44,9 @@ Everything that differs between the systems is in `app/system.py`: Steam and its
 The page checks the AC folder and Custom Shaders Patch locally on opening and while it remains open. Missing AC or
 missing, disabled or unreadable CSP shows a dismissible warning toast at the top centre. Its action opens the relevant
 Settings control; it never installs anything by itself. Dismissal lasts until that issue clears, the folder changes or the
-page reloads. A failed status request offers checking again rather than claiming CSP is missing. Play remains available
-without CSP. The shared toast component also supports information, success and error messages, and respects reduced motion.
+page reloads. A failed status request offers checking again rather than claiming CSP is missing. The warning explains that
+tracks require installed and enabled CSP for correct rendering; the check does not block Play. The shared toast component
+also supports information, success and error messages, and respects reduced motion.
 
 Map2Lap detects Custom Shaders Patch from `dwrite.dll` and `extension/config/data_manifest.ini`, including
 the user's enable override in Documents. Missing installations offer an explicit **Install CSP** button: it downloads
