@@ -4,7 +4,7 @@
 -- Experimental windscreen overlay enabled for this development preview.
 local WINDSCREEN_ENABLED = true
 local DEBUG = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'DEBUG', false)
-local glass, veil
+local glass, veil, mirrorSnow
 local glassMs, glassOff, glassRaw = 0, false, false
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
@@ -51,7 +51,13 @@ local function rand()
   random = random * 16807 % 2147483647
   return random / 2147483647
 end
-local COUNT = 8192
+-- Reserve the extra heavy-snow slots while keeping the accepted rain and light-snow budgets unchanged.
+local BASE_COUNT, COUNT = 8192, 14057
+local function snowScale()
+  if density > 0.65 then return 1.584, 1.716 end
+  local scale = density > 0.3 and 1.15 or 1
+  return scale, scale
+end
 -- The camera-wrapped volume: 28 m wide and deep, 14 m tall, so a particle leaving one side enters the other.
 local BOX, HALF, BOXY, HALFY = 28, 14, 14, 7
 local px, py, pz, weight, size, phase, aspect = {}, {}, {}, {}, {}, {}, {}
@@ -289,7 +295,7 @@ local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, 
   end
 end
 
-local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, upz, sdx, sdy, sdz)
+local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, upz, sdx, sdy, sdz, scale)
   for i = 0, count - 1 do
     local w = weight[i]
     local speed = 0.45 + w * 0.85
@@ -307,8 +313,8 @@ local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy,
       local pixelMetres = metrePerPixel * distance
       local edge = min(1, (15 - distance) / 4) * min(1, (distance - 1.4) / 1.2)
       -- Flakes from 6 to 30 mm, most of them medium; the soft core needs 2.5 px, 14 px caps nearby discs.
-      local width = (0.006 + w * w * 0.025) * size[i]
-      local shown = min(pixelMetres * 14, max(width, pixelMetres * 2.5))
+      local width = (0.006 + w * w * 0.025) * size[i] * scale
+      local shown = min(pixelMetres * 14 * scale, max(width, pixelMetres * 2.5 * scale))
       local hw, hh = shown * 0.5, shown * aspect[i] * 0.5
       local alpha = (0.5 + w * 0.3) * edge
       -- Within about 4 m a flake is out of focus for a driver's eye.
@@ -377,7 +383,9 @@ local function build()
   local cx, cy, cz = camera.x, camera.y, camera.z
   local lx, ly, lz = look.x, look.y, look.z
   local upv, sidev = sim.cameraUp, sim.cameraSide
-  local count = floor(COUNT * density * (snow and 1 or 0.7))
+  local scale, amount = 1, 1
+  if snow then scale, amount = snowScale() end
+  local count = floor(BASE_COUNT * density * (snow and amount or 0.7))
   if count < activeCount then hide(count, activeCount) end
   activeCount = count
   local shelterStart = os.preciseClock()
@@ -390,7 +398,7 @@ local function build()
   local vcx, vcy, vcz = cameraVelocity.x, cameraVelocity.y, cameraVelocity.z
   drawn = 0
   if snow then
-    buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upv.x, upv.y, upv.z, sidev.x, sidev.y, sidev.z)
+    buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upv.x, upv.y, upv.z, sidev.x, sidev.y, sidev.z, scale)
   else
     buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, wx - vcx, -vcy, wz - vcz)
     updateSplashes(frameDt, cx, cy, cz, lx, lz, sidev.x, sidev.y, sidev.z)
@@ -444,6 +452,7 @@ function script.frameBegin(dt, gameDT)
   else
     drawn, shelteredCount, luaMs, shelterMs, submitMs = 0, 0, 0, 0, 0
   end
+  if mirrorSnow then mirrorSnow.update() end
   if DEBUG and heartbeat > 5 then
     -- avg_fps is frames per real second over the whole heartbeat, the number for cost comparisons.
     ac.log(string.format('M2L_WEATHER mode=%s frames=%d drawn=%d sheltered=%d build_ms=%.3f rays_ms=%.3f upload_ms=%.3f avg_fps=%.1f camera=%s',
@@ -493,6 +502,83 @@ function script.draw3D()
   if glass and glass.mesh and not glassOff then glass.draw() end
 end
 
+-- Mirrors have their own render pass; draw3D and the front-culled main particle buffer cannot supply it.
+-- Reuse the snow shader, seeds, wind and clock with at most 5,272 simple quads, updated once per frame for all
+-- mirrors. No extra collision rays, distance veil, glass redraw or reflection-cubemap rendering.
+mirrorSnow = {active = false}
+function mirrorSnow.update()
+  mirrorSnow.active = mode == 'snow'
+  if not mirrorSnow.active then return end
+  local budget = 5272
+  if not mirrorSnow.mesh then
+    local vb, ib = ac.VertexBuffer(budget * 4), ac.IndicesBuffer(budget * 6)
+    for i = 0, budget - 1 do
+      local b = i * 4
+      ib:set(i * 6 + 1, b); ib:set(i * 6 + 2, b + 1); ib:set(i * 6 + 3, b + 2)
+      ib:set(i * 6 + 4, b); ib:set(i * 6 + 5, b + 2); ib:set(i * 6 + 6, b + 3)
+      for c = 0, 3 do
+        local v = vb.raw[b + c]
+        v.pos:set((c % 2 == 0) and -50000 or 50000, (c % 2 == 0) and -50000 or 50000, 0)
+        v.normal:set(0, 1, 0)
+      end
+    end
+    mirrorSnow.holder = ac.findNodes('luaRoot:yes'):createNode('M2L_MIRROR_SNOW', false)
+    mirrorSnow.mesh = mirrorSnow.holder:createMesh('M2L_MIRROR_SNOW', 'M2L_MIRROR_SNOW', vb, ib, false, false)
+    mirrorSnow.mesh:setVisible(false)
+    mirrorSnow.vertices, mirrorSnow.indices = vb, ib
+    mirrorSnow.pass = {mesh = mirrorSnow.mesh, transform = identity, async = true, cacheKey = 4,
+      shader = batch.shader, values = {gSnow = 1, gTime = 0, gColor = rgb()}}
+  end
+  local car = ac.getCar(0)
+  local centre, side = car.position, car.side
+  local cx, cy, cz = centre.x, centre.y + 1.2, centre.z
+  local scale, amount = snowScale()
+  -- Three times the previous mirror population, still following the native light/medium/heavy tiers.
+  local count = floor(3072 * density * amount)
+  local mr = mirrorSnow.vertices.raw
+  for i = 0, budget - 1 do
+    -- 11 and the fixed power-of-two seed pool are coprime: enlarged render budgets cannot duplicate flakes.
+    local seed = i * 11 % BASE_COUNT
+    local w, ph = weight[seed], phase[seed]
+    local x = (px[seed] + driftX + sin(elapsed * (0.8 + w) + ph) * 0.18 - cx + HALF) % BOX - HALF
+    local y = (py[seed] - elapsed * (0.45 + w * 0.85) - cy + HALFY) % BOXY - HALFY
+    local z = (pz[seed] + driftZ + cos(elapsed * 0.65 + ph) * 0.15 - cz + HALF) % BOX - HALF
+    local d2 = x * x + y * y + z * z
+    local visible = i < count and d2 > 2 and d2 < 225 and not sheltered(cx + x, cy + y, cz + z)
+    local dist = sqrt(max(1e-6, d2))
+    local width = min(0.06, max((0.006 + w * w * 0.025) * size[seed], dist * 0.004)) * scale
+    local hw, hh = width * 0.5, width * aspect[seed] * 0.5
+    local alpha = (0.5 + w * 0.3) * min(1, (15 - dist) / 4) * min(1, (dist - 1.4) / 1.2)
+    local packed = floor(min(99, max(0, alpha * 100))) + floor(max(0, 1 - dist / 4) * 9 + 0.5) * 100
+    for c = 0, 3 do
+      local v = mr[i * 4 + c]
+      local u = (c == 2 or c == 3) and 0.998 or 0
+      local t = (c == 1 or c == 2) and 0.998 or 0
+      v.uv:set(seed + u, packed + t)
+      if visible then
+        local across, vertical = (u > 0 and 1 or -1) * hw, (t > 0 and 1 or -1) * hh
+        v.pos:set(cx + x + side.x * across, cy + y + side.y * across + vertical, cz + z + side.z * across)
+      else
+        v.pos:set(cx, cy - 10000, cz)
+      end
+    end
+  end
+  mirrorSnow.mesh:alterVertices(mirrorSnow.vertices)
+end
+
+mirrorSnow.listener = render.on('mirror.root.transparent', function()
+  if not mirrorSnow.active or not mirrorSnow.pass then return end
+  local v = mirrorSnow.pass.values
+  v.gTime = elapsed
+  local sky, horizon = sim.skyColor, sim.horizonColor
+  local brightness = min(1, max(0.04, sqrt(max(0, (sky.r + sky.g + sky.b + horizon.r + horizon.g + horizon.b) / 6)) * 2.5))
+  v.gColor:set(0.82 * brightness, 0.86 * brightness, 0.9 * brightness)
+  render.setBlendMode(render.BlendMode.AlphaBlend)
+  render.setCullMode(render.CullMode.None)
+  render.setDepthMode(render.DepthMode.ReadOnly)
+  render.mesh(mirrorSnow.pass)
+end)
+
 -- Windscreen water and snow. The glass is unrolled into a 2D frame in car-local metres: X across the car, S up the
 -- slanted glass from its bottom edge. Rain is a bounded list of droplets with identity on the CPU (position, radius,
 -- velocity; merging through spatial bins), splatted each frame into a persistent GPU field together with their
@@ -503,7 +589,7 @@ end
 -- Nothing here needs RainFX, a custom texture layout or car-specific geometry: the glass frame and blade endpoints
 -- come from the car's own meshes and node transforms.
 if WINDSCREEN_ENABLED then
-glass = {mesh = nil, blades = {}}
+glass = {mesh = nil, blades = {}, sides = {}}
 local FIELD_W, FIELD_H, DROPS = 1536, 768, 128
 local function cbrt(v) return v ^ (1 / 3) end
 local emptyRef = ac.emptySceneReference()
@@ -532,6 +618,7 @@ function glass.setup()
   local root = ac.findNodes('carRoot:0')
   local found = root:findMeshes('shader:ksWindscreen')
   local chosen, lo, hi, width = nil, nil, nil, 0
+  local sideCandidates = {}
   for i = 1, #found do
     local m = found:at(i)
     local mn, mx = localBox(m, w2l)
@@ -540,6 +627,14 @@ function glass.setup()
     -- windows share the shader; of several front layers (inner/outer glass) the widest one is drawn.
     local front = cz > eyes.z + 0.1 and math.abs(cx) < 0.3 and w > 0.6
     if front and w > width then chosen, lo, hi, width = m, mn, mx, w end
+    -- Side panes are tall, long along the car and offset from its centre. Keep the largest pane per side,
+    -- avoiding duplicate inner/outer layers and rear glass. Discovery stays a one-off scene traversal.
+    local area = (mx.y - mn.y) * (mx.z - mn.z)
+    if not front and math.abs(cx) > 0.35 and w < 0.4 and mx.y - mn.y > 0.2 and mx.z - mn.z > 0.35 then
+      local sign = cx > 0 and 1 or -1
+      local old = sideCandidates[sign]
+      if not old or area > old.area then sideCandidates[sign] = {mesh = m, lo = mn, hi = mx, sign = sign, area = area} end
+    end
     if front or (glass.tries or 0) % 100 == 0 then ac.log(string.format('M2L_GLASS mesh %s box=%s..%s front=%s', found:name(i), tostring(mn), tostring(mx), tostring(front))) end
   end
   if chosen then
@@ -605,6 +700,18 @@ function glass.setup()
     return true
   end
   local x0, xw, s0, sw = glass.x0, glass.xw, glass.s0, glass.sw
+  for _, side in pairs(sideCandidates) do
+    local mn, mx = side.lo, side.hi
+    local dx, dy = mx.x - mn.x, mx.y - mn.y
+    local len = sqrt(dx * dx + dy * dy)
+    side.ty, side.tx = dy / len, -side.sign * dx / len
+    side.sc = mn.y * side.ty + (side.sign > 0 and mx.x or mn.x) * side.tx
+    side.x0, side.xw, side.s0, side.sw = mn.z - 0.02, mx.z - mn.z + 0.04, -0.02, len + 0.04
+    side.step, side.activeUntil, side.gustBudget = 0, 0, 0
+    side.random = side.sign > 0 and 17311 or 65357
+    glass.sides[#glass.sides + 1] = side
+  end
+  if DEBUG then ac.log('M2L_GLASS side panes=' .. #glass.sides) end
   glass.fieldA = ui.ExtraCanvas(vec2(FIELD_W, FIELD_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L glass A')
   glass.fieldB = ui.ExtraCanvas(vec2(FIELD_W, FIELD_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L glass B')
   glass.fieldA:clear(rgbm(0, 0, 0, 0))
@@ -870,7 +977,7 @@ function glass.setup()
   end
   glass.sim = {
     async = true,
-    cacheKey = 36,
+    cacheKey = 41,
     blendMode = render.BlendMode.Opaque,
     textures = {txPrev = false},
     values = values,
@@ -890,6 +997,7 @@ function glass.setup()
         float s1 = cross2(b - a, p - a), s2 = cross2(c - b, p - b), s3 = cross2(a - c, p - c);
         return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
       }
+      #ifndef M2L_SIDE_GLASS
       // One drop: a dome of water, height in millimetres (contact angle about 60 degrees: half the radius high),
       // and the trail it left this frame between its previous and current position.
       void drop(float4 a, float4 b, float2 p, inout float h, inout float film) {
@@ -932,11 +1040,20 @@ function glass.setup()
           if (W[2].w > 0 && ahead < W[2].w) snow = max(snow, 0.8 * (1 - ahead / W[2].w) * (0.6 + 0.4 * hash12(floor(p * 500))));
         }
       }
+      #endif
       float4 main(PS_IN pin) {
         float2 uv = pin.Tex;
         float2 p = float2(gFrame.x + uv.x / gFrame.z, gFrame.y + (1 - uv.y) / gFrame.w);
         float dt = gParams.x;
         float4 prev = txPrev.SampleLevel(samLinearSimple, uv, 0);
+        #ifdef M2L_SIDE_GLASS
+        // Clumps adhere in place. Gusts tear off small patches instead of smearing the entire field.
+        [unroll] for (int g = 0; g < 4; g++) {
+          float4 gust = gGusts[g];
+          float2 delta = p - gust.xy;
+          if (gust.z > 0 && dot(delta, delta) < gust.z * gust.z) prev.gb = 0;
+        }
+        #endif
         // Sticky slush stays at the deposit and melts locally into the thin water film. Transporting all slush
         // down the glass at a fixed speed made every melting flake paint a growing, bright vertical stripe.
         // Rain wets the whole glass with a film of tiny beads that bends the view; it dries slowly.
@@ -970,7 +1087,11 @@ function glass.setup()
         }
         snow = min(2, snow + add);
         // Airflow above about 6 m/s along the glass strips snow, thin deposits first; heat melts it into slush.
+        #ifdef M2L_SIDE_GLASS
+        float strip = 0;
+        #else
         float strip = min(snow, max(0, gAir.z - 6) * 0.012 * dt * (snow < 0.5 ? 1 : 0.4));
+        #endif
         snow -= strip;
         float melted = min(snow, gMelt * dt);
         snow -= melted;
@@ -978,6 +1099,9 @@ function glass.setup()
         float toWater = slush * 0.12 * dt;
         slush -= toWater;
         film = min(1, film + toWater * 0.8);
+        #ifdef M2L_SIDE_GLASS
+        return float4(film, snow, slush, 0);
+        #else
         // Rain beads persist like snow clumps: round domes 1.5 to 3.5 mm in radius land at a bounded random rate,
         // dry slowly, and the blade clears them. Height in millimetres.
         float h = max(0, prev.a - 0.02 * dt);
@@ -999,6 +1123,7 @@ function glass.setup()
 ]] .. table.concat(dropCalls, '\n') .. [[
 
         return float4(film, snow, gSnowMode > 0.5 ? slush : hd, h);
+        #endif
       }
     ]]
   }
@@ -1007,9 +1132,9 @@ function glass.setup()
     mesh = glass.mesh,
     transform = 'original',
     async = true,
-    cacheKey = 32,
+    cacheKey = 40,
     textures = {txField = false},
-    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1, gTime = 0, gWhite = 1, gSnowMode = 0,
+    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3()},
@@ -1018,8 +1143,10 @@ function glass.setup()
       float height(float4 f) { return f.a + f.r * 0.08 + f.b + f.g * 2.2; }
       float4 main(PS_IN pin) {
         float3 d = pin.PosC + gCameraPos - gCarPos;
-        float x = dot(d, gCarSide);
-        float s = dot(d, gCarUp) * gTangent.y + dot(d, gCarLook) * gTangent.z - gTangent.x;
+        float3 across = gSideGlass == 0 ? gCarSide : gCarLook;
+        float3 slope = gSideGlass == 0 ? gCarLook : gCarSide;
+        float x = dot(d, across);
+        float s = dot(d, gCarUp) * gTangent.y + dot(d, slope) * gTangent.z - gTangent.x;
         float2 uv = float2((x - gFrame.x) * gFrame.z, 1 - (s - gFrame.y) * gFrame.w);
         float4 f = txField.Sample(samLinearSimple, uv);
         if (gRaw > 0.5) return float4(f.r, f.g, f.a * 0.5, 0.9);
@@ -1027,9 +1154,10 @@ function glass.setup()
         float hy = height(txField.Sample(samLinearSimple, uv + float2(0, gTexel.y))) - height(txField.Sample(samLinearSimple, uv - float2(0, gTexel.y)));
         // Surface normal of the water or snow in the glass frame (X across, Y up the glass, Z out of the glass).
         float3 n = normalize(float3(-hx / (2 * gTexel.z), hy / (2 * gTexel.w), 1));
-        float3 Tw = gCarUp * gTangent.y + gCarLook * gTangent.z;
-        float3 Nw = gCarLook * gTangent.y - gCarUp * gTangent.z;
-        float3 nW = normalize(gCarSide * n.x + Tw * n.y + Nw * n.z);
+        float3 Tw = gCarUp * gTangent.y + slope * gTangent.z;
+        float3 Nw = gSideGlass == 0 ? gCarLook * gTangent.y - gCarUp * gTangent.z
+          : (gCarSide * gTangent.y - gCarUp * gTangent.z) * gSideGlass;
+        float3 nW = normalize(across * n.x + Tw * n.y + Nw * n.z);
         float3 V = normalize(pin.PosC);
         float3 R = reflect(V, nW);
         // Water, without a scene sample (CSP's dynamic scene textures are not dependable in this pass): a bead
@@ -1058,7 +1186,8 @@ function glass.setup()
         float wAlpha = saturate(bodyA + rimA + specA + filmA);
         float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA + filmColor * filmA) / max(wAlpha, 1e-4);
         // Snow: matte white with cheap height shading from above; slush grey and translucent.
-        float snowA = saturate(f.g * 2.2);
+        // Side deposits start fading as soon as they thaw, instead of staying clipped white then vanishing.
+        float snowA = gSideGlass == 0 ? saturate(f.g * 2.2) : 1 - exp(-f.g * 2.2);
         float slushA = gSnowMode > 0.5 ? saturate(f.b * 1.2) * 0.55 : 0;
         float lit = 0.55 + 0.45 * saturate(nW.y * 0.6 + 0.6) + 0.15 * saturate(n.y * 2);
         float3 sColor = gSnowColor * lit;
@@ -1071,6 +1200,81 @@ function glass.setup()
       }
     ]]
   }
+
+  -- Side panes use small independent fields at at most 30 Hz. They share the snow shape and shading,
+  -- compile out droplets/wipers, and allocate their textures only when snow first reaches the car.
+  local SIDE_W, SIDE_H = 512, 256
+  local sideClock = 0
+  local function sideRand(side)
+    side.random = side.random * 16807 % 2147483647
+    return side.random / 2147483647
+  end
+  local function updateSides(dt, ax, ay, az, melt, snowFlux)
+    sideClock = sideClock + dt
+    if sideClock < 1 / 30 or glassOff then return end
+    local step = min(sideClock, 0.1)
+    sideClock = 0
+    for i, side in ipairs(glass.sides) do
+      if snowRate > 0 then side.activeUntil = elapsed + 6000 end
+      side.active = elapsed < side.activeUntil
+      if side.active then
+        if not side.read then
+          side.read = ui.ExtraCanvas(vec2(SIDE_W, SIDE_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L side snow ' .. i .. ' A')
+          side.write = ui.ExtraCanvas(vec2(SIDE_W, SIDE_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L side snow ' .. i .. ' B')
+          side.read:clear(rgbm(0, 0, 0, 0)); side.write:clear(rgbm(0, 0, 0, 0))
+          -- Separate cache/binding instances from the windscreen, and include the side define in the source
+          -- identity itself. A side pass must never inherit the front field or its animated wiper constants.
+          side.sim = {async = true, cacheKey = 50 + i, blendMode = render.BlendMode.Opaque,
+            textures = {txPrev = false}, shader = '#define M2L_SIDE_GLASS 1\n' .. glass.sim.shader,
+            values = {gFrame = vec4(side.x0, side.s0, 1 / side.xw, 1 / side.sw), gParams = vec4(), gAir = vec4(),
+              gMelt = 0, gWet = 0, gLandingStep = 0, gGusts = mat4x4.identity()}}
+          local pv = {}
+          for k, value in pairs(glass.pass.values) do pv[k] = value end
+          pv.gFrame = vec4(side.x0, side.s0, 1 / side.xw, 1 / side.sw)
+          pv.gTangent = vec4(side.sc, side.ty, side.tx, side.sw)
+          pv.gTexel = vec4(1 / SIDE_W, 1 / SIDE_H, side.xw / SIDE_W * 1000, side.sw / SIDE_H * 1000)
+          pv.gSideGlass, pv.gSnowMode = side.sign, 1
+          pv.gCameraPos, pv.gCarPos, pv.gCarSide, pv.gCarUp, pv.gCarLook = vec3(), vec3(), vec3(), vec3(), vec3()
+          pv.gColor, pv.gSnowColor = rgb(), rgb()
+          side.parent = side.mesh:getParent()
+          side.drawTransform = mat4x4.identity()
+          side.pass = {mesh = side.mesh, transform = side.drawTransform, async = true, cacheKey = 60 + i,
+            textures = {txField = false}, values = pv, shader = '// Independent side pane ' .. i .. '\n' .. glass.pass.shader}
+        end
+        local tangent = ax * side.tx + ay * side.ty
+        local normal = side.sign * (ax * side.ty - (ay - 1.2) * side.tx)
+        -- Snow flutter reaches near-vertical glass too; windward panes catch more. Area scaling and 10%
+        -- of the frontal flux slow the build-up, without shortening the life of snow already on the pane.
+        local landings = snowFlux * 0.10 * (side.xw * side.sw / (xw * sw)) * min(2, max(0.5, -normal))
+        local sv = side.sim.values
+        sv.gParams:set(step, 0, 0.02, landings * step / ((side.xw / 0.012) * (side.sw / 0.012)))
+        sv.gAir:set(az, tangent, sqrt(az * az + tangent * tangent), max(0, -normal))
+        -- Cold side glass retains settled clumps during snowfall: at rest they can only accumulate, with
+        -- no random disappearance. When snow stops, slow thaw resumes; moving air tears patches off.
+        sv.gMelt = snowRate > 0 and 0 or melt * 0.1
+        -- Above about 15 km/h of tangential airflow, occasional gusts detach centimetre-sized groups.
+        -- Faster airflow raises their frequency; parked panes retain their accepted slow accumulation.
+        local airSpeed = sqrt(az * az + tangent * tangent)
+        side.gustBudget = min(4, side.gustBudget + min(90, max(0, airSpeed - 4) * 1.6) * step)
+        local gusts = floor(side.gustBudget)
+        side.gustBudget = side.gustBudget - gusts
+        for g = 1, 4 do
+          local row = sv.gGusts[rows[g]]
+          if g <= gusts then
+            row:set(side.x0 + sideRand(side) * side.xw, side.s0 + sideRand(side) * side.sw, 0.018 + sideRand(side) * 0.022, 0)
+          else
+            row:set(0, 0, 0, 0)
+          end
+        end
+        side.step = side.step + 1
+        sv.gLandingStep = (side.step + i * 4000000) % 16777216
+        side.sim.textures.txPrev = side.read
+        if side.write:updateWithShader(side.sim) then
+          side.read, side.write = side.write, side.read
+        end
+      end
+    end
+  end
 
   local airVec = vec3()
   -- Called from frameBegin: airflow, drops, shader constants, field step.
@@ -1111,7 +1315,8 @@ function glass.setup()
     -- User-tuned visual flux: about 150/450/700 millimetre clumps per second at rest in light/medium/heavy.
     -- Stronger tiers add increasingly more clumps between identical wipes.
     -- Scale with incoming normal velocity; this tunes glass deposits without changing falling snow outside.
-    local clumpsPerSecond = snowImpact * (snowRate > 0.65 and 700 or snowRate > 0.3 and (450 / 0.65) or (150 / 0.3))
+    local snowFlux = snowRate * (snowRate > 0.65 and 700 or snowRate > 0.3 and (450 / 0.65) or (150 / 0.3))
+    local clumpsPerSecond = snowFlux * min(impinge, 12)
     -- The ridge estimate follows incoming flux, independently of how many visual clumps represent it.
     snowOnGlass = max(0, min(1, snowOnGlass + snowImpact * dt / 12 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
@@ -1138,11 +1343,16 @@ function glass.setup()
       glass.write:updateWithShader(glass.sim)
       glass.read, glass.write = glass.write, glass.read
     end
+    updateSides(dt, ax, ay, az, melt, snowFlux)
   end
 
   -- Called from draw3D: the glass mesh drawn once more with the field.
   function glass.draw()
-    if glass.quiet then return end
+    if glass.quiet then
+      local sideActive = false
+      for _, side in ipairs(glass.sides) do sideActive = sideActive or side.active end
+      if not sideActive then return end
+    end
     local car = ac.getCar(0)
     -- Blade lines and the glass mapping come from the scene transforms as they are drawn this frame; the field
     -- step at the next frame start uses these lines. Reading them at frame start was a frame behind the mesh.
@@ -1171,7 +1381,25 @@ function glass.setup()
     render.setBlendMode(render.BlendMode.AlphaBlend)
     render.setCullMode(render.CullMode.None)
     render.setDepthMode(render.DepthMode.ReadOnly)
-    render.mesh(glass.pass)
+    if not glass.quiet then render.mesh(glass.pass) end
+    for _, side in ipairs(glass.sides) do
+      if side.active and side.pass then
+        local pv = side.pass.values
+        pv.gRaw = glassRaw and 1 or 0
+        pv.gCameraPos:set(v.gCameraPos); pv.gCarPos:set(v.gCarPos)
+        pv.gCarSide:set(v.gCarSide); pv.gCarUp:set(v.gCarUp); pv.gCarLook:set(v.gCarLook)
+        pv.gColor:set(v.gColor); pv.gSnowColor:set(v.gSnowColor)
+        side.pass.textures.txField = side.read
+        -- Coat the outer surface, 4 mm beyond the original pane, so the inner door/window trim occludes
+        -- its edge. Reusing the inner glass position made clumps appear pasted onto the cabin side.
+        local sm = side.drawTransform:set(side.parent:getWorldTransformationRaw())
+        local offset = 0.004 * side.sign
+        sm.row4.x = sm.row4.x + (m.row1.x * side.ty - m.row2.x * side.tx) * offset
+        sm.row4.y = sm.row4.y + (m.row1.y * side.ty - m.row2.y * side.tx) * offset
+        sm.row4.z = sm.row4.z + (m.row1.z * side.ty - m.row2.z * side.tx) * offset
+        render.mesh(side.pass)
+      end
+    end
   end
 
   function glass.status()
