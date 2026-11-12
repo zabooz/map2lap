@@ -1892,16 +1892,12 @@ float4 main(PS_IN pin) {
           // ws_rain.frag: depth normals displace a separate scene copy, then darken slightly.
           if (gRefract < 0.5 || depth <= 0.001) return 0;
           float2 normal = 2 * txLibrainNormal.SampleLevel(samLinearSimple,uv,0).xy - 1;
-          float2 displacement = normal * 200;
-          if (gLibrainBlur < 0.5) {
-            float3 refracted = txSceneCopy.SampleLevel(samLinearSimple,
-              saturate((pin.PosH.xy+displacement)/gScreen),0).rgb;
-            float darkening = length(displacement)/800/2;
-            return float4(refracted*(1-darkening*darkening),1);
-          }
-          // ws_smudge.frag: blur the completed refracted screen image with the same depth.
-          float2 centre = pin.PosH.xy;
-          float depthRatio = depth/3;
+          // Cockpit adaptation: restrained lens displacement, without added reflections.
+          float2 displacement = normal * 12;
+          float2 centre = pin.PosH.xy + displacement;
+          // ws_smudge.frag kernel, sampled from the same immutable background.
+          // Fusing these samples avoids recapturing the water we just drew.
+          float depthRatio = depth/3 * 0.2;
           float3 colour = 0;
           [unroll] for (int y = -2; y <= 2; y++) {
             [unroll] for (int x = -2; x <= 2; x++) {
@@ -1911,7 +1907,8 @@ float4 main(PS_IN pin) {
                 saturate((centre + depthRatio*float2(x,y))/gScreen),0).rgb * wx*wy;
             }
           }
-          return float4(colour,1);
+          float darkening = length(displacement)/800/2;
+          return float4(colour*(1-darkening*darkening),smoothstep(0.001,0.025,depth));
         }
         float4 f = txField.Sample(samLinearSimple, uv);
         if (gRaw > 0.5) return float4(f.r, f.g, f.a * 0.5, 0.9);
@@ -2221,9 +2218,7 @@ float4 main(PS_IN pin) {
       local r = rustRain
       if not r.scene or r.scene:size().x ~= size.x or r.scene:size().y ~= size.y then
         if r.scene then r.scene:dispose() end
-        if lr.smudgeScene then lr.smudgeScene:dispose() end
         r.scene = ui.ExtraCanvas(size, 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L rain background')
-        lr.smudgeScene = ui.ExtraCanvas(size,1,render.TextureFormat.R16G16B16A16.Float):setName('M2L refracted glass')
         r.scenePass = {async = true, cacheKey = 94, blendMode = render.BlendMode.Opaque,
           textures = {txSource = 'dynamic::hdr'}, shader = [[
             float4 main(PS_IN pin) {
@@ -2258,14 +2253,6 @@ float4 main(PS_IN pin) {
     if not glass.quiet then
       v.gLibrainBlur = 0
       render.mesh(glass.pass)
-      if not glassRed and v.gLibrain > 0.5 and v.gRefract > 0.5
-          and lr.smudgeScene:updateSceneWithShader(rustRain.scenePass) then
-        glass.pass.textures.txSceneCopy = lr.smudgeScene
-        v.gLibrainBlur = 1
-        render.mesh(glass.pass)
-        v.gLibrainBlur = 0
-        glass.pass.textures.txSceneCopy = rustRain.scene
-      end
     end
     for _, side in ipairs(glass.sides) do
       if side.active and side.pass then
