@@ -248,14 +248,14 @@ def grounded(ac, name, body):
             raise Conflict(name)
         path, scan, objects = context(ac, name, now["base"])
         counts, _sorts = trackview.counts_of(scan, objects)
-        trees = tracktrees.trees_of(trackview.treefx_of(path), now["trees"])
+        trees = tracktrees.Trees(trackview.treefx_of(path), now["trees"])
         placed = _checked_placed(body.get("placed"), counts, trees)
         previous = {p["id"]: p for p in now["placed"]}
         field, out = trackheights.Field(now["heights"]), []
         with open(path, "rb") as f:
             for p in placed:
                 old = previous.get(p["id"], {"x": 0, "z": 0})
-                x, _, z = trees[p["id"]]["pos"] if p["id"] in trees else trackcopies._source(f, scan, objects, p["id"])["at"]
+                x, _, z = trees.get(p["id"])["pos"] if p["id"] in trees else trackcopies._source(f, scan, objects, p["id"])["at"]
                 delta = float(field.at(x + p["x"], z + p["z"])[0] - field.at(x + old["x"], z + old["z"])[0])
                 out.append({**p, "y": round(max(-placement.MAX_RAISE_M, min(placement.MAX_RAISE_M, p["y"] - delta)), 3)})
         return {"placed": out}
@@ -613,7 +613,7 @@ def save_telling(ac, name, body):
         wrong = tracktrees.problem(added, section)
         if wrong:
             raise Invalid(wrong)
-        trees = tracktrees.trees_of(section, added)
+        trees = tracktrees.Trees(section, added)
         given = body.get("trees_next", 0)
         trees_next = tracktrees.next_of(section, added, max(given if type(given) is int else 0, s.get("trees_next", 0) if s["base"] == revision else 0))
         counts, listed_sorts = trackview.counts_of(scan, objects, section)
@@ -648,10 +648,9 @@ def save_telling(ac, name, body):
                       "surfaces": surfaces, "trees": added, "trees_next": trees_next})
         same = s["base"] == revision
         before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else []}
-        # (where a tree stands changes by its placement, a height change and what is added: the page asks for the trees again)
-        moved_trees = bool(trees) and (before["heights"] != heights or (s.get("trees", []) if same else []) != added
-                                       or _placed_key([p for p in before["placed"] if p["id"] in trees])
-                                       != _placed_key([p for p in placed if p["id"] in trees]))
+        # (the trees that stand otherwise now, by a placement, a height change or what is added: the page takes them as they come)
+        moved_trees = tracktrees.changed(section, {**before, "trees": s.get("trees", []) if same else []},
+                                         {"trees": added, "placed": placed, "heights": heights}) if section else None
         # What was built to check this list is the draft now: the index reads it, and the answer below stays this save's after the lock.
         scan = {**scan, "draft": new, "paints": paints}
         with _context_lock:

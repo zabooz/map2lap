@@ -2,7 +2,12 @@
 // them, each where the draft puts it. They have no triangles in the kn5: their ids are "trees#<number>". Trees of one model in one
 // 256 m cell are one instanced mesh, drawn at the LOD of the cell's distance as CSP switches them (the model's distances), the
 // farthest one out to FAR_M, as far as the billboard trees show. What the draft leaves out shrinks to a point in its slot.
+// The track's trees come once when it opens (load); after that each answer of the draft names only the trees it changed (apply):
+// a tree that stays in its cell gets its slot rewritten, one that leaves or joins a cell only has those two batches built anew.
 import * as THREE from "three";
+import type {TreeFxChange, TreeFxTree} from "../types";
+
+export type {TreeFxChange, TreeFxTree};
 
 export const CELL_M = 256;
 export const FAR_M = 1200;          // (obj_to_kn5.VIEW: the billboard trees' distance, so both kinds end alike)
@@ -23,6 +28,7 @@ export interface TreeFxTrees {
   width: number[];
 }
 
+
 /** A model as the server reads it from the track's .bin (trackview.treefx_model). */
 export interface TreeFxModel {
   height: number;
@@ -38,9 +44,9 @@ export interface TreeFxSource {
 }
 
 interface Part {geometry: THREE.BufferGeometry; material: THREE.Material}
-interface Model {lods: {distance: number; parts: Part[]}[]; bytes: number}
-interface Batch {model: string; members: number[]; meshes: THREE.InstancedMesh[]; lod: number}
-interface Cell {centre: THREE.Vector3; radius: number; batches: Batch[]}
+interface Model {lods: {distance: number; parts: Part[]}[]; bytes: number; height: number; width: number}
+interface Batch {key: string; cell: string; model: string; members: string[]; meshes: THREE.InstancedMesh[]; lod: number}
+interface Cell {centre: THREE.Vector3; radius: number; batches: Set<Batch>}
 
 /** A tree's matrix: at its foot, turned by angle degrees counter-clockwise seen from above (as placement.py turns, east to north),
     size times its model high and size times width wide. Pure. */
@@ -58,6 +64,14 @@ export function lodAt(distances: number[], distance: number, far = FAR_M) {
 /** A cell's key by a place. Pure. */
 export function cellOf(x: number, z: number) { return `${Math.floor(x / CELL_M)},${Math.floor(z / CELL_M)}`; }
 
+/** later's changes after earlier's, as one: a tree's last state counts, one gone and added again is there. Pure. */
+export function mergeChanges(earlier: TreeFxChange | null, later: TreeFxChange): TreeFxChange {
+  const trees = {...earlier?.trees}, gone = new Set(earlier?.gone);
+  for (const id of later.gone) { delete trees[id]; gone.add(id); }
+  for (const [id, tree] of Object.entries(later.trees)) { trees[id] = tree; gone.delete(id); }
+  return {trees, gone: [...gone]};
+}
+
 function geometryOf(part: TreeFxModel["lods"][number]["parts"][number]) {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(part.pos, 3));
@@ -68,62 +82,99 @@ function geometryOf(part: TreeFxModel["lods"][number]["parts"][number]) {
   return g;
 }
 
-/** The trees drawn in a scene. load() takes the track's, dispose() lets them go. */
+const batchKey = (tree: TreeFxTree) => `${cellOf(tree.pos[0], tree.pos[2])}/${tree.model}`;
+const MATRIX_BYTES = 16 * 4 * 2;        // (a slot's matrix, on the CPU and uploaded)
+
+/** The trees drawn in a scene. load() takes the track's, apply() what the draft changed, dispose() lets them go. */
 export class TreeFxDraw {
-  private trees: TreeFxTrees | null = null;
+  private trees = new Map<string, TreeFxTree>();
   private models = new Map<string, Model>();
+  private batches = new Map<string, Batch>();
   private cells = new Map<string, Cell>();
-  private index = new Map<string, number>();                // a tree's index by its id
-  private out = new Set<number>();                          // the indexes shrunk to a point
+  private slots = new Map<string, [Batch, number]>();       // a tree's batch and slot in it
+  private out = new Set<string>();                          // the trees shrunk to a point
+  private moved = new Map<string, THREE.Matrix4>();         // trees Move shows elsewhere until the server's answer comes (nudge)
   private named: {removed: ReadonlySet<string>; sorts: ReadonlySet<string>} = {removed: new Set(), sorts: new Set()};   // (as leaveOut was told)
   private version = 0;
+  private matrixBytes = 0;
 
   constructor(private scene: THREE.Scene, private source: TreeFxSource, private reserve: (bytes: number) => boolean = () => true) {}
 
-  /** The trees as the server hands them out now, with the models they need; the cells built anew. Throws when they don't fit. */
+  /** The trees as the server hands them out now, with the models they need; all batches built anew. Throws when they don't fit. */
   async load() {
-    const version = ++this.version, trees = await this.source.trees();
+    const version = ++this.version, answer = await this.source.trees();
     if (version !== this.version) return;
-    const wanted = trees.models.filter((_, k) => trees.model.includes(k));
-    for (const name of wanted) if (!this.models.has(name)) {
+    if (!await this.needModels(answer.models.filter((_, k) => answer.model.includes(k)), version)) return;
+    this.clearBatches();
+    this.trees = new Map(answer.ids.map((id, k) => [id, {model: answer.models[answer.model[k]], pos: answer.pos.slice(3 * k, 3 * k + 3),
+      base: answer.base.slice(3 * k, 3 * k + 3), angle: answer.angle[k], size: answer.size[k], width: answer.width[k]}]));
+    this.moved.clear();
+    this.out = this.outOf(this.named.removed, this.named.sorts);
+    const dirty = new Set<string>();
+    for (const [id, tree] of this.trees) { this.join(id, tree); dirty.add(batchKey(tree)); }
+    this.rebuild(dirty);
+  }
+
+  /** What a draft answer changed: those trees rewritten in their slots, or moved to the batch of their new cell; those gone taken out.
+      What Move showed of them gives way to the server's. */
+  async apply(change: TreeFxChange) {
+    const version = this.version;
+    if (!await this.needModels([...new Set(Object.values(change.trees).map(t => t.model))], version)) return;
+    const dirty = new Set<string>(), rewrite: string[] = [];
+    for (const id of change.gone) {
+      const slot = this.slots.get(id);
+      if (slot) { this.leave(id, slot[0]); dirty.add(slot[0].key); }
+      this.trees.delete(id); this.moved.delete(id); this.out.delete(id);
+    }
+    for (const [id, tree] of Object.entries(change.trees)) {
+      const slot = this.slots.get(id), key = batchKey(tree);
+      this.trees.set(id, tree); this.moved.delete(id);
+      if (slot && slot[0].key === key) { rewrite.push(id); continue; }
+      if (slot) { this.leave(id, slot[0]); dirty.add(slot[0].key); }
+      this.join(id, tree); dirty.add(key);
+    }
+    this.out = this.outOf(this.named.removed, this.named.sorts);
+    this.rebuild(dirty);
+    this.rewrite(rewrite.filter(id => !dirty.has(this.slots.get(id)?.[0].key ?? "")));
+  }
+
+  /** The models of names loaded once each; false when the trees asked for meanwhile are newer (version). Throws when they don't fit. */
+  private async needModels(names: string[], version: number) {
+    for (const name of names) if (!this.models.has(name)) {
       const model = await this.makeModel(name);
-      if (version !== this.version) { this.drop(model); return; }
+      if (version !== this.version) { this.drop(model); return false; }
+      if (this.models.has(name)) { this.drop(model); continue; }
       if (!this.reserve(model.bytes)) { this.drop(model); throw new Error("The 3D trees exceed the Editor memory limit"); }
       this.models.set(name, model);
     }
-    this.take(trees);
+    return true;
   }
 
-  /** The ids of the trees there are now, in the order of their numbers. */
-  get ids(): readonly string[] { return this.trees?.ids ?? []; }
+  /** The ids of the trees there are now. */
+  get ids(): string[] { return [...this.trees.keys()]; }
 
   /** A tree's model, place, turn and size as drawn, null for none. */
-  tree(id: string) {
-    const k = this.index.get(id), t = this.trees;
-    if (k === undefined || !t) return null;
-    return {model: t.models[t.model[k]], pos: t.pos.slice(3 * k, 3 * k + 3) as [number, number, number], base: t.base.slice(3 * k, 3 * k + 3),
-            angle: t.angle[k], size: t.size[k], width: t.width[k]};
-  }
+  tree(id: string) { return this.trees.get(id) ?? null; }
 
   private async makeModel(name: string): Promise<Model> {
     const data = await this.source.model(name), images = new Map<string, Promise<THREE.Texture>>();
     const image = (file: string) => { if (!images.has(file)) images.set(file, this.source.texture(name, file)); return images.get(file)!; };
-    const materials = new Map<string, THREE.Material>();
+    const materials = new Map<string, Promise<THREE.Material>>();
+    const material = (file: string | null) => {
+      if (!materials.has(file ?? "")) materials.set(file ?? "", (file ? image(file) : Promise.resolve(null))
+        .then(map => new THREE.MeshLambertMaterial({map, alphaTest: ALPHA_REF, side: THREE.DoubleSide})));
+      return materials.get(file ?? "")!;
+    };
     let bytes = 0;
     const lods = await Promise.all(data.lods.map(async lod => ({distance: lod.distance, parts: await Promise.all(lod.parts.map(async part => {
-      const key = part.diffuse ?? "";
-      if (!materials.has(key)) {
-        const map = part.diffuse ? await image(part.diffuse) : null;
-        materials.set(key, new THREE.MeshLambertMaterial({map, alphaTest: ALPHA_REF, side: THREE.DoubleSide}));
-      }
       bytes += 4 * (part.pos.length + part.normals.length + part.uv.length) + 2 * part.indices.length;
-      return {geometry: geometryOf(part), material: materials.get(key)!};
+      return {geometry: geometryOf(part), material: await material(part.diffuse)};
     }))})));
     for (const texture of await Promise.all(images.values())) {
       const im = texture.image as {width?: number; height?: number} | undefined;
       bytes += Math.ceil((im?.width ?? 0) * (im?.height ?? 0) * 4 * 4 / 3);
     }
-    return {lods, bytes};
+    return {lods, bytes, height: data.height, width: data.width};
   }
 
   private drop(model: Model) {
@@ -132,81 +183,130 @@ export class TreeFxDraw {
     for (const material of materials) { (material as THREE.MeshLambertMaterial).map?.dispose(); material.dispose(); }
   }
 
-  /** The cells built for trees: a batch per model and cell, a mesh per part of its finest LOD, as many as the LOD with the most. */
-  private take(trees: TreeFxTrees) {
-    this.clearCells();
-    this.trees = trees;
-    this.index = new Map(trees.ids.map((id, k) => [id, k]));
-    this.out = this.outOf(this.named.removed, this.named.sorts);
-    const groups = new Map<string, Map<number, number[]>>();
-    trees.ids.forEach((_, k) => {
-      const key = cellOf(trees.pos[3 * k], trees.pos[3 * k + 2]), cell = groups.get(key) ?? new Map<number, number[]>();
-      const members = cell.get(trees.model[k]) ?? [];
-      members.push(k); cell.set(trees.model[k], members); groups.set(key, cell);
-    });
-    const bytes = trees.ids.length * 16 * 4 * 2;
-    if (!this.reserve(bytes)) { this.trees = null; this.index.clear(); throw new Error("The 3D trees exceed the Editor memory limit"); }
-    this.matrixBytes = bytes;
-    const matrix = new THREE.Matrix4();
-    for (const [key, byModel] of groups) {
-      const batches: Batch[] = [], box = new THREE.Box3();
-      for (const [m, members] of byModel) {
-        const name = trees.models[m], model = this.models.get(name)!;
-        const count = Math.max(...model.lods.map(lod => lod.parts.length));
-        const meshes = Array.from({length: count}, (_, p) => {
-          const part = model.lods[0].parts[p] ?? model.lods[0].parts[0];
-          const mesh = new THREE.InstancedMesh(part.geometry, part.material, members.length);
-          mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; mesh.visible = false; mesh.userData.treeFx = true;
-          return mesh;
-        });
-        members.forEach((k, slot) => {
-          this.place(k, matrix);
-          for (const mesh of meshes) mesh.setMatrixAt(slot, matrix);
-          box.expandByPoint(new THREE.Vector3(trees.pos[3 * k], trees.pos[3 * k + 1], trees.pos[3 * k + 2]));
-        });
-        for (const mesh of meshes) { mesh.computeBoundingSphere(); this.scene.add(mesh); }
-        batches.push({model: name, members, meshes, lod: -2});
-      }
+  /** A tree into the members of its batch, which is made when it is the first. */
+  private join(id: string, tree: TreeFxTree) {
+    const key = batchKey(tree);
+    let batch = this.batches.get(key);
+    if (!batch) {
+      batch = {key, cell: cellOf(tree.pos[0], tree.pos[2]), model: tree.model, members: [], meshes: [], lod: -2};
+      this.batches.set(key, batch);
+    }
+    batch.members.push(id);
+  }
+
+  /** A tree out of the members of its batch. */
+  private leave(id: string, batch: Batch) {
+    batch.members.splice(batch.members.indexOf(id), 1);
+    this.slots.delete(id);
+  }
+
+  /** The batches of these keys built anew from their members, a mesh per part of their model's LOD with the most; one without
+      members goes. Their cells' rooms follow. Throws when their matrices don't fit. */
+  private rebuild(keys: Set<string>) {
+    const delta = [...keys].reduce((n, key) => {
+      const batch = this.batches.get(key);
+      return n + (batch ? (batch.members.length - (batch.meshes[0]?.count ?? 0)) * MATRIX_BYTES : 0);
+    }, 0);
+    if (delta > 0 && !this.reserve(delta)) throw new Error("The 3D trees exceed the Editor memory limit");
+    if (delta < 0) this.reserve(delta);
+    this.matrixBytes += delta;
+    const cells = new Set<string>(), matrix = new THREE.Matrix4();
+    for (const key of keys) {
+      const batch = this.batches.get(key);
+      if (!batch) continue;
+      for (const mesh of batch.meshes) { this.scene.remove(mesh); mesh.dispose(); }
+      batch.meshes = [];
+      cells.add(batch.cell);
+      if (!batch.members.length) { this.batches.delete(key); this.cells.get(batch.cell)?.batches.delete(batch); continue; }
+      const model = this.models.get(batch.model)!;
+      const count = Math.max(...model.lods.map(lod => lod.parts.length));
+      batch.meshes = Array.from({length: count}, (_, p) => {
+        const part = model.lods[Math.max(0, batch.lod)]?.parts[p] ?? model.lods[0].parts[0];
+        const mesh = new THREE.InstancedMesh(part.geometry, part.material, batch.members.length);
+        mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; mesh.visible = false; mesh.userData.treeFx = batch.members;
+        return mesh;
+      });
+      batch.members.forEach((id, slot) => {
+        this.slots.set(id, [batch, slot]);
+        this.place(id, matrix);
+        for (const mesh of batch.meshes) mesh.setMatrixAt(slot, matrix);
+      });
+      for (const mesh of batch.meshes) { mesh.computeBoundingSphere(); this.scene.add(mesh); }
+      batch.lod = -2;                   // (follow sets its LOD and shows it)
+      const cell = this.cells.get(batch.cell) ?? {centre: new THREE.Vector3(), radius: 0, batches: new Set<Batch>()};
+      cell.batches.add(batch); this.cells.set(batch.cell, cell);
+    }
+    for (const key of cells) {
+      const cell = this.cells.get(key);
+      if (!cell) continue;
+      if (!cell.batches.size) { this.cells.delete(key); continue; }
+      const box = new THREE.Box3();
+      for (const batch of cell.batches) for (const id of batch.members) box.expandByPoint(new THREE.Vector3().fromArray(this.trees.get(id)!.pos));
       const sphere = box.getBoundingSphere(new THREE.Sphere());
-      this.cells.set(key, {centre: sphere.center, radius: sphere.radius, batches});
+      cell.centre = sphere.center; cell.radius = sphere.radius;
     }
   }
 
-  private matrixBytes = 0;
-
-  /** Tree k's matrix as drawn: shrunk to a point at its foot while it is left out. */
-  private place(k: number, out: THREE.Matrix4) {
-    const t = this.trees!, x = t.pos[3 * k], y = t.pos[3 * k + 1], z = t.pos[3 * k + 2];
-    return this.out.has(k) ? out.makeScale(0, 0, 0).setPosition(x, y, z) : treeMatrix(x, y, z, t.angle[k], t.size[k], t.width[k], out);
+  /** The slots of these trees written again as they are drawn now. */
+  private rewrite(ids: Iterable<string>) {
+    const matrix = new THREE.Matrix4(), touched = new Set<Batch>();
+    for (const id of ids) {
+      const slot = this.slots.get(id);
+      if (!slot) continue;
+      this.place(id, matrix);
+      for (const mesh of slot[0].meshes) mesh.setMatrixAt(slot[1], matrix);
+      touched.add(slot[0]);
+    }
+    for (const batch of touched) for (const mesh of batch.meshes) { mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere(); }
   }
 
-  /** What the draft leaves out: the trees of these ids and of the models in sorts; those no longer named come back. */
+  /** A tree's matrix as drawn: as Move shows it, shrunk to a point at its foot while it is left out. */
+  private place(id: string, out: THREE.Matrix4) {
+    const pos = this.trees.get(id)!.pos;
+    return this.out.has(id) ? out.makeScale(0, 0, 0).setPosition(pos[0], pos[1], pos[2]) : this.matrixOf(id, out);
+  }
+
+  private matrixOf(id: string, out = new THREE.Matrix4()) {
+    const moved = this.moved.get(id), t = this.trees.get(id)!;
+    return moved ? out.copy(moved) : treeMatrix(t.pos[0], t.pos[1], t.pos[2], t.angle, t.size, t.width, out);
+  }
+
+  /** A tree's matrix as drawn now, null for none. */
+  matrix(id: string) { return this.trees.has(id) ? this.matrixOf(id) : null; }
+
+  /** A tree shown turned, raised, scaled and moved by transform around pivot from initial (its matrix when Move took it up), in the
+      view only: the server's answer takes its place when it comes (apply). */
+  nudge(id: string, pivot: number[], transform: THREE.Matrix4, initial: THREE.Matrix4) {
+    if (!this.slots.has(id)) return;
+    this.version++;                     // (trees on their way are older than this: they would set it back)
+    const [x, y, z] = pivot;
+    this.moved.set(id, initial.clone().premultiply(new THREE.Matrix4().makeTranslation(-x, -y, -z))
+      .premultiply(transform).premultiply(new THREE.Matrix4().makeTranslation(x, y, z)));
+    this.rewrite([id]);
+  }
+
+  /** What Move showed of these trees goes: the server refused it. */
+  forget(ids: string[]) {
+    const shown = ids.filter(id => this.moved.delete(id));
+    this.rewrite(shown);
+  }
+
+  /** What the draft leaves out: the trees of these ids and of the models in sorts; those no longer named come back. Whether any changed. */
   leaveOut(removed: ReadonlySet<string>, sorts: ReadonlySet<string>) {
     this.named = {removed, sorts};
-    if (!this.trees) return false;
     const out = this.outOf(removed, sorts);
-    if (out.size === this.out.size && [...out].every(k => this.out.has(k))) return false;
-    const changed = new Set([...out, ...this.out].filter(k => out.has(k) !== this.out.has(k)));
+    const changed = [...out, ...this.out].filter(id => out.has(id) !== this.out.has(id));
+    if (!changed.length) return false;
     this.out = out;
-    const matrix = new THREE.Matrix4();
-    for (const cell of this.cells.values()) for (const batch of cell.batches) {
-      let touched = false;
-      batch.members.forEach((k, slot) => {
-        if (!changed.has(k)) return;
-        this.place(k, matrix);
-        for (const mesh of batch.meshes) mesh.setMatrixAt(slot, matrix);
-        touched = true;
-      });
-      if (touched) for (const mesh of batch.meshes) mesh.instanceMatrix.needsUpdate = true;
-    }
+    this.rewrite(changed);
     return true;
   }
 
-  /** The indexes of the trees of these ids and of the models in sorts. */
+  /** The trees there are of these ids and of the models in sorts. */
   private outOf(removed: ReadonlySet<string>, sorts: ReadonlySet<string>) {
-    const t = this.trees!, out = new Set<number>();
-    for (const id of removed) { const k = this.index.get(id); if (k !== undefined) out.add(k); }
-    if (sorts.size) t.model.forEach((m, k) => { if (sorts.has(t.models[m])) out.add(k); });
+    const out = new Set<string>();
+    for (const id of removed) if (this.trees.has(id)) out.add(id);
+    if (sorts.size) for (const [id, tree] of this.trees) if (sorts.has(tree.model)) out.add(id);
     return out;
   }
 
@@ -229,25 +329,72 @@ export class TreeFxDraw {
     return changed;
   }
 
+  /** Where a ray meets the trees drawn now (a left out one is a point: it meets none), nearest first; each hit's instanceId its slot. */
+  intersections(picker: THREE.Raycaster) {
+    const hits: THREE.Intersection[] = [];
+    for (const batch of this.batches.values()) for (const mesh of batch.meshes) if (mesh.visible) picker.intersectObject(mesh, false, hits);
+    return hits.sort((a, b) => a.distance - b.distance);
+  }
+
+  /** The id of the tree a hit of intersections met, null for a hit of anything else. */
+  idOf(hit: THREE.Intersection) {
+    const members = hit.object.userData.treeFx as string[] | undefined;
+    return members && hit.instanceId !== undefined ? members[hit.instanceId] ?? null : null;
+  }
+
+  /** What the hover box says of a tree: its model, its .bin's triangles at the LOD drawn, its height and width. */
+  facts(id: string, hit?: THREE.Intersection) {
+    const tree = this.tree(id), model = tree && this.models.get(tree.model);
+    if (!tree || !model) return null;
+    const geometry = (hit?.object as THREE.Mesh | undefined)?.geometry ?? model.lods[0].parts[0].geometry;
+    return {...tree, height: model.height * tree.size, width: model.width * tree.size * tree.width,
+            vertices: geometry.getAttribute("position").count, triangles: (geometry.index?.count ?? 0) / 3,
+            texture: ((hit?.object as THREE.Mesh | undefined)?.material as THREE.MeshLambertMaterial | undefined)?.map?.name ?? null};
+  }
+
+  /** The room a tree takes as drawn (its model's height and width, as turned), null for none; shown: null too while it is left out. */
+  bounds(id: string, shown = false) {
+    if (!this.trees.has(id) || (shown && this.out.has(id))) return null;
+    const model = this.models.get(this.trees.get(id)!.model);
+    if (!model) return null;
+    const r = model.width / 2;
+    return new THREE.Box3(new THREE.Vector3(-r, 0, -r), new THREE.Vector3(r, model.height, r)).applyMatrix4(this.matrixOf(id));
+  }
+
+  /** The rooms of the trees of a model shown now. */
+  boxesOf(model: string) {
+    const boxes: THREE.Box3[] = [];
+    for (const [id, tree] of this.trees) if (tree.model === model) { const box = this.bounds(id, true); if (box) boxes.push(box); }
+    return boxes;
+  }
+
+  /** How many trees of a model stay with these edits (ids and object sorts left out, as the page has them). */
+  countOf(model: string, ids: ReadonlySet<string>, sorts: ReadonlySet<string>) {
+    if (sorts.has(model)) return 0;
+    let n = 0;
+    for (const [id, tree] of this.trees) if (tree.model === model && !ids.has(id)) n++;
+    return n;
+  }
+
   /** What is drawn, for tests and the browser's tools. */
   stats() {
     let meshes = 0, shown = 0;
-    for (const cell of this.cells.values()) for (const batch of cell.batches) for (const mesh of batch.meshes) { meshes++; if (mesh.visible) shown++; }
-    return {trees: this.trees?.ids.length ?? 0, out: this.out.size, cells: this.cells.size, meshes, shown, models: this.models.size};
+    for (const batch of this.batches.values()) for (const mesh of batch.meshes) { meshes++; if (mesh.visible) shown++; }
+    return {trees: this.trees.size, out: this.out.size, cells: this.cells.size, batches: this.batches.size, meshes, shown, models: this.models.size};
   }
 
-  private clearCells() {
-    for (const cell of this.cells.values()) for (const batch of cell.batches) for (const mesh of batch.meshes) { this.scene.remove(mesh); mesh.dispose(); }
-    this.cells.clear();
+  private clearBatches() {
+    for (const batch of this.batches.values()) for (const mesh of batch.meshes) { this.scene.remove(mesh); mesh.dispose(); }
+    this.batches.clear(); this.cells.clear(); this.slots.clear();
     if (this.matrixBytes) this.reserve(-this.matrixBytes);
     this.matrixBytes = 0;
   }
 
   dispose() {
     this.version++;
-    this.clearCells();
+    this.clearBatches();
     for (const model of this.models.values()) { this.drop(model); this.reserve(-model.bytes); }
     this.models.clear();
-    this.trees = null; this.index.clear(); this.out.clear();
+    this.trees.clear(); this.out.clear(); this.moved.clear();
   }
 }

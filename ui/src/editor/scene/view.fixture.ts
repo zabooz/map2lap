@@ -5,13 +5,14 @@ import {ViewBrush, type BrushHost} from "./brush";
 import {PlacementGhost, type GhostHost} from "./ghost";
 import type {ModelDraw} from "./modelDraw";
 import {ObjectMover, type MoverHost} from "./mover";
-import {TrackObjects} from "./trackObjects";
+import {TrackObjects, type TreeRooms} from "./trackObjects";
 import type {TrackIndex} from "../types";
 
 /** The view's fields TrackObjects reads, as far as a test gave them. */
 interface Fields {
   data?: unknown; byNumber?: Map<number, THREE.Mesh>; usedBytes?: number;
   modelDraw?: {bounds?: (id: string) => THREE.Box3 | null};
+  treeFx?: TreeRooms;
 }
 
 /** TrackObjects reading view's fields when it asks, the way TrackView's own does; belonging: what belongs to which object. */
@@ -22,6 +23,7 @@ export function objectsOf(view: object, belonging?: Map<string, string[]>) {
     mesh: i => fields.byNumber?.get(i),
     loaded: () => fields.byNumber?.values() ?? [],
     modelBounds: base => fields.modelDraw?.bounds?.(base) ?? null,
+    trees: () => fields.treeFx ?? {bounds: () => null, boxesOf: () => [], countOf: () => 0},
     take: bytes => { fields.usedBytes = (fields.usedBytes ?? 0) + bytes; },
     changed: () => {},
     removedChanged: () => {},
@@ -75,7 +77,8 @@ export function moverOf(view: object, host: Partial<MoverHost> = {}) {
     byNumber?: Map<number, THREE.Mesh>};
   return new ObjectMover({
     get camera() { return v.camera ?? new THREE.PerspectiveCamera(); }, get objects() { return v.objects; }, get selection() { return v.selection; },
-    models: () => v.modelDraw as ModelDraw, data: () => (v.data ?? null) as TrackIndex | null, mesh: i => v.byNumber?.get(i),
+    models: () => v.modelDraw as ModelDraw, trees: () => ({matrix: () => null, nudge: () => {}, tree: () => null}),
+    data: () => (v.data ?? null) as TrackIndex | null, mesh: i => v.byNumber?.get(i),
     pick: () => null, groundAt: () => null, groundAlong: () => null, farthest: () => Infinity, busy: () => false, meshChanged: () => {}, reloadKept: () => {},
     cursorChanged: () => {}, changed: () => {}, ...host,
   });

@@ -71,7 +71,8 @@ const ObjectDetails = memo(function ObjectDetails({name, picked, view, state}: {
           {info.details.source_index !== undefined && <Row label="Build item">{info.details.source_index}</Row>}
           {info.details.footprint && <Row label="Footprint">{info.details.footprint.length} corners</Row>}
         </>}
-        {!source.listed && source.hovered.billboard && <Row label="Object triangles">8 (crossed billboard)</Row>}
+        {source.hovered.treefx ? <Row label="Object triangles">{source.hovered.treefx.triangles} (3D model {source.hovered.treefx.model}, CSP TreeFX)</Row>
+          : !source.listed && source.hovered.billboard && <Row label="Object triangles">8 (crossed billboard)</Row>}
       </dl>
       {info?.meshes.map(mesh => <details className={styles.part} key={mesh.name}><summary>{mesh.name}</summary>
         <dl className={styles.rows}><Row label="Material">{mesh.material.name}</Row><Row label="Shader">{mesh.material.shader}</Row>

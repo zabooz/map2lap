@@ -6,6 +6,7 @@ after every one given, so none is given twice, not even one whose addition was t
 under its foot, after its placement, as they do listed objects (trackheights.list_moved). Save writes the result into the list
 and trees.txt (trackcopy); the models stay in the track's folder, every one, so a tree that comes back has its model.
 """
+import json
 import re
 
 import numpy as np
@@ -32,6 +33,23 @@ def trees_of(section, added):
     return dict(sorted(out.items(), key=lambda item: number(item[0])))
 
 
+class Trees:
+    """The trees of a list's section and the draft's added ones by id, looked up without building a long track's 80,000 entries
+    at each save of the draft (trees_of builds them, in order)."""
+
+    def __init__(self, section, added):
+        self.listed, self.added = (section or {}).get("trees", {}), {t["id"]: t for t in added}
+
+    def get(self, id_):
+        """The tree of an id ({model, pos, angle, size, width}), None for none."""
+        n = number(id_)
+        found = self.added.get(id_) or (self.listed.get(str(n)) if n is not None else None)
+        return found and {k: v for k, v in found.items() if k != "id"}
+
+    def __contains__(self, id_):
+        return self.get(id_) is not None
+
+
 def placed(tree, p, ground):
     """A tree as placement p ({x, y, z, turn, scale}; None for none) and then a height change of ground m at its foot leave it:
     rounded as trees.txt writes it (scenery.treefx.text). Pure."""
@@ -51,6 +69,34 @@ def now(trees, placements, heights):
     z = np.array([t["pos"][2] + p["z"] for t, p in zip(trees.values(), moves)])
     ground = trackheights.Field(heights).at(x, z)[0] if heights else np.zeros(len(x))
     return {id_: placed(t, by_id.get(id_), float(d)) for (id_, t), d in zip(trees.items(), ground)}
+
+
+def changed(section, before, after):
+    """What a draft change does to the trees, for the page: {"trees": {id: tree with its "base" (where it stands without the draft)},
+    "gone": [ids of added trees no more]}, None for nothing. before, after: the draft's {"trees", "placed", "heights"}. Only the
+    trees it can touch are reckoned: those added or changed, those placed otherwise, and those under a height change that is in one
+    of the two only: the list's own trees are the same in both, so they are not looked through unless a height change asks (a
+    long track's 80,000 trees compared at each notch of Move's wheel took 0.1 s). Pure."""
+    old, trees = {t["id"]: t for t in before["trees"]}, Trees(section, after["trees"])
+    added, tree = trees.added, trees.get
+    gone = [id_ for id_ in old if id_ not in added]
+    ids = {id_ for id_, t in added.items() if old.get(id_) != t}
+    placed_before, placed_after = ({p["id"]: p for p in d["placed"] if tree(p["id"])} for d in (before, after))
+    ids |= {id_ for id_ in placed_before.keys() | placed_after.keys() if placed_before.get(id_) != placed_after.get(id_)}
+    key = lambda op: json.dumps(op, sort_keys=True)
+    kept = {key(op) for op in before["heights"]} & {key(op) for op in after["heights"]}
+    different = [op for op in before["heights"] + after["heights"] if key(op) not in kept]
+    if different:
+        everyone = trees_of(section, after["trees"])
+        boxes, order = trackheights.Field(different).boxes, list(everyone)
+        at = np.array([[t["pos"][0] + (placed_after.get(i) or NONE)["x"], t["pos"][2] + (placed_after.get(i) or NONE)["z"]]
+                       for i, t in zip(order, everyone.values())]).reshape(-1, 2)
+        inside = ((boxes[:, 0] <= at[:, :1]) & (at[:, :1] <= boxes[:, 2]) & (boxes[:, 1] <= at[:, 1:]) & (at[:, 1:] <= boxes[:, 3])).any(axis=1)
+        ids |= {order[k] for k in np.flatnonzero(inside)}
+    if not (ids or gone):
+        return None
+    base = {id_: tree(id_) for id_ in sorted(ids, key=number)}
+    return {"trees": {id_: {**t, "base": base[id_]["pos"]} for id_, t in now(base, after["placed"], after["heights"]).items()}, "gone": gone}
 
 
 def next_of(section, added, given=0):

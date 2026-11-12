@@ -7,6 +7,7 @@ import {nudgeVertices, STILL, type Nudge, type Placement} from "../tools/placing
 import {FLOATS_PER_VERTEX, fitSphere} from "./geometry";
 import {screenPoint, LEFT_BUTTON, LEFT_HELD, CLICK_PX} from "./pointer";
 import type {ModelDraw} from "./modelDraw";
+import type {TreeFxDraw} from "./treeFx";
 import type {Selection} from "./selection";
 import {NOT_MOVED, type TrackObjects} from "./trackObjects";
 
@@ -17,7 +18,14 @@ interface GrabbedVertices {
   numbers: Uint32Array;
   floats: Float32Array;
 }
-type Grabbed = GrabbedVertices | {id: string; modelMatrix: THREE.Matrix4};
+type Grabbed = GrabbedVertices | {id: string; modelMatrix: THREE.Matrix4} | {id: string; treeMatrix: THREE.Matrix4};
+
+/** A nudge as a matrix: scaled, then turned around the upright, then moved. Pure. */
+function transformOf(n: Nudge) {
+  return new THREE.Matrix4().makeScale(n.scale, n.scale, n.scale)
+    .premultiply(new THREE.Matrix4().makeRotationY(n.turn * Math.PI / 180))
+    .premultiply(new THREE.Matrix4().makeTranslation(n.x, n.y, n.z));
+}
 
 interface Drag {
   ids: string[]; plane: THREE.Plane; from: THREE.Vector3; x: number; y: number; grabbed: Grabbed[]; pivots: Map<string, number[]>;
@@ -32,6 +40,7 @@ export interface MoverHost {
   objects: TrackObjects;
   selection: Selection;
   models(): ModelDraw;                  // the track's imported models
+  trees(): Pick<TreeFxDraw, "matrix" | "nudge" | "tree">;    // the track's TreeFX trees
   data(): TrackIndex | null;            // the track's index as the view has it now
   mesh(i: number): THREE.Mesh | undefined;      // the loaded mesh number i
   pick(e: PointerEvent, el: HTMLElement, point: THREE.Vector3): Picked | null; // what a press at e picks, its actual hit in point
@@ -78,7 +87,8 @@ export class ObjectMover {
   setPlaced(placed: Placement[]) {
     this.placed = new Map(placed.map(p => [p.id, p]));
     for (const [id, at] of this.pendingPivots) {
-      const split = id.lastIndexOf("#"), base = this.host.data()?.objects?.[id.slice(0, split)]?.at[Number(id.slice(split + 1))];
+      const split = id.lastIndexOf("#");
+      const base = this.host.data()?.objects?.[id.slice(0, split)]?.at[Number(id.slice(split + 1))] ?? this.host.trees().tree(id)?.base;
       const p = this.placed.get(id);
       if (base && Math.abs(base[0] + (p?.x ?? 0) - at[0]) < 0.002 && Math.abs(base[2] + (p?.z ?? 0) - at[2]) < 0.002) this.pendingPivots.delete(id);
     }
@@ -122,6 +132,8 @@ export class ObjectMover {
     for (const id of ids) {
       const modelMatrix = this.host.models().instance(id.split("#")[0])?.matrix.clone();
       if (modelMatrix) { out.push({id, modelMatrix}); continue; }
+      const treeMatrix = this.host.trees().matrix(id);
+      if (treeMatrix) { out.push({id, treeMatrix}); continue; }
       const byMesh = new Map<number, Set<number>>();
       for (const {mesh, from, end} of this.host.objects.piecesOf(id)) {
         const part = this.host.mesh(mesh);
@@ -148,11 +160,9 @@ export class ObjectMover {
   private nudgeGrabbed(grabbed: Grabbed[], pivots: Map<string, number[]>, nudges: (id: string) => Nudge) {
     for (const g of grabbed) {
       if ("modelMatrix" in g) {
-        const n = nudges(g.id);
-        const transform = new THREE.Matrix4().makeScale(n.scale, n.scale, n.scale)
-          .premultiply(new THREE.Matrix4().makeRotationY(n.turn * Math.PI / 180))
-          .premultiply(new THREE.Matrix4().makeTranslation(n.x, n.y, n.z));
-        this.host.models().nudge(g.id.split("#")[0], pivots.get(g.id)!, transform, g.modelMatrix);
+        this.host.models().nudge(g.id.split("#")[0], pivots.get(g.id)!, transformOf(nudges(g.id)), g.modelMatrix);
+      } else if ("treeMatrix" in g) {
+        this.host.trees().nudge(g.id, pivots.get(g.id)!, transformOf(nudges(g.id)), g.treeMatrix);
       } else {
         nudgeVertices(g.floats, this.vertexArray(g.mesh), g.numbers, FLOATS_PER_VERTEX, pivots.get(g.id)!, nudges(g.id));
         const m = this.host.mesh(g.mesh)!;
@@ -175,11 +185,14 @@ export class ObjectMover {
         if ("modelMatrix" in g) {
           const root = this.host.models().instance(g.id.split("#")[0]);
           if (root) {
-            this.host.models().nudge(g.id.split("#")[0], d.pivots.get(g.id)!, new THREE.Matrix4().makeScale(nudge.scale, nudge.scale, nudge.scale)
-              .premultiply(new THREE.Matrix4().makeRotationY(nudge.turn * Math.PI / 180))
-              .premultiply(new THREE.Matrix4().makeTranslation(nudge.x, nudge.y, nudge.z)), g.modelMatrix);
+            this.host.models().nudge(g.id.split("#")[0], d.pivots.get(g.id)!, transformOf(nudge), g.modelMatrix);
             g.modelMatrix = root.matrix.clone();
           }
+          continue;
+        }
+        if ("treeMatrix" in g) {
+          this.host.trees().nudge(g.id, d.pivots.get(g.id)!, transformOf(nudge), g.treeMatrix);
+          g.treeMatrix = this.host.trees().matrix(g.id) ?? g.treeMatrix;
           continue;
         }
         const out = new Float32Array(g.floats.length);
@@ -204,6 +217,11 @@ export class ObjectMover {
   /** The models' matrices came anew from the server: the models being dragged stay where the mouse has them. */
   followModels() {
     if (this.dragging) this.dragOn(this.dragging.grabbed.filter(g => "modelMatrix" in g));
+  }
+
+  /** The TreeFX trees came anew from the server: the trees being dragged stay where the mouse has them. */
+  followTrees() {
+    if (this.dragging) this.dragOn(this.dragging.grabbed.filter(g => "treeMatrix" in g));
   }
 
   /** The vertices of grabbed shown as taken up and moved the way dragged so far. */

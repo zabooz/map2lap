@@ -163,16 +163,22 @@ class DraftTest(TreesBase):
 
     def test_a_tree_moved_shows_where_the_draft_puts_it_and_a_height_change_lifts_it(self):
         answer = self.draft(placed=[{"id": "trees#2", "x": 2, "y": 0.5, "z": -1, "turn": 20, "scale": 2}])
-        self.assertTrue(answer["treefx"])
-        self.draft(heights=[UP])
+        moved = {**SPRUCE2, "pos": [9.0, 0.5, 1.0], "angle": 10.0, "size": 2.4, "base": [7.0, 0.0, 2.0]}
+        self.assertEqual({"trees": {"trees#2": moved}, "gone": []}, answer["treefx"])      # (only what stands otherwise)
+        lifted = self.draft(heights=[UP])["treefx"]
+        self.assertEqual(["trees#0", "trees#2"], sorted(lifted["trees"]))                  # (the birch at x 200 is not under it)
+        self.assertEqual([9.0, 1.5, 1.0], lifted["trees"]["trees#2"]["pos"])
         trees = trackview.treefx(self.ac, "t")
         self.assertEqual([5.0, 1.0, 0.0, 200.0, 3.0, 0.0, 9.0, 1.5, 1.0], trees["pos"])
         self.assertEqual([5.0, 0.0, 0.0, 200.0, 3.0, 0.0, 7.0, 0.0, 2.0], trees["base"])
         self.assertEqual(([10.0, 0.0, 10.0], [1.0, 0.8, 2.4]), (trees["angle"], trees["size"]))
 
-    def test_a_change_that_leaves_the_trees_says_so(self):
-        self.assertFalse(self.draft(deleted=["trees#0"])["treefx"])
-        self.assertTrue(self.draft(trees=[{"id": "trees#3", **SPRUCE}], trees_next=4)["treefx"])
+    def test_a_change_that_leaves_the_trees_says_none_an_addition_and_its_undo_name_the_tree(self):
+        self.assertIsNone(self.draft(deleted=["trees#0"])["treefx"])
+        added = {"id": "trees#3", **SPRUCE, "pos": [9.0, 0.0, 1.0]}
+        answer = self.draft(trees=[added], trees_next=4)["treefx"]
+        self.assertEqual({"trees": {"trees#3": {**SPRUCE, "pos": [9.0, 0.0, 1.0], "base": [9.0, 0.0, 1.0]}}, "gone": []}, answer)
+        self.assertEqual({"trees": {}, "gone": ["trees#3"]}, self.draft(trees=[])["treefx"])
 
     def test_a_move_on_the_ground_keeps_a_tree_s_height_above_the_edited_ground(self):
         self.draft(heights=[UP])

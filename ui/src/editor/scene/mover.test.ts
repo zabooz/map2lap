@@ -40,7 +40,7 @@ function treeDrag(height = 6, groundAt: (x: number, z: number) => number = () =>
     camera,
     objects: {piecesOf: () => [{mesh: 0, from: 0, end: 2}]},
     selection: {has: () => true, ids: () => ["tree#0"], reframe: () => {}},
-    models: () => ({instance: () => null}),
+    models: () => ({instance: () => null}), trees: () => ({matrix: () => null, nudge: () => {}, tree: () => null}),
     data: () => ({objects: {tree: {at: [[0, 0, 0]], kinds: ["tree"]}}} as unknown as TrackIndex),
     mesh: () => mesh,
     pick: (_e: PointerEvent, _el: HTMLElement, point?: THREE.Vector3) => { point?.copy(hit); return {id: "tree#0"} as Picked; },

@@ -55,3 +55,17 @@ test("a deleted house takes its sign along, in a mesh shown now and one that loa
   expect(index(later)).toEqual(Array.from({length: 12}, (_, k) => k));
   expect(objects.shownObjectBounds("bld_0_0#0")).not.toBeNull();
 });
+
+test("a TreeFX tree's room, its model's rooms and count come from the trees, left out by the draft as other objects", () => {
+  const room = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 14, 1));
+  const treeFx = {bounds: (id: string) => id === "trees#3" ? room : null, boxesOf: (model: string) => model === "spruce" ? [room] : [],
+                  countOf: (model: string, ids: ReadonlySet<string>) => model === "spruce" && !ids.has("trees#3") ? 1 : 0};
+  const objects = objectsOf({data: {meshes: [], objects: {}}, treeFx});
+  expect(objects.boundsOf("trees#3")).toBe(room);
+  expect(objects.boundsOf("trees#4").isEmpty()).toBe(true);
+  expect(objects.listedOf("spruce")).toEqual([room]);
+  expect([objects.countOfListed("spruce", [], []), objects.countOfListed("spruce", ["trees#3"], [])]).toEqual([1, 0]);
+  expect(objects.shownObjectBounds("trees#3")).toBe(room);
+  objects.setRemoved(["trees#3"]);
+  expect(objects.shownObjectBounds("trees#3")).toBeNull();
+});

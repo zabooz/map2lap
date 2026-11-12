@@ -3,6 +3,7 @@
 import {isUnplaced, type Placement} from "../tools/placing";
 import {copyKeys, type ObjectCopy} from "../tools/copying";
 import {joinedCuts, type SurfaceCut} from "../scene/surfaceCuts";
+import type {TreeFxChange} from "../types";
 
 export interface ModelInstance {
   id: string;
@@ -116,7 +117,7 @@ const sameEdits = (a: Edits, b: Edits) =>
     be changed while the two differ. */
 export class TrackEdits {
   private now: EditState = {...NONE, keptRevision: 0, recipe: null, canUndo: false, canRedo: false, save: "loading", outdated: 0, error: null, inTurn: 0};
-  private onMeshes: (meshes: number[], revision: number) => void = () => {};
+  private onMeshes: (meshes: number[], revision: number, more: boolean, trees: TreeFxChange | null) => void = () => {};
   private onTextures: (textures: {i: number; version: string; size: number}[], paints: string[]) => void = () => {};
   private turns: Promise<unknown> = Promise.resolve();
   private past: Edits[] = [];
@@ -174,8 +175,9 @@ export class TrackEdits {
     return this.bound;
   }
 
-  /** onMeshes gets each answer's meshes the server now hands out otherwise, and the revision of its list. Not state: two answers in a row must both arrive. */
-  setOnMeshes(onMeshes: (meshes: number[], revision: number) => void) {
+  /** onMeshes gets each answer's meshes the server now hands out otherwise, the revision of its list, whether more changes are on
+      their way after it, and the TreeFX trees it changed. Not state: two answers in a row must both arrive. */
+  setOnMeshes(onMeshes: (meshes: number[], revision: number, more: boolean, trees: TreeFxChange | null) => void) {
     this.onMeshes = onMeshes;
   }
 
@@ -502,7 +504,7 @@ export class TrackEdits {
       this.revision = d.revision;
       this.onServer = edits;
       this.unanswered = this.unanswered.filter(u => u.number > number);
-      this.onMeshes(d.treefx ? [-3, ...(d.meshes ?? [])] : d.meshes ?? [], d.revision);     // (-3: the TreeFX trees moved)
+      this.onMeshes(d.meshes ?? [], d.revision, !this.isSaved(), d.treefx ?? null);
       this.onTextures(d.textures ?? [], edits.paints);
       this.set({keptRevision: d.revision});
       if (!this.isSaved()) return void this.flush(leaving);

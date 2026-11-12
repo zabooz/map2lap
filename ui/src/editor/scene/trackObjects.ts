@@ -6,7 +6,8 @@ import type {MeshInfo, TrackIndex} from "../types";
 import {billboardFaces, billboardOf, childrenOf, countOfSort, idsOfSorts, objectAt, objectIndex, spriteAt, takenAlong} from "./inspect";
 import {cutsOf, type SurfaceCut} from "./surfaceCuts";
 
-export const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
+export const NOT_MOVED = new Set(["power line"]);
+const TREES = "trees#";                                 // (a TreeFX tree's id: objectlist.TREEFX)      // (placement.NOT_ALONE: a span goes where its poles go)
 
 /** The triangles of a mesh that make up an object. */
 export interface Piece {
@@ -15,12 +16,20 @@ export interface Piece {
   end: number;
 }
 
+/** What TrackObjects asks of the TreeFX trees (treeFx.ts): they have no triangles in the kn5, their ids are "trees#<number>". */
+export interface TreeRooms {
+  bounds(id: string, shown?: boolean): THREE.Box3 | null;
+  boxesOf(model: string): THREE.Box3[];
+  countOf(model: string, ids: ReadonlySet<string>, sorts: ReadonlySet<string>): number;
+}
+
 /** What TrackObjects needs of the view it serves. */
 export interface ObjectHost {
   data(): TrackIndex | null;            // the track's index as the view has it now
   mesh(i: number): THREE.Mesh | undefined;      // the loaded mesh number i
   loaded(): Iterable<THREE.Mesh>;       // all loaded meshes
   modelBounds(base: string): THREE.Box3 | null;  // the room an imported model's instance takes, null for none
+  trees(): TreeRooms;                   // the TreeFX trees: rooms and counts by id and model
   take(bytes: number): void;            // memory a mesh's copy of its indices takes
   changed(): void;                      // what is shown changed: drawn again, what the mouse points at looked at again
   removedChanged(): void;               // what is left out changed: the frames of marked sorts too
@@ -200,7 +209,8 @@ export class TrackObjects {
   countOfListed(sort: string, ids: string[], objectSorts: string[]) {
     const data = this.host.data();
     if (!data) return 0;
-    return countOfSort(data.objects, sort, takenAlong(this.wanted({ids, objectSorts: new Set(objectSorts)}), this.belonging));
+    return countOfSort(data.objects, sort, takenAlong(this.wanted({ids, objectSorts: new Set(objectSorts)}), this.belonging))
+      + this.host.trees().countOf(sort, new Set(ids), new Set(objectSorts));
   }
 
   /** The loaded billboard meshes. */
@@ -317,7 +327,7 @@ export class TrackObjects {
       const box = this.shownObjectBounds(id);
       if (box) boxes.push(box);
     }
-    return boxes;
+    return boxes.concat(this.host.trees().boxesOf(sort));
   }
 
   /** The same for the trees or bushes of an atlas image that are loaded. */
@@ -337,6 +347,7 @@ export class TrackObjects {
   /** The room an object takes that is shown now, null when it is left out or not loaded. */
   shownObjectBounds(id: string) {
     if (this.removedIds.has(id)) return null;
+    if (id.startsWith(TREES)) return this.host.trees().bounds(id, true);
     return this.host.modelBounds(id.split("#")[0]) ?? this.shownBounds(this.piecesOf(id));
   }
 
@@ -355,6 +366,7 @@ export class TrackObjects {
 
   /** The room an object takes, over all its triangles that are loaded. */
   boundsOf(id: string) {
+    if (id.startsWith(TREES)) return this.host.trees().bounds(id) ?? new THREE.Box3();
     const model = this.host.modelBounds(id.split("#")[0]);
     if (model) return model;
     const bounds = new THREE.Box3(), corner = new THREE.Vector3();

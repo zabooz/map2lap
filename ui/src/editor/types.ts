@@ -21,6 +21,7 @@ export interface Hovered {
   uv: [number, number] | null;
   shownTo: number;
   billboard: {number: number; height: number | null; width: number | null; foot: [number, number] | null} | null;
+  treefx?: {model: string; triangles: number};     // (a TreeFX tree's: its .bin model and its triangles at the LOD drawn)
   at: [number, number, number];
   tile: [number, number];
   route: {metre: number; off: number} | null;
@@ -133,4 +134,20 @@ export interface TrackIndex {
   route: number[][];
   atlas: Atlas;
   objects: Record<string, ObjectList>;
+}
+
+/** A TreeFX tree as drawn (scene/treeFx.ts): its model, where the draft puts it and where it stands without the draft, its turn and size. */
+export interface TreeFxTree {
+  model: string;
+  pos: number[];
+  base: number[];
+  angle: number;
+  size: number;
+  width: number;
+}
+
+/** What a draft answer changed of the TreeFX trees (trackedits: tracktrees.changed): those that stand otherwise, those added gone. */
+export interface TreeFxChange {
+  trees: Record<string, TreeFxTree>;
+  gone: string[];
 }

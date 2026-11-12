@@ -214,7 +214,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   }, [view, marked]);
 
   useEffect(() => {
-    edits.setOnMeshes(meshes => view.refreshMeshes(meshes));
+    edits.setOnMeshes((meshes, _revision, more, trees) => view.refreshMeshes(meshes, more, trees));
     edits.setOnTextures((textures, paints) => view.textures.refreshPaints(textures, paints));
     view.setViewFailed(setViewFailed);
     view.textures.setChanged(() => setTextureRevision(value => value + 1));

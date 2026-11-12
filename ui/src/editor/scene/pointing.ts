@@ -1,9 +1,11 @@
 // What lies under the mouse in the view: the first solid thing a ray from it meets (the see-through parts of a tree's quad are
-// nothing), or a wire near it in front of that, and what the hover box and the inspector say about it.
+// nothing, a TreeFX tree's leaves alike), or a wire near it in front of that, and what the hover box and the inspector say about it.
 import * as THREE from "three";
 import type {Hovered, MeshInfo, TrackIndex} from "../types";
 import {billboardFaces, billboardOf, kindName, kindOf, latLonOf, physicsOf, routeMetre, sortOf, spriteAt, tileOf} from "./inspect";
 import type {ModelDraw} from "./modelDraw";
+import type {TreeFxDraw} from "./treeFx";
+import {FAR_M} from "./treeFx";
 import type {TrackObjects} from "./trackObjects";
 
 const WIRE = /_wire_/;
@@ -27,6 +29,7 @@ export interface PointingHost {
   data(): TrackIndex | null;            // the track's index as the view has it now
   meshes(): THREE.Mesh[];               // the loaded meshes
   models(): ModelDraw;                  // the track's imported models
+  trees(): TreeFxDraw;                  // the track's TreeFX trees
   height(): number;                     // the view's height in pixels
   take(bytes: number): void;            // memory a texture's alpha read for the mouse takes
   release(bytes: number): void;
@@ -48,7 +51,8 @@ export class Pointing {
   /** The first solid thing under mouse (-1 .. 1 over the view), or a wire near it in front of that. */
   hit(mouse: THREE.Vector2) {
     this.picker.setFromCamera(mouse, this.host.camera);
-    const hits = [...this.picker.intersectObjects(this.host.meshes().filter(m => m.visible), false), ...this.host.models().intersections(this.picker)];
+    const hits = [...this.picker.intersectObjects(this.host.meshes().filter(m => m.visible), false), ...this.host.models().intersections(this.picker),
+                  ...this.host.trees().intersections(this.picker)];
     const solid = hits.sort((a, b) => a.distance - b.distance).find(h => this.solidAt(h));
     return this.wireNear(solid?.distance ?? Infinity) ?? solid;
   }
@@ -110,6 +114,8 @@ export class Pointing {
   /** What the hover box and the inspector say about hit. */
   describe(hit: THREE.Intersection): Hovered {
     const data = this.host.data()!, mesh = hit.object as THREE.Mesh;
+    const tree = this.host.trees().idOf(hit);
+    if (tree) return this.describeTree(data, tree, hit);
     const instance = mesh.userData.modelInstance as string | undefined;
     const materialNumber = (mesh.material as THREE.Material).userData.modelMaterial ?? -1;
     const modelMaterial = materialNumber < 0 ? null : materialNumber;
@@ -146,6 +152,20 @@ export class Pointing {
       tile: tileOf(x, z),
       route: routeMetre(data.route, x, z),
       latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null,
+      distance: hit.distance,
+    };
+  }
+
+  /** What the hover box says of a TreeFX tree: its model is its sort (all of a model go at once as a listed sort does). */
+  private describeTree(data: TrackIndex, id: string, hit: THREE.Intersection): Hovered {
+    const facts = this.host.trees().facts(id, hit)!, {x, y, z} = hit.point, file = `${facts.model}.bin`;
+    return {
+      id, kind: /shrub|bush/.test(facts.model) ? "3D bush" : "3D tree", sprite: null, sort: facts.model, object: `extension/trees/${file}`,
+      physics: "None", material: file, shader: "CSP TreeFX", texture: facts.texture, textureBytes: null,
+      vertices: facts.vertices, triangles: facts.triangles, triangle: hit.faceIndex ?? 0, uv: hit.uv ? [hit.uv.x, hit.uv.y] : null,
+      shownTo: FAR_M, billboard: {number: Number(id.slice(id.indexOf("#") + 1)), height: facts.height, width: facts.width, foot: [facts.pos[0], facts.pos[2]]},
+      treefx: {model: facts.model, triangles: facts.triangles},
+      at: [x, y, z], tile: tileOf(x, z), route: routeMetre(data.route, x, z), latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null,
       distance: hit.distance,
     };
   }
