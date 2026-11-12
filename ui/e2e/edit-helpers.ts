@@ -18,8 +18,7 @@ export const VIEW_ALONE = {style: "[data-tool-options], [aria-label=Notification
 /** The picture of the view alone, once it stands still and the mouse is off it. */
 export async function picture(page: Page) {
   await page.mouse.move(AWAY.x, AWAY.y);
-  await stillView(page);
-  return scene(page).screenshot(VIEW_ALONE);
+  return stillView(page, VIEW_ALONE);
 }
 
 /** A point of the view that shows the near tree. */

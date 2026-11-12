@@ -5,11 +5,15 @@ import {OrbitControls} from "three/addons/controls/OrbitControls.js";
 import styles from "./ModelPreview.module.css";
 import {modelEnvironment, modelLight, modelPreviewScene} from "../scene/modelLighting";
 
+type Viewer = {renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera;
+  controls: OrbitControls; light: ReturnType<typeof modelLight>; releaseModel: (() => void) | null};
+
 /** A GLB preview with its native alpha materials, turned by dragging and zoomed by the wheel; this canvas owns and disposes only its own decoded asset.
     The view stays where it was turned when the url changes (another geometry level or colour of the same model keeps its bounds). */
 export function ModelPreview({url, file, height}: {url?: string; file?: File; height?: number}) {
   const host = useRef<HTMLDivElement>(null);
   const turned = useRef<{position: THREE.Vector3; target: THREE.Vector3} | null>(null);
+  const viewer = useRef<Viewer | null>(null);
   const [moved, setMoved] = useState(false);     // (the hint that it turns stands until it has been turned once)
   useEffect(() => {
     const element = host.current!, renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
@@ -18,10 +22,6 @@ export function ModelPreview({url, file, height}: {url?: string; file?: File; he
     element.appendChild(renderer.domElement);
     const light = modelLight(renderer);
     const scene = modelPreviewScene(renderer), camera = new THREE.PerspectiveCamera(40, element.clientWidth / element.clientHeight, .01, 1000);
-    let stopped = false;
-    const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
-    const release = () => { for (const g of geometries) g.dispose(); for (const m of materials) m.dispose(); for (const t of textures) t.dispose(); };
-    const source = file ? URL.createObjectURL(file) : url!;
     const observer = new ResizeObserver(() => {
       if (!element.clientWidth || !element.clientHeight) return;
       renderer.setSize(element.clientWidth, element.clientHeight);
@@ -36,7 +36,29 @@ export function ModelPreview({url, file, height}: {url?: string; file?: File; he
       renderer.render(scene, camera);
     });
     controls.addEventListener("start", () => setMoved(true));     // (a drag or the wheel by the user: update() at loading changes it too)
+    const context: Viewer = {renderer, scene, camera, controls, light, releaseModel: null};
+    viewer.current = context;
+    return () => {
+      viewer.current = null; observer.disconnect(); controls.dispose(); context.releaseModel?.();
+      light.dispose(); renderer.dispose(); renderer.domElement.remove();
+    };
+  }, []);
+
+  // Geometry/colour changes replace the decoded asset, retaining the canvas, environment and controls.
+  // Building the same WebGL context and reflection map repeatedly also stalled software-rendered imports.
+  useEffect(() => {
+    const context = viewer.current!;
+    const {renderer, scene, camera, controls, light} = context;
+    let stopped = false;
+    const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
+    const source = file ? URL.createObjectURL(file) : url!;
     void new GLTFLoader().loadAsync(source).then(gltf => {
+      const release = () => {
+        gltf.scene.removeFromParent();
+        for (const g of geometries) g.dispose();
+        for (const m of materials) m.dispose();
+        for (const t of textures) t.dispose();
+      };
       gltf.scene.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
         geometries.add(node.geometry);
@@ -45,8 +67,9 @@ export function ModelPreview({url, file, height}: {url?: string; file?: File; he
           for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
         }
       });
-      if (stopped) { release(); return; }
+      if (stopped || viewer.current !== context) { release(); return; }
       modelEnvironment(materials, light.texture);
+      context.releaseModel?.(); context.releaseModel = release;
       scene.add(gltf.scene);
       const bounds = new THREE.Box3().setFromObject(gltf.scene), middle = bounds.getCenter(new THREE.Vector3());
       const size = Math.max(...bounds.getSize(new THREE.Vector3()).toArray(), .01);
@@ -58,7 +81,7 @@ export function ModelPreview({url, file, height}: {url?: string; file?: File; he
       renderer.render(scene, camera);
     }).catch(() => {});
     return () => {
-      stopped = true; observer.disconnect(); controls.dispose(); release(); light.dispose(); renderer.dispose(); renderer.domElement.remove();
+      stopped = true;
       if (file) URL.revokeObjectURL(source);
     };
   }, [url, file]);

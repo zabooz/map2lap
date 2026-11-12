@@ -1,8 +1,48 @@
 import {execFileSync} from "node:child_process";
 import {join} from "node:path";
 import {dragMouse, expect, openEditor, scene, test} from "./fixtures";
-import {findTree, meshes, picture, saved, treeCount} from "./edit-helpers";
+import {meshes, picture, saved, treeCount} from "./edit-helpers";
 import * as THREE from "three";
+
+/** Prepare later workflow stages through the real API; UI import/placement is exercised separately below. */
+async function cutoutSetup(page: import("@playwright/test").Page, backend: import("./fixtures").Backend, complete = false) {
+  const repo = join(import.meta.dirname, "../..");
+  const python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+  const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py")]);
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_height: 6});
+  const prepared = await page.request.post('/api/library/model-imports?filename=cutout-tree.glb',
+    {headers: {'Content-Type': 'application/x-map2lap-glb'}, data: glb});
+  await expect(prepared).toBeOK();
+  const {token} = await prepared.json();
+  const imported = await page.request.post('/api/library/models', {data: {token, filename: 'cutout-tree.glb',
+    name: 'Cutout test tree', category: 'tree', metres_per_unit: 1, collision: 'none',
+    material_colours: 'linear', material_lighting: 'model', texture_side: 1024, simplify_level: 50}});
+  await expect(imported).toBeOK();
+  const {model: asset} = await imported.json();
+  const now = await (await page.request.get('/api/editor/alpha/edits')).json();
+  const create = async (extra: object) => {
+    const answer = await page.request.post('/api/editor/alpha/model',
+      {data: {base: now.base, revision: now.revision, model: asset.id, ...extra}});
+    await expect(answer).toBeOK();
+    return answer.json();
+  };
+  const first = await create({at: [160, 0, -130]});
+  const models = [first.model], placed = [];
+  let replacement: {id: string; replaces: string} | undefined;
+  if (complete) {
+    const replaced = await create({replace: ['trees#1'], keep_height: true});
+    replacement = replaced.models[0]; models.push(...replaced.models);
+    placed.push({id: replacement!.id + '#0', x: 2, y: 1.5, z: 10, turn: 35, scale: 1.4});
+    models.push((await create({at: [180, 0, -110]})).model);
+  }
+  const kept = await page.request.put('/api/editor/alpha/edits', {data: {...now, id: 'cutout-workflow-setup', models, placed}});
+  await expect(kept).toBeOK();
+  const sourceTrees = await treeCount(page);
+  await openEditor(page);
+  const resources = () => page.evaluate(() => (performance.getEntriesByName("map2lap.models.resources").at(-1) as PerformanceMark)?.detail);
+  await expect.poll(async () => (await resources())?.instances).toBe(models.length);
+  return {sourceTrees, replacement, resources};
+}
 
 async function sample(page: import("@playwright/test").Page, png: Buffer, points: {x: number; y: number}[]) {
   return page.evaluate(async ({image, points}) => {
@@ -113,7 +153,7 @@ function project(index: {start: {pos: number[]; forward: number[]}}, bounds: {wi
   return {x: (point.x + 1) * bounds.width / 2, y: (1 - point.y) * bounds.height / 2};
 }
 
-test("import a cutout GLB tree, place and replace, pose undo, save and cold reopen", async ({page, backend}, testInfo) => {
+test("import a cutout GLB tree: placement, alpha picking and undo", async ({page, backend}, testInfo) => {
   const repo = join(import.meta.dirname, "../..");
   const python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
   const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py")]);
@@ -164,8 +204,20 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
     if (solid) await expect(page.locator("#hover-box")).toContainText(first.id + "#0");
     else await expect(page.locator("#hover-box")).not.toContainText(first.id + "#0");
   }
-  const tree = await findTree(page);
-  await page.mouse.click(tree.x, tree.y);
+  expect(await treeCount(page)).toBe(sourceTrees);
+  await testInfo.attach("model-drawing-evidence", {body: JSON.stringify({basePixels, shownPixels, undone, redone, points}), contentType: "application/json"});
+});
+
+test("cutout model replacement, shared resources and pose undo", async ({page, backend}, testInfo) => {
+  const {resources: modelResources} = await cutoutSetup(page, backend);
+  const initialIndex = await (await page.request.get('/api/editor/alpha/index')).json();
+  const initialBounds = (await scene(page).boundingBox())!;
+  // The rebuilt fixture's near tree is 6 m high at (128, 0, -130). Project its crown instead of scanning
+  // the viewport with dozens of mouse moves and 300 ms failed hover assertions.
+  const tree = project(initialIndex, initialBounds, new THREE.Vector3(128, 3, -130));
+  await page.mouse.move(initialBounds.x + tree.x, initialBounds.y + tree.y);
+  await expect(page.locator('#hover-box')).toContainText('trees#1');
+  await page.mouse.click(initialBounds.x + tree.x, initialBounds.y + tree.y);
   await page.getByRole("button", {name: "Insert", exact: true}).click();
   await page.getByRole("button", {name: "Cutout test tree", exact: true}).click();
   await page.getByRole("button", {name: "Replace selected tree", exact: true}).click();
@@ -236,6 +288,12 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/edits")).json()).models?.length).toBe(3);
   await expect.poll(async () => (await modelResources())?.instances).toBe(3);
   await page.keyboard.press("Escape"); await saved(page);
+  await testInfo.attach("model-pose-evidence", {body: JSON.stringify({shared: await modelResources(), pose: posed, draggedPose,
+    raisedPixels: {before: raisedBefore, after: raisedAfter, undone: raisedUndone}, draggedPixels: {before: draggedBefore, after: draggedAfter}}), contentType: "application/json"});
+});
+
+test("cutout model export and cold reopen retain frozen instances", async ({page, backend}, testInfo) => {
+  const {sourceTrees, replacement} = await cutoutSetup(page, backend, true);
   const expectedModelIds = (await (await page.request.get("/api/editor/alpha/edits")).json()).models.map((model: {id: string}) => model.id).sort();
   await page.locator("#edit-save-more").click();
   await page.locator("#save-name").fill("Imported model copy");
@@ -257,7 +315,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
     expect(coldIndex.objects[id].kinds).toEqual(["tree"]);
     expect(coldIndex.model_matrices[id]).toHaveLength(16);
   }
-  for (const id of coldIndex.model_replacements) expect(id).toBe(replacement.replaces);
+  for (const id of coldIndex.model_replacements) expect(id).toBe(replacement!.replaces);
   await page.locator("#edit-save-more").click();
   await page.locator("#save-name").fill("Imported cold copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
@@ -266,10 +324,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   expect(await treeCount(page, "imported_cold_copy")).toBe(sourceTrees - 1);
   await picture(page);
   const frame = await page.evaluate(() => (performance.getEntriesByName("map2lap.models.frame").at(-1) as PerformanceMark)?.detail);
-  await testInfo.attach("model-workflow-evidence", {body: JSON.stringify({basePixels, shownPixels, undone, redone,
-    points, shared: await modelResources(), frame, pose: posed, draggedPose,
-    raisedPixels: {before: raisedBefore, after: raisedAfter, undone: raisedUndone}, draggedPixels: {before: draggedBefore, after: draggedAfter},
-    nativeMeshes: native, coldReplacements: coldIndex.model_replacements}, null, 2), contentType: "application/json"});
+  await testInfo.attach("model-export-evidence", {body: JSON.stringify({nativeMeshes: native, coldReplacements: coldIndex.model_replacements, frame}), contentType: "application/json"});
 });
 
 test("Undo and Redo update imported models while keeping source heights, poses and ordinary copies", async ({page, backend}) => {

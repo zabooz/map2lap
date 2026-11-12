@@ -101,10 +101,10 @@ export async function openSettings(page: Page, tab: "General" | "Map2Lap" | "Edi
 }
 
 /** The 3D view as an image, once it stands still. */
-export async function stillView(page: Page) {
-  let last = await scene(page).screenshot();
+export async function stillView(page: Page, options?: Parameters<Locator["screenshot"]>[0]) {
+  let last = await scene(page).screenshot(options);
   await expect.poll(async () => {
-    const now = await scene(page).screenshot();
+    const now = await scene(page).screenshot(options);
     const same = now.equals(last);
     last = now;
     return same;

@@ -21,6 +21,7 @@ test('import geometry levels preview and publish the measured canonical model', 
   const halfCount = `${halved.geometry.track_cost.triangles.toLocaleString('en-US')} triangles`;
   for (const mark of ['Original', '75%', '50%', '25%']) await expect(dialog.locator('[data-marks]').getByText(mark, {exact: true})).toBeVisible();
   const facts = dialog.getByLabel('Track geometry cost');
+  const previewCanvas = await dialog.getByLabel('Model preview').locator('canvas').elementHandle();
   await expect(facts).toContainText(halfCount);
   await expect(facts).toHaveAttribute('aria-busy', 'false');
   // (only what helps choosing: no notes on headers, shared textures, kept originals, the anchor or the preview)
@@ -51,6 +52,7 @@ test('import geometry levels preview and publish the measured canonical model', 
     await expect(facts).toContainText(`${data.geometry.track_cost.triangles.toLocaleString('en-US')} triangles`);
     await expect(facts).toHaveAttribute('aria-busy', 'false');
     await expect(dialog.getByLabel('Model preview').locator('canvas')).toBeVisible();
+    expect(await dialog.getByLabel('Model preview').locator('canvas').evaluate((node, original) => node === original, previewCanvas)).toBe(true);
   }
   // (a level measured once is not asked again)
   await geometry.fill('2');
