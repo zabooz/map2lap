@@ -24,7 +24,10 @@ in checkpoint `1bc90fb`.
 - `librain.c` vector preparation: independently weighted ambient and vehicle
   airflow, combined before speed normalization. Ambient gain defaults to zero.
   Glass-frame gravity and airflow replace the aircraft's configurable radial
-  force origins. No camera inputs enter movement. These lightweight calculations
+  force origins. The shader projects them through the inverse surface metric
+  from the existing 17 by 9 grid of measured glass-triangle derivatives. This
+  replaces the initial port's constant flat-pane flow, which ignored substantial
+  curvature at the windshield edges. No camera inputs enter movement. CPU uniform calculations
   currently run in Lua; no replacement Rust preparation worker is implemented.
 
 The classic render-texture path fits public CSP canvases. The inspected
@@ -40,6 +43,9 @@ texels have approximately equal dimensions. The classic per-step retention and
 deposition run at a fixed 60 Hz, with at most 0.1 seconds of accumulated work.
 Out-of-chart samples drain rather than wrap. Actual triangle-edge masking remains
 incomplete. A flat depth inset accompanies the solid-red diagnostic.
+The inset disables depth testing so cockpit geometry cannot occlude it. The
+`librainFlowUV` log value is the nominal flat-chart vector; actual GPU advection
+now varies with the measured surface and must not be inferred from that log alone.
 
 ## Wipers and current review
 
@@ -61,6 +67,8 @@ blade-transport volume. Inner-radius/return-stroke quality still needs acceptanc
 - Obtain visual acceptance for front attachment, motion and wiping. Reported
   screen-centre flow remains unresolved; constant logged UV flow is not proof
   of correct rendered appearance.
+- User accepted removal of the wipe delay but reported stripes and rapid refill.
+  Rain density remains unchanged while investigating those defects separately.
 - Review normal rendering after red-diagnostic acceptance; settle the blur-stage
   difference and background-copy behaviour.
 - Apply independent simulation resources and exposure to side panes. Side liquid

@@ -1337,6 +1337,7 @@ function glass.setup()
   local lr = {debt = 0, tick = 0, ambientGain = 0, vehicleGain = 1}
   glass.librain = lr
   lr.diagnostic = {async = true, cacheKey = 203, blendMode = render.BlendMode.AlphaBlend,
+    depthMode = render.DepthMode.Off,
     textures = {txDepth = false}, values = {gPanel = vec2(320,180)}, shader = [[
       float4 main(PS_IN pin) {
         float2 uv = (pin.PosH.xy-float2(16,16))/gPanel;
@@ -1367,11 +1368,19 @@ function glass.setup()
       return float4(saturate(float2(atan(dx),atan(dy))/1.57079632679+0.5),0,1);
     }
   ]]}
-  lr.sim = {async = true, cacheKey = 201, blendMode = render.BlendMode.Opaque,
+  -- The grid is sampled from actual glass triangles in the rendered-model frame.
+  -- Embed immutable geometry in this pane's shader; no readback or image simulation on the CPU.
+  local surfaceConstants = {}
+  for k = 0, 152 do
+    local slope = glass.surface and glass.surface[k] or {0, 0}
+    surfaceConstants[#surfaceConstants+1] = string.format('float2(%.9f,%.9f)', slope[1], slope[2])
+  end
+  lr.sim = {async = true, cacheKey = 204, blendMode = render.BlendMode.Opaque,
     textures = {txDepth = false}, values = {
       gSize = vec2(lr.width, lr.height), gFrame = vec4(x0, s0, xw, sw),
-      gFlow = vec2(), gRain = 0, gSeed = 0, gWind = 0,
-      gW0 = mat4x4.identity(), gW1 = mat4x4.identity()}, shader = [[
+      gFlow = vec2(), gRain = 0, gSeed = 0, gWind = 0, gGravity3 = vec3(), gAir3 = vec3(),
+      gW0 = mat4x4.identity(), gW1 = mat4x4.identity()},
+    shader = 'static const float2 glassSurface[153] = {' .. table.concat(surfaceConstants, ',') .. '};\n' .. [[
 /*
  * CDDL HEADER START
  *
@@ -1407,6 +1416,32 @@ float read_depth(float2 uv) {
   if (any(uv < 0) || any(uv > 1)) return 0;
   return txDepth.SampleLevel(samLinearSimple, uv, 0).r;
 }
+float2 surfaceSlope(float2 uv) {
+  float2 q = saturate(float2(uv.x,1-uv.y))*float2(16,8);
+  int2 cell = min(int2(floor(q)),int2(15,7));
+  float2 f = q-cell;
+  int k = cell.x+cell.y*17;
+  return lerp(lerp(glassSurface[k],glassSurface[k+1],f.x),
+    lerp(glassSurface[k+17],glassSurface[k+18],f.x),f.y);
+}
+float2 tangentComponents(float3 force, float2 slope) {
+  // Inverse metric of P(X,S)=(X,S,N(X,S)). The normal component matters:
+  // a curved corner must not inherit the central pane's direction of steepest descent.
+  float hx=slope.x, hs=slope.y;
+  return float2((1+hs*hs)*force.x-hx*hs*force.y+hx*force.z,
+    (1+hx*hx)*force.y-hx*hs*force.x+hs*force.z)/(1+hx*hx+hs*hs);
+}
+float2 localFlow(float2 uv) {
+  float2 slope = surfaceSlope(uv);
+  float2 gravity = tangentComponents(gGravity3,slope);
+  float2 air = tangentComponents(gAir3,slope);
+  // Convert the chart velocity back to a 3D tangent length before normalization.
+  float tangentSpeed = sqrt(dot(air,air)+pow(dot(air,slope),2));
+  float windFactor = min(1,tangentSpeed/40);
+  float airScale = tangentSpeed > 0.0001 ? pow(windFactor,1.85)/tangentSpeed : 0;
+  float2 metres = gravity/9.81*0.25*gRain*gRain + air*airScale;
+  return metres*float2(1/gFrame.z,-1/gFrame.w);
+}
 float cross2(float2 a, float2 b) { return a.x * b.y - a.y * b.x; }
 bool sweptTriangle(float2 p, float2 a, float2 b, float2 c) {
   if (abs(cross2(b-a, c-a)) < 1e-10) return false;
@@ -1438,7 +1473,7 @@ float4 main(PS_IN pin) {
     new_depth = 1; water_added = true;
   }
   float old_depth = read_depth(pin.Tex) * 0.39;
-  float prev_depth = read_depth(pin.Tex - gFlow / 60);
+  float prev_depth = read_depth(pin.Tex - localFlow(pin.Tex) / 60);
   float depth = new_depth + old_depth + prev_depth * 0.601;
   if (!water_added) depth = max(0, min(depth, min(old_depth+prev_depth,3) - 3*0.01));
   depth = max(depth,0.001);
@@ -1487,11 +1522,13 @@ float4 main(PS_IN pin) {
     lr.sim.values.gW0.row4:set(0,0,0,0)
     lr.sim.values.gW1.row4:set(0,0,0,0)
   end
-  function lr.update(dt, gx, gs, driveX, driveS, weatherX, weatherS, rain)
+  function lr.update(dt, gx, gs, driveX, driveS, weatherX, weatherS, rain, gn, driveN, weatherN)
     lr.debt = min(lr.debt + dt, 0.1)
     local v = lr.sim.values
     local airX = driveX * lr.vehicleGain + weatherX * lr.ambientGain
     local airS = driveS * lr.vehicleGain + weatherS * lr.ambientGain
+    v.gGravity3:set(gx,gs,gn)
+    v.gAir3:set(airX,airS,driveN*lr.vehicleGain+weatherN*lr.ambientGain)
     local speed = sqrt(airX*airX + airS*airS)
     -- update_vectors(): normalize combined relative airspeed AFTER combining separately controlled inputs.
     -- 40 m/s is the car airflow normalization speed (144 km/h), replacing aircraft max_tas.
@@ -1981,7 +2018,10 @@ float4 main(PS_IN pin) {
     local driveS = driveY * ty + driveZ * tz
     local driveMag = sqrt(driveX * driveX + driveS * driveS)
     if not glassOff then
-      lr.update(dt, gx, gs, driveX, driveS, ax-driveX, tanS-driveS, rainAmount)
+      local gn = -9.81*(-up.y*tz+look.y*ty)
+      local driveN = -driveY*tz+driveZ*ty
+      lr.update(dt, gx, gs, driveX, driveS, ax-driveX, tanS-driveS, rainAmount,
+        gn, driveN, -ay*tz+az*ty-driveN)
     end
     -- Heat: AC has no defroster control. The approximation uses engine coolant temperature as the heater supply
     -- (a warm engine warms the cabin air blown at the glass) plus ambient air above freezing.
