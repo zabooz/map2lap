@@ -6,6 +6,8 @@ import math
 import numpy as np
 
 import mapgeom
+import tollsource
+import navgraph
 
 from .looks import (
     BRIDGE_CLASSES, CHURCH_OVER, FLOOR_M, FOUNDATION_M, INDUSTRIAL_CLASSES, MIN_AREA_M2, SHED_CLASSES, STEEL_MATERIALS,
@@ -18,6 +20,7 @@ from .garages import deck_plan, on_deck
 from .sites import _covers_garage, _ml_false, _ml_steep, _on_support, _passages, road_across, road_through
 from .build import _part_heights, _shared_walls
 from .planner import plan
+from .toll import layout_toll
 from .photo import BRICK_WALK_COVERAGE
 
 ALPINE_COVER = 0.02          # ... in a tile this empty gets dressed stone walls (Mount Whitney's
@@ -132,7 +135,7 @@ class _PartsOf:
 def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=(), west_town=False, roads_xy=None,
                    tunnels_xy=None, garages_xy=None, supports=None, bridges_xy=None, water_xy=None, decks=None,
                    ml_roads_xy=None, ways_xy=None, skip=frozenset(), min_size=None, own=None, uses=None,
-                   country=None, worship=(), castles=()):
+                   country=None, worship=(), castles=(), toll_context=None):
     """[(Spec, gmin, gmax)] of the buildings whose footprint centroid is in the tile [x0, x1) x [y0, y1) (own: the
     tile's box when it says which points are its own, roads.box_owns: a geotile's)
     (anchor frame), rings relative to (x0, y0). layers: mapgeom.Features of buildings (one per map cell; a
@@ -240,6 +243,15 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
             ring = clean_ring(np.stack([e - x0, n - y0], 1))
             if ring is None or _area2(ring) / 2 < MIN_AREA_M2:
                 continue
+            if toll_context is not None:
+                md, road_layers, infra_layers = toll_context
+                src = str(a['src_record'][i]) if a.get('src_record') is not None else ''
+                if tollsource.toll_match(frame, ring, infra_layers, x0, y0, src):
+                    crossing = tollsource.station_roads(md, frame, ring, road_layers, x0, y0)
+                    if crossing:
+                        # Ferleiten's explicitly mapped toll roof crosses only 10 m of road: below the generic
+                        # 15 m building-over-road rule. Its real roof and road geometry determine all openings.
+                        at['toll'] = layout_toll(ring, crossing, at, country in navgraph.LEFT_HAND, country=country)
             is_ml = "src_dataset" in a and str(a["src_dataset"][i]) != "OpenStreetMap"
             if is_ml and _ml_false(ring, bridges_xy, water_xy, ml_roads_xy if ml_roads_xy is not None else roads_xy):
                 continue
@@ -248,7 +260,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
             rings.append(ring)
             mh = at.get("min_height")
             mh = float(mh) if mh is not None and np.isfinite(mh) and mh > 0 else 0.0
-            if mh <= 0.5 and roads_xy and (road_through(ring, roads_xy) >= ROAD_THROUGH_M or road_across(ring, roads_xy)):
+            if not at.get('toll') and mh <= 0.5 and roads_xy and (road_through(ring, roads_xy) >= ROAD_THROUGH_M or road_across(ring, roads_xy)):
                 mh = OVER_ROAD_CLEAR_M
                 h = at.get("height")
                 if h is None or not np.isfinite(h) or h < mh + 3.0:
@@ -330,6 +342,9 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         if mh > 0.5 and at.get("height") is not None and np.isfinite(at["height"]) and look is None:
             at = dict(at, height=max(2.5, float(at["height"]) - mh))     # a building's own height range
         spec = plan(ring, at, int(sh) if look is None else 0, clat, clon, look, town, dense, west_town, alpine)
+        spec.toll = at.get('toll')
+        if spec.toll is not None:
+            spec.height, spec.roof = spec.toll['top'], 'flat'
         spec.min_h = mh
         spec.portal = bool(at.get("portal"))
         spec.names = names_for(spec, at.get("name"), at.get("places") or (), country) if uses is not None else ()
@@ -352,6 +367,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                     continue
                 g = np.full(len(g), got[1])     # its floor on the deck (a pier's bait shop stood on the seabed)
         spec.gring = g              # the ground at each corner (door_ground: the door's, not the footprint's highest)
+        if spec.toll is not None:
+            tollsource.ground_layout(spec.toll, frame, elev, x0, y0)
         out.append((spec, float(g.min()), float(g.max())))
     lines = roads_xy if roads_xy else ml_roads_xy
     if lines and out:
@@ -478,6 +495,8 @@ def collider_boxes(items, x0, y0):
     mesh solid while the player's car is inside one (roads.lua playerIn)."""
     out = []
     for spec, gmin, gmax in items:
+        if spec.toll is not None:  # its physical mesh has separate roof/rooms/islands, no whole-building box
+            continue
         if deck_plan(spec, gmin, gmax) is not None:     # an open parking deck: driven into on purpose
             continue
         if spec.cls in BRIDGE_CLASSES:                  # a bridge's frame: driven through between its legs

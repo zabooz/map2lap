@@ -27,6 +27,12 @@ Single steps run as modules from `src\`, e.g. `..\.venv\Scripts\python.exe -m tr
 
 ## Generator page and Editor
 
+Explicitly mapped toll roofs crossing ground roads are built as open toll stations (`buildings/toll.py`), with closed
+service rooms only outside all road corridors. Lane directions and posted speeds use small cached OSM extracts
+(`tollsource.py`) when available; Overture remains the offline fallback. Barriers stay raised. The visible and collision
+meshes use the same roof, room and island layout, including at bends, divided roads and branches. `layer` is not a storey
+count or a height; real height/min-height attributes override the estimated roof clearance.
+
 The page is React and TypeScript in `ui/`, built with Bun into the committed `src/web` files. `server.py` serves these
 and the `/api/` endpoints. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
 The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.

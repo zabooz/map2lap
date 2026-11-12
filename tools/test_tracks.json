@@ -883,5 +883,26 @@
    "max_warp": 0.0,
    "max_warp_at_m": 188.0
   }
+ },
+ "ferleiten_maut_test": {
+  "title": "Ferleiten Toll Station Test",
+  "about": "Mapped toll canopy over seven lanes: six forward, one backward; open collision passages, permanently raised barriers and service rooms outside all roads",
+  "points": [
+   [
+    47.16911,
+    12.81362
+   ],
+   [
+    47.16747,
+    12.81448
+   ]
+  ],
+  "width": 80.0,
+  "spots": [
+   [
+    "80-130",
+    "Ferleiten toll roof: verify all seven passages remain open, direction signals and 30 km/h signs"
+   ]
+  ]
  }
 }

@@ -53,6 +53,8 @@ def doors(items, lines, x0, y0, drives=None):
     rows = []
     others = [(spec, spec.ring + np.array([x0, y0])) for spec, _, _ in items if (spec.min_h or 0.0) <= 0.5]
     for number, (spec, gmin, gmax) in enumerate(items):
+        if spec.toll is not None:
+            continue
         no_door = False
         if spec.plain or spec.floors >= 7 or spec.band in (BAND_OFFICE, BAND_OFFICE2) or spec.wall:
             if not spec.wall or spec.plain or spec.floors >= 7:
@@ -255,6 +257,8 @@ def road_tile_items(frame, tx, ty, md, ground, decks=None, skip=frozenset(), cou
                           country=country, worship=worship_boxes(frame, md, keys, x0, y0),
                           castles=castle_boxes(frame, md, keys, x0, y0),
                           part_layers=[c.layers.get("building_parts") for c in cds],
+                          toll_context=(md, [c.layers.get('roads') for c in cds],
+                                        [c.layers.get('infrastructure') for c in cds]),
                           west_town=district_town(frame, tx, ty, md),
                           roads_xy=road_lines(frame, [c.layers.get("roads") for c in cds], x0, y0),
                           ways_xy=way_lines(frame, [c.layers.get("roads") for c in cds], x0, y0),

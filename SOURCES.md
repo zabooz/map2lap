@@ -26,6 +26,7 @@ A few things hold for all of them:
 
 | Source | Address | What it builds | If it does not answer | Status line |
 |---|---|---|---|---|
+| OpenStreetMap API | `api.openstreetmap.org` | Small extracts around explicitly mapped toll roofs: lane counts, travel directions and posted speed. Cached for a week, with one bounded request per uncached station area. | Cached Overture roads keep the passages open; unknown lane directions have no invented red-X restrictions. | optional |
 | Overture Maps (map data releases) | `overturemaps-us-west-2.s3.us-west-2.amazonaws.com` | Every road and railway line, every building (footprint, height, roof shape where mapped), water areas, rivers, land use (parks, farmland, industrial areas), bridges and tunnels as mapped, gas stations, airports' surroundings. Read in small ranges of large files: only the part around you. | Places you have not visited before come without roads, buildings or water until it answers. Places you have visited load from disk. | named |
 | Overture Maps (second copy, on Azure) | `overturemapswestus2.blob.core.windows.net` | The same data, used when the first copy does not answer. | Only matters while the first copy is down too. | named |
 | Overture Maps file index | `stac.overturemaps.org` | The list of which file holds which part of the world. | The app carries its own copy of the list, which is used instead. | named |

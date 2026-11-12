@@ -132,6 +132,10 @@ class HostPolicy:
 TILE_HOST = dict(redirect_limited=True, binary=True)
 # docs/research/2026-10-10-rate-limits.md §5.2, the hosts the server contacts today (rates per player).
 POLICIES = {
+    # Small on-demand extracts at explicit toll roofs only (tollsource.py), cached for a week; no bulk map download.
+    "api.openstreetmap.org": HostPolicy(rate=0.5, burst=3.0, max_conc=1, daily_budget=100, daily_hard=150,
+                                       cache_ttl=7 * DAY, miss_ttl=None, timeout=8.0, max_wait=3.0,
+                                       max_attempts=1, optional=True, allow_prefetch=True, offline_ok=True),
     # (raise them, lower again on trouble; a first visit's far field waited ~100 s on 15/s)
     # (raise it again: 24 at once; a PC already got ~26/s with 12 and the same far field with 24,
     # all answered, so it helps players far from USGS, whose every request waits longer)
@@ -266,6 +270,7 @@ DEFAULT_POLICY = HostPolicy()
 # a certain source is not responding ... tell the player what that source effects"). Shown after the host in the
 # status line (Server.net_note); SOURCES.md says more about each.
 ROLES = {
+    "api.openstreetmap.org": "toll-station lane directions; cached Overture roads meanwhile",
     "basemap.nationalmap.gov": "US aerial photos; coarser satellite photos meanwhile",
     "imagery.nationalmap.gov": "detailed US aerial photos (NAIP); coarser photos meanwhile",
     "apps.geo.fpac.usda.gov": "detailed US aerial photos (NAIP, second source); coarser photos meanwhile",

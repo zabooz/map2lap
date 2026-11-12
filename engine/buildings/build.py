@@ -13,6 +13,7 @@ from .mesh import (
     drawn_ring
 )
 from .garages import _parking_deck, deck_plan
+from .toll import draw_toll
 
 # The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
 # vertices (the: slabs across a Fells Point street; dense tiles had up to 81k vertices).
@@ -25,6 +26,9 @@ def build(specs_and_ground, lite=False, marks=None):
     cornices, whole walls instead of one quad per bay. marks: a list that gets Mesh.marks."""
     m = Mesh()
     for spec, gmin, gmax in specs_and_ground:
+        if spec.toll is not None:
+            draw_toll(m, spec.toll, gmin, lite=lite)
+            continue
         if spec.cls == "toll_booth":        # a stock prop (toll_booth_rows)
             continue
         mat_idx = _Looks(spec.seed)
@@ -124,6 +128,9 @@ def collision_mesh(specs_and_ground, starts=None):
     for spec, gmin, gmax in specs_and_ground:
         if starts is not None:
             starts.append(m.n)
+        if spec.toll is not None:
+            draw_toll(m, spec.toll, gmin, collision=True)
+            continue
         if spec.cls in BRIDGE_CLASSES:          # its legs (the decks run between them)
             _steel_frame(m, spec, gmin, tok, True, legs_only=True)
             continue

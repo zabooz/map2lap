@@ -10,6 +10,7 @@ The parts, each importing only the ones above it (tests/test_part_order.py):
     places   what a footprint is used for and what it is called
     garages  parking structures: decks, ramps and what stands on a road's deck
     sites    what a footprint must not stand on: roads, tunnels, water, medians
+    toll     explicit toll canopies, lane signals, raised gates and service rooms outside every through road
     build    a building's mesh and collision, many buildings' meshes (build_parts)
     planner  plan: one footprint's storeys, roof and look
     photo    the ground photo, brick walks, a tile's footprint share, footprints per map cell, a town's districts
@@ -20,7 +21,7 @@ The parts, each importing only the ones above it (tests/test_part_order.py):
 import sys
 import types
 
-from . import looks, styles, mesh, places, garages, sites, build, planner, photo, tiles, doors, far
+from . import looks, styles, mesh, places, garages, sites, toll, build, planner, photo, tiles, doors, far
 
 from .looks import (
     BAND_BRICK, BLADE_CAP_M, BRICK_WALL, CASTLE_FLOORS, CONCRETE, CORNICE_UP_M, FACADE, FLOOR_M, HALL_CLEAR_M, LETTERS,
@@ -45,6 +46,7 @@ from .sites import (
     road_across, road_lines, road_through, tunnel_lines
 )
 from .build import build, build_parts, collision_mesh
+from .toll import TollRoad, layout_toll, draw_toll
 from .planner import plan
 from .photo import DISTRICT_M, _cell_stats, brick_walks, coverage, district_coverage, fill_photo, photo_mask
 from .tiles import (
@@ -62,7 +64,7 @@ class _Package(types.ModuleType):
     only here would change nothing and a test of it would pass without testing."""
 
     def __setattr__(self, name, value):
-        for part in (looks, styles, mesh, places, garages, sites, build, planner, photo, tiles, doors, far,):
+        for part in (looks, styles, mesh, places, garages, sites, toll, build, planner, photo, tiles, doors, far,):
             if hasattr(part, name):
                 setattr(part, name, value)
         super().__setattr__(name, value)

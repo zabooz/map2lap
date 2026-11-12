@@ -61,7 +61,7 @@ class Spec:
     """What is built for one footprint (decided by plan())."""
     __slots__ = ("ring", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "band", "shop", "plain", "min_h", "wall", "door", "windows", "front", "steeple", "stoop",
                  "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names", "plates", "plate",
-                 "castle")
+                 "castle", "toll")
 
     def __init__(self, **kw):
         for k in self.__slots__:
