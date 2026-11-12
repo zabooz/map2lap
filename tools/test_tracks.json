@@ -884,6 +884,47 @@
    "max_warp_at_m": 188.0
   }
  },
+ "oberstattgutbach_bruecke_test": {
+  "title": "Oberstattgutbach Bridge Test",
+  "about": "Grossglockner road: a mapped 9.18 m bridge over the Oberstattgutbach within a 12.9 km Overture road feature must retain its deck and level regardless of its fraction of the parent road",
+  "points": [
+   [
+    47.16398943,
+    12.81542552
+   ],
+   [
+    47.163093,
+    12.81532463
+   ],
+   [
+    47.16220328,
+    12.81520394
+   ]
+  ],
+  "width": 80.0,
+  "spots": [
+   [
+    "80-120",
+    "the short mapped bridge and both abutments: continuous road and deck over the stream"
+   ]
+  ],
+  "reference": {
+   "off_road_m": 0,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
+   "length_m": 350,
+   "over_05g_m": 2,
+   "lanes_over_05g_m": 2,
+   "max_g": 0.63,
+   "max_g_at_m": 97.0,
+   "edges_m": 0,
+   "transitions": 2,
+   "max_g_transition": 0.63,
+   "warp_m": 0,
+   "max_warp": 0.01,
+   "max_warp_at_m": 97.0
+  }
+ },
  "ferleiten_maut_test": {
   "title": "Ferleiten Toll Station Test",
   "about": "Mapped toll canopy over seven lanes: six forward, one backward; open collision passages, permanently raised barriers and service rooms outside all roads",

@@ -699,6 +699,26 @@ class BuildTileTest(unittest.TestCase):
                       flags=[(0, "is_bridge", 0.2, 0.3), (0, "is_tunnel", 0.3, 0.8)])
         self.assertEqual([k for _, _, k in roads.level_ranges(f2, 0)], ["tunnel", "bridge", "tunnel"])
 
+    def test_short_mapped_bridge_keeps_geometry_and_level(self):
+        """Oberstattgutbach's 9.18 m bridge on a 12.9 km feature must not disappear into the ground cutout."""
+        a, b = 0.9578909277915955, 0.9586033225059509
+        f = features([[(0, 0), (12900.058324, 0)]], ["tertiary"],
+                     flags=[(0, "is_bridge", a, b)], levels=[(0, 2.0, a, b)])
+        ground = roads.ground_parts(f, 0)
+        deck = roads.bridge_parts(f, 0)
+        self.assertEqual(len(deck), 1, "a real bridge survives even below 0.1% of its parent road")
+        self.assertEqual(roads.BridgeProfiles.levels_of(f, 0), [2.0])
+        self.assertEqual(len(ground), 2)
+        np.testing.assert_allclose(ground[0][-1], deck[0][0], atol=1e-12)
+        np.testing.assert_allclose(deck[0][-1], ground[1][0], atol=1e-12)
+        length = (deck[0][-1, 0] - deck[0][0, 0]) * M_LON
+        self.assertAlmostEqual(length, 9.19, places=2)
+
+    def test_short_mapped_bridge_level_without_an_explicit_level(self):
+        f = features([[(0, 0), (13000, 0)]], ["tertiary"],
+                     flags=[(0, "is_bridge", 0.5, 0.5007)])
+        self.assertEqual(roads.BridgeProfiles.levels_of(f, 0), [1.0])
+
     def test_partial_bridge_kept_and_decked(self):
         # 400 m street; level 1 on 40-60 % of it (a bridge in the middle): ground parts drawn, the
         # bridge part a deck between the two abutments' heights (the ground slopes 5 % east)

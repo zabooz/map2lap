@@ -682,7 +682,10 @@ def _parts_by_level_new(feats, i, want, rngs=None):
         if 1.0 - at > MIN_PART:
             pieces.append((at, 1.0))
     else:
-        pieces = [(a, b) for a, b, k in rngs if k == want and b - a > MIN_PART]
+        # A real bridge must survive whatever its parent road's length: Oberstattgutbach's 9.18 m deck
+        # occupies only 0.071% of a 12.9 km feature. Ground already omits that range, so dropping it leaves a hole.
+        pieces = [(a, b) for a, b, k in rngs
+                  if k == want and b > a and (want == "bridge" or b - a > MIN_PART)]
     out = []
     for part in feats.parts(i):
         for ring in part:
@@ -701,7 +704,7 @@ def bridge_levels(feats, i):
     t = feats.rules.get("level")
     lv = []
     for a, b, k in level_ranges(feats, i):
-        if k != "bridge" or b - a <= MIN_PART:
+        if k != "bridge" or b <= a:       # same positive bridge ranges as bridge_parts, regardless of parent length
             continue
         best = 1.0
         if t is not None and len(t.feature):
