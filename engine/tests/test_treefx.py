@@ -120,10 +120,11 @@ class KindsTest(unittest.TestCase):
             model = treefx.model_of(sprite)
             self.assertTrue(model is None or model in treefx.MODELS, sprite)
 
-    def test_the_kinds_without_a_3d_form_stay_billboards(self):
+    def test_regional_kinds_have_their_own_forms_and_unknown_sprites_can_stay_billboards(self):
         for sprite in ("palm", "olive", "stone_pine", "cypress", "acacia", "baobab", "tropical", "juniper", "dry_shrub",
                        "jungle_bush"):
-            self.assertIsNone(treefx.model_of(sprite), sprite)
+            self.assertEqual(sprite, treefx.model_of(sprite), sprite)
+        self.assertIsNone(treefx.model_of("future_species"))
         self.assertEqual("broadleaf", treefx.model_of("linden"))
         self.assertEqual("spruce", treefx.model_of("conifer2"))
 
@@ -158,15 +159,19 @@ class SplitTest(unittest.TestCase):
         self.assertEqual([], rest)
         self.assertEqual([treefx.placement(model, (10.0, 5.0 - trees.SINK_M, -20.0), 33.0, 12.0, ratio)], placed)
 
-    def test_a_kind_without_a_model_stays_a_billboard(self):
+    def test_a_palm_uses_its_own_model(self):
         palm = ("palm", 0.0, 0.0, 1.0, 0.0, 9.0, 0.5)
-        self.assertEqual(([palm], []), trees.treefx_split([palm]))
+        rest, placed = trees.treefx_split([palm])
+        self.assertEqual([], rest)
+        self.assertEqual("palm", placed[0]["model"])
 
-    def test_a_look_of_the_zone_without_a_model_stays_a_billboard(self):
+    def test_a_mediterranean_look_uses_its_olive_model(self):
         olive = next(t for t in (("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, k / 1000) for k in range(8))
                      if trees.look_of({**trees.STYLE, **trees.ZONE_STYLE["mediterranean"]}, "deciduous", "mediterranean",
                                       1.0, t[6])[0] == "olive")
-        self.assertEqual(([olive], []), trees.treefx_split([olive], zone="mediterranean"))
+        rest, placed = trees.treefx_split([olive], zone="mediterranean")
+        self.assertEqual([], rest)
+        self.assertEqual("olive", placed[0]["model"])
 
     def test_a_tree_in_water_is_none_and_a_rock_stays_with_the_rest(self):
         rock = ("rock", 0.0, 0.0, 1.0, 0.0, 2.0, 0.5)
@@ -198,8 +203,8 @@ class SwitchTest(unittest.TestCase):
     def test_on_the_trees_with_a_model_go_to_the_tile_s_list(self):
         items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0)]
         listed = objectlist.TileList()
-        self.assertEqual(items[1:], make_obj.to_treefx(listed, items, None, "temperate", True))
-        self.assertEqual(trees.treefx_split(items[:1])[1], listed.treefx)
+        self.assertEqual([], make_obj.to_treefx(listed, items, None, "temperate", True))
+        self.assertEqual(trees.treefx_split(items)[1], listed.treefx)
 
 
 class TrackFolderTest(unittest.TestCase):

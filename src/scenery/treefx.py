@@ -34,10 +34,12 @@ GROW = 1.3                  # card size per halving of the cards: the crown stay
 # its kind (the billboards' sprites run from 0.22 to 1.3 of their height wide, a model from about 0.3 to 1.3)
 WIDTH_RANGE = (0.6, 1.6)
 
-# the billboard sprite (trees.SPRITES) each model stands for; the rest have no 3D form yet and stay billboards
+# Every generated tree and bush sprite has a form. Unknown future sprites can still fall back to billboards.
 MODEL_OF = {"deciduous": "broadleaf", "deciduous2": "broadleaf", "linden": "broadleaf", "birch": "birch",
-            "conifer": "spruce", "conifer2": "spruce", "spruce": "spruce", "pine": "spruce", "larch": "larch",
-            "shrub": "shrub", "shrub_flowers": "shrub_flowers"}
+            "conifer": "spruce", "conifer2": "spruce", "spruce": "spruce", "pine": "pine", "larch": "larch",
+            "shrub": "shrub", "shrub_flowers": "shrub_flowers",
+            **{name: name for name in ("stone_pine", "cypress", "olive", "acacia", "baobab", "palm", "tropical",
+                                      "juniper", "dry_shrub", "jungle_bush")}}
 
 
 def model_of(sprite):
@@ -59,7 +61,7 @@ def mirror_v(img):
     return img
 
 
-def leaf_clump(rng, green, tint, n=34, size=(26, 52), light=0.25, flowers=None):
+def leaf_clump(rng, green, tint, n=34, size=(26, 52), light=0.25, flowers=None, roundness=.5):
     """A round clump of leaf dabs, as the sprites paint their crowns (trees._dabs), on a transparent region; rng: its
     random.Random, green: the base green, tint: red and blue over green, flowers: their count."""
     img = Image.new("RGBA", (T, T), (0, 0, 0, 0))
@@ -69,7 +71,7 @@ def leaf_clump(rng, green, tint, n=34, size=(26, 52), light=0.25, flowers=None):
         a, r = rng.uniform(0, 2 * math.pi), math.sqrt(rng.random())
         s = rng.uniform(*size)
         rr = max(0.0, r * (r0 - s))
-        x, y = c + math.cos(a) * rr, c + math.sin(a) * rr * 0.5          # (top half only: mirrored)
+        x, y = c + math.cos(a) * rr, c + math.sin(a) * rr * roundness   # (top half only: mirrored)
         g = int(min(255, green * (1 - light / 2 + light * rng.random()) + rng.uniform(-10, 10)))
         d.ellipse([x - s, y - s, x + s, y + s], fill=(int(g * tint[0]), g, int(g * tint[1]), 255))
     for _ in range(flowers or 0):
@@ -279,9 +281,303 @@ def _shrub(rng, seed, flowers=None):
     return tex, [bush(seed, lod, 14, 1.6, 1.05, 1.1) for lod in range(3)]
 
 
+def _branch(m, start, end, r0, r1, lod):
+    """A tapered bark branch from start to end into m, with the same axis at every lod."""
+    start, end = np.asarray(start), np.asarray(end)
+    direction = unit(end - start)
+    right = np.cross(direction, [0, 1, 0])
+    right = unit(right) if np.linalg.norm(right) > 1e-6 else np.array([1., 0, 0])
+    front = unit(np.cross(direction, right))
+    sides = (6, 5, 4)[lod]
+    u0, v0, u1, v1 = uv_rect("D", 0)
+    for k in range(sides):
+        normals = [right * math.cos(2 * math.pi * j / sides) + front * math.sin(2 * math.pi * j / sides) for j in (k, k + 1)]
+        a, b = normals
+        corners = [start + r0 * a, start + r0 * b, end + r1 * b, end + r1 * a]
+        for point in corners:
+            point[1] = max(0., point[1])       # a tilted root ring meets the ground at the foot, never below its origin
+        m.quad(corners, [a, b, b, a],
+               (u0 + (u1 - u0) * k / sides, v0, u0 + (u1 - u0) * (k + 1) / sides, v1))
+
+
+def _stem(m, path, radii, lod, rect=None):
+    """A curved or bottle-shaped trunk into m: path's centres and their radii; coarse lods retain its end points."""
+    indices = sorted({0, len(path) - 1, *range(0, len(path), 2 if lod == 2 else 1)})
+    sides = (6, 5, 4)[lod]
+    rect = rect or uv_rect("D", 0)
+    u0, v0, u1, v1 = rect
+    for a, b in zip(indices, indices[1:]):
+        for k in range(sides):
+            # Shared horizontal rings: independent cylinders have differently tilted end rings and leave cracks at a bend.
+            normals = [np.array([math.cos(2 * math.pi * j / sides), 0, math.sin(2 * math.pi * j / sides)]) for j in (k, k + 1)]
+            n0, n1 = normals
+            start, end = np.asarray(path[a]), np.asarray(path[b])
+            m.quad([start + radii[a] * n0, start + radii[a] * n1, end + radii[b] * n1, end + radii[b] * n0],
+                   [n0, n1, n1, n0], (u0 + (u1 - u0) * k / sides, v0 + (v1 - v0) * start[1] / path[-1][1],
+                                       u0 + (u1 - u0) * (k + 1) / sides, v0 + (v1 - v0) * end[1] / path[-1][1]))
+    # Forks do not cover a thick trunk's whole top: without caps the baobab is visibly hollow from above.
+    for index, sign in ((0, -1), (-1, 1)):
+        centre = np.asarray(path[index])
+        ring = [centre + radii[index] * np.array([math.cos(2 * math.pi * k / sides), 0,
+                                                math.sin(2 * math.pi * k / sides)]) for k in range(sides)]
+        for k in range(0, sides, 2):
+            corners = [centre, ring[k], ring[(k + 1) % sides], ring[(k + 2) % sides] if k + 2 <= sides else centre]
+            m.quad(corners[::sign], [[0, sign, 0]] * 4, rect)
+
+
+def _crown(m, seed, lod, centre, radii, count, card_m):
+    """A regional crown clump into m, as the accepted broadleaf's shell of leaf cards; its centre stays across lods."""
+    rng, centre = random.Random(seed), np.asarray(centre)
+    full = []
+    for _ in range(count):
+        while True:
+            q = np.array([rng.uniform(-1, 1) for _axis in range(3)])
+            if .4 <= np.linalg.norm(q) <= 1:
+                break
+        pos = centre + q * np.asarray(radii)
+        full.append((pos, card_m * rng.uniform(.85, 1.15), rng.uniform(0, 2 * math.pi), rng.uniform(-.6, .6), q[1] < -.2))
+    rng.shuffle(full)
+    first = len(m.p)
+    _cards(m, full, lod, centre)
+    for i in range(first, len(m.p)):
+        x, y, z = m.p[i]
+        m.p[i] = (x, max(0., y), z)           # coarse cards of low bushes meet the same ground as their fine leaves
+
+
+def _foliage(rng, green, tint, wood, leaf_size=(16, 32)):
+    """The same painted atlas as broadleaf, in a species' greens and bark; leaf_size is the range of dab radii. Pure."""
+    # Small individual leaves still fill a clump: a fixed dab count makes olive/acacia crowns look like isolated dots.
+    count = max(60, round(50000 / (sum(leaf_size) / 2) ** 2))
+    return atlas({"A": leaf_clump(rng, green, tint, n=count, size=leaf_size, roundness=.8),
+                  "B": leaf_clump(rng, round(green * .7), tint, n=count, size=leaf_size, roundness=.8), "D": bark(rng, wood)})
+
+
+def _pine(rng, seed):
+    """Scots/ponderosa pine: long bare reddish trunk, irregular high needle clumps. Pure."""
+    tex = _foliage(rng, 76, (.38, .5), (148, 86, 56), (10, 23))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        trunk(m, 10.8, .25, .10, (6, 5, 4)[lod], uv_rect("D", 0))
+        for k, centre in enumerate(((0, 11, 0), (2, 9.7, .5), (-1.7, 9.2, 1), (.3, 8.4, -1.9))):
+            _branch(m, (0, centre[1] - 1, 0), centre, .08, .035, lod)
+            _crown(m, seed + k, lod, centre, (1.4, .45, 1.3), 10, 1.35)
+        lods.append(m)
+    return tex, lods
+
+
+def _stone_pine(rng, seed):
+    """Mediterranean stone pine: forked bare trunk under a broad flat umbrella. Pure."""
+    tex = _foliage(rng, 84, (.4, .42), (104, 74, 54), (12, 26))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        trunk(m, 6, .23, .13, (6, 5, 4)[lod], uv_rect("D", 0))
+        for k, centre in enumerate(((-2.1, 7.2, 0), (1.5, 7.4, 1.3), (1, 7.3, -1.8))):
+            _branch(m, (0, 5.2, 0), centre, .13, .05, lod)
+            _crown(m, seed + k, lod, centre, (2, .45, 1.9), 14, 1.55)
+        lods.append(m)
+    return tex, lods
+
+
+def _cypress(rng, seed):
+    """Italian cypress: pointed narrow dark column with foliage almost down to its foot. Pure."""
+    tex = _foliage(rng, 78, (.34, .36), (80, 58, 42), (8, 16))
+    # A cypress has a continuous narrow body, not a stack of spruce skirts or disconnected leaf puffs.
+    core = Image.new("RGBA", (T, T), (23, 66, 25, 255))
+    leaves = tex.crop((0, 0, T, T))
+    core.alpha_composite(leaves)
+    tex.paste(core, (0, T))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        trunk(m, .5, .13, .10, (6, 5, 4)[lod], uv_rect("D", 0))
+        _stem(m, [(0, .3, 0), (.04, 1.3, 0), (0, 3, .02), (-.05, 4.8, 0), (0, 6.5, .03),
+                  (.05, 8, 0), (0, 9.1, 0)], [.3, .5, .62, .65, .55, .32, .015], lod, uv_rect("C"))
+        _crown(m, seed, lod, (0, 4.5, 0), (.25, 3.3, .25), 24, .75)
+        lods.append(m)
+    return tex, lods
+
+
+def _olive(rng, seed):
+    """Olive: two irregular grey stems and a low, open silver-green crown. Pure."""
+    tex = _foliage(rng, 90, (.74, .64), (88, 78, 66), (9, 20))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        for side in (-1, 1):
+            _stem(m, [(side * .12, 0, 0), (side * .3, 1.1, .1), (side * .18, 2, -.15), (side * .8, 2.9, .1),
+                      (side * 1.2, 3.9 + .1 * side, -.1 * side)], [.22, .18, .14, .09, .035], lod)
+        _branch(m, (0, 1.8, 0), (0, 3.7, 1.2), .13, .04, lod)
+        for k, centre in enumerate(((-1.2, 3.9, .2), (1.1, 4.1, -.3), (0, 3.7, 1.2))):
+            _crown(m, seed + k, lod, centre, (1.0, .7, 1.0), 14, 1.65)
+        lods.append(m)
+    return tex, lods
+
+
+def _acacia(rng, seed):
+    """Umbrella thorn acacia: thin spreading branches and a very wide flat-topped crown. Pure."""
+    tex = _foliage(rng, 104, (.66, .32), (88, 66, 50), (8, 17))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        trunk(m, 4.7, .18, .10, (6, 5, 4)[lod], uv_rect("D", 0))
+        for k, centre in enumerate(((-2.5, 6.0, -.8), (2.3, 6.1, -.7), (.2, 6.2, 2.0))):
+            x, y, z = centre
+            _stem(m, [(0, 3.9, 0), (x * .55, y - .7, z * .55), centre], [.12, .08, .035], lod)
+            _crown(m, seed + k, lod, centre, (1.8, .35, 1.7), 16, 1.85)
+        lods.append(m)
+    return tex, lods
+
+
+def _baobab(rng, seed):
+    """Baobab: broad bottle-shaped trunk with short upward branches and small leaf clumps. Pure."""
+    tex = _foliage(rng, 100, (.6, .3), (150, 132, 112), (8, 18))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        _stem(m, [(0, 0, 0), (0, 2.6, 0), (.12, 5.3, .05), (0, 6.5, 0)], [1.05, 1.35, .85, .45], lod)
+        for k in range(6):
+            a = 2 * math.pi * k / 6
+            centre = (2.5 * math.cos(a), 7.8 + .3 * (k % 2), 2.5 * math.sin(a))
+            _branch(m, (0, 5.8, 0), centre, .26, .08, lod)
+            _crown(m, seed + k, lod, centre, (.65, .4, .65), 8, 1.45)
+        lods.append(m)
+    return tex, lods
+
+
+def _blade(rng, green, tint, feather=False):
+    """A painted long leaf along u, mirrored around its central vein; feather makes palm leaflets. Pure."""
+    img = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    colour = (int(green * tint[0]), green, int(green * tint[1]), 255)
+    vein = (int(green * tint[0] * .7), int(green * .75), int(green * tint[1] * .7), 255)
+    length, y = T - 2 * PADPX, T // 2 - 1
+    if feather:
+        for k in range(28):
+            t = (k + 1) / 29
+            x = PADPX + length * t
+            reach = math.sin(math.pi * t) ** .6 * 78
+            d.polygon([(x - 4, y), (x - reach * .28, y - reach), (x + 4, y)], fill=colour)
+    else:
+        edge = [(PADPX + length * k / 18, y - 75 * math.sin(math.pi * k / 18) ** .8) for k in range(19)]
+        d.polygon([(PADPX, y), *edge, (T - PADPX, y)], fill=colour)
+        for k in range(1, 15):
+            t = k / 16
+            x = PADPX + length * t
+            d.line([(x, y), (x + 12, y - 65 * math.sin(math.pi * t) ** .8)], fill=vein, width=2)
+    d.line([(PADPX, y), (T - PADPX, y)], fill=vein, width=3)
+    return mirror_v(img)
+
+
+def _frond(m, base, angle, length, width, rise, drop, lod, rect, camber=0):
+    """A bent leaf ribbon into m, root to tip along u; the same arch with fewer segments in coarser lods."""
+    direction = np.array([math.cos(angle), 0, math.sin(angle)])
+    side = np.array([-math.sin(angle), 0, math.cos(angle)])
+    u0, v0, u1, v1 = rect
+    segments = (6, 4, 2)[lod] if camber else (4, 3, 2)[lod]
+    for k in range(segments):
+        values = []
+        for t in (k / segments, (k + 1) / segments):
+            p = np.asarray(base) + direction * length * t + [0, rise * math.sin(math.pi * t) - drop * t * t, 0]
+            w = max(.035, width * math.sin(math.pi * t) ** .65 / 2)
+            values.append((p, w))
+        (a, wa), (b, wb) = values
+        normal = unit(np.cross(b - a, -side))
+        if camber:
+            # A broad leaf curves across its vein too: flat ribbons have conspicuous horizontal shoulders at the arch.
+            for sign in (1, -1):
+                edge_a = a + sign * side * wa - np.array([0, camber * wa, 0])
+                edge_b = b + sign * side * wb - np.array([0, camber * wb, 0])
+                corners = [edge_a, edge_b, b, a] if sign == 1 else [a, b, edge_b, edge_a]
+                vm = (v0 + v1) / 2
+                m.quad(corners, [normal] * 4, (u0 + (u1 - u0) * k / segments, v0 if sign == 1 else vm,
+                                             u0 + (u1 - u0) * (k + 1) / segments, vm if sign == 1 else v1))
+        else:
+            m.quad([a + side * wa, b + side * wb, b - side * wb, a - side * wa], [normal] * 4,
+                   (u0 + (u1 - u0) * k / segments, v0, u0 + (u1 - u0) * (k + 1) / segments, v1))
+
+
+def _palm(rng, seed):
+    """Palm: ringed curved trunk and a radial crown of long drooping feathered fronds. Pure."""
+    wood = bark(rng, (150, 122, 88))
+    d = ImageDraw.Draw(wood)
+    for y in range(8, T // 2, 18):
+        d.line([(0, y), (T, y + 4)], fill=(112, 88, 62, 255), width=3)
+    tex = atlas({"C": _blade(rng, 112, (.5, .3), feather=True), "D": mirror_v(wood)})
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        _stem(m, [(0, 0, 0), (.3, 3, 0), (.6, 6, .1), (.4, 9, .2)], [.2, .18, .15, .12], lod)
+        for k in range(12):
+            _frond(m, (.4, 9, .2), 2 * math.pi * k / 12, 3.5 + .3 * (k % 3), .9, .7, 1.7 + .25 * (k % 2), lod, uv_rect("C"))
+        lods.append(m)
+    return tex, lods
+
+
+def _tropical(rng, seed):
+    """Rainforest tree: pale tall trunk and several dense deep-green crown lobes. Pure."""
+    tex = _foliage(rng, 88, (.32, .26), (168, 158, 138), (14, 30))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        trunk(m, 9, .34, .17, (6, 5, 4)[lod], uv_rect("D", 0))
+        for k, centre in enumerate(((0, 10.8, 0), (-1.5, 10, .2), (1.5, 10, 1), (0, 9.6, -1.6))):
+            _branch(m, (0, 7.8, 0), centre, .13, .06, lod)
+            _crown(m, seed + k, lod, centre, (1.2, .9, 1.15), 12, 2.4)
+        lods.append(m)
+    return tex, lods
+
+
+def _juniper(rng, seed):
+    """Juniper: dense irregular blue-green foliage down to the ground. Pure."""
+    tex = _foliage(rng, 82, (.46, .62), (92, 70, 52), (8, 17))
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        trunk(m, 3.1, .11, .04, (6, 5, 4)[lod], uv_rect("D", 0))
+        _crown(m, seed, lod, (0, 2.1, 0), (.55, 1.3, .5), 44, 1.2)
+        for k, centre in enumerate(((-.4, .9, .15), (.45, 1.1, -.2))):
+            _crown(m, seed + k + 1, lod, centre, (.4, .45, .35), 10, 1.1)
+        lods.append(m)
+    return tex, lods
+
+
+def _dry_shrub(rng, seed):
+    """Dry-country bush: sparse olive/tan leaves and exposed brown twigs. Pure."""
+    tex = atlas({"A": leaf_clump(rng, 100, (.72, .44), n=20, size=(9, 18)),
+                 "B": leaf_clump(rng, 88, (1.08, .70), n=15, size=(8, 17)), "D": bark(rng, (104, 86, 66))})
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        for k in range(6):
+            a = 2 * math.pi * k / 6
+            _branch(m, (0, 0, 0), (.6 * math.cos(a), .8 + .1 * (k % 2), .6 * math.sin(a)), .025, .012, lod)
+        _crown(m, seed, lod, (0, .65, 0), (.55, .3, .55), 14, .45)
+        lods.append(m)
+    return tex, lods
+
+
+def _jungle_bush(rng, seed):
+    """Tropical undergrowth: broad painted leaves fan out from the ground, with no tree trunk. Pure."""
+    tex = atlas({"A": _blade(rng, 124, (.38, .26)), "B": _blade(rng, 98, (.38, .26))})
+    lods = []
+    for lod in range(3):
+        m = Mesh()
+        for k in range(10):
+            _frond(m, (0, .1, 0), 2 * math.pi * k / 10 + .12 * math.sin(k), 1.15 + .15 * (k % 3), .75,
+                   .8 + .2 * (k % 5), .05, lod, uv_rect("B" if k % 3 == 0 else "A"), camber=.65)
+        lods.append(m)
+    return tex, lods
+
+
 # name: (seed, painter and builder): the colours and shapes of the sprites in trees.py; the seeds of the trial of 2026-11-12
 MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102, _spruce), "larch": (103, _larch),
-          "shrub": (104, _shrub), "shrub_flowers": (105, lambda rng, seed: _shrub(rng, seed, flowers=9))}
+          "shrub": (104, _shrub), "shrub_flowers": (105, lambda rng, seed: _shrub(rng, seed, flowers=9)),
+          **{name: (106 + i, make) for i, (name, make) in enumerate((
+              ("pine", _pine), ("stone_pine", _stone_pine), ("cypress", _cypress), ("olive", _olive), ("acacia", _acacia),
+              ("baobab", _baobab), ("palm", _palm), ("tropical", _tropical), ("juniper", _juniper),
+              ("dry_shrub", _dry_shrub), ("jungle_bush", _jungle_bush)))}}
 
 
 @functools.lru_cache(maxsize=None)

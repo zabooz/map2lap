@@ -242,8 +242,10 @@ _Avoid_: waypoint, stop
 A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`, `plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
 
 **TreeFX trees**: trees as CSP draws them from 3D models (`scenery/treefx.py`): a track's `extension/trees/trees.txt` places
-`.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. Our models stand for the billboard
-sprites that have a 3D form (`treefx.MODEL_OF`); the others stay billboards. A build writes them only with
+`.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. All 21 generated tree and bush sprites
+have a 3D form (`treefx.MODEL_OF`): 17 models, including regional trees, dry and tropical bushes, and a separate pine.
+The accepted broadleaf, birch, spruce, larch and two shrub models keep their geometry and textures. Unknown future sprites
+can still fall back to billboards. A build writes them only with
 `generator.py --treefx` (anchor.json `"treefx"`), for now into the test copy `heiligenblut_trees3d`: the Editor learns them
 before builds do it by default. The **object list** holds each as model and placement under an id `trees#<number>` that stays
 its tree's (its section `treefx`, "next": the first number never given); trees.txt is made from it.
