@@ -1369,9 +1369,11 @@ function glass.setup()
       if not lr.captureView then
         lr.captureView = ui.ExtraCanvas(vec2(960,540),1)
         lr.capturePass = {async = true, cacheKey = 205, blendMode = render.BlendMode.Opaque,
-          textures = {txSource = 'dynamic::hdr'}, shader = [[
+          textures = {txSource = 'dynamic::hdr', txBackground = rustRain.scene}, shader = [[
             float4 main(PS_IN pin) {
-              float3 c=max(0,txSource.SampleLevel(samLinearSimple,pin.Tex,0).rgb);
+              float2 uv=float2(frac(pin.Tex.x*2),pin.Tex.y);
+              float3 c=max(0,pin.Tex.x<0.5 ? txSource.SampleLevel(samLinearSimple,uv,0).rgb
+                : txBackground.SampleLevel(samLinearSimple,uv,0).rgb);
               return float4(pow(c/(1+c),1/2.2),1);
             }
           ]]}
@@ -1891,6 +1893,13 @@ float4 main(PS_IN pin) {
           // CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
           // ws_rain.frag: depth normals displace a separate scene copy, then darken slightly.
           if (gRefract < 0.5 || depth <= 0.001) return 0;
+          float2 screenUV = pin.PosH.xy/gScreen;
+          float4 background = txSceneCopy.SampleLevel(samLinearSimple,screenUV,0);
+          // Scene alpha stores camera distance, not water opacity. Keep cockpit
+          // geometry and the wiper assembly unwarped. The 20 cm allowance includes
+          // arms standing above the pane; objects this close stay optically sharp.
+          float foregroundLimit = length(pin.PosC) + 0.2;
+          if (background.a <= foregroundLimit) return 0;
           float2 normal = 2 * txLibrainNormal.SampleLevel(samLinearSimple,uv,0).xy - 1;
           // Cockpit adaptation: restrained lens displacement, without added reflections.
           float2 displacement = normal * 12;
@@ -1903,8 +1912,11 @@ float4 main(PS_IN pin) {
             [unroll] for (int x = -2; x <= 2; x++) {
               float wx = x == 0 ? 0.4 : (abs(x) == 1 ? 0.2 : 0.1);
               float wy = y == 0 ? 0.4 : (abs(y) == 1 ? 0.2 : 0.1);
-              colour += txSceneCopy.SampleLevel(samLinearSimple,
-                saturate((centre + depthRatio*float2(x,y))/gScreen),0).rgb * wx*wy;
+              float4 sampleColour = txSceneCopy.SampleLevel(samLinearSimple,
+                saturate((centre + depthRatio*float2(x,y))/gScreen),0);
+              // Reject foreground source pixels too: otherwise the intact blade
+              // would still have displaced black copies around its silhouette.
+              colour += (sampleColour.a <= foregroundLimit ? background.rgb : sampleColour.rgb) * wx*wy;
             }
           }
           float darkening = length(displacement)/800/2;
@@ -2220,10 +2232,13 @@ float4 main(PS_IN pin) {
         if r.scene then r.scene:dispose() end
         r.scene = ui.ExtraCanvas(size, 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L rain background')
         r.scenePass = {async = true, cacheKey = 94, blendMode = render.BlendMode.Opaque,
-          textures = {txSource = 'dynamic::hdr'}, shader = [[
+          textures = {txSource = 'dynamic::hdr', txSceneDepth = 'dynamic::depth'}, shader = [[
             float4 main(PS_IN pin) {
               float3 c = txSource.SampleLevel(samLinearSimple, pin.Tex, 0).rgb;
-              return float4(c, dot(c, c) > 1e-10 ? 1 : 0);
+              float depth = txSceneDepth.SampleLevel(samPointClamp,pin.Tex,0).r;
+              float4 cameraPoint = mul(float4(pin.Tex,depth,1),gTexToCamera);
+              float distance = length(cameraPoint.xyz/max(abs(cameraPoint.w),1e-8));
+              return float4(c,min(distance,60000));
             }
           ]]}
       end
