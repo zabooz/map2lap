@@ -22,6 +22,8 @@ type Grabbed = GrabbedVertices | {id: string; modelMatrix: THREE.Matrix4};
 interface Drag {
   ids: string[]; plane: THREE.Plane; from: THREE.Vector3; x: number; y: number; grabbed: Grabbed[]; pivots: Map<string, number[]>;
   ground: Map<string, number | null>; rises: Map<string, number>; way: THREE.Vector3;
+  grip: THREE.Vector3 | null;   // the grabbed point less the ground under the picked one's pivot; null: the mouse goes on plane
+  foot: THREE.Vector3;          // that ground point
 }
 
 /** What the mover needs of the view it serves. */
@@ -32,8 +34,9 @@ export interface MoverHost {
   models(): ModelDraw;                  // the track's imported models
   data(): TrackIndex | null;            // the track's index as the view has it now
   mesh(i: number): THREE.Mesh | undefined;      // the loaded mesh number i
-  pick(e: PointerEvent, el: HTMLElement): Picked | null;     // what a press at e picks
+  pick(e: PointerEvent, el: HTMLElement, point: THREE.Vector3): Picked | null; // what a press at e picks, its actual hit in point
   groundAt(x: number, z: number): number | null;  // the ground's height there, null off the loaded terrain
+  groundAlong(origin: THREE.Vector3, direction: THREE.Vector3): THREE.Vector3 | null;    // where a ray first meets the ground
   farthest(): number;                   // how far the ground can be seen: a drag towards the horizon stops there
   busy(): boolean;                      // the left button is another's (a brush)
   meshChanged(i: number): void;         // mesh number i shows other than the server's: it is fetched again if nothing replaces it
@@ -226,16 +229,28 @@ export class ObjectMover {
   attach(el: HTMLElement) {
     el.addEventListener("pointerdown", e => {
       if (!this.moveTool || this.host.busy() || e.button !== LEFT_BUTTON) return;
-      const picked = this.host.pick(e, el), selection = this.host.selection;
+      const point = new THREE.Vector3(), picked = this.host.pick(e, el, point), selection = this.host.selection;
       if (!picked?.id || !selection.has(picked.id)) return;
       const ids = selection.ids().filter(id => this.canMove(id));
       if (!ids.includes(picked.id)) return;
       const pivots = new Map(ids.map(id => [id, this.pivotOf(id)]));
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pivots.get(picked.id)![1]), from = new THREE.Vector3();
       this.picker.setFromCamera(screenPoint(e, el), this.host.camera);
-      if (!this.picker.ray.intersectPlane(plane, from)) return;
+      // Grab where the ray hit, not at the foot: a crown is nearer than the ray's ground intersection, so a foot plane
+      // moves it faster than the mouse. Within about 6 degrees of horizontal, that plane amplifies motion over tenfold
+      // or crosses the horizon; use a facing plane there and retain only its horizontal displacement below.
+      const normal = Math.abs(this.picker.ray.direction.y) < .1
+        ? this.host.camera.getWorldDirection(new THREE.Vector3()) : new THREE.Vector3(0, 1, 0);
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point), from = new THREE.Vector3();
+      if (!this.picker.ray.intersectPlane(plane, from) || from.distanceTo(this.host.camera.position) > this.host.farthest()) return;
       const ground = new Map(ids.map(id => { const [x, , z] = pivots.get(id)!; return [id, this.host.groundAt(x, z)]; }));
-      this.dragging = {ids, plane, from, x: e.clientX, y: e.clientY, grabbed: this.grab(ids), pivots, ground, rises: new Map(), way: new THREE.Vector3()};
+      // On a slope a level plane put the mouse at the grab's old height and the ground raised it after: uphill it slid away
+      // from the mouse. Kept as the grabbed point less the ground under the pivot, the mouse's ray shifted back by it meets the
+      // ground where the pivot goes, and the grabbed point, raised with the ground, stays on the ray. (Near level, where that
+      // ray grazes the ground, the facing plane above.)
+      const [px, , pz] = pivots.get(picked.id)!, under = ground.get(picked.id), foot = new THREE.Vector3(px, under ?? 0, pz);
+      const grip = normal.y === 1 && under != null ? point.clone().sub(foot) : null;
+      this.dragging = {ids, plane, from, x: e.clientX, y: e.clientY, grabbed: this.grab(ids), pivots, ground, rises: new Map(),
+        way: new THREE.Vector3(), grip, foot};
       el.setPointerCapture(e.pointerId);
     });
     el.addEventListener("pointermove", e => {
@@ -244,9 +259,15 @@ export class ObjectMover {
       if (!(e.buttons & LEFT_HELD)) return this.dropDrag();
       if (!d.way.lengthSq() && Math.hypot(e.clientX - d.x, e.clientY - d.y) < CLICK_PX) return;     // (a click with a shaky hand)
       this.picker.setFromCamera(screenPoint(e, el), this.host.camera);
-      const at = new THREE.Vector3();
-      if (!this.picker.ray.intersectPlane(d.plane, at) || at.distanceTo(this.host.camera.position) > this.host.farthest()) return;    // (at the horizon)
-      d.way.set(at.x - d.from.x, 0, at.z - d.from.z);
+      if (d.grip) {
+        const {ray} = this.picker, foot = this.host.groundAlong(ray.origin.clone().sub(d.grip), ray.direction);
+        if (!foot || foot.clone().add(d.grip).distanceTo(this.host.camera.position) > this.host.farthest()) return;    // (sky, horizon)
+        d.way.set(foot.x - d.foot.x, 0, foot.z - d.foot.z);
+      } else {
+        const at = new THREE.Vector3();
+        if (!this.picker.ray.intersectPlane(d.plane, at) || at.distanceTo(this.host.camera.position) > this.host.farthest()) return;    // (at the horizon)
+        d.way.set(at.x - d.from.x, 0, at.z - d.from.z);
+      }
       this.host.cursorChanged();
       this.dragOn(d.grabbed);
     });

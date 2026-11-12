@@ -69,6 +69,24 @@ test("M takes up Move; a tree dragged goes where it is let go, kept in the draft
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
 });
 
+test("Select then Transform keeps a tree under the mouse on the first drag", async ({page}) => {
+  await openEditor(page);
+  await scene(page).focus();
+  await page.keyboard.press("v");
+  const from = await findTree(page);
+  await page.mouse.click(from.x, from.y);
+  await expect(page.locator("#edit-picked")).toContainText("Tree");
+  await page.keyboard.press("m");
+  await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
+  const to = {x: from.x + 100, y: from.y};
+  await dragMouse(page, from, to);
+  await saved(page);
+  await page.mouse.move(to.x + 1, to.y);
+  await page.mouse.move(to.x, to.y);
+  await expect(page.locator("#hover-box")).toContainText(NEAR_TREE);
+  expect((await placed(page))[0].id).toBe(NEAR_TREE);
+});
+
 test("a house picked is turned, raised and sized by the wheel with Shift, Ctrl and Alt, its sign with it; Reset puts it back", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", house: true});
   await openEditor(page);

@@ -183,7 +183,8 @@ export class TrackView {
     });
     this.mover = new ObjectMover({
       camera: this.camera, objects: this.objects, selection: this.selection, models: () => this.modelDraw, data: () => this.data,
-      mesh: i => this.byNumber.get(i), pick: (e, el) => this.pick(e, el), groundAt: (x, z) => this.groundAt(x, z),
+      mesh: i => this.byNumber.get(i), pick: (e, el, point) => this.pick(e, el, point), groundAt: (x, z) => this.groundAt(x, z),
+      groundAlong: (origin, direction) => this.groundAlong(origin, direction)?.point ?? null,
       farthest: () => 2 * this.navigation.highest, busy: () => !!this.brush.current,
       meshChanged: i => { this.geometryPreview.changedMeshes.add(i); },
       reloadKept: ids => {
@@ -879,10 +880,11 @@ export class TrackView {
   }
 
   /** What a click picks (Selection.pick) of what is under the mouse at e. */
-  private pick(e: PointerEvent, el: HTMLElement): Picked | null {
+  private pick(e: PointerEvent, el: HTMLElement, point?: THREE.Vector3): Picked | null {
     if (!this.data) return null;
     this.mouse = screenPoint(e, el);
     const hit = this.pointing.hit(this.mouse);
+    if (hit && point) point.copy(hit.point);
     return this.selection.pick(e, hit, hit ? this.pointing.describe(hit) : null);
   }
 

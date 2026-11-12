@@ -76,7 +76,7 @@ export function moverOf(view: object, host: Partial<MoverHost> = {}) {
   return new ObjectMover({
     get camera() { return v.camera ?? new THREE.PerspectiveCamera(); }, get objects() { return v.objects; }, get selection() { return v.selection; },
     models: () => v.modelDraw as ModelDraw, data: () => (v.data ?? null) as TrackIndex | null, mesh: i => v.byNumber?.get(i),
-    pick: () => null, groundAt: () => null, farthest: () => Infinity, busy: () => false, meshChanged: () => {}, reloadKept: () => {},
+    pick: () => null, groundAt: () => null, groundAlong: () => null, farthest: () => Infinity, busy: () => false, meshChanged: () => {}, reloadKept: () => {},
     cursorChanged: () => {}, changed: () => {}, ...host,
   });
 }
