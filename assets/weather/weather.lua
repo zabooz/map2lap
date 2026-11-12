@@ -4,7 +4,7 @@
 -- Experimental windscreen overlay enabled for this development preview.
 local WINDSCREEN_ENABLED = true
 local DEBUG = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'DEBUG', false)
-local glass, veil, mirrorWeather
+local glass, veil, mirrorWeather, rustSnow
 local glassMs, glassOff, glassRaw = 0, false, false
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
@@ -144,6 +144,13 @@ local batch = {
 
 local function setMode(nextMode)
   if nextMode == 'auto' then previousWeather = nil; return end
+  if nextMode == 'snowrust' or nextMode == 'snowlua' then
+    if rustSnow then
+      rustSnow.enabled, rustSnow.hasResult = nextMode == 'snowrust', false
+      if DEBUG then ac.log('M2L_SNOW_ENGINE selected=' .. nextMode) end
+    end
+    return
+  end
   -- Track scripts are isolated from global weather control; CSP's own controls set the conditions.
   if nextMode == 'fog' or nextMode == 'wind' or nextMode == 'direction' then
     ac.setAppOpen('CspDebug'); notify(); return
@@ -299,6 +306,7 @@ local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, 
 end
 
 local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, upz, sdx, sdy, sdz, scale)
+  if rustSnow and rustSnow.build(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, upz, sdx, sdy, sdz, scale) then return end
   for i = 0, count - 1 do
     local w = weight[i]
     local speed = 0.45 + w * 0.85
@@ -329,6 +337,84 @@ local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy,
       drop(b, cx, cy, cz)
     end
   end
+end
+
+-- Optional external snow-geometry worker. All rendering, shelter rays and glass effects stay in CSP.
+-- One request at a time keeps its output stable while Lua consumes it; no blocking wait on the render thread.
+-- The previous Lua loop is the immediate fallback for a missing/stopped worker or a result older than 50 ms.
+rustSnow = {enabled = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'RUST_SNOW', true) and (not DEBUG or lastFileMode ~= 'snowlua'),
+  hasResult = false, used = 0, fresh = 0, fallback = 0, workerUs = 0}
+local function connectSnowWorker()
+  local ok, mapping = pcall(ac.writeMemoryMappedFile, 'AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1', [[
+    uint32_t magic; uint32_t protocol; uint32_t ac_pid; uint32_t request; uint32_t response; uint32_t shutdown;
+    uint32_t count; uint32_t drawn; uint32_t sheltered; uint32_t pad; double worker_us;
+    double params[20]; int32_t roof_ix[49]; int32_t roof_iz[49]; double roof_y[49];
+    double seeds[16383][7]; float vertices[16383][16];
+  ]])
+  if not ok then
+    if DEBUG then ac.log('M2L_SNOW_ENGINE connect failed: ' .. tostring(mapping)) end
+    return nil
+  end
+  return mapping
+end
+function rustSnow.build(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, upz, sdx, sdy, sdz, scale)
+  local r = rustSnow
+  if not r.enabled then return false end
+  if not r.mapping then r.mapping = connectSnowWorker() end
+  local m = r.mapping
+  if not m or m.magic ~= 0x4d32534e or m.protocol ~= 1 or m.shutdown ~= 0 or COUNT > 16383 then
+    r.hasResult, r.seeded, r.pending = false, false, false
+    r.fallback = r.fallback + 1
+    return false
+  end
+  if r.seq and m.request < r.seq then r.seeded, r.pending, r.hasResult = false, false, false end
+  if not r.seeded then
+    if m.response ~= m.request then r.fallback = r.fallback + 1; return false end
+    for i = 0, COUNT - 1 do
+      local s = m.seeds[i]
+      s[0], s[1], s[2], s[3], s[4], s[5], s[6] = px[i], py[i], pz[i], weight[i], size[i], phase[i], aspect[i]
+    end
+    r.seq, r.pending, r.seeded = m.request, false, true
+    if DEBUG then ac.log('M2L_SNOW_ENGINE connected bytes=' .. ffi.sizeof(m[0]) .. ' seeds=' .. COUNT) end
+  end
+  local now = os.preciseClock()
+  if r.pending and m.response == r.seq then
+    r.pending = false
+    if m.count == count and now - r.posted < 0.05 then
+      for i = 0, count - 1 do
+        local o, b = m.vertices[i], i * 4
+        for c = 0, 3 do
+          local v, k = raw[b + c], c * 4
+          v.pos.x, v.pos.y, v.pos.z, v.uv.y = o[k], o[k + 1], o[k + 2], o[k + 3]
+        end
+      end
+      r.drawn, r.sheltered, r.workerUs, r.resultTime = m.drawn, m.sheltered, m.worker_us, now
+      r.hasResult, r.fresh = true, r.fresh + 1
+    else
+      r.hasResult = false
+    end
+  end
+  if r.hasResult and now - r.resultTime > 0.05 then r.hasResult = false end
+  if not r.pending then
+    local p = m.params
+    p[0], p[1], p[2], p[3], p[4], p[5] = elapsed, driftX, driftZ, cx, cy, cz
+    p[6], p[7], p[8], p[9] = lx, ly, lz, metrePerPixel
+    p[10], p[11], p[12], p[13], p[14], p[15], p[16] = upx, upy, upz, sdx, sdy, sdz, scale
+    for i = 0, 48 do
+      m.roof_ix[i], m.roof_iz[i], m.roof_y[i] = roofIx[i] or -2147483648, roofIz[i] or -2147483648, roofY[i]
+    end
+    m.count = count
+    r.seq = r.seq + 1
+    r.posted, r.pending = now, true
+    m.request = r.seq
+  end
+  if r.hasResult then
+    drawn, shelteredCount = r.drawn, r.sheltered
+    r.used = r.used + 1
+    return true
+  end
+  r.fallback = r.fallback + 1
+  return false
 end
 
 -- Splashes: the last 256 quads of the buffer, free in rain mode (rain uses 70 percent of the budget). A drop
@@ -462,6 +548,10 @@ function script.frameBegin(dt, gameDT)
       mode, frames, drawn, shelteredCount, luaMs, shelterMs, submitMs, beginCount / heartbeat, tostring(sim.cameraPosition)))
     if glass and glass.mesh then
       ac.log('M2L_GLASS ' .. glass.status() .. string.format(' cpu_ms=%.3f drawing=%s', glassMs, tostring(not glassOff)))
+    end
+    if rustSnow and mode == 'snow' then
+      ac.log(string.format('M2L_SNOW_ENGINE rust=%s used=%d fresh=%d fallback=%d worker_ms=%.3f',
+        tostring(rustSnow.enabled), rustSnow.used, rustSnow.fresh, rustSnow.fallback, rustSnow.workerUs / 1000))
     end
     heartbeat, beginCount = 0, 0
     ac.log(string.format('M2L_WIND actualKmh=%.2f vectorMs=%s type=%s', sim.windSpeedKmh, tostring(wind), tostring(ac.getConditionsSet().currentType)))
@@ -1287,9 +1377,9 @@ function glass.setup()
         end
         local tangent = ax * side.tx + ay * side.ty
         local normal = side.sign * (ax * side.ty - (ay - 1.2) * side.tx)
-        -- Snow flutter reaches near-vertical glass too; windward panes catch more. Area scaling and 10%
+        -- Snow flutter reaches near-vertical glass too; windward panes catch more. Area scaling and 20%
         -- of the frontal flux slow the build-up, without shortening the life of snow already on the pane.
-        local landings = snowFlux * 0.10 * (side.xw * side.sw / (xw * sw)) * min(2, max(0.5, -normal))
+        local landings = snowFlux * 0.20 * (side.xw * side.sw / (xw * sw)) * min(2, max(0.5, -normal))
         local rainNormal = side.sign * (ax * side.ty - (ay - 8) * side.tx)
         local rainExposure = min(2, max(0.5, -rainNormal / 6.7))
         local rainLandings = 450 * rainAmount * (side.xw * side.sw / (xw * sw)) * rainExposure

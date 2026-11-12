@@ -1,5 +1,15 @@
 # The Rust module `earthfast`
 
+The CSP snow geometry worker is `tools/weather_preview/snow_worker.rs`, a separate Windows process using
+`AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1` shared memory. Build/start it once in an owned running AC preview
+with `<python> tools/weather_preview/snow_rust.py`. The binary lives in the common checkout's ignored
+`out/rust-snow/snow-worker.exe`; preview launch and hot reload start that existing binary automatically.
+Rust snow is enabled by default, with nonblocking Lua fallback when unavailable or more than 50 ms late.
+`run.py --mode snowlua` and `--mode snowrust` switch the backend; `snow_rust.py --stop` stops the helper.
+It exits with its exact AC process handle. This worker changes falling-snow geometry; glass/wipers remain GPU effects.
+This is currently preview integration: release build/package/startup must ship and start the precompiled helper
+before it becomes a default of exported tracks or product Play. End users must never need to compile it.
+
 The Editor's independent browser kernel is `native/editorgeometry/regions.rs`. Build it with
 `.venv\Scripts\python.exe tools\build_editor_geometry.py` after installing `rustup target add wasm32-unknown-unknown`.
 It has no third-party Rust dependencies. The checked-in `ui/assets/editorgeometry.wasm` is copied into `src/web` by

@@ -63,6 +63,8 @@ def main():
                          creationflags=subprocess.CREATE_NO_WINDOW, cwd=SOURCE)
         SCRIPT.write_bytes(new)
         receipt.write_text(json.dumps({'pid': pid, 'sha256': new_hash}, indent=2))
+        from snow_rust import ensure_running
+        ensure_running()
         print('Updated own weather script; cleanup watcher active.', flush=True)
     finally:
         KERNEL.CloseHandle(handle)

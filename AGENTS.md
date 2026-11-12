@@ -13,6 +13,8 @@ by hand.
 - Physics, materials or kn5 writing: [docs/ac-rules.md](docs/ac-rules.md).
 - Reports or marks from AC: [docs/ac-reports.md](docs/ac-reports.md).
 - Rust: [docs/rust.md](docs/rust.md). Releases or Linux: [docs/release.md](docs/release.md).
+- Rust runtime components are precompiled for users: keep the shipped WASM, native modules and helpers current;
+  users need no Rust compiler. The CSP snow worker's preview and release status is in [docs/rust.md](docs/rust.md).
 - Build execution, caches or output comparisons: [docs/architecture.md](docs/architecture.md).
 
 ## Check a change

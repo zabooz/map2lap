@@ -88,6 +88,8 @@ def main():
         state.update(state='running', pid=proc.pid, started=time.time())
         STATE.write_text(json.dumps(state, indent=2), encoding='utf-8')
         print(json.dumps(state), flush=True)
+        from snow_rust import ensure_running
+        ensure_running()
         state['exit_code'] = proc.wait()
     finally:
         if proc is not None and proc.poll() is None:

@@ -2,6 +2,11 @@
 
 ## Making a release
 
+The new CSP snow worker currently has preview integration only (`tools/weather_preview/snow_worker.rs`;
+see `docs/rust.md`). Before shipping Rust snow as a product default, add its Windows build, packaged executable
+and AC-session startup to the release/runtime workflow. A source-only worker or a binary left in ignored `out/`
+is not a shipped feature. Users must receive the compiled helper and need no Rust compiler.
+
 Before packaging a page change, run `bun install --frozen-lockfile`, `bun run check` and `bun run e2e:all` from `ui/`
 (browser setup: [ui/AGENTS.md](../ui/AGENTS.md)). The browser command builds `src/web`; commit those files with the
 `ui/` source. Without browser tests, `bun run build` does the build alone. The archives include `src/web` and leave `ui/`

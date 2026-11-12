@@ -1,11 +1,11 @@
 # Weather preview
 
 Versioned public-CSP rain/snow prototype and helpers for the existing `heiligenblut_test`
-track. The shipped source `assets/weather/weather.lua` batches up to 8,192 rain/snow particles into one dynamic mesh
+track. The shipped source `assets/weather/weather.lua` batches up to 14,057 rain/snow particles into one dynamic mesh
 with custom HLSL, native weather selection and actual CSP wind. A depth-aware
 distance veil and ground splash crowns complement native WeatherFX fog.
-It requires no RainFX or custom DLL. The experimental windscreen overlay is kept
-behind `WINDSCREEN_ENABLED = false`: no car-mesh lookup or overlay draw occurs by default.
+It requires no RainFX or custom DLL. This development branch enables the windscreen overlay,
+with blade-swept rain/snow, independent side-window fields and a separate mirror precipitation pass.
 
 Run these commands from the worktree root, using the main checkout's existing Python
 environment if this worktree has no `.venv`:
@@ -70,9 +70,18 @@ This finds roofs, bridge decks and tunnel covers, including stacked decks, but
 remains an approximation at edges and for wind blowing in from the side. Unknown
 columns initially allow particles. Covers more than 60 m overhead are outside its range.
 
-There are no wet-road reflections, snow accumulation or vehicle-physics changes.
-The disabled windscreen experiment has no refraction, wiper clearing or established
-support across different cars. It is retained for later work.
+There are no wet-road reflections, ground snow accumulation or vehicle-physics changes.
+Glass uses height shading rather than scene refraction; support across different cars remains unestablished.
+
+## Rust snow geometry
+
+Rust is the default geometry backend when the worker is available, with automatic Lua fallback.
+Build/start once with `<python> tools/weather_preview/snow_rust.py`; subsequent preview launch and hot reload
+start the existing ignored `out/rust-snow/snow-worker.exe` automatically without requiring a compiler.
+Use `run.py --mode snowlua` or `--mode snowrust` to switch without restarting AC, or `snow_rust.py --stop`
+to stop the helper. It terminates when its exact AC process exits. The shared output is consumed asynchronously;
+late frames can reuse a recent result, with Lua fallback beyond 50 ms. Glass and wiper effects are unchanged.
+Release packaging and product Play startup are not yet wired; see `docs/rust.md` and `docs/release.md`.
 
 `os.preciseClock()` measures CPU build/upload submission; it does not measure GPU
 execution. `avg_fps` covers a five-second frame interval. Neither value substitutes
