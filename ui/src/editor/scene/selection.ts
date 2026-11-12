@@ -104,11 +104,11 @@ export class Selection {
     if (adding && id && this.picks.has(id)) return this.drop(id, true);
     const groups = !this.marked ? [] : Array.isArray(this.marked) ? this.marked : [this.marked];
     const keeping = e.button !== LEFT_BUTTON && !!id && (this.picks.has(id)
-      || groups.some(group => (group.tree ? hovered.sprite : hovered.sort) === group.sort));
+      || groups.some(group => hovered.sort === group.sort));
     if (!adding && !keeping) this.forget();     // A context menu on a marked member acts on the whole selection.
     const bounds = id ? this.host.objects.boundsOf(id) : null;
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
-    const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind, sprite: hovered.sprite,
+    const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind,
                             sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
                             road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: [],
                             adding: !!adding, keeping, whole: !!whole, surface,
@@ -134,7 +134,7 @@ export class Selection {
 
   /** Explicit picks outside the selected whole sorts; a sort's own member needs no redundant draft entry. */
   selectedOutside(groups: Marked[]) {
-    return [...this.picks.values()].filter(({picked}) => !groups.some(g => (g.tree ? picked.sprite : picked.sort) === g.sort))
+    return [...this.picks.values()].filter(({picked}) => !groups.some(g => picked.sort === g.sort))
       .map(({picked}) => ({id: picked.id!, position: picked.position}));
   }
 
@@ -147,13 +147,7 @@ export class Selection {
       if (picked.kind !== "Tree" && picked.kind !== "Bush") return null;
       if (objects.shownObjectBounds(id)) ids.add(id);
     }
-    const sprites = new Set(groups.filter(g => g.tree).map(g => g.sort));
-    for (const mesh of objects.billboardMeshes()) {
-      const info = mesh.userData.info as MeshInfo;
-      for (const [k, from, end] of objects.billboardsOf(mesh)) {
-        if (sprites.has(objects.spriteOf(mesh, from)!) && objects.shownBounds([{mesh: info.i, from, end}])) ids.add(`${info.base}#${k}`);
-      }
-    }
+    for (const group of groups) for (const id of objects.treesOfModel(group.sort)) ids.add(id);     // (TreeFX trees of a model)
     for (const id of idsOfSorts(data.objects, new Set(groups.map(g => g.sort)))) {
       const at = id.lastIndexOf("#"), kind = data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
       if (kind !== "tree" && kind !== "bush") return null;
@@ -193,7 +187,7 @@ export class Selection {
     this.picks.clear();
   }
 
-  /** Every object of a sort the view shows gets a frame (listed: the build's sort; tree: an atlas image), null: none. */
+  /** Every object of a sort the view shows gets a frame (a listed object's sort or a tree's model), null: none. */
   setMarked(marked: Marked | Marked[] | null) {
     this.marked = marked;
     this.frameMarked();
@@ -230,7 +224,7 @@ export class Selection {
     this.host.changed();
     if (!this.marked || !this.host.data()) return;
     const groups = Array.isArray(this.marked) ? this.marked : [this.marked];
-    const boxes = groups.flatMap(group => group.tree ? this.host.objects.treesOf(group.sort) : this.host.objects.listedOf(group.sort));
+    const boxes = groups.flatMap(group => this.host.objects.listedOf(group.sort));
     const points = new Float32Array(boxes.length * 24 * 3), corner = new THREE.Vector3();
     boxes.forEach((box, b) => {
       BOX_EDGES.forEach(([p, q], e) => {

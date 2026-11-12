@@ -23,7 +23,7 @@ export function objectsOf(view: object, belonging?: Map<string, string[]>) {
     mesh: i => fields.byNumber?.get(i),
     loaded: () => fields.byNumber?.values() ?? [],
     modelBounds: base => fields.modelDraw?.bounds?.(base) ?? null,
-    trees: () => fields.treeFx ?? {bounds: () => null, boxesOf: () => [], countOf: () => 0},
+    trees: () => fields.treeFx ?? {bounds: () => null, boxesOf: () => [], countOf: () => 0, idsOf: () => []},
     take: bytes => { fields.usedBytes = (fields.usedBytes ?? 0) + bytes; },
     changed: () => {},
     removedChanged: () => {},

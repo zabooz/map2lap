@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
-import {billboardFaces, billboardOf, childrenOf, countOfSort, idsOfSorts, kindOf, latLonOf, nearestLast, objectAt, objectIndex, physicsOf, routeMetre,
-        sortName, sortOf, spriteAt, takenAlong, tileOf, trackArea, type ObjectList} from "./inspect";
+import {childrenOf, countOfSort, idsOfSorts, kindOf, latLonOf, nearestLast, objectAt, objectIndex, physicsOf, routeMetre,
+        sortName, sortOf, takenAlong, tileOf, trackArea, type ObjectList} from "./inspect";
 
 test("the camera's area: what the meshes take up, each by its sphere; none: no limit", () => {
   expect(trackArea([{center: [10, 5, -20], radius: 2}, {center: [-30, 0, 40], radius: 1}])).toEqual({minX: -31, maxX: 12, minZ: -22, maxZ: 41});
@@ -35,16 +35,6 @@ test("the metre along a route and the distance off it", () => {
   expect(routeMetre(route, 104, 20)).toEqual({metre: 120, off: 4});
   expect(routeMetre(route, -5, 0)).toEqual({metre: 0, off: 5});
   expect(routeMetre([[0, 0]], 1, 1)).toBeNull();
-});
-
-test("a billboard goes on over the parts of its tile", () => {
-  expect(billboardOf(0, 0)).toBe(0);
-  expect(billboardOf(7, 0)).toBe(0);
-  expect(billboardOf(8, 0)).toBe(1);
-  expect(billboardOf(0, 21666)).toBe(2708);      // (21666 / 8: a part can start inside one)
-  expect(billboardFaces(1, 0, 100)).toEqual([8, 16]);
-  expect(billboardFaces(2708, 21666, 100)).toEqual([0, 6]);
-  expect(billboardFaces(2708, 21660, 10)).toEqual([4, 10]);
 });
 
 test("a triangle's object: over all its pieces, fronts and backs, in any mesh; none between them", () => {
@@ -87,18 +77,8 @@ test("all of a sort: by the finest name, or the kind in an older list; what stil
   expect(countOfSort({t_0_0: {...poles, faces: [[], [[0, 1, 1]], []]}}, "pole", new Set())).toBe(1);   // (left out of a saved track's own kn5)
 });
 
-test("an atlas image from a uv as the kn5 stores it", () => {
-  const atlas = {sprites: ["a", "b", "c", "d"], cols: 2, rows: 2};
-  expect(spriteAt(atlas, 0.1, -0.9)).toBe("a");
-  expect(spriteAt(atlas, 0.6, -0.9)).toBe("b");
-  expect(spriteAt(atlas, 0.1, -0.1)).toBe("c");
-  expect(spriteAt({...atlas, sprites: ["a"]}, 0.6, -0.1)).toBeNull();
-});
-
 test("a mesh's name: what it is and what it does to the car", () => {
-  expect([kindOf("nocol_trees_-1_0"), physicsOf("nocol_trees_-1_0")]).toEqual(["Tree", "None (drive through)"]);
-  expect(kindOf("nocol_trees_bush_-1_0_1")).toBe("Bush");
-  expect(kindOf("nocol_bush_3_4")).toBe("Bush");
+  expect([kindOf("nocol_props_-1_0"), physicsOf("nocol_props_-1_0")]).toEqual(["Street furniture", "None (drive through)"]);
   expect([kindOf("1ROAD_ground_0_0"), physicsOf("1ROAD_ground_0_0")]).toEqual(["Road surface", "Road"]);
   expect(kindOf("1GRASS_ground_0_0_1")).toBe("Soft ground");
   expect(kindOf("nocol_far_1")).toBe("Distant terrain");

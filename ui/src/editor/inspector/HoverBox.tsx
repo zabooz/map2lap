@@ -14,16 +14,16 @@ const NONE = "—";
     keeps its height as the mouse goes over trees, ground and sky. A single object has an id if it can be told apart: the track file holds
     meshes merged per tile, by material. */
 export function HoverBox({hovered: h, id = "hover-box"}: {hovered: Hovered | null; id?: string}) {
-  const b = h?.billboard;
+  const b = h?.treefx;
   const or = (value: ReactNode | null | undefined | false) => value === null || value === undefined || value === false ? NONE : value;
   return (
     <div id={id} className={styles.box} data-empty={h ? undefined : ""}>
-      <h4>{h ? <>{h.kind}{h.sprite && ` · ${h.sprite}`}</> : NONE}</h4>
+      <h4>{h ? h.kind : NONE}</h4>
       <dl>
         <Row label="ID">{or(h?.id)}</Row>
         <Row label="Type">{or(h?.sort)}</Row>
-        <Row label="Height">{or(b?.height != null && `${fixed(b.height, 1)} m`)}</Row>
-        <Row label="Width">{or(b?.width != null && `${fixed(b.width, 1)} m`)}</Row>
+        <Row label="Height">{or(b && `${fixed(b.height, 1)} m`)}</Row>
+        <Row label="Width">{or(b && `${fixed(b.width, 1)} m`)}</Row>
         <Row label="Stands at">{or(b?.foot && `${fixed(b.foot[0], 1)}, ${fixed(b.foot[1], 1)}`)}</Row>
         <Row label="Mesh">{or(h?.object)}</Row>
         <Row label="Physics">{or(h?.physics)}</Row>

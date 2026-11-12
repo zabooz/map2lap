@@ -53,10 +53,11 @@ class Trees:
 
 def placed(tree, p, ground):
     """A tree as placement p ({x, y, z, turn, scale}; None for none) and then a height change of ground m at its foot leave it:
-    rounded as trees.txt writes it (scenery.treefx.text). Pure."""
+    its foot to the mm, as placements are (trees.txt writes it to the cm), its turn to the degree as trees.txt does; the Editor's
+    Move shows the same (treeFx.ts snapped). Pure."""
     p = p or NONE
     x, y, z = tree["pos"]
-    return {**tree, "pos": [round(x + p["x"], 2), round(y + p["y"] + ground, 2), round(z + p["z"], 2)],
+    return {**tree, "pos": [round(x + p["x"], 3), round(y + p["y"] + ground, 3), round(z + p["z"], 3)],
             "angle": float(round(tree["angle"] + p["turn"]) % 360), "size": round(tree["size"] * p["scale"], 3)}
 
 
@@ -102,7 +103,7 @@ def changed(section, before, after):
 
 def kind(model):
     """What the page calls a tree of a model (pointing.ts says the same). Pure."""
-    return "3D bush" if re.search("shrub|bush", model) else "3D tree"
+    return "bush" if re.search("shrub|bush", model) else "tree"
 
 
 def template(trees, id_, draft):
@@ -129,7 +130,7 @@ def copied(section, draft, tree, at, pose):
     x, y, z = at
     ground = float(trackheights.Field(draft["heights"]).at(np.array([x]), np.array([z]))[0][0]) if draft["heights"] else 0.0
     new = {"id": objectlist.treefx_id(next_of(section, draft["trees"], draft["trees_next"])), "model": tree["model"],
-           "pos": [round(x, 2), round(y + pose.get("y", 0) - ground, 2), round(z, 2)],
+           "pos": [round(x, 3), round(y + pose.get("y", 0) - ground, 3), round(z, 3)],
            "angle": float(round(tree["angle"] + pose.get("turn", 0)) % 360), "size": round(tree["size"] * pose.get("scale", 1), 3),
            "width": tree["width"]}
     wrong = problem(draft["trees"] + [new], section)
@@ -165,12 +166,13 @@ def problem(added, section):
 
 
 def saved(section, edits):
-    """The list's section Save writes: the source's trees and the added ones as the draft places them, without those it deletes,
-    "next" never lower than before. None: no trees, and none added."""
+    """The list's section Save writes: the source's trees and the added ones as the draft places them, without those it deletes or
+    a library model replaces, "next" never lower than before. None: no trees, and none added."""
     added = edits.get("trees", [])
     if section is None and not added:
         return None
     gone, sorts = {d["id"] for d in edits["deleted"]}, set(edits["object_sorts"])
+    gone |= {m["replaces"] for m in edits.get("models", []) if m.get("replaces")}     # (a library model stands in its place)
     trees = now(trees_of(section, added), edits["placed"], edits["heights"])
     return {"next": next_of(section, added, edits.get("trees_next", 0)),
             "trees": {str(number(id_)): tree for id_, tree in trees.items() if id_ not in gone and tree["model"] not in sorts}}

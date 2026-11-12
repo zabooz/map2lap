@@ -26,7 +26,6 @@ STRICT = "MAP2LAP_STRICT"       # set (tools/check.py, tools/measure.py): a mesh
 # or the build says so: so nothing new lacks what the Editor needs without anyone noticing.
 LISTED = {"cars", "bld", "bldcol", "props", "pylon", "wire", "rocks", "fence", "fencecol", "fuel", "signs", "pool", "play", "sport",
           "graves", "tower", "fountain"}    # single objects: make_obj says whose each triangle is
-COUNTED = {"trees", "bush"}                 # single objects too, told apart by their count of triangles (trees.billboards)
 TRACK = {"ground", "water", "foam", "far", "road", "walk", "walkcol", "deck", "tunnel", "rail", "railcol", "guardrail",
          "guardrailcol", "gate"}            # the track itself: nothing to delete by a click
 OF_THE_TRACK = ("_sub",)                    # (a substation's fence: goes with its yard, which stays for now)
@@ -50,7 +49,7 @@ def problem(name, has_owners):
     """What is wrong with a mesh about to be added, or None: not entered above, or listed without saying whose its triangles are.
     Pure."""
     word = kind_of(name)
-    if word in TRACK or word in COUNTED or any(f"{mark}_" in name for mark in OF_THE_TRACK):
+    if word in TRACK or any(f"{mark}_" in name for mark in OF_THE_TRACK):
         return None
     if word not in LISTED:
         return f"A mesh of a kind not known to track.objectlist: {name}"

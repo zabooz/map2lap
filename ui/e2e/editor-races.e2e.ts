@@ -17,7 +17,8 @@ async function heightFixture(page: Parameters<typeof openEditor>[0]) {
   await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
 }
 
-test("an unrelated draft change does not reject a pending copy mesh", async ({page}) => {
+test("an unrelated draft change does not reject a pending copy mesh", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", house: true});     // (a house's copy is a mesh; a tree's a TreeFX tree)
   await openEditor(page);
   const index = await (await page.request.get("/api/editor/alpha/index")).json();
   const firstCopy = Math.max(...index.meshes.map((m: {i: number}) => m.i)) + 1;
@@ -28,15 +29,15 @@ test("an unrelated draft change does not reject a pending copy mesh", async ({pa
     if (i >= firstCopy) { mark(); await gate; }
     await route.continue();
   });
-  const tree = await findTree(page);
-  await page.mouse.click(tree.x, tree.y); await page.keyboard.press("c");
+  const house = await findTitled(page, "Building");
+  await page.mouse.click(house.x, house.y); await page.keyboard.press("c");
   await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
   const c = await centre(scene(page)); await page.mouse.click(c.x + 120, c.y + 100);
   await blocked;
   await page.evaluate(async () => {
     const d = await (await fetch("/api/editor/alpha/edits")).json();
     const r = await fetch("/api/editor/alpha/edits", {method: "PUT", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({...d, id: "unrelated-delete", deleted: [{id: "nocol_trees_0_0#0", position: [40, 0, -200]}]})});
+      body: JSON.stringify({...d, id: "unrelated-delete", deleted: [{id: "trees#0", position: [40, 0, -200]}]})});
     if (!r.ok) throw new Error(await r.text());
   });
   const answer = page.waitForResponse(r => r.url().includes(`/mesh/${firstCopy}?`));

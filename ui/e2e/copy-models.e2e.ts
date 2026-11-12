@@ -2,12 +2,13 @@ import {execFileSync} from "node:child_process";
 import {join} from "node:path";
 import * as THREE from "three";
 import {centre, expect, openEditor, scene, test, type Backend} from "./fixtures";
-import {findTree, picture, saved, saveTrack} from "./edit-helpers";
+import {findTitled, findTree, picture, saved, saveTrack} from "./edit-helpers";
 import type {Page} from "@playwright/test";
 
-/** A small track combining a generated tree and one imported model, the layout of a large edited track. */
-async function withModel(page: Page, backend: Backend) {
-  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_height: 6});
+/** A small track combining a generated tree (house: and a house, whose copies are meshes: a tree's are TreeFX trees) and one
+    imported model, the layout of a large edited track. */
+async function withModel(page: Page, backend: Backend, house = false) {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_height: 6, house});
   await openEditor(page);
   const repo = join(import.meta.dirname, "../..");
   const glb = execFileSync(join(repo, ".venv/Scripts/python.exe"), [join(repo, "ui/e2e/model_fixture.py")]);
@@ -37,11 +38,11 @@ async function pickModel(page: Page) {
 }
 
 test("model Insert, Move, Undo and Redo do not download unchanged copy meshes", async ({page, backend}) => {
-  await withModel(page, backend);
-  const tree = await findTree(page); await page.mouse.click(tree.x, tree.y); await page.keyboard.press("c");
+  await withModel(page, backend, true);
+  const house = await findTitled(page, "Building"); await page.mouse.click(house.x, house.y); await page.keyboard.press("c");
   await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
   const copied = page.waitForResponse(r => r.url().includes("&c=") && r.ok());
-  const c = await centre(scene(page)); await page.mouse.click(c.x + 130, c.y + 100);
+  const c = await centre(scene(page)); await page.mouse.click(c.x - 250, c.y + 150);     // (left of the model: a house is large)
   await page.keyboard.press("Escape"); await saved(page); await (await copied).finished(); await picture(page);
   const before = await (await page.request.get("/api/editor/alpha/index")).json();
   const urls: string[] = [];
@@ -67,8 +68,8 @@ test("model Insert, Move, Undo and Redo do not download unchanged copy meshes", 
   expect(after.meshes.filter((m: {copy?: boolean}) => m.copy)).toEqual(before.meshes.filter((m: {copy?: boolean}) => m.copy));
 });
 
-test("a late copied tree cannot flash into view after Revert while the model layout is changing", async ({page, backend}) => {
-  await withModel(page, backend);
+test("a late copied house cannot flash into view after Revert while the model layout is changing", async ({page, backend}) => {
+  await withModel(page, backend, true);
   await saveTrack(page);
   const baseline = await picture(page);
   let releaseCopy!: () => void, releaseRevert!: () => void, gotCopy!: () => void, gotRevert!: () => void, copied!: () => void;
@@ -85,7 +86,7 @@ test("a late copied tree cannot flash into view after Revert while the model lay
     copied();
   });
   try {
-    const tree = await findTree(page); await page.mouse.click(tree.x, tree.y); await page.keyboard.press("c");
+    const house = await findTitled(page, "Building"); await page.mouse.click(house.x, house.y); await page.keyboard.press("c");
     await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
     const c = await centre(scene(page)); await page.mouse.click(c.x + 130, c.y + 100);
     await copyHeld; await page.keyboard.press("Escape");
@@ -107,13 +108,13 @@ test("a late copied tree cannot flash into view after Revert while the model lay
   } finally { releaseCopy(); releaseRevert(); }
 });
 
-test("generated tree copies stay visible alongside imported models through Save, Revert, Undo and reload", async ({page, backend}) => {
-  await withModel(page, backend);
+test("generated copies stay visible alongside imported models through Save, Revert, Undo and reload", async ({page, backend}) => {
+  await withModel(page, backend, true);
   await saveTrack(page);
   const before = await picture(page);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const tree = await findTree(page);
-    await page.mouse.click(tree.x, tree.y);
+    const house = await findTitled(page, "Building");
+    await page.mouse.click(house.x, house.y);
     await page.keyboard.press("c");
     await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
     const c = await centre(scene(page));

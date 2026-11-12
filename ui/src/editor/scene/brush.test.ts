@@ -19,7 +19,7 @@ test("Delete's brush takes the TreeFX trees whose foot its stroke passes, not th
                 {id: "trees#3", model: "spruce", at: [40, 0, 0] as [number, number, number]}];
   const brush = brushOf({...view, objects}, {trees: () => ({feet: (x0: number, z0: number, x1: number, z1: number) =>
     feet.filter(f => f.at[0] >= x0 && f.at[0] <= x1 && f.at[2] >= z0 && f.at[2] <= z1)})});
-  objects.setRemoved(["trees#2"], [], ["birch"]);
+  objects.setRemoved(["trees#2"], ["birch"]);
   expect(brush.objectsAlong([[0, 0, 0]], 5).map(o => o.id)).toEqual(["trees#1"]);
   brush.showGone(["trees#1"]);                                    // (taken by the stroke under way: still taken when it ends)
   expect(brush.objectsAlong([[0, 0, 0]], 5).map(o => o.id)).toEqual(["trees#1"]);

@@ -1,6 +1,6 @@
 // Save in the Editor: in its place or as a new track, Play, what stands under Edited in My tracks.
 import {button, card, expect, openEditor, scene, test} from "./fixtures";
-import {deleteTree, findTree, meshes, picture, saveTrack, saved, stored} from "./edit-helpers";
+import {deleteTree, findTree, picture, saveTrack, saved, stored, treeCount} from "./edit-helpers";
 
 test("Revert to saved in File asks before clearing edits, can be cancelled and undone; save state stays beside loading", async ({page}) => {
   await openEditor(page);
@@ -52,9 +52,9 @@ test("Delete track in File asks first, then the open track is gone from Assetto 
   await expect(page.locator('#edit-track option[value="alpha"]')).toHaveCount(0);
 });
 
-test("Save: asked once, then written at once; the kn5 AC drives is without the tree, the work stays shown; Play saves first", async ({page}) => {
+test("Save: asked once, then written at once; the trees AC gets are without the tree, the work stays shown; Play saves first", async ({page}) => {
   await openEditor(page);
-  const trees = (await meshes(page))["nocol_trees_0_0"];
+  const trees = (await treeCount(page));
   await expect(page.locator("#edit-saved")).toHaveText("");      // (nothing changed: nothing to say)
   await expect(page.locator("#edit-save")).toBeDisabled();       // (nothing to save)
   await deleteTree(page);
@@ -65,7 +65,7 @@ test("Save: asked once, then written at once; the kn5 AC drives is without the t
   await page.locator("#save-dialog").getByRole("button", {name: "Overwrite"}).click();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect(page.locator("#edit-save")).toBeDisabled();       // (saved: nothing more to save)
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees - 8);     // (one billboard: 8 triangles)
+  expect((await treeCount(page))).toBe(trees - 1);
   expect((await picture(page)).equals(preview)).toBe(true);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
 
@@ -89,19 +89,19 @@ test("Save: asked once, then written at once; the kn5 AC drives is without the t
   await page.locator("#edit-play").click();     // (Play: saved first, at once now, then AC)
   await expect(page.locator("#save-dialog")).toBeHidden();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees);
+  expect((await treeCount(page))).toBe(trees);
   await expect.poll(async () => (await (await page.request.get("/__test/calls")).json()) as unknown[][]).toContainEqual(["play", "alpha"]);
   await scene(page).focus();
   await deleteTree(page);
   await page.keyboard.press("Control+s");       // (Ctrl+S: Save)
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees - 8);
+  expect((await treeCount(page))).toBe(trees - 1);
 });
 
 test("Save as new track: only under a new name, shown with the work and its undo, its name in the track field; the track itself as it was", async ({page}) => {
   await openEditor(page);
   const whole = await picture(page);
-  const trees = (await meshes(page))["nocol_trees_0_0"];
+  const trees = (await treeCount(page));
   await deleteTree(page);
   const preview = await picture(page);
   await page.locator("#edit-play").click();     // (never saved: Play asks first, Cancel starts nothing)
@@ -125,8 +125,8 @@ test("Save as new track: only under a new name, shown with the work and its undo
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(preview)).toBe(true);
-  expect((await meshes(page, "alpha_edit"))["nocol_trees_0_0"]).toBe(trees - 8);
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees);
+  expect((await treeCount(page, "alpha_edit"))).toBe(trees - 1);
+  expect((await treeCount(page))).toBe(trees);
   await scene(page).focus();
   await page.keyboard.press("Control+z");       // (undo came along)
   await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
@@ -142,15 +142,15 @@ test("Save as new track: only under a new name, shown with the work and its undo
 
 test("the first Save can make a new track too; Discard and a subsequent copy retain the last Save", async ({page}) => {
   await openEditor(page);
-  const trees = (await meshes(page))["nocol_trees_0_0"];
+  const trees = (await treeCount(page));
   await deleteTree(page);
   await page.locator("#edit-save").click();
   await page.locator("#save-name").fill("Alpha Edit");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
   await expect(page.locator("#edit-track")).toHaveValue("alpha_edit");
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  expect((await meshes(page, "alpha_edit"))["nocol_trees_0_0"]).toBe(trees - 8);
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees);
+  expect((await treeCount(page, "alpha_edit"))).toBe(trees - 1);
+  expect((await treeCount(page))).toBe(trees);
 
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
@@ -170,8 +170,8 @@ test("the first Save can make a new track too; Discard and a subsequent copy ret
   await page.locator("#save-name").fill("Alpha Saved Copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
   await expect(page.locator("#edit-track")).toHaveValue("alpha_saved_copy");
-  expect((await meshes(page, "alpha_saved_copy"))["nocol_trees_0_0"]).toBe(trees - 8);
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees - 8);
+  expect((await treeCount(page, "alpha_saved_copy"))).toBe(trees - 1);
+  expect((await treeCount(page))).toBe(trees - 1);
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
@@ -264,7 +264,7 @@ test("in the dialog's name field the keys are the field's: Delete and Ctrl+Z lea
 test("a change that can't be kept: Save says so and writes nothing", async ({page, faultsAllowed}) => {
   faultsAllowed.on = true;
   await openEditor(page);
-  const trees = (await meshes(page))["nocol_trees_0_0"];
+  const trees = (await treeCount(page));
   await page.route("**/api/editor/alpha/edits", async route => {
     if (route.request().method() === "PUT") await route.fulfill({status: 500, json: {error: "disk full"}});
     else await route.continue();
@@ -275,7 +275,7 @@ test("a change that can't be kept: Save says so and writes nothing", async ({pag
   await expect(page.locator("#edit-kept")).toContainText("Changes not kept: trying again");
   await saveTrack(page);
   await expect(page.locator("#edit-made")).toContainText("could not be kept");
-  expect((await meshes(page))["nocol_trees_0_0"]).toBe(trees);
+  expect((await treeCount(page))).toBe(trees);
 });
 
 test("a track saved in the Editor stands under Edited: it opens and can be copied, no build replaces it", async ({page, backend}) => {

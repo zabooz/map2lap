@@ -18,21 +18,23 @@ sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
 import server  # noqa: E402
 from app import mytracks, trackedits, trackview  # noqa: E402
-from track import kn5  # noqa: E402
+from track import kn5, objectlist  # noqa: E402
 
 IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
 TREES = 3
 
 
 def billboard_mesh(name, count):
-    """count billboards of 8 triangles over 8 vertices each."""
+    """count objects of 8 triangles over 8 vertices each (crossed quads, as trees once were)."""
     v = np.zeros(count * 8, kn5.VERTEX)
     faces = np.array([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 4, 6, 5, 4, 7, 6], "<u2")
     indices = np.concatenate([faces + 8 * k for k in range(count)]).astype("<u2")
     return kn5.Node(2, name, 1, vertices=v, indices=indices, material=0, lod_out=100.0, bs_center=(0.0, 0.0, 0.0), bs_radius=1.0)
 
 
-def write_track(ac, name, trees=TREES):
+def write_track(ac, name, trees=TREES, mtime=None):
+    """A track of trees listed objects in nocol_trees_0_0, one more in its second part and a bush, its list of that state of the
+    kn5 (mtime: the kn5's, set before the list is written: another build)."""
     root = os.path.join(ac, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     with open(os.path.join(root, mytracks.FILE), "w", encoding="utf-8") as f:
@@ -41,7 +43,14 @@ def write_track(ac, name, trees=TREES):
     tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
     tree.children = [billboard_mesh("nocol_trees_0_0", trees), billboard_mesh("nocol_trees_0_0_1", 1),
                      billboard_mesh("nocol_bush_0_0", 1)]
-    kn5.write(os.path.join(root, name + ".kn5"), [], materials, tree)
+    path = os.path.join(root, name + ".kn5")
+    kn5.write(path, [], materials, tree)
+    if mtime:
+        os.utime(path, ns=mtime)
+    listed = {"nocol_trees_0_0": {"kinds": ["tree"] * (trees + 1), "at": [[0.0, 0.0, 0.0]] * (trees + 1), "parents": [-1] * (trees + 1),
+                                  "faces": [[[0, 8 * k, 8]] for k in range(trees)] + [[[1, 0, 8]]]},
+              "nocol_bush_0_0": {"kinds": ["bush"], "at": [[0.0, 0.0, 0.0]], "parents": [-1], "faces": [[[2, 0, 8]]]}}
+    objectlist.write(path, listed)
 
 
 def item(k=0, mesh="nocol_trees_0_0"):
@@ -117,8 +126,7 @@ class Base(unittest.TestCase):
 
     def rebuild(self):
         path = os.path.join(self.ac, "content", "tracks", self.name, self.name + ".kn5")
-        write_track(self.ac, self.name, trees=TREES + 1)
-        os.utime(path, ns=(1, 1))       # (another state of the file, whatever the clock says)
+        write_track(self.ac, self.name, trees=TREES + 1, mtime=(1, 1))     # (another state of the file, whatever the clock says)
 
 
 class ListTest(Base):
@@ -134,7 +142,7 @@ class ListTest(Base):
         self.assertEqual(["tree", "bush"], [d["kind"] for d in now["deleted"]])
         self.assertEqual([1.5, 2.5, 0.0], now["deleted"][0]["position"])
 
-    def test_billboards_count_on_over_a_mesh_s_parts(self):
+    def test_an_object_beyond_the_list_is_none(self):
         self.save([item(TREES)])        # (the part nocol_trees_0_0_1 holds the last one)
         with self.assertRaises(trackedits.Invalid):
             self.save([item(TREES + 1)])
@@ -155,8 +163,7 @@ class ListTest(Base):
     def test_a_list_for_a_build_with_fewer_objects_is_a_conflict_not_a_fault(self):
         old = self.load()
         path = os.path.join(self.ac, "content", "tracks", self.name, self.name + ".kn5")
-        write_track(self.ac, self.name, trees=1)
-        os.utime(path, ns=(1, 1))
+        write_track(self.ac, self.name, trees=1, mtime=(1, 1))
         with self.assertRaises(trackedits.Conflict):
             trackedits.save(self.ac, self.name, {"base": old["base"], "revision": 0, "deleted": [item(TREES - 1)], "id": "y"})
 
@@ -177,21 +184,21 @@ class ListTest(Base):
             trackedits.save(self.ac, self.name, {"base": old["base"], "revision": 0, "deleted": [], "id": "mine", "unanswered": ["other"]})
 
     def test_a_whole_sort_is_saved_as_a_rule(self):
-        self.save([item(0)], sorts=["olive", "birch"])
+        self.save([item(0)], object_sorts=["bush"])
         now = self.load()
-        self.assertEqual(["olive", "birch"], now["sorts"])
+        self.assertEqual(["bush"], now["object_sorts"])
         self.assertEqual(1, len(now["deleted"]))
 
-    def test_a_sort_not_in_the_atlas_or_twice_is_refused(self):
-        for bad in (["no_such_tree"], ["olive", "olive"], "olive", [5]):
+    def test_a_sort_not_on_the_track_or_twice_is_refused(self):
+        for bad in (["no_such_tree"], ["bush", "bush"], "bush", [5]):
             with self.assertRaises(trackedits.Invalid):
-                self.save([], sorts=bad)
+                self.save([], object_sorts=bad)
 
     def test_built_again_a_sort_counts_as_older_too(self):
-        self.save([], sorts=["olive"])
+        self.save([], object_sorts=["bush"])
         self.rebuild()
         now = self.load()
-        self.assertEqual(([], 1), (now["sorts"], now["outdated"]))
+        self.assertEqual(([], 1), (now["object_sorts"], now["outdated"]))
 
     def test_built_again_the_list_stays_but_is_not_applied(self):
         self.save([item(0), item(1)])
@@ -226,7 +233,7 @@ class ListTest(Base):
     def test_a_file_of_the_wrong_shape_is_said_like_a_broken_one(self):
         os.makedirs(os.path.dirname(self.file), exist_ok=True)
         base = {"schema": trackedits.SCHEMA, "base": "b", "revision": 1, "deleted": []}
-        for bad in (["x"], {}, {**base, "sorts": 7}, {**base, "sorts": [7]}, {**base, "deleted": 5}, {**base, "deleted": ["x"]},
+        for bad in (["x"], {}, {**base, "object_sorts": 7}, {**base, "object_sorts": [7]}, {**base, "deleted": 5}, {**base, "deleted": ["x"]},
                     {**base, "deleted": [{"id": 5, "position": []}]}, {**base, "revision": "1"}, {**base, "revision": True},
                     {**base, "base": 5}, {k: v for k, v in base.items() if k != "base"}):
             with open(self.file, "w", encoding="utf-8") as f:
@@ -301,7 +308,7 @@ class RefusedTest(Base):
 
     def test_cleared_and_counted(self):
         self.assertEqual(0, trackedits.changes(self.ac, self.name))
-        self.save([item(0)], sorts=["olive"])
+        self.save([item(0)], object_sorts=["bush"])
         self.assertEqual(2, trackedits.changes(self.ac, self.name))
         trackedits.clear(self.name)
         self.assertEqual(0, trackedits.changes(self.ac, self.name))

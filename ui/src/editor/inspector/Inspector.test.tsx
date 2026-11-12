@@ -21,9 +21,9 @@ test("Appearance says Original once and offers to change the texture where it ca
   expect(renderToStaticMarkup(<AppearanceCard info={info} onEdit={null} />)).not.toContain("Change texture");
 });
 
-const hovered: Hovered = {id: null, kind: "Grass", sprite: null, sort: null, object: "1GRASS_ground_0_0", physics: "Grass", material: "gc_meadow",
+const hovered: Hovered = {id: null, kind: "Grass", sort: null, object: "1GRASS_ground_0_0", physics: "Grass", material: "gc_meadow",
   shader: "ksPerPixel", texture: "meadow.dds", textureBytes: 4096, vertices: 900, triangles: 1600, triangle: 12, uv: [0.1, 0.2], shownTo: 3000,
-  billboard: null, at: [12.345, 3.2, -40.5], tile: [0, 0], route: {metre: 1234.4, off: 2.13}, latLon: [47.1, 11.2], distance: 80};
+  at: [12.345, 3.2, -40.5], tile: [0, 0], route: {metre: 1234.4, off: 2.13}, latLon: [47.1, 11.2], distance: 80};
 
 test("The selection's facts are a short list: mesh, physics and where it is on the route", () => {
   const html = renderToStaticMarkup(<SelectionFacts hovered={hovered} />);
@@ -37,9 +37,9 @@ test("The selection's facts are a short list: mesh, physics and where it is on t
 });
 
 test("An object's facts name its type and size", () => {
-  const html = renderToStaticMarkup(<SelectionFacts hovered={{...hovered, id: "trees#4", kind: "Tree", sort: null, sprite: "Oak",
-    billboard: {number: 4, height: 12.34, width: 6, foot: [1, 2]}}} />);
-  expect(html).toContain("Oak");
+  const html = renderToStaticMarkup(<SelectionFacts hovered={{...hovered, id: "trees#4", kind: "Tree", sort: "broadleaf",
+    treefx: {model: "broadleaf", triangles: 100, height: 12.34, width: 6, foot: [1, 2]}}} />);
+  expect(html).toContain("broadleaf");
   expect(html).toContain("12.3 m");
 });
 

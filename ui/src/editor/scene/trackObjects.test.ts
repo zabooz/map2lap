@@ -47,7 +47,7 @@ test("a deleted house takes its sign along, in a mesh shown now and one that loa
   objects.setRemoved(["bld_0_0#0"]);
   expect(index(shown)).toEqual([0, 1, 2, 0, 0, 0, 0, 0, 0, 9, 10, 11]);
   expect(view.usedBytes).toBe(24);         // (the mesh's indices as built, kept to bring them back)
-  view.byNumber.set(1, later); objects.add(later); objects.hideIn(later);
+  view.byNumber.set(1, later); objects.hideIn(later);
   expect(index(later)).toEqual([0, 0, 0, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   expect(objects.shownObjectBounds("bld_0_0#0")).toBeNull();
   objects.setRemoved([]);

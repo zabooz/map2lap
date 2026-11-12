@@ -1,7 +1,7 @@
 """Independent copies of source objects, bundled by tile, material and mesh flags.
 
 A draft keeps source ids and affine poses, never geometry. Generated meshes extend the source's scan in memory;
-Save appends those same meshes to the kn5. Every copied member has its own listed id, including billboards.
+Save appends those same meshes to the kn5. Every copied member has its own listed id.
 """
 import functools
 import hashlib
@@ -11,7 +11,7 @@ import re
 
 import numpy as np
 
-from app import placement, trackplace, trackview
+from app import placement, trackview
 from track import kn5, objectlist
 
 COPY_ID = re.compile(r"copy_[a-f0-9]{24,32}")
@@ -49,33 +49,19 @@ def problems(copies):
 
 
 def _source(f, scan, objects, id_, arrays=None):
-    """A source object's metadata and its (mesh, first face, count) pieces; refuse an unknown or empty object."""
-    arrays = arrays or (lambda i: kn5.mesh_arrays(f, scan["meshes"][i]))
+    """A source object's metadata and its (mesh, first face, count) pieces: a listed one's (a TreeFX tree is copied by tracktrees);
+    refuse an unknown or empty object. f, scan, arrays: kept for the callers, a listed object needs none of them."""
     try:
         base, number = id_.rsplit("#", 1)
         k = int(number)
         if k < 0:
             raise ValueError("negative object number")
-        if base in objects:
-            entry = objects[base]
-            kind, at, faces = entry["kinds"][k], entry["at"][k], entry["faces"][k]
-            sort = objectlist.sorts_of(entry)[k]
-        else:
-            pieces = trackplace._billboard_pieces(scan, trackplace._billboard_parts(scan), base, k)
-            faces = [(i, a, b - a) for i, a, b in pieces]
-            vertices = [arrays(i)[0] for i, _a, _n in faces]
-            corners = np.concatenate([v["pos"][np.unique(arrays(i)[1][a:a+n])]
-                                      for v, (i, a, n) in zip(vertices, faces)])
-            low, high = corners.min(axis=0), corners.max(axis=0)
-            at = [(low[0] + high[0]) / 2, low[1], (low[2] + high[2]) / 2]
-            kind = trackview._billboard_kind(base)
-            uv = vertices[0]["uv"][arrays(faces[0][0])[1][faces[0][1]]].mean(axis=0)
-            atlas = trackview._atlas()
-            cell = int((uv[1] % 1) * atlas["rows"]) * atlas["cols"] + int((uv[0] % 1) * atlas["cols"])
-            sort = atlas["sprites"][cell]
+        entry = objects[base]
+        kind, at, faces = entry["kinds"][k], entry["at"][k], entry["faces"][k]
+        sort = objectlist.sorts_of(entry)[k]
         if not faces or kind in placement.NOT_ALONE:
             raise ValueError("this object cannot be copied on its own")
-        details = objects[base].get("details", [{}] * len(objects[base]["kinds"]))[k] if base in objects else {}
+        details = entry.get("details", [{}] * len(entry["kinds"]))[k]
         return {"kind": kind, "sort": sort, "at": np.array(at, np.float64), "faces": faces, "details": details}
     except (IndexError, KeyError, TypeError, ValueError) as e:
         raise ValueError(f"No object to copy: {id_}") from e

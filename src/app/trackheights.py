@@ -7,7 +7,8 @@ seams of tiles and of ROAD, GRAVEL and GRASS stay shut, and a cut line in the gr
   - FOLLOW: what lies along it, each vertex by the change at its own place (a kerb, a fence, a wall: a vertical edge stays vertical),
     what lies right on it a little higher where its long edges would run under the hill (ON_THE_GROUND);
   - wires: from pole to pole, by the change of the two poles they hang on;
-  - single objects move whole by the change at their place, by the object list or as billboards: a house or a bench doesn't bend;
+  - single objects move whole by the change at their place, by the object list: a house or a bench doesn't bend (a TreeFX tree
+    by the change at its foot: tracktrees);
   - STAY: water and the distant view keep their height;
   - IN_THE_WAY: a change that reaches a bridge deck, a tunnel floor or a railway is refused: those hold their own heights, and a railway's
     mesh holds its bridges' plates and piers too, which its name doesn't tell from a track on the ground (railways.py).
@@ -16,7 +17,6 @@ import math
 
 import numpy as np
 
-from app import trackview
 from track import kn5, objectlist
 
 STEP = 2                    # m between a raster's points: the ground's lattice (GLOSSARY: cell); a cut line's vertices lie between them
@@ -238,9 +238,9 @@ def _object_changes(entry, field):
     return d[root]
 
 
-def _whole_changes(mesh, scan, objects, field, reach):
-    """{mesh number: per vertex the change of the object it belongs to}, for the single objects: by the list, and billboards told by
-    their count. mesh(i): a mesh's vertices and triangles; reach(i): how far its sphere reaches."""
+def _whole_changes(mesh, scan, objects, field):
+    """{mesh number: per vertex the change of the object it belongs to}, for the single objects of the list. mesh(i): a mesh's
+    vertices and triangles."""
     out = {}
 
     def give(i, faces, changes):
@@ -253,23 +253,6 @@ def _whole_changes(mesh, scan, objects, field, reach):
                 for i, first, n in entry["faces"][k]:
                     if objectlist.kind_of(scan["meshes"][i]["name"]) not in FOLLOW:
                         give(i, mesh(i)[1][first:first + n], np.full(n, d))
-    parts = {}
-    for i, first in trackview._first_faces(scan["meshes"], scan["materials"]).items():
-        parts.setdefault(trackview._base(scan["meshes"][i]["name"]), []).append((i, first))
-    for tile_parts in parts.values():
-        if not any(field.reaches(scan["meshes"][i]["center"], reach(i)) for i, _ in tile_parts):
-            continue
-        numbers, xs, zs = [], [], []
-        for i, first in tile_parts:         # (a billboard can lie across two parts of a mesh: it moves as one all the same)
-            vertices, faces = mesh(i)
-            numbers.append((first + np.arange(len(faces))) // trackview.FACES_PER_BILLBOARD)
-            xs.append(vertices["pos"][faces, 0].mean(axis=1))
-            zs.append(vertices["pos"][faces, 2].mean(axis=1))
-        number = np.concatenate(numbers)
-        count = np.maximum(np.bincount(number), 1)
-        d = field.at(np.bincount(number, np.concatenate(xs)) / count, np.bincount(number, np.concatenate(zs)) / count)[0]
-        for (i, _first), own in zip(tile_parts, numbers):
-            give(i, mesh(i)[1], d[own])
     return out
 
 
@@ -349,7 +332,7 @@ def moved(path, scan, objects, ops, under=None):
                     largest = max(largest or 0.0, float(np.abs(wires[i][hung]).max()))
                 if largest is not None:
                     grow[i], vertices[i] = largest, changed
-        for i, d in _whole_changes(mesh, scan, objects, field, reach).items():
+        for i, d in _whole_changes(mesh, scan, objects, field).items():
             if d.any():
                 changed = mesh(i)[0].copy()
                 changed["pos"][:, 1] = changed["pos"][:, 1].astype(np.float64) + d

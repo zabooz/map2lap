@@ -21,9 +21,9 @@ test("what is deleted is saved with the track and is gone after a reload, on thi
   await deleteTree(page);
   const s = await stored(page);
   expect(s.deleted.map(d => d.id)).toEqual([NEAR_TREE]);
-  expect(s.deleted[0].kind).toBe("tree");
+  expect(s.deleted[0].kind).toBe("treefx");
   expect(s.deleted[0].position[0]).toBeCloseTo(128, 3);     // (the foot of the tree: server.py's make_track)
-  expect(s.deleted[0].position[1]).toBeCloseTo(-0.2, 1);    // (trees.SINK_M: a billboard's foot lies in the ground)
+  expect(s.deleted[0].position[1]).toBeCloseTo(0, 1);
   expect(s.deleted[0].position[2]).toBeCloseTo(-130, 3);
   const gone = await picture(page);
   await page.reload();
@@ -238,13 +238,13 @@ test("all of a sort: marked, then deleted, the same picture as a track without t
   const whole = await picture(page);
   const at = await findTree(page);
   const label = await deleteAllOf(page, at);
-  expect(label).toMatch(/\(loaded: 2\)$/);
+  expect(label).toMatch(/\(2\)$/);
   const sort = /Mark all (\w+)/.exec(label)![1];
   await expect(page.locator("#edit-sorts")).toHaveText(`All deleted: ${sort}`);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
   await saved(page);
-  const s = (await (await page.request.get("/api/editor/alpha/edits")).json()) as {sorts: string[]; deleted: unknown[]};
-  expect(s.sorts).toEqual([sort]);
+  const s = (await (await page.request.get("/api/editor/alpha/edits")).json()) as {object_sorts: string[]; deleted: unknown[]};
+  expect(s.object_sorts).toEqual([sort]);
   expect(s.deleted).toEqual([]);
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
@@ -357,7 +357,7 @@ test("read again from a tree deleted alone to only its whole sort: the tree stay
   await page.keyboard.press("Control+z");
   await saved(page);
   const s = await stored(page);                 // (another tab: the tree back by its id, its sort gone whole)
-  await page.request.put("/api/editor/alpha/edits", {data: {base: s.base, revision: s.revision, id: "other", deleted: [], sorts: [sort]}});
+  await page.request.put("/api/editor/alpha/edits", {data: {base: s.base, revision: s.revision, id: "other", deleted: [], object_sorts: [sort]}});
   await page.keyboard.press("Control+y");       // (the tree out by its id here: refused, the other tab's list is newer)
   await expect(page.locator("#edit-stuck")).toContainText("changed elsewhere");
   await page.getByRole("tab", {name: "Details", exact: true}).click();

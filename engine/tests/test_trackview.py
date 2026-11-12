@@ -135,13 +135,6 @@ class TrackViewTest(unittest.TestCase):
         self.assertAlmostEqual(0.7, got["materials"][0]["bright"], places=5)
         json.dumps(got)     # (goes to the page)
 
-    def test_billboards_count_on_over_their_parts_tile_by_tile(self):
-        trees, other = kn5.Material("trees", "", 0, 0, 0, [], []), kn5.Material("road", "", 0, 0, 0, [], [])
-        part = lambda name, material, faces: {"name": name, "material": material, "indices": faces * 3}    # noqa: E731
-        meshes = [part("nocol_trees_-1_0", 0, 16), part("nocol_trees_-1_0_1", 0, 8), part("nocol_trees_2_3", 0, 8),
-                  part("nocol_trees_bush_-1_0", 0, 8), part("1ROAD_ground_-1_0", 1, 8)]
-        self.assertEqual({0: 0, 1: 16, 2: 0, 3: 0}, trackview._first_faces(meshes, [trees, other]))
-
     def test_the_route_and_its_anchor(self):
         root = os.path.join(self.ac, "content", "tracks", self.name)
         self.assertEqual((None, []), trackview._route(root))
@@ -150,7 +143,6 @@ class TrackViewTest(unittest.TestCase):
         self.assertEqual(([42.5, 9.25], [[1.5, -2.5], [3.0, 4.0]]), trackview._route(root))
         got = trackview.index(self.ac, self.name)
         self.assertEqual([42.5, 9.25], got["anchor"])
-        self.assertIn("olive", got["atlas"]["sprites"])
 
     def test_a_mesh_and_a_texture_come_as_in_the_file(self):
         revision = trackview.index(self.ac, self.name)["revision"]

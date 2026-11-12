@@ -1,7 +1,7 @@
 """Single objects placed anew in the Editor (placement), written into a built kn5 with no build. The placements are the draft's and the
 recipe's data (trackedits, trackcopy) like the height changes, always applied to the track's source, so an undo or a second Save never
 adds anything up.
-  - an object moves by the object list's triangles, a tree or bush as its billboard, whole, with what belongs to it;
+  - an object moves by the object list's triangles, whole, with what belongs to it (a TreeFX tree has none: tracktrees places it);
   - a pole's wires go with it: each point of a span by its way from the one pole to the other, so both its ends stay on their arms;
   - a span alone is not placed: it hangs on its poles (placement.NOT_ALONE).
 Normals and tangents turn with it. It stays in its tile's mesh, whose sphere grows by its way. The height changes come after
@@ -9,26 +9,8 @@ Normals and tangents turn with it. It stays in its tile's mesh, whose sphere gro
 """
 import numpy as np
 
-from app import placement, trackheights, trackview
+from app import placement, trackheights
 from track import kn5
-
-
-def _billboard_parts(scan):
-    """{a tile's billboards' base name: [(mesh number, triangles in its earlier parts)]}. Pure."""
-    parts = {}
-    for i, first in trackview._first_faces(scan["meshes"], scan["materials"]).items():
-        parts.setdefault(trackview._base(scan["meshes"][i]["name"]), []).append((i, first))
-    return parts
-
-
-def _billboard_pieces(scan, parts, base, number):
-    """Where billboard number of a tile lies: [(mesh number, first triangle, end)], in the parts that hold any of it. Pure."""
-    per, out = trackview.FACES_PER_BILLBOARD, []
-    for i, first in parts.get(base, ()):
-        a, b = max(0, number * per - first), min(scan["meshes"][i]["indices"] // 3, (number + 1) * per - first)
-        if a < b:
-            out.append((i, a, b))
-    return out
 
 
 class _Placing:
@@ -71,7 +53,6 @@ def moved(path, scan, objects, placed):
         placing = _Placing(f, scan)
         _place_listed(placing, objects, by_id)
         _hang_wires(placing, objects, by_id)
-        _place_billboards(placing, objects, by_id)
     return placing.result()
 
 
@@ -83,23 +64,6 @@ def _place_listed(placing, objects, by_id):
             moving = placement.chain(entry, tile, k, by_id)
             for i, first, n in entry["faces"][k] if moving else ():
                 placing.place(i, placing.own(i, first, first + n), lambda *v, m=moving: placement.through(*v, m))
-
-
-def _place_billboards(placing, objects, by_id):
-    """The trees and bushes of the placements, each around the middle of its foot."""
-    parts = _billboard_parts(placing.scan)
-    for id_, p in by_id.items():
-        base, number = id_.rsplit("#", 1)
-        if base in objects or base not in parts:
-            continue
-        pieces = [(i, placing.own(i, a, b)) for i, a, b in _billboard_pieces(placing.scan, parts, base, int(number))]
-        corners = np.concatenate([placing.mesh(i)[0]["pos"][own] for i, own in pieces]).astype(np.float64)
-        if not len(corners):
-            continue
-        low, high = corners.min(axis=0), corners.max(axis=0)
-        foot = [(low[0] + high[0]) / 2, low[1], (low[2] + high[2]) / 2]
-        for i, own in pieces:
-            placing.place(i, own, lambda *v, p=p, foot=foot: placement.through(*v, [(foot, p)]))
 
 
 def _spans(objects, by_id):
@@ -149,7 +113,7 @@ def meshes_of(scan, objects, ids):
                 belonging.setdefault(f"{tile}#{parent}", []).append(f"{tile}#{k}")
         for number, spans in entry.get("with", {}).items():
             belonging.setdefault(f"{tile}#{number}", []).extend(spans)
-    out, parts, queue, seen = set(), None, list(ids), set()
+    out, queue, seen = set(), list(ids), set()
     while queue:
         id_ = queue.pop()
         if id_ in seen:
@@ -159,9 +123,6 @@ def meshes_of(scan, objects, ids):
         if base in objects:
             out.update(i for i, _first, _n in objects[base]["faces"][int(number)])
             queue += belonging.get(id_, ())
-        else:
-            parts = parts if parts is not None else _billboard_parts(scan)
-            out.update(i for i, _a, _b in _billboard_pieces(scan, parts, base, int(number)))
     return sorted(out)
 
 

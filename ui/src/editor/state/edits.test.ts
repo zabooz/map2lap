@@ -126,13 +126,11 @@ test("reopened unsaved drafts obtain full saved positions and heights only when 
 
 test("mixed selected objects and whole sorts delete as one undo step", async () => {
   const {edits} = await started();
-  edits.removeSelected([tree(1)], [{tree: true, sort: "olive"}, {tree: false, sort: "bench"}]);
+  edits.removeSelected([tree(1)], [{sort: "olive"}, {sort: "bench"}]);
   expect(edits.state().removed).toEqual([tree(1)]);
-  expect(edits.state().sorts).toEqual(["olive"]);
-  expect(edits.state().objectSorts).toEqual(["bench"]);
+  expect(edits.state().objectSorts).toEqual(["olive", "bench"]);
   edits.undo();
   expect(edits.state().removed).toEqual([]);
-  expect(edits.state().sorts).toEqual([]);
   expect(edits.state().objectSorts).toEqual([]);
   expect(edits.state().canUndo).toBe(false);
 });
@@ -175,40 +173,22 @@ test("adjusting one smoothing operation replaces it, including zero, as one undo
 test("a whole sort is one step, once, saved as a rule beside the single ones", async () => {
   const {s, edits} = await started();
   edits.remove([tree(1)]);
-  edits.removeSort("olive");
-  edits.removeSort("olive");
-  expect(edits.state().sorts).toEqual(["olive"]);
+  edits.removeObjectSort("olive");
+  edits.removeObjectSort("olive");
+  expect(edits.state().objectSorts).toEqual(["olive"]);
   edits.saveNow();
   await settle();
-  const body = s.asked[0].body as unknown as {sorts: string[]; deleted: Removed[]};
-  expect(body.sorts).toEqual(["olive"]);
+  const body = s.asked[0].body as unknown as {object_sorts: string[]; deleted: Removed[]};
+  expect(body.object_sorts).toEqual(["olive"]);
   expect(body.deleted).toHaveLength(1);
   edits.undo();
-  expect(edits.state().sorts).toEqual([]);
+  expect(edits.state().objectSorts).toEqual([]);
   expect(edits.state().removed).toHaveLength(1);
   edits.redo();
-  expect(edits.state().sorts).toEqual(["olive"]);
+  expect(edits.state().objectSorts).toEqual(["olive"]);
   edits.discard();
-  expect(edits.state().sorts).toEqual([]);
-  expect(edits.state().removed).toEqual([]);
-});
-
-test("a whole sort of listed objects is one step too, saved as a rule of its own", async () => {
-  const {s, edits} = await started();
-  edits.removeObjectSort("car");
-  edits.removeObjectSort("car");
-  edits.removeSort("olive");
-  expect(edits.state().objectSorts).toEqual(["car"]);
-  edits.saveNow();
-  await settle();
-  const body = s.asked[0].body as unknown as {sorts: string[]; object_sorts: string[]};
-  expect([body.sorts, body.object_sorts]).toEqual([["olive"], ["car"]]);
-  edits.undo();
-  edits.undo();
   expect(edits.state().objectSorts).toEqual([]);
-  edits.redo();
-  edits.discard();
-  expect([edits.state().objectSorts, edits.state().canUndo]).toEqual([[], true]);
+  expect(edits.state().removed).toEqual([]);
 });
 
 test("saved: current while the edits are the recipe's, as sets; a change makes it not, undo makes it again", async () => {
@@ -217,7 +197,7 @@ test("saved: current while the edits are the recipe's, as sets; a change makes i
   edits.remove([tree(1), tree(2)]);
   edits.markSaved();
   expect(isCurrent(edits.state())).toBe(true);
-  edits.removeSort("olive");
+  edits.removeObjectSort("olive");
   expect(isCurrent(edits.state())).toBe(false);
   edits.undo();
   expect(isCurrent(edits.state())).toBe(true);
@@ -267,7 +247,7 @@ test("held while the track is written: nothing changes, and undo and redo keep t
   edits.hold(true);
   expect(edits.canEdit()).toBe(false);
   edits.remove([tree(3)]);
-  edits.removeSort("oak");
+  edits.removeObjectSort("oak");
   edits.discard();
   edits.undo();
   edits.redo();

@@ -66,9 +66,8 @@ The camera moves as in a building game, level over the ground (`view.ts`), with 
 could lie far off: what it turns around or zooms towards is looked up each time. The middle of its view stays within the track's meshes plus a margin (the camera may stand beyond, to look back), it stays
 below a height the distant terrain can be seen from; where no ground lies under it, the last one found counts.
 
-The Editor views and inspects tracks and leaves out single objects: trees and bushes on any track, by their count of
-triangles; what the build lists (`track/objectlist.py`: cars, houses with their signs and doors, poles with their wires, street
-furniture, signs, rocks, fences, gas stations, leisure grounds) on tracks built with the list. A left out one's triangles shrink to a point,
+The Editor views and inspects tracks and leaves out single objects: what the build lists (`track/objectlist.py`: cars, houses with their signs and doors, poles with their wires, street
+furniture, signs, rocks, fences, gas stations, leisure grounds, and the TreeFX trees and bushes). A left out one's triangles shrink to a point,
 so the others keep their numbers; the list, a draft (`app/trackedits.py`, `out/edits/<track>.json`), is saved a moment after each
 change, written whole, and refused when another tab or a build changed the track since it was read. It holds for one state of
 the kn5 shown. Save in the Editor (`app/trackcopy.py`) writes the track from it, in its place or as a copy: the folder copied to a
@@ -168,7 +167,7 @@ is framed red, at most 400 frames, at most once a frame (`view.markBrush`); the 
 vertices stay. Brush deletes everything a click or drag of its red ring passes over, measured to the line between the mouse's places so a
 fast drag leaves no gap (`deleteBrush.alongStroke`), Ctrl + wheel its radius: every object a click could delete, where it stands now
 (`view.brushObjects`). Built, copied and imported objects at their moved place, only those at the top (a house's sign goes with it)
-and no span of wires (it goes with its poles); trees and bushes of the loaded billboard meshes at the middle of their foot. They go
+and no span of wires (it goes with its poles); TreeFX trees and bushes at their foot as drawn (`treeFx.feet`). They go
 out of the view while the stroke runs, imported models and planted groups too (`view.cullModels`); the stroke is one change and one Undo.
 Road camera (K) goes along the route by Shift and the wheel or riding by itself (`Camera.tsx`, `ride.ts`), and back to the first view (Home).
 Move (M, or Move in the context menu) takes what is picked along by a drag, turns, raises and sizes it by the wheel (`Move.tsx`, `placing.ts`): a placement per object
@@ -240,8 +239,8 @@ Elevation (H: the round brush of `useBrush.ts`, which a tool gives what a stroke
 objects move whole, wires go from pole to pole; water stays, and one that reaches a deck or a railway is refused. Saving the draft names the meshes that moved; the view fetches those anew from the server, which hands them out as the
 draft says, so the view and Save have one reckoning and the page none of its own. A new kind of mesh is sorted there too (`engine/tests/test_trackheights.py` stops on one that isn't).
 Which triangles make up an object: `track/objectlist.py`, written by the build (parked cars, houses with their signs and doors,
-street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes by their count of triangles). Every mesh
-a build adds is entered there as listed, counted or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.
+street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes are TreeFX trees in its own section). Every
+mesh a build adds is entered there as listed or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.
 
 TreeFX trees (CSP's 3D trees, as builds make the trees) have no triangles: the list holds them in its own section, `trees#<number>`
 each with its model and placement (`track/objectlist.py`). The Editor reads that section of the served list (`trackview.treefx_of`),
@@ -255,7 +254,7 @@ Save writes the list's section and `trees.txt` from the source and the draft, so
 falls, so a deleted tree's number is never reused. Every model stays in the track's folder, so a tree that comes back has its
 model; a copied track takes the folder, its trees.txt and its models along.
 The view draws them (`scene/treeFx.ts`): the trees of one model in one 256 m cell are one instanced mesh at the LOD of the cell's
-distance, as CSP switches them, the coarsest out to 1200 m like the billboards; what the draft leaves out shrinks to a point in its
+distance, as CSP switches them, the coarsest out to 1200 m; what the draft leaves out shrinks to a point in its
 slot. They are picked as other objects (the leaves' see-through parts are nothing, `pointing.ts`), framed, marked all of a model,
 deleted one by one or by Delete's brush (at their foot as drawn), moved with a preview of their matrix, and copied: Copy's
 `/copy` gives a tree's template, and each click a new tree under the next number never given, its height on the ground without
@@ -521,8 +520,10 @@ and size distinguish replaced inputs, and snapshot hashes are still verified bef
 `data/map2lap_models/` retains the verified original GLBs and snapshot descriptions once per asset in the saved track.
 Its `compiled.json` is compiled provenance tied to the written KN5's SHA256, rather than a new editable geometry format.
 After loss of the library, preparation cache and source cache, the semantic bindings, model deletions and poses remain editable.
-Compiled source provenance distinguishes replacements already applied to that source from new replacements, so renumbered
-billboards are not removed again. Regeneration strips the prior owned render regions and reuses matching owned material slots.
+Compiled source provenance distinguishes replacements already applied to that source from new replacements, so a replaced
+object is not removed again. A TreeFX tree replaced by a model stands at the tree's foot with the tree's placement as its pose and,
+keeping height, as high as the tree (its own `.bin`'s height times its size: `trackmodels._tree_replacement`); Save leaves it out
+of trees.txt. Regeneration strips the prior owned render regions and reuses matching owned material slots.
 Inherited terrain changes apply only to regenerated models; the remaining baked source is not moved twice. Portable originals
 needed by local Undo are retained before their last binding is removed.
 
@@ -813,8 +814,8 @@ The page highlights
 the lossless mask over the loaded ground meshes, sharing their live geometry, so height edits remain aligned. Only masks for
 loaded tiles are decoded, within the preview memory limit. Selection changes no draft and enables no Delete, Move or Copy
 action. The shared Select bar offers Shift / Select all and Ctrl / Add; Ctrl keeps earlier regions or objects, and clicking an
-already picked object with Ctrl removes it from the selection. Shift on an object selects its matching sort (trees by atlas image;
-listed objects by sort, never all houses). Mixed explicit objects and sorts delete in one undo step.
+already picked object with Ctrl removes it from the selection. Shift on an object selects its matching sort (TreeFX trees by
+model; listed objects by sort, never all houses). Mixed explicit objects and sorts delete in one undo step.
 
 Mesh loading also identifies connected material faces, keeping listed-object ownership separate and joining duplicated vertices
 by their shared edges (`ui/src/editor/scene/materials.ts`). The separate `edge_dirt` road verge can therefore be selected without paint

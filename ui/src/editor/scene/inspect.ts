@@ -1,15 +1,8 @@
 // What a point or a mesh of the 3D view is: the hover box's numbers. Pure, no three.js.
 
 const TILE_M = 256;             // roads.TILE
-const FACES_PER_BILLBOARD = 8;  // trees.billboards: two crossed quads, two triangles per quad's side
 const WGS84_A = 6378137.0, WGS84_F = 1 / 298.257223563, WGS84_E2 = WGS84_F * (2 - WGS84_F);
 const LATITUDE_ROUNDS = 5;      // (each round: a thousand times nearer; 5 is far below a millimetre)
-
-export interface Atlas {
-  sprites: string[];
-  cols: number;
-  rows: number;
-}
 
 /** Whether bytes more stay within a limit of gb. */
 /** What meshes take up in x and z, each as far as its sphere reaches. None: anywhere. Pure. */
@@ -83,17 +76,6 @@ export function latLonOf([lat0, lon0]: [number, number], x: number, y: number, z
     lat = Math.atan2(ez + WGS84_E2 * (WGS84_A / Math.sqrt(1 - WGS84_E2 * s * s)) * s, p);
   }
   return [lat / rad, Math.atan2(ey, ex) / rad];
-}
-
-/** The tree's or bush's number within its tile's billboards, for the triangle face of a mesh part whose earlier parts hold
-    firstFace triangles. */
-export function billboardOf(face: number, firstFace: number) {
-  return Math.floor((firstFace + face) / FACES_PER_BILLBOARD);
-}
-
-/** The faces of billboard number k within a part: [first, end), clipped to the part's faces. */
-export function billboardFaces(k: number, firstFace: number, faces: number): [number, number] {
-  return [Math.max(0, k * FACES_PER_BILLBOARD - firstFace), Math.min(faces, (k + 1) * FACES_PER_BILLBOARD - firstFace)];
 }
 
 /** The build's list of a tile's single objects (src/track/objectlist.py). */
@@ -209,17 +191,10 @@ export function objectAt(pieces: {from: number; end: number; id: string}[] | und
   return null;
 }
 
-/** The image of the atlas under a uv as the kn5 stores it (v negated: make_obj, kn5), or null. */
-export function spriteAt(atlas: Atlas, u: number, v: number) {
-  const col = Math.floor((u - Math.floor(u)) * atlas.cols);
-  const row = Math.floor((v - Math.floor(v)) * atlas.rows);
-  return atlas.sprites[row * atlas.cols + col] ?? null;
-}
-
 const PHYSICS: [RegExp, string][] = [[/^1ROAD/, "Road"], [/^1GRAVEL/, "Gravel"], [/^1GRASS/, "Grass"], [/^1KERB/, "Kerb"],
                                      [/^1WALL/, "Wall"], [/^nocol_/, "None (drive through)"]];
 const KINDS: [RegExp, string][] = [
-  [/_trees_bush_|^nocol_bush_/, "Bush"], [/_trees_/, "Tree"], [/_ground_far|^nocol_far/, "Distant terrain"],
+  [/_ground_far|^nocol_far/, "Distant terrain"],
   // (the road is painted into the ground: ground.SURF_AC says what each cell's mesh holds)
   [/^1ROAD_ground/, "Road surface"], [/^1GRAVEL_ground/, "Gravel or rock"], [/^1GRASS_ground/, "Soft ground"], [/_ground_/, "Ground"],
   [/_bld/, "Building"], [/_deck/, "Bridge deck"], [/_road_paint/, "Road marking"], [/_road_edge/, "Road edge"], [/_road/, "Road"],

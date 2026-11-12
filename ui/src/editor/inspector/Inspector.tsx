@@ -57,7 +57,6 @@ const ObjectDetails = memo(function ObjectDetails({name, picked, view, state}: {
       <dl className={styles.rows}>
         {picked.id && <Row label="ID">{picked.id}</Row>}
         {picked.sort && <Row label="Type">{sortName(picked.sort)}</Row>}
-        {picked.sprite && <Row label="Tree image">{picked.sprite}</Row>}
         {size && <Row label="Dimensions">{metres(size)} <span className="muted">(loaded geometry; X × height × Z)</span></Row>}
         {placement && <><Row label="Move (X, Y, Z)">{[placement.x, placement.y, placement.z].map(v => v.toFixed(2)).join(", ")} m</Row>
           <Row label="Turn">{placement.turn.toFixed(1)}°</Row><Row label="Scale">{placement.scale.toFixed(2)}×</Row></>}
@@ -71,8 +70,7 @@ const ObjectDetails = memo(function ObjectDetails({name, picked, view, state}: {
           {info.details.source_index !== undefined && <Row label="Build item">{info.details.source_index}</Row>}
           {info.details.footprint && <Row label="Footprint">{info.details.footprint.length} corners</Row>}
         </>}
-        {source.hovered.treefx ? <Row label="Object triangles">{source.hovered.treefx.triangles} (3D model {source.hovered.treefx.model}, CSP TreeFX)</Row>
-          : !source.listed && source.hovered.billboard && <Row label="Object triangles">8 (crossed billboard)</Row>}
+        {source.hovered.treefx && <Row label="Object triangles">{source.hovered.treefx.triangles} (3D model {source.hovered.treefx.model}, CSP TreeFX)</Row>}
       </dl>
       {info?.meshes.map(mesh => <details className={styles.part} key={mesh.name}><summary>{mesh.name}</summary>
         <dl className={styles.rows}><Row label="Material">{mesh.material.name}</Row><Row label="Shader">{mesh.material.shader}</Row>
@@ -150,10 +148,10 @@ const fixed = (v: number, digits = 2) => v.toFixed(digits);
 /** The selection's few facts under its name: what sort and size an object is, its mesh and physics, where it is on the route (else
     in AC's x, y, z). The whole list is the Details tab's. Pure. */
 export function SelectionFacts({hovered: h}: {hovered: Hovered}) {
-  const type = h.sort ? sortName(h.sort) : h.sprite;
+  const type = h.sort ? sortName(h.sort) : null;
   return <dl className={`${styles.rows} ${styles.facts}`}>
     {type && <Row label="Type">{type}</Row>}
-    {h.billboard?.height != null && <Row label="Height">{fixed(h.billboard.height, 1)} m</Row>}
+    {h.treefx && <Row label="Height">{fixed(h.treefx.height, 1)} m</Row>}
     <Row label="Mesh">{h.object}</Row>
     <Row label="Physics">{h.physics}</Row>
     {h.route ? <Row label="Route">{Math.round(h.route.metre)} m, {fixed(h.route.off, 1)} m off</Row>
@@ -232,7 +230,7 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
         <h3>Selection</h3>
         {chosen && !chosen.surface && <><strong>{chosen.all.length > 1 ? `${chosen.all.length} objects` : chosen.kind}</strong>
           {chosen.id && <p className={styles.identifier}>{chosen.id}</p>}</>}
-        {marked.length > 0 && <p className="small">{marked.map(g => `All ${g.tree ? g.sort : sortName(g.sort)}`).join(", ")}</p>}
+        {marked.length > 0 && <p className="small">{marked.map(g => `All ${sortName(g.sort)}`).join(", ")}</p>}
         {surfaces.length > 0 && <SurfaceInfo key={JSON.stringify(surfaces)} name={name} surfaces={surfaces} view={view} onSelected={onSurface} />}
         {chosen?.inspection && chosen.all.length <= 1 && <SelectionFacts hovered={chosen.inspection.hovered} />}
         {chosen && !chosen.surface && transform}

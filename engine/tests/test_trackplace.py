@@ -63,31 +63,6 @@ class MovedTest(Base):
         for name in ("nocol_bld_0_0", "1WALL_bldcol_0_0"):
             np.testing.assert_allclose(out[name].vertices["pos"], np.array(HOUSE) + [3.0, 0.0, 0.0], atol=1e-4)
 
-    def billboard(self, x, z):
-        """A tree of two crossed quads, 8 triangles over 8 vertices, its foot at x, 100, z."""
-        quad = [(-1.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 4.0, 0.0), (-1.0, 4.0, 0.0)]
-        corners = quad + [(0.0, y, side) for side, y in ((-1.0, 0.0), (1.0, 0.0), (1.0, 4.0), (-1.0, 4.0))]
-        return [(x + a, 100.0 + b, z + c) for a, b, c in corners]
-
-    def trees(self, *places):
-        faces = [0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 4, 6, 5, 4, 7, 6]
-        return mesh("nocol_trees_0_0", 1, [p for x, z in places for p in self.billboard(x, z)],
-                    faces=[f + 8 * k for k in range(len(places)) for f in faces])
-
-    def test_a_tree_by_its_foot_and_the_next_one_stays(self):
-        self.write(self.trees((10.0, 10.0), (30.0, 10.0)))
-        pos = self.place([placement("nocol_trees_0_0#0", x=2.0, scale=2.0)])["nocol_trees_0_0"].vertices["pos"]
-        np.testing.assert_allclose(pos[:8], [(12.0 + 2 * a, 100.0 + 2 * b, 10.0 + 2 * c) for a, b, c in
-                                             ((x - 10.0, y - 100.0, z - 10.0) for x, y, z in self.billboard(10.0, 10.0))], atol=1e-4)
-        np.testing.assert_array_equal(pos[8:], self.billboard(30.0, 10.0))
-
-    def test_a_tree_across_two_parts_of_a_mesh_moves_as_one(self):
-        corners, quad = self.billboard(10.0, 10.0), [0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2]
-        self.write(mesh("nocol_trees_0_0", 1, corners[:4], faces=quad), mesh("nocol_trees_0_0_1", 1, corners[4:], faces=quad))
-        out = self.place([placement("nocol_trees_0_0#0", z=-3.0)])
-        np.testing.assert_allclose(np.r_[out["nocol_trees_0_0"].vertices["pos"], out["nocol_trees_0_0_1"].vertices["pos"]],
-                                   np.array(self.billboard(10.0, 10.0)) + [0.0, 0.0, -3.0], atol=1e-4)
-
     def test_a_wire_stays_on_its_poles_one_moved(self):
         poles = [(0.0, 100.0, 10.0)] * 3 + [(10.0, 100.0, 10.0)] * 3
         wire = [(0.0, 108.0, 10.0), (5.0, 107.0, 10.0), (10.0, 108.0, 10.0)]

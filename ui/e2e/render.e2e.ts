@@ -125,7 +125,7 @@ test("a tree shows where the mouse finds one, and through its empty parts lies w
   for (let y = view.height * 0.01; y < view.height * 0.22; y += view.height * 0.025) {
     for (let x = view.width * 0.38; x < view.width * 0.62; x += view.width * 0.025) {
       const {text} = await hovered(page, view.x + x, view.y + y);
-      asked.push({x, y, drawn: changed(x, y), tree: text.includes("nocol_trees")});
+      asked.push({x, y, drawn: changed(x, y), tree: text.includes("trees#1")});
     }
   }
   const drawn = asked.filter(p => p.drawn), tree = asked.filter(p => p.tree), both = asked.filter(p => p.drawn && p.tree);

@@ -200,8 +200,7 @@ export class ViewBrush {
 
   /** What Delete's brush takes along a stroke (samples, radius in m; alongStroke): every object a click could delete whose place lies
       there, where it stands now. Listed objects (built ones, copies, imported models) at their place as the draft moved them, only those
-      at the top (a house's sign goes with it) and not a span of wires (it goes with its poles); trees and bushes of the loaded billboard
-      meshes at the middle of their foot, TreeFX trees at their foot as drawn. What is left out already is not taken again. */
+      at the top (a house's sign goes with it) and not a span of wires (it goes with its poles); trees and bushes, TreeFX trees at their foot as drawn. What is left out already is not taken again. */
   objectsAlong(samples: Sample[], radius: number) {
     const data = this.host.data(), objects = this.host.objects;
     if (!data || !samples.length) return [];
@@ -215,15 +214,6 @@ export class ViewBrush {
       const [x, y, z] = this.host.pivotOf(id) as [number, number, number];
       if (near(x, z)) found.push({id, position: [x, y, z]});
     });
-    const seen = new Set<string>();
-    for (const mesh of objects.billboardMeshes()) {
-      const base = mesh.userData.info.base;
-      for (const {k, from, at} of objects.treeFeet(mesh)) {
-        const id = `${base}#${k}`;
-        if (!near(at[0], at[2]) || seen.has(id) || objects.removed.has(id) || objects.sortRemoved(mesh, from)) continue;
-        seen.add(id); found.push({id, position: at});
-      }
-    }
     for (const {id, model, at} of this.host.trees().feet(minX, minZ, maxX, maxZ)) {
       if (!objects.removed.has(id) && !objects.removedObjectSorts.has(model)) found.push({id, position: at});
     }

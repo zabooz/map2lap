@@ -9,7 +9,7 @@ import numpy as np
 from test_modeldata import encode, fixture
 from test_trackcopy import Base
 from app import objectlibrary, trackedits, trackcopy, trackview
-from track import kn5
+from track import kn5, objectlist
 
 
 class ModelWorkflowTest(Base):
@@ -17,6 +17,10 @@ class ModelWorkflowTest(Base):
         super().setUp()
         patch = mock.patch.object(objectlibrary, "ROOT", self.ac)
         patch.start(); self.addCleanup(patch.stop)
+        # (the four objects of mesh 1 as listed trees, as copies of trees and older builds list them: what a model can replace)
+        self.objects = {**self.objects, "nocol_trees_0_0": {"kinds": ["tree"] * 4, "at": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+                        [2.0, 0.0, 0.0]], "parents": [-1] * 4, "faces": [[[1, 8 * k, 8]] for k in range(4)], "with": {}}}
+        objectlist.write(self.kn5, self.objects)
 
     def test_srgb_import_keeps_palette_through_native_save_and_cold_resave(self):
         import io

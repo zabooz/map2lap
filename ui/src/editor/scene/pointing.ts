@@ -2,7 +2,7 @@
 // nothing, a TreeFX tree's leaves alike), or a wire near it in front of that, and what the hover box and the inspector say about it.
 import * as THREE from "three";
 import type {Hovered, MeshInfo, TrackIndex} from "../types";
-import {billboardFaces, billboardOf, kindName, kindOf, latLonOf, physicsOf, routeMetre, sortOf, spriteAt, tileOf} from "./inspect";
+import {kindName, kindOf, latLonOf, physicsOf, routeMetre, sortOf, tileOf} from "./inspect";
 import type {ModelDraw} from "./modelDraw";
 import type {TreeFxDraw} from "./treeFx";
 import {FAR_M} from "./treeFx";
@@ -69,8 +69,8 @@ export class Pointing {
     this.alphaOf.clear();
   }
 
-  /** Whether a cut-out texture is solid at the hit's uv: its see-through parts are nothing to point at (a billboard's quad
-      is far wider than its tree). A compressed one can't be read here: solid. */
+  /** Whether a cut-out texture is solid at the hit's uv: its see-through parts are nothing to point at (a tree's leaf
+      cards are mostly see-through). A compressed one can't be read here: solid. */
   private solidAt(hit: THREE.Intersection) {
     const m = (hit.object as THREE.Mesh).material as THREE.MeshLambertMaterial;
     if (!m.alphaTest || !m.map || !hit.uv) return true;
@@ -125,17 +125,13 @@ export class Pointing {
     const material = data.materials[info.material];
     const texture = data.textures.find(t => t.name === material.texture);
     const {x, y, z} = hit.point, face = hit.faceIndex ?? 0, uv = hit.uv ? ([hit.uv.x, hit.uv.y] as [number, number]) : null;
-    const isBillboard = info.first_face !== null && info.first_face !== undefined;
-    const number = isBillboard ? billboardOf(face, info.first_face!) : null;
     const listed = instance ? instance + "#0" : this.host.objects.objectAt(info.i, face);
     const tile = listed ? data.objects[listed.slice(0, listed.lastIndexOf("#"))] : null;
     const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
-    const atlasTree = isBillboard || (!info.model && !!tile && ["tree", "bush"].includes(tile.kinds[k]));
     return {
-      id: listed ?? (number !== null ? `${info.base}#${number}` : null),
+      id: listed,
       kind: listed ? kindName(tile!.kinds[k]) : kindOf(info.name),
-      sprite: atlasTree && uv ? spriteAt(data.atlas, uv[0], uv[1]) : null,
-      sort: listed && !atlasTree ? sortOf(tile!, k) : null,
+      sort: listed ? sortOf(tile!, k) : null,
       object: info.name,
       physics: physicsOf(info.name),
       material: material.name,
@@ -147,7 +143,6 @@ export class Pointing {
       triangle: face,
       uv,
       shownTo: info.lod_out,
-      billboard: isBillboard ? this.billboard(mesh, info, face) : null,
       at: [x, y, z],
       tile: tileOf(x, z),
       route: routeMetre(data.route, x, z),
@@ -160,31 +155,13 @@ export class Pointing {
   private describeTree(data: TrackIndex, id: string, hit: THREE.Intersection): Hovered {
     const facts = this.host.trees().facts(id, hit)!, {x, y, z} = hit.point, file = `${facts.model}.bin`;
     return {
-      id, kind: /shrub|bush/.test(facts.model) ? "3D bush" : "3D tree", sprite: null, sort: facts.model, object: `extension/trees/${file}`,
+      id, kind: /shrub|bush/.test(facts.model) ? "Bush" : "Tree", sort: facts.model, object: `extension/trees/${file}`,
       physics: "None", material: file, shader: "CSP TreeFX", texture: facts.texture, textureBytes: null,
       vertices: facts.vertices, triangles: facts.triangles, triangle: hit.faceIndex ?? 0, uv: hit.uv ? [hit.uv.x, hit.uv.y] : null,
-      shownTo: FAR_M, billboard: {number: Number(id.slice(id.indexOf("#") + 1)), height: facts.height, width: facts.width, foot: [facts.pos[0], facts.pos[2]]},
-      treefx: {model: facts.model, triangles: facts.triangles},
+      shownTo: FAR_M,
+      treefx: {model: facts.model, triangles: facts.triangles, height: facts.height, width: facts.width, foot: [facts.pos[0], facts.pos[2]]},
       at: [x, y, z], tile: tileOf(x, z), route: routeMetre(data.route, x, z), latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null,
       distance: hit.distance,
     };
-  }
-
-  /** The tree or bush a triangle belongs to, measured from its corners. Lying across two parts of a mesh (a few per tile),
-      only its number is sure. */
-  private billboard(mesh: THREE.Mesh, info: MeshInfo, face: number): NonNullable<Hovered["billboard"]> {
-    const first = info.first_face!, number = billboardOf(face, first);
-    const [from, end] = billboardFaces(number, first, info.indices / 3);
-    if (end - from < 8) return {number, height: null, width: null, foot: null};
-    const index = mesh.geometry.getIndex()!, position = mesh.geometry.getAttribute("position");
-    const bounds = new THREE.Box3(), corner = new THREE.Vector3(), base = new THREE.Vector3();
-    for (let k = from * 3; k < end * 3; k++) {
-      corner.fromBufferAttribute(position, index.getX(k));
-      bounds.expandByPoint(corner);
-      if (k === from * 3) base.copy(corner);
-    }
-    corner.fromBufferAttribute(position, index.getX(from * 3 + 1));      // (a quad's second corner: trees.billboards)
-    const foot = bounds.getCenter(new THREE.Vector3());
-    return {number, height: bounds.max.y - bounds.min.y, width: base.distanceTo(corner), foot: [foot.x, foot.z]};
   }
 }

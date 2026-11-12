@@ -60,7 +60,7 @@ test("parts are ready only after the loaded ground's selection index is prepared
   globalThis.fetch = (async input => {
     const url = String(input);
     if (url.endsWith("/index")) return Response.json({revision: "source", meshes: [{...info(0, 3), name: "1ROAD_ground_0_0"}],
-      surface_tiles: ["0_0"], objects: {}, materials: [], textures: [], route: [], start: null, atlas: {sprites: [], cols: 1, rows: 1}});
+      surface_tiles: ["0_0"], objects: {}, materials: [], textures: [], route: [], start: null});
     if (url.includes("/surface/prepare?")) { arrived(); await gate; return Response.json({prepared: 1}); }
     return new Response(bytes(3));
   }) as typeof fetch;
@@ -96,7 +96,7 @@ test("ground loaded while a tile's selection is being prepared goes in the next 
   globalThis.fetch = (async input => {
     const url = String(input);
     if (url.endsWith("/index")) return Response.json({revision: "source", meshes: [0, 1, 2].map(k => ({...info(k, 3), name: `1ROAD_ground_${k}_0`})),
-      surface_tiles: ["0_0", "1_0", "2_0"], objects: {}, materials: [], textures: [], route: [], start: null, atlas: {sprites: [], cols: 1, rows: 1}});
+      surface_tiles: ["0_0", "1_0", "2_0"], objects: {}, materials: [], textures: [], route: [], start: null});
     if (url.includes("/surface/prepare?")) {
       prepares.push(url);
       if (prepares.length === 1) { arrived(); await gate; }
@@ -127,7 +127,7 @@ for (const undo of [false, true]) test(`copy ${undo ? "undo" : "growth"} during 
   const original = Array.from({length: 6}, (_, k) => info(k, 3));
   const data = (changed: boolean) => ({revision: "source", draft: changed ? 2 : 1, copy_revision: changed ? "b" : "a",
     meshes: [...original, ...(changed && undo ? [] : [info(6, changed ? 6 : 3, true)])],
-    objects: {}, materials: [], textures: [], route: [], start: null, atlas: {sprites: [], cols: 1, rows: 1}});
+    objects: {}, materials: [], textures: [], route: [], start: null});
   let release!: () => void, ready!: () => void, indexes = 0, originals = 0;
   const gate = new Promise<void>(r => { release = r; }), started = new Promise<void>(r => { ready = r; });
   const fetchBefore = globalThis.fetch;

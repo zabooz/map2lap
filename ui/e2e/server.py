@@ -28,7 +28,7 @@ import generator  # noqa: E402
 import furniture  # noqa: E402
 import server  # noqa: E402
 from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, updater, version  # noqa: E402
-from scenery import cars, treefx, trees  # noqa: E402
+from scenery import cars, treefx  # noqa: E402
 from track import editorinfo, kn5, make_track_folder, objectlist, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
@@ -48,7 +48,6 @@ calls = []                  # what the page asked of the stand-ins
 release = {}                # the newest release version.latest answers
 stopped = threading.Event()
 TRACK_LOCK = threading.RLock()
-ATLAS = os.path.join(TMP, "atlas.png")
 
 
 def dds(*rows):
@@ -101,13 +100,10 @@ def hill_at(z):
     return 3.0 * math.exp(-((z + 80.0) / 18.0) ** 2)
 
 
-def billboards(name, mat, items):
-    """Billboards as make_obj's: trees.billboards' corners in AC's frame, three vertices a triangle, v negated."""
-    p, uv, t = trees.billboards(items)
-    corners = np.asarray(t).ravel()
-    pos = np.c_[p[corners, 0], p[corners, 2], -p[corners, 1]]
-    tex = np.c_[uv[corners, 0], -uv[corners, 1]]
-    return mesh(name, mat, pos, [(0, 1, 0)] * len(pos), tex, np.arange(len(pos)))
+def tree_at(model, x, z, height):
+    """A TreeFX tree of model standing at AC (x, 0, z), height m high, as wide as its model (treefx.placement). Pure."""
+    H, W = treefx.size(model)
+    return treefx.placement(model, (x, 0.0, z), 0.0, height, W / H)
 
 
 RESET_TRIES, RESET_WAIT_S = 100, 0.05
@@ -177,20 +173,17 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, treefx=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
     power pole with a span of wires, listed ("two": a pole at each end of the span, which they share). hill: the road tile on the
-    2 m lattice of a real build, with a hill across it. treefx: two CSP TreeFX trees, a spruce on the road ahead of the start and a birch
-    beside it (as builds make them), in its list, its trees.txt and their models."""
+    2 m lattice of a real build, with a hill across it. with_trees: two CSP TreeFX trees as builds make them, in its list, its
+    trees.txt and their models: trees#0 a spruce far off, trees#1 one tree_height m high on the road ahead of the start."""
     root = os.path.join(AC, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
-    with open(ATLAS, "rb") as f:
-        atlas = f.read()
-    textures = [("ground_0_0.dds", dds(*ROAD_FIELDS)), ("ground_-1_0.dds", dds(((60, 130, 50),))), ("trees.png", atlas),
-                ("ground_far.dds", dds(((80, 120, 90),)))]
+    textures = [("ground_0_0.dds", dds(*ROAD_FIELDS)), ("ground_-1_0.dds", dds(((60, 130, 50),))), ("ground_far.dds", dds(((80, 120, 90),)))]
     if ground_materials or ground_split:
         # A 256px source is 1 m/texel; the preview's four-texel average spans 4 m. The split-field checks sample at
         # least 3.5 m from the boundary (their 32px crop stays >2 m away), outside its bilinear filter footprint.
@@ -200,23 +193,19 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
             for col in range(2):
                 pixels[row * 128:(row + 1) * 128, col * 128:(col + 1) * 128] = ROAD_FIELDS[row][col]
         textures[0] = ("ground_0_0.dds", dds_mipmaps(Image.fromarray(pixels), smallest=1))
-    materials = [material("ground_0_0", "ground_0_0.dds"), material("ground_-1_0", "ground_-1_0.dds"),
-                 material("trees", "trees.png", "ksTree", 1), material("ground_far", "ground_far.dds")]
+    materials = [material("ground_0_0", "ground_0_0.dds"), material("ground_-1_0", "ground_-1_0.dds"), material("ground_far", "ground_far.dds")]
     if ground_brightness is not None:
         for entry in materials[:2]:
             entry.props = [(p[0], ground_brightness / 2 if p[0] in {"ksAmbient", "ksDiffuse"} else p[1], *p[2:]) for p in entry.props]
     if ground_specular is not None:
         for entry in materials[:2]:
             entry.props = [*entry.props, *((k, float(v), (0, 0), (0, 0, 0), (0, 0, 0, 0)) for k, v in zip(("ksSpecular", "ksSpecularEXP"), ground_specular))]
-    # (x, north, up, yaw, height, random value; the second stands on the road ahead of the start)
-    items = [("deciduous", 40.0, 200.0, 0.0, 0.0, 12.0, 0.1), ("deciduous", 128.0, 130.0, 0.0, 0.0, tree_height, 0.1)]
     tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
     road = ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=int(TILE / 2), height=hill_at) if hill else ground("1ROAD_ground_0_0", 0, 0.0, -TILE, grid=128 if ground_materials else GRID)
     if grass:
         road.name = "1GRASS_ground_0_0"
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
-                     *([billboards("nocol_trees_0_0", 2, items)] if with_trees else []),
-                     ground("nocol_far_1", 3, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
+                     ground("nocol_far_1", 2, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
     listed = {}
     if car:
         materials.append(material("cars", "ground_far.dds"))
@@ -239,11 +228,10 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                     [(0, 1, 0)] * 4, [(0, 0), (1, 0), (0, -1), (1, -1)], [0, 2, 1, 1, 2, 3])
         tree.children.insert(-1, node)
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
-    trees = {"next": 2, "trees": {"0": {"model": "spruce", "pos": [128.0, 0.0, -130.0], "angle": 0.0, "size": 2.0, "width": 1.0},
-                                  "1": {"model": "birch", "pos": [100.0, 0.0, -150.0], "angle": 0.0, "size": 1.0, "width": 1.0}}} if treefx else None
-    objectlist.write(os.path.join(root, name + ".kn5"), listed, trees)
+    plants = {"next": 2, "trees": {"0": tree_at("spruce", 40.0, -200.0, 12.0), "1": tree_at("spruce", 128.0, -130.0, tree_height)}} if with_trees else None
+    objectlist.write(os.path.join(root, name + ".kn5"), listed, plants)
     os.makedirs(os.path.join(root, "extension"), exist_ok=True)
-    make_track_folder.write_trees(root, trees)
+    make_track_folder.write_trees(root, plants)
     if name != "gamma":
         parts = []
         for ty in (-1, 0):
@@ -426,7 +414,7 @@ class Handler(server.Handler):
                        pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False), grass=body.get("grass", False),
                        ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False),
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
-                       tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), treefx=body.get("treefx", False))
+                       tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:
@@ -441,7 +429,6 @@ class Quiet(server.Server):
 
 def main():
     stand_ins()
-    trees.make_atlas(ATLAS)
     fill()
     srv = Quiet(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

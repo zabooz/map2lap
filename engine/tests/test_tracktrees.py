@@ -40,7 +40,7 @@ class TreesBase(Base):
         """The page's list with fields in place of what the draft holds; its answer."""
         now = trackedits.load(self.ac, "t")
         body = {"base": now["base"], "revision": now["revision"], "id": f"r{now['revision']}", "deleted": now["deleted"],
-                "sorts": now["sorts"], "object_sorts": now["object_sorts"], **fields}
+                "object_sorts": now["object_sorts"], **fields}
         body["deleted"] = [d if isinstance(d, dict) else {"id": d, "position": [0, 0, 0]} for d in body["deleted"]]
         return trackedits.save_telling(self.ac, "t", body)
 
@@ -201,7 +201,7 @@ class CopyTest(TreesBase):
         self.draft(heights=[UP])
         answer = self.copy({"object": "trees#2"})
         self.assertEqual({"tree": {"model": "spruce", "angle": 350.0, "size": 1.2, "width": 0.9}}, answer["template"])
-        self.assertEqual(([7.0, 1.0, 2.0], "3D tree"), (answer["at"], answer["kind"]))
+        self.assertEqual(([7.0, 1.0, 2.0], "tree"), (answer["at"], answer["kind"]))
 
     def test_a_copy_placed_takes_the_next_number_never_given_and_stands_on_the_ground_as_save_lifts_it(self):
         self.draft(heights=[UP])
@@ -221,6 +221,53 @@ class CopyTest(TreesBase):
             self.copy({"object": "trees#2"})
         with self.assertRaises(trackedits.Invalid):
             self.copy({"template": {"tree": {"model": "larch", "angle": 0, "size": 1, "width": 1}}, "at": [1, 0, 1]})
+
+
+class ReplaceTest(TreesBase):
+    """A library model in the place of a TreeFX tree: at its foot, its placement as the model's pose, as high as the tree (its own
+    .bin's height times its size); Save leaves the tree out of trees.txt."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        from app import objectlibrary
+        from test_modeldata import encode, fixture
+        patch = mock.patch.object(objectlibrary, "ROOT", self.ac)
+        patch.start()
+        self.addCleanup(patch.stop)
+        document, binary = fixture()
+        prepared = objectlibrary.prepare("tree.glb", encode(document, binary))
+        self.asset = objectlibrary.add({"token": prepared["token"], "filename": "tree.glb", "name": "Oak", "metres_per_unit": 1})["model"]
+
+    def replace(self, target, keep_height=True):
+        now = trackedits.load(self.ac, "t")
+        return trackedits.model(self.ac, "t", {"base": now["base"], "revision": now["revision"], "model": self.asset["id"],
+                                               "replace": target, "keep_height": keep_height})
+
+    def test_a_tree_s_model_stands_at_its_foot_with_its_placement_and_its_height(self):
+        from app import trackmodels
+        self.draft(placed=[{"id": "trees#2", "x": 2, "y": 0, "z": 1, "turn": 30, "scale": 1.5}])
+        answer = self.replace("trees#2")
+        model = answer["model"]
+        self.assertEqual(("trees#2", [7.0, 0.0, 2.0]), (model["replaces"], model["at"]))
+        height = treefx.read_bin(os.path.join(self.root, "extension", "trees", "spruce.bin"))["height"] * SPRUCE2["size"]
+        self.assertAlmostEqual(height, model["scale"] * trackmodels._model_height(self.asset), places=4)
+        self.assertEqual([{"id": model["id"] + "#0", "x": 2, "y": 0, "z": 1, "turn": 30, "scale": 1.5}], answer["placed"])
+
+    def test_a_deleted_tree_or_one_of_a_model_deleted_whole_is_refused(self):
+        self.draft(deleted=["trees#1"], object_sorts=["spruce"])
+        for target in ("trees#1", "trees#0", "trees#9"):
+            with self.assertRaises(trackedits.Invalid, msg=target):
+                self.replace(target)
+
+    def test_saved_the_replaced_tree_is_out_of_trees_txt_and_the_view_leaves_it_out(self):
+        answer = self.replace("trees#0")
+        now = trackedits.load(self.ac, "t")
+        trackedits.save_telling(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "m", "deleted": [],
+                                               "models": [answer["model"]], "placed": answer.get("placed", [])})
+        self.assertIn("trees#0", trackview.index(self.ac, "t")["model_replacements"])
+        trackcopy.save(self.ac, "t")
+        self.assertEqual([BIRCH, SPRUCE2], self.lines())
 
 
 class SaveTest(TreesBase):

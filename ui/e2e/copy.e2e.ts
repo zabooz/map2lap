@@ -1,9 +1,12 @@
 // Copy keeps one source ready for repeated placement; every instance is an independent edit.
 import {centre, expect, openEditor, scene, test} from "./fixtures";
-import {box, findTree, findTitled, NEAR_TREE, picture, saved, saveTrack, stored} from "./edit-helpers";
+import {box, findTree, findTitled, picture, saved, saveTrack, stored} from "./edit-helpers";
 
 interface Copy {id: string; parts: {source: string; parent: number; matrix: number[]}[]}
+interface Tree {id: string; model: string; pos: number[]; angle: number; size: number; width: number}
 const copies = async (page: Parameters<typeof stored>[0]) => ((await stored(page)) as unknown as {copies: Copy[]}).copies;
+/** The TreeFX trees Copy added to the draft (the trees are TreeFX trees: tracktrees.copied). */
+const trees = async (page: Parameters<typeof stored>[0]) => ((await stored(page)) as unknown as {trees: Tree[]}).trees;
 
 test("Copy releases the source selection; X switches to Delete and leaves the original intact", async ({page}) => {
   await openEditor(page);
@@ -45,20 +48,13 @@ test("Copy offers Turn, Raise and Size by number and modifier wheel, retained fo
   await bar.getByLabel("Size").fill("200");
   const c = await centre(scene(page));
   await page.mouse.click(c.x + 120, c.y + 100);
-  await expect.poll(() => copies(page)).toHaveLength(1);
+  await expect.poll(() => trees(page)).toHaveLength(1);
   await page.mouse.click(c.x + 200, c.y + 100);
-  await expect.poll(() => copies(page)).toHaveLength(2);
-  for (const copy of await copies(page)) {
-    const m = copy.parts[0].matrix;
-    expect(m[0]).toBeCloseTo(0); expect(m[2]).toBeCloseTo(2);
-    expect(m[5]).toBeCloseTo(2); expect(m[8]).toBeCloseTo(-2);
-  }
-  const index = await (await page.request.get("/api/editor/alpha/index")).json();
-  for (const mesh of index.meshes.filter((m: {copy: boolean}) => m.copy)) {
-    const bytes = await (await page.request.get(`/api/editor/alpha/mesh/${mesh.i}?r=${encodeURIComponent(index.revision)}&d=${index.draft}`)).body();
-    let foot = Infinity;
-    for (let k = 0; k < mesh.vertices; k++) foot = Math.min(foot, bytes.readFloatLE(k * 44 + 4));
-    expect(foot).toBeCloseTo(2); // Tree billboards extend below their pivot: measure the actual foot above the flat ground.
+  await expect.poll(() => trees(page)).toHaveLength(2);
+  const source = (await (await page.request.get("/api/editor/alpha/treefx")).json()) as {ids: string[]; size: number[]};
+  for (const tree of await trees(page)) {        // (the source turned by 90 degrees, twice as large, 2 m above the flat ground)
+    expect([tree.angle, tree.pos[1]]).toEqual([90, 2]);
+    expect(tree.size).toBeCloseTo(2 * source.size[source.ids.indexOf("trees#1")], 2);
   }
 });
 
@@ -71,40 +67,39 @@ test("Copy C places the picked tree repeatedly; undo, redo, reload and Save reta
   await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
   const c = await centre(scene(page));
   await page.mouse.click(c.x + 100, c.y + 100);
-  await expect.poll(() => copies(page)).toHaveLength(1);
+  await expect.poll(() => trees(page)).toHaveLength(1);
   await page.mouse.click(c.x + 200, c.y + 100);
-  await expect.poll(() => copies(page)).toHaveLength(2);
-  const made = await copies(page);
-  expect(made[0].id).not.toBe(made[1].id);
-  expect(made.map(c => c.parts[0].source)).toEqual([NEAR_TREE, NEAR_TREE]);
+  await expect.poll(() => trees(page)).toHaveLength(2);
+  const made = await trees(page);
+  expect(made.map(t => [t.id, t.model])).toEqual([["trees#2", "spruce"], ["trees#3", "spruce"]]);
   await page.keyboard.press("Control+z");
-  await expect.poll(() => copies(page)).toHaveLength(1);
+  await expect.poll(() => trees(page)).toHaveLength(1);
   await page.keyboard.press("Control+Shift+z");
-  await expect.poll(() => copies(page)).toHaveLength(2);
+  await expect.poll(() => trees(page)).toHaveLength(2);
   await page.keyboard.press("Escape");
   await expect(page.locator("#edit-copy-set")).toBeHidden();
   await saved(page);
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
-  const index = await (await page.request.get("/api/editor/alpha/index")).json();
-  for (const copy of made) expect(index.objects[copy.id].kinds).toEqual(["tree"]);
+  const drawn = (await (await page.request.get("/api/editor/alpha/treefx")).json()) as {ids: string[]};
+  for (const copy of made) expect(drawn.ids).toContain(copy.id);
   await saveTrack(page);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
-  expect(await copies(page)).toEqual(made);
+  expect(await trees(page)).toEqual(made);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
   await expect(page.getByRole("button", {name: "Revert to saved", exact: true})).toBeDisabled();
   const kept = await picture(page), draft = await stored(page);
   const removed = await page.request.put("/api/editor/alpha/edits", {
-    data: {...draft, id: "unsaved-remove-copy", copies: made.slice(0, 1)},
+    data: {...draft, id: "unsaved-remove-copy", trees: made.slice(0, 1)},
   });
   await expect(removed).toBeOK();
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
-  expect(await copies(page)).toEqual(made.slice(0, 1));
+  expect(await trees(page)).toEqual(made.slice(0, 1));
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
   await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
-  await expect.poll(() => copies(page)).toEqual(made);
+  await expect.poll(() => trees(page)).toEqual(made);
   await expect.poll(async () => (await picture(page)).equals(kept)).toBe(true);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
 });
@@ -117,8 +112,8 @@ test("Copy in the panel can pick its source; a placed tree has its own pick, Mov
   await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
   const c = await centre(scene(page)), at = {x: c.x + 150, y: c.y + 100};
   await page.mouse.click(at.x, at.y);
-  await expect.poll(() => copies(page)).toHaveLength(1);
-  const [copy] = await copies(page);
+  await expect.poll(() => trees(page)).toHaveLength(1);
+  const [copy] = await trees(page);
   await page.keyboard.press("Escape");
   await findCopy(page, copy.id, at);
   await page.mouse.down();
@@ -127,11 +122,11 @@ test("Copy in the panel can pick its source; a placed tree has its own pick, Mov
   await page.locator("#edit-move-set").getByLabel("Raise").fill("100");
   await saved(page);
   const draft = await (await page.request.get("/api/editor/alpha/edits")).json();
-  expect(draft.placed).toMatchObject([{id: `${copy.id}#0`, y: 1}]);
+  expect(draft.placed).toMatchObject([{id: copy.id, y: 1}]);
   await scene(page).focus();
   await page.keyboard.press("Delete");
   await saved(page);
-  expect((await stored(page)).deleted.map(d => d.id)).toEqual([`${copy.id}#0`]);
+  expect((await stored(page)).deleted.map(d => d.id)).toEqual([copy.id]);
   await page.keyboard.press("Escape");
 });
 
@@ -143,8 +138,8 @@ test("a copied tree offers the same whole-sort deletion as its original", async 
   await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
   const c = await centre(scene(page)), at = {x: c.x + 150, y: c.y + 100};
   await page.mouse.click(at.x, at.y);
-  await expect.poll(() => copies(page)).toHaveLength(1);
-  const [copy] = await copies(page);
+  await expect.poll(() => trees(page)).toHaveLength(1);
+  const [copy] = await trees(page);
   await page.keyboard.press("Escape");
   const hit = await findCopy(page, copy.id, at);
   await page.mouse.click(hit.x, hit.y, {button: "right"});
@@ -152,8 +147,7 @@ test("a copied tree offers the same whole-sort deletion as its original", async 
   await page.keyboard.press("Delete");
   await saved(page);
   const draft = await (await page.request.get("/api/editor/alpha/edits")).json();
-  expect(draft.sorts).toHaveLength(1);
-  expect(draft.object_sorts).toEqual([]);
+  expect(draft.object_sorts).toEqual(["spruce"]);
 });
 
 test("Duplicate in the context menu starts repeat placement of a house with its sign and collision", async ({page, backend}) => {

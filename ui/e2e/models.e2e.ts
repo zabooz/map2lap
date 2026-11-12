@@ -1,7 +1,7 @@
 import {execFileSync} from "node:child_process";
 import {join} from "node:path";
 import {dragMouse, expect, openEditor, scene, test} from "./fixtures";
-import {findTree, meshes, picture, saved} from "./edit-helpers";
+import {findTree, meshes, picture, saved, treeCount} from "./edit-helpers";
 import * as THREE from "three";
 
 async function sample(page: import("@playwright/test").Page, png: Buffer, points: {x: number; y: number}[]) {
@@ -120,7 +120,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   // Keep the fitted crown and its raised pose inside the reference camera's image.
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_height: 6});
   await openEditor(page);
-  const sourceTrees = (await meshes(page))["nocol_trees_0_0"];
+  const sourceTrees = await treeCount(page);
   const before = await picture(page);
   await page.getByRole("button", {name: "Insert", exact: true}).click();
   await page.getByLabel("Model file").setInputFiles({name: "cutout-tree.glb", mimeType: "model/gltf-binary", buffer: glb});
@@ -182,7 +182,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   expect((await modelResources()).shared[0].geometries).toEqual(shared[0].geometries);
   const draft = await (await page.request.get("/api/editor/alpha/edits")).json();
   const replacement = draft.models.find((m: {replaces: string | null}) => m.replaces);
-  expect(replacement.scale).toBeCloseTo(6 / 5, 5);
+  expect(replacement.scale).toBeCloseTo(6 / 5, 2);       // (the TreeFX tree is 6.006 m high: its size kept to a thousandth, as trees.txt says it)
   const index = await (await page.request.get("/api/editor/alpha/index")).json();
   const bounds = (await scene(page).boundingBox())!;
   // Replacement preserves the source tree's height, so pick through its fitted instance transform.
@@ -245,7 +245,7 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
   // Save bundles equal materials within a tile: three trees still contain all twelve triangles.
   const modelTriangles = Object.entries(native).filter(([name]) => name.includes("m2l_model")).map(([, triangles]) => triangles);
   expect(modelTriangles.reduce((sum, triangles) => sum + triangles, 0)).toBe(12);
-  expect(native.nocol_trees_0_0).toBe(sourceTrees - 8);
+  expect(await treeCount(page, "imported_model_copy")).toBe(sourceTrees - 1);     // (the replaced TreeFX tree is out of trees.txt)
   await backend.post("/__test/cold-models");
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
@@ -257,17 +257,13 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
     expect(coldIndex.objects[id].kinds).toEqual(["tree"]);
     expect(coldIndex.model_matrices[id]).toHaveLength(16);
   }
-  // Original and compiled sources both reopen: the latter already removed the billboard. Count the visible result,
-  // including each still-active replacement's eight billboard triangles, rather than assuming one source representation.
-  const sourceTreeTriangles = coldIndex.meshes.filter((mesh: {name: string}) => mesh.name === "nocol_trees_0_0")
-    .reduce((sum: number, mesh: {indices: number}) => sum + mesh.indices / 3, 0);
-  expect(sourceTreeTriangles - coldIndex.model_replacements.length * 8).toBe(sourceTrees - 8);
   for (const id of coldIndex.model_replacements) expect(id).toBe(replacement.replaces);
   await page.locator("#edit-save-more").click();
   await page.locator("#save-name").fill("Imported cold copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
   await expect(page.locator("#edit-track")).toHaveValue("imported_cold_copy");
   expect(await meshes(page, "imported_cold_copy")).toEqual(native);
+  expect(await treeCount(page, "imported_cold_copy")).toBe(sourceTrees - 1);
   await picture(page);
   const frame = await page.evaluate(() => (performance.getEntriesByName("map2lap.models.frame").at(-1) as PerformanceMark)?.detail);
   await testInfo.attach("model-workflow-evidence", {body: JSON.stringify({basePixels, shownPixels, undone, redone,
@@ -277,16 +273,16 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
 });
 
 test("Revert to saved and Undo refresh models together with source heights, source poses and ordinary copies", async ({page, backend}) => {
-  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true});
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, house: true});     // (a house's copy is a mesh)
   await openEditor(page);
   const original = await picture(page);
   const now = await (await page.request.get("/api/editor/alpha/edits")).json();
-  const template = await (await page.request.post("/api/editor/alpha/copy", {data: {base: now.base, revision: now.revision, object: "nocol_trees_0_0#0"}})).json();
+  const template = await (await page.request.post("/api/editor/alpha/copy", {data: {base: now.base, revision: now.revision, object: "t_0_0#0"}})).json();
   const copied = await (await page.request.post("/api/editor/alpha/copy", {data: {base: now.base, revision: now.revision, template: template.template, at: [180, 0, -100]}})).json();
   const nx = 65, nz = 65, mm = Array.from({length: nx * nz}, (_, i) => i % nx && i % nx < nx - 1 && Math.floor(i / nx) && Math.floor(i / nx) < nz - 1 ? 1500 : 0);
   const answer = await page.request.put("/api/editor/alpha/edits", {data: {base: now.base, revision: now.revision, id: "source-state", deleted: [], models: [],
     copies: [copied.copy], heights: [{id: "source-height", x: 64, z: -192, nx, nz, mm}],
-    placed: [{id: "nocol_trees_0_0#1", x: 0, y: 2, z: 0, turn: 20, scale: 1.1}]}});
+    placed: [{id: "trees#1", x: 0, y: 2, z: 0, turn: 20, scale: 1.1}]}});
   expect(answer.ok()).toBe(true); await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const repo = join(import.meta.dirname, "../.."), python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");

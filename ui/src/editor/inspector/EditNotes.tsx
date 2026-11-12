@@ -27,14 +27,14 @@ export function EditNotes({state, note, markedName, picked, sort}: {
         {state.copies.length + state.trees.length === 1 ? " copy" : " copies"}</p>}
       {state.models.length > 0 && <p className={styles.line}>{state.models.length} {state.models.length === 1 ? "model instance" : "model instances"}</p>}
       {state.paints.length > 0 && <p id="edit-paints" className={styles.line}>{state.paints.length} material {state.paints.length === 1 ? "change" : "changes"}</p>}
-      {(state.sorts.length > 0 || state.objectSorts.length > 0) && (
-        <p id="edit-sorts" className={styles.line}>All deleted: {[...state.sorts, ...state.objectSorts.map(sortName)].join(", ")}</p>
+      {state.objectSorts.length > 0 && (
+        <p id="edit-sorts" className={styles.line}>All deleted: {state.objectSorts.map(sortName).join(", ")}</p>
       )}
       {markedName && <p id="edit-marked" className={styles.line}>All {markedName} marked: X or Delete deletes them all, Esc ends it.</p>}
       {many > 1 && !markedName && <p id="edit-picked" className={styles.line}>{many} objects picked: X or Delete deletes them all.</p>}
       {picked && many < 2 && !markedName && (
         <p id="edit-picked" className={styles.line}>
-          {picked.kind}{picked.sprite && ` · ${picked.sprite}`}{sort && sortName(sort) !== picked.kind && ` · ${sortName(sort)}`}
+          {picked.kind}{sort && sortName(sort) !== picked.kind && ` · ${sortName(sort)}`}
           {!picked.id && (picked.afterBuild ? ": only a new build can delete it" : ": can't be deleted yet")}
         </p>
       )}

@@ -19,7 +19,6 @@ from track import kn5, objectlist  # noqa: E402
 
 IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
 START = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 5.0, 6.0, 7.0, 1.0)
-ATLAS = {"sprites": ["a", "b", "c", "d"], "cols": 2, "rows": 2}
 
 
 def boxes(name, material, numbers, faces_each=2, renderable=1, doubled=False):
@@ -60,7 +59,7 @@ class Base(unittest.TestCase):
             f.write(b"map")
         tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
         tree.children = [boxes("1ROAD_ground_0_0", 0, [90]),                          # 0
-                         boxes("nocol_trees_0_0", 1, [0, 0, 1, 2], faces_each=8),     # 1: four billboards of 8 triangles
+                         boxes("nocol_trees_0_0", 1, [0, 0, 1, 2], faces_each=8),     # 1: a mesh of no listed object (trees are TreeFX)
                          boxes("1WALL_cars_0_0", 0, [10, 11, 12], doubled=True),      # 2: 12 triangles, doubled
                          boxes("1WALL_bldcol_0_0", 0, [20, 20], renderable=0),        # 3: a house's collision, not drawn
                          boxes("nocol_bld_0_0", 0, [20, 21]),                         # 4: a house, and its sign
@@ -73,15 +72,12 @@ class Base(unittest.TestCase):
                       [[3, 0, 4], [4, 0, 2]], [[4, 2, 2]], [[5, 0, 2]]],
             "with": {}}}
         objectlist.write(self.kn5, self.objects)
-        for patch in (mock.patch.object(trackview, "_atlas", return_value=ATLAS),):
-            patch.start()
-            self.addCleanup(patch.stop)
         mock.patch.object(mytracks, "ROOT", self.ac).start()
         self.addCleanup(mock.patch.stopall)
 
-    def edits(self, deleted=(), sorts=(), object_sorts=()):
+    def edits(self, deleted=(), object_sorts=()):
         now = trackedits.load(self.ac, "t")
-        trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x", "sorts": list(sorts),
+        trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x",
                                        "object_sorts": list(object_sorts),
                                        "deleted": [{"id": d, "position": [0, 0, 0]} for d in deleted]})
 
@@ -143,34 +139,6 @@ class FilterTest(Base):
         meshes = self.meshes(self.new()["root"])
         self.assertEqual({20.0}, set(self.xs(meshes["nocol_bld_0_0"])))
         self.assertIn("1WALL_bldcol_0_0", meshes)
-
-    def test_a_billboard_goes_by_its_number(self):
-        self.edits(["nocol_trees_0_0#2"])
-        self.copy()
-        xs = self.xs(self.meshes(self.new()["root"])["nocol_trees_0_0"])
-        self.assertEqual(3 * 8 * 3, len(xs))
-        self.assertEqual([0.0] * 48 + [2.0] * 24, xs)
-
-    def test_a_billboard_across_two_parts(self):
-        whole = boxes("nocol_trees_0_0", 1, [0, 1, 2], faces_each=8)     # (24 triangles)
-        a, b = boxes("nocol_trees_0_0", 1, [0]), boxes("nocol_trees_0_0_1", 1, [0])
-        a.vertices, a.indices = whole.vertices[:36], np.arange(36).astype("<u2")     # (12 triangles: the first billboard and half the second)
-        b.vertices, b.indices = whole.vertices[36:], np.arange(36).astype("<u2")     # (the other half, and the third)
-        tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
-        tree.children = [a, b]
-        kn5.write(self.kn5, [("t.png", b"png")], [material("m"), material("trees")], tree)
-        objectlist.write(self.kn5, {})
-        self.edits(["nocol_trees_0_0#1"])
-        self.copy()
-        meshes = self.meshes(self.new()["root"])
-        self.assertEqual({0.0}, set(self.xs(meshes["nocol_trees_0_0"])))
-        self.assertEqual({2.0}, set(self.xs(meshes["nocol_trees_0_0_1"])))
-
-    def test_a_whole_sort_goes(self):
-        self.edits(sorts=["a"])         # (the cell of objects 0: the billboards 0 and 1)
-        self.copy()
-        xs = self.xs(self.meshes(self.new()["root"])["nocol_trees_0_0"])
-        self.assertEqual({1.0, 2.0}, set(xs))
 
     def test_all_cars_go_fronts_and_backs(self):
         self.edits(object_sorts=["car"])
@@ -437,7 +405,7 @@ class SaveTest(Base):
     def lift(self, *ops):
         now = trackedits.load(self.ac, "t")
         trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": f"h{now['revision']}", "deleted": now["deleted"],
-                                       "sorts": now["sorts"], "object_sorts": now["object_sorts"], "heights": list(ops)})
+                                       "object_sorts": now["object_sorts"], "heights": list(ops)})
 
     def ground(self, name="t"):
         return self.meshes(kn5.read(self.own(name))["root"])["1ROAD_ground_0_0"].vertices["pos"][:, 1]
@@ -511,7 +479,7 @@ class SaveTest(Base):
     def told(self, *ops):
         now = trackedits.load(self.ac, "t")
         return trackedits.save_telling(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": f"h{now['revision']}", "deleted": now["deleted"],
-                                                      "sorts": now["sorts"], "object_sorts": now["object_sorts"], "heights": list(ops)})
+                                                      "object_sorts": now["object_sorts"], "heights": list(ops)})
 
     def test_saving_a_change_names_the_meshes_it_moves_and_only_for_what_changed(self):
         ground = next(i for i, m in enumerate(kn5.scan(self.kn5)["meshes"]) if m["name"] == "1ROAD_ground_0_0")
@@ -934,7 +902,7 @@ class PlaceTest(Base):
         """The draft with those placements, as the page saves it: what the answer tells."""
         now = trackedits.load(self.ac, "t")
         return trackedits.save_telling(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": f"p{now['revision']}",
-                                                      "deleted": now["deleted"], "sorts": now["sorts"], "object_sorts": now["object_sorts"],
+                                                      "deleted": now["deleted"], "object_sorts": now["object_sorts"],
                                                       "placed": list(placed)})
 
     @staticmethod

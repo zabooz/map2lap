@@ -457,7 +457,7 @@ class KindsTest(unittest.TestCase):
         self.assertIn("1WALL_cars_0_0", objectlist.problem("1WALL_cars_0_0", False))
 
     def test_what_needs_none_needs_none(self):
-        for name in ("1ROAD_ground_0_0", "nocol_trees_0_0", "nocol_trees_bush_0_0", "nocol_bush_0_0", "nocol_far_1", "1WALL_deck_con_00_0_0",
+        for name in ("1ROAD_ground_0_0", "nocol_far_1", "1WALL_deck_con_00_0_0",
                      "nocol_fence_sub_0_0", "1WALL_fencecol_sub_0_0", "nocol_gate_band_start", "1WALL_gate_x"):
             self.assertIsNone(objectlist.problem(name, False), name)
 

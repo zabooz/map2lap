@@ -1,6 +1,6 @@
 import {TrackEdits, type Removed} from "./edits";
 
-export const tree = (k: number): Removed => ({id: `nocol_trees_0_0#${k}`, position: [k, 0, 0]});
+export const tree = (k: number): Removed => ({id: `trees#${k}`, position: [k, 0, 0]});
 export const json = (body: object, status = 200) => new Response(JSON.stringify(body), {status});
 
 /** A server by hand: each request waits until answered, with what it asked for at hand. */

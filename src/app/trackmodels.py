@@ -12,7 +12,7 @@ import threading
 
 import numpy as np
 
-from app import modeldata, modelmesh, mytracks, objectlibrary, placement, trackcopies, trackheights, trackview
+from app import modeldata, modelmesh, mytracks, objectlibrary, placement, trackcopies, trackheights, tracktrees, trackview
 from track import kn5, obj_to_kn5, objectlist
 
 SCHEMA = 1
@@ -217,7 +217,7 @@ def cold_recipe(ac, name):
         record = {'placed': [], 'models': []}
     paints = regional["paints"]
     return {"source": None, "cold_models": True, "base": objectlist.state_of(trackview.kn5_path(ac, name)),
-            "kn5": objectlist.state_of(trackview.kn5_path(ac, name)), "saved": 0, "deleted": record.get("model_deleted", []), "sorts": [],
+            "kn5": objectlist.state_of(trackview.kn5_path(ac, name)), "saved": 0, "deleted": record.get("model_deleted", []),
             "object_sorts": [], "heights": [], "placed": record["placed"], "copies": [], "paints": paints, "models": record["models"]}
 
 
@@ -555,6 +555,21 @@ def _source_pose(source, target, objects, by_id):
             "scale": float(np.prod([p["scale"] for _at, p in chain]))}
 
 
+def _tree_replacement(ac, name, trees, target, now, asset, meta, body, height):
+    """(the binding, its pose or None) of a model in the place of the TreeFX tree target (trees: tracktrees.Trees): at its foot as
+    the list has it, its placement as the pose; height: the model's, to fit the tree's (its .bin model's height times its size,
+    the track's own file: trackview._tree_model), None to keep the model's own. ValueError for no tree, or one the draft deletes."""
+    tree = trees.get(target)
+    if tree is None or tree["model"] in now["object_sorts"]:
+        raise ValueError("The selected tree is deleted")
+    instance = {"id": "instance_" + secrets.token_hex(12), "asset": asset, "at": [float(v) for v in tree["pos"]],
+                "replaces": target, "collision": body.get("collision", meta["collision"])}
+    if height is not None:
+        instance["scale"] = trackview._tree_model(ac, name, tree["model"])["height"] * tree["size"] / height
+    pose = next((p for p in now["placed"] if p["id"] == target), None)
+    return instance, pose and {k: pose[k] for k in placement.FIELDS}
+
+
 def _replacements(ac, name, now, body, asset, meta, targets):
     """Prepare all selected trees together, sharing asset verification and a bounded source-mesh cache."""
     from app import trackedits
@@ -565,6 +580,7 @@ def _replacements(ac, name, now, body, asset, meta, targets):
     models, posed, heights = [], [], {}
     keep_height = body.get("keep_height", False)
     height = _model_height(meta) if keep_height else None
+    trees = tracktrees.Trees(trackview.treefx_of(path), now["trees"])
     with open(path, "rb") as file:
         # Nearby trees share mesh buffers; four cached meshes keep large forest replacements bounded.
         @functools.lru_cache(maxsize=4)
@@ -584,11 +600,15 @@ def _replacements(ac, name, now, body, asset, meta, targets):
                 instance = {**old, "asset": asset, "collision": body.get("collision", old["collision"])}
                 if keep_height:
                     instance["scale"] = heights[old["asset"]] * old.get("scale", 1) / height
+            elif tracktrees.number(target) is not None:
+                instance, pose = _tree_replacement(ac, name, trees, target, now, asset, meta, body, height)
+                if pose:
+                    posed.append({"id": instance["id"] + "#0", **pose})
             else:
                 source = trackcopies._source(file, scan, objects, target, arrays)
                 if source["kind"] not in ("tree", "bush"):
                     raise ValueError("Select a tree or bush to replace")
-                if source["sort"] in [*now["sorts"], *now["object_sorts"]]:
+                if source["sort"] in now["object_sorts"]:
                     raise ValueError("The selected tree is deleted")
                 instance = {"id": "instance_" + secrets.token_hex(12), "asset": asset, "at": source["at"].tolist(),
                             "replaces": target, "collision": body.get("collision", meta["collision"])}

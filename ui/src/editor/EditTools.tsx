@@ -143,8 +143,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     if (tool === "select") setSurfacePicks(previous => pickedSurfaces(previous, p));
     else if (!p?.adding) setSurfacePicks([]);
     if (tool === "select" && p?.whole && p.id) {
-      const group = p.sprite ? {sort: p.sprite, tree: true} : p.sort && !NOT_ALL.has(p.sort) ? {sort: p.sort, tree: false} : null;
-      if (group) setMarked(previous => [...(p.adding ? previous : []).filter(g => g.sort !== group.sort || g.tree !== group.tree), group]);
+      const group = p.sort && !NOT_ALL.has(p.sort) ? {sort: p.sort} : null;
+      if (group) setMarked(previous => [...(p.adding ? previous : []).filter(g => g.sort !== group.sort), group]);
     }
     if (deleting && p?.id && p.left) {
       edits.remove([{id: p.id, position: p.position}]);
@@ -204,8 +204,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     };
   }, [view, edits]);
 
-  useEffect(() => { view.objects.setRemoved(state.removed.map(r => r.id), state.sorts, state.objectSorts); },
-            [view, state.removed, state.sorts, state.objectSorts]);
+  useEffect(() => { view.objects.setRemoved(state.removed.map(r => r.id), state.objectSorts); },
+            [view, state.removed, state.objectSorts]);
   useEffect(() => { view.objects.setRemovedSurfaces(state.surfaces); }, [view, state.surfaces]);
 
   useEffect(() => {
@@ -255,9 +255,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const vergeCuts = selection?.meshes?.length && !selection.tiles.length ? view.objects.surfaceCuts(selection.meshes) : null;
   const ids = state.removed.map(r => r.id);
   const sort = picked?.id && picked.sort && !NOT_ALL.has(picked.sort) ? picked.sort : null;
-  const tree = picked?.id && picked.sprite ? picked.sprite : null;
-  const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.objects.countOfListed(sort, ids, state.objectSorts)})`
-    : tree ? `Mark all ${tree} (loaded: ${view.objects.countOf(tree)})` : null;
+  const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.objects.countOfListed(sort, ids, state.objectSorts)})` : null;
 
   const remove = (cuts = vergeCuts) => {
     if (!editable) return;
@@ -392,7 +390,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
         notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
-          markedName={marked.length ? marked.map(g => g.tree ? g.sort : sortName(g.sort)).join(", ") : null}
+          markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}
         />}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
         collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
@@ -402,7 +400,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
             setSelectWhole(!selectWhole);
             if (picked?.surface) setSurfacePicks(previous => previous.map(s => ({...s, whole: !selectWhole})));
-            else if (tree || sort) setMarked(selectWhole ? [] : [{sort: tree ?? sort!, tree: !!tree}]);
+            else if (sort) setMarked(selectWhole ? [] : [{sort}]);
           })} />,
           <ToolChoice label="Add" on={selectAdd} hint="Add to the selection; click a picked object again to remove it (Ctrl + click)" onClick={thenView(view, () => setSelectAdd(!selectAdd))} />,
           ...(altOffered ? [actionButton(altOffered)] : []),
@@ -417,7 +415,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
                   onReplace={run.replace} onEdit={editPicked} onMove={run.move} onDuplicate={run.copy}
                   onSmooth={editable && picked?.road ? () => startSmooth(picked.road!) : null}
-                  onMark={() => { setMarked([sort ? {sort, tree: false} : {sort: tree!, tree: true}]); view.focus(); }}
+                  onMark={() => { if (sort) setMarked([{sort}]); view.focus(); }}
                   onDelete={() => { remove(); view.focus(); }}
                   onDeleteSurface={editable && !picked?.id && picked?.surface?.face !== undefined
                     ? () => { remove(vergeCuts ?? vergeAt(picked.surface!)); view.focus(); } : null} />

@@ -44,43 +44,16 @@ def _belonging(objects):
     return out
 
 
-def _sorts_of(path, meshes, first_faces, atlas):
-    """Per billboard mesh number (first_faces' keys) the sort of each triangle: an array of names, each billboard's triangles its
-    first triangle's sort (as the view's spriteOf), by the middle of it on the atlas."""
-    names = np.array(atlas["sprites"] + [""])
-    out = {}
-    with open(path, "rb") as f:
-        for i, first in first_faces.items():
-            m = meshes[i]
-            vertices, faces = kn5.mesh_arrays(f, m)
-            uv = vertices["uv"]
-            mid = uv[faces].mean(axis=1)
-            col = np.floor((mid[:, 0] - np.floor(mid[:, 0])) * atlas["cols"]).astype(np.int64)
-            row = np.floor((mid[:, 1] - np.floor(mid[:, 1])) * atlas["rows"]).astype(np.int64)
-            sprite = names[np.minimum(row * atlas["cols"] + col, len(names) - 1)]
-            per = trackview.FACES_PER_BILLBOARD
-            numbers = (first + np.arange(len(faces))) // per
-            lead = np.r_[0, np.flatnonzero(numbers[1:] != numbers[:-1]) + 1]
-            out[i] = np.repeat(sprite[lead], np.diff(np.r_[lead, len(faces)]))
-    return out
-
-
-def faces_left_out(path, scan, objects, deleted, sorts, atlas, object_sorts=()):
-    """{mesh number: bool per triangle, True what goes}. deleted: ids; a listed object takes along what goes with it, a billboard's
-    triangles are told by counting, over the parts of its mesh. sorts: of trees and bushes, by the atlas; object_sorts: of listed
-    objects, each of them as if deleted alone: what goes is what any of them takes along."""
-    first = trackview._first_faces(scan["meshes"], scan["materials"])
-    parts = {}
-    for i, start in first.items():
-        parts.setdefault(trackview._base(scan["meshes"][i]["name"]), []).append((i, start))
+def faces_left_out(scan, objects, deleted, object_sorts=()):
+    """({mesh number: bool per triangle, True what goes}, the ids that go). deleted: ids; a listed object takes along what goes with
+    it, an id of no listed object (a TreeFX tree's: tracktrees) has no triangles. object_sorts: of listed objects, each of them as
+    if deleted alone: what goes is what any of them takes along. Pure."""
     going = {}
 
     def mark(i, a, b):
         going.setdefault(i, np.zeros(scan["meshes"][i]["indices"] // 3, bool))[a:b] = True
 
     belonging, seen, queue = _belonging(objects), set(), list(deleted)
-    queue += [f"{tile}#{k}" for tile, entry in objects.items() for k, kind in enumerate(entry["kinds"])
-              if kind in ("tree", "bush") and objectlist.sorts_of(entry)[k] in sorts]
     if object_sorts:        # (those that are there: a saved track's own list keeps the numbers of what it left out, without triangles)
         wanted = set(object_sorts)
         queue += [f"{tile}#{k}" for tile, entry in objects.items()
@@ -96,17 +69,6 @@ def faces_left_out(path, scan, objects, deleted, sorts, atlas, object_sorts=()):
             for i, a, n in objects[base]["faces"][number]:
                 mark(i, a, a + n)
             queue += belonging.get(id_, ())
-        else:
-            per = trackview.FACES_PER_BILLBOARD
-            for i, start in parts.get(base, ()):
-                mark(i, max(0, number * per - start), max(0, (number + 1) * per - start))
-    if sorts:
-        wanted = np.array(sorts)
-        for i, sprite in _sorts_of(path, scan["meshes"], first, atlas).items():
-            hit = np.isin(sprite, wanted)
-            if hit.any():
-                going.setdefault(i, np.zeros(len(hit), bool))
-                going[i] |= hit
     return going, seen
 
 
@@ -223,7 +185,7 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = (edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
+    changed = (edits["deleted"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
                or edits.get("models") or edits.get("surfaces") or edits.get("trees"))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
@@ -287,8 +249,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     if copy_to and os.path.exists(target):
         raise Refused(f"A track called {copy_to} is there already")
     shutil.rmtree(temporary, ignore_errors=True)        # (left by a Map2Lap that ended halfway)
-    going, seen = faces_left_out(path, scan, objects, [d["id"] for d in edits["deleted"]], edits["sorts"],
-                                 trackview._atlas(), edits["object_sorts"])
+    going, seen = faces_left_out(scan, objects, [d["id"] for d in edits["deleted"]], edits["object_sorts"])
     for i, mask in tracksurfaces.going(scan, edits.get("surfaces", [])).items():
         going[i] = going.get(i, np.zeros_like(mask)) | mask
     from app import tracknative
@@ -302,7 +263,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     replacements = [m["replaces"] for m in edits.get("models", [])
                     if m.get("replaces") and consumed.get(m["id"]) != m["replaces"]]
     if replacements:
-        hidden, _seen = faces_left_out(path, source_scan, source_objects, replacements, [], trackview._atlas(), [])
+        hidden, _seen = faces_left_out(source_scan, source_objects, replacements)
         for i, mask in hidden.items():
             if source_scan["meshes"][i]["name"].startswith("nocol_"):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
@@ -338,7 +299,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         trackmodels.export(ac, name, edits.get("models", []), temporary, new_kn5, edits, inherited)
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
-        recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
+        recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []),
                   "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,
@@ -368,7 +329,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                 trackedits.clear(draft, of)
             except OSError:         # (the copy is whole, so it is saved: a draft left only shows as changes not saved)
                 pass
-    return {"name": new, "title": title, "left_out": _counted(seen, objects) + len(edits["sorts"])}
+    return {"name": new, "title": title, "left_out": _counted(seen, objects)}
 
 
 def _counted(seen, objects):

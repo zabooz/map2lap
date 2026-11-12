@@ -107,11 +107,11 @@ class ContextTest(Base):
         height = plateau(x=-20, z=-20, nx=41, nz=41, height=1500)
         poses = [{'id': first['id'] + '#0', 'x': 1, 'y': 2, 'z': 1, 'turn': 30, 'scale': 1.5}]
         now = trackedits.load(self.ac, self.name)
-        template = trackedits.copy_template(self.ac, self.name, {'base': now['base'], 'revision': now['revision'], 'object': 'nocol_trees_0_0#0'})
+        template = trackedits.copy_template(self.ac, self.name, {'base': now['base'], 'revision': now['revision'], 'object': 't_0_0#3'})
         copied = trackedits.copy_template(self.ac, self.name, {'base': now['base'], 'revision': now['revision'],
             'template': template['template'], 'at': [50, 0, 5]})['copy']
         states = [([first], {}), ([first, second], {}), ([first], {}),
-                  ([first], {'deleted': [{'id': 'nocol_trees_0_0#0', 'position': [0, 0, 0]}]}),
+                  ([first], {'deleted': [{'id': 't_0_0#1', 'position': [0, 0, 0]}]}),
                   ([first], {'heights': [height], 'placed': poses}),
                   ([{**first, 'collision': 'mesh'}], {}),
                   ([{**first, 'collision': 'mesh'}, self.instance(3)], {'copies': [copied]})]

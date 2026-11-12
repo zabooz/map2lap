@@ -27,7 +27,6 @@ export type SaveState = "loading" | "saved" | "waiting" | "saving" | "failed" | 
 export interface Recipe {
   at: number;                   // (Unix time)
   deleted: string[];
-  sorts: string[];
   objectSorts: string[];
   heights: string[];            // (the height changes' ids)
   placed: Placement[];
@@ -51,8 +50,7 @@ export interface HeightChange {
 
 export interface EditState {
   removed: Removed[];
-  sorts: string[];              // whole sorts of trees and bushes left out: a rule, a long track's trees wouldn't fit a list of ids
-  objectSorts: string[];        // whole sorts of listed objects left out (all parked cars, all benches), the same way
+  objectSorts: string[];        // whole sorts left out (all parked cars, all benches, all spruces): a rule, a long track's wouldn't fit a list of ids
   heights: HeightChange[];
   placed: Placement[];          // single objects placed anew (src/app/placement.py), each once
   copies: ObjectCopy[];
@@ -81,8 +79,8 @@ const TRACK_CHANGED = "This track was built again: the view shows the build befo
 
 type Send = (url: string, options?: RequestInit) => Promise<Response>;
 
-type Edits = Pick<EditState, "removed" | "sorts" | "objectSorts" | "heights" | "placed" | "copies" | "paints" | "models" | "surfaces" | "trees">;
-const NONE: Edits = {removed: [], sorts: [], objectSorts: [], heights: [], placed: [], copies: [], paints: [], models: [], surfaces: [], trees: []};
+type Edits = Pick<EditState, "removed" | "objectSorts" | "heights" | "placed" | "copies" | "paints" | "models" | "surfaces" | "trees">;
+const NONE: Edits = {removed: [], objectSorts: [], heights: [], placed: [], copies: [], paints: [], models: [], surfaces: [], trees: []};
 
 const same = (a: Iterable<string>, b: Iterable<string>) => {
   const x = new Set(a), y = new Set(b);
@@ -95,7 +93,7 @@ const placedKeys = (placed: Placement[]) => placed.map(p => [p.id, p.x, p.y, p.z
 /** Whether the track is as these edits say: saved, and nothing changed since. Pure. */
 export function isCurrent(state: EditState) {
   const r = state.recipe;
-  return !!r && !r.needsSave && same(state.removed.map(d => d.id), r.deleted) && same(state.sorts, r.sorts) && same(state.objectSorts, r.objectSorts)
+  return !!r && !r.needsSave && same(state.removed.map(d => d.id), r.deleted) && same(state.objectSorts, r.objectSorts)
     && same(state.heights.map(h => h.id), r.heights) && same(placedKeys(state.placed), placedKeys(r.placed))
     && same(copyKeys(state.copies), copyKeys(r.copies ?? [])) && JSON.stringify(state.paints ?? []) === JSON.stringify(r.paints ?? [])
     && JSON.stringify(state.models ?? []) === JSON.stringify(r.models ?? []) && JSON.stringify(state.surfaces ?? []) === JSON.stringify(r.surfaces ?? [])
@@ -111,7 +109,7 @@ export function hasUnsavedChanges(state: EditState) {
 let handed: {name: string; edits: Edits; past: Edits[]; future: Edits[]} | null = null;
 
 const sameEdits = (a: Edits, b: Edits) =>
-  same(a.removed.map(d => d.id), b.removed.map(d => d.id)) && same(a.sorts, b.sorts) && same(a.objectSorts, b.objectSorts)
+  same(a.removed.map(d => d.id), b.removed.map(d => d.id)) && same(a.objectSorts, b.objectSorts)
   && same(a.heights.map(h => h.id), b.heights.map(h => h.id)) && same(placedKeys(a.placed), placedKeys(b.placed)) && same(copyKeys(a.copies), copyKeys(b.copies)) && JSON.stringify(a.paints) === JSON.stringify(b.paints)
   && JSON.stringify(a.models) === JSON.stringify(b.models) && JSON.stringify(a.surfaces) === JSON.stringify(b.surfaces)
   && JSON.stringify(a.trees ?? []) === JSON.stringify(b.trees ?? []);
@@ -156,7 +154,7 @@ export class TrackEdits {
   markSaved() {
     const e = this.edits();
     this.savedEdits = e;
-    this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), sorts: e.sorts, objectSorts: e.objectSorts,
+    this.set({recipe: {at: Date.now() / 1000, deleted: e.removed.map(d => d.id), objectSorts: e.objectSorts,
                        heights: e.heights.map(h => h.id), placed: e.placed, copies: e.copies, paints: e.paints, models: e.models,
                        surfaces: e.surfaces, trees: e.trees}});
   }
@@ -247,7 +245,7 @@ export class TrackEdits {
       if (!r.ok) throw new Error(d.error ?? `${r.status}`);
       this.base = d.base;
       this.revision = d.revision;
-      const edits = {removed: d.deleted as Removed[], sorts: (d.sorts ?? []) as string[], objectSorts: (d.object_sorts ?? []) as string[],
+      const edits = {removed: d.deleted as Removed[], objectSorts: (d.object_sorts ?? []) as string[],
                      heights: (d.heights ?? []) as HeightChange[], placed: (d.placed ?? []) as Placement[], copies: (d.copies ?? []) as ObjectCopy[], paints: (d.paints ?? []) as string[], models: (d.models ?? []) as ModelInstance[],
                      surfaces: (d.surfaces ?? []) as SurfaceCut[], trees: (d.trees ?? []) as AddedTree[]};
       const taken = handed?.name === this.name && sameEdits(handed.edits, edits) ? handed : null;
@@ -257,7 +255,7 @@ export class TrackEdits {
       this.onServer = edits;
       this.unanswered = [];
       const s = d.saved;
-      const recipe = s ? {at: s.at, deleted: s.deleted, sorts: s.sorts, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? [], copies: s.copies ?? [], paints: s.paints ?? [], models: s.models ?? [], surfaces: s.surfaces ?? [], trees: s.trees ?? [], needsSave: !!s.needs_save} : null;
+      const recipe = s ? {at: s.at, deleted: s.deleted, objectSorts: s.object_sorts, heights: s.heights ?? [], placed: s.placed ?? [], copies: s.copies ?? [], paints: s.paints ?? [], models: s.models ?? [], surfaces: s.surfaces ?? [], trees: s.trees ?? [], needsSave: !!s.needs_save} : null;
       this.set({...edits, keptRevision: d.revision, recipe, canUndo: this.past.length > 0, canRedo: this.future.length > 0, outdated: d.outdated, save: "saved"});
       this.savedEdits = recipe && !hasUnsavedChanges(this.now) ? edits : null;
       this.compare();
@@ -291,22 +289,16 @@ export class TrackEdits {
   }
 
   /** Explicit objects and any whole sorts selected together are one delete and one undo. */
-  removeSelected(items: Removed[], groups: {tree: boolean; sort: string}[]) {
+  removeSelected(items: Removed[], groups: {sort: string}[]) {
     const have = new Set(this.now.removed.map(r => r.id));
     this.change({...this.edits(), removed: [...this.now.removed, ...items.filter(r => !have.has(r.id))],
-      sorts: [...new Set([...this.now.sorts, ...groups.filter(g => g.tree).map(g => g.sort)])],
-      objectSorts: [...new Set([...this.now.objectSorts, ...groups.filter(g => !g.tree).map(g => g.sort)])]});
+      objectSorts: [...new Set([...this.now.objectSorts, ...groups.map(g => g.sort)])]});
   }
 
   /** Stretches of road verge, by their triangles, as one change and one Undo. */
   removeSurfaces(cuts: SurfaceCut[]) {
     const surfaces = joinedCuts(this.now.surfaces, cuts);
     if (JSON.stringify(surfaces) !== JSON.stringify(this.now.surfaces)) this.change({...this.edits(), surfaces});
-  }
-
-  /** All trees or bushes of a sort, wherever they stand. */
-  removeSort(sprite: string) {
-    if (!this.now.sorts.includes(sprite)) this.change({...this.edits(), sorts: [...this.now.sorts, sprite]});
   }
 
   /** All listed objects of a sort (track/objectlist.py), wherever they stand. */
@@ -402,7 +394,7 @@ export class TrackEdits {
 
   /** Whether anything is changed. */
   changed() {
-    return this.now.removed.length > 0 || this.now.sorts.length > 0 || this.now.objectSorts.length > 0 || this.now.heights.length > 0
+    return this.now.removed.length > 0 || this.now.objectSorts.length > 0 || this.now.heights.length > 0
       || this.now.placed.length > 0 || this.now.copies.length > 0 || this.now.paints.length > 0 || this.now.models.length > 0
       || this.now.surfaces.length > 0 || this.now.trees.length > 0;
   }
@@ -419,7 +411,7 @@ export class TrackEdits {
         if (asked !== this.asked) return;
         if (!response.ok) throw new Error(d.error ?? "Could not read the last Save");
         if (d.base !== base || this.base !== base) throw new Error(TRACK_CHANGED);
-        target = {removed: d.deleted ?? [], sorts: d.sorts ?? [], objectSorts: d.object_sorts ?? [],
+        target = {removed: d.deleted ?? [], objectSorts: d.object_sorts ?? [],
           heights: d.heights ?? [], placed: d.placed ?? [], copies: d.copies ?? [], paints: d.paints ?? [], models: d.models ?? [],
           surfaces: d.surfaces ?? [], trees: d.trees ?? []};
         this.savedEdits = target;
@@ -433,7 +425,7 @@ export class TrackEdits {
   }
 
   private edits(): Edits {
-    return {removed: this.now.removed, sorts: this.now.sorts, objectSorts: this.now.objectSorts, heights: this.now.heights, placed: this.now.placed, copies: this.now.copies, paints: this.now.paints, models: this.now.models,
+    return {removed: this.now.removed, objectSorts: this.now.objectSorts, heights: this.now.heights, placed: this.now.placed, copies: this.now.copies, paints: this.now.paints, models: this.now.models,
             surfaces: this.now.surfaces, trees: this.now.trees};
   }
 
@@ -481,7 +473,7 @@ export class TrackEdits {
   }
 
   private isSaved() {
-    return this.now.removed === this.onServer?.removed && this.now.sorts === this.onServer?.sorts
+    return this.now.removed === this.onServer?.removed
       && this.now.objectSorts === this.onServer?.objectSorts && this.now.heights === this.onServer?.heights && this.now.placed === this.onServer?.placed && this.now.copies === this.onServer?.copies && this.now.paints === this.onServer?.paints && this.now.models === this.onServer?.models
       && this.now.surfaces === this.onServer?.surfaces && this.now.trees === this.onServer?.trees;
   }
@@ -494,7 +486,7 @@ export class TrackEdits {
     }
     if ((this.sending && !leaving) || this.now.save === "stuck" || this.isSaved() || this.bound === null) return;
     const edits = this.edits(), number = ++this.sent, id = `${Date.now()}-${number}-${Math.random().toString(36).slice(2, 10)}`;
-    const body = JSON.stringify({base: this.bound, revision: this.revision, deleted: edits.removed, sorts: edits.sorts,
+    const body = JSON.stringify({base: this.bound, revision: this.revision, deleted: edits.removed,
                                  object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, copies: edits.copies, paints: edits.paints, models: edits.models, surfaces: edits.surfaces, trees: edits.trees, id, unanswered: this.unanswered.map(u => u.id)});
     this.unanswered = [...this.unanswered, {id, number}].slice(-MAX_UNANSWERED);
     this.sending = true;

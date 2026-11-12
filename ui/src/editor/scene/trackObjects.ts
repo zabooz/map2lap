@@ -1,13 +1,13 @@
-// The objects of the track the view shows: which triangles of the loaded meshes each takes (the build's list, the trees and
-// bushes of billboard meshes), what belongs to which, and which the draft leaves out. A left out one's triangles shrink to a
-// point: nothing draws or hits them, the others keep their numbers.
+// The objects of the track the view shows: which triangles of the loaded meshes each takes (the build's list), what belongs to
+// which, and which the draft leaves out; the TreeFX trees (treeFx.ts), which have no triangles, by their rooms. A left out
+// object's triangles shrink to a point: nothing draws or hits them, the others keep their numbers.
 import * as THREE from "three";
 import type {MeshInfo, TrackIndex} from "../types";
-import {billboardFaces, billboardOf, childrenOf, countOfSort, idsOfSorts, objectAt, objectIndex, spriteAt, takenAlong} from "./inspect";
+import {childrenOf, countOfSort, idsOfSorts, objectAt, objectIndex, takenAlong} from "./inspect";
 import {cutsOf, type SurfaceCut} from "./surfaceCuts";
 
-export const NOT_MOVED = new Set(["power line"]);
-const TREES = "trees#";                                 // (a TreeFX tree's id: objectlist.TREEFX)      // (placement.NOT_ALONE: a span goes where its poles go)
+export const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
+const TREES = "trees#";                                 // (a TreeFX tree's id: objectlist.TREEFX)
 
 /** The triangles of a mesh that make up an object. */
 export interface Piece {
@@ -21,6 +21,7 @@ export interface TreeRooms {
   bounds(id: string, shown?: boolean): THREE.Box3 | null;
   boxesOf(model: string): THREE.Box3[];
   countOf(model: string, ids: ReadonlySet<string>, sorts: ReadonlySet<string>): number;
+  idsOf(model: string): string[];
 }
 
 /** What TrackObjects needs of the view it serves. */
@@ -39,14 +40,10 @@ export interface ObjectHost {
 export class TrackObjects {
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
   private belonging: ReturnType<typeof childrenOf> = new Map();        // what belongs to which of them
-  private parts = new Map<string, THREE.Mesh[]>();      // a tile's billboard meshes by their base name
   private surfacesOut = new Map<string, [number, number][]>();   // the verge's triangles left out, by mesh name (as setRemovedSurfaces was told)
   private removedIds = new Set<string>();               // the ids of the objects left out, those of the sorts below too
-  private feet = new WeakMap<THREE.Mesh, {version: number; trees: {k: number; from: number; at: [number, number, number]}[]}>();   // billboards' feet, per mesh as its vertices are
-  private removedSorts = new Set<string>();             // the sorts of trees and bushes left out
   private named: {ids: string[]; objectSorts: Set<string>} = {ids: [], objectSorts: new Set()};    // (as setRemoved was told)
   private listedOut = new Map<number, Piece[]>();       // what of the listed objects left out lies in each mesh, for one loading later
-  private billboardsOut = new Map<string, string[]>();  // the trees and bushes left out by id, by the base of their meshes, the same
   private host: ObjectHost;
 
   constructor(host: ObjectHost) {
@@ -56,7 +53,7 @@ export class TrackObjects {
   /** The ids of the objects left out now. */
   get removed(): ReadonlySet<string> { return this.removedIds; }
 
-  /** The sorts of listed objects named to leave out (the models of TreeFX trees among them: treeFx leaves those out itself). */
+  /** The sorts named to leave out (the models of TreeFX trees among them: treeFx leaves those out itself). */
   get removedObjectSorts(): ReadonlySet<string> { return this.named.objectSorts; }
 
   /** The objects of an index, all of them (a track opened or its models reloaded); what to leave out follows with rewant. */
@@ -103,42 +100,25 @@ export class TrackObjects {
     return list ? `${id.slice(0, at)}#${k}` : id;
   }
 
-  /** A mesh just loaded: a billboard mesh is known by its base. */
-  add(mesh: THREE.Mesh) {
-    const info = mesh.userData.info as MeshInfo;
-    if (info.base === null || info.base === undefined) return;
-    if (!this.parts.has(info.base)) this.parts.set(info.base, []);
-    this.parts.get(info.base)!.push(mesh);
-  }
-
   /** A mesh just loaded leaves out what the draft leaves out of it. */
   hideIn(mesh: THREE.Mesh) {
     const info = mesh.userData.info as MeshInfo;
     for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(mesh, piece, true);
     for (const [from, count] of this.surfacesOut.get(info.name) ?? []) this.leaveOutIn(mesh, {mesh: info.i, from, end: from + count}, true);
-    if (info.base !== null && info.base !== undefined) {
-      for (const id of this.billboardsOut.get(info.base) ?? []) {
-        for (const piece of this.piecesOf(id)) if (piece.mesh === info.i) this.leaveOutIn(mesh, piece, true);
-      }
-      this.leaveOutSorts(mesh);
-    }
   }
 
   /** Another track: all forgotten. What is left out stays named until the draft says otherwise. */
   clear() {
-    this.parts.clear();
     this.objectPieces = new Map();
     this.belonging = new Map();
   }
 
-  /** The objects with these ids ("<mesh as built>#<number>"), the trees and bushes of sorts and the listed objects of objectSorts
-      are left out from now on, those not named come back. What goes is what any of them takes along: a span two poles share stays
-      out while one does. */
-  setRemoved(ids: string[], sorts: string[] = [], objectSorts: string[] = []) {
+  /** The objects with these ids ("<mesh as built>#<number>", "trees#<number>") and those of objectSorts (a listed sort or a tree's
+      model) are left out from now on, those not named come back. What goes is what any of them takes along: a span two poles share
+      stays out while one does. */
+  setRemoved(ids: string[], objectSorts: string[] = []) {
     this.named = {ids, objectSorts: new Set(objectSorts)};
-    const wantedSorts = new Set(sorts);
-    const wanted = new Set([...ids, ...idsOfSorts(this.host.data()?.objects ?? {}, new Set([...objectSorts, ...sorts]))]);
-    const sortsChanged = sorts.length !== this.removedSorts.size || sorts.some(sort => !this.removedSorts.has(sort));
+    const wanted = this.wanted();
     let back = false;
     for (const id of this.removedIds) {
       if (!wanted.has(id)) {
@@ -146,15 +126,8 @@ export class TrackObjects {
         back = true;
       }
     }
-    if (sortsChanged) {
-      this.removedSorts = wantedSorts;
-      for (const mesh of this.billboardMeshes()) this.restore(mesh);
-      back = true;
-    }
     // (what came back may have held a part of what stays out: a house back, its sign deleted by itself)
     for (const id of wanted) if (back || !this.removedIds.has(id)) this.leaveOut(id, true);
-    // (the sorts of trees last: a tree brought back by its id may be of a sort that stays out)
-    if (back && this.removedSorts.size) for (const mesh of this.billboardMeshes()) this.leaveOutSorts(mesh);
     this.removedIds = wanted;
     this.noteListedOut();
     this.host.removedChanged();
@@ -182,21 +155,14 @@ export class TrackObjects {
   /** The ids to leave out: those named, and the listed objects of the sorts named. */
   private wanted(named = this.named) {
     const data = this.host.data();
-    return new Set([...named.ids, ...(data?.model_replacements ?? []), ...idsOfSorts(data?.objects ?? {}, named.objectSorts), ...idsOfSorts(data?.objects ?? {}, this.removedSorts)]);
+    return new Set([...named.ids, ...(data?.model_replacements ?? []), ...idsOfSorts(data?.objects ?? {}, named.objectSorts)]);
   }
 
-  /** listedOut and billboardsOut for what is left out now: a whole sort of a long track is thousands of objects, too many to look
-      through for each mesh that loads. */
+  /** listedOut for what is left out now: a whole sort of a long track is thousands of objects, too many to look through for each
+      mesh that loads. */
   private noteListedOut() {
     this.listedOut = new Map();
-    this.billboardsOut = new Map();
     for (const id of this.removedIds) {
-      const base = id.slice(0, id.lastIndexOf("#"));
-      if (!this.host.data()?.objects?.[base]) {
-        if (!this.billboardsOut.has(base)) this.billboardsOut.set(base, []);
-        this.billboardsOut.get(base)!.push(id);
-        continue;
-      }
       for (const piece of this.piecesOf(id)) {
         if (!this.listedOut.has(piece.mesh)) this.listedOut.set(piece.mesh, []);
         this.listedOut.get(piece.mesh)!.push(piece);
@@ -204,8 +170,8 @@ export class TrackObjects {
     }
   }
 
-  /** How many objects of a listed sort the track still shows, over all of it, with these edits (the page's, as it renders: the
-      view takes them only after): what the button to delete them all says. */
+  /** How many objects of a listed sort or trees of a model the track still shows, over all of it, with these edits (the page's, as
+      it renders: the view takes them only after): what the button to delete them all says. */
   countOfListed(sort: string, ids: string[], objectSorts: string[]) {
     const data = this.host.data();
     if (!data) return 0;
@@ -213,75 +179,13 @@ export class TrackObjects {
       + this.host.trees().countOf(sort, new Set(ids), new Set(objectSorts));
   }
 
-  /** The loaded billboard meshes. */
-  billboardMeshes() {
-    return [...this.parts.values()].flat();
-  }
-
-  /** A mesh's indices as built, all it left out back. */
-  private restore(mesh: THREE.Mesh) {
-    const original = mesh.userData.indices as Uint16Array | undefined;
-    if (!original) return;
-    const index = mesh.geometry.getIndex()!;
-    (index.array as Uint16Array).set(original);
-    index.needsUpdate = true;
-  }
-
-  /** The billboards of a mesh part: [number, first triangle, end]. */
-  *billboardsOf(mesh: THREE.Mesh): Generator<[number, number, number]> {
-    const info = mesh.userData.info as MeshInfo, faces = info.indices / 3, first = info.first_face!;
-    for (let k = billboardOf(0, first); k <= billboardOf(Math.max(0, faces - 1), first); k++) {
-      const [from, end] = billboardFaces(k, first, faces);
-      if (from < end) yield [k, from, end];
-    }
-  }
-
-  /** The sort of the billboard whose triangles start at face in mesh, by where its first triangle lies on the atlas. */
-  spriteOf(mesh: THREE.Mesh, face: number) {
-    const uv = mesh.geometry.getAttribute("uv");
-    const indices = (mesh.userData.indices ?? mesh.geometry.getIndex()!.array) as Uint16Array;
-    const [a, b, c] = [indices[face * 3], indices[face * 3 + 1], indices[face * 3 + 2]];
-    return spriteAt(this.host.data()!.atlas, (uv.getX(a) + uv.getX(b) + uv.getX(c)) / 3, (uv.getY(a) + uv.getY(b) + uv.getY(c)) / 3);
-  }
-
-  private leaveOutSorts(mesh: THREE.Mesh) {
-    if (!this.removedSorts.size || !this.host.data()) return;
-    const info = mesh.userData.info as MeshInfo;
-    for (const [, from, end] of this.billboardsOf(mesh)) {
-      const sprite = this.spriteOf(mesh, from);
-      if (sprite && this.removedSorts.has(sprite)) this.leaveOutIn(mesh, {mesh: info.i, from, end}, true);
-    }
-  }
-
-  /** Whether a tree or bush of the sort of the billboard at face in mesh is left out as its sort. */
-  sortRemoved(mesh: THREE.Mesh, face: number) { return this.removedSorts.has(this.spriteOf(mesh, face) ?? ""); }
-
-  /** How many trees or bushes of a sort are loaded. */
-  countOf(sprite: string) {
-    const seen = new Set<string>();
-    for (const mesh of this.billboardMeshes()) {
-      const info = mesh.userData.info as MeshInfo;
-      for (const [k, from] of this.billboardsOf(mesh)) if (this.spriteOf(mesh, from) === sprite) seen.add(`${info.base}#${k}`);
-    }
-    for (const id of idsOfSorts(this.host.data()?.objects ?? {}, new Set([sprite]))) {
-      if (!this.removedIds.has(id) && this.shownObjectBounds(id)) seen.add(id);
-    }
-    return seen.size;
-  }
-
-  /** All triangles of an object and what belongs to it that are known by now: a billboard's in the parts of its mesh loaded so
-      far. */
+  /** All triangles of a listed object and what belongs to it; none for another (a TreeFX tree has none). */
   piecesOf(id: string, withChildren = true): Piece[] {
     const at = id.lastIndexOf("#"), base = id.slice(0, at), number = Number(id.slice(at + 1));
     const listed = this.host.data()?.objects?.[base]?.faces[number];
-    if (listed) {
-      return [...listed.map(([mesh, from, count]) => ({mesh, from, end: from + count})),
-              ...(withChildren ? (this.belonging.get(id) ?? []).flatMap(child => this.piecesOf(child)) : [])];
-    }
-    return (this.parts.get(base) ?? []).map(part => {
-      const info = part.userData.info as MeshInfo, [from, end] = billboardFaces(number, info.first_face!, info.indices / 3);
-      return {mesh: info.i, from, end};
-    }).filter(p => p.from < p.end);
+    if (!listed) return [];
+    return [...listed.map(([mesh, from, count]) => ({mesh, from, end: from + count})),
+            ...(withChildren ? (this.belonging.get(id) ?? []).flatMap(child => this.piecesOf(child)) : [])];
   }
 
   /** An object left out of, or back in the meshes loaded. */
@@ -304,23 +208,8 @@ export class TrackObjects {
     index.needsUpdate = true;
   }
 
-  /** Each billboard of a mesh part at the middle of its foot, worked out once while its vertices stay as they are (Move changes them). */
-  treeFeet(mesh: THREE.Mesh) {
-    const position = mesh.geometry.getAttribute("position"), known = this.feet.get(mesh);
-    const version = position instanceof THREE.InterleavedBufferAttribute ? position.data.version : position.version;     // (interleaved: its buffer's)
-    if (known && known.version === version) return known.trees;
-    const indices = (mesh.userData.indices ?? mesh.geometry.getIndex()!.array) as Uint16Array, corner = new THREE.Vector3(), trees = [];
-    for (const [k, from, end] of this.billboardsOf(mesh)) {
-      const bounds = new THREE.Box3();
-      for (let i = from * 3; i < end * 3; i++) bounds.expandByPoint(corner.fromBufferAttribute(position, indices[i]));
-      const middle = bounds.getCenter(corner);
-      trees.push({k, from, at: [middle.x, bounds.min.y, middle.z] as [number, number, number]});
-    }
-    this.feet.set(mesh, {version, trees});
-    return trees;
-  }
-
-  /** The room each listed object of a sort takes that is shown now, by its own triangles (a pole's frame not round its wires). */
+  /** The room each listed object of a sort (by its own triangles: a pole's frame not round its wires), or each tree of a model,
+      takes that is shown now. */
   listedOf(sort: string) {
     const boxes: THREE.Box3[] = [];
     for (const id of idsOfSorts(this.host.data()!.objects, new Set([sort]))) {
@@ -330,19 +219,8 @@ export class TrackObjects {
     return boxes.concat(this.host.trees().boxesOf(sort));
   }
 
-  /** The same for the trees or bushes of an atlas image that are loaded. */
-  treesOf(sprite: string) {
-    const byId = new Map<string, Piece[]>();
-    for (const mesh of this.billboardMeshes()) {
-      const info = mesh.userData.info as MeshInfo;
-      for (const [k, from, end] of this.billboardsOf(mesh)) {
-        if (this.spriteOf(mesh, from) !== sprite) continue;
-        const id = `${info.base}#${k}`;
-        byId.set(id, [...(byId.get(id) ?? []), {mesh: info.i, from, end}]);
-      }
-    }
-    return [...byId.values()].map(pieces => this.shownBounds(pieces)).filter(box => box !== null).concat(this.listedOf(sprite));
-  }
+  /** The TreeFX trees of a model shown now (Replace takes them). */
+  treesOfModel(model: string) { return this.host.trees().idsOf(model); }
 
   /** The room an object takes that is shown now, null when it is left out or not loaded. */
   shownObjectBounds(id: string) {

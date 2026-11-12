@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {FAR_M, TreeFxDraw, cellOf, lodAt, mergeChanges, treeMatrix, type TreeFxModel, type TreeFxTrees} from "./treeFx";
+import {FAR_M, TreeFxDraw, cellOf, lodAt, mergeChanges, snapped, treeMatrix, type TreeFxModel, type TreeFxTrees} from "./treeFx";
 
 const part = (n: number) => ({diffuse: "spruce_d.png", normal_map: "spruce_n.png", indices: Array.from({length: 3 * n}, (_, k) => k % 3),
   pos: [0, 0, 0, 1, 0, 0, 0, 1, 0], normals: [0, 1, 0, 0, 1, 0, 0, 1, 0], uv: [0, 0, 1, 0, 0, 1]});
@@ -174,4 +174,10 @@ test("the feet in a box are those of the trees there, where Move shows them, tho
   d.nudge("trees#2", [7, 0, 2], new THREE.Matrix4().makeTranslation(100, 0, 0), d.matrix("trees#2")!);
   expect(d.feet(0, -10, 20, 10)).toEqual([{id: "trees#0", model: "spruce", at: [5, 0, 0]}]);
   expect(d.feet(100, -10, 120, 10)).toEqual([{id: "trees#2", model: "spruce", at: [107, 0, 2]}]);
+});
+
+test("what Move shows is snapped as the draft says a tree: its foot to the mm, its turn to the degree, its size to a thousandth", () => {
+  const m = snapped(treeMatrix(1.23456, 0.0006, -3.3333, 89.6, 1.23456, 0.9));
+  expect(m.toArray().map(v => Math.round(v * 1e6) / 1e6)).toEqual(treeMatrix(1.235, 0.001, -3.333, 90, 1.235, 0.9).toArray().map(v => Math.round(v * 1e6) / 1e6));
+  expect(new THREE.Vector3(1, 0, 0).applyMatrix4(snapped(treeMatrix(0, 0, 0, 350, 1, 1))).z).toBeCloseTo(Math.sin(10 * Math.PI / 180), 6);
 });

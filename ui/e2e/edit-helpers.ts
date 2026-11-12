@@ -4,9 +4,9 @@ import {centre, expect, scene, stillView} from "./fixtures";
 
 export const AWAY = {x: 100, y: 500};              // (the mouse off the view: no hover box in the picture)
 
-export const NEAR_TREE = "nocol_trees_0_0#1";
+export const NEAR_TREE = "trees#1";      // (the spruce on the road ahead: e2e/server.py, TreeFX)
 
-export const FAR_TREE = "nocol_trees_0_0#0";
+export const FAR_TREE = "trees#0";       // (a smaller spruce far off)
 
 export const box = (page: Page) => page.locator("#hover-box");
 
@@ -39,7 +39,7 @@ export async function points(page: Page, at: {x: number; y: number}) {
 
 /** The list as the server has it. */
 export async function stored(page: Page, name = "alpha") {
-  return (await (await page.request.get(`/api/editor/${name}/edits`)).json()) as {base: string; revision: number; outdated: number; sorts: string[];
+  return (await (await page.request.get(`/api/editor/${name}/edits`)).json()) as {base: string; revision: number; outdated: number; object_sorts: string[];
     deleted: {id: string; kind: string; position: number[]}[]; surfaces: {mesh: string; faces: [number, number][]}[]};
 }
 
@@ -120,6 +120,11 @@ export async function deleteAllOf(page: Page, at: {x: number; y: number}, label:
 /** The triangles of each mesh of the track's own kn5, as AC reads it. */
 export async function meshes(page: Page, name = "alpha") {
   return (await (await page.request.get(`/__test/meshes?name=${name}`)).json()) as Record<string, number>;
+}
+
+/** How many TreeFX trees AC gets with the track name: the lines of its trees.txt (e2e/server.py). */
+export async function treeCount(page: Page, name = "alpha") {
+  return ((await (await page.request.get(`/__test/trees?name=${name}`)).json()) as unknown[]).length;
 }
 
 /** Save, as in a word processor: a track never saved here asks once (first), Overwrite; later it is written at once. */

@@ -96,8 +96,8 @@ def _placements(stored):
 
 
 def _parts(stored):
-    """A list's ids, sorts, object sorts, height changes and placements, by all they hold. Pure."""
-    return ([d["id"] for d in stored["deleted"]], stored.get("sorts", ()), stored.get("object_sorts", ()),
+    """A list's ids, sorts, height changes and placements, by all they hold. Pure."""
+    return ([d["id"] for d in stored["deleted"]], stored.get("object_sorts", ()),
             [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored),
             [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))),
             [json.dumps(m, sort_keys=True) for m in stored.get("models", ())],
@@ -106,7 +106,7 @@ def _parts(stored):
 
 def _count(stored):
     """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
-    return (len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
+    return (len(stored["deleted"]) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
             + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ()))
             + len(stored.get("surfaces", ())) + len(stored.get("trees", ())))
 
@@ -121,7 +121,7 @@ def _well_formed(d):
     return (isinstance(d, dict) and d.get("schema") in (1, SCHEMA) and type(d.get("revision")) is int
             and "base" in d and isinstance(d["base"], (str, type(None))) and isinstance(d.get("deleted"), list)
             and all(isinstance(i, dict) and isinstance(i.get("id"), str) and isinstance(i.get("position"), list) for i in d["deleted"])
-            and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
+            and _names(d.get("object_sorts", []))
             and trackheights.problems(d.get("heights", [])) is None and placement.problems(d.get("placed", [])) is None
             and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None
             and trackmodels.problems(d.get("models", [])) is None and tracksurfaces.problems(d.get("surfaces", [])) is None
@@ -131,7 +131,7 @@ def _well_formed(d):
 
 
 def _stored(path, saved=None):
-    """The list in the file: {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "placed"}. None there: the recipe saved, or an
+    """The list in the file: {"base", "revision", "deleted", "object_sorts", "heights", "placed"}. None there: the recipe saved, or an
     empty one.
     Not readable as a list: an empty one that says "broken", it is not overwritten without being asked."""
     try:
@@ -145,7 +145,7 @@ def _stored(path, saved=None):
                     or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", []))
                     or trackmodels.problems(saved.get("models", [])) or tracksurfaces.problems(saved.get("surfaces", []))):
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
-            return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
+            return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"],
                     "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", []),
                     "surfaces": saved.get("surfaces", []), "trees": saved.get("trees", []), "trees_next": saved.get("trees_next", 0)}
         return {"base": None, "revision": 0, "deleted": []}
@@ -162,8 +162,8 @@ def _old(stored, revision):
 
 
 def load(ac, name):
-    """The list for the page: "base" the served kn5's revision now, "revision" to send back with a save, "deleted", "sorts" (of trees
-    and bushes), "object_sorts" (of listed objects), "heights" and "placed" what holds for it, "outdated" how many changes don't, "saved"
+    """The list for the page: "base" the served kn5's revision now, "revision" to send back with a save, "deleted", "object_sorts"
+    (of listed objects and of TreeFX trees' models), "heights" and "placed" what holds for it, "outdated" how many changes don't, "saved"
     what the last Save was made of while that counts (the page tells by it whether the track is as the list: "at", the ids and sorts, the
     height changes' ids, the placements), else None; "trees" the TreeFX trees it adds, "trees_next" the first number never given to one."""
     path = _file(ac, name)
@@ -173,13 +173,13 @@ def load(ac, name):
     same = s["base"] == revision
     trees = s.get("trees", []) if same else []
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
-            "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
+            "object_sorts": s.get("object_sorts", []) if same else [],
             "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "paints": s.get("paints", []) if same else [],
             "models": s.get("models", []) if same else [], "surfaces": s.get("surfaces", []) if same else [], "trees": trees,
             "trees_next": tracktrees.next_of(trackview.treefx_of(trackview.served(ac, name)[0]), trees, s.get("trees_next", 0) if same else 0),
             "outdated": _old(s, revision), "saved": saved and {
                 "at": saved["saved"], "needs_save": _needs_material_save(saved), "deleted": [d["id"] for d in saved["deleted"]],
-                "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
+                "object_sorts": saved["object_sorts"],
                 "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else [],
                 "placed": saved.get("placed", []) if not s.get("broken") else [], "copies": saved.get("copies", []) if not s.get("broken") else [],
                 "paints": saved.get("paints", []) if not s.get("broken") else [], "models": saved.get("models", []) if not s.get("broken") else [],
@@ -195,7 +195,7 @@ def saved_edits(ac, name):
     if saved and saved["base"] != revision:
         raise Conflict("The saved track changed; read it again")
     return {"base": revision, **{key: (saved or {}).get(key, []) for key in
-            ("deleted", "sorts", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces", "trees")}}
+            ("deleted", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces", "trees")}}
 
 
 def context(ac, name, revision, copies=None, models=None):
@@ -309,8 +309,7 @@ def copy_template(ac, name, body):
         try:
             from app import trackcopy
             _path, extended, listed = context(ac, name, now["base"])
-            going, omitted = trackcopy.faces_left_out(path, extended, listed, [d["id"] for d in now["deleted"]], now["sorts"],
-                                                    trackview._atlas(), now["object_sorts"])
+            going, omitted = trackcopy.faces_left_out(extended, listed, [d["id"] for d in now["deleted"]], now["object_sorts"])
             with open(path, "rb") as f:
                 source = trackcopies._source(f, extended, listed, wanted)
             if all(going.get(i, np.zeros(extended["meshes"][i]["indices"] // 3, bool))[a:a+n].all() for i, a, n in source["faces"]):
@@ -577,7 +576,7 @@ def save(ac, name, body):
 
 
 def save_telling(ac, name, body):
-    """The page's list {"base", "revision", "deleted", "sorts", "object_sorts", "heights", "placed", "surfaces", "id", "unanswered"} instead
+    """The page's list {"base", "revision", "deleted", "object_sorts", "heights", "placed", "surfaces", "id", "unanswered"} instead
     of the one on disk, if it was made from that one and for this kn5 (else Conflict). No "heights", "placed" or "surfaces": those on disk stay. "unanswered": the ids of its saves it heard nothing back from: the last save on disk being one
     of them, the page's revision is only behind by an answer lost on the way (or a page closing with a save under way). An outdated
     or broken list goes only by an empty one, asked for. Returns {"revision": the new one, "meshes": the numbers of those it changed
@@ -623,7 +622,6 @@ def save_telling(ac, name, body):
         trees_next = tracktrees.next_of(section, added, max(given if type(given) is int else 0, s.get("trees_next", 0) if s["base"] == revision else 0))
         counts, listed_sorts = trackview.counts_of(scan, objects, section)
         deleted = _checked(body.get("deleted"), counts, trees)
-        sorts = _checked_sorts(body.get("sorts") or [], trackview.sprites(), "trees")
         object_sorts = _checked_sorts(body.get("object_sorts") or [], listed_sorts, "objects")
         heights = _checked_heights(body["heights"]) if "heights" in body else s.get("heights", []) if s["base"] == revision else []
         placed = _checked_placed(body["placed"], counts, trees) if "placed" in body else s.get("placed", []) if s["base"] == revision else []
@@ -640,7 +638,7 @@ def save_telling(ac, name, body):
             trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
         except ValueError as error:
             raise Invalid(str(error)) from error
-        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints or models or surfaces or added) and _old(s, revision)):
+        if not known or ((deleted or object_sorts or heights or placed or copies or paints or models or surfaces or added) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
@@ -648,7 +646,7 @@ def save_telling(ac, name, body):
             textures = trackpaint.changed(ac, name, revision, previous_paints, paints)
         except ValueError as error:
             raise Invalid(str(error)) from error
-        _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
+        _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted,
                       "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models,
                       "surfaces": surfaces, "trees": added, "trees_next": trees_next})
         same = s["base"] == revision

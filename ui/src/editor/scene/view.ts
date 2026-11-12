@@ -202,7 +202,7 @@ export class TrackView {
       meshChanged: i => { this.geometryPreview.changedMeshes.add(i); },
       reloadKept: ids => {
         if (ids.some(id => id.startsWith("instance_"))) void this.refreshModelTransforms();
-        this.treeFx.forget(ids);
+        this.treeFx.forget(ids); this.selection.reframe(); this.dirty = true;
         this.refreshMeshes([]);
       },
       cursorChanged: () => this.applyCursor(), changed: () => { this.dirty = true; },
@@ -1123,10 +1123,9 @@ export class TrackView {
     this.scene.add(m);
     this.textures.attach(m);
     this.meshes.push(m);
-    this.objects.add(m);
     this.byNumber.set(info.i, m);
     // (a model is always picked as its object: it never reaches the search for a material's connected faces)
-    if (!info.model && !groundTile(info.name) && info.first_face == null && (this.objects.holds(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
+    if (!info.model && !groundTile(info.name) && (this.objects.holds(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
       this.materialAreas ??= new Map();
       this.materialAreas.set(info.i, new MaterialRegions(m.geometry.getAttribute("position"),
         (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objects.piecesIn(info.i) ?? []));

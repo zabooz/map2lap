@@ -56,7 +56,7 @@ class Base(unittest.TestCase):
     def write(self, *meshes, points=()):
         tree = kn5.Node(1, "map2lap", 1, matrix=IDENTITY)
         tree.children = list(meshes) + [kn5.Node(1, name, 1, matrix=matrix) for name, matrix in points]
-        kn5.write(self.path, [("t.png", b"png")], [material("m"), material(trackview.ATLAS_MATERIAL)], tree)
+        kn5.write(self.path, [("t.png", b"png")], [material("m"), material("trees")], tree)
 
     def apply(self, ops, objects=None, going=None):
         """The kn5 with ops applied, read back: {mesh name: its Node}, and the file's points."""
@@ -98,7 +98,6 @@ class RasterTest(unittest.TestCase):
     def test_every_kind_of_mesh_is_sorted(self):
         """A new kind of mesh must be entered in objectlist: here it says what it does when the ground moves."""
         self.assertEqual(set(), objectlist.TRACK - trackheights.FOLLOW - trackheights.STAY - trackheights.IN_THE_WAY)
-        self.assertEqual(set(), objectlist.COUNTED & trackheights.FOLLOW)
 
     def test_what_holds_its_own_heights_never_follows(self):
         """The rule itself: a railway's mesh holds its bridges' plates, a deck is a bridge, the sea doesn't rise with a road."""
@@ -430,20 +429,6 @@ class MovedTest(Base):
         """A mesh of billboards (8 triangles each) at those places in x, z."""
         points = [(x + side, 100.0 + k, z) for x, z in places for k in range(8 * 3) for side in (0.5 if k % 2 else -0.5,)]
         return points
-
-    def test_a_billboard_moves_whole(self):
-        self.write(mesh("nocol_trees_0_0", 1, self.billboards((1.0, 10.0), (50.0, 50.0))))
-        ys = self.apply([plateau()])[0]["nocol_trees_0_0"].vertices["pos"][:, 1]
-        self.assertEqual(1, len(set(np.round(ys[:24] - (100.0 + np.arange(24)), 3))))    # (one change for all of it)
-        self.assertAlmostEqual(0.5, float(ys[0] - 100.0), places=2)
-        np.testing.assert_allclose(ys[24:], 100.0 + np.arange(24), atol=1e-4)
-
-    def test_a_billboard_across_two_parts_of_a_mesh_stays_one(self):
-        points = self.billboards((1.0, 10.0))
-        self.write(mesh("nocol_trees_0_0", 1, points[:12]), mesh("nocol_trees_0_0_1", 1, points[12:]))
-        out = self.apply([plateau()])[0]
-        ys = np.r_[out["nocol_trees_0_0"].vertices["pos"][:, 1], out["nocol_trees_0_0_1"].vertices["pos"][:, 1]]
-        self.assertEqual(1, len(set(np.round(ys - (100.0 + np.arange(24)), 3))))
 
     def test_the_start_moves_with_the_ground(self):
         at = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 10.0, 100.0, 10.0, 1.0)

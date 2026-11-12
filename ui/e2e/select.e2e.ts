@@ -13,16 +13,16 @@ test("Select uses the shared tool bar; Shift selects a whole sort and Ctrl adds 
   await page.keyboard.down("Shift");
   await page.mouse.click(tree.x, tree.y);
   await page.keyboard.up("Shift");
-  await expect(page.locator("#edit-marked")).toContainText("All deciduous");
+  await expect(page.locator("#edit-marked")).toContainText("All spruce");
   await page.keyboard.down("Control");
   await page.mouse.click(car.x, car.y);
   await page.keyboard.up("Control");
-  await expect(page.locator("#edit-marked")).toContainText("deciduous");
+  await expect(page.locator("#edit-marked")).toContainText("spruce");
   await page.keyboard.press("Delete");
-  await expect.poll(async () => (await stored(page)).sorts).toEqual(["deciduous"]);
+  await expect.poll(async () => (await stored(page)).object_sorts).toEqual(["spruce"]);
   expect((await stored(page)).deleted.map(d => d.id)).toContain("t_0_0#0");
   await page.keyboard.press("Control+z");
-  await expect.poll(async () => (await stored(page)).sorts).toEqual([]);
+  await expect.poll(async () => (await stored(page)).object_sorts).toEqual([]);
   expect((await stored(page)).deleted).toEqual([]);
 });
 
@@ -32,7 +32,7 @@ test("Select all and Add buttons apply the same actions as their modifiers", asy
   const at = await findTree(page);
   await page.mouse.click(at.x, at.y);
   await page.locator("#edit-select-set").getByRole("button", {name: "Select all", exact: true}).click();
-  await expect(page.locator("#edit-marked")).toContainText("All deciduous");
+  await expect(page.locator("#edit-marked")).toContainText("All spruce");
   await page.keyboard.press("Escape");
   await expect(page.locator("#edit-marked")).toHaveCount(0);
   await expect(page.locator("#edit-select-set")).toBeVisible();

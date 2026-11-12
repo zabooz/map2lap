@@ -16,9 +16,6 @@ from track import editorinfo, groundmaterial, kn5, objectlist, surfaceindex
 
 VERTEX_BYTES = kn5.VERTEX.itemsize
 START = "AC_START_0"
-ATLAS_MATERIAL = "trees"
-FACES_PER_BILLBOARD = 8     # (scenery.trees.billboards)
-PART_SUFFIX = re.compile(r"(_-?\d+_-?\d+)_\d+$")     # (<kind>_<tx>_<ty>_<part>: a part's name without its number is \1)
 
 
 class NotOurs(Exception):
@@ -182,24 +179,6 @@ def _start(matrix):
     return {"pos": matrix[12:15], "forward": matrix[8:11]} if matrix else None
 
 
-def _base(name):
-    """A mesh's name without its part's number. Pure."""
-    return PART_SUFFIX.sub(r"\1", name)
-
-
-def _first_faces(meshes, materials):
-    """{mesh number: triangles in the earlier parts of its object}: obj_to_kn5 splits an object at 65,535 vertices into
-    <name>, <name>_1, ...; the billboards of a tile (material ATLAS_MATERIAL, 8 triangles each) count on over its parts,
-    one can lie across two. Pure."""
-    seen, out = {}, {}
-    for i, m in enumerate(meshes):
-        if materials[m["material"]].name == ATLAS_MATERIAL and "_copy_" not in m["name"]:
-            base = _base(m["name"])
-            out[i] = seen.get(base, 0)
-            seen[base] = out[i] + m["indices"] // 3
-    return out
-
-
 def _route(root):
     """The route as the build wrote it (generator: data/map2lap_route.txt): (anchor [lat, lon] or None, [[AC x, AC z], ...])."""
     try:
@@ -211,26 +190,19 @@ def _route(root):
     return anchor, [[float(a), float(b)] for a, b, *_rest in (r for r in rows if len(r) >= 2 and r[0] != "anchor")]
 
 
-def _atlas():
-    """The billboards' atlas: its images in rows of cols (scenery.trees)."""
-    from scenery import trees       # (only here: needs the engine's path from generator)
-    return {"sprites": list(trees.SPRITES), "cols": trees.COLS, "rows": trees.ROWS}
-
-
 def index(ac, name):
-    """The track's meshes (the invisible collision ones left out), materials, textures, start, anchor, route and billboard
-    atlas, as JSON for the page. A mesh's "i" asks for its bytes (mesh_bytes), with "revision": the numbers hold for this
+    """The track's meshes (the invisible collision ones left out), materials, textures, start, anchor and route, as JSON for
+    the page. A mesh's "i" asks for its bytes (mesh_bytes), with "revision": the numbers hold for this
     state of the file only. Our kn5 hold all meshes in the world's frame: the one parent's matrix is the identity
     (obj_to_kn5)."""
     path, _s, revision = _scanned(ac, name)
     from app import trackedits
     _path, s, listed = trackedits.context(ac, name, revision)
     from app import tracknative
-    first = _first_faces(s["meshes"], s["materials"])
     native_sources=tracknative.inherited(ac,name,path).get('render_sources',{})
     meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
-               "first_face": first.get(i), "base": _base(m["name"]) if i in first else None, "copy": bool(m.get("copy")),
+               "copy": bool(m.get("copy")),
                **({"model": m["model"]} if m.get("model") else {})}
               for i, m in enumerate(s["meshes"]) if (m["renderable"] or native_sources.get(m['name'])) and not m["name"].startswith(tracknative.PREFIX)]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
@@ -263,18 +235,13 @@ def index(ac, name):
             "textures": [{"name": t[0], "size": t[2], "source_size": t[2], **({"linear": True} if t[0] in masks else {}),
                           **{k: v for k, v in painted.get(i, {}).items() if k != "i"}}
                          for i, t in enumerate(s["textures"])], "paints": s.get("paints", []), "paint_errors": list(dict.fromkeys(paint_errors)), "start": _start(s["points"].get(START)),
-            "anchor": anchor, "route": route, "atlas": _atlas(), "objects": _view_objects(listed), "draft": s.get("draft", 0),
+            "anchor": anchor, "route": route, "objects": _view_objects(listed), "draft": s.get("draft", 0),
             "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else [],
             "surface_unprepared": surfaceindex.unprepared(path) if facts else 0,
             "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
             "model_replacements": s.get("model_replacements", []),
             "treefx": len((treefx_of(path) or {}).get("trees", {})),
             "model_matrices": trackmodels.view_matrices(s, edits.get("placed", []), edits.get("heights", []))}
-
-
-def sprites():
-    """The names of the billboards' sorts (scenery.trees)."""
-    return _atlas()["sprites"]
 
 
 def _view_objects(objects):
@@ -448,15 +415,9 @@ def treefx_texture(ac, name, model, texture):
     return textures[texture]
 
 
-def _billboard_kind(base):
-    """Tree or bush by its mesh's name (make_obj). Pure."""
-    return "bush" if "_trees_bush_" in base or base.startswith("nocol_bush_") else "tree"
-
-
 def deletable(ac, name):
-    """(the kn5's revision, {what an id starts with: (how many single objects it holds, their kind or a list of each one's)}, the
-    sorts of listed objects that can go all at once): the build's list, and the billboards, which are told apart by their count of
-    triangles on any track."""
+    """(the kn5's revision, {what an id starts with: (how many single objects it holds, each one's kind)}, the sorts that can go all
+    at once): the build's list (its TreeFX trees' ids app.tracktrees checks)."""
     from app import trackedits
     _path, _s, revision = _scanned(ac, name)
     path, s, listed = trackedits.context(ac, name, revision)
@@ -465,15 +426,9 @@ def deletable(ac, name):
 
 
 def counts_of(s, listed, trees=None):
-    """Objects in a scan and its list, counted billboards first, authoritative listed ids last; the sorts include the models of the
-    TreeFX trees (trees: the list's section, None for none), whose ids app.tracktrees checks. Pure."""
-    faces = {}
-    for m in s["meshes"]:
-        if s["materials"][m["material"]].name == ATLAS_MATERIAL and "_copy_" not in m["name"]:
-            faces[_base(m["name"])] = faces.get(_base(m["name"]), 0) + m["indices"] // 3
-    counts = {base: (n // FACES_PER_BILLBOARD, _billboard_kind(base)) for base, n in faces.items()}
-    counts.update({base: (len(o["at"]), o["kinds"]) for base, o in listed.items()})
-    return counts, objectlist.all_sorts(listed, trees)
+    """The objects of a scan's list by what their ids start with; the sorts include the models of the TreeFX trees (trees: the
+    list's section, None for none), whose ids app.tracktrees checks. Pure."""
+    return {base: (len(o["at"]), o["kinds"]) for base, o in listed.items()}, objectlist.all_sorts(listed, trees)
 
 
 def _read(path, offset, size, revision):

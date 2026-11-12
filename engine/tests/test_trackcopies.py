@@ -181,13 +181,6 @@ class CopiesTest(Base):
             vertices, faces = kn5.mesh_arrays(f, own["meshes"][generated[0]["i"]])
         self.assertEqual(shown[:len(vertices) * kn5.VERTEX.itemsize], vertices.tobytes())
 
-    def test_a_copied_tree_is_listed_and_does_not_reuse_the_counted_tree_id(self):
-        scan, objects = trackcopies.build(self.kn5, kn5.scan(self.kn5), self.objects, [spec("nocol_trees_0_0#0")])
-        entry = objects[spec()["id"]]
-        self.assertEqual(["tree"], entry["kinds"])
-        new_mesh = entry["faces"][0][0][0]
-        self.assertNotIn(new_mesh, trackview._first_faces(scan["meshes"], scan["materials"]))
-
     def test_bundled_copies_split_before_65536_vertices(self):
         node = boxes("nocol_props_0_0", 0, [1], faces_each=21845)
         kn5.write(self.kn5, [], [material("m")], kn5.Node(1, "root", 1, matrix=IDENTITY, children=[node]))

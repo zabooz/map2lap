@@ -17,8 +17,8 @@ file, a build makes new ones.
 **Object list**:
 The build's list of a track's single objects: `data/map2lap_objects.json` beside the kn5 (`track/objectlist.py`). Meshes stay merged
 per tile and material; the list says which triangles of them make up each object, also across meshes, and what belongs to what
-(a house's sign and door, a pole's lamp and wires). Every mesh a build adds is entered there. An object's id: `t_<x>_<y>#<number>`; a tree's or bush's, told apart by its count of triangles on any
-track: `<its mesh>#<number>`.
+(a house's sign and door, a pole's lamp and wires). Every mesh a build adds is entered there. An object's id: `t_<x>_<y>#<number>`; a tree's or bush's, a TreeFX tree's:
+`trees#<number>`.
 
 **Object group**:
 A reusable Library mixture of imported models, with a weight, size range and random switch for each entry. The group as it
@@ -29,7 +29,7 @@ This is separate from a **Sort**, which identifies matching objects already in a
 **Sort**:
 An object's finest name, what "delete all" in the Editor goes by. A listed object's is in the object list beside its **kind**, the coarse name
 the page shows (kind `street furniture`, sort `bench`; a prop row's group, a sign's stream, else the kind; lists of older builds have none:
-their kind). A tree's or bush's is its image of the atlas (`trees.SPRITES`).
+their kind). A tree's or bush's is its TreeFX model (`spruce`, `broadleaf`).
 
 **Save** (Editor):
 Writes a track as its edit list says (`app/trackcopy.py`), in its place or as a copy, its kn5 filtered from its **source**, without a
@@ -242,7 +242,7 @@ _Avoid_: waypoint, stop
 A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`, `plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
 
 **TreeFX trees**: trees as CSP draws them from 3D models (`scenery/treefx.py`): a track's `extension/trees/trees.txt` places
-`.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. All 21 generated tree and bush sprites
+`.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. All 21 tree and bush looks (`trees.SPRITES`)
 have a 3D form (`treefx.MODEL_OF`): 17 models, including regional trees, dry and tropical bushes, and a separate pine.
 The accepted broadleaf, birch, spruce, larch and two shrub models keep their geometry and textures. Every build writes all
 its trees and bushes so (`trees.placements`, `make_obj.to_treefx`); there are no billboard trees any more. The **object list** holds each as model and placement under an id `trees#<number>` that stays

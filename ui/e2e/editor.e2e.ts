@@ -79,13 +79,13 @@ test("the hover box: a tree has its own id, kind and size; beside its crown the 
   for (let up = 40; up < c.y - 10 && !found; up += 12) {
     await page.mouse.move(c.x - 1, c.y - up);
     await page.mouse.move(c.x, c.y - up);
-    found = await expect(box(page)).toContainText("nocol_trees_0_0#1", {timeout: 300}).then(() => true, () => false);
+    found = await expect(box(page)).toContainText("trees#1", {timeout: 300}).then(() => true, () => false);
   }
   expect(found).toBe(true);
-  await expect(box(page)).toContainText("Tree · ");
+  await expect(box(page)).toContainText(/Type\s*spruce/);
   await expect(box(page)).toContainText(/Height\s*30\.0 m/);
   await expect(box(page)).toContainText(/Stands at\s*128\.0, -130\.0/);
-  await expect(box(page)).toContainText("trees.png");
+  await expect(box(page)).toContainText("spruce_d.png");
   await expect(box(page)).not.toContainText(/ID\s*—/);
 });
 
@@ -464,7 +464,7 @@ test("loaded includes the textures, and a texture failure is shown", async ({pag
   await requested;
   // Every mesh has arrived; the textures are still waiting.
   try {
-    await expect(page.locator("#edit-status")).toHaveText("Loading textures: 0 of 4");
+    await expect(page.locator("#edit-status")).toHaveText("Loading textures: 0 of 3");
   } finally {
     release();
   }

@@ -1,14 +1,13 @@
 import type {SurfacePoint} from "./scene/surfaces";
 import type {ModelInstance} from "./state/edits";
-import type {Atlas, ObjectList} from "./scene/inspect";
+import type {ObjectList} from "./scene/inspect";
 import type {ColourLayers, ColourSplat} from "./scene/colourBlend";
 
 /** What the mouse points at (the hover box). */
 export interface Hovered {
   id: string | null;            // (a single object's, which can be deleted)
   kind: string;
-  sprite: string | null;
-  sort: string | null;          // (a listed object's: what deleting all of a sort goes by)
+  sort: string | null;          // (a listed object's or a tree's model: what deleting all of a sort goes by)
   object: string;
   physics: string;
   material: string;
@@ -20,8 +19,7 @@ export interface Hovered {
   triangle: number;
   uv: [number, number] | null;
   shownTo: number;
-  billboard: {number: number; height: number | null; width: number | null; foot: [number, number] | null} | null;
-  treefx?: {model: string; triangles: number};     // (a TreeFX tree's: its .bin model and its triangles at the LOD drawn)
+  treefx?: {model: string; triangles: number; height: number; width: number; foot: [number, number]};   // (a TreeFX tree's: its .bin model, its triangles at the LOD drawn, its size and foot)
   at: [number, number, number];
   tile: [number, number];
   route: {metre: number; off: number} | null;
@@ -35,7 +33,6 @@ export interface Picked {
   id: string | null;
   afterBuild: boolean;
   kind: string;
-  sprite: string | null;
   sort: string | null;
   position: [number, number, number];
   left: boolean;                // (by the left button, not for a menu)
@@ -74,10 +71,9 @@ export interface Brush {
 /** What is held with the wheel over the view for a tool to take it. */
 export type WheelKeys = "shift" | "ctrl" | "alt" | "ctrlAlt";
 
-/** All of a sort framed: a listed one's sort, or (tree) an atlas image. */
+/** All of a sort framed: a listed one's sort or a tree's model. */
 export interface Marked {
   sort: string;
-  tree: boolean;
 }
 
 export interface MeshInfo {
@@ -92,8 +88,6 @@ export interface MeshInfo {
   lod_out: number;
   center: [number, number, number];
   radius: number;
-  first_face: number | null;    // (the tile's billboards: triangles in its earlier parts)
-  base: string | null;          // (the tile's billboards: the mesh's name without its part's number)
 }
 
 export interface MaterialInfo {
@@ -132,7 +126,6 @@ export interface TrackIndex {
   start: {pos: [number, number, number]; forward: [number, number, number]} | null;
   anchor: [number, number] | null;
   route: number[][];
-  atlas: Atlas;
   objects: Record<string, ObjectList>;
 }
 

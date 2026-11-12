@@ -1,7 +1,7 @@
 // The track's TreeFX trees (CSP's 3D trees: src/app/tracktrees.py): drawn from the models in the track's own folder, as AC shows
 // them, each where the draft puts it. They have no triangles in the kn5: their ids are "trees#<number>". Trees of one model in one
 // 256 m cell are one instanced mesh, drawn at the LOD of the cell's distance as CSP switches them (the model's distances), the
-// farthest one out to FAR_M, as far as the billboard trees show. What the draft leaves out shrinks to a point in its slot.
+// farthest one out to FAR_M. What the draft leaves out shrinks to a point in its slot.
 // The track's trees come once when it opens (load); after that each answer of the draft names only the trees it changed (apply):
 // a tree that stays in its cell gets its slot rewritten, one that leaves or joins a cell only has those two batches built anew.
 import * as THREE from "three";
@@ -10,7 +10,7 @@ import type {TreeFxChange, TreeFxTree} from "../types";
 export type {TreeFxChange, TreeFxTree};
 
 export const CELL_M = 256;
-export const FAR_M = 1200;          // (obj_to_kn5.VIEW: the billboard trees' distance, so both kinds end alike)
+export const FAR_M = 1200;          // (as far as the billboard trees of before showed: no forest ends near the camera)
 const ALPHA_REF = 0.5;              // (obj_to_kn5.ALPHA_REF of the trees)
 
 /** The trees as the server hands them out (trackview.treefx): flat arrays, a tree per index. */
@@ -53,6 +53,15 @@ interface Cell {centre: THREE.Vector3; radius: number; batches: Set<Batch>}
 export function treeMatrix(x: number, y: number, z: number, angle: number, size: number, width: number, out = new THREE.Matrix4()) {
   const a = angle * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), w = size * width;
   return out.set(c * w, 0, s * w, x, 0, size, 0, y, -s * w, 0, c * w, z, 0, 0, 0, 1);
+}
+
+/** A tree's matrix as the draft can say it: its foot to the mm, its turn to the degree, its size and width to a thousandth
+    (tracktrees.placed rounds them so), turned and scaled upright only. What Move shows is what the server's answer will be. Pure. */
+export function snapped(matrix: THREE.Matrix4, out = new THREE.Matrix4()) {
+  const e = matrix.elements, size = Math.hypot(e[4], e[5], e[6]), wide = Math.hypot(e[0], e[1], e[2]);
+  const round = (v: number, digits: number) => Math.round(v * 10 ** digits) / 10 ** digits;
+  const angle = ((Math.round(Math.atan2(-e[2], e[0]) * 180 / Math.PI) % 360) + 360) % 360;
+  return treeMatrix(round(e[12], 3), round(e[13], 3), round(e[14], 3), angle, round(size, 3), round(wide / size, 3), out);
 }
 
 /** The LOD drawn at distance m: the first whose distance is beyond it, the last out to far, -1 beyond. Pure. */
@@ -180,7 +189,12 @@ export class TreeFxDraw {
   private drop(model: Model) {
     const materials = new Set<THREE.Material>();
     for (const lod of model.lods) for (const part of lod.parts) { part.geometry.dispose(); materials.add(part.material); }
-    for (const material of materials) { (material as THREE.MeshLambertMaterial).map?.dispose(); material.dispose(); }
+    for (const material of materials) {
+      const map = (material as THREE.MeshLambertMaterial).map;
+      map?.dispose();
+      if (typeof ImageBitmap !== "undefined" && map?.image instanceof ImageBitmap) map.image.close();     // (its pixels go now, not with the page)
+      material.dispose();
+    }
   }
 
   /** A tree into the members of its batch, which is made when it is the first. */
@@ -287,8 +301,8 @@ export class TreeFxDraw {
     if (!this.slots.has(id)) return;
     this.version++;                     // (trees on their way are older than this: they would set it back)
     const [x, y, z] = pivot;
-    this.moved.set(id, initial.clone().premultiply(new THREE.Matrix4().makeTranslation(-x, -y, -z))
-      .premultiply(transform).premultiply(new THREE.Matrix4().makeTranslation(x, y, z)));
+    this.moved.set(id, snapped(initial.clone().premultiply(new THREE.Matrix4().makeTranslation(-x, -y, -z))
+      .premultiply(transform).premultiply(new THREE.Matrix4().makeTranslation(x, y, z))));
     this.rewrite([id]);
   }
 
@@ -391,6 +405,11 @@ export class TreeFxDraw {
     const boxes: THREE.Box3[] = [];
     for (const [id, tree] of this.trees) if (tree.model === model) { const box = this.bounds(id, true); if (box) boxes.push(box); }
     return boxes;
+  }
+
+  /** The ids of the trees of a model shown now. */
+  idsOf(model: string) {
+    return [...this.trees].filter(([id, tree]) => tree.model === model && !this.out.has(id)).map(([id]) => id);
   }
 
   /** How many trees of a model stay with these edits (ids and object sorts left out, as the page has them). */
