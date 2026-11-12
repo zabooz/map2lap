@@ -84,9 +84,12 @@ local batch = {
   shader = [[
     float hash(float n) { return frac(sin(n * 12.9898) * 43758.5453); }
     float4 main(PS_IN pin) {
+      // U: particle id + corner. V: softness tenths in the hundreds, alpha percent below, corner in the fraction.
       float2 t = frac(pin.Tex);
       float id = floor(pin.Tex.x);
-      float alpha = floor(pin.Tex.y) / 100;
+      float packed = floor(pin.Tex.y);
+      float soft = floor(packed / 100) / 9;
+      float alpha = fmod(packed, 100) / 100;
       float2 q = t * 2 - 1;
       float h = hash(id);
       float shape;
@@ -96,15 +99,16 @@ local batch = {
         float along = 1 - smoothstep(0.45, 1, abs(q.y));
         shape = across * along * (0.85 + 0.3 * saturate(-q.y));
       } else {
-        // An irregular clump with a soft core that turns at its own rate.
+        // An irregular clump that turns at its own rate; near flakes are out of focus, so softer and rounder.
         float a = gTime * (0.5 + h) + h * 6.283;
         float c = cos(a), s = sin(a);
         float2 f = float2(c * q.x - s * q.y, s * q.x + c * q.y);
-        float grain = sin(f.x * 11 + h * 7) * sin(f.y * 9 - h * 5);
-        float r = length(f * float2(1, 1.15)) + grain * 0.09;
-        shape = exp(-3 * dot(f, f)) * (1 - smoothstep(0.35, 1, r));
+        float grain = sin(f.x * 11 + h * 7) * sin(f.y * 9 - h * 5) * (1 - soft);
+        float r = length(f * float2(1, 1.1 + 0.2 * h)) + grain * 0.1;
+        shape = exp(-lerp(3.5, 1.8, soft) * dot(f, f)) * (1 - smoothstep(lerp(0.3, 0.1, soft), 1, r));
       }
-      return pin.ApplyFog(float4(gColor, shape * alpha));
+      // Drops and flakes differ in brightness: no two identical bright marks.
+      return pin.ApplyFog(float4(gColor * (0.7 + 0.3 * h), shape * alpha));
     }
   ]]
 }
@@ -165,12 +169,15 @@ local function build()
       local pixelMetres = metrePerPixel * distance
       local edge = min(1, (15 - distance) / 4) * min(1, (distance - 1.4) / 1.2)
       local hw, hh, ux, uy, uz, alpha
+      local soft = 0
       if snow then
-        -- Mostly millimetre flakes with a few larger clumps; the soft core needs 3 px, 8 px caps nearby discs.
-        local width = (0.008 + w * w * w * 0.02) * size[i]
-        local shown = min(pixelMetres * 8, max(width, pixelMetres * 3))
+        -- Mostly millimetre flakes with a few larger clumps; the soft core needs 2.5 px, 14 px caps nearby discs.
+        local width = (0.006 + w * w * w * 0.03) * size[i]
+        local shown = min(pixelMetres * 14, max(width, pixelMetres * 2.5))
         hw, hh = shown * 0.5, shown * aspect[i] * 0.5
-        alpha = (0.55 + w * 0.25) * edge
+        alpha = (0.5 + w * 0.3) * edge
+        -- Within about 4 m a flake is out of focus for a driver's eye.
+        soft = max(0, 1 - distance / 4)
         local sx, sy, sz = sidev.x * hw, sidev.y * hw, sidev.z * hw
         local ex, ey, ez = upv.x * hh, upv.y * hh, upv.z * hh
         local v = vertices.raw[b]
@@ -208,7 +215,7 @@ local function build()
         v = vertices.raw[b + 3]
         v.pos.x, v.pos.y, v.pos.z = cx + x + sx - ex, cy + y + sy - ey, cz + z + sz - ez
       end
-      local aq = floor(min(99, max(0, alpha * 100)))
+      local aq = floor(min(99, max(0, alpha * 100))) + floor(soft * 9 + 0.5) * 100
       vertices.raw[b].uv.y = aq
       vertices.raw[b + 1].uv.y = aq + 0.998
       vertices.raw[b + 2].uv.y = aq + 0.998
@@ -283,11 +290,18 @@ function script.draw3D()
   batch.values.gSnow = snow and 1 or 0
   batch.values.gTime = elapsed
   local sky, horizon = sim.skyColor, sim.horizonColor
-  -- Scene-linear radiance, not displayed RGB: normalise the overcast level before tinting pale precipitation.
-  local illumination = (sky.r + sky.g + sky.b + horizon.r + horizon.g + horizon.b) / 6
-  local brightness = min(1, max(0.04, sqrt(max(0, illumination)) * 2.5))
   local color = batch.values.gColor
-  color.r, color.g, color.b = 0.82 * brightness, 0.86 * brightness, 0.9 * brightness
+  if snow then
+    -- Scene-linear radiance, not displayed RGB: normalise the overcast level before tinting pale flakes.
+    local illumination = (sky.r + sky.g + sky.b + horizon.r + horizon.g + horizon.b) / 6
+    local brightness = min(1, max(0.04, sqrt(max(0, illumination)) * 2.5))
+    color.r, color.g, color.b = 0.82 * brightness, 0.86 * brightness, 0.9 * brightness
+  else
+    -- A drop refracts the sky around it: a little brighter than the horizon, never a white bar. The floor keeps
+    -- dusk rain visible; v2 vanished with raw radiance.
+    local lift = 1.8
+    color.r, color.g, color.b = max(0.06, horizon.r * lift), max(0.065, horizon.g * lift), max(0.07, horizon.b * lift)
+  end
   render.mesh(batch)
   frames = frames + 1
 end
