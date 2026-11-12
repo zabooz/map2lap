@@ -1,4 +1,11 @@
-# Map2Lap CSP port status
+# Archived Map2Lap CSP port experiment
+
+The user chose a custom rain effect instead. No librain stage is active in the
+current preview. The last port/wiper-capture investigation is preserved in commit
+`8b8be8f`; the earlier particle attempt is preserved in `aeb28ef`. The description
+below records the classic port experiment, not the current implementation. See
+[`tools/weather_preview/README.md`](../../tools/weather_preview/README.md) for
+the active custom GPU water model. Upstream source and notices remain intact.
 
 Upstream: https://github.com/skiselkov/librain, revision
 `cbc42ef47bb412e522de067b1ea4000e2de97cf6`. `src/`, `shaders/`, `plugin/`,

@@ -71,19 +71,47 @@ remains an approximation at edges and for wind blowing in from the side. Unknown
 columns initially allow particles. Covers more than 60 m overhead are outside its range.
 
 There are no wet-road reflections, ground snow accumulation or vehicle-physics changes.
-Rain uses a separate HDR background copy for screen-space refraction, with subdued reflections and a
-wetness-controlled mip blur cleared by the wipers. Snow retains its height shading. If the background copy
-is unavailable, contact shading remains as a fallback. Support across different cars/VR remains unestablished.
+Front rain uses a custom GPU water-height layer and depth-normal refraction. Snow retains its height shading.
+Support across different cars/VR remains unestablished.
 `run.py --mode glassred` colours rain footprints solid red for visual diagnosis without altering movement;
 `run.py --mode glass` restores the water material. Wiper water is included in the red footprint view.
 
-## Librain front-glass port (in progress)
+## Custom front-glass water (visual prototype)
 
-The active liquid backend is now the classic librain GPU depth pipeline. Pinned
-source, licensing, adaptations and remaining work are recorded in
-[`third_party/librain/PORT.md`](../../third_party/librain/PORT.md). This is an
-unaccepted front-glass iteration; side liquid is temporarily disabled. Keep
-`glassred` active for movement/wipe review. Its inset shows the unprojected depth.
+The active liquid backend is Map2Lap's own GPU simulation, replacing the librain
+experiment. It deposits circular parabolic beads in a fixed metric glass chart,
+retains height in FP16 ping-pong textures, and moves mobile water with bounded
+upwind flux. Small beads pin; larger water patches move and leave thin trails.
+Normals come from height differences in physical units. There is no CPU image
+solver and no active rain worker. Lua prepares a few geometry/force uniforms.
+
+Gravity and vehicle airflow use the rendered car-root frame. Ambient wind has
+zero gain on liquid; outdoor precipitation keeps weather wind. The first model
+uses a constant chart direction rather than a curved-pane radial force field.
+Vehicle shear is deliberately bounded; this is an artistic car-water model,
+not a fluid-aerodynamics solver. Actual glass triangles mask the simulation.
+
+Wipers clear the swept quadrilateral and collect sampled swept water into a
+3 mm leading band. Retained runoff then follows gravity. This transport uses
+eight samples across each sweep, limited retained depth and drainage: it is
+not exactly volume conserving. Snow's separate deposition/wiper path is unchanged.
+
+The material copies CSP's built-in `txPreviousFrame` scene texture, with scene
+distance in alpha to exclude cockpit/wiper pixels at both sample endpoints.
+Do **not** use `dynamic::hdr` as a refraction source: live paired captures showed
+our water already in that image, causing feedback and black wiper/glove smears.
+The built-in texture excluded our transparent passes in the tested CSP build.
+Its template is embedded in `dwrite.dll` under `internal/shader-tpl/`, including
+`include_textures.fx` (slot 19). Full temporal/stereo behavior is not established.
+
+Use `glass` for the material; `glassred` shows actual height and an unprojected
+inset. The first custom iteration has user confirmation of visible droplets and
+no wiper smear. Broader quality, driving motion, other cars and side liquid remain
+for review; side liquid is disabled. No performance measurements have been made.
+
+The archived librain experiment and upstream notices remain in
+[`third_party/librain/PORT.md`](../../third_party/librain/PORT.md) and Git history;
+none of its simulation or rendering stages runs alongside custom water.
 
 The previous RainHybrid worker is stopped and no longer starts automatically.
 `rainrust|rainlua` no longer select an active backend. The following description
@@ -92,8 +120,8 @@ documents the checkpointed experiment, not the active simulation.
 ## Checkpointed Rust rain experiment
 
 `<python> tools/weather_preview/rain_rust.py` builds/starts the standalone rain helper in the owned AC preview.
-Preview launch and hot reload start the existing `out/rust-rain/rain-worker.exe` automatically.
-`run.py --mode rainrust|rainlua` switches backend without changing the native weather. `rain_rust.py --stop`
+Automatic rain-helper startup and `rainrust|rainlua` backend switching are disabled.
+The archived worker binary is `out/rust-rain/rain-worker.exe`. `rain_rust.py --stop`
 stops only this helper. No compiler is required once the development binary exists.
 
 The Rust backend owns both small pinned beads and larger running drops: gravity, vehicle airflow,

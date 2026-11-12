@@ -10,11 +10,11 @@ It exits with its exact AC process handle. This worker changes falling-snow geom
 This is currently preview integration: release build/package/startup must ship and start the precompiled helper
 before it becomes a default of exported tracks or product Play. End users must never need to compile it.
 
-The rain preview is being replaced with a GPU librain classic-path port; see
-[`third_party/librain/PORT.md`](../third_party/librain/PORT.md) for its exact scope.
-The old rain helper is stopped and automatic startup is disabled. No new Rust
-preparation backend is implemented yet. The description below records the
-checkpointed experiment, not the currently active rain simulation.
+The active front rain preview uses Map2Lap's own GPU water-height simulation;
+see [`tools/weather_preview/README.md`](../tools/weather_preview/README.md).
+The old rain helper is stopped and automatic startup is disabled. Lua prepares
+geometry/force uniforms; the image simulation remains on the GPU. The description
+below records the checkpointed experiment, not the active rain simulation.
 
 The experimental `tools/weather_preview/rain_worker.rs` owns glass-water droplets on front/side panes,
 using `AcTools.CSP.Limited.Map2Lap.RainHybrid.v3`. Build/start with `tools/weather_preview/rain_rust.py`;
