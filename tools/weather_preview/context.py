@@ -22,4 +22,4 @@ EXT = TRACK / 'extension'
 SCRIPT = EXT / 'map2lap_weather_probe.lua'
 MODE = EXT / 'map2lap_weather_probe_mode.txt'
 STATE = RUNTIME / 'session.json'
-MODES = ('off', 'rain', 'snow', 'fog', 'wind', 'direction', 'auto')
+MODES = ('off', 'rain', 'snow', 'fog', 'wind', 'direction', 'auto', 'glass', 'glassraw', 'glassoff')
