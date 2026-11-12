@@ -25,7 +25,7 @@ local nativeParticles = {
   [ac.WeatherType.HeavySnow] = {'snow', 1},
 }
 local frames, drawn, luaMs, submitMs = 0, 0, 0, 0
-local beginCount, shelteredCount, shelterMs = 0, 0, 0
+local beginCount, shelteredCount, shelterMs, frameDt = 0, 0, 0, 0
 local held = false
 local wind = vec3()
 local cameraVelocity = vec3()
@@ -85,16 +85,27 @@ local batch = {
   shader = [[
     float hash(float n) { return frac(sin(n * 12.9898) * 43758.5453); }
     float4 main(PS_IN pin) {
-      // U: particle id + corner. V: softness tenths in the hundreds, alpha percent below, corner in the fraction.
+      // U: particle id + corner. V: kind in the thousands, softness or age tenths in the hundreds,
+      // alpha percent below, corner in the fraction.
       float2 t = frac(pin.Tex);
       float id = floor(pin.Tex.x);
       float packed = floor(pin.Tex.y);
+      float kind = floor(packed / 1000);
+      packed = fmod(packed, 1000);
       float soft = floor(packed / 100) / 9;
       float alpha = fmod(packed, 100) / 100;
       float2 q = t * 2 - 1;
       float h = hash(id);
       float shape;
-      if (gSnow < 0.5) {
+      if (kind > 0.5) {
+        // A splash crown standing on the road: a spike that rises and collapses within its life, with a
+        // ring of spray widening around it. t.y is 0 at the ground.
+        float life = soft;
+        float height = sin(life * 3.14159);
+        float spike = exp(-q.x * q.x * 14) * step(t.y, height) * (1 - t.y / max(height, 0.01));
+        float spray = exp(-pow((abs(q.x) - 0.3 - 0.6 * life) * 5, 2)) * exp(-pow((t.y - 0.35 * height) * 4, 2)) * 0.7;
+        shape = (spike + spray) * (1 - life * life) * 1.6;
+      } else if (gSnow < 0.5) {
         // A streak: soft across its width, fading at both shutter endpoints, a touch brighter near the drop.
         float across = exp(-4.5 * q.x * q.x);
         float along = 1 - smoothstep(0.45, 1, abs(q.y));
@@ -284,6 +295,47 @@ local function buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy,
   end
 end
 
+-- Splashes: the last 256 quads of the buffer, free in rain mode (rain uses 70 percent of the budget). A drop
+-- hitting the road throws up a crown for about a fifth of a second. Downward physics rays (0.01 ms each) find
+-- the road within 9 m of the camera, mostly ahead of it.
+local SPLASHES, SPLASH_FIRST, SPLASH_LIFE = 256, COUNT - 256, 0.22
+local splashX, splashY, splashZ, splashAge = {}, {}, {}, {}
+for i = 0, SPLASHES - 1 do splashX[i], splashY[i], splashZ[i], splashAge[i] = 0, 0, 0, 1e9 end
+local splashBudget, splashNext = 0, 0
+local rayDown = vec3(0, -1, 0)
+local function updateSplashes(dt, cx, cy, cz, lx, lz, sdx, sdy, sdz)
+  -- Heavy rain: 450 crowns a second in the disc, about a hundred alive at a time.
+  splashBudget = min(6, splashBudget + 450 * density * dt)
+  local look = sqrt(lx * lx + lz * lz)
+  local fx, fz = look > 1e-3 and lx / look or 0, look > 1e-3 and lz / look or 0
+  while splashBudget >= 1 do
+    splashBudget = splashBudget - 1
+    local angle, radius = math.random() * 6.283, 1.5 + sqrt(math.random()) * 7.5
+    local x, z = cx + fx * 3 + cos(angle) * radius, cz + fz * 3 + sin(angle) * radius
+    rayOrigin:set(x, cy + 2, z)
+    local hit = render.createRay(rayOrigin, rayDown, 10):physics()
+    if hit > 0 and not sheltered(x, cy + 2 - hit, z) then
+      local i = splashNext
+      splashNext = (splashNext + 1) % SPLASHES
+      splashX[i], splashY[i], splashZ[i], splashAge[i] = x, cy + 2 - hit, z, 0
+    end
+  end
+  for i = 0, SPLASHES - 1 do
+    local age = splashAge[i] + dt
+    splashAge[i] = age
+    local b = (SPLASH_FIRST + i) * 4
+    if age < SPLASH_LIFE then
+      local life = age / SPLASH_LIFE
+      -- A crown 4 cm wide and up to 6 cm tall; the quad stands on the road, facing the camera.
+      local hw, hh = 0.02, 0.03
+      place(b, splashX[i], splashY[i] + hh, splashZ[i], sdx * hw, sdy * hw, sdz * hw, 0, hh, 0,
+        1000 + floor(life * 9 + 0.5) * 100 + 85)
+    else
+      drop(b, cx, cy, cz)
+    end
+  end
+end
+
 -- Rewrites the vertex buffer for this frame's camera, wind and time.
 local function build()
   local snow = mode == 'snow'
@@ -307,6 +359,7 @@ local function build()
     buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upv.x, upv.y, upv.z, sidev.x, sidev.y, sidev.z)
   else
     buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, wx - vcx, -vcy, wz - vcz)
+    updateSplashes(frameDt, cx, cy, cz, lx, lz, sidev.x, sidev.y, sidev.z)
   end
 end
 
@@ -319,7 +372,7 @@ function script.frameBegin(dt, gameDT)
     setMode(spec and spec[1] or 'off')
     ac.log(string.format('M2L_WEATHER automatic type=%d mode=%s density=%.2f', weatherType, mode, density))
   end
-  elapsed = elapsed + gameDT
+  elapsed, frameDt = elapsed + gameDT, gameDT
   ac.getWindVelocityTo(wind)
   cameraVelocity:set(sim.cameraPositionDelta):scale(1 / max(dt, 0.001))
   driftX, driftZ = driftX + wind.x * gameDT, driftZ + wind.z * gameDT
