@@ -144,6 +144,10 @@ local batch = {
 }
 
 local function setMode(nextMode)
+  if nextMode == 'glasscapture' then
+    if DEBUG and glass then glass.captureRequested = true end
+    return
+  end
   if nextMode == 'auto' then previousWeather = nil; return end
   if nextMode == 'rainrust' or nextMode == 'rainlua' then
     if DEBUG then ac.log('M2L_RAIN_ENGINE librain only; legacy selection ignored') end
@@ -889,7 +893,9 @@ function glass.setup()
       end
     end
     if #triangles == 0 then return nil end
-    local grid = {}
+    pane.chartTriangles = triangles
+    local grid, coverage = {}, {}
+    pane.surfacePoints = {}
     for j = 0, 8 do
       for i = 0, 16 do
         local x, s = pane.x0 + pane.xw * i / 16, pane.s0 + pane.sw * j / 8
@@ -907,11 +913,23 @@ function glass.setup()
           end
         end
         grid[i + j * 17] = {selected.hx, selected.hs}
+        coverage[i + j * 17] = outer ~= -1e30
+        pane.surfacePoints[i+j*17] = {x,s,selected.a[3]+selected.hx*(x-selected.a[1])+selected.hs*(s-selected.a[2])}
       end
     end
     if DEBUG then
       ac.log(string.format('M2L_RAIN_SURFACE pane=%d vertices=%d triangles=%d hxLeft=%.4f hxCentre=%.4f hxRight=%.4f',
         number, #vb, #triangles, grid[68][1], grid[76][1], grid[84][1]))
+      if front then
+        for j = 0, 8 do
+          local samples = {}
+          for i = 0, 16 do
+            local k = i+j*17
+            samples[#samples+1] = string.format('%s%.3f,%.3f', coverage[k] and '' or '*',grid[k][1],grid[k][2])
+          end
+          ac.log('M2L_SURFACE_ROW ' .. j .. ' ' .. table.concat(samples,';'))
+        end
+      end
     end
     return grid
   end
@@ -1336,6 +1354,77 @@ function glass.setup()
   -- No camera input participates in this update. Ambient wind and driving airflow have separate gains.
   local lr = {debt = 0, tick = 0, ambientGain = 0, vehicleGain = 1}
   glass.librain = lr
+  function lr.capture()
+    if not DEBUG or not glass.captureRequested then return end
+    if not lr.captureMap then
+      lr.captureMap = ac.writeMemoryMappedFile('AcTools.CSP.Limited.Map2Lap.GlassCapture.v1', [[
+        uint32_t magic; uint32_t enabled; uint32_t request; uint32_t response;
+        uint32_t depth_bytes; uint32_t view_bytes; uint32_t meta_bytes; uint32_t error;
+        char meta[65536]; char depth[8388608]; char view[4194304];
+      ]])
+    end
+    local m = lr.captureMap
+    if m.magic ~= 0x4d324c43 or m.enabled ~= 1 or m.request == m.response then return end
+    local ok, err = pcall(function()
+      if not lr.captureView then
+        lr.captureView = ui.ExtraCanvas(vec2(960,540),1)
+        lr.capturePass = {async = true, cacheKey = 205, blendMode = render.BlendMode.Opaque,
+          textures = {txSource = 'dynamic::hdr'}, shader = [[
+            float4 main(PS_IN pin) {
+              float3 c=max(0,txSource.SampleLevel(samLinearSimple,pin.Tex,0).rgb);
+              return float4(pow(c/(1+c),1/2.2),1);
+            }
+          ]]}
+      end
+      if not lr.captureView:updateSceneWithShader(lr.capturePass) then return end
+      local depth, view = lr.read:encode(), lr.captureView:encode()
+      if not depth or not view then error('Canvas encode returned no DDS data') end
+      local blades = {}
+      for _, b in ipairs(glass.blades) do
+        blades[#blades+1] = {b.ax,b.as,b.bx,b.bs,b.active,b.pax,b.pas,b.pbx,b.pbs}
+      end
+      local v = lr.sim.values
+      local projected = {}
+      local root = glass.root:getWorldTransformationRaw()
+      local size = render.getRenderTargetSize()
+      local function screenPoint(x,s,n)
+        local q = vec3(x,glass.ty*(s+glass.sc)-glass.tz*n,glass.tz*(s+glass.sc)+glass.ty*n)
+        local screen = ui.projectPoint(root:transformPoint(q),false)
+        if not screen or math.abs(screen.x)>1e8 or math.abs(screen.y)>1e8 then return nil end
+        return {screen.x/size.x,screen.y/size.y}
+      end
+      for k = 0,152 do
+        local p,h=glass.surfacePoints[k],glass.surface[k]
+        local hx,hs=h[1],h[2]
+        local function tangent(f)
+          local det=1+hx*hx+hs*hs
+          return ((1+hs*hs)*f.x-hx*hs*f.y+hx*f.z)/det,
+            ((1+hx*hx)*f.y-hx*hs*f.x+hs*f.z)/det
+        end
+        local gx,gs=tangent(v.gGravity3)
+        local ax,as=tangent(v.gAir3)
+        local speed=sqrt(ax*ax+as*as+(hx*ax+hs*as)^2)
+        local scale=speed>0.0001 and min(1,speed/40)^1.85/speed or 0
+        local dx,ds=(gx/9.81*0.25*v.gRain^2+ax*scale)*0.1,(gs/9.81*0.25*v.gRain^2+as*scale)*0.1
+        local from=screenPoint(p[1],p[2],p[3])
+        local to=screenPoint(p[1]+dx,p[2]+ds,p[3]+hx*dx+hs*ds)
+        if from and to then projected[#projected+1]={k,from[1],from[2],to[1],to[2],dx,ds} end
+      end
+      local meta = JSON.stringify({time=elapsed, tick=lr.tick, frame=frames, rain=v.gRain,
+        phase=ac.getCar(0).wiperProgress, blades=blades, surface=glass.surface,
+        gravity={v.gGravity3.x,v.gGravity3.y,v.gGravity3.z},
+        air={v.gAir3.x,v.gAir3.y,v.gAir3.z}, chart={glass.x0,glass.s0,glass.xw,glass.sw},
+        camera={sim.cameraPosition.x,sim.cameraPosition.y,sim.cameraPosition.z},projected=projected})
+      if #depth>8388608 or #view>4194304 or #meta>65536 then error('Capture buffer capacity exceeded') end
+      m.depth,m.view,m.meta = depth,view,meta
+      m.depth_bytes,m.view_bytes,m.meta_bytes,m.error = #depth,#view,#meta,0
+      m.response = m.request
+    end)
+    if not ok then
+      m.error,m.response=1,m.request
+      ac.log('M2L_CAPTURE failed: '..tostring(err))
+    end
+  end
   lr.diagnostic = {async = true, cacheKey = 203, blendMode = render.BlendMode.AlphaBlend,
     depthMode = render.DepthMode.Off,
     textures = {txDepth = false}, values = {gPanel = vec2(320,180)}, shader = [[
@@ -1354,6 +1443,15 @@ function glass.setup()
   lr.b = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
   lr.a:clear(rgbm(0, 0, 0, 0)); lr.b:clear(rgbm(0, 0, 0, 0))
   lr.read, lr.write = lr.a, lr.b
+  lr.mask = ui.ExtraCanvas(vec2(lr.width,lr.height),1)
+  lr.mask:clear(rgbm(0,0,0,0))
+  lr.mask:update(function()
+    for _,t in ipairs(glass.chartTriangles or {}) do
+      local function uv(x,s) return vec2((x-glass.x0)/glass.xw*lr.width,(1-(s-glass.s0)/glass.sw)*lr.height) end
+      ui.drawTriangleFilled(uv(t.a[1],t.a[2]),uv(t.a[1]+t.ux,t.a[2]+t.us),
+        uv(t.a[1]+t.vx,t.a[2]+t.vs),rgbm(1,1,1,1))
+    end
+  end)
   lr.norm = ui.ExtraCanvas(vec2(lr.width, lr.height), 1, render.TextureFormat.R16G16B16A16.Float)
   lr.norm:clear(rgbm(0.5, 0.5, 0, 1))
   lr.normalPass = {async = true, cacheKey = 202, blendMode = render.BlendMode.Opaque,
@@ -1376,7 +1474,7 @@ function glass.setup()
     surfaceConstants[#surfaceConstants+1] = string.format('float2(%.9f,%.9f)', slope[1], slope[2])
   end
   lr.sim = {async = true, cacheKey = 204, blendMode = render.BlendMode.Opaque,
-    textures = {txDepth = false}, values = {
+    textures = {txDepth = false,txGlassMask=lr.mask}, values = {
       gSize = vec2(lr.width, lr.height), gFrame = vec4(x0, s0, xw, sw),
       gFlow = vec2(), gRain = 0, gSeed = 0, gWind = 0, gGravity3 = vec3(), gAir3 = vec3(),
       gW0 = mat4x4.identity(), gW1 = mat4x4.identity()},
@@ -1413,8 +1511,12 @@ bool droplet_gen_check(float2 p) {
 }
 float read_depth(float2 uv) {
   // Drain at the chart boundary: never wrap or clamp inflowing water from the opposite edge.
-  if (any(uv < 0) || any(uv > 1)) return 0;
+  if (any(uv < 0) || any(uv > 1) || txGlassMask.SampleLevel(samLinearSimple,uv,0).r<0.5) return 0;
   return txDepth.SampleLevel(samLinearSimple, uv, 0).r;
+}
+float read_blade_origin(float2 uv) {
+  if (any(uv<0) || any(uv>1) || txGlassMask.SampleLevel(samLinearSimple,uv,0).r<0.5) return 0;
+  return txDepth.SampleLevel(samLinearSimple,uv,0).b;
 }
 float2 surfaceSlope(float2 uv) {
   float2 q = saturate(float2(uv.x,1-uv.y))*float2(16,8);
@@ -1464,6 +1566,7 @@ float wiper_coeff(float2 p, float4x4 W, float noise) {
   return angle >= W[1].y && angle <= W[1].z ? 1 : 0;
 }
 float4 main(PS_IN pin) {
+  if (txGlassMask.SampleLevel(samLinearSimple,pin.Tex,0).r<0.5) return 0;
   float2 pos = pin.Tex * gSize;
   float new_depth = 0;
   bool water_added = false;
@@ -1475,14 +1578,24 @@ float4 main(PS_IN pin) {
   float old_depth = read_depth(pin.Tex) * 0.39;
   float prev_depth = read_depth(pin.Tex - localFlow(pin.Tex) / 60);
   float depth = new_depth + old_depth + prev_depth * 0.601;
+  // Diagnostic provenance only: track depth introduced by the blade multiplier in B.
+  // R remains the actual simulation; neither movement nor rendering reads this marker.
+  float blade_origin = read_blade_origin(pin.Tex)*0.39
+    + read_blade_origin(pin.Tex-localFlow(pin.Tex)/60)*0.601;
+  float depth_before_erosion = depth;
   if (!water_added) depth = max(0, min(depth, min(old_depth+prev_depth,3) - 3*0.01));
+  blade_origin *= depth_before_erosion>0 ? depth/depth_before_erosion : 0;
   depth = max(depth,0.001);
   float2 p = float2(gFrame.x + pin.Tex.x*gFrame.z, gFrame.y+(1-pin.Tex.y)*gFrame.w);
   float noise = sin((pos.x+pos.y)/25)*cos((pos.x+pos.y)/(25*0.31415));
   float c0 = wiper_coeff(p,gW0,noise), c1 = wiper_coeff(p,gW1,noise);
-  if (max(c0,c1) > 1) depth *= 10;
-  else depth *= 1 - saturate(1.1 * sqrt(max(c0,c1)));
-  return float4(clamp(depth,0,3),0,0,1);
+  if (max(c0,c1) > 1) { blade_origin += depth*9; depth *= 10; }
+  else {
+    float remaining = 1-saturate(1.1*sqrt(max(c0,c1)));
+    depth *= remaining; blade_origin *= remaining;
+  }
+  blade_origin *= depth>3 ? 3/depth : 1;
+  return float4(clamp(depth,0,3),new_depth,min(blade_origin,3),1);
 }
 ]]}
   -- CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
@@ -1735,7 +1848,7 @@ float4 main(PS_IN pin) {
     async = true,
     cacheKey = 71,
     textures = {txField = false, txRainDome = false, txSceneCopy = false, txLibrain = false, txLibrainNormal = false},
-    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 0, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0, gRustLook = 0, gDebugDrops = 0, gPaneUV = 0, gLibrain = 0,
+    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 0, gTime = 0, gWhite = 1, gSnowMode = 0, gSideGlass = 0, gRustLook = 0, gDebugDrops = 0, gPaneUV = 0, gLibrain = 0, gLibrainBlur = 0,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3(),
@@ -1770,19 +1883,24 @@ float4 main(PS_IN pin) {
           s = dot(d, gCarUp) * gTangent.y + dot(d, slope) * gTangent.z - gTangent.x;
           uv = float2((x - gFrame.x) * gFrame.z, 1 - (s - gFrame.y) * gFrame.w);
         }
-        if (gLibrain > 0.5) {
+        float4 retainedSnow = txField.SampleLevel(samLinearSimple,uv,0);
+        if (gLibrain > 0.5 && retainedSnow.g+retainedSnow.b < 0.001) {
           float depth = txLibrain.SampleLevel(samLinearSimple, uv, 0).r;
           // Solid red shows only the actual retained depth, including the leading wiper edge.
           if (gDebugDrops > 0.5) return float4(1, 0, 0, depth > 0.025 ? 1 : 0);
           // CDDL-1.0; Copyright 2018 Saso Kiselkov. All rights reserved.
           // ws_rain.frag: depth normals displace a separate scene copy, then darken slightly.
-          // ws_smudge.frag: the same depth controls the normalized 5x5 blur kernel.
-          // CSP adaptation fuses the blur around the refracted sample; upstream blurs a completed
-          // refracted screen target. This avoids a second HDR readback but differs at lens edges.
           if (gRefract < 0.5 || depth <= 0.001) return 0;
           float2 normal = 2 * txLibrainNormal.SampleLevel(samLinearSimple,uv,0).xy - 1;
           float2 displacement = normal * 200;
-          float2 centre = pin.PosH.xy + displacement;
+          if (gLibrainBlur < 0.5) {
+            float3 refracted = txSceneCopy.SampleLevel(samLinearSimple,
+              saturate((pin.PosH.xy+displacement)/gScreen),0).rgb;
+            float darkening = length(displacement)/800/2;
+            return float4(refracted*(1-darkening*darkening),1);
+          }
+          // ws_smudge.frag: blur the completed refracted screen image with the same depth.
+          float2 centre = pin.PosH.xy;
           float depthRatio = depth/3;
           float3 colour = 0;
           [unroll] for (int y = -2; y <= 2; y++) {
@@ -1793,8 +1911,7 @@ float4 main(PS_IN pin) {
                 saturate((centre + depthRatio*float2(x,y))/gScreen),0).rgb * wx*wy;
             }
           }
-          float darkening = length(displacement)/800/2;
-          return float4(colour*(1-darkening*darkening),1);
+          return float4(colour,1);
         }
         float4 f = txField.Sample(samLinearSimple, uv);
         if (gRaw > 0.5) return float4(f.r, f.g, f.a * 0.5, 0.9);
@@ -1908,8 +2025,7 @@ float4 main(PS_IN pin) {
     local step = min(sideClock, 0.1)
     sideClock = 0
     for i, side in ipairs(glass.sides) do
-      if snowRate > 0 then side.activeUntil = elapsed + 6000
-      elseif rainAmount > 0 then side.activeUntil = max(side.activeUntil, elapsed + 150) end
+      if snowRate > 0 then side.activeUntil = elapsed + 6000 end
       side.active = elapsed < side.activeUntil
       if side.active then
         if not side.read then
@@ -1944,11 +2060,11 @@ float4 main(PS_IN pin) {
         local rainExposure = min(2, max(0.5, -rainNormal / 6.7))
         local rainLandings = 450 * rainAmount * (side.xw * side.sw / (xw * sw)) * rainExposure
         local sv = side.sim.values
-        sv.gRustRain = rustRain.active and side.rainCanvas and 1 or 0
-        side.sim.textures.txRustWater = side.rainCanvas or false
+        sv.gRustRain = 1 -- This field owns snow/thaw only; never procedural rain or old sprites.
+        side.sim.textures.txRustWater = false
         sv.gParams:set(step, 0, 0.005, landings * step / ((side.xw / 0.012) * (side.sw / 0.012)))
-        sv.gBead = rainLandings * step / ((side.xw / 0.008) * (side.sw / 0.008))
-        sv.gWet = rainAmount * rainExposure * (rustRain.active and 0.05 or 0.02)
+        sv.gBead = 0
+        sv.gWet = 0
         -- Relative headwind runs toward the rear; gravity drains liquid down the sloped side pane.
         local driveTangent = driveX * side.tx + driveY * side.ty
         local waterU = min(0.12, max(-0.12, driveZ * math.abs(driveZ) * 0.0002))
@@ -2040,8 +2156,8 @@ float4 main(PS_IN pin) {
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
     glass.quiet = elapsed > wetUntil and aliveCount == 0
     local v = values
-    v.gRustRain = rustRain.active and glass.rainCanvas and 1 or 0
-    glass.sim.textures.txRustWater = glass.rainCanvas or false
+    v.gRustRain = 1 -- Snow/thaw only; disable both legacy rain deposition and sprite input.
+    glass.sim.textures.txRustWater = false
     v.gParams:set(dt, 0, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
     v.gAir:set(tanX, tanS, airMag, impinge)
     v.gMelt = melt
@@ -2058,12 +2174,12 @@ float4 main(PS_IN pin) {
     if not rustRain.active then fillDropMats() end
     glass.melt, glass.air, glass.impinge = melt, airMag, impinge
     -- One field step into the other canvas, before the frame's rendering starts (like CSP's own canvas updates).
-    if snowRate > 0 and not glass.quiet and not glassOff then
+    if not glass.quiet and not glassOff then
       glass.sim.textures.txPrev = glass.read
       glass.write:updateWithShader(glass.sim)
       glass.read, glass.write = glass.write, glass.read
     end
-    if snowRate > 0 then updateSides(dt, ax, ay, az, melt, snowFlux, driveX, driveY, driveZ) end
+    updateSides(dt, ax, ay, az, melt, snowFlux, driveX, driveY, driveZ)
   end
 
   -- Called from draw3D: the glass mesh drawn once more with the field.
@@ -2088,7 +2204,7 @@ float4 main(PS_IN pin) {
     v.gDebugDrops = glassRed and 1 or 0
     v.gTime = elapsed
     v.gSnowMode = snowRate > 0 and 1 or 0
-    v.gRustLook = rustRain.active and 1 or 0
+    v.gRustLook = 0 -- The legacy material is used only for snow and its thaw.
     local fixedPane = snowRate == 0 and glass.coatingMesh ~= nil
     v.gPaneUV = fixedPane and 1 or 0
     glass.pass.mesh = fixedPane and glass.coatingMesh or glass.mesh
@@ -2103,10 +2219,11 @@ float4 main(PS_IN pin) {
     v.gRefract = 0
     if rustRain.active and snowRate == 0 then
       local r = rustRain
-      if not r.scene then
-        local w = min(1024, max(256, floor(size.x / 2)))
-        local h = max(128, floor(w * size.y / max(1, size.x)))
-        r.scene = ui.ExtraCanvas(vec2(w, h), 4, render.TextureFormat.R16G16B16A16.Float):setName('M2L rain background')
+      if not r.scene or r.scene:size().x ~= size.x or r.scene:size().y ~= size.y then
+        if r.scene then r.scene:dispose() end
+        if lr.smudgeScene then lr.smudgeScene:dispose() end
+        r.scene = ui.ExtraCanvas(size, 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L rain background')
+        lr.smudgeScene = ui.ExtraCanvas(size,1,render.TextureFormat.R16G16B16A16.Float):setName('M2L refracted glass')
         r.scenePass = {async = true, cacheKey = 94, blendMode = render.BlendMode.Opaque,
           textures = {txSource = 'dynamic::hdr'}, shader = [[
             float4 main(PS_IN pin) {
@@ -2117,7 +2234,6 @@ float4 main(PS_IN pin) {
       end
       -- Switch to an offscreen target for the copy, avoiding the old direct HDR read/write alias.
       if r.scene:updateSceneWithShader(r.scenePass) then
-        r.scene:mipsUpdate()
         v.gRefract = 1
       end
       glass.pass.textures.txSceneCopy = r.scene
@@ -2139,9 +2255,20 @@ float4 main(PS_IN pin) {
     render.setBlendMode(render.BlendMode.AlphaBlend)
     render.setCullMode(render.CullMode.None)
     render.setDepthMode(render.DepthMode.ReadOnly)
-    if not glass.quiet then render.mesh(glass.pass) end
+    if not glass.quiet then
+      v.gLibrainBlur = 0
+      render.mesh(glass.pass)
+      if not glassRed and v.gLibrain > 0.5 and v.gRefract > 0.5
+          and lr.smudgeScene:updateSceneWithShader(rustRain.scenePass) then
+        glass.pass.textures.txSceneCopy = lr.smudgeScene
+        v.gLibrainBlur = 1
+        render.mesh(glass.pass)
+        v.gLibrainBlur = 0
+        glass.pass.textures.txSceneCopy = rustRain.scene
+      end
+    end
     for _, side in ipairs(glass.sides) do
-      if snowRate > 0 and side.active and side.pass then
+      if side.active and side.pass then
         local pv = side.pass.values
         pv.gLibrain = 0 -- Side snow never samples the front liquid resources.
         pv.gRaw = glassRaw and 1 or 0
@@ -2172,6 +2299,7 @@ float4 main(PS_IN pin) {
       lr.diagnostic.textures.txDepth = lr.read
       render.fullscreenPass(lr.diagnostic)
     end
+    lr.capture()
   end
 
   function glass.status()
