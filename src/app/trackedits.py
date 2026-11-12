@@ -81,11 +81,11 @@ def changes(ac, name):
 
 def _needs_material_save(saved):
     """Whether saved paint operations still use an older native material layout, region copies of an older geometry
-    (tracknative.GEOMETRY_CACHE_VERSION; before 2 they left a slit at the tile edges, recorded since) or an older PBR
-    ground (groundmaterial.PBR_FORMAT; before 2 black in AC). Pure."""
+    (tracknative.GEOMETRY_CACHE_VERSION; before 2 they left a slit at the tile edges, recorded since) or another ground
+    shader (groundmaterial.GROUND_FORMAT; before 3 fuPBR, recorded as pbr_format). Pure."""
     return bool(saved.get("paints")) and (saved.get("detail_profile") != trackdetail.PROFILE
                                           or saved.get("region_geometry", 1) != tracknative.GEOMETRY_CACHE_VERSION
-                                          or saved.get("pbr_format", 1) != groundmaterial.PBR_FORMAT)
+                                          or saved.get("ground_format", 1) != groundmaterial.GROUND_FORMAT)
 
 
 def _placements(stored):

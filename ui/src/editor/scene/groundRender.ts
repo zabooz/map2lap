@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {SunLight} from "three/addons/lights/SunLight.js";
-import {flatRoughness, tangentFrame, variationShader, type ColourSplat, type GroundPass, type GroundMaterial} from "./colourBlend";
+import {tangentFrame, variationShader, type ColourSplat, type GroundPass, type GroundMaterial} from "./colourBlend";
+import {layerGloss} from "./classicLight";
 
 function fitRegion(geometry: THREE.BufferGeometry) {
   const positions = geometry.getAttribute("position"), indices = geometry.getIndex()!;
@@ -184,11 +185,15 @@ function weights(pass: GroundPass) {
   `;
 }
 
-function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Texture, data: THREE.Texture | null, weight: THREE.Texture | null) {
-  const ref = layers.images[pass.image], pbr = !!data;
-  const material = pbr || layers.pbr
-    ? new THREE.MeshStandardMaterial({map: photo, roughness: ref ? flatRoughness(ref.properties) : pass.image < 0 ? 221 / 255 : 1, metalness: 0})
-    : new THREE.MeshLambertMaterial({map: photo});
+/** One pass of a regional tile: its layer's colour times its weight, added, in the light of the tile's classic ground material
+ * (source: its colour, ksSpecular and ksSpecularEXP as classicLight.classicGround gives them). The tile image (image -1) is
+ * flat at the material's whole gloss; a photo's normals come from its detail map, its gloss is one less its roughness. Pure. */
+function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Texture, data: THREE.Texture | null, weight: THREE.Texture | null,
+  source: GroundMaterial) {
+  const ref = layers.images[pass.image], mapped = !!data;
+  const material = new THREE.MeshPhongMaterial({map: photo, color: source.color,
+    ...(source instanceof THREE.MeshPhongMaterial ? {specular: source.specular, shininess: source.shininess} : {specular: 0})});
+  const gloss = pass.image < 0 ? 1 : layerGloss(ref?.properties);
   material.transparent = true; material.depthWrite = false; material.blending = THREE.CustomBlending;
   material.blendEquation = THREE.AddEquation; material.blendSrc = material.blendDst = THREE.OneFactor;
   material.polygonOffset = true; material.polygonOffsetFactor = -1; material.polygonOffsetUnits = -1;
@@ -212,7 +217,7 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nm2lWorldXZ = (modelMatrix * vec4(transformed,1.0)).xz;");
     shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `#include <map_pars_fragment>
       varying vec2 m2lLocal, m2lRaw; uniform vec2 m2lScale, m2lPhase; uniform vec3 m2lProperties; uniform vec4 m2lBounds;
-      uniform sampler2D m2lData; ${weights(pass)} ${pbr ? tangentFrame : ""} ${ref?.variation ? variationShader : ""}
+      uniform sampler2D m2lData; ${weights(pass)} ${mapped ? tangentFrame : ""} ${ref?.variation ? variationShader : ""}
     `).replace("#include <map_fragment>", `
       vec2 m2lUV = vec2(m2lLocal.x, m2lLocal.y + 1.0);
       vec2 m2lDx = dFdx(m2lUV) * m2lSize, m2lDy = dFdy(m2lUV) * m2lSize;
@@ -221,10 +226,12 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       float m2lMass = mix(m2lAt(m2lEdge,floor(m2lLOD)),m2lAt(m2lEdge,ceil(m2lLOD)),fract(m2lLOD));
       vec2 m2lPhotoUV = ${pass.image < 0 ? "m2lRaw" : "m2lLocal * m2lScale + m2lPhase"};
       diffuseColor *= ${ref?.variation ? "m2lVary" : "texture2D"}(map,m2lPhotoUV);
-      ${pbr ? `vec4 m2lPacked = ${ref?.variation ? "m2lVaryData(map,m2lData," : "texture2D(m2lData,"}m2lPhotoUV);` : ""}
+      ${mapped ? `vec4 m2lPacked = ${ref?.variation ? "m2lVaryData(map,m2lData," : "texture2D(m2lData,"}m2lPhotoUV);` : ""}
     `);
-    if (pbr) shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", "float roughnessFactor = m2lProperties.z + m2lPacked.a * m2lProperties.y;")
-      .replace("#include <normal_fragment_maps>", `vec3 m2lN = m2lPacked.xyz * 2.0 - 1.0; m2lN.xy *= m2lProperties.x;
+    shader.fragmentShader = shader.fragmentShader.replace("#include <specularmap_fragment>", mapped
+      ? "float specularStrength = 1.0 - clamp(m2lProperties.z + m2lPacked.a * m2lProperties.y, 0.0, 1.0);"
+      : `float specularStrength = ${gloss.toFixed(8)};`);
+    if (mapped) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>", `vec3 m2lN = m2lPacked.xyz * 2.0 - 1.0; m2lN.xy *= m2lProperties.x;
         normal = normalize(m2lTangentFrame(-vViewPosition, normal, m2lLocal) * normalize(m2lN));`);
     shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", `
       if (any(lessThan(m2lUV,m2lBounds.xy)) || any(greaterThanEqual(m2lUV,m2lBounds.zw))) discard;
@@ -232,7 +239,8 @@ function passMaterial(layers: ColourSplat, pass: GroundPass, photo: THREE.Textur
       #include <opaque_fragment>
     `);
   };
-  material.customProgramCacheKey = () => `ground-pass-${pbr}-${ref?.variation}-${pass.first}-${pass.frames.length}-${pass.image < 0}`;
+  // (a flat layer's gloss is written into the shader, so it is part of the program)
+  material.customProgramCacheKey = () => `ground-pass-2-${mapped}-${ref?.variation}-${pass.first}-${pass.frames.length}-${pass.image < 0}-${mapped ? "" : gloss.toFixed(8)}`;
   return material;
 }
 
@@ -241,11 +249,11 @@ export class GroundLayer {
   private sources = new Map<THREE.Mesh, THREE.Mesh>();
   private materials: THREE.Material[];
   private depth = new THREE.MeshBasicMaterial({color: 0});
+  /** source: the tile's ground material, whose colour and gloss its passes take. */
   constructor(private frame: GroundFrame, private layers: ColourSplat, base: THREE.Texture,
-    photos: THREE.Texture[], data: (THREE.Texture | null)[], masks: (THREE.Texture | null)[], colour: THREE.Color) {
+    photos: THREE.Texture[], data: (THREE.Texture | null)[], masks: (THREE.Texture | null)[], source: GroundMaterial) {
     this.depth.onBeforeCompile = shader => { shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", "#include <opaque_fragment>\ngl_FragColor = vec4(0.0);"); };
-    this.materials = layers.ground!.passes.map((pass, i) => passMaterial(layers, pass, pass.image < 0 ? base : photos[pass.image], data[pass.image] ?? null, masks[i]));
-    for (const material of this.materials) (material as THREE.MeshLambertMaterial).color.copy(colour);
+    this.materials = layers.ground!.passes.map((pass, i) => passMaterial(layers, pass, pass.image < 0 ? base : photos[pass.image], data[pass.image] ?? null, masks[i], source));
   }
   attach(source: THREE.Mesh) {
     if (this.sources.has(source)) return;

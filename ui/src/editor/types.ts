@@ -106,7 +106,8 @@ export interface MaterialInfo {
   blend: boolean;
   dual_layer?: ColourLayers;
   world_scale?: [number, number];
-  pbr?: {roughness: number};    // generated ground as CSP's PBR shader (trackview._material): drawn physically
+  specular?: number;            // ksSpecular and ksSpecularEXP: its gloss (classicLight.classicGround)
+  specular_exp?: number;
   splat?: ColourSplat;
   source?: MaterialInfo;
 }

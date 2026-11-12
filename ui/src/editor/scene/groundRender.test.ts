@@ -2,20 +2,29 @@ import {expect, spyOn, test} from "bun:test";
 import * as THREE from "three";
 import {GroundFrame, GroundLayer, groundRegionGeometry, groundRegionGeometries, regionCut} from "./groundRender";
 import type {ColourSplat, GroundPass} from "./colourBlend";
+import {classicGround} from "./classicLight";
 
-test("regional PBR uses physical materials for both the original tile and a colour-only photo", () => {
+test("regional passes draw the tile image and the photos with the classic light, the tile image at the whole gloss", () => {
   const frame = new GroundFrame({} as THREE.WebGLRenderer, new THREE.Scene(), () => true, () => {});
   const pass: GroundPass = {image: -1, first: 0, bounds: [0, 0, 1, 1],
     frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
-  const layers: ColourSplat = {pbr: true, base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0],
+  const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0],
     images: [{name: "photo", scale: [128, 128], properties: {roughness: .6, normal_scale: 1}}],
     ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass, {...pass, image: 0}]}};
-  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [null], [null, null], new THREE.Color());
+  const source = classicGround({specular: .02, specular_exp: 10}, .68);
+  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [null], [null, null], source);
   layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
-  const materials = frame.scene.children[0].children.map(child => (child as THREE.Mesh).material as THREE.MeshStandardMaterial);
+  const materials = frame.scene.children[0].children.map(child => (child as THREE.Mesh).material as THREE.MeshPhongMaterial);
   expect(materials).toHaveLength(2);
-  expect(materials.every(m => m instanceof THREE.MeshStandardMaterial)).toBe(true);
-  expect(materials.map(m => m.roughness)).toEqual([221 / 255, .6]);
+  expect(materials.every(m => m instanceof THREE.MeshPhongMaterial)).toBe(true);
+  expect(materials.every(m => m.specular.equals(source.specular) && m.shininess === 10 && m.color.equals(source.color))).toBe(true);
+  const gloss = materials.map(material => {
+    const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.phong.vertexShader,
+      fragmentShader: THREE.ShaderLib.phong.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    return shader.fragmentShader.match(/float specularStrength = ([^;]+);/)?.[1];
+  });
+  expect(gloss).toEqual(["1.00000000", "0.40000000"]);
   layer.dispose(); frame.dispose();
 });
 
@@ -83,7 +92,7 @@ test("regional indices reserve CPU and GPU once per shared bounds, keep the old 
       passes: [pass, pass, {...pass, bounds: [.5, .5, .75, .75]}]}};
   const source = new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8));
   const originalPositions = source.geometry.getAttribute("position");
-  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null, null, null], new THREE.Color());
+  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null, null, null], classicGround({}, 1));
   layer.attach(source);
   const old = frame.scene.children[0] as THREE.Mesh, oldRegion = (old.children[0] as THREE.Mesh).geometry;
   const bytes = [...(old.userData.regions as Map<string, THREE.BufferGeometry>).values()]
@@ -145,7 +154,7 @@ test("replacing source geometry at version zero rebuilds borrowed region attribu
   const layer = new GroundLayer(frame, {base: {name: "base"}, mask: {name: "unused"}, images: [], origin: [0, 0],
     ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0,
       passes: [{image: -1, first: 0, bounds: [.25, .25, .5, .5], frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}],
-        weight: {name: "uniform", size: 0}}]}}, new THREE.Texture(), [], [], [null], new THREE.Color(1, 1, 1));
+        weight: {name: "uniform", size: 0}}]}}, new THREE.Texture(), [], [], [null], classicGround({}, 1));
   layer.attach(source); layer.follow();
   const first = (scene.children[0].children[0] as THREE.Mesh).geometry;
   source.geometry = next; layer.follow(); scene.updateMatrixWorld(true);
@@ -162,7 +171,7 @@ test("painted ground takes shadows in each pass, and throws none", () => {
   const layer = new GroundLayer(frame, {base: {name: "base"}, mask: {name: "unused"}, images: [], origin: [0, 0],
     ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0,
       passes: [{image: -1, first: 0, bounds: [0, 0, 1, 1], frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}],
-        weight: {name: "uniform", size: 0}}]}}, new THREE.Texture(), [], [], [null], new THREE.Color(1, 1, 1));
+        weight: {name: "uniform", size: 0}}]}}, new THREE.Texture(), [], [], [null], classicGround({}, 1));
   layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 2, 2)));
   const depth = frame.scene.children[0] as THREE.Mesh, pass = depth.children[0] as THREE.Mesh;
   expect(pass.receiveShadow).toBe(true);
@@ -198,7 +207,7 @@ test("a region at the tile's edge takes the ground past it, as a Save's copies d
     frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
   const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0], images: [],
     ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass]}};
-  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null], new THREE.Color());
+  const layer = new GroundLayer(frame, layers, new THREE.Texture(), [], [], [null], classicGround({}, 1));
   layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
   const material = (frame.scene.children[0].children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
   const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader,
@@ -211,24 +220,29 @@ test("a region at the tile's edge takes the ground past it, as a Save's copies d
   layer.dispose(); frame.dispose();
 });
 
-test("a regional layer made matte or smooth takes its roughness offset, with and without a roughness map", () => {
+test("a regional layer made matte or smooth takes its roughness offset into its gloss, with and without a roughness map", () => {
   const frame = new GroundFrame({} as THREE.WebGLRenderer, new THREE.Scene(), () => true, () => {});
   const pass: GroundPass = {image: 0, first: 0, bounds: [0, 0, 1, 1],
     frames: [{source: [0, 0], atlas: [0, 0, 0, 0], constant: 1}], weight: {name: "uniform", size: 0}};
-  const layers: ColourSplat = {pbr: true, base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0],
+  const layers: ColourSplat = {base: {name: "base"}, mask: {name: "unused"}, origin: [0, 0],
     images: [{name: "photo", scale: [128, 128], properties: {roughness: .2, normal_scale: 1, roughness_offset: .4}}],
     ground: {dimensions: [256, 256], uv_origin: [0, 1], bytes: 0, split: 0, passes: [pass]}};
-  const flat = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [null], [null], new THREE.Color());
-  flat.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
-  expect(((frame.scene.children[0].children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial).roughness).toBeCloseTo(.6);
+  const compiled = (layer: GroundLayer) => {
+    layer.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
+    const material = (frame.scene.children.at(-1)!.children[0] as THREE.Mesh).material as THREE.MeshPhongMaterial;
+    const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.phong.vertexShader,
+      fragmentShader: THREE.ShaderLib.phong.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    return shader;
+  };
+  const source = classicGround({specular: .02, specular_exp: 10}, 1);
+  const flat = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [null], [null], source);
+  expect(compiled(flat).fragmentShader).toContain("float specularStrength = 0.40000000;");
   flat.dispose();
-  const mapped = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [new THREE.Texture()], [null], new THREE.Color());
-  mapped.attach(new THREE.Mesh(new THREE.PlaneGeometry(256, 256, 8, 8)));
-  const material = (frame.scene.children.at(-1)!.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
-  const shader = {uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
-    fragmentShader: THREE.ShaderLib.standard.fragmentShader} as Parameters<typeof material.onBeforeCompile>[0];
-  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
-  expect(shader.fragmentShader).toContain("m2lProperties.z + m2lPacked.a * m2lProperties.y");
+  const mapped = new GroundLayer(frame, layers, new THREE.Texture(), [new THREE.Texture()], [new THREE.Texture()], [null], source);
+  const shader = compiled(mapped);
+  expect(shader.fragmentShader).toContain("1.0 - clamp(m2lProperties.z + m2lPacked.a * m2lProperties.y, 0.0, 1.0)");
+  expect(shader.fragmentShader).toContain("m2lPacked.xyz * 2.0 - 1.0");
   expect(shader.uniforms.m2lProperties.value.toArray()).toEqual([1, .2, .4]);
   mapped.dispose(); frame.dispose();
 });

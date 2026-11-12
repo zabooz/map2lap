@@ -82,13 +82,13 @@ test("the Inspector's texture settings change one application's maps and roughne
   await page.getByRole("button", {name: "Library", exact: true}).click();
   const settings = page.getByRole("dialog", {name: "Texture settings"});
   await picker.getByRole("button", {name: "Settings…", exact: true}).click();
-  await settings.getByRole("slider", {name: "Roughness"}).fill("50");
+  await settings.getByRole("slider", {name: "Gloss"}).fill("50");
   await settings.getByRole("button", {name: "OK", exact: true}).click();
   await picker.getByRole("button", {name: "Apply", exact: true}).click();             // (matter over it: the second one)
   await expect(picker).toBeHidden();
   await saved(page);
   const controls = appearance.getByRole("group", {name: "Texture settings"});
-  const rough = controls.getByRole("slider", {name: "Roughness"}), normals = controls.getByRole("switch", {name: "Use normal map"});
+  const rough = controls.getByRole("slider", {name: "Gloss"}), normals = controls.getByRole("switch", {name: "Use normal map"});
   await expect(rough).toHaveValue("50");
   const [, second] = await paints(page);
 
@@ -157,9 +157,9 @@ test("a refused settings change shows its reason, goes back and leaves the draft
   await page.route("**/api/editor/alpha/paint-settings", route => route.fulfill({status: 400, contentType: "application/json",
     body: JSON.stringify({error: "Settings refused for the test"})}));
   const controls = appearance.getByRole("group", {name: "Texture settings"});
-  await controls.getByRole("slider", {name: "Roughness"}).focus();
+  await controls.getByRole("slider", {name: "Gloss"}).focus();
   await page.keyboard.press("End");
   await expect(controls.getByRole("alert")).toHaveText("Settings refused for the test");
-  await expect(controls.getByRole("slider", {name: "Roughness"})).toHaveValue("0");
+  await expect(controls.getByRole("slider", {name: "Gloss"})).toHaveValue("0");
   expect(await paints(page)).toEqual(before);
 });

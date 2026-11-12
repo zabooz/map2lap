@@ -579,12 +579,15 @@ def _bundle_inputs(ac, name, paints):
     inherited = tracknative.inherited(ac, name, _path)["paints"]
     paints = list(dict.fromkeys([*inherited, *paints]))
     used = {texture for material in scan["materials"] for _slot, _index, texture in material.maps}
+    # (a Save's photo carries its gloss under a name of its own, tracknative._photo_colour: its slot binding names its asset)
+    from app import trackdetail
+    bound = {asset for slots in trackdetail._bindings(ac, name, _path).values() for asset in slots.values()}
     saved = Path(trackview.kn5_path(ac, name)).parent / BUNDLE / "materials"
     if saved.is_dir():
         for folder in saved.iterdir():
             if KEY.fullmatch(folder.name) and folder.is_dir():
                 meta = _verified(folder / "asset.json", folder.name)
-                if "map2lap_material_" + meta["image"] + ".dds" in used:
+                if folder.name in bound or "map2lap_material_" + meta["image"] + ".dds" in used:
                     _validate_asset(folder, meta)
                     materials[folder.name] = folder
     for id in paints:

@@ -101,16 +101,16 @@ class DetailTest(unittest.TestCase):
         regions=[m for m in kn5.walk_meshes(saved['root']) if m.name.startswith('nocol_ground_m2l_')]
         self.assertTrue(regions)
         self.assertLess(sum(len(m.vertices) for m in regions),len(node.vertices)*2)
-        self.assertTrue(all(saved['materials'][m.material].shader=='ksMultilayer_objsp' for m in regions))
+        self.assertTrue(all(saved['materials'][m.material].shader==groundmaterial.NM4 for m in regions))
         self.assertTrue(any('m2l_model_' in m.name for m in kn5.walk_meshes(saved['root'])))
         config=(folder/'extension/map2lap_ground.ini').read_text()
-        self.assertIn('ksMultilayer_objsp_nm4',config); self.assertNotIn('stickers',config)
+        self.assertNotIn('ksMultilayer_objsp_nm4',config); self.assertNotIn('stickers',config)    # (classic ground is its own shader)
         payloads={n:raw for n,_active,raw in saved['textures']}
         normal_names={n for m in saved['materials'] for slot,_i,n in m.maps if slot.startswith('txNormal')}
         self.assertGreater(len(normal_names),1,'At least one actual imported normal must be bound independently of the flat filler')
         alpha_values=[]
         for m in saved['materials']:
-            if m.shader!='ksMultilayer_objsp': continue
+            if m.shader!=groundmaterial.NM4: continue
             for slot,_i,n in m.maps:
                 if not slot.startswith('txDetail'): continue
                 with Image.open(io.BytesIO(payloads[n])) as image: alpha_values.append(image.convert('RGBA').getpixel((0,0))[3])
@@ -372,9 +372,13 @@ class DetailTest(unittest.TestCase):
         self.assertFalse((first/'six_pbr.uv2').exists())
         self.assertFalse((second/'joint_again.uv2').exists())
         config=(second/'extension/map2lap_ground.ini').read_text()
-        self.assertIn('ksMultilayer_objsp_nm4',config)
-        self.assertNotIn('RESOURCE_FILE',config)
+        self.assertNotIn('SHADER = ksMultilayer',config)
+        self.assertNotIn('RESOURCE_',config)
         native=kn5.read(second/'joint_again.kn5')
+        regional=[m for m in native['materials'] if m.name.startswith('m2l_ground_region_') and m.maps]
+        self.assertTrue(regional and all(m.shader==groundmaterial.NM4 for m in regional))
+        # (rectangular repeats: nm4's float2 multipliers, u and v apart)
+        self.assertTrue(any(p[0].startswith('mult') and p[2][0]!=p[2][1] for m in regional for p in m.props))
         resources={name:raw for name,_a,raw in native['textures']}
         referenced={name for material in native['materials'] for _slot,_i,name in material.maps}
         self.assertTrue(referenced.issubset(resources))
@@ -737,13 +741,23 @@ class DetailTest(unittest.TestCase):
         original = "[WATER_FX]\nACTIVE = 1\n"
         (extension / "ext_config.ini").write_text(original, encoding="utf-8")
         trackcopy.save(self.ac, self.name)
-        config = (extension / "map2lap_ground.ini").read_text(encoding="utf-8")
-        self.assertIn("SHADER = ksMultilayer_objsp_nm4", config)
-        self.assertIn("tilingFixR, 1", config)
-        self.assertIn("tilingFixA, 0", config)
-        self.assertIn(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
+        # (the variation is the kn5 material's own, CSP's tiling fix per layer: the tile image stays fixed; no config)
+        saved = kn5.read(trackview.kn5_path(self.ac, self.name))
+        regions = [m for m in saved["materials"] if m.shader == groundmaterial.NM4 and m.maps[5][2] != groundmaterial.WHITE]
+        self.assertTrue(regions)
+        for material in regions:
+            values = {p[0]: p[1] for p in material.props}
+            slots = {slot: name for slot, _i, name in material.maps}
+            self.assertEqual(groundmaterial.NM4, material.shader)
+            for c in "RGBA":
+                if slots["txDetail" + c].startswith("ground_"):
+                    self.assertEqual(0., values["tilingFix" + c])
+                elif slots["txDetail" + c] != groundmaterial.WHITE:
+                    self.assertEqual(1., values["tilingFix" + c])
+        self.assertFalse((extension / "map2lap_ground.ini").exists())
+        self.assertEqual(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
         trackcopy.save(self.ac, self.name)
-        self.assertEqual(1, (extension / "ext_config.ini").read_text(encoding="utf-8").count("[INCLUDE: map2lap_ground.ini]"))
+        self.assertEqual(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
         self.keep([])
         trackcopy.save(self.ac, self.name)
         self.assertEqual(original, (extension / "ext_config.ini").read_text(encoding="utf-8"))
@@ -786,13 +800,13 @@ class DetailTest(unittest.TestCase):
         trackcopy.save(self.ac, "slit")
         self.assertFalse(trackedits.load(self.ac, "slit")["saved"].get("needs_save"))
 
-    def test_paints_saved_with_pbr_ground_as_a_csp_replacement_can_be_saved_again(self):
-        # Their PBR images were bound by a CSP replacement and stayed black in AC: a Save writes the shader itself.
+    def test_paints_saved_with_pbr_ground_can_be_saved_again(self):
+        # Their ground was fuPBR (recorded as pbr_format, no ground_format): a Save writes the classic shader.
         self.keep([self.operation(self.detail_asset())])
         trackcopy.save(self.ac, self.name, "black", "Black")
         metadata = Path(self.ac, "content/tracks/black/data/map2lap.json")
         info = json.loads(metadata.read_text(encoding="utf-8"))
-        info["edits"].pop("pbr_format")
+        info["edits"].pop("ground_format")
         metadata.write_text(json.dumps(info), encoding="utf-8")
         self.assertTrue(trackedits.load(self.ac, "black")["saved"].get("needs_save"))
         trackcopy.save(self.ac, "black")
@@ -840,7 +854,10 @@ class DetailTest(unittest.TestCase):
         self.assertNotEqual(images[0]["scale"], images[1]["scale"])
         trackcopy.save(self.ac, self.name, "shared_copy", "Shared image")
         saved = kn5.read(str(Path(self.ac, "content/tracks/shared_copy/shared_copy.kn5")))
-        self.assertEqual(1, sum(name == images[0]["name"] for name, _active, _raw in saved["textures"]))
+        material = next(m for m in saved["materials"] if m.name == "ground_0_0")
+        photos = {name for slot, _i, name in material.maps if slot in ("txDetailR", "txDetailG", "txDetailB") and name != groundmaterial.WHITE}
+        self.assertEqual(1, len(photos))        # (one embedded image at two multipliers)
+        self.assertEqual(1, sum(name in photos for name, _active, _raw in saved["textures"]))
 
     def test_portable_material_preserves_two_scales_of_the_same_image_when_painted_again(self):
         from app import trackpaint
@@ -1007,8 +1024,7 @@ class DetailTest(unittest.TestCase):
             meta = trackpaint._verified(retained / "asset.json", snapshot)
             self.assertEqual({"colour", "normal", "roughness"}, set(meta["maps"]))
             trackpaint._validate_asset(retained, meta)
-        config = (folder / "extension/map2lap_ground.ini").read_text(encoding="utf8")
-        self.assertIn("ksMultilayer_objsp_nm4", config)
+        self.assertTrue(all(m.shader == groundmaterial.NM4 for m in saved["materials"] if m.name.startswith("m2l_ground_region_") and m.maps))
         for relative in ("library", "cache", "out/paints", "out/paint-assets", "out/paint-views"):
             shutil.rmtree(Path(self.tmp.name, relative), ignore_errors=True)
         # Sources are retained originals, not a disposable cache. Rebuild every derived view from saved bundles.
@@ -1134,7 +1150,7 @@ class DetailTest(unittest.TestCase):
         self.assertEqual([t[0] for t in before["textures"]], [t[0] for t in saved["textures"]][:len(before["textures"])])
         for name, _active, raw in before["textures"]:     # (an edited tile samples the build's image itself, at its scale)
             self.assertEqual(raw, textures[name])
-        self.assertEqual("ksMultilayer_objsp", saved["materials"][0].shader)
+        self.assertEqual(groundmaterial.NM4, saved["materials"][0].shader)
         maps = {slot: name for slot, _i, name in saved["materials"][0].maps}
         self.assertEqual(groundmaterial.WHITE, maps["txDiffuse"])
         self.assertEqual("ground_0_0.png", maps["txDetailA"])

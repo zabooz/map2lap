@@ -1,4 +1,4 @@
-"""Shared AC ground materials: stock CSP PBR ground, neutral detail slots and a colour-only two-layer blend."""
+"""Shared AC ground materials: CSP's classic multilayer ground, neutral detail slots and a colour-only two-layer blend."""
 from dataclasses import replace
 import functools
 import io
@@ -9,27 +9,29 @@ from PIL import Image
 
 WHITE = "map2lap_detail_white.png"
 MASK = "map2lap_detail_base.png"
+FLAT_NORMAL = "map2lap_detail_flat_normal.png"     # (a flat tangent-space normal map: a layer without bumps)
 GROUND = re.compile(r"ground_-?\d+_-?\d+")
 # The share of a ground tile texture's edge that is its guard ring (scenery/ground.py, GUARD_PX of TEX_PX).
 UV_GUARD = 32 / 2048
 # The share of a tile texture one tile covers (scenery/ground.phased): the texture repeats every 256 m / UV_SCALE and lies
-# at the world's phase, so a mesh's UV is its world position in tiles times UV_SCALE (u east, kn5 v south), and fuPBR's
-# layers, sampled at world X/Z times a multiplier, show the same texture at UV_SCALE / 256 (tracknative: a Save's tile
-# image). Ground materials carry it as m2lUVScale with m2lUVGlobal; tracks built before (m2lUVGuard) are built again.
+# at the world's phase, so a mesh's UV is its world position in tiles times UV_SCALE (u east, kn5 v south). A painted Save
+# samples that texture itself as one more layer at UV_SCALE a tile, no copy of it (tracknative: a Save's tile image).
+# Ground materials carry it as m2lUVScale with m2lUVGlobal; tracks built before (m2lUVGuard) are built again.
 UV_SCALE = 1 - 2 * UV_GUARD
-PBR = "fuPBR_multilayer"
-# How a saved track holds its PBR ground; a track's recipe keeps the one it was saved with, an older one makes its paints
-# need a Save (trackedits._needs_material_save). 2: the shader itself in the kn5 (pbr); 1: a CSP replacement, black in AC.
-PBR_FORMAT = 2
-# Its texture registers t0..t10 as CSP's compiled shader declares them: a kn5 material names its images by these slots
-# and numbers, and AC loads them with the material. Bound instead by a [SHADER_REPLACEMENT] over another shader
-# (RESOURCE_TEXTURE or RESOURCE_REF), they stayed unbound in AC: black, mirroring ground (Heiligenblut, 2026-11-11).
-PBR_SLOTS = ("txDiffuse", "txMask", *(f"txDetail{c}{kind}" for c in "RGBA" for kind in ("AlbedoAO", "NmMeRo")), "txNormal2")
-# Matte natural ground: the roughness the Editor and Save already give a tile's own image, so generated and painted
-# ground shine alike.
-GROUND_ROUGHNESS = 221 / 255
-FLAT_DATA = "map2lap_detail_flat_rough.png"        # (normal/metal/roughness: flat, no metal, GROUND_ROUGHNESS)
-FLAT_NORMAL = "map2lap_detail_flat_normal.png"     # (txNormal2, the shader's second normal map: flat)
+NM4 = "ksMultilayer_objsp_nm4"
+# How a saved track holds its ground; a track's recipe keeps the one it was saved with, an older one makes its paints need a
+# Save (trackedits._needs_material_save). 3: classic nm4 itself in the kn5 (classic); 2: fuPBR itself; 1: fuPBR as a CSP
+# replacement, black in AC.
+GROUND_FORMAT = 3
+# Its texture registers t0..t9 as CSP's compiled shader declares them: a kn5 material names its images by these slots and
+# numbers, and AC loads them with the material, normal maps included (stausee_nm4_direkt, 2026-11-11). Bound instead by a
+# [SHADER_REPLACEMENT] (RESOURCE_TEXTURE or RESOURCE_REF), embedded images stayed unbound in AC (fuPBR: black, mirroring).
+NM4_SLOTS = ("txDiffuse", "txMask", *(f"txDetail{c}" for c in "RGBA"), *(f"txNormal{c}" for c in "RGBA"))
+# CSP's variation noise is sampled at world X/Z times multTilingFix / 20 m, the same on every tile and region, so the
+# patches of a varied layer meet across their borders. Its two candidate offsets are in the layer's repeats.
+TILING_FIX = 1.
+# The values classic writes; a material keeps all its others (ksAmbient, ksDiffuse, ksSpecular, ksSpecularEXP, ...).
+_CLASSIC = {"multTilingFix", "magicMult", *(f"{name}{c}" for name in ("mult", "tilingFix", "m2lVariation") for c in "RGBA")}
 
 
 def is_ground(name):
@@ -42,38 +44,37 @@ def uv_props(scale=UV_SCALE):
     return [("m2lUVGlobal", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)), ("m2lUVScale", scale, (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))]
 
 
-def pbr(material, diffuse, mask, layers, normal2=FLAT_NORMAL):
-    """material as fuPBR_multilayer itself, its images in the shader's slots (PBR_SLOTS). Pure.
+def classic(material, diffuse, mask, layers):
+    """material as ksMultilayer_objsp_nm4 itself, its images in the shader's slots (NM4_SLOTS). Pure.
 
-    The shader multiplies diffuse (at the mesh UV) by the layers mixed by mask (at the mesh UV). layers: {channel:
-    (albedo/AO image, normal/metal/roughness image, multiplier)}; a layer repeats every 1 / multiplier m in world X/Z.
-    A missing channel gets white with flat data. Without pbrFlags: kn5 properties are floats, the shader reads a uint,
-    and with them 0 it uses no flag (its material AO, bit 8, stays off).
+    The shader samples diffuse, mask and each layer at the mesh UV, a layer times its float2 multiplier, and multiplies
+    diffuse by the layers mixed by mask; its gloss is ksSpecular times the mixed alpha (one ksSpecularEXP for all). layers:
+    {channel: (colour image, normal image or None for flat, (u, v) multiplier, varies)}; a missing channel is white and
+    flat. A varying layer is broken up by CSP's tiling fix (tilingFix*, as kn5 floats), its normals with the same offsets.
     """
     if set(layers) - set("RGBA"):
         raise ValueError("Ground layers use the R, G, B and A mask channels")
-    if any(not math.isfinite(m) or m <= 0 for _a, _d, m in layers.values()):
+    if any(len(m) != 2 or not all(math.isfinite(v) and v > 0 for v in m) for _c, _n, m, _v in layers.values()):
         raise ValueError("Ground layer multipliers must be positive and finite")
-    images = {"txDiffuse": diffuse, "txMask": mask, "txNormal2": normal2}
+    maps = {"txDiffuse": diffuse, "txMask": mask}
+    props = [p for p in material.props if p[0] not in _CLASSIC]
     for channel in "RGBA":
-        albedo, data, _m = layers.get(channel, (WHITE, FLAT_DATA, 1.))
-        images |= {f"txDetail{channel}AlbedoAO": albedo, f"txDetail{channel}NmMeRo": data}
-    values = {**{"mult" + c: layers.get(c, (0, 0, 1.))[2] for c in "RGBA"},
-              "pbrF0": .04, "pbrBlurCubemap": 0., "detailNMMult": 1., "magicMult": 1., "ksAlphaRef": 0.}
-    vectors = {"pbrAlbedoGain": (1., 1., 1.), "ksEmissive": (0., 0., 0.)}
-    props = [p for p in material.props if p[0] not in {*values, *vectors, "pbrFlags"}]
-    props += [(name, float(value), (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)) for name, value in values.items()]
-    props += [(name, 0., (0., 0.), value, (0., 0., 0., 0.)) for name, value in vectors.items()]
-    return replace(material, shader=PBR, props=props, maps=[(slot, i, images[slot]) for i, slot in enumerate(PBR_SLOTS)])
+        colour, normal, mult, varies = layers.get(channel, (WHITE, None, (1., 1.), False))
+        maps |= {"txDetail" + channel: colour, "txNormal" + channel: normal or FLAT_NORMAL}
+        # (nm4's multipliers are float2, read from the kn5 property's second field; the first keeps u for older readers)
+        props += [("mult" + channel, float(mult[0]), tuple(map(float, mult)), (0., 0., 0.), (0., 0., 0., 0.)),
+                  *((name + channel, float(bool(varies)), (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)) for name in ("tilingFix", "m2lVariation"))]
+    props += [("magicMult", 1., (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)), ("multTilingFix", TILING_FIX, (0., 0.), (0., 0., 0.), (0., 0., 0., 0.))]
+    return replace(material, shader=NM4, props=props, maps=[(slot, i, maps[slot]) for i, slot in enumerate(NM4_SLOTS)])
 
 
 def ground(material):
-    """A generated tile's ground as PBR: its baked image in txDiffuse, the red mask choosing one white layer with
-    flat data, so its colours stay as baked. Pure."""
+    """A generated tile's ground as classic nm4: its baked image in txDiffuse, the red mask choosing one white, flat layer,
+    so its colours, gloss and light stay as baked. Pure."""
     base = next((name for slot, _index, name in material.maps if slot == "txDiffuse"), None)
     if not base:
         raise ValueError("The ground material has no base image")
-    return pbr(material, base, MASK, {"R": (WHITE, FLAT_DATA, 1.)})
+    return classic(material, base, MASK, {"R": (WHITE, None, (1., 1.), False)})
 
 
 def layered(material, mask=MASK, details=None, scales=None):
@@ -104,7 +105,7 @@ def dual_layer(material, detail, mask, repeat_m):
     """An opaque ground material blending a repeating colour with its existing tile. Pure.
 
     Kunos' dual-layer shader samples txDiffuse at UV * uvMult, and txLayer1/its red mask at the original UV.
-    A white mask keeps the old tile; black selects the new colour. It is a colour-only material, without PBR maps.
+    A white mask keeps the old tile; black selects the new colour. It is a colour-only material, without normal maps.
     The repeat is measured against the generated 256 m tile; no vertices or source images need to change.
     """
     if type(repeat_m) not in (int, float) or not math.isfinite(repeat_m) or repeat_m <= 0:
@@ -139,11 +140,9 @@ def world_colour(material, detail, repeat_m):
 
 @functools.lru_cache(maxsize=1)
 def textures():
-    """The shared 4px neutral texture payloads; generated once, with no disk or source-image reads. Flat data's X is 127:
-    fuPBR's tangent X has the opposite sign (tracknative._photo_normals)."""
+    """The shared 4px neutral texture payloads; generated once, with no disk or source-image reads."""
     result = []
-    for name, colour in ((WHITE, (255, 255, 255, 255)), (MASK, (255, 0, 0, 0)),
-                         (FLAT_DATA, (127, 128, 0, round(GROUND_ROUGHNESS * 255))), (FLAT_NORMAL, (128, 128, 255, 255))):
+    for name, colour in ((WHITE, (255, 255, 255, 255)), (MASK, (255, 0, 0, 0)), (FLAT_NORMAL, (128, 128, 255, 255))):
         stream = io.BytesIO()
         Image.new("RGBA", (4, 4), colour).save(stream, "PNG")
         result.append((name, stream.getvalue()))

@@ -217,7 +217,7 @@ class PaintTest(unittest.TestCase):
         with Image.open(io.BytesIO(after["textures"][0][2])) as image:
             self.assertEqual((30, 150, 40), image.getpixel((5, 5)))  # The original tile is retained as the native base layer.
         saved_maps = {slot: name for slot, _index, name in after["materials"][0].maps}
-        colour = next(raw for name, _active, raw in after["textures"] if name == saved_maps["txDetailRAlbedoAO"])
+        colour = next(raw for name, _active, raw in after["textures"] if name == saved_maps["txDetailR"])
         with Image.open(io.BytesIO(colour)) as image:
             self.assertLess(max(abs(a - b) for a, b in zip(image.convert("RGB").getpixel((0, 0)), (200, 30, 40))), 9)
         shutil.rmtree(Path(self.tmp.name, "out/paints"))

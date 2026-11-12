@@ -89,7 +89,7 @@ const ObjectDetails = memo(function ObjectDetails({name, picked, view, state}: {
 interface TextureAppearance {
   name: string; preview: string; repeat: [number, number] | null; variation: boolean; original: boolean; mixed: boolean;
   /** The applied texture edit shown here and its settings (trackinspect._application); absent where nothing was applied. */
-  paint?: string; look?: TextureLook; maps?: TextureMaps; rectangular?: boolean; tiles?: number;
+  paint?: string; look?: TextureLook; maps?: TextureMaps; tiles?: number;
 }
 
 /** What the Inspector changes the shown texture's settings with (usePaint). */
@@ -126,12 +126,12 @@ function LookControls({info, stale, restyling}: {info: TextureAppearance; stale:
   const apply = (look: TextureLook, variation: boolean) => {
     setDraft({look, variation});
     if (JSON.stringify({look, variation}) === JSON.stringify(now)) return;
-    void restyling.restyle(info.paint!, look, info.rectangular ? variation : undefined).then(done => { if (!done) setDraft(now); });
+    void restyling.restyle(info.paint!, look, variation).then(done => { if (!done) setDraft(now); });
   };
   const tiles = info.tiles ? ` (${info.tiles} ${info.tiles === 1 ? "tile" : "tiles"})` : "";
   return <div className={styles.look} role="group" aria-label="Texture settings">
     <h4>Texture settings</h4>
-    <TextureLookFields maps={info.maps ?? {normal: false, roughness: false}} rectangular={!!info.rectangular} look={draft.look}
+    <TextureLookFields maps={info.maps ?? {normal: false, roughness: false}} look={draft.look}
       variation={draft.variation} disabled={restyling.busy || stale}
       onChange={(look, variation, done) => done ? apply(look, variation) : setDraft({look, variation})} />
     <p className="small muted">This application only{tiles}{info.mixed ? ", the dominant texture at this blended edge" : ""}. Other places

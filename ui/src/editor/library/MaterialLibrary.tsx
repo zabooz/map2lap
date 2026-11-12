@@ -25,13 +25,12 @@ function MaterialDetails({material, variation, look, settings, onSettings, onSet
   }, [material.id]);
   const source = webSource(info?.source_url);
   const maps = {normal: !!info?.maps.normal, roughness: !!info?.maps.roughness};
-  const rectangular = material.repeat[0] !== material.repeat[1];
   return <LibrarySelection>
     <img src={materialPreview(material.id)} alt="Texture preview" />
     <strong>{material.name}</strong>
     <span>{MATERIAL_CATEGORIES.find(([id]) => id === material.category)?.[1] ?? material.category}</span>
     <span>{material.repeat.join(" × ")} m per repeat{material.source.alpha && " · Contains transparency"}</span>
-    <span className={styles.settings}>Settings: {info ? lookSummary(look, maps) + (rectangular && variation ? " · Repetition varied" : "") : "…"}</span>
+    <span className={styles.settings}>Settings: {info ? lookSummary(look, maps) + (variation ? " · Repetition varied" : "") : "…"}</span>
     <LibraryFacts rows={[
       ["Size", `${material.source.size.join(" × ")} px original · ${material.prepared.size.join(" × ")} px prepared`],
       ["Source", source ? <a href={source} target="_blank" rel="noopener noreferrer">View source</a> : info ? "Not specified" : "…"],
@@ -41,7 +40,7 @@ function MaterialDetails({material, variation, look, settings, onSettings, onSet
       ...info?.maps.roughness ? [["Roughness map", info.maps.roughness.filename] as [string, string]] : []]} />
     <button type="button" className={styles.delete} onClick={onDelete} disabled={disabled}>Delete texture</button>
     {settings && info && createPortal(<TextureSettings name={material.name} preview={materialPreview(material.id)} maps={maps}
-      rectangular={rectangular} look={look} variation={variation} confirm="OK" onClose={onSettingsClose}
+      look={look} variation={variation} confirm="OK" onClose={onSettingsClose}
       scope="For the next Apply of this texture. The library's texture and the places it is already applied stay as they are."
       onSave={(chosen, varied) => { onSettings(chosen, varied); onSettingsClose(); }} />, document.body)}
   </LibrarySelection>;

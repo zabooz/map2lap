@@ -225,18 +225,18 @@ libraryTest("Settings… choose the next Apply's maps and roughness: Cancel drop
   await expect(settings.getByRole("switch", {name: "Use normal map"})).toBeChecked();
   await expect(settings.getByRole("switch", {name: "Use roughness map"})).toHaveCount(0);       // (none imported)
   await expect(settings).toContainText("No roughness map: the surface is rough.");
-  await expect(settings.getByLabel("Break up texture repetition")).toHaveCount(0);              // (a square repeat)
-  await settings.getByRole("slider", {name: "Roughness"}).fill("-40");
+  await expect(settings.getByLabel("Break up texture repetition")).toBeVisible();                // (a square repeat too)
+  await settings.getByRole("slider", {name: "Gloss"}).fill("-40");
   await settings.getByRole("button", {name: "Cancel", exact: true}).click();
   await expect(settings).toBeHidden();
   await expect(panel).toContainText("As imported");
   await panel.getByRole("button", {name: "Settings…", exact: true}).click();
-  await expect(settings.getByRole("slider", {name: "Roughness"})).toHaveValue("0");
+  await expect(settings.getByRole("slider", {name: "Gloss"})).toHaveValue("0");
   await settings.getByRole("switch", {name: "Use normal map"}).uncheck();
   await expect(settings.getByRole("slider", {name: "Normal strength"})).toBeDisabled();
-  await settings.getByRole("slider", {name: "Roughness"}).fill("-40");
+  await settings.getByRole("slider", {name: "Gloss"}).fill("-40");
   await settings.getByRole("button", {name: "OK", exact: true}).click();
-  await expect(panel).toContainText("Normal map off · Roughness 40 % smoother");
+  await expect(panel).toContainText("Normal map off · Gloss 40 % shinier");
   await expect(panel).toBeVisible();                                                             // (Escape and keys stayed in the settings)
   const {items} = await (await page.request.get("/api/library/materials")).json();
   const id = items.find((value: {name: string}) => value.name === "Glossy meadow").id;

@@ -82,12 +82,12 @@ counts; what went wrong is a toast at the top centre. Its width comes from the 3
 User-imported material maps and their physical repeat size, variation, category and source information. Versioned immutable packages under
 `library/materials/<id>` keep the original image, preview and relative-path manifest. Prepared colour maps are disposable
 under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. What a Save packs of a material
-for AC (its colour DDS, its data PNG) lies under `cache/native-library`, shared by all tracks. Importing a material alone does
+for AC (its colour DDS with its gloss alpha, its normal map PNG) lies under `cache/native-library`, shared by all tracks. Importing a material alone does
 not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
-the import dialog accepts all three roles. Applied square-repeat materials use PBR in the Editor and CSP
-`fuPBR_multilayer` in AC, written straight into the kn5 material, including colour-only photos with flat normal/roughness
-data. Normal maps and real roughness remain separate from colour. Rectangular repeats retain the previous float2 shader
-path. Generated ground is `fuPBR_multilayer` too (tracks built before: a neutral `ksMultilayer`). PBR repetition variation is currently disabled; the preference is retained.
+the import dialog accepts all three roles. Applied materials use CSP's classic `ksMultilayer_objsp_nm4` in AC, written
+straight into the kn5 material: colour with its gloss (1 - roughness) in alpha, a tangent normal map, square and rectangular
+repeats alike, repetition variation per layer. Generated ground is the same shader. The Editor draws them with the classic
+light (Phong at ksSpecular and ksSpecularEXP).
 
 **Model package** (Editor):
 An immutable asset under `library/objects/<id>` (own imports) or `assets/library/objects/<id>` (shipped with the release,
@@ -120,15 +120,15 @@ regional Save adds render copies and retains the source collision vertices and t
 ground only between its regions; at the tile's edges they end where the ground does (`tracknative._cuts`).
 Semantic edits and preview keep unrestricted contributions. Regional native materials have at most four local contributors;
 Save explicitly refuses denser transition/filter halos while the draft remains intact. Exact float2 repeat sizes and UV
-origins align the photos; square repeats use scalar world-space scales in CSP PBR. Preview masks normally use the same
+origins align the photos and the tile image at the world's phase. Preview masks normally use the same
 50-cm step as Save; nondivisible canvases retain their own resolution. Dense six-way and distant-filter support remain
 open release requirements.
 Saved tracks keep their active inputs in `data/map2lap_paints`; derived mask/colour DDS under `cache/track-details` can be rebuilt
 without the library.
 
 **Texture settings** (Editor):
-One application's choice of how its texture is drawn: normal map on or off and its strength, roughness map on or off, roughness
-toward smooth or matte, and repetition variation (`look` in its snapshot, `trackpaint.LOOK`). Set with Settings… before Apply
+One application's choice of how its texture is drawn: normal map on or off and its strength, roughness map on or off, gloss
+toward shinier or matte (its roughness moved; a texture shines at most as the ground, ksSpecular 0.02), and repetition variation (`look` in its snapshot, `trackpaint.LOOK`). Set with Settings… before Apply
 or in the Inspector after it; the library package and other applications stay as they are. The Editor and Save draw it through
 `trackpaint.rendered`. _Avoid_: material properties (the library's `roughness`/`normal_scale`, which the settings start from).
 
@@ -178,7 +178,7 @@ _Avoid_: block, chunk, cell
 **Tile image**:
 A tile's ground texture (`ground_<tx>_<ty>`, 2048 px): the tile shrunk to 1984 px with its edges repeated 32 px around it,
 lying at the world's phase (`scenery/ground.phased`), so ground UVs are world tiles times `groundmaterial.UV_SCALE` and a
-painted Save samples the same image in world X/Z, with no copy.
+painted Save samples the same image as one more layer, with no copy.
 _Avoid_: base copy, ring image
 
 **Geotile**:

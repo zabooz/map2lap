@@ -42,7 +42,7 @@ TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); gro
 # memory, 3.1 % of the resolution (12.5 -> 12.9 cm). Protects through mip 5 (4 m per pixel, a pixel on the screen some
 # hundreds of metres away), less where filtering looks across the edge; beyond, the mix comes back, far off. (Mip 6 mixes:
 # both guards lie side by side in one 64 px gap, and a tile's edge, at a world pixel 1984 * tx, on a 64 px block's edge.)
-# The texture lies at the world's phase (groundmaterial.UV_SCALE): a painted Save samples the same image in world X/Z,
+# The texture lies at the world's phase (groundmaterial.UV_SCALE): a painted Save samples the same image as one more layer,
 # with no copy of it (tracknative.build). The kn5 marks it on each ground material (groundmaterial.uv_props).
 GUARD_PX = round(groundmaterial.UV_GUARD * TEX_PX)
 GC_PX_M = 1.0                   # m per cell of the comic ground classes (groundcover), then scaled up to TEX_PX

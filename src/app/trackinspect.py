@@ -128,9 +128,8 @@ def _appearance_ref(ac, name, revision, scan, ref):
             found = _saved_image(str(folder), folder.stat().st_mtime_ns, ref["name"], tuple(repeat))
     if found:
         asset, meta = found
-        # (a square repeat is drawn with PBR, whose one variation switch would move the road image too: its preference rests)
         return {"name": meta["name"], "preview": f"/api/editor/{name}/paint-preview/{asset}", "repeat": meta["repeat"],
-                "variation": materiallibrary.varies(meta) and not math.isclose(*meta["repeat"], rel_tol=1e-6), "original": False}
+                "variation": materiallibrary.varies(meta), "original": False}
     return {"name": "Embedded texture", "preview": f"/api/editor/{name}/thumbnail?texture={ref['i']}&r={revision}",
             "repeat": repeat, "variation": ref.get("variation", False), "original": False}
 
@@ -152,8 +151,7 @@ def _application(ac, name, version, ref, u, v):
             if tile["tile"] == key and any(_covers(folder / mask["file"], u, v) for mask in tile["masks"]):
                 meta = trackpaint._verified(trackpaint._resolve(ac, name, "materials", ref["asset"]) / "asset.json", ref["asset"])
                 return {"paint": id, "look": trackpaint.look_of(meta), "tiles": len(edit["tiles"]),
-                        "maps": {role: role in meta.get("maps", {}) for role in ("normal", "roughness")},
-                        "rectangular": not math.isclose(*meta["repeat"], rel_tol=1e-6)}
+                        "maps": {role: role in meta.get("maps", {}) for role in ("normal", "roughness")}}
     return {}
 
 
@@ -223,6 +221,8 @@ def appearance(ac, name, mesh, u, v, revision, version=""):
         pixel = trackdetail.sample_mask(ac, name, version, u, v)
     elif source["images"]:
         refs = [{**ref, "name": scan["textures"][ref["i"]][0]} for ref in source["images"]]
+        if source["kind"] == "splat":       # (a Save's photo is bound to its snapshot by the slot table: trackdetail._bindings)
+            refs = trackdetail.retained_layers(ac, name, path, scan["materials"][source["materials"][0]].name, {"images": refs})["images"]
         if source["kind"] == "world":
             result.update(_appearance_ref(ac, name, revision, scan, refs[0]))
             trackview._scan_of(ac, name, revision)

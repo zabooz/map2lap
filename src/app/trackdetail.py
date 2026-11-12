@@ -79,7 +79,8 @@ def _source(scan, i):
     material = scan["materials"][indices[0]]
     maps = {slot: tex for slot, _n, tex in material.maps}
     numbers = {t[0]: j for j, t in enumerate(scan["textures"])}
-    required = {"ksPerPixel_dual_layer": ("txDiffuse", "txLayer1_Mask"), "ksMultilayer_objsp": ("txMask", "txDetailA")}
+    required = {"ksPerPixel_dual_layer": ("txDiffuse", "txLayer1_Mask"), "ksMultilayer_objsp": ("txMask", "txDetailA"),
+                groundmaterial.NM4: ("txMask", "txDetailA")}
     if any(maps.get(slot) not in numbers for slot in required.get(material.shader, ())):
         raise ValueError("The source ground material has a missing layer image")
     result = {"materials": indices, "global_uv": trackview._prop(material, "m2lUVGlobal", 0) == 1, "images": [],
@@ -88,6 +89,10 @@ def _source(scan, i):
         result.update(kind="dual", mask=numbers[maps["txLayer1_Mask"]])
         scale = trackview._prop(material, "uvMult", 1.)
         result["images"] = [{"i": numbers[maps["txDiffuse"]], "scale": [scale, scale]}]
+    elif material.shader == groundmaterial.NM4 and (splat := trackview._material(material).get("splat")):
+        # (a Save's classic ground: its photos in R, G and B, the tile image in A; generated ground has a white A, a base)
+        result.update(kind="splat", mask=numbers[maps["txMask"]], mask_extent=splat["mask_extent"],
+                      images=[{**{k: ref[k] for k in ("scale", "channel", "variation")}, "i": numbers[ref["name"]]} for ref in splat["images"]])
     elif material.shader == "ksMultilayer_objsp":
         extent = trackview._mask_extent(material)
         result.update(kind="splat", mask=numbers[maps["txMask"]], mask_extent=extent)
@@ -97,11 +102,6 @@ def _source(scan, i):
                 scale = next((list(p[2]) for p in material.props if p[0] == "mult" + channel), [1., 1.])
                 result["images"].append({"i": numbers[texture], "scale": [v/e for v,e in zip(scale,extent)], "channel": "RGB".index(channel),
                                          "variation": trackview._prop(material, "m2lVariation" + channel, 0) == 1})
-    elif material.shader == groundmaterial.PBR and (splat := trackview._material(material).get("splat")):
-        if any(maps.get(slot) not in numbers for slot in ("txMask", "txDetailAAlbedoAO")):
-            raise ValueError("The source ground material has a missing layer image")
-        result.update(kind="splat", mask=numbers[maps["txMask"]], mask_extent=splat["mask_extent"],
-                      images=[{**{k: ref[k] for k in ("scale", "channel", "variation")}, "i": numbers[ref["name"]]} for ref in splat["images"]])
     elif scale := trackview._material(material).get("world_scale"):
         texture = maps.get("txDetailR")
         if texture not in numbers:
@@ -146,7 +146,8 @@ def _detail(ac, name, asset, meta):
         with Image.open(path) as image:
             dimensions = [max(a, b) for a, b in zip(dimensions, image.size)]
     key = trackpaint._digest(maps)
-    return {"name": "map2lap_detail_" + key + ".png", "key": key, "linear": True,
+    # (roughness: the roughness map's digest, None without one; a photo's gloss alpha depends on it alone, not on the normal map)
+    return {"name": "map2lap_detail_" + key + ".png", "key": key, "linear": True, "roughness": maps.get("roughness", {}).get("sha256"),
             "size": dds_size(*dimensions, uncompressed=True), "dimensions": dimensions}
 
 
@@ -194,7 +195,10 @@ def _retained_ref(ac, name, ref, asset, resolved):
             attributes["detail"] = {**detail, "url": _url(name, "paint-data", asset)}
         resolved[asset] = ("map2lap_material_" + meta["image"] + ".dds", attributes)
     filename, attributes = resolved[asset]
-    if ref["name"] != filename:
+    from app import tracknative
+    # (a Save writes a photo with its gloss alpha under its own digest, tracknative._photo_colour: bound by the table alone,
+    # which holds for these kn5 bytes only)
+    if ref["name"] != filename and not tracknative.OWN_TEXTURE.fullmatch(ref["name"]):
         raise ValueError("The saved ground slot has another photograph")
     return {**ref, **attributes}
 
@@ -205,7 +209,7 @@ def retained_context(ac, name, path):
 
 
 def retained_layers(ac, name, path, material_name, layout, context=None):
-    """Rebind a transferred native material to portable PBR inputs without requiring its original source/cache."""
+    """Rebind a transferred native material to its portable library inputs without requiring its original source/cache."""
     table, resolved = retained_context(ac, name, path) if context is None else context
     bindings = table.get(material_name, {})
     images = []
@@ -514,14 +518,13 @@ def _mask_target(version, layout):
 def _with_urls(name, version, layout):
     """Bind retained content to this track's endpoints; a saved copy may outlive the original track. Pure."""
     bundles = _weight_offsets(name, version, layout)
-    pbr = all(np.isclose(*ref['scale'],rtol=1e-6) for ref in layout['images'])
-    return {**layout, "pbr": pbr,
+    return {**layout,
             **({"ground": {**layout["ground"], "passes": [{**p, "weight": {**p["weight"],
                 "url": f"/api/editor/{name}/paint-region/{version}/{p['weight']['key']}",
                 **({"bundle": bundles[p['weight']['key']]} if p['weight']['size'] else {})}} for p in layout["ground"]["passes"]]}}
                if "ground" in layout else {}),
             "mask": {**layout["mask"], "url": _url(name, "paint-mask", version)},
-            "images": [{**ref, "variation": False if pbr else ref.get('variation',False), **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
+            "images": [{**ref, **({"url": _url(name, "paint-asset", ref["asset"])} if "asset" in ref else {}),
                         **({"detail": {**ref["detail"], "url": _url(name, "paint-data", ref["asset"])}} if "detail" in ref else {})}
                        for ref in layout["images"]]}
 
@@ -721,7 +724,7 @@ def sample_source_mask(path,scan,source,revision,u,v,tile):
 
 
 def native_descriptors(ac, name, descriptors, keys=True):
-    """Select real native PBR output even for one to three materials, independently of the browser adapter. keys: also
+    """Select regional native output even for one to three materials, independently of the browser adapter. keys: also
     keep what tracknative.build reads of a tile, for an export to need its weight fields only for a mask not kept."""
     result, resolved = [], {}
     for descriptor in descriptors:
@@ -732,9 +735,10 @@ def native_descriptors(ac, name, descriptors, keys=True):
 
 
 def _native(layout):
-    """Whether the layout needs regional geometry or retained detail maps. Pure."""
-    pbr = any("detail" in ref or not math.isclose(flat_roughness(ref.get("properties", {})), 1.) for ref in layout.get("images", []))
-    return pbr or "ground" in layout
+    """Whether the layout needs regional geometry: more than three materials, a detail map (its normals) or a roughness of
+    its own (its gloss). Pure."""
+    looks = any("detail" in ref or not math.isclose(flat_roughness(ref.get("properties", {})), 1.) for ref in layout.get("images", []))
+    return looks or "ground" in layout
 
 
 def flat_roughness(properties):
@@ -810,14 +814,30 @@ def save_size(descriptors, scan, path, kept=None):
             continue
         for ref in layout["images"]:
             if ref["name"] not in known:
-                sizes[ref["name"]] = ref["size"]
+                # (a Save writes a library photo as BC7 with its gloss alpha, tracknative._photo_colour: twice the library's BC1
+                # blocks, and a DX10 header of 20 bytes more)
+                sizes[ref["name"]] = 2 * (ref["size"] - 128) + 148 if "asset" in ref else ref["size"]
         # The mask is written at the saved step and as BC7 (bc7_weights): a byte per pixel of a step² th of the full-size
         # lossless RGBA8 mask's pixels (the tile image is the build's own: no copy).
         step = layout["mask"].get("step", 1)
         sizes[layout["mask"]["name"]] = layout["mask"]["size"] * step ** 2 // (4 * SAVED_WEIGHT_STEP ** 2) + 256
-    # (a Save's materials take the white and the mask; the flat PBR data are generated ground's, its kn5 holds them)
-    return sum(sizes.values()) + sum(len(raw) for name, raw in groundmaterial.textures()
-                                     if name not in known and name in (groundmaterial.WHITE, groundmaterial.MASK))
+    # (a painted tile's materials take the white, the mask and the flat normal map)
+    shared = sum(len(raw) for name, raw in groundmaterial.textures() if name not in known) if sizes else 0
+    return sum(sizes.values()) + shared
+
+
+def _classic_generated(materials):
+    """Rewrite in materials generated ground a build wrote as fuPBR_multilayer (before groundmaterial.GROUND_FORMAT 3) as the
+    classic ground it is built with now (groundmaterial.ground), its tile image in txDiffuse and its light values kept: a painted
+    tile's unpainted neighbours then shine and are lit as its unpainted rest. Whether one changed."""
+    changed = False
+    for i, material in enumerate(materials):
+        base = next((n for slot, _i, n in material.maps if slot == "txDiffuse"), None)
+        if material.shader == "fuPBR_multilayer" and groundmaterial.is_ground(material.name) and base and base != groundmaterial.WHITE:
+            props = [p for p in material.props if not p[0].startswith("pbr") and p[0] != "detailNMMult"]
+            materials[i] = groundmaterial.ground(replace(material, props=props, maps=[("txDiffuse", 0, base)]))
+            changed = True
+    return changed
 
 
 def saved(ac, name, revision, descriptors, scan, change, path, added=()):
@@ -844,9 +864,13 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
         # step already where its tile divides (_preview_step), else coarse_weights leaves it as it is)
         shown = mask(ac, name, descriptor["version"])
         resources[layout["mask"]["name"]] = bc7_weights(shown if "step" in layout["mask"] else coarse_weights(shown))
+        # (each photo with its gloss alpha, as a regional Save packs it: none as imported, tracknative._photo_colour)
+        photos = {}
         for ref in layout["images"]:
             if "asset" in ref:
-                resources[ref["name"]] = image(ac, name, ref["asset"])
+                raw = tracknative._stored(tracknative._library_folder(), *tracknative._library_parts(ac, name, ref, {})[0])
+                photos[ref["name"]] = "map2lap_native_" + hashlib.sha256(raw).hexdigest() + ".dds"
+                resources[photos[ref["name"]]] = raw
         for i in layout["materials"]:
             original = materials[i]
             extent = layout.get('mask_extent',[1.,1.])
@@ -864,19 +888,20 @@ def saved(ac, name, revision, descriptors, scan, change, path, added=()):
             props.extend(("m2lVariation" + channel, float(j < len(layout["images"]) and layout["images"][j].get("variation", False)),
                           (0., 0.), (0., 0., 0.), (0., 0., 0., 0.)) for j, channel in enumerate("RGB"))
             maps = [("txDiffuse", 0, groundmaterial.WHITE), ("txMask", 1, layout["mask"]["name"])]
-            maps.extend(("txDetail" + channel, j + 2, layout["images"][j]["name"] if j < len(layout["images"]) else groundmaterial.WHITE)
+            maps.extend(("txDetail" + channel, j + 2, photos.get(ref["name"], ref["name"]) if (ref := (layout["images"][j:j + 1] or [None])[0]) else groundmaterial.WHITE)
                         for j, channel in enumerate("RGB"))
             maps.append(("txDetailA", 5, layout["base"]["name"]))
-            materials[i] = tracknative.pbr_simple(replace(original, shader="ksMultilayer_objsp", props=props, maps=maps), layout, resources)
+            materials[i] = tracknative.simple(replace(original, props=props, maps=maps), layout, resources)
             origins[i] = (layout["origin"], extent, trackview._mask_extent(original), trackview.uv_scale(original))
+    converted = _classic_generated(materials)
+    used = {image for m in materials for _slot, _i, image in m.maps}
+    resources.update((n, raw) for n, raw in groundmaterial.textures() if n in used)      # (only those its materials take)
     def finish(table, moved):
         referenced = {n for m in materials for _slot, _i, n in m.maps}
         images = [(n, raw) for n, raw in resources.items() if n not in present and (n not in owned or n in referenced)]
         return table, images, moved, added, native_config, (owned - referenced) & present, native_files
     if not origins:
-        return finish(materials if regional else None, change)
-    used = {image for m in materials for _slot, _i, image in m.maps}
-    resources.update((n, raw) for n, raw in groundmaterial.textures() if n in used)      # (only those its materials take)
+        return finish(materials if regional or converted else None, change)
     vertices = dict(change.vertices)
     with open(path, "rb") as file:
         for i, mesh in enumerate(scan["meshes"]):

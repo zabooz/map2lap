@@ -10,6 +10,7 @@ import {fetchBytes, fetchJson} from "./requests";
 import {WeightBundles} from "./weightBundle";
 import {GroundFrame, GroundLayer} from "./groundRender";
 import {bindLightShares, takesGroundLight} from "./lightShare";
+import {classicGround} from "./classicLight";
 import {bindColourBlend, bindWorldColour, bindSplat, type GroundMaterial, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 
 // Textures on their way or being decoded at a time. A 307 km track up to a limit of 8 GB: 6: 70 s, 12: 52 s, 24: 53 s; 4 GB without any
@@ -40,14 +41,17 @@ export interface TextureHost {
   failed(message: string): void;        // the view shows the fault
 }
 
-/** The textures and materials of the track a view shows. clear() drops them all. */
 /** The grey AC multiplies a ground material's colour by: the classic shaders take ksAmbient + ksDiffuse (MaterialInfo.bright),
- * CSP's fuPBR neither (its INPUT_DIFFUSE_K and INPUT_AMBIENT_K are 1). Decided by the PBR marks, not by the three.js class
- * (detail maps alone make a standard material): the paint's (layers, else info.splat: square repeats) when there is one,
- * else generated ground's (info.pbr). Pure. */
-export function groundTint(info: MaterialInfo, layers = info.splat) {
-  return (layers ? layers.pbr : info.pbr) ? 1 : Math.min(1, info.bright);
+ * painted or not. Pure. */
+export function groundTint(info: MaterialInfo) {
+  return Math.min(1, info.bright);
 }
+
+/** Whether a material is a generated tile's ground, drawn with its normals and gloss as AC's classic ground (classicGround),
+ * painted or not (groundmaterial.is_ground). Pure. */
+const isGroundTile = (name: string) => /^ground_-?\d+_-?\d+$/.test(name);
+
+/** The textures and materials of the track a view shows. clear() drops them all. */
 
 export class TrackTextures {
   private pool: (Promise<THREE.Texture | null> | undefined)[] = [];     // the track's textures by index, shared by its materials
@@ -355,7 +359,7 @@ export class TrackTextures {
       if (!original || images.some(p => !p) || weights.some((p, i) => layers.ground!.passes[i].weight.size && !p) || packed.some((p, i) => layers.images[i].detail && !p)) throw new Error("Not enough editor memory for these ground materials");
       const frame = this.groundFrame ?? new GroundFrame(this.host.renderer, this.host.scene,
         bytes => this.host.reserve(bytes), bytes => { this.host.release(bytes); });
-      const replacement = new GroundLayer(frame, layers, original, images as THREE.Texture[], packed, weights, material.color);
+      const replacement = new GroundLayer(frame, layers, original, images as THREE.Texture[], packed, weights, material);
       try {
         for (const mesh of this.host.meshes()) if (mesh.userData.info.material === k) replacement.attach(mesh);
         frame.bind(material);
@@ -391,10 +395,7 @@ export class TrackTextures {
       } else if (!old) {
         data.materials[k] = {...source, splat: next.layers}; // Its eventual mesh load uses the current layout.
       } else {
-        const layers = next.layers, tint = groundTint(source, layers), colour = new THREE.Color(tint, tint, tint);
-        const material: GroundMaterial = !layers.ground && (layers.pbr || layers.images.some(ref => ref.detail))
-          ? new THREE.MeshStandardMaterial({color: colour, roughness: 1, metalness: 0})
-          : new THREE.MeshLambertMaterial({color: colour});
+        const layers = next.layers, material: GroundMaterial = classicGround(source, groundTint(source));
         this.prepareSplat(k, material, layers, () => {
           const previous = this.materials[k];
           this.materials[k] = material; data.materials[k] = {...source, splat: layers};
@@ -476,9 +477,7 @@ export class TrackTextures {
     if (have) return have;
     const d = data.materials[k], b = groundTint(d);
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
-    const m: GroundMaterial = d.pbr || (!d.splat?.ground && (d.splat?.pbr || d.splat?.images.some(ref => ref.detail)))
-      ? new THREE.MeshStandardMaterial({color: new THREE.Color(b, b, b), roughness: d.pbr?.roughness ?? 1, metalness: 0})
-      : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
+    const m: GroundMaterial = isGroundTile(d.name) || d.splat ? classicGround(d, b) : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
     if (d.blend) {
       m.transparent = true;

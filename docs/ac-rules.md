@@ -41,39 +41,49 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   (4 m a pixel): both rings lie side by side in one 64 px gap, at a mip-6 block. The texture lies at the world's phase
   (`ground.phased`, `textures.ring_indices`): a column holds the world pixel of its column modulo 2048, and a ground UV
   is the world position in tiles times 1984/2048 (`groundmaterial.UV_SCALE`; u east, kn5 v south; marked
-  `m2lUVGlobal`, `m2lUVScale`). fuPBR's layers sample world X/Z times a multiplier and no offset, so a painted Save samples
-  the build's image itself at UV_SCALE / 256 per metre, with no copy of it. Tracks built before (`m2lUVGuard`, their ring
+  `m2lUVGlobal`, `m2lUVScale`). A painted Save samples the build's image itself as one more layer at UV_SCALE a tile, with
+  no copy of it. Tracks built before (`m2lUVGuard`, their ring
   at the texture's edge) are built again before painting.
 - The tile images go into the kn5 as DDS (`obj_to_kn5.dds_texture`): BC7 where the tile has a `1ROAD_` object
   (`obj_to_kn5.bc7_images`), else BC1. BC1 keeps two end colours per 4×4 block (50 cm, 1 m one mip down): grey asphalt
   beside green verge and a white marking turned green in places, on every track before (seen in AC, 2026-11-11). BC7 is
   twice the size (2.7 -> 5.3 MiB a tile), hence only tiles with roads. The Editor draws BC7 as BPTC
   (`ui/src/editor/scene/texture.ts`).
-- Ground materials are CSP's `fuPBR_multilayer` itself (`groundmaterial.ground`, written by `groundmaterial.pbr`): the
-  tile image stays in `txDiffuse` with its UVs, a shared 4 px mask selects one white layer with flat data (no metal,
-  roughness `GROUND_ROUGHNESS`), so the baked colours stay as they are. It adds no geometry or higher-resolution image.
-- A PBR ground material names its images by the shader's own slots and numbers, t0..t10 as CSP's compiled shader
-  declares them (`groundmaterial.PBR_SLOTS`): `txDiffuse` 0, `txMask` 1, `txDetail?AlbedoAO`/`txDetail?NmMeRo` 2/3, 4/5,
-  6/7, 8/9, `txNormal2` 10; its values (`multR`..`multA`, `pbrF0`, ...) are kn5 properties. AC then loads the images with
-  the material. Bound instead by a `[SHADER_REPLACEMENT]` over another shader with `RESOURCE_TEXTURE` or `RESOURCE_REF`,
-  the embedded images stayed unbound in AC: black ground mirroring the sky and road (Heiligenblut, 2026-11-11; the same
-  bytes as `RESOURCE_FILE` worked). Why is not known. `pbrFlags` stays unset: kn5 properties are floats, the shader reads
-  a uint, and at 0 it uses no flag (its material AO, bit 8, stays off).
+- Ground materials are CSP's `ksMultilayer_objsp_nm4` itself (`groundmaterial.ground`, written by
+  `groundmaterial.classic`): the tile image stays in `txDiffuse` with its UVs, a shared 4 px mask selects one white layer with
+  a flat normal map, so the baked colours, ksAmbient/ksDiffuse light and gloss (ksSpecular 0.02, ksSpecularEXP 10, grass)
+  stay as they are. It adds no geometry or higher-resolution image.
+- The material names its images by the shader's own slots and numbers, t0..t9 as CSP's compiled shader declares them
+  (`groundmaterial.NM4_SLOTS`): `txDiffuse` 0, `txMask` 1, `txDetailR`..`txDetailA` 2..5, `txNormalR`..`txNormalA` 6..9; its
+  values are kn5 properties: `multR`..`multA` float2 (the second field), `magicMult`, `multTilingFix`, `tilingFixR`..`A`
+  (floats). AC loads the images with the material, normal maps included, and the tiling fix acts per layer
+  (`stausee_nm4_direkt`, 2026-11-11). Bound instead by a `[SHADER_REPLACEMENT]` with `RESOURCE_TEXTURE` or `RESOURCE_REF`,
+  embedded images stayed unbound in AC (fuPBR: black ground mirroring the sky and road, Heiligenblut, 2026-11-11). Why is
+  not known.
+- The shader samples `txDiffuse`, the mask and every layer at one mesh UV, a layer times its multiplier, with no offset; it
+  multiplies `txDiffuse` by the layers mixed by the mask. Its gloss is ksSpecular times the mixed alpha
+  (`txDiffuse.a` · Σ weight · layer alpha), at one ksSpecularEXP for the whole material.
 - `groundmaterial.dual_layer` builds a colour-only `ksPerPixel_dual_layer` material for a square repeating image:
   `txDiffuse` samples the new image at the scaled UV, `txLayer1` retains the existing tile at its original UV,
   and the red channel of `txLayer1_Mask` mixes between them (white keeps the tile). Reflection is disabled in this
-  setup. It has no PBR maps; the default generator materials still use the neutral setup above.
+  setup. It has no normal maps; the default generator materials still use the neutral setup above.
 - `groundmaterial.world_colour` fully replaces an opaque surface using a white base and the shared red mask. Its colour
   repeats in world X/Z metres, independent of the old UVs. This keeps the physical pattern size consistent on a bridge's
   slab and overlaid road strip, whose original UVs have different scales, without changing vertices or collision.
-- Editor ground assignments are `fuPBR_multilayer` materials the same way: a white multiplier, an RGBA weight mask and
-  four shared material layers per region. Albedo RGB/AO alpha and normal XY/metalness/roughness are separate textures.
-  Each layer's scalar multiplier is in world X/Z metres; mask UVs retain their region canvas. A rectangular physical
-  repeat retains the legacy float2 path rather than changing its proportions (`ksMultilayer_objsp`, with the CSP nm4
-  replacement for regional normal maps or variation). Collision stays unchanged.
-- In that PBR shader, details use world X/Z while `txDiffuse` and the weight mask use mesh UVs. Export keeps `txDiffuse`
-  white, so it does not multiply the baked road colours into every imported photograph. The original tile is another
-  weighted detail layer: the build's own image, at its scale (`m2lBaseScale`), the kn5 holding it once.
+- Editor ground assignments are classic materials the same way: a white `txDiffuse`, an RGBA weight mask and four layers
+  per region, colour with gloss alpha and a tangent normal map (RGB, +Y) each. A region copy's UVs are the world in tiles
+  over its mask canvas's share (`tracknative._batches`), its mask rolled to the world's phase (`region_mask`), and a layer's
+  float2 multiplier is its repeats a tile times that share: every layer lies at the world's phase on every region and tile,
+  square and rectangular repeats alike. The tile image is one more layer at UV_SCALE a tile, the build's own (the kn5 holds
+  it once); a photo a source's last Save wrote is taken the same way. Collision stays unchanged.
+- Gloss: a painted region keeps its ground's ksSpecular and ksSpecularEXP. The tile image, sampled itself, has alpha 1, so
+  the unpainted rest of a painted tile shines as the tile beside it; a photo's alpha is its gloss, 1 - roughness (its
+  roughness map, else the layer's flat roughness: `tracknative._photo_colour`). A photo therefore shines at most as the
+  ground, ksSpecular 0.02 (decided 2026-11-11; the alternative, gloss alpha in the tile image itself, needs rebuilt tracks
+  and BC7 for tiles without roads).
+- Variation: CSP's tiling fix per layer (`tilingFix?` 1) blends two offsets of the layer, colour and gloss alpha alike, its
+  normal map with the same offsets (its own blend weight). The tile image and a source's photos stay at 0: the road image
+  never moves. The noise lies in world X/Z (`multTilingFix` 1 everywhere), so patches meet across region and tile borders.
 - The editor's RGBA selection channels are independent weights. Their mipmaps average each channel independently and
   retain a unit total; the Editor works on them as lossless RGBA8 DDS, not BC3, whose independent colour/alpha
   quantization changes that total. Save writes them as BC7 (`textures.bc7_weights`, each lossless mip level encoded
@@ -85,10 +95,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   its own resolution (`trackdetail._source_image`). Tried in AC with CSP (2026-11-09); a
   track with painted ground needs CSP. The rare RGBA16F region mask stays as it is. The Editor takes masks as lossless
   RGBA8: the server unpacks a saved mask for it (`textures.browser_weights`), a texture in a `txMask` slot only.
-- PBR ground needs no config. A managed include in the track's `extension/ext_config.ini` holds the remaining nm4 and
-  model replacements; no global shader files are installed. Map2Lap tracks need CSP. Procedural variation is disabled in
-  PBR previews and newly saved PBR regions:
-  stock fuPBR's common switch would displace the baked road image as well as the repeating photographs.
+- Ground needs no config: shader, images and variation are the kn5 material's own. A managed include in the track's
+  `extension/ext_config.ini` holds imported models' replacements only; no global shader files are installed. Map2Lap tracks
+  need CSP.
 - Collision like the mod: `road`/`wire` → `nocol_`; `deck`, `tunnel`, `rail` → driving surface/wall; `walk`/`bld*` visible
   as `nocol_`, `walkcol` → `1KERB_walkcol_…`, `bldcol` → `1WALL_bldcol_…`, both **invisible** (kn5 `renderable = 0`);
   `rail` likewise with `railcol`.

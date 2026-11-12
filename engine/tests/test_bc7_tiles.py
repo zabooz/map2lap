@@ -58,7 +58,8 @@ class Bc7TileTest(unittest.TestCase):
         self.assertEqual(original[148 + 3 * 16:148 + 4 * 16], raw[148 + 3 * 16:148 + 4 * 16])     # (an untouched block)
 
     def test_a_saved_photo_is_bc7_with_its_gloss_in_alpha(self):
-        raw = tracknative._photo_colour(png(stripes()), {"id": "a", "asset": "a" * 64}, None, (0, 0), 77, None)
+        # (roughness 1 - 77/255: gloss 77)
+        raw = tracknative._photo_colour(png(stripes()), {"id": "a", "asset": "a" * 64, "properties": {"roughness": 1 - 77 / 255}}, None)
         self.assertTrue(textures._is_bc7(raw))
         level = textures.weight_levels(raw)[0]
         self.assertTrue((np.abs(level[..., 3].astype(int) - 77) <= 6).all())      # (BC7 shares a block's bits with the colour)

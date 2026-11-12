@@ -134,6 +134,11 @@ def wrapped(image, u, v):
     return g(y0, x0) * (1 - fx) * (1 - fy) + g(y0, x0 + 1) * fx * (1 - fy) + g(y0 + 1, x0) * (1 - fx) * fy + g(y0 + 1, x0 + 1) * fx * fy
 
 
+def layer_mult(material, channel):
+    """The float2 multiplier nm4 samples a layer of channel at: the mesh UV times it. Pure."""
+    return np.array(next(p[2] for p in material.props if p[0] == "mult" + channel), np.float64)
+
+
 def phased(inside, tx, size=32):
     """inside (n, n, 3), a tile's image, on the size px phased texture of tile (tx, 0) (ground.phased). Pure."""
     xs, ys = ring_indices(inside.shape[1], inside.shape[0], (tx, 0), (size, size))
@@ -203,25 +208,24 @@ class PhasedSaveTest(unittest.TestCase):
         self.keep([self.operation(self.material((200, 200, 200)), u=.5 * SCALE, v=-.5 * SCALE)])
         with mock.patch.object(tracknative, "_photo_colour", wraps=tracknative._photo_colour) as encode:
             saved = self.copy()
-        self.assertFalse([c for c in encode.call_args_list if c.args[1]["id"] == "base"], "the tile image was encoded again")
+        self.assertFalse([c for c in encode.call_args_list if c.args[1].get("id") == "base"], "the tile image was encoded again")
         material = next(m for m in saved["materials"] if m.name == "ground_0_0")
-        self.assertEqual("ground_0_0.png", next(name for slot, _i, name in material.maps if slot == "txDetailAAlbedoAO"))
+        self.assertEqual("ground_0_0.png", next(name for slot, _i, name in material.maps if slot == "txDetailA"))
         self.assert_no_copy_of_the_tile_images(saved)
         return saved
 
-    def test_a_tile_saves_whole_tile_uvs_and_samples_its_own_image_in_world_xz_with_its_edges(self):
+    def test_a_tile_saves_whole_tile_uvs_and_samples_its_own_image_at_its_mesh_uv_with_its_edges(self):
         saved = self.saved()
         material = next(m for m in saved["materials"] if m.name == "ground_0_0")
         self.assertEqual(0, trackview._prop(material, "m2lUVScale", 0))     # (its mesh UVs are the mask's canvas now)
         self.assertEqual(SCALE, trackview._prop(material, "m2lBaseScale", 0))
         maps = {slot: name for slot, _i, name in material.maps}
-        with Image.open(io.BytesIO(next(raw for n, _a, raw in saved["textures"] if n == maps["txDetailAAlbedoAO"]))) as image:
+        with Image.open(io.BytesIO(next(raw for n, _a, raw in saved["textures"] if n == maps["txDetailA"]))) as image:
             base = np.array(image.convert("RGB"))
-        mult = trackview._prop(material, "multA", 0.)       # (fuPBR samples the layer at world X/Z times multA)
-        self.assertAlmostEqual(SCALE / 256, mult)
-        pos = saved["root"].children[0].vertices["pos"]
+        mult = layer_mult(material, "A")         # (nm4 samples the layer at the mesh UV times multA, float2)
+        uv = saved["root"].children[0].vertices["uv"].astype(np.float64)
         for k, colour in ((0, 0), (1, 2)):          # tile u 0: red, tile u 1: blue
-            sample = wrapped(base, pos[k, 0] * mult, (pos[k, 2] - 0.5) * mult)
+            sample = wrapped(base, *(uv[k] * mult))
             self.assertGreater(sample[colour], 200, f"vertex {k}: {sample}")
             self.assertLess(sample[2 - colour], 30, f"vertex {k}: {sample}")
 
@@ -247,8 +251,8 @@ class PhasedSaveTest(unittest.TestCase):
             trackpaint.create(self.ac, self.name, revision, self.material((200, 30, 40)), [{"mesh": 0, "u": .1, "v": -.5, "whole": False}])
 
     def regional_edges(self, saved, tile_names, check):
-        """check(name, position, colour sampled where fuPBR samples it) for each region copy's vertex and triangle centre and
-        each of its layers showing a tile image of tile_names."""
+        """check(name, position, colour sampled where nm4 samples it: the mesh UV times the layer's multiplier) for each region
+        copy's vertex and triangle centre and each of its layers showing a tile image of tile_names."""
         textures = {n: raw for n, _a, raw in saved["textures"]}
         seen = 0
         for node in kn5.walk_meshes(saved["root"]):
@@ -256,15 +260,16 @@ class PhasedSaveTest(unittest.TestCase):
                 continue
             material = saved["materials"][node.material]
             for slot, _i, name in material.maps:
-                if not slot.endswith("AlbedoAO") or name not in tile_names:
+                if not slot.startswith("txDetail") or name not in tile_names:
                     continue
                 with Image.open(io.BytesIO(textures[name])) as image:
                     pixels = np.array(image.convert("RGB"))
-                mult = trackview._prop(material, "mult" + slot[8], 0.)     # (fuPBR samples a layer at world X/Z times it)
-                self.assertAlmostEqual(SCALE / 256, mult)
-                pos = node.vertices["pos"].astype(np.float64)
-                for point in [*pos, *pos[np.asarray(node.indices).reshape(-1, 3)].mean(axis=1)]:
-                    seen += check(name, point, wrapped(pixels, point[0] * mult, point[2] * mult))
+                mult = layer_mult(material, slot[8])
+                self.assertEqual(0, trackview._prop(material, "tilingFix" + slot[8], 1.))      # (the tile image is held fixed)
+                pos, uv = node.vertices["pos"].astype(np.float64), node.vertices["uv"].astype(np.float64)
+                triangles = np.asarray(node.indices).reshape(-1, 3)
+                for point, at in zip([*pos, *pos[triangles].mean(axis=1)], [*uv, *uv[triangles].mean(axis=1)]):
+                    seen += check(name, point, wrapped(pixels, *(at * mult)))
         return seen
 
     def test_two_regional_tiles_saved_together_each_keep_their_own_tile_image(self):
@@ -276,7 +281,7 @@ class PhasedSaveTest(unittest.TestCase):
                    for mesh in (0, 1) for k, asset in enumerate(greys)])
         with mock.patch.object(tracknative, "_photo_colour", wraps=tracknative._photo_colour) as encode:
             saved = self.copy()
-        self.assertFalse([c for c in encode.call_args_list if c.args[1]["id"] == "base"], "a tile image was encoded again")
+        self.assertFalse([c for c in encode.call_args_list if c.args[1].get("id") == "base"], "a tile image was encoded again")
         self.assert_no_copy_of_the_tile_images(saved)
 
         def check(name, point, sample):

@@ -46,9 +46,9 @@ test("An object's facts name its type and size", () => {
 test("an applied texture shows its settings in place where they can change, else says which ones it uses", () => {
   const info = {name: "Meadow", preview: "/meadow.png", repeat: [2, 2] as [number, number], variation: false, original: false, mixed: true,
     paint: "a".repeat(64), look: {normal: false, normal_strength: 1, roughness_map: true, roughness_shift: .4},
-    maps: {normal: true, roughness: true}, rectangular: false, tiles: 3};
+    maps: {normal: true, roughness: true}, tiles: 3};
   const shown = renderToStaticMarkup(<AppearanceCard info={info} onEdit={() => {}} settings={<p>Texture settings here</p>} />);
   expect(shown).toContain("Texture settings here");
-  expect(shown).not.toContain("Normal map off · Roughness 40 % matter");
-  expect(renderToStaticMarkup(<AppearanceCard info={info} onEdit={null} />)).toContain("Normal map off · Roughness 40 % matter");
+  expect(shown).not.toContain("Normal map off · Gloss 40 % matter");
+  expect(renderToStaticMarkup(<AppearanceCard info={info} onEdit={null} />)).toContain("Normal map off · Gloss 40 % matter");
 });

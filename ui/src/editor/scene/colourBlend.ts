@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type {WeightBundleRef} from "./weightBundle";
+import {layerGloss} from "./classicLight";
 
 export interface ColourLayers {base: string; mask: string; scale: number}
 export interface ColourImage {name: string; i?: number; key?: string; url?: string; size?: number; linear?: boolean; bundle?: WeightBundleRef}
@@ -10,12 +11,11 @@ export interface LayerProperties {roughness: number; normal_scale: number; rough
 
 /** A layer's roughness without a roughness map. Pure. */
 export const flatRoughness = (properties?: Partial<LayerProperties>) => (properties?.roughness_offset ?? 0) + (properties?.roughness ?? 1);
-export type GroundMaterial = THREE.MeshLambertMaterial | THREE.MeshStandardMaterial;
+export type GroundMaterial = THREE.MeshLambertMaterial | THREE.MeshPhongMaterial;
 export interface GroundPass {image: number; first: number; bounds: [number, number, number, number];
   frames: {source: [number, number]; atlas: [number, number, number, number]; constant?: number}[]; weight: ColourImage}
 export interface RegionalGround {dimensions: [number, number]; uv_origin: [number, number]; passes: GroundPass[]; bytes: number; split: number}
 export interface ColourSplat {base: ColourImage; mask: ColourImage; images: ColourPhoto[]; origin: [number, number]; materials?: number[]; ground?: RegionalGround;
-  pbr?: boolean;
   mask_extent?: [number, number]; mask_origin?: [number, number];
   /** What the mesh UVs are scaled by: a build's are world tiles times groundmaterial.UV_SCALE; masks cover the whole tile. */
   uv_scale?: number;
@@ -36,13 +36,14 @@ export function materialImages(material?: MaterialImages): string[] {
   return [...new Set([material.texture, material.dual_layer?.base, material.dual_layer?.mask].filter((name): name is string => !!name))];
 }
 
-/** The native UV-space four-layer material: the original tile in A, up to three independent repeating colours in RGB. */
+/** The native UV-space four-layer material: the original tile in A, up to three independent repeating colours in RGB. A classic
+ * ground material (Phong: classicLight.classicGround) also takes their normals and gloss as AC's ksMultilayer_objsp_nm4 does: the
+ * tile image flat at the material's whole gloss, a photo's normals from its detail map and its gloss one less its roughness. */
 export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images: THREE.Texture[], layers: ColourSplat,
   details: (THREE.Texture | null)[] = []) {
   const channels = layers.images.map((p, i) => "rgb"[p.channel ?? i]);
   const varied = layers.images.some(p => p.variation);
-  const pbr = material instanceof THREE.MeshStandardMaterial;
-  const fullPbr = !!layers.pbr;
+  const lit = material instanceof THREE.MeshPhongMaterial;
   const original = layers.base_scale ? "texture2D(map, (m2lTile + m2lMaskOrigin) * m2lBaseScale)" : "texture2D(map, vMapUv)";
   material.onBeforeCompile = shader => {
     if (varied) {
@@ -76,62 +77,38 @@ export function bindSplat(material: GroundMaterial, keep: THREE.Texture, images:
       ${varied ? variationShader : ""}
       ${images.map((_p, i) => `uniform sampler2D m2lPhoto${i}; uniform vec2 m2lScale${i};`).join("\n")}
       ${details.map((p, i) => p ? `uniform sampler2D m2lData${i}; uniform vec3 m2lProperties${i};` : "").join("\n")}
-      ${pbr ? tangentFrame : ""}
+      ${lit ? tangentFrame : ""}
+      ${lit ? "vec3 m2lNormal = vec3(0.0, 0.0, 1.0); float m2lGloss = 1.0;    // (without a map yet: the tile image's)" : ""}
     `).replace("#include <map_fragment>", `
       #ifdef USE_MAP
         // The original tile keeps its mesh UV; masks and photos take the whole tile's (kn5 v is negated).
         vec2 m2lTile = vMapUv / m2lUVScale;
         vec4 m2lWeights = texture2D(m2lKeep, (m2lTile + m2lMaskOrigin) / m2lMaskExtent);
-        vec3 m2lColour = ${!pbr || fullPbr ? `${original}.rgb * m2lWeights.a` : "vec3(0.0)"};
-        ${pbr ? `vec3 m2lOriginalColour = ${original}.rgb * diffuseColor.rgb * m2lWeights.a;
-          float m2lContribution = ${fullPbr ? "m2lWeights.a" : "0.0"};
-          vec3 m2lNormal = ${fullPbr ? "vec3(0.0, 0.0, m2lWeights.a)" : "vec3(0.0)"};
-          float m2lRoughness = ${fullPbr ? "(221.0 / 255.0) * m2lWeights.a" : "0.0"};` : ""}
-        ${images.map((_p, i) => `${pbr && !details[i] && !fullPbr ? "m2lOriginalColour" : "m2lColour"} += ${layers.images[i].variation ? "m2lVary" : "texture2D"}(m2lPhoto${i}, (m2lTile + m2lOrigin) * m2lScale${i}).rgb * m2lWeights.${channels[i]}${pbr && !details[i] && !fullPbr ? " * diffuseColor.rgb" : ""};`).join("\n")}
-        ${pbr ? images.map((_p, i) => details[i] ? `
+        vec3 m2lColour = ${original}.rgb * m2lWeights.a;
+        ${lit ? "m2lNormal = vec3(0.0, 0.0, m2lWeights.a);\n        m2lGloss = m2lWeights.a;" : ""}
+        ${images.map((_p, i) => `m2lColour += ${layers.images[i].variation ? "m2lVary" : "texture2D"}(m2lPhoto${i}, (m2lTile + m2lOrigin) * m2lScale${i}).rgb * m2lWeights.${channels[i]};`).join("\n")}
+        ${lit ? images.map((_p, i) => details[i] ? `
           vec4 m2lPacked${i} = ${layers.images[i].variation ? `m2lVaryData(m2lPhoto${i}, m2lData${i},` : `texture2D(m2lData${i},`} (m2lTile + m2lOrigin) * m2lScale${i});
           vec3 m2lNormal${i} = m2lPacked${i}.xyz * 2.0 - 1.0;
           m2lNormal${i}.xy *= m2lProperties${i}.x;
           m2lNormal += normalize(m2lNormal${i}) * m2lWeights.${channels[i]};
-          m2lRoughness += (m2lProperties${i}.z + m2lPacked${i}.a * m2lProperties${i}.y) * m2lWeights.${channels[i]};
-          m2lContribution += m2lWeights.${channels[i]};
-        ` : fullPbr ? `
+          m2lGloss += (1.0 - clamp(m2lProperties${i}.z + m2lPacked${i}.a * m2lProperties${i}.y, 0.0, 1.0)) * m2lWeights.${channels[i]};
+        ` : `
           m2lNormal += vec3(0.0, 0.0, m2lWeights.${channels[i]});
-          m2lRoughness += ${flatRoughness(layers.images[i].properties).toFixed(8)} * m2lWeights.${channels[i]};
-          m2lContribution += m2lWeights.${channels[i]};
-        ` : "").join("\n") : ""}
-        diffuseColor *= vec4(${pbr ? "m2lColour / max(0.000001, m2lContribution)" : "m2lColour"}, 1.0);
+          m2lGloss += ${layerGloss(layers.images[i].properties).toFixed(8)} * m2lWeights.${channels[i]};
+        `).join("\n") : ""}
+        diffuseColor *= vec4(m2lColour, 1.0);
       #endif
     `);
-    if (pbr) {
-      shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>",
-        "float roughnessFactor = m2lRoughness / max(0.000001, m2lContribution);")
-        .replace("#include <normal_fragment_maps>", `vec3 m2lSourceNormal = normal;
-          mat3 m2lFrame = m2lTangentFrame(-vViewPosition, normal, vMapUv);
-          if (m2lContribution > 0.0) normal = normalize(m2lFrame * normalize(m2lNormal));`)
-        .replace("#include <opaque_fragment>", fullPbr ? "#include <opaque_fragment>" : `
-          // The source tile and existing colour-only fields retain their Lambert lighting next to a PBR field.
-          vec3 m2lSourceLight = ambientLightColor * m2lShade;
-          #if NUM_SUN_LIGHTS > 0
-          float m2lSourceSun = max(0.0, dot(m2lSourceNormal, sunLights[0].direction));
-          #if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
-          if (receiveShadow) m2lSourceSun *= getSunShadow(sunShadowMap[0], sunLightShadows[0], 0);
-          #endif
-          m2lSourceLight += sunLights[0].color * m2lSourceSun;
-          #endif
-          #if NUM_DIR_LIGHTS > 0
-          for (int j = 0; j < NUM_DIR_LIGHTS; ++j) {
-            m2lSourceLight += directionalLights[j].color * max(0.0, dot(m2lSourceNormal, directionalLights[j].direction));
-          }
-          #endif
-          outgoingLight = outgoingLight * m2lContribution + m2lOriginalColour * m2lSourceLight * RECIPROCAL_PI;
-          #include <opaque_fragment>
-        `);
+    if (lit) {
+      shader.fragmentShader = shader.fragmentShader.replace("#include <specularmap_fragment>", "float specularStrength = m2lGloss;")
+        .replace("#include <normal_fragment_maps>", `mat3 m2lFrame = m2lTangentFrame(-vViewPosition, normal, vMapUv);
+          normal = normalize(m2lFrame * normalize(m2lNormal));`);
     }
   };
-  // (a flat layer's roughness is written into the shader, so it is part of the program)
-  material.customProgramCacheKey = () => "map2lap-splat-7-" + Number(pbr) + Number(fullPbr) + Number(!!layers.base_scale) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])
-    + (fullPbr && !details[i] ? flatRoughness(layers.images[i].properties).toFixed(8) : "")).join("");
+  // (a flat layer's gloss is written into the shader, so it is part of the program)
+  material.customProgramCacheKey = () => "map2lap-splat-8-" + Number(lit) + Number(!!layers.base_scale) + channels.map((c, i) => c + Number(!!layers.images[i].variation) + Number(!!details[i])
+    + (lit && !details[i] ? layerGloss(layers.images[i].properties).toFixed(8) : "")).join("");
   material.needsUpdate = true;
 }
 

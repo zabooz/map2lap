@@ -78,7 +78,7 @@ class ApplicationTest(unittest.TestCase):
     build = guarded.PhasedSaveTest.build
     quad = guarded.PhasedSaveTest.quad
 
-    def pbr_material(self):
+    def mapped_material(self):
         colour = materiallibrary.prepare("colour.png", fixture.png(np.full((16, 16, 3), 130, np.uint8)))
         normal = materiallibrary.prepare("normal.png", fixture.png(np.full((16, 16, 3), (170, 205, 224), np.uint8)), role="normal")
         rough = materiallibrary.prepare("rough.png", fixture.png(np.full((16, 16), 10, np.uint8)), role="roughness")
@@ -99,7 +99,7 @@ class ApplicationTest(unittest.TestCase):
         return {path.relative_to(folder).as_posix(): path.read_bytes() for path in folder.rglob("*") if path.is_file()}
 
     def test_apply_keeps_the_default_snapshot_and_retains_chosen_settings(self):
-        material = self.pbr_material()
+        material = self.mapped_material()
         plain = self.apply(material)
         self.assertEqual(plain, self.apply(material, look=dict(trackpaint.LOOK)))
         self.assertNotIn("look", self.snapshot(plain)[1])
@@ -109,7 +109,7 @@ class ApplicationTest(unittest.TestCase):
             self.apply(material, look={"roughness_shift": 2})
 
     def test_restyle_copies_one_application_and_leaves_its_original_and_the_library_alone(self):
-        material = self.pbr_material()
+        material = self.mapped_material()
         library = self.files(Path(self.tmp.name, "library", "materials", material))
         first, other = self.apply(material), self.apply(material, u=.9)
         record, before = self.snapshot(first)
@@ -132,7 +132,7 @@ class ApplicationTest(unittest.TestCase):
         self.build(scale=1)                 # (one quad over the whole tile, as regional Save needs: test_native_save)
         self.revision = trackview.index(self.ac, self.name)["revision"]
         trackview.prepare_surface(self.ac, self.name, 0, self.revision)
-        op = trackpaint.restyle(self.ac, self.name, self.revision, self.apply(self.pbr_material()),
+        op = trackpaint.restyle(self.ac, self.name, self.revision, self.apply(self.mapped_material()),
                                 {"roughness_shift": .5, "normal": False})
         ref = self.keep([op])["textures"][0]["layers"]["images"][0]
         self.assertEqual({"normal_scale": 1., "roughness": .5, "roughness_offset": .5}, ref["properties"])
@@ -144,19 +144,23 @@ class ApplicationTest(unittest.TestCase):
         from track import kn5
         native = kn5.read(str(Path(self.ac, "content/tracks/matte/matte.kn5")))
         payloads = {key: raw for key, _active, raw in native["textures"]}
-        rough = []
+        gloss, normals = [], []
         for material in native["materials"]:
             maps = {slot: name for slot, _index, name in material.maps}
-            for channel in "RGBA":
-                if f"txDetail{channel}NmMeRo" in maps and maps[f"txDetail{channel}NmMeRo"] in payloads:
-                    with Image.open(io.BytesIO(payloads[maps[f"txDetail{channel}NmMeRo"]])) as image:
-                        pixel = image.convert("RGBA").getpixel((0, 0))
-                    if pixel[3] not in (221, 255):
-                        rough.append(pixel)
-        self.assertIn((127, 128, 0, round((.5 + .5 * 10 / 255) * 255)), rough)
+            for channel in "RGB":
+                if maps.get("txDetail" + channel, "").startswith("map2lap_native_"):
+                    with Image.open(io.BytesIO(payloads[maps["txDetail" + channel]])) as image:
+                        gloss.append(image.convert("RGBA").getpixel((0, 0))[3])
+                    normals.append(maps["txNormal" + channel])
+        # (roughness .5 + .5 * 10/255 as gloss in the photo's alpha; its normal map switched off: flat)
+        self.assertTrue(any(abs(a - round((1 - (.5 + .5 * 10 / 255)) * 255)) <= 3 for a in gloss), gloss)
+        self.assertTrue(normals)
+        for name in normals:
+            with Image.open(io.BytesIO(payloads[name])) as image:
+                self.assertEqual(((128, 128), (128, 128), (255, 255)), image.convert("RGB").getextrema())
 
     def test_a_restyled_application_survives_undo_save_and_a_portable_reopen(self):
-        first = self.apply(self.pbr_material())
+        first = self.apply(self.mapped_material())
         self.keep([first])
         matte = trackpaint.restyle(self.ac, self.name, self.revision, first, {"roughness_shift": 1.})
         self.keep([matte])
@@ -173,7 +177,7 @@ class ApplicationTest(unittest.TestCase):
         self.assertTrue(all(ref["properties"]["roughness_offset"] == 1. for ref in refs))
 
     def test_the_page_restyles_only_an_edit_of_its_current_draft(self):
-        first = self.apply(self.pbr_material())
+        first = self.apply(self.mapped_material())
         self.keep([first])
         now = trackedits.load(self.ac, self.name)
         body = {"base": now["base"], "revision": now["revision"], "paint": first, "look": {"normal_strength": .5}}
@@ -187,7 +191,7 @@ class ApplicationTest(unittest.TestCase):
             trackedits.restyle(self.ac, self.name, {**body, "look": {"normal_strength": 3}})
 
     def test_settings_back_to_an_application_already_in_the_draft_are_one_edit(self):
-        material = self.pbr_material()
+        material = self.mapped_material()
         first = self.apply(material)
         matte = self.apply(material, look={"roughness_shift": 1.})     # (the same area: it equals first but for its settings)
         self.keep([first, matte])
@@ -196,7 +200,7 @@ class ApplicationTest(unittest.TestCase):
         self.assertEqual(first, trackedits.restyle(self.ac, self.name, body)["paint"])
 
     def test_an_application_adopted_by_a_saved_copy_can_be_restyled_there(self):
-        first = self.apply(self.pbr_material())
+        first = self.apply(self.mapped_material())
         self.keep([first])
         trackcopy.save(self.ac, self.name, "adopted", "Adopted")
         now = trackedits.load(self.ac, "adopted")
@@ -209,7 +213,7 @@ class ApplicationTest(unittest.TestCase):
         self.assertFalse(trackview.index(self.ac, "adopted")["paint_errors"])
 
     def test_the_inspector_names_the_application_under_the_point_and_its_settings(self):
-        material = self.pbr_material()
+        material = self.mapped_material()
         meadow, road = self.apply(material), self.apply(material, u=.5)      # (one snapshot: the masks tell them apart)
         version = self.keep([meadow])["textures"][0]["version"]
         self.assertNotIn("paint", trackinspect.appearance(self.ac, self.name, 0, .5, -.5, self.revision, version))
@@ -224,7 +228,7 @@ class ApplicationTest(unittest.TestCase):
         self.assertEqual(trackpaint.LOOK, left["look"])
         self.assertEqual(.5, right["look"]["roughness_shift"])
         self.assertEqual({"normal": True, "roughness": True}, right["maps"])
-        self.assertFalse(right["rectangular"])
+        self.assertNotIn("rectangular", right)     # (every repeat can vary: nothing to tell apart)
 
 
 class VariationShownTest(unittest.TestCase):
@@ -232,8 +236,9 @@ class VariationShownTest(unittest.TestCase):
     keep = fixture.PaintTest.keep
     material = fixture.PaintTest.material
 
-    def test_the_inspector_shows_repetition_variation_only_where_it_works(self):
-        for repeat, shown in (((2, 2), False), ((2, 3), True)):
+    def test_the_inspector_shows_repetition_variation_for_square_and_rectangular_repeats(self):
+        # (the classic shader breaks up each layer apart, the tile image held fixed: any repeat varies)
+        for repeat, shown in (((2, 2), True), ((2, 3), True)):
             with self.subTest(repeat=repeat):
                 op = trackpaint.create(self.ac, self.name, self.revision, self.material((200, 30, 40), repeat),
                                        [{"mesh": 0, "u": .1, "v": -.5}], variation=True)
@@ -242,21 +247,15 @@ class VariationShownTest(unittest.TestCase):
 
 
 class PackingTest(unittest.TestCase):
-    def test_the_roughness_offset_reaches_the_pbr_data_the_legacy_gloss_and_the_cache_key(self):
+    def test_the_roughness_offset_reaches_the_gloss_and_the_cache_key(self):
         data = np.full((4, 4, 4), [128, 128, 255, 0], np.uint8)
         ref = {"id": "asset:a", "asset": "a", "detail": {"key": "k"}, "properties": {"normal_scale": 1., "roughness": .5,
                                                                                      "roughness_offset": .5}}
-        with Image.open(io.BytesIO(tracknative._photo_normals(data, ref, pbr=True))) as image:
-            self.assertEqual(128, image.getpixel((0, 0))[3])
-        from track import kn5
-        material = kn5.Material("ground", "ksPerPixel", 0, 0, 0, [], [])
         raw = fixture.png(np.full((8, 8, 3), 90, np.uint8))
-        legacy = tracknative._photo_colour(raw, ref, material, (0, 0), 34, lambda: data)
-        with Image.open(io.BytesIO(legacy)) as image:
+        with Image.open(io.BytesIO(tracknative._photo_colour(raw, ref, lambda: data))) as image:
             self.assertLessEqual(abs(image.convert("RGBA").getpixel((0, 0))[3] - 127), 2)
         plain = {**ref, "properties": {"normal_scale": 1., "roughness": .5}}
-        self.assertNotEqual(tracknative._normals_key(ref, pbr=True), tracknative._normals_key(plain, pbr=True))
-        self.assertNotEqual(tracknative._colour_key(raw, ref, 34), tracknative._colour_key(raw, plain, 34))
+        self.assertNotEqual(tracknative._colour_key(raw, ref), tracknative._colour_key(raw, plain))
 
     def test_a_colour_only_material_made_matte_or_smooth_needs_the_native_layout(self):
         self.assertFalse(trackdetail._native({"images": [{"properties": {"roughness": 1., "normal_scale": 1.}}]}))

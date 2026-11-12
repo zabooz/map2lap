@@ -33,10 +33,10 @@ The Editor's three.js code loads on the first visit to its tab; camera and mesh 
 
 The Editor's loading, drafts, saving and tools: [editor.md](editor.md).
 
-The generator and the Editor's Save write the same ground material, stock CSP `fuPBR_multilayer` straight in the kn5
-(`track/groundmaterial.py`, `pbr`): a new build around its baked tile images, Save for square-repeat assignments; the
-browser draws both physically. Rectangular repeats keep the legacy float2 path. Save emits only
-track-local configuration and textures, not global CSP shader files. Shader inputs and limits:
+The generator and the Editor's Save write the same ground material, CSP's classic `ksMultilayer_objsp_nm4` straight in the
+kn5 (`track/groundmaterial.py`, `classic`): a new build around its baked tile images, Save for all assignments; the browser
+draws both with the classic light (`ui/src/editor/scene/classicLight.ts`: Phong at the material's ksSpecular and
+ksSpecularEXP). Save emits only track-local configuration and textures, not global CSP shader files. Shader inputs and limits:
 [ac-rules.md](ac-rules.md#how-the-ground-is-built).
 
 In the browser, `scene/view.ts` coordinates the scene and `scene/trackTextures.ts` owns texture/material loading, paint
@@ -46,8 +46,8 @@ loading; moving the camera does not evict distant meshes and resume loading arou
 An Editor Save starts from the retained source and reapplies the draft, rather than modifying the last output in place.
 Before writing, it prepares missing native masks, photos and regional geometry on a bounded pool and reuses complete
 content-addressed cache entries (`app/tracknative.py`). It still writes and validates a complete replacement KN5.
-Regional painted ground currently retains the original tile image and an additional ring/phase-adjusted image for its shader;
-PBR does not remove that copy. The source and portable paint bundle remain necessary for subsequent edits and transfer.
+Painted ground samples the build's tile image itself, with no copy of it. The source and portable paint bundle remain
+necessary for subsequent edits and transfer.
 
 ## Parallel (`track/parallel.py`)
 

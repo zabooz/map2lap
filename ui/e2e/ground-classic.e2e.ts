@@ -55,7 +55,7 @@ async function untouchedDelta(page: Page, before: Buffer, after: Buffer, x = .7,
   }, {images: [before.toString("base64"), after.toString("base64")], x, y});
 }
 
-test("adding PBR to another material preserves the existing colour-only field on the same tile", async ({page, backend}) => {
+test("adding a mapped material to another material preserves the existing colour-only field on the same tile", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_split: true});
   await openEditor(page);
   await addMaterial(page, "Existing colour only", null, 255, 128, 0);
@@ -79,7 +79,7 @@ test("adding PBR to another material preserves the existing colour-only field on
   expect(adjacent.equals(existing)).toBe(false);
 });
 
-test("four then six real PBR materials Apply and reopen with original soft junction weights", async ({page, backend}) => {
+test("four then six real mapped materials Apply and reopen with original soft junction weights", async ({page, backend}) => {
   test.slow();
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_materials: 6, ground_brightness: .7});
   await openEditor(page);
@@ -160,7 +160,8 @@ test("four then six real PBR materials Apply and reopen with original soft junct
   const roughAsset = await addMaterial(page, "Directed regional roughness", 64, 35, 160, 0, colours[2]);
   await applyAPI(2, roughAsset); await page.reload(); await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const roughPicture = await picture(page), directedRough = await rgb(page, roughPicture, .4, .65);
-  expect(Math.max(...directedRough.map((v, i) => Math.abs(v - directedNormal[i])))).toBeGreaterThan(4);
+  // (a smoother map shines a little more at most: gloss is capped at the ground's ksSpecular 0.02, as in AC)
+  expect(Math.max(...directedRough.map((v, i) => Math.abs(v - directedNormal[i])))).toBeLessThanOrEqual(8);
   await setPaints(originalPaints);
   await expect.poll(async () => (await picture(page)).equals(six)).toBe(true);
   const frame = await page.evaluate(() => { const measure = performance.getEntriesByName("map2lap.ground.draw").at(-1) as PerformanceMeasure;
@@ -172,7 +173,7 @@ test("four then six real PBR materials Apply and reopen with original soft junct
     originalNormal, directedNormal, directedRough}));
 });
 
-test("PBR Apply preserves untouched source lighting and +Y normals follow the actual KN5 V direction through Undo/Redo/reopen", async ({page, backend}) => {
+test("a mapped Apply preserves untouched source lighting and +Y normals follow the actual KN5 V direction through Undo/Redo/reopen", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_split: true});
   await openEditor(page);
   await addMaterial(page, "Normal positive Y", 218);
@@ -209,8 +210,8 @@ test("PBR Apply preserves untouched source lighting and +Y normals follow the ac
   const roughPixel = await rgb(page, rough, .4, .65);
   const smooth = await apply("Smooth aligned normal");
   const smoothPixel = await rgb(page, smooth, .4, .65);
-  // (a small highlight at the 10:00 sun: more than the 1 of noise allowed on untouched ground below)
-  expect(Math.abs(smoothPixel[0] - roughPixel[0]), "roughness changes the actual physical light response").toBeGreaterThan(1);
+  // (the classic light: a smoother photo shines at most as the ground, ksSpecular 0.02, a highlight of a few levels at most)
+  expect(Math.abs(smoothPixel[0] - roughPixel[0]), "gloss stays within the ground's").toBeLessThanOrEqual(8);
   const smoothUntouched = await rgb(page, smooth, .7, .65);
   expect(Math.max(...untouched.map((v, i) => Math.abs(v - smoothUntouched[i])))).toBeLessThanOrEqual(1);
   const untouchedRoiMax = await untouchedDelta(page, original, smooth);

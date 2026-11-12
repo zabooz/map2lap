@@ -333,7 +333,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "detail_profile": trackdetail.PROFILE,
-                  "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "pbr_format": groundmaterial.PBR_FORMAT,
+                  "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "ground_format": groundmaterial.GROUND_FORMAT,
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         if inherited:
             recipe["model_source"] = inherited

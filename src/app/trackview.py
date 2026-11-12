@@ -137,11 +137,13 @@ def material_uv(material, tx, ty, u, v):
 
 
 def _material(material):
-    """Names, colour-layer inputs/scales, ksAmbient and ksDiffuse (their sum and apart) and alpha flags for the view. Pure."""
+    """Names, colour-layer inputs/scales, ksAmbient and ksDiffuse (their sum and apart), ksSpecular and ksSpecularEXP and
+    alpha flags for the view. Pure."""
     texture = next((tex for slot, _n, tex in material.maps if slot == "txDiffuse"), None)
     ambient, diffuse = _prop(material, "ksAmbient", 0.5), _prop(material, "ksDiffuse", 0.5)
     result = {"name": material.name, "shader": material.shader, "texture": texture,
               "bright": ambient + diffuse, "ambient": ambient, "diffuse": diffuse,
+              "specular": _prop(material, "ksSpecular", 0.), "specular_exp": _prop(material, "ksSpecularEXP", 1.),
               "alpha_ref": _prop(material, "ksAlphaRef", 0.5) if material.alpha_tested else 0.0,
               "blend": bool(material.blend)}
     if material.shader == "ksPerPixel_dual_layer":
@@ -155,25 +157,11 @@ def _material(material):
         if (texture == groundmaterial.WHITE and maps.get("txMask") == groundmaterial.MASK and maps.get("txDetailR")
                 and _prop(material, "magicMult", 1.) == 1 and math.isfinite(scale) and scale > 0):
             result.update(texture=maps["txDetailR"], world_scale=[scale, scale])
-    elif material.shader == groundmaterial.PBR:
-        maps = {slot: tex for slot, _n, tex in material.maps}
-        base = maps.get("txDetailAAlbedoAO")
-        if base and base != groundmaterial.WHITE and maps.get("txMask"):    # (painted: its tile image in A, world X/Z)
-            images = []
-            for channel in "RGB":
-                filename = maps.get(f"txDetail{channel}AlbedoAO")
-                if filename and filename != groundmaterial.WHITE:
-                    scale = 256. * _prop(material, "mult" + channel, 1 / 256)       # (repeats a tile; the shader's are a metre)
-                    images.append({"name": filename, "scale": [scale, scale], "channel": "RGB".index(channel), "variation": False})
-            result.update(texture=base, splat={"base": {"name": base}, "mask": {"name": maps["txMask"], "linear": True},
-                          "images": images, "origin": [0, 0], "mask_extent": _mask_extent(material), "mask_origin": [0, 0], "pbr": True,
-                          "base_scale": [base_scale(material)] * 2})
-        else:               # (generated: its tile image in txDiffuse under one white layer, groundmaterial.ground)
-            result["pbr"] = {"roughness": groundmaterial.GROUND_ROUGHNESS}
-    elif material.shader == "ksMultilayer_objsp":
+    elif material.shader in (groundmaterial.NM4, "ksMultilayer_objsp"):
         maps = {slot: tex for slot, _n, tex in material.maps}
         extent = _mask_extent(material)
-        if maps.get("txDetailA") and maps.get("txMask"):
+        # (painted: its tile image in A at the mask canvas's UVs; generated classic ground has a white A, drawn as its image)
+        if maps.get("txDetailA") and maps["txDetailA"] != groundmaterial.WHITE and maps.get("txMask"):
             images = []
             for channel in "RGB":
                 filename = maps.get("txDetail" + channel)

@@ -430,12 +430,12 @@ class RegionMaskTest(unittest.TestCase):
         self.assertEqual((0, 0), self.library_made(lambda: trackcopy.save(self.ac, self.name, "second", "Second")))
         self.assertEqual(self.textures("first"), self.textures("second"))
 
-    def test_a_roughness_change_makes_the_data_map_again_and_takes_the_colour_as_it_was(self):
+    def test_a_roughness_change_makes_the_colour_again_for_its_gloss_and_keeps_the_normal_map(self):
         paints = self.painted_with_data()
         self.keep(paints)
         trackcopy.save(self.ac, self.name)
         self.keep(paints[:4] + [self.data_stripe({**trackpaint.LOOK, "roughness_shift": .5})])
-        self.assertEqual((0, 1), self.library_made(lambda: trackcopy.save(self.ac, self.name)))
+        self.assertEqual((1, 0), self.library_made(lambda: trackcopy.save(self.ac, self.name)))
 
     def test_prepare_makes_each_library_image_once_and_the_export_none(self):
         self.keep(self.painted_with_data())
@@ -502,38 +502,30 @@ class PhotoKeyTest(unittest.TestCase):
         properties = {"normal_scale": scale, "roughness": rough, **({"roughness_offset": offset} if offset is not None else {})}
         return {"id": "asset:a", "asset": "a", "detail": {"key": detail}, "properties": properties}
 
-    def test_a_source_s_image_depends_on_its_bytes_and_alpha(self):
-        same = tracknative._colour_key(b"a", {"id": "source:3:0"}, 0)
-        for other in (tracknative._colour_key(b"b", {"id": "source:3:0"}, 0), tracknative._colour_key(b"a", {"id": "source:3:0"}, 9),
-                      tracknative._colour_key(b"a", {"id": "source:3:0"}, 0, pbr=True)):
+    def test_a_colour_only_photo_depends_on_its_bytes_and_flat_roughness(self):
+        same = tracknative._colour_key(b"a", {"asset": "a", "properties": {}})
+        for other in (tracknative._colour_key(b"b", {"asset": "a", "properties": {}}),
+                      tracknative._colour_key(b"a", {"asset": "a", "properties": {"roughness": .5}})):
             self.assertNotEqual(same, other)
 
-    def test_a_pbr_colour_depends_on_its_photo_alone_not_on_the_data_map_or_its_properties(self):
-        same = tracknative._colour_key(b"a", self.ref(), 0, pbr=True)
-        for other in (self.ref(detail="l"), self.ref(scale=.5), self.ref(rough=.8), self.ref(offset=.3)):
-            self.assertEqual(same, tracknative._colour_key(b"a", other, 0, pbr=True))
-        self.assertNotEqual(same, tracknative._colour_key(b"b", self.ref(), 0, pbr=True))
-
-    def test_a_legacy_colour_carries_the_roughness_as_gloss_but_not_the_normals(self):
-        same = tracknative._colour_key(b"a", self.ref(), 0)
-        self.assertEqual(same, tracknative._colour_key(b"a", self.ref(scale=.5), 0))
+    def test_a_colour_carries_the_roughness_as_gloss_but_not_the_normals(self):
+        same = tracknative._colour_key(b"a", self.ref())
+        self.assertEqual(same, tracknative._colour_key(b"a", self.ref(scale=.5)))
         for other in (self.ref(detail="l"), self.ref(rough=.8), self.ref(offset=.3)):
-            self.assertNotEqual(same, tracknative._colour_key(b"a", other, 0))
+            self.assertNotEqual(same, tracknative._colour_key(b"a", other))
+        self.assertNotEqual(same, tracknative._colour_key(b"b", self.ref()))
 
     def test_a_colour_depends_on_the_encoder_s_version(self):
-        same = tracknative._colour_key(b"a", self.ref(), 0, pbr=True)
+        same = tracknative._colour_key(b"a", self.ref())
         with mock.patch.object(tracknative, "_encoder", return_value="etcpak 0.0.1"):
-            self.assertNotEqual(same, tracknative._colour_key(b"a", self.ref(), 0, pbr=True))
+            self.assertNotEqual(same, tracknative._colour_key(b"a", self.ref()))
 
-    def test_a_data_map_depends_on_its_maps_and_normal_strength_and_for_pbr_on_its_roughness(self):
-        for pbr, rough_counts in ((True, True), (False, False)):
-            with self.subTest(pbr=pbr):
-                same = tracknative._normals_key(self.ref(), pbr=pbr)
-                for other in (self.ref(detail="l"), self.ref(scale=.5)):
-                    self.assertNotEqual(same, tracknative._normals_key(other, pbr=pbr))
-                for other in (self.ref(rough=.8), self.ref(offset=.3)):
-                    self.assertEqual(not rough_counts, same == tracknative._normals_key(other, pbr=pbr))
-        self.assertNotEqual(tracknative._normals_key(self.ref(), pbr=True), tracknative._normals_key(self.ref()))
+    def test_a_normal_map_depends_on_its_maps_and_normal_strength_not_on_the_roughness(self):
+        same = tracknative._normals_key(self.ref())
+        for other in (self.ref(detail="l"), self.ref(scale=.5)):
+            self.assertNotEqual(same, tracknative._normals_key(other))
+        for other in (self.ref(rough=.8), self.ref(offset=.3)):
+            self.assertEqual(same, tracknative._normals_key(other))
 
 
 class KnHashTest(unittest.TestCase):

@@ -65,51 +65,6 @@ class GroundMaterialTest(unittest.TestCase):
         self.assertEqual(1, next(p[1] for p in result.props if p[0] == "magicMult"))
         self.assertEqual("ksPerPixel", base.shader)
 
-    def test_pbr_names_its_images_by_the_shader_s_own_slots_and_numbers(self):
-        # Bound so, AC loads them with the material; bound by a CSP replacement's RESOURCE_TEXTURE they stayed black.
-        base = kn5.Material("ground_0_0", "ksMultilayer", 0, 0, 0,
-                            [("ksAmbient", .41, (0, 0), (0, 0, 0), (0, 0, 0, 0)), *groundmaterial.uv_props(),
-                             ("multA", 1., (1., 1.), (0, 0, 0), (0, 0, 0, 0)), ("ksEmissive", 0., (0, 0), (0, 0, 0), (0, 0, 0, 0))],
-                            [("txDiffuse", 0, "ground_0_0.dds")])
-        result = groundmaterial.pbr(base, "white.png", "mask.dds", {"R": ("grass.dds", "grass_data.png", .25),
-                                                                   "A": ("tile.dds", "flat.png", 1 / 288)})
-        self.assertEqual("fuPBR_multilayer", result.shader)
-        self.assertEqual([("txDiffuse", 0, "white.png"), ("txMask", 1, "mask.dds"),
-                          ("txDetailRAlbedoAO", 2, "grass.dds"), ("txDetailRNmMeRo", 3, "grass_data.png"),
-                          ("txDetailGAlbedoAO", 4, groundmaterial.WHITE), ("txDetailGNmMeRo", 5, groundmaterial.FLAT_DATA),
-                          ("txDetailBAlbedoAO", 6, groundmaterial.WHITE), ("txDetailBNmMeRo", 7, groundmaterial.FLAT_DATA),
-                          ("txDetailAAlbedoAO", 8, "tile.dds"), ("txDetailANmMeRo", 9, "flat.png"),
-                          ("txNormal2", 10, groundmaterial.FLAT_NORMAL)], result.maps)
-        values = {p[0]: p for p in result.props}
-        self.assertEqual(len(values), len(result.props))                    # (each property once)
-        self.assertEqual([.25, 1., 1., 1 / 288], [values["mult" + c][1] for c in "RGBA"])
-        self.assertEqual((1., 1., 1.), values["pbrAlbedoGain"][3])
-        self.assertEqual((0., 0., 0.), values["ksEmissive"][3])
-        self.assertEqual({"pbrF0": .04, "detailNMMult": 1., "magicMult": 1., "ksAlphaRef": 0., "pbrBlurCubemap": 0.},
-                         {k: values[k][1] for k in ("pbrF0", "detailNMMult", "magicMult", "ksAlphaRef", "pbrBlurCubemap")})
-        self.assertNotIn("pbrFlags", values)
-        self.assertEqual(.41, values["ksAmbient"][1])
-        self.assertEqual(groundmaterial.UV_SCALE, values["m2lUVScale"][1])
-        for bad in ({"X": ("a", "b", 1.)}, {"R": ("a", "b", 0.)}, {"R": ("a", "b", float("nan"))}):
-            with self.assertRaises(ValueError):
-                groundmaterial.pbr(base, "white.png", "mask.dds", bad)
-
-    def test_generated_ground_keeps_its_baked_colours_under_pbr(self):
-        base = kn5.Material("ground_0_0", "ksPerPixel", 0, 0, 0, groundmaterial.uv_props(), [("txDiffuse", 0, "ground_0_0.dds")])
-        result = groundmaterial.ground(base)
-        self.assertEqual("fuPBR_multilayer", result.shader)
-        slots = {slot: name for slot, _index, name in result.maps}
-        self.assertEqual("ground_0_0.dds", slots["txDiffuse"])
-        images = {name: np.asarray(Image.open(io.BytesIO(raw)).convert("RGBA"))[0, 0] / 255 for name, raw in groundmaterial.textures()}
-        weights = images[slots["txMask"]]
-        albedo = sum(weights[i] * images[slots[f"txDetail{c}AlbedoAO"]][:3] for i, c in enumerate("RGBA"))
-        np.testing.assert_array_equal(np.ones(3), albedo)           # (the shader multiplies txDiffuse by it)
-        data = sum(weights[i] * images[slots[f"txDetail{c}NmMeRo"]] for i, c in enumerate("RGBA"))
-        self.assertAlmostEqual(groundmaterial.GROUND_ROUGHNESS, data[3], places=2)
-        self.assertEqual(0, data[2])                                # (no metal)
-        self.assertLess(abs(data[0] * 2 - 1) + abs(data[1] * 2 - 1), .02)  # (flat)
-        self.assertEqual([128, 128, 255], list((images[slots["txNormal2"]][:3] * 255).round().astype(int)))
-
     def test_individual_detail_images_and_world_scales_share_the_same_definition(self):
         base = kn5.Material("ground_-1_0", "ksPerPixel", 0, 0, 0, [], [("txDiffuse", 0, "base.dds")])
         result = groundmaterial.layered(base, mask="selection.png", details={"R": "asphalt.dds"}, scales={"R": .5})
@@ -117,7 +72,7 @@ class GroundMaterialTest(unittest.TestCase):
         self.assertIn(("txDetailR", 2, "asphalt.dds"), result.maps)
         self.assertEqual(.5, next(p[1] for p in result.props if p[0] == "multR"))
 
-    def test_conversion_makes_only_ground_materials_pbr_and_adds_four_shared_tiny_images(self):
+    def test_conversion_makes_only_ground_materials_classic_and_adds_three_shared_tiny_images(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for name in ("ground_0_0", "ground_1_0", "water"):
@@ -139,7 +94,7 @@ class GroundMaterialTest(unittest.TestCase):
             after_textures = {t[0]: t[2] for t in after["textures"]}
             for name, raw in before_textures.items():
                 self.assertEqual(raw, after_textures[name])
-            self.assertEqual(4, len(after_textures) - len(before_textures))
+            self.assertEqual(3, len(after_textures) - len(before_textures))
             self.assertTrue(sum(len(raw) for name, raw in after_textures.items() if name not in before_textures) < 1024)
             for a, b in zip(before["root"].children, after["root"].children):
                 self.assertEqual(a.name, b.name)
@@ -147,8 +102,8 @@ class GroundMaterialTest(unittest.TestCase):
                     np.testing.assert_array_equal(a.vertices, b.vertices)
                     np.testing.assert_array_equal(a.indices, b.indices)
             materials = {m.name: m for m in after["materials"]}
-            self.assertEqual(groundmaterial.PBR, materials["ground_0_0"].shader)
-            self.assertEqual(groundmaterial.PBR, materials["ground_1_0"].shader)
+            self.assertEqual(groundmaterial.NM4, materials["ground_0_0"].shader)
+            self.assertEqual(groundmaterial.NM4, materials["ground_1_0"].shader)
             unchanged = {m.name: m for m in before["materials"]}["ground_0_0"]
             self.assertEqual(unchanged.maps[0], materials["ground_0_0"].maps[0])     # (txDiffuse: the baked tile image)
             self.assertEqual("ksPerPixel", materials["water"].shader)
