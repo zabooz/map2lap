@@ -5,11 +5,35 @@ import {ghostOf, objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {Navigation} from "./navigation";
 import {GeometryPreview} from "./geometryPreview";
+import type {LoadingDraw} from "./loadingDraw";
+import {inlinePreparation} from "./meshPrepare.fixture";
+
+test("opening limits arrival redraws until success or failure, and always shows the final frame", async () => {
+  for (const fail of [false, true]) {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const view = Object.create(TrackView.prototype) as {open: TrackView["open"]; redraw: LoadingDraw};
+    Object.assign(view, {token: 0, loading: new AbortController(), clear: () => {}, onViewFailed: () => {}, onHover: () => {},
+      selection: {unpick: () => {}}, onIndexed: () => {}, textures: {setLoaded: () => {}},
+      load: async () => { await gate; if (fail) throw new Error("changed"); }});
+    const opening = view.open("alpha", () => {});
+    view.redraw.changed();
+    expect(view.redraw.due(0, false)).toBe(true);
+    view.redraw.changed();
+    expect(view.redraw.due(16, false)).toBe(false);
+    release();
+    await opening;
+    expect(view.redraw.due(17, false)).toBe(true);
+    view.redraw.changed();
+    expect(view.redraw.due(18, false)).toBe(true);
+  }
+});
 
 /** Use real scene modules for loading integration; only the WebGL renderer stays outside these tests. */
 function sceneModules(view: TrackView) {
   const state = view as unknown as {camera: THREE.PerspectiveCamera; byNumber: Map<number, THREE.Mesh>};
   Object.assign(view, {
+    meshPreparer: inlinePreparation,
     navigation: new Navigation(state.camera, () => undefined, () => {}),
     geometryPreview: new GeometryPreview(i => state.byNumber.get(i), () => {}),
   });

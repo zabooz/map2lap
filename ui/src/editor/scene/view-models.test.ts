@@ -7,6 +7,7 @@ import {GeometryPreview} from "./geometryPreview";
 import {ModelDraw} from "./modelDraw";
 import type {PlacementGhost} from "./ghost";
 import type {MeshInfo} from "../types";
+import {inlinePreparation} from "./meshPrepare.fixture";
 
 const part = (i: number, instance: string, asset = "tree", at = [0, 0, 0], scale = 1) => ({i, vertices: 3, indices: 3, name: `nocol_m2l_model_${instance}_0`,
   material: 0, lod_in: 0, lod_out: 1000, center: [0, 0, 0], radius: 1, base: null, first_face: null, copy: false,
@@ -49,7 +50,7 @@ function setUp() {
   Object.assign(view, {token: 1, modelTransformVersion: 0, loading: new AbortController(), trackName: "alpha", scene, usedBytes: 0, settings: {memoryGb: 8},
     meshes: [], byNumber, grounds: [], materialAreas: new Map(), objects: objectsOf(view), selection: selectionOf(view), ghost: ghostOf(view), mover: moverOf(view),
     data: {revision: "source", materials: [], meshes: [], objects: {}}, loadedCopyRevision: null,
-    copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(),
+    copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(), meshPreparer: inlinePreparation,
     ensureModelLight: () => {},
     modelDraw: draw, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
     geometryPreview: new GeometryPreview(i => byNumber.get(i), () => {}), onViewFailed: (message: string | null) => { if (message) errors.push(message); }});

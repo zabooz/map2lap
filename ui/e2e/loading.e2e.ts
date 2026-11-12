@@ -62,3 +62,27 @@ test("a loading error ends the bar and keeps its explanation", async ({page}) =>
   await expect(page.locator("#edit-status")).toHaveText("Could not load this track: The track changed");
   await expect(page.getByRole("progressbar", {name: "Loading track"})).toBeHidden();
 });
+
+test("switching tracks while a Rust worker is loading cannot restore the abandoned track", async ({page}) => {
+  const kernel = gate();
+  let started!: () => void, requests = 0;
+  const arrived = new Promise<void>(resolve => { started = resolve; });
+  await page.context().route("**/editorgeometry.wasm", async route => {
+    if (++requests === 1) { started(); await kernel.waiting; }
+    await route.continue();
+  });
+  try {
+    await page.goto("/");
+    await page.locator("#t-edit").click();
+    await page.locator("#edit-track").selectOption("alpha");
+    await arrived;
+    await page.locator("#edit-track").selectOption("beta");
+    await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
+    kernel.release();
+    await expect(page.locator("#edit-track")).toHaveValue("beta");
+    await expect(page.getByRole("progressbar", {name: "Loading track"})).toBeHidden();
+    await page.locator("#edit-track").selectOption("alpha");
+    await expect(page.locator("#edit-status")).toHaveText(/parts loaded/);
+    await expect(page.locator("#scene canvas")).toBeVisible();
+  } finally { kernel.release(); }
+});

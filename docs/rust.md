@@ -1,5 +1,12 @@
 # The Rust module `earthfast`
 
+The Editor's independent browser kernel is `native/editorgeometry/regions.rs`. Build it with
+`.venv\Scripts\python.exe tools\build_editor_geometry.py` after installing `rustup target add wasm32-unknown-unknown`.
+It has no third-party Rust dependencies. The checked-in `ui/assets/editorgeometry.wasm` is copied into `src/web` by
+the UI build and runs unchanged in Windows and Linux browsers. It does not load or replace `earthfast`, and users need
+neither Rust nor Bun. Its versioned ABI accepts bounded KN5 vertex/index arrays and returns connected face roots;
+`regionsKernel.ts` owns allocations, and browser workers own cancellation and buffer transfer.
+
 The hot loops of grading and painting, in `native/earthfast`. The repo holds the built module for both systems:
 `engine/earthfast.pyd` (Windows) and `engine/earthfast.abi3.so` (Linux release). Both are abi3: any Python >= 3.10.
 

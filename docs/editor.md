@@ -4,6 +4,14 @@ The page is React and TypeScript in `ui/`, built with Bun into the committed `sr
 and the `/api/` endpoints. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
 The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.
 
+Mesh downloads run six at a time. Up to four browser workers prepare ground ray-search trees and use the portable
+Rust/WebAssembly kernel for connected material faces, preserving triangle numbers and object ownership. Buffers transfer
+to the workers and back; a part counts as loaded only after its preparation is attached. Track changes cancel queued work
+and terminate old workers before loading the next track. Copied meshes are prepared before their layout changes atomically.
+During loading, incoming meshes and textures share at most ten preview redraws per second; camera, selection and tool
+changes still draw immediately. Completion and failure both flush the last frame. Source-revision caching avoids checking
+all mesh names again for each part request; retained material-provenance files continue to be validated when read.
+
 The sidebar's Light / Dark buttons select the page's appearance in every tab. Until a manual choice is made, the page follows
 the browser's system colour preference. A manual choice is kept in this browser and applied before the page first paints;
 when storage is blocked it lasts for the current visit. Appearance changes the controls, not the map tiles or 3D track lighting.

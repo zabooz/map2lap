@@ -5,13 +5,17 @@ test("our parked car and fountain can be selected from the library, placed and s
   await backend.post("/__test/builtin-models");
   await openEditor(page);
   const library = page.getByRole("dialog", {name: "Asset library"});
+  let placed = 0;
   for (const [query, name, x] of [["Parked saloon", "Parked saloon — red", 550], ["fountain", "Stone fountain", 720]] as const) {
     await page.getByRole("button", {name: "Insert", exact: true}).click();
     await library.getByLabel("Search objects").fill(query);
     await library.getByRole("button", {name, exact: true}).click();
     await library.getByRole("button", {name: "Place on ground", exact: true}).click();
     await scene(page).click({position: {x, y: 450}});
-    await page.keyboard.press("Escape"); await saved(page);
+    await page.keyboard.press("Escape");
+    // Model preparation answers before the queued draft write; wait for this placement to be retained.
+    await expect.poll(async () => (await (await page.request.get("/api/editor/alpha/index")).json()).models.length).toBe(++placed);
+    await saved(page);
   }
   const index = await (await page.request.get("/api/editor/alpha/index")).json();
   expect(index.models).toHaveLength(2);

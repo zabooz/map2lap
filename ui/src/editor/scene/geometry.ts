@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {acceleratedRaycast, MeshBVH} from "three-mesh-bvh";
+import {acceleratedRaycast, MeshBVH, type SerializedBVH} from "three-mesh-bvh";
 import type {MeshInfo, TrackIndex} from "../types";
 
 export const FLOATS_PER_VERTEX = 11;
@@ -12,9 +12,9 @@ export function bvhBytes(tree: MeshBVH) {
 
 /** A ground mesh made quick to hit: the ground holds most of a track's triangles (Heiligenblut: 5.3 of 6.5 million), a ray
     otherwise reads all of each tile it meets. indirect: the triangles keep their order and numbers. Its bytes. */
-export function speedUpRays(mesh: THREE.Mesh) {
+export function speedUpRays(mesh: THREE.Mesh, prepared?: SerializedBVH) {
   const started = performance.now();
-  const tree = new MeshBVH(mesh.geometry, {indirect: true});
+  const tree = prepared ? MeshBVH.deserialize(prepared, mesh.geometry, {setIndex: false}) : new MeshBVH(mesh.geometry, {indirect: true});
   const bytes = bvhBytes(tree);
   mesh.geometry.boundsTree = tree;
   mesh.raycast = acceleratedRaycast;
@@ -23,6 +23,16 @@ export function speedUpRays(mesh: THREE.Mesh) {
 }
 
 export const meshBytes = (m: MeshInfo) => m.vertices * FLOATS_PER_VERTEX * 4 + 4 + m.indices * 2;
+
+/** Reject truncated geometry and invalid triangle indices before passing its arrays to Rust. Pure. */
+export function validateMesh(info: MeshInfo, buffer: ArrayBuffer) {
+  const {vertices, indices} = info;
+  if (!Number.isInteger(vertices) || vertices < 0 || vertices > 65535 || !Number.isInteger(indices) || indices < 0 || indices % 3
+      || buffer.byteLength !== meshBytes(info)) throw new Error("Invalid track geometry");
+  const offset = vertices * FLOATS_PER_VERTEX * 4;
+  if (new DataView(buffer).getUint32(offset, true) !== indices || new Uint16Array(buffer, offset + 4, indices).some(i => i >= vertices))
+    throw new Error("Invalid track triangle indices");
+}
 
 /** Generated mesh numbers are bound to their model draft or copy layout; source mesh numbers follow the KN5. Pure. */
 export function meshUrl(name: string, data: TrackIndex, info: MeshInfo) {

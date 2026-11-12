@@ -65,6 +65,13 @@ def _source_record_at(path, state):
     return record
 
 
+@functools.lru_cache(maxsize=8)
+def _has_regional_meshes(path, revision):
+    """Whether this source revision needs regional provenance. Pure; shared by all of its part requests."""
+    from app import trackview
+    return any(mesh["name"].startswith(PREFIX) for mesh in trackview._scan(path, revision)["meshes"])
+
+
 def inherited(ac, name, path):
     """Only hash-bound compiled provenance may adopt immutable paints made against an earlier source revision."""
     from app import trackdetail, trackpaint, trackview
@@ -85,10 +92,10 @@ def inherited(ac, name, path):
         return record
     stat = Path(path).stat()
     try:
-        meshes = trackview._scan(str(path), trackview._revision(stat))["meshes"]
+        regional = _has_regional_meshes(str(path), trackview._revision(stat))
     except (AssertionError, struct.error, ValueError, OSError) as error:
         raise trackview.Unreadable(str(error)) from error
-    if any(mesh["name"].startswith(PREFIX) for mesh in meshes):
+    if regional:
         raise ValueError("Regional ground provenance is missing or belongs to another KN5; restore the saved material package")
     return {"paints": [], "tiles": []}
 

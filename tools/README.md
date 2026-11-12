@@ -37,6 +37,7 @@ line here (`engine/tests/test_tools.py`).
 | Can ground render regions retain every material at soft junctions and with filtering, and what textures/draws do they need? | `ground_regions.py [--size 2048] [--materials 12] [--gpu] [--hardware]` (CPU and WebGL prototypes; actual backend reported, no AC/FPS verdict) |
 | A native crash (an access violation without a stack) | `crash.py` |
 | Build the Rust module, read a DLL's imports | `build_native.py`, `pe_imports.py` |
+| Build the Editor's portable Rust geometry kernel for browser workers | `build_editor_geometry.py` |
 | Make a release, test its update | `make_release.py`, `test_update.py` |
 | The CC0 textures a clone lacks | `get_textures.py` |
 | The Editor's shipped library (`assets/library`, packed by `make_release.py`): every shown CC0 object of `library/` simplified, textures as they are | `build_library.py [--level 25]` |

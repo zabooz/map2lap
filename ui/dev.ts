@@ -9,6 +9,11 @@ Bun.serve({
   port: 3000,
   development: {hmr: true, console: true},
   routes: {"/": page,
+    "/editorgeometry.wasm": () => new Response(Bun.file(import.meta.dir + "/assets/editorgeometry.wasm"), {headers: {"Content-Type": "application/wasm"}}),
+    "/src/editor/scene/geometry.worker.js": async () => {
+      const result = await Bun.build({entrypoints: [import.meta.dir + "/src/editor/scene/geometry.worker.ts"], target: "browser"});
+      return result.success ? new Response(result.outputs[0], {headers: {"Content-Type": "text/javascript"}}) : new Response("Worker build failed", {status: 500});
+    },
     "/src/editor/tools/scatter.worker.js": async () => {
       const result = await Bun.build({entrypoints: [import.meta.dir + "/src/editor/tools/scatter.worker.ts"], target: "browser"});
       return result.success ? new Response(result.outputs[0], {headers: {"Content-Type": "text/javascript"}}) : new Response("Worker build failed", {status: 500});

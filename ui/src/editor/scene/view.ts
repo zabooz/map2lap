@@ -40,9 +40,11 @@ import {PlacementGhost} from "./ghost";
 import {ObjectMover} from "./mover";
 import {Pointing} from "./pointing";
 import {Selection, ROAD} from "./selection";
-import {COPIES, fits, nearestLast} from "./inspect";
+import {COPIES, fits, nearestLast, objectIndex} from "./inspect";
 import {DEFAULT_WEATHER, weatherAppearance, type WeatherOptions} from "./weather";
 import {WeatherPreview} from "./weatherPreview";
+import {LoadingDraw} from "./loadingDraw";
+import {MeshPreparer, type PreparedMesh} from "./meshPrepare";
 
 const PARALLEL = 6;                 // meshes asked for at a time
 const PREPARE_BATCH = 32;           // ground tiles whose selection one request prepares at most (a pool of the cores, surfaceindex.prepare)
@@ -112,6 +114,10 @@ export class TrackView {
   private resizing: ResizeObserver;
   private down = new THREE.Raycaster();
   private dirty = true;
+  private drawSchedule?: LoadingDraw;
+  private get redraw() { return this.drawSchedule ??= new LoadingDraw(); }
+  private meshPreparer?: MeshPreparer;
+  private preparationIndexes?: WeakMap<TrackIndex, ReturnType<typeof objectIndex>>;
   private shown = false;
   private token = 0;                // a new number: another track was asked for, what still loads is dropped
   private meshes: THREE.Mesh[] = [];
@@ -165,7 +171,7 @@ export class TrackView {
       release: bytes => { this.usedBytes -= bytes; },
       limited: () => { this.overLimit = true; },
       forgetAlpha: texture => this.pointing.forget(texture),
-      changed: () => { this.dirty = true; },
+      changed: () => this.redraw.changed(),
       failed: message => this.onViewFailed(message),
     });
     this.objects = new TrackObjects({
@@ -401,6 +407,7 @@ export class TrackView {
     this.loading = new AbortController();
     const {signal} = this.loading;
     this.clear();
+    this.redraw.begin(mine);
     this.trackName = name;
     this.onViewFailed(null);
     this.dirty = true;
@@ -408,7 +415,7 @@ export class TrackView {
     this.selection.unpick();
     this.onIndexed(null);
     say(name ? "Reading the track …" : "", name ? null : undefined);
-    if (!name) return;
+    if (!name) { this.redraw.end(mine); return; }
     try {
       await this.load(name, mine, signal, say);
     } catch (e) {
@@ -416,6 +423,8 @@ export class TrackView {
       this.textures.setLoaded(null);
       this.loading.abort();
       say(`Could not load this track: ${(e as Error).message}`, undefined, {failed: (e as Error).message});
+    } finally {
+      if (this.redraw.end(mine)) this.dirty = true;
     }
   }
 
@@ -494,7 +503,9 @@ export class TrackView {
         const asked = this.heightsVersion;
         const buf = await fetchBytes(meshUrl(name, data, info), signal);
         if (mine !== this.token) return;
-        this.addMesh(name, data, info, buf);
+        const geometry = await this.prepareGeometry(data, info, buf, signal);
+        if (mine !== this.token) return;
+        this.addMesh(name, data, info, geometry);
         const tile = groundTile(info.name);
         if (tile && available.has(tile) && !prepared.has(tile)) {
           prepared.add(tile);
@@ -708,7 +719,10 @@ export class TrackView {
         .reduce((sum, m) => sum + COPIES * meshBytes(m.userData.info as MeshInfo), 0) : 0;
       const copyBytes = copies.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
       if (!fits(this.usedBytes - oldCopies, copyBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
-      const copyBuffers = await Promise.all(copies.map(info => jobs(() => fetchBytes(meshUrl(this.trackName, data, info), signal))));
+      const copyBuffers = await Promise.all(copies.map(info => jobs(async () => {
+        const buffer = await fetchBytes(meshUrl(this.trackName, data, info), signal);
+        return this.prepareGeometry(data, info, buffer, signal);
+      })));
       if (mine !== this.token || asked !== this.modelTransformVersion) return null;
       if (data.models?.length) this.ensureModelLight();
       await this.modelDraw.sync(data.models ?? [], data.model_assets ?? {}, data.model_matrices ?? {});
@@ -766,9 +780,10 @@ export class TrackView {
       const newBytes = added.reduce((sum, info) => sum + COPIES * meshBytes(info), 0);
       if (!fits(this.usedBytes - wasBytes, newBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
       const heightAsked = this.heightsVersion, jobs = oneByOne(PARALLEL), revision = data.revision, tag = data.copy_revision ?? "";
-      const buffers = await Promise.all(added.map(info => jobs(() => {
+      const buffers = await Promise.all(added.map(info => jobs(async () => {
         signal.throwIfAborted();
-        return fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/mesh/${info.i}?r=${revision}&c=${tag}`, signal);
+        const buffer = await fetchBytes(`/api/editor/${encodeURIComponent(this.trackName)}/mesh/${info.i}?r=${revision}&c=${tag}`, signal);
+        return this.prepareGeometry(data!, info, buffer, signal);
       })));
       if (mine !== this.token || asked !== this.copyVersion) return;
       if (!fits(this.usedBytes - wasBytes, newBytes, this.settings.memoryGb)) throw new Error("The copies exceed the Editor memory limit");
@@ -783,7 +798,7 @@ export class TrackView {
   }
 
   /** Atomically replace generated copy geometry within the same layout as the model meshes. */
-  private applyCopies(data: TrackIndex, buffers: ArrayBuffer[], heightAsked: number) {
+  private applyCopies(data: TrackIndex, buffers: PreparedMesh[], heightAsked: number) {
     const current = this.data!;
     this.textures.reconcile(current, {...current, ...data});
     const added = data.meshes.filter(info => info.copy), tag = data.copy_revision ?? "";
@@ -1082,7 +1097,7 @@ export class TrackView {
     if (!this.shown) return;
     if (this.weatherPreview?.update(seconds, this.camera, this.ambient.intensity)) this.dirty = true;
     this.ghost.follow();
-    if (this.dirty) {
+    if (this.redraw.due(now, this.dirty)) {
       this.dirty = false;
       for (const m of this.meshes) {  // AC's distances for objects; ground stays closed when viewing the track from high above
         const d = this.camera.position.distanceTo(m.geometry.boundingSphere!.center);
@@ -1119,6 +1134,9 @@ export class TrackView {
   }
 
   private clear() {
+    this.meshPreparer?.dispose();
+    this.meshPreparer = undefined;
+    this.preparationIndexes = undefined;
     this.marquee.cancel();
     this.nightGlow.clear();
     this.lampGlass = [];
@@ -1158,9 +1176,19 @@ export class TrackView {
     this.selection.forget();
   }
 
-  private addMesh(name: string, data: TrackIndex, info: MeshInfo, buf: ArrayBuffer) {
+  private prepareGeometry(data: TrackIndex, info: MeshInfo, buffer: ArrayBuffer, signal: AbortSignal) {
+    signal.throwIfAborted();
+    this.preparationIndexes ??= new WeakMap();
+    let index = this.preparationIndexes.get(data);
+    if (!index) { index = objectIndex(data.objects); this.preparationIndexes.set(data, index); }
+    const selectable = !info.model && !groundTile(info.name) && (index.has(info.i) || /^nocol_road_edge_dirt_/.test(info.name));
+    this.meshPreparer ??= new MeshPreparer();
+    return this.meshPreparer.prepare(info, buffer, selectable ? index.get(info.i) ?? [] : null, GROUND.test(info.name), signal);
+  }
+
+  private addMesh(name: string, data: TrackIndex, info: MeshInfo, prepared: PreparedMesh) {
     if (this.byNumber.has(info.i)) return;
-    const m = new THREE.Mesh(makeGeometry(info, buf), this.textures.material(name, data, info.material));
+    const m = new THREE.Mesh(makeGeometry(info, prepared.buffer), this.textures.material(name, data, info.material));
     m.userData = {lodIn: info.lod_in, lodOut: info.lod_out, info};
     m.name = info.name;
     takeShadows(m);
@@ -1174,10 +1202,9 @@ export class TrackView {
     this.meshes.push(m);
     this.byNumber.set(info.i, m);
     // (a model is always picked as its object: it never reaches the search for a material's connected faces)
-    if (!info.model && !groundTile(info.name) && (this.objects.holds(info.i) || /^nocol_road_edge_dirt_/.test(info.name))) {
+    if (prepared.regions) {
       this.materialAreas ??= new Map();
-      this.materialAreas.set(info.i, new MaterialRegions(m.geometry.getAttribute("position"),
-        (m.userData.indices ?? m.geometry.getIndex()!.array) as Uint16Array, this.objects.piecesIn(info.i) ?? []));
+      this.materialAreas.set(info.i, new MaterialRegions(prepared.regions, this.objects.piecesIn(info.i) ?? []));
     }
     void this.surfaceOverlay?.add(m).catch(e => this.surfaceFailed(String(e.message ?? e)));
     void this.roadRegionOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
@@ -1187,12 +1214,13 @@ export class TrackView {
     this.selection.markLater();
     if (GROUND.test(info.name)) {
       this.groundVersion++;
-      this.usedBytes += speedUpRays(m);
+      this.usedBytes += speedUpRays(m, prepared.bvh);
+      if (this.geometryPreview.changedMeshes.has(info.i)) m.geometry.boundsTree?.refit();
       this.grounds.push(m);
       const box = m.geometry.boundingBox!, c = this.camera.position;
       if (c.x >= box.min.x && c.x <= box.max.x && c.z >= box.min.z && c.z <= box.max.z) this.navigation.settle();    // (it may have got below it)
     }
-    this.dirty = true;
+    this.redraw.changed();
     this.hoverDue = true;
   }
 

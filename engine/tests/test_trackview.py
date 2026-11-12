@@ -33,6 +33,43 @@ def mesh(name, n, material=0, renderable=1):
 
 
 class TrackViewTest(unittest.TestCase):
+    def test_plain_source_mesh_names_are_checked_once_for_thousands_of_part_requests(self):
+        from app import tracknative
+        visits = []
+
+        class Name(str):
+            def startswith(self, prefix, *args):
+                visits.append(str(self))
+                return super().startswith(prefix, *args)
+
+        with mock.patch.object(trackview, "_scan", return_value={"meshes": [{"name": Name("nocol_props")}, {"name": Name("1ROAD_ground_0_0")}]}):
+            for _ in range(10):
+                self.assertEqual({"paints": [], "tiles": []}, tracknative.inherited(self.ac, self.name, self.path))
+        self.assertEqual(2, len(visits), "Each mesh's provenance flag is independent of which part was requested")
+
+    def test_provenance_presence_and_validation_remain_live_after_a_plain_source_was_cached(self):
+        from pathlib import Path
+        from app import trackdetail, tracknative, trackpaint
+        self.assertEqual([], tracknative.inherited(self.ac, self.name, self.path)["paints"])
+        record = {"schema": 1, "paints": [], "tiles": [], "kn5_sha256": trackdetail._kn5_digest(self.path),
+                  "kn5_size": os.stat(self.path).st_size}
+        file = Path(self.path).parent / tracknative.SOURCE_FILE
+        file.write_text(json.dumps({**record, "digest": trackpaint._digest(record)}), encoding="utf-8")
+        self.assertEqual(record["kn5_sha256"], tracknative.inherited(self.ac, self.name, self.path)["kn5_sha256"])
+        file.write_text(json.dumps({**record, "digest": "corrupt"}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "provenance has changed"):
+            tracknative.inherited(self.ac, self.name, self.path)
+        file.unlink()
+        self.assertEqual([], tracknative.inherited(self.ac, self.name, self.path)["paints"])
+
+    def test_a_rebuilt_source_cannot_reuse_the_cached_absence_of_regional_meshes(self):
+        from app import tracknative
+        self.assertEqual([], tracknative.inherited(self.ac, self.name, self.path)["paints"])
+        kn5.write(self.path, [], [], kn5.Node(1, "map2lap", 1, matrix=IDENTITY,
+                  children=[mesh(tracknative.PREFIX + "0", 3)]))
+        with self.assertRaisesRegex(ValueError, "provenance is missing"):
+            tracknative.inherited(self.ac, self.name, self.path)
+
     def test_stale_model_mesh_revision_is_rejected_before_an_index_can_be_reused_or_removed(self):
         from app import trackedits
         vertices = np.zeros(3, kn5.VERTEX)
