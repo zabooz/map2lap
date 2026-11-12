@@ -4,7 +4,6 @@ import configparser
 import hashlib
 import io
 import json
-from pathlib import Path
 import subprocess
 import time
 
@@ -94,9 +93,14 @@ def main():
             proc.wait()
         conflicts = []
         for path, raw in before.items():
-            if path.read_bytes() == writes[path]:
-                path.write_bytes(raw)
-            elif path.read_bytes() != raw:
+            try:
+                current = path.read_bytes()
+                if current == writes[path]:
+                    path.write_bytes(raw)
+                elif current != raw:
+                    conflicts.append(str(path))
+            except OSError:
+                # A deleted/locked INI must not prevent restoring the other independent backups.
                 conflicts.append(str(path))
         receipt = RUNTIME / 'updated-script.json'
         expected_script = sha(writes[SCRIPT])

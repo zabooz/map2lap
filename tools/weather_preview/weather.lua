@@ -4,10 +4,12 @@
 -- Experimental windscreen overlay is retained for later work, disabled in the normal preview.
 local WINDSCREEN_ENABLED = false
 local glass, veil
+local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local folder = ac.getFolder(ac.FolderID.CurrentTrack) .. '/extension/'
 local sim = ac.getSim()
 local elapsed, polling, heartbeat = 0, 0, 0
 local mode = 'off'
+local needsReset = true
 local density = 1
 local previousWeather = nil
 local lastFileMode = (io.load(folder .. 'map2lap_weather_probe_mode.txt') or ''):match('%a+')
@@ -137,40 +139,53 @@ local function setMode(nextMode)
   if nextMode ~= 'off' and nextMode ~= 'rain' and nextMode ~= 'snow' then return end
   if nextMode == mode then return end
   mode = nextMode
+  needsReset = true
   ac.log('M2L_WEATHER mode=' .. mode .. ' CSP=' .. ac.getPatchVersion() .. ' build=' .. ac.getPatchVersionCode())
   notify()
 end
 
--- Shelter: a 7 x 7 grid of 4 m columns around the camera. Two upward rays per frame refresh one column each,
--- so the whole box is rechecked about six times a second. A particle below a column's roof is not drawn:
--- rain stops under a bridge or in a tunnel instead of falling through the ceiling. Cars are ignored.
+-- Shelter: a 7 x 7 grid of 4 m columns around the camera. Sample down from above to find the uppermost
+-- covering surface, including stacked bridges. A particle below that surface is hidden. Cars are ignored.
+-- This is a coarse vertical shelter mask; it does not model precipitation blowing in from the side.
 local GRID, CELL = 7, 4
-local floor, max = math.floor, math.max
-local roofIx, roofIz, roofY = {}, {}, {}
-for i = 0, GRID * GRID - 1 do roofIx[i], roofIz[i], roofY[i] = nil, nil, -1 end
+local roofIx, roofIz, roofY, roofBand = {}, {}, {}, {}
+local roofPhysicsY, roofTrackY = {}, {}
+local NO_ROOF, ROOF_REACH = -1e9, 60
+for i = 0, GRID * GRID - 1 do
+  roofY[i], roofPhysicsY[i], roofTrackY[i] = NO_ROOF, NO_ROOF, NO_ROOF
+end
 local roofCursor, trackCursor, trackPhase = 0, 0, 0
-local rayOrigin, rayUp = vec3(), vec3(0, 1, 0)
+local rayOrigin, roofDirection = vec3(), vec3(0, -1, 0)
 -- Physics meshes (collidable road, bridge decks, tunnel linings) answer in about 0.01 ms, the full track mesh
 -- in about 0.5 ms (measured on Heiligenblut). So every frame two columns ask the physics meshes, and every
 -- fourth frame one column asks the track mesh as well, which also finds non-collidable roofs and tree crowns.
 local function castRoof(ix, iz, cy, method)
-  -- From a little below eye level, so a tunnel ceiling or bridge deck above the road is found.
-  rayOrigin:set((ix + 0.5) * CELL, cy - 1, (iz + 0.5) * CELL)
-  local ray = render.createRay(rayOrigin, rayUp, 60)
+  -- Reach 60 m above the camera for bridge decks/roofs; end below the particle box. Taller covers remain
+  -- outside this approximation. Starting at eye level would miss upper decks behind the first ceiling.
+  local top = cy + ROOF_REACH
+  rayOrigin:set((ix + 0.5) * CELL, top, (iz + 0.5) * CELL)
+  local ray = render.createRay(rayOrigin, roofDirection, ROOF_REACH + HALFY)
   local hit = method == 'track' and ray:track(0) or ray:physics()
-  return hit > 0 and cy - 1 + hit or -1e9
+  local height = hit > 0 and top - hit or NO_ROOF
+  -- Terrain below the eye is handled by depth testing. Treating a sloped road as a flat 4 m roof cell
+  -- would hide valid splashes and nearby drops on its downhill side.
+  return height > cy and height or NO_ROOF
 end
 local function updateShelter(cx, cy, cz)
   local baseX, baseZ = floor(cx / CELL) - 3, floor(cz / CELL) - 3
+  local band = floor(cy / CELL)
   for _ = 1, 2 do
     local cell = roofCursor
     roofCursor = (roofCursor + 1) % (GRID * GRID)
     local ix, iz = baseX + cell % GRID, baseZ + floor(cell / GRID)
     local slot = (ix % GRID) * GRID + iz % GRID
-    local roof = castRoof(ix, iz, cy, 'physics')
-    -- A fresh column forgets the old track answer; a known column keeps the higher of the two roofs.
-    if roofIx[slot] ~= ix or roofIz[slot] ~= iz then roofIx[slot], roofIz[slot], roofY[slot] = ix, iz, roof
-    else roofY[slot] = max(roofY[slot], roof) end
+    if roofIx[slot] ~= ix or roofIz[slot] ~= iz or roofBand[slot] ~= band then
+      roofIx[slot], roofIz[slot], roofBand[slot] = ix, iz, band
+      roofTrackY[slot] = NO_ROOF
+    end
+    -- Replace each channel's answer, including misses. Keeping an all-time maximum makes old roofs persist.
+    roofPhysicsY[slot] = castRoof(ix, iz, cy, 'physics')
+    roofY[slot] = max(roofPhysicsY[slot], roofTrackY[slot])
   end
   trackPhase = (trackPhase + 1) % 4
   if trackPhase == 0 then
@@ -178,8 +193,9 @@ local function updateShelter(cx, cy, cz)
     trackCursor = (trackCursor + 1) % (GRID * GRID)
     local ix, iz = baseX + cell % GRID, baseZ + floor(cell / GRID)
     local slot = (ix % GRID) * GRID + iz % GRID
-    if roofIx[slot] == ix and roofIz[slot] == iz then
-      roofY[slot] = max(roofY[slot], castRoof(ix, iz, cy, 'track'))
+    if roofIx[slot] == ix and roofIz[slot] == iz and roofBand[slot] == band then
+      roofTrackY[slot] = castRoof(ix, iz, cy, 'track')
+      roofY[slot] = max(roofPhysicsY[slot], roofTrackY[slot])
     end
   end
 end
@@ -200,7 +216,6 @@ local function hide(from, to)
   end
 end
 
-local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
 local raw = vertices.raw
 
 -- Writes one particle's quad: centre c, half side vector s, half axis vector e, packed alpha/softness.
@@ -242,7 +257,8 @@ local function buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, vx, vy0, 
       local edge = min(1, (15 - distance) / 4) * min(1, (distance - 1.4) / 1.2)
       -- The streak follows the apparent velocity: fall plus wind, minus the camera's own motion.
       local vy = vy0 - speed
-      local relative = sqrt(vx * vx + vy * vy + vz * vz)
+      -- A free camera can move with a drop; keep its zero apparent velocity finite when normalising.
+      local relative = max(1e-6, sqrt(vx * vx + vy * vy + vz * vz))
       local ux, uy, uz = -vx / relative, -vy / relative, -vz / relative
       -- 16 ms of shutter smear along the apparent velocity.
       local hh = min(0.6, max(0.05, relative * 0.016)) * 0.5
@@ -341,6 +357,13 @@ end
 
 -- Rewrites the vertex buffer for this frame's camera, wind and time.
 local function build()
+  if needsReset then
+    -- Rain splashes occupy the tail of the shared snow buffer. Clear it even when the next snow density
+    -- uses fewer particles, and after off/on, so old crowns cannot remain frozen in another weather mode.
+    hide(0, COUNT)
+    activeCount, splashBudget, needsReset = 0, 0, false
+    for i = 0, SPLASHES - 1 do splashAge[i] = 1e9 end
+  end
   local snow = mode == 'snow'
   local camera, look = sim.cameraPosition, sim.cameraLook
   local cx, cy, cz = camera.x, camera.y, camera.z
@@ -411,33 +434,15 @@ function script.frameBegin(dt, gameDT)
     local built = os.preciseClock()
     mesh:alterVertices(vertices)
     luaMs, submitMs = (built - start) * 1000, (os.preciseClock() - built) * 1000
+  else
+    drawn, shelteredCount, luaMs, shelterMs, submitMs = 0, 0, 0, 0, 0
   end
   if heartbeat > 5 then
     -- avg_fps is frames per real second over the whole heartbeat, the number for cost comparisons.
     ac.log(string.format('M2L_WEATHER mode=%s frames=%d drawn=%d sheltered=%d build_ms=%.3f rays_ms=%.3f upload_ms=%.3f avg_fps=%.1f camera=%s',
       mode, frames, drawn, shelteredCount, luaMs, shelterMs, submitMs, beginCount / heartbeat, tostring(sim.cameraPosition)))
     heartbeat, beginCount = 0, 0
-    -- Diagnostic: cost of one upward ray per method, and the roof grid relative to the camera.
-    local c = sim.cameraPosition
-    rayOrigin:set(c.x, c.y - 1, c.z)
-    local t0 = os.preciseClock()
-    local a = render.createRay(rayOrigin, rayUp, 60):track(0)
-    local t1 = os.preciseClock()
-    local b = render.createRay(rayOrigin, rayUp, 60):track(1)
-    local t2 = os.preciseClock()
-    local p = render.createRay(rayOrigin, rayUp, 60):physics()
-    local t3 = os.preciseClock()
-    local roofs = {}
-    for slot = 0, GRID * GRID - 1 do
-      if roofY[slot] > -1e8 then roofs[#roofs + 1] = string.format('%d,%d:%+.0f', roofIx[slot] - floor(c.x / CELL), roofIz[slot] - floor(c.z / CELL), roofY[slot] - c.y) end
-    end
-    ac.log(string.format('M2L_SHELTER track0=%.3fms(%.1f) track1=%.3fms(%.1f) physics=%.3fms(%.1f) roofs=%d [%s]',
-      (t1 - t0) * 1000, a, (t2 - t1) * 1000, b, (t3 - t2) * 1000, p, #roofs, table.concat(roofs, ' ')))
     ac.log(string.format('M2L_WIND actualKmh=%.2f vectorMs=%s type=%s', sim.windSpeedKmh, tostring(wind), tostring(ac.getConditionsSet().currentType)))
-    local car = ac.getCar(0)
-    ac.log(string.format('M2L_CAR pos=%s side=%s up=%s look=%s camera=%s mode=%d', tostring(car.position), tostring(car.side),
-      tostring(car.up), tostring(car.look), tostring(sim.cameraPosition), sim.cameraMode))
-    if glass and glass.mesh then ac.log('M2L_GLASS flowOffset=' .. tostring(glass.pass.values.gFlowOffset)) end
     ac.log(string.format('M2L_VISIBILITY sky=%s horizon=%s sun=%s color=%s fov=%.2f',
       tostring(sim.skyColor), tostring(sim.horizonColor), tostring(sim.lightColor), tostring(batch.values.gColor), sim.cameraFOV))
   end
