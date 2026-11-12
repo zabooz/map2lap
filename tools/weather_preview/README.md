@@ -77,7 +77,19 @@ is unavailable, contact shading remains as a fallback. Support across different 
 `run.py --mode glassred` colours rain footprints solid red for visual diagnosis without altering movement;
 `run.py --mode glass` restores the water material. Wiper water is included in the red footprint view.
 
-## Rust rain on glass
+## Librain front-glass port (in progress)
+
+The active liquid backend is now the classic librain GPU depth pipeline. Pinned
+source, licensing, adaptations and remaining work are recorded in
+[`third_party/librain/PORT.md`](../../third_party/librain/PORT.md). This is an
+unaccepted front-glass iteration; side liquid is temporarily disabled. Keep
+`glassred` active for movement/wipe review. Its inset shows the unprojected depth.
+
+The previous RainHybrid worker is stopped and no longer starts automatically.
+`rainrust|rainlua` no longer select an active backend. The following description
+documents the checkpointed experiment, not the active simulation.
+
+## Checkpointed Rust rain experiment
 
 `<python> tools/weather_preview/rain_rust.py` builds/starts the standalone rain helper in the owned AC preview.
 Preview launch and hot reload start the existing `out/rust-rain/rain-worker.exe` automatically.

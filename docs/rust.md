@@ -10,7 +10,13 @@ It exits with its exact AC process handle. This worker changes falling-snow geom
 This is currently preview integration: release build/package/startup must ship and start the precompiled helper
 before it becomes a default of exported tracks or product Play. End users must never need to compile it.
 
-The preview's separate `tools/weather_preview/rain_worker.rs` owns glass-water droplets on front/side panes,
+The rain preview is being replaced with a GPU librain classic-path port; see
+[`third_party/librain/PORT.md`](../third_party/librain/PORT.md) for its exact scope.
+The old rain helper is stopped and automatic startup is disabled. No new Rust
+preparation backend is implemented yet. The description below records the
+checkpointed experiment, not the currently active rain simulation.
+
+The experimental `tools/weather_preview/rain_worker.rs` owns glass-water droplets on front/side panes,
 using `AcTools.CSP.Limited.Map2Lap.RainHybrid.v3`. Build/start with `tools/weather_preview/rain_rust.py`;
 the ignored binary is `out/rust-rain/rain-worker.exe`. Lua submits nonblocking requests and rasterizes
 same-texture height sprites for the existing GPU glass pass. Rust handles small and large droplets together,

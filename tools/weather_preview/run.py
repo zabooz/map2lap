@@ -90,7 +90,6 @@ def main():
         print(json.dumps(state), flush=True)
         from snow_rust import ensure_running
         ensure_running()
-        ensure_running('rain')
         state['exit_code'] = proc.wait()
     finally:
         if proc is not None and proc.poll() is None:

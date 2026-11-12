@@ -65,7 +65,6 @@ def main():
         receipt.write_text(json.dumps({'pid': pid, 'sha256': new_hash}, indent=2))
         from snow_rust import ensure_running
         ensure_running()
-        ensure_running('rain')
         print('Updated own weather script; cleanup watcher active.', flush=True)
     finally:
         KERNEL.CloseHandle(handle)
