@@ -395,8 +395,37 @@ function script.draw3D()
     local lift = 1.8
     color.r, color.g, color.b = max(0.06, horizon.r * lift), max(0.065, horizon.g * lift), max(0.07, horizon.b * lift)
   end
+  -- The veil first, the particles over it: the particle volume ends where the veil begins to build up.
+  -- Extinction per metre: heavy rain leaves about 1 km of visibility, heavy snow about 500 m
+  -- (contrast down to 5 percent), so k = 3/1000 and 6/1000 at full density.
+  veil.values.gDensity = density * (snow and 0.006 or 0.003)
+  render.fullscreenPass(veil)
   render.mesh(batch)
   frames = frames + 1
 end
+
+-- Beyond the particle volume rain and snow still take contrast out of the scene. A depth-aware fullscreen pass
+-- adds fog-coloured extinction growing from 12 m; the sky keeps its native haze. The pass is hardware-clipped
+-- nearer than 8 m, so the cockpit costs nothing.
+veil = {
+  async = true,
+  blendMode = render.BlendMode.AlphaBlend,
+  depthMode = render.DepthMode.ReadOnly,
+  depth = 8,
+  cacheKey = 1,
+  values = {gDensity = 0, gStart = 12},
+  shader = [[
+    float4 main(PS_IN pin) {
+      float depthValue = pin.GetDepth();
+      float4 posW = mul(float4(pin.Tex, depthValue, 1), gTexToCamera);
+      posW.xyz /= posW.w;
+      float dist = length(posW.xyz);
+      pin.PosC = normalize(posW.xyz) * 1e3;
+      float t = 1 - exp(-gDensity * max(0, dist - gStart));
+      clip(depthValue >= 1 ? -1 : t - 0.002);
+      return float4(pin.GetFogColor(), t);
+    }
+  ]]
+}
 
 ac.log('M2L_WEATHER look=v4: one batched mesh for every particle')
