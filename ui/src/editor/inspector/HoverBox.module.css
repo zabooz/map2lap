@@ -1,4 +1,4 @@
-/* What the pointer sees, contained by the right inspector. */
+/* What the pointer sees, shared by the floating overlay and the Inspector's technical details. */
 .box { font-size: 12px; }
 .box h4 { margin: 0 0 4px; font-size: 13px; }
 .box dl + h4 { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }

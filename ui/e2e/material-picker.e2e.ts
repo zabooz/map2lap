@@ -13,7 +13,7 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   const thumbnail = panel.getByRole("img", {name: "Selected texture"});
   const originalThumbnail = await thumbnail.getAttribute("src");
   const originalBytes = await (await page.request.get(originalThumbnail!)).body();
-  await panel.getByRole("button", {name: "Edit texture"}).click();
+  await panel.getByRole("button", {name: "Change texture…"}).click();
   const picker = page.getByRole("dialog", {name: "Asset library"});
   await expect(picker).toBeVisible();
   await expect(picker).toContainText("Shrubland");
@@ -47,7 +47,7 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   await expect(thumbnail).toHaveAttribute("src", originalThumbnail!);
   await page.keyboard.press("Control+Shift+z"); await saved(page);
   await expect(thumbnail).toHaveAttribute("src", firstThumbnail);
-  await panel.getByRole("button", {name: "Edit texture"}).click();
+  await panel.getByRole("button", {name: "Change texture…"}).click();
   await picker.getByLabel('Texture file').setInputFiles({name: "blue.png", mimeType: "image/png",
     buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC", "base64")});
   await importer.getByRole("button", {name: "Add to library", exact: true}).click();
@@ -58,18 +58,18 @@ test("appearance and ground Edit open the same searchable material picker; Escap
   expect(secondBytes.equals(appliedBytes)).toBe(false);
 });
 
-test("Properties show the selection's facts and what is under the pointer; Details keep the selected mesh's whole list", async ({page}) => {
+test("Selection shows object facts and options; Details keeps selected mesh diagnostics", async ({page}) => {
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
   const panel = page.getByRole("complementary", {name: "Inspector"});
-  await expect(panel.getByRole("tab", {name: "Properties", exact: true})).toHaveAttribute("aria-selected", "true");
-  await expect(panel.getByText("Under pointer", {exact: true})).toBeVisible();
+  await expect(panel.getByRole("tab", {name: "Selection", exact: true})).toHaveAttribute("aria-selected", "true");
+  await expect(panel.locator("#inspect-pointer")).toHaveCount(0);
   await expect(panel.locator("#inspect-selection")).toContainText("Physics");
   await panel.getByRole("tab", {name: "Details", exact: true}).click();
-  await expect(panel.getByText("Under pointer", {exact: true})).toBeHidden();
+  await expect(panel.locator("#inspect-pointer")).toHaveCount(0);
   await expect(panel.getByText("Selected mesh details", {exact: true})).toBeVisible();
-  await panel.getByRole("tab", {name: "Properties", exact: true}).click();
+  await panel.getByRole("tab", {name: "Selection", exact: true}).click();
   await expect(panel.locator("#inspect-selection")).toContainText("Asphalt");
   await expect(panel.getByText("Browse library", {exact: true})).toHaveCount(0);
   await page.screenshot({path: test.info().outputPath("properties-panel.png")});
@@ -94,9 +94,7 @@ test("asphalt can use an imported material without changing its driving surface"
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-view-failed")).toBeVisible();     // (a toast: no Details tab to open first)
-  await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
-  await saved(page);
-  await expect(page.locator("#edit-paints")).toHaveCount(0);
+
 });
 
 test("a ground selection of more than 64 tiles has no limit before Apply", async ({page}) => {
@@ -109,7 +107,7 @@ test("a ground selection of more than 64 tiles has no limit before Apply", async
   await openEditor(page);
   const at = await centre(scene(page));
   await page.mouse.click(at.x, at.y);
-  await page.getByRole("button", {name: "Edit texture"}).click();
+  await page.locator("#inspect-options").getByRole("button", {name: "Change texture…"}).click();
   const picker = page.getByRole("dialog", {name: "Asset library"});
   await expect(picker).toContainText("Appearance changes only");
   await expect(picker).not.toContainText("at most 64");

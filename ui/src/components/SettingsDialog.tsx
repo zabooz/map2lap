@@ -205,13 +205,14 @@ const KEYS: {title: string; rows: [string, string][]}[] = [
     ["Shift+Click", "Select all matching objects or ground areas, including separate ones"],
     ["Ctrl+Click", "Add to the selection, or remove an object from it"],
     ["Right click", "Its menu: Move, Duplicate, Mark all of its sort, Delete"],
-    ["M", "Move: drag selected objects along the terrain"],
+    ["T", "Transform: drag selected objects along the terrain"],
+    ["E", "Insert: open the object library to import or place a model"],
     ["C", "Copy: pick once, then click to place repeatedly"],
     ["Delete", "Delete the selection or marked objects"],
     ["X", "Delete the selection; with nothing selected, toggle click-to-delete"],
   ]},
   {title: "Terrain", rows: [
-    ["T", "Smooth road: mark a road region, add points for branches, then raise strength from 0%; changes apply automatically"],
+    ["R", "Smooth road: mark a road region, add points for branches, then raise strength from 0%; changes apply automatically"],
     ["H", "Elevation: on and off"],
   ]},
   {title: "Tool options", rows: [

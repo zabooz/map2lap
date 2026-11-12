@@ -2,6 +2,23 @@ import {expect, test} from "bun:test";
 import {isCurrent, TrackEdits, type Removed} from "./edits";
 import {tree, json, server, settle, started} from "./edits.fixture";
 import type {SurfaceCut} from "../scene/surfaceCuts";
+import {isChanged} from "./useSave";
+
+test("wall height and texture change together in one Undo step and travel in the saved draft", async () => {
+  const {edits, s} = await started();
+  const walls = [{id: "t_0_0#4", rise: 1.2, material: "a".repeat(64)}];
+  edits.setWalls(walls);
+  expect(edits.state().walls).toEqual(walls);
+  expect(isChanged(edits.state())).toBe(true);
+  edits.undo(); expect(edits.state().walls).toEqual([]);
+  edits.redo(); expect(edits.state().walls).toEqual(walls);
+  edits.saveNow(); await settle();
+  expect((s.asked[0].body as unknown as {walls: unknown}).walls).toEqual(walls);
+  s.asked[0].answer(json({revision: 4, meshes: [-1]})); await settle();
+  expect(edits.changed()).toBe(true);
+  edits.markSaved();
+  expect(isCurrent(edits.state())).toBe(true);
+});
 
 test("changes still on their way are counted until each is done, a failed one too", async () => {
   const {edits} = await started(); let go = () => {};

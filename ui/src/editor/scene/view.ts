@@ -395,8 +395,9 @@ export class TrackView {
     this.applyLight();
     if (data.models?.length) { this.ensureModelLight(); await this.modelDraw.sync(data.models, data.model_assets ?? {}, data.model_matrices ?? {}); }
     if (mine !== this.token) return;
-    if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Revert to saved removes them while they are unsaved.`);
+    if (data.paint_errors?.length) this.onViewFailed(`Some material edits could not be shown: ${data.paint_errors.join("; ")}. Original textures are shown for affected areas. Use Undo to remove the texture change.`);
     this.objects.index(data.objects);
+    this.objects.setWallHidden(data.wall_hidden ?? []);
     this.objects.rewant();                  // (the sorts named before the list was there; no mesh is loaded yet)
     if (data.treefx) void this.loadTrees();
     this.onIndexed(data.revision);
@@ -751,6 +752,7 @@ export class TrackView {
   /** Atomically replace generated copy geometry within the same layout as the model meshes. */
   private applyCopies(data: TrackIndex, buffers: ArrayBuffer[], heightAsked: number) {
     const current = this.data!;
+    this.textures.reconcile(current, {...current, ...data});
     const added = data.meshes.filter(info => info.copy), tag = data.copy_revision ?? "";
     for (const mesh of this.meshes.filter(m => (m.userData.info as MeshInfo).copy)) {
       const info = mesh.userData.info as MeshInfo;
@@ -764,9 +766,11 @@ export class TrackView {
     const sourceObjects = Object.fromEntries(Object.entries(current.objects).filter(([key]) => !key.startsWith("copy_")));
     const copyObjects = Object.fromEntries(Object.entries(data.objects).filter(([key]) => key.startsWith("copy_")));
     this.data = {...current, copy_revision: tag, draft: data.draft,
-      meshes: [...current.meshes.filter(info => !info.copy), ...added], objects: {...sourceObjects, ...copyObjects}};
-    this.objects.indexCopies(copyObjects);
+      materials: data.materials ?? current.materials, textures: data.textures ?? current.textures, wall_hidden: data.wall_hidden ?? [],
+      meshes: [...current.meshes.filter(info => !info.copy), ...added], objects: {...sourceObjects, ...data.objects, ...copyObjects}};
+    this.objects.index(this.data.objects);
     this.objects.rewant();
+    this.objects.setWallHidden(data.wall_hidden ?? []);
     added.forEach((info, k) => {
       const bytes = COPIES * meshBytes(info);
       this.usedBytes += bytes;

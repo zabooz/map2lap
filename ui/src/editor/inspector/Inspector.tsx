@@ -94,23 +94,16 @@ interface TextureAppearance {
 /** What the Inspector changes the shown texture's settings with (usePaint). */
 export interface Restyling {busy: boolean; error: string | null; restyle: (paint: string, look: TextureLook, variation?: boolean) => Promise<boolean>}
 
-/** The active colour image, separated from source mesh/material diagnostics. onEdit: opens the textures, null where the paint can't change.
-    settings: the applied texture's settings to change in place, in place of their summary; absent where they can't change. */
-export function AppearanceCard({info, onEdit, settings}: {info: TextureAppearance; onEdit: (() => void) | null; settings?: ReactNode}) {
+/** The selected colour image and its appearance facts; all editable controls live below it in Options. */
+export function AppearanceCard({info}: {info: TextureAppearance}) {
   const [failed, setFailed] = useState(false);
   return <>
-    {info.preview && !failed && (onEdit ? <button type="button" className={styles.appearance} aria-label="Edit texture" onClick={onEdit}>
-      <img className={styles.preview} src={info.preview} alt="Selected texture" onError={() => setFailed(true)} />
-    </button> : <img className={styles.preview} src={info.preview} alt="Selected texture" onError={() => setFailed(true)} />)}
+    {info.preview && !failed && <img className={styles.preview} src={info.preview} alt="Selected texture" onError={() => setFailed(true)} />}
     <strong>{info.name}</strong>
     {info.repeat && <p className="small muted">{info.repeat.join(" × ")} m per repeat{info.variation && " · Repetition variation"}</p>}
     {info.mixed && <p className="small muted">Blended edge: showing the dominant texture at the selected point.</p>}
-    {!settings && info.paint && info.look && info.maps && <p className="small muted">{lookSummary(info.look, info.maps)}</p>}
+    {info.paint && info.look && info.maps && <p className="small muted">{lookSummary(info.look, info.maps)}</p>}
     {failed && <p className="small muted">Texture preview unavailable.</p>}
-    {onEdit && <div className={styles.actions}>
-      <button type="button" className={styles.change} onClick={onEdit}>Change texture…</button>
-    </div>}
-    {settings}
   </>;
 }
 
@@ -159,8 +152,18 @@ export function SelectionFacts({hovered: h}: {hovered: Hovered}) {
   </dl>;
 }
 
-function Appearance({name, picked, version, onEdit, restyling}: {name: string; picked: Picked; version: string; onEdit: (() => void) | null;
-  restyling: Restyling | null}) {
+/** The selected object's colour image, including TreeFX images kept outside the KN5 texture table. Pure. */
+export function objectTexturePreview(name: string, picked: Picked) {
+  const source = picked.inspection!;
+  if (source.hovered.treefx && source.hovered.texture) {
+    return `/api/editor/${encodeURIComponent(name)}/treefx/${encodeURIComponent(source.hovered.treefx.model)}/${encodeURIComponent(source.hovered.texture)}`;
+  }
+  return source.texture !== null && source.texture >= 0
+    ? `/api/editor/${encodeURIComponent(name)}/thumbnail?${new URLSearchParams({texture: String(source.texture), r: source.revision})}` : "";
+}
+
+function Appearance({name, picked, version, onEdit, restyling, options}: {name: string; picked: Picked; version: string; onEdit: (() => void) | null;
+  restyling: Restyling | null; options?: ReactNode}) {
   const [answer, setAnswer] = useState<{key: string; spot: string; info?: TextureAppearance; error?: string} | null>(null);
   const source = picked.inspection!, point = picked.surface;
   const ground = !!point && point.face === undefined;
@@ -180,29 +183,41 @@ function Appearance({name, picked, version, onEdit, restyling}: {name: string; p
   // (after an edit the point's last answer stays while the new one comes, so the panel keeps its place and focus)
   const stale = answer?.key !== key;
   const info: TextureAppearance | undefined = ground ? answer?.spot === spot ? answer.info : undefined : {
-    name: source.hovered.texture ?? "No texture", preview: source.texture !== null && source.texture >= 0
-      ? `/api/editor/${encodeURIComponent(name)}/thumbnail?${new URLSearchParams({texture: String(source.texture), r: source.revision})}` : "",
+    name: source.hovered.texture ?? "No texture", preview: objectTexturePreview(name, picked),
     repeat: null, variation: false, original: false, mixed: false,
   };
-  return <section id="inspect-appearance" className={styles.section}>
+  return <><section id="inspect-appearance" className={styles.section}>
     <h3>Appearance</h3>
-    {info ? <AppearanceCard key={info.preview} info={info} onEdit={onEdit} settings={restyling && onEdit && info.paint && info.look
-      ? <LookControls key={spot} info={info} stale={stale} restyling={restyling} /> : undefined} /> : <p className="small muted">
+    {info ? <AppearanceCard key={info.preview} info={info} /> : <p className="small muted">
       {answer?.key === key && answer.error ? answer.error : "Reading applied texture…"}</p>}
-  </section>;
+  </section>
+  <section id="inspect-options" className={styles.section}>
+    <h3>Options</h3>
+    {onEdit && <div className={styles.actions}><button type="button" className={styles.change} onClick={onEdit}>Change texture…</button></div>}
+    {options}
+    {restyling && onEdit && info?.paint && info.look && <LookControls key={spot} info={info} stale={stale} restyling={restyling} />}
+    {!options && !onEdit && !info?.paint && <p className="small muted">No editable options for this selection.</p>}
+  </section></>;
 }
 
 /** The selection stays pinned while pointer details change. Width belongs to this panel, not to the camera. */
-export function Inspector({name, picked, hovered, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
+const INSPECTOR_TABS = ["selection", "properties", "details"] as const;
+
+export function Inspector({name, picked, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
   onMaterialOpen, restyling = null, notes, transform}: {
-  name: string; picked: Picked | null; hovered: Hovered | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
+  name: string; picked: Picked | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
   restyling?: Restyling | null;      // (null: the track can't be edited now)
   notes?: ReactNode;
-  transform?: ReactNode;      // (the picked objects' turn, raise and size to type, under the selection)
+  transform?: ReactNode;      // the picked object's controls, below Appearance in Options
 }) {
-  const [tab, setTab] = useState<"properties" | "details">("properties");
+  const [tab, setTab] = useState<(typeof INSPECTOR_TABS)[number]>("selection");
+  const [previousPick, setPreviousPick] = useState(picked);
+  if (previousPick !== picked) {
+    setPreviousPick(picked);
+    if (picked?.kind) setTab("selection");
+  }
   const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
   const textureVersion = chosen?.inspection?.texture != null ? view.textures.version(chosen.inspection.texture) : "";
   const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
@@ -215,17 +230,17 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
       onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) updateWidth(e.currentTarget.getBoundingClientRect().right + width - e.clientX); }} />}
     <aside className={styles.panel} aria-label="Inspector" hidden={collapsed}>
       <div className={styles.head}><h2>Inspector</h2><button type="button" onClick={() => onCollapsed(true)} aria-label="Hide inspector">›</button></div>
-      <SunClock key={name} view={view} />
       <div className={styles.tabs} role="tablist" aria-label="Inspector">
-        {(["properties", "details"] as const).map(id => <button type="button" role="tab" id={`inspector-tab-${id}`} key={id}
+        {INSPECTOR_TABS.map((id, i) => <button type="button" role="tab" id={`inspector-tab-${id}`} key={id}
           aria-selected={tab === id} aria-controls={`inspector-${id}`} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}
           onKeyDown={e => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
             e.preventDefault(); e.stopPropagation();
-            const next = e.key === "Home" ? "properties" : e.key === "End" ? "details" : id === "properties" ? "details" : "properties";
+            const next = e.key === "Home" ? INSPECTOR_TABS[0] : e.key === "End" ? INSPECTOR_TABS.at(-1)!
+              : INSPECTOR_TABS[(i + (e.key === "ArrowLeft" ? -1 : 1) + INSPECTOR_TABS.length) % INSPECTOR_TABS.length];
             setTab(next); document.getElementById(`inspector-tab-${next}`)?.focus();
-          } }}>{id === "properties" ? "Properties" : "Details"}</button>)}
+          } }}>{id[0].toUpperCase() + id.slice(1)}</button>)}
       </div>
-      <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
+      <div id="inspector-selection" role="tabpanel" aria-labelledby="inspector-tab-selection" hidden={tab !== "selection"}>
       <section id="inspect-selection" className={styles.section}>
         <h3>Selection</h3>
         {chosen && !chosen.surface && <><strong>{chosen.all.length > 1 ? `${chosen.all.length} objects` : chosen.kind}</strong>
@@ -233,15 +248,14 @@ export function Inspector({name, picked, hovered, surfaces, marked, view, state,
         {marked.length > 0 && <p className="small">{marked.map(g => `All ${sortName(g.sort)}`).join(", ")}</p>}
         {surfaces.length > 0 && <SurfaceInfo key={JSON.stringify(surfaces)} name={name} surfaces={surfaces} view={view} onSelected={onSurface} />}
         {chosen?.inspection && chosen.all.length <= 1 && <SelectionFacts hovered={chosen.inspection.hovered} />}
-        {chosen && !chosen.surface && transform}
         {!chosen && !surfaces.length && !marked.length && <p className="small muted">Nothing selected. Click a surface or object in the view.</p>}
       </section>
       {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture}`}
         name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null}
-        restyling={restyling} />}
-      <section id="inspect-pointer" className={styles.section}><h3>Under pointer</h3>
-        <HoverBox hovered={hovered} />
-      </section>
+        restyling={restyling} options={!chosen.surface ? transform : undefined} />}
+      </div>
+      <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
+        <SunClock key={name} view={view} />
       </div>
       <div id="inspector-details" role="tabpanel" aria-labelledby="inspector-tab-details" hidden={tab !== "details"}>
       <TrackStatistics name={name} revision={state.keptRevision} active={tab === "details" && state.save === "saved"} />

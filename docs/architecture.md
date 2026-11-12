@@ -86,6 +86,13 @@ buried low-voltage lines, street lamp spacing.
 
 ## Build caches and comparisons
 
+The map-data limit and Settings' **Map data / Clear now** own only the build cache. Editor import preparations and
+prepared preview/Save files (`cache/track-details`, `native-masks`, `native-library`, `track-textures`, `materials`,
+`models` and `builtin-objects`, plus the reserved `editor` folder) are excluded from its size, scans and deletion
+(`app/mapcache.py`, `EDITOR`). Existing paths and files stay usable; a build never evicts them to meet its map-data limit.
+This separation sets no automatic size limit for Editor caches. Saved object lists and lossless build masks remain track
+data under `data/map2lap_objects.json` and `data/map2lap_editor`, independently of both caches.
+
 - A build's processes share their plans: `generator.build` sets `BNGE_PLAN_RUN` to a new name, the first process to plan a map
   cell writes it to `cache/plans/<name>`, the others read it, and the folder goes after the build (`plancache.one_run`). Complete
   plans also stay in the revisit cache, under the code key; a plan made while something failed is read by the whole build too, and

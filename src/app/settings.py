@@ -4,7 +4,7 @@
     clean    delete the build files afterwards (generator.clean_up; on the page the inverse checkbox "Keep build files",
              on by default: changing a track in the Editor will build on them)
     cores    % of the logical cores used for a build (parallel.SHARE)
-    cache_gb size limit of the map data cache in GB, 0: none (mapcache.trim)
+    cache_gb size limit of the build's map data cache in GB, 0: none (mapcache.trim); Editor caches are separate
     car      car for "Play" (folder under content/cars); None: the one driven last (race.ini, server.play_car)
     debug_app the CSP app "Track Debug" in AC (debugapp)
 """

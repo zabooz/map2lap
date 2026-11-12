@@ -62,7 +62,7 @@ test("Settings change repetition of a rectangular texture without reimport, and 
   await expect(properties.getByRole("img", {name: "Selected texture"})).toBeVisible();
 });
 
-test("the Inspector's texture settings change one application's maps and roughness in place, with Undo, Redo, Revert, Save and reopen", async ({page, backend}) => {
+test("the Inspector's texture settings change one application's maps and roughness in place, with Undo, Redo, Save and reopen", async ({page, backend}) => {
   await meadow(page, backend);
   const appearance = page.getByRole("complementary", {name: "Inspector"}).locator("#inspect-appearance");
   await page.getByRole("button", {name: "Library", exact: true}).click();
@@ -87,7 +87,7 @@ test("the Inspector's texture settings change one application's maps and roughne
   await picker.getByRole("button", {name: "Apply", exact: true}).click();             // (matter over it: the second one)
   await expect(picker).toBeHidden();
   await saved(page);
-  const controls = appearance.getByRole("group", {name: "Texture settings"});
+  const controls = page.locator("#inspect-options").getByRole("group", {name: "Texture settings"});
   const rough = controls.getByRole("slider", {name: "Gloss"}), normals = controls.getByRole("switch", {name: "Use normal map"});
   await expect(rough).toHaveValue("50");
   const [, second] = await paints(page);
@@ -130,7 +130,7 @@ test("the Inspector's texture settings change one application's maps and roughne
   await controls.getByRole("button", {name: "As imported", exact: true}).click();
   await saved(page);
   await expect(rough).toHaveValue("0");
-  await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
+  await page.getByRole("button", {name: /Undo/}).click();
   await saved(page);
   await expect(rough).toHaveValue("100");
 
@@ -143,7 +143,6 @@ test("the Inspector's texture settings change one application's maps and roughne
 
 test("a refused settings change shows its reason, goes back and leaves the draft as it was", async ({page, backend}) => {
   await meadow(page, backend);
-  const appearance = page.getByRole("complementary", {name: "Inspector"}).locator("#inspect-appearance");
   await page.getByRole("button", {name: "Library", exact: true}).click();
   const picker = page.getByRole("dialog", {name: "Asset library", exact: true});
   await picker.getByLabel('Texture file').setInputFiles(photo);
@@ -156,7 +155,7 @@ test("a refused settings change shows its reason, goes back and leaves the draft
   const before = await paints(page);
   await page.route("**/api/editor/alpha/paint-settings", route => route.fulfill({status: 400, contentType: "application/json",
     body: JSON.stringify({error: "Settings refused for the test"})}));
-  const controls = appearance.getByRole("group", {name: "Texture settings"});
+  const controls = page.locator("#inspect-options").getByRole("group", {name: "Texture settings"});
   await controls.getByRole("slider", {name: "Gloss"}).focus();
   await page.keyboard.press("End");
   await expect(controls.getByRole("alert")).toHaveText("Settings refused for the test");

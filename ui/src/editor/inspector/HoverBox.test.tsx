@@ -23,3 +23,10 @@ test("A tree under the pointer fills the same rows a meadow has", () => {
   expect(labels(tree)).toEqual(labels(renderToStaticMarkup(<HoverBox hovered={hovered} />)));
   expect(tree).toContain("9.0 m");
 });
+
+test("collapsed pointer information contains coordinates only", () => {
+  const html = renderToStaticMarkup(<HoverBox hovered={hovered} positionOnly />);
+  expect(labels(html)).toEqual(["AC x, y, z", "Lat, lon"]);
+  expect(html).toContain("12.35, 3.20, -40.50");
+  expect(html).not.toContain("Shader"); expect(html).not.toContain("meadow.dds");
+});

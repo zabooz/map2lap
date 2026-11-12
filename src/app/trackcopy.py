@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from app import (mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
-                 tracktrees, trackvariation, trackview)
+                 tracktrees, trackvariation, trackview, trackwalls)
 from track import editorinfo, groundmaterial, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -186,7 +186,7 @@ def _save(ac, name, copy_to, title, revision):
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
     changed = (edits["deleted"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
-               or edits.get("models") or edits.get("surfaces") or edits.get("trees"))
+               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls"))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
@@ -214,7 +214,10 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     from app import trackmodels
     inherited = trackmodels.compiled(ac, name, path)
     copied_scan, objects = trackcopies.build(path, source_scan, objects, edits["copies"])
-    scan, objects = trackmodels.extend(ac, name, {**copied_scan, "model_source_path": path}, objects, edits.get("models", []))
+    walls = edits.get("walls", [])
+    scan, objects = trackwalls.extend(path, copied_scan, objects, walls,
+                                     {w["material"]: trackwalls.asset(ac, name, w["material"]) for w in walls if w["material"]})
+    scan, objects = trackmodels.extend(ac, name, {**scan, "model_source_path": path}, objects, edits.get("models", []))
     scan = {**scan, "model_images": trackmodels.images(ac, name, scan, own)}       # (the last Save holds them already)
     # (bundled before placements, heights and deletions: they all work on face ranges, as in the source's own shared meshes)
     scan, objects = trackmodels.bundle(scan, objects, edits["placed"])
@@ -250,6 +253,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         raise Refused(f"A track called {copy_to} is there already")
     shutil.rmtree(temporary, ignore_errors=True)        # (left by a Map2Lap that ended halfway)
     going, seen = faces_left_out(scan, objects, [d["id"] for d in edits["deleted"]], edits["object_sorts"])
+    for i, first, count in scan.get("wall_hidden", []):
+        going.setdefault(i, np.zeros(scan["meshes"][i]["indices"] // 3, bool))[first:first + count] = True
     for i, mask in tracksurfaces.going(scan, edits.get("surfaces", [])).items():
         going[i] = going.get(i, np.zeros_like(mask)) | mask
     from app import tracknative
@@ -271,6 +276,9 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)})
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
+        if scan.get("wall_images"):
+            materials = materials if materials is not None else scan["materials"]
+            images.extend(scan["wall_images"].items())
         if edits.get("models"):
             materials = materials if materials is not None else scan["materials"]
             present = {t[0] for t in source_scan["textures"]}
@@ -297,13 +305,14 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             treefx.write_text(os.path.join(temporary, "extension", "trees"), trees)
         editorinfo.copy(path, new_kn5)
         trackpaint.export(ac, name, edits["paints"], temporary)
+        trackwalls.export(ac, name, walls, temporary)
         trackmodels.export(ac, name, edits.get("models", []), temporary, new_kn5, edits, inherited)
         modeltrees.export(ac, name, scan, temporary, edits)
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
-                  "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []),
+                  "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []), "walls": walls,
                   "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,
                   "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "ground_format": groundmaterial.GROUND_FORMAT,
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}

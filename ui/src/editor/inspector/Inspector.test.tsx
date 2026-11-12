@@ -1,11 +1,13 @@
 import {expect, test} from "bun:test";
 import {renderToStaticMarkup} from "react-dom/server";
-import {AppearanceCard, SelectionFacts} from "./Inspector";
-import type {Hovered} from "../types";
+import {AppearanceCard, Inspector, objectTexturePreview, SelectionFacts} from "./Inspector";
+import type {Hovered, Picked} from "../types";
+import {TrackEdits} from "../state/edits";
+import type {TrackView} from "../scene/view";
 
 test("Appearance shows the applied texture and scale, with technical source names kept out", () => {
   const html = renderToStaticMarkup(<AppearanceCard info={{name: "Fine asphalt", preview: "/retained-photo.png",
-    repeat: [2, 3], variation: true, original: false, mixed: false}} onEdit={() => {}} />);
+    repeat: [2, 3], variation: true, original: false, mixed: false}} />);
   expect(html).toContain("Fine asphalt");
   expect(html).toContain("/retained-photo.png");
   expect(html).toContain("2 × 3 m");
@@ -13,12 +15,13 @@ test("Appearance shows the applied texture and scale, with technical source name
   expect(html).not.toContain("Change material");
 });
 
-test("Appearance says Original once and offers to change the texture where it can be", () => {
+test("Appearance is a preview without texture buttons or option fields", () => {
   const info = {name: "Original ground", preview: "/thumbnail.png", repeat: null, variation: false, original: true, mixed: false};
-  const html = renderToStaticMarkup(<AppearanceCard info={info} onEdit={() => {}} />);
+  const html = renderToStaticMarkup(<AppearanceCard info={info} />);
   expect(html.match(/Original/g)).toHaveLength(1);
-  expect(html).toContain("Change texture…");
-  expect(renderToStaticMarkup(<AppearanceCard info={info} onEdit={null} />)).not.toContain("Change texture");
+  expect(html).not.toContain("Change texture");
+  expect(html).not.toContain("<button");
+  expect(renderToStaticMarkup(<AppearanceCard info={info} />)).not.toContain("Change texture");
 });
 
 const hovered: Hovered = {id: null, kind: "Grass", sort: null, object: "1GRASS_ground_0_0", physics: "Grass", material: "gc_meadow",
@@ -43,12 +46,35 @@ test("An object's facts name its type and size", () => {
   expect(html).toContain("12.3 m");
 });
 
-test("an applied texture shows its settings in place where they can change, else says which ones it uses", () => {
+test("TreeFX appearance previews come from the tree model, not the KN5 texture list", () => {
+  const picked = {inspection: {revision: "r", texture: -1, hovered: {...hovered, texture: "spruce_d.png",
+    treefx: {model: "spruce", triangles: 100, height: 10, width: 3, foot: [0, 0]}}}} as Picked;
+  expect(objectTexturePreview("alpine", picked)).toBe("/api/editor/alpine/treefx/spruce/spruce_d.png");
+});
+
+test("all Inspector selections put appearance before options and keep pointer details outside the panel", () => {
+  const view = {textures: {version: () => ""}, dimensionsOf: () => null} as unknown as TrackView;
+  const state = new TrackEdits("test").state();
+  for (const kind of ["Building", "Tree", "Retaining wall", "Meadow"]) {
+    const p = {id: "tile#0", kind, sort: kind, all: [], inspection: {listed: false, revision: "r", texture: 0, hovered}} as unknown as Picked;
+    const html = renderToStaticMarkup(<Inspector name="test" picked={p} surfaces={[]} marked={[]}
+      view={view} state={state} collapsed={false} onCollapsed={() => {}} width={320} onWidth={() => {}}
+      onSurface={() => {}} onMaterialOpen={() => {}} textureRevision={0} transform={<p>Object controls</p>} />);
+    expect(html.indexOf('id="inspect-selection"')).toBeLessThan(html.indexOf('id="inspect-appearance"'));
+    expect(html.indexOf('id="inspect-appearance"')).toBeLessThan(html.indexOf('id="inspect-options"'));
+    expect(html.indexOf('id="inspect-options"')).toBeLessThan(html.indexOf("Object controls"));
+    expect(html).not.toContain("Under pointer");
+    expect([...html.matchAll(/role="tab"[^>]*>([^<]+)<\/button>/g)].map(m => m[1])).toEqual(["Selection", "Properties", "Details"]);
+    expect(html.indexOf('id="inspector-properties"')).toBeLessThan(html.indexOf('id="sun-clock"'));
+  }
+});
+
+test("an applied texture's appearance summarizes its look without editable fields", () => {
   const info = {name: "Meadow", preview: "/meadow.png", repeat: [2, 2] as [number, number], variation: false, original: false, mixed: true,
     paint: "a".repeat(64), look: {normal: false, normal_strength: 1, roughness_map: true, roughness_shift: .4},
     maps: {normal: true, roughness: true}, tiles: 3};
-  const shown = renderToStaticMarkup(<AppearanceCard info={info} onEdit={() => {}} settings={<p>Texture settings here</p>} />);
-  expect(shown).toContain("Texture settings here");
-  expect(shown).not.toContain("Normal map off · Gloss 40 % matter");
-  expect(renderToStaticMarkup(<AppearanceCard info={info} onEdit={null} />)).toContain("Normal map off · Gloss 40 % matter");
+  const shown = renderToStaticMarkup(<AppearanceCard info={info} />);
+  expect(shown).not.toContain("<input");
+  expect(shown).toContain("Normal map off · Gloss 40 % matter");
+  expect(renderToStaticMarkup(<AppearanceCard info={info} />)).toContain("Normal map off · Gloss 40 % matter");
 });

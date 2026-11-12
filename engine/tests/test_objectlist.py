@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
 import generator  # noqa: E402,F401  (sets the engine's path)
 import buildings  # noqa: E402
+import roadmesh  # noqa: E402
+import roads  # noqa: E402
 from buildings.build import _listed  # noqa: E402
 from app import mytracks, trackedits, trackview  # noqa: E402
 from track import kn5, make_obj, obj_to_kn5, objectlist  # noqa: E402
@@ -26,6 +28,48 @@ class RunsTest(unittest.TestCase):
     def test_runs_of_owners_without_the_unowned(self):
         self.assertEqual([[2, 0, 2], [3, 2, 1], [2, 5, 1]], objectlist.runs_of([2, 2, 3, -1, -1, 2]))
         self.assertEqual([], objectlist.runs_of([]))
+
+
+class GeneratedWallsTest(unittest.TestCase):
+    def test_wall_ownership_survives_material_sorting_and_export(self):
+        from test_wallsolid import wall
+        with tempfile.TemporaryDirectory() as directory:
+            records = []
+            a, b = wall(False), wall(True, thick=0.45)
+            b["base"][:, 1] += 10
+            xs = np.arange(0, 30.1, 2)
+            gallery = {"pts": np.c_[xs, np.full(len(xs), 30), np.full(len(xs), 10), xs], "w": 6, "side": 1}
+            mesh = roadmesh.tunnel([], (0, 0, 0), walls=[a, b], galleries=[gallery], objects=records)
+            roads.write_tile(directory, "tiles", "a", 0, 0, [], tunnel_mesh=mesh, wall_objects=records)
+            with open(os.path.join(directory, "roads_a_0_0.json")) as f:
+                data = json.load(f)
+            shape = os.path.join(directory, os.path.basename(data["tunnel"]["shape"]))
+            parts = list(make_obj.shape_parts(shape, [0, 0, 0]))
+            listed = objectlist.TileList()
+            owners = make_obj._walls_listed(listed, data, [("tunnel", parts)])["tunnel"]
+            self.assertEqual(["retaining wall", "parapet"], listed.kinds)
+            self.assertTrue((owners[parts[0][1][:, 1] > 20] == -1).all(), "gallery is no wall object")
+            for k, record in enumerate(records):
+                original = mesh[0][record["first"]:record["first"] + record["count"]]
+                owned = parts[0][1][owners == k]
+                self.assertEqual(set(map(tuple, np.round(original, 3))), set(map(tuple, np.round(owned, 3))))
+            obj_path = os.path.join(directory, "t_0_0.obj")
+            obj = make_obj.Obj(obj_path, header=False)
+            obj.listed = listed
+            for k, (material, P, UV, T, _) in enumerate(parts):
+                obj.add(f"1WALL_tunnel_{k}_0_0", "m", P, UV, T, owners=owners[T[:, 0]])
+            obj.close()
+            chunk = os.path.join(directory, "chunk.bin")
+            nodes, _, _, objects, _ = obj_to_kn5._part_chunk(obj_path, chunk, {"m": 0}, None)
+            entry = objects["t_0_0"]
+            self.assertTrue(all(entry["faces"]))
+            self.assertEqual([False, True], [d["wall"]["parapet"] for d in entry["details"]])
+            self.assertEqual(2 * sum(np.all(mesh[1] < records[0]["count"], axis=1)), sum(n for _, _, n in entry["faces"][0]))
+
+    def test_old_tunnel_without_wall_records_stays_unlisted(self):
+        listed = objectlist.TileList()
+        self.assertEqual({}, make_obj._walls_listed(listed, {"tunnel": {}}, []))
+        self.assertEqual([], listed.kinds)
 
 
 class PiecesTest(unittest.TestCase):

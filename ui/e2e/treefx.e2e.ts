@@ -56,7 +56,7 @@ test("a 3D tree dragged by Move is placed where it is let go; Save moves it in t
   await openEditor(page);
   const at = await findSpruce(page);
   await page.mouse.click(at.x, at.y);
-  await page.keyboard.press("m");
+  await page.keyboard.press("t");
   await expect(page.locator("#edit-move-set")).toBeVisible();
   await dragMouse(page, at, {x: at.x + 80, y: at.y});
   await expect(page.locator("#edit-placed")).toHaveText("1 object moved");

@@ -1,0 +1,8 @@
+.fields { display: grid; gap: 6px; margin-top: 10px; }
+.fields form { display: grid; gap: 6px; }
+.field { display: grid; grid-template-columns: 88px minmax(0, 1fr) 24px; gap: 8px; align-items: center; }
+.field input { min-width: 0; height: 28px; padding: 0 6px; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; }
+.fields button { justify-self: start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); cursor: pointer; }
+.fields button:disabled { opacity: 0.5; cursor: default; }
+.hint { margin: 0; color: var(--muted); font-size: 12px; }
+.error { margin: 0; color: var(--error); }

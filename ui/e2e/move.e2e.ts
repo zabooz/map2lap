@@ -46,11 +46,11 @@ test("terrain has Edit instead of object movement actions in its context menu", 
   await expect(page.getByRole("menuitem", {name: "Edit…"})).toBeEnabled();
 });
 
-test("M takes up Move; a tree dragged goes where it is let go, kept in the draft; undo puts it back to the pixel", async ({page}) => {
+test("T takes up Transform; a tree dragged goes where it is let go, kept in the draft; undo puts it back to the pixel", async ({page}) => {
   await openEditor(page);
   const before = await picture(page);
   await scene(page).focus();
-  await page.keyboard.press("m");
+  await page.keyboard.press("t");
   await expect(page.locator("#edit-move-set")).toBeVisible();
   const at = await findTree(page);
   await dragMouse(page, at, {x: at.x + 80, y: at.y});
@@ -76,7 +76,7 @@ test("Select then Transform keeps a tree under the mouse on the first drag", asy
   const from = await findTree(page);
   await page.mouse.click(from.x, from.y);
   await expect(page.locator("#edit-picked")).toContainText("Tree");
-  await page.keyboard.press("m");
+  await page.keyboard.press("t");
   await expect(page.locator("#edit-move")).toHaveAttribute("aria-pressed", "true");
   const to = {x: from.x + 100, y: from.y};
   await dragMouse(page, from, to);

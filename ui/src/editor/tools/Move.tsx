@@ -1,4 +1,4 @@
-// Move: houses, trees, street furniture taken along by dragging, turned, raised and sized by the wheel (M). The view shows it at once, the
+// Move: houses, trees, street furniture taken along by dragging, turned, raised and sized by the wheel (T). The view shows it at once, the
 // server's meshes take its place when they come (src/app/trackplace.py): one reckoning, the one Save uses too.
 import {useEffect, useEffectEvent} from "react";
 import {post} from "../../api";

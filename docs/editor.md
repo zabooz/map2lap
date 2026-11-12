@@ -90,9 +90,20 @@ after asking. Planned editing tools will use the kept build files; viewing needs
 installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
 turn that off or delete them. Existing saved preferences stay in effect.
 
+## Generated walls
+
+Generated retaining walls and parapets are listed separately. Their triangle ownership follows the CDAE vertex remapping,
+material splitting and reversed KN5 wall faces. Tracks built before this ownership was recorded need one new build.
+The wall Inspector changes the entire wall's colour texture and metre repeat through the existing library, or raises its
+top above the built profile while keeping both front and rear feet fixed. Reset restores the built top and material;
+lowering below the built top and ordinary object movement are unavailable because the wall meets a fixed terrain cut or
+road edge. Overlapping pieces across tiles receive the same edit. Wall edits belong to the draft, Undo/Redo and saved
+recipe; only edited walls leave their shared source meshes. Retained materials travel with saved tracks independently of
+the library. The generator uses the masonry material across the whole cap, including a broad retaining wall's back strip.
+
 ## Light and the time of day
 
-The clock at the Inspector's top, above its tabs (`SunClock`), shows the track's local time, 10:00 when a track opens. Nothing is saved or built; Play from
+The clock in the Inspector's Properties tab (`SunClock`), shows the track's local time, 10:00 when a track opens. Nothing is saved or built; Play from
 the Editor starts AC at that hour (`server.sun_angle`). `TrackView.setClock` sets sun, ambient, sky and the placed models' reflections together (`applyLight`); edited ground has
 its own scene and takes the same values over (`GroundFrame.followLights`).
 
@@ -117,13 +128,16 @@ the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside
 
 ## Tools and changes
 
-The right panel, the Inspector, has Properties and Details tabs. Properties keeps the clicked selection independently of the pointer and
-shows Appearance with a small texture preview; painted-ground selections appear there too. Details contains selected mesh
-data, object details and live Under pointer information. Object details distinguish an object's own triangles
-and loaded dimensions from its surrounding merged mesh, show related ids and retained original build parameters where
-available, and list hidden as well as visible parts. The separate Under pointer section holds live hit and position data.
-Sections collapse; the panel can be hidden or resized by dragging its divider (arrow keys on the divider also resize it).
-The 3D view and its tool bar use the remaining width.
+The right panel, the Inspector, has Selection, Properties and Details tabs. Clicking a surface or object opens Selection;
+hovering keeps the active tab. Selection keeps the clicked selection independently of the pointer, then shows Appearance
+with a texture preview, followed by Options. Change texture and all editable object or applied-texture controls live in
+Options. TreeFX previews use the track's own model images. Properties holds Time of day. Details contains selected mesh
+data, object details, track statistics and edit notes. Object details distinguish an object's own triangles and loaded
+dimensions from its surrounding merged mesh, show related ids and retained original build parameters where available,
+and list hidden as well as visible parts.
+Under pointer floats over the top-right corner of the view, left of the Inspector, on a translucent background. Its toggle
+collapses the live hit details to AC and latitude/longitude coordinates. The Inspector can be hidden or resized by dragging
+its divider (arrow keys on the divider also resize it). The 3D view and its tool bar use the remaining width.
 Right-clicking ground and choosing Edit uses the active ground selection, including Select all and added regions.
 Without a ground selection, the right-clicked surface becomes the selection; a left click selects a new surface.
 
@@ -163,7 +177,7 @@ outputs receive the same correction. Different heights and interior vertices sta
 these shared normals before applying its deformation, so saving preserves the edited lighting. Existing tracks receive
 the correction on their next Save, without rebuilding their geometry from map data.
 
-Its buttons stand in the sidebar by groups (`ui/src/editor/tools/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Revert to saved, Library), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Help below them says how the Editor is worked and lists the keys of the tool that is on (`tools/Help.tsx`), changing with it. Transform (M) moves, turns, raises and sizes what is picked. Revert to saved asks before taking back changes since the last Save, as one undoable step. Previously saved edits remain; a track never saved in the Editor returns to its built state. A reopened unsaved draft reads the full saved recipe only when needed, through `/edits/saved`, so ordinary loading does not duplicate large height rasters. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
+Its buttons stand in the sidebar by groups (`ui/src/editor/tools/ToolPanel.tsx`; portals, their state stays by the view in `EditTools.tsx`): File (the track, Save, Play, Library), General (Undo, Redo, Select, Camera), Terrain, Objects; one tool on at a time, Esc back to Select. Help below them says how the Editor is worked and lists the keys of the tool that is on (`tools/Help.tsx`), changing with it. Transform (T) moves, turns, raises and sizes what is picked. The Save arrow opens a dialog with Delete track immediately before Cancel, Overwrite and the primary Save as new track action. Enter saves a new track; an unchanged name gets a free copy name. Delete track still asks for confirmation. Undo and Redo step through this visit's edit history; there is no separate Revert button. The save state stands beside the loading progress. The active tool's options stand in a bar overlaid on the view (`ToolOptions.tsx`): with every tool its options reach Shift, Ctrl, Alt and Ctrl+Alt from left to right, lit while held, numbers by that key with the wheel.
 Delete (X, `Delete.tsx`) has One and Brush; Shift pressed and let go alone switches them (with another key or the wheel between,
 as Ctrl+Shift+Z, it does not). One deletes what a click picks. While the ring stands still or moves, what a stroke there would take
 is framed red, at most 400 frames, at most once a frame (`view.markBrush`); the trees' feet are worked out once per mesh while its
@@ -187,15 +201,14 @@ Each placement click immediately shows a solid instance made from the loaded sou
 models. Its foot and pose are frozen at the click, even before the next preview frame. Draft synchronization, server
 validation and generated-mesh loading run behind it, in click order. Esc only ends placement mode. The solid instance
 stays until the matching canonical instance is drawn; a refused request or draft write removes it and reports the error,
-including after Esc. A refused addition is removed from Undo/Redo too. Save, Undo, Redo and Discard wait for accepted clicks;
-Discard returns to the last Save. Preview geometry/materials and imported source images stay held until the last pending
+including after Esc. A refused addition is removed from Undo/Redo too. Save, Undo and Redo wait for accepted clicks. Preview geometry/materials and imported source images stay held until the last pending
 instance releases them.
 Its preview and placed copies rest their foot on the clicked ground. Turn, Raise and Size in its options apply to each new copy,
 by number or Shift/Ctrl/Alt + wheel, as with Move; Raise is the clearance above the clicked ground, Size relative to the frozen source.
 `app/trackcopies.py` keeps source member ids and frozen poses in the draft and recipe, with independent `copy_<id>#<member>` ids;
 houses take their children and collision, a copied pole has no wires. Generated meshes extend the index and object list without
 reloading the source meshes or moving the camera; Save appends the same geometry, bundled by tile, kind, material and mesh flags
-and split before AC's vertex limit. Placements and then height changes apply to copies too; Undo, Redo and Discard include them.
+and split before AC's vertex limit. Placements and then height changes apply to copies too; Undo and Redo include them.
 The validated draft context is cached by the source, draft, recipe and object-list file states. Copy geometry has a separate
 SHA-256 revision: unrelated draft changes cannot invalidate its layout. `/copies` returns only generated mesh metadata and
 copied object lists; their cancellable loader is separate from the source queue and retries an obsolete manifest. With imported
@@ -207,7 +220,7 @@ Original meshes stay loaded. The server keeps one generated manifest (up to two 
 only its digest. The preview updates when its pointer, camera, pose or ground changes, and uses the server's complete foot
 anchor, including hidden collision. Pending drags keep their displayed pivots until canonical placements arrive; a failed
 drag restores the kept meshes.
-Smooth road (T) includes Mark road: two clicks bound a road region; further draggable points can add side-road branches,
+Smooth road (R) includes Mark road: two clicks bound a road region; further draggable points can add side-road branches,
 including a Y (`app/roadregion.py`, `ui/src/editor/tools/useBand.ts`). The retained map graph chooses the connections and separates
 mapped levels; it never uses the main driving route. The orange region follows the actual painted road mask, clips at the
 terminal cross-sections and excludes neighbouring unselected road segments, including a close leg of the same hairpin.
@@ -268,7 +281,7 @@ tree that stays in its cell gets its slot rewritten, one that leaves or joins a 
 
 ## Material library and imports
 
-Library in File (under Revert to saved) opens the library where it was left, at Textures for a picked ground surface; Insert (I) opens it at Objects. Textures imports one colour image (PNG, JPG or two-dimensional BC1/BC2/BC3 DDS) through a file chooser or
+Library in File opens the library where it was left, at Textures for a picked ground surface; Insert (E) opens it at Objects. Textures imports one colour image (PNG, JPG or two-dimensional BC1/BC2/BC3 DDS) through a file chooser or
 drag and drop. A modal in the object import's look ("Import texture: meadow.png", shared `ImportDialog.module.css`) shows its preview, name, category and the physical width/height of one repeat on the left; tags, source URL and
 license are optional. Cancel prepares no permanent material. The library can be searched by name/tags, filtered by category
 and browsed in pages of 40; only small previews load, never the full original maps. Keyboard input in its fields stays there.
@@ -327,7 +340,7 @@ Prepared colour maps, DDS and unconfirmed uploads are disposable under `cache/ma
 Committed originals and previews remain in the library. A missing or partially evicted cache entry is rebuilt from its retained
 original, including after Settings clears the cache. Listing caches only small summaries; `/api/library/materials` pages them,
 `/api/library/imports` prepares a bounded upload, and the final JSON POST imports the chosen settings. Importing a material
-alone changes no track. The user-facing picker is named Textures and opens from Edit, a painted-ground Appearance image or ground Edit.
+alone changes no track. The user-facing picker is named Textures and opens from Change texture in Options or ground Edit.
 It keeps search/filter/selection state between openings, pages a scrollable thumbnail grid and shows one larger preview.
 Objects uses the same library layout, search/category filters, paged asset grid, right-hand preview and footer. Its model
 import fields open in a separate Import object dialog, matching the texture import flow. Each tab keeps its own browsing
@@ -354,7 +367,7 @@ The original ground remains labelled as such at untouched points; soft edges ind
 These selection requests read existing layer masks and do not bake colour tiles. Previews come from retained assets,
 so they also work after library removal or on portable saved copies. A changed selection/version cancels its old request;
 source mesh/material/shader diagnostics remain under Details.
-Where an applied texture shows, Appearance has the same settings in place (`TextureLookFields`): a switch applies at once, a
+Where an applied texture shows, Options has the same settings in place (`TextureLookFields`): a switch applies at once, a
 slider when it is let go or set by key, each one Undo step; while the changed edit is read back the point's last answer stays
 and the controls wait, so the panel keeps its place and focus. A refused change goes back to what the track has. The change
 reaches that one application, the edit shown at the point (`trackinspect._application`: the last edit of the tile with that
@@ -487,7 +500,7 @@ in glTF's Y-up metre frame. This core performs no shader conversion or physical 
 The importer bounds file size, JSON metadata, geometry, node references and image dimensions before publishing a package.
 External resources, required extensions, skinning, animations, morph targets, sparse accessors, non-triangle topology and
 additional vertex attributes are explicit import errors. Original material and image resources are never silently removed.
-The Objects tool group's **Insert** button (I) opens the shared asset library on its **OBJECTS** tab; **TEXTURES** contains
+The Objects tool group's **Insert** button (E) opens the shared asset library on its **OBJECTS** tab; **TEXTURES** contains
 the ground picker used by Edit texture. Fields keep their typing shortcuts. Import a GLB, give it a name and metres per source unit, choose the default
 collision, then add it to the library. Object cards show rendered model pictures, including cutout leaves, just as texture
 cards show their images. Visible cards share one offscreen renderer; finished 512 px PNGs are cached in the browser
@@ -560,7 +573,7 @@ Picking raycasts the logical instance roots against those same shared GLB triang
 materials supply the alpha test, so empty cutout leaves still let a click reach the source behind them. No per-instance mesh
 buffers are downloaded or reserved. Move holds a matrix per model instead of vertex numbers/copies. Selection frames and
 sort selection read referenced shared vertices; distance culling transforms the shared asset bounds' midpoint. Delete, Undo
-and Revert use the binding's `<instance>#0` identity independently of mesh numbers. Copy previews share the same asset and
+use the binding's `<instance>#0` identity independently of mesh numbers. Copy previews share the same asset and
 hold its resources while a pending solid remains. Removing one instance does not dispose the others' shared render buffers.
 A rejected load or memory reservation keeps the previous visible state; obsolete asynchronous loads are released.
 The configured memory estimate includes shared render resources and instance transform buffers. Bounded User Timing records `map2lap.models.resources` and `map2lap.models.frame` expose
@@ -639,7 +652,7 @@ write. These ordinary bindings retain existing native Save, portable model snaps
 
 All build-recorded painted-ground materials can receive an imported colour texture, including shrubland, forest, rock and
 roads. Ctrl combines selections; Shift takes all matching prepared areas, including disconnected regions. Ground Edit and
-clicking the Appearance image open the same picker. Roads retain their existing driving physics when given a different image.
+Change texture in Options open the same picker. Roads retain their existing driving physics when given a different image.
 Separate mesh materials, including the road verge and buildings, are not handled by ground texture assignment. A selection
 has no tile limit. Apply sends the tiles it showed, and the server keeps to them (ground loaded since does not change it). It
 reads, checks and writes their masks `trackpaint.PORTION` tiles at a time into a folder of its own, which becomes the paint
@@ -648,7 +661,7 @@ once all are there: one Apply, one Undo, and a failure leaves no paint. The pick
 their tiles are refused, so Apply cannot silently change only part of the requested material.
 
 `app/trackpaint.py` captures authoritative selection masks and a material snapshot as immutable ids. Ordered `paints` in the
-draft and saved recipe participate in Undo, Redo, Discard and Save. Operations and normalized source images remain under
+draft and saved recipe participate in Undo, Redo and Save. Operations and normalized source images remain under
 `out/paints` and `out/paint-assets`; a saved track also retains its active operations/materials in `data/map2lap_paints`.
 Removing a library entry or clearing cache does not remove a track's materials. This retained edit data is not disposable cache.
 New material snapshots use asset schema 2, preserving the complete imported description, all original files and normalized
@@ -664,7 +677,7 @@ gives the properties the Editor and Save both draw with: the normal scale times 
 to r * (1 + shift); without a map in use the map counts as 1. `roughness_offset` is absent at 0, so untouched materials keep
 their cache keys; a colour-only material made smoother or matte needs the regional native layout (`trackdetail.flat_roughness`).
 Changing the settings after Apply (`/paint-settings`, `trackpaint.restyle`) writes a new edit with the same masks and build and a
-snapshot that differs only in them; the page puts it in the old one's place as one Undo step, so Redo, Revert, Save and reopen
+snapshot that differs only in them; the page puts it in the old one's place as one Undo step, so Redo, Save and reopen
 work on the ordinary paint list. Settings equal to another edit's give that edit again. On a saved track, an edit is accepted
 if it belongs to the served build or to one whose edits the track adopted (`trackpaint._adopted`), as a copy of such an edit does.
 
@@ -746,11 +759,11 @@ to 1.3 cm short of or past the tile's edge, and a wall step lifts them past the 
 6.6 mm off each tile there, a 12.9 mm slit between Heiligenblut's painted tiles; tracks saved with an older
 `GEOMETRY_CACHE_VERSION` (the recipe's `region_geometry`) count as needing a Save, which writes new copies and keeps masks
 and photos. World-phase UVs and float2 multipliers keep every physical repeat exact. Cold reopen retains the editable source; removing paints restores its render
-flag on Save. The source is retained for Undo/Discard, and the saved recipe/bundle carries
+flag on Save. The source is retained for Undo, and the saved recipe/bundle carries
 the operation masks and normalized colour snapshots. Saving a transferred track also retains the material snapshots referenced
 by its native source layers, so another edit or Save as copy keeps their names, physical sizes and previews. Legacy full-surface
 world-space colours remain source layers when part of that ground receives a new material. Even without the local source cache, the native material remains
-viewable and global UVs are normalized when selecting ground. Missing retained inputs remain openable/discardable with a
+viewable and global UVs are normalized when selecting ground. Missing retained inputs remain openable with a
 warning; Save refuses incomplete data. Saved recipes record the detail layout profile; older painted saves remain saveable
 so their retained edits can be written with sharp layers without rebuilding. `paintimage.py` remains the low-resolution tile/thumbnail compatibility compositor;
 the normal Apply renderer and Save use the separate detail layers.

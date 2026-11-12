@@ -367,11 +367,12 @@ class RequestsTest(Base):
         self.assertFalse(os.path.exists(self.file))
 
     def test_a_length_that_is_none(self):
+        # Reject headers before a body arrives; unread payload can reset Windows TCP instead of delivering the response.
         for bad in ("abc", "-1"):
-            self.assertEqual(400, self.request("PUT", "/api/editor/t/edits", b"{}", {"Content-Type": "application/json", "Content-Length": bad})[0])
+            self.assertEqual(400, self.request("PUT", "/api/editor/t/edits", None, {"Content-Type": "application/json", "Content-Length": bad})[0])
 
     def test_too_much_is_not_even_read(self):
-        code, _ = self.request("PUT", "/api/editor/t/edits", b"x", {"Content-Type": "application/json",
+        code, _ = self.request("PUT", "/api/editor/t/edits", None, {"Content-Type": "application/json",
                                                                     "Content-Length": str(trackedits.MAX_BYTES + 1)})
         self.assertEqual(413, code)
 

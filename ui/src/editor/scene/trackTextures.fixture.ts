@@ -39,5 +39,5 @@ export function fakeTextures({data = null, meshes = [], used = 0, memoryGb = 1, 
 
 /** The textures a loading test needs: every material a plain one, nothing painted. */
 export function plainTextures() {
-  return {material: () => new THREE.MeshBasicMaterial(), attach: () => {}, settled: async () => {}, setLoaded: () => {}};
+  return {material: () => new THREE.MeshBasicMaterial(), attach: () => {}, settled: async () => {}, setLoaded: () => {}, reconcile: () => {}};
 }

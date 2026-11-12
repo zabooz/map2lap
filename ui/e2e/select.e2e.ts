@@ -95,7 +95,7 @@ test("Ctrl adds painted regions while Shift requests the whole connected road", 
   expect(JSON.parse(new URL(urls[2]).searchParams.get("points")!)[0].whole).toBe(true);
 });
 
-test("the Select bar offers what can be done with the picked ground or object, Alt does its Alt place, and T smooths from the picked road", async ({page, backend}) => {
+test("the Select bar offers what can be done with the picked ground or object, Alt does its Alt place, and R smooths from the picked road", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
   await openEditor(page);
   const bar = page.locator("#edit-select-set"), library = page.getByRole("dialog", {name: "Asset library"});
@@ -118,7 +118,7 @@ test("the Select bar offers what can be done with the picked ground or object, A
   await expect(library).toBeVisible();
   await page.keyboard.press("Escape");
   await page.mouse.click(road.x, road.y);
-  await page.keyboard.press("t");
+  await page.keyboard.press("r");
   await expect(page.locator("#edit-band")).toContainText("A is set");
   await page.keyboard.press("Escape");
   const tree = await findTree(page);

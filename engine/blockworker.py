@@ -383,7 +383,8 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     P.dmesh = roadmeshmod.deck(chunks, (x0, y0, 0.0), bridges.piers_in(box), ctx, bridges.beams_in(box), ground=cover,
                                parapets=parapets, low_parapet_decks=low_parapet_decks, pads=pads)
     mark("deck_mesh")
-    P.tmesh = roadmeshmod.tunnel(chunks, (x0, y0, 0.0), rwalls, rgalleries)
+    P.wall_objects = []
+    P.tmesh = roadmeshmod.tunnel(chunks, (x0, y0, 0.0), rwalls, rgalleries, objects=P.wall_objects)
     P.wall_cuts = rcuts
     mark("tunnel_mesh")
     import railways
@@ -448,7 +449,7 @@ def _roads_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, sidewalks, lift, 
     out = roadsmod.write_tile(out_dir, vfs_dir, aid, tx, ty, P.chunks, P.walks if sidewalks else None, mesh, P.dmesh,
                               P.bld, P.props, P.wires, P.park, tunnel_mesh=P.tmesh, fuel=P.fuel, rail_mesh=P.rmesh,
                               guardrail_rows=P.guardrail_rows, garage_sound=P.garage_sound,
-                              wells=P.wells, footprints=P.footprints) + (P.fuel_pads, P.wall_cuts)
+                              wells=P.wells, footprints=P.footprints, wall_objects=P.wall_objects) + (P.fuel_pads, P.wall_cuts)
     mark("write")
     return out
 

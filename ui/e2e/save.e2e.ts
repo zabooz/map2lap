@@ -2,42 +2,30 @@
 import {button, card, expect, openEditor, scene, test} from "./fixtures";
 import {deleteTree, findTree, picture, saveTrack, saved, stored, treeCount} from "./edit-helpers";
 
-test("Revert to saved in File asks before clearing edits, can be cancelled and undone; save state stays beside loading", async ({page}) => {
+test("File keeps save status and Undo, without a Revert action", async ({page}) => {
   await openEditor(page);
-  const file = page.locator("#editor section").filter({has: page.getByRole("heading", {name: "File", exact: true})});
-  const discard = file.getByRole("button", {name: "Revert to saved", exact: true});
-  await expect(discard).toBeDisabled();
-  await expect(page.locator("#edit-bar").getByRole("button", {name: "Revert to saved", exact: true})).toHaveCount(0);
+  await expect(page.getByRole("button", {name: "Revert to saved", exact: true})).toHaveCount(0);
   const status = page.locator("#edit-status").locator("..");
   await expect(status.locator("#edit-saved")).toHaveCount(1);
-  await deleteTree(page);
-  await saved(page);
+  await deleteTree(page); await saved(page);
   await expect(status.locator("#edit-saved")).toHaveText("Not saved");
-
-  page.removeAllListeners("dialog");
-  const cancelled = page.waitForEvent("dialog");
-  const firstClick = discard.click();
-  const warning = await cancelled;
-  expect(warning.type()).toBe("confirm");
-  expect(warning.message()).toContain("saved edits are kept");
-  await warning.dismiss();
-  await firstClick;
-  await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
-  expect((await stored(page)).deleted).toHaveLength(1);
-
-  page.once("dialog", d => void d.accept());
-  await discard.click();
-  await saved(page);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
   await expect(page.locator("#edit-count")).toHaveCount(0);
-  expect((await stored(page)).deleted).toEqual([]);
-  await button(page, "↶ Undo").click();
+  await page.getByRole("button", {name: /Redo/}).click(); await saved(page);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
 });
 
-test("Delete track in File asks first, then the open track is gone from Assetto Corsa and the Editor's list", async ({page}) => {
+test("Delete track in the Save popup asks first, then the open track is gone from Assetto Corsa and the Editor's list", async ({page}) => {
   await openEditor(page);
   const file = page.locator("#editor section").filter({has: page.getByRole("heading", {name: "File", exact: true})});
-  const remove = file.getByRole("button", {name: "Delete track", exact: true});
+  await expect(file.getByRole("button", {name: "Delete track", exact: true})).toHaveCount(0);
+  await page.locator("#edit-save-more").click();
+  const popup = page.locator("#save-dialog");
+  const remove = popup.getByRole("button", {name: "Delete track", exact: true});
+  await expect(popup.getByRole("button")).toHaveText(["Delete track", "Cancel", "Overwrite", "Save as new track"]);
+  const copy = popup.getByRole("button", {name: "Save as new track", exact: true});
+  expect(await copy.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(
+    await popup.getByRole("button", {name: "Overwrite", exact: true}).evaluate(el => getComputedStyle(el).backgroundColor));
   page.removeAllListeners("dialog");
   const asked = page.waitForEvent("dialog");
   const firstClick = remove.click();
@@ -74,18 +62,13 @@ test("Save: asked once, then written at once; the trees AC gets are without the 
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(preview)).toBe(true);
-  await expect(button(page, "Revert to saved")).toBeDisabled();
+  // A restored source tree is saved by Play after reopening an unsaved draft.
   const draft = await stored(page);
   const restored = await page.request.put("/api/editor/alpha/edits", {data: {...draft, id: "unsaved-restore", deleted: []}});
-  await expect(restored).toBeOK();               // Unsaved restoration of the already saved deletion.
-  await page.reload();                         // The saved baseline must also be available after reopening an unsaved draft.
+  await expect(restored).toBeOK();
+  await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
-  await button(page, "Revert to saved").click();        // The saved deletion returns; it must not restore the built track.
-  await saved(page);
-  await expect.poll(async () => (await picture(page)).equals(preview)).toBe(true);
-  await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  await button(page, "↶ Undo").click();
   await page.locator("#edit-play").click();     // (Play: saved first, at once now, then AC)
   await expect(page.locator("#save-dialog")).toBeHidden();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
@@ -140,7 +123,7 @@ test("Save as new track: only under a new name, shown with the work and its undo
   await expect(page.locator('#edit-track option[value="alpha_edit_2"]')).toHaveCount(0);
 });
 
-test("the first Save can make a new track too; Discard and a subsequent copy retain the last Save", async ({page}) => {
+test("the first Save and a subsequent copy retain the saved edits", async ({page}) => {
   await openEditor(page);
   const trees = (await treeCount(page));
   await deleteTree(page);
@@ -157,15 +140,6 @@ test("the first Save can make a new track too; Discard and a subsequent copy ret
   await deleteTree(page);
   await saveTrack(page);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
-  await expect(button(page, "Revert to saved")).toBeDisabled();
-  const draft = await stored(page);
-  const restored = await page.request.put("/api/editor/alpha/edits", {data: {...draft, id: "unsaved-restore", deleted: []}});
-  await expect(restored).toBeOK();
-  await page.reload();
-  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await expect(page.locator("#edit-saved")).toHaveText("Not saved");
-  await button(page, "Revert to saved").click();
-  await saved(page);
   await page.locator("#edit-save-more").click();
   await page.locator("#save-name").fill("Alpha Saved Copy");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
@@ -194,7 +168,7 @@ test("the name left as it is, a new track gets its (copy) by itself", async ({pa
   await openEditor(page);
   await deleteTree(page);
   await page.locator("#edit-save").click();
-  await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
+  await page.locator("#save-name").press("Enter");
   await expect(page.locator("#edit-track")).toHaveValue("alpha_test_copy");
   await expect(page.locator("#edit-track option:checked")).toHaveText(/Alpha Test \(copy\)/);
   await page.locator("#t-mine").click();
@@ -216,6 +190,7 @@ test("nothing changed: Play starts the track at once, nothing asked", async ({pa
 
 test("Play starts Assetto Corsa at the hour the Editor's clock shows", async ({page}) => {
   await openEditor(page);
+  await page.getByRole("complementary", {name: "Inspector"}).getByRole("tab", {name: "Properties", exact: true}).click();
   await page.locator("#sun-clock").getByRole("slider", {name: "Time of day"}).fill("1110");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();

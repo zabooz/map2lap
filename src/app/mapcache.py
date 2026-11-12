@@ -1,4 +1,7 @@
-"""The map data cache (cache/: elevation, map data, vegetation, finished tiles) with a size limit.
+"""The build's map data cache (elevation, map data, vegetation, finished tiles) with its own size limit.
+
+Editor import preparations and prepared track textures have separate ownership (EDITOR below). They remain at their
+existing paths for reuse, but build-cache accounting, trimming and Clear never enter or remove those folders.
 
 BeamNG.Earth's own cache management (cache.py: a size limit, least recently used first; earthd.prune_own_caches: the
 folders with their own limits) only runs inside its server earthd, which we don't use: without this the folder grew
@@ -23,14 +26,20 @@ from app.paths import ROOT
 CACHE = os.path.join(ROOT, "cache")
 KEEP = {"netstats", "gravity"}      # never: the daily request budgets, one-off downloads (like cache.py)
 WHOLE = {"mapdata-mirror"}      # whole entries only (prune_mirror): removing a single file would break its entry
+# Existing paths are kept so separating the budgets does not invalidate prepared Editor data. Add a new Editor cache
+# here when introducing its folder; neither the build limit nor Settings' downloaded-map Clear owns these files.
+EDITOR = {"track-details", "native-masks", "native-library", "track-textures", "materials", "models", "builtin-objects", "editor"}
 LOW_WATER = 0.9
 FRESH_S = 600.0
 
 
-def _walk(root):
-    """[(mtime, bytes, path)] of all files under root."""
+def _walk(root, exclude=()):
+    """[(mtime, bytes, path)] under root, without entering its top-level folders named in exclude."""
+    root = os.fspath(root)
     out = []
-    for dirpath, _dirs, names in os.walk(root):
+    for dirpath, dirs, names in os.walk(root):
+        if dirpath == root and exclude:
+            dirs[:] = [d for d in dirs if d not in exclude]
         for n in names:
             p = os.path.join(dirpath, n)
             try:
@@ -42,8 +51,8 @@ def _walk(root):
 
 
 def usage(root=CACHE):
-    """(bytes, files) of the cache."""
-    files = _walk(root)
+    """(bytes, files) owned by the build cache; Editor folders are not scanned."""
+    files = _walk(root, exclude=EDITOR)
     return sum(s for _, s, _ in files), len(files)
 
 
@@ -70,12 +79,14 @@ def trim(cap_gb, root=CACHE, log=print):
         cachemod.prune_dir(os.path.join(root, sub), mb * 1e6, match=lambda n, e=ext: n.endswith(e))
     files, kept = [], 0
     for sub in os.listdir(root):
+        if sub in EDITOR:
+            continue
         got = _walk(os.path.join(root, sub)) if os.path.isdir(os.path.join(root, sub)) else []
         if sub in KEEP or sub in WHOLE:
             kept += sum(s for _, s, _ in got)
         else:
             files += got
-    total, cap, now = kept + sum(s for _, s, _ in files), cap_gb * 1e9, time.time()     # (the limit: the whole folder)
+    total, cap, now = kept + sum(s for _, s, _ in files), cap_gb * 1e9, time.time()     # (only the build-owned folders)
     if cap and total > cap:
         for mtime, size, p in sorted(files):
             if total <= cap * LOW_WATER:
@@ -94,12 +105,12 @@ def trim(cap_gb, root=CACHE, log=print):
 
 
 def clear(root=CACHE):
-    """Delete all map data (except KEEP); returns the bytes freed. Only while no build runs (server.py)."""
+    """Delete build data except KEEP, preserving Editor caches; return bytes freed. Only while no build runs (server.py)."""
     if not os.path.isdir(root):
         return 0
     before = usage(root)[0]
     for sub in os.listdir(root):
         p = os.path.join(root, sub)
-        if sub not in KEEP and os.path.isdir(p):
+        if sub not in KEEP and sub not in EDITOR and os.path.isdir(p):
             shutil.rmtree(p, ignore_errors=True)
     return before - usage(root)[0]

@@ -24,8 +24,6 @@
 .tabs { display: flex; gap: 4px; padding-top: 10px; border-bottom: 1px solid var(--line); }
 .tabs button { flex: 1; border: 0; border-bottom: 2px solid transparent; padding: 9px 5px; background: transparent; color: var(--muted); cursor: pointer; }
 .tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
-.appearance { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.appearance:hover .preview { border-color: var(--accent); }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .change { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
 .change:hover { color: var(--accent); border-color: var(--accent); }

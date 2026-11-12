@@ -46,7 +46,7 @@ test("each tool has its key, one is on at a time, Esc goes back to Select from e
   await openEditor(page);
   await keysOnView(page);
   expect(await pressed(page, "#edit-select")).toBe("true");
-  for (const [key, id] of [["m", "#edit-move"], ["x", "#edit-click-deletes"], ["k", "#edit-camera"], ["c", "#edit-copy"], ["h", "#edit-elevation"], ["t", "#edit-smooth"]]) {
+  for (const [key, id] of [["t", "#edit-move"], ["x", "#edit-click-deletes"], ["k", "#edit-camera"], ["c", "#edit-copy"], ["h", "#edit-elevation"], ["r", "#edit-smooth"]]) {
     await page.keyboard.press(key);
     await expect(page.locator(id)).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("#edit-select")).toHaveAttribute("aria-pressed", "false");
@@ -99,8 +99,8 @@ test("Help says how the Editor is worked and shows the keys of the tool that is 
   await expect(help).toContainText("Esc ends a tool");
   await expect(help.getByRole("heading")).toHaveText("Select (V)");
   await scene(page).focus();
-  await page.keyboard.press("m");
-  await expect(help.getByRole("heading")).toHaveText("Transform (M)");
+  await page.keyboard.press("t");
+  await expect(help.getByRole("heading")).toHaveText("Transform (T)");
   await expect(help.locator("dl")).toContainText("Alt + wheelsize");
   await page.keyboard.press("h");
   await expect(help.locator("dl")).toContainText("Ctrl + Alt + wheelsoft edge");
@@ -180,7 +180,7 @@ test("Select: Ctrl adds to what is picked, again takes it out, X deletes all as 
 test("Smooth road marks at zero through its key or the road context menu", async ({page, backend}) => {
   const {a, b} = await onHill(page, backend);
   await keysOnView(page);
-  await page.keyboard.press("t");
+  await page.keyboard.press("r");
   await expect(page.locator("#edit-road")).toHaveCount(0);
   await expect(page.locator("#edit-road-hint")).toContainText("click the road");
   await page.mouse.click(a.x, a.y);
@@ -204,7 +204,7 @@ test("Smooth road marks at zero through its key or the road context menu", async
 test("Smooth road's left click picks no object; a right click on a tree still offers object actions", async ({page}) => {
   await openEditor(page);
   const tree = await findTree(page);
-  await page.keyboard.press("t");
+  await page.keyboard.press("r");
   await page.mouse.click(tree.x, tree.y);
   await expect(page.locator("#edit-picked")).toHaveCount(0);
   await page.mouse.click(tree.x, tree.y, {button: "right"});

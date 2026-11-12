@@ -995,6 +995,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "No valid CSP installation request"})
         if urlsplit(self.path).path.startswith("/api/library/"):
             return self._library()
+        wall = re.fullmatch(r"/api/editor/([^/]+)/wall", self.path)
+        if wall:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can edit a wall"})
+            if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+                self.close_connection = True
+                return self._send(413, {"error": "Select fewer walls"})
+            return self._edits_answer(lambda: trackedits.wall_edit(settings.ac_path(), wall[1], self._body()))
         paint = re.fullmatch(r"/api/editor/([^/]+)/(paint|paint-settings|textures)", self.path)
         if paint:
             if not self._own_page():

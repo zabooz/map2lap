@@ -10,15 +10,14 @@ function Row({label, children}: {label: string; children: ReactNode}) {
 
 const NONE = "—";
 
-/** Pointer details inside the inspector, hovered null: nothing under it. Every row stays, a dash where there is nothing to say, so the panel
-    keeps its height as the mouse goes over trees, ground and sky. A single object has an id if it can be told apart: the track file holds
-    meshes merged per tile, by material. */
-export function HoverBox({hovered: h, id = "hover-box"}: {hovered: Hovered | null; id?: string}) {
+/** Pointer details or just coordinates for the collapsed overlay. Empty values keep their rows; technical Inspector details
+    use the same full table. A listed id identifies one object inside meshes merged by tile and material. */
+export function HoverBox({hovered: h, id = "hover-box", positionOnly = false}: {hovered: Hovered | null; id?: string; positionOnly?: boolean}) {
   const b = h?.treefx;
   const or = (value: ReactNode | null | undefined | false) => value === null || value === undefined || value === false ? NONE : value;
   return (
     <div id={id} className={styles.box} data-empty={h ? undefined : ""}>
-      <h4>{h ? h.kind : NONE}</h4>
+      {!positionOnly && <><h4>{h ? h.kind : NONE}</h4>
       <dl>
         <Row label="ID">{or(h?.id)}</Row>
         <Row label="Type">{or(h?.sort)}</Row>
@@ -35,13 +34,13 @@ export function HoverBox({hovered: h, id = "hover-box"}: {hovered: Hovered | nul
         <Row label="UV">{or(h?.uv && `${fixed(h.uv[0], 3)}, ${fixed(h.uv[1], 3)}`)}</Row>
         <Row label="Shown up to">{or(h && `${Math.round(h.shownTo)} m`)}</Row>
       </dl>
-      <h4>Position</h4>
+      <h4>Position</h4></>}
       <dl>
         <Row label="AC x, y, z">{or(h && `${fixed(h.at[0])}, ${fixed(h.at[1])}, ${fixed(h.at[2])}`)}</Row>
-        <Row label="Tile">{or(h && `${h.tile[0]}, ${h.tile[1]}`)}</Row>
-        <Row label="Route">{or(h?.route && `${Math.round(h.route.metre)} m, ${fixed(h.route.off, 1)} m off`)}</Row>
+        {!positionOnly && <><Row label="Tile">{or(h && `${h.tile[0]}, ${h.tile[1]}`)}</Row>
+        <Row label="Route">{or(h?.route && `${Math.round(h.route.metre)} m, ${fixed(h.route.off, 1)} m off`)}</Row></>}
         <Row label="Lat, lon">{or(h?.latLon && `${fixed(h.latLon[0], 6)}, ${fixed(h.latLon[1], 6)}`)}</Row>
-        <Row label="Camera">{or(h && `${fixed(h.distance, 1)} m away`)}</Row>
+        {!positionOnly && <Row label="Camera">{or(h && `${fixed(h.distance, 1)} m away`)}</Row>}
       </dl>
     </div>
   );

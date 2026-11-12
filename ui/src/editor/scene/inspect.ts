@@ -92,7 +92,8 @@ const KIND_NAMES: Record<string, string> = {tree: "Tree", bush: "Bush", car: "Pa
                                             "road sign": "Road sign", "town sign": "Town sign", "street furniture": "Street furniture",
                                             "power line": "Power line", "power pole": "Power pole", fence: "Fence", rock: "Rock",
                                             "gas station": "Gas station", pool: "Pool", playground: "Playground equipment",
-                                            "sports goal": "Sports goal", grave: "Grave", tower: "Tower", fountain: "Fountain"};
+                                            "sports goal": "Sports goal", grave: "Grave", tower: "Tower", fountain: "Fountain",
+                                            "retaining wall": "Retaining wall", parapet: "Parapet wall"};
 
 /** A kind of the list as the page says it. Pure. */
 export const kindName = (kind: string) => KIND_NAMES[kind] ?? kind;

@@ -10,7 +10,7 @@ test.use({viewport: {width: 1825, height: 900}});
 async function openEditor(page: Page, name = "alpha") {
   await loadEditor(page, name);
   // Pointer metadata belongs to Properties; Details deliberately hides it.
-  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  await page.getByRole("tab", {name: "Selection", exact: true}).click();
   await scene(page).focus();
 }
 
@@ -114,7 +114,7 @@ test("a tree shows where the mouse finds one, and through its empty parts lies w
   const empty = await picture(page, await stillView(page));
   await page.locator("#edit-track").selectOption("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
-  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  await page.getByRole("tab", {name: "Selection", exact: true}).click();
   await page.mouse.move(AWAY.x, AWAY.y);
   const view = (await scene(page).boundingBox())!;
   const full = await picture(page, await stillView(page));
@@ -166,7 +166,8 @@ async function skyColour(page: Page) {
 
 test("the time of day darkens the view, is only a preview and comes back by its slider", async ({page}) => {
   await openEditor(page);
-  // (in the Inspector, above its tabs: "Time of day: 10:00" over the slider, no Reset button)
+  await page.getByRole("complementary", {name: "Inspector"}).getByRole("tab", {name: "Properties", exact: true}).click();
+  // Time of day belongs to the Inspector's Properties tab.
   const clock = page.getByRole("complementary", {name: "Inspector"}).locator("#sun-clock"), slider = clock.getByRole("slider", {name: "Time of day"});
   const save = page.locator("#edit-save");
   const saveBefore = await save.isDisabled();

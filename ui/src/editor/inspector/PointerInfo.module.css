@@ -1,0 +1,5 @@
+.overlay { position: absolute; top: 12px; right: 12px; z-index: 1; width: min(300px, calc(100% - 24px)); max-height: calc(100% - 24px);
+  overflow: hidden; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(3px); color: var(--text); pointer-events: none; }
+.overlay[data-collapsed-inspector=true] { top: 52px; max-height: calc(100% - 64px); }
+.toggle { cursor: pointer; pointer-events: auto; font-size: 12px; font-weight: 600; margin-bottom: 8px; user-select: none; }

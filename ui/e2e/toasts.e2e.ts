@@ -1,7 +1,59 @@
-import {expect, test} from "./fixtures";
+import {expect, openSettings, test} from "./fixtures";
 
 const missing = {status: "missing", version: null, build: null, enabled: null, stage: "idle", done: 0,
   total: 0, busy: false, can_install: true, linux: false, website: "https://acstuff.club/patch/", error: null};
+
+test("CSP is checked once at startup, manually and for another AC path; closing the server causes no periodic warning", async ({page}) => {
+  await page.clock.install();
+  let checks = 0, offline = false;
+  const installed = {...missing, status: "installed", enabled: true, version: "0.2.11", can_install: false};
+  await page.route("**/api/csp", route => {
+    checks++;
+    return offline ? route.abort("connectionrefused") : route.fulfill({json: installed});
+  });
+  await page.goto("/");
+  await expect.poll(() => checks).toBe(1);
+  await openSettings(page, "General");
+  await page.getByRole("button", {name: "Check again", exact: true}).click();
+  await expect.poll(() => checks).toBe(2);
+  const path = page.getByLabel("Assetto Corsa folder", {exact: true});
+  const originalPath = await path.inputValue();
+  await path.fill(originalPath + "/.");
+  await path.press("Enter");
+  // The typed path is shown optimistically, then the server returns its canonical path.
+  await expect(path).toHaveValue(originalPath);
+  await expect.poll(() => checks).toBe(4);
+  await expect(page.locator("#csp-settings").getByRole("status")).toContainText("CSP 0.2.11 installed");
+  await page.getByRole("button", {name: "Close settings"}).click();
+  offline = true;
+  await page.clock.runFor(6500);
+  expect(checks).toBe(4);
+  await expect(page.getByRole("alert")).toBeHidden();
+});
+
+test("CSP polling follows an active installation and stops when it completes", async ({page}) => {
+  await page.clock.install();
+  let checks = 0, completed = false;
+  await page.route("**/api/csp", route => {
+    checks++;
+    return route.fulfill({json: completed
+      ? {...missing, status: "installed", enabled: true, version: "0.2.11", stage: "done", can_install: false}
+      : {...missing, stage: "installing", busy: true, can_install: false}});
+  });
+  await page.goto("/");
+  await expect.poll(() => checks).toBe(1);
+  await openSettings(page, "General");
+  await expect(page.locator("#csp-settings").getByRole("status")).toContainText("Installing CSP");
+  await page.clock.runFor(1100);
+  await expect.poll(() => checks).toBe(2);
+  completed = true;
+  await page.clock.runFor(1100);
+  await expect.poll(() => checks).toBe(3);
+  await expect(page.locator("#csp-settings").getByRole("status")).toContainText("CSP 0.2.11 installed");
+  await page.clock.runFor(6500);
+  expect(checks).toBe(3);
+  await expect(page.getByRole("alert")).toBeHidden();
+});
 
 test("missing CSP slides down at the top, opens its settings and never installs without a click", async ({page}, testInfo) => {
   let installs = 0;
@@ -44,16 +96,23 @@ test("dismissed warnings stay dismissed across checks; a resolved warning disapp
   let checked = 0, installed = false;
   await page.route("**/api/csp", route => {
     checked++;
-    return route.fulfill({json: installed ? {...missing, status: "installed", version: "0.2.11", enabled: true, can_install: false} : missing});
+    return route.fulfill({json: installed ? {...missing, status: "installed", version: "0.2.11", enabled: true, can_install: false} : {...missing, can_install: false}});
   });
   await page.goto("/");
   await page.getByRole("button", {name: "Dismiss notification"}).click();
   await expect(page.getByRole("alert")).toBeHidden();
-  await expect.poll(() => checked).toBeGreaterThan(1);
+  await openSettings(page, "General");
+  await page.getByRole("button", {name: "Check again", exact: true}).click();
+  await expect.poll(() => checked).toBe(2);
+  await page.getByRole("button", {name: "Close settings"}).click();
   await expect(page.getByRole("alert")).toBeHidden();
   await page.reload();
   await expect(page.getByRole("alert")).toBeVisible();
   installed = true;
+  await openSettings(page, "General");
+  await page.getByRole("button", {name: "Check again", exact: true}).click();
+  await expect.poll(() => checked).toBe(4);
+  await page.getByRole("button", {name: "Close settings"}).click();
   await expect(page.getByRole("alert")).toBeHidden();
 });
 

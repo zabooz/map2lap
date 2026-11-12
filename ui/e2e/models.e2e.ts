@@ -15,7 +15,7 @@ async function sample(page: import("@playwright/test").Page, png: Buffer, points
 
 const delta = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 
-test('Library under Revert to saved opens the library where it was left, Insert always at OBJECTS', async ({page}) => {
+test('Library in File opens the library where it was left, Insert always at OBJECTS', async ({page}) => {
   await openEditor(page);
   const library=page.getByRole('dialog',{name:'Asset library'}), open=page.getByRole('button',{name:'Library',exact:true});
   // (a full texture library has pages, a small object library none)
@@ -35,7 +35,7 @@ test('Library under Revert to saved opens the library where it was left, Insert 
   await library.getByRole('tab',{name:'TEXTURES'}).click();
   await page.keyboard.press('Escape');
   await scene(page).focus();
-  await page.keyboard.press('i');
+  await page.keyboard.press('e');
   await expect(library.getByRole('tab',{name:'OBJECTS'})).toHaveAttribute('aria-selected','true');
 });
 
@@ -48,7 +48,7 @@ test('Insert shares one TEXTURES/OBJECTS library and places an imported tree', a
   const insert=page.getByRole('button',{name:'Insert',exact:true});
   expect(await insert.evaluate(button => button.parentElement === document.querySelector('#edit-click-deletes')?.parentElement)).toBe(true);
   await scene(page).focus();
-  await page.keyboard.press('i');
+  await page.keyboard.press('e');
   const library=page.getByRole('dialog',{name:'Asset library'});
   await expect(library).toBeVisible();
   await expect(library.getByRole('tab',{name:'OBJECTS'})).toHaveAttribute('aria-selected','true');
@@ -97,9 +97,9 @@ test('Insert shares one TEXTURES/OBJECTS library and places an imported tree', a
   await expect(page.getByLabel('Track statistics')).toContainText('With draft (estimate)');
   await expect(page.locator('#inspector-details #edit-placed')).toHaveText('1 object moved');
   await testInfo.attach('insert-ghost',{body:ghostPng,contentType:'image/png'});
-  await page.getByRole('tab',{name:'Properties',exact:true}).click();
+  await page.getByRole('tab',{name:'Selection',exact:true}).click();
   await scene(page).click({position:{x:200,y:500}});
-  await page.getByRole('button',{name:'Edit texture',exact:true}).click();
+  await page.locator('#inspect-options').getByRole('button',{name:'Change texture…',exact:true}).click();
   await expect(library.getByRole('tab',{name:'TEXTURES'})).toHaveAttribute('aria-selected','true');
   await expect(page.locator('dialog[open]')).toHaveCount(1);
   await library.screenshot({path:testInfo.outputPath('insert-library-textures.png')});
@@ -272,10 +272,9 @@ test("import a cutout GLB tree, place and replace, pose undo, save and cold reop
     nativeMeshes: native, coldReplacements: coldIndex.model_replacements}, null, 2), contentType: "application/json"});
 });
 
-test("Revert to saved and Undo refresh models together with source heights, source poses and ordinary copies", async ({page, backend}) => {
+test("Undo and Redo update imported models while keeping source heights, poses and ordinary copies", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, house: true});     // (a house's copy is a mesh)
   await openEditor(page);
-  const original = await picture(page);
   const now = await (await page.request.get("/api/editor/alpha/edits")).json();
   const template = await (await page.request.post("/api/editor/alpha/copy", {data: {base: now.base, revision: now.revision, object: "t_0_0#0"}})).json();
   const copied = await (await page.request.post("/api/editor/alpha/copy", {data: {base: now.base, revision: now.revision, template: template.template, at: [180, 0, -100]}})).json();
@@ -285,6 +284,8 @@ test("Revert to saved and Undo refresh models together with source heights, sour
     placed: [{id: "trees#1", x: 0, y: 2, z: 0, turn: 20, scale: 1.1}]}});
   expect(answer.ok()).toBe(true); await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  const original = await picture(page);
+  const sourceDraft = await (await page.request.get("/api/editor/alpha/edits")).json();
   const repo = join(import.meta.dirname, "../.."), python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
   const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py")]);
   await page.getByRole("button", {name: "Insert", exact: true}).click();
@@ -296,12 +297,13 @@ test("Revert to saved and Undo refresh models together with source heights, sour
   const count = () => page.evaluate(() => (performance.getEntriesByName("map2lap.models.resources").at(-1) as PerformanceMark)?.detail.instances);
   await expect.poll(count).toBe(1); await page.keyboard.press("Escape");
   const changed = await picture(page); expect(changed.equals(original)).toBe(false);
-  await page.getByRole("button", {name: "Revert to saved", exact: true}).click(); await saved(page);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
   await expect.poll(count).toBe(0);
   await expect.poll(async () => (await picture(page)).equals(original)).toBe(true);
   const discarded = await (await page.request.get("/api/editor/alpha/edits")).json();
-  for (const role of ["models", "heights", "placed", "copies"]) expect(discarded[role]).toEqual([]);
-  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
+  expect(discarded.models).toEqual([]);
+  for (const role of ["heights", "placed", "copies"]) expect(discarded[role]).toEqual(sourceDraft[role]);
+  await page.getByRole("button", {name: /Redo/}).click(); await saved(page);
   await expect.poll(count).toBe(1);
   await expect.poll(async () => (await picture(page)).equals(changed)).toBe(true);
 });

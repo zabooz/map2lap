@@ -68,7 +68,7 @@ test("model Insert, Move, Undo and Redo do not download unchanged copy meshes", 
   expect(after.meshes.filter((m: {copy?: boolean}) => m.copy)).toEqual(before.meshes.filter((m: {copy?: boolean}) => m.copy));
 });
 
-test("a late copied house cannot flash into view after Revert while the model layout is changing", async ({page, backend}) => {
+test("a late copied house cannot flash into view after Undo alongside imported models", async ({page, backend}) => {
   await withModel(page, backend, true);
   await saveTrack(page);
   const baseline = await picture(page);
@@ -90,25 +90,21 @@ test("a late copied house cannot flash into view after Revert while the model la
     await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
     const c = await centre(scene(page)); await page.mouse.click(c.x + 130, c.y + 100);
     await copyHeld; await page.keyboard.press("Escape");
-    await pickModel(page); await page.keyboard.press("c");
-    await expect(page.locator("#edit-copy-set")).toContainText("Click to place");
-    await page.mouse.click(c.x + 230, c.y + 100); await page.keyboard.press("Escape");
-    await expect.poll(() => page.evaluate(() => (performance.getEntriesByName("map2lap.models.resources").at(-1) as PerformanceMark)?.detail.instances)).toBe(2);
-    const beforeRevert = await picture(page);
     await page.route("**/edits", async route => {
       if (route.request().method() === "PUT" && route.request().postDataJSON().copies?.length === 0) { gotRevert(); await revertGate; }
       await route.continue();
     });
-    await page.getByRole("button", {name: "Revert to saved", exact: true}).click(); await revertHeld;
-    releaseCopy(); await copyReleased;
-    await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok))));
-    expect((await picture(page)).equals(beforeRevert)).toBe(true);
+    await page.getByRole("button", {name: /Undo/}).click(); await revertHeld;
     releaseRevert(); await saved(page);
     await expect.poll(async () => (await picture(page)).equals(baseline)).toBe(true);
+    releaseCopy(); await copyReleased;
+    await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    // A response to the older copy layout cannot reintroduce an acknowledged Undo.
+    expect((await picture(page)).equals(baseline)).toBe(true);
   } finally { releaseCopy(); releaseRevert(); }
 });
 
-test("generated copies stay visible alongside imported models through Save, Revert, Undo and reload", async ({page, backend}) => {
+test("generated copies stay visible alongside imported models through Save, Undo, Redo and reload", async ({page, backend}) => {
   await withModel(page, backend, true);
   await saveTrack(page);
   const before = await picture(page);
@@ -123,11 +119,11 @@ test("generated copies stay visible alongside imported models through Save, Reve
     await saved(page);
     await expect.poll(async () => (await draft(page)).copies.length).toBe(1);
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
-    await page.getByRole("button", {name: "Revert to saved", exact: true}).click();
+    await page.getByRole("button", {name: /Undo/}).click();
     await saved(page);
     await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   }
-  await page.getByRole("button", {name: /Undo/}).click();
+  await page.getByRole("button", {name: /Redo/}).click();
   await saved(page);
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(false);
   await saveTrack(page, false);

@@ -480,6 +480,18 @@
   },
   "long": true
  },
+ "heiligenblut_walls_test": {
+  "title": "Heiligenblut Walls Test",
+  "about": "The first 270 m of the Grossglockner road: a broad retaining wall above a lower lane and a narrow stone parapet at the upper road; independent Editor selection, textures and cap heights",
+  "points": [
+   [47.039452, 12.860592],
+   [47.040965, 12.857779]
+  ],
+  "width": 100.0,
+  "spots": [
+   ["110-170", "broad retaining-wall cap beside the lower lane and the upper road's narrow stone parapet"]
+  ]
+ },
  "heiligenblut_test": {
   "title": "Heiligenblut Test",
   "about": "Großglockner road from Heiligenblut, 13.5 km: mountain road with hairpins, avalanche galleries, short tunnels, bridges over mountain streams, rocks and scree",

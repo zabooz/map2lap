@@ -32,6 +32,32 @@ def edge_counts(P, T):
 
 
 class WallSolidTest(unittest.TestCase):
+    def test_retaining_top_uses_the_walls_material_and_repeat(self):
+        for concrete in (False, True):
+            with self.subTest(concrete=concrete):
+                P, T, UV, mats, M = roadmesh.tunnel([], (0, 0, 0), walls=[wall(False, concrete)])
+                self.assertNotIn(roadmesh.TUNNEL_SOIL, [mats[int(i)] for i in np.unique(M)])
+                self.assertEqual({roadmesh.TUNNEL_SIDE if concrete else roadmesh.TUNNEL_STONE},
+                                 {mats[int(i)] for i in np.unique(M)})
+                # The broad top repeats at the masonry's metre scale, just like its narrow coping.
+                k = len(wall(False)["base"])
+                repeat = roadmesh.CONCRETE_UV_M if concrete else roadmesh.STONE_UV_M
+                self.assertAlmostEqual(float(UV[4 * k, 0]), 0)
+                self.assertAlmostEqual(float(UV[5 * k, 1]), (2.4 - 0.5) / repeat)
+
+    def test_wall_records_own_only_their_vertices_and_keep_their_kind(self):
+        retaining, parapet = wall(False), wall(True, thick=0.45)
+        parapet["base"][:, 1] += 10
+        records = []
+        mesh = roadmesh.tunnel([], (0, 0, 0), walls=[retaining, parapet], objects=records)
+        self.assertEqual(["retaining wall", "parapet"], [r["kind"] for r in records])
+        self.assertEqual(0, records[0]["first"])
+        self.assertEqual(records[0]["count"], records[1]["first"])
+        self.assertEqual(len(mesh[0]), sum(r["count"] for r in records))
+        for r, w in zip(records, (retaining, parapet)):
+            self.assertEqual(bool(w["parapet"]), r["details"]["wall"]["parapet"])
+            np.testing.assert_allclose(r["details"]["wall"]["top"], w["top"])
+
     def check(self, w):
         got = roadmesh.tunnel([], (0.0, 0.0, 0.0), walls=[w])
         P, T = np.asarray(got[0], np.float64), np.asarray(got[1])

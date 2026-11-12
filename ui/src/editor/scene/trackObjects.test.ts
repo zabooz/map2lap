@@ -4,6 +4,14 @@ import {objectsOf} from "./view.fixture";
 
 const VERGE = "nocol_road_edge_dirt_0_0";
 
+test("edited wall originals are hidden without hiding neighbouring objects, and Undo restores them", () => {
+  const {objects, index} = fixture();
+  objects.setWallHidden([[7, 1, 2]]);
+  expect(index()).toEqual([0, 1, 2, 0, 0, 0, 0, 0, 0, 9, 10, 11]);
+  objects.setWallHidden([]);
+  expect(index()).toEqual(Array.from({length: 12}, (_, k) => k));
+});
+
 /** A mesh named name, number i, of four triangles with their own vertices each. */
 function fourTriangles(i: number, name: string) {
   const geometry = new THREE.BufferGeometry();

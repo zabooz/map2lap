@@ -1150,9 +1150,7 @@ TUNNEL_STONE = "bne_tunnel_stone"  # a low arch's portal faces and the retaining
                                     # Park's transverse walls and arches; the buildings' pale dressed stone read as
                                     # concrete)
 TUNNEL_STONE_IN = "bne_tunnel_stone_in"   # the same stone darker: a low arch's vault (in its shade)
-TUNNEL_SOIL = "bne_tunnel_soil"     # grass on the ground over the masonry: a retaining wall's top behind its coping,
-                                    # a low arch's top (stone slabs on the grass: "blend the
-                                    # stone and terrain better")
+TUNNEL_SOIL = "bne_tunnel_soil"     # grass on a low arch's top; retaining walls use masonry across their whole top
 SOIL_UV_M = 1.0            # m per repeat of the grass (the terrain's detail texture: bngEarthGroundGrass, size 1)
 WALL_COPING_M = 0.5        # m of a retaining wall's top in stone (its coping), the rest of it soil
 WALL_SKIRT_M = 2.0         # m a retaining wall's back reaches down from its top
@@ -1197,15 +1195,17 @@ def _tunnel_section(hw, th=TUNNEL_H, low=False):
 WALL_THICK_M = 2.4         # a retaining wall's top: over the grading's flat strip behind it (grading.WALL_FLAT_M)
 
 
-def _retaining_walls(walls, origin, P, T, UV, M, nv):
+def _retaining_walls(walls, origin, P, T, UV, M, nv, objects=None):
     """roads.retaining_walls' walls as stone (material index 2): the face toward the road, the top, the ends;
-    appended to P, T, UV, M. Returns the new vertex count."""
+    appended to P, T, UV, M. objects receives each wall's vertex range and original profile. Returns the new vertex count."""
     for w in walls:
         b = np.asarray(w["base"], np.float64)
         top, foot, tw = np.asarray(w["top"]), np.asarray(w["foot"]), np.asarray(w["toward"], np.float64)
         k = len(b)
         if k < 2:
             continue
+        first = nv
+        pieces, lift = len(P), []
         s = np.concatenate(([0.0], np.cumsum(np.hypot(*np.diff(b, axis=0).T))))
         thick = np.asarray(w.get("thick", np.full(k, WALL_THICK_M)), np.float64)    # (roads.retaining_walls)
         face_m, face_uv = (0, CONCRETE_UV_M) if w.get("concrete") else (2, STONE_UV_M)  # (a major road's: concrete)
@@ -1216,8 +1216,10 @@ def _retaining_walls(walls, origin, P, T, UV, M, nv):
         cop = np.minimum(WALL_COPING_M, thick)
         cop_hi = np.c_[b - tw * cop[:, None], top] - origin
         quads = [(face_lo, face_hi, foot, top, face_m), (face_hi, cop_hi, None, float(np.mean(cop)), face_m)]
-        if (thick > cop + 0.01).any():          # the soil behind the coping (a parapet is all stone)
-            quads.append((cop_hi, back_hi, None, float(np.mean(thick - cop)), 4))
+        if (thick > cop + 0.01).any():
+            # A separate metre-repeat grass strip stood out against AC's baked hillside. The entire cap is masonry,
+            # including the broad cover behind a cutting's face; a narrow parapet already has only its coping.
+            quads.append((cop_hi, back_hi, None, float(np.mean(thick - cop)), face_m))
         if w.get("parapet"):                    # a parapet's back, seen from the valley
             bot = foot
         else:                                   # a retaining wall's back: down into the ground behind it (where the
@@ -1229,6 +1231,7 @@ def _retaining_walls(walls, origin, P, T, UV, M, nv):
         quads.append((back_lo, face_lo, None, float(np.mean(thick)), face_m))
         for qi, (lo_, hi_, vlo, vhi, mat) in enumerate(quads):
             P.append(np.concatenate([lo_, hi_]))
+            lift.extend(([False] * k + [True] * k) if vlo is not None else [qi != len(quads) - 1] * (2 * k))
             if vlo is not None:
                 UV.append(np.column_stack((np.concatenate((s, s)) / face_uv, np.concatenate((vlo, vhi)) / face_uv)))
             else:
@@ -1258,6 +1261,7 @@ def _retaining_walls(walls, origin, P, T, UV, M, nv):
             out /= max(float(np.hypot(out[0], out[1])), 1e-9)
             across = np.r_[-tw[at], 0.0]
             P.append(q)
+            lift.extend([False, True, True, True, False])
             UV.append(np.column_stack(((q @ across) / face_uv, q[:, 2] / face_uv)))
             tri = np.array([[0, 1, 2], [0, 2, 3], [0, 3, 4]], np.int64)
             e1, e2 = q[tri[:, 1]] - q[tri[:, 0]], q[tri[:, 2]] - q[tri[:, 0]]
@@ -1269,6 +1273,17 @@ def _retaining_walls(walls, origin, P, T, UV, M, nv):
             T.append(tri + nv)
             M.append(face_m)
             nv += 5
+        if objects is not None:
+            profile = {key: np.asarray(value).tolist() for key, value in
+                       (("base", b), ("top", top), ("foot", foot), ("toward", tw), ("thick", thick))}
+            profile.update(parapet=bool(w.get("parapet")), concrete=bool(w.get("concrete")))
+            # Match the exported coordinates exactly: CDAE stores local float32 positions, OBJ rounds the world to mm.
+            tops = np.concatenate(P[pieces:])[lift].astype(np.float32).astype(np.float64) + origin
+            profile["tops"] = np.unique((tops[:, [0, 2, 1]] * [1, 1, -1]).round(3), axis=0).tolist()
+            objects.append({"first": first, "count": nv - first,
+                            "kind": "parapet" if profile["parapet"] else "retaining wall",
+                            "at": [float(b[:, 0].mean()), float(b[:, 1].mean()), float(foot.min())],
+                            "details": {"asset": "generated-wall", "wall": profile}})
     return nv
 
 
@@ -1349,19 +1364,19 @@ def _galleries(gals, origin, P, T, UV, M, nv):
     return nv
 
 
-def tunnel(chunks, origin, walls=(), galleries=()):
+def tunnel(chunks, origin, walls=(), galleries=(), objects=None):
     """The tunnels of a tile as one colliding mesh: around every "tunnel" chunk (its road surface: a deck, deck()
     makes its slab) a tube of concrete (TUNNEL_SIDE) faced inwards: shoulders, walls and a vault TUNNEL_H over the
     floor; at a chunk end that is a portal ("portal") a face around the opening, seen from both sides; the retaining
     walls and the avalanche galleries' roofs (_galleries). (positions, tris, uvs, materials, tri material index) or
-    None. Pure."""
+    None. objects receives the retaining walls' and parapets' ownership records. Pure apart from objects."""
     tc = [c for c in chunks if c.get("tunnel") and not c.get("no_tube")]     # (twins: one tube_only round both)
     rb = [(r, c) for r, c in zip(ribbons(tc), tc) if r[5] is not None] if tc else []
     if not rb and not walls and not galleries:
         return None
     P, T, UV, M = [], [], [], []           # M: per T entry its material index (0 concrete, 1 lamps, 2 stone, 3 dark stone,
                                             # 4 soil)
-    nv = _retaining_walls(walls, np.asarray(origin, np.float64), P, T, UV, M, 0) if walls else 0
+    nv = _retaining_walls(walls, np.asarray(origin, np.float64), P, T, UV, M, 0, objects) if walls else 0
     if galleries:
         nv = _galleries(galleries, np.asarray(origin, np.float64), P, T, UV, M, nv)
     for (left, right, v, _, _, z), c in rb:
@@ -1531,6 +1546,17 @@ def _tunnel_lamps(P, T, UV, M, nv, mid, u, z, hw, origin):
             M.append(1)
             nv += 4
     return nv
+
+
+def wall_owners(mesh, objects):
+    """Wall owners as runs [owner, vertex count] in the CDAE's vertex order; -1 is a tube, portal or gallery. Pure."""
+    P, T, _UV, mats, M = mesh
+    owner = np.full(len(P), -1, np.int64)
+    for k, record in enumerate(objects):
+        owner[record["first"]:record["first"] + record["count"]] = k
+    owner = owner[cdae.vertex_order(T, M, len(mats))]
+    starts = np.r_[0, np.flatnonzero(owner[1:] != owner[:-1]) + 1]
+    return [[int(owner[a]), int(b - a)] for a, b in zip(starts, np.r_[starts[1:], len(owner)])]
 
 
 def write(path, mesh):

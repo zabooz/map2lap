@@ -265,6 +265,24 @@ def _buildings_listed(objects, data, shapes, tiles_dir):
     return owners, numbers
 
 
+def _walls_listed(objects, data, shapes):
+    """A tunnel shape's original walls as listed objects and vertex owners. Pure apart from objects.
+
+    The recorded runs follow CDAE's remapped vertex order, preserving ownership through its material sorting,
+    wall colour splitting, OBJ splitting and KN5's reversed wall faces.
+    """
+    records = data.get("tunnel", {}).get("objects", [])
+    parts = next((parts for what, parts in shapes if what == "tunnel"), [])
+    if not records or not parts:
+        return {}
+    runs = data["tunnel"].get("ownership", [])
+    if not runs or sum(n for _, n in runs) != len(parts[0][1]) or any(n <= 0 or k < -1 or k >= len(records) for k, n in runs):
+        raise ValueError("Invalid wall ownership in tunnel shape")
+    numbers = [objects.new(r["kind"], *r["at"], details=r["details"]) for r in records]
+    vertex = np.repeat([numbers[k] if k >= 0 else -1 for k, _ in runs], [n for _, n in runs])
+    return {"tunnel": vertex}
+
+
 def _wires_listed(objects, data, shapes, tiles_dir):
     """The tile's spans of wires as new objects: {"wire": the owner of each vertex of that shape}, or {}."""
     for what, parts in shapes:
@@ -741,6 +759,7 @@ def _scenery_tile(tx, ty, part_path):
     road_xy = []                # road points of the tile (street light arms point to the nearest one)
     vertex_owners, houses = _buildings_listed(obj.listed, data, shapes, tiles_dir)
     vertex_owners.update(_wires_listed(obj.listed, data, shapes, tiles_dir))
+    vertex_owners.update(_walls_listed(obj.listed, data, shapes))
     for what, parts_ in shapes:
         groups = {}
         vertex = vertex_owners.get(what)

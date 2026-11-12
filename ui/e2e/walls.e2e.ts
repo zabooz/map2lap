@@ -1,0 +1,68 @@
+import {expect, openEditor, test} from "./fixtures";
+import {findTitled, saved} from "./edit-helpers";
+
+const image = {name: "wall.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVQIHWP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64")};
+
+test("retaining-wall height and texture use one object, survive Undo and reload, and save", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, walls: true});
+  await openEditor(page);
+  const at = await findTitled(page, "Retaining wall", 320);
+  await page.mouse.click(at.x, at.y);
+  const panel = page.getByRole("complementary", {name: "Inspector"});
+  await expect(panel.locator("#inspect-selection")).toContainText("Retaining wall");
+  await expect(panel.getByLabel("Top offset")).toHaveValue("0");
+  await expect(panel.getByText("Turn", {exact: true})).toHaveCount(0);
+  await panel.getByLabel("Top offset").fill("120");
+  await panel.getByRole("button", {name: "Set height"}).click();
+  await saved(page);
+  const draft = async () => (await page.request.get("/api/editor/alpha/edits")).json();
+  await expect.poll(async () => (await draft()).walls[0]?.rise).toBe(1.2);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
+  await expect.poll(async () => (await draft()).walls).toEqual([]);
+  await page.getByRole("button", {name: /Redo/}).click(); await saved(page);
+  await expect(panel.getByLabel("Top offset")).toHaveValue("120");
+  await panel.getByRole("button", {name: "Change texture…"}).click();
+  const library = page.getByRole("dialog", {name: "Asset library"});
+  await expect(library).toContainText("whole wall");
+  await library.getByLabel("Texture file").setInputFiles(image);
+  const importer = page.getByRole("dialog", {name: "Import texture"});
+  await importer.getByLabel("Name", {exact: true}).fill("Red wall");
+  await importer.getByLabel("Width (m)").fill("6");
+  await importer.getByLabel("Height (m)").fill("3");
+  await importer.getByRole("button", {name: "Add to library", exact: true}).click();
+  await expect(importer).toBeHidden();
+  await library.getByRole("button", {name: "Apply", exact: true}).click();
+  await expect(library).toBeHidden();
+  await expect(panel.getByRole("button", {name: "Original texture", exact: true})).toBeVisible();
+  await expect.poll(async () => (await draft()).walls[0]?.material).toMatch(/^[a-f0-9]{64}$/);
+  await page.reload();
+  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  const again = await findTitled(page, "Retaining wall", 320);
+  await page.mouse.click(again.x, again.y);
+  await expect(panel.getByLabel("Top offset")).toHaveValue("120");
+  await expect(panel.getByRole("button", {name: "Original texture", exact: true})).toBeVisible();
+  await page.locator("#edit-save").click();
+  await expect(page.locator("#save-dialog")).toBeVisible();
+  await page.locator("#save-dialog").getByRole("button", {name: "Overwrite", exact: true}).click();
+  await expect(page.locator("#save-dialog")).toBeHidden();
+  await expect(page.locator("#edit-saved")).toHaveText(/^Saved /);
+  const meshes = await (await page.request.get("/__test/meshes?name=alpha")).json();
+  expect(Object.keys(meshes).some(n => n.startsWith("1WALL_wall_"))).toBe(true);
+  await panel.getByRole("button", {name: "Reset wall", exact: true}).click(); await saved(page);
+  await expect(panel.getByLabel("Top offset")).toHaveValue("0");
+});
+
+test("a parapet is its own selectable kind and deletion can be undone", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, walls: true});
+  await openEditor(page);
+  const at = await findTitled(page, "Parapet wall", 320);
+  await page.mouse.click(at.x, at.y);
+  const selected = page.locator("#inspect-selection");
+  await expect(selected).toContainText("Parapet wall");
+  await expect(selected).toContainText("t_0_0#1");
+  await page.keyboard.press("Delete"); await saved(page);
+  const edits = async () => (await page.request.get("/api/editor/alpha/edits")).json();
+  await expect.poll(async () => (await edits()).deleted.map((d: {id: string}) => d.id)).toEqual(["t_0_0#1"]);
+  await page.getByRole("button", {name: /Undo/}).click(); await saved(page);
+  await expect.poll(async () => (await edits()).deleted).toEqual([]);
+});

@@ -6,7 +6,7 @@ import type {MeshInfo, TrackIndex} from "../types";
 import {childrenOf, countOfSort, idsOfSorts, objectAt, objectIndex, takenAlong} from "./inspect";
 import {cutsOf, type SurfaceCut} from "./surfaceCuts";
 
-export const NOT_MOVED = new Set(["power line"]);      // (placement.NOT_ALONE: a span goes where its poles go)
+export const NOT_MOVED = new Set(["power line", "retaining wall", "parapet"]); // placement.NOT_ALONE: walls stay at their terrain / road edge
 const TREES = "trees#";                                 // (a TreeFX tree's id: objectlist.TREEFX)
 
 /** The triangles of a mesh that make up an object. */
@@ -38,6 +38,7 @@ export interface ObjectHost {
 
 /** The objects of the track a view shows and what of them is left out. clear() forgets them. */
 export class TrackObjects {
+  private wallHidden: [number, number, number][] = [];
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
   private belonging: ReturnType<typeof childrenOf> = new Map();        // what belongs to which of them
   private surfacesOut = new Map<string, [number, number][]>();   // the verge's triangles left out, by mesh name (as setRemovedSurfaces was told)
@@ -86,6 +87,15 @@ export class TrackObjects {
   /** Whether listed objects lie in mesh number i. */
   holds(i: number) { return this.objectPieces.has(i); }
 
+  /** Only explicit wall selections can receive a wall edit; mixed object selections need their own tools. */
+  wallIds(ids: string[]) {
+    const data = this.host.data();
+    return ids.every(id => {
+      const [tile, number] = id.split("#");
+      return ["retaining wall", "parapet"].includes(data?.objects[tile]?.kinds[Number(number)] ?? "");
+    }) ? ids : [];
+  }
+
   /** The listed objects' pieces in mesh number i, by their first triangle. */
   piecesIn(i: number) { return this.objectPieces.get(i); }
 
@@ -105,10 +115,23 @@ export class TrackObjects {
     const info = mesh.userData.info as MeshInfo;
     for (const piece of this.listedOut.get(info.i) ?? []) this.leaveOutIn(mesh, piece, true);
     for (const [from, count] of this.surfacesOut.get(info.name) ?? []) this.leaveOutIn(mesh, {mesh: info.i, from, end: from + count}, true);
+    for (const [i, from, count] of this.wallHidden) if (i === info.i) this.leaveOutIn(mesh, {mesh: i, from, end: from + count}, true);
+  }
+
+  /** Edited wall meshes replace their original face ranges. Undo restores them before applying other deletions. */
+  setWallHidden(pieces: [number, number, number][]) {
+    for (const [i, from, count] of this.wallHidden) {
+      const mesh = this.host.mesh(i);
+      if (mesh) this.leaveOutIn(mesh, {mesh: i, from, end: from + count}, false);
+    }
+    this.wallHidden = pieces;
+    for (const mesh of this.host.loaded()) this.hideIn(mesh);
+    this.host.changed();
   }
 
   /** Another track: all forgotten. What is left out stays named until the draft says otherwise. */
   clear() {
+    this.wallHidden = [];
     this.objectPieces = new Map();
     this.belonging = new Map();
   }

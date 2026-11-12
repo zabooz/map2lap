@@ -1,6 +1,5 @@
 import type {ReactNode} from "react";
 import type {EditState, TrackEdits} from "../state/edits";
-import {hasUnsavedChanges} from "../state/edits";
 import styles from "./ToolPanel.module.css";
 import {thenView} from "./ToolOptions";
 import type {useSave} from "../state/useSave";
@@ -12,12 +11,12 @@ type Group = "general" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click a ground surface or object to pick it, Ctrl + click adds more, Shift + click selects all matching; Alt changes the ground's texture or replaces trees; X or Delete takes them out (V)"},
   {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
-  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "T", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (T)"},
+  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "R", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (R)"},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
-  {tool: "move", group: "objects", id: "edit-move", label: "Transform", key: "M", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (M; Esc ends it)"},
+  {tool: "move", group: "objects", id: "edit-move", label: "Transform", key: "T", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (T; Esc ends it)"},
   {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},
   {tool: "delete", group: "objects", id: "edit-click-deletes", label: "Delete", key: "X", hint: "Each click deletes what is under it, Ctrl+Z brings it back (X, with nothing picked; Esc ends it)"},
-  {tool: "model", group: "objects", id: "edit-insert", label: "Insert", key: "I", hint: "Open the object library to import or place a model (I)"},
+  {tool: "model", group: "objects", id: "edit-insert", label: "Insert", key: "E", hint: "Open the object library to import or place a model (E)"},
 ];
 
 /** One titled group of the sidebar's tools. */
@@ -30,10 +29,9 @@ function Section({title, children}: {title: string; children: ReactNode}) {
   );
 }
 
-/** Save, Play, Delete track and Revert to saved under the track's choice in the sidebar's File, the library of textures and objects apart below them. onLibrary,
-    onDelete: they were pressed (the track's deletion asks first). */
-export function FileButtons({state, edits, view, saving, onLibrary, onDelete}: {state: EditState; edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>;
-                                                                  onLibrary: () => void; onDelete: () => void}) {
+/** Save and Play under the track choice; the arrow opens Save options including Delete track. */
+export function FileButtons({edits, view, saving, onLibrary}: {edits: TrackEdits; view: TrackView; saving: ReturnType<typeof useSave>;
+                                                                  onLibrary: () => void}) {
   const then = (action: () => void) => thenView(view, action);
   return (
     <div className={`${styles.tools} ${styles.fileButtons}`}>
@@ -45,16 +43,6 @@ export function FileButtons({state, edits, view, saving, onLibrary, onDelete}: {
         </span>
         <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save if needed, then drive it in Assetto Corsa"
                 onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : saving.waiting?.play ? "Waiting …" : "▶ Play"}</button>
-      </div>
-      <div className={styles.row}>
-        <button type="button" id="edit-delete-track" className={styles.danger} disabled={saving.busy}
-                title="Delete this track from Assetto Corsa" onClick={then(onDelete)}>Delete track</button>
-        <button type="button" disabled={!hasUnsavedChanges(state) || !edits.canEdit() || saving.busy}
-                title="Return to the last Save; Undo brings the changes back" onClick={then(() => {
-                  if (confirm("Revert to the last Save?\n\nYour saved edits are kept. Undo brings the discarded changes back.")) {
-                    void edits.inTurn(() => edits.discard());
-                  }
-                })}>Revert to saved</button>
       </div>
       <button type="button" id="edit-library" className={styles.library} title="Textures and objects: import them, paint the picked ground, place models"
               onClick={then(onLibrary)}>Library</button>

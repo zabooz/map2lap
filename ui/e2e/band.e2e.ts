@@ -63,7 +63,7 @@ test("smoothing is one undo step above an existing elevation edit", async ({page
   await page.locator("#edit-elevation-set").getByLabel("Height").fill("20");
   await page.mouse.click(c.x, c.y);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
-  await saved(page); await page.keyboard.press("t");
+  await saved(page); await page.keyboard.press("r");
   await mark(page, a, b); await strength(page).fill("80");
   await expect(page.locator("#edit-heights")).toHaveText("2 height changes");
   await escape(page); await page.keyboard.press("Control+z");

@@ -85,20 +85,20 @@ test("the brush: Save retains the stroke after reload and Discard removes only a
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(raised)).toBe(true);
-  await expect(button(page, "Revert to saved")).toBeDisabled();
+  await expect(page.getByRole("button", {name: /Undo/})).toBeDisabled();
   await page.locator("#edit-elevation").click();
   await page.locator("#edit-elevation-set").getByLabel("Radius").fill("40");
   await page.locator("#edit-elevation-set").getByLabel("Height").fill("300");
   await brushStroke(page); await saved(page);
   await expect(page.locator("#edit-heights")).toHaveText("2 height changes");
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
-  await button(page, "Revert to saved").click();
+  await page.getByRole("button", {name: /Undo/}).click();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
   await expect.poll(async () => (await picture(page)).equals(raised)).toBe(true);
 });
 
-test("the brush: a stroke on its way when Discard is pressed goes too, and strokes keep their order", async ({page}) => {
+test("the brush: strokes keep their order and Undo waits for a pending stroke", async ({page}) => {
   await openEditor(page);
   await page.locator("#edit-elevation").click();
   await brushStroke(page);
@@ -125,7 +125,8 @@ test("the brush: a stroke on its way when Discard is pressed goes too, and strok
 
   answer = 0;
   await brushStroke(page);
-  await button(page, "Revert to saved").click();
+  await saved(page);
+  for (let step = 0; step < 4; step++) { await page.getByRole("button", {name: /Undo/}).click(); await saved(page); }
   await expect(page.locator("#edit-heights")).toHaveCount(0);
   await saved(page);
   expect(await heights(page)).toEqual([]);

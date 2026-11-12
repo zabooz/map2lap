@@ -83,6 +83,24 @@ export class TrackTextures {
   /** loaded hears each texture of the track shown that has arrived (the loading count); null: no one. */
   setLoaded(loaded: (() => void) | null) { this.onLoaded = loaded; }
 
+  /** Generated wall layouts can reuse appended texture/material slots; source slots stay shared. */
+  reconcile(before: TrackIndex, after: TrackIndex) {
+    this.materials.forEach((material, i) => {
+      if (JSON.stringify(before.materials[i]) === JSON.stringify(after.materials[i])) return;
+      material?.dispose(); this.materials[i] = undefined; this.sourceMaterials.delete(i);
+    });
+    this.pool.forEach((texture, i) => {
+      if (before.textures[i]?.name === after.textures[i]?.name) return;
+      this.pool[i] = undefined;
+      this.displayedTextures.delete(i);
+      void texture?.then(t => {
+        if (!t) return;
+        this.host.release(this.textureBytes.get(t) ?? 0); t.dispose();
+        if (typeof ImageBitmap !== "undefined" && t.image instanceof ImageBitmap) t.image.close();
+      }, () => {});
+    });
+  }
+
   /** When the textures asked for so far and the painted ground being prepared have arrived or failed. */
   async settled() {
     await Promise.all(this.pool);

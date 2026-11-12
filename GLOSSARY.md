@@ -325,6 +325,12 @@ _Avoid_: ramp, lead-in
 **Portal**:
 The mouth of a tunnel.
 
+**Retaining wall and parapet** (Editor):
+A retaining wall supports a cut or the step between roads; a parapet is the narrow wall at a road's falling edge
+(`roads/walls.py`, `parapet=True`). Builds record them as separate selectable object kinds, including their original top
+profile. Both use masonry across their entire cap. The Editor changes their whole-wall colour texture or raises the top
+with both feet held in place (`app/trackwalls.py`); a change never moves the terrain cut.
+
 **Hull**:
 A tunnel floor's height line: the lower convex hull of the ground along the tunnel and the road beyond its portals.
 
@@ -404,6 +410,16 @@ A hash of the `engine/` code, the native module, the Python and numpy versions a
 A build that finds nothing for its code key in the revisit cache and computes everything (`BNE_COLD` with a value not used
 before forces one, `BNE_REVISIT=off` every time).
 _Avoid_: fresh build, clean build
+
+**Map data cache**:
+Downloaded and computed build inputs under `cache/`, bounded and cleared by `app/mapcache.py`. Its limit excludes Editor
+cache folders. Removing a build input causes a later build to fetch or compute it again; the installed track keeps its own
+object list and Editor build facts.
+
+**Editor cache**:
+Disposable import preparations, preview textures and prepared Save images under the Editor-owned `cache/` subfolders
+listed in `app/mapcache.py:EDITOR`. Build-cache accounting, cleanup and Clear leave these files alone. Retained edit
+operations, material snapshots and saved track data are separate from this cache.
 
 **Track code**:
 A track's inputs in one shareable line (`M2L1-...`), built again from them on the generator page.

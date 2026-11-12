@@ -55,10 +55,10 @@ test("undo brings back the very same picture, redo takes it away again, by keys 
   await button(page, "↷ Redo").click();
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await expect(scene(page)).toBeFocused();      // (after a button W A S D still fly)
-  await button(page, "Revert to saved").click();
+  await page.getByRole("button", {name: /Undo/}).click();
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   await expect(page.locator("#edit-count")).toHaveCount(0);
-  await button(page, "↶ Undo").click();
+  await page.getByRole("button", {name: /Redo/}).click();
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
   await page.mouse.move(c.x, c.y);
 });
@@ -103,9 +103,8 @@ test("a parked car on a track built with the list: picked whole, all of it gone,
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect.poll(async () => (await picture(page)).equals(without)).toBe(true);
   await scene(page).focus();
-  await page.keyboard.press("Control+z");       // (a new page has nothing to undo: Discard brings it back)
-  await button(page, "Revert to saved").click();
-  await expect.poll(async () => (await picture(page)).equals(withCar)).toBe(true);
+  await page.keyboard.press("Control+z");       // Undo history belongs to this visit.
+  await expect.poll(async () => (await picture(page)).equals(without)).toBe(true);
 });
 
 test("a house and its sign: one by one, or the sign along with the house; undo in any order", async ({page, backend}) => {
@@ -246,14 +245,14 @@ test("all of a sort: marked, then deleted, the same picture as a track without t
   const s = (await (await page.request.get("/api/editor/alpha/edits")).json()) as {object_sorts: string[]; deleted: unknown[]};
   expect(s.object_sorts).toEqual([sort]);
   expect(s.deleted).toEqual([]);
+  await page.getByRole("button", {name: /Undo/}).click();
+  await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
+  await page.getByRole("button", {name: /Redo/}).click();
+  await saved(page);
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
-  await button(page, "Revert to saved").click();
-  await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
-  await scene(page).focus();
-  await page.keyboard.press("Control+z");
-  await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
+  await expect(page.getByRole("button", {name: /Undo/})).toBeDisabled();
 });
 
 test("the right-click menu offers tree replacement; Mark all frames and deletes nothing, Esc ends it; a right drag opens none", async ({page}) => {

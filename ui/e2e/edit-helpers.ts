@@ -66,9 +66,9 @@ export async function findCar(page: Page) {
 }
 
 /** A point of the middle of the view where the hover box's title is title. */
-export async function findTitled(page: Page, title: string) {
+export async function findTitled(page: Page, title: string, above = 200) {
   const c = await centre(scene(page));
-  for (let up = 200; up > -200; up -= 8) {
+  for (let up = above; up > -200; up -= 8) {
     await page.mouse.move(c.x - 1, c.y - up);
     await page.mouse.move(c.x, c.y - up);
     const h = page.locator("#hover-box h4").first();

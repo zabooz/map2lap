@@ -236,6 +236,7 @@ def index(ac, name):
                           **{k: v for k, v in painted.get(i, {}).items() if k != "i"}}
                          for i, t in enumerate(s["textures"])], "paints": s.get("paints", []), "paint_errors": list(dict.fromkeys(paint_errors)), "start": _start(s["points"].get(START)),
             "anchor": anchor, "route": route, "objects": _view_objects(listed), "draft": s.get("draft", 0),
+            "wall_hidden": s.get("wall_hidden", []),
             "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else [],
             "surface_unprepared": surfaceindex.unprepared(path) if facts else 0,
             "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
@@ -320,8 +321,15 @@ def copy_index(ac, name):
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
                "first_face": None, "base": None, "copy": True}
               for i, m in enumerate(scan["meshes"]) if m.get("copy") and m["renderable"]]
+    wall_materials = {}
+    if any(kind in ("retaining wall", "parapet") for entry in listed.values() for kind in entry["kinds"]):
+        # The current painted-ground descriptors must survive a wall layout change too, including their mask versions.
+        complete = index(ac, name)
+        wall_materials = {key: complete[key] for key in ("materials", "textures")}
     return {"revision": revision, "draft": scan.get("draft", 0), "copy_revision": scan.get("copy_key", ""), "meshes": meshes,
-            "objects": _view_objects({key: value for key, value in listed.items() if key.startswith("copy_")})}
+            "wall_hidden": scan.get("wall_hidden", []), **wall_materials,
+            "objects": _view_objects({key: value for key, value in listed.items() if key.startswith("copy_") or
+                                     any(kind in ("retaining wall", "parapet") for kind in value["kinds"])})}
 
 
 @functools.lru_cache(maxsize=2)
@@ -520,6 +528,8 @@ def texture_bytes(ac, name, i, revision, version="", side=None):
     from app import trackedits
     path, s, _objects = trackedits.context(ac, name, revision)
     tex, offset, size = s["textures"][i]
+    if tex in s.get("wall_images", {}):
+        return tex, s["wall_images"][tex]
     if tex in s.get("model_textures", {}):
         from app import trackmodels
         return tex, trackmodels.image(ac, name, s["model_textures"][tex], side)

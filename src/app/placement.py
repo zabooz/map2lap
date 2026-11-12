@@ -17,7 +17,7 @@ MAX_MOVE_M = 1000.0         # how far from where it was built: it stays in its t
 # way, is in view; a few tiles' way is a correction, further it would be another track
 MAX_RAISE_M = 100.0         # (trackheights.MAX_MM: no real correction needs more)
 MIN_SCALE, MAX_SCALE = 0.1, 10.0    # a tenth: smaller, a house is a box at the kerb; ten times: a bench as big as a house
-NOT_ALONE = {"power line"}  # (a span: it goes where its poles go)
+NOT_ALONE = {"power line", "retaining wall", "parapet"}  # spans follow their poles; walls stay at their terrain cut / road edge
 FIELDS = ("x", "y", "z", "turn", "scale")
 
 

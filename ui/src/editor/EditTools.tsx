@@ -20,11 +20,13 @@ import {SaveDialog} from "./state/SaveDialog";
 import {FileButtons, TOOLS, ToolPanel, type Tool} from "./tools/ToolPanel";
 import {useBand} from "./tools/useBand";
 import {useSave} from "./state/useSave";
-import type {Hovered, Marked, MenuAt, Picked, WheelKeys} from "./types";
+import type {Marked, MenuAt, Picked, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
 import {ViewMenu} from "./tools/ViewMenu";
 import {Inspector} from "./inspector/Inspector";
 import {TransformFields} from "./inspector/TransformFields";
+import {WallFields} from "./inspector/WallFields";
+import {useWalls} from "./tools/useWalls";
 import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
 import {usePaint} from "./tools/usePaint";
 import type {TextureLook} from "./library/textureLook";
@@ -45,7 +47,7 @@ export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
     to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
     those hosts: V, X, K, M, H, T, Home, Delete, Esc, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
-export function EditTools({name, title, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost, hovered,
+export function EditTools({name, title, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost,
   inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
   name: string;
   title: string;
@@ -58,7 +60,6 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   toolsHost: HTMLElement | null;
   notesHost: HTMLElement | null;
   inspectorHost: HTMLElement | null;
-  hovered: Hovered | null;
   inspectorWidth: number;
   onInspectorWidth: (width: number) => void;
   inspectorCollapsed: boolean;
@@ -108,22 +109,26 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const moving = tool === "move" && editable;
   const saving = useSave({name, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
+  const walls = useWalls(name, edits);
+  const wallIds = tool === "select" && editable ? view.objects.wallIds((picked?.all ?? []).map(p => p.id)) : [];
+  const wallSettings = state.walls.find(w => w.id === (picked?.id ?? wallIds[0]));
   const selection = surfaceInfo?.points === surfacePicks ? surfaceInfo.selection : null;
   const materials = selection?.materials ?? (selection ? [selection.material] : []);
-  const materialTarget = tool === "select" && editable && selection?.tiles.length && !selection.meshes?.length
+  const materialTarget = wallIds.length ? `${wallIds.length === 1 ? picked?.kind : `${wallIds.length} walls`} (whole wall)`
+    : tool === "select" && editable && selection?.tiles.length && !selection.meshes?.length
     && materials.length
     ? materials.map(surfaceName).join(", ") : null;
   const limitedTiles = selection?.truncated && surfacePicks.some(point => point.whole)
     ? new Set(selection.tiles.map(t => t.tile.join(","))).size : undefined;
   const materialReason = !editable ? "This track cannot be edited right now."
-    : surfacePicks.length && !selection ? "Preparing the selected surface…"
+    : wallIds.length ? null : surfacePicks.length && !selection ? "Preparing the selected surface…"
     : selection?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
     : !materialTarget ? "Select a painted ground surface to apply a material." : null;
   const paintSurface = painting.apply;
-  const applyMaterial = useCallback((id: string, variation?: boolean, look?: TextureLook) => materialTarget && !materialReason
+  const applyMaterial = (id: string, variation?: boolean, look?: TextureLook) => wallIds.length ? walls.change(wallIds, {material: id})
+    : materialTarget && !materialReason
     // (the tiles shown go with it: ground loaded since does not change what Apply changes)
-    ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile), look) : Promise.resolve(false),
-    [materialTarget, materialReason, paintSurface, surfacePicks, selection]);
+    ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile), look) : Promise.resolve(false);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
@@ -375,26 +380,30 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   return (
     <>
-      {fileHost && createPortal(<FileButtons state={state} edits={edits} view={view} saving={saving} onLibrary={openLibrary} onDelete={onDelete} />, fileHost)}
+      {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
       <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={tool === "model" && editable}
         onWheel={setCopyWheel}
         choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => setTool("model")}
-        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy || groupBusy} objects={objects}
+        renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy || walls.busy || groupBusy} objects={objects}
           groups={<GroupLibrary open={libraryTab === "groups"} onBusy={setGroupBusy} onClose={closeMaterial} onChoose={(chosen, models) => {
             setGroup(chosen); setGroupModels(models); setTool("group"); closeMaterial(); view.focus();
           }} />}
-          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={limitedTiles} busy={painting.busy} progress={painting.progress} error={painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
+          textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={wallIds.length ? undefined : limitedTiles} colourOnly={!!wallIds.length}
+            busy={painting.busy || walls.busy} progress={wallIds.length ? null : painting.progress} error={wallIds.length ? walls.error : painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
-      {inspectorHost && createPortal(<Inspector name={name} picked={picked} hovered={hovered} surfaces={tool === "select" ? surfacePicks : []}
+      {inspectorHost && createPortal(<Inspector name={name} picked={picked} surfaces={tool === "select" ? surfacePicks : []}
         notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}
         />}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
         collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
-        onMaterialOpen={() => setMaterialOpen(true)} restyling={editable ? painting : null} textureRevision={textureRevision} transform={editable && <TransformFields move={move} />} />, inspectorHost)}
+        onMaterialOpen={() => setMaterialOpen(true)} restyling={editable ? painting : null} textureRevision={textureRevision}
+        transform={editable && (wallIds.length ? <WallFields rise={wallSettings?.rise ?? 0} textured={!!wallSettings?.material} busy={walls.busy} error={walls.error}
+          onHeight={rise => walls.change(wallIds, {rise})} onTexture={() => { setMenu(null); setLibraryTab("textures"); }}
+          onOriginal={() => walls.change(wallIds, {material: null})} onReset={() => walls.change(wallIds, {reset: true})} /> : <TransformFields move={move} />)} />, inspectorHost)}
       {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click a section or object. Shift selects all matching; Ctrl adds to the selection."
         options={[
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
@@ -421,7 +430,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
                     ? () => { remove(vergeCuts ?? vergeAt(picked.surface!)); view.focus(); } : null} />
       )}
       {saving.asking && <SaveDialog title={title} taken={taken} canOverwrite={saving.canSave} onOverwrite={() => void saving.chosen(null)}
-                                    onSaveNew={t => void saving.chosen(t)} onCancel={saving.cancel} />}
+                                    onSaveNew={t => void saving.chosen(t)} onCancel={saving.cancel} onDelete={onDelete} />}
     </>
   );
 }

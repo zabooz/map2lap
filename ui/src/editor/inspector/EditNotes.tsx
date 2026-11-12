@@ -27,6 +27,7 @@ export function EditNotes({state, note, markedName, picked, sort}: {
         {state.copies.length + state.trees.length === 1 ? " copy" : " copies"}</p>}
       {state.models.length > 0 && <p className={styles.line}>{state.models.length} {state.models.length === 1 ? "model instance" : "model instances"}</p>}
       {state.paints.length > 0 && <p id="edit-paints" className={styles.line}>{state.paints.length} material {state.paints.length === 1 ? "change" : "changes"}</p>}
+      {state.walls.length > 0 && <p className={styles.line}>{state.walls.length} {state.walls.length === 1 ? "wall edited" : "walls edited"}</p>}
       {state.objectSorts.length > 0 && (
         <p id="edit-sorts" className={styles.line}>All deleted: {state.objectSorts.map(sortName).join(", ")}</p>
       )}
