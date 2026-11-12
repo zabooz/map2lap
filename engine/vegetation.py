@@ -34,10 +34,10 @@ import staging
 
 log = logging.getLogger("earthd.vegetation")
 
-VERSION = 19          # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
+VERSION = 20         # (the cached cells hold their groups: 14 for the regional rules of; 16: the roads'
                       # drawn widths and sidewalks kept clear; 17: BC's lidar canopy heights, mapdata's canopy layer 2;
                       # 18: the rounded junction corners kept clear, roadcorners.py; 19: land in the water layer
-                      # bears trees, mapgeom.water_areas)
+                      # bears trees, mapgeom.water_areas; 20: tops thinned by ground m, not Web Mercator m)
 TREE_MIN_M = 3.0
 CROWN_SPACING = 0.5          # tops kept this many crown radii apart (0.8 looked sparse)
 BUSH_MIN_M = 1.0
@@ -349,7 +349,9 @@ class Vegetation:
             tops |= moved
         blocked |= road
         jj, ii = np.nonzero(tops)
-        jj, ii = _thin(jj, ii, hs[jj, ii], chm.dx)     # one top per crown (flat crowns had several)
+        # one top per crown (flat crowns had several); a CHM pixel is chm.dx Web Mercator m, cos(lat) of that on the
+        # ground (the cell's middle: a cell spans a few hundredths of a degree)
+        jj, ii = _thin(jj, ii, hs[jj, ii], chm.dx * math.cos(math.radians((lat0 + lat1) / 2)))
         th = hs[jj, ii]
         tlon, tlat = _to4326(mx[ii], my[jj])
         is_tree = th >= TREE_MIN_M
@@ -519,9 +521,9 @@ class Vegetation:
 
 
 def _thin(jj, ii, h, px):
-    """Non-maximum suppression: the tallest tops first, each removing the others within its crown
-    radius (0.12 h + 1 m, times CROWN_SPACING). Deterministic (ties broken by position). earthfast thin_tops
-    (the same tops as the Python loop it replaced)."""
+    """Non-maximum suppression of the tops at pixels (jj, ii), heights h m, on a grid of px ground m a pixel: the
+    tallest tops first, each removing the others within its crown radius (0.12 h + 1 m, times CROWN_SPACING).
+    Deterministic (ties broken by position). earthfast thin_tops (the same tops as the Python loop it replaced)."""
     if len(jj) == 0:
         return jj, ii
     fast.require(64, "thin_tops")

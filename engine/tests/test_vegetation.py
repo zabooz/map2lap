@@ -82,6 +82,34 @@ class FakeMapData:
         return empty
 
 
+class PlateauMapData:
+    """A cell at lat whose canopy is a 32 px window at its middle, pixels 0.6 m wide on the ground, holding one flat crown
+    18 m high and 5 px wide."""
+    release = "t"
+    GROUND_PX_M = 0.6
+
+    @staticmethod
+    def key(lat):
+        return mapcells.cell_of(lat, 10.0)
+
+    def __init__(self, lat):
+        self.k = self.key(lat)
+        lon0, lat0, lon1, lat1 = self.k.bounds()
+        x0, y1 = veg._to3857((lon0 + lon1) / 2, (lat0 + lat1) / 2)
+        dx = self.GROUND_PX_M / np.cos(np.radians((lat0 + lat1) / 2))
+        h = np.zeros((32, 32), np.uint8)
+        h[10:15, 10:15] = 18
+        none = Feats(3, [])
+        self.cd = SimpleNamespace(bounds=self.k.bounds(), layers={
+            "canopy": Raster(h, x0, y1, dx, nodata=255), "landcover": Raster(None, 0, 0, 1), "buildings": none,
+            "roads": Feats(2, []), "water": none})
+
+    def cell(self, key, layers=None, kind="demand"):
+        if tuple(key)[1:] == (self.k.x, self.k.y):
+            return self.cd
+        return SimpleNamespace(bounds=None, layers={"buildings": None, "roads": None, "water": None})
+
+
 class VegetationTest(unittest.TestCase):
     def test_trees_stand_on_a_cape_not_in_a_lake(self):
         """The water layer holds land too (mapgeom.LAND_CLASSES): Cap Corse had no tree on 23 km2."""
@@ -160,6 +188,15 @@ class VegetationTest(unittest.TestCase):
         h = np.array([10.0, 14.0, 9.0, 8.0])
         kj, ki = veg._thin(jj, ii, h, 1.2)
         self.assertEqual(sorted(zip(kj.tolist(), ki.tolist())), [(10, 12), (40, 40)])
+
+    def test_thinning_goes_by_ground_metres_at_any_latitude(self):
+        # a canopy pixel is chm.dx Web Mercator m, cos(lat) of that on the ground: the crown radius in ground m took
+        # Heiligenblut's (47 deg) tops 0.7, Rauma's (61 deg) 0.5 of it apart (trunks 0.6 m apart, crowns in each other).
+        # The same flat 18 m crown, as wide on the ground, gives the same trees at the equator and at 60 deg
+        counts = {lat: int((veg.Vegetation(PlateauMapData(lat), None).cell(PlateauMapData.key(lat)).kind
+                            == veg.KIND_TREE).sum()) for lat in (0.5, 60.0)}
+        self.assertGreater(counts[0.5], 0)
+        self.assertEqual(counts[60.0], counts[0.5])
 
     def test_tile_items_in_the_anchor_frame(self):
         md = FakeMapData()
