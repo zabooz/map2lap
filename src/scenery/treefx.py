@@ -19,8 +19,11 @@ import math
 import os
 import random
 import struct
+import sys
 import zipfile
 import zlib
+
+from . import treebranches
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -580,11 +583,50 @@ MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102
               ("dry_shrub", _dry_shrub), ("jungle_bush", _jungle_bush)))}}
 
 
+DECIDUOUS = frozenset(('broadleaf', 'birch', 'larch', 'baobab'))
+TREE_FORMAT = 1
+
+
 @functools.lru_cache(maxsize=None)
-def model(name):
+def base_model(name):
     """(texture image, [Mesh per LOD, finest first]) of a model of MODELS; the same each time."""
     seed, make = MODELS[name]
     return make(random.Random(seed), seed)
+
+
+@functools.lru_cache(maxsize=None)
+def model(name):
+    """The original tree plus permanent wood inside its crown, with one unchanged atlas/material. Pure."""
+    texture, lods = base_model(name)
+    if name not in ('broadleaf', 'birch', 'larch'):
+        return texture, lods
+    return texture, [treebranches.extend(name, i, mesh, lods[0], sys.modules[__name__]) for i, mesh in enumerate(lods)]
+
+
+@functools.lru_cache(maxsize=None)
+def season_texture(name, season):
+    """A canonical atlas for a season; bark occupies D, and only deciduous foliage changes. Pure."""
+    original = model(name)[0]
+    if season not in ('autumn', 'winter') or name not in DECIDUOUS:
+        return original
+    pixels = np.asarray(original).copy()
+    foliage = np.ones(pixels.shape[:2], bool)
+    foliage[T:, T:] = False
+    if season == 'winter':
+        pixels[..., 3][foliage] = 0
+    else:
+        # The existing painted shading remains: birch/larch turn golden, other deciduous crowns copper/red.
+        rgb = pixels[..., :3].astype(np.float32)
+        light = np.clip(rgb.max(axis=2) / 140, .12, 1)
+        yy, xx = np.indices(light.shape)
+        variation = .5 + .5 * np.sin(xx / 37 + np.sin(yy / 29))
+        if name in ('birch', 'larch'):
+            a, b = np.array([215, 151, 37]), np.array([186, 101, 30])
+        else:
+            a, b = np.array([198, 101, 32]), np.array([151, 49, 30])
+        colour = (a + (b - a) * variation[..., None]) * light[..., None]
+        pixels[..., :3][foliage] = np.clip(colour[foliage], 0, 255).astype(np.uint8)
+    return Image.fromarray(pixels)
 
 
 @functools.lru_cache(maxsize=None)
@@ -666,16 +708,31 @@ def tree_ini(name, H, W, meshes):
     return "\n".join(ini)
 
 
-def write_bin(path, name):
-    """Write model name of MODELS as a .bin to path, the same bytes each time."""
-    tex, lods = model(name)
+@functools.lru_cache(maxsize=96)
+def bin_bytes(name, season='summer'):
+    """One shared model/geometry for a species, with its selected foliage atlas. Pure."""
+    _, lods = model(name)
+    tex = season_texture(name, season)
     H, W = size(name)
     textures = [(f"{name}_d.png", png(tex)), (f"{name}_n.png", png(Image.new("RGBA", (64, 64), (128, 128, 255, 255))))]
     meshes = [(f"{name}_lod{i}.mesh", mesh_bytes(m, textures, W / 2, H)[0]) for i, m in enumerate(lods)]
-    files = meshes + [("tree.ini", tree_ini(name, H, W, [f for f, _ in meshes]).encode())] + textures
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+    marker = f'\n[MAP2LAP]\nTREE_FORMAT={TREE_FORMAT}\nSPECIES={name}\nSEASON={season}\nDECIDUOUS={int(name in DECIDUOUS)}\n'
+    files = meshes + [("tree.ini", (tree_ini(name, H, W, [f for f, _ in meshes]) + marker).encode())] + textures
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
         for fname, data in files:
             z.writestr(zipfile.ZipInfo(fname, (1980, 1, 1, 0, 0, 0)), data, zipfile.ZIP_DEFLATED)
+    return buffer.getvalue()
+
+
+def write_bin(path, name, season='summer'):
+    """Write one shared species model; the season changes its atlas, never its geometry."""
+    raw = bin_bytes(name, season)
+    if hasattr(path, 'write'):
+        path.write(raw)
+    else:
+        with open(path, 'wb') as stream:
+            stream.write(raw)
 
 
 def _ini(text):
@@ -739,7 +796,57 @@ def read_bin(path):
     except (OSError, KeyError, ValueError, struct.error, zipfile.BadZipFile, UnicodeDecodeError) as e:
         raise ValueError(f"No tree model: {e}") from e
     used = {p[k] for lod in out for p in lod["parts"] for k in ("diffuse", "normal_map")} - {None}
-    return {"height": H, "width": W, "lods": out, "textures": {n: files[n] for n in sorted(used) if n in files}}
+    result = {"height": H, "width": W, "lods": out, "textures": {n: files[n] for n in sorted(used) if n in files}}
+    marker = ini.get('MAP2LAP', {})
+    if marker.get('TREE_FORMAT') == str(TREE_FORMAT) and marker.get('SPECIES') in MODELS:
+        result['seasonal'] = {'format': TREE_FORMAT, 'species': marker['SPECIES'],
+                              'deciduous': marker.get('DECIDUOUS') == '1', 'season': marker.get('SEASON', 'summer')}
+    return result
+
+
+def owned_model(tree, name):
+    """Recognize our marked models or exact legacy geometry/atlas; unknown/custom trees stay untouched. Pure."""
+    if name not in MODELS:
+        return False
+    if tree.get('seasonal', {}).get('species') == name:
+        return True
+    texture, lods = base_model(name)
+    if len(tree['lods']) != len(lods):
+        return False
+    for loaded, mesh in zip(tree['lods'], lods):
+        if len(loaded['parts']) != 1:
+            return False
+        part = loaded['parts'][0]
+        for key, expected in (('pos', mesh.p), ('normals', mesh.n), ('uv', mesh.uv), ('indices', mesh.t)):
+            got, wanted = np.asarray(part[key]), np.asarray(expected)
+            if key == 'indices':
+                got = got.reshape(-1, 3)
+            if got.shape != wanted.shape or not np.allclose(got, wanted, atol=2e-5, rtol=2e-5):
+                return False
+    try:
+        diffuse = tree['textures'][name + '_d.png']
+        with Image.open(io.BytesIO(diffuse)) as image:
+            return np.array_equal(np.asarray(image.convert('RGBA')), np.asarray(texture))
+    except (KeyError, OSError, ValueError):
+        return False
+
+
+def generated_species(tree):
+    """Recognize an owned species from content, including immutable library snapshots and their aliases. Pure."""
+    marked = tree.get('seasonal', {}).get('species')
+    if marked in MODELS:
+        return marked
+    for name in MODELS:
+        if name + '_d.png' in tree['textures'] and owned_model(tree, name):
+            return name
+    return None
+
+
+def canonical_model(path):
+    """Read a track model; our generated models always preview their canonical green source, custom trees their file."""
+    tree = read_bin(path)
+    name = generated_species(tree)
+    return read_bin(io.BytesIO(bin_bytes(name))) if name else tree
 
 
 def write_models(folder, names):

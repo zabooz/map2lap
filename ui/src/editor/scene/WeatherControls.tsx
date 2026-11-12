@@ -1,5 +1,5 @@
 import {useEffect, useState} from "react";
-import {DEFAULT_WEATHER, MAX_WIND_KMH, type WeatherOptions} from "./weather";
+import {DEFAULT_WEATHER, MAX_WIND_KMH, effectiveSeason, type WeatherOptions} from "./weather";
 import type {TrackView} from "./view";
 import styles from "./WeatherControls.module.css";
 
@@ -10,6 +10,14 @@ export function WeatherControls({view}: {view: TrackView}) {
   const update = <K extends keyof WeatherOptions>(key: K, value: WeatherOptions[K]) => setOptions(old => ({...old, [key]: value}));
   const dry = options.kind === "dry";
   return <section className={styles.weather} aria-label="Weather settings">
+    <label className={styles.field}>Season
+      <select aria-label="Season" value={effectiveSeason(options)} disabled={options.kind === "snow"}
+              onChange={e => update("season", e.target.value as WeatherOptions["season"])}>
+        <option value="spring">Spring</option><option value="summer">Summer</option>
+        <option value="autumn">Autumn</option><option value="winter">Winter</option>
+      </select>
+    </label>
+    {options.kind === "snow" && <p className={styles.hint}>Snow uses winter scenery.</p>}
     <div className={styles.choices}>
       <label className={styles.field}>Weather
         <select aria-label="Weather" value={options.kind} onChange={e => update("kind", e.target.value as WeatherOptions["kind"])}>

@@ -6,6 +6,8 @@
 // a tree that stays in its cell gets its slot rewritten, one that leaves or joins a cell only has those two batches built anew.
 import * as THREE from "three";
 import type {TreeFxChange, TreeFxTree} from "../types";
+import {bindSeason, hiddenSeasonFoliage, seasonNumber} from "./seasons";
+import type {Season} from "./weather";
 
 export type {TreeFxChange, TreeFxTree};
 
@@ -33,6 +35,7 @@ export interface TreeFxTrees {
 export interface TreeFxModel {
   height: number;
   width: number;
+  seasonal?: {deciduous: boolean; species: string; season: string};
   lods: {distance: number; parts: {diffuse: string | null; normal_map: string | null; indices: number[]; pos: number[]; normals: number[]; uv: number[]}[]}[];
 }
 
@@ -96,6 +99,9 @@ const MATRIX_BYTES = 16 * 4 * 2;        // (a slot's matrix, on the CPU and uplo
 
 /** The trees drawn in a scene. load() takes the track's, apply() what the draft changed, dispose() lets them go. */
 export class TreeFxDraw {
+  private season = {value: 1};
+
+  setSeason(season: Season) { this.season.value = seasonNumber(season); }
   private trees = new Map<string, TreeFxTree>();
   private models = new Map<string, Model>();
   private batches = new Map<string, Batch>();
@@ -186,7 +192,11 @@ export class TreeFxDraw {
     const materials = new Map<string, Promise<THREE.Material>>();
     const material = (file: string | null) => {
       if (!materials.has(file ?? "")) materials.set(file ?? "", (file ? image(file) : Promise.resolve(null))
-        .then(map => new THREE.MeshLambertMaterial({map, alphaTest: ALPHA_REF, side: THREE.DoubleSide})));
+        .then(map => {
+          const m = new THREE.MeshLambertMaterial({map, alphaTest: ALPHA_REF, side: THREE.DoubleSide});
+          if (data.seasonal) bindSeason(m, this.season, true, data.seasonal.deciduous, ["birch", "larch"].includes(data.seasonal.species));
+          return m;
+        }));
       return materials.get(file ?? "")!;
     };
     let bytes = 0;
@@ -380,7 +390,8 @@ export class TreeFxDraw {
   intersections(picker: THREE.Raycaster) {
     const hits: THREE.Intersection[] = [];
     for (const batch of this.batches.values()) for (const mesh of batch.meshes) if (mesh.visible) picker.intersectObject(mesh, false, hits);
-    return hits.sort((a, b) => a.distance - b.distance);
+    return hits.filter(hit => !hiddenSeasonFoliage((hit.object as THREE.Mesh).material as THREE.Material, hit.uv))
+      .sort((a, b) => a.distance - b.distance);
   }
 
   /** The id of the tree a hit of intersections met, null for a hit of anything else. */

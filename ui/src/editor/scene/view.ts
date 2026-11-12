@@ -41,7 +41,7 @@ import {ObjectMover} from "./mover";
 import {Pointing} from "./pointing";
 import {Selection, ROAD} from "./selection";
 import {COPIES, fits, nearestLast, objectIndex} from "./inspect";
-import {DEFAULT_WEATHER, weatherAppearance, type WeatherOptions} from "./weather";
+import {DEFAULT_WEATHER, effectiveSeason, weatherAppearance, type WeatherOptions} from "./weather";
 import {WeatherPreview} from "./weatherPreview";
 import {LoadingDraw} from "./loadingDraw";
 import {MeshPreparer, type PreparedMesh} from "./meshPrepare";
@@ -282,6 +282,8 @@ export class TrackView {
   setWeather(options: WeatherOptions) {
     const previous = this.weatherState ?? DEFAULT_WEATHER;
     this.weatherState = {...options};
+    this.treeFx?.setSeason(effectiveSeason(options));
+    this.textures?.setSeason(effectiveSeason(options));
     this.weatherPreview?.set(options);
     if (previous.kind !== options.kind || previous.intensity !== options.intensity || previous.fog !== options.fog) this.applyLight();
     else this.dirty = true;

@@ -1,6 +1,59 @@
 import {expect, openEditor, scene, test} from "./fixtures";
 import {deleteTree} from "./edit-helpers";
 
+for (const species of ["broadleaf", "birch", "larch", "baobab"]) test(`${species}: seasons retain the green summer crown, warm autumn leaves, and restore after bare winter`, async ({page, backend}, testInfo) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_model: species});
+  await openEditor(page);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  const season = page.getByRole("combobox", {name: "Season", exact: true});
+  const greenPixels = async (image: Buffer) => page.evaluate(async source => {
+    const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${source}`)).blob());
+    const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+    const c = canvas.getContext("2d")!; c.drawImage(bitmap, 0, 0); bitmap.close();
+    const data = c.getImageData(0, 0, canvas.width, canvas.height).data;
+    let green = 0;
+    // The near tree's crown above the horizon: exclude seasonal ground and the distant evergreen at the left edge.
+    for (let y = 0; y < canvas.height * .12; y++) for (let x = Math.floor(canvas.width * .3); x < canvas.width * .7; x++) {
+      const i = (y * canvas.width + x) * 4;
+      if (data[i + 1] > data[i] * 1.2 && data[i + 1] > data[i + 2] * 1.2 && data[i + 1] > 25) green++;
+    }
+    return green;
+  }, image.toString("base64"));
+  await expect(season).toHaveValue("summer");
+  const summer = await scene(page).screenshot();
+  const green = await greenPixels(summer);
+  expect(green).toBeGreaterThan(100);
+  await season.selectOption("spring");
+  await expect.poll(async () => (await scene(page).screenshot()).equals(summer)).toBe(true);
+  await season.selectOption("autumn");
+  await expect.poll(async () => greenPixels(await scene(page).screenshot())).toBeLessThan(green * .8);
+  await testInfo.attach("autumn", {body: await scene(page).screenshot({path: testInfo.outputPath('autumn.png')}), contentType: "image/png"});
+  await season.selectOption("winter");
+  await expect.poll(async () => greenPixels(await scene(page).screenshot())).toBeLessThan(green * .2);
+  await testInfo.attach("winter", {body: await scene(page).screenshot({path: testInfo.outputPath('winter.png')}), contentType: "image/png"});
+  await page.screenshot({path: testInfo.outputPath('winter-properties.png')});
+  await season.selectOption("summer");
+  await expect.poll(async () => (await scene(page).screenshot()).equals(summer)).toBe(true);
+  await testInfo.attach("summer", {body: summer, contentType: "image/png"});
+  await scene(page).screenshot({path: testInfo.outputPath('summer.png')});
+});
+
+test("the chosen season reaches Play, while selecting snow forces the season shown to Winter", async ({page}) => {
+  await openEditor(page);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  const season = page.getByRole("combobox", {name: "Season", exact: true});
+  await season.selectOption("autumn");
+  const started = page.waitForRequest("**/api/play");
+  await page.locator("#edit-play").click();
+  expect((await started).postDataJSON().weather.season).toBe("autumn");
+  await page.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
+  await expect(season).toHaveValue("winter");
+  await expect(season).toBeDisabled();
+  await page.getByRole("combobox", {name: "Weather", exact: true}).selectOption("dry");
+  await expect(season).toHaveValue("autumn");
+  await expect(season).toBeEnabled();
+});
+
 for (const kind of ["rain", "snow"]) test(`${kind} particles visibly move in front of the editor terrain`, async ({page}, testInfo) => {
   await openEditor(page);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
@@ -59,7 +112,7 @@ test("Play carries the selected weather, wind, additional fog and clock into the
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
   expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5,
-    weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true}});
+    weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true, season: "summer"}});
 });
 
 test("random precedes north and changing tracks resets the preview weather", async ({page}) => {
@@ -106,5 +159,5 @@ test("Save as new track followed by Play keeps the chosen weather and clock thro
   const started = page.waitForRequest("**/api/play");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
   expect((await started).postDataJSON()).toEqual({name: "snow_copy", clock: 18.5,
-    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true}});
+    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer"}});
 });

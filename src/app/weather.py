@@ -5,12 +5,13 @@ import re
 import secrets
 
 from app.paths import ROOT
+from app import seasons
 
 ASSETS = Path(ROOT) / 'assets' / 'weather'
 SCRIPT = ASSETS / 'weather.lua'
 CONTROLLER = ASSETS / 'controller.lua'
 MAX_WIND = 35  # km/h: public CSP's normal limit unless INCREASE_CONDITIONS_LIMITS is explicitly enabled.
-DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': 0, 'fog': False, 'windscreenSnow': True}
+DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': 0, 'fog': False, 'windscreenSnow': True, 'season': 'summer'}
 TYPES = {'dry': (15, 17, 19), 'rain': (6, 7, 2), 'snow': (9, 10, 11)}
 LEVELS = ('light', 'medium', 'heavy')
 BEGIN, END = b'; MAP2LAP_WEATHER_BEGIN', b'; MAP2LAP_WEATHER_END'
@@ -21,6 +22,8 @@ def parse(value):
     if not isinstance(value, dict) or set(value) - set(DEFAULT):
         raise ValueError('Invalid weather settings')
     out = {**DEFAULT, **value}
+    if not isinstance(out['season'], str) or out['season'] not in seasons.SEASONS:
+        raise ValueError('Invalid season setting')
     if (not isinstance(out['kind'], str) or out['kind'] not in TYPES or out['intensity'] not in LEVELS
             or not isinstance(out['fog'], bool) or not isinstance(out['windscreenSnow'], bool)):
         raise ValueError('Invalid weather, intensity or fog setting')
@@ -41,6 +44,17 @@ def weather_type(options):
     return TYPES[options['kind']][LEVELS.index(options['intensity'])]
 
 
+def scenery_options(ini, options=None):
+    """Use the Editor's options, or preserve My tracks' existing session season and native snow. Pure."""
+    if options is not None:
+        return options
+    season = ini.get('LIGHTING', '__MAP2LAP_SEASON', fallback='summer')
+    if season not in seasons.SEASONS:
+        season = 'summer'
+    native = ini.get('LIGHTING', '__CM_WEATHER_TYPE', fallback='')
+    return {**DEFAULT, 'season': season, 'kind': 'snow' if native in {str(t) for t in TYPES['snow']} else 'dry'}
+
+
 def apply_session(ini, options):
     """Set native CSP sky/wind and the additional-fog flag in a race ConfigParser; preserve other settings."""
     for section in ('LIGHTING', 'WEATHER', 'WIND'):
@@ -50,6 +64,7 @@ def apply_session(ini, options):
     ini['LIGHTING']['__CM_WEATHER_TYPE'] = str(weather_type(options))
     ini['LIGHTING']['__MAP2LAP_FOG'] = '1' if options['fog'] else '0'
     ini['LIGHTING']['__MAP2LAP_WINDSCREEN_SNOW'] = '1' if options['windscreenSnow'] else '0'
+    ini['LIGHTING']['__MAP2LAP_SEASON'] = seasons.resolve(options)
     # This vanilla fallback also works before CSP is installed; CSP uses the explicit type above.
     ini['WEATHER']['NAME'] = '3_clear' if options['kind'] == 'dry' and options['intensity'] == 'light' else '7_heavy_clouds'
     direction = secrets.randbelow(360) if options['windDirection'] == -1 else options['windDirection']
@@ -70,7 +85,7 @@ def _write(path, raw):
         path.write_bytes(raw)
 
 
-def install_track(track):
+def install_track(track, options=None):
     """Ship our Lua and one owned include into a generated, saved or existing track folder."""
     ext = Path(track) / 'extension'
     ext.mkdir(parents=True, exist_ok=True)
@@ -79,7 +94,8 @@ def install_track(track):
     config = ext / 'ext_config.ini'
     before = config.read_bytes() if config.exists() else b''
     clean = without_config(before)
-    _write(config, clean + b'\n' + BEGIN + b'\n[INCLUDE: map2lap_weather.ini]\n' + END + b'\n')
+    seasons.install(track, seasons.resolve(options) if options is not None else 'summer')
+    _write(config, clean + b'\n' + BEGIN + b'\n[INCLUDE: map2lap_weather.ini]\n[INCLUDE: map2lap_seasons.ini]\n' + END + b'\n')
 
 
 def install_controller(ac):

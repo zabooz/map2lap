@@ -393,7 +393,7 @@ MODEL_NAME = re.compile(r"[a-z0-9_]+")
 @functools.lru_cache(maxsize=8)
 def _tree_read(path, _revision_of_file):
     from scenery import treefx      # (only here: needs the engine's path from generator)
-    return treefx.read_bin(path)
+    return treefx.canonical_model(path)
 
 
 def _tree_model(ac, name, model):
@@ -421,7 +421,7 @@ def treefx_model(ac, name, model):
     """A TreeFX model of the track for the page: its "height" and "width" in m, its "lods" finest first, each its "distance" and
     "parts": texture names ("diffuse", "normal_map"), "indices", flat "pos" (m from its foot at size 1), "normals" and "uv"."""
     tree = _tree_model(ac, name, model)
-    return {"height": tree["height"], "width": tree["width"],
+    return {"height": tree["height"], "width": tree["width"], **({'seasonal': tree['seasonal']} if 'seasonal' in tree else {}),
             "lods": [{"distance": lod["distance"], "parts": [
                 {"diffuse": p["diffuse"], "normal_map": p["normal_map"], "indices": p["indices"].tolist(),
                  "pos": np.round(p["pos"], 4).ravel().tolist(), "normals": np.round(p["normals"], 3).ravel().tolist(),

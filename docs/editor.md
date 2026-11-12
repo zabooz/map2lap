@@ -138,7 +138,14 @@ the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside
 
 ## Weather
 
-Properties places Weather below Time of day. Dry offers Clear, Partly cloudy and Overcast; Rain and Snow offer Light,
+Properties places Season and Weather below Time of day. Season offers Spring, Summer, Autumn and Winter, defaulting to
+Summer. Spring and Summer use the original green foliage. Autumn warms deciduous foliage; Winter hides its leaf cards
+and adds snow to upper surfaces in the Editor. Broadleaf, birch and larch retain their original meshes with permanent
+branches added inside the crowns; baobab uses its existing branches. Evergreen and tropical foliage stays in place.
+Snow weather always uses Winter scenery, temporarily disabling the Season selector while retaining the previous choice.
+The season changes the Editor immediately and applies to AC on the next Play, without Save or a track rebuild.
+
+Dry offers Clear, Partly cloudy and Overcast; Rain and Snow offer Light,
 Moderate and Heavy. Heavy Rain uses CSP's Heavy Thunderstorm preset, including its native lightning. Heavy Snow already
 has the base weather's strongest fog. Additional fog blends toward CSP Fog while retaining the selected precipitation type.
 Snow also offers Snow on windscreen, enabled by default. Turning it off prevents snow deposits on the front windscreen
@@ -156,7 +163,10 @@ by Play. Wind-only changes leave the editor's lighting/reflection maps alone.
 controllers, without changing the stock ones. Generated and saved tracks include `assets/weather/weather.lua` as a
 track-local script through an owned include; Play also prepares older tracks. The asset is shipped in releases independently
 of CSP, which remains a separate installation. Debug controls and mode-file polling are enabled only by the developer
-preview helper. The windscreen experiment stays disabled. Water and wetness are zero in our controller; no extended
+preview helper. `app/seasons.py` prepares recognized Map2Lap TreeFX atlases before AC loads, including native Library aliases,
+and adds native CSP winter/autumn conditions for trees and ground. Geometry is shared across seasons; immutable Library
+snapshots and custom tree files remain untouched. CSP supplies winter snow shading on trees and terrain in AC.
+Water and wetness are zero in our controller; no extended
 physics or surface-grip changes are enabled.
 
 ## Tools and changes
@@ -164,7 +174,8 @@ physics or surface-grip changes are enabled.
 The right panel, the Inspector, has Selection, Properties and Details tabs. Clicking a surface or object opens Selection;
 hovering keeps the active tab. Selection keeps the clicked selection independently of the pointer, then shows Appearance
 with a texture preview, followed by Options. Change texture and all editable object or applied-texture controls live in
-Options. TreeFX previews use the track's own model images. Properties holds Time of day and Weather. Details contains selected mesh
+Options. TreeFX previews use the track's model images, with owned seasonal models shown from their canonical summer source.
+Properties holds Time of day, Season and Weather. Details contains selected mesh
 data, object details, track statistics and edit notes. Object details distinguish an object's own triangles and loaded
 dimensions from its surrounding merged mesh, show related ids and retained original build parameters where available,
 and list hidden as well as visible parts.
@@ -301,8 +312,10 @@ TreeFX trees (CSP's 3D trees, as builds make the trees) have no triangles: the l
 each with its model and placement (`track/objectlist.py`). The Editor reads that section of the served list (`trackview.treefx_of`),
 also of a source, which keeps it from the first Save. `/api/editor/<track>/treefx` hands the trees out as the draft leaves them
 (`trackview.treefx`: where the list has each and where the draft puts it); `/treefx/<model>` and `/treefx/<model>/<image>.png`
-read a model from the track's own `extension/trees/<model>.bin` (`treefx.read_bin`), never as this Map2Lap would make it now, as
-AC shows the file. The draft deletes them by id, all of a model as an object sort, places them (moved, turned on their foot,
+read a model from the track's own `extension/trees/<model>.bin`. Recognized Map2Lap models use the canonical green model
+(`treefx.canonical_model`) so a previous AC winter session cannot leave the Editor stuck with an invisible leaf atlas.
+Recognition uses an owned format marker or exact legacy geometry and texture; unknown custom models retain their files.
+The draft deletes them by id, all of a model as an object sort, places them (moved, turned on their foot,
 scaled), and adds copies under numbers the track never gave (`"trees"`, `"trees_next"`, which never goes down: a number taken back
 by Undo is not given again). Height changes lift each by the change under its foot after its placement (`app/tracktrees.py`).
 Save writes the list's section and `trees.txt` from the source and the draft, so a move is never added twice; `"next"` never

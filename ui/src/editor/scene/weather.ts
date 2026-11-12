@@ -1,8 +1,12 @@
 /** Session-only weather: the editor gives a lightweight indication; CSP renders the actual sky in AC. */
+export type Season = "spring" | "summer" | "autumn" | "winter";
 export type WeatherOptions = {kind: "dry" | "rain" | "snow"; intensity: "light" | "medium" | "heavy";
-  windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean};
-export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true};
+  windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean; season: Season};
+export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer"};
 export const MAX_WIND_KMH = 35; // CSP's normal conditions limit, without changing its global experimental settings.
+
+/** Snow always has winter scenery; the remembered selection remains available when snowfall is turned off. Pure. */
+export const effectiveSeason = (options: WeatherOptions): Season => options.kind === "snow" ? "winter" : options.season;
 
 /** Approximate cloud cover, light and visibility for the editor, following CSP's base preset ordering. Pure. */
 export function weatherAppearance(options: WeatherOptions) {

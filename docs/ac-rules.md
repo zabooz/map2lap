@@ -138,6 +138,12 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   and take shadows and switch LOD at 200/300/500 m. In a `.bin` each card face is written once (both sides at one place
   flickered far away and showed a grid; CSP draws leaves from both sides), and the coarser LODs are subsets of one crown
   (each with its own random gave another tree on switching).
+- Owned deciduous TreeFX models share one atlas/material and geometry across seasons. Broadleaf, birch and larch add
+  permanent low-cost wood inside the original crowns; original foliage and trunk data are retained. At Play, recognized
+  models get their selected atlas: original green in spring/summer, warm foliage in autumn, transparent foliage in winter.
+  Baobab retains its existing branches; evergreen/tropical foliage is preserved. Native CSP season conditions provide snow
+  shading on wood and needles. Owned Library aliases are prepared in the track folder; their immutable snapshots stay intact.
+  Seasons do not alter KN5 geometry, placements or tyre grip, and snow weather always selects winter scenery.
 - The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
   itself, rings around the camera on the asphalt. Without CSP it casts none.
 - Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),

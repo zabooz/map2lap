@@ -390,7 +390,7 @@ def play(name, clock=None, weather_options=None):
     if selected_weather is not None:
         weather.apply_session(ini, selected_weather)
     try:
-        weather.install_track(os.path.join(ac, 'content', 'tracks', name))
+        weather.install_track(os.path.join(ac, 'content', 'tracks', name), weather.scenery_options(ini, selected_weather))
         if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
             weather.install_controller(ac)
     except OSError as error:

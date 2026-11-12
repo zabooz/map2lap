@@ -11,6 +11,8 @@ import {WeightBundles} from "./weightBundle";
 import {GroundFrame, GroundLayer} from "./groundRender";
 import {bindLightShares, takesGroundLight} from "./lightShare";
 import {classicGround} from "./classicLight";
+import {bindSeason, seasonNumber} from "./seasons";
+import type {Season} from "./weather";
 import {bindColourBlend, bindWorldColour, bindSplat, type GroundMaterial, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 
 // Textures on their way or being decoded at a time. A 307 km track up to a limit of 8 GB: 6: 70 s, 12: 52 s, 24: 53 s; 4 GB without any
@@ -54,6 +56,9 @@ const isGroundTile = (name: string) => /^ground_-?\d+_-?\d+$/.test(name);
 /** The textures and materials of the track a view shows. clear() drops them all. */
 
 export class TrackTextures {
+  private season = {value: 1};
+
+  setSeason(season: Season) { this.season.value = seasonNumber(season); this.host.changed(); }
   private pool: (Promise<THREE.Texture | null> | undefined)[] = [];     // the track's textures by index, shared by its materials
   private textureBytes = new WeakMap<THREE.Texture, number>();
   private textureChanges = new Map<number, {abort: () => void; done: Promise<void>; version: string}>();
@@ -336,6 +341,7 @@ export class TrackTextures {
       }
       material.map = original;
       bindSplat(material, keep, images as THREE.Texture[], layers, packed);
+      bindSeason(material, this.season);
       this.removeGround(k);
       this.splatBindings.set(k, keys);
       ready(); this.host.changed();
@@ -496,6 +502,8 @@ export class TrackTextures {
     const d = data.materials[k], b = groundTint(d);
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
     const m: GroundMaterial = isGroundTile(d.name) || d.splat ? classicGround(d, b) : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
+    const seasonal = isGroundTile(d.name) || !!d.splat || !!d.dual_layer;
+    if (seasonal) bindSeason(m, this.season);
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
     if (d.blend) {
       m.transparent = true;
@@ -525,11 +533,13 @@ export class TrackTextures {
         if (!original || !mask || !colour || mine !== this.host.token()) return;
         m.map = colour;
         bindColourBlend(m, original, mask, layers.scale);
+        if (seasonal) bindSeason(m, this.season);
         this.host.changed();
       }, () => {}); // The shared loader reports failed images and owns their memory and disposal.
       return m;
     }
     if (d.ambient !== undefined && d.diffuse !== undefined && !d.world_scale && !takesGroundLight(d.name)) bindLightShares(m, d.ambient, d.diffuse);
+    if (seasonal) bindSeason(m, this.season);
     const i = data.textures.findIndex(t => t.name === d.texture);
     if (i >= 0) {
       const mine = this.host.token();
@@ -537,6 +547,7 @@ export class TrackTextures {
         if (!t || mine !== this.host.token()) return;
         m.map = t;
         if (d.world_scale) bindWorldColour(m, d.world_scale);
+        if (seasonal) bindSeason(m, this.season);
         m.needsUpdate = true;
         this.host.changed();
       }, () => {});       // (load awaits the textures and reports their failures)

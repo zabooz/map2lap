@@ -174,7 +174,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce'):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -252,7 +252,7 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         tree.children[-1:-1] = nodes
         listed["t_0_0"] = entry
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
-    plants = {"next": 2, "trees": {"0": tree_at("spruce", 40.0, -200.0, 12.0), "1": tree_at("spruce", 128.0, -130.0, tree_height)}} if with_trees else None
+    plants = {"next": 2, "trees": {"0": tree_at("spruce", 40.0, -200.0, 12.0), "1": tree_at(tree_model, 128.0, -130.0, tree_height)}} if with_trees else None
     objectlist.write(os.path.join(root, name + ".kn5"), listed, plants)
     os.makedirs(os.path.join(root, "extension"), exist_ok=True)
     make_track_folder.write_trees(root, plants)
@@ -441,7 +441,8 @@ class Handler(server.Handler):
                        pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False), grass=body.get("grass", False),
                        ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False),
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
-                       tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False))
+                       tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
+                       tree_model=body.get('tree_model', 'spruce'))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

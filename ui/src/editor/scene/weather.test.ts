@@ -1,5 +1,14 @@
 import {expect, test} from "bun:test";
-import {DEFAULT_WEATHER, weatherAppearance, windVelocity} from "./weather";
+import {DEFAULT_WEATHER, effectiveSeason, weatherAppearance, windVelocity} from "./weather";
+
+test("snow forces winter scenery while dry weather and rain use the chosen season", () => {
+  expect(DEFAULT_WEATHER.season).toBe("summer");
+  for (const season of ["spring", "summer", "autumn", "winter"] as const) {
+    expect(effectiveSeason({...DEFAULT_WEATHER, season})).toBe(season);
+    expect(effectiveSeason({...DEFAULT_WEATHER, kind: "rain", season})).toBe(season);
+    expect(effectiveSeason({...DEFAULT_WEATHER, kind: "snow", season})).toBe("winter");
+  }
+});
 
 test("clear dry weather preserves the existing daylight and visibility", () => {
   expect(weatherAppearance(DEFAULT_WEATHER)).toMatchObject({clouds: 0, sun: 1, ambient: 1, fog: 0});

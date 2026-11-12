@@ -27,7 +27,7 @@ def read(ac, name, model):
     folder, meta = trackmodels.resolve(ac, name, match[1])
     if not meta.get("native_tree"):
         raise ValueError("No native tree in this asset")
-    return treefx.read_bin(folder / "native/model.bin")
+    return treefx.canonical_model(folder / "native/model.bin")
 
 
 def trees(scan, placed, heights):

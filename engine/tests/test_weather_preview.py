@@ -17,6 +17,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'tools' / 'weather_preview'
 sys.path.insert(0, str(ROOT / 'src'))
+# Import persistent native dependencies outside the temporary sys.modules mock used by the launcher host.
+from app import weather
 if extra := os.environ.get('MAP2LAP_LUA_TESTS'):
     sys.path.insert(0, extra)
 try:

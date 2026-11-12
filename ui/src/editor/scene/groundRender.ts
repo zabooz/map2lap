@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {SunLight} from "three/addons/lights/SunLight.js";
 import {tangentFrame, variationShader, type ColourSplat, type GroundPass, type GroundMaterial} from "./colourBlend";
 import {layerGloss} from "./classicLight";
+import {refreshSeason} from "./seasons";
 
 function fitRegion(geometry: THREE.BufferGeometry) {
   const positions = geometry.getAttribute("position"), indices = geometry.getIndex()!;
@@ -128,6 +129,7 @@ export class GroundFrame {
         "outgoingLight = m2lLinear;\n#include <opaque_fragment>");
     };
     material.customProgramCacheKey = () => "map2lap-ground-screen-1"; material.needsUpdate = true;
+    refreshSeason(material);
   }
   reserveIndices(bytes: number) {
     // Regional index arrays remain on the CPU and have their own GPU copy. Source vertex buffers are borrowed.
