@@ -302,7 +302,7 @@ def _refuse_saved(name):
 
 
 def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
-          line=None, treefx=False):
+          line=None, treefx=True):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
@@ -313,15 +313,16 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/stretch.py: no distant view, kn5 or
     track folder; nothing goes into AC); returns {"work": the work folder}. RuntimeError, before any work, if it would
     replace a track saved in the Editor.
-    treefx: the trees and bushes with a 3D model as CSP's TreeFX trees instead of billboards (anchor.json "treefx": the scenery's
-    processes and finish_obj go by it); off by default until the Editor handles them."""
+    treefx: the trees and bushes with a 3D model (all kinds have one) as CSP's TreeFX trees instead of billboards (anchor.json
+    "treefx": the scenery's processes and finish_obj go by it); False: billboards, as builds before made them, for comparisons
+    until their making goes."""
     if not upto:
         _refuse_saved(slug(name))
     with plancache.one_run(os.path.join(ROOT, "cache")):
         return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, treefx)
 
 
-def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, treefx=False):
+def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, treefx=True):
     """build, its processes sharing their plans."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
@@ -527,7 +528,7 @@ def main():
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")
     ap.add_argument("--cores", type=float, default=100.0, help="%% of the logical cores (at most all but one)")
     ap.add_argument("--cache-gb", type=float, help="size limit of the map data cache (default: settings.json)")
-    ap.add_argument("--treefx", action="store_true", help="trees with a 3D model as CSP's TreeFX trees (test tracks for now)")
+    ap.add_argument("--billboards", action="store_true", help="trees as billboards, as builds before made them, not CSP's TreeFX trees")
     ap.add_argument("points", nargs="*", help="lat,lon ... (at least two; none with --area)")
     a = ap.parse_args()
     system.trust_windows_certificates()
@@ -538,7 +539,7 @@ def main():
         def progress(phase, done, total):
             print("PROGRESS " + json.dumps({"phase": phase, "done": done, "total": total}), flush=True)
     res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress,
-                cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb, treefx=a.treefx)
+                cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb, treefx=not a.billboards)
     if a.result:
         print("RESULT " + json.dumps({k: v for k, v in res.items() if k != "tris"}, default=float), flush=True)
 

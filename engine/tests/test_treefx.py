@@ -184,15 +184,20 @@ class SplitTest(unittest.TestCase):
 
 
 class SwitchTest(unittest.TestCase):
-    """--treefx (off by default): a build's trees with a model go to the tile's list as TreeFX trees instead of billboards."""
+    """A build's trees with a model go to the tile's list as TreeFX trees instead of billboards; --billboards keeps them billboards."""
 
-    def test_the_generator_takes_the_switch_off_unless_given(self):
-        for argv, on in ((["--name", "t", "1,2", "3,4"], False), (["--name", "t", "--treefx", "1,2", "3,4"], True)):
+    def test_the_generator_builds_treefx_unless_told_billboards(self):
+        for argv, on in ((["--name", "t", "1,2", "3,4"], True), (["--name", "t", "--billboards", "1,2", "3,4"], False)):
             with mock.patch.object(generator, "build", return_value={}) as build, \
                     mock.patch.object(generator.system, "trust_windows_certificates"), \
                     mock.patch.object(sys, "argv", ["generator.py", *argv]):
                 generator.main()
             self.assertEqual(on, build.call_args.kwargs["treefx"])
+
+    def test_build_and_an_anchor_without_the_switch_build_treefx(self):
+        import inspect
+        self.assertTrue(inspect.signature(generator.build).parameters["treefx"].default)
+        self.assertTrue(make_obj.treefx_on({}))
 
     def test_off_every_tree_stays_a_billboard(self):
         items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0)]

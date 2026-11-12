@@ -184,7 +184,7 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
     power pole with a span of wires, listed ("two": a pole at each end of the span, which they share). hill: the road tile on the
     2 m lattice of a real build, with a hill across it. treefx: two CSP TreeFX trees, a spruce on the road ahead of the start and a birch
-    beside it (generator --treefx), in its list, its trees.txt and their models."""
+    beside it (as builds make them), in its list, its trees.txt and their models."""
     root = os.path.join(AC, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     with open(ATLAS, "rb") as f:

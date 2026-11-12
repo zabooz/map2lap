@@ -25,7 +25,7 @@ UP = {"id": "up", "x": -10, "z": -10, "nx": 61, "nz": 11, "mm": [1000 if 0 < i %
 
 
 class TreesBase(Base):
-    """The test track with three TreeFX trees in its list, their models and trees.txt in its folder, as a build with --treefx."""
+    """The test track with three TreeFX trees in its list, their models and trees.txt in its folder, as a build makes them."""
 
     def setUp(self):
         super().setUp()

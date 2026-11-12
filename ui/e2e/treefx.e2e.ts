@@ -1,4 +1,4 @@
-// TreeFX trees (CSP's 3D trees, a build with --treefx) in the Editor: pointed at, picked, deleted, moved and copied as other objects;
+// TreeFX trees (CSP's 3D trees, as builds make the trees) in the Editor: pointed at, picked, deleted, moved and copied as other objects;
 // Save writes the track's trees.txt from its source and the draft, reopening shows the trees as saved.
 import {centre, dragMouse, expect, openEditor, scene, test} from "./fixtures";
 import {box, saved, saveTrack as save, stored} from "./edit-helpers";

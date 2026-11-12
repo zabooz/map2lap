@@ -245,9 +245,8 @@ A road's end held at the height of the stronger road it ends on, so the two meet
 `.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. All 21 generated tree and bush sprites
 have a 3D form (`treefx.MODEL_OF`): 17 models, including regional trees, dry and tropical bushes, and a separate pine.
 The accepted broadleaf, birch, spruce, larch and two shrub models keep their geometry and textures. Unknown future sprites
-can still fall back to billboards. A build writes them only with
-`generator.py --treefx` (anchor.json `"treefx"`), for now into the test copy `heiligenblut_trees3d`: the Editor learns them
-before builds do it by default. The **object list** holds each as model and placement under an id `trees#<number>` that stays
+can still fall back to billboards. Every build writes them (anchor.json `"treefx"`); `generator.py --billboards` makes the
+billboards of builds before, for comparisons until their making goes. The **object list** holds each as model and placement under an id `trees#<number>` that stays
 its tree's (its section `treefx`, "next": the first number never given); trees.txt is made from it. The Editor's draft deletes,
 places and adds them, Save writes the section and trees.txt from source and draft (`app/tracktrees.py`, docs/editor.md).
 

@@ -243,7 +243,7 @@ Which triangles make up an object: `track/objectlist.py`, written by the build (
 street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes by their count of triangles). Every mesh
 a build adds is entered there as listed, counted or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.
 
-TreeFX trees (CSP's 3D trees, `generator.py --treefx`) have no triangles: the list holds them in its own section, `trees#<number>`
+TreeFX trees (CSP's 3D trees, as builds make the trees) have no triangles: the list holds them in its own section, `trees#<number>`
 each with its model and placement (`track/objectlist.py`). The Editor reads that section of the served list (`trackview.treefx_of`),
 also of a source, which keeps it from the first Save. `/api/editor/<track>/treefx` hands the trees out as the draft leaves them
 (`trackview.treefx`: where the list has each and where the draft puts it); `/treefx/<model>` and `/treefx/<model>/<image>.png`

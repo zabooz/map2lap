@@ -661,8 +661,13 @@ def add_plants(obj, name, mesh, tris, ground=None):
     tris["trees"] = tris.get("trees", 0) + len(mesh[2])
 
 
+def treefx_on(anc):
+    """Whether a build's trees are TreeFX trees (anchor.json "treefx"; generator --billboards makes it false). Pure."""
+    return anc.get("treefx", True)
+
+
 def to_treefx(listed, items, wet, zone, on):
-    """The items (trees.tile_items' rows) that stay billboards: all with on false (anchor.json "treefx", generator --treefx),
+    """The items (trees.tile_items' rows) that stay billboards: all with on false (anchor.json "treefx", generator --billboards),
     else those without a TreeFX model; the others go to listed.treefx (trees.treefx_split)."""
     if not on:
         return items
@@ -941,7 +946,7 @@ def _scenery_tile(tx, ty, part_path):
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
     items, extra = trees.clear_of_buildings(items, rings), trees.clear_of_buildings(extra, rings)    # (no trunk in a house)
     zone = trees.tile_zone(frame, items + extra)
-    fx = anc.get("treefx", False)
+    fx = treefx_on(anc)
     plants = to_treefx(obj.listed, items + extra, wet, zone, fx)      # (rocks stay in items: rocks.meshes)
     tmesh = trees.billboards([t for t in plants if t[0] not in BUSHES], wet, zone)
     if tmesh is not None:
