@@ -302,7 +302,7 @@ def _refuse_saved(name):
 
 
 def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
-          line=None, treefx=True):
+          line=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
@@ -312,17 +312,14 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
     centre. upto="obj": stop after the OBJ parts in out/tracks/<name> (tools/stretch.py: no distant view, kn5 or
     track folder; nothing goes into AC); returns {"work": the work folder}. RuntimeError, before any work, if it would
-    replace a track saved in the Editor.
-    treefx: the trees and bushes with a 3D model (all kinds have one) as CSP's TreeFX trees instead of billboards (anchor.json
-    "treefx": the scenery's processes and finish_obj go by it); False: billboards, as builds before made them, for comparisons
-    until their making goes."""
+    replace a track saved in the Editor."""
     if not upto:
         _refuse_saved(slug(name))
     with plancache.one_run(os.path.join(ROOT, "cache")):
-        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, treefx)
+        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line)
 
 
-def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, treefx=True):
+def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line):
     """build, its processes sharing their plans."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
@@ -413,7 +410,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     log(f"Tiles done in {time.perf_counter() - t0:.0f} s")
     anc = {"lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
            "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
-           "rules": rules, "title": title, "code_key": revisit.code_key(), "treefx": bool(treefx)}
+           "rules": rules, "title": title, "code_key": revisit.code_key()}
     if area:                # (without route and start: obj_to_kn5.start_empties takes the road nearest the anchor)
         anc["area"] = [float(v) for v in area]
     else:
@@ -528,7 +525,6 @@ def main():
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")
     ap.add_argument("--cores", type=float, default=100.0, help="%% of the logical cores (at most all but one)")
     ap.add_argument("--cache-gb", type=float, help="size limit of the map data cache (default: settings.json)")
-    ap.add_argument("--billboards", action="store_true", help="trees as billboards, as builds before made them, not CSP's TreeFX trees")
     ap.add_argument("points", nargs="*", help="lat,lon ... (at least two; none with --area)")
     a = ap.parse_args()
     system.trust_windows_certificates()
@@ -539,7 +535,7 @@ def main():
         def progress(phase, done, total):
             print("PROGRESS " + json.dumps({"phase": phase, "done": done, "total": total}), flush=True)
     res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress,
-                cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb, treefx=not a.billboards)
+                cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb)
     if a.result:
         print("RESULT " + json.dumps({k: v for k, v in res.items() if k != "tris"}, default=float), flush=True)
 

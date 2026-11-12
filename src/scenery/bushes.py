@@ -1,7 +1,6 @@
-"""Cheap bushes on shrubland: billboards the map doesn't measure, in loose groups, so a hillside of shrubs has plants on it
+"""Cheap bushes on shrubland: bushes the map doesn't measure, in loose groups, so a hillside of shrubs has plants on it
 and not only a green ground. The canopy data (vegetation.py) finds what stands over 1 m as single tops with bare ground
-between them; these fill in only where it found nothing, as objects of their own (make_obj: nocol_bush_, near and without
-shadows, obj_to_kn5.VIEW).
+between them; these fill in only where it found nothing, as TreeFX trees like the others (make_obj.to_treefx).
 
 Not spread evenly, which looks like spots again: the density comes from noise at three sizes, so there are large groups
 with frayed edges, small ones and open gaps, plus now and then a winding row (where a slow noise crosses zero: its lines
@@ -90,7 +89,7 @@ def _off_roads(frame, s, box, m):
 
 
 def tile_items(frame, s, tx, ty, grid, taken, zone):
-    """The cheap bushes of tile (tx, ty) as trees.billboards takes them: (group, x, y, z, rotation, height, random value).
+    """The cheap bushes of tile (tx, ty) as trees.placements takes them: (group, x, y, z, rotation, height, random value).
     s: blockworker's state; grid: the terrain lattice; taken: the tile's items (group, x, y, ...), each keeping its own
     cell and those around free of a cheap bush; zone: trees.zone. On the ground painted shrubland only (groundcover), off
     the roads and paths, and off faces steep enough to be painted rock (ground.ROCK_SLOPE)."""

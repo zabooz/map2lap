@@ -123,13 +123,12 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
 - Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).
 - Scale textures down to the target resolution before sampling them (else a blotchy pattern: asphalt like cobbles).
-- Atlases keep an empty margin per image (`trees.PAD`): else billboard edges reach into the neighbouring image at small
-  mip levels, or through the repeat into their own bottom row (floating lines).
-- Crossed alpha-tested billboards that both cast and receive shadows shadow each other (stripes, black wedges). Plants are
-  `ksTree` in the kn5, as on the stock tracks; with CSP the track's `ext_config.ini` makes them `ksTree_ppshadows` with
-  `CAST_SHADOWS = 0`: dark in the shade of houses and hills, no shadow of their own. Their normals lean 45 degrees away from
-  the stem (`make_obj.away_from_stem`), else headlights, which come in almost level, leave them black at night. Bushes start
-  from the ground's normal (`make_obj.ground_normals`), so they darken with a slope turned away from the sun.
+- Atlases keep an empty margin per image: else a cut-out's edges reach into the neighbouring image at small mip levels, or
+  through the repeat into their own bottom row (floating lines).
+- Trees and bushes are CSP TreeFX trees (`scenery/treefx.py`, `extension/trees/trees.txt`), not kn5 meshes: they sway, cast
+  and take shadows and switch LOD at 200/300/500 m. In a `.bin` each card face is written once (both sides at one place
+  flickered far away and showed a grid; CSP draws leaves from both sides), and the coarser LODs are subsets of one crown
+  (each with its own random gave another tree on switching).
 - The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
   itself, rings around the camera on the asphalt. Without CSP it casts none.
 - Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),

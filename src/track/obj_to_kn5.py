@@ -33,22 +33,18 @@ VALUES = {
     "foam": {"ksAmbient": 0.60, "ksDiffuse": 0.30, "ksSpecular": 0.10, "ksSpecularEXP": 20.0},
 }
 SMOOTH = {"grass", "asphalt", "cobble", "dirt", "ballast", "paint", "water", "foam", "edge_dirt", "arrows", "far"}
-# Billboards: alpha test shader; gravel edge and arrows (roadtex.py): frayed or cut-out shape through the alpha test.
-# Plants use ksTree as the stock tracks do, with normals leaning away from the stem (make_obj.away_from_stem). Plain ksTree
-# receives no shadows and casts them; with CSP the track's ext_config.ini turns that round (make_track_folder.EXT_CONFIG):
-# receiving and casting at once, every upright quad shadowed the one crossing it, stripes and black wedges across the crowns
-SHADERS = {"trees": ("ksTree", 1), "edge_dirt": ("ksPerPixelAT", 1), "arrows": ("ksPerPixelAT", 1)}
+# gravel edge and arrows (roadtex.py): frayed or cut-out shape through the alpha test
+SHADERS = {"edge_dirt": ("ksPerPixelAT", 1), "arrows": ("ksPerPixelAT", 1)}
 SIGN_LETTERS = ("bne_exit_letters", "bne_guide_letters", "bne_guide_letters_black")     # (make_obj.SIGN_LETTERS)
 SHADERS.update({m: ("ksPerPixelAT", 1) for m in SIGN_LETTERS})
 SHADERS["fences"] = ("ksPerPixelAT_NS", 1)     # (fences.py: chain link, mesh, pickets cut out; upright quads like trees)
 SHADERS["leisure"] = ("ksPerPixelAT", 1)        # (leisure.py: the goals' and hoops' nets cut out)
-UP_NORMALS = {"trees"}                          # (only for parts without normals of their own: make_obj gives plants theirs)
-VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}
+VALUES["trees"] = {"ksAmbient": 0.42, "ksDiffuse": 0.36, "ksSpecular": 0.0, "ksSpecularEXP": 1.0}     # (imported plant models: trackmodels)
 VALUES["edge_dirt"] = VALUES["grass"]
 VALUES["far"] = VALUES["grass"]
 VALUES["arrows"] = VALUES["paint"]
 VALUES["gate_band"] = VALUES["paint"]
-ALPHA_REF = {"trees": 0.5, "edge_dirt": 0.5, "arrows": 0.5}
+ALPHA_REF = {"edge_dirt": 0.5, "arrows": 0.5}
 ALPHA_REF.update({m: 0.5 for m in SIGN_LETTERS})
 ALPHA_REF["fences"] = 0.5
 ALPHA_REF["leisure"] = 0.5
@@ -451,7 +447,7 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
                 T = np.r_[T, T[:, ::-1]]    # walls (bridge railings, some house walls) aren't wound consistently
             dist, shadows = view(name)
             for nd in mesh_nodes(name, mat_index[m], m in SMOOTH or m.startswith(("gc_", "ground_")), P, UV, T,
-                                 up=m in UP_NORMALS, skirts=m == "far" or m.startswith("ground_far_"),
+                                 skirts=m == "far" or m.startswith("ground_far_"),
                                  normals=normals.get(name)):
                 nd.lod_out, nd.cast_shadows = dist + nd.bs_radius, shadows
                 if invisible(name):     # (collision only: BeamNG.Earth's walkcol/bldcol)

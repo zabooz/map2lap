@@ -244,13 +244,12 @@ A road's end held at the height of the stronger road it ends on, so the two meet
 **TreeFX trees**: trees as CSP draws them from 3D models (`scenery/treefx.py`): a track's `extension/trees/trees.txt` places
 `.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. All 21 generated tree and bush sprites
 have a 3D form (`treefx.MODEL_OF`): 17 models, including regional trees, dry and tropical bushes, and a separate pine.
-The accepted broadleaf, birch, spruce, larch and two shrub models keep their geometry and textures. Unknown future sprites
-can still fall back to billboards. Every build writes them (anchor.json `"treefx"`); `generator.py --billboards` makes the
-billboards of builds before, for comparisons until their making goes. The **object list** holds each as model and placement under an id `trees#<number>` that stays
+The accepted broadleaf, birch, spruce, larch and two shrub models keep their geometry and textures. Every build writes all
+its trees and bushes so (`trees.placements`, `make_obj.to_treefx`); there are no billboard trees any more. The **object list** holds each as model and placement under an id `trees#<number>` that stays
 its tree's (its section `treefx`, "next": the first number never given); trees.txt is made from it. The Editor's draft deletes,
 places and adds them, Save writes the section and trees.txt from source and draft (`app/tracktrees.py`, docs/editor.md).
 
-**Cheap bushes**: billboards on painted shrubland that no map measures (`scenery/bushes.py`, objects `nocol_bush_<tx>_<ty>`): noise gives them groups, gaps and now and then a row; near only and without shadows. The bushes the canopy data finds stay `nocol_trees_bush_`.
+**Cheap bushes**: bushes on painted shrubland that no map measures (`scenery/bushes.py`), TreeFX trees like the others: noise gives them groups, gaps and now and then a row.
 
 **Debug stretch**:
 The part of a track holding a bug, built into AC to drive it: `<track>_<route metre>_debug` (`tools/debug_stretch.py`). No test track, and deleted when the fix is in.

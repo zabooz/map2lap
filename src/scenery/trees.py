@@ -1,9 +1,6 @@
-"""Trees and bushes as crossed billboards (two vertical double-sided quads each) from BeamNG.Earth's
-vegetation.tile_items (positions, heights, kinds from Meta's tree height data), plus a generated texture atlas.
-
-Atlas (trees.png, SPRITES in rows of COLS): cut out (alpha), anchored at the bottom centre, every image with PAD of
-empty margin. The larch only grows high in the mountains (LARCH_FROM_M). Rocks are left out here (as flat quads they
-look bad; rocks.py makes them 3D).
+"""Trees and bushes from BeamNG.Earth's vegetation.tile_items (positions, heights, kinds from Meta's tree height data), each as
+the CSP TreeFX model of its look (placements, scenery/treefx.py). A look (SPRITES) is a kind of tree with its width over its
+height; the larch only grows high in the mountains (LARCH_FROM_M). Rocks are left out here (rocks.py makes them 3D).
 
 Species by region: BeamNG.Earth already turns its generic groups into regional ones (palm, tropical, pine_west,
 oak_west, juniper, desert_shrub: vegetation.regional); the generic deciduous, conifer and shrub left over get the
@@ -474,13 +471,6 @@ def tile_zone(frame, items):
     return zone(float(lat), float(lon))
 
 
-def tile_trees(frame, tx, ty, veg, elev, wet=None, extra=()):
-    """Billboard mesh (P, UV, T) in ENU for the tile's trees, or None. wet(x, y) -> bool: in water.
-    extra: more trees (group name, x, y, z, rotation, height, random value), e.g. street trees from the props."""
-    items = tile_items(frame, tx, ty, veg, elev) + list(extra)
-    return billboards(items, wet, tile_zone(frame, items))
-
-
 def look_of(style, name, zone, z, rank):
     """(sprite, width / height) of an item of group name at altitude z: one of style's (STYLE with its zone's, by the item's random
     value; every third conifer high up in temperate and boreal zones a larch). Pure."""
@@ -490,48 +480,16 @@ def look_of(style, name, zone, z, rank):
     return looks[int(rank * 1000) % len(looks)]
 
 
-def treefx_split(items, wet=None, zone="temperate"):
-    """(the items that stay billboards, TreeFX placements of the others) for (group name, x, y, z, rotation, height, random
-    value) in ENU: an item whose look (look_of) has a model (treefx.model_of) stands as that model at its foot, as high and
-    as wide as its billboard; in water (wet(x, y)) it stands nowhere. Rocks and the looks without a model stay. Pure."""
-    style = {**STYLE, **ZONE_STYLE.get(zone, {})}
-    rest, placed = [], []
-    for item in items:
-        name, x, y, z, yaw, height, rank = item
-        sprite, ratio = look_of(style, name, zone, z, rank) if name not in SKIP else (None, None)
-        model = treefx.model_of(sprite)
-        if model is None:
-            rest.append(item)
-        elif wet is None or not wet(x, y):
-            placed.append(treefx.placement(model, (x, z - SINK_M, -y), yaw, max(0.8, float(height)), ratio))
-    return rest, placed
-
-
-def billboards(items, wet=None, zone="temperate"):
-    """Crossed billboards for (group name, x, y, z, rotation, height, random value) in the climate zone (zone());
-    (P, UV, T) or None."""
-    style = {**STYLE, **ZONE_STYLE.get(zone, {})}
-    P, UV, T = [], [], []
+def placements(items, wet=None, zone="temperate"):
+    """The TreeFX trees (treefx.placement) of (group name, x, y, z, rotation, height, random value) in ENU: each item stands as
+    its look's model (look_of, treefx.model_of) at its foot, as high and as wide as its look; in water (wet(x, y)) it stands
+    nowhere. Rocks are none (rocks.py makes them). Pure."""
+    style, placed = {**STYLE, **ZONE_STYLE.get(zone, {})}, []
     for name, x, y, z, yaw, height, rank in items:
         if name in SKIP or (wet is not None and wet(x, y)):
             continue
         sprite, ratio = look_of(style, name, zone, z, rank)
-        k = SPRITES.index(sprite)
-        col, row = k % COLS, k // COLS
-        h = max(0.8, float(height))
-        w = h * ratio
-        u0 = (col * CELL_W + PAD) / (COLS * CELL_W)         # (only the image, without the cell's margin)
-        u1 = u0 + SPRITE_W / (COLS * CELL_W)
-        v0 = 1.0 - ((row + 1) * CELL_H - PAD) / (ROWS * CELL_H)     # (v from the bottom, rows from the top)
-        v1 = 1.0 - (row * CELL_H + PAD) / (ROWS * CELL_H)
-        for k, ang in enumerate((math.radians(yaw), math.radians(yaw) + math.pi / 2)):
-            dx, dy = math.cos(ang) * w / 2, math.sin(ang) * w / 2
-            base = len(P)
-            zb = z - SINK_M
-            P += [(x - dx, y - dy, zb), (x + dx, y + dy, zb), (x + dx, y + dy, zb + h), (x - dx, y - dy, zb + h)]
-            UV += [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
-            T += [(base, base + 1, base + 2), (base, base + 2, base + 3),        # front
-                  (base, base + 2, base + 1), (base, base + 3, base + 2)]        # back
-    if not T:
-        return None
-    return np.asarray(P, float), np.asarray(UV, float), np.asarray(T, np.int64)
+        placed.append(treefx.placement(treefx.model_of(sprite), (x, z - SINK_M, -y), yaw, max(0.8, float(height)), ratio))
+    return placed
+
+

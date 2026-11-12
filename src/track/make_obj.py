@@ -106,7 +106,6 @@ MATERIALS = {   # our material -> (texture or None, base colour)
     "dirt": ("Ground037", (1, 1, 1)), "ballast": ("Gravel043", (1, 1, 1)),
     "wood": (None, (0.36, 0.27, 0.2)), "rail": (None, (0.42, 0.4, 0.38)),
     "water": ("@water", (1, 1, 1)), "foam": ("@foam", (1, 1, 1)),    # comic water (water.make_textures)
-    "trees": ("@trees", (1, 1, 1)),             # (the atlas is made by trees.make_atlas)
     "props": ("@props", (1, 1, 1)),             # street furniture (propsmesh.make_atlas)
     "lamp_glass": ("@props", (1, 1, 1)),        # the street lamps' glass: CSP finds the lamps by it (make_track_folder.EXT_CONFIG)
     cars.MATERIAL: ("@cars", (1, 1, 1)),        # parked cars (cars.make_atlas)
@@ -508,10 +507,7 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
             f.write(f"newmtl {name}\nKd 1 1 1\nmap_Kd textures/{name}.jpg\n\n")
         for name, (tex, kd) in MATERIALS.items():
             f.write(f"newmtl {name}\nKd {kd[0]} {kd[1]} {kd[2]}\n")
-            if tex == "@trees":
-                trees.make_atlas(os.path.join(tex_dir, "trees.png"))
-                f.write("map_Kd textures/trees.png\n\n")
-            elif tex == "@props":
+            if tex == "@props":
                 propsmesh.make_atlas(os.path.join(tex_dir, "props.png"))
                 f.write("map_Kd textures/props.png\n\n")
             elif tex == "@letters":           # sign lettering: the colour, alpha the letters' opacity map
@@ -596,9 +592,6 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
 _ctx = {}                       # per worker process: anchor, terrain, vegetation (_init_scenery)
 
 
-BUSHES = {"shrub", "desert_shrub"}     # vegetation groups lit like the ground (ground_normals)
-
-
 @functools.lru_cache(maxsize=16)
 def _tile_footprints(path):
     """(outline, class) of the buildings as drawn of a road tile's JSON (roads.write_tile's "footprints" and
@@ -621,59 +614,10 @@ def _footprints(tiles_dir, aid, tx, ty):
     return [r for r, _ in got], [c for _, c in got]
 
 
-def ground_normals(G, x0, y0, B):
-    """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per bush): the ground's under each, from the
-    tile's terrain grid G (ground.build, n * n vertices CELL apart from (x0, y0)). Pointing up, bushes would stay bright on a
-    hillside turned away from the sun: the slope's light is what darkens them. Trees start from "up" (they stand above the slope)."""
-    n = int(round(math.sqrt(len(G))))
-    Z = G[:, 2].reshape(n, n)                               # [j northwards, i eastwards]
-    dzdy, dzdx = np.gradient(Z, CELL)
-    c = B.reshape(-1, 8, 3)[:, :, :2].mean(1)
-    i = np.clip(np.round((c[:, 0] - x0) / CELL).astype(int), 0, n - 1)
-    j = np.clip(np.round((c[:, 1] - y0) / CELL).astype(int), 0, n - 1)
-    N = np.stack([-dzdx[j, i], -dzdy[j, i], np.ones(len(c))], 1)
-    N /= np.linalg.norm(N, axis=1, keepdims=True)
-    return np.repeat(N, 8, axis=0)
-
-
-# How far a plant's normals lean away from its stem, against their up part: 1 is 45 degrees, about what the stock tracks' trees
-# have (magione, drift). Headlights come in almost level: straight up, a plant took nothing of them and stood black at night; towards
-# the road instead, a tree with the sun behind it went almost black by day (both seen in AC). Away from the stem needs no road
-# and no sun direction, so it holds on every road, in either hemisphere and on flat land: the side a light comes from is lit.
-STEM_LEAN = 1.0
-
-
-def away_from_stem(B, N=None):
-    """Normals (ENU) for the billboard vertices B (trees.billboards: 8 per plant): N, the normals to start from (None: up), each
-    leaned by STEM_LEAN level and away from its plant's stem. Pure."""
-    B = np.asarray(B, np.float64).reshape(-1, 8, 3)
-    out = np.tile((0.0, 0.0, 1.0), (*B.shape[:2], 1)) if N is None else np.asarray(N, np.float64).reshape(B.shape).copy()
-    way = B[:, :, :2] - B[:, :, :2].mean(1, keepdims=True)
-    out[:, :, :2] += STEM_LEAN * way / np.maximum(np.linalg.norm(way, axis=2, keepdims=True), 1e-9)
-    out /= np.linalg.norm(out, axis=2, keepdims=True)
-    return out.reshape(-1, 3)
-
-
-def add_plants(obj, name, mesh, tris, ground=None):
-    """Add the billboard mesh (P, UV, T of trees.billboards) to obj as name, its normals away_from_stem from ground (a bush's slope,
-    ground_normals; None: a tree's "up"), and count its triangles in tris."""
-    obj.add(name, "trees", *mesh, N=away_from_stem(mesh[0], ground))
-    tris["trees"] = tris.get("trees", 0) + len(mesh[2])
-
-
-def treefx_on(anc):
-    """Whether a build's trees are TreeFX trees (anchor.json "treefx"; generator --billboards makes it false). Pure."""
-    return anc.get("treefx", True)
-
-
-def to_treefx(listed, items, wet, zone, on):
-    """The items (trees.tile_items' rows) that stay billboards: all with on false (anchor.json "treefx", generator --billboards),
-    else those without a TreeFX model; the others go to listed.treefx (trees.treefx_split)."""
-    if not on:
-        return items
-    rest, placed = trees.treefx_split(items, wet, zone)
-    listed.treefx += placed
-    return rest
+def to_treefx(listed, items, wet, zone):
+    """The items' trees and bushes (trees.tile_items' rows) into listed.treefx as CSP TreeFX trees (trees.placements); rocks
+    stay for rocks.meshes."""
+    listed.treefx += trees.placements(items, wet, zone)
 
 
 def _init_scenery(tiles_dir, tex_dir):
@@ -776,7 +720,7 @@ def _scenery_tile(tx, ty, part_path):
     P, UV, ggroups, _ = ground.build(frame, anc["aid"], tx, ty, _ctx["g"], blockworker._s.dem, anc["dem_zoom"],
                                      depth, blockworker._s.md, TEX_SRC, _ctx["tex_dir"],
                                      os.path.join(_ctx["tex_dir"], f"{gmat}.jpg"), log, _ctx["walls"], paint=obj.editor)
-    grid = P[:ground.LATTICE ** 2]      # (the terrain's lattice: the bushes' normals, ground_normals)
+    grid = P[:ground.LATTICE ** 2]      # (the terrain's lattice: where the cheap bushes stand, bushes.tile_items)
     for pre, T in ggroups.items():
         obj.add(f"{pre}_ground_{tx}_{ty}", gmat, P, UV, T)
         tris[pre] = tris.get(pre, 0) + len(T)
@@ -946,19 +890,10 @@ def _scenery_tile(tx, ty, part_path):
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
     items, extra = trees.clear_of_buildings(items, rings), trees.clear_of_buildings(extra, rings)    # (no trunk in a house)
     zone = trees.tile_zone(frame, items + extra)
-    fx = treefx_on(anc)
-    plants = to_treefx(obj.listed, items + extra, wet, zone, fx)      # (rocks stay in items: rocks.meshes)
-    tmesh = trees.billboards([t for t in plants if t[0] not in BUSHES], wet, zone)
-    if tmesh is not None:
-        add_plants(obj, f"nocol_trees_{tx}_{ty}", tmesh, tris)
-    bmesh = trees.billboards([t for t in plants if t[0] in BUSHES], wet, zone)
-    if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees start from "up"
-        add_plants(obj, f"nocol_trees_bush_{tx}_{ty}", bmesh, tris, ground_normals(grid, x0, y0, bmesh[0]))
-    try:                        # cheap bushes in groups on shrubland (bushes.py), lit like the ground too
+    to_treefx(obj.listed, items + extra, wet, zone)      # (rocks stay in items: rocks.meshes)
+    try:                        # cheap bushes in groups on shrubland (bushes.py)
         cheap = trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings)
-        cmesh = trees.billboards(to_treefx(obj.listed, cheap, wet, zone, fx), wet, zone)
-        if cmesh is not None:
-            add_plants(obj, f"nocol_bush_{tx}_{ty}", cmesh, tris, ground_normals(grid, x0, y0, cmesh[0]))
+        to_treefx(obj.listed, cheap, wet, zone)
     except Exception as e:      # (rather without them than without the tile)
         log(f"Cheap bushes, tile {tx},{ty}: {type(e).__name__}: {e}")
     places = {}

@@ -126,12 +126,6 @@ CONDITION = NIGHT_SMOOTH
 MATERIALS = ground_?
 CAST_SHADOWS = TERRAIN
 
-; plants take the shadows of houses and hills and cast none: a plant is two crossed quads, casting too they put black wedges on each other
-[SHADER_REPLACEMENT_...]
-MATERIALS = trees
-SHADER = ksTree_ppshadows
-CAST_SHADOWS = 0
-
 ; animated comic water: Lua redraws the texture every frame (like Shuto's billboards)
 [SCRIPTABLE_DISPLAY_...]
 MESHES = nocol_water_?

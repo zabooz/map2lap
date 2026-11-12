@@ -148,68 +148,56 @@ class TreesTxtTest(unittest.TestCase):
         self.assertIsNone(treefx.parse(""))
 
 
-class SplitTest(unittest.TestCase):
-    """trees.treefx_split: the build's trees (group, x, y, z, rotation, height, random value; ENU) as TreeFX trees where their
-    look has a model."""
+class PlacementsTest(unittest.TestCase):
+    """trees.placements: the build's trees (group, x, y, z, rotation, height, random value; ENU) as TreeFX trees of their
+    look's model."""
 
     def test_a_tree_with_a_model_stands_at_its_foot_in_ac_coordinates(self):
-        rest, placed = trees.treefx_split([("deciduous", 10.0, 20.0, 5.0, 33.0, 12.0, 0.0)])
+        placed = trees.placements([("deciduous", 10.0, 20.0, 5.0, 33.0, 12.0, 0.0)])
         sprite, ratio = trees.look_of(trees.STYLE, "deciduous", "temperate", 5.0, 0.0)
         model = treefx.model_of(sprite)
-        self.assertEqual([], rest)
         self.assertEqual([treefx.placement(model, (10.0, 5.0 - trees.SINK_M, -20.0), 33.0, 12.0, ratio)], placed)
 
     def test_a_palm_uses_its_own_model(self):
         palm = ("palm", 0.0, 0.0, 1.0, 0.0, 9.0, 0.5)
-        rest, placed = trees.treefx_split([palm])
-        self.assertEqual([], rest)
+        placed = trees.placements([palm])
         self.assertEqual("palm", placed[0]["model"])
 
     def test_a_mediterranean_look_uses_its_olive_model(self):
         olive = next(t for t in (("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, k / 1000) for k in range(8))
                      if trees.look_of({**trees.STYLE, **trees.ZONE_STYLE["mediterranean"]}, "deciduous", "mediterranean",
                                       1.0, t[6])[0] == "olive")
-        rest, placed = trees.treefx_split([olive], zone="mediterranean")
-        self.assertEqual([], rest)
+        placed = trees.placements([olive], zone="mediterranean")
         self.assertEqual("olive", placed[0]["model"])
 
-    def test_a_tree_in_water_is_none_and_a_rock_stays_with_the_rest(self):
+    def test_a_tree_in_water_is_none_and_a_rock_no_tree(self):
         rock = ("rock", 0.0, 0.0, 1.0, 0.0, 2.0, 0.5)
         wet = ("deciduous", 5.0, 0.0, 1.0, 0.0, 9.0, 0.5)
-        self.assertEqual(([rock], []), trees.treefx_split([rock, wet], wet=lambda x, y: x > 1))
+        self.assertEqual([], trees.placements([rock, wet], wet=lambda x, y: x > 1))
 
-    def test_a_low_tree_is_as_high_as_its_billboard(self):
-        _, placed = trees.treefx_split([("deciduous", 0.0, 0.0, 1.0, 0.0, 0.1, 0.0)])
+    def test_a_low_tree_is_at_least_as_high_as_a_bush(self):
+        placed = trees.placements([("deciduous", 0.0, 0.0, 1.0, 0.0, 0.1, 0.0)])
         self.assertEqual(round(0.8 / treefx.size(placed[0]["model"])[0], 3), placed[0]["size"])
 
 
-class SwitchTest(unittest.TestCase):
-    """A build's trees with a model go to the tile's list as TreeFX trees instead of billboards; --billboards keeps them billboards."""
+class TileTreesTest(unittest.TestCase):
+    """A build's trees and bushes all go to the tile's list as TreeFX trees: none is a billboard any more."""
 
-    def test_the_generator_builds_treefx_unless_told_billboards(self):
-        for argv, on in ((["--name", "t", "1,2", "3,4"], True), (["--name", "t", "--billboards", "1,2", "3,4"], False)):
-            with mock.patch.object(generator, "build", return_value={}) as build, \
-                    mock.patch.object(generator.system, "trust_windows_certificates"), \
-                    mock.patch.object(sys, "argv", ["generator.py", *argv]):
-                generator.main()
-            self.assertEqual(on, build.call_args.kwargs["treefx"])
+    def test_the_trees_go_to_the_tile_s_list_rocks_stay_for_their_meshes(self):
+        items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("rock", 2.0, 0.0, 1.0, 0.0, 1.0, 0.0)]
+        listed = objectlist.TileList()
+        make_obj.to_treefx(listed, items, None, "temperate")
+        self.assertEqual(trees.placements(items), listed.treefx)
+        self.assertEqual(2, len(listed.treefx))
 
-    def test_build_and_an_anchor_without_the_switch_build_treefx(self):
+    def test_every_look_of_every_zone_has_a_model(self):
+        looks = {sprite for style in [trees.STYLE, *trees.ZONE_STYLE.values()] for group in style.values() for sprite, _ in group}
+        self.assertEqual(set(), {sprite for sprite in looks | set(trees.SPRITES) if treefx.model_of(sprite) is None})
+
+    def test_the_generator_has_no_billboards_left(self):
         import inspect
-        self.assertTrue(inspect.signature(generator.build).parameters["treefx"].default)
-        self.assertTrue(make_obj.treefx_on({}))
-
-    def test_off_every_tree_stays_a_billboard(self):
-        items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0)]
-        listed = objectlist.TileList()
-        self.assertEqual(items, make_obj.to_treefx(listed, items, None, "temperate", False))
-        self.assertEqual([], listed.treefx)
-
-    def test_on_the_trees_with_a_model_go_to_the_tile_s_list(self):
-        items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0)]
-        listed = objectlist.TileList()
-        self.assertEqual([], make_obj.to_treefx(listed, items, None, "temperate", True))
-        self.assertEqual(trees.treefx_split(items)[1], listed.treefx)
+        self.assertNotIn("treefx", inspect.signature(generator.build).parameters)
+        self.assertFalse(hasattr(trees, "billboards"))
 
 
 class TrackFolderTest(unittest.TestCase):

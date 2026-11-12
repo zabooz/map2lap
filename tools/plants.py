@@ -1,6 +1,6 @@
 """What grows at a spot on a built track and why it looks so: the climate zone, the land cover, the ground painted, the map's areas with
-their tags, the trees and bushes by group and by sprite, and how many of them the tile's cap leaves out. From the track's tiles
-(out/tracks/<track>: a build with its files kept) and today's map data cache; the built counts from its OBJ part.
+their tags, the trees and bushes by group and by look, and how many of them the tile's cap leaves out. From the track's tiles
+(out/tracks/<track>: a build with its files kept) and today's map data cache; the TreeFX trees built from its OBJ part's list.
 
     .venv\\Scripts\\python.exe tools\\plants.py <track> --route <m>
     .venv\\Scripts\\python.exe tools\\plants.py <track> <AC x> <AC z>
@@ -19,7 +19,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools"))
 from ground_paint import route_point, tile_of  # noqa: E402  (sets the import paths too)
-from track import make_obj  # noqa: E402
+from track import make_obj, objectlist  # noqa: E402
 
 import blockworker  # noqa: E402
 import climate  # noqa: E402
@@ -31,8 +31,6 @@ NEAR_CELLS = 25         # cells of 2 m either side: 50 m around the spot
 LAND_COVER = {0: "no data", 10: "trees", 20: "shrub", 30: "grass", 40: "crop", 50: "built", 60: "bare", 70: "snow", 80: "water",
               90: "wetland", 95: "mangrove", 100: "moss"}
 OSM_TAGS = ("natural", "landuse", "leaf_type", "leaf_cycle", "wood", "trees", "species", "genus", "produce", "crop")
-BUILT = (("cheap bushes", "nocol_bush"), ("measured bushes", "nocol_trees_bush"), ("trees", "nocol_trees"))
-ITEM_FACES = 8          # triangles a billboard has (trees.billboards)
 
 
 def shares(counts):
@@ -43,16 +41,9 @@ def shares(counts):
     return ", ".join(f"{k} {100 * v / total:.0f} %" for k, v in counts.most_common()) + f" (of {total:,})"
 
 
-def built_items(lines):
-    """{what of BUILT: billboards} of an OBJ part's lines. Pure."""
-    faces, now = collections.Counter(), None
-    for line in lines:
-        if line.startswith("o "):
-            name = line.split()[1]
-            now = next((what for what, prefix in BUILT if name.startswith(prefix + "_")), None)
-        elif now and line.startswith("f "):
-            faces[now] += 1
-    return {what: faces[what] // ITEM_FACES for what, _prefix in BUILT}
+def built_trees(listed):
+    """Counter of the TreeFX trees by model a tile's list holds (its OBJ part's side file: objectlist.TileList). Pure."""
+    return collections.Counter(tree["model"] for tree in listed.get("treefx", ()))
 
 
 def areas(frame, md, tx, ty):
@@ -112,8 +103,7 @@ def report(track, x, z):
           + shares(collections.Counter(trees.look_of(style, n, zone, zc, r)[0] for n, _x, _y, zc, _yaw, _h, r in kept if n not in trees.SKIP)))
     part = os.path.join(HERE, "out", "tracks", track, "obj", "parts", f"t_{tx}_{ty}.obj")
     if os.path.exists(part):
-        with open(part, encoding="utf-8", errors="replace") as f:
-            print(f"built on the tile: {built_items(f)}")
+        print(f"built on the tile: {shares(built_trees(objectlist.load_side(part)))}")
     else:
         print("built on the tile: no OBJ part")
 

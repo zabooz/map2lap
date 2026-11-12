@@ -84,10 +84,10 @@ class PlantsTest(unittest.TestCase):
         self.assertEqual(plants.shares(collections.Counter(a=3, b=1)), "a 75 %, b 25 % (of 4)")
         self.assertEqual(plants.shares(collections.Counter()), "nothing")
 
-    def test_built_items_each_by_its_own_object(self):
-        faces = ["f 1 2 3"] * 8
-        lines = ["o nocol_bush_1_2", *faces, "o nocol_trees_bush_1_2", *faces, *faces, "o nocol_trees_1_2", *faces, "o 1ROAD_ground_1_2", *faces]
-        self.assertEqual(plants.built_items(lines), {"cheap bushes": 1, "measured bushes": 2, "trees": 1})
+    def test_built_trees_by_their_model_from_the_tile_s_list(self):
+        listed = {"kinds": [], "treefx": [{"model": "spruce"}, {"model": "shrub"}, {"model": "spruce"}]}
+        self.assertEqual(plants.built_trees(listed), collections.Counter(spruce=2, shrub=1))
+        self.assertEqual(plants.built_trees({}), collections.Counter())
 
 
 class PointWhyTest(unittest.TestCase):
