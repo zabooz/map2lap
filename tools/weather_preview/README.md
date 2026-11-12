@@ -98,6 +98,10 @@ not exactly volume conserving. Snow's separate deposition/wiper path is unchange
 
 The material copies CSP's built-in `txPreviousFrame` scene texture, with scene
 distance in alpha to exclude cockpit/wiper pixels at both sample endpoints.
+It applies the signed difference between refracted and original samples to the
+current floating-point HDR target, in a separate pass from snow. Copying absolute
+RGB also copied the earlier scene's different fog/brightness and produced pale
+painted patches. Uniform backgrounds now receive only subtle edge attenuation.
 Do **not** use `dynamic::hdr` as a refraction source: live paired captures showed
 our water already in that image, causing feedback and black wiper/glove smears.
 The built-in texture excluded our transparent passes in the tested CSP build.
@@ -106,7 +110,8 @@ Its template is embedded in `dwrite.dll` under `internal/shader-tpl/`, including
 
 Use `glass` for the material; `glassred` shows actual height and an unprojected
 inset. The first custom iteration has user confirmation of visible droplets and
-no wiper smear. Broader quality, driving motion, other cars and side liquid remain
+no wiper smear, followed by a request to improve their painted appearance. The
+signed-difference correction is under visual review. Driving motion, other cars and side liquid remain
 for review; side liquid is disabled. No performance measurements have been made.
 
 The archived librain experiment and upstream notices remain in

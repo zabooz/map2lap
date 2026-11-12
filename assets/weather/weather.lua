@@ -1812,28 +1812,8 @@ function glass.setup()
           float depth = txWaterDepth.SampleLevel(samLinearSimple, uv, 0).r;
           // Solid red shows only the actual retained depth, including the leading wiper edge.
           if (gDebugDrops > 0.5) return float4(1, 0, 0, depth > 0.025 ? 1 : 0);
-          if(depth<=0.002) return 0;
-          // CSP's built-in scene texture excludes our transparent passes. The
-          // final dynamic::hdr image includes them and must never feed this lens.
-          float2 screenUV=pin.PosH.xy/gScreen;
-          float4 background=txSceneCopy.SampleLevel(samLinearSimple,screenUV,0);
-          float foregroundLimit=length(pin.PosC)+0.2;
-          if(gRefract>0.5 && background.a<=foregroundLimit) return 0;
-          float3 n=txWaterNormal.SampleLevel(samLinearSimple,uv,0).rgb*2-1;
-          n=normalize(float3(n.xy*3,n.z));
-          float edge=saturate(length(n.xy)*2);
-          float glint=pow(saturate(dot(n,normalize(float3(-0.4,-0.6,1)))),28)*edge;
-          float shade=edge*(0.38+0.22*saturate(n.y));
-          float shine=glint*0.7;
-          float alpha=(shade+shine)*smoothstep(0.002,0.04,depth);
-          float3 colour=gColor*2.2*shine/max(shade+shine,1e-5);
-          if(gRefract>0.5) {
-            float4 lens=txSceneCopy.SampleLevel(samLinearSimple,saturate(screenUV+n.xy*4/gScreen),0);
-            if(lens.a<=foregroundLimit) return 0;
-            colour=lens.rgb*(1-0.06*edge)+gColor*glint*0.18;
-            alpha=smoothstep(0.002,0.035,depth)*0.9;
-          }
-          return float4(colour,alpha);
+          // Normal water is composed separately as a signed lens difference.
+          return 0;
         }
         float4 f = txField.Sample(samLinearSimple, uv);
         if (gRaw > 0.5) return float4(f.r, f.g, f.a * 0.5, 0.9);
@@ -1932,6 +1912,35 @@ function glass.setup()
       }
     ]]
   }
+
+  -- Add only the colour CHANGE caused by the lens to the real current render
+  -- target. Copying the opaque scene's absolute RGB replaced later fog/lighting
+  -- with its earlier values and made droplets look like bright painted patches.
+  water.lens = {async=true,cacheKey=304,mesh=glass.mesh,transform='original',
+    values=glass.pass.values,
+    textures={txField=false,txWaterDepth=false,txWaterNormal=false,txSceneCopy=false},shader=[[
+    float4 main(PS_IN pin) {
+      float2 uv=pin.Tex;
+      float4 snow=txField.SampleLevel(samLinearSimple,uv,0);
+      if(snow.g+snow.b>=0.001 || gRefract<0.5) return 0;
+      float depth=txWaterDepth.SampleLevel(samLinearSimple,uv,0).r;
+      if(depth<=0.002) return 0;
+      float2 screenUV=pin.PosH.xy/gScreen;
+      float4 base=txSceneCopy.SampleLevel(samLinearSimple,screenUV,0);
+      float limit=length(pin.PosC)+0.2;
+      if(base.a<=limit) return 0;
+      float3 n=txWaterNormal.SampleLevel(samLinearSimple,uv,0).rgb*2-1;
+      n=normalize(float3(n.xy*3,n.z));
+      float4 bent=txSceneCopy.SampleLevel(samLinearSimple,saturate(screenUV+n.xy*4/gScreen),0);
+      if(bent.a<=limit) return 0;
+      float edge=saturate(length(n.xy)*2);
+      float coverage=smoothstep(0.002,0.035,depth)*0.9;
+      // Signed RGB on the floating-point HDR target: subtract the original
+      // sample as well as adding the bent one. Uniform backgrounds stay uniform.
+      float3 change=(bent.rgb-base.rgb)-base.rgb*edge*0.025;
+      return float4(change*coverage,1);
+    }
+  ]]}
 
   -- Side panes use small independent fields at at most 30 Hz. They share bead/snow shapes and shading,
   -- compile out CPU-drop/wiper logic, and allocate textures only when precipitation first reaches the car.
@@ -2180,6 +2189,16 @@ function glass.setup()
     render.setDepthMode(render.DepthMode.ReadOnly)
     if not glass.quiet then
       render.mesh(glass.pass)
+      if not glassRed and v.gWater>0.5 and fixedPane then
+        water.lens.mesh,water.lens.transform=glass.pass.mesh,glass.pass.transform
+        water.lens.textures.txField=glass.read
+        water.lens.textures.txWaterDepth=water.read
+        water.lens.textures.txWaterNormal=water.norm
+        water.lens.textures.txSceneCopy=rustRain.scene
+        render.setBlendMode(render.BlendMode.BlendAdd)
+        render.mesh(water.lens)
+        render.setBlendMode(render.BlendMode.AlphaBlend)
+      end
     end
     for _, side in ipairs(glass.sides) do
       if side.active and side.pass then
