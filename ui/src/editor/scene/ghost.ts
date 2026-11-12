@@ -199,12 +199,12 @@ export class PlacementGhost {
 
   /** Shown models whose instance is drawn now go (copiesDrawn: the copies' meshes are loaded), and those a later draft no longer has
       (undone). An older index keeps them. */
-  settle(data: TrackIndex, copiesDrawn: boolean) {
+  settle(data: TrackIndex, copiesDrawn: boolean, modelDrawn: (id: string) => boolean = id => !!this.host.models().instance(id)) {
     for (const [key, {instance, draft}] of this.pending) {
       if (instance === undefined) continue;
       const copied = instance.startsWith("copy_");
       const exists = copied ? !!data.objects[instance] : data.models?.some(m => m.id === instance);
-      const drawn = copied ? copiesDrawn && exists : this.host.models().instance(instance);
+      const drawn = copied ? copiesDrawn && exists : modelDrawn(instance);
       if (drawn || (data.draft ?? 0) > draft! && !exists) this.dropPending(key);
     }
   }

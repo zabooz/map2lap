@@ -114,7 +114,7 @@ export interface MaterialInfo {
 
 export interface TrackIndex {
   models?: ModelInstance[];
-  model_assets?: Record<string, {url: string}>;
+  model_assets?: Record<string, {url: string; name?: string; native_tree?: {file: string}}>;
   model_matrices?: Record<string, number[]>;
   model_replacements?: string[];
   treefx?: number;                 // how many TreeFX trees the served list holds (treeFx.ts draws them)

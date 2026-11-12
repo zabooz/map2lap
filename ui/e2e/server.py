@@ -295,7 +295,7 @@ def fill():
     stopped.clear()
     server.job.update(state="idle", log=[], result=None, error=None, progress=None, started=None, ended=None)
     server.running.update(proc=None, clearing=False)
-    for d in (AC, os.path.join(TMP, "out"), os.path.join(TMP, "library"), os.path.join(TMP, "cache")):
+    for d in (AC, os.path.join(TMP, "out"), os.path.join(TMP, "library"), os.path.join(TMP, "cache"), os.path.join(TMP, "assets")):
         remove_tree(d)
     os.makedirs(os.path.join(AC, "content", "cars", "car_a", "skins", "default"))
     os.makedirs(os.path.join(AC, "content", "cars", "car_a", "ui"))
@@ -406,8 +406,11 @@ class Handler(server.Handler):
         body = self._body()
         if self.path == "/__test/reset":
             fill()
+        elif self.path == "/__test/builtin-models":
+            Path(TMP, "assets").mkdir(exist_ok=True)
+            Path(TMP, "assets/builtin-objects.json").write_text('{"version":1}', encoding="utf-8")
         elif self.path == "/__test/cold-models":
-            for relative in ("library", "cache", "out/sources", "out/edits", "out/model-assets"):
+            for relative in ("library", "assets", "cache", "out/sources", "out/edits", "out/model-assets"):
                 shutil.rmtree(os.path.join(TMP, relative), ignore_errors=True)
         elif self.path == "/__test/release":
             release.update(body)

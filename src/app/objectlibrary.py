@@ -36,7 +36,11 @@ def _filename(value):
 
 def _folder(id):
     """The folder model id is read from: the user's import, else the one the release ships."""
-    return libraryfolders.found(ROOT, "objects", _key(id))
+    folder = libraryfolders.found(ROOT, "objects", _key(id))
+    if folder.is_dir():
+        return folder
+    from app import builtinobjects
+    return builtinobjects.folder(ROOT, id) or folder
 
 
 def _cache(token):
@@ -206,6 +210,12 @@ def remove(id):
     """Delete an imported package, or hide a shipped one (libraryfolders). Placed copies keep their own snapshot (trackmodels.snapshot),
     so no track loses the model."""
     with _gate:
+        from app import builtinobjects
+        if any(a["id"] == _key(id) for a in builtinobjects.catalogue(ROOT)):
+            if id in libraryfolders.hidden(ROOT, "objects"):
+                return False
+            libraryfolders.hide(ROOT, "objects", id)
+            return True
         return libraryfolders.remove(ROOT, "objects", _key(id), shutil.rmtree)
 
 
@@ -343,7 +353,9 @@ def listing(query="", category="", offset=0, limit=40):
     offset, limit = max(0, int(offset)), max(1, min(100, int(limit)))
     items = []
     with _gate:
-        assets = []
+        from app import builtinobjects
+        gone = libraryfolders.hidden(ROOT, "objects")
+        assets = [a for a in builtinobjects.catalogue(ROOT) if a["id"] not in gone]
         for name, _path in libraryfolders.names(ROOT, "objects"):
             if not materiallibrary.KEY.fullmatch(name):
                 continue
@@ -352,6 +364,7 @@ def listing(query="", category="", offset=0, limit=40):
             except ValueError:
                 continue
             assets.append(asset)
+        assets = list({a["id"]: a for a in assets}.values())
         present = {asset['id'] for asset in assets}
         hidden = {old for old, new in _superseded().items() if new in present}
         for asset in assets:
@@ -362,6 +375,7 @@ def listing(query="", category="", offset=0, limit=40):
                     and query in " ".join([asset["name"], *asset["tags"]]).casefold()):
                 items.append({**{k: asset[k] for k in ("id", "name", "tags", "metres_per_unit", "anchor", "collision", "geometry")},
                               'category': kind, 'creator': asset.get('creator') or _provider(asset),
-                              'source_url': asset.get('source_url', ''), 'license': asset.get('license', '')})
+                              'source_url': asset.get('source_url', ''), 'license': asset.get('license', ''),
+                              **{k: asset[k] for k in ("builtin", "native_tree") if k in asset}})
     items.sort(key=lambda item: (item["name"].casefold(), item["id"]))
     return {"items": items[offset:offset + limit], "total": len(items), "offset": offset, 'categories': list(CATEGORIES)}

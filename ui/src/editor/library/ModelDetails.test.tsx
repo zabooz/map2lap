@@ -25,3 +25,15 @@ test("unprovided credits stay unknown and source links allow only web URLs", () 
   expect(html).toContain("Not specified");
   expect(html).not.toContain('href="javascript:');
 });
+
+test("our native trees show shared storage and their real licence instead of a KN5 cost per tree", () => {
+  const model = {id: "a", name: "Spruce", category: "tree", metres_per_unit: 1, anchor: [0, 0, 0], collision: "none" as const,
+    creator: "Map2Lap (zabooz)", license: "MIT", source_url: "https://github.com/zabooz/map2lap",
+    native_tree: {file: "native/model.bin", bytes: 12288}};
+  const html = renderToStaticMarkup(<ModelDetails model={model} />);
+  expect(html).toContain("Shared tree model");
+  expect(html).toContain("3 detail levels");
+  expect(html).toContain("MIT");
+  expect(html).toContain("Map2Lap (zabooz)");
+  expect(html).not.toContain("Reading geometry cost");
+});

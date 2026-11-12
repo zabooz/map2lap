@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
 import {modelEnvironment} from "./modelLighting";
+import {lampHeads} from "./nightGlow";
 
 interface Binding {id: string; asset: string}
-interface Asset {url: string; material_lighting?: string; material_colours?: string; source_url?: string}
+interface Asset {url: string; material_lighting?: string; material_colours?: string; source_url?: string; native_tree?: {file: string}}
 interface Loaded {root: THREE.Group; bytes: number; geometryCpuBytes: number; geometryGpuBytes: number; textureCpuEstimate: number; textureGpuEstimate: number;
   geometries: Set<THREE.BufferGeometry>; materials: Set<THREE.Material>; textures: Set<THREE.Texture>; center: THREE.Vector3; released?: boolean}
 
@@ -78,6 +79,38 @@ export class ModelDraw {
   private blended = new Map<string, THREE.Mesh[]>();    // an instance: its blended parts, each drawn alone
   private batchBytes = 0;
   private dirty = new Set<string>();                    // instances moved, hidden, shown, added or gone since the last flush
+  private night = false;
+  private headPositions = new WeakMap<THREE.BufferGeometry, [number, number, number][]>();
+
+  /** The same emitting glass as generator lamps; the road light itself is CSP's, shown here by LampCones. */
+  setNight(on: boolean) {
+    if (on === this.night) return;
+    this.night = on;
+    for (const asset of this.assets.values()) this.lightLamps(asset);
+  }
+
+  private lightLamps(asset: Loaded) {
+    for (const material of asset.materials) if (material.userData.map2lapLamp && material instanceof THREE.MeshStandardMaterial) {
+      material.emissive.set("#fff0c0"); material.emissiveIntensity = Number(this.night);
+    }
+  }
+
+  /** Visible lamp heads in world coordinates, measured once in shared geometry and transformed by each current pose. */
+  lamps() {
+    const result: [number, number, number][] = [], point = new THREE.Vector3();
+    for (const {root} of this.instances.values()) if (root.visible && root.userData.libraryLamp) {
+      root.updateMatrixWorld(true);
+      root.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        if (!materials.some(m => m.userData.map2lapLamp)) return;
+        let heads = this.headPositions.get(node.geometry);
+        if (!heads) { heads = lampHeads(node); this.headPositions.set(node.geometry, heads); }
+        for (const head of heads) result.push(point.fromArray(head).applyMatrix4(node.matrixWorld).toArray());
+      });
+    }
+    return result;
+  }
 
   setEnvironment(texture: THREE.Texture, power = 1) {
     this.environment = texture; this.power = power;
@@ -96,9 +129,17 @@ export class ModelDraw {
     return gltf.scene;
   },
               private reserve: (bytes: number) => boolean = () => true,
-              private report = true) {}
+              private report = true,
+              private onNativeTransform: (id: string, matrix: THREE.Matrix4) => void = () => {}) {}
 
   instance(id: string) { return this.instances.get(id)?.root; }
+
+  /** Native data arrived after a drag preview: the logical root's current pose wins over that older server answer. */
+  refreshNative() {
+    for (const [id, {root}] of this.instances) if (root.userData.nativeTree) {
+      delete root.userData.nativePose; this.dirty.add(id);
+    }
+  }
 
   /** Hold a Copy source's shared images even when Revert removes its binding. Release is idempotent. */
   hold(instance: string) {
@@ -195,6 +236,8 @@ export class ModelDraw {
           material.userData.map2lap = {...material.userData.map2lap, lighting: "matte"};
         }
         if (this.environment) modelEnvironment(asset.materials, this.environment, this.power);
+        asset.root.userData.libraryLamp = [...asset.materials].some(m => m.userData.map2lapLamp);
+        this.lightLamps(asset);
         const own = this.pending.get(id) === pending;
         if (!own || !this.wanted.has(id)) {
           if (own) this.pending.delete(id);
@@ -238,6 +281,7 @@ export class ModelDraw {
         root.traverse(node => { node.receiveShadow = true; node.userData.modelInstance = binding.id; });
         instance = {asset: binding.asset, root}; this.instances.set(binding.id, instance); this.dirty.add(binding.id);
       }
+      instance.root.userData.nativeTree = !!descriptions[binding.asset].native_tree;
       // (an index reload hands every matrix again: only an instance that moved is drawn anew)
       const matrix = new THREE.Matrix4().fromArray(matrices[binding.id]);
       if (!instance.root.matrix.equals(matrix)) { instance.root.matrix.copy(matrix); instance.root.matrixWorldNeedsUpdate = true; this.dirty.add(binding.id); }
@@ -265,6 +309,7 @@ export class ModelDraw {
       shrunk to a point where it is hidden, and its shown blended ones as meshes of their own. Pure but for the root's world matrices. */
   private parts(asset: string, root: THREE.Group) {
     const opaque: {key: string; part: THREE.Mesh; matrix: THREE.Matrix4}[] = [], blended: THREE.Mesh[] = [];
+    if (root.userData.nativeTree) return {opaque, blended}; // TreeFxDraw draws its real LODs; this root supplies selection and Copy.
     root.updateMatrixWorld(true);
     const p = new THREE.Vector3().setFromMatrixPosition(root.matrix), cell = `${Math.floor(p.x / 256)},${Math.floor(p.z / 256)}`;
     root.traverse(node => {
@@ -329,6 +374,15 @@ export class ModelDraw {
       else { this.keys.delete(id); this.blended.delete(id); this.slots.delete(id); }
     }
     if (delta < 0) this.reserve(delta);
+    for (const id of this.dirty) {
+      const root = this.instances.get(id)?.root;
+      if (root?.userData.nativeTree) {
+        const previous = root.userData.nativePose as THREE.Matrix4 | undefined;
+        if (!previous?.equals(root.matrix)) {
+          root.userData.nativePose = root.matrix.clone(); this.onNativeTransform(id + "#0", root.matrix);
+        }
+      }
+    }
     this.batchBytes += delta; this.dirty.clear();
   }
 

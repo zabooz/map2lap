@@ -20,6 +20,11 @@ The updater therefore also refuses ZIP or TAR.GZ archives with a `Map2Lap/librar
 Failed downloads or archive checks remove their staging files. Editor saves and app updates refuse to start while the other
 is running, so the update restart cannot interrupt a Save.
 
+Map2Lap's own generated library objects are enabled by the tracked `assets/builtin-objects.json` manifest and the shipped
+scenery builders. Their content-addressed packages are prepared into `cache/builtin-objects` on first use; `build_library.py`
+is not needed for these entries. Each includes Map2Lap/zabooz MIT credit and the Map2Lap/BeamNG.Earth licence notices.
+Native library trees also retain their TreeFX `.bin` in saved model bundles; user tracks never depend on the generated cache.
+
 Both start scripts stop on an installation copy error and keep `update/ready` and the downloaded files for retry on the
 next start. Windows retries each failed robocopy operation five times, two seconds apart; codes 8 and above fail the update.
 Errors stay visible, and the app starts only after every folder, top-level file and the starter itself has been copied.

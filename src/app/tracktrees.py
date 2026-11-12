@@ -86,6 +86,7 @@ def saved(section, edits):
     if section is None and not added:
         return None
     gone, sorts = {d["id"] for d in edits["deleted"]}, set(edits["object_sorts"])
+    gone.update(m["replaces"] for m in edits.get("models", []) if m.get("replaces"))
     trees = now(trees_of(section, added), edits["placed"], edits["heights"])
     return {"next": next_of(section, added, edits.get("trees_next", 0)),
             "trees": {str(number(id_)): tree for id_, tree in trees.items() if id_ not in gone and tree["model"] not in sorts}}

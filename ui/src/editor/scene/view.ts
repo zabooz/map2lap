@@ -82,7 +82,7 @@ export class TrackView {
   private modelDraw = new ModelDraw(this.scene, undefined, bytes => {
     if (bytes > 0 && !fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
     this.usedBytes += bytes; return true;
-  });
+  }, true, (id, matrix) => this.treeFx.transform(id, matrix));
   private modelTransformVersion = 0;
   private treeFx = new TreeFxDraw(this.scene, {
     trees: () => fetchJson<TreeFxTrees>(this.treeUrl(""), this.loading.signal),
@@ -638,6 +638,7 @@ export class TrackView {
   refreshMeshes(meshes: number[]) {
     if (meshes.includes(-3)) {            // (the TreeFX trees stand elsewhere now: trackedits answers "treefx")
       void this.loadTrees();
+      if (!meshes.includes(-2) && this.data?.models?.some(m => this.data?.model_assets?.[m.asset]?.native_tree)) void this.refreshModelTransforms();
       meshes = meshes.filter(i => i !== -3);
     }
     if (meshes.includes(-2)) {
@@ -788,7 +789,9 @@ export class TrackView {
     try {
       await this.treeFx.load();
       if (mine !== this.token) return;
+        this.modelDraw.refreshNative();
       this.leaveOutTrees();
+        if (this.data) this.settlePending(this.data);
       this.dirty = true;
     } catch (error) {
       if (mine === this.token && !this.loading.signal.aborted) this.onViewFailed((error as Error).message);
@@ -812,9 +815,13 @@ export class TrackView {
 
   /** What Groups and the ghost showed before the draft had it goes once data draws it, or once a later draft no longer has it. */
   private settlePending(data: TrackIndex) {
-    if (this.groupDraw) void this.groupDraw.settle(data.draft ?? 0, new Set(data.models?.map(m => m.id)), id => !!this.modelDraw.instance(id))
+    const drawn = (id: string) => {
+      const root = this.modelDraw.instance(id);
+      return !!root && (!root.userData.nativeTree || !!this.treeFx.tree(id + "#0"));
+    };
+    if (this.groupDraw) void this.groupDraw.settle(data.draft ?? 0, new Set(data.models?.map(m => m.id)), drawn)
       .then(() => { this.dirty = true; }).catch(error => this.onViewFailed((error as Error).message));
-    this.ghost.settle(data, this.meshes.some(m => (m.userData.info as MeshInfo).copy));
+    this.ghost.settle(data, this.meshes.some(m => (m.userData.info as MeshInfo).copy), drawn);
   }
 
   /** The ground under the mouse, whatever it is (Copy places on bridges and water too), or null. */
@@ -1013,13 +1020,14 @@ export class TrackView {
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
       }
       this.cullModels();
-      this.treeFx.follow(this.camera.position);
       this.surfaceOverlay?.follow();
       this.flushModels();
+      this.treeFx.follow(this.camera.position);
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
       this.nightSky.follow(this.camera.position);
-      this.lampCones.update(this.lampGlass, this.nightGlow.on);
+      this.modelDraw.setNight(this.nightGlow.on);
+      this.lampCones.update(this.lampGlass, this.nightGlow.on, this.nightGlow.on ? this.modelDraw.lamps() : []);
       const renderStarted = performance.now();
       this.sunShadows.draw(this.camera, this.navigation.height);
       this.textures.render(this.camera);

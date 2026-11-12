@@ -317,7 +317,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             # (a model image of the saved kn5 no material uses any more, one an older encoder made, goes)
             used = {n for m in materials for _slot, _number, n in m.maps}
             drop_textures = {*drop_textures, *(n for n in present if n.startswith("map2lap_model_") and n not in used)}
-        trackvariation.write(temporary, materials if materials is not None else scan["materials"], native_config)
+        from app import modeltrees
+        trackvariation.write(temporary, materials if materials is not None else scan["materials"], native_config + modeltrees.config(scan))
         if materials is None and not images:
             moved = kn5.without_faces(path, new_kn5, going, change, added, None, renderable=native_files.get('renderable',{}))
         else:
@@ -336,6 +337,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         editorinfo.copy(path, new_kn5)
         trackpaint.export(ac, name, edits["paints"], temporary)
         trackmodels.export(ac, name, edits.get("models", []), temporary, new_kn5, edits, inherited)
+        modeltrees.export(ac, name, scan, temporary, edits)
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],

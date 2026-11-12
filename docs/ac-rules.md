@@ -135,6 +135,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),
   and one `LIGHT_SERIES` in `ext_config.ini` makes a light of all glass within 2 m. CSP reads the geometry as the track loads, so a
   lamp moved, copied or deleted in the Editor needs nothing more. No shadows of their own: their light goes through walls and decks.
+  Library lamps mark their own glass material `m2lLamp`; Save includes those material names with the same light/emission rule
+  (`scenery/lamps.py`). Native library trees are TreeFX instances with portable `.bin` LODs, not collision meshes in the KN5.
   Without CSP they stay dark. A track built before has no such glass.
 - Windows light up at night through CSP: `facades.window_glow` draws a mask per look and brightness level into the track's
   `extension` folder with the same geometry as the windows, so frames and crosses stay dark. One window in five is lit. Every window

@@ -46,7 +46,8 @@ def _font(size):
     return ImageFont.load_default()
 
 
-def make_atlas(path):
+def atlas():
+    """The shared painted furniture atlas. Pure."""
     img = Image.new("RGB", (ATLAS * CELL, ATLAS * CELL), (200, 200, 200))
     d = ImageDraw.Draw(img)
     flat = {METAL: (150, 156, 162), WOOD: (122, 86, 54), RED: (210, 46, 40), GREEN: (60, 120, 70),
@@ -127,7 +128,12 @@ def make_atlas(path):
     x0, y0 = _cell_box(CANOPY)                              # canopy fascia: white with a red band
     d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(244, 244, 240))
     d.rectangle([x0, y0 + 46, x0 + CELL - 1, y0 + 82], fill=(200, 34, 32))
-    img.save(path)
+    return img
+
+
+def make_atlas(path):
+    """Write the shared furniture atlas to path, as the generator needs it."""
+    atlas().save(path)
     return path
 
 

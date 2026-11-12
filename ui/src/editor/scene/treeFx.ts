@@ -74,6 +74,9 @@ export class TreeFxDraw {
   private models = new Map<string, Model>();
   private cells = new Map<string, Cell>();
   private index = new Map<string, number>();                // a tree's index by its id
+  private locations = new Map<number, {cell: string; meshes: THREE.InstancedMesh[]; slot: number}>();
+  private movedCells = new Set<string>();
+  private movedMeshes = new Set<THREE.InstancedMesh>();
   private out = new Set<number>();                          // the indexes shrunk to a point
   private named: {removed: ReadonlySet<string>; sorts: ReadonlySet<string>} = {removed: new Set(), sorts: new Set()};   // (as leaveOut was told)
   private version = 0;
@@ -103,6 +106,20 @@ export class TreeFxDraw {
     if (k === undefined || !t) return null;
     return {model: t.models[t.model[k]], pos: t.pos.slice(3 * k, 3 * k + 3) as [number, number, number], base: t.base.slice(3 * k, 3 * k + 3),
             angle: t.angle[k], size: t.size[k], width: t.width[k]};
+  }
+
+  /** A library tree's live model pose, before the draft request completes; only its slot changes, not every tree's buffers. */
+  transform(id: string, matrix: THREE.Matrix4) {
+    const k = this.index.get(id), t = this.trees;
+    if (k === undefined || !t) return;
+    const where = this.locations.get(k)!;
+    const e = matrix.elements, size = Math.hypot(e[4], e[5], e[6]);
+    t.pos[3 * k] = e[12]; t.pos[3 * k + 1] = e[13]; t.pos[3 * k + 2] = e[14];
+    t.size[k] = size; t.width[k] = Math.hypot(e[0], e[1], e[2]) / size;
+    t.angle[k] = Math.atan2(e[8], e[0]) * 180 / Math.PI;
+    const shown = this.place(k, new THREE.Matrix4());
+    for (const mesh of where.meshes) { mesh.setMatrixAt(where.slot, shown); mesh.instanceMatrix.needsUpdate = true; this.movedMeshes.add(mesh); }
+    this.movedCells.add(where.cell);
   }
 
   private async makeModel(name: string): Promise<Model> {
@@ -160,6 +177,7 @@ export class TreeFxDraw {
           return mesh;
         });
         members.forEach((k, slot) => {
+          this.locations.set(k, {cell: key, meshes, slot});
           this.place(k, matrix);
           for (const mesh of meshes) mesh.setMatrixAt(slot, matrix);
           box.expandByPoint(new THREE.Vector3(trees.pos[3 * k], trees.pos[3 * k + 1], trees.pos[3 * k + 2]));
@@ -212,6 +230,12 @@ export class TreeFxDraw {
 
   /** Each cell at the LOD of its distance from the camera (its nearest tree's, roughly), none beyond FAR_M. Whether any changed. */
   follow(camera: THREE.Vector3) {
+    for (const key of this.movedCells) {
+      const cell = this.cells.get(key)!, box = new THREE.Box3(), p = new THREE.Vector3(), t = this.trees!;
+      for (const batch of cell.batches) for (const k of batch.members) box.expandByPoint(p.fromArray(t.pos, 3 * k));
+      const sphere = box.getBoundingSphere(new THREE.Sphere()); cell.centre.copy(sphere.center); cell.radius = sphere.radius;
+    }
+    this.movedCells.clear();
     let changed = false;
     for (const cell of this.cells.values()) {
       const distance = Math.max(0, camera.distanceTo(cell.centre) - cell.radius);
@@ -222,10 +246,13 @@ export class TreeFxDraw {
         batch.meshes.forEach((mesh, p) => {
           const part = lod >= 0 ? model.lods[lod].parts[p] : undefined;
           mesh.visible = !!part;
-          if (part) { mesh.geometry = part.geometry; mesh.material = part.material; }
+          if (part) { mesh.geometry = part.geometry; mesh.material = part.material; this.movedMeshes.add(mesh); }
         });
       }
     }
+    // Several moved trees can share a cell: scan its transform buffer once, not once per moved tree.
+    for (const mesh of this.movedMeshes) mesh.computeBoundingSphere();
+    this.movedMeshes.clear();
     return changed;
   }
 
@@ -239,6 +266,7 @@ export class TreeFxDraw {
   private clearCells() {
     for (const cell of this.cells.values()) for (const batch of cell.batches) for (const mesh of batch.meshes) { this.scene.remove(mesh); mesh.dispose(); }
     this.cells.clear();
+    this.locations.clear(); this.movedCells.clear(); this.movedMeshes.clear();
     if (this.matrixBytes) this.reserve(-this.matrixBytes);
     this.matrixBytes = 0;
   }

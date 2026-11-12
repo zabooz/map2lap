@@ -652,6 +652,8 @@ def save_telling(ac, name, body):
         moved_trees = bool(trees) and (before["heights"] != heights or (s.get("trees", []) if same else []) != added
                                        or _placed_key([p for p in before["placed"] if p["id"] in trees])
                                        != _placed_key([p for p in placed if p["id"] in trees]))
+        native_trees = any(a.get("native_tree") for a in scan.get("model_assets", {}).values())
+        moved_trees |= before["models"] != models or (native_trees and (before["heights"] != heights or before["placed"] != placed))
         # What was built to check this list is the draft now: the index reads it, and the answer below stays this save's after the lock.
         scan = {**scan, "draft": new, "paints": paints}
         with _context_lock:
