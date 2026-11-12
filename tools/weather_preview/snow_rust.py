@@ -16,22 +16,23 @@ MAGIC = 0x4D32534E
 
 def ensure_running(kind='snow'):
     """Start the existing development binary for this preview; retain Lua if it is unavailable."""
+    fallback = 'Lua fallback' if kind == 'snow' else 'retaining last glass state'
     try:
         script = Path(__file__).with_name(kind + '_rust.py')
         result = subprocess.run([sys.executable, str(script), '--no-build'], capture_output=True,
                                 text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired) as error:
-        print('Rust ' + kind + ' unavailable; Lua fallback:', error, flush=True)
+        print('Rust ' + kind + ' unavailable; ' + fallback + ':', error, flush=True)
         return False
     if result.returncode:
-        print('Rust ' + kind + ' unavailable; Lua fallback:', result.stderr.strip(), flush=True)
+        print('Rust ' + kind + ' unavailable; ' + fallback + ':', result.stderr.strip(), flush=True)
         return False
     return True
 
 def main(kind='snow'):
-    channel = CHANNEL if kind == 'snow' else 'Local\\AcTools.CSP.Limited.Map2Lap.RainHybrid.v3'
+    channel = CHANNEL if kind == 'snow' else 'Local\\AcTools.CSP.Limited.Map2Lap.Librain.v4'
     expected_magic = MAGIC if kind == 'snow' else 0x4D32524E
-    expected_protocol = 1 if kind == 'snow' else 3
+    expected_protocol = 1 if kind == 'snow' else 4
     parser = argparse.ArgumentParser(description='Build/start or stop the owned preview Rust ' + kind + ' worker.')
     parser.add_argument('--stop', action='store_true')
     parser.add_argument('--no-build', action='store_true', help='Start the existing binary without requiring Rust')
@@ -46,7 +47,7 @@ def main(kind='snow'):
             if magic != expected_magic or protocol != state.get('protocol', 1) or ac_pid != session['pid']:
                 raise RuntimeError(kind + ' worker ownership mismatch')
             struct.pack_into('<I', shared, 20, 1)
-        print('Requested ' + kind + ' worker shutdown; Lua fallback remains available.')
+        print('Requested ' + kind + ' worker shutdown.')
         return
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.OpenProcess.argtypes = (ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong)
@@ -61,6 +62,19 @@ def main(kind='snow'):
         old = json.loads(receipt.read_text())
         if old.get('ac_pid') == session['pid']:
             with mmap.mmap(-1, old['bytes'], tagname=old.get('channel', CHANNEL if kind == 'snow' else 'Local\\AcTools.CSP.Limited.Map2Lap.RainHybrid.v1'), access=mmap.ACCESS_WRITE) as shared:
+                magic, protocol, owner = struct.unpack_from('<III', shared)
+                if (kind == 'rain' and magic == expected_magic and owner == session['pid']
+                        and protocol == old.get('protocol') and protocol != expected_protocol):
+                    # Migrate only the receipted rain channel. Never leave a second
+                    # helper alive on an obsolete protocol, or touch the snow helper.
+                    worker = kernel.OpenProcess(0x100000, False, old['pid'])
+                    struct.pack_into('<I', shared, 20, 1)
+                    if worker:
+                        try:
+                            if kernel.WaitForSingleObject(worker, 2000) == 258:
+                                raise RuntimeError('Old owned rain worker did not exit after shutdown')
+                        finally:
+                            kernel.CloseHandle(worker)
                 if (struct.unpack_from('<I', shared, 0)[0] == expected_magic and
                         struct.unpack_from('<I', shared, 4)[0] == expected_protocol and
                         struct.unpack_from('<I', shared, 20)[0] == 0):
@@ -90,6 +104,10 @@ def main(kind='snow'):
         lines = log.read_text().splitlines()
         if lines:
             state = json.loads(lines[0])
+            if kind == 'rain' and state.get('protocol') != expected_protocol:
+                process.terminate()
+                process.wait(timeout=5)
+                raise RuntimeError('Stale rain binary; rebuild with rain_rust.py before starting protocol 4')
             state.update(executable=str(exe), started=time.time(), channel=channel, protocol=expected_protocol)
             receipt.write_text(json.dumps(state, indent=2))
             print(json.dumps(state, indent=2))

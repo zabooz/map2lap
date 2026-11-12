@@ -1,6 +1,7 @@
 """Record bounded, same-draw glass depth, scene and motion metadata from the owned AC preview."""
 import argparse
 import ctypes
+from contextlib import contextmanager
 import json
 import mmap
 import struct
@@ -14,6 +15,16 @@ META = 65536
 DEPTH = 8388608
 VIEW = 4194304
 SIZE = 32 + META + DEPTH + VIEW
+
+
+@contextmanager
+def capture_mapping():
+    """Disable capture even after timeout or interruption, before closing the mapping."""
+    with mmap.mmap(-1, SIZE, tagname=CHANNEL, access=mmap.ACCESS_WRITE) as shared:
+        try:
+            yield shared
+        finally:
+            struct.pack_into('<I', shared, 4, 0)
 
 
 def main():
@@ -38,7 +49,7 @@ def main():
     count = 0
     started = time.monotonic()
     try:
-        with mmap.mmap(-1, SIZE, tagname=CHANNEL, access=mmap.ACCESS_WRITE) as shared:
+        with capture_mapping() as shared:
             struct.pack_into('<8I', shared, 0, MAGIC, 1, 0, 0, 0, 0, 0, 0)
             MODE.write_text('glasscapture', encoding='utf-8')
             with (destination / 'frames.jsonl').open('w') as metadata:

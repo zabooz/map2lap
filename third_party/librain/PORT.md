@@ -1,83 +1,102 @@
 # Map2Lap CSP port status
 
-Upstream: https://github.com/skiselkov/librain, revision
-`cbc42ef47bb412e522de067b1ea4000e2de97cf6`. `src/`, `shaders/`, `plugin/`,
-`COPYING.txt` and `README.md` are unmodified source copies. Adaptations currently
-live in `assets/weather/weather.lua`. Preserve the CDDL and copyright notices.
+Pinned upstream: https://github.com/skiselkov/librain at
+`cbc42ef47bb412e522de067b1ea4000e2de97cf6`. Source copies in `src/`, `shaders/`
+and `plugin/` are unmodified. Adapted code retains CDDL/copyright notices;
+the license is `COPYING.txt`.
 
-This is an incomplete front-windshield port under live visual review. It is not
-an accepted replacement yet. The original experimental implementation is saved
-in checkpoint `1bc90fb`.
+This is a front-windshield implementation under visual review, not an accepted
+or complete three-pane replacement. Original experiment: `1bc90fb`; classic
+depth-path and motion-recorder checkpoint: `fe8cf73`.
 
-## Implemented foundation
+## Active pipeline
 
-- `rain_stage1.frag`, `consts.glsl`, `noise.glsl`: persistent FP16 depth ping-pong,
-  centre/neighbour deposition, retained and advected depth, erosion, depth limits,
-  and leading-edge depth multiplication. Liquid-only; snow remains separate.
-- `rain_stage2.frag`: depth differences and atan compression. Isotropic differences
-  replace aircraft thrust-dependent sampling. Ice distortion is not ported.
-- `ws_rain.frag`: depth-normal background displacement and restrained darkening,
-  using a separate CSP HDR scene copy.
-- `ws_smudge.frag`: normalized 25-tap depth-dependent kernel. Currently fused into
-  the refraction sample; upstream instead blurs a completed refracted screen image.
-  The difference at lens boundaries remains to be resolved or accepted visually.
-- `librain.c` vector preparation: independently weighted ambient and vehicle
-  airflow, combined before speed normalization. Ambient gain defaults to zero.
-  Glass-frame gravity and airflow replace the aircraft's configurable radial
-  force origins. The shader projects them through the inverse surface metric
-  from the existing 17 by 9 grid of measured glass-triangle derivatives. This
-  replaces the initial port's constant flat-pane flow, which ignored substantial
-  curvature at the windshield edges. No camera inputs enter movement. CPU uniform calculations
-  currently run in Lua; no replacement Rust preparation worker is implemented.
+Only the particle path supplies rain. The classic per-pixel deposition/advection,
+old CPU drop list, old RainHybrid sprites and procedural field deposition have
+been removed from the active Lua source. Snow retains a separate deposit/thaw
+field, its wipers, outdoor precipitation and default Rust geometry worker.
 
-The classic render-texture path fits public CSP canvases. The inspected
-`droplets.glsl` compute path uses storage buffers, compute dispatch, persistent
-particle histories, static/dynamic drag and streamer tails; it is not ported.
-No CPU image simulation replaces that GPU path.
+1. `tools/weather_preview/rain_worker.rs` ports `droplets.glsl` particle state
+   and `droplets_data.h`: regeneration, initial velocity, static and dynamic drag,
+   filtered speed/tail direction, random bumps, quantity decay, speed-dependent
+   shape and 48-position history for every sixteenth droplet. The remaining
+   droplets retain their short position history. Constants and their relationships
+   follow upstream; the host random seed generator replaces libacfutils CRC64.
+2. `weather.lua` ports the nine-triangle `droplets.vert`/`droplets.frag` shape and
+   `tails.vert`/`tails.frag` depth contributions. A cached GPU atlas preserves
+   the fan's centre-to-edge interpolation, with affine UI quads for heads and
+   tapered quads replacing OpenGL wide lines for tails. Alpha blending builds a
+   fresh FP16 depth image from persistent particle/history state each response,
+   as in `rain_stage2_compute_paint()`. Actual glass triangles mask the image.
+3. `rain_stage2.frag` COMPUTE_VARIANT: 0.67/0.33 first/second-neighbour depth
+   differences and atan normal compression. Liquid only; ice is not ported.
+4. `ws_rain.frag` COMPUTE_VARIANT: separate HDR background copy, displacement
+   scaled by viewport dimensions, consistent darkening and maximum depth 1.
+5. `ws_smudge.frag`: a separate copy of the refracted scene followed by its
+   normalized 25-tap, depth-dependent blur. The second mesh draw restores alpha
+   blending after the opaque copy. This fixes the initially black dry windshield.
 
-## Coordinates and timing
+Public CSP's inspected track API exposes canvases/custom pixel shaders, but no
+equivalent compute dispatch/storage-buffer interface. Only particle arithmetic
+and state moved to Rust; rasterization, depth processing and shading stay on the
+GPU. No CPU image solver or new native plugin was introduced.
 
-Private glass mesh UVs use the existing rendered-car-root X/S metre chart, with
-V increasing down the pane. Simulation height follows physical width/height so
-texels have approximately equal dimensions. The classic per-step retention and
-deposition run at a fixed 60 Hz, with at most 0.1 seconds of accumulated work.
-Out-of-chart samples drain rather than wrap. Actual triangle-edge masking remains
-incomplete. A flat depth inset accompanies the solid-red diagnostic.
-The inset disables depth testing so cockpit geometry cannot occlude it. The
-`librainFlowUV` log value is the nominal flat-chart vector; actual GPU advection
-now varies with the measured surface and must not be inferred from that log alone.
+## Integration adaptations
 
-## Wipers and current review
+- Positions use an isotropic chart measured in fractions of pane width. Height
+  bounds use physical aspect ratio; texture UV conversion happens at drawing.
+  Private glass-mesh UVs use the same rendered-car-root X/S chart. Original car
+  meshes/material UVs are untouched. Camera inputs exist only in diagnostic
+  projection and rendering, never in the worker protocol or forces.
+- Actual sampled glass tangents replace upstream's configurable radial force
+  origins. Gravity is projected through the surface metric. Vehicle airflow is
+  independent of ambient wind, whose gain remains zero. Aircraft thrust is not
+  a separate car force; relative vehicle airspeed uses the upstream documented
+  starting normalization of 100 m/s. The initial 40 m/s car override made modest
+  driving overpower gravity. Gravity now uses upstream's slant-scaled magnitude
+  once, rather than multiplying by projected gravity magnitude a second time.
+  The 17 by 9 derivative grid remains an integration approximation under review.
+- Upstream's compute path has **no wiper implementation**. The CSP coupling uses
+  classic radial limits and consumed sweep intervals. Swept heads retain their
+  quantity and move just ahead of the blade; reversal or parking releases them.
+  Swept streamer history is invalidated persistently, with GPU sweep clipping
+  for the remaining footprint. It does not retain upstream's delayed 0.5-second
+  smear, which erased fresh drops for too long, or its non-conserving x10 depth
+  multiplier. This coupling is an adaptation, not an upstream compute feature.
+- The depth texture is 1024 wide with aspect-correct height, rather than the
+  upstream compute default of 2048 square. Droplet dimensions retain the upstream
+  2048 reference scale in isotropic chart coordinates. Normal sampling uses actual
+  canvas dimensions. No performance comparison has been performed.
+- `AcTools.CSP.Limited.Map2Lap.Librain.v4`: protocol 4, 1,085,728 bytes, capacity
+  4096 per pane. One outstanding request, no render-thread wait, exact owned AC
+  process lifetime. Missing helper retains the last image; no old rain fallback.
+  Front is active; side slots are reserved but inactive until front acceptance.
 
-The initial single-frame wipe port omitted upstream's delayed smear state and
-missed sweeps between simulation ticks. Porting the 0.5-second smear/reversal
-regions restored broad wiping, but the user observed that new drops were erased
-behind the blade until the delayed region passed.
+## Evidence and remaining work
 
-The current CSP adaptation therefore retains radial blade limits and upstream
-leading-edge multiplication but clears only the angular interval actually crossed
-since the last successful GPU update. The interval accumulates between ticks and
-is consumed once. Newly deposited water behind a completed sweep survives.
-This deliberately differs from `update_wiper()` and its delayed smear algorithm.
-Leading-edge multiplication is upstream's visual accumulation, not conserved
-blade-transport volume. Inner-radius/return-stroke quality still needs acceptance.
+Rust compilation and live Lua/HLSL loading passed. Same-draw HDR/depth recordings
+show beads, trails and broad wiper clearing. The user still reports a fan toward
+the steering wheel and slow movement/draining. These remain unresolved; neither
+fixed UVs nor a plausible force calculation proves the visual result correct.
 
-## Remaining work
+Normal water rendering is now active at the user's request. The black-windshield
+regression was reproduced and corrected by restoring blend state; a subsequent
+live capture shows the scene again. Material quality still needs user acceptance.
+The user then reported excessive upward motion and sawtooth accumulation while
+driving. The movement-only gravity/airflow correction above is deployed, pending
+visual feedback. Their later screenshots show native heavy rain; density was not
+changed by the correction.
 
-- Obtain visual acceptance for front attachment, motion and wiping. Reported
-  screen-centre flow remains unresolved; constant logged UV flow is not proof
-  of correct rendered appearance.
-- User accepted removal of the wipe delay but reported stripes and rapid refill.
-  Rain density remains unchanged while investigating those defects separately.
-- Review normal rendering after red-diagnostic acceptance; settle the blur-stage
-  difference and background-copy behaviour.
-- Apply independent simulation resources and exposure to side panes. Side liquid
-  is temporarily disabled; legacy rain must not run alongside the port.
-- Restore/verify all snow thaw transitions, remove obsolete rain code, decide and
-  implement the appropriate Rust preparation role, and complete release integration.
+Remaining: front motion/wiper/material acceptance, independent side resources and
+exposure, snow/thaw transition verification in-game, and release packaging/startup
+of precompiled helpers. No automated suites, FPS measurements or profiling were
+run for this iteration. Do not call this a completed full librain port.
 
-The old RainHybrid worker is stopped and no longer automatically starts from the
-preview launcher/updater. The old CPU list, procedural rain deposition and rain
-field updates are disabled in the active liquid path. Their source remains for
-cleanup after acceptance. Outdoor precipitation and the default snow worker are
-unchanged. No automated suites or performance measurements are part of this review.
+## Motion evidence
+
+`capture_motion.py` records bounded same-draw FP16 depth, HDR view, native wiper
+phase and geometry, gravity/airflow, particle identities/velocities and diagnostic
+screen projections. `view_motion.py` decodes DDS frames into paired PNGs and an
+animated WebP using recorded simulation timestamps. Captures do not change camera,
+controls or native weather, and restore the previous glass mode.
+They are motion evidence, not performance measurements.
