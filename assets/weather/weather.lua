@@ -674,20 +674,24 @@ function glass.setup()
       local ax, as = A.x, A.y * glass.ty + A.z * glass.tz - glass.sc
       local bx, bs = B.x, B.y * glass.ty + B.z * glass.tz - glass.sc
       if blade.ax then
-        local mx, ms = ((ax + bx) - (blade.ax + blade.bx)) / 2, ((as + bs) - (blade.as + blade.bs)) / 2
+        -- Motion counts from the last line that was cleared, so a blade easing slowly through the ends of its
+        -- stroke still clears everything once it has crept 0.3 mm. A blade that stays put is parked: nothing is
+        -- cleared and the ridge it carried lets go.
+        local mx, ms = ((ax + bx) - (blade.lax + blade.lbx)) / 2, ((as + bs) - (blade.las + blade.lbs)) / 2
         local moved = sqrt(mx * mx + ms * ms)
-        -- Below 0.3 mm a frame the blade is parked: nothing is cleared and the ridge it carried lets go.
+        local stepX, stepS = ((ax + bx) - (blade.ax + blade.bx)) / 2, ((as + bs) - (blade.as + blade.bs)) / 2
+        local step = sqrt(stepX * stepX + stepS * stepS)
         if moved > 0.0003 then
           local dirx, dirs = mx / moved, ms / moved
           -- Reversal: the ridge stays where the blade turned, ahead of its previous motion.
-          if blade.dx and dirx * blade.dx + dirs * blade.ds < 0 then releaseRidge(blade, blade.ax, blade.as, blade.bx, blade.bs, blade.dx, blade.ds) end
-          blade.dx, blade.ds, blade.speed, blade.idle, blade.active = dirx, dirs, moved / dt, 0, 1
+          if blade.dx and dirx * blade.dx + dirs * blade.ds < 0 then releaseRidge(blade, blade.lax, blade.las, blade.lbx, blade.lbs, blade.dx, blade.ds) end
+          blade.dx, blade.ds, blade.speed, blade.idle, blade.active = dirx, dirs, step / dt, 0, 1
           anyActive = true
           -- Drops in the swept quad join the ridge riding ahead of the blade.
           for i = 0, DROPS - 1 do
             if dAlive[i] then
               local px, ps = dX[i], dS[i]
-              if inTri(px, ps, blade.ax, blade.as, blade.bx, blade.bs, bx, bs) or inTri(px, ps, blade.ax, blade.as, bx, bs, ax, as) then
+              if inTri(px, ps, blade.lax, blade.las, blade.lbx, blade.lbs, bx, bs) or inTri(px, ps, blade.lax, blade.las, bx, bs, ax, as) then
                 blade.ridge = blade.ridge + dR[i] ^ 3
                 dAlive[i] = false
               end
@@ -705,13 +709,18 @@ function glass.setup()
             spawnDrop(tx - dirx * 0.006, ts - dirs * 0.006, cbrt(blade.leaked), 0, 0)
             blade.leaked = 0
           end
+          blade.pax, blade.pas, blade.pbx, blade.pbs = blade.lax, blade.las, blade.lbx, blade.lbs
+          blade.lax, blade.las, blade.lbx, blade.lbs = ax, as, bx, bs
         else
-          blade.idle = blade.idle + dt
           blade.active = 0
-          if blade.idle > 0.25 and blade.ridge > 0 and blade.dx then releaseRidge(blade, ax, as, bx, bs, blade.dx, blade.ds) end
+          if step < 0.0001 then
+            blade.idle = blade.idle + dt
+            if blade.idle > 0.25 and blade.ridge > 0 and blade.dx then releaseRidge(blade, ax, as, bx, bs, blade.dx, blade.ds) end
+          end
         end
+      else
+        blade.lax, blade.las, blade.lbx, blade.lbs = ax, as, bx, bs
       end
-      blade.pax, blade.pas, blade.pbx, blade.pbs = blade.ax or ax, blade.as or as, blade.bx or bx, blade.bs or bs
       blade.ax, blade.as, blade.bx, blade.bs = ax, as, bx, bs
     end
     return anyActive
@@ -814,7 +823,7 @@ function glass.setup()
 
   -- Shader constants: drops as float4 pairs packed in matrices (4 rows each), blades as one matrix each.
   local DMATS = DROPS / 2
-  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gSeed = vec2(),
+  local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gSeed = vec2(),
     gW0 = mat4x4.identity(), gW1 = mat4x4.identity()}
   local dropMats = {}
   for k = 0, DMATS - 1 do
@@ -837,7 +846,7 @@ function glass.setup()
     end
   end
   local function fillBladeMat(m, blade, snowBand)
-    if not blade or not blade.ax or blade.active == 0 then m.row4:set(0, 0, 0, 0); return end
+    if not blade or not blade.pax or blade.active == 0 then m.row4:set(0, 0, 0, 0); return end
     m.row1:set(blade.pax, blade.pas, blade.pbx, blade.pbs)
     m.row2:set(blade.ax, blade.as, blade.bx, blade.bs)
     local water = blade.ridge > 1e-11 and min(0.012, cbrt(blade.ridge) * 2.5) or 0
@@ -874,7 +883,7 @@ function glass.setup()
         if (el > 1e-9) {
           float t = saturate(dot(p - b.xy, e) / el);
           float dd = length(p - (b.xy + e * t));
-          film = max(film, smoothstep(a.z * 0.55, a.z * 0.3, dd) * 0.6);
+          film = max(film, smoothstep(a.z * 0.4, a.z * 0.2, dd) * 0.35);
         }
       }
       // One blade: clears what lies between its previous and current line, leaving thin streaks and a few
@@ -883,7 +892,7 @@ function glass.setup()
         if (W[3].y < 0.5) return;
         float2 A0 = W[0].xy, B0 = W[0].zw, A1 = W[1].xy, B1 = W[1].zw;
         if (inTri(p, A0, B0, B1) || inTri(p, A0, B1, A1)) {
-          film = film * 0.2 + 0.05 * step(0.02, film + snow + slush);
+          film = film * 0.1 + 0.03 * step(0.02, film + snow + slush);
           snow = 0;
           slush *= 0.05;
         }
@@ -903,7 +912,8 @@ function glass.setup()
         float dt = gParams.x;
         float4 prev = txPrev.SampleLevel(samLinearSimple, uv, 0);
         // The film dries; slush drains down the glass as it turns to water.
-        float film = max(0, prev.r - gParams.z * dt);
+        // Rain wets the whole glass with a film of tiny beads that bends the view; it dries slowly.
+        float film = min(1, max(0, prev.r - gParams.z * dt) + gWet * dt);
         float snow = prev.g;
         float slush = txPrev.SampleLevel(samLinearSimple, uv - float2(0, gParams.y * dt * gFrame.w), 0).b;
         // Snow lands as irregular clumps 4 to 11 mm across, a bounded random number of them each frame.
@@ -946,20 +956,20 @@ function glass.setup()
     transform = 'original',
     async = true,
     cacheKey = 32,
-    textures = {txField = false, txScene = 'dynamic::hdr'},
-    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1,
+    textures = {txField = false},
+    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1, gTime = 0, gWhite = 1,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3()},
     shader = [[
-      float height(float4 f) { return f.a + f.r * 0.25 + f.b * 1.2 + f.g * 2.2; }
+      float height(float4 f) { return f.a + f.r * 0.08 + f.b * 1.2 + f.g * 2.2; }
       float4 main(PS_IN pin) {
         float3 d = pin.PosC + gCameraPos - gCarPos;
         float x = dot(d, gCarSide);
         float s = dot(d, gCarUp) * gTangent.y + dot(d, gCarLook) * gTangent.z - gTangent.x;
         float2 uv = float2((x - gFrame.x) * gFrame.z, 1 - (s - gFrame.y) * gFrame.w);
         float4 f = txField.Sample(samLinearSimple, uv);
-        if (gRaw > 0.5) { bool bad = isnan(f.r) || isnan(f.g) || isnan(f.b) || isnan(f.a); return float4(f.r, bad ? 1 : f.g, f.a * 0.5, 0.9); }
+        if (gRaw > 0.5) return float4(f.r, f.g, f.a * 0.5, 0.9);
         float hx = height(txField.Sample(samLinearSimple, uv + float2(gTexel.x, 0))) - height(txField.Sample(samLinearSimple, uv - float2(gTexel.x, 0)));
         float hy = height(txField.Sample(samLinearSimple, uv + float2(0, gTexel.y))) - height(txField.Sample(samLinearSimple, uv - float2(0, gTexel.y)));
         // Surface normal of the water or snow in the glass frame (X across, Y up the glass, Z out of the glass).
@@ -969,25 +979,27 @@ function glass.setup()
         float3 nW = normalize(gCarSide * n.x + Tw * n.y + Nw * n.z);
         float3 V = normalize(pin.PosC);
         float3 R = reflect(V, nW);
-        // Water: a bead is a small lens. Its body shows a paler, sky-lit version of what is behind, its steep rim
-        // goes dark where the view is bent away, and its crest reflects the sky above as a bright crescent.
+        // Water, without a scene sample (CSP's dynamic scene textures are not dependable in this pass): a bead
+        // dims the view through its body, goes darker on its steep rim, and reflects the sky on its crest as a
+        // faint crescent. The wet film greys and dims the view where the blades have not been.
         float body = saturate(f.a * 2.5);
-        float film = saturate(f.r * 1.5);
+        // The film edge is softened over about 4 mm, so the swept fan does not end in a hard line.
+        float2 e3 = gTexel.xy * 3;
+        float filmSum = f.r + txField.Sample(samLinearSimple, uv + float2(e3.x, e3.y * 0.5)).r + txField.Sample(samLinearSimple, uv - float2(e3.x, e3.y * 0.5)).r
+          + txField.Sample(samLinearSimple, uv + float2(-e3.x * 0.5, e3.y)).r + txField.Sample(samLinearSimple, uv + float2(e3.x * 0.5, -e3.y)).r;
+        float film = saturate(filmSum * 0.2 * 1.5);
         float steep = saturate(length(n.xy) * 3);
-        float spec = pow(saturate(R.y), 4) * saturate(steep * 1.5 + 0.2);
-        // Refraction: the bead bends the scene behind it toward its rim (the lens shows a shifted, inverted view).
-        float2 screenUv = pin.PosH.xy / gScreen;
-        // A bead is a strong lens: its body shows a small inverted picture of the whole view, so the top of a
-        // drop against the sky shows the ground below. The sampled offset grows with the surface slope.
-        float3 behind = txScene.SampleLevel(samLinearSimple, screenUv + float2(-n.x, n.y) * 0.22 * body, 0).rgb;
-        float3 bodyColor = gRefract > 0.5 ? behind * 1.1 + gColor * 0.1 : gColor * 0.9;
-        float3 rimColor = gColor * 0.08;
-        float3 specColor = gColor * 3.5;
-        float bodyA = body * (gRefract > 0.5 ? 0.9 : 0.18) + film * 0.06;
-        float rimA = steep * body * 0.9 + steep * film * 0.3;
-        float specA = spec * body * 1.2;
-        float wAlpha = saturate(bodyA + rimA + specA);
-        float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA) / max(wAlpha, 1e-4);
+        float spec = pow(saturate(R.y), 5) * saturate(steep * 1.5 + 0.2);
+        float3 bodyColor = gColor * 0.35;
+        float3 rimColor = gColor * 0.1;
+        float3 specColor = gColor * 1.5;
+        float3 filmColor = gColor * 0.45;
+        float bodyA = body * 0.3;
+        float rimA = steep * body * 0.6;
+        float specA = spec * body * 0.45;
+        float filmA = film * 0.22;
+        float wAlpha = saturate(bodyA + rimA + specA + filmA);
+        float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA + filmColor * filmA) / max(wAlpha, 1e-4);
         // Snow: matte white with cheap height shading from above; slush grey and translucent.
         float snowA = saturate(f.g * 2.2);
         float slushA = saturate(f.b * 1.2) * 0.55;
@@ -1044,6 +1056,9 @@ function glass.setup()
     v.gParams:set(dt, 0.02, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
     v.gAir:set(tanX, tanS, airMag, impinge)
     v.gMelt = melt
+    -- Standing in heavy rain the glass is fully wet in about 35 s, about twice as fast when driving into it
+    -- (capped: a faster build-up turns the fan's edge into a hard line between sweeps).
+    v.gWet = rainAmount * min(impinge, 13) / 6.7 * 0.03
     v.gSeed:set((frames % 977) * 0.173 + 0.31, (frames % 1013) * 0.291 + 0.17)
     fillBladeMat(v.gW0, glass.blades[1], snowOnGlass * 0.014)
     fillBladeMat(v.gW1, glass.blades[2], snowOnGlass * 0.014)
@@ -1063,6 +1078,8 @@ function glass.setup()
     local car = ac.getCar(0)
     local v = glass.pass.values
     v.gRaw = glassRaw and 1 or 0
+    v.gTime = elapsed
+    v.gWhite = sim.whiteReferencePoint or 1
     local size = render.getRenderTargetSize()
     v.gScreen:set(max(1, size.x), max(1, size.y))
     local horizon = sim.horizonColor
@@ -1088,7 +1105,7 @@ function glass.setup()
     return string.format('drops=%d snowEst=%.2f melt=%.3f air=%.1f impinge=%.1f quiet=%s blade=%s ridge=%.2e progress=%.2f',
       aliveCount, snowOnGlass, glass.melt or 0, glass.air or 0, glass.impinge or 0, tostring(glass.quiet),
       b and b.ax and string.format('(%.2f,%.2f)-(%.2f,%.2f) active=%d', b.ax, b.as, b.bx, b.bs, b.active) or 'none',
-      b and b.ridge or 0, ac.getCar(0).wiperProgress)
+      b and b.ridge or 0, ac.getCar(0).wiperProgress) .. string.format(' whiteRef=%s exposure=%s mult=%s', tostring(sim.whiteReferencePoint), tostring(sim.cameraExposure), tostring(sim.exposureMultiplier))
   end
   return true
 end
