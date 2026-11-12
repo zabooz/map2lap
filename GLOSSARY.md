@@ -108,6 +108,16 @@ Hash-bound compiled provenance identifies generated KN5 regions and consumed sou
 Editor contexts retain shared asset geometry and per-binding metadata; picking and drawing share the GLB with instance matrices.
 Native vertex copies are made for Save, while the index keeps stable mesh numbers and face ranges.
 
+**Built-in objects** (Editor):
+Map2Lap's own painted scenery in the Object library: 17 TreeFX tree/bush models, six rock forms, 48 parked-car entries (four
+shapes in twelve colours) and 55 furniture/leisure/utility entries, including three fountain forms (`app/builtinobjects.py`,
+`scenery/catalogue.py`, enabled by `assets/builtin-objects.json`). The same scenery builders provide their geometry
+and artwork; content-addressed packages are prepared in `cache/builtin-objects`, with Map2Lap/zabooz credit, MIT and licence
+notices. Library trees use ordinary model bindings for Undo, groups and portable ownership, and their frozen TreeFX `.bin`
+for instanced distance LODs in the Editor and AC (`app/modeltrees.py`), with no tree vertices written to KN5. Furniture uses
+ordinary native model meshes. Lamp glass carries `m2lLamp`; Save registers real CSP night lighting, shared with generator lamps
+(`scenery/lamps.py`). Deleting a built-in hides it; placed instances retain their original files and notices.
+
 **Custom Shaders Patch (CSP)**:
 An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.
 Map2Lap Settings detects its installed version and enable setting; a missing installation can download the recommended

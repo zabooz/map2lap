@@ -10,7 +10,8 @@ import type {TrackCost} from "./ModelCost";
 import styles from "./ModelLibrary.module.css";
 
 export interface LibraryModel {id: string; name: string; category: string; metres_per_unit: number; anchor: number[]; collision: "none" | "mesh";
-  creator?: string; source_url?: string; license?: string; tags?: string[]; geometry?: {track_cost?: TrackCost}}
+  creator?: string; source_url?: string; license?: string; tags?: string[]; geometry?: {track_cost?: TrackCost};
+  builtin?: {name: string; source?: string}; native_tree?: {file: string; bytes: number}}
 interface Page {items: LibraryModel[]; total: number; offset: number; categories?: string[]}
 const PAGE_SIZE = 40;
 

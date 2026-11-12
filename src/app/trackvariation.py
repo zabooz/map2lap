@@ -20,7 +20,10 @@ def model_config(materials):
     their back faces stay unseen. Pure."""
     props = [{p[0]: p[1] for p in material.props} for material in materials]
     names = [m.name for m, values in zip(materials, props) if values.get("m2lModelMaterial") == 1 and values.get("m2lDoubleSided") == 1]
-    return "\n".join(["[SHADER_REPLACEMENT_...]", "MATERIALS = " + ", ".join(names), "CULL_MODE = NONE"]) + "\n" if names else ""
+    from scenery import lamps
+    light_names = [m.name for m, values in zip(materials, props) if values.get("m2lLamp") == 1]
+    both = "\n".join(["[SHADER_REPLACEMENT_...]", "MATERIALS = " + ", ".join(names), "CULL_MODE = NONE"]) + "\n" if names else ""
+    return both + lamps.config(light_names)
 
 
 def write(folder, materials, extra=""):

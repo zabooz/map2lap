@@ -71,6 +71,10 @@ def _verified(folder, id):
     with (folder / "original/model.glb").open("rb") as file:
         if hashlib.file_digest(file, "sha256").hexdigest() != record["model"]["sha256"]:
             raise ValueError("The retained original model has changed")
+    native = record.get("native_tree")
+    if native:
+        if native.get("file") != "native/model.bin" or hashlib.sha256((folder / "native/model.bin").read_bytes()).hexdigest() != native.get("sha256"):
+            raise ValueError("The retained TreeFX model has changed")
     return record
 
 
@@ -93,6 +97,11 @@ def _copy_original(folder, target):
     (target / "original").mkdir(parents=True)
     shutil.copyfile(folder / "asset.json", target / "asset.json")
     shutil.copyfile(folder / "original/model.glb", target / "original/model.glb")
+    if (folder / "native/model.bin").is_file():
+        (target / "native").mkdir()
+        shutil.copyfile(folder / "native/model.bin", target / "native/model.bin")
+    if (folder / "LICENSE.txt").is_file():
+        shutil.copyfile(folder / "LICENSE.txt", target / "LICENSE.txt")
 
 
 def retain(ac, name, models):
@@ -119,6 +128,9 @@ def save_size(ac, name, models, scan):
     for asset in dict.fromkeys(m["asset"] for m in models):
         folder, _meta = resolve(ac, name, asset)
         size += (folder / "asset.json").stat().st_size + (folder / "original/model.glb").stat().st_size
+        size += sum(p.stat().st_size for p in (folder / "native/model.bin", folder / "LICENSE.txt") if p.is_file())
+        if (folder / "native/model.bin").is_file():
+            size += (folder / "native/model.bin").stat().st_size       # the game's model, as well as its portable snapshot
     existing = {t[0] for t in scan["textures"] if t[1] != 0}
     size += sum(len(raw) for texture, raw in scan.get("model_images", {}).items() if texture not in existing)
     return size + len(_json(models)) * 2 + 4096
@@ -363,9 +375,9 @@ def _prepared(folder, asset, stamp):
     meta = _verified(folder, asset)
     model = modeldata.load((folder / "original/model.glb").read_bytes())
     parts = modelmesh.geometry(model, meta)
-    native, recipes = modelmesh.materials(model, asset, light(meta["category"]))
+    native, recipes = ([], {}) if meta.get("native_tree") else modelmesh.materials(model, asset, light(meta["category"]))
     return {"stamp": (str(folder), stamp), "parts": parts, "materials": native, "recipes": recipes,
-            "definitions": model.materials, "pieces": {}}
+            "definitions": model.materials, "pieces": {}, "native_tree": meta.get("native_tree")}
 
 
 def _asset_pieces(ready, collision):
@@ -377,6 +389,7 @@ def _asset_pieces(ready, collision):
         vertices, faces = part["vertices"], part["faces"]
         number = part["material"] if part["material"] is not None else len(ready["definitions"])
         definition = ready["definitions"][number] if part["material"] is not None else {}
+        collides = collision == "mesh" and definition.get("extras", {}).get("map2lapCollision", True) is not False
         blended, double = definition.get("alphaMode") == "BLEND", definition.get("doubleSided", False)
         def add(prefix, data, triangles, visible):
             data.flags.writeable = triangles.flags.writeable = False
@@ -387,10 +400,10 @@ def _asset_pieces(ready, collision):
             part["visual_pieces"] = list(modelmesh.pieces(vertices, faces, blended))
         for data, triangles in part["visual_pieces"]:
             add("nocol_", data, triangles, 1)
-            if collision == "mesh" and not double:
+            if collides and not double:
                 add("1WALL_", data, triangles, 0)
         # CSP draws a double-sided visual face once; physical collision also needs its reversed back face.
-        if collision == "mesh" and double:
+        if collides and double:
             back = vertices.copy(); back["normal"] *= -1
             for data, triangles in modelmesh.pieces(np.concatenate([vertices, back]), np.concatenate([faces, faces[:, ::-1] + len(vertices)])):
                 add("1WALL_", data, triangles, 0)
@@ -419,6 +432,8 @@ class _InstanceData:
 def _instance_meshes(instance, ready):
     """Only a new binding computes bounds; native vertices remain shared until Save or compatibility mesh output needs them."""
     result = []
+    if ready.get("native_tree"):
+        return result             # TreeFX draws the shared .bin; this binding keeps ordinary Undo, groups and portable ownership.
     for part in _asset_pieces(ready, instance["collision"]):
         data = _InstanceData(part["vertices"], part["faces"], instance)
         # Exact old bounds include float32 rounding at the world position. Analytical transformed spheres differ in the index.
@@ -486,9 +501,11 @@ def _extend(ac, name, scan, objects, models):
                     resources[texture] = {**recipes[texture], "asset": asset}
                 slots[asset].append(slot)
         meta = assets[asset]
-        kind = {"tree": "tree", "bush": "bush", "building": "house"}.get(meta["category"], "model")
+        if meta.get("native_tree") and instance["collision"] != "none":
+            raise ValueError("TreeFX trees have no mesh collision")
+        kind = {"tree": "tree", "bush": "bush", "building": "house", "vehicle": "car"}.get(meta["category"], "model")
         listed[instance["id"]] = {"kinds": [kind], "sorts": [meta["name"]], "at": [instance["at"]],
-                                   "parents": [-1], "faces": [[]], "details": [{"model": asset}]}
+                                   "parents": [-1], "faces": [[]], "details": [{"model": asset, **({"treefx": True} if meta.get("native_tree") else {})}]}
         ready = prepared[asset]
         key = (asset, ready["stamp"], _json(instance))
         local = previous.get(key)
@@ -529,6 +546,12 @@ def snapshot(asset):
                 ready = Path(temporary, "ready"); (ready / "original").mkdir(parents=True)
                 (ready / "original/model.glb").write_bytes(raw)
                 (ready / "asset.json").write_bytes(_json({**record, "id": id}))
+                source = objectlibrary._folder(asset)
+                if meta.get("native_tree"):
+                    (ready / "native").mkdir()
+                    shutil.copyfile(source / "native/model.bin", ready / "native/model.bin")
+                if (source / "LICENSE.txt").is_file():
+                    shutil.copyfile(source / "LICENSE.txt", ready / "LICENSE.txt")
                 ready.rename(destination)
     return id, record
 
@@ -564,9 +587,12 @@ def _tree_replacement(ac, name, trees, target, now, asset, meta, body, height):
         raise ValueError("The selected tree is deleted")
     instance = {"id": "instance_" + secrets.token_hex(12), "asset": asset, "at": [float(v) for v in tree["pos"]],
                 "replaces": target, "collision": body.get("collision", meta["collision"])}
+    pose = next((p for p in now["placed"] if p["id"] == target), None)
+    if meta.get("native_tree"):
+        from app import modeltrees
+        return instance, modeltrees.replacement(ac, name, tree, instance, meta, pose, height is not None)
     if height is not None:
         instance["scale"] = trackview._tree_model(ac, name, tree["model"])["height"] * tree["size"] / height
-    pose = next((p for p in now["placed"] if p["id"] == target), None)
     return instance, pose and {k: pose[k] for k in placement.FIELDS}
 
 
@@ -594,10 +620,11 @@ def _replacements(ac, name, now, body, asset, meta, targets):
             if old is not None:
                 if old["asset"] not in heights:
                     _folder, old_meta = resolve(ac, name, old["asset"])
-                    if old_meta["category"] != "tree":
+                    if old_meta["category"] not in ("tree", "bush"):
                         raise ValueError("Select a tree or bush to replace")
                     heights[old["asset"]] = _model_height(old_meta)
-                instance = {**old, "asset": asset, "collision": body.get("collision", old["collision"])}
+                collision = meta["collision"] if meta.get("native_tree") else old["collision"]
+                instance = {**old, "asset": asset, "collision": body.get("collision", collision)}
                 if keep_height:
                     instance["scale"] = heights[old["asset"]] * old.get("scale", 1) / height
             elif tracktrees.number(target) is not None:
@@ -634,6 +661,8 @@ def create(ac, name, now, body):
     if "instances" in body:
         return _mixture(now, body["instances"])
     asset, meta = snapshot(body.get("model"))
+    if meta.get("native_tree") and body.get("collision", "none") != "none":
+        raise ValueError("TreeFX trees have no mesh collision")
     target = body.get("replace")
     if type(body.get("keep_height", False)) is not bool:
         raise ValueError("Choose whether to retain tree heights")

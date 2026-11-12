@@ -103,6 +103,8 @@ export class TreeFxDraw {
   private slots = new Map<string, [Batch, number]>();       // a tree's batch and slot in it
   private out = new Set<string>();                          // the trees shrunk to a point
   private moved = new Map<string, THREE.Matrix4>();         // trees Move shows elsewhere until the server's answer comes (nudge)
+  private movedCells = new Set<string>();
+  private movedMeshes = new Set<THREE.InstancedMesh>();
   private named: {removed: ReadonlySet<string>; sorts: ReadonlySet<string>} = {removed: new Set(), sorts: new Set()};   // (as leaveOut was told)
   private version = 0;
   private matrixBytes = 0;
@@ -164,6 +166,19 @@ export class TreeFxDraw {
 
   /** A tree's model, place, turn and size as drawn, null for none. */
   tree(id: string) { return this.trees.get(id) ?? null; }
+
+  /** A library tree's live model pose, before the draft request completes; only its slot changes, not every tree's buffers. */
+  transform(id: string, matrix: THREE.Matrix4) {
+    const slot = this.slots.get(id), tree = this.trees.get(id);
+    if (!slot || !tree) return;
+    const e = matrix.elements, size = Math.hypot(e[4], e[5], e[6]);
+    this.trees.set(id, {...tree, pos: [e[12], e[13], e[14]], size,
+      width: Math.hypot(e[0], e[1], e[2]) / size, angle: Math.atan2(e[8], e[0]) * 180 / Math.PI});
+    this.moved.set(id, matrix.clone());
+    const shown = this.place(id, new THREE.Matrix4());
+    for (const mesh of slot[0].meshes) { mesh.setMatrixAt(slot[1], shown); mesh.instanceMatrix.needsUpdate = true; this.movedMeshes.add(mesh); }
+    this.movedCells.add(slot[0].cell);
+  }
 
   private async makeModel(name: string): Promise<Model> {
     const data = await this.source.model(name), images = new Map<string, Promise<THREE.Texture>>();
@@ -333,6 +348,14 @@ export class TreeFxDraw {
 
   /** Each cell at the LOD of its distance from the camera (its nearest tree's, roughly), none beyond FAR_M. Whether any changed. */
   follow(camera: THREE.Vector3) {
+    for (const key of this.movedCells) {
+      const cell = this.cells.get(key);
+      if (!cell) continue;
+      const box = new THREE.Box3(), p = new THREE.Vector3(), matrix = new THREE.Matrix4();
+      for (const batch of cell.batches) for (const id of batch.members) box.expandByPoint(p.setFromMatrixPosition(this.matrixOf(id, matrix)));
+      const sphere = box.getBoundingSphere(new THREE.Sphere()); cell.centre.copy(sphere.center); cell.radius = sphere.radius;
+    }
+    this.movedCells.clear();
     let changed = false;
     for (const cell of this.cells.values()) {
       const distance = Math.max(0, camera.distanceTo(cell.centre) - cell.radius);
@@ -343,10 +366,13 @@ export class TreeFxDraw {
         batch.meshes.forEach((mesh, p) => {
           const part = lod >= 0 ? model.lods[lod].parts[p] : undefined;
           mesh.visible = !!part;
-          if (part) { mesh.geometry = part.geometry; mesh.material = part.material; }
+          if (part) { mesh.geometry = part.geometry; mesh.material = part.material; this.movedMeshes.add(mesh); }
         });
       }
     }
+    // Several moved trees can share a cell: scan its transform buffer once, not once per moved tree.
+    for (const mesh of this.movedMeshes) mesh.computeBoundingSphere();
+    this.movedMeshes.clear();
     return changed;
   }
 
@@ -430,6 +456,7 @@ export class TreeFxDraw {
   private clearBatches() {
     for (const batch of this.batches.values()) for (const mesh of batch.meshes) { this.scene.remove(mesh); mesh.dispose(); }
     this.batches.clear(); this.cells.clear(); this.slots.clear();
+    this.movedCells.clear(); this.movedMeshes.clear();
     if (this.matrixBytes) this.reserve(-this.matrixBytes);
     this.matrixBytes = 0;
   }

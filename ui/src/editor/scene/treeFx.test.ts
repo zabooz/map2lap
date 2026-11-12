@@ -20,6 +20,20 @@ function draw(answer = trees(), reserve: (bytes: number) => boolean = () => true
 
 const batches = (scene: THREE.Scene) => scene.children.filter(c => c instanceof THREE.InstancedMesh) as THREE.InstancedMesh[];
 
+test("a library tree follows its editable model matrix immediately, before the server answers", async () => {
+  const {scene, draw: d} = draw(trees({ids: ["instance_a#0", "trees#1", "trees#2"]}));
+  await d.load();
+  d.transform("instance_a#0", new THREE.Matrix4().makeRotationY(Math.PI / 2).scale(new THREE.Vector3(2, 2, 2)).setPosition(900, 3, 40));
+  expect(d.tree("instance_a#0")?.pos).toEqual([900, 3, 40]);
+  expect(d.tree("instance_a#0")?.size).toBe(2);
+  d.follow(new THREE.Vector3(900, 3, 40));
+  const matrices = batches(scene).flatMap(batch => Array.from({length: batch.count}, (_, n) => {
+    const matrix = new THREE.Matrix4(); batch.getMatrixAt(n, matrix); return matrix;
+  }));
+  expect(matrices.some(m => new THREE.Vector3().setFromMatrixPosition(m).equals(new THREE.Vector3(900, 3, 40)))).toBe(true);
+  d.dispose();
+});
+
 test("a tree's matrix stands it on its foot, turned counter-clockwise from above, its width apart from its height", () => {
   const m = treeMatrix(5, 1, 2, 90, 2, 0.5), x = new THREE.Vector3(1, 0, 0).applyMatrix4(m), top = new THREE.Vector3(0, 1, 0).applyMatrix4(m);
   expect([x.x, x.y, x.z].map(v => Math.round(v * 1e6) / 1e6)).toEqual([5, 1, 1]);       // (east turns to north: minus z, 1 m wide at size 2 width 0.5)

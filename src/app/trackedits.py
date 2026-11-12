@@ -654,6 +654,11 @@ def save_telling(ac, name, body):
         # (the trees that stand otherwise now, by a placement, a height change or what is added: the page takes them as they come)
         moved_trees = tracktrees.changed(section, {**before, "trees": s.get("trees", []) if same else []},
                                          {"trees": added, "placed": placed, "heights": heights}) if section else None
+        from app import modeltrees
+        native_change = modeltrees.changed(ac, name, scan, before, {"models": models, "placed": placed, "heights": heights})
+        if native_change:
+            moved_trees = {"trees": {**(moved_trees or {}).get("trees", {}), **native_change["trees"]},
+                           "gone": (moved_trees or {}).get("gone", []) + native_change["gone"]}
         # What was built to check this list is the draft now: the index reads it, and the answer below stays this save's after the lock.
         scan = {**scan, "draft": new, "paints": paints}
         with _context_lock:

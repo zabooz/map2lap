@@ -136,16 +136,16 @@ export class LampCones {
   }
 
   /** Follow the lamps of the meshes of glass that are drawn now; on: whether it is night. */
-  update(glass: THREE.Mesh[], on: boolean) {
+  update(glass: THREE.Mesh[], on: boolean, extraHeads: [number, number, number][] = []) {
     this.mesh.visible = on;
     if (!on) return;
     const shown = glass.filter(mesh => mesh.visible);
-    const stamp = shown.map(mesh => `${mesh.id}:${mesh.geometry.getIndex()!.version}:${version(mesh)}`).join();
+    const stamp = shown.map(mesh => `${mesh.id}:${mesh.geometry.getIndex()!.version}:${version(mesh)}`).join() + ";" + extraHeads.join(";");
     if (stamp === this.stamp) return;
     this.stamp = stamp;
     const matrix = new THREE.Matrix4();
     let count = 0;
-    for (const [x, y, z] of shown.flatMap(lampHeads).slice(0, MOST_CONES)) this.mesh.setMatrixAt(count++, matrix.makeTranslation(x, y, z));
+    for (const [x, y, z] of [...shown.flatMap(lampHeads), ...extraHeads].slice(0, MOST_CONES)) this.mesh.setMatrixAt(count++, matrix.makeTranslation(x, y, z));
     this.mesh.count = count;
     this.mesh.instanceMatrix.needsUpdate = true;
   }

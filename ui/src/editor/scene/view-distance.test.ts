@@ -18,7 +18,7 @@ test("the overview keeps terrain, bridges and water beyond AC's draw distance, w
   Object.assign(view, {shown: true, dirty: true, lastFrame: performance.now(), camera, meshes,
     navigation: {flying: new Set(), height: 8000}, ghost: {follow: nothing}, cullModels: nothing,
     brush: {goneNow: null}, treesGone: null, treeFx: {follow: nothing}, flushModels: nothing,
-    nightSky: {follow: nothing}, lampCones: {update: nothing}, nightGlow: {on: false},
+    nightSky: {follow: nothing}, modelDraw: {setNight: nothing}, lampCones: {update: nothing}, nightGlow: {on: false},
     sunShadows: {draw: nothing}, textures: {render: nothing}, renderer: {render: nothing}, selection: {follow: nothing}});
   view.frame();
   expect(meshes.map(mesh => mesh.visible)).toEqual([true, true, true, true, true, true, false]);

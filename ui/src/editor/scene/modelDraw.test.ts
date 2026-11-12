@@ -2,6 +2,46 @@ import {expect, test} from "bun:test";
 import * as THREE from "three";
 import {ModelDraw} from "./modelDraw";
 
+test("native TreeFX bindings keep editable selection roots but never draw a second GLB tree", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial()));
+  const scene = new THREE.Scene(), draw = new ModelDraw(scene, async () => source);
+  await draw.sync([{id: "a", asset: "spruce"}], {spruce: {url: "spruce", native_tree: {file: "native/model.bin"}}},
+    {a: new THREE.Matrix4().toArray()});
+  expect(draw.instance("a")).toBeDefined();
+  expect(draw.bounds("a")).not.toBeNull();
+  expect(scene.children).toHaveLength(0);
+  draw.dispose();
+});
+
+test("a placed library lamp glows at night and its light head follows the pose and deletion", async () => {
+  const source = new THREE.Group(), material = new THREE.MeshStandardMaterial();
+  material.userData.map2lapLamp = true;
+  source.add(new THREE.Mesh(new THREE.BoxGeometry(.5, .06, .2).translate(1, 8, 0), material));
+  const draw = new ModelDraw(new THREE.Scene(), async () => source);
+  await draw.sync([{id: "lamp", asset: "a"}], {a: {url: "lamp"}}, {lamp: new THREE.Matrix4().makeTranslation(10, 0, 20).toArray()});
+  draw.setNight(true);
+  expect(material.emissiveIntensity).toBe(1);
+  expect(material.emissive.getHexString()).toBe("fff0c0");
+  const [head] = draw.lamps();
+  expect(head[0]).toBeCloseTo(11); expect(head[1]).toBeCloseTo(8.03); expect(head[2]).toBeCloseTo(20);
+  draw.visible("lamp", false); expect(draw.lamps()).toHaveLength(0);
+  draw.setNight(false); expect(material.emissiveIntensity).toBe(0);
+  draw.dispose();
+});
+
+test("a late native-tree reload reapplies the live drag pose even if the model matrix did not change again", async () => {
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial()));
+  const poses: THREE.Matrix4[] = [];
+  const draw = new ModelDraw(new THREE.Scene(), async () => source, () => true, false, (_id, matrix) => poses.push(matrix.clone()));
+  await draw.sync([{id: "a", asset: "tree"}], {tree: {url: "tree", native_tree: {file: "native/model.bin"}}},
+    {a: new THREE.Matrix4().makeTranslation(10, 3, 5).toArray()});
+  poses.length = 0;
+  draw.refreshNative(); draw.flush();
+  expect(poses).toHaveLength(1);
+  expect(new THREE.Vector3().setFromMatrixPosition(poses[0]).toArray()).toEqual([10, 3, 5]);
+  draw.dispose();
+});
+
 test("many repeated model parts draw in spatial instance batches while logical roots remain editable", async () => {
   const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial()));
   const scene = new THREE.Scene(), draw = new ModelDraw(scene, async () => source);

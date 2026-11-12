@@ -80,9 +80,11 @@ def sorts_of(entry):
 def all_sorts(objects, treefx=None):
     """The sorts that can be deleted all at once on a track: of the objects that have triangles (a saved track's own list keeps the
     numbers of what it left out, without any), but houses (one click takes a street), and the models of its TreeFX trees (treefx:
-    the list's section, None for none; they have no triangles, and every one listed stands). Pure."""
+    the list's section, None for none; they have no triangles, and every one listed stands). Native library bindings carry the
+    same exception in their details: they draw outside KN5. Pure."""
     meshed = {sort for entry in objects.values() for sort, faces in zip(sorts_of(entry), entry["faces"]) if faces} - NOT_ALL
-    return meshed | {tree["model"] for tree in (treefx or {}).get("trees", {}).values()}
+    native = {sort for entry in objects.values() for sort, detail in zip(sorts_of(entry), entry.get("details", [])) if detail.get("treefx")}
+    return meshed | native | {tree["model"] for tree in (treefx or {}).get("trees", {}).values()}
 
 
 def treefx_id(number):

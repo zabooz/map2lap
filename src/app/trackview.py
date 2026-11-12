@@ -240,7 +240,7 @@ def index(ac, name):
             "surface_unprepared": surfaceindex.unprepared(path) if facts else 0,
             "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
             "model_replacements": s.get("model_replacements", []),
-            "treefx": len((treefx_of(path) or {}).get("trees", {})),
+            "treefx": len((treefx_of(path) or {}).get("trees", {})) + sum(bool(s.get("model_assets", {}).get(m["asset"], {}).get("native_tree")) for m in s.get("models", [])),
             "model_matrices": trackmodels.view_matrices(s, edits.get("placed", []), edits.get("heights", []))}
 
 
@@ -364,11 +364,15 @@ def treefx(ac, name):
     "ids" in the order of their numbers, "models" (names, sorted) and per tree its "model" among them, "pos" where the draft puts
     it, "base" where the list has it, flat x, y, z, and "angle", "size", "width" as the draft leaves them; "next" the first number
     never given. What the draft deletes is in it: the page leaves it out, as it does other objects."""
-    from app import trackedits, tracktrees
+    from app import trackedits, tracktrees, modeltrees
     path, _s, revision = _scanned(ac, name)
     draft = trackedits.load(ac, name)
     base = tracktrees.trees_of(treefx_of(path), draft["trees"])
     now = tracktrees.now(base, draft["placed"], draft["heights"])
+    _path, scan, _objects = trackedits.context(ac, name, revision)
+    native = modeltrees.trees(scan, draft["placed"], draft["heights"])
+    base.update(native)
+    now.update(native)
     models = sorted({t["model"] for t in base.values()})
     return {"revision": revision, "draft": draft["revision"], "next": draft["trees_next"], "ids": list(base), "models": models,
             "model": [models.index(t["model"]) for t in base.values()], "pos": [v for t in now.values() for v in t["pos"]],
@@ -392,6 +396,15 @@ def _tree_model(ac, name, model):
     path = os.path.join(os.path.dirname(kn5_path(ac, name)), "extension", "trees", model + ".bin")
     try:
         return _tree_read(path, _revision(os.stat(path)))
+    except FileNotFoundError:
+        from app import modeltrees
+        try:
+            tree = modeltrees.read(ac, name, model)
+            if tree is not None:
+                return tree
+        except (OSError, ValueError) as e:
+            raise NotOurs(model) from e
+        raise NotOurs(model)
     except (OSError, ValueError) as e:
         raise NotOurs(model) from e
 

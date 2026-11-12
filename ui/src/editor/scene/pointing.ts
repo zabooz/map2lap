@@ -5,8 +5,8 @@ import type {Hovered, MeshInfo, TrackIndex} from "../types";
 import {kindName, kindOf, latLonOf, physicsOf, routeMetre, sortOf, tileOf} from "./inspect";
 import type {ModelDraw} from "./modelDraw";
 import type {TreeFxDraw} from "./treeFx";
-import {FAR_M} from "./treeFx";
 import type {TrackObjects} from "./trackObjects";
+import {FAR_M} from "./treeFx";
 
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
@@ -115,8 +115,10 @@ export class Pointing {
   describe(hit: THREE.Intersection): Hovered {
     const data = this.host.data()!, mesh = hit.object as THREE.Mesh;
     const tree = this.host.trees().idOf(hit);
+    const instance = tree ? tree.slice(0, tree.lastIndexOf("#")) : mesh.userData.modelInstance as string | undefined;
+    const binding = instance ? data.models?.find(m => m.id === instance) : undefined;
+    if (binding && data.model_assets?.[binding.asset]?.native_tree) return this.nativeTree(hit, binding.id, binding.asset);
     if (tree) return this.describeTree(data, tree, hit);
-    const instance = mesh.userData.modelInstance as string | undefined;
     const materialNumber = (mesh.material as THREE.Material).userData.modelMaterial ?? -1;
     const modelMaterial = materialNumber < 0 ? null : materialNumber;
     const primitive = mesh.userData.modelPrimitive as number | undefined;
@@ -163,5 +165,18 @@ export class Pointing {
       at: [x, y, z], tile: tileOf(x, z), route: routeMetre(data.route, x, z), latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null,
       distance: hit.distance,
     };
+  }
+
+  /** A native tree has a selectable GLB root and a TreeFX model, with no KN5 mesh/material number to look up. */
+  private nativeTree(hit: THREE.Intersection, instance: string, asset: string): Hovered {
+    const data = this.host.data()!, mesh = hit.object as THREE.Mesh, {x, y, z} = hit.point;
+    const entry = data.objects[instance], meta = data.model_assets?.[asset];
+    return {id: instance + "#0", kind: kindName(entry?.kinds[0] ?? "tree"),
+      sort: entry ? sortOf(entry, 0) : meta?.name ?? null, object: "m2l_tree_" + asset, physics: physicsOf("nocol_"),
+      material: meta?.name ?? "TreeFX", shader: "CSP TreeFX", texture: null, textureBytes: null,
+      vertices: mesh.geometry.getAttribute("position").count, triangles: (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3,
+      triangle: hit.faceIndex ?? 0, uv: hit.uv ? [hit.uv.x, hit.uv.y] : null, shownTo: FAR_M,
+      at: [x, y, z], tile: tileOf(x, z), route: routeMetre(data.route, x, z),
+      latLon: data.anchor ? latLonOf(data.anchor, x, y, z) : null, distance: hit.distance};
   }
 }

@@ -364,6 +364,31 @@ without its edit offers no Settings.
 
 ## Imported models
 
+The Objects catalogue also includes Map2Lap's own scenery (`assets/builtin-objects.json`, `app/builtinobjects.py`): all
+17 TreeFX tree/bush models, six rock forms, 48 parked-car entries (four shapes × twelve colours), and 55 furniture/leisure/utility
+entries. These include street lamps, pole-mounted lamp heads, poles, benches, bins, hydrants, signs, static traffic lights and
+railway-crossing kits, three fountain forms, playground devices, goals and hoops, headstones, silos, tanks, masts, pylons,
+substation parts and fuel-station parts. Cars have a Vehicles filter. Map-bound terrain, roads and continuous building/fence
+outlines are not freestanding library models; the floodlight mast retains the generator's unlit state. Geometry and painted
+textures come from the generator's existing scenery builders. Entries show `Map2Lap (zabooz)`, MIT and the project source;
+their packages include the Map2Lap and BeamNG.Earth licence notices. They are generated into `cache/builtin-objects` on demand,
+not copied from the user's imports, and deleting one hides it through the library's existing hidden list.
+
+Library trees retain ordinary model bindings for placement, Groups, Undo/Redo, replacement and individual poses. The immutable
+snapshot also freezes all three TreeFX LODs in `native/model.bin`; its hash participates in the preview GLB's content identity.
+`app/modeltrees.py` gives each native model a snapshot-derived name, serves its real LODs through the TreeFX API and writes its
+placements into `extension/trees/trees.txt`. The Editor keeps shared GLB roots for picking and bounds, draws only TreeFX geometry,
+and updates a dragged tree's instance slot immediately. The placement preview remains until the native tree is ready. No tree
+vertices or duplicated tree colour maps are appended to the KN5. The native file, preview, metadata and licence notices remain in
+the portable model bundle, so clearing the library/cache and transferring a track preserve subsequent Saves.
+
+Rocks and furniture follow the ordinary model pipeline. Their solid/decorative split is preserved: a street-light pole can
+collide while the head and glass do not. The glass material carries `m2lLamp`; the owned CSP include registers it for night lights
+and emission with the same `scenery/lamps.py` rule as generator lamps. Moving, copying, sizing and deleting therefore follow the
+saved geometry. Lamp shadow maps remain disabled, as for generator lamps; their light can pass through walls/decks. In the Editor
+the glass and a light cone show at night; the road illumination itself is CSP's and is seen in AC. The tree information panel
+shows shared model storage and three detail levels rather than an ordinary KN5 geometry cost per tree.
+
 `app/objectlibrary.py` stores immutable schema 1 model packages under `library/objects/<id>/asset.json` with a canonical
 `original/model.glb`. Their ids bind the GLB content, category, metres per source unit, model-local anchor and explicit
 collision choice (`none` by default, or `mesh`). These import settings are independent of future scene placements. Name,
