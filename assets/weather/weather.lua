@@ -504,7 +504,7 @@ end
 -- come from the car's own meshes and node transforms.
 if WINDSCREEN_ENABLED then
 glass = {mesh = nil, blades = {}}
-local FIELD_W, FIELD_H, DROPS = 1536, 768, 64
+local FIELD_W, FIELD_H, DROPS = 1536, 768, 128
 local function cbrt(v) return v ^ (1 / 3) end
 local emptyRef = ac.emptySceneReference()
 
@@ -540,7 +540,7 @@ function glass.setup()
     -- windows share the shader; of several front layers (inner/outer glass) the widest one is drawn.
     local front = cz > eyes.z + 0.1 and math.abs(cx) < 0.3 and w > 0.6
     if front and w > width then chosen, lo, hi, width = m, mn, mx, w end
-    ac.log(string.format('M2L_GLASS mesh %s box=%s..%s front=%s', found:name(i), tostring(mn), tostring(mx), tostring(front)))
+    if front or (glass.tries or 0) % 100 == 0 then ac.log(string.format('M2L_GLASS mesh %s box=%s..%s front=%s', found:name(i), tostring(mn), tostring(mx), tostring(front))) end
   end
   if chosen then
     glass.mesh = chosen
@@ -597,6 +597,9 @@ function glass.setup()
     end
     ac.log(string.format('M2L_GLASS blades=%d wiperModes=%d', #glass.blades, car.wiperModes))
   else
+    -- Early frames can still have unplaced car nodes: keep looking for ten seconds before giving up.
+    glass.tries = (glass.tries or 0) + 1
+    if glass.tries < 600 then return false end
     ac.log('M2L_GLASS no windscreen found among ' .. #found .. ' ksWindscreen meshes')
     return true
   end
@@ -609,8 +612,10 @@ function glass.setup()
 
   -- Droplets: bounded slots. Each has its own mobility and adhesion, so no two run alike.
   local dAlive, dX, dS, dR, dVx, dVs, dPx, dPs, dMob, dAdh = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+  -- Age since landing and the time left of a kick: a bead that lets go runs with a weak contact line for a while.
+  local dAge, dKick = {}, {}
   for i = 0, DROPS - 1 do
-    dAlive[i], dX[i], dS[i], dR[i], dVx[i], dVs[i], dPx[i], dPs[i] = false, 0, 0, 0, 0, 0, 0, 0
+    dAlive[i], dX[i], dS[i], dR[i], dVx[i], dVs[i], dPx[i], dPs[i], dAge[i], dKick[i] = false, 0, 0, 0, 0, 0, 0, 0, 0, 0
     dMob[i], dAdh[i] = 0.7 + rand() * 0.6, 0.8 + rand() * 0.5
   end
   local freeCursor, spawnBudget, aliveCount = 0, 0, 0
@@ -619,7 +624,7 @@ function glass.setup()
       local i = (freeCursor + k) % DROPS
       if not dAlive[i] then
         freeCursor = i + 1
-        dAlive[i], dX[i], dS[i], dR[i], dVx[i], dVs[i], dPx[i], dPs[i] = true, x, s, r, vx or 0, vs or 0, x, s
+        dAlive[i], dX[i], dS[i], dR[i], dVx[i], dVs[i], dPx[i], dPs[i], dAge[i], dKick[i] = true, x, s, r, vx or 0, vs or 0, x, s, 0, 0
         return i
       end
     end
@@ -642,9 +647,9 @@ function glass.setup()
 
   -- Physical scaling, tuned for look: weight grows with r^3 and air drag with r^2 v^2, while the contact line pins
   -- a drop with a force growing with r. So gravity wins at r^2 and airflow at r v^2 against a fixed threshold.
-  -- KG: a 3 mm bead at rest on this glass (5.4 m/s^2 along it) is just about to run. KA: at about 80 km/h a 1.5 mm
+  -- KG: a 2.7 mm bead at rest on this glass (5.4 m/s^2 along it) is just about to run. KA: at about 80 km/h a 1.5 mm
   -- bead starts to creep up the glass, at 60 km/h a 3 mm drop hangs. KV: unit excess drive moves a drop at 10 cm/s.
-  local KG, KA, KV = 20600, 1.4, 0.1
+  local KG, KA, KV = 26000, 1.4, 0.1
   local snowOnGlass, wetUntil = 0, 0
   local rainAmount, snowRate = 0, 0
 
@@ -714,11 +719,16 @@ function glass.setup()
 
   local function updateDrops(dt, gx, gs, airx, airs, airMag, impinge)
     -- Rain lands as small beads, more of them the harder the rain hits the glass (6.7 m/s standing in rain).
-    spawnBudget = min(4, spawnBudget + 12 * rainAmount * impinge / 6.7 * dt)
+    spawnBudget = min(4, spawnBudget + 16 * rainAmount * impinge / 6.7 * dt)
     while spawnBudget >= 1 do
       spawnBudget = spawnBudget - 1
       local r = rand()
-      spawnDrop(x0 + rand() * xw, s0 + rand() * sw, 0.0012 + r * r * 0.002)
+      -- With every slot taken, the impact lands on a bead already there and grows it instead.
+      local r0 = 0.0016 + r * r * 0.0022
+      if not spawnDrop(x0 + rand() * xw, s0 + rand() * sw, r0) then
+        local i = floor(rand() * DROPS)
+        if dAlive[i] then dR[i] = min(0.007, cbrt(dR[i] ^ 3 + r0 ^ 3)); dKick[i] = 0.4 end
+      end
     end
     for i = 0, NX * NY - 1 do head[i] = -1 end
     aliveCount = 0
@@ -734,8 +744,15 @@ function glass.setup()
           local ns = gs * r * r * KG + airs * airMag * r * KA
           local nm = sqrt(nx * nx + ns * ns)
           local moving = dVx[i] ~= 0 or dVs[i] ~= 0
+          dAge[i] = dAge[i] + dt
+          -- A pinned bead lets go now and then: the chance grows with its age and size, as impacts and vibration
+          -- shake it loose. For a kick's duration its contact line holds much less, so gravity moves it.
+          if not moving and dKick[i] <= 0 and rand() < dt * (0.03 + dAge[i] * 0.004 + r * 12) then
+            dKick[i], dAge[i] = 0.3 + rand() * 0.6, 0
+          end
+          dKick[i] = dKick[i] - dt
           -- A running drop keeps running on a thinner contact line than it took to depin it.
-          local thr = dAdh[i] * (moving and 0.6 or 1)
+          local thr = dAdh[i] * (dKick[i] > 0 and 0.2 or moving and 0.6 or 1)
           dPx[i], dPs[i] = dX[i], dS[i]
           if nm > thr then
             local ex = (nm - thr) / nm * KV * dMob[i]
@@ -929,8 +946,8 @@ function glass.setup()
     transform = 'original',
     async = true,
     cacheKey = 32,
-    textures = {txField = false},
-    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw),
+    textures = {txField = false, txScene = 'dynamic::hdr'},
+    values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gTangent = vec4(glass.sc, glass.ty, glass.tz, glass.sw), gScreen = vec2(1, 1), gRefract = 1,
       gTexel = vec4(1 / FIELD_W, 1 / FIELD_H, xw / FIELD_W * 1000, sw / FIELD_H * 1000),
       gColor = rgb(0.3, 0.33, 0.37), gSnowColor = rgb(0.8, 0.82, 0.86), gRaw = 0,
       gCameraPos = vec3(), gCarPos = vec3(), gCarSide = vec3(), gCarUp = vec3(), gCarLook = vec3()},
@@ -956,14 +973,19 @@ function glass.setup()
         // goes dark where the view is bent away, and its crest reflects the sky above as a bright crescent.
         float body = saturate(f.a * 2.5);
         float film = saturate(f.r * 1.5);
-        float steep = saturate(length(n.xy) * 2.2);
+        float steep = saturate(length(n.xy) * 3);
         float spec = pow(saturate(R.y), 4) * saturate(steep * 1.5 + 0.2);
-        float3 bodyColor = gColor * 0.9;
+        // Refraction: the bead bends the scene behind it toward its rim (the lens shows a shifted, inverted view).
+        float2 screenUv = pin.PosH.xy / gScreen;
+        // A bead is a strong lens: its body shows a small inverted picture of the whole view, so the top of a
+        // drop against the sky shows the ground below. The sampled offset grows with the surface slope.
+        float3 behind = txScene.SampleLevel(samLinearSimple, screenUv + float2(-n.x, n.y) * 0.22 * body, 0).rgb;
+        float3 bodyColor = gRefract > 0.5 ? behind * 1.1 + gColor * 0.1 : gColor * 0.9;
         float3 rimColor = gColor * 0.08;
         float3 specColor = gColor * 3.5;
-        float bodyA = body * 0.28 + film * 0.08;
-        float rimA = steep * body * 0.55 + steep * film * 0.25;
-        float specA = spec * body;
+        float bodyA = body * (gRefract > 0.5 ? 0.9 : 0.18) + film * 0.06;
+        float rimA = steep * body * 0.9 + steep * film * 0.3;
+        float specA = spec * body * 1.2;
         float wAlpha = saturate(bodyA + rimA + specA);
         float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA) / max(wAlpha, 1e-4);
         // Snow: matte white with cheap height shading from above; slush grey and translucent.
@@ -1041,6 +1063,8 @@ function glass.setup()
     local car = ac.getCar(0)
     local v = glass.pass.values
     v.gRaw = glassRaw and 1 or 0
+    local size = render.getRenderTargetSize()
+    v.gScreen:set(max(1, size.x), max(1, size.y))
     local horizon = sim.horizonColor
     v.gColor.r, v.gColor.g, v.gColor.b = max(0.06, horizon.r * 1.6), max(0.065, horizon.g * 1.6), max(0.07, horizon.b * 1.6)
     local sky = sim.skyColor
