@@ -1005,18 +1005,18 @@ function glass.setup()
           + txField.Sample(samLinearSimple, uv + float2(-e3.x * 0.5, e3.y)).r + txField.Sample(samLinearSimple, uv + float2(e3.x * 0.5, -e3.y)).r;
         float film = saturate(filmSum * 0.2 * 1.5);
         float steep = saturate(length(n.xy) * 3);
-        float spec = pow(saturate(R.y), 5) * saturate(steep * 1.5 + 0.2);
-        float3 bodyColor = gColor * 0.55;
-        float3 rimColor = gColor * 0.12;
-        float3 specColor = gColor * 1.7;
+        float spec = pow(saturate(R.y), 8) * saturate(steep * 1.5 + 0.2);
+        float3 bodyColor = gColor * 0.3;
+        float3 rimColor = gColor * 0.08;
+        float3 specColor = gColor * 1.6;
         // Wet sheen: a carpet of tiny beads, each with a faint crest highlight, over a slight dimming.
         float2 cell = floor(float2(x, s) * 300);
         float2 inCell = frac(float2(x, s) * 300) - 0.5 - (float2(hash12(cell), hash12(cell + 7.1)) - 0.5) * 0.5;
         float speck = (1 - smoothstep(0.08, 0.22, length(inCell))) * step(0.35, hash12(cell + 3.3));
         float3 filmColor = gColor * (0.2 + 1.0 * speck * saturate(R.y + 0.3));
-        float bodyA = body * 0.42;
-        float rimA = steep * body * 0.32;
-        float specA = spec * body * 0.6;
+        float bodyA = body * 0.26;
+        float rimA = steep * body * 0.45;
+        float specA = spec * body * 0.45;
         float filmA = film * (0.03 + 0.18 * speck);
         float wAlpha = saturate(bodyA + rimA + specA + filmA);
         float3 wColor = (bodyColor * bodyA + rimColor * rimA + specColor * specA + filmColor * filmA) / max(wAlpha, 1e-4);
@@ -1080,7 +1080,7 @@ function glass.setup()
     v.gMelt = melt
     v.gSnowMode = snowRate > 0 and 1 or 0
     -- Beads land at about 45 a second over the glass standing in heavy rain; 8 mm cells, 3 x 3 looked up.
-    v.gBead = 45 * rainAmount * impinge / 6.7 * dt / ((xw / 0.008) * (sw / 0.008))
+    v.gBead = 30 * rainAmount * impinge / 6.7 * dt / ((xw / 0.008) * (sw / 0.008))
     -- Standing in heavy rain the glass is fully wet in about 35 s, about twice as fast when driving into it
     -- (capped: a faster build-up turns the fan's edge into a hard line between sweeps).
     v.gWet = rainAmount * min(impinge, 13) / 6.7 * 0.03
