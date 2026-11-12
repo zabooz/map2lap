@@ -4,6 +4,9 @@ Versioned public-CSP rain/snow prototype and helpers for the existing `heiligenb
 track. The shipped source `assets/weather/weather.lua` batches up to 14,057 rain/snow particles into one dynamic mesh
 with custom HLSL, native weather selection and actual CSP wind. A depth-aware
 distance veil and ground splash crowns complement native WeatherFX fog.
+Ground impacts share a fixed 256-quad budget between nearby ground and a forward
+region reaching about 35 m. Longer downward rays accommodate elevation changes;
+a small pixel-size floor and distance fade keep the distant crowns visible.
 It requires no RainFX or custom DLL. This development branch enables the windscreen overlay,
 with blade-swept rain/snow, independent side-window fields and a separate mirror precipitation pass.
 
@@ -102,6 +105,8 @@ It applies the signed difference between refracted and original samples to the
 current floating-point HDR target, in a separate pass from snow. Copying absolute
 RGB also copied the earlier scene's different fog/brightness and produced pale
 painted patches. Uniform backgrounds now receive only subtle edge attenuation.
+Directional bead highlights and contact shading are composed separately so drops
+remain identifiable against a uniform sky. Their visibility is still under review.
 Do **not** use `dynamic::hdr` as a refraction source: live paired captures showed
 our water already in that image, causing feedback and black wiper/glove smears.
 The built-in texture excluded our transparent passes in the tested CSP build.

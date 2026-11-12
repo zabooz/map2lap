@@ -429,28 +429,37 @@ function rustSnow.build(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upx, upy, 
 end
 
 -- Splashes: the last 256 quads of the buffer, free in rain mode (rain uses 70 percent of the budget). A drop
--- hitting the road throws up a crown for about a fifth of a second. Downward physics rays (0.01 ms each) find
--- the road within 9 m of the camera, mostly ahead of it.
+-- hitting the road throws up a crown for about a fifth of a second. The same bounded ray/quad budget
+-- covers nearby ground and the view up to 35 m ahead, instead of a small camera-centred disc.
 local SPLASHES, SPLASH_FIRST, SPLASH_LIFE = 256, COUNT - 256, 0.22
 local splashX, splashY, splashZ, splashAge = {}, {}, {}, {}
 for i = 0, SPLASHES - 1 do splashX[i], splashY[i], splashZ[i], splashAge[i] = 0, 0, 0, 1e9 end
 local splashBudget, splashNext = 0, 0
 local rayDown = vec3(0, -1, 0)
-local function updateSplashes(dt, cx, cy, cz, lx, lz, sdx, sdy, sdz)
-  -- Heavy rain: 450 crowns a second in the disc, about a hundred alive at a time.
+local function updateSplashes(dt, cx, cy, cz, lx, lz, sdx, sdy, sdz, metrePerPixel)
+  -- Heavy rain: at most 450 crowns a second, about a hundred alive at a time.
   splashBudget = min(6, splashBudget + 450 * density * dt)
   local look = sqrt(lx * lx + lz * lz)
   local fx, fz = look > 1e-3 and lx / look or 0, look > 1e-3 and lz / look or 0
   while splashBudget >= 1 do
     splashBudget = splashBudget - 1
-    local angle, radius = math.random() * 6.283, 1.5 + sqrt(math.random()) * 7.5
-    local x, z = cx + fx * 3 + cos(angle) * radius, cz + fz * 3 + sin(angle) * radius
-    rayOrigin:set(x, cy + 2, z)
-    local hit = render.createRay(rayOrigin, rayDown, 10):physics()
-    if hit > 0 and not sheltered(x, cy + 2 - hit, z) then
+    local x, z
+    if math.random() < 0.65 then
+      local ahead = 7 + math.random() * 28
+      local across = (math.random() * 2 - 1) * (3 + ahead * 0.18)
+      x, z = cx + fx * ahead - fz * across, cz + fz * ahead + fx * across
+    else
+      local angle, radius = math.random() * 6.283, 1.5 + sqrt(math.random()) * 7.5
+      x, z = cx + fx * 3 + cos(angle) * radius, cz + fz * 3 + sin(angle) * radius
+    end
+    -- A longer view can span steep uphill/downhill ground; start above that
+    -- envelope rather than casting from only 2 m above the camera's elevation.
+    rayOrigin:set(x, cy + 20, z)
+    local hit = render.createRay(rayOrigin, rayDown, 60):physics()
+    if hit > 0 and not sheltered(x, cy + 20 - hit, z) then
       local i = splashNext
       splashNext = (splashNext + 1) % SPLASHES
-      splashX[i], splashY[i], splashZ[i], splashAge[i] = x, cy + 2 - hit, z, 0
+      splashX[i], splashY[i], splashZ[i], splashAge[i] = x, cy + 20 - hit, z, 0
     end
   end
   for i = 0, SPLASHES - 1 do
@@ -460,9 +469,13 @@ local function updateSplashes(dt, cx, cy, cz, lx, lz, sdx, sdy, sdz)
     if age < SPLASH_LIFE then
       local life = age / SPLASH_LIFE
       -- A crown 4 cm wide and up to 6 cm tall; the quad stands on the road, facing the camera.
-      local hw, hh = 0.02, 0.03
+      local dx, dy, dz = splashX[i]-cx, splashY[i]-cy, splashZ[i]-cz
+      local distance = sqrt(dx*dx+dy*dy+dz*dz)
+      local pixelMetres = metrePerPixel * distance
+      local hw, hh = max(0.02,pixelMetres*0.65), max(0.03,pixelMetres*0.8)
+      local alpha = 85 * min(1,0.02/hw) * min(1,max(0,(40-distance)/8))
       place(b, splashX[i], splashY[i] + hh, splashZ[i], sdx * hw, sdy * hw, sdz * hw, 0, hh, 0,
-        1000 + floor(life * 9 + 0.5) * 100 + 85)
+        1000 + floor(life * 9 + 0.5) * 100 + floor(alpha))
     else
       drop(b, cx, cy, cz)
     end
@@ -501,7 +514,7 @@ local function build()
     buildSnow(count, cx, cy, cz, lx, ly, lz, metrePerPixel, upv.x, upv.y, upv.z, sidev.x, sidev.y, sidev.z, scale)
   else
     buildRain(count, cx, cy, cz, lx, ly, lz, metrePerPixel, wx - vcx, -vcy, wz - vcz, scale)
-    updateSplashes(frameDt, cx, cy, cz, lx, lz, sidev.x, sidev.y, sidev.z)
+    updateSplashes(frameDt, cx, cy, cz, lx, lz, sidev.x, sidev.y, sidev.z, metrePerPixel)
   end
 end
 
@@ -1812,8 +1825,19 @@ function glass.setup()
           float depth = txWaterDepth.SampleLevel(samLinearSimple, uv, 0).r;
           // Solid red shows only the actual retained depth, including the leading wiper edge.
           if (gDebugDrops > 0.5) return float4(1, 0, 0, depth > 0.025 ? 1 : 0);
-          // Normal water is composed separately as a signed lens difference.
-          return 0;
+          if(depth<=0.002) return 0;
+          float distance=txSceneCopy.SampleLevel(samLinearSimple,pin.PosH.xy/gScreen,0).a;
+          if(gRefract>0.5 && distance<=length(pin.PosC)+0.2) return 0;
+          // Refraction alone vanishes against a uniform sky. A directional
+          // glint and opposite contact shade describe the bead without filling
+          // its centre with an opaque colour or sampling the driver's hands.
+          float3 n=txWaterNormal.SampleLevel(samLinearSimple,uv,0).rgb*2-1;
+          n=normalize(float3(n.xy*3,n.z));
+          float edge=saturate(length(n.xy)*3);
+          float shade=pow(saturate(n.y*1.6+n.x*0.4),2)*0.45;
+          float shine=pow(saturate(dot(n,normalize(float3(-0.3,-0.65,0.7)))),24)*edge*0.35;
+          float alpha=(shade+shine)*smoothstep(0.002,0.035,depth);
+          return float4(gColor*2*shine/max(shade+shine,1e-5),alpha);
         }
         float4 f = txField.Sample(samLinearSimple, uv);
         if (gRaw > 0.5) return float4(f.r, f.g, f.a * 0.5, 0.9);
