@@ -19,4 +19,14 @@ test("our shipped trees, rocks and lamps have previews, native cost information 
   await expect(details).toContainText("Lights the road at night with CSP.");
   await expect(details.getByText("MIT", {exact: true})).toBeVisible();
   await library.screenshot({path: info.outputPath("map2lap-lamp-credits.png")});
+  await search.fill(""); await library.getByLabel("Filter objects").selectOption("vehicle");
+  await library.getByRole("button", {name: "Parked saloon — red", exact: true}).click();
+  await expect(details.getByText("Map2Lap (zabooz)", {exact: true})).toBeVisible();
+  await expect(details.getByText("MIT", {exact: true})).toBeVisible();
+  await expect(library.locator("canvas")).toBeVisible();
+  await library.getByLabel("Filter objects").selectOption(""); await search.fill("fountain");
+  await library.getByRole("button", {name: "Stone fountain", exact: true}).click();
+  await expect(details.getByText("MIT", {exact: true})).toBeVisible();
+  await expect(library.getByRole("button", {name: "Drinking fountain", exact: true})).toBeVisible();
+  await library.screenshot({path: info.outputPath("map2lap-fountain-credits.png")});
 });

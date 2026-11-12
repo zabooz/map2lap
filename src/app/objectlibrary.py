@@ -16,7 +16,7 @@ from app.paths import ROOT
 
 SCHEMA = 1
 PREPARATION = 1
-CATEGORIES = ("tree", "bush", "grass", "flower", "plant", "rock", "building", "prop", "other")
+CATEGORIES = ("tree", "bush", "grass", "flower", "plant", "rock", "vehicle", "building", "prop", "other")
 _gate = threading.RLock()
 _preparing = threading.Lock()
 

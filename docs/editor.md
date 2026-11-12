@@ -355,8 +355,11 @@ without its edit offers no Settings.
 ## Imported models
 
 The Objects catalogue also includes Map2Lap's own scenery (`assets/builtin-objects.json`, `app/builtinobjects.py`): all
-17 TreeFX tree/bush models, six rock forms and 19 freestanding furniture objects, including street lamps, pole-mounted
-lamp heads, poles, benches, bins, hydrants, signs, static traffic lights and static railway-crossing kits. Geometry and painted
+17 TreeFX tree/bush models, six rock forms, 48 parked-car entries (four shapes × twelve colours), and 55 furniture/leisure/utility
+entries. These include street lamps, pole-mounted lamp heads, poles, benches, bins, hydrants, signs, static traffic lights and
+railway-crossing kits, three fountain forms, playground devices, goals and hoops, headstones, silos, tanks, masts, pylons,
+substation parts and fuel-station parts. Cars have a Vehicles filter. Map-bound terrain, roads and continuous building/fence
+outlines are not freestanding library models; the floodlight mast retains the generator's unlit state. Geometry and painted
 textures come from the generator's existing scenery builders. Entries show `Map2Lap (zabooz)`, MIT and the project source;
 their packages include the Map2Lap and BeamNG.Earth licence notices. They are generated into `cache/builtin-objects` on demand,
 not copied from the user's imports, and deleting one hides it through the library's existing hidden list.

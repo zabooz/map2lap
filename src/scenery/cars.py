@@ -61,7 +61,8 @@ def _windows(d, x, y, body, panes):
                   fill=GLINT_RGB)
 
 
-def make_atlas(path):
+def atlas():
+    """The painted car palette and window atlas. Pure."""
     img = Image.new("RGB", (COLS * CELL, ROWS * CELL), (128, 128, 128))
     d = ImageDraw.Draw(img)
     at = lambda k: ((k % COLS) * CELL, (k // COLS) * CELL)      # noqa: E731
@@ -72,7 +73,12 @@ def make_atlas(path):
     for k, (c, _) in enumerate(BODY):
         _windows(d, *at(SIDE_WIN + k), c, ((0.07, 0.47), (0.54, 0.91)))
         _windows(d, *at(END_WIN + k), c, ((0.09, 0.91),))
-    img.save(path)
+    return img
+
+
+def make_atlas(path):
+    """Write the generator's shared car atlas to path."""
+    atlas().save(path)
     return path
 
 

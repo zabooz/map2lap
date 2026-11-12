@@ -109,8 +109,9 @@ Editor contexts retain shared asset geometry and per-binding metadata; picking a
 Native vertex copies are made for Save, while the index keeps stable mesh numbers and face ranges.
 
 **Built-in objects** (Editor):
-Map2Lap's own painted scenery in the Object library: 17 TreeFX tree/bush models, six rock forms and 19 freestanding furniture
-objects (`app/builtinobjects.py`, enabled by `assets/builtin-objects.json`). The same scenery builders provide their geometry
+Map2Lap's own painted scenery in the Object library: 17 TreeFX tree/bush models, six rock forms, 48 parked-car entries (four
+shapes in twelve colours) and 55 furniture/leisure/utility entries, including three fountain forms (`app/builtinobjects.py`,
+`scenery/catalogue.py`, enabled by `assets/builtin-objects.json`). The same scenery builders provide their geometry
 and artwork; content-addressed packages are prepared in `cache/builtin-objects`, with Map2Lap/zabooz credit, MIT and licence
 notices. Library trees use ordinary model bindings for Undo, groups and portable ownership, and their frozen TreeFX `.bin`
 for instanced distance LODs in the Editor and AC (`app/modeltrees.py`), with no tree vertices written to KN5. Furniture uses

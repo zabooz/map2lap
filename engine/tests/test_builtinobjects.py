@@ -28,7 +28,7 @@ class BuiltinTest(unittest.TestCase):
         patch.start(); self.addCleanup(patch.stop)
 
     def test_catalogue_contains_all_our_trees_six_rocks_and_freestanding_furniture(self):
-        items = objectlibrary.listing(limit=100)["items"]
+        items = builtinobjects.catalogue(self.root)
         entries = {m["builtin"]["name"]: m for m in items}
         self.assertTrue(set(treefx.MODELS) <= entries.keys())
         self.assertEqual(6, sum(name.startswith("rock_") for name in entries))
@@ -47,11 +47,36 @@ class BuiltinTest(unittest.TestCase):
                 self.assertIn("Copyright (c) 2026 zabooz", notice)
                 self.assertIn("Copyright (c) 2026 TecnaGamer", notice)
 
+    def test_all_our_parked_car_shapes_and_colours_and_all_point_fountain_forms_are_present(self):
+        from scenery import cars
+        entries = {a["builtin"]["name"]: a for a in builtinobjects.catalogue(self.root)}
+        vehicles = [a for a in entries.values() if a["category"] == "vehicle"]
+        self.assertEqual(len(cars.SHAPES) * len(cars.BODY), len(vehicles))
+        for name in ("fountain", "water_trough", "drinking_fountain", "swing", "slide", "climbing_frame", "seesaw", "sandpit",
+                     "football_goal", "basketball_hoop", "headstone", "grave_cross", "silo", "storage_tank", "pylon", "sub_transformer",
+                     "communication_mast", "mobile_phone_mast", "tv_tower", "fuel_pump", "fuel_canopy"):
+            self.assertIn(name, entries)
+        for name in ("fountain", "water_trough", "drinking_fountain"):
+            self.assertEqual("mesh", entries[name]["collision"])
+
+    def test_the_larger_catalogue_remains_paged_and_searchable_by_vehicles_and_fountains(self):
+        all_items, offset = [], 0
+        while True:
+            page = objectlibrary.listing(offset=offset, limit=40)
+            all_items.extend(page["items"])
+            offset += len(page["items"])
+            if offset >= page["total"]:
+                break
+        self.assertEqual(len(builtinobjects.catalogue(self.root)), len(all_items))
+        self.assertGreater(len(all_items), 100)
+        self.assertEqual(48, objectlibrary.listing(category="vehicle")["total"])
+        self.assertTrue(objectlibrary.listing(query="fountain")["items"])
+
     def test_hiding_a_builtin_keeps_its_bytes_and_never_changes_an_import(self):
-        item = next(m for m in objectlibrary.listing(limit=100)["items"] if m["builtin"]["name"] == "spruce")
+        item = objectlibrary.listing(query="spruce")["items"][0]
         raw = objectlibrary.original(item["id"])
         self.assertTrue(objectlibrary.remove(item["id"]))
-        self.assertNotIn(item["id"], {m["id"] for m in objectlibrary.listing(limit=100)["items"]})
+        self.assertEqual([], objectlibrary.listing(query="spruce")["items"])
         self.assertEqual(raw, objectlibrary.original(item["id"]))
 
     def test_tree_package_retains_all_three_native_lods_in_addition_to_its_library_preview(self):

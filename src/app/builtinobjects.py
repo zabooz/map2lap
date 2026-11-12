@@ -26,7 +26,9 @@ PROPS = {"streetlight": ("Street lamp", 9), "polelamp": ("Mast-mounted lamp", 3)
          **{f"speedk{n}": (f"Speed limit {n}", 2.5) for n in (50, 60, 80, 100)},
          **{g + suffix: (title + (" — Europe" if suffix else " — America"), 3)
             for g, title in (("rrcross", "Railway crossing sign"), ("rrflash", "Railway crossing lights"),
-                             ("rrgate", "Railway crossing barrier")) for suffix in ("", "_eu")}}
+                             ("rrgate", "Railway crossing barrier")) for suffix in ("", "_eu")},
+         "rrgate_l": ("Railway barrier — America, left side", 3), "rrgate_eu_l": ("Railway barrier — Europe, left side", 3),
+         "door": ("Wooden door", 2.1)}
 
 
 def _png(image):
@@ -104,6 +106,10 @@ def _source(name):
         p = shapes[int(name.removeprefix("rock_"))]
         texture = groundcover._rock(random.Random(23)).filter(ImageFilter.SMOOTH)
         return _glb([(*_enu((p, p[:, :2] / rocks.UV_M, triangles)), {"name": "rock"})], texture), "rock", "mesh"
+    from scenery import catalogue
+    if name in catalogue.names():
+        _title, category, collision, _module, meshes, texture = catalogue.build(name)
+        return _glb([(*_enu(m), material) for m, material in meshes], texture), category, collision
     # A pole-mounted head is authored below its attachment point; put its underside at the library's ground anchor.
     solid, deco, glass, _ = propsmesh.build([name], [[0, 0, 0, .3 if name == "polelamp" else 0, 0, 1, PROPS[name][1], .5]])
     parts = [(*_enu(part), {"name": label, "extras": {"map2lapCollision": collide, "map2lapLamp": label == "lamp_glass"}})
@@ -128,14 +134,18 @@ def _tree_bin(name):
 def _packages():
     """Immutable descriptions and original bytes, once per process. No library or track is changed."""
     from app import objectlibrary
+    from scenery import catalogue
     out = {}
-    for name in (*treefx.MODELS, *(f"rock_{n}" for n in range(rocks.VARIANTS)), *PROPS):
+    extras = set(catalogue.names())
+    for name in (*treefx.MODELS, *(f"rock_{n}" for n in range(rocks.VARIANTS)), *PROPS, *catalogue.names()):
         raw, category, collision = _source(name)
         model, digest = modeldata.load(raw), hashlib.sha256(raw).hexdigest()
-        meta = {"name": PROPS[name][0] if name in PROPS else (f"Rock {int(name[5:]) + 1}" if name.startswith("rock_") else name.replace("_", " ").title()),
+        title = catalogue.description(name)[0] if name in extras else PROPS[name][0] if name in PROPS else (
+            f"Rock {int(name[5:]) + 1}" if name.startswith("rock_") else name.replace("_", " ").title())
+        meta = {"name": title,
                 "category": category, "metres_per_unit": 1, "anchor": [0, 0, 0], "collision": collision}
         id = objectlibrary.identity(digest, meta)
-        source = "treefx" if name in treefx.MODELS else "rocks" if name.startswith("rock_") else "propsmesh"
+        source = catalogue.description(name)[1] if name in extras else "treefx" if name in treefx.MODELS else "rocks" if name.startswith("rock_") else "propsmesh"
         record = {"schema": objectlibrary.SCHEMA, "kind": "model", "id": id, **meta, "creator": "Map2Lap (zabooz)",
                   "license": "MIT", "source_url": version.REPO_URL, "copyright": "Copyright (c) 2026 zabooz",
                   "attribution": "Map2Lap; generator based on BeamNG.Earth by TecnaGamer (MIT).",

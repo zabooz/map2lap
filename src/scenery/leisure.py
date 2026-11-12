@@ -81,7 +81,8 @@ def _cell(k):
     return (k % ATLAS) * CELL, (k // ATLAS) * CELL
 
 
-def make_atlas(path):
+def atlas():
+    """The painted leisure and utility atlas, including cutout nets. Pure."""
     img = Image.new("RGBA", (ATLAS * CELL, ATLAS * CELL), (200, 200, 200, 255))
     d = ImageDraw.Draw(img)
     flat = {POOL: (112, 200, 228), TILE: (232, 232, 224), STONE: (168, 164, 156), GRANITE: (92, 92, 98),
@@ -123,7 +124,12 @@ def make_atlas(path):
         for j in range(3):
             cx, cy = x + 16 + i * 32, y + 22 + j * 42
             d.ellipse([cx - 13, cy - 13, cx + 13, cy + 13], fill=(255, 248, 214))
-    img.save(path)
+    return img
+
+
+def make_atlas(path):
+    """Write the generator's shared leisure atlas to path."""
+    atlas().save(path)
     return path
 
 

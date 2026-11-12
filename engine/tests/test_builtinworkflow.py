@@ -112,6 +112,20 @@ class WorkflowTest(Base):
         self.assertEqual(2, len(trackview.treefx(self.ac, self.name)["ids"]))
         self.assertTrue(any("m2l_model" in m["name"] for m in view["meshes"]))
 
+    def test_a_parked_car_and_fountain_save_as_ordinary_solid_objects_and_keep_their_credits(self):
+        car, fountain = self.add("car_saloon_red"), self.add("fountain")
+        self.keep([car, fountain])
+        view = trackview.index(self.ac, self.name)
+        self.assertEqual("car", view["objects"][car["id"]]["kinds"][0])
+        trackcopy.save(self.ac, self.name, "car_and_fountain", "Car and fountain")
+        target = Path(self.ac, "content/tracks/car_and_fountain")
+        saved = kn5.scan(target / "car_and_fountain.kn5")
+        self.assertTrue(any(m["name"].startswith("1WALL_m2l_model_") for m in saved["meshes"]))
+        for instance in (car, fountain):
+            package = target / "data/map2lap_models/assets" / instance["asset"]
+            self.assertIn("zabooz", (package / "LICENSE.txt").read_text(encoding="utf-8"))
+            self.assertTrue((package / "original/model.glb").is_file())
+
     def test_replacing_a_generator_treefx_tree_removes_its_old_line_and_keeps_height_and_turn(self):
         tree = {"model": "spruce", "pos": [12, 0, 15], "angle": 30, "size": 1, "width": 1}
         objectlist.write(self.kn5, self.objects, {"next": 1, "trees": {"0": tree}})

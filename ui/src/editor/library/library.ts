@@ -1,5 +1,5 @@
 export const MODEL_CATEGORIES = [["tree", "Trees"], ["bush", "Bushes"], ["grass", "Grass"], ["flower", "Flowers"],
-  ["plant", "Plants"], ["rock", "Rocks"], ["building", "Buildings"], ["prop", "Street furniture"], ["other", "Other"]] as const;
+  ["plant", "Plants"], ["rock", "Rocks"], ["vehicle", "Vehicles"], ["building", "Buildings"], ["prop", "Street furniture"], ["other", "Other"]] as const;
 import type {TrackCost} from "./ModelCost";
 
 export interface PreparedModel {

@@ -503,7 +503,7 @@ def _extend(ac, name, scan, objects, models):
         meta = assets[asset]
         if meta.get("native_tree") and instance["collision"] != "none":
             raise ValueError("TreeFX trees have no mesh collision")
-        kind = {"tree": "tree", "bush": "bush", "building": "house"}.get(meta["category"], "model")
+        kind = {"tree": "tree", "bush": "bush", "building": "house", "vehicle": "car"}.get(meta["category"], "model")
         listed[instance["id"]] = {"kinds": [kind], "sorts": [meta["name"]], "at": [instance["at"]],
                                    "parents": [-1], "faces": [[]], "details": [{"model": asset, **({"treefx": True} if meta.get("native_tree") else {})}]}
         ready = prepared[asset]

@@ -23,7 +23,8 @@ test('objects filter by their actual category and show creator credit beside cle
   await openLibrary(page, "objects");
   const library = page.getByRole('dialog', {name: 'Asset library'});
   const categories = library.getByLabel('Filter objects');
-  await expect(categories.locator('option')).toHaveCount(10, {timeout: 5000});
+  await expect(categories.locator('option')).toHaveCount(11, {timeout: 5000});
+  await expect(categories.locator('option[value="vehicle"]')).toHaveText('Vehicles');
   await categories.selectOption('flower');
   await expect(library.getByRole('button', {name: 'Flower Purple B', exact: true})).toBeVisible();
   await expect(library.getByRole('button', {name: 'Bush Common', exact: true})).toHaveCount(0);
