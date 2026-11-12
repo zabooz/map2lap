@@ -4,6 +4,7 @@
 -- Experimental windscreen overlay enabled for this development preview.
 local WINDSCREEN_ENABLED = true
 local DEBUG = ac.INIConfig.trackConfig():get('MAP2LAP_WEATHER', 'DEBUG', false)
+local WINDSCREEN_SNOW = ac.INIConfig.raceConfig():get('LIGHTING', '__MAP2LAP_WINDSCREEN_SNOW', true)
 local glass, veil, mirrorWeather, rustSnow, rustRain
 local glassMs, glassOff, glassRaw, glassRed = 0, false, false, false
 local sqrt, min, max, floor, sin, cos = math.sqrt, math.min, math.max, math.floor, math.sin, math.cos
@@ -55,9 +56,18 @@ end
 -- Reserve bounded storage for heavy snow; rain and snow tiers choose their own active counts below.
 local BASE_COUNT, COUNT = 8192, 14057
 local function snowScale()
-  if density > 0.65 then return 1.584, 1.716 end
-  local scale = density > 0.3 and 1.15 or 1
-  return scale, scale
+  -- Return visual size and a separate particle budget; native density still controls the atmosphere.
+  if density > 0.65 then return 1.584, 7000 end
+  if density > 0.3 then return 1.15, 4500 end
+  return 1, 2000
+end
+local function snowWindPatches(dt, speed, state)
+  -- Tangential vehicle airflow must overcome adhesion first; use the side panes' existing 4 m/s threshold.
+  if speed <= 4 then state.gustBudget = 0; return 0 end
+  state.gustBudget = min(4, state.gustBudget + min(90, (speed - 4) * 1.6) * dt)
+  local count = floor(state.gustBudget)
+  state.gustBudget = state.gustBudget - count
+  return count
 end
 local function rainScale()
   return density > 0.65 and 1.5 or density > 0.35 and 1.2 or 1
@@ -498,7 +508,7 @@ local function build()
   local upv, sidev = sim.cameraUp, sim.cameraSide
   local scale, amount = 1, 1
   if snow then scale, amount = snowScale() else scale = rainScale(); amount = scale end
-  local count = floor(BASE_COUNT * density * (snow and amount or 0.7 * amount))
+  local count = snow and amount or floor(BASE_COUNT * density * 0.7 * amount)
   if count < activeCount then hide(count, activeCount) end
   activeCount = count
   local shelterStart = os.preciseClock()
@@ -652,9 +662,9 @@ function mirrorWeather.update()
   local cx, cy, cz = centre.x, centre.y + 1.2, centre.z
   local scale, amount = 1, 0.7
   if snow then scale, amount = snowScale() else scale = rainScale(); amount = 0.7 * scale end
-  -- Both precipitation types follow native strength. Preserve the accepted snow size/count boosts;
+  -- Mirrors use the same snow tier at their existing fraction of the main particle budget;
   -- rain starts from its 70% budget with medium/heavy boosts and fast fall, without snow flutter/softness.
-  local count = floor(3072 * density * amount)
+  local count = snow and floor(amount * 3072 / BASE_COUNT) or floor(3072 * density * amount)
   local mr = mirrorWeather.vertices.raw
   local velocity = car.velocity
   local vx, vy, vz = wind.x - velocity.x, -velocity.y, wind.z - velocity.z
@@ -1331,7 +1341,7 @@ function glass.setup()
   -- Shader constants: drops as float4 pairs packed in matrices (4 rows each), blades as one matrix each.
   local DMATS = DROPS / 2
   local values = {gFrame = vec4(x0, s0, 1 / xw, 1 / sw), gParams = vec4(), gAir = vec4(), gMelt = 0, gWet = 0, gBead = 0, gSnowMode = 0, gSeed = vec2(), gLandingStep = 0, gRustRain = 0,
-    gW0 = mat4x4.identity(), gW1 = mat4x4.identity()}
+    gW0 = mat4x4.identity(), gW1 = mat4x4.identity(), gGusts = mat4x4.identity()}
   local dropMats = {}
   for k = 0, DMATS - 1 do
     local m = mat4x4.identity()
@@ -1339,6 +1349,7 @@ function glass.setup()
     dropMats[k] = m
   end
   local rows = {'row1', 'row2', 'row3', 'row4'}
+  for _, row in ipairs(rows) do values.gGusts[row]:set(0, 0, 0, 0) end
   local function fillDropMats()
     for i = 0, DROPS - 1 do
       local m = dropMats[floor(i / 2)]
@@ -1608,7 +1619,7 @@ function glass.setup()
   end
   glass.sim = {
     async = true,
-    cacheKey = 70,
+    cacheKey = 72,
     blendMode = render.BlendMode.Opaque,
     textures = {txPrev = false, txRustWater = false},
     values = values,
@@ -1686,13 +1697,24 @@ function glass.setup()
         float2 waterFrom = uv - gRainFlow * dt;
         prev.a = txPrev.SampleLevel(samLinearSimple, saturate(waterFrom), 0).a;
         prev.a *= (waterFrom.x >= 0 && waterFrom.x <= 1 && waterFrom.y >= 0 && waterFrom.y <= 1) ? 1 : 0;
+        #endif
         // Clumps adhere in place. Gusts tear off small patches instead of smearing the entire field.
         [unroll] for (int g = 0; g < 4; g++) {
           float4 gust = gGusts[g];
           float2 delta = p - gust.xy;
-          if (gust.z > 0 && dot(delta, delta) < gust.z * gust.z) prev.gb = 0;
+          if (gust.z > 0) {
+            #ifdef M2L_SIDE_GLASS
+            if (dot(delta, delta) < gust.z * gust.z) prev.gb = 0;
+            #else
+            // Small torn edges, feathered into retained snow instead of punching out perfect circles.
+            float2 q = delta / gust.z;
+            float angle = atan2(q.y, q.x);
+            float edge = 0.72 + 0.18 * sin(angle * 3 + gust.w) + 0.1 * sin(angle * 5 - gust.w * 1.7);
+            float retained = smoothstep(edge * 0.65, edge, length(q));
+            prev.gb *= retained;
+            #endif
+          }
         }
-        #endif
         // Sticky slush stays at the deposit and melts locally into the thin water film. Transporting all slush
         // down the glass at a fixed speed made every melting flake paint a growing, bright vertical stripe.
         // Rain wets the whole glass with a film of tiny beads that bends the view; it dries slowly.
@@ -1970,6 +1992,7 @@ function glass.setup()
   -- compile out CPU-drop/wiper logic, and allocate textures only when precipitation first reaches the car.
   local SIDE_W, SIDE_H = 512, 256
   local sideClock = 0
+  local frontSnowWind = {gustBudget = 0, random = 41771}
   local function sideRand(side)
     side.random = side.random * 16807 % 2147483647
     return side.random / 2147483647
@@ -2100,12 +2123,12 @@ function glass.setup()
     local ambient = sim.ambientTemperature or 0
     local melt = 0.004 + 0.05 * heat + max(0, ambient) * 0.004
     -- Snow on the glass, a coarse estimate for the ridge ahead of a blade: deposits raise it, sweeps and melt lower it.
-    local snowImpact = snowRate * min(impinge, 12)
+    local snowImpact = WINDSCREEN_SNOW and snowRate * min(impinge, 5) or 0
     -- User-tuned visual flux: about 150/450/700 millimetre clumps per second at rest in light/medium/heavy.
     -- Stronger tiers add increasingly more clumps between identical wipes.
     -- Scale with incoming normal velocity; this tunes glass deposits without changing falling snow outside.
     local snowFlux = snowRate * (snowRate > 0.65 and 700 or snowRate > 0.3 and (450 / 0.65) or (150 / 0.3))
-    local clumpsPerSecond = snowFlux * min(impinge, 12)
+    local clumpsPerSecond = WINDSCREEN_SNOW and snowFlux * min(impinge, 5) or 0
     -- The ridge estimate follows incoming flux, independently of how many visual clumps represent it.
     snowOnGlass = max(0, min(1, snowOnGlass + snowImpact * dt / 12 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
@@ -2115,6 +2138,18 @@ function glass.setup()
     glass.sim.textures.txRustWater = false
     v.gParams:set(dt, 0, 0.02, clumpsPerSecond * dt / ((xw / 0.012) * (sw / 0.012)))
     v.gAir:set(tanX, tanS, airMag, impinge)
+    -- Wind removes centimetre-sized snow/slush patches over the whole front pane, outside the sweep too.
+    -- Only the vehicle's motion drives these detachments; stationary weather wind cannot trigger them.
+    local gusts = snowWindPatches(dt, glassOff and 0 or driveMag, frontSnowWind)
+    for g = 1, 4 do
+      local row = v.gGusts[rows[g]]
+      if g <= gusts then
+        row:set(x0 + sideRand(frontSnowWind) * xw, s0 + sideRand(frontSnowWind) * sw,
+          0.006 + sideRand(frontSnowWind) * 0.006, sideRand(frontSnowWind) * 6.283185)
+      else
+        row:set(0, 0, 0, 0)
+      end
+    end
     v.gMelt = melt
     v.gSnowMode = snowRate > 0 and 1 or 0
     -- Nominal rain landing probability over 8 mm cells, with a 3 x 3 neighbour lookup.

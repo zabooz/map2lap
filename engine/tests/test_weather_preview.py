@@ -35,7 +35,7 @@ function vector:set(x, y, z)
 end
 function vector:scale(k) self.x, self.y, self.z = self.x*k, self.y*k, self.z*k; return self end
 function vec3(x,y,z) return setmetatable({x=x or 0,y=y or 0,z=z or 0}, vector) end
-function vec2() return {x=0,y=0} end
+function vec2(x,y) return vec3(x,y,0) end
 function rgb(r,g,b) return {r=r,g=g,b=b} end
 mat4x4 = {identity=function() return {} end}
 script = {}
@@ -55,7 +55,9 @@ ac = {WeatherType=enums, FolderID={CurrentTrack=0}, getFolder=function() return 
   getSim=function() return sim end, getConditionsSet=function() return condition end,
   getWindVelocityTo=function(v) v:set(0,0,0) end, setMessage=function() end, log=function() end,
   setAppOpen=function() end, getPatchVersion=function() return 'test' end, getPatchVersionCode=function() return 3465 end}
-ac.INIConfig = {trackConfig=function() return {get=function() return true end} end}
+ac.INIConfig = {trackConfig=function() return {get=function() return true end} end,
+  raceConfig=function() return {get=function(_, section, key, default) return default end} end}
+ac.getCar = function() return {position=vec3(0,5,0), side=vec3(1,0,0), velocity=vec3()} end
 function ac.findNodes(path)
   assert(path=='luaRoot:yes', 'Disabled windscreen must not query car meshes')
   return {createNode=function() return holder end}
@@ -68,7 +70,8 @@ end
 function ac.IndicesBuffer(n) return {set=function() end} end
 render = {BlendMode={AlphaBlend=0}, CullMode={None=0}, DepthMode={ReadOnly=0},
   setBlendMode=function() end, setCullMode=function() end, setDepthMode=function() end,
-  getRenderTargetSize=function() return {x=1600,y=900} end, fullscreenPass=function() end}
+  getRenderTargetSize=function() return {x=1600,y=900} end, fullscreenPass=function() end,
+  on=function() return {} end}
 function render.mesh(pass) testHost.draws=testHost.draws+1 end
 local function intersection(origin,dir,length,roofs,ground)
   local hit = math.huge
@@ -106,7 +109,7 @@ return {
     return n
   end,
   zeroRelativeRain=function()
-    buildRain(1,px[0],py[0],pz[0]-5,0,0,1,0.001,0,5.5+weight[0]*3.5,0)
+    buildRain(1,px[0],py[0],pz[0]-5,0,0,1,0.001,0,5.5+weight[0]*3.5,0,1)
     return raw[0].pos.x,raw[0].pos.y,raw[0].pos.z
   end,
   draw=script.draw3D
@@ -119,7 +122,10 @@ class WeatherLuaTest(unittest.TestCase):
     def setUp(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(HOST)
-        self.api = self.lua.execute((ROOT / 'assets/weather/weather.lua').read_text(encoding='utf-8') + EXPORT)
+        source = (ROOT / 'assets/weather/weather.lua').read_text(encoding='utf-8')
+        # This host exercises outdoor geometry only; car-mesh/glass rendering requires AC.
+        source = source.replace('local WINDSCREEN_ENABLED = true', 'local WINDSCREEN_ENABLED = false', 1)
+        self.api = self.lua.execute(source + EXPORT)
 
     def test_shelter_finds_roof_and_leaves_open_sky_clear(self):
         self.lua.execute('testHost.physicsRoofs={10}')
@@ -228,7 +234,8 @@ class PreviewFilesTest(unittest.TestCase):
         proc = mock.Mock(pid=12345)
         proc.poll.return_value = 0
         proc.wait.side_effect = lambda: (on_exit(), 0)[1]
-        with mock.patch.object(sys, 'argv', ['run.py']), mock.patch.object(run.subprocess, 'Popen', return_value=proc), \
+        with mock.patch.dict(sys.modules, {'snow_rust': SimpleNamespace(ensure_running=mock.Mock())}), \
+                mock.patch.object(sys, 'argv', ['run.py']), mock.patch.object(run.subprocess, 'Popen', return_value=proc), \
                 mock.patch('builtins.print'):
             run.main()
         return json.loads(self.context.STATE.read_text())

@@ -23,7 +23,8 @@ class WeatherTest(unittest.TestCase):
     def test_invalid_values_are_rejected_before_a_session_is_changed(self):
         for field, values in {'kind': ['storm', 1], 'intensity': ['extreme', None],
                               'windDirection': [-2, 361, float('nan'), True],
-                              'windSpeed': [-1, 36, float('inf'), True], 'fog': [1, 'yes']}.items():
+                              'windSpeed': [-1, 36, float('inf'), True], 'fog': [1, 'yes'],
+                              'windscreenSnow': [1, 'no', None]}.items():
             for value in values:
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     self.options(**{field: value})
@@ -48,6 +49,14 @@ class WeatherTest(unittest.TestCase):
         weather.apply_session(ini, self.options(windDirection=0, windSpeed=10))
         self.assertEqual(float(ini['WIND']['DIRECTION_DEG']), 180)
 
+    def test_windscreen_snow_switch_preserves_native_snow_and_defaults_to_enabled(self):
+        for enabled in (False, True):
+            ini = configparser.ConfigParser()
+            weather.apply_session(ini, self.options(kind='snow', intensity='heavy', windscreenSnow=enabled))
+            self.assertEqual(ini['LIGHTING']['__MAP2LAP_WINDSCREEN_SNOW'], str(int(enabled)))
+            self.assertEqual(ini['LIGHTING']['__CM_WEATHER_TYPE'], '11')
+        self.assertTrue(weather.parse({})['windscreenSnow'])
+
     def test_install_is_idempotent_and_preserves_the_tracks_other_configuration(self):
         with tempfile.TemporaryDirectory() as temporary:
             track = Path(temporary)
@@ -64,7 +73,7 @@ class WeatherTest(unittest.TestCase):
             self.assertEqual(first.count(b'INCLUDE: map2lap_weather.ini'), 1)
             self.assertEqual((ext / 'map2lap_weather.lua').read_bytes(), weather.SCRIPT.read_bytes())
             self.assertIn(b'SCRIPT=map2lap_weather.lua', (ext / 'map2lap_weather.ini').read_bytes())
-            self.assertIn('WINDSCREEN_ENABLED = false', weather.SCRIPT.read_text())
+            self.assertIn('__MAP2LAP_WINDSCREEN_SNOW', weather.SCRIPT.read_text())
 
     def test_controller_installs_without_modifying_csp_base_files(self):
         with tempfile.TemporaryDirectory() as temporary:

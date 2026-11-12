@@ -141,6 +141,8 @@ the stars are `NightSky`. It is the Editor's own: AC's midnight is black outside
 Properties places Weather below Time of day. Dry offers Clear, Partly cloudy and Overcast; Rain and Snow offer Light,
 Moderate and Heavy. Heavy Rain uses CSP's Heavy Thunderstorm preset, including its native lightning. Heavy Snow already
 has the base weather's strongest fog. Additional fog blends toward CSP Fog while retaining the selected precipitation type.
+Snow also offers Snow on windscreen, enabled by default. Turning it off prevents snow deposits on the front windscreen
+in the next AC session; outdoor snowfall and side-window snow retain the selected intensity.
 Wind direction is a compass bearing (where it comes from), with Random before 0 degrees; 360 is also north. Wind speed is
 0–35 km/h, CSP's normal conditions limit. Random is resolved once for each Play. The app does not change CSP's global
 experimental limits.

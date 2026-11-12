@@ -59,7 +59,7 @@ test("Play carries the selected weather, wind, additional fog and clock into the
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
   expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5,
-    weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true}});
+    weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true}});
 });
 
 test("random precedes north and changing tracks resets the preview weather", async ({page}) => {
@@ -79,6 +79,19 @@ test("random precedes north and changing tracks resets the preview weather", asy
   await expect(weather.getByRole("slider", {name: "Wind direction"})).toHaveValue("-1");
 });
 
+test("windscreen snow can be disabled while the native snowfall remains selected", async ({page}) => {
+  await openEditor(page);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  const weather = page.getByRole("region", {name: "Weather settings"});
+  await weather.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
+  const toggle = weather.getByRole("checkbox", {name: "Snow on windscreen"});
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  const started = page.waitForRequest("**/api/play");
+  await page.locator("#edit-play").click();
+  expect((await started).postDataJSON().weather).toMatchObject({kind: "snow", windscreenSnow: false});
+});
+
 test("Save as new track followed by Play keeps the chosen weather and clock through the track switch", async ({page}) => {
   await openEditor(page);
   await deleteTree(page);
@@ -93,5 +106,5 @@ test("Save as new track followed by Play keeps the chosen weather and clock thro
   const started = page.waitForRequest("**/api/play");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
   expect((await started).postDataJSON()).toEqual({name: "snow_copy", clock: 18.5,
-    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: 0, fog: false}});
+    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true}});
 });

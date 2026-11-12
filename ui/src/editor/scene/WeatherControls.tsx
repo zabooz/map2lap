@@ -25,6 +25,9 @@ export function WeatherControls({view}: {view: TrackView}) {
         </select>
       </label>
     </div>
+    {options.kind === "snow" && <label className={styles.toggle}>
+      <input type="checkbox" checked={options.windscreenSnow} onChange={e => update("windscreenSnow", e.target.checked)} />Snow on windscreen
+    </label>}
     <label className={styles.field}>Wind direction: <span className={styles.value}>{options.windDirection < 0 ? "Random" : `${options.windDirection}°`}</span>
       <input aria-label="Wind direction" type="range" min={-1} max={360} step={1} value={options.windDirection}
              title="Where the wind comes from: 0°/360° north, 90° east, 180° south, 270° west. Far left: random."

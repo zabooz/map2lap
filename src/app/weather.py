@@ -10,7 +10,7 @@ ASSETS = Path(ROOT) / 'assets' / 'weather'
 SCRIPT = ASSETS / 'weather.lua'
 CONTROLLER = ASSETS / 'controller.lua'
 MAX_WIND = 35  # km/h: public CSP's normal limit unless INCREASE_CONDITIONS_LIMITS is explicitly enabled.
-DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': 0, 'fog': False}
+DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': 0, 'fog': False, 'windscreenSnow': True}
 TYPES = {'dry': (15, 17, 19), 'rain': (6, 7, 2), 'snow': (9, 10, 11)}
 LEVELS = ('light', 'medium', 'heavy')
 BEGIN, END = b'; MAP2LAP_WEATHER_BEGIN', b'; MAP2LAP_WEATHER_END'
@@ -21,7 +21,8 @@ def parse(value):
     if not isinstance(value, dict) or set(value) - set(DEFAULT):
         raise ValueError('Invalid weather settings')
     out = {**DEFAULT, **value}
-    if not isinstance(out['kind'], str) or out['kind'] not in TYPES or out['intensity'] not in LEVELS or not isinstance(out['fog'], bool):
+    if (not isinstance(out['kind'], str) or out['kind'] not in TYPES or out['intensity'] not in LEVELS
+            or not isinstance(out['fog'], bool) or not isinstance(out['windscreenSnow'], bool)):
         raise ValueError('Invalid weather, intensity or fog setting')
     for key in ('windDirection', 'windSpeed'):
         n = out[key]
@@ -48,6 +49,7 @@ def apply_session(ini, options):
     ini['LIGHTING']['__CM_WEATHER_CONTROLLER'] = 'map2lap'
     ini['LIGHTING']['__CM_WEATHER_TYPE'] = str(weather_type(options))
     ini['LIGHTING']['__MAP2LAP_FOG'] = '1' if options['fog'] else '0'
+    ini['LIGHTING']['__MAP2LAP_WINDSCREEN_SNOW'] = '1' if options['windscreenSnow'] else '0'
     # This vanilla fallback also works before CSP is installed; CSP uses the explicit type above.
     ini['WEATHER']['NAME'] = '3_clear' if options['kind'] == 'dry' and options['intensity'] == 'light' else '7_heavy_clouds'
     direction = secrets.randbelow(360) if options['windDirection'] == -1 else options['windDirection']

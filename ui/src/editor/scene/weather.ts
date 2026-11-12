@@ -1,7 +1,7 @@
 /** Session-only weather: the editor gives a lightweight indication; CSP renders the actual sky in AC. */
 export type WeatherOptions = {kind: "dry" | "rain" | "snow"; intensity: "light" | "medium" | "heavy";
-  windDirection: number; windSpeed: number; fog: boolean};
-export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false};
+  windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean};
+export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true};
 export const MAX_WIND_KMH = 35; // CSP's normal conditions limit, without changing its global experimental settings.
 
 /** Approximate cloud cover, light and visibility for the editor, following CSP's base preset ordering. Pure. */
