@@ -85,3 +85,19 @@ test("an imported Copy preview and its pending solid share the asset geometry an
   ghost.dropPending(pending); expect(held).toBe(0);
   geometry.dispose(); material.dispose();
 });
+
+test("a TreeFX tree's Copy preview shares its model's geometry at its matrix, its material translucent", () => {
+  const geometry = new THREE.PlaneGeometry(2, 4).translate(0, 2, 0), material = new THREE.MeshLambertMaterial();
+  const scene = new THREE.Scene(), view = Object.create(TrackView.prototype) as TrackView;
+  const matrix = new THREE.Matrix4().makeTranslation(10, 1, 5);
+  Object.assign(view, {scene, byNumber: new Map(), mouse: null, data: {objects: {}}});
+  Object.assign(view, {mover: moverOf(view), objects: objectsOf(view)});
+  Object.assign(view, {ghost: ghostOf(view, {trees: () => ({parts: (id: string) => id === "trees#4" ? [{geometry, material, matrix}] : null}),
+                                              pivotOf: () => [10, 1, 5]})});
+  view.ghost.setCopy("trees#4", () => {}, [10, 1, 5]);
+  const group = scene.children[0] as THREE.Group, mesh = group.children[0] as THREE.Mesh;
+  expect([group.children.length, mesh.geometry === geometry, (mesh.material as THREE.Material).opacity]).toEqual([1, true, 0.5]);
+  expect(new THREE.Box3().setFromObject(group).min.y).toBe(1);
+  view.ghost.setCopy(null, null);
+  expect(geometry.getAttribute("position").count).toBeGreaterThan(0);     // (the model's own: not let go with the ghost)
+});

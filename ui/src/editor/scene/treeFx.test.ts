@@ -165,3 +165,13 @@ test("trees on their way when Move shows a tree elsewhere are dropped: they woul
   release(); await loading;
   expect(new THREE.Vector3().setFromMatrixPosition(d.matrix("trees#2")!).x).toBe(10);
 });
+
+test("the feet in a box are those of the trees there, where Move shows them, those shrunk too", async () => {
+  const {draw: d} = draw();
+  await d.load();
+  expect(d.feet(0, -10, 20, 10).map(f => f.id).sort()).toEqual(["trees#0", "trees#2"]);
+  d.leaveOut(new Set(["trees#0"]), new Set());                      // (shrunk: Delete's brush leaves them out while it runs)
+  d.nudge("trees#2", [7, 0, 2], new THREE.Matrix4().makeTranslation(100, 0, 0), d.matrix("trees#2")!);
+  expect(d.feet(0, -10, 20, 10)).toEqual([{id: "trees#0", model: "spruce", at: [5, 0, 0]}]);
+  expect(d.feet(100, -10, 120, 10)).toEqual([{id: "trees#2", model: "spruce", at: [107, 0, 2]}]);
+});

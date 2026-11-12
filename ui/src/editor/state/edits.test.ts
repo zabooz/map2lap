@@ -337,3 +337,17 @@ test("other texture settings replace one paint in its place as one undo step, th
   edits.replacePaint("matte road", "matte road");
   expect(edits.state()).toBe(before);
 });
+
+test("a TreeFX tree Copy placed is one Undo step, goes to the server at once, and a refused one leaves the draft and history", async () => {
+  const {s, edits} = await started();
+  const added = {id: "trees#7", model: "spruce", pos: [1, 2, 3], angle: 10, size: 1.2, width: 0.9};
+  edits.addTree(added);
+  expect(edits.state().trees).toEqual([added]);
+  await settle();
+  expect((s.asked.at(-1)!.body as unknown as {trees: unknown}).trees).toEqual([added]);
+  edits.undo(); expect(edits.state().trees).toEqual([]);
+  edits.redo(); expect(edits.state().trees).toEqual([added]);
+  edits.rejectCopy("trees#7");
+  expect(edits.state().trees).toEqual([]);
+  expect(edits.changed()).toBe(false);
+});

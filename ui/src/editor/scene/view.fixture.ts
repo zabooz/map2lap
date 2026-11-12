@@ -47,7 +47,7 @@ export function brushOf(view: object, host: Partial<BrushHost> = {}) {
   return new ViewBrush({
     get scene() { return fields.scene ?? new THREE.Scene(); }, get objects() { return fields.objects; },
     data: () => (fields.data ?? null) as TrackIndex | null, point: () => {}, ground: () => null, look: () => null, wheelTaken: () => false,
-    pivotOf: id => fields.mover?.pivotOf(id) ?? fields.pivotOf!(id), showPreview: () => {}, keepPreview: () => {}, takeBackPreview: () => {}, changed: () => {}, ...host,
+    pivotOf: id => fields.mover?.pivotOf(id) ?? fields.pivotOf!(id), trees: () => ({feet: () => []}), showPreview: () => {}, keepPreview: () => {}, takeBackPreview: () => {}, changed: () => {}, ...host,
   });
 }
 
@@ -59,7 +59,7 @@ export function ghostOf(view: object, host: Partial<GhostHost> = {}) {
     mouse?: THREE.Vector2 | null; camera?: THREE.PerspectiveCamera; groundVersion?: number; held?: number; shown?: boolean; dirty?: boolean};
   return new PlacementGhost({
     get scene() { return v.scene ?? new THREE.Scene(); }, get objects() { return v.objects; },
-    models: () => v.modelDraw as ModelDraw, mesh: i => v.byNumber?.get(i),
+    models: () => v.modelDraw as ModelDraw, trees: () => ({parts: () => null}), mesh: i => v.byNumber?.get(i),
     canMove: id => v.mover?.canMove(id) ?? true, pivotOf: id => v.mover?.pivotOf(id) ?? v.pivotOf!(id), ground: () => v.copyAt?.() ?? null,
     look: () => {
       const c = v.camera;

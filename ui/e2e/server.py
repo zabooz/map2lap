@@ -28,8 +28,8 @@ import generator  # noqa: E402
 import furniture  # noqa: E402
 import server  # noqa: E402
 from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, updater, version  # noqa: E402
-from scenery import cars, trees  # noqa: E402
-from track import editorinfo, kn5, objectlist, surfaceindex  # noqa: E402
+from scenery import cars, treefx, trees  # noqa: E402
+from track import editorinfo, kn5, make_track_folder, objectlist, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
 # Test an isolated UI build without replacing the live generator page's bundles.
@@ -177,13 +177,14 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, treefx=False):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
     power pole with a span of wires, listed ("two": a pole at each end of the span, which they share). hill: the road tile on the
-    2 m lattice of a real build, with a hill across it."""
+    2 m lattice of a real build, with a hill across it. treefx: two CSP TreeFX trees, a spruce on the road ahead of the start and a birch
+    beside it (generator --treefx), in its list, its trees.txt and their models."""
     root = os.path.join(AC, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     with open(ATLAS, "rb") as f:
@@ -238,7 +239,11 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                     [(0, 1, 0)] * 4, [(0, 0), (1, 0), (0, -1), (1, -1)], [0, 2, 1, 1, 2, 3])
         tree.children.insert(-1, node)
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
-    objectlist.write(os.path.join(root, name + ".kn5"), listed)
+    trees = {"next": 2, "trees": {"0": {"model": "spruce", "pos": [128.0, 0.0, -130.0], "angle": 0.0, "size": 2.0, "width": 1.0},
+                                  "1": {"model": "birch", "pos": [100.0, 0.0, -150.0], "angle": 0.0, "size": 1.0, "width": 1.0}}} if treefx else None
+    objectlist.write(os.path.join(root, name + ".kn5"), listed, trees)
+    os.makedirs(os.path.join(root, "extension"), exist_ok=True)
+    make_track_folder.write_trees(root, trees)
     if name != "gamma":
         parts = []
         for ty in (-1, 0):
@@ -394,6 +399,11 @@ class Handler(server.Handler):
             return self._send(200, {"dimensions": [width, height], "weights": [float(v[height // 2, width // 2]) for v in weights.values()]})
         if self.path == "/__test/calls":
             return self._send(200, calls)
+        if self.path.startswith("/__test/trees?name="):     # (the TreeFX trees AC gets: the track's trees.txt, each line read)
+            name = generator.slug(self.path.split("=", 1)[1])
+            path = os.path.join(AC, "content", "tracks", name, "extension", "trees", "trees.txt")
+            with open(path, encoding="utf-8") as f:
+                return self._send(200, [t for t in map(treefx.parse, f) if t])
         if self.path.startswith("/__test/meshes?name="):    # (what the track's own kn5 holds, as AC reads it: the Editor shows its source)
             name = generator.slug(self.path.split("=", 1)[1])
             tracks = kn5.read(os.path.join(AC, "content", "tracks", name, name + ".kn5"))
@@ -416,7 +426,7 @@ class Handler(server.Handler):
                        pole=body.get("pole", False), hill=body.get("hill", False), verge=body.get("verge", False), grass=body.get("grass", False),
                        ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False),
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
-                       tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"))
+                       tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), treefx=body.get("treefx", False))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

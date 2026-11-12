@@ -192,6 +192,37 @@ class DraftTest(TreesBase):
         self.assertEqual(1, trackedits.changes(self.ac, "t"))
 
 
+class CopyTest(TreesBase):
+    def copy(self, body):
+        now = trackedits.load(self.ac, "t")
+        return trackedits.copy_template(self.ac, "t", {"base": now["base"], "revision": now["revision"], **body})
+
+    def test_a_tree_picked_to_copy_gives_its_model_turn_and_size_and_its_foot_on_the_edited_ground(self):
+        self.draft(heights=[UP])
+        answer = self.copy({"object": "trees#2"})
+        self.assertEqual({"tree": {"model": "spruce", "angle": 350.0, "size": 1.2, "width": 0.9}}, answer["template"])
+        self.assertEqual(([7.0, 1.0, 2.0], "3D tree"), (answer["at"], answer["kind"]))
+
+    def test_a_copy_placed_takes_the_next_number_never_given_and_stands_on_the_ground_as_save_lifts_it(self):
+        self.draft(heights=[UP])
+        template = {"tree": {"model": "spruce", "angle": 350.0, "size": 1.2, "width": 0.9}}
+        tree = self.copy({"template": template, "at": [20, 5, 3], "pose": {"turn": 10, "y": 0.5, "scale": 2}})["tree"]
+        self.assertEqual({"id": "trees#3", "model": "spruce", "pos": [20.0, 4.5, 3.0], "angle": 0.0, "size": 2.4, "width": 0.9}, tree)
+        self.draft(trees=[tree])
+        self.assertEqual("trees#4", self.copy({"template": template, "at": [30, 1, 3]})["tree"]["id"])
+        self.draft(trees=[])                                # (undone: its number stays given)
+        self.assertEqual("trees#4", self.copy({"template": template, "at": [30, 1, 3]})["tree"]["id"])
+        trackcopy.save(self.ac, "t")
+        self.assertEqual(4, self.saved_section()["next"])
+
+    def test_a_copy_of_a_deleted_tree_or_of_no_model_on_the_track_is_refused(self):
+        self.draft(deleted=["trees#2"])
+        with self.assertRaises(trackedits.Invalid):
+            self.copy({"object": "trees#2"})
+        with self.assertRaises(trackedits.Invalid):
+            self.copy({"template": {"tree": {"model": "larch", "angle": 0, "size": 1, "width": 1}}, "at": [1, 0, 1]})
+
+
 class SaveTest(TreesBase):
     def test_a_tree_deleted_is_left_out_of_the_list_and_trees_txt_its_number_given_for_good(self):
         self.draft(deleted=["trees#2"])

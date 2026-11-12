@@ -23,7 +23,8 @@ export function EditNotes({state, note, markedName, picked, sort}: {
       {state.heights.length > 0 && <p id="edit-heights" className={styles.line}>{heightCount(state.heights.length)}</p>}
       {state.placed.length > 0 && <p id="edit-placed" className={styles.line}>{placedCount(state.placed.length)}</p>}
       {state.removed.length > 0 && <p id="edit-count" className={styles.line}>{count(state.removed.length)}</p>}
-      {state.copies.length > 0 && <p id="edit-copies" className={styles.line}>{state.copies.length} {state.copies.length === 1 ? "copy" : "copies"}</p>}
+      {state.copies.length + state.trees.length > 0 && <p id="edit-copies" className={styles.line}>{state.copies.length + state.trees.length}
+        {state.copies.length + state.trees.length === 1 ? " copy" : " copies"}</p>}
       {state.models.length > 0 && <p className={styles.line}>{state.models.length} {state.models.length === 1 ? "model instance" : "model instances"}</p>}
       {state.paints.length > 0 && <p id="edit-paints" className={styles.line}>{state.paints.length} material {state.paints.length === 1 ? "change" : "changes"}</p>}
       {(state.sorts.length > 0 || state.objectSorts.length > 0) && (

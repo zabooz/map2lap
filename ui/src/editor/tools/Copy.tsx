@@ -5,7 +5,7 @@ import type {CopyTemplate, ObjectCopy} from "./copying";
 import type {ModelInstance, TrackEdits} from "../state/edits";
 import {nudged, unplaced, type Placement} from "./placing";
 import {thenView, ToolAction, ToolNumber, ToolOptions} from "./ToolOptions";
-import type {Picked, WheelKeys} from "../types";
+import type {AddedTree, Picked, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
 
 interface Ready {template: CopyTemplate; at: number[]; kind: string; source: string}
@@ -54,12 +54,12 @@ export function CopyTool({name, edits, view, picked, onWheel, onFailed}: {name: 
         edits.saveNow();
         const revision = await edits.saved();
         if (revision === null || !edits.canEdit()) throw new Error("The copy could not be kept: the preceding changes could not be saved.");
-        const r = await post<{copy?: ObjectCopy; model?: ModelInstance; placed?: Placement[]}>(`/api/editor/${encodeURIComponent(name)}/copy`,
+        const r = await post<{copy?: ObjectCopy; model?: ModelInstance; placed?: Placement[]; tree?: AddedTree}>(`/api/editor/${encodeURIComponent(name)}/copy`,
           {base: edits.boundRevision(), revision, template, at, pose: options});
-        if (r.error || (!r.copy && !r.model)) throw new Error(r.error ?? "Could not place the copy");
-        created = (r.model ?? r.copy)!.id;
+        if (r.error || (!r.copy && !r.model && !r.tree)) throw new Error(r.error ?? "Could not place the copy");
+        created = (r.model ?? r.copy ?? r.tree)!.id;
         if (shown !== null) view.ghost.confirmPending(shown, created, revision);
-        if (r.model) edits.addModel(r.model, r.placed); else edits.addCopy(r.copy!);
+        if (r.model) edits.addModel(r.model, r.placed); else if (r.tree) edits.addTree(r.tree); else edits.addCopy(r.copy!);
         edits.saveNow();
         if (await edits.saved() === null) throw new Error(edits.state().error ?? "Could not keep the copy");
         shown = null;

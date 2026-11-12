@@ -177,12 +177,12 @@ export class TrackView {
       point: e => { this.mouse = screenPoint(e, this.renderer.domElement); },
       ground: () => this.brushAt(),
       look: () => this.mouse && `${this.mouse.x} ${this.mouse.y} ${this.camera.position.toArray()}`,
-      wheelTaken: () => this.wheelTaken, pivotOf: id => this.mover.pivotOf(id),
+      wheelTaken: () => this.wheelTaken, pivotOf: id => this.mover.pivotOf(id), trees: () => this.treeFx,
       showPreview: bytes => this.showPreview(bytes), keepPreview: () => this.keepPreview(), takeBackPreview: () => this.takeBackPreview(),
       changed: () => { this.dirty = true; },
     });
     this.ghost = new PlacementGhost({
-      scene: this.scene, objects: this.objects, models: () => this.modelDraw, mesh: i => this.byNumber.get(i),
+      scene: this.scene, objects: this.objects, models: () => this.modelDraw, trees: () => this.treeFx, mesh: i => this.byNumber.get(i),
       canMove: id => this.mover.canMove(id), pivotOf: id => this.mover.pivotOf(id), ground: () => this.copyAt(),
       look: () => {
         const c = this.camera, p = c.position, q = c.quaternion;
@@ -809,6 +809,7 @@ export class TrackView {
     try {
       await this.treeFx.apply(change);
       if (mine !== this.token) return;
+      this.ghost.settleTrees(id => !!this.treeFx.tree(id), change.gone);
       this.leaveOutTrees();
       this.mover.followTrees();
       this.selection.reframe(); this.selection.reframeMarked();
@@ -818,9 +819,14 @@ export class TrackView {
     }
   }
 
+  /** The TreeFX trees the draft leaves out, and those Delete's brush has taken while its stroke runs. */
   private leaveOutTrees() {
-    if (this.treeFx.leaveOut(this.objects.removed, this.objects.removedObjectSorts)) this.dirty = true;
+    const gone = this.brush.goneNow;
+    this.treesGone = gone;
+    const removed = gone.size ? new Set([...this.objects.removed, ...gone]) : this.objects.removed;
+    if (this.treeFx.leaveOut(removed, this.objects.removedObjectSorts)) this.dirty = true;
   }
+  private treesGone: ReadonlySet<string> = new Set();      // (Delete's brush's gone, as leaveOutTrees last took it)
 
   private ensureModelLight() {
     if (!this.modelLight) {
@@ -1036,6 +1042,7 @@ export class TrackView {
         m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
       }
       this.cullModels();
+      if (this.brush.goneNow !== this.treesGone) this.leaveOutTrees();
       this.treeFx.follow(this.camera.position);
       this.surfaceOverlay?.follow();
       this.flushModels();

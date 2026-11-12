@@ -7,7 +7,7 @@ import {isCurrent, type EditState, type TrackEdits} from "./edits";
 import type {TrackView} from "../scene/view";
 
 export const isChanged = (s: EditState) => s.removed.length > 0 || s.sorts.length > 0 || s.objectSorts.length > 0 || s.heights.length > 0
-  || s.placed.length > 0 || s.copies.length > 0 || s.paints.length > 0 || (s.models?.length ?? 0) > 0;
+  || s.placed.length > 0 || s.copies.length > 0 || s.paints.length > 0 || (s.models?.length ?? 0) > 0 || (s.trees?.length ?? 0) > 0;
 /** Never saved here, nothing changed: nothing to save, as a file just opened. Pure. */
 const isAsBuilt = (s: EditState) => !isChanged(s) && !s.recipe;
 const clock = (at: number) => new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});

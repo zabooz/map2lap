@@ -271,6 +271,13 @@ export class TreeFxDraw {
     return moved ? out.copy(moved) : treeMatrix(t.pos[0], t.pos[1], t.pos[2], t.angle, t.size, t.width, out);
   }
 
+  /** A tree's finest LOD as Copy's ghost shows it: each part's shared geometry and material, and the tree's matrix; null for none. */
+  parts(id: string) {
+    const tree = this.trees.get(id), model = tree && this.models.get(tree.model);
+    if (!tree || !model) return null;
+    return model.lods[0].parts.map(part => ({...part, matrix: this.matrixOf(id)}));
+  }
+
   /** A tree's matrix as drawn now, null for none. */
   matrix(id: string) { return this.trees.has(id) ? this.matrixOf(id) : null; }
 
@@ -359,6 +366,24 @@ export class TreeFxDraw {
     if (!model) return null;
     const r = model.width / 2;
     return new THREE.Box3(new THREE.Vector3(-r, 0, -r), new THREE.Vector3(r, model.height, r)).applyMatrix4(this.matrixOf(id));
+  }
+
+  /** The feet of the trees whose foot lies in the box from x0, z0 to x1, z1, where they stand as drawn (Move's too), with their
+      model: what Delete's brush could take there. Those shrunk to a point count too: the brush's own stroke leaves them out while it
+      runs, and takes them when it ends (the brush leaves out what the draft does). Only the batches of the cells the box touches are
+      looked through. */
+  feet(x0: number, z0: number, x1: number, z1: number) {
+    const found: {id: string; model: string; at: [number, number, number]}[] = [], at = new THREE.Vector3();
+    const [cx0, cz0, cx1, cz1] = [x0, z0, x1, z1].map(v => Math.floor(v / CELL_M));
+    for (const batch of this.batches.values()) {
+      const [cx, cz] = batch.cell.split(",").map(Number);
+      if (cx < cx0 || cx > cx1 || cz < cz0 || cz > cz1) continue;
+      for (const id of batch.members) {
+        at.setFromMatrixPosition(this.matrixOf(id));
+        if (at.x >= x0 && at.x <= x1 && at.z >= z0 && at.z <= z1) found.push({id, model: batch.model, at: [at.x, at.y, at.z]});
+      }
+    }
+    return found;
   }
 
   /** The rooms of the trees of a model shown now. */

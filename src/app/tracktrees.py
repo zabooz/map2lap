@@ -7,6 +7,7 @@ under its foot, after its placement, as they do listed objects (trackheights.lis
 and trees.txt (trackcopy); the models stay in the track's folder, every one, so a tree that comes back has its model.
 """
 import json
+import math
 import re
 
 import numpy as np
@@ -97,6 +98,44 @@ def changed(section, before, after):
         return None
     base = {id_: tree(id_) for id_ in sorted(ids, key=number)}
     return {"trees": {id_: {**t, "base": base[id_]["pos"]} for id_, t in now(base, after["placed"], after["heights"]).items()}, "gone": gone}
+
+
+def kind(model):
+    """What the page calls a tree of a model (pointing.ts says the same). Pure."""
+    return "3D bush" if re.search("shrub|bush", model) else "3D tree"
+
+
+def template(trees, id_, draft):
+    """What Copy takes of the tree id_ (trees: Trees) as the draft leaves it: {"template": {"tree": its model, turn and size}, "at":
+    its foot on the edited ground, "kind"}. ValueError for none, or one the draft deletes. Pure."""
+    tree = trees.get(id_)
+    if tree is None or id_ in {d["id"] for d in draft["deleted"]} or tree["model"] in draft["object_sorts"]:
+        raise ValueError("The source object is deleted")
+    stands = now({id_: tree}, draft["placed"], draft["heights"])[id_]
+    return {"template": {"tree": {k: stands[k] for k in ("model", "angle", "size", "width")}}, "at": stands["pos"], "kind": kind(tree["model"])}
+
+
+def copied(section, draft, tree, at, pose):
+    """A tree Copy places: tree (a template's) with its foot at at, the clicked ground as the draft shows it, raised, turned and
+    scaled by pose; under the first number never given, its height on the ground without the draft's height changes, as Save lifts it
+    by them (trackcopies does so for copied objects). ValueError for no tree, place or pose, or a model not on the track. Pure."""
+    if not (isinstance(tree, dict) and set(tree) == {"model", "angle", "size", "width"}) or objectlist.tree_problem({**tree, "pos": [0, 0, 0]}):
+        raise ValueError("No tree to copy")
+    pose = pose if isinstance(pose, dict) else {}
+    if not all(type(pose.get(k, 0)) in (int, float) and math.isfinite(pose.get(k, 0)) for k in ("turn", "y", "scale")):
+        raise ValueError("No copy turn, height or size")
+    if not (isinstance(at, list) and len(at) == 3 and all(type(v) in (int, float) and math.isfinite(v) for v in at)):
+        raise ValueError("No copy position")
+    x, y, z = at
+    ground = float(trackheights.Field(draft["heights"]).at(np.array([x]), np.array([z]))[0][0]) if draft["heights"] else 0.0
+    new = {"id": objectlist.treefx_id(next_of(section, draft["trees"], draft["trees_next"])), "model": tree["model"],
+           "pos": [round(x, 2), round(y + pose.get("y", 0) - ground, 2), round(z, 2)],
+           "angle": float(round(tree["angle"] + pose.get("turn", 0)) % 360), "size": round(tree["size"] * pose.get("scale", 1), 3),
+           "width": tree["width"]}
+    wrong = problem(draft["trees"] + [new], section)
+    if wrong:
+        raise ValueError(wrong)
+    return new
 
 
 def next_of(section, added, given=0):

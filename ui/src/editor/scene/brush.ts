@@ -9,6 +9,7 @@ import {addSample} from "./strokeSamples";
 import {LEFT_BUTTON} from "./pointer";
 import {frameOf, removeFrame} from "./selection";
 import {NOT_MOVED, type TrackObjects} from "./trackObjects";
+import type {TreeFxDraw} from "./treeFx";
 
 const SAMPLE_EVERY_MS = 50;         // where the ring is, this often while the mouse is held: finer than a hand moves it, and it counts the time where it stands
 const PREVIEW_EVERY_MS = 200;       // how often a stroke under way is asked for: at most one at a time, what is newest when it is answered goes next
@@ -25,6 +26,7 @@ export interface BrushHost {
   look(): string | null;                // the mouse and the camera as they are: a stroke stands still while this stays; null: no mouse
   wheelTaken(): boolean;                // Ctrl and Alt with the wheel are a tool's without the brush too
   pivotOf(id: string): number[];        // where a listed object stands now, as the draft moved it
+  trees(): Pick<TreeFxDraw, "feet">;    // the track's TreeFX trees
   showPreview(bytes: ArrayBuffer): void;        // the meshes as the stroke so far changes them
   keepPreview(): void;                  // ... kept until the server's meshes come
   takeBackPreview(): void;              // ... back as they were
@@ -199,7 +201,7 @@ export class ViewBrush {
   /** What Delete's brush takes along a stroke (samples, radius in m; alongStroke): every object a click could delete whose place lies
       there, where it stands now. Listed objects (built ones, copies, imported models) at their place as the draft moved them, only those
       at the top (a house's sign goes with it) and not a span of wires (it goes with its poles); trees and bushes of the loaded billboard
-      meshes at the middle of their foot. What is left out already is not taken again. */
+      meshes at the middle of their foot, TreeFX trees at their foot as drawn. What is left out already is not taken again. */
   objectsAlong(samples: Sample[], radius: number) {
     const data = this.host.data(), objects = this.host.objects;
     if (!data || !samples.length) return [];
@@ -221,6 +223,9 @@ export class ViewBrush {
         if (!near(at[0], at[2]) || seen.has(id) || objects.removed.has(id) || objects.sortRemoved(mesh, from)) continue;
         seen.add(id); found.push({id, position: at});
       }
+    }
+    for (const {id, model, at} of this.host.trees().feet(minX, minZ, maxX, maxZ)) {
+      if (!objects.removed.has(id) && !objects.removedObjectSorts.has(model)) found.push({id, position: at});
     }
     return alongStroke(found, samples, radius);
   }

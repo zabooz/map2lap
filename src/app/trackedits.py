@@ -275,6 +275,11 @@ def copy_template(ac, name, body):
             imported = next((m for m in now["models"] if m["id"] + "#0" == body.get("object")), None)
             if imported is not None:
                 return trackmodels.copy_template(ac, name, now, imported)
+            section = trackview.treefx_of(trackview.served(ac, name)[0])
+            if isinstance(body.get("template"), dict) and "tree" in body["template"]:
+                return {"tree": tracktrees.copied(section, now, body["template"]["tree"], body.get("at"), body.get("pose"))}
+            if tracktrees.number(body.get("object")) is not None:
+                return tracktrees.template(tracktrees.Trees(section, now["trees"]), body["object"], now)
         except (ValueError, KeyError, TypeError, OSError) as error:
             raise Invalid(str(error)) from error
         path, scan = trackview._scan_of(ac, name, now["base"])

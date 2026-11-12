@@ -5,6 +5,7 @@ import * as THREE from "three";
 import type {TrackIndex} from "../types";
 import type {CopyPose} from "../tools/copying";
 import {ModelDraw} from "./modelDraw";
+import type {TreeFxDraw} from "./treeFx";
 import type {TrackObjects} from "./trackObjects";
 
 /** What the ghost needs of the view it serves. */
@@ -12,6 +13,7 @@ export interface GhostHost {
   scene: THREE.Scene;
   objects: TrackObjects;
   models(): ModelDraw;                  // the track's imported models
+  trees(): Pick<TreeFxDraw, "parts">;   // the track's TreeFX trees
   mesh(i: number): THREE.Mesh | undefined;      // the loaded mesh number i
   canMove(id: string): boolean;         // whether a copy takes it along (not a span of wires)
   pivotOf(id: string): number[];        // where an object stands now
@@ -77,6 +79,16 @@ export class PlacementGhost {
     group.matrixAutoUpdate = false;
     const ids = [...this.host.objects.withMembers([source])].filter(id => this.host.canMove(id));
     const model = source.startsWith("instance_") ? this.host.models().instance(source.split("#")[0]) : undefined;
+    const tree = this.host.trees().parts(source);
+    for (const part of tree ?? []) {
+      // (a TreeFX tree's ghost shares its model's geometry; only its translucent material is the ghost's own)
+      const fade = part.material.clone(); fade.transparent = true; fade.opacity = .5; fade.depthWrite = false; materials.push(fade);
+      for (const [into, material] of [[group, fade], [solid, part.material]] as const) {
+        const mesh = new THREE.Mesh(part.geometry, material);
+        mesh.matrixAutoUpdate = false; mesh.matrix.copy(part.matrix);
+        into.add(mesh);
+      }
+    }
     if (model) {
       // Copy previews hold the same GLB geometry; only their translucent materials belong to the preview.
       const original = model.clone(true), translucent = model.clone(true);
@@ -91,7 +103,7 @@ export class PlacementGhost {
       });
       solid.add(original); group.add(translucent);
     }
-    for (const id of model ? [] : ids) for (const piece of this.host.objects.piecesOf(id, false)) {
+    for (const id of model || tree ? [] : ids) for (const piece of this.host.objects.piecesOf(id, false)) {
       const m = this.host.mesh(piece.mesh);
       if (!m) continue;
       const indices = m.geometry.getIndex()!.array;
@@ -114,6 +126,7 @@ export class PlacementGhost {
       solid.add(new THREE.Mesh(geometry, opaque));
       geometries.push(geometry); materials.push(material, opaque);
     }
+    group.updateMatrixWorld(true);      // (a tree's parts stand at their own matrix: not followed by setFromObject alone)
     const box = new THREE.Box3().setFromObject(group), pivot = this.host.pivotOf(source);
     if (box.isEmpty()) return;
     const releaseAsset = source.startsWith("instance_") ? this.host.models().hold(source.split("#")[0]) : () => {};
@@ -207,6 +220,11 @@ export class PlacementGhost {
       const drawn = copied ? copiesDrawn && exists : this.host.models().instance(instance);
       if (drawn || (data.draft ?? 0) > draft! && !exists) this.dropPending(key);
     }
+  }
+
+  /** Shown TreeFX trees whose tree is drawn now go, and those an answer says are gone (undone). */
+  settleTrees(drawn: (id: string) => boolean, gone: string[]) {
+    for (const [key, {instance}] of this.pending) if (instance?.startsWith("trees#") && (drawn(instance) || gone.includes(instance))) this.dropPending(key);
   }
 
   /** Extra turn, height over the ground and size for the next copies, around their foot. */

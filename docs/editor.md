@@ -253,8 +253,16 @@ scaled), and adds copies under numbers the track never gave (`"trees"`, `"trees_
 by Undo is not given again). Height changes lift each by the change under its foot after its placement (`app/tracktrees.py`).
 Save writes the list's section and `trees.txt` from the source and the draft, so a move is never added twice; `"next"` never
 falls, so a deleted tree's number is never reused. Every model stays in the track's folder, so a tree that comes back has its
-model; a copied track takes the folder, its trees.txt and its models along. A draft answer's `"treefx"` says the trees' places
-changed and the page asks for them again.
+model; a copied track takes the folder, its trees.txt and its models along.
+The view draws them (`scene/treeFx.ts`): the trees of one model in one 256 m cell are one instanced mesh at the LOD of the cell's
+distance, as CSP switches them, the coarsest out to 1200 m like the billboards; what the draft leaves out shrinks to a point in its
+slot. They are picked as other objects (the leaves' see-through parts are nothing, `pointing.ts`), framed, marked all of a model,
+deleted one by one or by Delete's brush (at their foot as drawn), moved with a preview of their matrix, and copied: Copy's
+`/copy` gives a tree's template, and each click a new tree under the next number never given, its height on the ground without
+the draft's height changes (`tracktrees.copied`). The trees come once when the track opens; after that each draft answer's
+`"treefx"` names only the trees it changed (`tracktrees.changed`: those placed otherwise, added or gone, and those under a changed
+height raster), which the view takes once no other change is on its way, so an older answer never sets back what Move shows. A
+tree that stays in its cell gets its slot rewritten, one that leaves or joins a cell rebuilds only those two batches.
 
 ## Material library and imports
 

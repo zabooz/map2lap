@@ -146,6 +146,16 @@ export interface TreeFxTree {
   width: number;
 }
 
+/** A TreeFX tree Copy added to the draft (trackedits "trees"): its id under a number the track never gave, its model and placement. */
+export interface AddedTree {
+  id: string;
+  model: string;
+  pos: number[];
+  angle: number;
+  size: number;
+  width: number;
+}
+
 /** What a draft answer changed of the TreeFX trees (trackedits: tracktrees.changed): those that stand otherwise, those added gone. */
 export interface TreeFxChange {
   trees: Record<string, TreeFxTree>;
