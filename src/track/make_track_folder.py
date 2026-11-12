@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 
 from app import settings, version
 from app.paths import ROOT
-from scenery import facades
+from scenery import facades, treefx
 from track import parallel
 
 AC = settings.ac_path()         # (generator page: Settings; else found through Steam)
@@ -147,6 +147,32 @@ SCRIPT = foam_anim.lua
 """ + facades.night_config()
 
 
+# CSP's 3D trees (scenery/treefx.py), with a build's TreeFX trees only: their models and list in extension/trees
+TREES_CONFIG = """
+; trees as CSP's 3D trees: models and places in trees/ (Map2Lap's object list holds them, trees.txt is made from it)
+[TREES]
+LIST_0 = trees/trees.txt
+"""
+
+
+def write_trees(root, trees):
+    """A track folder's TreeFX trees: their models, trees.txt and TREES_CONFIG at the end of its ext_config.ini, from trees, the
+    object list's section (objectlist.collect_treefx); None: no trees folder, not even an earlier build's."""
+    folder = os.path.join(root, "extension", "trees")
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
+    if not trees:
+        return
+    os.makedirs(folder)
+    listed = list(trees["trees"].values())
+    treefx.write_models(folder, [t["model"] for t in listed])
+    with open(os.path.join(folder, "trees.txt"), "w", encoding="utf-8") as f:
+        f.write("; Map2Lap: made from the track's object list (data/map2lap_objects.json)\n")
+        f.write("".join(treefx.text(t) + "\n" for t in listed))
+    with open(os.path.join(root, "extension", "ext_config.ini"), "a", encoding="utf-8") as f:
+        f.write(TREES_CONFIG)
+
+
 def read_obj(obj=OBJ):
     """(vertices in AC coordinates (x, y up, z), {surface prefix: triangles})."""
     V, faces, cur = [], {}, None
@@ -202,12 +228,13 @@ def _road_mask(part, view):
 
 
 def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"), city="", country="", geotags=None,
-         extra_description="", route=None, log=print, parts=None, bounds=None, point_to_point=False):
+         extra_description="", route=None, log=print, parts=None, bounds=None, point_to_point=False, trees=None):
     """route: the generator's ENU polyline [(east, north), ...]: highlighted on the minimap.
     point_to_point: with start and finish lines from A to B (ui_track.json "run", like rally and hill climb tracks).
     city, country, geotags (lat, lon): shown by Content Manager, which also takes sun and time zone from geotags.
     parts/bounds: make_obj's tile part files and the extent (x0, z0, x1, z1) in AC coordinates: the minimap is then
-    drawn from the parts' roads in several processes instead of from the whole OBJ."""
+    drawn from the parts' roads in several processes instead of from the whole OBJ.
+    trees: the TreeFX trees (objectlist.collect_treefx), None for none (write_trees)."""
     root = os.path.join(AC, "content", "tracks", name)
     for d in ("data", "ui"):
         os.makedirs(os.path.join(root, d), exist_ok=True)
@@ -216,6 +243,7 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
     os.makedirs(os.path.join(root, "extension"), exist_ok=True)
     with open(os.path.join(root, "extension", "ext_config.ini"), "w", encoding="utf-8") as f:
         f.write(EXT_CONFIG)
+    write_trees(root, trees)
     facades.write_glow(os.path.join(root, "extension"))
     tex_dir = os.path.join(os.path.dirname(obj), "textures")
     if os.path.exists(os.path.join(tex_dir, "water_waves.png")):

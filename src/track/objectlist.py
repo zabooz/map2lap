@@ -7,6 +7,11 @@ make_obj notes per tile what it adds, by the triangles in the order it added the
 into the kn5 they get split at AC's limit of vertices per mesh, and a 1WALL mesh gets each triangle a second time turned round:
 obj_to_kn5 knows where they end up, and writes the list for the whole track beside the kn5. An object's id on a track is
 "<its tile's OBJ part, t_<x>_<y>>#<its number>".
+
+TreeFX trees (CSP's 3D trees, scenery/treefx.py) have no triangles in the kn5: the list holds them apart ("treefx": {"next",
+"trees": {number: placement}}), each as its model and placement, the track's trees.txt made from them. A tree's id is
+"trees#<number>", numbered over the track in tile order; "next" is the first number never given, so a number stays its tree's
+after others are deleted and is never given again.
 """
 import json
 import os
@@ -25,6 +30,7 @@ TRACK = {"ground", "water", "foam", "far", "road", "walk", "walkcol", "deck", "t
          "guardrailcol", "gate"}            # the track itself: nothing to delete by a click
 OF_THE_TRACK = ("_sub",)                    # (a substation's fence: goes with its yard, which stays for now)
 NOT_ALL = {"house"}                         # sorts never deleted all at once: a click would take a whole street
+TREEFX = "trees"                            # the TreeFX trees' ids: trees#<number>
 SCHEMA = 4                                  # ("sorts" can be missing, in lists of older builds: sorts_of)
 
 
@@ -71,10 +77,17 @@ def sorts_of(entry):
     return entry.get("sorts") or entry["kinds"]
 
 
-def all_sorts(objects):
+def all_sorts(objects, treefx=None):
     """The sorts that can be deleted all at once on a track: of the objects that have triangles (a saved track's own list keeps the
-    numbers of what it left out, without any), but houses (one click takes a street). Pure."""
-    return {sort for entry in objects.values() for sort, faces in zip(sorts_of(entry), entry["faces"]) if faces} - NOT_ALL
+    numbers of what it left out, without any), but houses (one click takes a street), and the models of its TreeFX trees (treefx:
+    the list's section, None for none; they have no triangles, and every one listed stands). Pure."""
+    meshed = {sort for entry in objects.values() for sort, faces in zip(sorts_of(entry), entry["faces"]) if faces} - NOT_ALL
+    return meshed | {tree["model"] for tree in (treefx or {}).get("trees", {}).values()}
+
+
+def treefx_id(number):
+    """A TreeFX tree's id. Pure."""
+    return f"{TREEFX}#{number}"
 
 
 class TileList:
@@ -83,6 +96,7 @@ class TileList:
     def __init__(self):
         self.kinds, self.sorts, self.at, self.parents, self.meshes = [], [], [], [], {}
         self.details = []
+        self.treefx = []                    # (TreeFX placements: no triangles, numbered over the track by collect_treefx)
         self.spans, self.poles = {}, {}     # (a span's two ends, a pole's place: linked says which belongs to which)
 
     def new(self, kind, x, y, z, parent=-1, sort=None, details=None):
@@ -99,12 +113,12 @@ class TileList:
         self.meshes[name] = runs_of(owners)
 
     def save(self, part):
-        """Beside the tile's OBJ part; no objects: no file, not even an older one."""
+        """Beside the tile's OBJ part; no objects and no TreeFX trees: no file, not even an older one."""
         path = side_file(part)
-        if self.kinds:
+        if self.kinds or self.treefx:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"kinds": self.kinds, "sorts": self.sorts, "at": self.at, "parents": self.parents, "meshes": self.meshes,
-                           "spans": self.spans, "poles": self.poles, "details": self.details}, f)
+                           "spans": self.spans, "poles": self.poles, "details": self.details, "treefx": self.treefx}, f)
         elif os.path.exists(path):
             os.remove(path)
 
@@ -161,7 +175,7 @@ def chunk_objects(part, written):
     "sorts", "at", "parents", "faces": per object [[node number, first triangle, how many], ...]}}. Pure but for reading the side
     file."""
     listed = load_side(part)
-    if not listed:
+    if not listed.get("kinds"):
         return {}
     faces = [[] for _ in listed["kinds"]]
     for name, runs in listed["meshes"].items():
@@ -261,12 +275,21 @@ def well_formed(objects):
     return True
 
 
-def write(kn5_path, objects):
+def collect_treefx(parts):
+    """The TreeFX trees the tiles' OBJ parts noted, in the order of parts, as the list's section {"next", "trees": {number:
+    placement}}; None for none. Pure but for reading the side files."""
+    trees = [tree for part in parts for tree in load_side(part).get("treefx", ())]
+    if not trees:
+        return None
+    return {"next": len(trees), "trees": {str(k): tree for k, tree in enumerate(trees)}}
+
+
+def write(kn5_path, objects, treefx=None):
     """The list of the kn5 at kn5_path into its track's folder, whole or not at all, after the kn5. It holds for that state of the
-    file: a list of another, or one left by a build that stopped between the two, is taken for none (app.trackview.objects). No
-    objects: no list."""
+    file: a list of another, or one left by a build that stopped between the two, is taken for none (app.trackview.objects).
+    treefx: the TreeFX trees' section (collect_treefx), None for none. No objects and no TreeFX trees: no list."""
     path = os.path.join(os.path.dirname(kn5_path), FILE)
-    if not objects:
+    if not objects and not treefx:
         if os.path.exists(path):
             os.remove(path)
         return
@@ -274,7 +297,10 @@ def write(kn5_path, objects):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".map2lap_objects_")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"schema": SCHEMA, "kn5": state_of(kn5_path), "objects": objects}, f, separators=(",", ":"))
+            listed = {"schema": SCHEMA, "kn5": state_of(kn5_path), "objects": objects}
+            if treefx:
+                listed["treefx"] = treefx
+            json.dump(listed, f, separators=(",", ":"))
         os.replace(temporary, path)
     except BaseException:
         os.unlink(temporary)

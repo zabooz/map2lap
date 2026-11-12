@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 import climate
 import vegetation
+from scenery import treefx
 
 # the first ten keep their place and their random numbers (older tracks keep their look when rebuilt)
 SPRITES = ("deciduous", "deciduous2", "conifer", "conifer2", "shrub", "birch", "linden", "spruce", "larch",
@@ -487,6 +488,23 @@ def look_of(style, name, zone, z, rank):
     if name == "conifer" and zone in ("temperate", "boreal") and z > LARCH_FROM_M and int(rank * 7919) % 3 == 0:
         looks = LARCH
     return looks[int(rank * 1000) % len(looks)]
+
+
+def treefx_split(items, wet=None, zone="temperate"):
+    """(the items that stay billboards, TreeFX placements of the others) for (group name, x, y, z, rotation, height, random
+    value) in ENU: an item whose look (look_of) has a model (treefx.model_of) stands as that model at its foot, as high and
+    as wide as its billboard; in water (wet(x, y)) it stands nowhere. Rocks and the looks without a model stay. Pure."""
+    style = {**STYLE, **ZONE_STYLE.get(zone, {})}
+    rest, placed = [], []
+    for item in items:
+        name, x, y, z, yaw, height, rank = item
+        sprite, ratio = look_of(style, name, zone, z, rank) if name not in SKIP else (None, None)
+        model = treefx.model_of(sprite)
+        if model is None:
+            rest.append(item)
+        elif wet is None or not wet(x, y):
+            placed.append(treefx.placement(model, (x, z - SINK_M, -y), yaw, max(0.8, float(height)), ratio))
+    return rest, placed
 
 
 def billboards(items, wet=None, zone="temperate"):

@@ -545,7 +545,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         shutil.rmtree(chunk_dir, ignore_errors=True)
     from track import groundnormals
     groundnormals.write(kn5_path)
-    objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]))
+    objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]), objectlist.collect_treefx(parts))
     editorinfo.install(kn5_path, parts)
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "
         f"start at {base[0]:.1f} {base[1]:.1f} {base[2]:.1f})")

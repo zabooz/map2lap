@@ -174,6 +174,65 @@ class WholeWayTest(unittest.TestCase):
         self.assertEqual({"door", "car"}, objectlist.all_sorts(objects))
 
 
+class TreeFxTest(unittest.TestCase):
+    """TreeFX trees (CSP's 3D trees, scenery/treefx.py) have no triangles in the kn5: the list holds each as model and placement,
+    under an id that stays its own."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = tmp.name
+
+    def tree(self, x, model="birch"):
+        return {"model": model, "pos": [float(x), 1.0, 2.0], "angle": 0.0, "size": 1.0, "width": 1.0}
+
+    def part(self, name, trees):
+        """A tile's OBJ part whose make_obj noted trees as TreeFX trees; its path."""
+        path = os.path.join(self.dir, name + ".obj")
+        obj = make_obj.Obj(path, header=False)
+        obj.listed.treefx += trees
+        obj.close()
+        return path
+
+    def test_trees_get_lasting_numbers_in_tile_order_and_the_next_free_one(self):
+        parts = [self.part("t_0_0", [self.tree(0), self.tree(1)]), self.part("t_1_0", []), self.part("t_2_0", [self.tree(2)])]
+        self.assertEqual({"next": 3, "trees": {"0": self.tree(0), "1": self.tree(1), "2": self.tree(2)}},
+                         objectlist.collect_treefx(parts))
+
+    def test_none_no_section(self):
+        self.assertIsNone(objectlist.collect_treefx([self.part("t_0_0", [])]))
+
+    def test_a_tile_built_again_without_them_leaves_none_of_the_earlier(self):
+        part = self.part("t_0_0", [self.tree(0)])
+        self.part("t_0_0", [])
+        self.assertIsNone(objectlist.collect_treefx([part]))
+
+    def test_a_tile_with_only_them_has_no_other_objects(self):
+        part = self.part("t_0_0", [self.tree(0)])
+        self.assertEqual({}, obj_to_kn5._part_chunk(part, os.path.join(self.dir, "c.bin"), {"m": 0}, None)[3])
+
+    def test_an_id_names_its_tree(self):
+        self.assertEqual("trees#42", objectlist.treefx_id(42))
+
+    def test_the_list_holds_them_even_without_other_objects(self):
+        kn5_path = os.path.join(self.dir, "x.kn5")
+        with open(kn5_path, "wb") as f:
+            f.write(b"kn5")
+        trees = {"next": 1, "trees": {"0": self.tree(0)}}
+        objectlist.write(kn5_path, {}, trees)
+        with open(os.path.join(self.dir, objectlist.FILE), encoding="utf-8") as f:
+            listed = json.load(f)
+        self.assertEqual(({}, trees), (listed["objects"], listed["treefx"]))
+        objectlist.write(kn5_path, {}, None)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, objectlist.FILE)))
+
+    def test_their_models_can_be_deleted_all_at_once(self):
+        trees = {"next": 3, "trees": {"0": self.tree(0, "birch"), "2": self.tree(2, "spruce")}}
+        self.assertEqual({"car", "birch", "spruce"},
+                         objectlist.all_sorts({"a": {"kinds": ["car"], "faces": [[[0, 0, 1]]]}}, trees))
+        self.assertEqual({"car"}, objectlist.all_sorts({"a": {"kinds": ["car"], "faces": [[[0, 0, 1]]]}}))
+
+
 class HousesTest(unittest.TestCase):
     """What the building code tells about its meshes, and make_obj reading it from the shape file."""
 

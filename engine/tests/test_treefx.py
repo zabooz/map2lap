@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
 import numpy as np
 
@@ -13,7 +14,9 @@ ENGINE = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ENGINE)
 sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
+import generator  # noqa: E402
 from scenery import treefx, trees  # noqa: E402
+from track import make_obj, make_track_folder, objectlist  # noqa: E402
 
 
 def read_mesh(test, data):
@@ -126,21 +129,111 @@ class KindsTest(unittest.TestCase):
 
 
 class TreesTxtTest(unittest.TestCase):
-    def test_a_line_scales_the_model_to_the_tree_and_reads_back(self):
+    def test_a_placement_scales_the_model_to_the_tree_and_its_line_reads_back_the_same(self):
         H, W = treefx.size("broadleaf")
-        text = treefx.line("broadleaf", (1.5, 700.25, -20.0), 90.0, 2 * H, W / H)
+        tree = treefx.placement("broadleaf", (1.5, 700.254, -20.0), 90.4, 2 * H, W / H)
+        self.assertEqual({"model": "broadleaf", "pos": [1.5, 700.25, -20.0], "angle": 90.0, "size": 2.0, "width": 1.0}, tree)
+        text = treefx.text(tree)
         self.assertTrue(text.startswith("tree: broadleaf.bin;"), text)
-        self.assertEqual({"model": "broadleaf", "pos": (1.5, 700.25, -20.0), "angle": 90.0, "size": 2.0, "width": 1.0},
-                         treefx.parse(text))
+        self.assertEqual(tree, treefx.parse(text))
 
     def test_a_much_narrower_or_wider_tree_keeps_the_model_recognisable(self):
         H, W = treefx.size("spruce")
-        self.assertEqual(0.6, treefx.parse(treefx.line("spruce", (0, 0, 0), 0, H, 0.1 * W / H))["width"])
-        self.assertEqual(1.6, treefx.parse(treefx.line("spruce", (0, 0, 0), 0, H, 5 * W / H))["width"])
+        self.assertEqual(0.6, treefx.placement("spruce", (0, 0, 0), 0, H, 0.1 * W / H)["width"])
+        self.assertEqual(1.6, treefx.placement("spruce", (0, 0, 0), 0, H, 5 * W / H)["width"])
 
     def test_comments_and_empty_lines_are_no_trees(self):
         self.assertIsNone(treefx.parse("; Map2Lap"))
         self.assertIsNone(treefx.parse(""))
+
+
+class SplitTest(unittest.TestCase):
+    """trees.treefx_split: the build's trees (group, x, y, z, rotation, height, random value; ENU) as TreeFX trees where their
+    look has a model."""
+
+    def test_a_tree_with_a_model_stands_at_its_foot_in_ac_coordinates(self):
+        rest, placed = trees.treefx_split([("deciduous", 10.0, 20.0, 5.0, 33.0, 12.0, 0.0)])
+        sprite, ratio = trees.look_of(trees.STYLE, "deciduous", "temperate", 5.0, 0.0)
+        model = treefx.model_of(sprite)
+        self.assertEqual([], rest)
+        self.assertEqual([treefx.placement(model, (10.0, 5.0 - trees.SINK_M, -20.0), 33.0, 12.0, ratio)], placed)
+
+    def test_a_kind_without_a_model_stays_a_billboard(self):
+        palm = ("palm", 0.0, 0.0, 1.0, 0.0, 9.0, 0.5)
+        self.assertEqual(([palm], []), trees.treefx_split([palm]))
+
+    def test_a_look_of_the_zone_without_a_model_stays_a_billboard(self):
+        olive = next(t for t in (("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, k / 1000) for k in range(8))
+                     if trees.look_of({**trees.STYLE, **trees.ZONE_STYLE["mediterranean"]}, "deciduous", "mediterranean",
+                                      1.0, t[6])[0] == "olive")
+        self.assertEqual(([olive], []), trees.treefx_split([olive], zone="mediterranean"))
+
+    def test_a_tree_in_water_is_none_and_a_rock_stays_with_the_rest(self):
+        rock = ("rock", 0.0, 0.0, 1.0, 0.0, 2.0, 0.5)
+        wet = ("deciduous", 5.0, 0.0, 1.0, 0.0, 9.0, 0.5)
+        self.assertEqual(([rock], []), trees.treefx_split([rock, wet], wet=lambda x, y: x > 1))
+
+    def test_a_low_tree_is_as_high_as_its_billboard(self):
+        _, placed = trees.treefx_split([("deciduous", 0.0, 0.0, 1.0, 0.0, 0.1, 0.0)])
+        self.assertEqual(round(0.8 / treefx.size(placed[0]["model"])[0], 3), placed[0]["size"])
+
+
+class SwitchTest(unittest.TestCase):
+    """--treefx (off by default): a build's trees with a model go to the tile's list as TreeFX trees instead of billboards."""
+
+    def test_the_generator_takes_the_switch_off_unless_given(self):
+        for argv, on in ((["--name", "t", "1,2", "3,4"], False), (["--name", "t", "--treefx", "1,2", "3,4"], True)):
+            with mock.patch.object(generator, "build", return_value={}) as build, \
+                    mock.patch.object(generator.system, "trust_windows_certificates"), \
+                    mock.patch.object(sys, "argv", ["generator.py", *argv]):
+                generator.main()
+            self.assertEqual(on, build.call_args.kwargs["treefx"])
+
+    def test_off_every_tree_stays_a_billboard(self):
+        items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0)]
+        listed = objectlist.TileList()
+        self.assertEqual(items, make_obj.to_treefx(listed, items, None, "temperate", False))
+        self.assertEqual([], listed.treefx)
+
+    def test_on_the_trees_with_a_model_go_to_the_tile_s_list(self):
+        items = [("deciduous", 0.0, 0.0, 1.0, 0.0, 9.0, 0.0), ("palm", 1.0, 0.0, 1.0, 0.0, 9.0, 0.0)]
+        listed = objectlist.TileList()
+        self.assertEqual(items[1:], make_obj.to_treefx(listed, items, None, "temperate", True))
+        self.assertEqual(trees.treefx_split(items[:1])[1], listed.treefx)
+
+
+class TrackFolderTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.root = self.dir.name
+        os.makedirs(os.path.join(self.root, "extension"))
+        self.config = os.path.join(self.root, "extension", "ext_config.ini")
+        with open(self.config, "w", encoding="utf-8") as f:
+            f.write(make_track_folder.EXT_CONFIG)
+
+    def listed(self, *models):
+        return {"next": len(models), "trees": {str(k): treefx.placement(m, (k, 1.0, 2.0), 0, 5.0, 0.5)
+                                               for k, m in enumerate(models)}}
+
+    def test_a_track_with_treefx_trees_gets_their_models_their_lines_and_its_config(self):
+        make_track_folder.write_trees(self.root, self.listed("birch", "spruce", "birch"))
+        folder = os.path.join(self.root, "extension", "trees")
+        self.assertEqual(["birch.bin", "spruce.bin", "trees.txt"], sorted(os.listdir(folder)))
+        with open(os.path.join(folder, "trees.txt"), encoding="utf-8") as f:
+            lines = [t for t in map(treefx.parse, f.read().splitlines()) if t]
+        self.assertEqual(list(self.listed("birch", "spruce", "birch")["trees"].values()), lines)
+        with open(self.config, encoding="utf-8") as f:
+            self.assertIn("\n[TREES]\nLIST_0 = trees/trees.txt\n", f.read())
+
+    def test_a_track_without_keeps_no_trees_of_an_earlier_build(self):
+        make_track_folder.write_trees(self.root, self.listed("birch"))
+        with open(self.config, "w", encoding="utf-8") as f:     # (make writes it anew)
+            f.write(make_track_folder.EXT_CONFIG)
+        make_track_folder.write_trees(self.root, None)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "extension", "trees")))
+        with open(self.config, encoding="utf-8") as f:
+            self.assertNotIn("[TREES]", f.read())
 
 
 if __name__ == "__main__":

@@ -661,6 +661,16 @@ def add_plants(obj, name, mesh, tris, ground=None):
     tris["trees"] = tris.get("trees", 0) + len(mesh[2])
 
 
+def to_treefx(listed, items, wet, zone, on):
+    """The items (trees.tile_items' rows) that stay billboards: all with on false (anchor.json "treefx", generator --treefx),
+    else those without a TreeFX model; the others go to listed.treefx (trees.treefx_split)."""
+    if not on:
+        return items
+    rest, placed = trees.treefx_split(items, wet, zone)
+    listed.treefx += placed
+    return rest
+
+
 def _init_scenery(tiles_dir, tex_dir):
     with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
         anc = json.load(f)
@@ -931,15 +941,17 @@ def _scenery_tile(tx, ty, part_path):
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
     items, extra = trees.clear_of_buildings(items, rings), trees.clear_of_buildings(extra, rings)    # (no trunk in a house)
     zone = trees.tile_zone(frame, items + extra)
-    tmesh = trees.billboards([t for t in items + extra if t[0] not in BUSHES], wet, zone)
+    fx = anc.get("treefx", False)
+    plants = to_treefx(obj.listed, items + extra, wet, zone, fx)      # (rocks stay in items: rocks.meshes)
+    tmesh = trees.billboards([t for t in plants if t[0] not in BUSHES], wet, zone)
     if tmesh is not None:
         add_plants(obj, f"nocol_trees_{tx}_{ty}", tmesh, tris)
-    bmesh = trees.billboards([t for t in items if t[0] in BUSHES], wet, zone)
+    bmesh = trees.billboards([t for t in plants if t[0] in BUSHES], wet, zone)
     if bmesh is not None:       # bushes lit like the ground they stand on (ground_normals); trees start from "up"
         add_plants(obj, f"nocol_trees_bush_{tx}_{ty}", bmesh, tris, ground_normals(grid, x0, y0, bmesh[0]))
     try:                        # cheap bushes in groups on shrubland (bushes.py), lit like the ground too
         cheap = trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings)
-        cmesh = trees.billboards(cheap, wet, zone)
+        cmesh = trees.billboards(to_treefx(obj.listed, cheap, wet, zone, fx), wet, zone)
         if cmesh is not None:
             add_plants(obj, f"nocol_bush_{tx}_{ty}", cmesh, tris, ground_normals(grid, x0, y0, cmesh[0]))
     except Exception as e:      # (rather without them than without the tile)

@@ -390,21 +390,29 @@ def write_models(folder, names):
     return files
 
 
-def line(name, pos, angle, height, ratio):
-    """trees.txt's line for model name at pos (x, y, z in AC coordinates, the foot), turned by angle degrees, scaled to a tree
-    height m high and ratio of its height wide (its width at most WIDTH_RANGE from the model's). Pure."""
+def placement(name, pos, angle, height, ratio):
+    """A TreeFX tree as the object list holds it and trees.txt says it: {model, pos, angle, size, width} for model name at pos
+    (x, y, z in AC coordinates, the foot), turned by angle degrees, scaled to height m high and ratio of its height wide (its
+    width at most WIDTH_RANGE from the model's); rounded as text writes it, so a list and its trees.txt say the same. Pure."""
     H, W = size(name)
     width = min(max(ratio / (W / H), WIDTH_RANGE[0]), WIDTH_RANGE[1])
-    x, y, z = pos
-    return f"tree: {name}.bin; pos={x:.2f}, {y:.2f}, {z:.2f}; angle={angle:.0f}; size={height / H:.3f}; width={width:.3f}"
+    return {"model": name, "pos": [round(float(v), 2) for v in pos], "angle": float(round(angle) % 360),
+            "size": round(height / H, 3), "width": round(width, 3)}
 
 
-def parse(text):
-    """A trees.txt line as {model, pos, angle, size, width}; None for a comment or an empty line. Pure."""
-    if not text.strip().startswith("tree:"):
+def text(tree):
+    """trees.txt's line of a placement. Pure."""
+    x, y, z = tree["pos"]
+    return (f"tree: {tree['model']}.bin; pos={x:.2f}, {y:.2f}, {z:.2f}; angle={tree['angle']:.0f}; size={tree['size']:.3f}; "
+            f"width={tree['width']:.3f}")
+
+
+def parse(line):
+    """A trees.txt line as a placement; None for a comment or an empty line. Pure."""
+    if not line.strip().startswith("tree:"):
         return None
-    fields = dict(part.split("=", 1) for part in (p.strip() for p in text.split(";")[1:]) if "=" in part)
-    model_file = text.split(";", 1)[0].split(":", 1)[1].strip()
+    fields = dict(part.split("=", 1) for part in (p.strip() for p in line.split(";")[1:]) if "=" in part)
+    model_file = line.split(";", 1)[0].split(":", 1)[1].strip()
     return {"model": model_file[:-4] if model_file.endswith(".bin") else model_file,
-            "pos": tuple(float(v) for v in fields["pos"].split(",")),
+            "pos": [float(v) for v in fields["pos"].split(",")],
             "angle": float(fields.get("angle", 0)), "size": float(fields.get("size", 1)), "width": float(fields.get("width", 1))}
