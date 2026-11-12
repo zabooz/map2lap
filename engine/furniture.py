@@ -15,6 +15,7 @@ import hashlib
 import math
 
 import numpy as np
+import poleprofile
 
 # class: (spacing m along one side, both sides staggered: a lamp every half that along the road). Measured (
 # 2026-10-27: "check that they are realistically spaced apart") from OpenStreetMap's mapped street lamps (Overture
@@ -141,8 +142,7 @@ def _clear(p, others, own):
     return bool(others.clear(p, own, CLEAR_OTHER_M))
 
 
-WIRE_ARMS = (-0.8, 0.0, 0.8)    # m along the cross-arm (the pole's local x) of the three wires
-WIRE_Z = 7.9                    # m above the pole's base (s_powerpole_3wire: 8.2 m tall above its origin)
+WIRE_ARMS = poleprofile.POLE_OFFSETS
 WIRE_SAG = 0.012                # sag per metre of span
 WIRE_SEG_M = 5.0
 WIRE_R = 0.012                  # m half width of a wire's ribbons
@@ -150,17 +150,21 @@ WIRE_VERTS_MAX = 60000          # a tile's wire mesh at most (the engine's 16-bi
 
 
 def wire_lines(poles):
-    """Polylines (k, 3) of the wires between consecutive poles [(x, y, z, yaw_deg)] of one road side."""
+    """Polylines (k, 3) between poles [(x, y, ground z, yaw_deg[, model height])] of one road side."""
     out = []
-    for (x0, y0, z0, w0), (x1, y1, z1, w1) in zip(poles[:-1], poles[1:]):
+    for first, second in zip(poles[:-1], poles[1:]):
+        x0, y0, z0, w0 = first[:4]
+        x1, y1, z1, w1 = second[:4]
+        arms0 = poleprofile.pole_attachments(first[4] if len(first) > 4 else poleprofile.POLE_HEIGHT)
+        arms1 = poleprofile.pole_attachments(second[4] if len(second) > 4 else poleprofile.POLE_HEIGHT)
         span = math.hypot(x1 - x0, y1 - y0)
         if span < 5.0 or span > 80.0:
             continue
         k = max(2, int(math.ceil(span / WIRE_SEG_M)))
         t = np.linspace(0.0, 1.0, k + 1)
-        for off in WIRE_ARMS:
-            a = np.array([x0 + math.cos(math.radians(w0)) * off, y0 + math.sin(math.radians(w0)) * off, z0 + WIRE_Z])
-            b = np.array([x1 + math.cos(math.radians(w1)) * off, y1 + math.sin(math.radians(w1)) * off, z1 + WIRE_Z])
+        for (off0, _, h0), (off1, _, h1) in zip(arms0, arms1):
+            a = np.array([x0 + math.cos(math.radians(w0)) * off0, y0 + math.sin(math.radians(w0)) * off0, z0 + h0])
+            b = np.array([x1 + math.cos(math.radians(w1)) * off1, y1 + math.sin(math.radians(w1)) * off1, z1 + h1])
             p = a[None] + (b - a)[None] * t[:, None]
             p[:, 2] -= 4.0 * WIRE_SAG * span * t * (1.0 - t)
             out.append(p)
@@ -680,7 +684,7 @@ def place(roads, walks, box, curb_h=0.15, wires=None, town=False, left_hand=Fals
                     run_poles.append((float(q[0]), float(q[1]), float(p[2]), yaw))
                     if _owns(box, q[0], q[1]):
                         rows.append([G_POLE, round(float(q[0]), 2), round(float(q[1]), 2), round(float(p[2]), 2),
-                                     round(yaw, 1), 1.0, 9.2, 0.0])
+                                     round(yaw, 1), 1.0, poleprofile.POLE_HEIGHT, 0.0])
                         k = int(round((float(_project(line, q[None])[0]) - ph) / TOWN_POLE_SPACING))
                         if lighting.get(fid) != "no" and pole_lamp(spec.cls, k, region):
                             rows.append([G_POLELAMP, round(float(q[0]), 2), round(float(q[1]), 2),
@@ -771,7 +775,7 @@ def place(roads, walks, box, curb_h=0.15, wires=None, town=False, left_hand=Fals
             run.append((float(q[0]), float(q[1]), float(p[2]), yaw))
             if inside:
                 rows.append([G_POLE, round(float(q[0]), 2), round(float(q[1]), 2), round(float(p[2]), 2),
-                             round(yaw, 1), 1.0, 9.2, 0.0])
+                             round(yaw, 1), 1.0, poleprofile.POLE_HEIGHT, 0.0])
                 if lamps and pole_lamp(spec.cls, k, region):
                     rows.append([G_POLELAMP, round(float(q[0]), 2), round(float(q[1]), 2),
                                  round(float(p[2]) + POLE_LAMP_Z, 2), round(yaw, 1), 1.0, 1.1, 0.0])

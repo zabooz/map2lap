@@ -13,17 +13,24 @@ out. (The module isn't called "furniture": the BeamNG.Earth server already has o
 """
 import math
 import os
+import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from app import paths
 
+# Library previews import scenery without the generator's engine bootstrap.
+if paths.ENGINE not in sys.path:
+    sys.path.insert(0, paths.ENGINE)
+import poleprofile  # noqa: E402
+
 ATLAS = 5
 CELL = 128
 # atlas cells
 (METAL, WOOD, RED, GREEN, DOOR, STOP, GIVEWAY, S50, S60, S80, S100, LAMP, BENCH, WHITE, YELLOW, SIGNBACK,
  SIGNAL_HEAD, XBUCK_EU, XBUCK_US, RR_FLASH, STRIPES, FUEL_SIGN, PUMP_FACE, CANOPY) = range(24)
+INSULATOR = 24             # final free cell of the existing atlas; no extra texture or material
 SPEED = {"speedk50": S50, "speedk60": S60, "speedk80": S80, "speedk100": S100}
 SKIP = {"lamplens", "lampglow", "fence"}
 POWER_POLES = {"pole", "pylon"}     # (wires end at them: make_obj, objectlist.linked)
@@ -128,6 +135,12 @@ def atlas():
     x0, y0 = _cell_box(CANOPY)                              # canopy fascia: white with a red band
     d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(244, 244, 240))
     d.rectangle([x0, y0 + 46, x0 + CELL - 1, y0 + 82], fill=(200, 34, 32))
+    x0, y0 = _cell_box(INSULATOR)
+    d.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=(218, 225, 216))
+    # The ribs are painted bands; the whole ceramic body is only eight vertices / twelve triangles.
+    for v in range(18, CELL - 8, 22):
+        d.rectangle([x0, y0 + v, x0 + CELL - 1, y0 + v + 3], fill=(126, 149, 145))
+        d.line([x0, y0 + v + 4, x0 + CELL - 1, y0 + v + 4], fill=(243, 245, 235), width=2)
     return img
 
 
@@ -194,12 +207,39 @@ class Builder:
         return np.asarray(self.P, float), np.asarray(self.UV, float), np.asarray(self.T, np.int64)
 
 
+def _insulator(builder, start, end, radius):
+    """A closed ceramic body: two triangular rings and its attachment tips, eight vertices / twelve triangles."""
+    start, end = np.asarray(start, float), np.asarray(end, float)
+    axis = end - start
+    length = float(np.linalg.norm(axis))
+    if length < 1e-8:
+        return
+    axis /= length
+    u = np.cross(axis, (0., 0., 1.) if abs(axis[2]) < .9 else (1., 0., 0.))
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
+    base = len(builder.P)
+    builder.P.append(tuple(start)); builder.UV.append(builder._uv(INSULATOR, .5, 0.))
+    for t, r in ((.25, radius), (.72, radius * .42)):
+        for k in range(3):
+            angle = k * math.tau / 3
+            p = start + (end - start) * t + r * (math.cos(angle) * u + math.sin(angle) * v)
+            builder.P.append(tuple(p)); builder.UV.append(builder._uv(INSULATOR, k / 3, t))
+    builder.P.append(tuple(end)); builder.UV.append(builder._uv(INSULATOR, .5, 1.))
+    for k in range(3):
+        nxt = (k + 1) % 3
+        builder.T += [(base, base + 1 + nxt, base + 1 + k),
+                      (base + 1 + k, base + 1 + nxt, base + 4 + nxt),
+                      (base + 1 + k, base + 4 + nxt, base + 4 + k),
+                      (base + 7, base + 4 + k, base + 4 + nxt)]
+
+
 # High-voltage pylon (BeamNG.Earth powerlines.py, group "pylon", height 35.8 m with 5.9 m legs below the origin):
 # lattice tower from bars. yaw is the line direction, the cross arms stand across it: the wires hang 4.14 m
 # to the side at 15.6 / 20.4 / 25.2 m (powerlines.ARMS) on insulators of PYLON_INSULATOR m
 PYLON_BASE, PYLON_NECK, PYLON_BODY, PYLON_TOP = 3.2, 0.9, 27.5, 30.5     # m: half width at the bottom / top, heights
-PYLON_ARMS = (15.6, 20.4, 25.2)
-PYLON_REACH, PYLON_INSULATOR = 4.14, 0.6
+PYLON_ARMS = poleprofile.PYLON_LEVELS
+PYLON_REACH, PYLON_INSULATOR = poleprofile.PYLON_REACH, poleprofile.PYLON_INSULATOR
 PYLON_RINGS = (1.0, 6.0, 11.0, 16.2, 21.0, 25.8, 27.5)
 
 
@@ -230,7 +270,7 @@ def _pylon(solid, deco, x, y, z, yaw):
             deco.beam(o + s * half(top) * la + (0.0, 0.0, top), tip, 0.1, METAL)
             deco.beam(tip, o + s * half(top + 2.2) * la + (0.0, 0.0, top + 2.2), 0.05, METAL)
             hang = o + s * PYLON_REACH * la
-            deco.beam(hang + (0.0, 0.0, top), hang + (0.0, 0.0, h), 0.09, WHITE)
+            _insulator(deco, hang + (0.0, 0.0, top), hang + (0.0, 0.0, h), .12)
     for sa, sl in corners:                  # top (earth wire)
         deco.beam(corner(PYLON_BODY, sa, sl), o + (0.0, 0.0, PYLON_TOP), 0.06, METAL)
 
@@ -414,7 +454,10 @@ def build(groups, rows, road_xy=None, marks=None):
             continue
         elif g == "pole":                                   # wooden pole with cross arm
             solid.box(x, y, z - 0.3, 0.26, 0.26, h + 0.3, yaw, WOOD)
-            solid.box(x, y, z + h - 0.6, 1.8, 0.12, 0.12, yaw, WOOD)
+            solid.box(x, y, z + h - poleprofile.CROSSARM_DROP, 1.8, .12, poleprofile.CROSSARM_THICKNESS, yaw, WOOD)
+            for off, bottom, top in poleprofile.pole_attachments(h):
+                px, py = x + math.cos(yaw) * off, y + math.sin(yaw) * off
+                _insulator(deco, (px, py, z + bottom), (px, py, z + top), .11)
         elif g == "streetlight":                            # pole, arm towards the road, lamp head
             a = _toward(x, y, road_xy)
             a = yaw if a is None else a

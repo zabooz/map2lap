@@ -10,6 +10,7 @@ The layouts in Rust (earthfast.power_line_layout, earthfast.substation_yard).
 import numpy as np
 
 import fast
+import poleprofile
 
 G_PYLON = "pylon"
 PYLON_H = 35.8              # m (the shape's height: trees.lua scales to it)
@@ -56,8 +57,8 @@ GANTRY_H = 7.5
 GANTRY_FRONT = 2.78
 END_MERGE_M = 20.0
 # ARMS: per conductor [lateral, height] at a tower, [lateral, height] at the gantries
-ARMS = np.array([[s * 4.12, h, s * (GANTRY_LAT + d), GANTRY_H]
-                 for h, d in ((15.65, 1.75), (20.40, 0.0), (25.19, -1.75)) for s in (-1.0, 1.0)], np.float64)
+ARMS = np.array([[s * poleprofile.PYLON_REACH, h, s * (GANTRY_LAT + d), GANTRY_H]
+                 for h, d in zip(poleprofile.PYLON_LEVELS, (1.75, 0.0, -1.75)) for s in (-1.0, 1.0)], np.float64)
 YARD_GAP = 4.0              # m between kits, and half of it to the fence
 YARD_MAX_KITS = 12
 FENCE_LEN = 2.04            # s_chainlink_old's panel

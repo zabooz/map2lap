@@ -17,6 +17,11 @@ terrain with holes, other shaders), deviate on purpose, with a short reason in t
 
 ## How the ground is built
 
+Utility-pole and pylon meshes share their cable attachment dimensions with the wire layouts (`engine/poleprofile.py`).
+Their model heights are estimates where map heights are unavailable. Wooden poles carry two outer insulators on the
+cross-arm and the middle one on the pole head, keeping the middle wire clear of the wood. Each ceramic body uses
+eight vertices and twelve triangles; painted ribs occupy the last free cell of the existing props atlas.
+
 BeamNG.Earth (`blockworker.build`, `grading.Grader.apply`, `roads/`):
 - **You drive on the terrain:** levelled to road height under roads, plus `ROAD_LIFT` 4 cm, without gaps. Surface (grip)
   per 2 m sample: `surface.classify` (land use, slope > 35° = rock), `paint_roads`, `paint_lots`.
