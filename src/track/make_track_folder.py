@@ -164,11 +164,8 @@ def write_trees(root, trees):
     if not trees:
         return
     os.makedirs(folder)
-    listed = list(trees["trees"].values())
-    treefx.write_models(folder, [t["model"] for t in listed])
-    with open(os.path.join(folder, "trees.txt"), "w", encoding="utf-8") as f:
-        f.write("; Map2Lap: made from the track's object list (data/map2lap_objects.json)\n")
-        f.write("".join(treefx.text(t) + "\n" for t in listed))
+    treefx.write_models(folder, [t["model"] for t in trees["trees"].values()])
+    treefx.write_text(folder, trees)
     with open(os.path.join(root, "extension", "ext_config.ini"), "a", encoding="utf-8") as f:
         f.write(TREES_CONFIG)
 

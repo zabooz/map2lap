@@ -248,7 +248,8 @@ The accepted broadleaf, birch, spruce, larch and two shrub models keep their geo
 can still fall back to billboards. A build writes them only with
 `generator.py --treefx` (anchor.json `"treefx"`), for now into the test copy `heiligenblut_trees3d`: the Editor learns them
 before builds do it by default. The **object list** holds each as model and placement under an id `trees#<number>` that stays
-its tree's (its section `treefx`, "next": the first number never given); trees.txt is made from it.
+its tree's (its section `treefx`, "next": the first number never given); trees.txt is made from it. The Editor's draft deletes,
+places and adds them, Save writes the section and trees.txt from source and draft (`app/tracktrees.py`, docs/editor.md).
 
 **Cheap bushes**: billboards on painted shrubland that no map measures (`scenery/bushes.py`, objects `nocol_bush_<tx>_<ty>`): noise gives them groups, gaps and now and then a row; near only and without shadows. The bushes the canopy data finds stay `nocol_trees_bush_`.
 

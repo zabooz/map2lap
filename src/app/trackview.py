@@ -9,6 +9,8 @@ import os
 import re
 import struct
 
+import numpy as np
+
 from app import mytracks, tracksource
 from track import editorinfo, groundmaterial, kn5, objectlist, surfaceindex
 
@@ -266,6 +268,7 @@ def index(ac, name):
             "surface_unprepared": surfaceindex.unprepared(path) if facts else 0,
             "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
             "model_replacements": s.get("model_replacements", []),
+            "treefx": len((treefx_of(path) or {}).get("trees", {})),
             "model_matrices": trackmodels.view_matrices(s, edits.get("placed", []), edits.get("heights", []))}
 
 
@@ -356,24 +359,93 @@ def copy_index(ac, name):
 
 @functools.lru_cache(maxsize=2)
 def _list_read(list_path, kn5_state, _list_state):
-    """The object list in the file, if it is of that state of its kn5; else {}. Not to be changed: the next one asking gets the same."""
+    """(the object list in the file, its TreeFX section or None), if it is of that state of its kn5; else ({}, None). Not to be
+    changed: the next one asking gets the same."""
     try:
         with open(list_path, encoding="utf-8") as f:
             d = json.load(f)
         fits = d["schema"] == objectlist.SCHEMA and d["kn5"] == kn5_state and objectlist.well_formed(d["objects"])
-        return d["objects"] if fits else {}
+        trees = d.get("treefx")
+        return (d["objects"], trees if objectlist.treefx_well_formed(trees) else None) if fits else ({}, None)
     except (OSError, ValueError, KeyError, TypeError):
-        return {}
+        return {}, None
+
+
+def _listed(path):
+    """_list_read of the list beside the kn5 at path."""
+    list_path = os.path.join(os.path.dirname(path), objectlist.FILE)
+    try:
+        return _list_read(list_path, objectlist.state_of(path), objectlist.state_of(list_path))
+    except OSError:
+        return {}, None
 
 
 def list_of(path):
     """The object list beside the kn5 at path, if it is of that state of the file; else {}. Read once per state: each stroke of the brush
     asks, and a long track's list is large."""
-    list_path = os.path.join(os.path.dirname(path), objectlist.FILE)
+    return _listed(path)[0]
+
+
+def treefx_of(path):
+    """The TreeFX section of the object list beside the kn5 at path ({"next", "trees"}, track.objectlist), None for none: a track
+    built without TreeFX, a list of another state of the file, or a section not well formed."""
+    return _listed(path)[1]
+
+
+def treefx(ac, name):
+    """The TreeFX trees of the track name, the served list's and those its draft adds (app.tracktrees), as the page draws them:
+    "ids" in the order of their numbers, "models" (names, sorted) and per tree its "model" among them, "pos" where the draft puts
+    it, "base" where the list has it, flat x, y, z, and "angle", "size", "width" as the draft leaves them; "next" the first number
+    never given. What the draft deletes is in it: the page leaves it out, as it does other objects."""
+    from app import trackedits, tracktrees
+    path, _s, revision = _scanned(ac, name)
+    draft = trackedits.load(ac, name)
+    base = tracktrees.trees_of(treefx_of(path), draft["trees"])
+    now = tracktrees.now(base, draft["placed"], draft["heights"])
+    models = sorted({t["model"] for t in base.values()})
+    return {"revision": revision, "draft": draft["revision"], "next": draft["trees_next"], "ids": list(base), "models": models,
+            "model": [models.index(t["model"]) for t in base.values()], "pos": [v for t in now.values() for v in t["pos"]],
+            "base": [v for t in base.values() for v in t["pos"]], **{k: [t[k] for t in now.values()] for k in ("angle", "size", "width")}}
+
+
+MODEL_NAME = re.compile(r"[a-z0-9_]+")
+
+
+@functools.lru_cache(maxsize=8)
+def _tree_read(path, _revision_of_file):
+    from scenery import treefx      # (only here: needs the engine's path from generator)
+    return treefx.read_bin(path)
+
+
+def _tree_model(ac, name, model):
+    """A TreeFX model of the track name as its own folder holds it (extension/trees/<model>.bin: scenery.treefx.read_bin), not as
+    this Map2Lap would make it now: the trees AC shows are the file's. NotOurs for no such file."""
+    if not (isinstance(model, str) and MODEL_NAME.fullmatch(model)):
+        raise NotOurs(model)
+    path = os.path.join(os.path.dirname(kn5_path(ac, name)), "extension", "trees", model + ".bin")
     try:
-        return _list_read(list_path, objectlist.state_of(path), objectlist.state_of(list_path))
-    except OSError:
-        return {}
+        return _tree_read(path, _revision(os.stat(path)))
+    except (OSError, ValueError) as e:
+        raise NotOurs(model) from e
+
+
+def treefx_model(ac, name, model):
+    """A TreeFX model of the track for the page: its "height" and "width" in m, its "lods" finest first, each its "distance" and
+    "parts": texture names ("diffuse", "normal_map"), "indices", flat "pos" (m from its foot at size 1), "normals" and "uv"."""
+    tree = _tree_model(ac, name, model)
+    return {"height": tree["height"], "width": tree["width"],
+            "lods": [{"distance": lod["distance"], "parts": [
+                {"diffuse": p["diffuse"], "normal_map": p["normal_map"], "indices": p["indices"].tolist(),
+                 "pos": np.round(p["pos"], 4).ravel().tolist(), "normals": np.round(p["normals"], 3).ravel().tolist(),
+                 "uv": np.round(p["uv"], 5).ravel().tolist()} for p in lod["parts"]]} for lod in tree["lods"]]}
+
+
+def treefx_texture(ac, name, model, texture):
+    """The bytes of a texture of a TreeFX model of the track (PNG, as the .bin holds it). NotOurs for one it doesn't use."""
+    textures = _tree_model(ac, name, model)["textures"]
+    if texture not in textures:
+        raise NotOurs(texture)
+    return textures[texture]
 
 
 def _billboard_kind(base):
@@ -387,20 +459,21 @@ def deletable(ac, name):
     triangles on any track."""
     from app import trackedits
     _path, _s, revision = _scanned(ac, name)
-    _path, s, listed = trackedits.context(ac, name, revision)
-    counts, sorts = counts_of(s, listed)
+    path, s, listed = trackedits.context(ac, name, revision)
+    counts, sorts = counts_of(s, listed, treefx_of(path))
     return revision, counts, sorts
 
 
-def counts_of(s, listed):
-    """Objects in a scan and its list, counted billboards first, authoritative listed ids last. Pure."""
+def counts_of(s, listed, trees=None):
+    """Objects in a scan and its list, counted billboards first, authoritative listed ids last; the sorts include the models of the
+    TreeFX trees (trees: the list's section, None for none), whose ids app.tracktrees checks. Pure."""
     faces = {}
     for m in s["meshes"]:
         if s["materials"][m["material"]].name == ATLAS_MATERIAL and "_copy_" not in m["name"]:
             faces[_base(m["name"])] = faces.get(_base(m["name"]), 0) + m["indices"] // 3
     counts = {base: (n // FACES_PER_BILLBOARD, _billboard_kind(base)) for base, n in faces.items()}
     counts.update({base: (len(o["at"]), o["kinds"]) for base, o in listed.items()})
-    return counts, objectlist.all_sorts(listed)
+    return counts, objectlist.all_sorts(listed, trees)
 
 
 def _read(path, offset, size, revision):

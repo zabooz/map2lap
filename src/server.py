@@ -59,6 +59,7 @@ COPY_PATH = re.compile(r"/api/editor/([^/]+)/copy")
 MOVE_PATH = re.compile(r"/api/editor/([^/]+)/move")
 PROGRESS_PATH = re.compile(r"/api/editor/([^/]+)/paint-progress")
 painting = {}       # {track: {"phase", "done", "total"}} of the Apply running on it (trackedits.paint), for the page's bar
+TREEFX_PATH = re.compile(r"/api/editor/([^/]+)/treefx(?:/([a-z0-9_]+)(?:/([A-Za-z0-9_-]+\.png))?)?")     # (its trees, a model, its images)
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
@@ -582,6 +583,16 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             self._send(500, {"error": str(e)})
 
+    def _treefx(self, name, model, texture):
+        """A track's TreeFX trees as its draft leaves them, one of its models or an image of one, from its own folder."""
+        ac, name = settings.ac_path(), generator.slug(name)
+        if texture:
+            try:
+                return self._send(200, trackview.treefx_texture(ac, name, model, texture), "image/png")
+            except trackview.NotOurs as error:
+                return self._send(404, {"error": f"No such image of a tree model: {error}"})
+        self._edits_answer(lambda: trackview.treefx_model(ac, name, model) if model else trackview.treefx(ac, name))
+
     def _surface(self, name):
         """Read-only selection of generated paint masks; source revision prevents mixing builds."""
         try:
@@ -926,6 +937,8 @@ class Handler(BaseHTTPRequestHandler):
         elif (glow := GLOW_PATH.fullmatch(self.path)):
             mask = trackview.glow_bytes(settings.ac_path(), generator.slug(glow[1]), glow[2])
             self._send(200 if mask else 204, mask or b"", "image/png")     # (204: a track built before: no fault in the browser's log)
+        elif (trees := TREEFX_PATH.fullmatch(self.path)):
+            self._treefx(*trees.groups())
         elif (copies := COPIES_PATH.fullmatch(self.path)):
             self._edits_answer(lambda: trackview.copy_index(settings.ac_path(), generator.slug(copies[1])))
         elif edits:

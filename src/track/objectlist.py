@@ -14,6 +14,7 @@ TreeFX trees (CSP's 3D trees, scenery/treefx.py) have no triangles in the kn5: t
 after others are deleted and is never given again.
 """
 import json
+import math
 import os
 import tempfile
 
@@ -273,6 +274,26 @@ def well_formed(objects):
         if not isinstance(details, list) or len(details) != n or not all(isinstance(d, dict) for d in details):
             return False
     return True
+
+
+def tree_problem(tree):
+    """What is wrong with a TreeFX placement ({model, pos, angle, size, width}: scenery.treefx.placement), None if nothing. Pure."""
+    number = (int, float)
+    if not (isinstance(tree, dict) and isinstance(tree.get("model"), str) and tree["model"]):
+        return "no model"
+    pos = tree.get("pos")
+    if not (isinstance(pos, list) and len(pos) == 3 and all(type(v) in number and math.isfinite(v) for v in pos)):
+        return "no place"
+    if not all(type(tree.get(k)) in number and math.isfinite(tree[k]) for k in ("angle", "size", "width")):
+        return "no turn or size"
+    return None if tree["size"] > 0 and tree["width"] > 0 else "no size"
+
+
+def treefx_well_formed(section):
+    """Whether what was read as a list's TreeFX section is one: "next" above every number it holds. Pure."""
+    if not (isinstance(section, dict) and type(section.get("next")) is int and isinstance(section.get("trees"), dict)):
+        return False
+    return all(key.isdigit() and int(key) < section["next"] and tree_problem(tree) is None for key, tree in section["trees"].items())
 
 
 def collect_treefx(parts):

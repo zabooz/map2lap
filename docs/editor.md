@@ -243,6 +243,19 @@ Which triangles make up an object: `track/objectlist.py`, written by the build (
 street furniture, signs, rocks, fences, gas stations and leisure grounds; trees and bushes by their count of triangles). Every mesh
 a build adds is entered there as listed, counted or part of the track: `tools/check.py` and `tools/measure.py` stop on one that isn't.
 
+TreeFX trees (CSP's 3D trees, `generator.py --treefx`) have no triangles: the list holds them in its own section, `trees#<number>`
+each with its model and placement (`track/objectlist.py`). The Editor reads that section of the served list (`trackview.treefx_of`),
+also of a source, which keeps it from the first Save. `/api/editor/<track>/treefx` hands the trees out as the draft leaves them
+(`trackview.treefx`: where the list has each and where the draft puts it); `/treefx/<model>` and `/treefx/<model>/<image>.png`
+read a model from the track's own `extension/trees/<model>.bin` (`treefx.read_bin`), never as this Map2Lap would make it now, as
+AC shows the file. The draft deletes them by id, all of a model as an object sort, places them (moved, turned on their foot,
+scaled), and adds copies under numbers the track never gave (`"trees"`, `"trees_next"`, which never goes down: a number taken back
+by Undo is not given again). Height changes lift each by the change under its foot after its placement (`app/tracktrees.py`).
+Save writes the list's section and `trees.txt` from the source and the draft, so a move is never added twice; `"next"` never
+falls, so a deleted tree's number is never reused. Every model stays in the track's folder, so a tree that comes back has its
+model; a copied track takes the folder, its trees.txt and its models along. A draft answer's `"treefx"` says the trees' places
+changed and the page asks for them again.
+
 ## Material library and imports
 
 Library in File (under Revert to saved) opens the library where it was left, at Textures for a picked ground surface; Insert (I) opens it at Objects. Textures imports one colour image (PNG, JPG or two-dimensional BC1/BC2/BC3 DDS) through a file chooser or

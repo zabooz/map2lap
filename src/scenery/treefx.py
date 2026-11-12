@@ -678,12 +678,84 @@ def write_bin(path, name):
             z.writestr(zipfile.ZipInfo(fname, (1980, 1, 1, 0, 0, 0)), data, zipfile.ZIP_DEFLATED)
 
 
+def _ini(text):
+    """{section: {key: value}} of an ini text. Pure."""
+    out, section = {}, {}
+    for line in text.splitlines():
+        line = line.split(";", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = out.setdefault(line[1:-1].strip(), {})
+        elif "=" in line:
+            key, value = line.split("=", 1)
+            section[key.strip()] = value.strip()
+    return out
+
+
+def _string(data, o):
+    """(an ExtendedBinaryWriter string at offset o, the offset after it). Pure."""
+    n = struct.unpack_from("<i", data, o)[0]
+    return data[o + 4:o + 4 + n].decode("utf-8"), o + 4 + n
+
+
+VERTEX = np.dtype([("pos", "<f4", 3), ("normal", "<f4", 3), ("uv", "<f4", 2), ("rest", "V12")])     # (mesh_bytes' 44 bytes)
+
+
+def read_mesh(data, half_width, H):
+    """A .mesh's material parts: [{"diffuse", "normal_map": texture names, "indices", "pos" (n by 3, m from the foot), "normals",
+    "uv"}]; a block of extra data (-1, its length, its bytes: the trunk's width) is passed over. Pure."""
+    o, names = 9, []
+    for _ in range(struct.unpack_from("<i", data, 5)[0]):
+        name, o = _string(data, o + 4)
+        names.append(name)
+    parts = []
+    while o < len(data):
+        diffuse, normal_map = struct.unpack_from("<ii", data, o)
+        if diffuse < 0:
+            o += 8 + normal_map
+            continue
+        ni = struct.unpack_from("<i", data, o + 8)[0]
+        indices = np.frombuffer(data, "<u2", ni, o + 12).astype(np.int64)
+        o += 12 + 2 * ni
+        nv = struct.unpack_from("<i", data, o)[0]
+        v = np.frombuffer(data, VERTEX, nv, o + 4)
+        o += 4 + VERTEX.itemsize * nv
+        parts.append({"diffuse": names[diffuse] if 0 <= diffuse < len(names) else None,
+                      "normal_map": names[normal_map] if 0 <= normal_map < len(names) else None, "indices": indices,
+                      "pos": v["pos"].astype(np.float64) * [half_width, H, half_width], "normals": v["normal"].astype(np.float64),
+                      "uv": v["uv"].astype(np.float64)})
+    return parts
+
+
+def read_bin(path):
+    """A tree model's .bin as a track holds it: {"height", "width" (m, tree.ini's), "lods": [{"distance", "parts" (read_mesh)},
+    finest first], "textures": {name: bytes}}. ValueError for a file that is no such model."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            files = {info.filename: z.read(info) for info in z.infolist()}
+        ini = _ini(files["tree.ini"].decode("utf-8"))
+        H, W = float(ini["BASIC"]["HEIGHT"]), float(ini["BASIC"]["WIDTH"])
+        lods = [ini[k] for k in sorted((k for k in ini if k.startswith("LOD_")), key=lambda k: int(k[4:]))]
+        out = [{"distance": float(lod["DISTANCE"]), "parts": read_mesh(files[lod["MODEL"]], W / 2, H)} for lod in lods]
+    except (OSError, KeyError, ValueError, struct.error, zipfile.BadZipFile, UnicodeDecodeError) as e:
+        raise ValueError(f"No tree model: {e}") from e
+    used = {p[k] for lod in out for p in lod["parts"] for k in ("diffuse", "normal_map")} - {None}
+    return {"height": H, "width": W, "lods": out, "textures": {n: files[n] for n in sorted(used) if n in files}}
+
+
 def write_models(folder, names):
     """Write each of the models names once into folder as <name>.bin; their file names, sorted."""
     files = sorted({f"{n}.bin" for n in names})
     for f in files:
         write_bin(os.path.join(folder, f), f[:-4])
     return files
+
+
+def write_text(folder, trees):
+    """trees.txt into folder from trees, the object list's section (objectlist.collect_treefx), in the order of its numbers."""
+    listed = [trees["trees"][k] for k in sorted(trees["trees"], key=int)]
+    with open(os.path.join(folder, "trees.txt"), "w", encoding="utf-8") as f:
+        f.write("; Map2Lap: made from the track's object list (data/map2lap_objects.json)\n")
+        f.write("".join(text(t) + "\n" for t in listed))
 
 
 def placement(name, pos, angle, height, ratio):

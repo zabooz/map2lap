@@ -1,5 +1,6 @@
 """What the Editor tab changed on a built track, its draft: the objects it leaves out, single or all of a sort, the objects it places anew
-(placement, trackplace), the height changes it makes (trackheights) and the road verge it leaves out by its triangles (tracksurfaces). It lies in out/edits, so nothing of a track's folder changes
+(placement, trackplace), the height changes it makes (trackheights), the road verge it leaves out by its triangles (tracksurfaces) and
+the TreeFX trees it adds (tracktrees: "trees", "trees_next"). It lies in out/edits, so nothing of a track's folder changes
 until Save writes it (trackcopy), and holds for one state of the kn5 the Editor shows (trackview.served, "base"): an object's id is its
 number in that file, its position only a check for later. Built again, the list stays but is not applied: the numbers may mean other
 trees now, and a neighbour must never go in the place of the one that was picked. No file: the track's recipe, what its last Save was
@@ -15,7 +16,8 @@ import threading
 
 import numpy as np
 
-from app import mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, tracknative, trackpaint, trackplace, tracksurfaces, trackview
+from app import (mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, tracknative, trackpaint, trackplace, tracksurfaces,
+                 tracktrees, trackview)
 from track import groundmaterial, objectlist
 
 SCHEMA = 2
@@ -99,14 +101,14 @@ def _parts(stored):
             [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored),
             [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))),
             [json.dumps(m, sort_keys=True) for m in stored.get("models", ())],
-            [json.dumps(x, sort_keys=True) for x in stored.get("surfaces", ())])
+            [json.dumps(x, sort_keys=True) for x in stored.get("surfaces", ())], [json.dumps(t, sort_keys=True) for t in stored.get("trees", ())])
 
 
 def _count(stored):
     """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
     return (len(stored["deleted"]) + len(stored.get("sorts", ())) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
             + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ()))
-            + len(stored.get("surfaces", ())))
+            + len(stored.get("surfaces", ())) + len(stored.get("trees", ())))
 
 
 def _names(value):
@@ -122,7 +124,10 @@ def _well_formed(d):
             and _names(d.get("sorts", [])) and _names(d.get("object_sorts", []))
             and trackheights.problems(d.get("heights", [])) is None and placement.problems(d.get("placed", [])) is None
             and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None
-            and trackmodels.problems(d.get("models", [])) is None and tracksurfaces.problems(d.get("surfaces", [])) is None)
+            and trackmodels.problems(d.get("models", [])) is None and tracksurfaces.problems(d.get("surfaces", [])) is None
+            and isinstance(d.get("trees", []), list) and all(isinstance(t, dict) and tracktrees.number(t.get("id")) is not None
+                                                             for t in d.get("trees", []))
+            and type(d.get("trees_next", 0)) is int)
 
 
 def _stored(path, saved=None):
@@ -142,7 +147,7 @@ def _stored(path, saved=None):
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"], "sorts": saved["sorts"],
                     "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", []),
-                    "surfaces": saved.get("surfaces", [])}
+                    "surfaces": saved.get("surfaces", []), "trees": saved.get("trees", []), "trees_next": saved.get("trees_next", 0)}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -160,23 +165,26 @@ def load(ac, name):
     """The list for the page: "base" the served kn5's revision now, "revision" to send back with a save, "deleted", "sorts" (of trees
     and bushes), "object_sorts" (of listed objects), "heights" and "placed" what holds for it, "outdated" how many changes don't, "saved"
     what the last Save was made of while that counts (the page tells by it whether the track is as the list: "at", the ids and sorts, the
-    height changes' ids, the placements), else None."""
+    height changes' ids, the placements), else None; "trees" the TreeFX trees it adds, "trees_next" the first number never given to one."""
     path = _file(ac, name)
     revision = trackview.deletable(ac, name)[0]
     saved = trackview.recipe(ac, name)
     s = _stored(path, saved)
     same = s["base"] == revision
+    trees = s.get("trees", []) if same else []
     return {"base": revision, "revision": s["revision"], "deleted": s["deleted"] if same else [],
             "sorts": s.get("sorts", []) if same else [], "object_sorts": s.get("object_sorts", []) if same else [],
             "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "paints": s.get("paints", []) if same else [],
-            "models": s.get("models", []) if same else [], "surfaces": s.get("surfaces", []) if same else [],
+            "models": s.get("models", []) if same else [], "surfaces": s.get("surfaces", []) if same else [], "trees": trees,
+            "trees_next": tracktrees.next_of(trackview.treefx_of(trackview.served(ac, name)[0]), trees, s.get("trees_next", 0) if same else 0),
             "outdated": _old(s, revision), "saved": saved and {
                 "at": saved["saved"], "needs_save": _needs_material_save(saved), "deleted": [d["id"] for d in saved["deleted"]],
                 "sorts": saved["sorts"], "object_sorts": saved["object_sorts"],
                 "heights": [h["id"] for h in saved.get("heights", [])] if not s.get("broken") else [],
                 "placed": saved.get("placed", []) if not s.get("broken") else [], "copies": saved.get("copies", []) if not s.get("broken") else [],
                 "paints": saved.get("paints", []) if not s.get("broken") else [], "models": saved.get("models", []) if not s.get("broken") else [],
-                "surfaces": saved.get("surfaces", []) if not s.get("broken") else []}}
+                "surfaces": saved.get("surfaces", []) if not s.get("broken") else [],
+                "trees": saved.get("trees", []) if not s.get("broken") else []}}
 
 
 def saved_edits(ac, name):
@@ -187,7 +195,7 @@ def saved_edits(ac, name):
     if saved and saved["base"] != revision:
         raise Conflict("The saved track changed; read it again")
     return {"base": revision, **{key: (saved or {}).get(key, []) for key in
-            ("deleted", "sorts", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces")}}
+            ("deleted", "sorts", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces", "trees")}}
 
 
 def context(ac, name, revision, copies=None, models=None):
@@ -240,14 +248,14 @@ def grounded(ac, name, body):
             raise Conflict(name)
         path, scan, objects = context(ac, name, now["base"])
         counts, _sorts = trackview.counts_of(scan, objects)
-        placed = _checked_placed(body.get("placed"), counts)
+        trees = tracktrees.trees_of(trackview.treefx_of(path), now["trees"])
+        placed = _checked_placed(body.get("placed"), counts, trees)
         previous = {p["id"]: p for p in now["placed"]}
         field, out = trackheights.Field(now["heights"]), []
         with open(path, "rb") as f:
             for p in placed:
-                source = trackcopies._source(f, scan, objects, p["id"])
                 old = previous.get(p["id"], {"x": 0, "z": 0})
-                x, _, z = source["at"]
+                x, _, z = trees[p["id"]]["pos"] if p["id"] in trees else trackcopies._source(f, scan, objects, p["id"])["at"]
                 delta = float(field.at(x + p["x"], z + p["z"])[0] - field.at(x + old["x"], z + old["z"])[0])
                 out.append({**p, "y": round(max(-placement.MAX_RAISE_M, min(placement.MAX_RAISE_M, p["y"] - delta)), 3)})
         return {"placed": out}
@@ -311,22 +319,30 @@ def copy_template(ac, name, body):
         return {"template": template, "at": foot.tolist(), "kind": kind}
 
 
-def _checked(deleted, counts):
-    """What the page sent as deleted, only in the form the file holds: each id an object that is there, once, with a position
-    of three finite numbers. Pure."""
+def _there(id_, counts, trees):
+    """Whether an id is of an object there: a TreeFX tree of trees ({id: tree}), else one of counts. Pure."""
+    match = ID.fullmatch(id_) if isinstance(id_, str) else None
+    if not match or match[1] == objectlist.TREEFX:
+        return bool(match) and id_ in trees
+    return int(match[2]) < counts.get(match[1], (0,))[0]
+
+
+def _checked(deleted, counts, trees=()):
+    """What the page sent as deleted, only in the form the file holds: each id an object that is there (trees: the TreeFX trees by
+    id), once, with a position of three finite numbers. Pure."""
     if not isinstance(deleted, list):
         raise Invalid("deleted is no list")
     out, seen = [], set()
     for item in deleted:
-        match = ID.fullmatch(item.get("id") or "") if isinstance(item, dict) and isinstance(item.get("id"), str) else None
-        if not match or int(match[2]) >= counts.get(match[1], (0,))[0] or item["id"] in seen:
+        if not (isinstance(item, dict) and _there(item.get("id"), counts, trees)) or item["id"] in seen:
             raise Invalid(f"no object to delete: {str(item)[:80]}")
         at = item.get("position")
         if not (isinstance(at, list) and len(at) == 3 and all(type(v) in (int, float) and math.isfinite(v) for v in at)):
             raise Invalid(f"no position: {item['id']}")
         seen.add(item["id"])
-        kind = counts[match[1]][1]
-        out.append({"id": item["id"], "kind": kind[int(match[2])] if isinstance(kind, list) else kind,
+        base, number = item["id"].rsplit("#", 1)
+        kind = "treefx" if item["id"] in trees else counts[base][1]
+        out.append({"id": item["id"], "kind": kind[int(number)] if isinstance(kind, list) else kind,
                     "position": [round(v, 3) for v in at]})
     return out
 
@@ -436,16 +452,18 @@ def _moved_or_none(ac, name, revision, heights, placed):
         return trackplace.moved(path, source, listed, poses) if poses else None
 
 
-def _checked_placed(placed, counts):
-    """What the page sent as placements, if there is no problem with them: each of an object that is there, a span of wires never by
-    itself. Pure."""
+def _checked_placed(placed, counts, trees=()):
+    """What the page sent as placements, if there is no problem with them: each of an object that is there (trees: the TreeFX trees
+    by id), a span of wires never by itself. Pure."""
     wrong = placement.problems(placed)
     if wrong:
         raise Invalid(f"no placements: {wrong}")
     for p in placed:
-        match = ID.fullmatch(p["id"])
-        if not match or int(match[2]) >= counts.get(match[1], (0,))[0]:
+        if not _there(p["id"], counts, trees):
             raise Invalid(f"no object to place: {p['id'][:80]}")
+        if p["id"] in trees:
+            continue
+        match = ID.fullmatch(p["id"])
         kind = counts[match[1]][1]
         if (kind[int(match[2])] if isinstance(kind, list) else kind) in placement.NOT_ALONE:
             raise Invalid(f"a span goes where its poles go: {p['id']}")
@@ -590,12 +608,20 @@ def save_telling(ac, name, body):
             source, scan, objects = context(ac, name, revision, copies, models)
         except ValueError as e:
             raise Invalid(str(e)) from e
-        counts, listed_sorts = trackview.counts_of(scan, objects)
-        deleted = _checked(body.get("deleted"), counts)
+        section = trackview.treefx_of(source)
+        added = body["trees"] if "trees" in body else s.get("trees", []) if s["base"] == revision else []
+        wrong = tracktrees.problem(added, section)
+        if wrong:
+            raise Invalid(wrong)
+        trees = tracktrees.trees_of(section, added)
+        given = body.get("trees_next", 0)
+        trees_next = tracktrees.next_of(section, added, max(given if type(given) is int else 0, s.get("trees_next", 0) if s["base"] == revision else 0))
+        counts, listed_sorts = trackview.counts_of(scan, objects, section)
+        deleted = _checked(body.get("deleted"), counts, trees)
         sorts = _checked_sorts(body.get("sorts") or [], trackview.sprites(), "trees")
         object_sorts = _checked_sorts(body.get("object_sorts") or [], listed_sorts, "objects")
         heights = _checked_heights(body["heights"]) if "heights" in body else s.get("heights", []) if s["base"] == revision else []
-        placed = _checked_placed(body["placed"], counts) if "placed" in body else s.get("placed", []) if s["base"] == revision else []
+        placed = _checked_placed(body["placed"], counts, trees) if "placed" in body else s.get("placed", []) if s["base"] == revision else []
         try:
             surfaces = tracksurfaces.checked(body["surfaces"] if "surfaces" in body else s.get("surfaces", []) if s["base"] == revision else [], scan)
         except ValueError as error:
@@ -609,7 +635,7 @@ def save_telling(ac, name, body):
             trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
         except ValueError as error:
             raise Invalid(str(error)) from error
-        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints or models or surfaces) and _old(s, revision)):
+        if not known or ((deleted or sorts or object_sorts or heights or placed or copies or paints or models or surfaces or added) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
@@ -619,15 +645,19 @@ def save_telling(ac, name, body):
             raise Invalid(str(error)) from error
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted, "sorts": sorts,
                       "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models,
-                      "surfaces": surfaces})
+                      "surfaces": surfaces, "trees": added, "trees_next": trees_next})
         same = s["base"] == revision
         before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else []}
+        # (where a tree stands changes by its placement, a height change and what is added: the page asks for the trees again)
+        moved_trees = bool(trees) and (before["heights"] != heights or (s.get("trees", []) if same else []) != added
+                                       or _placed_key([p for p in before["placed"] if p["id"] in trees])
+                                       != _placed_key([p for p in placed if p["id"] in trees]))
         # What was built to check this list is the draft now: the index reads it, and the answer below stays this save's after the lock.
         scan = {**scan, "draft": new, "paints": paints}
         with _context_lock:
             _context_cache.update(key=_context_key(ac, name, source, revision), value=(source, scan, objects))
     return {"revision": new, "meshes": _meshes_between(source, scan, objects, before, {"heights": heights, "placed": placed, "copies": copies, "models": models}),
-            "textures": textures}
+            "textures": textures, "treefx": moved_trees}
 
 
 def paint(ac, name, body, progress=None):

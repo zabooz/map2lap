@@ -1,6 +1,7 @@
 """Save in the Editor: a track as its draft (trackedits) says, written from its source (tracksource), in its place or as a copy: its
 whole folder, its kn5 without those objects' triangles, collision and the backs of walls too, with its objects placed anew (trackplace)
-and its height changes (trackheights). No build: the geometry of everything else is the same to the byte. Its map2lap.json holds the
+and its height changes (trackheights), its TreeFX trees as the draft leaves them in its object list and trees.txt (tracktrees). No build:
+the geometry of everything else is the same to the byte. Its map2lap.json holds the
 recipe ("edits": source, ids, sorts, height changes, placements, the kn5 written), so the Editor shows the source and whatever was changed
 can come back. No build from the map replaces such a track (generator, server); a copy built from its route has none of this.
 """
@@ -14,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from app import (mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
-                 trackvariation, trackview)
+                 tracktrees, trackvariation, trackview)
 from track import editorinfo, groundmaterial, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -222,26 +223,28 @@ def _save(ac, name, copy_to, title, revision):
     path, source = trackview.served(ac, name)
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
-    changed = edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"] or edits.get("models") or edits.get("surfaces")
+    changed = (edits["deleted"] or edits["sorts"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
+               or edits.get("models") or edits.get("surfaces") or edits.get("trees"))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
     if not (changed or held or source or copy_to):
         raise Refused("Nothing to save: nothing is changed")
-    objects = trackview.list_of(path)
+    objects, trees = trackview.list_of(path), trackview.treefx_of(path)
     # (the first Save: the track as it is, kept before anything is written. Replaced, its file itself can stay as that; a copy leaves
     # the track in its place, which needs a source of its own)
-    linked = tracksource.link(ac, name, own, objects) if source is None and not copy_to else None
+    linked = tracksource.link(ac, name, own, objects, trees) if source is None and not copy_to else None
     try:
-        return _written(ac, name, edits, own, source or linked, objects, copy_to, title)
+        return _written(ac, name, edits, own, source or linked, objects, trees, copy_to, title)
     except BaseException:
         if linked and linked not in tracksource.named(ac):
             tracksource.drop(linked)
         raise
 
 
-def _written(ac, name, edits, own, source, objects, copy_to, title):
-    """The track written as edits say, from its source, its id (None: none yet, one is copied now). What save returns."""
+def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
+    """The track written as edits say, from its source, its id (None: none yet, one is copied now), its object list objects and
+    TreeFX section trees (None for none). What save returns."""
     folder = os.path.dirname(own)
     path = tracksource.kn5_of(source) if source else own
     source_objects = objects
@@ -276,7 +279,7 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
     except trackheights.InTheWay as e:
         raise Refused(str(e)) from e
     if source is None:
-        source = tracksource.make(ac, name, own, source_objects)
+        source = tracksource.make(ac, name, own, source_objects, trees)
         path = tracksource.kn5_of(source)
     info, new = mytracks.load(folder), copy_to or name
     title = title or info["title"]
@@ -324,7 +327,12 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         from app import trackuv2
         trackuv2.write(path, new_kn5, added)
         now_at = trackheights.list_moved(placement.list_placed(objects, edits["placed"]), edits["heights"])
-        objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen))
+        trees = tracktrees.saved(trees, edits)
+        objectlist.write(new_kn5, objectlist.after_filter(now_at, moved, going, seen), trees)
+        if trees:                   # (its models are in the folder copied: every one stays, so a tree taken back has its model)
+            os.makedirs(os.path.join(temporary, "extension", "trees"), exist_ok=True)
+            from scenery import treefx
+            treefx.write_text(os.path.join(temporary, "extension", "trees"), trees)
         editorinfo.copy(path, new_kn5)
         trackpaint.export(ac, name, edits["paints"], temporary)
         trackmodels.export(ac, name, edits.get("models", []), temporary, new_kn5, edits, inherited)
@@ -332,7 +340,8 @@ def _written(ac, name, edits, own, source, objects, copy_to, title):
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
         recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"], "sorts": edits["sorts"],
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
-                  "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "detail_profile": trackdetail.PROFILE,
+                  "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []),
+                  "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,
                   "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "ground_format": groundmaterial.GROUND_FORMAT,
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
         if inherited:

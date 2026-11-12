@@ -1,5 +1,6 @@
 """The unchanged kn5 of a track edited in the Editor, its source: what the Editor shows and Save filters, so whatever was deleted can
-come back after any number of saves. out/sources/<id>/track.kn5 with its object list (data/map2lap_objects.json); <id> is the track's
+come back after any number of saves. out/sources/<id>/track.kn5 with its object list (data/map2lap_objects.json, its TreeFX trees too;
+their models stay in the track's folder); <id> is the track's
 name and its kn5's state at its first Save. A track's recipe names it ("edits" in map2lap.json, trackcopy); a copy names the same one.
 Not under out/tracks: "Delete build files" leaves it. Made in a folder that starts with NEW and then renamed: whole or not there.
 A copy of the kn5, or for a track about to be replaced another name of its file (link): the old name then goes and it stands alone.
@@ -39,15 +40,15 @@ def _same_folder(path):
     return os.path.normcase(os.path.abspath(path))
 
 
-def _made(source, ac, objects, put, facts_from):
-    """The source of a track in the AC folder ac: put(path) leaves its kn5 at path, then its object list goes beside it and it is
-    there, whole."""
+def _made(source, ac, objects, trees, put, facts_from):
+    """The source of a track in the AC folder ac: put(path) leaves its kn5 at path, then its object list (with trees, its TreeFX
+    section or None) goes beside it and it is there, whole."""
     new = os.path.join(root(), NEW + source)
     shutil.rmtree(new, ignore_errors=True)
     os.makedirs(new)
     try:
         put(os.path.join(new, KN5))
-        objectlist.write(os.path.join(new, KN5), objects)
+        objectlist.write(os.path.join(new, KN5), objects, trees)
         editorinfo.copy(facts_from, os.path.join(new, KN5))
         from app import tracknative
         tracknative.copy_source(facts_from, os.path.join(new, KN5))
@@ -60,9 +61,9 @@ def _made(source, ac, objects, put, facts_from):
     return source
 
 
-def make(ac, name, kn5_path, objects):
-    """The source of the track name in the AC folder ac from its kn5 as it is now and its object list objects (track.objectlist, of that kn5); its id.
-    One there already for this state of the file is taken as it is."""
+def make(ac, name, kn5_path, objects, trees=None):
+    """The source of the track name in the AC folder ac from its kn5 as it is now and its object list objects (track.objectlist, of that kn5)
+    with trees, its TreeFX section (None for none); its id. One there already for this state of the file is taken as it is."""
     source = id_of(name, kn5_path)
     if exists(source):
         return source
@@ -71,17 +72,17 @@ def make(ac, name, kn5_path, objects):
         st = os.stat(kn5_path)
         shutil.copyfile(kn5_path, path)
         os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))     # (the same state: the draft's ids, made for the track, hold for it)
-    return _made(source, ac, objects, copy, kn5_path)
+    return _made(source, ac, objects, trees, copy, kn5_path)
 
 
-def link(ac, name, kn5_path, objects):
+def link(ac, name, kn5_path, objects, trees=None):
     """The same without copying: its kn5 another name of the file at kn5_path, for a track whose file is replaced right after (the
     two are one file until then: drop it if that fails). Its id, or None: one is there already, or the disk has no such names."""
     source = id_of(name, kn5_path)
     if exists(source):
         return None
     try:
-        return _made(source, ac, objects, lambda path: os.link(kn5_path, path), kn5_path)
+        return _made(source, ac, objects, trees, lambda path: os.link(kn5_path, path), kn5_path)
     except (OSError, NotImplementedError):
         return None
 
