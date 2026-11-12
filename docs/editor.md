@@ -65,6 +65,9 @@ completed and cancelled entries are released. This diagnoses network waits, not 
 The camera moves as in a building game, level over the ground (`view.ts`), with no state kept between moves that
 could lie far off: what it turns around or zooms towards is looked up each time. The middle of its view stays within the track's meshes plus a margin (the camera may stand beyond, to look back), it stays
 below a height the distant terrain can be seen from; where no ground lies under it, the last one found counts.
+Loaded terrain, bridge decks and water remain visible beyond their KN5 draw distance so an overview does not open holes
+in the ground. Other mesh objects keep their KN5 distances. Loading and the memory budget still apply; these Editor
+visibility rules do not change the exported track or AC's draw distances.
 
 The Editor views and inspects tracks and leaves out single objects: what the build lists (`track/objectlist.py`: cars, houses with their signs and doors, poles with their wires, street
 furniture, signs, rocks, fences, gas stations, leisure grounds, and the TreeFX trees and bushes). A left out one's triangles shrink to a point,
@@ -254,7 +257,7 @@ Save writes the list's section and `trees.txt` from the source and the draft, so
 falls, so a deleted tree's number is never reused. Every model stays in the track's folder, so a tree that comes back has its
 model; a copied track takes the folder, its trees.txt and its models along.
 The view draws them (`scene/treeFx.ts`): the trees of one model in one 256 m cell are one instanced mesh at the LOD of the cell's
-distance, as CSP switches them, the coarsest out to 1200 m; what the draft leaves out shrinks to a point in its
+distance, using the model's LOD thresholds and keeping the coarsest out to 3600 m in the Editor; what the draft leaves out shrinks to a point in its
 slot. They are picked as other objects (the leaves' see-through parts are nothing, `pointing.ts`), framed, marked all of a model,
 deleted one by one or by Delete's brush (at their foot as drawn), moved with a preview of their matrix, and copied: Copy's
 `/copy` gives a tree's template, and each click a new tree under the next number never given, its height on the ground without

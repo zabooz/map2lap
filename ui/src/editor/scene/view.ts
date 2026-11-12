@@ -1037,9 +1037,9 @@ export class TrackView {
     this.ghost.follow();
     if (this.dirty) {
       this.dirty = false;
-      for (const m of this.meshes) {  // the distances AC shows each mesh at (trees, bushes, furniture go far away)
+      for (const m of this.meshes) {  // AC's distances for objects; ground stays closed when viewing the track from high above
         const d = this.camera.position.distanceTo(m.geometry.boundingSphere!.center);
-        m.visible = d >= m.userData.lodIn && d < m.userData.lodOut;
+        m.visible = d >= m.userData.lodIn && (GROUND.test(m.name) || d < m.userData.lodOut);
       }
       this.cullModels();
       if (this.brush.goneNow !== this.treesGone) this.leaveOutTrees();

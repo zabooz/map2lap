@@ -31,6 +31,20 @@ test("the LOD is the first beyond the distance, the last out to the far distance
   expect(cellOf(-1, 300)).toBe("-1,1");
 });
 
+test("the Editor keeps trees at the coarsest LOD to 3.6 km without extending the detailed LODs", async () => {
+  const {scene, draw: d} = draw(trees({next: 1, ids: ["trees#0"], model: [1], pos: [0, 0, 0], base: [0, 0, 0], angle: [0], size: [1], width: [1]}));
+  try {
+    await d.load();
+    const [mesh] = batches(scene);
+    d.follow(new THREE.Vector3(0, 0, 100));
+    expect([mesh.visible, mesh.geometry.index!.count]).toEqual([true, 9]);
+    d.follow(new THREE.Vector3(0, 0, 3500));
+    expect([mesh.visible, mesh.geometry.index!.count]).toEqual([true, 3]);
+    d.follow(new THREE.Vector3(0, 0, 3600));
+    expect(mesh.visible).toBe(false);
+  } finally { d.dispose(); }
+});
+
 test("the trees of one model in one cell are one instanced mesh, each model loaded once from the track", async () => {
   const {scene, asked, draw: d} = draw();
   await d.load();
@@ -47,9 +61,9 @@ test("a cell near the camera shows its finest LOD, a far one its coarsest, one b
   const near = batches(scene).find(b => b.count === 2)!, far = batches(scene).find(b => b.count === 1)!;
   expect([near.visible, near.geometry.index!.count]).toEqual([true, 9]);
   expect([far.visible, far.geometry.index!.count]).toEqual([true, 3]);     // (1 km: the last LOD)
-  d.follow(new THREE.Vector3(-1000, 10, 0));
+  d.follow(new THREE.Vector3(-3000, 10, 0));
   expect([near.visible, far.visible]).toEqual([true, false]);
-  expect(d.follow(new THREE.Vector3(-1000, 10, 0))).toBe(false);
+  expect(d.follow(new THREE.Vector3(-3000, 10, 0))).toBe(false);
 });
 
 test("a tree left out by its id or its model shrinks to a point and comes back when the draft no longer names it", async () => {

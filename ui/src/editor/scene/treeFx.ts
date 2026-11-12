@@ -10,7 +10,7 @@ import type {TreeFxChange, TreeFxTree} from "../types";
 export type {TreeFxChange, TreeFxTree};
 
 export const CELL_M = 256;
-export const FAR_M = 1200;          // (as far as the billboard trees of before showed: no forest ends near the camera)
+export const FAR_M = 3600;          // overview: three times the former reach, extending only the cheapest LOD
 const ALPHA_REF = 0.5;              // (obj_to_kn5.ALPHA_REF of the trees)
 
 /** The trees as the server hands them out (trackview.treefx): flat arrays, a tree per index. */
