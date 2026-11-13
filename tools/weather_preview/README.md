@@ -1,13 +1,13 @@
 # Weather preview
 
-Versioned public-CSP rain/snow prototype and helpers for the existing `heiligenblut_test`
+Development preview helpers for the shipped public-CSP rain/snow effects on the existing `heiligenblut_test`
 track. The shipped source `assets/weather/weather.lua` batches up to 14,057 rain/snow particles into one dynamic mesh
 with custom HLSL, native weather selection and actual CSP wind. A depth-aware
 distance veil and ground splash crowns complement native WeatherFX fog.
 Ground impacts share a fixed 256-quad budget between nearby ground and a forward
 region reaching about 35 m. Longer downward rays accommodate elevation changes;
 a small pixel-size floor and distance fade keep the distant crowns visible.
-It requires no RainFX or custom DLL. This development branch enables the windscreen overlay,
+It requires no RainFX or custom DLL. The shipped script includes the windscreen overlay,
 with blade-swept rain/snow, independent side-window fields and a separate mirror precipitation pass.
 
 Run these commands from the worktree root, using the main checkout's existing Python

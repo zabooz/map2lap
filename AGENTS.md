@@ -7,9 +7,11 @@ by hand.
 
 ## Read for the task
 
-- Start with [GLOSSARY.md](GLOSSARY.md); keep project-specific definitions current.
+Read only the references needed for the task; the topic guides link to their implementation owners.
+
+- Start with [GLOSSARY.md](GLOSSARY.md); keep definitions to one or two sentences, with details in the topic guide.
 - Before writing a probe, consult the [tool catalogue](tools/README.md); each tool has `--help`.
-- Frontend changes: [ui/AGENTS.md](ui/AGENTS.md). Editor data flow and saving: [docs/editor.md](docs/editor.md).
+- Frontend changes: [ui/AGENTS.md](ui/AGENTS.md). Editor data flow, saving and topic index: [docs/editor.md](docs/editor.md).
 - Physics, materials or kn5 writing: [docs/ac-rules.md](docs/ac-rules.md).
 - Reports or marks from AC: [docs/ac-reports.md](docs/ac-reports.md).
 - Rust: [docs/rust.md](docs/rust.md). Releases or Linux: [docs/release.md](docs/release.md).
@@ -22,7 +24,7 @@ by hand.
 ```powershell
 # pass or fail: the unit tests (a process per file) and a kn5 build of a short test track
 .venv\Scripts\python.exe tools\check.py
-.venv\Scripts\python.exe tools\check.py --fast          # the unit tests only, ~15 s
+.venv\Scripts\python.exe tools\check.py --fast          # the unit tests only
 .venv\Scripts\python.exe tools\check.py test_roads      # some test files
 
 # the test tracks, built up to the OBJ parts and measured against their references
@@ -62,6 +64,7 @@ Commands, browser-test requirements and React/CSS rules: [ui/AGENTS.md](ui/AGENT
   rebuild or a locked `.pyd` is no reason for a Python workaround ([docs/rust.md](docs/rust.md)).
 - **A driving-surface rule** gets a comment saying why, a test that fails without it, and `measure.py` before and after.
 - **Comments and docs say how it is now:** the rule and its reason, with a concrete example where that helps.
+  Keep ownership, invariants and pitfalls in topic guides; avoid duplicate UI walkthroughs, benchmark history and status logs.
 - **Style:** short functions, docstrings that name the inputs and say "Pure." when there are no side effects.
 - **Versions** (`src/app/version.py`) change only at a release: `VERSION` always, `TRACK_VERSION` when built tracks look or
   drive differently.

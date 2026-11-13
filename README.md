@@ -37,27 +37,17 @@ Steam. Before the first track:
 - **A complete world:** terrain, roads, bridges, tunnels, buildings, street furniture, guardrails, pylons, rivers and
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
-- **Elevation (Editor, H):** raise or lower the ground, with the road and what stands on it: a click by its height, held more and more
-  where the ring is, Shift the other way, Ctrl, Alt or both with the wheel for its radius, height or soft edge; each is one undo. Save writes it
-  into the track without a build. A change that reaches a bridge, a tunnel or a railway is refused. **X:** deletes what is picked (Shift + click picks
-  more), or with nothing picked each click deletes what is under it.
-- **Camera (Editor, C):** go along the track by Shift and the wheel, or let it ride by itself, to look it over and find what to correct.
-- **Smooth (Editor, T):** with Mark road (R) or Smooth on, two clicks on the road mark a stretch, and a band follows it, up to a wall and not over it; further clicks add pins
-  that say which way it goes, to drag or take away with a right click. Smooth evens it out, from short waves to a calm curve by its strength,
-  and it goes on from the road's slope beyond with no edge; set the clicks before and behind the bad part. A bank or a side road beside it stays
-  as it stood to the road.
-- **My tracks:** under **Built**, rebuild a track with the latest version, build a copy, delete it, or **▶ Play** it straight
-  away. Tracks saved in the Editor stand under **Edited**: open them again, build a new copy from the map, delete them or play
-  them; no build replaces them.
-- **Editor:** inspect a built track in 3D. Move over the ground with W A S D or by dragging with the right mouse button, zoom
-  with the wheel, turn and tilt by holding it. Point at a surface, tree or building to see its
-  material, physics and position. Click an object, such as a tree, a parked car, a house, a sign or a fence, and press Delete to take it out of the view, Ctrl+Z brings it
-back (a track built before this version: build it again for everything but trees and bushes);
-right-click it to mark all of its sort (all parked cars, all benches) and delete them at once. Changes are kept by themselves;
-**Save** writes the track (the first time it asks: in its place, or as a new track with a name of your choice),
-**▾** saves it as a new track, and **▶ Play** saves if needed and drives it. What was deleted can be brought back after any Save.
-Building the track again from the map brings back what was deleted. All keys: Settings → Editor. A Save needs room on the disk for the
-track's file once more, a new track twice: tens of GB for a track of hundreds of km.
+- **Editor:** inspect a track in 3D, move/copy/delete objects, import models and textures, paint object groups,
+  adjust tree spacing, raise terrain and smooth selected roads. Changes are kept automatically as a draft; Undo restores
+  the previous step. **Save** writes the track without rebuilding, **▾** offers Save as new track, and **▶ Play** saves
+  if needed before driving. Keep the retained source to restore deleted built objects after Save.
+- **Controls:** Select **V**, Road camera **K**, Smooth road **R**, Elevation **H**, Transform **T**, Copy **C**,
+  Delete **X**, Insert **E**. Ctrl adds to a selection; Shift selects all matching objects/ground regions. Help below
+  the tools explains the active tool and its modifiers.
+- **Conditions:** preview time of day, seasons and weather, then use them for the next Play, with independent air/road
+  temperatures and wind. These session controls do not change the saved track.
+- **My tracks:** Built tracks can be rebuilt or copied from the map. Edited tracks can be reopened, played, deleted,
+  or built as a new copy without edits; rebuilding never overwrites the edited original.
 
 Short routes (2–20 km) work best: Assetto Corsa loads the whole track at once.
 

@@ -6,7 +6,8 @@ BeamNG.Earth is built on open data, open-source software and the work of many pe
 lists every data source, service, library, tool and reference the project uses or has used, with
 its licence and the attribution it asks for.
 
-Status: **in use** = used by the current main branch; **branch** = on a feature branch, not merged
+These statuses describe the inherited BeamNG.Earth inventory, not Map2Lap's current runtime (see [SOURCES.md](SOURCES.md)).
+Status: **in use** = used by the upstream main branch; **branch** = on a feature branch, not merged
 yet; **planned** = in the roadmap, not used yet; **reference** = consulted for research or tuning
 only, nothing redistributed. Licence notes marked *(verify)* must be re-checked before any release.
 

@@ -10,172 +10,120 @@ The local web page end users build and manage tracks with (`src/server.py`).
 _Avoid_: server, the page's server
 
 **Editor**:
-The generator page's tab that shows and inspects a built track in 3D, from its kn5 (`app/trackview.py`, `ui/src/editor`).
-It takes objects out, places them anew (**Placement**) and changes the ground's height (**Height change**); what is saved stays in the track
-file, a build makes new ones.
+The generator page’s 3D tab for inspecting and editing an installed KN5 track. Draft edits become track files on
+**Save**, without rebuilding from map data; see [editor.md](docs/editor.md).
 
 **Object list**:
-The build's list of a track's single objects: `data/map2lap_objects.json` beside the kn5 (`track/objectlist.py`). Meshes stay merged
-per tile and material; the list says which triangles of them make up each object, also across meshes, and what belongs to what
-(a house's sign and door, a pole's lamp and wires). Every mesh a build adds is entered there. An object's id: `t_<x>_<y>#<number>`; a tree's or bush's, a TreeFX tree's:
-`trees#<number>`.
+A track’s `data/map2lap_objects.json`: object ids, triangle ownership across merged meshes, and parent/child
+relationships. TreeFX placements have their own section (`track/objectlist.py`).
 
 **Tree spacing**:
 The Editor's reversible thinning layer, a minimum distance between tree trunks on the ground. It applies to all trees or a
 retained selection; zero restores its hidden trees. The setting survives Save and reopening, separate from manual deletion.
 
 **Object group**:
-A reusable Library mixture of imported models, with a weight, size range and random switch for each entry. The group as it
-is holds each model as often as its weight (its preview and cost show that); the Groups brush plants it in those proportions
-onto loaded ground, scattered or, without random position, in rows. One completed stroke is one undoable change; the planted models keep independent bindings and poses.
-This is separate from a **Sort**, which identifies matching objects already in a track.
+A reusable Library mixture of models, weights, size ranges and randomization settings. The Groups brush plants
+independent model instances in those proportions; a completed stroke is one Undo step. Unlike a **Sort**, it describes a
+mixture to plant.
 
 **Sort**:
-An object's finest name, what "delete all" in the Editor goes by. A listed object's is in the object list beside its **kind**, the coarse name
-the page shows (kind `street furniture`, sort `bench`; a prop row's group, a sign's stream, else the kind; lists of older builds have none:
-their kind). A tree's or bush's is its TreeFX model (`spruce`, `broadleaf`).
+The finest object category used by Select all/delete all; **kind** is the coarser category (for example street furniture
+/ bench). Trees use their TreeFX model; older object lists fall back to kind.
 
-**Save** (Editor):
-Writes a track as its edit list says (`app/trackcopy.py`), in its place or as a copy, its kn5 filtered from its **source**, without a
-build. Its map2lap.json then holds the **recipe** ("edits": the source, the ids and sorts, the kn5 it wrote, when). A track
-saved so stands under "Edited" in My tracks: its own work, no build replaces it. _Avoid_: modded track, rebuild (that is a build from the map).
+**Save**:
+Writes source plus draft into the track or a copy, with a recipe (`app/trackcopy.py`). The result appears under Edited
+and cannot be rebuilt in place. _Avoid_: rebuild, modded track.
 
-**Height change** (Editor):
-A raster of how far the ground moves at each of its points, in whole mm, on the ground's 2 m lattice, 0 at its edge (`app/trackheights.py`). It
-is part of the draft and the recipe. Save adds up all of them over the track's source, so an undo or a second Save never adds to what is there.
+**Height change**:
+An additive raster of whole-millimetre offsets on the ground’s 2 m lattice, zero at its edge (`app/trackheights.py`).
+Save reapplies it to the source, so repeated Saves do not compound it.
 
-**Placement** (Editor):
-How a single object stands anew: moved, raised, turned around the upright and scaled around its place (the object list's "at"; a tree's or
-bush's the middle of its foot), with what belongs to it and a pole's wires (`app/placement.py`, `app/trackplace.py`). One per object in the
-draft and the recipe, always from the source; height changes go after it, by where it stands now.
+**Placement**:
+An object’s translation, upright rotation and scale about its recorded pivot (`app/placement.py`). It applies from the
+source before height changes; children and attached wires follow it.
 
-**Band** (Editor):
-A linear road-height solver and the legacy band API (`app/trackband.py`). Its **own road** is the 1ROAD that stands to its
-line as a road can across: a bank or a side road at another level beside it is not. Its spline and height helpers are also
-used by the current **Road region** tool.
+**Band**:
+The legacy linear road-height solver/API (`app/trackband.py`). Its **own road** is the driveable surface belonging to
+that line, excluding neighbouring roads at other levels; the Road region tool reuses its helpers.
 
-**Road region** (Editor):
-The mapped road network joined by Smooth road's points, bounded at its terminal points and clipped by the actual painted
-road masks (`app/roadregion.py`). Extra points may add branches. Orange shows the selected roads; fainter orange shows the
-terrain transition. `app/roadnet.py` joins the arms through shared junction heights/gradients and returns one ordinary 2 m
-height raster. The main driving route does not constrain the selection.
+**Road region**:
+The mapped network selected by Smooth road’s terminal/branch points, clipped by actual road paint (`app/roadregion.py`).
+Orange shows selected road, faint orange the terrain transition; the driving route does not constrain it.
 
-**Object copy** (Editor):
-An independent instance kept in the draft and recipe as source object ids with frozen poses (`app/trackcopies.py`), with its own
-`copy_<id>#<member>` ids. Its geometry is bundled by tile, surface prefix, kind, material and mesh flags, generated for the view and appended by Save;
-a house carries its children and collision, a copied pole has no wires.
+**Object copy**:
+An independent source-object instance with frozen member poses and `copy_<id>#<member>` ids (`app/trackcopies.py`).
+Houses bring children/collision; copied poles have no wires.
 
-**Brush** (Editor):
-The round thing on the ground a tool works with: its ring, radius, soft edge, strokes as a click or held and moved (`ui/src/editor/tools/useBrush.ts`). What a stroke does is the tool's:
-Elevation, the first, raises or lowers the ground. A radius of at least 2 m: a smaller ring can stand between the points of the ground's 2 m lattice and move nothing.
+**Brush**:
+A tool’s ground ring and sampled stroke (`tools/useBrush.ts`). Its minimum 2 m radius reaches the ground lattice; the
+tool determines what the stroke changes.
 
-**Tool options** (Editor):
-The bar over the view with what the tool on can be set to (`ui/src/editor/tools/ToolOptions.tsx`). Its options reach Shift, Ctrl, Alt, Ctrl+Alt from left to right, with every tool.
-Select uses Shift for all matching objects or prepared ground areas, including separate ones; Ctrl adds to the selection.
+**Tool options**:
+The active tool’s overlay controls (`tools/ToolOptions.tsx`), with Shift/Ctrl/Alt/Ctrl+Alt modifiers. Select uses Shift
+for all matching and Ctrl to add/remove.
 
-**Toast** (page):
-A notice at the top centre of the page, one stack for all (`ui/src/components/toastStore.ts`, `Toasts.tsx`): a missing AC folder or
-CSP, the Editor's loading and Saving with a progress bar, and what goes wrong in the Editor outside a window. Not build errors.
+**Toast**:
+A notice in the page’s top-centre stack, including Editor progress/errors (`components/toastStore.ts`). Dialogs and
+build status own their errors separately.
 
-**Inspector** (Editor):
-The docked right panel, with the time of day above its Properties and Details tabs, for the clicked selection, its material/texture and retained object details. Selection stays pinned
-while the separate Under pointer section follows the mouse. Details also contains track size, draft estimates and the edit
-counts; what went wrong is a toast at the top centre. Its width comes from the 3D view's space; hiding it restores that space.
+**Inspector**:
+The resizable right panel with Selection, Properties and Details tabs. Selection stays pinned; separate Under pointer
+information follows the mouse.
 
-**Material library** (Editor):
-User-imported material maps and their physical repeat size, variation, category and source information. Versioned immutable packages under
-`library/materials/<id>` keep the original image, preview and relative-path manifest. Prepared colour maps are disposable
-under `cache/materials`, and applied mask/colour DDS mipmaps under `cache/track-details`. What a Save packs of a material
-for AC (its colour DDS with its gloss alpha, its normal map PNG) lies under `cache/native-library`, shared by all tracks. Importing a material alone does
-not change the track. Schema 2 also retains optional +Y normal and linear roughness maps, independently of shader packing;
-the import dialog accepts all three roles. Applied materials use CSP's classic `ksMultilayer_objsp_nm4` in AC, written
-straight into the kn5 material: colour with its gloss (1 - roughness) in alpha, a tangent normal map, square and rectangular
-repeats alike, repetition variation per layer. Generated ground is the same shader. The Editor draws them with the classic
-light (Phong at ksSpecular and ksSpecularEXP).
+**Material library**:
+Immutable image-map packages with physical repeats and source information under `library/materials`. Original colour,
+optional +Y normal and linear roughness maps are retained; preparation caches are disposable. See
+[editor-library.md](docs/editor-library.md).
 
-**Model package** (Editor):
-An immutable asset under `library/objects/<id>` (own imports) or `assets/library/objects/<id>` (shipped with the release,
-replaced by updates), with its self-contained GLB and a versioned description of source scale,
-ground anchor, category and collision choice (`app/objectlibrary.py`). `app/modeldata.py` keeps primitive geometry shared
-between the GLB's scene nodes and retains material/image resources. The Editor imports, places and replaces trees from these
-packages, retaining their GLBs in saved tracks; native shading currently covers colour and alpha. A package keeps only
-the GLB that was imported (converted from FBX/OBJ, colour-corrected, sized, simplified), never the upload it came from.
-Optional **Geometry** import targets (Original/75%/50%/25%) bake conservative simplification into the canonical GLB;
-the ground anchor, bounds and source-unit scale stay fixed. The target is bounded by protected seams
-and a 1% per-primitive error budget, so actual reduction can stop earlier.
+**Model package**:
+An immutable canonical GLB plus scale, anchor, category and collision settings under `library/objects` or shipped
+`assets/library/objects`. Conversion/import choices are baked into that GLB; the prior upload is not a second retained
+original.
 
-**Model snapshot and instance** (Editor):
-An immutable snapshot freezes the original GLB and its import description when applied. A stable generic instance id binds
-that snapshot to a ground anchor and explicit collision choice. A replacement can retain a uniform fit to the source tree's
-physical height; subsequent movement, turn and relative size stay separately in `placed`.
-Hash-bound compiled provenance identifies generated KN5 regions and consumed source replacements after cache-free transfer.
-Editor contexts retain shared asset geometry and per-binding metadata; picking and drawing share the GLB with instance matrices.
-Native vertex copies are made for Save, while the index keeps stable mesh numbers and face ranges.
+**Model snapshot and instance**:
+A snapshot freezes a model package when applied; a stable instance id binds it to the track. Editable poses stay in
+`placed`, and compiled provenance identifies already-written geometry after transfer.
 
-**Built-in objects** (Editor):
-Map2Lap's own painted scenery in the Object library: 17 TreeFX tree/bush models, six rock forms, 48 parked-car entries (four
-shapes in twelve colours) and 55 furniture/leisure/utility entries, including three fountain forms (`app/builtinobjects.py`,
-`scenery/catalogue.py`, enabled by `assets/builtin-objects.json`). The same scenery builders provide their geometry
-and artwork; content-addressed packages are prepared in `cache/builtin-objects`, with Map2Lap/zabooz credit, MIT and licence
-notices. Library trees use ordinary model bindings for Undo, groups and portable ownership, and their frozen TreeFX `.bin`
-for instanced distance LODs in the Editor and AC (`app/modeltrees.py`), with no tree vertices written to KN5. Furniture uses
-ordinary native model meshes. Lamp glass carries `m2lLamp`; Save registers real CSP night lighting, shared with generator lamps
-(`scenery/lamps.py`). Deleting a built-in hides it; placed instances retain their original files and notices.
+**Built-in objects**:
+Map2Lap’s own painted scenery in the Library (`app/builtinobjects.py`, `scenery/catalogue.py`). Packages are prepared on
+demand; trees use native TreeFX, other objects ordinary model meshes. Deleting an entry hides it without removing placed
+snapshots.
 
 **Custom Shaders Patch (CSP)**:
-An extension installed once in the Assetto Corsa folder, with `dwrite.dll` and files under `extension/`.
-Map2Lap Settings detects its installed version and enable setting; a missing installation can download the recommended
-public release from the official site on request (`app/csp.py`). CSP runs inside AC; the Editor's browser renderer is separate.
+The AC extension required for Map2Lap’s track rendering, installed separately in the AC folder. Settings
+detects/installs it on request (`app/csp.py`); it does not run the browser preview.
 
-**Ground texture edit** (Editor):
-An immutable selected-ground mask and retained library colour texture snapshot (`app/trackpaint.py`). Ordered ids in the draft/recipe
-select separately repeated full-resolution colour layers (`app/trackdetail.py`). The Editor shares the source geometry;
-regional Save adds render copies and retains the source collision vertices and triangles unchanged. The copies of a tile cut its
-ground only between its regions; at the tile's edges they end where the ground does (`tracknative._cuts`).
-Semantic edits and preview keep unrestricted contributions. Regional native materials have at most four local contributors;
-Save explicitly refuses denser transition/filter halos while the draft remains intact. Exact float2 repeat sizes and UV
-origins align the photos and the tile image at the world's phase. Preview masks normally use the same
-50-cm step as Save; nondivisible canvases retain their own resolution. Dense six-way and distant-filter support remain
-open release requirements.
-Saved tracks keep their active inputs in `data/map2lap_paints`; derived mask/colour DDS under `cache/track-details` can be rebuilt
-without the library.
+**Ground texture edit**:
+An immutable ground-selection mask plus material snapshot, referenced by ordered draft/recipe paint ids
+(`app/trackpaint.py`). Save preserves source collision; native regions allow at most four local contributors. See
+[editor-ground.md](docs/editor-ground.md).
 
-**Texture settings** (Editor):
-One application's choice of how its texture is drawn: normal map on or off and its strength, roughness map on or off, gloss
-toward shinier or matte (its roughness moved; a texture shines at most as the ground, ksSpecular 0.02), and repetition variation (`look` in its snapshot, `trackpaint.LOOK`). Set with Settings… before Apply
-or in the Inspector after it; the library package and other applications stay as they are. The Editor and Save draw it through
-`trackpaint.rendered`. _Avoid_: material properties (the library's `roughness`/`normal_scale`, which the settings start from).
+**Texture settings**:
+One applied texture’s normal strength, roughness/gloss and repetition variation (`trackpaint.LOOK`). They change that
+application, leaving its library package and other applications intact. _Avoid_: material properties (the package
+defaults).
 
-**Selection index** (Editor):
-Disposable prepared paint components and alpha masks (`track/surfaceindex.py`, `out/editor-selection`), made while ground tiles
-load and reused across sessions and saved copies. Normal road selection stops at mapped branches; Shift takes all matching
-prepared regions of the material, including disconnected areas, without a tile-count cap. Unprepared areas are reported
-as incomplete. Apply freezes the displayed tile subset and reads its masks in bounded portions; highlighting decodes
-only loaded ground within the view's memory budget.
-Separate material meshes, including the road verge (`edge_dirt`), get connected face regions while their geometry loads.
-The verge can be deleted by those triangles (a draft's `surfaces`, `app/tracksurfaces.py`), as it is no object.
+**Selection index**:
+Disposable prepared paint components/masks under `out/editor-selection` (`track/surfaceindex.py`). Normal roads select
+by mapped chain, Shift selects all prepared matching regions; incomplete selections must identify their displayed tile
+subset on Apply.
 
 **Source**:
-A saved track's kn5 and object list as they were before its first Save, kept unchanged in `out/sources/<name>_<state>/`
-(`app/tracksource.py`), shared by its copies: the Editor shows it, so whatever was deleted can come back. It counts while the track's
-kn5 is the one its recipe wrote (`trackview.served`); built again, or the source lost, the track's own kn5 is shown. A first Save in
-place on one disk makes the old file itself the source (a hardlink, alone once the old folder goes), else it is a copy. It belongs to one
-AC folder: another one's tidying leaves it.
+The unchanged pre-Save KN5/object list retained under `out/sources` and shared by saved copies. The Editor uses it while
+its recipe matches, allowing baked deletions to be restored; it belongs to one AC folder.
 
 **Edit list**:
-What the Editor changed on a track, its draft: `out/edits/<track>.json` (`app/trackedits.py`), for one state of the kn5 the Editor shows (the
-list's "base"). It keeps deleted object ids and sorts, verge triangle ranges (`surfaces`), placements, height changes,
-copies, imported model bindings and ground-paint operations. Built again, the list stays but is not applied ("outdated"):
-ids and triangle ranges belong to the old source. No file: the recipe, while it counts.
+The draft at `out/edits/<track>.json`, bound to the shown source revision (`app/trackedits.py`). It holds deletions,
+placements, heights, copies, models, paints, wall edits and tree spacing; a mismatched base makes it outdated.
 
-**Build facts** (Editor):
-`data/map2lap_editor/`, the kn5-bound manifest and per-tile archives of painted material layers, source features and generated
-section descriptions (`track/editorinfo.py`). They stay with a saved track and its source independently of kept build files.
-The object list's optional `details` hold original model parameters; current edits remain in the draft and recipe.
+**Build facts**:
+A track’s KN5-bound `data/map2lap_editor` manifest and tile archives: lossless paint masks, map features and original
+build descriptions (`track/editorinfo.py`). Save preserves them independently of kept build files; current edits remain
+separate.
 
-**Painted ground selection** (Editor):
-The connected contribution of a ground material at a clicked UV, read from the build's lossless paint masks and highlighted
-over the ground. It includes soft edges and neighbouring tiles, changes no draft and grants no object editing actions.
+**Painted ground selection**:
+A connected material contribution picked from retained lossless masks, including soft edges and neighbouring tiles. Its
+highlight changes no draft and grants no object-editing actions.
 
 **Engine**:
 The folder `engine/`: our roads, grading, buildings and scenery code, based on BeamNG.Earth's server folder.
@@ -190,10 +138,8 @@ A 256 m square of the anchor frame (`roads.TILE`); a build makes roads, terrain 
 _Avoid_: block, chunk, cell
 
 **Tile image**:
-A tile's ground texture (`ground_<tx>_<ty>`, 2048 px): the tile shrunk to 1984 px with its edges repeated 32 px around it,
-lying at the world's phase (`scenery/ground.phased`), so ground UVs are world tiles times `groundmaterial.UV_SCALE` and a
-painted Save samples the same image as one more layer, with no copy.
-_Avoid_: base copy, ring image
+A tile’s 2048 px baked ground texture: 1984 px of ground with a 32 px repeated-edge guard on each side, at world phase
+(`scenery/ground.phased`). Save reuses it as a layer. _Avoid_: base copy, ring image.
 
 **Geotile**:
 A square of a global Web-Mercator grid (zoom 17, about 240 m) with its own frame; bridge and tunnel chains are solved
@@ -253,20 +199,19 @@ A point the user sets on the map; the route runs through the pins in order.
 _Avoid_: waypoint, stop
 
 **Height pin**:
-A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`, `plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
+A road's end held at the height of the stronger road it ends on, so the two meet at one height (`_Ends._pins`,
+`plan_roads`' `pins`; `heights.py --road ... --steps` lists them).
 
-**TreeFX trees**: trees as CSP draws them from 3D models (`scenery/treefx.py`): a track's `extension/trees/trees.txt` places
-`.bin` models (a zip of tree.ini, a mesh per LOD, textures), with wind and shadows. All 21 tree and bush looks (`trees.SPRITES`)
-have a 3D form (`treefx.MODEL_OF`): 17 models, including regional trees, dry and tropical bushes, and a separate pine.
-The accepted broadleaf, birch, spruce, larch and two shrub models keep their geometry and textures. Every build writes all
-its trees and bushes so (`trees.placements`, `make_obj.to_treefx`); there are no billboard trees any more. The **object list** holds each as model and placement under an id `trees#<number>` that stays
-its tree's (its section `treefx`, "next": the first number never given); trees.txt is made from it. The Editor's draft deletes,
-places and adds them, Save writes the section and trees.txt from source and draft (`app/tracktrees.py`, docs/editor.md).
+**TreeFX trees**:
+CSP’s instanced 3D trees/bushes, placed by `extension/trees/trees.txt` using `.bin` models (`scenery/treefx.py`). The
+object list keeps stable `trees#<number>` ids; Save derives placements from source and draft, without KN5 tree geometry.
 
-**Cheap bushes**: bushes on painted shrubland that no map measures (`scenery/bushes.py`), TreeFX trees like the others: noise gives them groups, gaps and now and then a row.
+**Cheap bushes**: bushes on painted shrubland that no map measures (`scenery/bushes.py`), TreeFX trees like the others:
+noise gives them groups, gaps and now and then a row.
 
 **Debug stretch**:
-The part of a track holding a bug, built into AC to drive it: `<track>_<route metre>_debug` (`tools/debug_stretch.py`). No test track, and deleted when the fix is in.
+The part of a track holding a bug, built into AC to drive it: `<track>_<route metre>_debug` (`tools/debug_stretch.py`).
+No test track, and deleted when the fix is in.
 
 **Route**:
 The road line OSRM finds through the pins, plus the run-off behind the end pin.
@@ -329,11 +274,9 @@ _Avoid_: ramp, lead-in
 **Portal**:
 The mouth of a tunnel.
 
-**Retaining wall and parapet** (Editor):
-A retaining wall supports a cut or the step between roads; a parapet is the narrow wall at a road's falling edge
-(`roads/walls.py`, `parapet=True`). Builds record them as separate selectable object kinds, including their original top
-profile. Both use masonry across their entire cap. The Editor changes their whole-wall colour texture or offsets the top
-with both feet held in place (`app/trackwalls.py`); a change never moves the terrain cut.
+**Retaining wall and parapet**:
+A retaining wall supports a cut/level step; a parapet borders a falling road edge (`roads/walls.py`). The Editor changes
+whole-wall texture or cap height with fixed feet, never the terrain cut (`app/trackwalls.py`).
 
 **Hull**:
 A tunnel floor's height line: the lower convex hull of the ground along the tunnel and the road beyond its portals.
@@ -441,7 +384,7 @@ The start of an object's name that decides its physics in AC: `1ROAD_`, `1GRAVEL
 `nocol_` (no collision).
 
 **CSP**:
-Custom Shaders Patch, the AC extension Map2Lap's tracks rely on (lights, `ext_config.ini`).
+See **Custom Shaders Patch (CSP)** above.
 
 **Track Debug app**:
 Map2Lap's CSP app in AC: shows the route metre, marks spots, records drives.
@@ -454,10 +397,12 @@ Map2Lap's drawn style: textures painted in code, not photos.
 _Avoid_: toon, cartoon
 
 **Lamp glass**:
-The small box under a street lamp's head with its own material `lamp_glass` (meshes `nocol_props_glass_`). CSP finds the lamps by it when a track loads.
+The small box under a street lamp's head with its own material `lamp_glass` (meshes `nocol_props_glass_`). CSP finds the
+lamps by it when a track loads.
 
 **Glow mask**:
-An image beside a track's `ext_config.ini` (`glow_<kind>_<level>.png`, `facades.window_glow`) that says which window panes of a facade sheet light up at night. Frames and crosses stay dark.
+An image beside a track's `ext_config.ini` (`glow_<kind>_<level>.png`, `facades.window_glow`) that says which window
+panes of a facade sheet light up at night. Frames and crosses stay dark.
 
 **Bay**:
 One window's width of a band of a facade sheet. A wall's windows each take a bay of their band by chance (`looks.BAND_*`).

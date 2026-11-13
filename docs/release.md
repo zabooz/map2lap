@@ -2,22 +2,37 @@
 
 ## Making a release
 
-Build the CSP snow helper with `tools/build_snow_worker.py` before packaging. Both archives include the precompiled
-`src/bin/snow-worker.exe`: Windows runs it directly and Linux uses AC's Proton prefix/runtime. Product Play starts it
-with installed, enabled CSP, and it exits with the AC session it launched. Lua remains the fallback when unavailable.
-Packaging refuses missing/stale source or binary hashes. The ignored development-preview binary is not a release input.
-See `docs/rust.md` for the runtime limits, including the pending native Linux validation.
+Prepare runtime artifacts in this order, from the repository root on Windows. Check for active Build/Worker processes
+first and stop the generator server before replacing earthfast: it locks the `.pyd`. Toolchains and platform details:
+[rust.md](rust.md); browser prerequisites and checks: [ui/AGENTS.md](../ui/AGENTS.md).
 
-Before packaging a page change, run `bun install --frozen-lockfile`, `bun run check` and `bun run e2e:all` from `ui/`
-(browser setup: [ui/AGENTS.md](../ui/AGENTS.md)). The browser command builds `src/web`; commit those files with the
-`ui/` source. Without browser tests, `bun run build` does the build alone. The archives include `src/web` and leave `ui/`
-and its dependencies out: users need no Bun.
+```powershell
+# Native runtime files for both release platforms
+.venv\Scripts\python.exe tools\build_native.py --linux        # earthfast.pyd + earthfast.abi3.so
+.venv\Scripts\python.exe tools\build_modelconvert.py --linux  # Windows + Linux converter and notices
+.venv\Scripts\python.exe tools\build_snow_worker.py           # Windows exe, also used inside Proton
 
-The FBX/OBJ reader's Windows and Linux executables under `src/bin` are built together with
-`tools/build_modelconvert.py --linux`. Each archive includes only its platform's converter and the accompanying licences;
-the Linux executable gets mode 0755. There is no Blender or Python converter package dependency at runtime.
-The converter also links meshoptimizer 1.3 through meshopt 0.7.0 for optional import simplification. Both use the MIT
-licence option; their notices are included beside the platform binary. No standalone gltfpack tool is included.
+# Compile WASM BEFORE building the UI: ui/build.ts copies this artifact into src/web
+.venv\Scripts\python.exe tools\build_editor_geometry.py      # ui/assets/editorgeometry.wasm
+.venv\Scripts\python.exe tools\check.py                      # unit tests + short KN5 build
+Push-Location ui
+bun install --frozen-lockfile
+bun run check
+bun run e2e:all                # builds src/web, then tests Chrome and Firefox
+Pop-Location
+```
+
+Stop on any failed command. Check the generated files and commit them with their sources before packing the intended
+release revision. Changing Rust or UI inputs afterwards requires rebuilding the affected artifacts and repeating the
+relevant checks. **Editor WASM → UI build → release packaging** is mandatory: packaging does not compile them.
+`bun run build` alone builds the UI but does not satisfy the release browser checks.
+
+Each archive includes its platform's earthfast module and model converter/notices; the Linux converter is executable.
+Both include `src/web` and `src/bin/snow-worker.exe`, with its source/binary hash receipt. Packaging refuses a missing or
+stale snow helper; the ignored preview binary is not an input. Users need no Rust, Bun or Blender.
+Product Play starts the snow helper with installed/enabled CSP and Map2Lap weather effects switched on; it exits with
+the AC session, with Lua fallback if unavailable. Linux uses the same executable inside AC's Proton runtime;
+native Linux/Proton behavior still requires validation, as described in [rust.md](rust.md).
 
 User-imported assets live in `library/` beside the app on both systems. It is excluded even from accidentally tracked release
 inputs and is created by the app when needed. The Editor's shipped library is `assets/library/`: not in Git (too large), packed
@@ -47,6 +62,7 @@ manylinux wheels), each with all packages, BeamNG.Earth and the textures. `tools
 
 A GitHub release `v<version>` carries both as its assets under exactly these names: the page's update check and "Install
 update" look for the one of their system (`--target` of `gh release create` takes the full commit hash).
+Release notes belong in that GitHub release; keep drafts/previews under ignored `out/`, not tracked documentation.
 
 ## Linux
 

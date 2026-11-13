@@ -1,9 +1,11 @@
-# The Rust module `earthfast`
+# Rust components
+
+## CSP snow helper
 
 The CSP snow geometry worker is `native/snowworker/main.rs`, a separate Windows process using
 `AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1` shared memory. Build it with
 `.venv\Scripts\python.exe tools\build_snow_worker.py`: `src/bin/snow-worker.exe` is included in both archives.
-Product Play starts the helper when CSP is installed and enabled. It launches AC, obtains its exact Windows process
+Product Play starts the helper when CSP is installed/enabled and Map2Lap weather effects are enabled. It launches AC, obtains its exact Windows process
 handle and exits with that session. Linux runs the same executable inside AC's Proton prefix/runtime, where the Windows
 PID and shared mapping are meaningful; a native Linux helper would not share that namespace. Native Proton runtime
 behavior still requires testing on Linux. Starts through Content Manager or Steam do not start Map2Lap's helper.
@@ -15,23 +17,10 @@ its separate binary remains under ignored `out/rust-snow/snow-worker.exe`.
 `run.py --mode snowlua` and `--mode snowrust` switch the backend; `snow_rust.py --stop` stops the helper.
 It exits with its exact AC process handle. This worker changes falling-snow geometry; glass/wipers remain GPU effects.
 
-The active front rain preview uses Map2Lap's own GPU water-height simulation;
-see [`tools/weather_preview/README.md`](../tools/weather_preview/README.md).
-The old rain helper is stopped and automatic startup is disabled. Lua prepares
-geometry/force uniforms; the image simulation remains on the GPU. The description
-below records the checkpointed experiment, not the active rain simulation.
+Rain rendering uses the GPU water-height simulation. The optional Rust rain experiment and owned preview commands
+are documented only in [weather preview](../tools/weather_preview/README.md); they are not shipped runtime components.
 
-The experimental `tools/weather_preview/rain_worker.rs` owns glass-water droplets on front/side panes,
-using `AcTools.CSP.Limited.Map2Lap.RainHybrid.v3`. Build/start with `tools/weather_preview/rain_rust.py`;
-the ignored binary is `out/rust-rain/rain-worker.exe`. Lua submits nonblocking requests and rasterizes
-same-texture height sprites for the existing GPU glass pass. Rust handles small and large droplets together,
-merges, gravity/vehicle airflow projected onto the car's actual glass triangles, and blade water transport.
-The surface derivatives are sampled once on a 17 by 9 grid per pane; frame requests reuse that grid.
-Rust stores positions and velocities in the car glass's X/S metre chart; camera state is absent from its
-protocol. The rain renderer samples that chart through fixed UVs baked into private copies of the glass
-meshes, rather than reconstructing pane coordinates from camera-relative pixel positions.
-`rainrust|rainlua` select the backend; native weather
-and the accepted falling-rain/snow rendering are independent. Release packaging/startup is still pending.
+## Browser geometry kernel
 
 The Editor's independent browser kernel is `native/editorgeometry/regions.rs`. Build it with
 `.venv\Scripts\python.exe tools\build_editor_geometry.py` after installing `rustup target add wasm32-unknown-unknown`.
@@ -40,8 +29,7 @@ the UI build and runs unchanged in Windows and Linux browsers. It does not load 
 neither Rust nor Bun. Its versioned ABI accepts bounded KN5 vertex/index arrays and returns connected face roots;
 `regionsKernel.ts` owns allocations, and browser workers own cancellation and buffer transfer.
 
-The hot loops of grading and painting, in `native/earthfast`. The repo holds the built module for both systems:
-`engine/earthfast.pyd` (Windows) and `engine/earthfast.abi3.so` (Linux release). Both are abi3: any Python >= 3.10.
+## Model converter
 
 The independent FBX/OBJ reader is in `native/modelconvert`, using pinned ufbx and `Cargo.lock`. Build both runtime
 executables with `.venv\Scripts\python.exe tools\build_modelconvert.py --linux`: `src/bin/modelconvert-win64.exe` and
@@ -57,9 +45,12 @@ verbose-abort customization to avoid linking its exception ABI into Rust's MinGW
 Rust, C and C++ source paths are remapped; publication checks ASCII and UTF-16 builder names/paths and Windows imports.
 `cargo test --locked --manifest-path native/modelconvert/Cargo.toml` runs the converter's Rust tests.
 
-## Rebuilding
+## Earthfast: grading and painting
 
-Every change to the Rust code builds both files: a stale one gives the other system different roads (`AC_EXPORT_YIELD` and
+`native/earthfast` supplies the hot loops. The repo ships `engine/earthfast.pyd` (Windows) and
+`engine/earthfast.abi3.so` (Linux), both abi3 for Python >= 3.10.
+
+Every change to earthfast builds both modules: a stale one gives the other system different roads (`AC_EXPORT_YIELD` and
 the module's `VERSION` show which rules it has).
 
 ```powershell
@@ -76,7 +67,7 @@ info carry source paths) and puts a module in place only when it names no user, 
 - **Linux:** WSL Ubuntu-24.04 with `build-essential` and rustup. The module needs glibc 2.35 (the distro it is built on
   sets that: Ubuntu 22.04, Debian 12 and newer).
 
-## Changing it
+### Changing earthfast
 
 - New arguments get defaults so older callers keep working, and a feature constant in the module (`m.add(...)`) that the
   Python side checks before using them.

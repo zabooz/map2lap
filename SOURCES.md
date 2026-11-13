@@ -1,120 +1,115 @@
-# Data sources
+# Map2Lap data sources
 
-> Taken over from BeamNG.Earth and not rewritten for Map2Lap: it describes BeamNG.Earth's app, so not all of it holds here. Map2Lap's own credits: [README.md](README.md#credits).
+This maps the inputs used by Map2Lap's code. Provider URLs, release ids, fallback logic and switches belong to the modules
+below; inspect them when diagnosing a download. Attribution: [README credits](README.md#credits), retained upstream notices
+in [CREDITS.md](CREDITS.md), and each track's generated description. Upstream credits also cover sources Map2Lap does not use.
 
-BeamNG.Earth builds the world around you from open data that the BeamNG.Earth server (the program the app starts
-on your PC) downloads as you drive. This page explains what each source does, when it is used, and what you see if
-it does not answer. Licences and the exact attribution each one asks for are in [CREDITS.md](CREDITS.md).
+## Build inputs
 
-A few things hold for all of them:
+| Input | Used for | Implementation |
+|---|---|---|
+| Overture Maps | Roads/connectors, buildings, water, land use and infrastructure | `engine/overture.py`, `engine/mapdata.py` |
+| OSM road tags / Layercake | Road attributes beyond the base map | `engine/osmtags.py` |
+| OSM API extracts | Lane directions and speeds around mapped toll roofs; Overture fallback | `engine/tollsource.py` |
+| Mapterhorn, AWS Terrain Tiles | Terrain heights and fallback | `engine/dem.py` |
+| Copernicus polar DEM, Canadian HRDEM and BC lidar | Region-specific elevation support | `engine/polardem.py`, `engine/hrdem.py`, `engine/lidarbc.py` |
+| USGS lidar, Norwegian NVDB, French IGN roads | Measured road/bridge/tunnel elevations where supported | `engine/roadz.py` |
+| ESA WorldCover, Meta/WRI canopy heights | Ground classes and vegetation distribution/heights | `engine/mapdata.py`, `engine/maprasters.py` |
+| OSM railway details and US crossing data | Rail equipment and level crossings | `engine/railtags.py`, `engine/fra.py` |
+| Bundled climate/bridge/region data | Regional scenery and bridge choices | `tools/data/`, consumers in `engine/` and `src/scenery/` |
+| ambientCG textures and Map2Lap artwork | Shared assets and painted scenery | `tools/get_textures.py`, `src/scenery/` |
 
-- **Your PC talks to them directly.** There is no BeamNG.Earth middleman server. Requests carry only what the source
-  needs to answer (a map tile number, a range of a file, or for search, weather and routing, the place asked about).
-  Your e-mail, Steam name or any account details are never sent.
-- **Everything is kept on disk** in the cache folder (Settings: the cache folder). A place you have visited loads
-  from there the next time, and it keeps working offline.
-- **Each source has its own speed limit and back-off.** If one stops answering, the server waits and tries again
-  later instead of hammering it. While a source is down, the status line at the top of the screen names it and
-  says what it affects, for example:
-  `Server OK, some internet data sources not answering: imagery.nationalmap.gov unreachable (detailed US aerial
-  photos (NAIP); coarser photos meanwhile)`.
-- **Optional sources are not named in the status line.** The world builds without them (weather, search, routing,
-  updates, regional photo services with a worldwide fallback, the extra road and railway details), so a source
-  blocked in your country does not leave a warning on screen for good.
+Map2Lap paints comic ground and roofs; an AC build does not run the inherited aerial-image pipeline in `engine/imagery.py`.
+Distant terrain uses `src/scenery/farview.py`, also without aerial imagery. Library textures/models are explicit imports
+with retained source/licence metadata; see [editor-library.md](docs/editor-library.md).
 
-## Map data: roads, buildings, water, land use
+Build readers cache downloaded inputs locally. Missing data, retries and fallbacks vary by source; uncached places are
+not guaranteed to build offline. `engine/netfetch.py` owns build-fetch policies. Diagnostics:
+[architecture.md](docs/architecture.md#build-caches-and-comparisons) and the [tool catalogue](tools/README.md).
 
-| Source | Address | What it builds | If it does not answer | Status line |
-|---|---|---|---|---|
-| OpenStreetMap API | `api.openstreetmap.org` | Small extracts around explicitly mapped toll roofs: lane counts, travel directions and posted speed. Cached for a week, with one bounded request per uncached station area. | Cached Overture roads keep the passages open; unknown lane directions have no invented red-X restrictions. | optional |
-| Overture Maps (map data releases) | `overturemaps-us-west-2.s3.us-west-2.amazonaws.com` | Every road and railway line, every building (footprint, height, roof shape where mapped), water areas, rivers, land use (parks, farmland, industrial areas), bridges and tunnels as mapped, gas stations, airports' surroundings. Read in small ranges of large files: only the part around you. | Places you have not visited before come without roads, buildings or water until it answers. Places you have visited load from disk. | named |
-| Overture Maps (second copy, on Azure) | `overturemapswestus2.blob.core.windows.net` | The same data, used when the first copy does not answer. | Only matters while the first copy is down too. | named |
-| Overture Maps file index | `stac.overturemaps.org` | The list of which file holds which part of the world. | The app carries its own copy of the list, which is used instead. | named |
-| OpenStreetMap road details (OSM US Layercake) | `data.openstreetmap.us` | OpenStreetMap's own road tags matched to the roads: lanes, widths, sidewalks, surfaces, speed limits, roads under construction. | Roads keep their width, lane and sidewalk estimates from their class and the land around them. | optional |
+## Interactive services
 
-## Terrain heights (elevation)
+| Feature | Service and owner |
+|---|---|
+| Map display | OpenStreetMap raster tiles, `ui/src/components/TrackMap.tsx` |
+| Place search, track name/country | Nominatim, `src/generator.py` and `src/server.py` |
+| Route through pins | OSRM, `src/generator.py` |
+| App releases and update downloads | GitHub, `src/app/updater.py` |
+| Explicit CSP installation | Official patch download, `src/app/csp.py` |
 
-| Source | Address | What it builds | If it does not answer | Status line |
-|---|---|---|---|---|
-| Mapterhorn terrain tiles | `tiles.mapterhorn.com` | The shape of the ground everywhere: hills, valleys, road cuttings. Mapterhorn combines the best national elevation data (as fine as 1 m in parts of Europe and the US) with global data elsewhere. | New places use the coarser backup below. | named |
-| Mapterhorn coverage list | `download.mapterhorn.com` | Which areas have detailed heights, so the server does not ask for tiles that do not exist. Fetched about once a week. | New places may load a little slower. | named |
-| AWS Terrain Tiles (backup) | `s3.amazonaws.com` | Coarser heights (SRTM and similar) where Mapterhorn has none or does not answer. | Only matters while Mapterhorn is down too; with both down, new places have no terrain. | named |
-| Copernicus DEM GLO-30 | `copernicus-dem-30m.s3.amazonaws.com` | Heights near the North and South Poles, where the other sources stop. | No terrain past about 85° north or south. | named |
-| NRCan HRDEM mosaic (CanElevation) | `canelevation-dem.s3.ca-central-1.amazonaws.com` | Canada's lidar ground heights: the distant terrain is lined up with them (and, opt-in, the near terrain read from them). | Canada's distant terrain may stand on the forest tops. | optional |
-| USGS 3DEP lidar point clouds | `s3-us-west-2.amazonaws.com` | In the US, the real height of bridge decks, measured along each bridge from the lidar points (about 13 MB per map cell full of bridges, once). Off with `BNE_LIDAR_DECKS=off`. | Bridge decks get the estimated heights. | optional |
-| NVDB (Statens vegvesen) | `nvdbapiles.atlas.vegvesen.no` | In Norway, the measured heights of bridges and tunnels (and roads where the terrain is coarse). Off with `BNE_ROADZ=off`. | Estimated heights. | optional |
-| IGN BD TOPO roads | `data.geopf.fr` (WFS) | In France, the measured heights of bridges and tunnels (and roads where the terrain is coarse). Off with `BNE_ROADZ=off`. | Estimated heights. | optional |
-| LidarBC (Province of British Columbia) | `nrs.objectstore.gov.bc.ca` | British Columbia's 10-15 cm aerial photos (around Vancouver and Victoria); opt-in, its lidar terrain and measured tree heights. | Those places get the next photo source. | optional |
+Weather is selected in the Editor and written to the AC session (`src/app/weather.py`), not fetched from Open-Meteo.
+Map2Lap has no BeamMP server-browser service. The inherited BeamNG.Earth live-world status text and service list do not
+describe this app.
 
-## Aerial and satellite photos (what the ground looks like)
+## Engine fetch-policy registry
 
-The ground's texture comes from the best photo available at each spot, in this order: a regional service, the US
-national photos, then worldwide satellite photos. If one does not answer, the next one fills in.
+The allowed hosts in `engine/netfetch.py:POLICIES` include inherited and optional readers,
+including aerial imagery and BeamNG.Earth services. This registry does not mean Map2Lap
+calls every host; the feature map above describes its runtime. Keep the list synchronized
+when policies change (`test_netfetch.RolesTest.test_sources_md_names_every_source`).
 
-| Source | Address | Where | If it does not answer | Status line |
-|---|---|---|---|---|
-| Regional aerial photos (state and national mapping agencies) | see the list below | the regions below, mostly 10-30 cm per pixel | Coarser photos from the next source (US national photos or Sentinel-2). | optional |
-| Maryland six-inch photos (MD iMAP) | `mdgeodata.md.gov` | Maryland, 15 cm per pixel | Coarser photos meanwhile. | named |
-| USGS / USDA NAIP aerial photos | `imagery.nationalmap.gov` | the lower 48 US states, 30-60 cm per pixel, near you | Coarser photos meanwhile. | named |
-| USDA NAIP aerial photos (second source) | `apps.geo.fpac.usda.gov` | the same photos, from the US Department of Agriculture | Coarser photos meanwhile. | named |
-| USGS The National Map photos | `basemap.nationalmap.gov` | the US, the middle distance and the distant land | Sentinel-2 satellite photos meanwhile. | named |
-| Sentinel-2 cloudless (EOX) | `tiles.maps.eox.at` | the whole world, 10 m per pixel; the distant land everywhere and the near ground outside the regions above. Also the world map's base layers. | New ground outside the regions above may stay plain (the land cover's colours). | named |
-
-Regional services, each used only inside its own area:
-Connecticut (`cteco.uconn.edu`), Massachusetts (`tiles.arcgis.com`), Washington DC (`imagery.dcgis.dc.gov`),
-Indiana (`di-ingov.img.arcgis.com`), Ohio (`maps.ohio.gov`), North Carolina (`services.nconemap.gov`),
-Pennsylvania (`imagery.pasda.psu.edu`), Virginia (`vginmaps.vdem.virginia.gov`), New York State
-(`orthos.its.ny.gov`), New Jersey (`maps.nj.gov`), Delaware (`imagery.firstmap.delaware.gov`), Vermont
-(`maps.vcgi.vermont.gov`), Switzerland (`wmts.geo.admin.ch`), France (`data.geopf.fr`), Spain
-(`tms-pnoa-ma.idee.es`), the Netherlands (`service.pdok.nl`), Luxembourg (`wmts1.geoportail.lu`), Austria
-(`maps.wien.gv.at`), South Tyrol (`geoservices.buergernetz.bz.it`), Italy (`wms.pcn.minambiente.it`), Poland
-(`mapy.geoportal.gov.pl`), Czechia (`ags.cuzk.gov.cz`), Estonia (`tiles.maaamet.ee`), Flanders
-(`geo.api.vlaanderen.be`), Bavaria (`geoservices.bayern.de`), North Rhine-Westphalia (`www.wms.nrw.de`),
-Baden-Wurttemberg (`owsproxy.lgl-bw.de`), Lower Saxony (`opendata.lgln.niedersachsen.de`), Berlin
-(`gdi.berlin.de`), Hesse (`www.gds-srv.hessen.de`), Japan (`cyberjapandata.gsi.go.jp`), New South Wales
-(`maps.six.nsw.gov.au`), Tasmania (`services.thelist.tas.gov.au`) and Ontario (`ws.geoservices.lrc.gov.on.ca`).
-
-## Land cover, trees and water
-
-| Source | Address | What it builds | If it does not answer | Status line |
-|---|---|---|---|---|
-| ESA WorldCover (10 m land cover) | `esa-worldcover.s3.eu-central-1.amazonaws.com` | What covers the ground: forest, grass, fields, bare rock, sand, built-up land. It picks the ground materials (and their grip), rocks, which streets count as town streets, and the sounds of the landscape. | Places not visited before get a plain default ground until it answers; they are painted again once it does. | named |
-| Meta / WRI canopy heights | `dataforgood-fb-data.s3.amazonaws.com` | The trees: where each one stands and how tall it is, from a map of tree heights metre by metre (forests, gaps, clearings, street trees). | Places not visited before have no trees until it answers. | named |
-| NOAA NCEI bathymetry | `gis.ngdc.noaa.gov` | The depth of the sea along coasts (down to about 3 m detail along US coasts): the sea floor you can drive or sink into. | New coasts get a plain, evenly sloping sea floor. | named |
-
-## Railways and other details
-
-| Source | Address | What it builds | If it does not answer | Status line |
-|---|---|---|---|---|
-| BeamNG.Earth's weekly data (GitHub Pages) | `tecnagamer.github.io` | Built every week from the whole OpenStreetMap planet by this project: railway details (track gauge, electrification, disused and abandoned lines, level crossings and their barriers) and, in the US, the Federal Railroad Administration's list of the gates, lights and crossbucks at each level crossing. | Railways keep their basic class; level crossings get equipment by road size. | optional |
-
-## Live services (used only when you use the feature)
-
-| Source | Address | What it does | What is sent | If it does not answer | Status line |
-|---|---|---|---|---|---|
-| Open-Meteo | `api.open-meteo.com` | Real weather (clouds, rain, snow, wind, fog) and the local time zone. | The position you are at. | The weather stays as it is. | optional |
-| Photon (komoot) | `photon.komoot.io` | The map's address and place search, and the town name in the status bar. | What you type, and your position (to rank nearby results first). | Search says it is unavailable for a moment. | optional |
-| OSRM routing (FOSSGIS) | `routing.openstreetmap.de` | GPS routes over long distances on the map. | The start and the destination of the route. | No new route until it answers. | optional |
-| EGM2008 gravity model (SourceForge) | `downloads.sourceforge.net` | Real gravity, which differs slightly from place to place (74 MB, downloaded once). | Nothing but the download. | Standard gravity is used. | optional |
-
-## The app itself
-
-| Source | Address | What it does | If it does not answer | Status line |
-|---|---|---|---|---|
-| GitHub (update check) | `raw.githubusercontent.com` | Checks a few times a day whether a newer version is out. | No update notice. | optional |
-| GitHub (one-click update) | `api.github.com`, `github.com` | Downloads the new version when you press the update button. | The update waits. | optional |
-| BeamNG.Earth server list | `earth.tgforever.net` | The BeamNG.Earth tab in BeamMP's server browser, when you open it or press Refresh. | The list stays empty. | optional |
-
-## Data that comes with the app (no download)
-
-- **Country and state borders, big town names** (Natural Earth): the world map.
-- **Climate zones** (Beck et al. Köppen-Geiger map): which trees grow where and which landscape sounds play.
-- **Oil wells and refineries** (OpenStreetMap, exported once): pump jacks, refinery sounds.
-- **Bridge types** (the US National Bridge Inventory and Wikidata): trusses, arches, suspension and cable-stayed
-  bridges, and their real spans and heights.
-- **The Overture Maps file index**: a copy for when its server does not answer.
-
-## Never contacted
-
-The server never asks OpenStreetMap's own servers (the Overpass API, OSM's vector tiles) or Protomaps at runtime: they
-are run by volunteers for other uses, and the data above already covers what they would give.
+```text
+ags.cuzk.gov.cz
+api.github.com
+api.open-meteo.com
+api.openstreetmap.org
+apps.geo.fpac.usda.gov
+basemap.nationalmap.gov
+canelevation-dem.s3.ca-central-1.amazonaws.com
+copernicus-dem-30m.s3.amazonaws.com
+cteco.uconn.edu
+cyberjapandata.gsi.go.jp
+data.geopf.fr
+data.openstreetmap.us
+dataforgood-fb-data.s3.amazonaws.com
+di-ingov.img.arcgis.com
+downloads.sourceforge.net
+earth.tgforever.net
+esa-worldcover.s3.eu-central-1.amazonaws.com
+gdi.berlin.de
+geo.api.vlaanderen.be
+geoservices.bayern.de
+geoservices.buergernetz.bz.it
+gis.ngdc.noaa.gov
+github.com
+imagery.dcgis.dc.gov
+imagery.firstmap.delaware.gov
+imagery.nationalmap.gov
+imagery.pasda.psu.edu
+maps.nj.gov
+maps.ohio.gov
+maps.six.nsw.gov.au
+maps.vcgi.vermont.gov
+maps.wien.gv.at
+mapy.geoportal.gov.pl
+mdgeodata.md.gov
+nrs.objectstore.gov.bc.ca
+nvdbapiles.atlas.vegvesen.no
+opendata.lgln.niedersachsen.de
+orthos.its.ny.gov
+overturemaps-us-west-2.s3.us-west-2.amazonaws.com
+overturemapswestus2.blob.core.windows.net
+owsproxy.lgl-bw.de
+photon.komoot.io
+raw.githubusercontent.com
+routing.openstreetmap.de
+s3-us-west-2.amazonaws.com
+s3.amazonaws.com
+service.pdok.nl
+services.nconemap.gov
+services.thelist.tas.gov.au
+stac.overturemaps.org
+tecnagamer.github.io
+tiles.arcgis.com
+tiles.maaamet.ee
+tiles.maps.eox.at
+tiles.mapterhorn.com
+tms-pnoa-ma.idee.es
+vginmaps.vdem.virginia.gov
+wms.pcn.minambiente.it
+wmts.geo.admin.ch
+wmts1.geoportail.lu
+ws.geoservices.lrc.gov.on.ca
+www.gds-srv.hessen.de
+www.wms.nrw.de
+```
