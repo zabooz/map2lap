@@ -16,8 +16,18 @@ test("missing, disabled and unreadable CSP have different actions; installed ver
   expect(installationNotice(true, missing, null)).toMatchObject({id: "csp-missing", action: "Install CSP", target: "csp"});
   expect(installationNotice(true, {...missing, status: "installed", enabled: false}, null)?.title).toContain("disabled");
   expect(installationNotice(true, {...missing, status: "partial"}, null)?.action).toBe("Check CSP");
-  for (const version of ["0.1.79", "0.2.11", "0.3.1", "0.3.1-preview1"]) {
-    expect(installationNotice(true, {...missing, status: "installed", enabled: true, version}, null)).toBeNull();
+  expect(installationNotice(true, {...missing, status: "installed", enabled: true, version: "0.2.11"}, null)).toBeNull();
+});
+
+test("other CSP versions warn about unverified effects without offering replacement", () => {
+  for (const version of ["0.1.79", "0.3.1", "0.2.11-preview1"]) {
+    const notice = installationNotice(true, {...missing, status: "installed", enabled: true, version}, null);
+    expect(notice?.title).toBe("Untested CSP version");
+    expect(notice?.message).toContain(version);
+    expect(notice?.message).toContain("0.2.11");
+    expect(notice?.message).toContain("You can still play");
+    expect(notice?.action).toBe("Check CSP");
+    expect(notice?.id).toContain(version);
   }
 });
 

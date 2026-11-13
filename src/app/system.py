@@ -6,6 +6,7 @@ On Linux AC is the Windows game run by Proton: its Documents folder (race.ini) l
 starts games.
 """
 import os
+from pathlib import Path
 import re
 import shutil
 import signal
@@ -264,7 +265,18 @@ def start_ac(ac):
     environment (the container mounts the libraries and tool folders it names); without a Proton, Steam starts AC
     (its launcher, or what replaced it)."""
     exe = os.path.join(ac, "acs.exe")
+    from app import csp
+    from app.paths import SRC
+    patch = csp.inspect(ac)
+    helper = Path(SRC) / 'bin/snow-worker.exe'
+    accelerated = helper.is_file() and patch['status'] == 'installed' and patch['enabled']
     if WIN:
+        if accelerated:
+            try:
+                _detached([str(helper), '--launch-ac', exe], cwd=ac)
+                return
+            except OSError:
+                pass  # A blocked/missing helper must not prevent playing with the Lua fallback.
         _detached([exe], cwd=ac)
         return
     script = proton(ac)
@@ -278,11 +290,11 @@ def start_ac(ac):
            "STEAM_COMPAT_CLIENT_INSTALL_PATH": (steam_roots() or [STEAM_DEFAULT])[0],
            "STEAM_COMPAT_LIBRARY_PATHS": ":".join(os.path.join(lib, "steamapps") for lib in steam_libraries()),
            "STEAM_COMPAT_TOOL_PATHS": ":".join(p for p in (tool, run) if p)}
-    from app import csp
-    patch = csp.inspect(ac)
     if patch["status"] == "installed" and patch["enabled"]:
         env["WINEDLLOVERRIDES"] = csp.proton_overrides(env.get("WINEDLLOVERRIDES", ""))
-    cmd = [script, "waitforexitandrun", exe]
+    # This Windows helper must share AC's Wine namespace: a native Linux PID/mmap cannot own CSP's channel.
+    game = [str(helper), '--launch-ac', 'Z:' + exe.replace('\\', '/').replace('/', '\\')] if accelerated else [exe]
+    cmd = [script, "waitforexitandrun", *game]
     if run:
         cmd = [os.path.join(run, "_v2-entry-point"), "--verb=waitforexitandrun", "--"] + cmd
     _detached(cmd, cwd=ac, env=env)

@@ -1,14 +1,19 @@
 # The Rust module `earthfast`
 
-The CSP snow geometry worker is `tools/weather_preview/snow_worker.rs`, a separate Windows process using
-`AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1` shared memory. Build/start it once in an owned running AC preview
-with `<python> tools/weather_preview/snow_rust.py`. The binary lives in the common checkout's ignored
-`out/rust-snow/snow-worker.exe`; preview launch and hot reload start that existing binary automatically.
-Rust snow is enabled by default, with nonblocking Lua fallback when unavailable or more than 50 ms late.
+The CSP snow geometry worker is `native/snowworker/main.rs`, a separate Windows process using
+`AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1` shared memory. Build it with
+`.venv\Scripts\python.exe tools\build_snow_worker.py`: `src/bin/snow-worker.exe` is included in both archives.
+Product Play starts the helper when CSP is installed and enabled. It launches AC, obtains its exact Windows process
+handle and exits with that session. Linux runs the same executable inside AC's Proton prefix/runtime, where the Windows
+PID and shared mapping are meaningful; a native Linux helper would not share that namespace. Native Proton runtime
+behavior still requires testing on Linux. Starts through Content Manager or Steam do not start Map2Lap's helper.
+The build removes private paths and checks imports; release packaging refuses a missing or stale helper using its
+source/binary hash receipt. Users need no compiler. Rust snow has a nonblocking Lua fallback when the helper is missing,
+cannot initialize or delivers a result more than 50 ms late.
+The owned development preview can also build/start the same source with `tools/weather_preview/snow_rust.py`;
+its separate binary remains under ignored `out/rust-snow/snow-worker.exe`.
 `run.py --mode snowlua` and `--mode snowrust` switch the backend; `snow_rust.py --stop` stops the helper.
 It exits with its exact AC process handle. This worker changes falling-snow geometry; glass/wipers remain GPU effects.
-This is currently preview integration: release build/package/startup must ship and start the precompiled helper
-before it becomes a default of exported tracks or product Play. End users must never need to compile it.
 
 The active front rain preview uses Map2Lap's own GPU water-height simulation;
 see [`tools/weather_preview/README.md`](../tools/weather_preview/README.md).

@@ -23,7 +23,7 @@ class WeatherTest(unittest.TestCase):
     def test_invalid_values_are_rejected_before_a_session_is_changed(self):
         for field, values in {'kind': ['storm', 1], 'intensity': ['extreme', None],
                               'windDirection': [-2, 361, float('nan'), True],
-                              'windSpeed': [-1, 36, float('inf'), True], 'fog': [1, 'yes'],
+                              'windSpeed': [-2, 101, float('inf'), True], 'fog': [1, 'yes'],
                               'windscreenSnow': [1, 'no', None]}.items():
             for value in values:
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
@@ -32,6 +32,24 @@ class WeatherTest(unittest.TestCase):
     def test_full_circle_is_north_and_random_is_a_distinct_setting(self):
         self.assertEqual(self.options(windDirection=360)['windDirection'], 0)
         self.assertEqual(self.options(windDirection=-1)['windDirection'], -1)
+
+    def test_random_wind_speed_is_default_and_resolved_once_for_each_drive(self):
+        self.assertEqual(weather.parse({})['windSpeed'], -1)
+        ini = configparser.ConfigParser()
+        with mock.patch.object(weather.secrets, 'randbelow', return_value=73) as random:
+            weather.apply_session(ini, self.options(windDirection=0))
+        random.assert_called_once_with(101)
+        self.assertEqual(ini['WIND']['SPEED_KMH_MIN'], '73')
+        self.assertEqual(ini['WIND']['SPEED_KMH_MAX'], '73')
+
+    def test_explicit_calm_and_100_kmh_do_not_randomise_speed(self):
+        for speed in (0, 100):
+            ini = configparser.ConfigParser()
+            with mock.patch.object(weather.secrets, 'randbelow') as random:
+                weather.apply_session(ini, self.options(windDirection=0, windSpeed=speed))
+            random.assert_not_called()
+            self.assertEqual(float(ini['WIND']['SPEED_KMH_MIN']), speed)
+            self.assertEqual(float(ini['WIND']['SPEED_KMH_MAX']), speed)
 
     def test_session_has_native_weather_wind_and_additional_fog(self):
         ini = configparser.ConfigParser()

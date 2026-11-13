@@ -171,13 +171,18 @@ class WeatherLuaTest(unittest.TestCase):
 
 @unittest.skipUnless(LuaRuntime, 'Optional LuaJIT test runtime not installed (see weather preview README)')
 class WeatherControllerTest(unittest.TestCase):
-    def load(self, fog):
+    def load(self, fog, speed=None):
         lua = LuaRuntime(unpack_returned_tuples=True)
         lua.execute(HOST)
         lua.globals().extraFog = fog
+        lua.globals().requestedSpeed = speed
         lua.execute('''
           ac.WeatherType.Fog=20
-          ac.INIConfig.raceConfig=function() return {get=function() return extraFog end} end
+          ac.INIConfig.raceConfig=function() return {get=function(_, section, key, default)
+            if key=='__MAP2LAP_FOG' then return extraFog end
+            if section=='WIND' and requestedSpeed~=nil then return requestedSpeed end
+            return default
+          end} end
           ac.ConditionsSet=function() return {} end
           ac.getInputWeatherType=function() return 11 end
           ac.getInputTemperatures=function() return {} end
@@ -202,6 +207,13 @@ class WeatherControllerTest(unittest.TestCase):
     def test_without_additional_fog_the_native_weather_is_unchanged(self):
         c = self.load(False)
         self.assertEqual((c.currentType, c.upcomingType, c.transition), (11, 11, 0))
+
+    def test_session_wind_reaches_conditions_even_when_native_input_is_limited(self):
+        for speed in (0, 35, 73, 100):
+            with self.subTest(speed=speed):
+                c = self.load(False, speed)
+                self.assertEqual((c.wind.speedFrom, c.wind.speedTo), (speed, speed))
+                self.assertEqual(c.wind.direction, 82)
 
 
 class PreviewFilesTest(unittest.TestCase):

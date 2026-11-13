@@ -78,7 +78,8 @@ def main(kind='snow'):
     if not args.no_build:
         subprocess.run(['rustc', '--edition=2021', '-C', 'opt-level=3', '-C', 'panic=abort',
                     '--remap-path-prefix', str(COMMON_ROOT) + '=workspace',
-                        str(Path(__file__).with_name(kind + '_worker.rs')), '-o', str(exe)], check=True)
+                        str(COMMON_ROOT / 'native/snowworker/main.rs' if kind == 'snow'
+                            else Path(__file__).with_name(kind + '_worker.rs')), '-o', str(exe)], check=True)
     elif not exe.exists():
         raise RuntimeError('Build ' + kind + '-worker.exe once with ' + kind + '_rust.py before automatic startup')
     log = target / 'worker.stdout'

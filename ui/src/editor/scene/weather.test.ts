@@ -36,3 +36,12 @@ test("wind comes from the chosen compass direction, in AC east/up/south axes and
   expect(east[0]).toBeCloseTo(-10); expect(east[1]).toBeCloseTo(0);
   expect(windVelocity({...DEFAULT_WEATHER, windDirection: -1, windSpeed: 36}, 90)).toEqual(east);
 });
+
+test("random wind speed uses a stable preview choice and never becomes a negative velocity", () => {
+  expect(DEFAULT_WEATHER.windSpeed).toBe(-1);
+  const random = windVelocity({...DEFAULT_WEATHER, windDirection: 0}, 90, 72);
+  expect(random[0]).toBeCloseTo(0); expect(random[1]).toBeCloseTo(20);
+  const calm = windVelocity({...DEFAULT_WEATHER, windDirection: 0, windSpeed: 0}, 90, 72);
+  expect(calm[1]).toBe(0);
+  expect(windVelocity({...DEFAULT_WEATHER, windDirection: 0, windSpeed: 100}, 90, 72)[1]).toBeCloseTo(100 / 3.6);
+});

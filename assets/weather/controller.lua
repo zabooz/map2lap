@@ -9,6 +9,10 @@ local function inputConditions()
   c.transition = c.upcomingType ~= c.currentType and 0.65 or 0
   c.temperatures = ac.getInputTemperatures()
   c.wind = ac.getInputWind()
+  -- CSP's native input uses the default 35 km/h limit. Set our session's requested
+  -- km/h directly on the controller conditions, without changing global CSP tweaks.
+  c.wind.speedFrom = math.max(0, math.min(100, config:get('WIND', 'SPEED_KMH_MIN', c.wind.speedFrom)))
+  c.wind.speedTo = math.max(0, math.min(100, config:get('WIND', 'SPEED_KMH_MAX', c.wind.speedTo)))
   c.humidity = ac.getInputHumidity()
   c.pressure = ac.getInputPressure()
   c.trackState = ac.getInputTrackState()

@@ -147,7 +147,7 @@ drop footprints and blade-edge water; it is a visual film approximation, not a m
 Rain rendering uses private glass-mesh copies with X/S-derived fixed UVs. Rust's persistent positions,
 the fields and the wiper paths all use that same car-glass chart. Camera movement only changes projection;
 it is not an input to the Rust worker or the UV lookup. Original car meshes/material UVs are untouched.
-This is preview integration; release packaging and product startup remain pending, as for the snow helper.
+This rain experiment remains preview-only and inactive; it is not required by the current GPU rain simulation.
 
 ## Rust falling snow
 
@@ -157,7 +157,8 @@ start the existing ignored `out/rust-snow/snow-worker.exe` automatically without
 Use `run.py --mode snowlua` or `--mode snowrust` to switch without restarting AC, or `snow_rust.py --stop`
 to stop the helper. It terminates when its exact AC process exits. The shared output is consumed asynchronously;
 late frames can reuse a recent result, with Lua fallback beyond 50 ms. Glass and wiper effects are unchanged.
-Release packaging and product Play startup are not yet wired; see `docs/rust.md` and `docs/release.md`.
+Product Play uses the separately shipped `src/bin/snow-worker.exe`, built from `native/snowworker/main.rs` by
+`tools/build_snow_worker.py`. Both release archives include it; see `docs/rust.md` and `docs/release.md`.
 
 `os.preciseClock()` measures CPU build/upload submission; it does not measure GPU
 execution. `avg_fps` covers a five-second frame interval. Neither value substitutes

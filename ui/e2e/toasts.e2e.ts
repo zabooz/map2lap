@@ -1,7 +1,26 @@
-import {expect, openSettings, test} from "./fixtures";
+import {expect, openEditor, openSettings, test} from "./fixtures";
 
 const missing = {status: "missing", version: null, build: null, enabled: null, stage: "idle", done: 0,
   total: 0, busy: false, can_install: true, linux: false, website: "https://acstuff.club/patch/", error: null};
+
+test("an untested preview warns without replacing CSP or blocking Play", async ({page}) => {
+  let installs = 0;
+  await page.route("**/api/csp", route => route.fulfill({json: {...missing, status: "installed", enabled: true,
+    version: "0.3.1-preview1", can_install: false}}));
+  await page.route("**/api/csp/install", route => { installs++; return route.abort(); });
+  await openEditor(page);
+  const warning = page.getByRole("alert");
+  await expect(warning).toContainText("Untested CSP version");
+  await expect(warning).toContainText("0.3.1-preview1");
+  await expect(warning).toContainText("0.2.11");
+  await expect(page.getByRole("button", {name: "Install CSP"})).toHaveCount(0);
+  const started = page.waitForRequest("**/api/play");
+  await page.locator("#edit-play").click();
+  await started;
+  expect(installs).toBe(0);
+  await warning.getByRole("button", {name: "Dismiss notification"}).click();
+  await expect(warning).toBeHidden();
+});
 
 test("CSP is checked once at startup, manually and for another AC path; closing the server causes no periodic warning", async ({page}) => {
   await page.clock.install();

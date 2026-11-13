@@ -2,8 +2,8 @@
 export type Season = "spring" | "summer" | "autumn" | "winter";
 export type WeatherOptions = {kind: "dry" | "rain" | "snow"; intensity: "light" | "medium" | "heavy";
   windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean; season: Season};
-export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer"};
-export const MAX_WIND_KMH = 35; // CSP's normal conditions limit, without changing its global experimental settings.
+export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer"};
+export const MAX_WIND_KMH = 100;
 
 /** Snow always has winter scenery; the remembered selection remains available when snowfall is turned off. Pure. */
 export const effectiveSeason = (options: WeatherOptions): Season => options.kind === "snow" ? "winter" : options.season;
@@ -18,8 +18,9 @@ export function weatherAppearance(options: WeatherOptions) {
     sky: options.kind === "snow" ? "#9eafbd" : options.kind === "rain" ? "#929ca6" : "#b5bbc0"};
 }
 
-/** Wind from a compass bearing, in AC east/south axes and m/s; randomBearing is chosen once by the preview. Pure. */
-export function windVelocity(options: WeatherOptions, randomBearing: number): [number, number] {
-  const angle = (options.windDirection < 0 ? randomBearing : options.windDirection) * Math.PI / 180, speed = options.windSpeed / 3.6;
+/** Wind from a compass bearing, in AC east/south axes and m/s; random choices remain fixed for the preview. Pure. */
+export function windVelocity(options: WeatherOptions, randomBearing: number, randomSpeed = 0): [number, number] {
+  const angle = (options.windDirection < 0 ? randomBearing : options.windDirection) * Math.PI / 180;
+  const speed = (options.windSpeed < 0 ? randomSpeed : options.windSpeed) / 3.6;
   return [-Math.sin(angle) * speed, Math.cos(angle) * speed];
 }

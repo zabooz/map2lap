@@ -26,5 +26,9 @@ export function installationNotice(acOk: boolean | undefined, info: CspInfo | nu
   if (info.status === "partial") return {id: "csp-partial", title: "CSP needs checking",
     message: info.message ?? "Existing patch files could not be verified. Use Content Manager to repair them.",
     action: "Check CSP", target: "csp"};
+  if (info.status === "installed" && info.version !== "0.2.11") return {
+    id: `csp-version-${info.version}`, title: "Untested CSP version",
+    message: `You have CSP ${info.version ?? "(unknown version)"}. Map2Lap has been tested with CSP 0.2.11. You can still play, but visuals and weather effects may differ. Compatibility with your version has not been verified.`,
+    action: "Check CSP", target: "csp"};
   return null;
 }

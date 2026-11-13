@@ -10,8 +10,8 @@ from app import seasons
 ASSETS = Path(ROOT) / 'assets' / 'weather'
 SCRIPT = ASSETS / 'weather.lua'
 CONTROLLER = ASSETS / 'controller.lua'
-MAX_WIND = 35  # km/h: public CSP's normal limit unless INCREASE_CONDITIONS_LIMITS is explicitly enabled.
-DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': 0, 'fog': False, 'windscreenSnow': True, 'season': 'summer'}
+MAX_WIND = 100  # km/h; -1 chooses one random speed per Play, like the wind direction.
+DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': -1, 'fog': False, 'windscreenSnow': True, 'season': 'summer'}
 TYPES = {'dry': (15, 17, 19), 'rain': (6, 7, 2), 'snow': (9, 10, 11)}
 LEVELS = ('light', 'medium', 'heavy')
 BEGIN, END = b'; MAP2LAP_WEATHER_BEGIN', b'; MAP2LAP_WEATHER_END'
@@ -32,8 +32,8 @@ def parse(value):
         if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n):
             raise ValueError('Invalid wind setting')
     direction, speed = out['windDirection'], out['windSpeed']
-    if direction != -1 and not 0 <= direction <= 360 or not 0 <= speed <= MAX_WIND:
-        raise ValueError(f'Wind must be 0–360 degrees or random, and 0–{MAX_WIND} km/h')
+    if direction != -1 and not 0 <= direction <= 360 or speed != -1 and not 0 <= speed <= MAX_WIND:
+        raise ValueError(f'Wind must be 0–360 degrees or random, and 0–{MAX_WIND} km/h or random')
     if direction == 360:
         out['windDirection'] = 0
     return out
@@ -71,7 +71,8 @@ def apply_session(ini, options):
     # AC's input is the airflow's destination bearing; the editor uses the meteorological source bearing.
     # Native 82 degrees moved particles east on Heiligenblut; wind arriving from east must move them west.
     ini['WIND']['DIRECTION_DEG'] = f'{(direction + 180) % 360:g}'
-    ini['WIND']['SPEED_KMH_MIN'] = ini['WIND']['SPEED_KMH_MAX'] = f"{options['windSpeed']:g}"
+    speed = secrets.randbelow(MAX_WIND + 1) if options['windSpeed'] == -1 else options['windSpeed']
+    ini['WIND']['SPEED_KMH_MIN'] = ini['WIND']['SPEED_KMH_MAX'] = f'{speed:g}'
 
 
 def without_config(raw):

@@ -18,7 +18,9 @@ import argparse
 import glob
 import hashlib
 import io
+import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -51,9 +53,21 @@ SKIP = ("tools/", "docs/", ".githooks/", ".gitignore", ".gitattributes", "AGENTS
 # what only the other system needs
 ONLY = {"win": ("Start Map2Lap.bat", "engine/earthfast.pyd", "src/bin/modelconvert-win64.exe"),
         "linux": ("start.sh", "Map2Lap.desktop", "engine/earthfast.abi3.so", "src/bin/modelconvert-linux-x64")}
-EXECUTABLE = ("start.sh", "Map2Lap.desktop", "src/bin/modelconvert-linux-x64")
+EXECUTABLE = ("start.sh", "Map2Lap.desktop", "src/bin/modelconvert-linux-x64", "src/bin/snow-worker.exe")
 TEXTURES = os.path.join("assets", "textures")
 LIBRARY = os.path.join("assets", "library")
+
+
+def check_snow_worker():
+    """Refuse source-only or stale snow acceleration in either release archive."""
+    root = Path(HERE)
+    try:
+        hashes = json.loads((root / 'src/bin/snow-worker.json').read_text(encoding='utf-8'))
+        names = ('native/snowworker/main.rs', 'tools/build_snow_worker.py', 'src/bin/snow-worker.exe')
+        if any(hashes.get(name) != hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names):
+            raise ValueError('stale helper')
+    except (OSError, ValueError, TypeError, AttributeError):
+        raise SystemExit('Missing or stale snow helper: run tools/build_snow_worker.py before packaging') from None
 
 
 def files(system):
@@ -120,6 +134,7 @@ def embedded_python(dst):
 
 
 def build_win():
+    check_snow_worker()
     zname = f"Map2Lap-{version.VERSION}-win64"
     dst = os.path.join(DIST, NAME)
     shutil.rmtree(dst, ignore_errors=True)
@@ -149,6 +164,7 @@ def _add(tar, path, name, mode):
 
 
 def build_linux():
+    check_snow_worker()
     tname = f"Map2Lap-{version.VERSION}-linux-x64"
     if PY_VERSION not in PBS_SHA256:
         raise SystemExit(f"No python-build-standalone checksum for {PY_VERSION}: set PBS_TAG and PBS_SHA256")

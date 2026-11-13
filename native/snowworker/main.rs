@@ -1,4 +1,4 @@
-//! Experimental snow geometry worker for public CSP, using its documented limited shared-memory API.
+//! Snow geometry worker for public CSP, using its documented limited shared-memory API.
 //! The helper exits with its exact AC process handle. No game DLL, native hooks or external dependencies.
 use std::{ffi::c_void, io::Write, ptr, sync::atomic::{fence, Ordering}, time::{Duration, Instant}};
 const CAP: usize = 16383;
@@ -68,8 +68,21 @@ fn geometry(shared: &mut Shared) {
 }
 
 fn main() {
-    let ac_pid: u32 = std::env::args().nth(1).expect("AC process ID required").parse().expect("invalid PID");
-    let name = "Local\\AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1\0".encode_utf16().collect::<Vec<_>>();
+    let mut args = std::env::args().skip(1).collect::<Vec<_>>();
+    // Isolated checks must never open the mapping belonging to a user's CSP session.
+    let channel = if args.first().map(String::as_str) == Some("--channel") {
+        assert!(args.len() >= 3, "--channel requires a name and target");
+        let value = args.remove(1);
+        args.remove(0);
+        value
+    } else { "Local\\AcTools.CSP.Limited.Map2Lap.SnowGeometry.v1".to_owned() };
+    let ac_pid: u32 = if args.first().map(String::as_str) == Some("--launch-ac") {
+        // Proton gives this child a Wine PID in CSP's mapping namespace, not a Linux PID.
+        // Start AC first: a failed helper initialization still leaves the Lua fallback playable.
+        assert!(args.len() >= 2, "--launch-ac requires the game executable");
+        std::process::Command::new(&args[1]).args(&args[2..]).spawn().expect("Cannot start AC").id()
+    } else { args.first().expect("AC process ID required").parse().expect("invalid PID") };
+    let name = (channel + "\0").encode_utf16().collect::<Vec<_>>();
     unsafe {
         let ac = OpenProcess(0x100000, 0, ac_pid);
         assert!(!ac.is_null(), "Cannot open AC process");

@@ -87,7 +87,7 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertTrue((self.ac / 'extension/weather-controllers/map2lap/controller.lua').is_file())
 
     def test_invalid_weather_does_not_start_or_rewrite_the_session(self):
-        self.assertEqual((400, False), self.started(10, {'windSpeed': 36}))
+        self.assertEqual((400, False), self.started(10, {'windSpeed': 101}))
         self.assertEqual(RACE, self.race.read_text())
 
 

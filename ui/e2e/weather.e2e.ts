@@ -120,6 +120,14 @@ test("random precedes north and changing tracks resets the preview weather", asy
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
   const weather = page.getByRole("region", {name: "Weather settings"});
   await expect(weather).toContainText("Wind direction: Random");
+  await expect(weather).toContainText("Wind speed: Random");
+  await weather.getByRole("slider", {name: "Wind speed"}).fill("100");
+  await expect(weather).toContainText("Wind speed: 100 km/h");
+  const started = page.waitForRequest("**/api/play");
+  await page.locator("#edit-play").click();
+  expect((await started).postDataJSON().weather.windSpeed).toBe(100);
+  await weather.getByRole("slider", {name: "Wind speed"}).fill("-1");
+  await expect(weather).toContainText("Wind speed: Random");
   await weather.getByRole("slider", {name: "Wind direction"}).fill("0");
   await expect(weather).toContainText("Wind direction: 0°");
   await weather.getByRole("slider", {name: "Wind direction"}).fill("-1");
@@ -130,6 +138,7 @@ test("random precedes north and changing tracks resets the preview weather", asy
   await expect(weather.getByRole("combobox", {name: "Weather", exact: true})).toHaveValue("dry");
   await expect(weather.getByRole("combobox", {name: "Cloud cover"})).toHaveValue("light");
   await expect(weather.getByRole("slider", {name: "Wind direction"})).toHaveValue("-1");
+  await expect(weather.getByRole("slider", {name: "Wind speed"})).toHaveValue("-1");
 });
 
 test("windscreen snow can be disabled while the native snowfall remains selected", async ({page}) => {
@@ -159,5 +168,5 @@ test("Save as new track followed by Play keeps the chosen weather and clock thro
   const started = page.waitForRequest("**/api/play");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
   expect((await started).postDataJSON()).toEqual({name: "snow_copy", clock: 18.5,
-    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer"}});
+    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer"}});
 });

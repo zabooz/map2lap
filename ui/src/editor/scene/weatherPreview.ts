@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {DEFAULT_WEATHER, weatherAppearance, windVelocity, type WeatherOptions} from "./weather";
+import {DEFAULT_WEATHER, MAX_WIND_KMH, weatherAppearance, windVelocity, type WeatherOptions} from "./weather";
 
 const COUNT = 1000, BOX = new THREE.Vector3(36, 24, 36);
 
@@ -8,6 +8,7 @@ export class WeatherPreview {
   private options = {...DEFAULT_WEATHER};
   private time = 0;
   private randomBearing = Math.random() * 360;
+  private randomSpeed = Math.floor(Math.random() * (MAX_WIND_KMH + 1));
   private drift = new THREE.Vector3();
   private inverse = new THREE.Quaternion();
   private apparent = new THREE.Vector3();
@@ -69,7 +70,7 @@ export class WeatherPreview {
   update(dt: number, camera: THREE.Camera, brightness: number) {
     if (!this.points.visible) return false;
     this.time += dt;
-    const [wx, wz] = windVelocity(this.options, this.randomBearing);
+    const [wx, wz] = windVelocity(this.options, this.randomBearing, this.randomSpeed);
     this.drift.x += wx * dt; this.drift.z += wz * dt;
     this.material.uniforms.elapsed.value = this.time;
     this.material.uniforms.cameraAt.value.copy(camera.position);

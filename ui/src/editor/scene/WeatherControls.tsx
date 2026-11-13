@@ -41,8 +41,9 @@ export function WeatherControls({view}: {view: TrackView}) {
              title="Where the wind comes from: 0°/360° north, 90° east, 180° south, 270° west. Far left: random."
              onChange={e => update("windDirection", Number(e.target.value))} />
     </label>
-    <label className={styles.field}>Wind speed: <span className={styles.value}>{options.windSpeed} km/h</span>
-      <input aria-label="Wind speed" type="range" min={0} max={MAX_WIND_KMH} step={1} value={options.windSpeed}
+    <label className={styles.field}>Wind speed: <span className={styles.value}>{options.windSpeed < 0 ? "Random" : `${options.windSpeed} km/h`}</span>
+      <input aria-label="Wind speed" type="range" min={-1} max={MAX_WIND_KMH} step={1} value={options.windSpeed}
+             title="0–100 km/h. Far left: a random speed for each drive."
              onChange={e => update("windSpeed", Number(e.target.value))} />
     </label>
     <label className={styles.toggle}><input type="checkbox" checked={options.fog} onChange={e => update("fog", e.target.checked)} />Additional fog</label>

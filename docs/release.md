@@ -2,10 +2,11 @@
 
 ## Making a release
 
-The new CSP snow worker currently has preview integration only (`tools/weather_preview/snow_worker.rs`;
-see `docs/rust.md`). Before shipping Rust snow as a product default, add its Windows build, packaged executable
-and AC-session startup to the release/runtime workflow. A source-only worker or a binary left in ignored `out/`
-is not a shipped feature. Users must receive the compiled helper and need no Rust compiler.
+Build the CSP snow helper with `tools/build_snow_worker.py` before packaging. Both archives include the precompiled
+`src/bin/snow-worker.exe`: Windows runs it directly and Linux uses AC's Proton prefix/runtime. Product Play starts it
+with installed, enabled CSP, and it exits with the AC session it launched. Lua remains the fallback when unavailable.
+Packaging refuses missing/stale source or binary hashes. The ignored development-preview binary is not a release input.
+See `docs/rust.md` for the runtime limits, including the pending native Linux validation.
 
 Before packaging a page change, run `bun install --frozen-lockfile`, `bun run check` and `bun run e2e:all` from `ui/`
 (browser setup: [ui/AGENTS.md](../ui/AGENTS.md)). The browser command builds `src/web`; commit those files with the
@@ -20,7 +21,8 @@ licence option; their notices are included beside the platform binary. No standa
 
 User-imported assets live in `library/` beside the app on both systems. It is excluded even from accidentally tracked release
 inputs and is created by the app when needed. The Editor's shipped library is `assets/library/`: not in Git (too large), packed
-into both archives by `make_release.py`, which stops when it is missing, and replaced by every update like the rest of `assets/`. Never ship that folder: the start scripts replace the folders an update contains.
+into both archives by `make_release.py`, which stops when it is missing, and replaced by every update like the rest of `assets/`.
+Never ship the user's root `library/`: the start scripts replace the folders an update contains.
 The updater therefore also refuses ZIP or TAR.GZ archives with a `Map2Lap/library` entry before marking them ready to install.
 Failed downloads or archive checks remove their staging files. Editor saves and app updates refuse to start while the other
 is running, so the update restart cannot interrupt a Save.
@@ -59,6 +61,12 @@ Settings control; it never installs anything by itself. Dismissal lasts until th
 page reloads. A failed status request offers checking again rather than claiming CSP is missing. The warning explains that
 tracks require installed and enabled CSP for correct rendering; the check does not block Play. The shared toast component
 also supports information, success and error messages, and respects reduced motion.
+
+An installed, enabled CSP version other than the tested public 0.2.11 also shows a dismissible warning, including paid
+preview versions. Play remains available; the warning makes no compatibility promise and leaves that installation intact.
+Wind speed in Properties defaults to Random, resolved once per Play in 0–100 km/h; explicit speeds use the same range.
+Our WeatherFX controller reads the session's raw wind speeds to avoid the native input's default 35 km/h limit, without
+changing global CSP tweaks. Controller data is tested; the final visual/physics effect at high speeds still needs an AC drive.
 
 Map2Lap detects Custom Shaders Patch from `dwrite.dll` and `extension/config/data_manifest.ini`, including
 the user's enable override in Documents. Missing installations offer an explicit **Install CSP** button: it downloads
