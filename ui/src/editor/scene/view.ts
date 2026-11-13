@@ -690,7 +690,7 @@ export class TrackView {
     // (the TreeFX trees an answer changed, taken only once no other change is on its way: an older answer would set back what Move
     // shows of a later notch of the wheel)
     if (trees) this.treeChanges = mergeChanges(this.treeChanges, trees);
-    if (this.treeChanges && !more) { const change = this.treeChanges; this.treeChanges = null; void this.applyTrees(change); }
+    if (this.treeChanges && !more) { const change = this.treeChanges; this.treeChanges = null; void this.applyTrees(change, !meshes.includes(-2)); }
     if (meshes.includes(-2)) {
       void (async () => {
         await this.reloadModels();
@@ -860,12 +860,13 @@ export class TrackView {
   }
 
   /** What a draft answer changed of the TreeFX trees (refreshMeshes). */
-  private async applyTrees(change: TreeFxChange) {
+  private async applyTrees(change: TreeFxChange, refreshTransforms = true) {
     const mine = this.token;
     try {
       await this.treeFx.apply(change);
       if (mine !== this.token) return;
-      if (this.data?.models?.some(m => this.data?.model_assets?.[m.asset]?.native_tree && change.trees[m.id + "#0"])) void this.refreshModelTransforms();
+      // A binding reload already brings every pose. A competing pose-only refresh would cancel it and leave insertion previews over the trees.
+      if (refreshTransforms && this.data?.models?.some(m => this.data?.model_assets?.[m.asset]?.native_tree && change.trees[m.id + "#0"])) void this.refreshModelTransforms();
       this.modelDraw.refreshNative();
       if (this.data) this.settlePending(this.data);
       this.ghost.settleTrees(id => !!this.treeFx.tree(id), change.gone);

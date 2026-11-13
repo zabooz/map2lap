@@ -15,7 +15,10 @@ test("our shipped trees, rocks and lamps have previews, native cost information 
   await search.fill(""); await library.getByLabel("Filter objects").selectOption("rock");
   for (let n = 1; n <= 6; n++) await expect(library.getByRole("button", {name: `Rock ${n}`, exact: true})).toBeVisible();
   await library.getByLabel("Filter objects").selectOption(""); await search.fill("Street lamp");
-  await library.getByRole("button", {name: "Street lamp", exact: true}).click();
+  const lamp = library.getByRole("button", {name: "Street lamp", exact: true});
+  // The preview test chooses the loaded card, after its placeholder has been replaced by the picture.
+  await expect(lamp.getByRole("img", {name: "Street lamp", exact: true})).toBeVisible();
+  await lamp.click();
   await expect(details).toContainText("Lights the road at night with CSP.");
   await expect(details.getByText("MIT", {exact: true})).toBeVisible();
   await library.screenshot({path: info.outputPath("map2lap-lamp-credits.png")});

@@ -86,6 +86,26 @@ test("an imported Copy preview and its pending solid share the asset geometry an
   geometry.dispose(); material.dispose();
 });
 
+test("a native library tree's Copy preview and pending placement draw only the TreeFX geometry", () => {
+  const geometry = new THREE.BoxGeometry(), material = new THREE.MeshLambertMaterial();
+  const root = new THREE.Group(); root.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
+  root.matrixAutoUpdate = false; root.matrix.makeTranslation(10, 1, 5);
+  const scene = new THREE.Scene();
+  const view = {scene, objects: objectsOf({}), pivotOf: () => [10, 1, 5],
+    modelDraw: {instance: () => root, hold: () => () => {}}};
+  const ghost = ghostOf(view, {trees: () => ({parts: () => [{geometry, material, matrix: root.matrix}]})});
+  ghost.setCopy("instance_a#0", () => {});
+  const meshes = (object: THREE.Object3D) => {
+    const result: THREE.Mesh[] = []; object.traverse(node => { if (node instanceof THREE.Mesh) result.push(node); }); return result;
+  };
+  expect(meshes(scene.children[0])).toHaveLength(1);
+  const pending = ghost.addPending()!;
+  ghost.setCopy(null, null);
+  expect(meshes(scene.children[0])).toHaveLength(1);
+  expect(meshes(scene.children[0])[0].material).toBe(material);
+  ghost.dropPending(pending); expect(scene.children).toHaveLength(0);
+});
+
 test("a TreeFX tree's Copy preview shares its model's geometry at its matrix, its material translucent", () => {
   const geometry = new THREE.PlaneGeometry(2, 4).translate(0, 2, 0), material = new THREE.MeshLambertMaterial();
   const scene = new THREE.Scene(), view = Object.create(TrackView.prototype) as TrackView;

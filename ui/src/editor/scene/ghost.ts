@@ -89,7 +89,8 @@ export class PlacementGhost {
         into.add(mesh);
       }
     }
-    if (model) {
+    // Native library trees also have a GLB selection root; drawing it over TreeFX makes the preview flicker.
+    if (model && !tree) {
       // Copy previews hold the same GLB geometry; only their translucent materials belong to the preview.
       const original = model.clone(true), translucent = model.clone(true);
       original.visible = translucent.visible = true;

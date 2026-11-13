@@ -548,8 +548,8 @@ maps and tone mapping. The native colour/alpha path remains matte and retains th
 Retained Kenney packages prepared by Map2Lap's earlier sRGB-only step use the same browser material profile from their
 recorded source URL and colour mode; this changes their rendering without rewriting GLB bytes, draft bindings or poses.
 
-The Kenney packages carry their sRGB colour correction in their GLB; the uncorrected originals are hidden through
-`library/objects/superseded.json`. A package keeps only the GLB that was imported, never the upload it came from.
+Kenney packages are no longer part of the shipped library. Existing user imports and retained track snapshots remain
+supported, including their colour correction. A package keeps only the GLB that was imported, never the upload it came from.
 
 The separate converter process normalizes FBX file units and axes to glTF's metre/Y-up frame; OBJ defaults to metre/Y-up
 and the import scale remains adjustable. It triangulates polygons, retains node placements, hard normals and UV seams,

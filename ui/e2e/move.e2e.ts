@@ -1,6 +1,6 @@
 // Move in the Editor: an object dragged over the ground, turned, raised and sized by the wheel, kept in the draft, back by undo and Reset.
 import {centre, dragMouse, expect, openEditor, scene, stillView, test} from "./fixtures";
-import {NEAR_TREE, VIEW_ALONE, findTitled, findTree, picture, saved, stored} from "./edit-helpers";
+import {AWAY, NEAR_TREE, VIEW_ALONE, findTitled, findTree, picture, saved, stored} from "./edit-helpers";
 
 interface Placed {
   id: string;
@@ -187,6 +187,9 @@ test("Move follows a slope and keeps a raised object's clearance, including afte
   let again: {x: number; y: number} | undefined;
   for (let up = -30; up <= 120; up += 10) {
     const p = {x: raised.x + 25, y: raised.y + 65 - up};
+    // Clear the previous hit before scanning: its stale label can otherwise accept a point beside the moved tree.
+    await page.mouse.move(AWAY.x, AWAY.y);
+    await expect(page.locator("#hover-box")).toBeHidden();
     await page.mouse.move(p.x, p.y);
     if (await expect(page.locator("#hover-box")).toContainText(NEAR_TREE, {timeout: 200}).then(() => true, () => false)) { again = p; break; }
   }
@@ -194,6 +197,7 @@ test("Move follows a slope and keeps a raised object's clearance, including afte
   await dragMouse(page, again!, {x: again!.x + 20, y: again!.y + 20});
   await saved(page);
   const [second] = await placed(page);
+  expect(second).not.toEqual(first);
   expect(second.y).toBeCloseTo(2 + hill(-130 + second.z) - hill(-130), 2);
   await page.keyboard.press("Control+z");
   await page.keyboard.press("Control+z");
