@@ -178,6 +178,24 @@ export class Selection {
     return [...ids];
   }
 
+  /** Tree-only scope from a rectangle or marked sorts; other objects in that area are untouched. */
+  treeSpacingTargets(groups: Marked[]): string[] {
+    const data = this.host.data(), objects = this.host.objects;
+    if (!data) return [];
+    const ids = new Set<string>();
+    for (const [id, {picked}] of this.picks) {
+      if (picked.kind === 'Tree' && objects.shownObjectBounds(id)) ids.add(id);
+    }
+    for (const group of groups) if (!/shrub|bush/i.test(group.sort)) {
+      for (const id of objects.treesOfModel(group.sort)) if (id.startsWith('trees#') && objects.shownObjectBounds(id)) ids.add(id);
+    }
+    for (const id of idsOfSorts(data.objects, new Set(groups.map(g => g.sort)))) {
+      const at = id.lastIndexOf('#'), kind = data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
+      if (kind === 'tree' && objects.shownObjectBounds(id)) ids.add(id);
+    }
+    return [...ids];
+  }
+
   /** The picked one id out again: what was picked before it is what is spoken of, or nothing is left. */
   drop(id: string, adding = false) {
     const removed = this.picks.get(id)!.picked;

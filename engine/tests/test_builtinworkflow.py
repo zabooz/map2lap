@@ -50,6 +50,24 @@ class WorkflowTest(Base):
         self.assertFalse(any("m2l_model" in m["name"] for m in view["meshes"]))
         self.assertEqual({"trees": {}, "gone": [instance["id"] + "#0"]}, self.keep([])["treefx"])
 
+    def test_library_tree_spacing_restores_native_instances_after_save(self):
+        first, second = self.add('spruce'), self.add('spruce')
+        self.keep([first, second])
+        def spacing(distance):
+            now = trackedits.load(self.ac, self.name)
+            setting = trackedits.tree_spacing(self.ac, self.name, {**now, 'distance': distance, 'targets': None})['tree_spacing']
+            trackedits.save(self.ac, self.name, {**now, 'id': f'spacing{distance}', 'tree_spacing': setting})
+            return setting
+        self.assertEqual(len(spacing(3)['hidden']), 1)
+        trackcopy.save(self.ac, self.name)
+        def lines():
+            return [t for line in Path(self.root, 'extension/trees/trees.txt').read_text().splitlines() if (t := treefx.parse(line))]
+        self.assertEqual(len(lines()), 1)
+        trackedits.clear(self.name)
+        spacing(0)
+        trackcopy.save(self.ac, self.name)
+        self.assertEqual(len(lines()), 2)
+
     def test_native_tree_survives_cache_free_transfer_without_duplicate_lines_or_kn5_geometry(self):
         instance = self.add("olive")
         self.keep([instance])

@@ -73,6 +73,15 @@ test("replacement targets include every highlighted tree once and refuse a mixed
   expect(selection.replacementTargets([{sort: "broadleaf"}])).toBeNull();
 });
 
+test("tree spacing takes only trees from a mixed area selection and tree sorts", () => {
+  const objects = Object.assign(objectsOf({data: {objects: {}}}), {
+    treesOfModel: (model: string) => model === 'broadleaf' ? ['trees#0', 'trees#1'] : ['trees#2'],
+    shownObjectBounds: () => new THREE.Box3()});
+  const selection = selectionOf(objects, {objects: {}});
+  picked(selection, [{id:'trees#0',kind:'Tree'}, {id:'trees#2',kind:'Bush'}, {id:'cars#0',kind:'Car'}]);
+  expect(selection.treeSpacingTargets([{sort:'broadleaf'}, {sort:'bush'}])).toEqual(['trees#0', 'trees#1']);
+});
+
 test("whole-sort deletion omits redundant explicit members while keeping other picked objects", () => {
   const selection = selectionOf(objectsOf({}), null);
   picked(selection, [

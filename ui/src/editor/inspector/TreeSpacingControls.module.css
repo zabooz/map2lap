@@ -1,0 +1,10 @@
+.spacing { display: flex; flex-direction: column; gap: 12px; padding: 18px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.title { margin: 0; font-size: 14px; }
+.scope { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.scope span { width: 100%; color: var(--muted); }
+.scope button { font-size: 12px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); cursor: pointer; }
+.scope button:disabled { opacity: .5; cursor: default; }
+.field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.field input { width: 100%; min-width: 0; }
+.hint { margin: 0; color: var(--muted); font-size: 12px; }
+.error { margin: 0; color: var(--error); }

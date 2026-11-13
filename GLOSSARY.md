@@ -20,6 +20,10 @@ per tile and material; the list says which triangles of them make up each object
 (a house's sign and door, a pole's lamp and wires). Every mesh a build adds is entered there. An object's id: `t_<x>_<y>#<number>`; a tree's or bush's, a TreeFX tree's:
 `trees#<number>`.
 
+**Tree spacing**:
+The Editor's reversible thinning layer, a minimum distance between tree trunks on the ground. It applies to all trees or a
+retained selection; zero restores its hidden trees. The setting survives Save and reopening, separate from manual deletion.
+
 **Object group**:
 A reusable Library mixture of imported models, with a weight, size range and random switch for each entry. The group as it
 is holds each model as often as its weight (its preview and cost show that); the Groups brush plants it in those proportions

@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from app import (mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
-                 tracktrees, trackvariation, trackview, trackwalls, weather)
+                 tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
 from track import editorinfo, groundmaterial, kn5, objectlist
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
@@ -186,7 +186,7 @@ def _save(ac, name, copy_to, title, revision):
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
     changed = (edits["deleted"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
-               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls"))
+               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get('tree_spacing'))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
@@ -207,6 +207,8 @@ def _save(ac, name, copy_to, title, revision):
 def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     """The track written as edits say, from its source, its id (None: none yet, one is copied now), its object list objects and
     TreeFX section trees (None for none). What save returns."""
+    manual_edits = edits
+    edits = treespacing.effective(edits)
     folder = os.path.dirname(own)
     path = tracksource.kn5_of(source) if source else own
     source_objects = objects
@@ -311,7 +313,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         trackdetail.write_bindings(ac, name, path, textures.values(), scan, new_kn5)
         tracknative.write_source(ac, name, path, textures.values(), scan, new_kn5, edits["paints"])
         weather.install_track(temporary)
-        recipe = {"source": source, "base": edits["base"], "deleted": edits["deleted"],
+        recipe = {"source": source, "base": edits["base"], "deleted": manual_edits["deleted"],
+                  'tree_spacing': edits.get('tree_spacing'),
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []), "walls": walls,
                   "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,

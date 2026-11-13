@@ -4,6 +4,29 @@ import {tree, json, server, settle, started} from "./edits.fixture";
 import type {SurfaceCut} from "../scene/surfaceCuts";
 import {isChanged} from "./useSave";
 
+test("tree spacing is independent of manual deletion, persistent and undoable", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(0)]);
+  const spacing = {distance: 4, targets: null, hidden: ["trees#2"]};
+  edits.setTreeSpacing(spacing);
+  expect(edits.state().removed).toEqual([tree(0)]);
+  edits.undo(); expect(edits.state().treeSpacing).toBeNull();
+  edits.redo(); expect(edits.state().treeSpacing).toEqual(spacing);
+  edits.saveNow(); await settle();
+  expect((s.asked[0].body as unknown as {tree_spacing: unknown}).tree_spacing).toEqual(spacing);
+  s.asked[0].answer(json({revision: 4, meshes: []})); await settle();
+  edits.markSaved(); expect(isCurrent(edits.state())).toBe(true);
+  const reopened = new TrackEdits("t", async () => json({base: "b", revision: 0, deleted: [tree(0)], tree_spacing: spacing,
+    saved: {at: 1, deleted: [tree(0).id], object_sorts: [], tree_spacing: spacing}}));
+  reopened.bind("b"); await reopened.start();
+  expect(isCurrent(reopened.state())).toBe(true);
+  reopened.setTreeSpacing({...spacing, distance: 0, hidden: []});
+  expect(reopened.state().removed).toEqual([tree(0)]);
+  expect(isCurrent(reopened.state())).toBe(false);
+  reopened.undo(); expect(reopened.state().treeSpacing).toEqual(spacing);
+  reopened.stop(); edits.stop();
+});
+
 test("wall height and texture change together in one Undo step and travel in the saved draft", async () => {
   const {edits, s} = await started();
   const walls = [{id: "t_0_0#4", rise: 1.2, material: "a".repeat(64)}];

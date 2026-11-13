@@ -24,6 +24,7 @@ import type {Marked, MenuAt, Picked, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
 import {ViewMenu} from "./tools/ViewMenu";
 import {Inspector} from "./inspector/Inspector";
+import {TreeSpacingControls} from "./inspector/TreeSpacingControls";
 import {TransformFields} from "./inspector/TransformFields";
 import {WallFields} from "./inspector/WallFields";
 import {useWalls} from "./tools/useWalls";
@@ -209,8 +210,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     };
   }, [view, edits]);
 
-  useEffect(() => { view.objects.setRemoved(state.removed.map(r => r.id), state.objectSorts); },
-            [view, state.removed, state.objectSorts]);
+  useEffect(() => { view.objects.setRemoved([...state.removed.map(r => r.id), ...(state.treeSpacing?.hidden ?? [])], state.objectSorts); },
+            [view, state.removed, state.objectSorts, state.treeSpacing]);
   useEffect(() => { view.objects.setRemovedSurfaces(state.surfaces); }, [view, state.surfaces]);
 
   useEffect(() => {
@@ -258,7 +259,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const removable = picked?.all ?? [];
   // (a selected stretch of road verge, or all of it loaded with Shift: Delete takes those triangles)
   const vergeCuts = selection?.meshes?.length && !selection.tiles.length ? view.objects.surfaceCuts(selection.meshes) : null;
-  const ids = state.removed.map(r => r.id);
+  const ids = [...state.removed.map(r => r.id), ...(state.treeSpacing?.hidden ?? [])];
   const sort = picked?.id && picked.sort && !NOT_ALL.has(picked.sort) ? picked.sort : null;
   const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.objects.countOfListed(sort, ids, state.objectSorts)})` : null;
 
@@ -395,6 +396,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
             busy={painting.busy || walls.busy} progress={wallIds.length ? null : painting.progress} error={wallIds.length ? walls.error : painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} surfaces={tool === "select" ? surfacePicks : []} activeTool={tool}
+        vegetation={<TreeSpacingControls key={name} name={name} edits={edits} state={state} selection={() => view.selection.treeSpacingTargets(marked)} />}
         notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}

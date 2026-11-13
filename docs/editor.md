@@ -98,6 +98,27 @@ after asking. Planned editing tools will use the kept build files; viewing needs
 installed track. The page keeps build files by default, including `build.log`; Settings → Editor → Build files can
 turn that off or delete them. Existing saved preferences stay in effect.
 
+## Tree spacing
+
+Properties > Trees thins all trees or a retained selection using a minimum horizontal distance between trunks, in metres.
+The slider applies when released; zero restores only trees hidden by this setting. Bushes are excluded. Generated TreeFX trees,
+copies and imported objects categorized as trees are eligible, at their current placed positions. Selection uses the existing
+object selection, including rectangle selection; its ids stay retained when some selected trees disappear. The setting is one
+layer for the track: choosing All trees or Use selection replaces its previous scope. Spacing is measured within that scope.
+
+The draft and saved recipe hold `tree_spacing` (distance, target ids or null for all trees, and hidden ids). Manual `deleted`
+and `object_sorts` stay separate. Preview and Save combine the layers; reducing spacing never restores a manual deletion.
+Undo/Redo includes the complete setting, and a new browser session reads it from the draft or saved recipe. Save as copy retains
+the setting and the existing editor source, so lowering it after reopening remains possible. No tree-model copies are added for
+thinning; restoration uses the original object list already retained by the editor. Losing that source has the same restoration
+limits as ordinary deletions. The spacing layer applies to trees present when adjusted; moving or adding trees later does not
+silently thin more objects. Adjust the slider to calculate it again from current placements.
+
+`app/treespacing.py` orders ids by a stable hash. A tree is hidden when any earlier tree is closer than the requested distance,
+including earlier trees already hidden by this layer. This makes larger distances nested subsets rather than making other trees
+reappear as a greedy resampling would. It can retain fewer trees than a maximally packed distribution. A balanced spatial index
+prunes bounds and priority ranges, avoiding all-pairs distance arrays on long tracks.
+
 ## Generated walls
 
 Generated retaining walls and parapets are listed separately. Their triangle ownership follows the CDAE vertex remapping,
