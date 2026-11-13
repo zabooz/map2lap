@@ -387,6 +387,8 @@ export class TrackTextures {
       try {
         for (const mesh of this.host.meshes()) if (mesh.userData.info.material === k) replacement.attach(mesh);
         frame.bind(material);
+        // Apply creates a fresh material, so the frame has no existing season binding to restore.
+        bindSeason(material, this.season);
       } catch (error) { replacement.dispose(); if (!this.groundFrame) frame.dispose(); throw error; }
       this.groundFrame = frame;
       this.groundLayers.get(k)?.dispose(); this.groundLayers.set(k, replacement);

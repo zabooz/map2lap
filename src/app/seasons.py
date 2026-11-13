@@ -4,6 +4,8 @@ from pathlib import Path
 from scenery import treefx
 
 SEASONS = ('spring', 'summer', 'autumn', 'winter')
+# Saved paints hide the source ground and draw tracknative's non-colliding region copies instead.
+GROUND_MESHES = '1ROAD_ground_?, 1GRASS_ground_?, 1GRAVEL_ground_?, nocol_ground_m2l_?'
 
 
 def resolve(options):
@@ -25,13 +27,13 @@ INPUT=ONE
 LUT=(|0={autumn}|1={autumn}|)
 LAG=0
 [MATERIAL_ADJUSTMENT_...]
-MESHES=1ROAD_ground_?, 1GRASS_ground_?, 1GRAVEL_ground_?
+MESHES={GROUND_MESHES}
 CONDITION=M2L_SEASON_WINTER
 KEY_0=seasonWinter
 VALUE_0=1
 OFF_VALUE_0=0
 [MATERIAL_ADJUSTMENT_...]
-MESHES=1ROAD_ground_?, 1GRASS_ground_?, 1GRAVEL_ground_?
+MESHES={GROUND_MESHES}
 CONDITION=M2L_SEASON_AUTUMN
 KEY_0=seasonAutumn
 VALUE_0=0.5

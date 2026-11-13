@@ -7,7 +7,6 @@ import type {SurfacePoint, SurfaceSelection} from "../scene/surfaces";
 import type {Hovered, Marked, Picked} from "../types";
 import type {TrackView} from "../scene/view";
 import styles from "./Inspector.module.css";
-import {SunClock} from "../scene/SunClock";
 import {WeatherControls} from "../scene/WeatherControls";
 import {TrackStatistics} from "./TrackStatistics";
 import {TextureLookFields} from "../library/TextureSettings";
@@ -259,9 +258,11 @@ export function Inspector({name, picked, surfaces, marked, view, state, collapse
         restyling={restyling} options={!chosen.surface ? transform : undefined} />}
       </div>
       <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
-        <SunClock key={name} view={view} />
         <WeatherControls key={`${name}-weather`} view={view} />
-        {vegetation}
+        <section className={styles.propertyGroup} aria-label="Vegetation">
+          <h3>Vegetation</h3>
+          {vegetation}
+        </section>
       </div>
       <div id="inspector-details" role="tabpanel" aria-labelledby="inspector-tab-details" hidden={tab !== "details"}>
       <TrackStatistics name={name} revision={state.keptRevision} active={tab === "details" && state.save === "saved"} />

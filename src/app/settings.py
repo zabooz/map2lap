@@ -7,6 +7,7 @@
     cache_gb size limit of the build's map data cache in GB, 0: none (mapcache.trim); Editor caches are separate
     car      car for "Play" (folder under content/cars); None: the one driven last (race.ini, server.play_car)
     debug_app the CSP app "Track Debug" in AC (debugapp)
+    weather_effects Map2Lap's extra rain/snow/windscreen script and snow helper on Play; off allows native CSP effects
 """
 import json
 import os
@@ -16,7 +17,7 @@ from app.paths import ROOT
 
 FILE = os.path.join(ROOT, "settings.json")
 DEFAULTS = {"ac_path": None, "clean": False, "cores": 50, "cache_gb": 20,     # (20 GB: BeamNG.Earth's default)
-            "car": None, "debug_app": False}
+            "car": None, "debug_app": False, "weather_effects": True}
 
 
 def load():

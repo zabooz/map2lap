@@ -8,6 +8,9 @@ local function inputConditions()
   c.upcomingType = config:get('LIGHTING', '__MAP2LAP_FOG', false) and ac.WeatherType.Fog or c.currentType
   c.transition = c.upcomingType ~= c.currentType and 0.65 or 0
   c.temperatures = ac.getInputTemperatures()
+  -- Read our explicit session values past CSP's normal 0..36 C input limit, as with wind below.
+  c.temperatures.ambient = math.max(-30, math.min(50, config:get('TEMPERATURE', 'AMBIENT', c.temperatures.ambient)))
+  c.temperatures.road = math.max(-30, math.min(80, config:get('TEMPERATURE', 'ROAD', c.temperatures.road)))
   c.wind = ac.getInputWind()
   -- CSP's native input uses the default 35 km/h limit. Set our session's requested
   -- km/h directly on the controller conditions, without changing global CSP tweaks.
@@ -17,8 +20,10 @@ local function inputConditions()
   c.pressure = ac.getInputPressure()
   c.trackState = ac.getInputTrackState()
   weatherUtils.setRainIntensity(c, true)
-  -- Visual precipitation only: do not introduce water or wetness into the driving surface.
-  c.rainWetness, c.rainWater = 0, 0
+  -- Our fallback is visual only. When disabled, leave CSP's own rain and surface conditions intact.
+  if config:get('LIGHTING', '__MAP2LAP_WEATHER_EFFECTS', true) then
+    c.rainWetness, c.rainWater = 0, 0
+  end
   return c
 end
 local conditions = inputConditions()

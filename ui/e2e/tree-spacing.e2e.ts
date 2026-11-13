@@ -23,12 +23,15 @@ test('spacing survives Save and reopening; lowering restores thinned trees but k
   expect(response.ok()).toBe(true);
   await openEditor(page);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
+  await expect(page.getByText('Current trees: 3', {exact: true})).toBeVisible();
   await spacing(page, 5);
+  await expect(page.getByText('Current trees: 1', {exact: true})).toBeVisible();
   const thinned = (await draft(page)).tree_spacing!.hidden;
   expect(thinned.length).toBe(2);
   expect((await draft(page)).deleted.map(d => d.id)).toEqual(['trees#0']);
   await page.getByRole('button', {name:/Undo$/}).click();
   await expect.poll(async () => (await draft(page)).tree_spacing).toBeNull();
+  await expect(page.getByText('Current trees: 3', {exact: true})).toBeVisible();
   await page.getByRole('button', {name:/Redo$/}).click();
   await expect.poll(async () => (await draft(page)).tree_spacing?.hidden).toEqual(thinned);
   await saveTrack(page);
@@ -37,7 +40,9 @@ test('spacing survives Save and reopening; lowering restores thinned trees but k
   await openEditor(page);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
   await expect(page.getByRole('slider', {name:'Tree minimum spacing'})).toHaveValue('5');
+  await expect(page.getByText('Current trees: 1', {exact: true})).toBeVisible();
   await spacing(page, 0);
+  await expect(page.getByText('Current trees: 3', {exact: true})).toBeVisible();
   await saveTrack(page, false);
   await expect(page.locator('#edit-saved')).toHaveText(/^Saved /);
   expect(await trees(page)).toHaveLength(3);
@@ -51,8 +56,43 @@ test('a failed preparation leaves the existing spacing and manual edits unchange
   const slider = page.getByRole('slider', {name:'Tree minimum spacing'});
   await slider.fill('8'); await slider.dispatchEvent('pointerup');
   await expect(page.getByRole('alert')).toContainText('Preparation refused');
+  await expect(page.locator('#tree-spacing-toast').getByRole('progressbar')).toHaveCount(0);
+  await expect(slider).toBeEnabled();
   await expect(slider).toHaveValue('0');
   expect((await draft(page)).tree_spacing).toBeNull();
+});
+
+test('tree spacing shows a running toast until the result is kept, then its hidden count', async ({page}) => {
+  await openEditor(page);
+  const before = await draft(page);
+  const seed = await page.request.put('/api/editor/alpha/edits', {data: {...before, id: 'toast-trees',
+    trees: [2, 3].map(i => ({id: `trees#${i}`, model: 'spruce', pos: [128 + (i - 1) * 2, 0, -130], angle: 0, size: 1, width: 1}))}});
+  expect(seed.ok()).toBe(true);
+  await openEditor(page);
+  await page.getByRole('tab', {name: 'Properties', exact: true}).click();
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/tree-spacing', async route => { await waiting; await route.continue(); });
+  const slider = page.getByRole('slider', {name: 'Tree minimum spacing'});
+  await slider.fill('5'); await slider.dispatchEvent('pointerup');
+  const toast = page.locator('#tree-spacing-toast');
+  try {
+    await expect(toast).toContainText('Adjusting trees');
+    await expect(toast.getByRole('progressbar')).toBeVisible();
+    await expect(toast.getByRole('button', {name: 'Dismiss notification'})).toHaveCount(0);
+    await expect(slider).toBeDisabled();
+  } finally { release(); }
+  await expect(toast).toContainText('2 trees thinned');
+  await expect(toast.getByRole('progressbar')).toHaveCount(0);
+  await expect(slider).toBeEnabled();
+  expect((await draft(page)).tree_spacing?.hidden).toHaveLength(2);
+  await expect(page.getByText('Current trees: 2', {exact: true})).toBeVisible();
+  await expect(toast).toHaveCount(0);
+  await expect(page.getByText('Current trees: 2', {exact: true})).toBeVisible();
+  await spacing(page, 0);
+  await expect(toast).toContainText('0 trees thinned');
+  await page.locator('#edit-track').selectOption('beta');
+  await expect(toast).toHaveCount(0);
 });
 
 test('selection scope stays adjustable after reloading without a live selection', async ({page}) => {
@@ -60,14 +100,17 @@ test('selection scope stays adjustable after reloading without a live selection'
   const point = await findTree(page);
   await page.mouse.click(point.x, point.y);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
-  await page.getByRole('button', {name:'Use selection',exact:true}).click();
+  await expect(page.getByRole('radio', {name:'All trees',exact:true})).toBeChecked();
+  await expect(page.getByRole('radio', {name:'All trees',exact:true})).toBeEnabled();
+  await page.getByRole('radio', {name:'Selection',exact:true}).check();
   await expect.poll(async () => (await draft(page)).tree_spacing?.targets).toEqual(['trees#1']);
   await spacing(page, 6);
   await openEditor(page);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
-  await expect(page.getByText('Selected trees (1)', {exact:true})).toBeVisible();
+  await expect(page.getByRole('radio', {name:'Selection',exact:true})).toBeChecked();
   await spacing(page, 2);
   expect((await draft(page)).tree_spacing?.targets).toEqual(['trees#1']);
-  await page.getByRole('button', {name:'All trees',exact:true}).click();
+  await page.getByRole('radio', {name:'All trees',exact:true}).check();
+  await expect(page.getByRole('radio', {name:'All trees',exact:true})).toBeChecked();
   await expect.poll(async () => (await draft(page)).tree_spacing?.targets).toBeNull();
 });

@@ -11,7 +11,7 @@ import generator  # noqa: E402,F401
 import server  # noqa: E402
 from app import csp, system  # noqa: E402
 
-RACE = "[RACE]\nMODEL=car\n\n[LIGHTING]\nSUN_ANGLE=-48.00\nTIME_MULT=1.0\n"
+RACE = "[RACE]\nMODEL=car\n\n[LIGHTING]\nSUN_ANGLE=-48.00\nTIME_MULT=1.0\n\n[TEMPERATURE]\nAMBIENT=13\nROAD=18\n"
 
 
 class SunAngleTest(unittest.TestCase):
@@ -32,8 +32,9 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.race = Path(self.tmp.name, "race.ini")
         self.race.write_text(RACE)
 
-    def started(self, *args):
+    def started(self, *args, weather_effects=True):
         with mock.patch.object(server.settings, "ac_path", return_value=str(self.ac)), \
+             mock.patch.object(server.settings, "load", return_value={**server.settings.DEFAULTS, 'weather_effects': weather_effects}), \
              mock.patch.object(csp, "busy", return_value=False), \
              mock.patch.object(system, "running", return_value=False), \
              mock.patch.object(system, "ensure_steam", return_value=True), \
@@ -41,7 +42,19 @@ class PlayAtAnHourTest(unittest.TestCase):
              mock.patch.object(server, "play_car", return_value=(None, None)), \
              mock.patch.object(system, "start_ac") as launch:
             code = server.play("one", *args)[0]
+            self.launch_args = launch.call_args
         return code, launch.called
+
+    def test_global_effects_switch_disables_script_and_helper_but_keeps_native_weather(self):
+        for enabled in (True, False, True):
+            self.assertEqual((200, True), self.started(10, {'kind': 'rain'}, weather_effects=enabled))
+            self.assertEqual(self.ini().getint('LIGHTING', '__MAP2LAP_WEATHER_EFFECTS'), int(enabled))
+            self.assertEqual(self.ini().getint('LIGHTING', '__CM_WEATHER_TYPE'), 6)
+            script = (self.ac / 'content/tracks/one/extension/map2lap_weather.ini').read_text()
+            self.assertIn(f'ACTIVE={int(enabled)}', script)
+            self.assertEqual(self.launch_args.kwargs.get('weather_effects'), enabled)
+        self.assertEqual((200, True), self.started(weather_effects=False))
+        self.assertEqual(self.ini().getint('LIGHTING', '__MAP2LAP_WEATHER_EFFECTS'), 0)
 
     def ini(self):
         ini = configparser.ConfigParser(interpolation=None, strict=False)
@@ -65,6 +78,7 @@ class PlayAtAnHourTest(unittest.TestCase):
         """My tracks' Play has no clock."""
         self.assertEqual((200, True), self.started())
         self.assertAlmostEqual(-48.0, self.ini().getfloat("LIGHTING", "SUN_ANGLE"))
+        self.assertEqual((self.ini().getfloat('TEMPERATURE', 'AMBIENT'), self.ini().getfloat('TEMPERATURE', 'ROAD')), (13, 18))
 
     def test_a_race_ini_without_light_gets_it(self):
         self.race.write_text("[RACE]\nMODEL=car\n")
@@ -78,17 +92,20 @@ class PlayAtAnHourTest(unittest.TestCase):
 
     def test_editor_weather_reaches_native_csp_and_installs_its_track_script(self):
         self.assertEqual((200, True), self.started(10, {'kind': 'snow', 'intensity': 'heavy',
-                                                       'windDirection': 90, 'windSpeed': 20, 'fog': True}))
+                                                       'windDirection': 90, 'windSpeed': 20, 'fog': True,
+                                                       'airTemperature': -12, 'roadTemperature': -6}))
         ini = self.ini()
         self.assertEqual(ini.getint('LIGHTING', '__CM_WEATHER_TYPE'), 11)
         self.assertEqual(ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER'), 'map2lap')
         self.assertEqual(ini.getint('WIND', 'DIRECTION_DEG'), 270)
+        self.assertEqual((ini.getfloat('TEMPERATURE', 'AMBIENT'), ini.getfloat('TEMPERATURE', 'ROAD')), (-12, -6))
         self.assertTrue((self.ac / 'content/tracks/one/extension/map2lap_weather.lua').is_file())
         self.assertTrue((self.ac / 'extension/weather-controllers/map2lap/controller.lua').is_file())
 
     def test_invalid_weather_does_not_start_or_rewrite_the_session(self):
-        self.assertEqual((400, False), self.started(10, {'windSpeed': 101}))
-        self.assertEqual(RACE, self.race.read_text())
+        for options in ({'windSpeed': 101}, {'airTemperature': -31}, {'roadTemperature': 81}):
+            self.assertEqual((400, False), self.started(10, options))
+            self.assertEqual(RACE, self.race.read_text())
 
 
 if __name__ == "__main__":

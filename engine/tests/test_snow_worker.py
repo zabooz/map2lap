@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SnowLaunchTest(unittest.TestCase):
-    def launch(self, *, windows=True, present=True, enabled=True, fail=False):
+    def launch(self, *, windows=True, present=True, enabled=True, fail=False, weather_effects=True):
         with mock.patch.object(system, 'WIN', windows), \
              mock.patch.object(system, 'proton', return_value='/proton/proton'), \
              mock.patch.object(system, 'runtime', return_value='/runtime'), \
@@ -30,7 +30,7 @@ class SnowLaunchTest(unittest.TestCase):
              mock.patch.object(csp, 'inspect', return_value={'status': 'installed', 'enabled': enabled}), \
              mock.patch.object(Path, 'is_file', return_value=present), \
              mock.patch.object(system, '_detached', side_effect=[OSError('blocked helper'), mock.Mock()] if fail else None) as start:
-            system.start_ac('/games/assettocorsa')
+            system.start_ac('/games/assettocorsa', weather_effects=weather_effects)
         return start
 
     def test_windows_starts_shipped_helper_with_the_game_as_its_child(self):
@@ -40,6 +40,12 @@ class SnowLaunchTest(unittest.TestCase):
         self.assertEqual(command[1], '--launch-ac')
         self.assertTrue(command[2].endswith('acs.exe'))
         self.assertEqual(start.call_args.kwargs['cwd'], '/games/assettocorsa')
+
+    def test_disabling_weather_effects_bypasses_the_helper_on_windows_and_proton(self):
+        for windows in (True, False):
+            command = self.launch(windows=windows, weather_effects=False).call_args.args[0]
+            self.assertFalse(any('snow-worker' in arg for arg in command))
+            self.assertTrue(command[-1].endswith('acs.exe'))
 
     def test_proton_runs_the_windows_helper_in_the_games_prefix_and_runtime(self):
         start = self.launch(windows=False)

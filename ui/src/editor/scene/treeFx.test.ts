@@ -20,6 +20,17 @@ function draw(answer = trees(), reserve: (bytes: number) => boolean = () => true
 
 const batches = (scene: THREE.Scene) => scene.children.filter(c => c instanceof THREE.InstancedMesh) as THREE.InstancedMesh[];
 
+test("current tree count excludes bushes, deleted sorts and ids, and native instances counted in the object list", async () => {
+  const {draw: d} = draw();
+  await d.load();
+  expect(d.countTrees(new Set(), new Set())).toBe(3);
+  expect(d.countTrees(new Set(['trees#0']), new Set(['birch']))).toBe(1);
+  const {draw: mixed} = draw(trees({models: ['shrub', 'spruce'], ids: ['instance_native#0', 'trees#1', 'trees#2']}));
+  await mixed.load();
+  expect(mixed.countTrees(new Set(), new Set())).toBe(1);
+  d.dispose(); mixed.dispose();
+});
+
 test("a library tree follows its editable model matrix immediately, before the server answers", async () => {
   const {scene, draw: d} = draw(trees({ids: ["instance_a#0", "trees#1", "trees#2"]}));
   await d.load();

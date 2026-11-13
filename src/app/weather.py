@@ -1,4 +1,4 @@
-"""Editor weather presets and their portable public-CSP visuals; no tyre/grip changes."""
+"""Editor weather and session temperatures, with portable public-CSP visuals."""
 import math
 from pathlib import Path
 import re
@@ -11,7 +11,10 @@ ASSETS = Path(ROOT) / 'assets' / 'weather'
 SCRIPT = ASSETS / 'weather.lua'
 CONTROLLER = ASSETS / 'controller.lua'
 MAX_WIND = 100  # km/h; -1 chooses one random speed per Play, like the wind direction.
-DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': -1, 'fog': False, 'windscreenSnow': True, 'season': 'summer'}
+# Winter air and sun-heated tarmac need separate ranges, wider than CSP's normal input limits.
+TEMPERATURE_LIMITS = {'airTemperature': (-30, 50), 'roadTemperature': (-30, 80)}
+DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': -1, 'fog': False, 'windscreenSnow': True, 'season': 'summer',
+           'airTemperature': 20, 'roadTemperature': 26}
 TYPES = {'dry': (15, 17, 19), 'rain': (6, 7, 2), 'snow': (9, 10, 11)}
 LEVELS = ('light', 'medium', 'heavy')
 BEGIN, END = b'; MAP2LAP_WEATHER_BEGIN', b'; MAP2LAP_WEATHER_END'
@@ -36,6 +39,11 @@ def parse(value):
         raise ValueError(f'Wind must be 0–360 degrees or random, and 0–{MAX_WIND} km/h or random')
     if direction == 360:
         out['windDirection'] = 0
+    for key, (low, high) in TEMPERATURE_LIMITS.items():
+        n = out[key]
+        if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) or not low <= n <= high:
+            label = 'Air temperature' if key == 'airTemperature' else 'Road temperature'
+            raise ValueError(f'{label} must be {low} to {high} degrees Celsius')
     return out
 
 
@@ -56,8 +64,8 @@ def scenery_options(ini, options=None):
 
 
 def apply_session(ini, options):
-    """Set native CSP sky/wind and the additional-fog flag in a race ConfigParser; preserve other settings."""
-    for section in ('LIGHTING', 'WEATHER', 'WIND'):
+    """Set native CSP sky, wind, temperatures and additional fog in a race ConfigParser; preserve other settings."""
+    for section in ('LIGHTING', 'WEATHER', 'WIND', 'TEMPERATURE'):
         if not ini.has_section(section):
             ini.add_section(section)
     ini['LIGHTING']['__CM_WEATHER_CONTROLLER'] = 'map2lap'
@@ -73,6 +81,8 @@ def apply_session(ini, options):
     ini['WIND']['DIRECTION_DEG'] = f'{(direction + 180) % 360:g}'
     speed = secrets.randbelow(MAX_WIND + 1) if options['windSpeed'] == -1 else options['windSpeed']
     ini['WIND']['SPEED_KMH_MIN'] = ini['WIND']['SPEED_KMH_MAX'] = f'{speed:g}'
+    ini['TEMPERATURE']['AMBIENT'] = f'{options["airTemperature"]:g}'
+    ini['TEMPERATURE']['ROAD'] = f'{options["roadTemperature"]:g}'
 
 
 def without_config(raw):
@@ -86,12 +96,12 @@ def _write(path, raw):
         path.write_bytes(raw)
 
 
-def install_track(track, options=None):
-    """Ship our Lua and one owned include into a generated, saved or existing track folder."""
+def install_track(track, options=None, effects=True):
+    """Ship our Lua/include; effects=False deactivates the entire script, including previously installed copies."""
     ext = Path(track) / 'extension'
     ext.mkdir(parents=True, exist_ok=True)
     _write(ext / 'map2lap_weather.lua', SCRIPT.read_bytes())
-    _write(ext / 'map2lap_weather.ini', b'[SCRIPT_...]\nACTIVE=1\nSCRIPT=map2lap_weather.lua\n')
+    _write(ext / 'map2lap_weather.ini', f'[SCRIPT_...]\nACTIVE={int(effects)}\nSCRIPT=map2lap_weather.lua\n'.encode())
     config = ext / 'ext_config.ini'
     before = config.read_bytes() if config.exists() else b''
     clean = without_config(before)

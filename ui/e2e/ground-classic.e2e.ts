@@ -173,6 +173,77 @@ test("four then six real mapped materials Apply and reopen with original soft ju
     originalNormal, directedNormal, directedRough}));
 });
 
+for (const regional of [false, true]) test(`${regional ? "regional" : "single"} painted ground keeps winter and autumn through Apply, Undo, Redo and ${regional ? "draft" : "saved"} reopening`, async ({page, backend}) => {
+  test.slow();
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_split: true,
+    ground_materials: regional ? 4 : 0});
+  await openEditor(page);
+  if (regional) {
+    // Three existing replacements force the fourth Apply through regional rendering rather than the small splat shader.
+    for (let k = 0; k < 3; k++) {
+      const material = await addMaterial(page, `Earlier grass ${k}`, 128, 255, 128, 0, [60 + k * 10, 150, 40]);
+      await page.evaluate(async ({k, material}) => {
+        const now = await (await fetch("/api/editor/alpha/edits")).json();
+        const response = await fetch("/api/editor/alpha/paint", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({base: now.base, revision: now.revision, material, points: [{mesh: 0, u: ((k < 2 ? k : 3) + .5) / 4, v: -.1, whole: true}]})});
+        if (!response.ok) throw new Error(await response.text());
+        const {paint} = await response.json();
+        const kept = await fetch("/api/editor/alpha/edits", {method: "PUT", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({base: now.base, revision: now.revision, id: `season-${k}`, deleted: [], paints: [...now.paints, paint]})});
+        if (!kept.ok) throw new Error(await kept.text());
+      }, {k, material});
+    }
+    await page.reload(); await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  }
+  await addMaterial(page, "Seasonal grass", 128, 255, 128, 0, [40, 150, 40]);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  const season = page.getByRole("combobox", {name: "Season", exact: true});
+  await season.selectOption("winter");
+  const original = await picture(page);
+  const view = (await scene(page).boundingBox())!;
+  const sample = regional ? .7 : .4;
+  await page.mouse.click(view.x + view.width * sample, view.y + view.height * .65);
+  await page.getByRole("complementary", {name: "Inspector"}).getByRole("button", {name: "Change texture…"}).click();
+  const picker = page.getByRole("dialog", {name: "Asset library"});
+  await picker.getByRole("button", {name: "Seasonal grass", exact: true}).click();
+  await picker.getByRole("button", {name: "Apply", exact: true}).click();
+  await expect(picker).toBeHidden(); await saved(page);
+  await scene(page).focus(); await page.keyboard.press("Escape");
+  const winter = await picture(page);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  await expect(season).toHaveValue("winter");
+  await writeFile(test.info().outputPath("original-winter.png"), original);
+  await writeFile(test.info().outputPath("painted-winter.png"), winter);
+  const white = await rgb(page, winter, sample, .65);
+  expect(white[0], "new grass must retain its snow cover immediately after Apply").toBeGreaterThan(white[1] * .8);
+  await scene(page).focus(); await page.keyboard.press("Control+z"); await saved(page);
+  await expect.poll(async () => (await picture(page)).equals(original)).toBe(true);
+  await page.keyboard.press("Control+Shift+z"); await saved(page);
+  await expect.poll(async () => (await picture(page)).equals(winter)).toBe(true);
+  await season.selectOption("summer");
+  const summer = await picture(page), green = await rgb(page, summer, sample, .65);
+  expect(green[1]).toBeGreaterThan(green[0] * 1.5);
+  expect(white[0] - green[0]).toBeGreaterThan(30);
+  await season.selectOption("autumn");
+  const autumn = await rgb(page, await picture(page), sample, .65);
+  expect(autumn[0] - green[0]).toBeGreaterThan(15);
+  await season.selectOption("winter");
+  await expect.poll(async () => (await picture(page)).equals(winter)).toBe(true);
+  if (!regional) {
+    // The regional fixture's soft junction retains a fifth source contribution, beyond native Save's four-layer limit.
+    // Its persistent draft still has to reopen with the same season rendering.
+    await page.locator("#edit-save-more").click();
+    await page.locator("#save-name").fill("Seasonal ground copy");
+    await page.locator("#save-dialog").getByRole("button", {name: "Save as new track"}).click();
+    await expect(page.locator("#edit-track")).toHaveValue("seasonal_ground_copy");
+    await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
+  }
+  await page.reload(); await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  await season.selectOption("winter");
+  await expect.poll(async () => (await picture(page)).equals(winter)).toBe(true);
+});
+
 test("a mapped Apply preserves untouched source lighting and +Y normals follow the actual KN5 V direction through Undo/Redo/reopen", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_split: true});
   await openEditor(page);

@@ -1,8 +1,10 @@
 /** Session-only weather: the editor gives a lightweight indication; CSP renders the actual sky in AC. */
 export type Season = "spring" | "summer" | "autumn" | "winter";
 export type WeatherOptions = {kind: "dry" | "rain" | "snow"; intensity: "light" | "medium" | "heavy";
-  windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean; season: Season};
-export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer"};
+  windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean; season: Season;
+  airTemperature: number; roadTemperature: number};
+export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer",
+  airTemperature: 20, roadTemperature: 26};
 export const MAX_WIND_KMH = 100;
 
 /** Snow always has winter scenery; the remembered selection remains available when snowfall is turned off. Pure. */

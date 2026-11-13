@@ -1,6 +1,7 @@
 """Season selection preserves summer geometry and changes only owned TreeFX assets at Play."""
 import io
 import configparser
+import fnmatch
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +17,23 @@ from scenery import treefx
 
 
 class SeasonTest(unittest.TestCase):
+    def test_seasons_cover_generated_and_saved_painted_ground_only(self):
+        from app.tracknative import PREFIX
+        ground = ['1ROAD_ground_0_0', '1GRASS_ground_-2_3', '1GRAVEL_ground_16_-9',
+                  f'{PREFIX}region_42_3_0']
+        other = ['nocol_house_0', '1ROAD_deck_0', 'nocol_tree_0', 'imported_model']
+        for season in seasons.SEASONS:
+            adjustments = seasons.config(season).decode().split('[MATERIAL_ADJUSTMENT_...]')[1:]
+            self.assertEqual(len(adjustments), 2)
+            for adjustment in adjustments:
+                selectors = next(line.split('=', 1)[1] for line in adjustment.splitlines() if line.startswith('MESHES='))
+                # CSP's ? matches an arbitrary suffix, including underscores and minus signs.
+                matches = lambda name: any(fnmatch.fnmatchcase(name, p.strip().replace('?', '*')) for p in selectors.split(','))
+                for name in ground:
+                    self.assertTrue(matches(name), (season, name))
+                for name in other:
+                    self.assertFalse(matches(name), (season, name))
+
     def test_native_tree_tint_does_not_turn_evergreens_or_precoloured_leaves_orange(self):
         for season in seasons.SEASONS:
             ini = configparser.ConfigParser(strict=False)

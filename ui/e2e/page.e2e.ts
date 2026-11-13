@@ -33,7 +33,7 @@ test("the settings' three tabs hold their groups", async ({page}) => {
   const panel = dialog.getByRole("tabpanel").locator("visible=true");
   await expect(panel.getByRole("heading")).toHaveText(["Installation", "Build speed", "Storage", "Testing"]);
   await dialog.getByRole("tab", {name: "Map2Lap"}).click();
-  await expect(panel.getByRole("heading")).toHaveText(["Play"]);
+  await expect(panel.getByRole("heading")).toHaveText(["Play", "Weather"]);
   await dialog.getByRole("tab", {name: "Editor"}).click();
   await expect(panel.getByRole("heading")).toHaveText(["Build files", "3D view", "Controls", "Keys and mouse"]);
 });

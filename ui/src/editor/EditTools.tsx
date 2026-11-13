@@ -396,7 +396,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
             busy={painting.busy || walls.busy} progress={wallIds.length ? null : painting.progress} error={wallIds.length ? walls.error : painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
       {inspectorHost && createPortal(<Inspector name={name} picked={picked} surfaces={tool === "select" ? surfacePicks : []} activeTool={tool}
-        vegetation={<TreeSpacingControls key={name} name={name} edits={edits} state={state} selection={() => view.selection.treeSpacingTargets(marked)} />}
+        vegetation={<TreeSpacingControls key={name} name={name} edits={edits} state={state} objects={view.objects} visible={visible} selection={() => view.selection.treeSpacingTargets(marked)} />}
         notes={<EditNotes state={state} note={note}
           picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}

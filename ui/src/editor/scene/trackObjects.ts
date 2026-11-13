@@ -21,6 +21,7 @@ export interface TreeRooms {
   bounds(id: string, shown?: boolean): THREE.Box3 | null;
   boxesOf(model: string): THREE.Box3[];
   countOf(model: string, ids: ReadonlySet<string>, sorts: ReadonlySet<string>): number;
+  countTrees(ids: ReadonlySet<string>, sorts: ReadonlySet<string>): number;
   idsOf(model?: string): string[];
 }
 
@@ -38,6 +39,11 @@ export interface ObjectHost {
 
 /** The objects of the track a view shows and what of them is left out. clear() forgets them. */
 export class TrackObjects {
+  private countListeners = new Set<() => void>();
+  private countVersion = 0;
+  subscribeCounts = (listener: () => void) => { this.countListeners.add(listener); return () => { this.countListeners.delete(listener); }; };
+  countsRevision = () => this.countVersion;
+  countsChanged() { this.countVersion++; for (const listener of this.countListeners) listener(); }
   private wallHidden: [number, number, number][] = [];
   private objectPieces: ReturnType<typeof objectIndex> = new Map();    // the build's objects by mesh number
   private belonging: ReturnType<typeof childrenOf> = new Map();        // what belongs to which of them
@@ -61,6 +67,7 @@ export class TrackObjects {
   index(objects: TrackIndex["objects"]) {
     this.objectPieces = objectIndex(objects);
     this.belonging = childrenOf(objects);
+    this.countsChanged();
   }
 
   /** The copies' objects anew, copyObjects: only copied lists changed, the source's indexes (millions of entries) stay. */
@@ -69,6 +76,7 @@ export class TrackObjects {
     for (const [key, value] of objectIndex(copyObjects)) this.objectPieces.set(key, value);
     for (const key of this.belonging.keys()) if (key.startsWith("copy_")) this.belonging.delete(key);
     for (const [key, value] of childrenOf(copyObjects)) this.belonging.set(key, value);
+    this.countsChanged();
   }
 
   /** What to leave out worked out again for the index as it is now; show: the loaded meshes follow at once. */
@@ -200,6 +208,20 @@ export class TrackObjects {
     if (!data) return 0;
     return countOfSort(data.objects, sort, takenAlong(this.wanted({ids, objectSorts: new Set(objectSorts)}), this.belonging))
       + this.host.trees().countOf(sort, new Set(ids), new Set(objectSorts));
+  }
+
+  /** Current tree stock, independent of camera distance or loaded meshes. Count imported roots only once. */
+  countTrees(ids: string[], objectSorts: string[]) {
+    const data = this.host.data();
+    if (!data) return 0;
+    const sorts = new Set(objectSorts), removed = takenAlong(this.wanted({ids, objectSorts: sorts}), this.belonging);
+    let count = this.host.trees().countTrees(removed, sorts);
+    for (const [tile, list] of Object.entries(data.objects)) {
+      for (let k = 0; k < list.kinds.length; k++) {
+        if (list.kinds[k] === 'tree' && list.parents[k] < 0 && !removed.has(`${tile}#${k}`)) count++;
+      }
+    }
+    return count;
   }
 
   /** All triangles of a listed object and what belongs to it; none for another (a TreeFX tree has none). */

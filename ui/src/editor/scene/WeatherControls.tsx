@@ -1,15 +1,19 @@
 import {useEffect, useState} from "react";
 import {DEFAULT_WEATHER, MAX_WIND_KMH, effectiveSeason, type WeatherOptions} from "./weather";
 import type {TrackView} from "./view";
+import {SunClock} from "./SunClock";
 import styles from "./WeatherControls.module.css";
 
-/** Weather below the clock: preview-only settings, sent to AC by Play without changing the track draft. */
+/** Time/date and conditions share one weather state, sent to AC by Play without changing the track draft. */
 export function WeatherControls({view}: {view: TrackView}) {
   const [options, setOptions] = useState<WeatherOptions>({...DEFAULT_WEATHER});
   useEffect(() => { view.setWeather(options); }, [view, options]);
   const update = <K extends keyof WeatherOptions>(key: K, value: WeatherOptions[K]) => setOptions(old => ({...old, [key]: value}));
   const dry = options.kind === "dry";
-  return <section className={styles.weather} aria-label="Weather settings">
+  return <>
+  <section className={styles.group} aria-label="Time and date">
+    <h3 className={styles.title}>Time and date</h3>
+    <SunClock view={view} />
     <label className={styles.field}>Season
       <select aria-label="Season" value={effectiveSeason(options)} disabled={options.kind === "snow"}
               onChange={e => update("season", e.target.value as WeatherOptions["season"])}>
@@ -18,6 +22,10 @@ export function WeatherControls({view}: {view: TrackView}) {
       </select>
     </label>
     {options.kind === "snow" && <p className={styles.hint}>Snow uses winter scenery.</p>}
+  </section>
+  <section className={styles.group} aria-label="Conditions">
+    <h3 className={styles.title}>Conditions</h3>
+    <section className={styles.weather} aria-label="Weather settings">
     <div className={styles.choices}>
       <label className={styles.field}>Weather
         <select aria-label="Weather" value={options.kind} onChange={e => update("kind", e.target.value as WeatherOptions["kind"])}>
@@ -36,6 +44,14 @@ export function WeatherControls({view}: {view: TrackView}) {
     {options.kind === "snow" && <label className={styles.toggle}>
       <input type="checkbox" checked={options.windscreenSnow} onChange={e => update("windscreenSnow", e.target.checked)} />Snow on windscreen
     </label>}
+    <label className={styles.field}>Air temperature: <span className={styles.value}>{options.airTemperature} °C</span>
+      <input aria-label="Air temperature" type="range" min={-30} max={50} step={1} value={options.airTemperature}
+             onChange={e => update("airTemperature", Number(e.target.value))} />
+    </label>
+    <label className={styles.field}>Road temperature: <span className={styles.value}>{options.roadTemperature} °C</span>
+      <input aria-label="Road temperature" type="range" min={-30} max={80} step={1} value={options.roadTemperature}
+             onChange={e => update("roadTemperature", Number(e.target.value))} />
+    </label>
     <label className={styles.field}>Wind direction: <span className={styles.value}>{options.windDirection < 0 ? "Random" : `${options.windDirection}°`}</span>
       <input aria-label="Wind direction" type="range" min={-1} max={360} step={1} value={options.windDirection}
              title="Where the wind comes from: 0°/360° north, 90° east, 180° south, 270° west. Far left: random."
@@ -48,5 +64,7 @@ export function WeatherControls({view}: {view: TrackView}) {
     </label>
     <label className={styles.toggle}><input type="checkbox" checked={options.fog} onChange={e => update("fog", e.target.checked)} />Additional fog</label>
     {options.kind === "snow" && options.intensity === "heavy" && <p className={styles.hint}>Heavy snow already reduces visibility.</p>}
-  </section>;
+    </section>
+  </section>
+  </>;
 }

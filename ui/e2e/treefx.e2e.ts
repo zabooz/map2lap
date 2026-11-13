@@ -84,6 +84,8 @@ test("Copy of a 3D tree places new trees under numbers never given; Undo takes o
   await page.keyboard.press("Escape");
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await draft(page)).trees).toEqual([]);
+  await page.mouse.move(at.x, at.y);
+  await expect(box(page)).toContainText("trees#1");
   await page.mouse.click(at.x, at.y);
   await expect(page.locator("#edit-picked")).toContainText("Tree");
   await page.keyboard.press("c");

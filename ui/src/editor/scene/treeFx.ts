@@ -457,6 +457,15 @@ export class TreeFxDraw {
     return n;
   }
 
+  /** Generated/copied trees remaining across the track; library instances are counted by the object list. */
+  countTrees(ids: ReadonlySet<string>, sorts: ReadonlySet<string>) {
+    let count = 0;
+    for (const [id, tree] of this.trees) {
+      if (id.startsWith('trees#') && !/shrub|bush/.test(tree.model) && !ids.has(id) && !sorts.has(tree.model)) count++;
+    }
+    return count;
+  }
+
   /** What is drawn, for tests and the browser's tools. */
   stats() {
     let meshes = 0, shown = 0;

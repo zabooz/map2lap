@@ -171,28 +171,34 @@ class WeatherLuaTest(unittest.TestCase):
 
 @unittest.skipUnless(LuaRuntime, 'Optional LuaJIT test runtime not installed (see weather preview README)')
 class WeatherControllerTest(unittest.TestCase):
-    def load(self, fog, speed=None):
+    def load(self, fog, speed=None, air=None, road=None, effects=True):
         lua = LuaRuntime(unpack_returned_tuples=True)
         lua.execute(HOST)
         lua.globals().extraFog = fog
         lua.globals().requestedSpeed = speed
+        lua.globals().requestedAir = air
+        lua.globals().requestedRoad = road
+        lua.globals().ownEffects = effects
         lua.execute('''
           ac.WeatherType.Fog=20
           ac.INIConfig.raceConfig=function() return {get=function(_, section, key, default)
             if key=='__MAP2LAP_FOG' then return extraFog end
+            if key=='__MAP2LAP_WEATHER_EFFECTS' then return ownEffects end
             if section=='WIND' and requestedSpeed~=nil then return requestedSpeed end
+            if section=='TEMPERATURE' and key=='AMBIENT' and requestedAir~=nil then return requestedAir end
+            if section=='TEMPERATURE' and key=='ROAD' and requestedRoad~=nil then return requestedRoad end
             return default
           end} end
           ac.ConditionsSet=function() return {} end
           ac.getInputWeatherType=function() return 11 end
-          ac.getInputTemperatures=function() return {} end
+          ac.getInputTemperatures=function() return {ambient=20,road=26} end
           ac.getInputWind=function() return {direction=82,speedFrom=25,speedTo=25} end
           ac.getInputHumidity=function() return 0.5 end
           ac.getInputPressure=function() return 101325 end
           ac.getInputTrackState=function() return {} end
           ac.setConditionsSet2=function(c) chosen=c end
           package.preload['shared/sim/weather']=function()
-            return {setRainIntensity=function(c) c.rainIntensity=0 end, debugAware=function() return false end}
+            return {setRainIntensity=function(c) c.rainIntensity=0.7; c.rainWetness=0.6; c.rainWater=0.4 end, debugAware=function() return false end}
           end
         ''')
         lua.execute((ROOT / 'assets/weather/controller.lua').read_text(encoding='utf-8'))
@@ -207,6 +213,17 @@ class WeatherControllerTest(unittest.TestCase):
     def test_without_additional_fog_the_native_weather_is_unchanged(self):
         c = self.load(False)
         self.assertEqual((c.currentType, c.upcomingType, c.transition), (11, 11, 0))
+
+    def test_native_rain_is_not_forced_dry_when_own_effects_are_disabled(self):
+        c = self.load(False, effects=False)
+        self.assertEqual((c.rainIntensity, c.rainWetness, c.rainWater), (0.7, 0.6, 0.4))
+
+    def test_session_temperatures_survive_native_input_limits(self):
+        for air, road in [(-30, -30), (-5, 2), (50, 80)]:
+            c = self.load(False, air=air, road=road)
+            self.assertEqual((c.temperatures.ambient, c.temperatures.road), (air, road))
+        c = self.load(False)
+        self.assertEqual((c.temperatures.ambient, c.temperatures.road), (20, 26))
 
     def test_session_wind_reaches_conditions_even_when_native_input_is_limited(self):
         for speed in (0, 35, 73, 100):

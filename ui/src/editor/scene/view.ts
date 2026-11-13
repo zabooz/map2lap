@@ -885,6 +885,7 @@ export class TrackView {
     this.treesGone = gone;
     const removed = gone.size ? new Set([...this.objects.removed, ...gone]) : this.objects.removed;
     if (this.treeFx.leaveOut(removed, this.objects.removedObjectSorts)) this.dirty = true;
+    this.objects.countsChanged();
   }
   private treesGone: ReadonlySet<string> = new Set();      // (Delete's brush's gone, as leaveOutTrees last took it)
 

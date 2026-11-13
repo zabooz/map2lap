@@ -1,6 +1,30 @@
 import {expect, openEditor, scene, test} from "./fixtures";
 import {deleteTree} from "./edit-helpers";
 
+test("Properties groups time and season, conditions, and vegetation without resetting weather between tabs", async ({page}, testInfo) => {
+  await openEditor(page);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  await page.screenshot({path: testInfo.outputPath("properties-groups.png")});
+  const time = page.getByRole("region", {name: "Time and date", exact: true});
+  const conditions = page.getByRole("region", {name: "Conditions", exact: true});
+  const vegetation = page.getByRole("region", {name: "Vegetation", exact: true});
+  await expect(time.getByRole("slider", {name: "Time of day"})).toBeVisible();
+  await time.getByRole("combobox", {name: "Season", exact: true}).selectOption("autumn");
+  await conditions.getByRole("slider", {name: "Air temperature"}).fill("-5");
+  await expect(conditions.getByRole("slider", {name: "Road temperature"})).toBeVisible();
+  await expect(conditions.getByRole("slider", {name: "Wind speed"})).toBeVisible();
+  await expect(conditions.getByRole("slider", {name: "Wind direction"})).toBeVisible();
+  await expect(vegetation.getByRole("slider", {name: "Tree minimum spacing"})).toBeAttached();
+  await conditions.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
+  await expect(time.getByRole("combobox", {name: "Season", exact: true})).toHaveValue("winter");
+  await expect(time.getByRole("combobox", {name: "Season", exact: true})).toBeDisabled();
+  await page.getByRole("tab", {name: "Selection", exact: true}).click();
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  await conditions.getByRole("combobox", {name: "Weather", exact: true}).selectOption("dry");
+  await expect(time.getByRole("combobox", {name: "Season", exact: true})).toHaveValue("autumn");
+  await expect(conditions.getByRole("slider", {name: "Air temperature"})).toHaveValue("-5");
+});
+
 for (const species of ["broadleaf", "birch", "larch", "baobab"]) test(`${species}: seasons retain the green summer crown, warm autumn leaves, and restore after bare winter`, async ({page, backend}, testInfo) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_model: species});
   await openEditor(page);
@@ -107,12 +131,14 @@ test("Play carries the selected weather, wind, additional fog and clock into the
   await weather.getByRole("combobox", {name: "Intensity"}).selectOption("heavy");
   await weather.getByRole("slider", {name: "Wind direction"}).fill("270");
   await weather.getByRole("slider", {name: "Wind speed"}).fill("25");
+  await weather.getByRole("slider", {name: "Air temperature"}).fill("-5");
+  await weather.getByRole("slider", {name: "Road temperature"}).fill("2");
   await weather.getByRole("checkbox", {name: "Additional fog"}).check();
   await page.getByRole("slider", {name: "Time of day"}).fill("1110");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
   expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5,
-    weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true, season: "summer"}});
+    weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true, season: "summer", airTemperature: -5, roadTemperature: 2}});
 });
 
 test("random precedes north and changing tracks resets the preview weather", async ({page}) => {
@@ -121,6 +147,10 @@ test("random precedes north and changing tracks resets the preview weather", asy
   const weather = page.getByRole("region", {name: "Weather settings"});
   await expect(weather).toContainText("Wind direction: Random");
   await expect(weather).toContainText("Wind speed: Random");
+  await expect(weather.getByRole("slider", {name: "Air temperature"})).toHaveValue("20");
+  await expect(weather.getByRole("slider", {name: "Road temperature"})).toHaveValue("26");
+  await weather.getByRole("slider", {name: "Air temperature"}).fill("50");
+  await weather.getByRole("slider", {name: "Road temperature"}).fill("80");
   await weather.getByRole("slider", {name: "Wind speed"}).fill("100");
   await expect(weather).toContainText("Wind speed: 100 km/h");
   const started = page.waitForRequest("**/api/play");
@@ -139,6 +169,8 @@ test("random precedes north and changing tracks resets the preview weather", asy
   await expect(weather.getByRole("combobox", {name: "Cloud cover"})).toHaveValue("light");
   await expect(weather.getByRole("slider", {name: "Wind direction"})).toHaveValue("-1");
   await expect(weather.getByRole("slider", {name: "Wind speed"})).toHaveValue("-1");
+  await expect(weather.getByRole("slider", {name: "Air temperature"})).toHaveValue("20");
+  await expect(weather.getByRole("slider", {name: "Road temperature"})).toHaveValue("26");
 });
 
 test("windscreen snow can be disabled while the native snowfall remains selected", async ({page}) => {
@@ -161,6 +193,8 @@ test("Save as new track followed by Play keeps the chosen weather and clock thro
   const weather = page.getByRole("region", {name: "Weather settings"});
   await weather.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
   await weather.getByRole("combobox", {name: "Intensity"}).selectOption("heavy");
+  await weather.getByRole("slider", {name: "Air temperature"}).fill("-12");
+  await weather.getByRole("slider", {name: "Road temperature"}).fill("-6");
   await page.getByRole("slider", {name: "Time of day"}).fill("1110");
   await page.locator("#edit-play").click();
   await expect(page.locator("#save-dialog")).toBeVisible();
@@ -168,5 +202,5 @@ test("Save as new track followed by Play keeps the chosen weather and clock thro
   const started = page.waitForRequest("**/api/play");
   await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
   expect((await started).postDataJSON()).toEqual({name: "snow_copy", clock: 18.5,
-    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer"}});
+    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer", airTemperature: -12, roadTemperature: -6}});
 });

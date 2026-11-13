@@ -198,7 +198,7 @@ def browse_folder(start):
 def settings_view():
     path, s = settings.ac_path(), settings.load()
     return {"ac_path": path, "ac_ok": settings.is_ac(path), "clean": s["clean"], "cores": s["cores"],
-            "cache_gb": s["cache_gb"], "car": s["car"], "debug_app": s["debug_app"],
+            "cache_gb": s["cache_gb"], "car": s["car"], "debug_app": s["debug_app"], "weather_effects": s["weather_effects"],
             "threads": os.cpu_count() or 2, "version": version.VERSION}
 
 
@@ -389,8 +389,12 @@ def play(name, clock=None, weather_options=None):
         ini.set("LIGHTING", "SUN_ANGLE", f"{sun_angle(clock):.2f}")
     if selected_weather is not None:
         weather.apply_session(ini, selected_weather)
+    effects = settings.load()['weather_effects']
+    if not ini.has_section('LIGHTING'):
+        ini.add_section('LIGHTING')
+    ini['LIGHTING']['__MAP2LAP_WEATHER_EFFECTS'] = str(int(effects))
     try:
-        weather.install_track(os.path.join(ac, 'content', 'tracks', name), weather.scenery_options(ini, selected_weather))
+        weather.install_track(os.path.join(ac, 'content', 'tracks', name), weather.scenery_options(ini, selected_weather), effects=effects)
         if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
             weather.install_controller(ac)
     except OSError as error:
@@ -401,7 +405,7 @@ def play(name, clock=None, weather_options=None):
         # Steam sign-in can take a while; a requested CSP install may have started since the first check.
         if csp.busy():
             return 409, {"error": "CSP is being installed: wait for it, then play"}
-        system.start_ac(ac)
+        system.start_ac(ac, weather_effects=effects)
     return 200, {"ok": True}
 
 
@@ -1121,6 +1125,10 @@ class Handler(BaseHTTPRequestHandler):
                     new["car"] = car
                 if "debug_app" in body:
                     new["debug_app"] = bool(body["debug_app"])
+                if "weather_effects" in body:
+                    if not isinstance(body['weather_effects'], bool):
+                        return self._send(400, {"error": "Weather effects must be on or off"})
+                    new['weather_effects'] = body['weather_effects']
                 s = settings.save(new)
                 if "debug_app" in new or ("ac_path" in new and s["debug_app"]):   # (into a newly set AC folder too)
                     try:

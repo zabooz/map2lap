@@ -61,6 +61,7 @@ export interface Settings {
   cache_gb: number;
   car: string | null;
   debug_app: boolean;
+  weather_effects: boolean;
   threads: number;
   version: string;
 }

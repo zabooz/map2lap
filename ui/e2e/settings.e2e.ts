@@ -3,6 +3,23 @@ import {expect, openSettings, test} from "./fixtures";
 
 const saved = async (page: import("@playwright/test").Page) => (await page.request.get("/api/settings")).json();
 
+test("Map2Lap weather effects can be disabled persistently in the Map2Lap settings tab", async ({page}) => {
+  await page.goto('/');
+  await openSettings(page, 'Map2Lap');
+  const toggle = page.getByRole('checkbox', {name: 'Map2Lap weather effects', exact: true});
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect.poll(async () => (await saved(page)).weather_effects).toBe(false);
+  await page.reload();
+  await openSettings(page, 'Map2Lap');
+  await expect(toggle).not.toBeChecked();
+  const bad = await page.request.post('/api/settings', {data: {weather_effects: 'false'}});
+  expect(bad.status()).toBe(400);
+  expect((await saved(page)).weather_effects).toBe(false);
+  await toggle.check();
+  await expect.poll(async () => (await saved(page)).weather_effects).toBe(true);
+});
+
 test("Editor settings put build files and view first, with enough room for the grouped keyboard reference", async ({page}) => {
   await page.goto("/");
   await openSettings(page, "Editor");

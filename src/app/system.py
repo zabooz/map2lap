@@ -258,7 +258,7 @@ def runtime(tool):
     return None
 
 
-def start_ac(ac):
+def start_ac(ac, *, weather_effects=True):
     """Start acs.exe (the race race.ini describes; steam_appid.txt next to it: runs without the launcher). Linux:
     the way Steam starts AC, with acs.exe instead of the launcher: the Proton that ran AC last inside the runtime it
     requires (Proton 9 outside its "sniper" container finds the wrong libraries), with Steam's STEAM_COMPAT_*
@@ -269,7 +269,7 @@ def start_ac(ac):
     from app.paths import SRC
     patch = csp.inspect(ac)
     helper = Path(SRC) / 'bin/snow-worker.exe'
-    accelerated = helper.is_file() and patch['status'] == 'installed' and patch['enabled']
+    accelerated = weather_effects and helper.is_file() and patch['status'] == 'installed' and patch['enabled']
     if WIN:
         if accelerated:
             try:

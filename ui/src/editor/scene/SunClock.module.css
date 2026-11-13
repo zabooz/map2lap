@@ -1,5 +1,5 @@
-/* The time of day at the Inspector's top, above its tabs: there whichever tab is open. "Time of day: 10:00", the slider below */
-.clock { display: flex; flex-direction: column; gap: 4px; padding: 10px 0 2px; font-size: 13px; }
+/* The local clock in Properties > Time and date. */
+.clock { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .label { color: var(--muted); font-size: 12px; }
 .time { color: var(--text); font-variant-numeric: tabular-nums; }     /* (it changes while read: nothing beside it moves) */
 .clock input { width: 100%; min-width: 0; }

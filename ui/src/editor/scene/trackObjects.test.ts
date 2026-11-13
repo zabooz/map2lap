@@ -4,6 +4,17 @@ import {objectsOf} from "./view.fixture";
 
 const VERGE = "nocol_road_edge_dirt_0_0";
 
+test("tree count covers unloaded and imported roots, excludes bushes, child parts, deletion and thinning", () => {
+  const data = {objects: {tile: {kinds: ['tree', 'bush', 'tree', 'tree', 'tree'],
+    sorts: ['spruce', 'shrub', 'spruce', 'oak', 'pine'], parents: [-1, -1, 0, -1, -1], faces: [[], [], [], [], []]}}};
+  const objects = objectsOf({data});
+  objects.index(data.objects as never);
+  expect(objects.countTrees([], [])).toBe(3);
+  expect(objects.countTrees(['tile#0'], ['pine'])).toBe(1);
+  expect(objects.countTrees(['tile#0', 'tile#3'], ['pine'])).toBe(0);
+  expect(objects.countTrees([], [])).toBe(3);
+});
+
 test("edited wall originals are hidden without hiding neighbouring objects, and Undo restores them", () => {
   const {objects, index} = fixture();
   objects.setWallHidden([[7, 1, 2]]);

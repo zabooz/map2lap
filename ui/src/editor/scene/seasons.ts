@@ -34,7 +34,8 @@ export function bindSeason(material: Material, state: SeasonValue, tree = false,
         diffuseColor.rgb = mix(diffuseColor.rgb, m2lWarm, ${tree ? (deciduous ? "1.0 - m2lWood" : "0.0") : "m2lGreen * 0.5"});
       }
     `);
-    shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+    // Painted ground replaces the normal-map chunk. Apply snow after its normals, before lighting takes diffuseColor.
+    shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
       if (m2lSeason > 2.5) {
         float m2lUp = inverseTransformDirection(normal, viewMatrix).y;
         float m2lSnow = smoothstep(-0.05, 0.6, m2lUp) * ${tree ? "0.85" : "0.9"};

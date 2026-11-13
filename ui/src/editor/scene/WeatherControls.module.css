@@ -1,4 +1,6 @@
-.weather { display: flex; flex-direction: column; gap: 14px; padding: 16px 0 6px; font-size: 13px; }
+.group { display: flex; flex-direction: column; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.title { margin: 0; font-size: 13px; }
+.weather { display: flex; flex-direction: column; gap: 14px; }
 .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .field { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
 .field select, .field input { width: 100%; min-width: 0; }

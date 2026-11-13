@@ -14,6 +14,23 @@ class WeatherTest(unittest.TestCase):
     def options(self, **changes):
         return weather.parse({**weather.DEFAULT, **changes})
 
+    def test_air_and_road_temperatures_are_independent_session_values(self):
+        for air, road in [(-30, -30), (-5, 2), (20, 26), (50, 80)]:
+            ini = configparser.ConfigParser()
+            ini.read_dict({'TEMPERATURE': {'AMBIENT': '13', 'ROAD': '18', 'OTHER': 'kept'}})
+            weather.apply_session(ini, self.options(airTemperature=air, roadTemperature=road))
+            self.assertEqual(float(ini['TEMPERATURE']['AMBIENT']), air)
+            self.assertEqual(float(ini['TEMPERATURE']['ROAD']), road)
+            self.assertEqual(ini['TEMPERATURE']['OTHER'], 'kept')
+
+    def test_temperature_defaults_and_invalid_values(self):
+        defaults = weather.parse({})
+        self.assertEqual((defaults['airTemperature'], defaults['roadTemperature']), (20, 26))
+        for field, upper in [('airTemperature', 50), ('roadTemperature', 80)]:
+            for value in [-31, upper + 1, True, None, '20', float('inf'), float('nan')]:
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    self.options(**{field: value})
+
     def test_cloud_cover_and_precipitation_have_their_own_native_presets(self):
         for kind, types in [('dry', (15, 17, 19)), ('rain', (6, 7, 2)), ('snow', (9, 10, 11))]:
             for intensity, expected in zip(('light', 'medium', 'heavy'), types):

@@ -331,6 +331,13 @@ export function SettingsDialog({settings, release, patch, focusTarget, busy, con
         </div>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "map2lap"}>
           <Play settings={settings} onCar={onCar} />
+          <Group title="Weather">
+            <label className={styles.check}>
+              <input type="checkbox" checked={settings.settings?.weather_effects ?? true}
+                onChange={e => void settings.save({weather_effects: e.target.checked})} />Map2Lap weather effects
+            </label>
+            <p className="small muted">Adds rain, snow and windscreen effects in Assetto Corsa. Turn off when using CSP Preview’s own effects. Applies on the next Play.</p>
+          </Group>
         </div>
         <div className={styles.tab} role="tabpanel" hidden={tab !== "editor"}>
           <div className={styles.viewSettings}>
