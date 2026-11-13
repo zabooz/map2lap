@@ -39,7 +39,7 @@ WIDTH_RANGE = (0.6, 1.6)
 
 # Every generated tree and bush sprite has a form. Unknown future sprites can still fall back to billboards.
 MODEL_OF = {"deciduous": "broadleaf", "deciduous2": "broadleaf", "linden": "broadleaf", "birch": "birch",
-            "conifer": "spruce", "conifer2": "spruce", "spruce": "spruce", "pine": "pine", "larch": "larch",
+            "conifer": "spruce", "conifer2": "spruce", "spruce": "spruce", "pine": "pine", "larch": "larch", "fir": "fir",
             "shrub": "shrub", "shrub_flowers": "shrub_flowers",
             **{name: name for name in ("stone_pine", "cypress", "olive", "acacia", "baobab", "palm", "tropical",
                                       "juniper", "dry_shrub", "jungle_bush")}}
@@ -276,6 +276,39 @@ def _spruce(rng, seed):
 def _larch(rng, seed):
     tex = atlas({"C": needle_band(rng, 128, (0.56, 0.32), loose=True), "D": bark(rng, (92, 66, 46))})
     return tex, [conifer(seed, lod, 8, 14.0, 5.6, 0.2, uv_rect("C")) for lod in range(3)]
+
+
+def _fir(rng, seed):
+    """An evergreen fir with dark flat needle fans, a full tapered crown and a pale grey-brown trunk. Pure."""
+    tex = atlas({"C": needle_band(rng, 74, (.36, .48)), "D": bark(rng, (106, 98, 83))})
+    shape = random.Random(seed + 41)
+    tiers = [(16 * (.12 + .79 * k / 10), 3.1 * (1 - .94 * k / 10) ** .8,
+              shape.uniform(-.16, .16) + k * 2.39996) for k in range(11)]
+    return tex, [_fir_lod(lod, tiers) for lod in range(3)]
+
+
+def _fir_lod(lod, tiers):
+    """One fir LOD: the same branch tiers with fewer radial fans and lower tiers retained at every distance. Pure."""
+    mesh, rect = Mesh(), uv_rect('C')
+    trunk(mesh, 15.8, .23, .035, (6, 5, 4)[lod], uv_rect('D', 0))
+    spokes = (6, 5, 4)[lod]
+    for y, radius, turn in tiers[::(1, 2, 3)[lod]]:
+        for j in range(spokes):
+            angle = turn + j * math.tau / spokes
+            axis = np.array([math.cos(angle), 0, math.sin(angle)])
+            side = np.array([-math.sin(angle), 0, math.cos(angle)])
+            inner = axis * radius * .12 + [0, y + .28, 0]
+            outer = axis * radius + [0, y + .1, 0]
+            a, b = inner - side * radius * .08, inner + side * radius * .08
+            c, d = outer - side * radius * .48, outer + side * radius * .48
+            normal = unit([axis[0] * .25, 1, axis[2] * .25])
+            mesh.quad([a, b, d, c], [normal] * 4, rect)
+            # A short needle fringe gives the horizontal fans depth when seen at driver's eye height.
+            drop = [0, -.42 * min(1., radius), 0]
+            normal = unit([axis[0], .4, axis[2]])
+            mesh.quad([c + drop, d + drop, d, c], [normal] * 4, rect)
+    _tier(mesh, 4, 14.1, 16., 0, .3, 0, rect)
+    return mesh
 
 
 def _shrub(rng, seed, flowers=None):
@@ -576,6 +609,7 @@ def _jungle_bush(rng, seed):
 
 # name: (seed, painter and builder): the colours and shapes of the sprites in trees.py; the seeds of the trial of 2026-11-12
 MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102, _spruce), "larch": (103, _larch),
+          "fir": (117, _fir),
           "shrub": (104, _shrub), "shrub_flowers": (105, lambda rng, seed: _shrub(rng, seed, flowers=9)),
           **{name: (106 + i, make) for i, (name, make) in enumerate((
               ("pine", _pine), ("stone_pine", _stone_pine), ("cypress", _cypress), ("olive", _olive), ("acacia", _acacia),
@@ -584,7 +618,7 @@ MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102
 
 
 DECIDUOUS = frozenset(('broadleaf', 'birch', 'larch', 'baobab'))
-TREE_FORMAT = 1
+TREE_FORMAT = 2
 
 
 @functools.lru_cache(maxsize=None)
@@ -798,8 +832,8 @@ def read_bin(path):
     used = {p[k] for lod in out for p in lod["parts"] for k in ("diffuse", "normal_map")} - {None}
     result = {"height": H, "width": W, "lods": out, "textures": {n: files[n] for n in sorted(used) if n in files}}
     marker = ini.get('MAP2LAP', {})
-    if marker.get('TREE_FORMAT') == str(TREE_FORMAT) and marker.get('SPECIES') in MODELS:
-        result['seasonal'] = {'format': TREE_FORMAT, 'species': marker['SPECIES'],
+    if marker.get('TREE_FORMAT') in ('1', str(TREE_FORMAT)) and marker.get('SPECIES') in MODELS:
+        result['seasonal'] = {'format': int(marker['TREE_FORMAT']), 'species': marker['SPECIES'],
                               'deciduous': marker.get('DECIDUOUS') == '1', 'season': marker.get('SEASON', 'summer')}
     return result
 

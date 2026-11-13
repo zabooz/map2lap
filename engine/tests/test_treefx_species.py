@@ -13,10 +13,20 @@ sys.path[:0] = [os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
 from scenery import treefx, trees  # noqa: E402
 from test_treefx import read_mesh  # noqa: E402
 
-NEW = ("pine", "stone_pine", "cypress", "olive", "acacia", "baobab", "palm", "tropical", "juniper", "dry_shrub", "jungle_bush")
+NEW = ("fir", "pine", "stone_pine", "cypress", "olive", "acacia", "baobab", "palm", "tropical", "juniper", "dry_shrub", "jungle_bush")
 
 
 class SpeciesTest(unittest.TestCase):
+    def test_fir_has_its_own_dense_crown_and_retains_needles_in_every_season(self):
+        self.assertEqual(treefx.model_of('fir'), 'fir')
+        texture, lods = treefx.model('fir')
+        self.assertNotIn('fir', treefx.DECIDUOUS)
+        for season in ('spring', 'summer', 'autumn', 'winter'):
+            np.testing.assert_array_equal(np.asarray(treefx.season_texture('fir', season)), np.asarray(texture))
+        self.assertNotEqual(lods[0].p, treefx.model('spruce')[1][0].p)
+        self.assertGreater(treefx.size('fir')[0], 12)
+        self.assertGreater(float((np.asarray(texture)[256:, :256, 3] > 128).mean()), .2)
+
     def test_every_generated_tree_and_bush_has_a_3d_form_including_each_climate_zone(self):
         for sprite in trees.SPRITES:
             with self.subTest(sprite=sprite):

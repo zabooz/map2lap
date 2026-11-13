@@ -16,6 +16,14 @@ from scenery import treefx
 
 
 class SeasonTest(unittest.TestCase):
+    def test_native_tree_tint_does_not_turn_evergreens_or_precoloured_leaves_orange(self):
+        for season in seasons.SEASONS:
+            ini = configparser.ConfigParser(strict=False)
+            ini.read_string(seasons.config(season).decode())
+            self.assertEqual(ini['TREES']['SEASON_AUTUMN_0'], '0')
+            self.assertEqual(ini['TREES']['SEASON_WINTER_0'], 'M2L_SEASON_WINTER')
+        self.assertIn(b'LUT=(|0=0.85|1=0.85|)', seasons.config('autumn'))  # Ground keeps its autumn adjustment.
+
     def test_snow_forces_winter_and_other_weather_keeps_the_selected_season(self):
         for name in ('spring', 'summer', 'autumn', 'winter'):
             self.assertEqual(seasons.resolve(weather.parse({'season': name})), name)
@@ -46,6 +54,41 @@ class SeasonTest(unittest.TestCase):
                 self.assertTrue(np.isfinite(np.asarray(new.p)).all())
             loaded = treefx.read_bin(io.BytesIO(treefx.bin_bytes(name)))
             self.assertTrue(all(len(lod['parts']) == 1 for lod in loaded['lods']))
+
+    def test_added_wood_follows_the_original_trunks_native_face_winding(self):
+        for name in ('broadleaf', 'birch', 'larch'):
+            base = treefx.base_model(name)[1]
+            for old, mesh in zip(base, treefx.model(name)[1]):
+                p, n = np.asarray(mesh.p), np.asarray(mesh.n)
+                t = np.asarray(mesh.t[len(old.t):])
+                faces = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
+                normal = n[t].mean(axis=1)
+                dot = (faces * normal).sum(axis=1)
+                self.assertTrue(np.all(dot <= np.linalg.norm(faces, axis=1) * 1e-6), name)
+
+    def test_new_trunk_leader_shares_the_original_top_ring_in_every_lod(self):
+        for name in ('broadleaf', 'birch'):
+            for lod, (old, mesh) in enumerate(zip(treefx.base_model(name)[1], treefx.model(name)[1])):
+                t = np.asarray(mesh.t[len(old.t):])
+                old_trunk_vertices = (6, 5, 4)[lod] * 4
+                joined = (t.min(axis=1) < old_trunk_vertices) & (t.max(axis=1) >= len(old.p))
+                self.assertTrue(joined.any(), (name, lod))
+
+    def test_same_season_upgrades_recognized_older_geometry_versions(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); trees = root / 'extension/trees'; trees.mkdir(parents=True)
+            path = trees / 'broadleaf.bin'
+            raw = treefx.bin_bytes('broadleaf', 'winter')
+            with zipfile.ZipFile(io.BytesIO(raw)) as source, zipfile.ZipFile(path, 'w') as target:
+                for item in source.infolist():
+                    data = source.read(item)
+                    if item.filename == 'tree.ini':
+                        data = data.replace(f'TREE_FORMAT={treefx.TREE_FORMAT}'.encode(), b'TREE_FORMAT=1')
+                    target.writestr(item, data)
+            self.assertEqual(treefx.read_bin(path)['seasonal']['format'], 1)
+            seasons.install(root, 'winter')
+            self.assertGreater(treefx.read_bin(path)['seasonal']['format'], 1)
 
     def test_summer_and_spring_are_green_and_autumn_leaves_have_warm_colours(self):
         for name in ('broadleaf', 'birch', 'baobab', 'larch'):
@@ -108,7 +151,9 @@ class SeasonTest(unittest.TestCase):
             self.assertEqual(treefx.canonical_model(alias)['seasonal']['season'], 'summer')
             self.assertEqual(treefx.canonical_model(snapshot)['seasonal']['species'], 'broadleaf')
             self.assertEqual(snapshot.read_bytes(), original)
-            self.assertIn(alias.name, (root / 'extension/map2lap_seasons.ini').read_text())
+            ini = configparser.ConfigParser(strict=False)
+            ini.read(root / 'extension/map2lap_seasons.ini')
+            self.assertEqual(ini['TREES']['SEASON_AUTUMN_0'], '0')
 
     def test_legacy_library_snapshot_is_recognized_by_exact_geometry_and_atlas(self):
         with tempfile.TemporaryDirectory() as folder:

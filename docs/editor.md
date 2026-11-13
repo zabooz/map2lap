@@ -164,7 +164,8 @@ controllers, without changing the stock ones. Generated and saved tracks include
 track-local script through an owned include; Play also prepares older tracks. The asset is shipped in releases independently
 of CSP, which remains a separate installation. Debug controls and mode-file polling are enabled only by the developer
 preview helper. `app/seasons.py` prepares recognized Map2Lap TreeFX atlases before AC loads, including native Library aliases,
-and adds native CSP winter/autumn conditions for trees and ground. Geometry is shared across seasons; immutable Library
+and adds native CSP winter conditions for trees and winter/autumn conditions for ground. Native autumn tint on TreeFX is
+zero: deciduous atlases already provide autumn colours, and evergreen needles retain their green. Geometry is shared across seasons; immutable Library
 snapshots and custom tree files remain untouched. CSP supplies winter snow shading on trees and terrain in AC.
 Water and wetness are zero in our controller; no extended
 physics or surface-grip changes are enabled.
@@ -430,7 +431,8 @@ without its edit offers no Settings.
 ## Imported models
 
 The Objects catalogue also includes Map2Lap's own scenery (`assets/builtin-objects.json`, `app/builtinobjects.py`): all
-17 TreeFX tree/bush models, six rock forms, 48 parked-car entries (four shapes × twelve colours), and 55 furniture/leisure/utility
+18 TreeFX tree/bush models, including an evergreen Fir with its own tiered needle fans, six rock forms,
+48 parked-car entries (four shapes × twelve colours), and 55 furniture/leisure/utility
 entries. These include street lamps, pole-mounted lamp heads, poles, benches, bins, hydrants, signs, static traffic lights and
 railway-crossing kits, three fountain forms, playground devices, goals and hoops, headstones, silos, tanks, masts, pylons,
 substation parts and fuel-station parts. Cars have a Vehicles filter. Map-bound terrain, roads and continuous building/fence

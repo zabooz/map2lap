@@ -13,7 +13,7 @@ import vegetation
 from scenery import treefx
 
 # the looks a tree can have, each one a TreeFX model (treefx.MODEL_OF)
-SPRITES = ("deciduous", "deciduous2", "conifer", "conifer2", "shrub", "birch", "linden", "spruce", "larch",
+SPRITES = ("deciduous", "deciduous2", "conifer", "conifer2", "shrub", "birch", "linden", "spruce", "larch", "fir",
            "shrub_flowers", "pine", "stone_pine", "cypress", "olive", "acacia", "baobab", "palm", "tropical",
            "dry_shrub", "juniper", "jungle_bush")
 # group -> ((look, width/height), ...): each tree gets one of them (by its random value; a look named twice is twice as

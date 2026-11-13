@@ -5,10 +5,14 @@ import random
 import numpy as np
 
 
-def _tube(mesh, points, radii, sides, unit):
-    """Shared rings and a single tip vertex for a tapered branch. Pure."""
+def _tube(mesh, points, radii, sides, unit, root=None):
+    """Append a tapered branch, optionally sharing its parent's root ring, in the native trunk's face winding."""
+    first = len(mesh.t)
     points, rings = np.asarray(points, float), []
     for i, (point, radius) in enumerate(zip(points, radii)):
+        if i == 0 and root is not None:
+            rings.append(root)
+            continue
         tangent = unit(points[min(i + 1, len(points) - 1)] - points[max(0, i - 1)])
         side = unit(np.cross(tangent, (0, 0, 1)))
         other = unit(np.cross(tangent, side))
@@ -31,8 +35,11 @@ def _tube(mesh, points, radii, sides, unit):
                 mesh.t.append((a[k], a[j], b[0]))
             else:
                 mesh.t.extend(((a[k], a[j], b[j]), (a[k], b[j], b[k])))
-    for k in range(1, sides - 1):
-        mesh.t.append((rings[0][0], rings[0][k + 1], rings[0][k]))
+    if root is None:
+        for k in range(1, sides - 1):
+            mesh.t.append((rings[0][0], rings[0][k + 1], rings[0][k]))
+    # CSP's existing trunk uses clockwise faces with outward shading normals; added wood must agree.
+    mesh.t[first:] = [(a, c, b) for a, b, c in mesh.t[first:]]
 
 
 def extend(name, lod, original, fine, api):
@@ -58,7 +65,9 @@ def extend(name, lod, original, fine, api):
     heights = np.linspace(trunk_top, high - .08, 4)
     offsets = np.array([[0, 0], [.09, .02], [.03, -.06], [.12, -.01]])
     leader = np.column_stack((offsets[:, 0], heights, offsets[:, 1]))
-    _tube(mesh, leader, [radius * .6, radius * .4, radius * .2, 0], (5, 4, 3)[lod], api.unit)
+    sides = (6, 5, 4)[lod]
+    root = [4 * (-k % sides) + 3 for k in range(sides)]  # original trunk's upper ring, in tube order
+    _tube(mesh, leader, [radius * .6, radius * .4, radius * .2, 0], sides, api.unit, root)
     count = (9, 7, 5)[lod] if birch else (8, 6, 5)[lod]
     rng = random.Random(1029 if birch else 410)
     for k in range(count):

@@ -142,8 +142,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   permanent low-cost wood inside the original crowns; original foliage and trunk data are retained. At Play, recognized
   models get their selected atlas: original green in spring/summer, warm foliage in autumn, transparent foliage in winter.
   Baobab retains its existing branches; evergreen/tropical foliage is preserved. Native CSP season conditions provide snow
-  shading on wood and needles. Owned Library aliases are prepared in the track folder; their immutable snapshots stay intact.
+  shading on wood and needles. Native TreeFX autumn tint is zero because deciduous atlases already supply their autumn
+  colours; the native global tint also colours evergreen needles. Owned Library aliases are prepared in the track folder; their immutable snapshots stay intact.
   Seasons do not alter KN5 geometry, placements or tyre grip, and snow weather always selects winter scenery.
+  Added wood follows the original trunk's native clockwise face winding. Broadleaf/birch leaders share its top ring;
+  the owned format version makes Play refresh older seasonal geometry even when the chosen season stays the same.
 - The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
   itself, rings around the camera on the asphalt. Without CSP it casts none.
 - Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),

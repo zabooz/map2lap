@@ -30,6 +30,15 @@ class SnowBudgetTest(unittest.TestCase):
             with self.subTest(density=density):
                 self.assertEqual(self.budget(density, mirror=True)[1], math.floor(count * 3072 / 8192))
 
+    def test_front_glass_moves_each_strength_down_without_changing_outdoor_budgets(self):
+        source = (ROOT / 'assets/weather/weather.lua').read_text(encoding='utf-8')
+        helpers = source[source.index('local function snowScale()'):source.index('-- The camera-wrapped volume:')]
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        for density, retained, landings in ((0, 0, 0), (.3, .24, 120), (.65, .3, 150), (1, .65, 450)):
+            actual, flux = lua.execute(helpers + f'\nreturn windscreenSnowAmount({density})')
+            self.assertAlmostEqual(actual, retained)
+            self.assertAlmostEqual(flux, landings)
+
     def test_rain_budgets_remain_unchanged(self):
         for density, count, mirrored in ((.35, 2007, 752), (.65, 4472, 1677), (1, 8601, 3225)):
             with self.subTest(density=density):

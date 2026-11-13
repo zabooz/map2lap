@@ -61,6 +61,12 @@ local function snowScale()
   if density > 0.3 then return 1.15, 4500 end
   return 1, 2000
 end
+
+local function windscreenSnowAmount(amount)
+  -- Front pane only: Heavy uses the old Moderate deposits, Moderate the old Light, Light 20% less.
+  local reduced = amount > 0.65 and 0.65 or amount > 0.3 and 0.3 or amount * 0.8
+  return reduced, reduced * (reduced > 0.3 and (450 / 0.65) or (150 / 0.3))
+end
 local function snowWindPatches(dt, speed, state)
   -- Tangential vehicle airflow must overcome adhesion first; use the side panes' existing 4 m/s threshold.
   if speed <= 4 then state.gustBudget = 0; return 0 end
@@ -2123,12 +2129,12 @@ function glass.setup()
     local ambient = sim.ambientTemperature or 0
     local melt = 0.004 + 0.05 * heat + max(0, ambient) * 0.004
     -- Snow on the glass, a coarse estimate for the ridge ahead of a blade: deposits raise it, sweeps and melt lower it.
-    local snowImpact = WINDSCREEN_SNOW and snowRate * min(impinge, 5) or 0
-    -- User-tuned visual flux: about 150/450/700 millimetre clumps per second at rest in light/medium/heavy.
-    -- Stronger tiers add increasingly more clumps between identical wipes.
-    -- Scale with incoming normal velocity; this tunes glass deposits without changing falling snow outside.
+    local frontSnowRate, frontSnowFlux = windscreenSnowAmount(snowRate)
+    local snowImpact = WINDSCREEN_SNOW and frontSnowRate * min(impinge, 5) or 0
+    -- Keep the side panes' original 150/450/700 baseline. The front pane uses 120/150/450 instead.
+    -- Both scale with incoming normal velocity; falling snow outside uses its separate particle budgets.
     local snowFlux = snowRate * (snowRate > 0.65 and 700 or snowRate > 0.3 and (450 / 0.65) or (150 / 0.3))
-    local clumpsPerSecond = WINDSCREEN_SNOW and snowFlux * min(impinge, 5) or 0
+    local clumpsPerSecond = WINDSCREEN_SNOW and frontSnowFlux * min(impinge, 5) or 0
     -- The ridge estimate follows incoming flux, independently of how many visual clumps represent it.
     snowOnGlass = max(0, min(1, snowOnGlass + snowImpact * dt / 12 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
