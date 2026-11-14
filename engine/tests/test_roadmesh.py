@@ -130,14 +130,14 @@ class FollowTest(unittest.TestCase):
         elev = self.bumpy()
         chunks = [chunk("road_asphalt_2lane", 9.0, [(3.3, 1.7, 0), (61.9, 40.2, 0), (90.0, 20.0, 0)])]
         P, T, UV, mats, M = roadmesh.build(FRAME, chunks, elev, (0.0, 0.0, 0.0), 0.015, follow=True, q=1 / 32)
-        # the engine's terrain: samples every 2 m (rounded to 1/32 m), each square cut south-west to north-east
+        # Independent sampler of the chosen terrain lattice, rounded to 1/32 m, cut south-west to north-east.
+        cell = roadmesh.GRID_M
         def ground(x, y):
-            la, lo, _ = FRAME.enu_to_geodetic(np.array([x]), np.array([y]), 0.0)
-            i, j = math.floor(x / 2), math.floor(y / 2)
+            i, j = math.floor(x / cell), math.floor(y / cell)
             def s(a, b):
-                la_, lo_, _ = FRAME.enu_to_geodetic(np.array([2.0 * a]), np.array([2.0 * b]), 0.0)
+                la_, lo_, _ = FRAME.enu_to_geodetic(np.array([cell * a]), np.array([cell * b]), 0.0)
                 return round(float(FRAME.geodetic_to_enu(la_, lo_, elev(la_, lo_))[2][0]) * 32) / 32
-            u, v = x / 2 - i, y / 2 - j
+            u, v = x / cell - i, y / cell - j
             if v > u:
                 return s(i, j) + v * (s(i, j + 1) - s(i, j)) + u * (s(i + 1, j + 1) - s(i, j + 1))
             return s(i, j) + u * (s(i + 1, j) - s(i, j)) + v * (s(i + 1, j + 1) - s(i + 1, j))
@@ -157,17 +157,19 @@ class FollowTest(unittest.TestCase):
         """A strip beside a cutting's wall: in the lattice cells holding the step it stays at the road's level instead
         of climbing the lattice's teeth (FOLLOW_STEP_M / FOLLOW_MAX_UP), elsewhere it follows the ground."""
         grid = np.zeros((10, 10))
-        grid[:, 5:] = 4.0                                   # a 4 m step between x = 8 and x = 10
+        grid[:, 5:] = 4.0                                   # a 4 m step after the fifth column
         grid[:, :5] += np.arange(5) * 0.1                   # a gentle slope before it (followed)
-        P = np.array([[1.0, 1.0], [9.5, 1.0], [9.5, 15.0], [1.0, 15.0]])
         T = np.array([[0, 1, 2], [0, 2, 3]])
         UV = np.zeros((4, 2))
-        Q, _, U, _ = roadmesh.follow_ground(P, UV, T, grid, 0, 0)
-        step = Q[:, 0] > 8.0
-        self.assertTrue(step.any())
-        self.assertLessEqual(Q[step, 2].max(), 0.4 + roadmesh.FOLLOW_MAX_UP + 1e-9, "held down at the step")
-        flat = Q[:, 0] < 7.9
-        self.assertGreater(Q[flat, 2].max(), 0.25, "the slope before it followed")
+        for cell in (1.0, 2.0):
+            with self.subTest(cell=cell):
+                P = np.array([[.5, .5], [4.75, .5], [4.75, 7.5], [.5, 7.5]]) * cell
+                Q, _, U, _ = roadmesh.follow_ground(P, UV, T, grid, 0, 0, cell=cell)
+                step = Q[:, 0] > 4.0 * cell
+                self.assertTrue(step.any())
+                self.assertLessEqual(Q[step, 2].max(), 0.4 + roadmesh.FOLLOW_MAX_UP + 1e-9, "held down at the step")
+                flat = Q[:, 0] < 3.95 * cell
+                self.assertGreater(Q[flat, 2].max(), 0.25, "the slope before it followed")
 
 
 class TrimOverlapsTest(unittest.TestCase):

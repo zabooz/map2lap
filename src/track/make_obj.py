@@ -35,7 +35,7 @@ from track import editorinfo, objectlist, parallel  # noqa: E402
 TILES = os.path.join(ROOT, "out", "tiles")
 OUT = os.path.join(ROOT, "out", "obj")
 TEX_SRC = os.path.join(ROOT, "assets", "textures")
-CELL = 2.0                  # m, terrain grid (like BeamNG.Earth's physics block)
+CELL = ground.CELL          # water's lowering and wet lookup use the collision terrain's lattice
 TERRAIN_UV_M = 8.0          # m per repeat of the grass texture
 MAX_VERTS = 65000           # kn5: 16 bit indices per mesh
 # m: terrain under the roads lower than the road surface (fading out sideways, grading.apply with a negative lift).

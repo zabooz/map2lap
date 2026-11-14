@@ -19,9 +19,10 @@ import math
 
 import numpy as np
 
+import acgrid
 import cdae
 
-DRAPE_STEP = 2.0        # m between ribbon cross-sections (the physics block's lattice)
+DRAPE_STEP = 2.0        # m between initial ribbon rows; follow_ground cuts further along the actual terrain lattice
 LIFT = {"base": 0.0, "edge": 0.003, "gutter": 0.005, "mark": 0.01}   # m above the physics ground (lifted under roads
                                                         # by grading.ROAD_LIFT over the visible ground)
 
@@ -315,7 +316,7 @@ def _reach_past(c, box):
     return {**c, "n": np.concatenate(n).tolist()}
 
 
-GRID_M = 2.0            # the terrain block's square (heightmap.SQUARE): its samples on multiples of it, each square cut
+GRID_M = acgrid.CELL    # AC's ground spacing (2 m normally, 1 m experiment): samples on multiples of it, each square cut
                         # from its south-west corner to its north-east one (probed in-game)
 
 

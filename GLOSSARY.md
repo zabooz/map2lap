@@ -35,7 +35,7 @@ Writes source plus draft into the track or a copy, with a recipe (`app/trackcopy
 and cannot be rebuilt in place. _Avoid_: rebuild, modded track.
 
 **Height change**:
-An additive raster of whole-millimetre offsets on the ground’s 2 m lattice, zero at its edge (`app/trackheights.py`).
+An additive raster of whole-millimetre offsets on a fixed 2 m edit lattice, zero at its edge (`app/trackheights.py`).
 Save reapplies it to the source, so repeated Saves do not compound it.
 
 **Placement**:
@@ -155,7 +155,7 @@ The line just behind the face of a wall between two roads at two levels, along w
 in `tiles/wallcuts_<tx>_<ty>.json`).
 
 **Terrain cell**:
-One 2 m square of the terrain grid.
+One square of the terrain grid, normally 2 m wide; the [AC grid experiment](docs/architecture.md#ac-terrain-grid-experiment) also supports 1 m.
 _Avoid_: cell, pixel
 
 **Cut cell**:

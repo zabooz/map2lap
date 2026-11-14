@@ -585,7 +585,7 @@ class PortalApron(unittest.TestCase):
         self.assertEqual(len(aprons), 1, "at the portal, not at the inner end")
         a = aprons[0]
         self.assertAlmostEqual(float(a[:, 0].min()), -roads.PORTAL_APRON_M, places=3)
-        self.assertGreaterEqual(roads.PORTAL_APRON_M, 1.5 * 2.0 * np.sqrt(2.0) - 1e-9)
+        self.assertGreaterEqual(roads.PORTAL_APRON_M, 1.5 * roadmesh.GRID_M * np.sqrt(2.0) - 1e-9)
         at_out = float(a[np.argmin(a[:, 0]), 2])
         want = 10.0 - 0.02 * roads.PORTAL_APRON_M + grading.ROAD_LIFT     # the floor's slope on, as the ground lifted
         self.assertAlmostEqual(at_out, want, places=3)

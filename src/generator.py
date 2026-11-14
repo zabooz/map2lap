@@ -411,6 +411,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     anc = {"lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
            "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
            "rules": rules, "title": title, "code_key": revisit.code_key()}
+    if make_obj.CELL != 2.0:
+        anc["terrain_cell_m"] = make_obj.CELL  # retained with the build so tools read its actual grid
     if area:                # (without route and start: obj_to_kn5.start_empties takes the road nearest the anchor)
         anc["area"] = [float(v) for v in area]
     else:
@@ -502,6 +504,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
             "area_m": list(size) if area else None, "tiles": len(tiles), "built": time.time(),
             "line": None if area else mytracks.thin(pts),
             "route_end": None if area else len(pts) - 1, "data": data_versions()}
+    if anc.get("terrain_cell_m") is not None:
+        info["terrain_cell_m"] = anc["terrain_cell_m"]  # developer experiment; ordinary Rebuild uses its process's switch
     mytracks.save(root, {**info, "code": trackcode.encode(info)})
     progress("clean", 0, 0)
     if cache_gb is not None:

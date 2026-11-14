@@ -92,6 +92,32 @@ buried low-voltage lines, street lamp spacing.
 
 ## Build caches and comparisons
 
+### AC terrain grid experiment
+
+AC normally uses a 2 m ground lattice. `BNE_AC_GRID_M=1` selects a 1 m lattice for a developer build; `2` explicitly
+selects the normal lattice. `engine/acgrid.py` owns the switch. Collision/visible ground, water lowering and the
+road mesh's draping share it; the legacy BeamNG heightmap dimensions stay unchanged. The existing native draping
+kernel accepts the spacing as an argument. Road centre lines and the source elevation are unchanged.
+
+For example, in Bash, use existing test tracks:
+
+```bash
+BNE_AC_GRID_M=1 .venv/bin/python tools/measure.py rechberg_test griffen_bruecke_test heiligenblut_test --install
+```
+
+Use the same switch with `--kn5` or a later build of the same kept files. It is included in the code key, so the two
+grids do not share cached road meshes. Do not set `BNGE_PLAN_RUN` manually between variants. Build facts record
+`terrain_cell_m` for the experiment; `measure.py --holes` reads that spacing even without the switch. Installed
+experiment tracks also record it in `data/map2lap.json`, but Rebuild and track codes still use the building process's
+switch: they do not promise to reproduce an experiment. The ordinary generator page remains at 2 m.
+The Editor's serialized height-change fields keep their fixed 2 m edit lattice; their interpolated offsets apply to
+the vertices of either terrain spacing.
+
+Compare the same routes and data in both modes before deciding on a default: build time, ground triangles, KN5 size,
+`measure.py` profiles and a drive in AC. Four times as many terrain cells do not imply four times the total build cost.
+
+### Cache ownership
+
 The map-data limit and Settings' **Map data / Clear now** own only the build cache. Editor import preparations and
 prepared preview/Save files (`cache/track-details`, `native-masks`, `native-library`, `track-textures`, `materials`,
 `models` and `builtin-objects`, plus the reserved `editor` folder) are excluded from its size, scans and deletion

@@ -5,7 +5,7 @@ As in BeamNG.Earth:
 - Heights: ground (blockworker.ground) levelled under the roads with grading.ROAD_LIFT (the physics the road mesh
   lies on there), raised over flat tunnel vaults (roads.block_arch_raise), holes at the tunnel portals
   (roads.block_tunnel_holes).
-- Surface per 2 m cell (surface.classify + surface.paint_roads + paint_lots): asphalt, cobbles, gravel, grass ...
+- Surface per terrain cell (surface.classify + surface.paint_roads + paint_lots): asphalt, cobbles, gravel, grass ...
   Here it decides the AC object name (1ROAD / 1GRAVEL / 1GRASS), so grip and sound.
 - Looks: one texture per tile (TEX_PX): comic ground (groundcover) with the roads on top in BeamNG.Earth's road shapes
   and widths (surface._road_segments, earthfast.paint_lines; anti-aliased).
@@ -21,9 +21,9 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 import blockworker
+import acgrid
 import fast
 import grading as gradingmod
-import heightmap
 import mapgeom
 import roads as roadsmod
 import surface as surfacemod
@@ -32,7 +32,7 @@ from scenery import groundcover, leisure, wallcut, water
 from track import groundmaterial
 from track.textures import ring_indices
 
-CELL = heightmap.SQUARE         # 2 m, BeamNG.Earth's terrain grid
+CELL = acgrid.CELL              # shared with the marks' draping and the water's lowering grid
 TILE = roadsmod.TILE            # 256 m
 LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
 TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); groundmaterial adds neutral detail slots
@@ -443,10 +443,9 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     mx, my = np.meshgrid(x0 + (np.arange(nm) + 0.5) * GC_PX_M, y1 - (np.arange(nm) + 0.5) * GC_PX_M)   # row 0 = north
     f = groundcover.macro(mx, my)
     img *= np.stack([_to_px(f[..., k]) for k in range(3)], -1)
-    # Rock faces: steep slopes (ROCK_SLOPE) as comic rock with horizontal layers by height (on the face they lie
-    # across); before the roads, which stay on top
-    tan = groundcover._box_blur(np.hypot(*np.gradient(keep["u"], CELL)), 2)   # (smoothed: the 2 m lidar frayed
-    rw = np.clip((tan - ROCK_SLOPE[0]) / (ROCK_SLOPE[1] - ROCK_SLOPE[0]), 0.0, 1.0)  # the rock areas)
+    # Rock faces before the roads: smooth slope over the same 4 m reach on either grid (raw lidar frays the rock areas).
+    tan = groundcover._box_blur(np.hypot(*np.gradient(keep["u"], CELL)), round(4.0 / CELL))
+    rw = np.clip((tan - ROCK_SLOPE[0]) / (ROCK_SLOPE[1] - ROCK_SLOPE[0]), 0.0, 1.0)
     if rw.max() > 0:
         w = _to_px(rw[::-1])                            # (grid: row 0 = south)
         m = w > 0
