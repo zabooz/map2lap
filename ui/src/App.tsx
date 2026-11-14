@@ -57,7 +57,7 @@ export function App() {
   const [notesHost, setNotesHost] = useState<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTarget, setSettingsTarget] = useState<InstallationTarget | null>(null);
-  const [pick, setPick] = useState<string | null>(null);
+  const [picks, setPicks] = useState<Record<TrackGroup, string | null>>({built: null, edited: null});
   const [showResult, setShowResult] = useState(true);   // false: the selection is newer than the last build's result
   const [move, setMove] = useState<MapMove | null>(null);
   const [buildTab, setBuildTab] = useState<BuildTab>("options");
@@ -76,6 +76,7 @@ export function App() {
 
   const chooseTab = (t: Tab) => {
     setTab(t);
+    if (t === "mine") setShowResult(false);
     if (t === "edit") setEditorSeen(true);
     if (t !== "new") void reload();
   };
@@ -86,7 +87,9 @@ export function App() {
   const acOk = settings.settings?.ac_ok ?? true;       // (an AC folder to install into: without it nothing can be built)
 
   const mine = tab === "mine", {busy, status} = build;
-  const picked = mine ? tracks.find(t => t.name === pick && groupOf(t) === group) : undefined;
+  const picked = mine ? tracks.find(t => t.name === picks[group] && groupOf(t) === group)
+    ?? tracks.find(t => groupOf(t) === group) : undefined;
+  const pick = picked?.name ?? null;
   const options: BuildOptions = mine ? {terrain_cell_m: picked?.terrain_cell_m ?? 2, parked_cars: picked?.parked_cars ?? true,
     tree_spacing_m: picked?.tree_spacing_m ?? 0, ...(picked ? rebuildOptions[picked.name] : {})} : track.options;
   const setOptions = (value: Partial<BuildOptions>) => {
@@ -105,7 +108,7 @@ export function App() {
   const playTitle = !acOk ? NO_AC : car ? `Practice with ${car}, the car you drove last` : "Practice with the car you drove last";
 
   const pickTrack = (t: Track) => {
-    setPick(t.name);
+    setPicks(old => ({...old, [groupOf(t)]: t.name}));
     setShowResult(false);
     const bounds = t.area ? [[t.area[0], t.area[1]], [t.area[2], t.area[3]]] as [number, number][] : t.line ?? t.points;
     setMove({kind: "fit", bounds, padding: 40, maxZoom: 16});
@@ -144,7 +147,7 @@ export function App() {
     const r = await post("/api/delete", {name: gone.name});
     if (r.error) alert(r.error);
     else {
-      if (picked?.name === gone.name) setPick(null);
+      if (picked?.name === gone.name) setPicks(old => ({...old, [group]: null}));
       void reload();
     }
   };
@@ -204,7 +207,7 @@ export function App() {
             <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
           )} />
 
-          {(!mine || group === "built") && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
+          {(!mine || (group === "built" && picked)) && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
                       corridor={(mine ? picked && !picked.area : track.mode === "route") ? {width, onWidth: setWidth} : undefined}
                       compact={mine} disabled={busy || (mine && !picked)} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />}
 

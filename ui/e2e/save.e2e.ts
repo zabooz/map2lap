@@ -264,7 +264,10 @@ test("Edited offers editing and Play without build controls; no build replaces i
   const alpha = page.locator("#pane-mine button", {hasText: "Alpha Test"});
   await expect(alpha).toHaveCount(0);
   await button(page, "Edited").click();
-  await alpha.click();
+  await expect(alpha).toHaveAttribute('aria-pressed', 'true');
+  await expect(card(page)).toContainText('Alpha Test');
+  await page.reload();
+  await expect(alpha).toHaveAttribute('aria-pressed', 'true');
   await expect(card(page)).toContainText("then edited");
   await expect(card(page).getByRole("textbox", {name: "Track code"})).toHaveCount(0);     // (a code builds the track without its edits)
   await expect(card(page).getByRole("button", {name: "Delete track"})).toBeVisible();

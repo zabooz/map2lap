@@ -150,6 +150,13 @@ function Area({track}: {track: NewTrack}) {
 
 /** The picked track on the map. */
 function Picked({track: t}: {track: Track}) {
+  const map = useMap();
+  const fit = useEffectEvent(() => {
+    const bounds = t.area ? boxBounds(t.area) : t.line ?? t.points;
+    if (bounds.length) map.fitBounds(bounds, {padding: [40, 40], maxZoom: 16});
+  });
+  // Selection changes fit once; metadata refreshes must not undo a user's pan or zoom.
+  useEffect(() => { fit(); }, [t.name]);
   if (t.area) return <Rectangle bounds={boxBounds(t.area)} interactive={false} pathOptions={BOX_STYLE} />;
   return <Polyline positions={t.line ?? t.points} interactive={false} pathOptions={{color: ROUTE_COLOR, weight: 4}} />;
 }

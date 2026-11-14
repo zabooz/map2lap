@@ -46,7 +46,8 @@ test("My tracks: the list, a picked track on the card, its code, old ones marked
   await page.locator("#t-mine").click();
   const list = page.locator("#pane-mine").getByRole("button");
   await expect(list).toHaveCount(3);
-  await expect(card(page)).toContainText("Pick a track");
+  await expect(card(page)).toContainText("Alpha Test");
+  await expect(list.first()).toHaveAttribute('aria-pressed', 'true');
   await expect(list.filter({hasText: "Gamma Old"})).toContainText("old");
   await list.filter({hasText: "Alpha Test"}).click();
   await expect(card(page)).toContainText("Alpha Test");
@@ -60,7 +61,7 @@ test("My tracks: rebuild, copy, Play and delete", async ({page, backend}) => {
   await page.goto("/");
   await page.locator("#t-mine").click();
   const list = page.locator("#pane-mine").getByRole("button");
-  await expect(button(page, "Rebuild")).toBeDisabled();
+  await expect(button(page, "Rebuild")).toBeEnabled();
   await list.filter({hasText: "Beta Test"}).click();
 
   await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
@@ -79,6 +80,34 @@ test("My tracks: rebuild, copy, Play and delete", async ({page, backend}) => {
   await card(page).getByRole("button", {name: "Delete track"}).click();
   await expect(list).toHaveCount(3);
   await expect(list.filter({hasText: "Beta Test (2)"})).toHaveCount(0);
+});
+
+test("My tracks automatically picks the first track on entry and refresh, retaining a manual choice across tabs", async ({page}) => {
+  await page.goto('/');
+  await page.locator('#t-mine').click();
+  const list = page.locator('#pane-mine').getByRole('button');
+  await expect(card(page)).toContainText('Alpha Test');
+  await expect(page.getByRole('slider', {name: 'Corridor each side', exact: true})).toBeEnabled();
+  await list.filter({hasText: 'Beta Test'}).click();
+  await page.getByRole('button', {name: 'Edited', exact: true}).click();
+  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
+  await page.getByRole('button', {name: 'Built', exact: true}).click();
+  await expect(card(page)).toContainText('Beta Test');
+  await page.locator('#t-new').click();
+  await page.locator('#t-mine').click();
+  await expect(card(page)).toContainText('Beta Test');
+  await page.reload();
+  await expect(card(page)).toContainText('Alpha Test');
+  await expect(list.first()).toHaveAttribute('aria-pressed', 'true');
+});
+
+test("an empty Built list has no build options", async ({page}) => {
+  for (const name of ['alpha', 'beta', 'gamma']) expect((await page.request.post('/api/delete', {data: {name}})).ok()).toBe(true);
+  await page.goto('/');
+  await page.locator('#t-mine').click();
+  await expect(card(page)).toContainText('No tracks yet');
+  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
+  await expect(page.locator('#go')).toBeDisabled();
 });
 
 test("Settings' first: building without an Assetto Corsa folder opens them", async ({page}) => {

@@ -10,7 +10,7 @@ const versionTag = (t: Track) => (t.version ? `v${t.version}` : "before v0.1");
 /** The list a track stands in: saved in the Editor, it is its own work and no build can replace it. Pure. */
 export const groupOf = (t: Track): TrackGroup => (t.edited ? "edited" : "built");
 
-/** "My tracks": the tracks built, or saved in the Editor; lies over the space of "New track". */
+/** The built or edited tracks, with the active selection, in the sidebar's available list space. */
 export function MyTracksPane({tracks, group, pick, onGroup, onPick}: {tracks: Track[]; group: TrackGroup; pick: string | null;
                                                                      onGroup: (group: TrackGroup) => void; onPick: (t: Track) => void}) {
   const shown = tracks.filter(t => groupOf(t) === group);
@@ -19,7 +19,7 @@ export function MyTracksPane({tracks, group, pick, onGroup, onPick}: {tracks: Tr
       <Seg choices={GROUPS} value={group} onChoose={onGroup} />
       <div id="pane-mine" className={styles.list}>
         {shown.length ? shown.map(t => (
-          <button key={t.name} className={`${styles.track}${t.name === pick ? ` ${styles.on}` : ""}`} onClick={() => onPick(t)}>
+          <button key={t.name} className={`${styles.track}${t.name === pick ? ` ${styles.on}` : ""}`} aria-pressed={t.name === pick} onClick={() => onPick(t)}>
             <b>{t.title}</b>
             <span className={styles.when}>{fmtDate(t.saved ?? t.built)}</span>
             <small>
