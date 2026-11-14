@@ -254,7 +254,7 @@ test("a change that can't be kept: Save says so and writes nothing", async ({pag
   expect((await treeCount(page))).toBe(trees);
 });
 
-test("a track saved in the Editor stands under Edited: it opens and can be copied, no build replaces it", async ({page, backend}) => {
+test("Edited offers editing and Play without build controls; no build replaces its changes", async ({page}) => {
   await openEditor(page);
   await deleteTree(page);
   await saveTrack(page);
@@ -269,6 +269,9 @@ test("a track saved in the Editor stands under Edited: it opens and can be copie
   await expect(card(page).getByRole("textbox", {name: "Track code"})).toHaveCount(0);     // (a code builds the track without its edits)
   await expect(card(page).getByRole("button", {name: "Delete track"})).toBeVisible();
   await expect(page.locator("#go")).toHaveText("Edit");
+  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('tab', {name: 'Build log', exact: true})).toHaveCount(0);
+  await expect(button(page, 'Build as copy')).toHaveCount(0);
   for (const data of [{name: "alpha"}, {name: "alpha", drop_edits: true}]) {     // (nor by asking the server)
     expect((await page.request.post("/api/rebuild", {data})).status()).toBe(409);
   }
@@ -279,13 +282,6 @@ test("a track saved in the Editor stands under Edited: it opens and can be copie
   await expect(page.locator("#edit-track")).toHaveValue("alpha");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
 
-  await page.locator("#t-mine").click();
-  await alpha.click();
-  await button(page, "Build as copy").click();
-  await expect.poll(backend.calls).toContainEqual(["build", "alpha_2", "Alpha Test (2)"]);
-  await expect(card(page)).toContainText("Installed in Assetto Corsa.");
-  await expect(page.locator("#pane-mine button", {hasText: "Alpha Test (2)"})).toBeVisible();      // (a build: under Built)
-  await expect(page.locator("#go")).toHaveText("Rebuild");
 });
 
 test("a track with unsaved changes stays under Built, and warns before a build", async ({page}) => {

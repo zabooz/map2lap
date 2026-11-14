@@ -2,6 +2,15 @@
 import {card, clickMap, expect, openEditor, test} from "./fixtures";
 import {deleteTree, meshes, saved, saveTrack, stored, treeCount} from "./edit-helpers";
 
+test("the rebuild API uses the requested corridor and retains it in the rebuilt track", async ({page, backend}) => {
+  const response = await page.request.post('/api/rebuild', {data: {name: 'alpha', width: 200}});
+  expect(response.ok()).toBe(true);
+  expect(await backend.calls()).toContainEqual(['corridor', 'alpha', 200]);
+  await expect.poll(async () => (await (await page.request.get('/api/status')).json()).state).toBe('done');
+  const result = await (await page.request.get('/api/tracks')).json();
+  expect(result.tracks.find((t: {name: string}) => t.name === 'alpha').width).toBe(200);
+});
+
 test("terrain toggle follows codes, builds and rebuilds while the log remains accessible", async ({page, backend}) => {
   let allowDone = false;
   await page.route("**/api/status", async route => {
@@ -57,13 +66,31 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await expect(toggle).toBeChecked();
   await expect(page.getByRole("switch", {name: "Parked cars", exact: true})).not.toBeChecked();
   await expect(page.getByRole("slider", {name: "Build tree minimum spacing"})).toHaveValue("5.5");
+  await page.getByRole("slider", {name: "Corridor each side", exact: true}).fill("200");
   await toggle.click();
   const rebuilt = page.waitForRequest(r => r.url().endsWith("/api/rebuild"));
   await page.locator("#go").click();
-  expect((await rebuilt).postDataJSON().terrain_cell_m).toBe(2);
+  expect((await rebuilt).postDataJSON()).toMatchObject({terrain_cell_m: 2, width: 200});
   await expect.poll(backend.calls).toContainEqual(["scenery", "grid_trial", false, 5.5]);
   await expect.poll(backend.calls).toContainEqual(["terrain", "grid_trial", 2]);
+  await expect.poll(backend.calls).toContainEqual(["corridor", "grid_trial", 200]);
   await expect(card(page)).toContainText("Installed in Assetto Corsa.");
+});
+
+test("My tracks gives the list the free space and Edited has no build controls, even when empty", async ({page}) => {
+  await page.setViewportSize({width: 1500, height: 1280});
+  await page.goto('/');
+  await page.locator('#t-mine').click();
+  await page.locator('#pane-mine button', {hasText: 'Alpha Test'}).click();
+  const list = (await page.locator('#pane-mine').boundingBox())!;
+  const panel = (await page.getByRole('region', {name: 'Build details', exact: true}).boundingBox())!;
+  expect(list.height).toBeGreaterThan(panel.height);
+  expect(panel.height).toBeLessThanOrEqual(320);
+  await page.getByRole('button', {name: 'Edited', exact: true}).click();
+  await expect(page.getByRole('tab', {name: 'Build options', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('tab', {name: 'Build log', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Build as copy', exact: true})).toHaveCount(0);
+  await expect(page.locator('#go')).toHaveText('Edit');
 });
 
 test("Editor tree spacing cannot restore trees removed during the build", async ({page, backend}) => {

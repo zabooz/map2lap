@@ -8,12 +8,13 @@ export type BuildTab = "options" | "log";
 const TABS = [["options", "Build options"], ["log", "Build log"]] as const;
 
 /** Options and log share the same space; progress and build actions stay outside it. */
-export function BuildPanel({tab, onTab, options, onOptions, corridor, disabled, busy, text, started, focusLog}: {
+export function BuildPanel({tab, onTab, options, onOptions, corridor, disabled, busy, text, started, focusLog, compact = false}: {
   tab: BuildTab; onTab: (tab: BuildTab) => void; options: BuildOptions;
   onOptions: (options: Partial<BuildOptions>) => void; disabled: boolean; busy: boolean;
   corridor?: {width: number; onWidth: (width: number) => void};
   text: string; started: number | null | undefined;
   focusLog: number;
+  compact?: boolean;
 }) {
   const {terrain_cell_m: terrainCell, parked_cars: parkedCars, tree_spacing_m: treeSpacing} = options;
   const logPanel = useRef<HTMLDivElement>(null);
@@ -28,7 +29,7 @@ export function BuildPanel({tab, onTab, options, onOptions, corridor, disabled, 
   };
 
   return (
-    <section className={styles.panel} aria-label="Build details">
+    <section className={`${styles.panel}${compact ? ` ${styles.compact}` : ""}`} aria-label="Build details">
       <div className={styles.tabs} role="tablist" aria-label="Build details">
         {TABS.map(([value, title], index) => (
           <button key={value} id={`build-tab-${value}`} role="tab" aria-selected={tab === value}

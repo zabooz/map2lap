@@ -97,7 +97,8 @@ buried low-voltage lines, street lamp spacing.
 `app/buildoptions.py` validates the per-track choices: terrain spacing (2 m by default, optionally 1 m), parked cars
 (on by default) and minimum tree spacing (0–100 m, 0 preserves the generated trees). The generator page captures them
 when starting each build and passes an isolated child environment. They are saved in the anchor and track settings;
-Rebuild, Build as copy and track codes retain them. Older tracks use the defaults. Non-default choices use `M2L2-`
+Rebuild, Build as copy and track codes retain them. Route rebuilds and copies also accept a changed corridor width,
+falling back to the track's saved width when none is supplied. Older tracks use the defaults. Non-default choices use `M2L2-`
 codes so older applications refuse them rather than silently ignoring them; ordinary default builds retain `M2L1-`.
 
 `BNE_AC_GRID_M=1` selects a 1 m lattice for a command-line build; `2` explicitly selects the normal lattice.

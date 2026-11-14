@@ -1174,7 +1174,7 @@ class Handler(BaseHTTPRequestHandler):
                 title = info["title"]
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
-                self._send(*start_build(name, title, [tuple(p) for p in info["points"]], info.get("width"),
+                self._send(*start_build(name, title, [tuple(p) for p in info["points"]], body.get("width", info.get("width")),
                                         info.get("area"), body.get("terrain_cell_m", info.get("terrain_cell_m", 2)),
                                         body.get("parked_cars", info.get("parked_cars", True)),
                                         body.get("tree_spacing_m", info.get("tree_spacing_m", 0))))

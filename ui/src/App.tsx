@@ -62,7 +62,7 @@ export function App() {
   const [move, setMove] = useState<MapMove | null>(null);
   const [buildTab, setBuildTab] = useState<BuildTab>("options");
   const [focusLog, setFocusLog] = useState(0);
-  const [rebuildOptions, setRebuildOptions] = useState<Record<string, Partial<BuildOptions>>>({});
+  const [rebuildOptions, setRebuildOptions] = useState<Record<string, Partial<BuildOptions & {width: number}>>>({});
 
   const {tracks, car, reload} = useTracks();
   const settings = useSettings();
@@ -93,6 +93,11 @@ export function App() {
     if (mine && picked) setRebuildOptions(old => ({...old, [picked.name]: {...old[picked.name], ...value}}));
     else track.setOptions(value);
   };
+  const width = mine ? (picked && rebuildOptions[picked.name]?.width) ?? picked?.width ?? 100 : track.width;
+  const setWidth = (value: number) => {
+    if (mine && picked) setRebuildOptions(old => ({...old, [picked.name]: {...old[picked.name], width: value}}));
+    else track.setWidth(value);
+  };
   const editing = tracks.find(t => t.name === editTrack && t.kn5_bytes);      // (deleted meanwhile: none)
   const shownEditTrack = editing ? editTrack : "";
   const result = ["done", "error", "stopped"].includes(status.state) && showResult;
@@ -121,7 +126,8 @@ export function App() {
     }
     else if (mine) {
       const warning = picked?.draft ? `This track has ${picked.draft} unsaved ${picked.draft === 1 ? "change" : "changes"} in the Editor.\n\nThey no longer fit a new build and stay out until you give them up. Go on?` : null;
-      if (picked && (!warning || confirm(warning))) void start("/api/rebuild", {name: picked.name, ...options});
+      if (picked && (!warning || confirm(warning))) void start("/api/rebuild", {name: picked.name, ...options,
+        ...(picked.area ? {} : {width})});
     }
     else void start("/api/build", track.buildBody());
   };
@@ -186,9 +192,10 @@ export function App() {
         <EditorPanel tracks={tracks} choice={shownEditTrack} status={editStatus} hidden={tab !== "edit"} fileRef={setFileHost} savedRef={setSavedHost} toolsRef={setToolsHost} notesRef={setNotesHost} onChoose={setEditTrack} />
 
         <div id="work" className="view" hidden={tab === "edit"}>
-          <div className={styles.panes}>
+          <div className={`${styles.panes}${mine ? ` ${styles.mine}` : ""}`}>
             <NewTrackPane track={track} off={tab !== "new"} busy={busy} onMove={setMove} />
-            {mine && <MyTracksPane tracks={tracks} group={group} pick={pick} onGroup={setGroup} onPick={pickTrack} />}
+            {mine && <MyTracksPane tracks={tracks} group={group} pick={pick}
+              onGroup={value => { setGroup(value); setShowResult(false); }} onPick={pickTrack} />}
           </div>
 
           <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
@@ -197,16 +204,17 @@ export function App() {
             <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
           )} />
 
-          <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
-                      corridor={!mine && track.mode === "route" ? {width: track.width, onWidth: track.setWidth} : undefined}
-                      disabled={busy || (mine && (!picked || !!picked.edited))} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />
+          {(!mine || group === "built") && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
+                      corridor={(mine ? picked && !picked.area : track.mode === "route") ? {width, onWidth: setWidth} : undefined}
+                      compact={mine} disabled={busy || (mine && !picked)} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />}
 
-          <div id="actions" className={`${styles.actions}${mine ? ` ${styles.mine}` : ""}`}>
-            {mine && (
+          <div id="actions" className={`${styles.actions}${mine ? ` ${group === "edited" ? styles.edited : styles.mine}` : ""}`}>
+            {mine && group === "built" && (
               <button title={acOk ? "Keep this track and build a new one next to it" : NO_AC}
                       disabled={busy || !picked || !acOk}
                       onClick={() => {      // (the new one is a build: it will stand under Built)
-                        if (pick) void start("/api/rebuild", {name: pick, copy: true, ...options}).then(refused => { if (!refused) setGroup("built"); });
+                        if (picked) void start("/api/rebuild", {name: picked.name, copy: true, ...options,
+                          ...(picked.area ? {} : {width})}).then(refused => { if (!refused) setGroup("built"); });
                       }}>Build as copy</button>
             )}
             <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>

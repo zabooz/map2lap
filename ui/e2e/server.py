@@ -174,7 +174,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -303,7 +303,7 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         f.write(f"anchor {ANCHOR[0]} {ANCHOR[1]}\n128 0\n128 -250\n")
     current = track_version or version.TRACK_VERSION
     mytracks.save(root, {"version": current, "track_version": current, "title": title, "points": [[42.9, 9.36], [north, 9.36]],
-                         "width": 100.0, "area": None, "length_m": 250.0, "area_m": None, "tiles": 2,
+                         "width": corridor_width, "area": None, "length_m": 250.0, "area_m": None, "tiles": 2,
                          "built": built or time.time(), "line": [[42.9, 9.36], [north, 9.36]], "terrain_cell_m": terrain_cell_m,
                          "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m})
     if files:
@@ -393,14 +393,15 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
     calls.append(["build", name, title])
     calls.append(["terrain", name, terrain_cell_m])
     calls.append(["scenery", name, parked_cars, tree_spacing_m])
+    calls.append(["corridor", name, width])
     stopped.clear()
     server.running["proc"] = SimpleNamespace(pid=0)
     server.job.update(state="running", log=[f"Terrain grid: {terrain_cell_m} m"], result=None, error=None, progress=None, started=time.time(), ended=None)
-    threading.Thread(target=_build, args=(name, title, terrain_cell_m, parked_cars, tree_spacing_m), daemon=True).start()
+    threading.Thread(target=_build, args=(name, title, terrain_cell_m, parked_cars, tree_spacing_m, width), daemon=True).start()
     return 200, {"ok": True}
 
 
-def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
+def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, width=100):
     for k, phase in enumerate(("route", "tiles", "scenery", "kn5")):
         server.job["progress"] = {"phase": phase, "done": k, "total": 4}
         server.job["log"].append(f"step {k}")
@@ -411,7 +412,7 @@ def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
     if "fail" in name:
         server.job.update(state="error", error="the generator ended with exit code 1 (see the log)", ended=time.time())
     else:
-        make_track(name, title, terrain_cell_m=terrain_cell_m, parked_cars=parked_cars, tree_spacing_m=tree_spacing_m)
+        make_track(name, title, terrain_cell_m=terrain_cell_m, parked_cars=parked_cars, tree_spacing_m=tree_spacing_m, corridor_width=width)
         server.job.update(state="done", ended=time.time(), result={
             "name": name, "kn5_bytes": 1500000, "seconds": 1.2, "tiles": 2, "area_m": None, "length_m": 250.0})
     server.running["proc"] = None
