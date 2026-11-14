@@ -15,7 +15,8 @@ from app import named  # noqa: E402
 
 class WhereTest(unittest.TestCase):
     def test_a_releases_copies_lie_beside_its_python(self):
-        self.assertEqual(named.where(r"C:\M2L\python\python.exe", r"C:\M2L"), (r"C:\M2L\python", False))
+        home = os.path.join(r"C:\M2L", "python")       # (joined: the system's own separator)
+        self.assertEqual(named.where(os.path.join(home, "python.exe"), r"C:\M2L"), (home, False))
 
     def test_any_other_pythons_lie_apart_in_out(self):
         got = named.where(r"C:\Users\x\Python314\python.exe", r"C:\M2L")
