@@ -74,10 +74,15 @@ Routing/masks cache independently of draft revisions. `app/trackband.py` retains
 
 ## Tree spacing
 
-Properties > Vegetation > Trees applies reversible 0–100 m trunk spacing to all trees or a retained selection, excluding
-bushes. Generated, copied and imported trees qualify at their current positions. Changing scope replaces the previous
-scope; spacing is measured within it. The slider applies on release. A running toast covers calculation and persistence,
-then reports the hidden count.
+Build-time minimum spacing permanently removes generated tree placements before the track's source lists are saved
+([build options](architecture.md#terrain-and-scenery-build-options)). The Editor's reversible layer below starts from
+that built subset: resetting it cannot restore trees the build never stored.
+
+Properties > Scenery > Trees applies reversible 0–100 m trunk spacing, excluding bushes. Generated, copied and imported
+trees qualify at their current positions. The heading shows the current tree count, with `(selected)` when a selection
+contains trees. Adjusting the slider uses those trees, otherwise all trees; a mixed selection affects only its trees.
+Changing scope replaces the previous scope. The slider applies on release. A running toast covers calculation and
+persistence, then reports the hidden count. Selected ids hidden by spacing stay adjustable until selection is cleared.
 
 The draft/recipe's `tree_spacing` stores distance, target ids (null means all) and hidden ids, separately from manual
 `deleted` and `object_sorts`. Zero restores only spacing-hidden trees. Undo, Save, copies and reopen retain the layer and
@@ -87,6 +92,18 @@ Moving or adding trees does not silently resample; adjusting the setting recompu
 `app/treespacing.py` orders ids by stable hash. Any earlier neighbour within the distance hides a tree, even if that
 neighbour is hidden too. Increasing distance therefore produces nested subsets; greedy packing would make trees reappear.
 The spatial index avoids all-pairs arrays. This deliberately need not produce a maximally packed distribution.
+
+## Parked car density
+
+Properties > Scenery > Cars retains 0–100% of editable parked cars, rounded down to whole cars. The count and automatic
+selection scope follow Trees: selected cars, otherwise all cars. Other selected objects and parking geometry stay intact.
+Only listed generated cars and their copies qualify; a build with cars disabled and older unlisted car meshes cannot gain
+editable cars through this control. Imported library models are independent placements.
+
+`app/cardensity.py` orders ids by stable hash, so reducing the percentage produces nested subsets. The draft/recipe's
+`car_density` records percentage, target ids and hidden ids independently of manual deletion. Preview, Undo/Redo,
+Discard, Save, copies and reopening retain the layer. Returning to 100% restores density-hidden cars from the retained
+source; manual deletions stay. Moving/adding cars does not silently resample. Both controls use `SceneryControls.tsx`.
 
 ## Generated walls
 

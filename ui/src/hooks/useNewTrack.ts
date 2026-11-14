@@ -2,7 +2,7 @@ import L from "leaflet";
 import {useEffect, useEffectEvent, useRef, useState} from "react";
 import {post, type WithError} from "../api";
 import {shortName, slug} from "../format";
-import type {Box, CodeContent, LatLon, Mode, Place} from "../types";
+import type {Box, BuildOptions, CodeContent, LatLon, Mode, Place} from "../types";
 
 export const MAX_KM = 500;
 const TILE_M = 256;
@@ -60,8 +60,8 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const [mode, setModeState] = useState<Mode>("route");
   const [title, setTitleState] = useState("My Route");
   const [width, setWidthState] = useState(100);
+  const [options, setOptionsState] = useState<BuildOptions>({terrain_cell_m: 2, parked_cars: true, tree_spacing_m: 0});
   const [points, setPoints] = useState<Point[]>([]);
-  const [addingStop, setAddingStop] = useState(false);
   const [area, setArea] = useState<Box | null>(null);
   const [draft, setDraft] = useState<Box | null>(null);     // the box while drawn or resized
   const [answer, setAnswer] = useState<RouteAnswer | null>(null);
@@ -121,8 +121,8 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   }, [points]);
 
   // --- its track code (made by the server: trackcode.py) ---
-  const makes = mode === "area" ? area && {title: title.trim(), area}
-    : route?.coords && positions.length >= 2 ? {title: title.trim(), width, points: positions} : null;
+  const makes = mode === "area" ? area && {title: title.trim(), area, ...options}
+    : route?.coords && positions.length >= 2 ? {title: title.trim(), width, points: positions, ...options} : null;
   const makesKey = makes ? JSON.stringify(makes) : "";
   const code = madeCode?.key === makesKey ? madeCode.code : "";
 
@@ -163,7 +163,6 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
 
   const addPlace = (p: Place) => {
     touch();
-    setAddingStop(false);
     const next = [...points, newPoint(p.lat, p.lon, shortName(p.name))];
     setPoints(next);
     const move = moveTo(next);
@@ -192,7 +191,6 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const clear = () => {
     touch();
     setPoints([]);
-    setAddingStop(false);
     setArea(null);
     setDraft(null);
     setMadeCode(null);
@@ -218,6 +216,11 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     onTouch();
   };
 
+  const setOptions = (value: Partial<BuildOptions>) => {
+    setOptionsState(old => ({...old, ...value}));
+    onTouch();
+  };
+
   /** The box goes from a to b; done: it is let go (a click without dragging draws none). */
   const showBox = (a: L.LatLng, b: L.LatLng, done: boolean) => {
     onTouch();
@@ -240,6 +243,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     onShowNew();
     clear();
     setModeState(c.area ? "area" : "route");
+    setOptionsState({terrain_cell_m: c.terrain_cell_m ?? 2, parked_cars: c.parked_cars ?? true, tree_spacing_m: c.tree_spacing_m ?? 0});
     if (c.title) {
       setTitleState(c.title);
       titleAuto.current = false;
@@ -273,12 +277,13 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   /** The request that builds it. */
   const buildBody = () => {
     const name = title.trim() || "Route";
-    return {name: slug(name), title: name, ...(mode === "area" ? {area} : {points: positions, width})};
+    return {name: slug(name), title: name, ...options,
+            ...(mode === "area" ? {area} : {points: positions, width})};
   };
 
-  return {mode, title, width, points, addingStop, area, shownBox, routeCoords: route?.coords ?? null, selection,
+  return {mode, title, width, options, setOptions, points, area, shownBox, routeCoords: route?.coords ?? null, selection,
           code: makes ? code : "", setMode, setTitle, setWidth, addPoint, addPlace, movePlace, dragPoint, removePoint,
-          clear, setAddingStop, showBox, pasteCode, buildBody};
+          clear, showBox, pasteCode, buildBody};
 }
 
 export type NewTrack = ReturnType<typeof useNewTrack>;

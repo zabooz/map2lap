@@ -70,6 +70,7 @@ for (const [name, status] of Object.entries(STATES)) {
     await page.setViewportSize({width: 1500, height: 560});
     await page.route("**/api/status", r => r.fulfill({json: status}));
     await page.goto("/");
+    await page.getByRole("tab", {name: "Build log", exact: true}).click();
     await expect(page.locator("#go")).toBeInViewport({ratio: 1});
     await expect(page.locator("#log")).toBeInViewport();
     await expect(page.locator("#log")).toContainText("line 59");

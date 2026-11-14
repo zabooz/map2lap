@@ -1,4 +1,4 @@
-import {expect, openEditor, test} from "./fixtures";
+import {expect, openEditor, scene, test} from "./fixtures";
 import {findTree, saveTrack, saved, stored} from "./edit-helpers";
 import type {Page} from "@playwright/test";
 
@@ -23,15 +23,15 @@ test('spacing survives Save and reopening; lowering restores thinned trees but k
   expect(response.ok()).toBe(true);
   await openEditor(page);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
-  await expect(page.getByText('Current trees: 3', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 3', {exact: true})).toBeVisible();
   await spacing(page, 5);
-  await expect(page.getByText('Current trees: 1', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 1', {exact: true})).toBeVisible();
   const thinned = (await draft(page)).tree_spacing!.hidden;
   expect(thinned.length).toBe(2);
   expect((await draft(page)).deleted.map(d => d.id)).toEqual(['trees#0']);
   await page.getByRole('button', {name:/Undo$/}).click();
   await expect.poll(async () => (await draft(page)).tree_spacing).toBeNull();
-  await expect(page.getByText('Current trees: 3', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 3', {exact: true})).toBeVisible();
   await page.getByRole('button', {name:/Redo$/}).click();
   await expect.poll(async () => (await draft(page)).tree_spacing?.hidden).toEqual(thinned);
   await saveTrack(page);
@@ -40,9 +40,9 @@ test('spacing survives Save and reopening; lowering restores thinned trees but k
   await openEditor(page);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
   await expect(page.getByRole('slider', {name:'Tree minimum spacing'})).toHaveValue('5');
-  await expect(page.getByText('Current trees: 1', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 1', {exact: true})).toBeVisible();
   await spacing(page, 0);
-  await expect(page.getByText('Current trees: 3', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 3', {exact: true})).toBeVisible();
   await saveTrack(page, false);
   await expect(page.locator('#edit-saved')).toHaveText(/^Saved /);
   expect(await trees(page)).toHaveLength(3);
@@ -86,31 +86,30 @@ test('tree spacing shows a running toast until the result is kept, then its hidd
   await expect(toast.getByRole('progressbar')).toHaveCount(0);
   await expect(slider).toBeEnabled();
   expect((await draft(page)).tree_spacing?.hidden).toHaveLength(2);
-  await expect(page.getByText('Current trees: 2', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 2', {exact: true})).toBeVisible();
   await expect(toast).toHaveCount(0);
-  await expect(page.getByText('Current trees: 2', {exact: true})).toBeVisible();
+  await expect(page.getByText('Trees: 2', {exact: true})).toBeVisible();
   await spacing(page, 0);
   await expect(toast).toContainText('0 trees thinned');
   await page.locator('#edit-track').selectOption('beta');
   await expect(toast).toHaveCount(0);
 });
 
-test('selection scope stays adjustable after reloading without a live selection', async ({page}) => {
+test('selection automatically scopes spacing; clearing it uses all trees and reopening retains the saved layer', async ({page}) => {
   await openEditor(page);
   const point = await findTree(page);
   await page.mouse.click(point.x, point.y);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
-  await expect(page.getByRole('radio', {name:'All trees',exact:true})).toBeChecked();
-  await expect(page.getByRole('radio', {name:'All trees',exact:true})).toBeEnabled();
-  await page.getByRole('radio', {name:'Selection',exact:true}).check();
-  await expect.poll(async () => (await draft(page)).tree_spacing?.targets).toEqual(['trees#1']);
+  await expect(page.getByRole('heading', {name:'Trees: 1 (selected)',exact:true})).toBeVisible();
+  await expect(page.getByRole('region', {name:'Scenery',exact:true}).getByRole('radio')).toHaveCount(0);
   await spacing(page, 6);
+  expect((await draft(page)).tree_spacing?.targets).toEqual(['trees#1']);
+  await scene(page).focus();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', {name:'Trees: 2',exact:true})).toBeVisible();
+  await spacing(page, 2);
+  expect((await draft(page)).tree_spacing?.targets).toBeNull();
   await openEditor(page);
   await page.getByRole('tab', {name:'Properties',exact:true}).click();
-  await expect(page.getByRole('radio', {name:'Selection',exact:true})).toBeChecked();
-  await spacing(page, 2);
-  expect((await draft(page)).tree_spacing?.targets).toEqual(['trees#1']);
-  await page.getByRole('radio', {name:'All trees',exact:true}).check();
-  await expect(page.getByRole('radio', {name:'All trees',exact:true})).toBeChecked();
-  await expect.poll(async () => (await draft(page)).tree_spacing?.targets).toBeNull();
+  await expect(page.getByRole('slider', {name:'Tree minimum spacing'})).toHaveValue('2');
 });

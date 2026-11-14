@@ -1,20 +1,20 @@
 import {expect, openEditor, scene, test} from "./fixtures";
 import {deleteTree} from "./edit-helpers";
 
-test("Properties groups time and season, conditions, and vegetation without resetting weather between tabs", async ({page}, testInfo) => {
+test("Properties groups time and season, conditions, and scenery without resetting weather between tabs", async ({page}, testInfo) => {
   await openEditor(page);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
   await page.screenshot({path: testInfo.outputPath("properties-groups.png")});
   const time = page.getByRole("region", {name: "Time and date", exact: true});
   const conditions = page.getByRole("region", {name: "Conditions", exact: true});
-  const vegetation = page.getByRole("region", {name: "Vegetation", exact: true});
+  const scenery = page.getByRole("region", {name: "Scenery", exact: true});
   await expect(time.getByRole("slider", {name: "Time of day"})).toBeVisible();
   await time.getByRole("combobox", {name: "Season", exact: true}).selectOption("autumn");
   await conditions.getByRole("slider", {name: "Air temperature"}).fill("-5");
   await expect(conditions.getByRole("slider", {name: "Road temperature"})).toBeVisible();
   await expect(conditions.getByRole("slider", {name: "Wind speed"})).toBeVisible();
   await expect(conditions.getByRole("slider", {name: "Wind direction"})).toBeVisible();
-  await expect(vegetation.getByRole("slider", {name: "Tree minimum spacing"})).toBeAttached();
+  await expect(scenery.getByRole("slider", {name: "Tree minimum spacing"})).toBeAttached();
   await conditions.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
   await expect(time.getByRole("combobox", {name: "Season", exact: true})).toHaveValue("winter");
   await expect(time.getByRole("combobox", {name: "Season", exact: true})).toBeDisabled();

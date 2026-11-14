@@ -367,10 +367,10 @@ def drawn_ground(frame, drawn, xy, q=None, cell=GRID_M):
     return np.where(ok, z, np.nan)
 
 
-FOLLOW_STEP_M = 0.9     # a terrain cell whose corners are further apart holds a step (a cutting's wall, the lattice's
+FOLLOW_STEP_M = 0.9     # rise over a 2 m cell that counts as a step (a cutting's wall, the lattice's
 FOLLOW_MAX_UP = 0.1     # teeth): a draped surface goes at most this over its lowest corner there (the McGraw-Graben's
                         # edge lines climbed the teeth as white tents up to 1.3 m). A road would need a
-                        # ~32 % grade along a cell's diagonal to count as a step.
+                        # ~32 % grade along a cell's diagonal to count as a step, on either terrain spacing.
 
 
 def follow_ground(P, UV, T, grid, i0, j0, tol=None, cell=GRID_M):
@@ -383,7 +383,7 @@ def follow_ground(P, UV, T, grid, i0, j0, tol=None, cell=GRID_M):
     T = np.ascontiguousarray(T, np.int64)
     fast.require(52, "follow_tris")
     a, b, c, d = fast._ef.follow_tris(P, UV, T, float(cell), np.ascontiguousarray(grid, np.float64), int(i0), int(j0),
-                                      float(tol), FOLLOW_STEP_M, FOLLOW_MAX_UP)
+                                      float(tol), FOLLOW_STEP_M * float(cell) / 2.0, FOLLOW_MAX_UP)
     return np.asarray(a), np.asarray(b), np.asarray(c), np.asarray(d)
 
 

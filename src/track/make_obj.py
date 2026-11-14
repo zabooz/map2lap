@@ -30,7 +30,7 @@ import geodesy              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
 from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
-from track import editorinfo, objectlist, parallel  # noqa: E402
+from track import buildscenery, editorinfo, objectlist, parallel  # noqa: E402
 
 TILES = os.path.join(ROOT, "out", "tiles")
 OUT = os.path.join(ROOT, "out", "obj")
@@ -708,6 +708,9 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
             if k == len(tiles) or k % max(1, len(tiles) // 20) == 0:
                 log(f"Scenery: tile {k}/{len(tiles)}")
         mtl.result()
+    removed = buildscenery.thin_trees(parts, anc.get("tree_spacing_m", 0))
+    if removed:
+        log(f"Tree spacing: {removed:,} trees removed from build data")
     log(f"Scenery: {objects} objects, {nv:,} vertices")
     log("Triangles: " + ", ".join(f"{k} {v:,}" for k, v in tris.items()))
     if unknown:
@@ -893,7 +896,7 @@ def _scenery_tile(tx, ty, part_path):
     if data.get("park"):        # parked cars on BeamNG.Earth's parking spots (cars.py), standing on our ground
         try:
             placed = []
-            mesh = cars.build(data["park"], on_ground, cars.fill_shares(data["park"], rings, rclasses), placed)
+            mesh = buildscenery.car_mesh(data["park"], on_ground, rings, rclasses, placed, anc.get("parked_cars", True))
             if mesh is not None:
                 owners = np.repeat([obj.listed.new("car", x, y, z) for x, y, z, _ in placed],
                                    np.diff([0] + [end for *_, end in placed]))

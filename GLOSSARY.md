@@ -18,8 +18,12 @@ A track’s `data/map2lap_objects.json`: object ids, triangle ownership across m
 relationships. TreeFX placements have their own section (`track/objectlist.py`).
 
 **Tree spacing**:
-The Editor's reversible thinning layer, a minimum distance between tree trunks on the ground. It applies to all trees or a
-retained selection; zero restores its hidden trees. The setting survives Save and reopening, separate from manual deletion.
+The Editor's reversible minimum distance between tree trunks, applied to selected trees or all trees. Zero restores its
+hidden trees; the layer survives Save and reopening separately from manual deletion ([editor-tools.md](docs/editor-tools.md#tree-spacing)).
+
+**Car density**:
+The Editor's reversible percentage of selected or all editable parked cars. Returning to 100% restores density-hidden cars
+from the retained source, while manual deletions stay ([editor-tools.md](docs/editor-tools.md#parked-car-density)).
 
 **Object group**:
 A reusable Library mixture of models, weights, size ranges and randomization settings. The Groups brush plants
@@ -155,7 +159,7 @@ The line just behind the face of a wall between two roads at two levels, along w
 in `tiles/wallcuts_<tx>_<ty>.json`).
 
 **Terrain cell**:
-One square of the terrain grid, normally 2 m wide; the [AC grid experiment](docs/architecture.md#ac-terrain-grid-experiment) also supports 1 m.
+One square of the terrain grid, normally 2 m wide; [build options](docs/architecture.md#terrain-and-scenery-build-options) also allow 1 m.
 _Avoid_: cell, pixel
 
 **Cut cell**:

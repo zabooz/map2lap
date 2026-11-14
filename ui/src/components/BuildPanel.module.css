@@ -1,0 +1,29 @@
+.panel { flex: 3 1 0; min-height: 110px; display: flex; flex-direction: column; gap: 8px; }
+.tabs { display: flex; align-items: center; gap: 18px; border-bottom: 1px solid var(--line); }
+.tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 0 0 8px; margin-bottom: -1px;
+               background: none; border: 0; border-bottom: 2px solid transparent; font-size: 12px;
+               font-weight: 600; color: var(--muted); cursor: pointer; }
+.tabs button.selected { color: var(--text); border-bottom-color: var(--accent); }
+.tabs button:focus-visible, .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.running { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.content { display: grid; flex: 1; min-height: 0; }
+.options, .log { grid-area: 1 / 1; min-height: 0; }
+.options { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); overflow: auto; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.label { display: block; font-size: 13px; font-weight: 600; }
+.detail { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+.choice { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.active { color: var(--text); font-weight: 700; }
+.toggle { width: 38px; height: 22px; padding: 2px; border: 1px solid var(--line); border-radius: 20px;
+          background: var(--panel); cursor: pointer; }
+.toggle span { display: block; width: 16px; height: 16px; background: var(--muted); border-radius: 50%;
+               transition: transform 120ms ease, background 120ms ease; }
+.toggle[aria-checked=true] { background: var(--accent-soft); border-color: var(--accent); }
+.toggle[aria-checked=true] span { transform: translateX(16px); background: var(--accent); }
+.toggle:disabled { opacity: .45; cursor: default; }
+.corridor { margin-top: 16px; }
+.cars, .trees { margin-top: 16px; }
+.note { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.log { display: flex; }
+@media (max-width: 760px) { .panel { flex: none; height: 300px; } }
+@media (prefers-reduced-motion: reduce) { .toggle span { transition: none; } }

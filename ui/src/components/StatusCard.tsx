@@ -1,7 +1,7 @@
 import type {ReactNode} from "react";
 import {fmtBytes, fmtDate, fmtSize, fmtTime} from "../format";
 import {MAX_KM, type Selection} from "../hooks/useNewTrack";
-import type {BuildStatus, Mode, Tab, Track, TrackGroup} from "../types";
+import type {BuildOptions, BuildStatus, Mode, Tab, Track, TrackGroup} from "../types";
 import {CodeField} from "./CodeField";
 import {TrashIcon} from "./icons";
 import styles from "./StatusCard.module.css";
@@ -42,6 +42,13 @@ const big = (title: ReactNode, note: ReactNode) => (
   <><div className={styles.big}>{title}</div><p className="small muted">{note}</p></>
 );
 
+function OptionsSummary({options}: {options: BuildOptions}) {
+  return <p className={styles.options}>
+    <span>{options.terrain_cell_m} m grid</span><span>Cars {options.parked_cars ? "on" : "off"}</span>
+    <span>{options.tree_spacing_m ? `Trees min. ${options.tree_spacing_m} m` : "Original trees"}</span>
+  </p>;
+}
+
 /** A picked track's lines. */
 function PickedTrack({track: t, version}: {track: Track; version: string}) {
   const was = t.version ? `Map2Lap ${t.version}` : "an earlier Map2Lap";
@@ -61,7 +68,7 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
 
 /** What the card shows: a build's progress or result, the picked track, or what is selected. Pure. */
 function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: Mode; group: TrackGroup; picked: Track | undefined;
-                     selection: Selection | null; width: number; hasTracks: boolean; version: string; playButton: (name: string) => ReactNode}): Shown {
+                     selection: Selection | null; width: number; options: BuildOptions; hasTracks: boolean; version: string; playButton: (name: string) => ReactNode}): Shown {
   const {status: s, picked: t, selection: sel} = a;
   if (s.state === "running" || s.state === "stopping") {
     return {badge: [s.state === "stopping" ? "Stopping" : "Building", "run"], time: fmtTime(s.elapsed), body: <Progress status={s} />};
@@ -98,12 +105,12 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
       : big("No tracks yet", "Tracks you build show up here.")};
   }
   if (sel?.kind === "route") {
-    return {badge: sel.ok ? ["Route", "ok"] : ["Too long", "bad"], body: big(`${sel.km.toFixed(2)} km`,
-      sel.ok ? `Corridor ±${a.width} m on each side of the route` : `At most ${MAX_KM} km per track`)};
+    return {badge: sel.ok ? ["Route", "ok"] : ["Too long", "bad"], body: <>{big(`${sel.km.toFixed(2)} km`,
+      sel.ok ? `Corridor ±${a.width} m on each side of the route` : `At most ${MAX_KM} km per track`)}<OptionsSummary options={a.options} /></>};
   }
   if (sel?.kind === "area") {
-    return {badge: ["Area", "ok"], body: big(`${(sel.w / 1000).toFixed(2)} × ${(sel.h / 1000).toFixed(2)} km`,
-      `${(sel.w * sel.h / 1e6).toFixed(1)} km² · ${sel.tiles} tiles`)};
+    return {badge: ["Area", "ok"], body: <>{big(`${(sel.w / 1000).toFixed(2)} × ${(sel.h / 1000).toFixed(2)} km`,
+      `${(sel.w * sel.h / 1e6).toFixed(1)} km² · ${sel.tiles} tiles`)}<OptionsSummary options={a.options} /></>};
   }
   if (sel?.kind === "msg") {
     return {badge: sel.bad ? ["Error", "bad"] : ["Route", ""], body: <p className={sel.bad ? styles.err : "muted"}>{sel.text}</p>};

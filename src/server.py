@@ -24,7 +24,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from app import named
+from app import buildoptions, named
 
 if __name__ == "__main__":      # (before the engine loads: the python.exe left waiting stays small)
     named.restart_as("server")
@@ -83,13 +83,15 @@ def build_log(name, clean):
     return open(os.path.join(work, BUILD_LOG), "w", encoding="utf-8")
 
 
-def run_build(args, name, clean, started):
+def run_build(args, name, clean, started, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
     code, result, keep = None, None, None
     try:
         keep = build_log(name, clean)
+        options = {"terrain_cell_m": terrain_cell_m, "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m}
         p = subprocess.Popen([named.exe("build"), "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                             errors="replace", env={**named.child_env(), "PYTHONIOENCODING": "utf-8"}, **system.GROUP)
+                             errors="replace", env={**named.child_env(), "PYTHONIOENCODING": "utf-8",
+                                                    **buildoptions.environment(options)}, **system.GROUP)
         running["proc"] = p
         os.makedirs(os.path.dirname(MARK), exist_ok=True)
         with open(MARK, "w", encoding="utf-8") as f:
@@ -211,12 +213,17 @@ def saved_in_editor(name):
     return 409, {"error": f"A track saved in the Editor is called “{title}”: a build can't replace it, choose another name"}
 
 
-def start_build(name, title, points, width, area):
+def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
     """Start a build (new and rebuild); returns (HTTP code, response)."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
     if not area and len(points) < 2:
         return 400, {"error": "Set a start and a finish, or draw an area"}
+    try:
+        options = buildoptions.checked({"terrain_cell_m": terrain_cell_m, "parked_cars": parked_cars,
+                                        "tree_spacing_m": tree_spacing_m})
+    except ValueError as e:
+        return 400, {"error": str(e)}
     s = settings.load()
     clean = s["clean"]
     args = ["--name", name, "--title", title, "--cores", str(s["cores"]), "--cache-gb", str(s["cache_gb"])]
@@ -243,7 +250,8 @@ def start_build(name, title, points, width, area):
             return 409, {"error": "Map2Lap is installing an update"}
         job.update(state="running", log=[], result=None, error=None, progress=None, started=time.time(), ended=None)
         started = job["started"]
-    threading.Thread(target=run_build, args=(args, name, clean, started), daemon=True).start()
+    threading.Thread(target=run_build, args=(args, name, clean, started, options["terrain_cell_m"],
+                                           options["parked_cars"], options["tree_spacing_m"]), daemon=True).start()
     return 200, {"ok": True}
 
 
@@ -1011,6 +1019,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "No valid CSP installation request"})
         if urlsplit(self.path).path.startswith("/api/library/"):
             return self._library()
+        density = re.fullmatch(r"/api/editor/([^/]+)/car-density", self.path)
+        if density:
+            if not self._own_page():
+                return self._send(403, {"error": "Only the page itself can edit car density"})
+            if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+                self.close_connection = True
+                return self._send(413, {"error": "Select fewer cars"})
+            return self._edits_answer(lambda: trackedits.car_density(settings.ac_path(), density[1], self._body()))
         spacing = re.fullmatch(r"/api/editor/([^/]+)/tree-spacing", self.path)
         if spacing:
             if not self._own_page():
@@ -1095,7 +1111,11 @@ class Handler(BaseHTTPRequestHandler):
                 town, part = generator.place(float(body["lat"]), float(body["lon"]))
                 self._send(200, {"name": ", ".join(x for x in (town, part) if x) or None})
             elif self.path == "/api/code" and body.get("make"):     # the code of a new route or area
-                self._send(200, {"code": trackcode.encode({**body["make"], "track_version": version.TRACK_VERSION})})
+                try:
+                    code = trackcode.encode({**body["make"], "track_version": version.TRACK_VERSION})
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
+                self._send(200, {"code": code})
             elif self.path == "/api/code":            # a pasted track code: its pins and width, or its area
                 try:
                     got = trackcode.decode(body.get("code"))
@@ -1144,7 +1164,8 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/build":
                 name = generator.slug(body.get("name") or "route")
                 self._send(*start_build(name, body.get("title") or name, [tuple(p) for p in body.get("points") or []],
-                                        body.get("width", 100), body.get("area")))   # (area: [south, west, north, east])
+                                        body.get("width", 100), body.get("area"), body.get("terrain_cell_m", 2),
+                                        body.get("parked_cars", True), body.get("tree_spacing_m", 0)))
             elif self.path == "/api/rebuild":           # a track from "My tracks" with its settings,
                 name = generator.slug(body.get("name") or "")      # replaced or (copy) as a new one next to it
                 info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
@@ -1154,7 +1175,9 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], info.get("width"),
-                                        info.get("area")))
+                                        info.get("area"), body.get("terrain_cell_m", info.get("terrain_cell_m", 2)),
+                                        body.get("parked_cars", info.get("parked_cars", True)),
+                                        body.get("tree_spacing_m", info.get("tree_spacing_m", 0))))
             elif self.path == "/api/play":
                 self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather")))
             elif self.path == "/api/delete":

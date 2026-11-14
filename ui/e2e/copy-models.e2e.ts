@@ -11,7 +11,8 @@ async function withModel(page: Page, backend: Backend, house = false) {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", tree_height: 6, house});
   await openEditor(page);
   const repo = join(import.meta.dirname, "../..");
-  const glb = execFileSync(join(repo, ".venv/Scripts/python.exe"), [join(repo, "ui/e2e/model_fixture.py")]);
+  const python = join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+  const glb = execFileSync(python, [join(repo, "ui/e2e/model_fixture.py")]);
   await page.getByRole("button", {name: "Insert", exact: true}).click();
   await page.getByLabel("Model file").setInputFiles({name: "copy-tree.glb", mimeType: "model/gltf-binary", buffer: glb});
   await page.getByLabel("Model name").fill("Copy tree");

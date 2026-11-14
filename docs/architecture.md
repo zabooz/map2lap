@@ -92,10 +92,16 @@ buried low-voltage lines, street lamp spacing.
 
 ## Build caches and comparisons
 
-### AC terrain grid experiment
+### Terrain and scenery build options
 
-AC normally uses a 2 m ground lattice. `BNE_AC_GRID_M=1` selects a 1 m lattice for a developer build; `2` explicitly
-selects the normal lattice. `engine/acgrid.py` owns the switch. Collision/visible ground, water lowering and the
+`app/buildoptions.py` validates the per-track choices: terrain spacing (2 m by default, optionally 1 m), parked cars
+(on by default) and minimum tree spacing (0–100 m, 0 preserves the generated trees). The generator page captures them
+when starting each build and passes an isolated child environment. They are saved in the anchor and track settings;
+Rebuild, Build as copy and track codes retain them. Older tracks use the defaults. Non-default choices use `M2L2-`
+codes so older applications refuse them rather than silently ignoring them; ordinary default builds retain `M2L1-`.
+
+`BNE_AC_GRID_M=1` selects a 1 m lattice for a command-line build; `2` explicitly selects the normal lattice.
+`engine/acgrid.py` owns the terrain spacing. Collision/visible ground, water lowering and the
 road mesh's draping share it; the legacy BeamNG heightmap dimensions stay unchanged. The existing native draping
 kernel accepts the spacing as an argument. Road centre lines and the source elevation are unchanged.
 
@@ -107,11 +113,17 @@ BNE_AC_GRID_M=1 .venv/bin/python tools/measure.py rechberg_test griffen_bruecke_
 
 Use the same switch with `--kn5` or a later build of the same kept files. It is included in the code key, so the two
 grids do not share cached road meshes. Do not set `BNGE_PLAN_RUN` manually between variants. Build facts record
-`terrain_cell_m` for the experiment; `measure.py --holes` reads that spacing even without the switch. Installed
-experiment tracks also record it in `data/map2lap.json`, but Rebuild and track codes still use the building process's
-switch: they do not promise to reproduce an experiment. The ordinary generator page remains at 2 m.
+`terrain_cell_m`; `measure.py --holes` reads that spacing even without the switch.
 The Editor's serialized height-change fields keep their fixed 2 m edit lattice; their interpolated offsets apply to
-the vertices of either terrain spacing.
+the vertices of either terrain spacing. Smooth road still samples that 2 m lattice, so a height feature only on an
+odd-metre vertex can remain. Increasing mesh density alone does not smooth the source road or its height profile.
+
+`BNE_PARKED_CARS=0` omits car meshes, collision and car objects while retaining parking spaces and markings.
+`BNE_TREE_SPACING_M=<metres>` applies the Editor's deterministic nested spacing rule to trees across all tile parts
+after scenery generation (`track/buildscenery.py`). It removes placements from the part side files before collecting
+the installed TreeFX/object lists or making an Editor source. Bushes are excluded. No reversible hidden-tree layer
+is written: the Editor can thin the built subset further but cannot restore trees the build removed. Rebuilding from
+the map with a lower spacing is a new generation, not restoration of retained tree data.
 
 Compare the same routes and data in both modes before deciding on a default: build time, ground triangles, KN5 size,
 `measure.py` profiles and a drive in AC. Four times as many terrain cells do not imply four times the total build cost.

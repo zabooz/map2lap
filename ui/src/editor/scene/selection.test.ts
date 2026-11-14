@@ -82,6 +82,15 @@ test("tree spacing takes only trees from a mixed area selection and tree sorts",
   expect(selection.treeSpacingTargets([{sort:'broadleaf'}, {sort:'bush'}])).toEqual(['trees#0', 'trees#1']);
 });
 
+test("scenery sliders retain hidden selected targets and filter mixed selections by kind", () => {
+  const data = {objects: {tile: {kinds: ['car', 'car', 'house'], sorts: ['car', 'car', 'house'], parents: [-1, -1, -1]}}};
+  const objects = Object.assign(objectsOf({data}), {shownObjectBounds: () => null, treesOfModel: () => []});
+  const selection = selectionOf(objects, data);
+  picked(selection, [{id: 'trees#0', kind: 'Tree'}, {id: 'tile#0', kind: 'Parked car'}, {id: 'tile#2', kind: 'Building'}]);
+  expect(selection.treeSpacingTargets([], ['trees#0'])).toEqual(['trees#0']);
+  expect(selection.carDensityTargets([], ['tile#0'])).toEqual(['tile#0']);
+});
+
 test("whole-sort deletion omits redundant explicit members while keeping other picked objects", () => {
   const selection = selectionOf(objectsOf({}), null);
   picked(selection, [

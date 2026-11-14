@@ -55,9 +55,9 @@ test("Editor settings put build files and view first, with enough room for the g
 test("the car is saved", async ({page}) => {
   await page.goto("/");
   await openSettings(page, "Map2Lap");
-  await page.getByLabel("Car").selectOption({label: "Test Car"});
+  await page.getByLabel("Car", {exact: true}).selectOption({label: "Test Car"});
   await expect.poll(async () => (await saved(page)).car).toBe("car_a");
-  await page.getByLabel("Car").selectOption("");
+  await page.getByLabel("Car", {exact: true}).selectOption("");
   await expect.poll(async () => (await saved(page)).car).toBe(null);
 });
 

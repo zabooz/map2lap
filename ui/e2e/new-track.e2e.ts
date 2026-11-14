@@ -77,9 +77,8 @@ test("a stop by search: one result is taken, several to choose by arrows, none i
   await clickMap(page, 0.3, 0.3);
   await clickMap(page, 0.6, 0.6);
   await expect(card(page)).toContainText("1.00 km");
-  await button(page, "+ Add a stop").click();
-  const field = page.getByLabel("Finish").last();
-  await expect(field).toBeFocused();
+  await expect(button(page, "+ Add a stop")).toHaveCount(0);
+  const field = page.getByRole("textbox", {name: "Next stop", exact: true});
   await field.fill("Nowhere");
   await field.press("Enter");
   const drop = page.getByTestId("search-drop");
@@ -96,15 +95,19 @@ test("a stop by search: one result is taken, several to choose by arrows, none i
   await expect(page.getByLabel("Stop 1")).toBeVisible();
 });
 
-test("an empty stop goes when left", async ({page}) => {
+test("the next-stop search never adds an empty pin, and map clicks append points directly", async ({page}) => {
   await page.goto("/");
   await clickMap(page, 0.3, 0.3);
   await clickMap(page, 0.6, 0.6);
-  await button(page, "+ Add a stop").click();
+  await page.getByRole("textbox", {name: "Next stop", exact: true}).focus();
   await expect(pins(page)).toHaveCount(2);
   await page.getByLabel("Track name").click();
-  await expect(button(page, "+ Add a stop")).toBeEnabled();
+  await expect(page.getByRole("textbox", {name: "Next stop", exact: true})).toHaveValue("");
   await expect(page.getByLabel("Stop 1")).toBeHidden();
+  await clickMap(page, .7, .5);
+  await expect(pins(page)).toHaveCount(3);
+  await expect(page.getByLabel("Stop 1")).toBeVisible();
+  await expect(page.getByLabel("Finish", {exact: true})).not.toHaveValue("");
 });
 
 test("Clear all takes it all away", async ({page}) => {

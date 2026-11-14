@@ -28,9 +28,9 @@ import generator  # noqa: E402
 import furniture  # noqa: E402
 import roadmesh  # noqa: E402
 import server  # noqa: E402
-from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, updater, version  # noqa: E402
+from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, trackcode, updater, version  # noqa: E402
 from scenery import cars, treefx  # noqa: E402
-from track import editorinfo, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
+from track import buildscenery, editorinfo, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
 
 # Test an isolated UI build without replacing the live generator page's bundles.
@@ -174,7 +174,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce'):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -207,8 +207,16 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         road.name = "1GRASS_ground_0_0"
     tree.children = [road, ground("1GRASS_ground_-1_0", 1, -TILE, -TILE),
                      ground("nocol_far_1", 2, -2000.0, 0.0, 4000.0, -3.0), kn5.Node(1, "AC_START_0", 1, matrix=START)]
+    if terrain_cell_m == 1:
+        # A full 1 m tile exceeds 65,535 vertices: use the actual export splitter rather than wrapping its indices.
+        x, z = np.meshgrid(np.arange(257.), np.arange(-256., 1.))
+        points = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
+        a = (np.arange(256)[:, None] * 257 + np.arange(256)).ravel()
+        faces = np.r_[np.c_[a, a + 257, a + 1], np.c_[a + 1, a + 257, a + 258]]
+        fine = obj_to_kn5.mesh_nodes("1ROAD_ground_0_0", 0, True, points, points[:, [0, 2]] / TILE, faces, up=True)
+        tree.children = fine + tree.children[1:]
     listed = {}
-    if car:
+    if car and parked_cars:
         materials.append(material("cars", "ground_far.dds"))
         node, entry = parked_car(sum(c.cls == 2 for c in tree.children), len(materials) - 1)
         tree.children.insert(-1, node)
@@ -253,6 +261,15 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
         listed["t_0_0"] = entry
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
     plants = {"next": 2, "trees": {"0": tree_at("spruce", 40.0, -200.0, 12.0), "1": tree_at(tree_model, 128.0, -130.0, tree_height)}} if with_trees else None
+    if tree_positions is not None:
+        plants = {"next": len(tree_positions), "trees": {str(i): tree_at("spruce", x, z, 12.) for i, (x, z) in enumerate(tree_positions)}}
+    if plants and tree_spacing_m:
+        part = os.path.join(root, ".build_trees.obj")
+        original = objectlist.TileList()
+        original.treefx = list(plants["trees"].values())
+        original.save(part)
+        buildscenery.thin_trees([part], tree_spacing_m)
+        plants = objectlist.collect_treefx([part])
     objectlist.write(os.path.join(root, name + ".kn5"), listed, plants)
     os.makedirs(os.path.join(root, "extension"), exist_ok=True)
     make_track_folder.write_trees(root, plants)
@@ -287,7 +304,8 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     current = track_version or version.TRACK_VERSION
     mytracks.save(root, {"version": current, "track_version": current, "title": title, "points": [[42.9, 9.36], [north, 9.36]],
                          "width": 100.0, "area": None, "length_m": 250.0, "area_m": None, "tiles": 2,
-                         "built": built or time.time(), "line": [[42.9, 9.36], [north, 9.36]]})
+                         "built": built or time.time(), "line": [[42.9, 9.36], [north, 9.36]], "terrain_cell_m": terrain_cell_m,
+                         "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m})
     if files:
         os.makedirs(os.path.join(TMP, "out", "tracks", name, "tiles"), exist_ok=True)
         with open(os.path.join(TMP, "out", "tracks", name, "tiles", "x.bin"), "wb") as f:
@@ -361,7 +379,7 @@ def stand_ins():
     assert settings.FILE.startswith(TMP) and server.ROOT == TMP and mytracks.ROOT == TMP and materiallibrary.ROOT == TMP
 
 
-def start_build(name, title, points, width, area):
+def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
     """As server.start_build, but the build is a few steps of waiting: its progress, its log, the track at the end."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
@@ -373,14 +391,16 @@ def start_build(name, title, points, width, area):
     if saved:
         return saved
     calls.append(["build", name, title])
+    calls.append(["terrain", name, terrain_cell_m])
+    calls.append(["scenery", name, parked_cars, tree_spacing_m])
     stopped.clear()
     server.running["proc"] = SimpleNamespace(pid=0)
-    server.job.update(state="running", log=[], result=None, error=None, progress=None, started=time.time(), ended=None)
-    threading.Thread(target=_build, args=(name, title), daemon=True).start()
+    server.job.update(state="running", log=[f"Terrain grid: {terrain_cell_m} m"], result=None, error=None, progress=None, started=time.time(), ended=None)
+    threading.Thread(target=_build, args=(name, title, terrain_cell_m, parked_cars, tree_spacing_m), daemon=True).start()
     return 200, {"ok": True}
 
 
-def _build(name, title):
+def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
     for k, phase in enumerate(("route", "tiles", "scenery", "kn5")):
         server.job["progress"] = {"phase": phase, "done": k, "total": 4}
         server.job["log"].append(f"step {k}")
@@ -391,7 +411,7 @@ def _build(name, title):
     if "fail" in name:
         server.job.update(state="error", error="the generator ended with exit code 1 (see the log)", ended=time.time())
     else:
-        make_track(name, title)
+        make_track(name, title, terrain_cell_m=terrain_cell_m, parked_cars=parked_cars, tree_spacing_m=tree_spacing_m)
         server.job.update(state="done", ended=time.time(), result={
             "name": name, "kn5_bytes": 1500000, "seconds": 1.2, "tiles": 2, "area_m": None, "length_m": 250.0})
     server.running["proc"] = None
@@ -442,7 +462,8 @@ class Handler(server.Handler):
                        ground_material=body.get("ground_material"), ground_split=body.get("ground_split", False),
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
-                       tree_model=body.get('tree_model', 'spruce'))
+                       tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
+                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

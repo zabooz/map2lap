@@ -4,6 +4,36 @@ import {tree, json, server, settle, started} from "./edits.fixture";
 import type {SurfaceCut} from "../scene/surfaceCuts";
 import {isChanged} from "./useSave";
 
+test("car density alone enables Save on an otherwise unchanged track", async () => {
+  const {edits} = await started();
+  edits.setCarDensity({percent: 0, targets: null, hidden: ["t_0_0#0"]});
+  expect(isChanged(edits.state())).toBe(true);
+  edits.undo(); expect(isChanged(edits.state())).toBe(false);
+  edits.stop();
+});
+
+test("car density is a separate undoable saved layer and reopens as current", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(0)]);
+  const density = {percent: 50, targets: null, hidden: ["t_0_0#1"]};
+  edits.setCarDensity(density);
+  edits.undo(); expect(edits.state().carDensity).toBeNull();
+  edits.redo(); expect(edits.state().carDensity).toEqual(density);
+  expect(edits.state().removed).toEqual([tree(0)]);
+  edits.saveNow(); await settle();
+  expect((s.asked[0].body as unknown as {car_density: unknown}).car_density).toEqual(density);
+  s.asked[0].answer(json({revision: 4, meshes: []})); await settle();
+  edits.markSaved(); expect(isCurrent(edits.state())).toBe(true);
+  const reopened = new TrackEdits("t", async () => json({base: "b", revision: 0, deleted: [tree(0)], car_density: density,
+    saved: {at: 1, deleted: [tree(0).id], object_sorts: [], car_density: density}}));
+  reopened.bind("b"); await reopened.start();
+  expect(reopened.state().carDensity).toEqual(density);
+  expect(isCurrent(reopened.state())).toBe(true);
+  reopened.setCarDensity({percent: 100, targets: null, hidden: []});
+  expect(isCurrent(reopened.state())).toBe(false);
+  reopened.stop(); edits.stop();
+});
+
 test("tree spacing is independent of manual deletion, persistent and undoable", async () => {
   const {edits, s} = await started();
   edits.remove([tree(0)]);

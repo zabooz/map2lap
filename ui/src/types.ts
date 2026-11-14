@@ -5,8 +5,10 @@ export type Box = [number, number, number, number];
 export type Tab = "new" | "mine" | "edit";
 export type Mode = "route" | "area";
 export type TrackGroup = "built" | "edited";
+export type TerrainCell = 1 | 2;
+export interface BuildOptions {terrain_cell_m: TerrainCell; parked_cars: boolean; tree_spacing_m: number;}
 
-export interface Track {
+export interface Track extends Partial<BuildOptions> {
   name: string;
   title: string;
   version?: string;
@@ -79,7 +81,7 @@ export interface Place {
   lon: number;
 }
 
-export interface CodeContent {
+export interface CodeContent extends Partial<BuildOptions> {
   title?: string;
   area?: Box;
   width?: number;

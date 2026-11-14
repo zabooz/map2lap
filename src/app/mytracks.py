@@ -15,7 +15,7 @@ have the file: while their work folder is still there (out/tracks/<name>/tiles/a
 import json
 import os
 
-from app import trackcode, version
+from app import buildoptions, trackcode, version
 from app.paths import ROOT
 
 FILE = os.path.join("data", "map2lap.json")
@@ -81,7 +81,8 @@ def _from_work(track_dir):
     kn5 = os.path.join(track_dir, name + ".kn5")
     return {"title": ui.get("name") or name, "points": anc["points"] or [], "width": None if area else anc.get("width"),
             "area": area, "length_m": anc.get("length_m", 0.0), "area_m": area_m, "tiles": len(anc["tiles"]),
-            "built": os.path.getmtime(kn5) if os.path.exists(kn5) else None, "line": line}
+            "built": os.path.getmtime(kn5) if os.path.exists(kn5) else None, "line": line,
+            **buildoptions.checked(anc)}
 
 
 def saved_in_editor(ac_path, name):
@@ -110,9 +111,11 @@ def free_name(ac_path, name):
 
 def _same(info):
     """Key for "the same track" (route with width, or area; copies and originals share it)."""
+    options = tuple(buildoptions.checked(info).values())
     if info.get("area"):
-        return ("area",) + tuple(round(float(v), 5) for v in info["area"])
-    return ("route", round(float(info.get("width") or 0), 1)) + tuple((round(a, 5), round(b, 5)) for a, b in info["points"])
+        return ("area", *options) + tuple(round(float(v), 5) for v in info["area"])
+    return ("route", *options, round(float(info.get("width") or 0), 1)) + tuple(
+        (round(a, 5), round(b, 5)) for a, b in info["points"])
 
 
 def listing(ac_path):
@@ -140,7 +143,7 @@ def listing(ac_path):
     current = {}
     for t in out:
         t["track_version"] = t.get("track_version", t.get("version"))
-        if not t.get("code") and (t.get("area") or len(t.get("points") or []) >= 2):
+        if t.get("area") or len(t.get("points") or []) >= 2:
             t["code"] = trackcode.encode(t)
     for t in out:
         if not version.outdated(t["track_version"]) and t["kn5_bytes"] and not t["edited"]:

@@ -120,6 +120,27 @@ class TerrainGridTest(unittest.TestCase):
 
 
 class HoleGridTest(unittest.TestCase):
+    def test_a_long_wall_keeps_its_physical_footprint_in_the_fine_grid_check(self):
+        import tempfile
+        from unittest import mock
+        sys.path.insert(0, str(ROOT / "tools"))
+        import measure
+        with tempfile.TemporaryDirectory() as folder:
+            parts = Path(folder) / "out/tracks/fixture/obj/parts"
+            parts.mkdir(parents=True)
+            (parts / "t_0_0.obj").write_text(
+                "o 1ROAD_ground_0_0\nusemtl asphalt\n"
+                "v 0 0 0\nv 4 0 0\nv 0 0 4\nv 4 0 4\n"
+                "vt 0 0\nvt 1 0\nvt 0 1\nvt 1 1\n"
+                "f 1/1 3/3 2/2\nf 2/2 3/3 4/4\n"
+                "o 1WALL_tunnel_0_0\nusemtl concrete\n"
+                "v 0 0 0\nv 100 4 1\nv 100 0 1\nvt 0 0\nvt 1 1\nvt 1 0\nf 5/5 6/6 7/7\n")
+            with mock.patch.object(measure, "HERE", folder):
+                for cell in (2., 1.):
+                    with self.subTest(cell=cell):
+                        _cells, _roads, walls = measure._hole_cells("fixture", cell)
+                        self.assertIn((int(50 / cell), 0), walls)
+
     def test_hole_report_uses_the_built_grid_even_without_the_experiment_switch(self):
         import contextlib
         import io

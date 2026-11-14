@@ -37,6 +37,33 @@ class GroundLooksTest(unittest.TestCase):
 class CheapBushesTest(unittest.TestCase):
     FREE = np.ones((128, 128), bool)
 
+    def test_an_existing_item_keeps_the_same_physical_patch_free_on_either_grid(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        for cell in (2., 1.):
+            with self.subTest(cell=cell):
+                n = int(256 / cell)
+                x, y = np.meshgrid(np.arange(n + 1) * cell, np.arange(n + 1) * cell)
+                grid = np.c_[x.ravel(), y.ravel(), np.zeros(x.size)]
+                taken = [("tree", 10.2, 10.2)]
+                state = SimpleNamespace(md=None)
+                captured = []
+
+                def scatter(x0, y0, size, free, spacing, share):
+                    captured.append(free)
+                    return (np.zeros(0),) * 5
+
+                with (mock.patch.object(bushes.ground, "CELL", cell),
+                      mock.patch.object(groundcover, "materials", return_value=np.full((n, n), "gc_shrub")),
+                      mock.patch.object(bushes, "_off_roads", return_value=np.ones((n, n), bool)),
+                      mock.patch.object(bushes, "scatter", side_effect=scatter)):
+                    bushes.tile_items(None, state, 0, 0, grid, taken, "temperate")
+                free = captured[0]
+                # The original 2 m grid excludes the object's cell and one neighbour: the square [8, 14) m.
+                self.assertFalse(free[int(10.5 / cell), int(8.5 / cell)])
+                self.assertFalse(free[int(10.5 / cell), int(13.5 / cell)])
+                self.assertTrue(free[int(10.5 / cell), int(14.5 / cell)])
+
     def in_cells(self, m=32.0):
         """Bushes per m square over 12 x 12 free tiles."""
         x, y = [], []

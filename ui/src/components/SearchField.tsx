@@ -26,12 +26,10 @@ function Drop({field, results, on, onPick}: {field: RefObject<HTMLInputElement |
 
 /** A field searching places: typed, Enter asks the server (Nominatim), arrows and Enter pick one of several.
     value: what it shows while not typed in. */
-export function SearchField({value, placeholder, onPick, onLeaveEmpty, autoFocus = false, ariaLabel}: {
+export function SearchField({value, placeholder, onPick, ariaLabel}: {
   value: string;
   placeholder: string;
   onPick: (p: Place) => void;
-  onLeaveEmpty?: () => void;
-  autoFocus?: boolean;
   ariaLabel?: string;
 }) {
   const field = useRef<HTMLInputElement>(null);
@@ -64,12 +62,11 @@ export function SearchField({value, placeholder, onPick, onLeaveEmpty, autoFocus
   return (
     <>
       <input ref={field} type="text" spellCheck={false} autoComplete="off" placeholder={placeholder} aria-label={ariaLabel}
-             autoFocus={autoFocus} value={typed ?? value}
+             value={typed ?? value}
              onChange={e => { setTyped(e.target.value); close(); }}
-             onBlur={e => {
+             onBlur={() => {
                close();
                setTyped(null);
-               if (!e.target.value.trim()) onLeaveEmpty?.();
              }}
              onKeyDown={e => {
                if (e.key === "Escape") close();

@@ -289,6 +289,30 @@ class VergeTest(Base):
 
 
 class SaveTest(Base):
+    def test_one_metre_ground_keeps_its_vertices_and_small_crest_when_saving_a_height_change(self):
+        shape = kn5.read(self.kn5)
+        ground = shape["root"].children[0]
+        x, z = np.meshgrid(np.arange(5.), np.arange(5.))
+        vertices = np.zeros(x.size, kn5.VERTEX)
+        vertices["pos"] = np.c_[x.ravel(), .2 * (x.ravel() == 1), z.ravel()]
+        vertices["normal"], vertices["tangent"] = (0, 1, 0), (1, 0, 0)
+        vertices["uv"] = np.c_[x.ravel(), -z.ravel()] / 256
+        a = (np.arange(4)[:, None] * 5 + np.arange(4)).ravel()
+        ground.vertices = vertices
+        ground.indices = np.r_[np.c_[a, a + 5, a + 1], np.c_[a + 1, a + 5, a + 6]].astype("<u2").ravel()
+        ground.bs_center, ground.bs_radius = (2., .1, 2.), 3.
+        before, indices = ground.vertices["pos"].copy(), ground.indices.copy()
+        kn5.write(self.kn5, [(name, raw) for name, _active, raw in shape["textures"]], shape["materials"], shape["root"])
+        objectlist.write(self.kn5, self.objects)
+        mytracks.save(self.root, {**mytracks.load(self.root), "terrain_cell_m": 1})
+        self.lift(self.UP)
+        trackcopy.save(self.ac, "t")
+        saved = self.meshes(kn5.read(self.kn5)["root"])["1ROAD_ground_0_0"]
+        np.testing.assert_array_equal(saved.indices, indices)
+        np.testing.assert_array_equal(saved.vertices["pos"][:, [0, 2]], before[:, [0, 2]])
+        np.testing.assert_allclose(saved.vertices["pos"][:, 1], before[:, 1] + 1., atol=1e-6)
+        self.assertEqual(1, mytracks.load(self.root)["terrain_cell_m"])
+
     def test_overwritten_in_place_the_editor_shows_the_unchanged_source_with_every_object(self):
         self.edits(["t_0_0#1"])
         made = trackcopy.save(self.ac, "t")

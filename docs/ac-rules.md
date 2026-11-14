@@ -34,8 +34,8 @@ BeamNG.Earth (`blockworker.build`, `grading.Grader.apply`, `roads/`):
   inside you drive on the floor slab from `deck`; the portal frame hides the 2 m steps.
 
 For AC (`ground.py`, `make_obj.collision_prefix`):
-- The ground's lattice is normally 2 m. The developer-only 1 m experiment shares its spacing with water and draped
-  markings, without changing source elevations or the legacy BeamNG heightmap; see [the experiment](architecture.md#ac-terrain-grid-experiment).
+- The ground's lattice is normally 2 m. The optional 1 m grid shares its spacing with water and draped
+  markings, without changing source elevations or the legacy BeamNG heightmap; see [build options](architecture.md#terrain-and-scenery-build-options).
 - One mesh for looks **and** physics per tile. Object name per cell by BeamNG.Earth's surface: asphalt/cobbles →
   `1ROAD_ground_…`, gravel/dust/rock → `1GRAVEL_ground_…`, else `1GRASS_ground_…` (the sample in the SW corner).
 - A cell goes as soon as **one** of its corners is a tunnel hole.
@@ -172,7 +172,7 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - 65,535 vertices per mesh (16 bit indices) → objects are split (`_<k>`; split names from the front when reading).
 - AC loads the whole track at start; nothing streams. A 292 km route (±100 m): 2507 tiles, a 9.9 GB kn5, ~47 GB RAM while
   loading. Beyond ~50 km from the anchor float32 gets coarse (~1–2 cm at 150–250 km).
-- The road surface is 2 m terrain triangles (like BeamNG): as even as there in tight curves, not smoother.
+- The ground road surface uses 2 m terrain cells by default, optionally 1 m. A denser mesh does not smooth the road's centre line or height profile.
 
 ## kn5 format (`kn5.py`)
 

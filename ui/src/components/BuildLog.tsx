@@ -5,7 +5,7 @@ const BOTTOM_PX = 30;           // this near the bottom counts as reading the ne
 
 /** The build's log: shows its newest line, until the reader scrolls up (back at the bottom: again). started: when the
     build began. */
-export function BuildLog({text, started}: {text: string; started: number | null | undefined}) {
+export function BuildLog({text, started, visible}: {text: string; started: number | null | undefined; visible: boolean}) {
   const box = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
 
@@ -13,16 +13,13 @@ export function BuildLog({text, started}: {text: string; started: number | null 
 
   useLayoutEffect(() => {
     if (!text) follow.current = true;
-    if (box.current && follow.current) box.current.scrollTop = box.current.scrollHeight;
-  }, [text]);
+    if (visible && box.current && follow.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [text, visible]);
 
   return (
-    <>
-      <div className={styles.head}><span>Build log</span></div>
-      <pre id="log" className={styles.log} ref={box} onScroll={e => {
-        const l = e.currentTarget;
-        follow.current = l.scrollTop + l.clientHeight >= l.scrollHeight - BOTTOM_PX;
-      }}>{text}</pre>
-    </>
+    <pre id="log" className={styles.log} ref={box} onScroll={e => {
+      const l = e.currentTarget;
+      follow.current = l.scrollTop + l.clientHeight >= l.scrollHeight - BOTTOM_PX;
+    }}>{text}</pre>
   );
 }

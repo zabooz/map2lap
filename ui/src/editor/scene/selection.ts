@@ -178,23 +178,27 @@ export class Selection {
     return [...ids];
   }
 
-  /** Tree-only scope from a rectangle or marked sorts; other objects in that area are untouched. */
-  treeSpacingTargets(groups: Marked[]): string[] {
+  /** Trees/cars from a mixed selection; density-hidden selected ids stay adjustable. */
+  private sceneryTargets(kind: "tree" | "car", groups: Marked[], hidden: string[]): string[] {
     const data = this.host.data(), objects = this.host.objects;
     if (!data) return [];
-    const ids = new Set<string>();
+    const retained = new Set(hidden), ids = new Set<string>();
+    const eligible = (id: string) => retained.has(id) || !!objects.shownObjectBounds(id);
     for (const [id, {picked}] of this.picks) {
-      if (picked.kind === 'Tree' && objects.shownObjectBounds(id)) ids.add(id);
+      if (picked.kind === (kind === "tree" ? "Tree" : "Parked car") && eligible(id)) ids.add(id);
     }
-    for (const group of groups) if (!/shrub|bush/i.test(group.sort)) {
-      for (const id of objects.treesOfModel(group.sort)) if (id.startsWith('trees#') && objects.shownObjectBounds(id)) ids.add(id);
+    if (kind === "tree") for (const group of groups) if (!/shrub|bush/i.test(group.sort)) {
+      for (const id of objects.treesOfModel(group.sort)) if (id.startsWith("trees#") && eligible(id)) ids.add(id);
     }
     for (const id of idsOfSorts(data.objects, new Set(groups.map(g => g.sort)))) {
-      const at = id.lastIndexOf('#'), kind = data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
-      if (kind === 'tree' && objects.shownObjectBounds(id)) ids.add(id);
+      const at = id.lastIndexOf("#"), listed = data.objects[id.slice(0, at)].kinds[Number(id.slice(at + 1))];
+      if (listed === kind && eligible(id)) ids.add(id);
     }
     return [...ids];
   }
+
+  treeSpacingTargets(groups: Marked[], hidden: string[] = []) { return this.sceneryTargets("tree", groups, hidden); }
+  carDensityTargets(groups: Marked[], hidden: string[] = []) { return this.sceneryTargets("car", groups, hidden); }
 
   /** The picked one id out again: what was picked before it is what is spoken of, or nothing is left. */
   drop(id: string, adding = false) {

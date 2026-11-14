@@ -1,6 +1,6 @@
 """AC's terrain spacing, shared by collision ground, water and draped markings.
 
-The developer-only BNE_AC_GRID_M=1 experiment samples the graded surface every metre: it can retain a narrow crest
+The optional BNE_AC_GRID_M=1 mode samples the graded surface every metre: it can retain a narrow crest
 between the legacy 2 m samples. It does not change heightmap's BeamNG block dimensions or the source elevation.
 The ordinary build stays at 2 m. Other spacings need their own seam, portal and export checks before use.
 """

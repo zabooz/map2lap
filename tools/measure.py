@@ -697,7 +697,7 @@ def _hole_cells(track, cell=HOLE_CELL_M):
     if len(w):        # (a face's own extent: an upright face has no area seen from above)
         a, b = np.floor(w[:, :, [0, 2]].min(1) / cell).astype(np.int64), np.floor(w[:, :, [0, 2]].max(1) / cell).astype(np.int64)
         for (i0_, j0_), (i1_, j1_) in zip(a.tolist(), b.tolist()):
-            if (i1_ - i0_ + 1) * (j1_ - j0_ + 1) <= 64:
+            if (i1_ - i0_ + 1) * (j1_ - j0_ + 1) <= 64 * (HOLE_CELL_M / cell) ** 2:  # same 256 m² footprint in either grid
                 walls.update((i, j) for i in range(i0_, i1_ + 1) for j in range(j0_, j1_ + 1))
     return cells, on_road, walls
 

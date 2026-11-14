@@ -93,6 +93,15 @@ class RoadMeshTest(unittest.TestCase):
 
 
 class FollowTest(unittest.TestCase):
+    def test_the_same_steep_cutting_is_capped_on_one_and_two_metre_grids(self):
+        for cell in (1., 2.):
+            with self.subTest(cell=cell):
+                # A 60 % cutting, steeper than a real road: its white line stays near the lower ground.
+                grid = np.tile(np.arange(5) * cell * .6, (5, 1))
+                points = np.array([[.7, .1], [.9, .1], [.7, .3]])
+                p, _, faces, _ = roadmesh.follow_ground(points, np.zeros_like(points), np.array([[0, 1, 2]]), grid, 0, 0, cell=cell)
+                self.assertLessEqual(p[np.unique(faces), 2].max(), roadmesh.FOLLOW_MAX_UP + 1e-9)
+
     """The road surface on the terrain block's own triangles (the tyres sank into a road
     drawn 5 cm over the ground)."""
 

@@ -25,6 +25,7 @@ ROW_WHERE_M, ROW_WHERE_FROM, ROW_WHERE_SALT = 260.0, 0.1, 95    # ... only in so
 ROW_DENSITY = 0.6
 HEIGHT_M = (0.9, 2.5)       # a bush's height, 0.75 of it at a group's edge, 1.25 in its middle
 ROAD_CLEAR_M = 1.5          # m kept from a carriageway's or path's edge (as the map's bushes: vegetation.ROAD_CLEAR_M)
+TAKEN_CELL_M = 2.0          # reserve an existing plant's 2 m footprint and 2 m around it, independent of terrain spacing
 # Thin where the climate is dry: WorldCover's shrubland in a desert is single plants on bare ground, not a thicket
 ZONE_SHARE = {"desert": 0.25, "savanna": 0.6}
 
@@ -103,9 +104,11 @@ def tile_items(frame, s, tx, ty, grid, taken, zone):
     free &= tan[:m, :m] < ground.ROCK_SLOPE[0]
     if taken:
         p = np.array([(float(t[1]), float(t[2])) for t in taken])
-        i, j = np.floor((p[:, 0] - x0) / ground.CELL).astype(np.int64), np.floor((p[:, 1] - y0) / ground.CELL).astype(np.int64)
-        for dj in (-1, 0, 1):
-            for di in (-1, 0, 1):
+        width = int(round(TAKEN_CELL_M / ground.CELL))
+        i = np.floor((p[:, 0] - x0) / TAKEN_CELL_M).astype(np.int64) * width
+        j = np.floor((p[:, 1] - y0) / TAKEN_CELL_M).astype(np.int64) * width
+        for dj in range(-width, 2 * width):
+            for di in range(-width, 2 * width):
                 on = (i + di >= 0) & (j + dj >= 0) & (i + di < m) & (j + dj < m)
                 free[j[on] + dj, i[on] + di] = False
     x, y, h, yaw, rank = scatter(x0, y0, box[2] - x0, free, ground.CELL, ZONE_SHARE.get(zone, 1.0))

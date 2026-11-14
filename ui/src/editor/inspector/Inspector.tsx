@@ -205,7 +205,7 @@ function Appearance({name, picked, version, onEdit, restyling, options}: {name: 
 const INSPECTOR_TABS = ["selection", "properties", "details"] as const;
 
 export function Inspector({name, picked, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, restyling = null, notes, transform, activeTool, vegetation}: {
+  onMaterialOpen, restyling = null, notes, transform, activeTool, scenery}: {
   name: string; picked: Picked | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
@@ -213,7 +213,7 @@ export function Inspector({name, picked, surfaces, marked, view, state, collapse
   notes?: ReactNode;
   transform?: ReactNode;      // the picked object's controls, below Appearance in Options
   activeTool?: Tool;
-  vegetation?: ReactNode;
+  scenery?: ReactNode;
 }) {
   const [tab, setTab] = useState<(typeof INSPECTOR_TABS)[number]>("selection");
   const [previous, setPrevious] = useState({picked, tool: activeTool});
@@ -259,9 +259,9 @@ export function Inspector({name, picked, surfaces, marked, view, state, collapse
       </div>
       <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
         <WeatherControls key={`${name}-weather`} view={view} />
-        <section className={styles.propertyGroup} aria-label="Vegetation">
-          <h3>Vegetation</h3>
-          {vegetation}
+        <section className={styles.propertyGroup} aria-label="Scenery">
+          <h3>Scenery</h3>
+          {scenery}
         </section>
       </div>
       <div id="inspector-details" role="tabpanel" aria-labelledby="inspector-tab-details" hidden={tab !== "details"}>

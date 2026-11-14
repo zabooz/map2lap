@@ -1,7 +1,7 @@
 import {lazy, Suspense, useCallback, useState, type ReactNode} from "react";
 import {post} from "./api";
 import styles from "./App.module.css";
-import {BuildLog} from "./components/BuildLog";
+import {BuildPanel, type BuildTab} from "./components/BuildPanel";
 import {EditorPanel} from "./components/EditorPanel";
 import {ErrorBoundary} from "./components/ErrorBoundary";
 import {InstallationToast} from "./components/InstallationToast";
@@ -26,7 +26,7 @@ import {useRelease} from "./hooks/useRelease";
 import {useSettings} from "./hooks/useSettings";
 import {useStored} from "./hooks/useStored";
 import {useTracks} from "./hooks/useTracks";
-import type {EditorLoadStatus, Tab, Track, TrackGroup} from "./types";
+import type {BuildOptions, EditorLoadStatus, Tab, Track, TrackGroup} from "./types";
 
 const EditorScene = lazy(() => import("./editor/EditorScene"));
 
@@ -60,6 +60,9 @@ export function App() {
   const [pick, setPick] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(true);   // false: the selection is newer than the last build's result
   const [move, setMove] = useState<MapMove | null>(null);
+  const [buildTab, setBuildTab] = useState<BuildTab>("options");
+  const [focusLog, setFocusLog] = useState(0);
+  const [rebuildOptions, setRebuildOptions] = useState<Record<string, Partial<BuildOptions>>>({});
 
   const {tracks, car, reload} = useTracks();
   const settings = useSettings();
@@ -84,6 +87,12 @@ export function App() {
 
   const mine = tab === "mine", {busy, status} = build;
   const picked = mine ? tracks.find(t => t.name === pick && groupOf(t) === group) : undefined;
+  const options: BuildOptions = mine ? {terrain_cell_m: picked?.terrain_cell_m ?? 2, parked_cars: picked?.parked_cars ?? true,
+    tree_spacing_m: picked?.tree_spacing_m ?? 0, ...(picked ? rebuildOptions[picked.name] : {})} : track.options;
+  const setOptions = (value: Partial<BuildOptions>) => {
+    if (mine && picked) setRebuildOptions(old => ({...old, [picked.name]: {...old[picked.name], ...value}}));
+    else track.setOptions(value);
+  };
   const editing = tracks.find(t => t.name === editTrack && t.kn5_bytes);      // (deleted meanwhile: none)
   const shownEditTrack = editing ? editTrack : "";
   const result = ["done", "error", "stopped"].includes(status.state) && showResult;
@@ -100,6 +109,7 @@ export function App() {
   const start = async (url: string, body: unknown) => {
     const refused = await build.start(url, body);
     if (refused && /Settings/.test(refused)) setSettingsOpen(true);
+    if (!refused) { setBuildTab("log"); setFocusLog(k => k + 1); }
     return refused;
   };
 
@@ -111,7 +121,7 @@ export function App() {
     }
     else if (mine) {
       const warning = picked?.draft ? `This track has ${picked.draft} unsaved ${picked.draft === 1 ? "change" : "changes"} in the Editor.\n\nThey no longer fit a new build and stay out until you give them up. Go on?` : null;
-      if (picked && (!warning || confirm(warning))) void start("/api/rebuild", {name: picked.name});
+      if (picked && (!warning || confirm(warning))) void start("/api/rebuild", {name: picked.name, ...options});
     }
     else void start("/api/build", track.buildBody());
   };
@@ -182,17 +192,21 @@ export function App() {
           </div>
 
           <StatusCard status={status} showResult={showResult} tab={tab} mode={track.mode} group={group} picked={picked}
-                      selection={track.selection} width={track.width} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
+                      selection={track.selection} width={track.width} options={options} hasTracks={tracks.some(t => groupOf(t) === group)} version={version}
                       playButton={playButton} footer={!busy && !result && picked && (
             <CardCode code={picked.edited ? null : picked.code ?? ""} onDelete={() => void deleteTrack(picked)} />
           )} />
+
+          <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
+                      corridor={!mine && track.mode === "route" ? {width: track.width, onWidth: track.setWidth} : undefined}
+                      disabled={busy || (mine && (!picked || !!picked.edited))} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />
 
           <div id="actions" className={`${styles.actions}${mine ? ` ${styles.mine}` : ""}`}>
             {mine && (
               <button title={acOk ? "Keep this track and build a new one next to it" : NO_AC}
                       disabled={busy || !picked || !acOk}
                       onClick={() => {      // (the new one is a build: it will stand under Built)
-                        if (pick) void start("/api/rebuild", {name: pick, copy: true}).then(refused => { if (!refused) setGroup("built"); });
+                        if (pick) void start("/api/rebuild", {name: pick, copy: true, ...options}).then(refused => { if (!refused) setGroup("built"); });
                       }}>Build as copy</button>
             )}
             <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
@@ -202,7 +216,6 @@ export function App() {
             )}
           </div>
 
-          <BuildLog text={build.log} started={status.started} />
         </div>
         <ThemeSwitch />
       </aside>
