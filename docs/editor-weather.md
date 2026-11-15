@@ -45,6 +45,14 @@ Moderate and Heavy. Heavy Rain uses CSP's Heavy Thunderstorm preset, including i
 has the base weather's strongest fog. Additional fog blends toward CSP Fog while retaining the selected precipitation type.
 Snow also offers Snow on windscreen, enabled by default. Turning it off prevents snow deposits on the front windscreen
 in the next AC session; outdoor snowfall and side-window snow retain the selected intensity.
+Front-glass snow combines direct impact with a small simulated flake flutter, so rear winds still leave some
+deposits. Accumulation increases smoothly with relative headwind towards a bounded maximum; this is a visual
+approximation, not a simulation of airflow around the car body.
+Side panes missed while the driver's door is open are discovered after it closes and its pose settles. The script
+reuses its cached glass references and preserves snow fields already running on other panes.
+Glass clearing requires an active native wiper mode and changing wiper phase. The phase alone can drift while the
+wiper is parked as the car moves; this must not push snow into persistent streaks. The final return stroke after
+switching off still clears the glass because CSP retains the running mode until the blade parks.
 Wind direction is a compass bearing (where it comes from), with Random before 0 degrees; 360 is also north. Wind speed is
 0–100 km/h, with Random before 0. Random is resolved once for each Play. Air temperature (-30–50 °C) and road temperature
 (-30–80 °C) are independent sliders, initially 20 °C and 26 °C. Play writes both to the session. The Map2Lap controller

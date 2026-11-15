@@ -67,6 +67,18 @@ local function windscreenSnowAmount(amount)
   local reduced = amount > 0.65 and 0.65 or amount > 0.3 and 0.3 or amount * 0.8
   return reduced, reduced * (reduced > 0.3 and (450 / 0.65) or (150 / 0.3))
 end
+
+-- Effective front-glass snow flux from signed incoming normal speed in m/s. Pure.
+local function windscreenSnowExposure(normalSpeed)
+  -- A visual flutter approximation: 0.35 m/s of recirculating flakes still reaches the glass in a
+  -- tailwind. A 1 m/s spread rounds the zero-crossing; the existing 5 m/s flux limit is approached
+  -- smoothly, so accelerating past the rear wind does not suddenly cover the pane. This is not a
+  -- body-airflow simulation: it cannot reproduce actual wakes around roofs or open cockpits.
+  local flutter, spread, limit = 0.35, 1, 5
+  local incoming = 0.5 * (normalSpeed + sqrt(normalSpeed * normalSpeed + 4 * spread * spread))
+  return flutter + (limit - flutter) * incoming / (incoming + limit - flutter)
+end
+
 local function snowWindPatches(dt, speed, state)
   -- Tangential vehicle airflow must overcome adhesion first; use the side panes' existing 4 m/s threshold.
   if speed <= 4 then state.gustBudget = 0; return 0 end
@@ -770,6 +782,17 @@ local function localBox(meshRef, w2l)
   return vec3(mnx, mny, mnz), vec3(mxx, mxy, mxz)
 end
 
+-- Candidate pane from mesh bounds in the rendered car frame and driver eye position. Pure.
+local function sidePaneCandidate(mesh, mn, mx, eyes)
+  local cx, cz, width = (mn.x + mx.x) / 2, (mn.z + mx.z) / 2, mx.x - mn.x
+  local front = cz > eyes.z + 0.1 and math.abs(cx) < 0.3 and width > 0.6
+  -- A closed side pane is narrow across the car, tall and long. An open door can fail this shape;
+  -- callers must retry after it closes rather than treating the missing pane as permanent.
+  if not front and math.abs(cx) > 0.35 and width < 0.4 and mx.y - mn.y > 0.2 and mx.z - mn.z > 0.35 then
+    return {mesh = mesh, lo = mn, hi = mx, sign = cx > 0 and 1 or -1, area = (mx.y - mn.y) * (mx.z - mn.z)}
+  end
+end
+
 -- Discovery runs from the first frame whose car transform is finite: at script load the car is not placed yet.
 function glass.setup()
   local car = ac.getCar(0)
@@ -794,13 +817,10 @@ function glass.setup()
     -- windows share the shader; of several front layers (inner/outer glass) the widest one is drawn.
     local front = cz > eyes.z + 0.1 and math.abs(cx) < 0.3 and w > 0.6
     if front and w > width then chosen, lo, hi, width = m, mn, mx, w end
-    -- Side panes are tall, long along the car and offset from its centre. Keep the largest pane per side,
-    -- avoiding duplicate inner/outer layers and rear glass. Discovery stays a one-off scene traversal.
-    local area = (mx.y - mn.y) * (mx.z - mn.z)
-    if not front and math.abs(cx) > 0.35 and w < 0.4 and mx.y - mn.y > 0.2 and mx.z - mn.z > 0.35 then
-      local sign = cx > 0 and 1 or -1
-      local old = sideCandidates[sign]
-      if not old or area > old.area then sideCandidates[sign] = {mesh = m, lo = mn, hi = mx, sign = sign, area = area} end
+    local candidate = sidePaneCandidate(m, mn, mx, eyes)
+    if candidate then
+      local old = sideCandidates[candidate.sign]
+      if not old or candidate.area > old.area then sideCandidates[candidate.sign] = candidate end
     end
     if front or (glass.tries or 0) % 100 == 0 then ac.log(string.format('M2L_GLASS mesh %s box=%s..%s front=%s', found:name(i), tostring(mn), tostring(mx), tostring(front))) end
   end
@@ -867,29 +887,42 @@ function glass.setup()
     return true
   end
   local x0, xw, s0, sw = glass.x0, glass.xw, glass.s0, glass.sw
-  for _, side in pairs(sideCandidates) do
-    local mn, mx = side.lo, side.hi
-    local dx, dy = mx.x - mn.x, mx.y - mn.y
-    local len = sqrt(dx * dx + dy * dy)
-    side.ty, side.tx = dy / len, -side.sign * dx / len
-    side.sc = mn.y * side.ty + (side.sign > 0 and mx.x or mn.x) * side.tx
-    side.x0, side.xw, side.s0, side.sw = mn.z - 0.02, mx.z - mn.z + 0.04, -0.02, len + 0.04
-    side.step, side.activeUntil, side.gustBudget = 0, 0, 0
-    side.random = side.sign > 0 and 17311 or 65357
-    glass.sides[#glass.sides + 1] = side
+  local function addSidePanes(candidates)
+    local added, known = {}, {}
+    for _, side in ipairs(glass.sides) do known[side.sign] = true end
+    for sign, side in pairs(candidates) do
+      if not known[sign] then
+        local mn, mx = side.lo, side.hi
+        side.centre = (mn + mx) * 0.5
+        local dx, dy = mx.x - mn.x, mx.y - mn.y
+        local len = sqrt(dx * dx + dy * dy)
+        side.ty, side.tx = dy / len, -side.sign * dx / len
+        side.sc = mn.y * side.ty + (side.sign > 0 and mx.x or mn.x) * side.tx
+        side.x0, side.xw, side.s0, side.sw = mn.z - 0.02, mx.z - mn.z + 0.04, -0.02, len + 0.04
+        side.step, side.activeUntil, side.gustBudget = 0, 0, 0
+        side.random = side.sign > 0 and 17311 or 65357
+        side.number = #glass.sides + 2 -- Pane 1 is the windscreen, including delayed discovery.
+        glass.sides[#glass.sides + 1] = side
+        added[#added + 1] = side
+        ac.log('M2L_GLASS side pane=' .. side.sign .. ' mesh=' .. side.mesh:name())
+      end
+    end
+    return added
   end
+  -- The driver's door is open in AC's starting menu (e.g. BMW E30). Its closed chart is not ready yet.
+  addSidePanes(car.isDriverDoorOpen and {} or sideCandidates)
   if DEBUG then ac.log('M2L_GLASS side panes=' .. #glass.sides) end
 
   -- Sample the car's actual triangles once, in the SAME X/S coordinates used by the field and blades.
   -- N is depth normal to that chart. Its derivatives let Rust project gravity/vehicle airflow onto the
   -- curved surface instead of steering water along a single flat plane or toward a screen-space point.
-  local function sampleSurface(pane, front, number)
+  local function sampleSurface(pane, front, number, frameInverse)
     local vb, ib = pane.mesh:getVertices(), pane.mesh:getIndices()
     if not vb or not ib then return nil end
     local transform = pane.mesh:getParent():getWorldTransformationRaw()
     local points, triangles = {}, {}
     for i = 0, #vb - 1 do
-      local q = w2l:transformPoint(transform:transformPoint(vb.raw[i].pos))
+      local q = (frameInverse or w2l):transformPoint(transform:transformPoint(vb.raw[i].pos))
       if front then
         points[i] = {q.x, q.y * pane.ty + q.z * pane.tz - pane.sc, -q.y * pane.tz + q.z * pane.ty}
       else
@@ -968,6 +1001,45 @@ function glass.setup()
     local ok, surface = pcall(sampleSurface, pane, i == 1, i)
     if ok then pane.surface = surface
     elseif DEBUG then ac.log('M2L_RAIN_SURFACE unavailable: ' .. tostring(surface)) end
+  end
+  local sideScanClock, previousSides = 0, {}
+  local function refreshSidePanes(dt, currentCar)
+    if #glass.sides >= 2 then return end
+    if currentCar.isDriverDoorOpen then sideScanClock, previousSides = 0, {}; return end
+    sideScanClock = sideScanClock + dt
+    -- Poll cached glass references at 4 Hz, not the whole scene. Two settled samples avoid freezing
+    -- the chart halfway through the closing animation. Cars without side panes need no special case.
+    if sideScanClock < 0.25 then return end
+    sideScanClock = 0
+    local inverse = root:getWorldTransformationRaw():inverse()
+    local candidates, settled = {}, {}
+    for i = 1, #found do
+      local mesh = found:at(i)
+      local mn, mx = localBox(mesh, inverse)
+      local candidate = sidePaneCandidate(mesh, mn, mx, currentCar.driverEyesPosition)
+      if candidate then
+        local old = candidates[candidate.sign]
+        if not old or candidate.area > old.area then candidates[candidate.sign] = candidate end
+      end
+    end
+    for sign, candidate in pairs(candidates) do
+      local old, stable = previousSides[sign], true
+      for _, bound in ipairs({'lo', 'hi'}) do
+        for _, axis in ipairs({'x', 'y', 'z'}) do
+          -- 5 mm tolerates float roundoff of world transforms kilometres from the origin; it does
+          -- not accept the centimetres of movement while a door is still swinging shut.
+          if not old or math.abs(candidate[bound][axis] - old[bound][axis]) > 0.005 then stable = false end
+        end
+      end
+      if stable then settled[sign] = candidate end
+    end
+    previousSides = candidates
+    for _, pane in ipairs(addSidePanes(settled)) do
+      local ok, surface = pcall(sampleSurface, pane, false, pane.number, inverse)
+      if ok then pane.surface = surface
+      elseif DEBUG then ac.log('M2L_RAIN_SURFACE unavailable: ' .. tostring(surface)) end
+      if rustRain then rustRain.panes[#rustRain.panes + 1] = pane end
+    end
   end
   glass.fieldA = ui.ExtraCanvas(vec2(FIELD_W, FIELD_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L glass A')
   glass.fieldB = ui.ExtraCanvas(vec2(FIELD_W, FIELD_H), 1, render.TextureFormat.R16G16B16A16.Float):setName('M2L glass B')
@@ -1178,12 +1250,14 @@ function glass.setup()
   end
 
   local function updateBlades(dt, w2l)
-    -- A parked blade vibrates with the engine/body. Only a changing native wiper phase can sweep or push
-    -- snow: scene-transform jitter alone otherwise draws a false ridge when the driver revs the engine.
+    -- A parked blade's native phase can drift with vehicle motion even when mode and speed are zero.
+    -- Require the running mode as well as phase movement: otherwise body jolts paint persistent snow
+    -- ridges. wiperMode (not wiperSelectedMode) stays active during the final return stroke after Off.
     if glass.bladeTime == elapsed then return glass.anyActive or false end
     glass.bladeTime = elapsed
-    local progress = ac.getCar(0).wiperProgress
-    local phaseMoved = glass.bladeProgress ~= nil and math.abs(progress - glass.bladeProgress) > 1e-6
+    local car = ac.getCar(0)
+    local progress = car.wiperProgress
+    local phaseMoved = car.wiperMode > 0 and glass.bladeProgress ~= nil and math.abs(progress - glass.bladeProgress) > 1e-6
     glass.bladeProgress = progress
     local anyActive = false
     for _, blade in ipairs(glass.blades) do
@@ -2087,6 +2161,7 @@ function glass.setup()
   function glass.update(dt)
     dt = min(dt, 0.1)
     local car = ac.getCar(0)
+    refreshSidePanes(dt, car)
     -- The car's root node, not the physics state: blade nodes and the glass mesh hang under it, so their
     -- positions stay consistent to the millimetre at speed (the physics transform lags the scene by a step).
     local rootM = glass.root:getWorldTransformationRaw()
@@ -2130,11 +2205,12 @@ function glass.setup()
     local melt = 0.004 + 0.05 * heat + max(0, ambient) * 0.004
     -- Snow on the glass, a coarse estimate for the ridge ahead of a blade: deposits raise it, sweeps and melt lower it.
     local frontSnowRate, frontSnowFlux = windscreenSnowAmount(snowRate)
-    local snowImpact = WINDSCREEN_SNOW and frontSnowRate * min(impinge, 5) or 0
+    local snowExposure = windscreenSnowExposure(-((ay - 1.2) * -tz + az * ty))
+    local snowImpact = WINDSCREEN_SNOW and frontSnowRate * snowExposure or 0
     -- Keep the side panes' original 150/450/700 baseline. The front pane uses 120/150/450 instead.
-    -- Both scale with incoming normal velocity; falling snow outside uses its separate particle budgets.
+    -- The front blends direct impact with flutter; falling snow outside uses its separate particle budgets.
     local snowFlux = snowRate * (snowRate > 0.65 and 700 or snowRate > 0.3 and (450 / 0.65) or (150 / 0.3))
-    local clumpsPerSecond = WINDSCREEN_SNOW and frontSnowFlux * min(impinge, 5) or 0
+    local clumpsPerSecond = WINDSCREEN_SNOW and frontSnowFlux * snowExposure or 0
     -- The ridge estimate follows incoming flux, independently of how many visual clumps represent it.
     snowOnGlass = max(0, min(1, snowOnGlass + snowImpact * dt / 12 - melt * dt - (anyActive and snowOnGlass * dt * 1.5 or 0)))
     if rainAmount > 0 or snowRate > 0 or anyActive then wetUntil = elapsed + 150 end
@@ -2282,13 +2358,21 @@ function glass.setup()
         side.pass.textures.txField = side.read
         side.pass.textures.txRainDome = side.rainCanvas or false
         side.pass.textures.txSceneCopy = rustRain.scene or false
-        -- Coat the outer surface, 4 mm beyond the original pane, so the inner door/window trim occludes
-        -- its edge. Reusing the inner glass position made clumps appear pasted onto the cabin side.
+        -- ksWindscreen can write depth (e.g. the Lotus Elise side panes). An always-outward coating
+        -- lies behind that depth from the cockpit and disappears. Keep it on the viewer's side, with
+        -- depth testing still enabled so doors and trim occlude it. Outside retains the 4 mm glass
+        -- thickness approximation; inside needs only 0.5 mm to avoid coplanar depth flicker. Larger
+        -- inward offsets make deposits overlap trim; unusually separated glass layers need actual geometry.
         local sm = side.drawTransform:set(side.parent:getWorldTransformationRaw())
-        local offset = 0.004 * side.sign
-        sm.row4.x = sm.row4.x + (m.row1.x * side.ty - m.row2.x * side.tx) * offset
-        sm.row4.y = sm.row4.y + (m.row1.y * side.ty - m.row2.y * side.tx) * offset
-        sm.row4.z = sm.row4.z + (m.row1.z * side.ty - m.row2.z * side.tx) * offset
+        local nx = (m.row1.x * side.ty - m.row2.x * side.tx) * side.sign
+        local ny = (m.row1.y * side.ty - m.row2.y * side.tx) * side.sign
+        local nz = (m.row1.z * side.ty - m.row2.z * side.tx) * side.sign
+        local centre, camera = m:transformPoint(side.centre), sim.cameraPosition
+        local facing = (camera.x - centre.x) * nx + (camera.y - centre.y) * ny + (camera.z - centre.z) * nz
+        local offset = facing >= 0 and 0.004 or -0.0005
+        sm.row4.x = sm.row4.x + nx * offset
+        sm.row4.y = sm.row4.y + ny * offset
+        sm.row4.z = sm.row4.z + nz * offset
         render.mesh(side.pass)
       end
     end
