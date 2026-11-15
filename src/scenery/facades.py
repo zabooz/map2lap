@@ -185,9 +185,9 @@ LIT_EVERY = 5                   # one window in this many is lit
 
 def _is_lit(level, k):
     """Whether window number k of a sheet is lit at night at a brightness level. By a rule, not a hash: a band has only 3 to 5 windows,
-    and a hash lit half of them or none. The 4 puts the first sash window, which every single window laid on a plain wall shows
-    (mesh.WIN_UV), at one level: a third of such houses are lit. Pure."""
-    return (k + 2 * level + 4) % LIT_EVERY == 0
+    and a hash lit half of them or none. The first panel window (index 3, mesh.WIN_UV) lights at level 1.
+    White window vertex colours clamp at 255 before export, so they reach levels 0 and 1, never 2. Pure."""
+    return (k + 2 * level) % LIT_EVERY == 0
 
 
 def window_glow(kind, level):

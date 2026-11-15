@@ -387,6 +387,9 @@ def shape_parts(path, pos):
         arr = cdae.mesh_arrays(m)
         P = arr["verts"].astype(np.float64) + np.asarray(pos, np.float64)
         UV = arr["tverts"].astype(np.float64)
+        # Compiled Torque shapes store V down. OBJ uses V up; mesh_nodes converts that once to AC's V down.
+        # Passing tverts through unchanged swapped the facade bands (four windows sampled on a five-bay wall).
+        UV[:, 1] = 1.0 - UV[:, 1]
         n_col, _, col_data = m["colors"]
         C = np.frombuffer(col_data, np.uint8).reshape(-1, 4) if n_col == len(P) else None
         for start, count, mat in arr["primitives"]:

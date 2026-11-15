@@ -56,12 +56,40 @@ def oriented_box(p):
 
 # ------------------------------------------------------------------------------------------- the model
 
+def roof_box(ring, direction=None, orientation=None):
+    """Roof frame around the drawn rectangle; bearing clockwise from north. Pure.
+    Explicit bearing wins over along/across; the wall footprint itself never rotates."""
+    c, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    if direction is not None and np.isfinite(direction) and 0 <= direction < 360:
+        corners = np.array([c + u * s * hl + v * t * hw for s, t in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+        angle = np.radians(direction)
+        u = np.array([np.sin(angle), np.cos(angle)])
+        v = np.array([-u[1], u[0]])
+        hl, hw = np.max(np.abs((corners - c) @ u)), np.max(np.abs((corners - c) @ v))
+    elif orientation == "across":
+        u, hl, hw = v, hw, hl
+    return c, u, hl, hw
+
+
+def skillion_axis(ring, direction=None, orientation=None):
+    """Downhill unit vector and full wall-to-wall span of a single-pitch roof. Pure.
+    For a roof without a ridge, the direction follows runoff (OSM roof:direction)."""
+    _, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    if direction is not None:
+        angle = np.radians(direction)
+        down = np.array([np.sin(angle), np.cos(angle)])
+    else:
+        down = u if orientation == "across" else v
+    return down, 2 * (abs(float(down @ u)) * hl + abs(float(down @ v)) * hw)
+
 
 class Spec:
     """What is built for one footprint (decided by plan())."""
     __slots__ = ("ring", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "band", "shop", "plain", "min_h", "wall", "door", "windows", "front", "steeple", "stoop",
                  "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names", "plates", "plate",
-                 "castle", "toll")
+                 "castle", "toll", "facade_pattern", "roof_height", "roof_direction", "roof_orientation")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -83,11 +111,12 @@ class Style:
     Coarse boxes by region until a facade-material map; the US ones keep their earlier behaviour."""
 
     def __init__(self, name, brick, walls, porch, flat, hipped, roofs, pitch=None, paint=0.3, wall_tints=None,
-                 wood=False, attached=0.0, barn_red=0.0, stone=0.0):
+                 wood=False, attached=0.0, barn_red=0.0, stone=0.0, facade_pattern=None):
         self.name, self.brick, self.walls, self.porch, self.flat = name, brick, walls, porch, flat
         self.barn_red, self.stone = barn_red, stone
         self.hipped, self.roofs, self.pitch, self.paint, self.wall_tints = hipped, roofs, pitch, paint, wall_tints
         self.wood, self.attached = wood, attached
+        self.facade_pattern = facade_pattern
 
 
 _US_ROOFS = ((ROOF_SLATE, (0, 1, 2, 3)), (ROOF_SHINGLE, (0, 1, 2, 3)))
@@ -171,6 +200,12 @@ def brick_share(lat, lon):
 def roof_pitch(spec):
     """The roof pitch (degrees) of a Spec: its region's, else PITCH."""
     return spec.pitch or PITCH.get(spec.roof, PITCH["gabled"])
+
+
+def shed_count(span):
+    """Number of repeated roof bays across span metres. Pure."""
+    # A 6 m nominal structural bay is an appearance default without mapped spacing; cap repetition for mesh cost.
+    return max(2, min(8, round(span / 6.)))
 
 
 def tree_line_m(lat):

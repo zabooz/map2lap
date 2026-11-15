@@ -15,7 +15,7 @@ import generator  # noqa: E402,F401  (sets the engine's path)
 import fast  # noqa: E402
 from buildings import looks  # noqa: E402
 from scenery import facades  # noqa: E402
-from track import make_track_folder  # noqa: E402
+from track import make_obj, make_track_folder  # noqa: E402
 
 WALL = (150, 150, 150)
 GLASS = {facades.GLASS, facades.GLASS_HI}
@@ -66,8 +66,21 @@ class MaskTest(unittest.TestCase):
             self.assertEqual(1, sum(bool(mask[600, facades.sheet_windows()[k][0] + 20]) for k in sash))
 
     def test_houses_of_single_windows_light_at_some_brightness(self):
-        x0, y0, x1, y1, _ = next(w for w in facades.sheet_windows() if w[1] == 548)     # (mesh.WIN_UV: the first sash window)
+        x0, y0, x1, y1, _ = next(w for w in facades.sheet_windows() if w[1] == facades.WIN_Y[0])
         self.assertTrue(any(glow("fac", level)[y0 + 40, x0 + 20] for level in range(facades.GLOW_LEVELS)))
+
+    def test_exported_white_window_materials_include_lit_and_unlit_houses(self):
+        # White vertex colours clamp at 255: the brightest material level cannot be reached.
+        p = np.array([[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]])
+        t = np.array([[0, 1, 2]])
+        states = set()
+        masks = [glow("fac", level) for level in range(facades.GLOW_LEVELS)]
+        for seed in np.linspace(0., 1., 50):
+            _, rgba = looks._Looks(float(seed))["bne_bld_fac_white"]
+            material = next(iter(make_obj.bld_split(p, t, np.tile(rgba, (3, 1)), "fac")))
+            level = int(material.rsplit("_", 1)[1])
+            states.add(bool(masks[level][facades.WIN_Y[0] + 20, facades.WIN_X[0] + 20]))
+        self.assertEqual(states, {False, True})
 
     def test_each_brightness_has_its_own_pattern(self):
         self.assertTrue((glow("fac", 0) != glow("fac", 1)).any())

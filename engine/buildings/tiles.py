@@ -91,7 +91,8 @@ class _PartsOf:
         e, n = mapgeom.enu_xy(f, self.frame, outer)
         a = f.attrs
         # (its own roof shape and mapped colours: hudsontadams')
-        own = {k: (a[k][i] if k in a else None) for k in ("roof_shape", "facade_color", "roof_color")}
+        own = {k: (a[k][i] if k in a else None) for k in
+               ("roof_shape", "roof_height", "roof_direction", "roof_orientation", "facade_color", "roof_color")}
         return np.stack([e, n], 1), _part_heights(a, i), own
 
     def get(self, bid, default=None):
@@ -194,7 +195,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                 if h_ < min_size[0] and abs(float(np.dot(e[:-1], n[1:]) - np.dot(e[1:], n[:-1]))) / 2 < min_size[1]:
                     continue
             at = {k: (a[k][i] if k in a else None) for k in
-                  ("class", "height", "num_floors", "min_height", "roof_shape", "roof_height", "name",
+                  ("class", "height", "num_floors", "min_height", "roof_shape", "roof_height", "roof_direction", "roof_orientation", "name",
                    "facade_material", "facade_color", "roof_material", "roof_color")}
             if key is not None:         # (plan's random choices keyed on the feature, not where the anchor puts it)
                 at["seed_id"] = str(key)
@@ -226,6 +227,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                     p_rcol = pat.get("roof_color") or at.get("roof_color")
                     attrs.append({"class": at["class"], "height": ph, "num_floors": None,
                                   "roof_shape": p_rshape,
+                                  "roof_height": pat.get("roof_height"), "roof_direction": pat.get("roof_direction"),
+                                  "roof_orientation": pat.get("roof_orientation"),
                                   "building_height": top, "facade_material": at.get("facade_material"),
                                   "facade_color": p_fcol,
                                   "roof_material": at.get("roof_material"),

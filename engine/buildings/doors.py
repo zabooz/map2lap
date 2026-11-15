@@ -6,6 +6,7 @@ import numpy as np
 import fast
 
 from .looks import BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, CHURCH_CLASSES, METALWALL, _hash01
+from .facade import entrance_position
 from .mesh import PORCH_DECK_M, STOOP_H, _inside, door_ground, drawn_ring
 from .places import castle_boxes, use_data, worship_boxes
 from .garages import DRIVEWAY, DRIVEWAY_W
@@ -27,7 +28,7 @@ MAIN_STREET_SHOPS = 0.75     # the share of such buildings that do
 
 def doors(items, lines, x0, y0, drives=None):
     """Prop rows (trees.lua rows, group "door") of a front door per house: on the wall whose middle is
-    nearest a road and faces it, a row house's to one side, others' in the middle. lines: [(centreline
+    nearest a road and faces it, aligned to a facade axis near its preferred entrance position. lines: [(centreline
     (k, 2) in the anchor frame, half width[, class, urban])]. A building close to an urban main street gets
     a shopfront ground floor instead (spec.shop, most of them). drives (a list) gets a driveway chunk (road
     tile chunk dicts, draped by roadmesh) from each detached house's front to the road's edge."""
@@ -114,6 +115,10 @@ def doors(items, lines, x0, y0, drives=None):
             continue
         narrow = Le < 9.0
         f = (0.22 if _hash01(spec.seed, "door") < 0.5 else 0.78) if narrow else 0.5
+        position = entrance_position(spec, Le, f)
+        if position is None:
+            continue
+        f = position / Le
         spec.door = (edge, Le * f)          # _walls leaves the ground floor's band plain there
         # brick row houses (an eastern city's): white marble steps up to the door
         if narrow and spec.band == BAND_BRICK and spec.roof == "flat" and _hash01(spec.seed, "stoop") < STOOP_SHARE:
@@ -136,7 +141,8 @@ def doors(items, lines, x0, y0, drives=None):
             rows.extend(_front_fence(spec, a, d, Le, f, A[kseg], D[kseg], L2[kseg], SHALF[kseg], gmin,
                                      drives is not None and spec.wall and Le >= 7.0, (A, B, SHALF)))
         p = a + d * (Le * f) + out * DOOR_OUT_M
-        gd = door_ground(spec, edge, Le * f, gmax) if spec.stoop else gmax     # a stoop's door: over its own ground
+        # On a slope the entrance can be in the exposed basement. The uphill corner must not lift it into midair.
+        gd = door_ground(spec, edge, Le * f, gmax)
         base = gd + (STOOP_H if spec.stoop else 0.0) + (PORCH_DECK_M if spec.porch else 0.0)   # (the deck / stoop)
         rows.append([G_DOOR, round(float(p[0]), 2), round(float(p[1]), 2), round(base, 2),
                      round(math.degrees(math.atan2(d[1], d[0])) % 360.0, 1), 1.0, 2.2,

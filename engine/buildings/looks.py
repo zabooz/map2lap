@@ -21,7 +21,12 @@ SIMPLIFY_M = 0.35           # m: vertices closer than this to the line of their 
 TILE_PX_M = 12.0            # m of wall per 1024 px of the window sheets (5 sash bays of 2.4 m)
 ROOF_UV_M = 6.0             # m per repeat of the roof textures
 SIDING_UV_M = 3.0           # m per repeat of the plain wall textures (sheds, garages)
-PITCH = {"gabled": 32.0, "hipped": 26.0}     # degrees
+PITCH = {"gabled": 32.0, "half_hipped": 32.0, "hipped": 26.0, "pyramidal": 26.0,
+         "mansard": 32.0, "gambrel": 32.0, "saltbox": 32.0, "round": 45.0, "dome": 45.0,
+         "onion": 60.0, "spherical": 60.0, "sawtooth": 20.0, "skillion": 15.0}
+# Degrees: clipped gables retain the gable pitch; pyramid sides share the hip fallback.
+SALTBOX_OFFSET = .3        # Fraction of half-span: 65/35 roof runs without mapped ridge offset or eave heights.
+SHED_LONG_SHARE = .8       # Long roof slope versus steep return, without mapped sawtooth pitch/run dimensions.
 EAVE_M = 0.35               # m a pitched roof overhangs its walls
 CORNICE_OUT_M = 0.28        # a flat roof's cornice: how far it stands out, its depth below and above the eave
 CORNICE_DOWN_M = 0.45

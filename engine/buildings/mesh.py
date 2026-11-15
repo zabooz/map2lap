@@ -8,10 +8,11 @@ import fast
 from .looks import (
     BANDS, BAND_SHOP, BLADE_CAP_M, BLADE_T, BLADE_W, CHURCH_CLASSES, CORNICE_DOWN_M, CORNICE_OUT_M, CORNICE_UP_M,
     EAVE_M, FOUNDATION_M, GREEN_CROSS, GROUND_FLOOR_SHOP_M, HALL_CAP_M, HALL_CAP_SHARE, HALL_CLEAR_M, KEEP_SIDE, MERLON,
-    PANEL_CAP, PANEL_H, PITCH, PLATE_H, PLATE_TOP_M, PLATE_W, ROOF_SLATE, ROOF_UV_M, SHOP, SIDING_UV_M, SIGN_CAP,
+    PANEL_CAP, PANEL_H, PITCH, PLATE_H, PLATE_TOP_M, PLATE_W, ROOF_SLATE, ROOF_UV_M, SALTBOX_OFFSET, SHED_LONG_SHARE, SHOP, SIDING_UV_M, SIGN_CAP,
     SIGN_H, SIGN_MARGIN_M, SIGN_OUT, SIGN_SHOP_M, SIGN_TINTS, SYMBOL_IN_M, SYMBOL_M, TILE_PX_M, _hash01
 )
-from .styles import _area2, oriented_box, roof_pitch, triangulate
+from .styles import _area2, oriented_box, roof_box, roof_pitch, shed_count, skillion_axis, triangulate
+from .facade import DOOR_GAP_M, HOUSE_BAY_M, bay_width, pattern_for, require_layout
 
 
 OVER_TUNNEL_CLEAR_M = 7.5   # (the tube's vault is roadmesh.TUNNEL_H = 6.8 m over the floor;: Eisenhower's
@@ -105,11 +106,9 @@ class Mesh:
                 np.array(self.C, np.uint8).reshape(-1, 4))
 
 
-# A sash window cut from the plaster sheet (band 2, bay 0, its sill included): u, v ranges (Collada v up)
-WIN_UV = (53 / 1024, 154 / 1024, 1.0 - (512 + 238) / 1024, 1.0 - (512 + 45) / 1024)
+# A panel window cut from the plaster sheet (band 1, bay 0): u, v ranges (mesh V up).
+WIN_UV = (53 / 1024, 154 / 1024, 1.0 - 467 / 1024, 1.0 - 274 / 1024)
 WIN_W, WIN_H, WIN_SILL = 1.05, 1.75, 0.85   # m
-HOUSE_BAY_M = 3.4           # m between a house's windows
-DOOR_GAP_M = 0.75           # m each side of a front door kept free of the ground floor's windows
 WIN_OUT_M = 0.03            # m the window stands proud of its wall
 _WALL_CONSTS = None
 
@@ -125,16 +124,19 @@ def _walls(m, spec, ring, z0, z_eave, mat_idx, lite=False):
         _WALL_CONSTS = [float(v) for v in (SIDING_UV_M, TILE_PX_M, FOUNDATION_M, BANDS, BAND_SHOP[0], BAND_SHOP[1],
                                            DOOR_GAP_M, PLAIN_STRIP, GROUND_FLOOR_SHOP_M, WIN_OUT_M, HOUSE_BAY_M,
                                            *WIN_UV, WIN_W, WIN_H, WIN_SILL)]
-    fast.require(76, "building_walls")
+    require_layout()
     band = spec.band or (0, 1)
     good = list(band[2]) if len(band) > 2 else []
     door = spec.door
+    constants = _WALL_CONSTS.copy()
+    constants[6] = pattern_for(spec).door_clearance_m
+    constants.append(bay_width(spec))
     P, UV, mid = fast._ef.building_walls(
         np.ascontiguousarray(np.asarray(ring, np.float64)[:, :2]), float(z0), float(z_eave), bool(spec.wall),
         bool(spec.plain), int(band[0]), int(band[1]), [int(g) for g in good], int(spec.floors), float(spec.floor_h),
         bool(spec.shop), int(door[0]) if door else -1, float(door[1]) if door else 0.0, spec.roof == "flat",
         float(spec.seed) if isinstance(spec.seed, float) else 0.0, spec.windows is False,
-        int(spec.front) if spec.front is not None else -1, bool(lite), _WALL_CONSTS)
+        int(spec.front) if spec.front is not None else -1, bool(lite), constants)
     if mid:
         m.quads(P, UV, mid, [mat_idx[spec.facade], mat_idx[SHOP] if (spec.shop or spec.wall) else None,
                              mat_idx["bne_bld_fac_white"] if spec.wall else None])
@@ -417,6 +419,7 @@ def _porch(m, spec, base, mat_idx):
     """A front porch on the front door's wall (spec.door: (edge, distance along it) of spec.ring): a deck, three
     posts and a shallow roof, the house's trim white and its roof's colour."""
     edge, sd = spec.door
+    base = door_ground(spec, edge, sd, base)
     ring = drawn_ring(spec)
     a, b = ring[edge], ring[(edge + 1) % len(ring)]
     L = float(math.hypot(*(b - a)))
@@ -438,17 +441,22 @@ def _porch(m, spec, base, mat_idx):
 
 
 def door_ground(spec, edge, along, gmax):
-    """The ground at a point `along` m on edge `edge` of the footprint (its corners' ground, spec.gring), or gmax
-    when not known: a row house's door and steps (from the footprint's highest ground, its back yard's on a slope,
-    the steps on Bradford Street stood 1.5 m over the sidewalk, five or six of them; Mapillary: one or two)."""
+    """Estimate ground at a drawn wall's entrance from the nearest mapped edge's corner heights; gmax if absent.
+    Pure. Pitched roofs use an oriented box whose edge numbers need not match the mapped footprint."""
     g = getattr(spec, "gring", None)
     ring = spec.ring
     if g is None or len(g) != len(ring):
         return gmax
-    a, b = ring[edge], ring[(edge + 1) % len(ring)]
+    drawn = drawn_ring(spec)
+    a, b = drawn[edge], drawn[(edge + 1) % len(drawn)]
     L = float(math.hypot(*(b - a)))
     t = 0.0 if L < 1e-6 else min(max(along / L, 0.0), 1.0)
-    return float(g[edge] + t * (g[(edge + 1) % len(ring)] - g[edge]))
+    p = a + t * (b - a)
+    delta = np.roll(ring, -1, axis=0) - ring
+    fractions = np.clip(((p - ring) * delta).sum(1) / np.maximum((delta * delta).sum(1), 1e-12), 0., 1.)
+    nearest = ring + fractions[:, None] * delta
+    k = int(((nearest - p) ** 2).sum(1).argmin())
+    return float(g[k] + fractions[k] * (g[(k + 1) % len(ring)] - g[k]))
 
 
 def _stoop(m, spec, ring, gmin, base, mat_idx):
@@ -589,7 +597,435 @@ def _clutter(m, spec, ring, z_eave, mat_idx):
         _box(m, p, u, hx, hy, z_eave, z_eave + h, mat)
 
 
+def _clip_roof(points, ring):
+    """Clip a planar roof polygon to the wall box plus eaves, preserving Z. Pure."""
+    c, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    polygon = [np.asarray(p, float) for p in points]
+    for axis, bound in ((u, hl + EAVE_M), (-u, hl + EAVE_M), (v, hw + EAVE_M), (-v, hw + EAVE_M)):
+        clipped = []
+        for a, b in zip(polygon, polygon[1:] + polygon[:1]):
+            da, db = float((a[:2] - c) @ axis - bound), float((b[:2] - c) @ axis - bound)
+            if da <= 1e-9:
+                clipped.append(a)
+            if (da < -1e-9 and db > 1e-9) or (db < -1e-9 and da > 1e-9):
+                clipped.append(a + (b - a) * da / (da - db))
+        polygon = clipped
+        if not polygon:
+            break
+    return polygon
+
+
+ATTIC_WINDOW_M = .8         # Small square openings; larger inhabited floors need a different facade pattern.
+ATTIC_SILL_M = .6           # Above the attic floor datum, not above terrain; this is an optional visual assumption.
+ATTIC_CLEAR_M = .25         # Masonry between frame and roof/corner; omit openings in narrower wall caps.
+
+
+def _attic_windows(m, spec, ring, z_eave, planes, mat_idx):
+    """Add optional small windows on regular facade axes, fully below every roof plane."""
+    if not pattern_for(spec).attic_windows or spec.windows is False or spec.plain:
+        return
+    require_layout()
+    bottom, top = z_eave + ATTIC_SILL_M, z_eave + ATTIC_SILL_M + ATTIC_WINDOW_M
+    half = ATTIC_WINDOW_M / 2
+    u0, u1, v0, v1 = WIN_UV
+    for edge, (a, b) in enumerate(zip(ring, np.roll(ring, -1, axis=0))):
+        length = float(np.linalg.norm(b - a))
+        if length < ATTIC_WINDOW_M + 2 * ATTIC_CLEAR_M:
+            continue
+        count, _ = fast._ef.facade_layout(length, bay_width(spec), bool(spec.wall))
+        d = (b - a) / length
+        out = np.array([d[1], -d[0]]) * WIN_OUT_M
+        for i in range(count):
+            along = length * (i + .5) / count
+            if min(along, length - along) < half + ATTIC_CLEAR_M:
+                continue
+            left, right = a + d * (along - half) + out, a + d * (along + half) + out
+            if min(float(p @ n + h) for p in (left, right) for n, h in planes) < top + ATTIC_CLEAR_M:
+                continue
+            # Same panel-bay choice as Rust's ordinary windows; the attic follows the last regular storey.
+            shift = int(_hash01(float(spec.seed), edge, int(spec.floors), i) * 4) / 4
+            m.quad((*left, bottom), (*right, bottom), (*right, top), (*left, top),
+                   (u0 + shift, v0), (u1 + shift, v0), (u1 + shift, v1), (u0 + shift, v1),
+                   mat_idx["bne_bld_fac_white"])
+
+
+def _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx, span=None):
+    """Close wall tops beneath the roof planes, including oblique ridges on an unchanged footprint."""
+    mat = mat_idx[spec.facade]
+    uv = ((4 / 1024, .995), (12 / 1024, .995), (12 / 1024, .999), (4 / 1024, .999))
+    for a, b in zip(ring, np.roll(ring, -1, axis=0)):
+        if span is not None:
+            axis, low, high = span
+            start, delta = float(a @ axis), float((b - a) @ axis)
+            if abs(delta) < 1e-9:
+                if not low <= start <= high:
+                    continue
+            else:
+                t0, t1 = sorted(((low - start) / delta, (high - start) / delta))
+                t0, t1 = max(0., t0), min(1., t1)
+                if t1 - t0 < 1e-9:
+                    continue
+                a, b = a + (b - a) * t0, a + (b - a) * t1
+        ha = np.array([float(a @ n + h) for n, h in planes])
+        hb = np.array([float(b @ n + h) for n, h in planes])
+        cuts = [0., 1.]
+        for i in range(len(ha)):
+            for j in range(i):
+                slope = (hb[i] - ha[i]) - (hb[j] - ha[j])
+                if abs(slope) > 1e-9:
+                    t = (ha[j] - ha[i]) / slope
+                    if 0 < t < 1:
+                        cuts.append(float(t))
+        cuts = sorted(set(cuts))
+        for t0, t1 in zip(cuts, cuts[1:]):
+            if t1 - t0 < 1e-9:
+                continue
+            p, q = a + (b - a) * t0, a + (b - a) * t1
+            hp, hq = max(z_eave, float(np.min(ha + (hb - ha) * t0))), max(z_eave, float(np.min(ha + (hb - ha) * t1)))
+            if max(hp, hq) <= z_eave + 1e-7:
+                continue
+            # Each nonzero half is a triangle; zero-height tips must not emit degenerate faces.
+            if hq > z_eave + 1e-7:
+                m.tri((*p, z_eave), (*q, z_eave), (*q, hq), uv[0], uv[1], uv[2], mat)
+            if hp > z_eave + 1e-7:
+                m.tri((*p, z_eave), (*q, hq), (*p, hp), uv[0], uv[2], uv[3], mat)
+    _attic_windows(m, spec, ring, z_eave, planes, mat_idx)
+
+
+def _skillion_roof(m, spec, ring, z_eave, mat_idx):
+    """One sloped quad and its wall caps, with the full mapped rise between the outer roof edges."""
+    c, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    down, span = skillion_axis(ring, spec.roof_direction, spec.roof_orientation)
+    height = spec.roof_height if spec.roof_height is not None else span * math.tan(math.radians(roof_pitch(spec)))
+    xy = np.array([c + u * s * (hl + EAVE_M) + v * t * (hw + EAVE_M)
+                   for s, t in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+    along = xy @ down
+    slope = height / float(np.ptp(along))
+    normal = -down * slope
+    intercept = z_eave + height + float(along.min()) * slope
+    points = [(*p, float(p @ normal + intercept)) for p in xy]
+    uv = [(float((p - c) @ u) * math.hypot(1., float(normal @ u)) / ROOF_UV_M,
+           float((p - c) @ v) * math.hypot(1., float(normal @ v)) / ROOF_UV_M) for p in xy]
+    m.quad(*points, *uv, mat_idx[spec.roof_mat])
+    _roof_wall_caps(m, spec, ring, z_eave, [(normal, intercept)], mat_idx)
+
+
+def _pyramidal_roof(m, spec, ring, z_eave, mat_idx):
+    """Four roof triangles meeting above the box centre, with wall caps under the eaves."""
+    c, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    height = spec.roof_height if spec.roof_height is not None else hw * math.tan(math.radians(roof_pitch(spec)))
+    corners = np.array([c + u * s * (hl + EAVE_M) + v * t * (hw + EAVE_M)
+                        for s, t in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+    apex, planes = (*c, z_eave + height), []
+    for a, b in zip(corners, np.roll(corners, -1, axis=0)):
+        width = float(np.linalg.norm(b - a))
+        inward = c - (a + b) / 2
+        run = float(np.linalg.norm(inward))
+        slope_length = math.hypot(run, height)
+        m.tri((*a, z_eave), (*b, z_eave), apex,
+              (0., 0.), (width / ROOF_UV_M, 0.), (width / (2 * ROOF_UV_M), slope_length / ROOF_UV_M),
+              mat_idx[spec.roof_mat])
+        normal = inward * (height / (run * run))
+        planes.append((normal, z_eave - float(a @ normal)))
+    _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx)
+
+
+def _broken_roof(m, spec, ring, z_eave, mat_idx):
+    """Two pitches per side: hipped mansard or full gabled gambrel, clipped to the wall footprint."""
+    c, u, hl, hw = roof_box(ring, spec.roof_direction, spec.roof_orientation)
+    v = np.array([-u[1], u[0]])
+    height = spec.roof_height if spec.roof_height is not None else hw * math.tan(math.radians(roof_pitch(spec)))
+    hl, hw = hl + EAVE_M, hw + EAVE_M
+    # Without mapped break dimensions, place most rise in a narrow lower slope, leaving a shallow upper roof.
+    # These proportions are an appearance default, not a reconstruction of individual mansard floors.
+    inset, zbreak = min(hl, hw) * .25, z_eave + height * .65
+    gambrel = spec.roof == "gambrel"
+    il, iw, top = hl if gambrel else hl - inset, hw - inset, z_eave + height
+    planes = []
+
+    def at(s, t, z):
+        return np.array([*(c + u * s + v * t), z])
+
+    def face(points):
+        points = [p for i, p in enumerate(points) if np.linalg.norm(p - points[i - 1]) > 1e-9]
+        normal = np.cross(points[1] - points[0], points[2] - points[0])
+        gradient = -normal[:2] / normal[2]
+        planes.append((gradient, float(points[0][2] - points[0][:2] @ gradient)))
+        edge = points[1] - points[0]
+        edge /= np.linalg.norm(edge)
+        across = np.cross(normal / np.linalg.norm(normal), edge)
+        origin = points[0]
+        clipped = _clip_roof(points, ring)
+        clipped = [p for i, p in enumerate(clipped) if np.linalg.norm(p - clipped[i - 1]) > 1e-9]
+        if len(clipped) < 3:
+            return
+        uv = [(float((p - origin) @ edge) / ROOF_UV_M, float((p - origin) @ across) / ROOF_UV_M)
+              for p in clipped]
+        m.poly(clipped, uv, mat_idx[spec.roof_mat])
+
+    signs = ((-1, -1), (1, -1), (1, 1), (-1, 1))
+    outer = [at(s * hl, t * hw, z_eave) for s, t in signs]
+    inner = [at(s * il, t * iw, zbreak) for s, t in signs]
+    for i in ((0, 2) if gambrel else range(4)):
+        j = (i + 1) % 4
+        face([outer[i], outer[j], inner[j], inner[i]])
+    ridge = il if gambrel else max(il - iw, 0.)
+    face([inner[0], inner[1], at(ridge, 0, top), at(-ridge, 0, top)])
+    face([inner[2], inner[3], at(-ridge, 0, top), at(ridge, 0, top)])
+    if not gambrel:
+        face([inner[1], inner[2], at(ridge, 0, top)])
+        face([inner[3], inner[0], at(-ridge, 0, top)])
+    _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx)
+
+
+DOME_SIDES, DOME_BANDS = 16, 6  # Bounded silhouette detail: 176 curved triangles plus 32 corner-apron triangles.
+# Height/radius fractions: a supported narrow base, widening bulb, then a concave neck and pointed tip.
+# This is an appearance profile without mapped bulb/neck dimensions; the maximum radius stays over the wall box.
+ONION_PROFILE = ((0., .65), (.12, .9), (.28, 1.), (.45, .85), (.62, .55), (.78, .26), (.9, .1), (1., 0.))
+# Truncated spherical profile from -60 to +90 degrees: a narrow support below the equator and a rounded crown.
+# Ten 15-degree intervals bound cost; horizontal/vertical scaling follows the footprint and mapped roof height.
+SPHERICAL_PROFILE = tuple(((math.sin(phi) + math.sqrt(3.) / 2) / (1 + math.sqrt(3.) / 2), math.cos(phi))
+                         for phi in np.linspace(-math.pi / 3, math.pi / 2, 11))
+
+
+def _radial_roof(m, spec, ring, z_eave, mat_idx):
+    """Dome, onion or spherical profile on a closed rectangular apron, with an explicit crown fan."""
+    c, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    height = spec.roof_height if spec.roof_height is not None else hw * math.tan(math.radians(roof_pitch(spec)))
+    angles = np.linspace(0., 2 * math.pi, DOME_SIDES + 1)
+    ca, sa = np.cos(angles), np.sin(angles)
+    offsets = ca[:, None] * u * hl + sa[:, None] * v * hw
+    if spec.roof == "onion":
+        profile = ONION_PROFILE
+    elif spec.roof == "spherical":
+        profile = SPHERICAL_PROFILE
+    else:
+        profile = tuple((math.sin(i * math.pi / (2 * DOME_BANDS)), math.cos(i * math.pi / (2 * DOME_BANDS)))
+                        for i in range(DOME_BANDS + 1))
+    outer = c + (ca[:, None] * u * (hl + EAVE_M) + sa[:, None] * v * (hw + EAVE_M)) / \
+        np.maximum(np.abs(ca), np.abs(sa))[:, None]
+    base = c + offsets * profile[0][1]
+    mat = mat_idx[spec.roof_mat]
+    for i in range(DOME_SIDES):
+        xy = [outer[i], outer[i + 1], base[i + 1], base[i]]
+        m.quad(*[(*p, z_eave) for p in xy], *[(float(p @ u) / ROOF_UV_M, float(p @ v) / ROOF_UV_M) for p in xy], mat)
+    along = np.r_[0., np.cumsum(np.linalg.norm(np.diff(base, axis=0), axis=1))] / ROOF_UV_M
+    radius = np.linalg.norm(offsets, axis=1)
+    previous, previous_scale, previous_z = np.c_[base, np.full(len(base), z_eave)], profile[0][1], z_eave
+    distance = np.zeros(len(base))
+    for band, (fraction, scale) in enumerate(profile[1:], 1):
+        z = z_eave + height * fraction
+        current = np.c_[c + offsets * scale, np.full(len(base), z)]
+        next_distance = distance + np.hypot((previous_scale - scale) * radius, z - previous_z) / ROOF_UV_M
+        for i in range(DOME_SIDES):
+            a, b = (along[i], distance[i]), (along[i + 1], distance[i + 1])
+            if band == len(profile) - 1:
+                m.tri(previous[i], previous[i + 1], (*c, z_eave + height), a, b,
+                      ((along[i] + along[i + 1]) / 2, (next_distance[i] + next_distance[i + 1]) / 2), mat)
+            else:
+                m.quad(previous[i], previous[i + 1], current[i + 1], current[i], a, b,
+                       (along[i + 1], next_distance[i + 1]), (along[i], next_distance[i]), mat)
+        previous, previous_scale, previous_z, distance = current, scale, z, next_distance
+
+
+def _sawtooth_roof(m, spec, ring, z_eave, mat_idx):
+    """Repeated asymmetric roof bays, with each exterior wall capped only under its own bay."""
+    c, u, hl, hw = roof_box(ring, spec.roof_direction, spec.roof_orientation)
+    v = np.array([-u[1], u[0]])
+    count = shed_count(2 * hw)
+    height = spec.roof_height if spec.roof_height is not None else \
+        2 * hw / count * SHED_LONG_SHARE * math.tan(math.radians(roof_pitch(spec)))
+    hl, hw = hl + EAVE_M, hw + EAVE_M
+    for i in range(count):
+        low, high = -hw + 2 * hw * i / count, -hw + 2 * hw * (i + 1) / count
+        peak = low + (high - low) * SHED_LONG_SHARE
+        planes = []
+        for ta, tb, za, zb in ((low, peak, z_eave, z_eave + height), (peak, high, z_eave + height, z_eave)):
+            slope = (zb - za) / (tb - ta)
+            gradient = v * slope
+            planes.append((gradient, float(za - slope * ta - c @ gradient)))
+            points = [np.array([*(c + u * s + v * t), z])
+                      for s, t, z in ((-hl, ta, za), (hl, ta, za), (hl, tb, zb), (-hl, tb, zb))]
+            clipped = _clip_roof(points, ring)
+            clipped = [p for j, p in enumerate(clipped) if np.linalg.norm(p - clipped[j - 1]) > 1e-9]
+            if len(clipped) >= 3:
+                uv = [(float((p[:2] - c) @ u) / ROOF_UV_M,
+                       (float((p[:2] - c) @ v) - ta) * math.hypot(1., slope) / ROOF_UV_M) for p in clipped]
+                m.poly(clipped, uv, mat_idx[spec.roof_mat])
+        _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx, (v, float(c @ v) + low, float(c @ v) + high))
+
+
+BARREL_SEGMENTS = 12       # 15-degree steps include the crown; at most 24 top triangles before footprint clipping.
+
+
+def _round_roof(m, spec, ring, z_eave, mat_idx):
+    """A segmented elliptical barrel, with mapped rise, clipped footprint and closed end walls."""
+    c, u, hl, hw = roof_box(ring, spec.roof_direction, spec.roof_orientation)
+    v = np.array([-u[1], u[0]])
+    height = spec.roof_height if spec.roof_height is not None else hw * math.tan(math.radians(roof_pitch(spec)))
+    hl, hw = hl + EAVE_M, hw + EAVE_M
+    angles = np.linspace(-math.pi / 2, math.pi / 2, BARREL_SEGMENTS + 1)
+    span, rise = hw * np.sin(angles), height * np.cos(angles)
+    planes, distance = [], 0.
+    for i in range(BARREL_SEGMENTS):
+        ta, tb, za, zb = span[i], span[i + 1], z_eave + rise[i], z_eave + rise[i + 1]
+        slope = (zb - za) / (tb - ta)
+        gradient = v * slope
+        planes.append((gradient, float(za - slope * ta - c @ gradient)))
+        points = [np.array([*(c + u * s + v * t), z])
+                  for s, t, z in ((-hl, ta, za), (hl, ta, za), (hl, tb, zb), (-hl, tb, zb))]
+        clipped = _clip_roof(points, ring)
+        clipped = [p for j, p in enumerate(clipped) if np.linalg.norm(p - clipped[j - 1]) > 1e-9]
+        if len(clipped) >= 3:
+            uv = [(float((p[:2] - c) @ u) / ROOF_UV_M,
+                   (distance + (float((p[:2] - c) @ v) - ta) * math.hypot(1., slope)) / ROOF_UV_M)
+                  for p in clipped]
+            m.poly(clipped, uv, mat_idx[spec.roof_mat])
+        distance += math.hypot(tb - ta, zb - za)
+    _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx)
+
+
+ROOF_EDGE_DEPTH_M = .12    # Thin roof assembly at the overhang; not a structural slab or an interior ceiling.
+
+
+def _roof_eaves(m, ring, first_vertex, first_index, mat):
+    """Close only the roof's exposed perimeter with soffits and rims, reusing its emitted slope heights."""
+    p = np.asarray(m.P[first_vertex * 3:], float).reshape(-1, 3)
+    triangles = np.asarray(m.T[first_index:], int).reshape(-1, 3) - first_vertex
+    faces = p[triangles]
+    normals = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
+    upward = normals[:, 2] > 1e-8
+    faces, normals = faces[upward], normals[upward]
+    if not len(faces):
+        return
+    slopes = -normals[:, :2] / normals[:, 2, None]
+    heights = faces[:, 0, 2] - (faces[:, 0, :2] * slopes).sum(1)
+    edges = {}
+    for face in faces:
+        for a, b in zip(face, np.roll(face, -1, axis=0)):
+            # Clipped adjacent faces calculate the same edge with tiny rounding differences.
+            key = tuple(sorted((tuple(np.round(a, 7)), tuple(np.round(b, 7)))))
+            count, _, _ = edges.get(key, (0, a, b))
+            edges[key] = count + 1, a, b
+    c, u, hl, hw = oriented_box(ring)
+    v = np.array([-u[1], u[0]])
+    blank = (.008, .997)  # Window-free facade margin; reused material adds no draw or light mask.
+    for count, a, b in edges.values():
+        if count != 1:
+            continue
+        outer = np.array([a, b])
+        local = outer[:, :2] - c
+        inner = c + np.clip(local @ u, -hl, hl)[:, None] * u + np.clip(local @ v, -hw, hw)[:, None] * v
+        if np.max(np.linalg.norm(inner - outer[:, :2], axis=1)) < 1e-6:
+            continue
+        # Select actual triangles above the wall points: extending all planes across sawtooth valleys is wrong.
+        inside = np.ones((2, len(faces)), bool)
+        for j in range(3):
+            edge = faces[:, (j + 1) % 3, :2] - faces[:, j, :2]
+            rel = inner[:, None, :] - faces[None, :, j, :2]
+            inside &= edge[None, :, 0] * rel[:, :, 1] - edge[None, :, 1] * rel[:, :, 0] >= -1e-7
+        zinner = np.min(np.where(inside, inner @ slopes.T + heights, np.inf), axis=1) - ROOF_EDGE_DEPTH_M
+        ai, bi = np.c_[inner, zinner]
+        ad, bd = outer - [0., 0., ROOF_EDGE_DEPTH_M]
+        soffit = [ad, ai, bi, bd]
+        soffit = [p for i, p in enumerate(soffit) if np.linalg.norm(p - soffit[i - 1]) > 1e-7]
+        # Near an oblique hip, both inner endpoints can meet at one wall corner: emit one triangle there.
+        if len(soffit) >= 3:
+            m.poly(soffit, [blank] * len(soffit), mat)          # faces downward
+        m.quad(ad, bd, b, a, blank, blank, blank, blank, mat)    # faces outward
+
+
 def _roof(m, spec, ring, z_eave, mat_idx):
+    """Emit supported roof planes using the mapped rise and bearing where present."""
+    if spec.roof == "skillion":
+        return _skillion_roof(m, spec, ring, z_eave, mat_idx)
+    if spec.roof == "pyramidal":
+        return _pyramidal_roof(m, spec, ring, z_eave, mat_idx)
+    if spec.roof in ("dome", "onion", "spherical"):
+        return _radial_roof(m, spec, ring, z_eave, mat_idx)
+    if spec.roof in ("mansard", "gambrel"):
+        return _broken_roof(m, spec, ring, z_eave, mat_idx)
+    if spec.roof == "round":
+        return _round_roof(m, spec, ring, z_eave, mat_idx)
+    if spec.roof == "sawtooth":
+        return _sawtooth_roof(m, spec, ring, z_eave, mat_idx)
+    if spec.roof not in ("half_hipped", "saltbox") and spec.roof_direction is None and spec.roof_orientation != "across":
+        return _roof_aligned(m, spec, ring, z_eave, mat_idx)
+    rm = mat_idx[spec.roof_mat]
+    if spec.roof == "flat":
+        pts = [(p[0], p[1], z_eave) for p in ring]
+        m.poly(pts, [(p[0] / ROOF_UV_M, p[1] / ROOF_UV_M) for p in ring], rm)
+        return
+    c, u, hl, hw = roof_box(ring, spec.roof_direction, spec.roof_orientation)
+    v = np.array([-u[1], u[0]])
+    height = spec.roof_height if spec.roof_height is not None else hw * math.tan(math.radians(roof_pitch(spec)))
+    slope = height / hw
+    hl2, hw2 = hl + EAVE_M, hw + EAVE_M
+    ze, zr = z_eave - EAVE_M * slope, z_eave + height
+    rise = zr - ze
+
+    def at(s, t, z):
+        p = c + u * s + v * t
+        return (*p, z)
+
+    def face(points):
+        points = _clip_roof(points, ring)
+        points = [p for i, p in enumerate(points) if np.linalg.norm(p - points[i - 1]) > 1e-9]
+        if len(points) < 3:
+            return
+        uv = [(float((p[:2] - c) @ u) / ROOF_UV_M,
+               float((p[:2] - c) @ v) * math.hypot(1., slope) / ROOF_UV_M) for p in points]
+        m.poly(points, uv, rm)
+
+    planes = [(v * slope, zr - float(c @ v) * slope), (-v * slope, zr + float(c @ v) * slope)]
+    if spec.roof == "saltbox":
+        # Equal pitch, unequal runs: the longer side descends to the lower eave; the short side ends higher.
+        offset = hw2 * SALTBOX_OFFSET
+        if spec.roof_height is None:
+            height *= 1 + SALTBOX_OFFSET
+            zr = z_eave + height
+        slope = height / (hw2 + offset)
+        high_eave = zr - slope * (hw2 - offset)
+        face([at(-hl2, -hw2, z_eave), at(hl2, -hw2, z_eave), at(hl2, offset, zr), at(-hl2, offset, zr)])
+        face([at(hl2, hw2, high_eave), at(-hl2, hw2, high_eave), at(-hl2, offset, zr), at(hl2, offset, zr)])
+        ridge_projection = float(c @ v) + offset
+        planes = [(v * slope, zr - ridge_projection * slope), (-v * slope, zr + ridge_projection * slope)]
+        _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx)
+        return
+    if spec.roof == "half_hipped":
+        # No tag gives the clipped-gable depth: keep the lower half upright, clip the upper half.
+        # Limit the end run on short/across roofs so the two hips leave a ridge rather than a pyramid.
+        cut, zcut = hw2 / 2, ze + rise / 2
+        run = min(hw2 / 2, hl2 / 2)
+        r = hl2 - run
+        face([at(-hl2, -hw2, ze), at(hl2, -hw2, ze), at(hl2, -cut, zcut),
+              at(r, 0, zr), at(-r, 0, zr), at(-hl2, -cut, zcut)])
+        face([at(hl2, hw2, ze), at(-hl2, hw2, ze), at(-hl2, cut, zcut),
+              at(-r, 0, zr), at(r, 0, zr), at(hl2, cut, zcut)])
+        face([at(hl2, -cut, zcut), at(hl2, cut, zcut), at(r, 0, zr)])
+        face([at(-hl2, cut, zcut), at(-hl2, -cut, zcut), at(-r, 0, zr)])
+        end_slope = (zr - zcut) / run
+        planes += [(u * end_slope, zcut + (hl2 - float(c @ u)) * end_slope),
+                   (-u * end_slope, zcut + (hl2 + float(c @ u)) * end_slope)]
+        _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx)
+        return
+    r = hl2 if spec.roof == "gabled" else max(hl2 - hw2, 0.)
+    face([at(-hl2, -hw2, ze), at(hl2, -hw2, ze), at(r, 0, zr), at(-r, 0, zr)])
+    face([at(hl2, hw2, ze), at(-hl2, hw2, ze), at(-r, 0, zr), at(r, 0, zr)])
+    if spec.roof != "gabled":
+        face([at(hl2, -hw2, ze), at(hl2, hw2, ze), at(r, 0, zr)])
+        face([at(-hl2, hw2, ze), at(-hl2, -hw2, ze), at(-r, 0, zr)])
+        end_slope = rise / (hl2 - r)
+        planes += [(u * end_slope, ze + (hl2 - float(c @ u)) * end_slope),
+                   (-u * end_slope, ze + (hl2 + float(c @ u)) * end_slope)]
+    _roof_wall_caps(m, spec, ring, z_eave, planes, mat_idx)
+
+
+def _roof_aligned(m, spec, ring, z_eave, mat_idx):
     rm = mat_idx[spec.roof_mat]
     if spec.roof == "flat":
         pts = [(p[0], p[1], z_eave) for p in ring]
@@ -599,9 +1035,10 @@ def _roof(m, spec, ring, z_eave, mat_idx):
     c, u, hl, hw = oriented_box(ring)
     v = np.array([-u[1], u[0]])
     hl2, hw2 = hl + EAVE_M, hw + EAVE_M
-    rise = hw2 * math.tan(math.radians(roof_pitch(spec)))
-    ze = z_eave - EAVE_M * math.tan(math.radians(roof_pitch(spec)))
-    zr = ze + rise
+    height = spec.roof_height if spec.roof_height is not None else hw * math.tan(math.radians(roof_pitch(spec)))
+    ze = z_eave - EAVE_M * height / hw
+    zr = z_eave + height
+    rise = zr - ze
 
     def at(s, t, z):
         p = c + u * s + v * t
@@ -620,11 +1057,15 @@ def _roof(m, spec, ring, z_eave, mat_idx):
         fac = mat_idx[spec.facade]
         for sgn in (-1, 1):
             s = sgn * hl
-            a, b, top = at(s, -sgn * hw, z_eave), at(s, sgn * hw, z_eave), at(s, 0, zr - EAVE_M * 0.2)
+            a, b, top = at(s, -sgn * hw, z_eave), at(s, sgn * hw, z_eave), at(s, 0, zr)
             if sgn > 0:
                 m.tri(a, b, top, (0, 0.995), (0.02, 0.995), (0.01, 0.999), fac)
             else:
                 m.tri(a, b, top, (0, 0.995), (0.02, 0.995), (0.01, 0.999), fac)
+        slope_m = height / hw
+        _attic_windows(m, spec, ring, z_eave,
+                       [(v * slope_m, zr - float(c @ v) * slope_m),
+                        (-v * slope_m, zr + float(c @ v) * slope_m)], mat_idx)
     else:                    # hipped
         r = max(hl2 - hw2, 0.0)
         m.quad(at(-hl2, -hw2, ze), at(hl2, -hw2, ze), at(r, 0, zr), at(-r, 0, zr),

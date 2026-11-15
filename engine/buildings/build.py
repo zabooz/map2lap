@@ -9,7 +9,7 @@ from .looks import (
 )
 from .styles import _area2, oriented_box
 from .mesh import (
-    Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _signs, _steeple, _stoop, _walls, base_z,
+    Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _roof_eaves, _signs, _steeple, _stoop, _walls, base_z,
     drawn_ring
 )
 from .garages import _parking_deck, deck_plan
@@ -44,7 +44,10 @@ def build(specs_and_ground, lite=False, marks=None):
         _walls(m, spec, ring, z0, z_eave, mat_idx, lite)
         if mh > 0.5:                                  # a part standing on another / over a street: its underside
             m.poly([(p[0], p[1], z0) for p in ring[::-1]], [(0.002, 0.995)] * len(ring), mat_idx[spec.facade])
+        first_vertex, first_index = m.n, len(m.T)
         _roof(m, spec, ring, z_eave, mat_idx)
+        if spec.roof != "flat" and not lite:
+            _roof_eaves(m, ring, first_vertex, first_index, mat_idx[spec.facade])
         if spec.roof == "flat" and not spec.plain and spec.floors <= 6 and not lite:
             _cornice(m, spec, ring, z_eave, mat_idx)
         if not lite:
@@ -215,7 +218,8 @@ def _listed(k, item, start, marks):
             "marks": [[start + v, what] for v, what in marks],
             "details": {"asset": "generated-building", "footprint": ring.round(3).tolist(),
                         "parameters": {name: getattr(spec, name, None) for name in
-                                       ("cls", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "pitch", "min_h", "seed")}}}
+                                       ("cls", "floors", "floor_h", "height", "roof", "roof_mat", "roof_height",
+                                        "roof_direction", "roof_orientation", "facade", "pitch", "min_h", "seed")}}}
 
 
 def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False, objects=None):

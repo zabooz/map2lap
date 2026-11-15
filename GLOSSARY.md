@@ -412,6 +412,10 @@ panes of a facade sheet light up at night. Frames and crosses stay dark.
 **Bay**:
 One window's width of a band of a facade sheet. A wall's windows each take a bay of their band by chance (`looks.BAND_*`).
 
+**Facade pattern**:
+Shared window spacing and entrance-placement rules for a building or regional style (`buildings.FacadePattern`);
+see [buildings.md](docs/buildings.md).
+
 ## BeamNG.Earth
 
 **BeamNG.Earth**:

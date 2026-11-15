@@ -5,6 +5,7 @@ Deterministic: a pure function of the footprints, the frame and the elevation.
 The parts, each importing only the ones above it (tests/test_part_order.py):
 
     looks    materials, tints, signs and the OSM places behind them
+    facade   shared window axes, entrance preferences and editable facade patterns
     styles   a region's style: roofs, walls, heights
     mesh     Mesh and the walls, roofs, signs and details of a building
     places   what a footprint is used for and what it is called
@@ -21,7 +22,9 @@ The parts, each importing only the ones above it (tests/test_part_order.py):
 import sys
 import types
 
-from . import looks, styles, mesh, places, garages, sites, toll, build, planner, photo, tiles, doors, far
+from . import looks, facade, styles, mesh, places, garages, sites, toll, build, planner, photo, tiles, doors, far
+
+from .facade import FacadePattern
 
 from .looks import (
     BAND_BRICK, BLADE_CAP_M, BRICK_WALL, CASTLE_FLOORS, CONCRETE, CORNICE_UP_M, FACADE, FLOOR_M, HALL_CLEAR_M, LETTERS,
@@ -64,7 +67,7 @@ class _Package(types.ModuleType):
     only here would change nothing and a test of it would pass without testing."""
 
     def __setattr__(self, name, value):
-        for part in (looks, styles, mesh, places, garages, sites, toll, build, planner, photo, tiles, doors, far,):
+        for part in (looks, facade, styles, mesh, places, garages, sites, toll, build, planner, photo, tiles, doors, far,):
             if hasattr(part, name):
                 setattr(part, name, value)
         super().__setattr__(name, value)

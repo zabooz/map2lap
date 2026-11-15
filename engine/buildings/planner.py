@@ -10,10 +10,10 @@ from .looks import (
     GARAGE_MIN_M2, GLASS_FLOORS, GROUND_FLOOR_SHOP_M, HOUSE_CLASSES, HOUSE_MAX_M2, INDUSTRIAL_CLASSES,
     MASONRY_MATERIALS, METALWALL, MIDRISE_GLASS_OFFICE, OFFICE, OLD_TOWER_GLASS, PAINT_TINTS, PANEL, PITCH,
     PYRAMID_MIN_M2, PYRAMID_PLINTH_M, PYRAMID_ROOF_SHARE, ROOF_FLAT, ROOF_METAL, ROOF_SHINGLE, ROOF_SLATE, ROOF_TINTS,
-    ROW_CLASSES, RUIN_H, SHED_CLASSES, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES, STONE_FLOORS, STUCCO,
+    ROW_CLASSES, RUIN_H, SALTBOX_OFFSET, SHED_CLASSES, SHED_LONG_SHARE, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES, STONE_FLOORS, STUCCO,
     TOWER_SHOP_FLOORS, US_WALL_TINTS, WALL_TINTS, WOOD_TINTS, _hash01, custom_look, parse_color
 )
-from .styles import Spec, _area2, brick_share, oriented_box, region_style
+from .styles import Spec, _area2, brick_share, oriented_box, region_style, roof_box, shed_count, skillion_axis
 
 ALPINE_HUT_M2 = 120.0        # an isolated building this small above the tree line (a summit shelter, a mountain hut) ...
 GARAGE_TAG_CLASSES = {"", "yes", "commercial", "garage", "garages", "parking", "parking_garage", "carport",
@@ -136,13 +136,9 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
             nf = 2 + int(seed * 2)
         else:
             nf = 2 + int(seed * 3)
-    roof_given = (attrs.get("roof_shape") or "").lower()
-    if roof_given in ("gabled", "hipped", "flat"):
+    roof_given = (attrs.get("roof_shape") or "").lower().replace("-", "_")
+    if roof_given in ("gabled", "hipped", "flat", "skillion", "pyramidal", "half_hipped", "mansard", "gambrel", "saltbox", "round", "sawtooth", "dome", "onion", "spherical"):
         roof = roof_given
-    elif roof_given in ("pyramidal", "half-hipped", "mansard", "gambrel"):
-        roof = "hipped"
-    elif roof_given in ("skillion", "dome", "onion", "round", "saltbox"):
-        roof = "gabled"
     else:
         detached_house = (cls in HOUSE_CLASSES or (area < 260 and not shop)) and not industrial and not row
         if church and neighbours == 0:
@@ -175,15 +171,35 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         shop = True
     if church:
         shop = False                                # (no shopfronts on a church, Cluj)
+    direction, orientation = attrs.get("roof_direction"), attrs.get("roof_orientation")
+    if direction is not None and (not np.isfinite(direction) or not 0 <= direction < 360):
+        direction = None
+    roof_h = 0.0
+    if roof != "flat":
+        roof_hw = hw
+        if roof == "skillion":
+            _, roof_hw = skillion_axis(ring, direction, orientation)
+        elif roof not in ("pyramidal", "dome", "onion", "spherical") and (direction is not None or orientation == "across"):
+            _, _, _, roof_hw = roof_box(ring, direction, orientation)
+        if roof == "saltbox":
+            roof_hw *= 1 + SALTBOX_OFFSET  # Rise measured from the lower eave across the longer roof run.
+        elif roof == "sawtooth":
+            roof_hw = 2 * roof_hw / shed_count(2 * roof_hw) * SHED_LONG_SHARE
+        # A negative roof, or one taller than the whole building, is not usable mapped geometry.
+        mapped_roof = rh is not None and rh > 0 and (h is None or rh < h)
+        roof_h = rh if mapped_roof else \
+            roof_hw * math.tan(math.radians(style.pitch or PITCH[roof]))
+        if h is not None and not mapped_roof:
+            # An inferred pitch must leave room for walls: a normal 2.5 m storey, or half a very low structure.
+            # Explicit consistent wall/roof heights override this fallback, including attic-heavy houses.
+            roof_h = min(roof_h, max(0., h - min(2.5, h / 2)))
     if h is None:
         h = nf * floor_h + (GROUND_FLOOR_SHOP_M - floor_h if shop and nf > 1 else 0.0) + (0.6 if roof == "flat" else 0.2)
         if west_town and roof == "flat" and nf == 1 and area >= 80 and not (shed or barn):
             h += FALSE_FRONT_M                      # a main-street shop's tall parapet
     else:
-        if attrs.get("roof_height") and np.isfinite(attrs["roof_height"]) and roof != "flat":
-            h = max(2.5, h - float(attrs["roof_height"]))
-        elif roof != "flat":
-            h = max(2.5, h - hw * math.tan(math.radians(style.pitch or PITCH[roof])))
+        if roof != "flat":
+            h -= roof_h
         if nf is None:
             # a church: one tall storey (Cluj's St. Michael's, 25 m, came out as three 8 m floors)
             nf = 1 if church else max(1, int(round(h / floor_h)))
@@ -368,4 +384,5 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     return Spec(ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall,
                 windows=windows, steeple=church and area < 2500, porch=porch, cls=cls,
-                deck=garage and roof == "flat", pitch=style.pitch, castle=castle)
+                deck=garage and roof == "flat", pitch=style.pitch, castle=castle, facade_pattern=style.facade_pattern,
+                roof_height=roof_h, roof_direction=direction, roof_orientation=orientation)

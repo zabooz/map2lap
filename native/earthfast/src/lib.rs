@@ -29,6 +29,7 @@ mod sidewalks;
 mod roadz;
 mod fartex;
 mod farglobal;
+mod facade;
 
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, IntoPyArray};
 use pyo3::types::PyBytes;
@@ -2700,15 +2701,20 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                   band_k: i64, bpt: i64, good: Vec<i64>, floors: i64, floor_h: f64, shop: bool, door_edge: i64,
                   door_pos: f64, roof_flat: bool, seed: f64, windows_false: bool, front: i64, lite: bool, c: Vec<f64>)
                   -> PyResult<(Vec<f64>, Vec<f64>, Vec<u8>)> {
-    if c.len() != 18 {
-        return Err(pyo3::exceptions::PyValueError::new_err("building_walls: 18 constants"));
+    if c.len() != 18 && c.len() != 19 {
+        return Err(pyo3::exceptions::PyValueError::new_err("building_walls: 18 constants and optional bay width"));
     }
+    let _ = roof_flat; // Entrance clearance belongs to the facade, independently of the roof shape.
     let r = ring.as_array();
     let pts: Vec<(f64, f64)> = (0..r.nrows()).map(|i| (r[[i, 0]], r[[i, 1]])).collect();
-    let (siding_uv, tile_px, foundation, bands, shop_k, shop_bpt, door_gap, plain_strip) =
-        (c[0], c[1], c[2], c[3], c[4] as i64, c[5] as i64, c[6], c[7]);
+    let (siding_uv, tile_px, bands, shop_k, shop_bpt, door_gap) =
+        (c[0], c[1], c[3], c[4] as i64, c[5] as i64, c[6]);
     let (gf_shop, win_out, house_bay) = (c[8], c[9], c[10]);
     let (wu0, wu1, wv0, wv1, win_w, win_h, win_sill) = (c[11], c[12], c[13], c[14], c[15], c[16], c[17]);
+    let bay_width = c.get(18).copied().unwrap_or(if wall { house_bay } else { tile_px / bpt as f64 });
+    if !bay_width.is_finite() || bay_width <= 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err("building_walls: invalid bay width"));
+    }
     Ok(py.allow_threads(|| {
         let mut pp: Vec<f64> = Vec::new();
         let mut uv: Vec<f64> = Vec::new();
@@ -2725,23 +2731,19 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
         let rnd = |x: f64| x.round_ties_even() as i64;
         // _plain_strip
         let strip = |quad: &mut dyn FnMut([(f64, f64, f64); 4], [(f64, f64); 4], u8), pa: (f64, f64), pb: (f64, f64),
-                     za: f64, zb: f64, bpt: i64, bay_w: f64, v0: f64, v1: f64, m: u8, whole: bool| {
+                     za: f64, zb: f64, v0: f64, v1: f64, m: u8| {
             let (ax, ay, bx, by) = (pa.0, pa.1, pb.0, pb.1);
             let (dx, dy) = (bx - ax, by - ay);
             let l = py_hypot(dx, dy);
             if l < 1e-3 {
                 return;
             }
-            let (cc, h) = (1.0 / bpt as f64, 0.5 * plain_strip / bpt as f64);
-            let sw = (plain_strip * bay_w).max(0.1);
-            let sw = if 0.1 > plain_strip * bay_w { 0.1 } else { sw };
-            let n = if whole { 1 } else { rnd(l / sw).max(1) };
-            for j in 0..n {
-                let (t0, t1) = (j as f64 / n as f64, (j + 1) as f64 / n as f64);
-                let (qax, qay, qbx, qby) = (ax + dx * t0, ay + dy * t0, ax + dx * t1, ay + dy * t1);
-                quad([(qax, qay, za), (qbx, qby, za), (qbx, qby, zb), (qax, qay, zb)],
-                     [(cc - h, v0), (cc + h, v0), (cc + h, v1), (cc - h, v1)], m);
-            }
+            // scenery.facades leaves the sheet's first 24 pixels free of residential windows and shutters.
+            // Stay inside that margin; a strip centred on a bay edge included the preceding shutter.
+            // One quad suffices for this narrow, blank sample, even on a long foundation wall.
+            let (u0, u1) = (4.0 / 1024.0, 12.0 / 1024.0);
+            quad([(ax, ay, za), (bx, by, za), (bx, by, zb), (ax, ay, zb)],
+                 [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], m);
         };
         let n = pts.len();
         for i in 0..n {
@@ -2750,6 +2752,7 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
             if l < 0.05 {
                 continue;
             }
+            let layout = facade::Layout::new(l, bay_width, wall);
             if wall {
                 // _plain_wall_with_windows
                 let su = siding_uv;
@@ -2775,7 +2778,7 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                     }
                     continue;
                 }
-                let nb = py_floordiv(l, house_bay) as i64;
+                let nb = layout.count;
                 if nb < 1 || l < 2.0 {
                     continue;
                 }
@@ -2788,16 +2791,21 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                         continue;
                     }
                     for k in 0..nb {
-                        if f == 0 && nb % 2 == 1 && k == nb / 2 {
+                        let s = layout.axis(k);
+                        // Only the actual entrance reserves a ground-floor gap. Side and rear walls stay complete.
+                        if f == 0 && door_edge == i as i64
+                            && facade::overlaps(s - win_w / 2.0, s + win_w / 2.0, door_pos, door_gap) {
                             continue;
                         }
-                        let s = l * (k as f64 + 0.5) / nb as f64;
                         let cc = (a.0 + d.0 * s + out.0, a.1 + d.1 * s + out.1);
                         let hw = (d.0 * win_w / 2.0, d.1 * win_w / 2.0);
                         let p = (cc.0 - hw.0, cc.1 - hw.1);
                         let q = (cc.0 + hw.0, cc.1 + hw.1);
+                        // Four identical panel windows by day, different night masks. Include floor and wall
+                        // in the same stable hash as band facades so entire houses/columns do not light together.
+                        let shift = (py_hash01_fints(seed, &[i as i64, f, k]) * 4.0).floor() / 4.0;
                         quad([(p.0, p.1, zf), (q.0, q.1, zf), (q.0, q.1, zf + win_h), (p.0, p.1, zf + win_h)],
-                             [(wu0, wv0), (wu1, wv0), (wu1, wv1), (wu0, wv1)], 2);
+                             [(wu0 + shift, wv0), (wu1 + shift, wv0), (wu1 + shift, wv1), (wu0 + shift, wv1)], 2);
                     }
                 }
                 continue;
@@ -2809,20 +2817,20 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                      [(0.0, z0 / siding_uv), (u1, z0 / siding_uv), (u1, z_eave / siding_uv), (0.0, z_eave / siding_uv)], 0);
                 continue;
             }
-            let bay = tile_px / bpt as f64;
-            let nb = rnd(l / bay);
+            let nb = layout.count;
             let u1 = if nb >= 1 { nb as f64 / bpt as f64 } else { 0.02 * l };
             let base = z_eave - floors as f64 * floor_h;
             let mut za = z0;
-            if base - z0 > foundation + 0.4 {
+            if base > z0 {
                 let (pv0, pv1) = band_v(band_k);
-                let hp = (base - 0.3) - z0;
+                let hp = base - z0;
                 let fh = if floor_h > 1e-3 { floor_h } else { 1e-3 };
                 let fh = if 1e-3 > floor_h { 1e-3 } else { fh };
                 let ratio = hp / fh;
                 let ratio = if ratio < 1.0 { ratio } else { 1.0 };
-                strip(&mut quad, a, b, z0, base - 0.3, bpt, bay, pv0, pv0 + (pv1 - pv0) * ratio, 0, lite);
-                za = base - 0.3;
+                // The skirt is foundation, never extra storey height: keep windows the same size on a slope.
+                strip(&mut quad, a, b, z0, base, pv0, pv0 + (pv1 - pv0) * ratio, 0);
+                za = base;
             }
             for f in 0..floors {
                 let zb = if f == floors - 1 { z_eave } else { base + (f + 1) as f64 * floor_h };
@@ -2838,18 +2846,15 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                     uu = u1;
                     if !good.is_empty() && nb >= 1 && !lite {
                         let (v0, v1) = band_v(bk);
-                        let mut dk: i64 = -1;
-                        if f == 0 && door_edge >= 0 && door_edge == i as i64 && roof_flat {
-                            dk = (nb - 1).min((door_pos / l * nb as f64).trunc() as i64);
-                        }
                         let (dx, dy) = (bx - ax, by - ay);
                         for k in 0..nb {
                             let hsh = py_hash01_fints(seed, &[i as i64, f, k]);
                             let g = good[(hsh * good.len() as f64).trunc() as usize];
                             let (t0, t1) = (k as f64 / nb as f64, (k + 1) as f64 / nb as f64);
                             let (pa, pb) = ((ax + dx * t0, ay + dy * t0), (ax + dx * t1, ay + dy * t1));
-                            if k == dk {
-                                strip(&mut quad, pa, pb, za, zb, bpt, bay, v0, v1, m, false);
+                            if f == 0 && door_edge == i as i64
+                                && facade::overlaps(l * t0, l * t1, door_pos, door_gap) {
+                                strip(&mut quad, pa, pb, za, zb, v0, v1, m);
                                 continue;
                             }
                             let (g0, g1) = (g as f64 / bpt as f64, (g + 1) as f64 / bpt as f64);
@@ -2861,16 +2866,9 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                     }
                 }
                 let (v0, v1) = band_v(bk);
-                let has_door = f == 0 && roof_flat && door_edge >= 0 && door_edge == i as i64;
+                let has_door = f == 0 && !shop && door_edge >= 0 && door_edge == i as i64;
                 if has_door && door_gap < door_pos && door_pos < l - door_gap {
-                    let (mut s0, mut s1) = (door_pos - door_gap, door_pos + door_gap);
-                    if nb >= 1 {
-                        let bw = l / nb as f64;
-                        let f0 = (s0 / bw).floor() * bw;
-                        let f1 = (s1 / bw).ceil() * bw;
-                        s0 = if f0 > 0.0 { f0 } else { 0.0 };
-                        s1 = if f1 < l { f1 } else { l };
-                    }
+                    let (s0, s1) = layout.entrance_bays(door_pos, door_gap);
                     for (ta, tb) in [(0.0, s0), (s1, l)] {
                         if tb - ta < 1e-3 {
                             continue;
@@ -2884,7 +2882,7 @@ fn building_walls(py: Python<'_>, ring: PyReadonlyArray2<'_, f64>, z0: f64, z_ea
                     let (fa, fb) = (s0 / l, s1 / l);
                     let pa = (ax + (bx - ax) * fa, ay + (by - ay) * fa);
                     let pb = (ax + (bx - ax) * fb, ay + (by - ay) * fb);
-                    strip(&mut quad, pa, pb, za, zb, bpt, bay, v0, v1, m, lite);
+                    strip(&mut quad, pa, pb, za, zb, v0, v1, m);
                     za = zb;
                     continue;
                 }
@@ -4876,6 +4874,8 @@ pub(crate) fn rtin_core(hv: &[f64], n: usize, max_err: f64) -> (Vec<[i64; 3]>, V
 
 #[pymodule]
 fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(facade::facade_layout, m)?)?;
+    m.add("BUILDING_FACADE_LAYOUT", 2)?;
     m.add_function(wrap_pyfunction!(island_ring_rays, m)?)?;
     m.add_function(wrap_pyfunction!(dsm::dsm_ground, m)?)?;
     m.add_function(wrap_pyfunction!(dsm::fill_holes, m)?)?;
@@ -5032,7 +5032,7 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
-    m.add("VERSION", 117)?;
+    m.add("VERSION", 120)?;
     m.add_function(wrap_pyfunction!(deckskin::deck_skin, m)?)?;
     m.add("ROAD_CURVES", true)?;
     m.add_function(wrap_pyfunction!(roadcurves::road_curve, m)?)?;

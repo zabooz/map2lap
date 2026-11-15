@@ -583,6 +583,8 @@ class MeshTest(unittest.TestCase):
         good = ((mid - c) * n).sum(1) > 0
         nz = n[:, 2] / np.maximum(np.linalg.norm(n, axis=1), 1e-12)
         good |= (nz < -0.99) & (mid[:, 2] > spec.height - 1.0)     # a cornice's underside faces down
+        outside = ((mid[:, :2] < ring.min(0)) | (mid[:, :2] > ring.max(0))).any(axis=1)
+        good |= (nz < 0.) & outside & (mid[:, 2] > spec.height - 1.0)  # sloped soffits under pitched eaves
         good |= mid[:, 2] > spec.height + bld.CORNICE_UP_M + 0.01   # roof boxes: their own outsides
         lip = (mid[:, 2] > spec.height) & (mid[:, 2] < spec.height + bld.CORNICE_UP_M + 0.01) & (np.abs(nz) < 0.01)
         good |= lip                                                   # the cornice lip's inner face, above the roof
