@@ -575,11 +575,11 @@ class BridgeProfiles:
 
     END_JOINS = True        # (TunnelProfiles: none)
 
-    def _end_joins_of(self, lines, halves, ground):
+    def _end_joins_of(self, lines, halves, ground, levels=None):
         """_end_joins of deck lines with the ground roads of ground ({(fid, "g"): lines}); [] for tunnels."""
         if not self.END_JOINS:
             return []
-        return _end_joins(lines, halves, [g for k, v in ground.items() if k[1] == "g" for g in v])
+        return _end_joins(lines, halves, [g for k, v in ground.items() if k[1] == "g" for g in v], levels)
 
     def _end_ons_of(self, lines, halves, levels, ground):
         """_end_ons of deck lines with the ground roads of ground; [] for tunnels."""
@@ -589,7 +589,7 @@ class BridgeProfiles:
 
     def _end_join_pairs(self, lines, halves, ground, levels=None):
         """(i, j): line i's free end joins line j's end (_end_joins) or stands on line j (_end_ons)."""
-        joins = self._end_joins_of(lines, halves, ground)
+        joins = self._end_joins_of(lines, halves, ground, levels)
         out = set()
         if levels is not None:
             for k, _at, j, _arc in self._end_ons_of(lines, halves, levels, ground):
@@ -662,7 +662,8 @@ class BridgeProfiles:
         lines = [pool[k][1] for k in comp]
         # (solved with its free ends that join another part's moved onto those joints: _end_joins; the heights are
         # per point, so the parts keep their own lines)
-        lines = _joined_lines(lines, self._end_joins_of(lines, [pool[k][0].width / 2 for k in comp], ground))
+        lines = _joined_lines(lines, self._end_joins_of(lines, [pool[k][0].width / 2 for k in comp], ground,
+                                                       [pool[k][3] for k in comp]))
         gl = [g for k, v in ground.items() if k[1] == "g" for g in v]
         rl = [g for k, v in ground.items() if k[1] == "r" for g in v]
         cr = _crossings(lines, gl)

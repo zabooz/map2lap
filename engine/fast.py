@@ -16,7 +16,7 @@ except ImportError:         # no binary for this platform / Python: require() sa
     _ef = None
 
 AVAILABLE = _ef is not None
-MIN_VERSION = 116 # shared road curves and ribbon sampling that retains their knots
+MIN_VERSION = 117 # deck paint follows collision triangles; inferred end joins respect map layers
 
 
 class NativeMissing(RuntimeError):

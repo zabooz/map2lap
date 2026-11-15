@@ -24,6 +24,17 @@ the corner's control triangle and moves at most one tenth of the carriageway wid
 90-degree or sharper turn stays mapped: it may be a junction or a reversal rather than a sampled road bend.
 Rail geometry is unchanged. The raw feature geometry remains available for map rules and provenance.
 
+Bridge slabs retain the planned centreline as triangle edges; changing bank must not invent a crest between
+profile rows. Fixed asphalt and markings are clipped to the triangles of their own bridge part
+(`roadmesh._deck_skins`, `earthfast.deck_skin`), with their existing paint lifts and interpolated UVs. Separate
+owners prevent an overlapping upper roadway from attracting lower-road paint. Inferred endpoint repairs obey
+mapped layers; exact mapped connections still allow ramps between layers.
+
+Ground under junction bridges follows the same clearance rule as ground under single bridges. Terrain with
+enough headroom for a separate upper road is preserved. At tunnel mouths, a neighbouring carriageway's buffer
+cannot refill an opening inside the actual tunnel floor footprint; ground under the physical portal apron
+is capped at that floor. These rules use mapped widths and solved floors, including offset twin portals.
+
 Spline samples have at most 5 mm chord error. Render simplification keeps a 1 cm tolerance and ribbon sampling
 retains the resulting knots; a coarse two-metre sampling lattice alone would shortcut the curve again. This
 smooths horizontal survey chords, not the elevation profile or the terrain grid. Sparse sharp bends and corners

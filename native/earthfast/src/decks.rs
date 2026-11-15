@@ -115,9 +115,11 @@ fn end_dir(pts: &numpy::ndarray::ArrayView2<f64>, a: usize, b: usize, at_end: bo
 /// each other meet at the first one's. params: join_m, snap_m, min_cos, ground_m, min_len. (2 * parts, 2): each
 /// end's joined place, NaN where it stays.
 #[pyfunction]
+#[pyo3(signature = (pts, poff, half, ground, params, levels=None))]
 pub fn deck_end_joins<'py>(py: Python<'py>, pts: PyReadonlyArray2<'py, f64>, poff: PyReadonlyArray1<'py, i64>,
                            half: PyReadonlyArray1<'py, f64>, ground: PyReadonlyArray2<'py, f64>,
-                           params: PyReadonlyArray1<'py, f64>) -> Bound<'py, PyArray2<f64>> {
+                           params: PyReadonlyArray1<'py, f64>, levels: Option<PyReadonlyArray1<'py, f64>>) -> Bound<'py, PyArray2<f64>> {
+    let levels = levels.as_ref().map(|v| v.as_array());
     let (pts, poff, half, ground, params) = (pts.as_array(), poff.as_array(), half.as_array(), ground.as_array(),
                                              params.as_array());
     let (join_m, snap_m, min_cos, ground_m, min_len) = (params[0], params[1], params[2], params[3], params[4]);
@@ -194,6 +196,12 @@ pub fn deck_end_joins<'py>(py: Python<'py>, pts: PyReadonlyArray2<'py, f64>, pof
             for f in near(&grid, pos[e]) {
                 let j = f / 2;
                 if j == k || (free[f] && f > e) {
+                    continue;
+                }
+                // An inferred XY repair is not a mapped connection. Separate layers may run
+                // parallel within a carriageway width; snapping them creates a false height pin.
+                // Exact mapped joins still pass through the ordinary node graph, including ramps.
+                if levels.as_ref().map_or(false, |v| (v[j] - v[k]).abs() > 1e-6) {
                     continue;
                 }
                 let r = snap_m.min(half[k].max(half[j]));

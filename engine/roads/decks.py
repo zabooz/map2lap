@@ -114,20 +114,21 @@ END_JOIN_GROUND_M = 2.5     # (grading's APPROACH_TOUCH_M: a road ending this ne
 END_JOIN_MIN_M = 10.0       # m: shorter parts keep their ends
 
 
-def _end_joins(lines, halves, ground_lines):
+def _end_joins(lines, halves, ground_lines, levels=None):
     """[(part, 0 | -1, (x, y))]: the free ends of deck lines (k, 2+) that join another line's end there (END_JOIN_*;
     earthfast.deck_end_joins), halves their half widths, ground_lines the ground roads near them. Pure."""
     if not END_JOIN_ON or len(lines) < 2:
         return []
     import fast
-    fast.require(105, "deck_end_joins")
+    fast.require(117, "deck_end_joins with levels")
     pts = [np.asarray(ln, np.float64)[:, :2] for ln in lines]
     off = np.r_[0, np.cumsum([len(p) for p in pts])].astype(np.int64)
     gl = [np.asarray(g, np.float64)[:, :2] for g in ground_lines if len(g) >= 2]
     gends = np.array([p for g in gl for p in (g[0], g[-1])], np.float64).reshape(-1, 2)
     got = np.asarray(fast._ef.deck_end_joins(
         np.ascontiguousarray(np.concatenate(pts)), off, np.asarray(halves, np.float64), np.ascontiguousarray(gends),
-        np.array([0.5, END_JOIN_M, END_JOIN_COS, END_JOIN_GROUND_M, END_JOIN_MIN_M], np.float64)), np.float64)
+        np.array([0.5, END_JOIN_M, END_JOIN_COS, END_JOIN_GROUND_M, END_JOIN_MIN_M], np.float64),
+        None if levels is None else np.asarray(levels, np.float64)), np.float64)
     return [(e // 2, 0 if e % 2 == 0 else -1, (float(got[e, 0]), float(got[e, 1])))
             for e in range(len(got)) if np.isfinite(got[e, 0])]
 

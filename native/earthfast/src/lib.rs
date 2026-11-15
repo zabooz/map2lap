@@ -15,6 +15,7 @@ mod tunnelcover;
 mod gradesep;
 mod lamps;
 mod decks;
+mod deckskin;
 mod islands;
 mod ribbons;
 mod groundpaint;
@@ -5031,7 +5032,8 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
-    m.add("VERSION", 116)?;
+    m.add("VERSION", 117)?;
+    m.add_function(wrap_pyfunction!(deckskin::deck_skin, m)?)?;
     m.add("ROAD_CURVES", true)?;
     m.add_function(wrap_pyfunction!(roadcurves::road_curve, m)?)?;
     m.add("AC_EXPORT_YIELD", 4)?;      // (grade_points takes yl, yield_fade; 4: bw, beside_wider/from/to, tun)

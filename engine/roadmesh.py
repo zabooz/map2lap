@@ -394,6 +394,40 @@ def _shared(P, UV, T):
     return P[first], UV[first], inv.reshape(-1)[T]
 
 
+def _deck_skins(P, T, UV, M, TL, groups, lifts, chunks, context):
+    """Fixed paint triangles on their owning deck's final triangles, including UV cuts. Pure."""
+    import fast
+    refs = [c for c in chunks if c.get('deck') and not c.get('tunnel')]
+    if not refs:
+        return P, T, UV, M, TL
+    fast.require(117, 'deck_skin')
+    used = np.zeros(len(T), bool)
+    pp, tt, uu, mm, ll = [P], [], [UV], [], []
+    size = len(P)
+    for owner in dict.fromkeys(c.get('surface_id') for c in refs):
+        own = [c for c in refs if c.get('surface_id') == owner]
+        others = [c for c in refs if c.get('surface_id') != owner]
+        surface = deck(own, (0., 0., 0.), context=list(context) + others, surface_only=True)
+        if surface is None:
+            continue
+        selected = np.flatnonzero((groups == owner) & np.isnan(TL))
+        if not len(selected):
+            continue
+        sp, st, _su, _sm, _si = surface
+        p, t, uv, source = fast._ef.deck_skin(np.ascontiguousarray(P), np.ascontiguousarray(UV),
+            np.ascontiguousarray(T[selected], np.int64), np.ascontiguousarray(sp),
+            np.ascontiguousarray(st, np.int64), np.ascontiguousarray(lifts[selected]))
+        pp.append(p)
+        uu.append(uv)
+        tt.append(t + size)
+        mm.append(M[selected[source]])
+        ll.append(TL[selected[source]])
+        size += len(p)
+        used[selected] = True
+    return (np.concatenate(pp), np.concatenate([T[~used]] + tt), np.concatenate(uu),
+            np.concatenate([M[~used]] + mm), np.concatenate([TL[~used]] + ll))
+
+
 def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None, drawn=None, context=(),
           clip_poly=None):
     """The road mesh of a tile (render only; on bridges it lies DECK_SKIN over deck()'s slab): (positions
@@ -433,6 +467,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
     mats = []
     P, UV, T, M = [], [], [], []
     TL = []                                     # per triangle: its layer's lift over the ground (None: on a deck)
+    groups, skin_lifts = [], []
     k0 = nverts = 0
     for n_rb, (left, right, v, m, layer, fz) in enumerate(rb):
         k = len(left)
@@ -462,6 +497,9 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         cz = e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]
         keep = cz * np.sign(np.median(cz) or 1.0) > 1e-6
         T.append(tri[keep])
+        owner = rbc[n_rb][1].get('surface_id') if tilts is not None else None
+        groups.append(np.full(int(keep.sum()), owner, object))
+        skin_lifts.append(np.full(int(keep.sum()), LIFT[layer] + DECK_SKIN))
         M.append(np.full(int(keep.sum()), mi))
         TL.append(np.full(int(keep.sum()), np.nan if fz is not None else LIFT[layer] + lift))
         nverts += 2 * k
@@ -481,11 +519,15 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         flip = nrm[:, 2] < 0
         fan[flip] = fan[flip][:, ::-1]
         T.append(fan)
+        groups.append(np.full(len(fan), None, object))
+        skin_lifts.append(np.zeros(len(fan)))
         M.append(np.full(len(fan), mats.index(c["m"])))
         TL.append(np.full(len(fan), LIFT[layer_of(c)] + lift))
         nverts += k
     P, T, UV, M = np.concatenate(P), np.concatenate(T), np.concatenate(UV), np.concatenate(M)
     TL = np.concatenate(TL)
+    P, T, UV, M, TL = _deck_skins(P, T, UV, M, TL, np.concatenate(groups),
+                                 np.concatenate(skin_lifts), chunks, context)
     tid = np.arange(len(T))
     if clip_poly is not None:
         import fast
@@ -658,7 +700,7 @@ def barrier_solid(edge, inward, z, h, v=None, section=JERSEY):
 
 
 def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=None, parapet_h=PARAPET_H,
-         low_parapet_decks=(), pads=()):
+         low_parapet_decks=(), pads=(), surface_only=False):
     """The bridge decks of a tile as one colliding mesh: per "deck" chunk a slab of opaque concrete
     (DECK_SIDE) whose top is at the chunk's fixed heights (the road surface, drawn DECK_SKIN above it
     by build()), with sides and underside DECK_DEPTH below; the piers, and the truss beams (p, q, width, height:
@@ -671,6 +713,8 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
     if not rb and not piers and not beams and not pads:
         return None
     low_parapet_decks = set(low_parapet_decks or ())
+    if surface_only:
+        parapets = []
     if parapets is None:
         parapets = parapet_runs(chunks, context, _rb=rb, ground=ground, pads=pads)
     parapets_by_deck = {}
@@ -678,11 +722,17 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
         parapets_by_deck.setdefault(parapet["deck"], []).append(parapet)
     mats, P, UV, T, M = [], [], [], [], []
     nv = 0
+    row_tilt = None
 
     def quads(a, b, ua, ub, va, vb, mi, up):
         """A strip between point rows a and b (k, 3); `up`: the side its faces look to (3,) or (k, 3)."""
         nonlocal nv
         k = len(a)
+        if row_tilt is not None:
+            axis, unit, bank = row_tilt
+            a, b = a.copy(), b.copy()
+            a[:, 2] += bank * ((a[:, :2] - axis) * unit).sum(1)
+            b[:, 2] += bank * ((b[:, :2] - axis) * unit).sum(1)
         P.append(np.concatenate([a, b]))
         UV.append(np.column_stack((np.concatenate((np.full(k, ua), np.full(k, ub))), np.concatenate((va, vb)))))
         i = np.arange(k - 1)
@@ -713,6 +763,9 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
         p0 = len(P)                             # (what this deck adds, tilted at its end)
         lat = left - right
         u = lat / np.maximum(np.hypot(lat[:, 0], lat[:, 1]), 1e-9)[:, None]     # unit left
+        axis = (left + right) / 2 - u * _row_off(c, left, right)[:, None]
+        bank = _row_bank(c, (left + right) / 2)
+        row_tilt = None if bank is None or c.get('tunnel') else (axis - np.asarray(origin)[:2], u, bank)
         wide = 0.0 if c.get("tunnel") else PARAPET_W
         gl, gr = medians[n]
         covered[n] = (covered[n][0] | (gl > 0), covered[n][1] | (gr > 0))
@@ -730,8 +783,15 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
         # (the top plain asphalt, under the road's own surface: where that does not cover it, between decks side by
         # side, a median, a gore, the slab showed as pale concrete wedges, US-101 over the Los Angeles River)
         across = float(np.median(np.hypot(*(el - er).T))) / DECK_TOP_TILE_M
-        quads(L, R, 0.0, across, v * DECK_TOP_V, v * DECK_TOP_V, top if not c.get("tunnel") else side,
+        # Preserve the planned centre profile as mesh edges. Two triangles across the entire
+        # width invent a crest on the centreline when bank changes, even on a straight bridge.
+        C = np.c_[axis, z] - origin
+        quads(L, C, 0.0, across / 2, v * DECK_TOP_V, v * DECK_TOP_V, top if not c.get("tunnel") else side,
               np.array([0.0, 0.0, 1.0]))
+        quads(C, R, across / 2, across, v * DECK_TOP_V, v * DECK_TOP_V, top if not c.get("tunnel") else side,
+              np.array([0.0, 0.0, 1.0]))
+        if surface_only:
+            continue
         quads(L, Lb, 0.0, 0.1, v, v, side, out_l)
         quads(R, Rb, 0.0, 0.1, v, v, side, -out_l)
         quads(Lb, Rb, 0.0, 1.0, v, v, side, np.array([0.0, 0.0, -1.0]))
@@ -750,6 +810,7 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
             quads(GLb, GRb, 0.0, 0.05, v, v, side, np.array([0.0, 0.0, -1.0]))
         # a parapet on each free edge (parapet_runs: not where another deck goes on beside it, a ramp leaving, a
         # carriageway); a low curb under the rail where mapped guard rails put stock rail modules on it (guardrails)
+        p0 = len(P)  # slab and girders already use their own rows' bank, not a nearest-row guess
         for parapet in parapets_by_deck.get(n, ()):
             h = parapet_heights(parapet["mid"], parapet["ends"])
             h = np.minimum(h, BRIDGE_CURB_H if BRIDGE_RAILS and n in low_parapet_decks else parapet_h)

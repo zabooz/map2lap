@@ -15,7 +15,7 @@ from .tiles import _along, _chunk, split
 from .walks import clip_polyline, densify, extras, simplify
 from .decks import CONCRETE_WALL_CLASSES, SECTION_MIN_M, TUNNEL_COVER, UNDER_DECK, _EndJoin, cover_roads, portal_cover
 from .bridges import BridgeProfiles, DECK_STEP, OBS_BLEND_DG, OBS_BLEND_MIN_M
-from .deckmesh import _deck_look
+from .deckmesh import _deck_look, under_deck_ground
 
 
 TUNNEL_WET_SHARE = 0.25 # a tunnel part with more of its points under water is left out (TunnelProfiles.wet)
@@ -1088,7 +1088,13 @@ def spare_carriageways(mask, parts, cells, frame, cx, cy, square):
     x0, y0 = cx - n * square / 2, cy - n * square / 2
     out = mask.copy()
     for iy, ix in zip(*np.nonzero(mask)):
-        if not oth.clear((x0 + ix * square, y0 + iy * square), None, HOLE_ROAD_MARGIN):
+        q = (x0 + ix * square, y0 + iy * square)
+        # The hole kernel has already tested vertical clearance. Another road's XY margin
+        # cannot put terrain back inside that opening (offset twin portals at Weblinger).
+        # Outside the actual floor footprint its neighbouring road still needs support.
+        if tunnel_floor_at(parts, *q) is not None:
+            continue
+        if not oth.clear(q, None, HOLE_ROAD_MARGIN):
             out[iy, ix] = False
     return out
 
@@ -1187,6 +1193,22 @@ def portal_apron(pts, at):
     out = np.r_[q[0, :2] + d / run * PORTAL_APRON_M, q[0, 2] + slope * PORTAL_APRON_M]
     line = np.array([out, q[0]])
     return line if at == 0 else line[::-1]
+
+
+def portal_ground(q, z, parts, mouths=None):
+    """Terrain z at ENU q beneath the actual portal aprons of parts; upper roads stay. Pure."""
+    import grading
+    aprons = []
+    for fid, spec, xy, floor, _lon in parts:
+        if len(xy) < 2 or not np.isfinite(floor).all():
+            continue
+        for at, open_ in zip((0, -1), (mouths or {}).get(fid, (True, True))):
+            if open_:
+                line = portal_apron(np.c_[xy, floor], at)
+                aprons.append((line[:, :2], line[:, 2] + grading.ROAD_LIFT, spec.width / 2))
+    # The apron is a real floor outside the portal. Terrain in its carriageway must not
+    # pierce it; terrain with a full tunnel's minimum headroom belongs to another level.
+    return under_deck_ground(q, z, aprons, [None] * len(aprons), max_drop=TUNNEL_LOW_H, margin=0.)
 
 
 def _tunnel_chunks(tunnels, cells, exact, terrain_paint=True):

@@ -226,12 +226,15 @@ def _heights(T3, D, qx, qz):
         v0 = (B - A)[:, [0, 2]]
         v1 = (C - A)[:, [0, 2]]
         d = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
-        d = np.where(np.abs(d) < 1e-12, 1e-12, d)
+        # OBJ rounding can collapse small clipped paint triangles. A zero-area face
+        # has no height domain; replacing its determinant alone made it cover the whole bucket.
+        valid = np.abs(d) >= 1e-12
+        d = np.where(valid, d, 1.0)
         px = qx[qi][:, None] - A[None, :, 0]
         pz = qz[qi][:, None] - A[None, :, 2]
         u = (px * v1[None, :, 1] - v1[None, :, 0] * pz) / d[None]
         v = (v0[None, :, 0] * pz - px * v0[None, :, 1]) / d[None]
-        ins = (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6)
+        ins = valid[None] & (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6)
         y = A[None, :, 1] + u * (B - A)[None, :, 1] + v * (C - A)[None, :, 1]
         for j, i in enumerate(qi):
             out[i] = (y[j, ins[j]], D[idx[ins[j]]])

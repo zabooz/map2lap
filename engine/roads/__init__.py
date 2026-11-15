@@ -73,6 +73,7 @@ from .tunnels import (
     APPROACH_JOIN_M, ARCH_SOIL_MIN, PORTAL_APRON_M, PORTAL_GROUND_M, TUNNEL, TUNNEL_SOIL_M, TUNNEL_WET_SHARE,
     TunnelProfiles, _line_gap, _tunnel_chunks, approach_floor, approach_heights, approach_lines, approach_reach,
     approach_samples, arch_raise, block_arch_raise, block_tunnel_holes, gallery_kinds, portal_approaches, portal_ends,
+    portal_ground,
     portal_lows, portal_roads, spare_open_floors, tunnel_floor_at, tunnel_hole_mask, tunnel_sections, twin_spans,
     twin_tunnels, wet_run_inside
 )
