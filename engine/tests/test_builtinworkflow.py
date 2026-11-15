@@ -46,7 +46,7 @@ class WorkflowTest(Base):
         np.testing.assert_allclose(trees["pos"], [23, 2, 4])
         self.assertEqual([90], trees["angle"])
         self.assertEqual([1.5], trees["size"])
-        self.assertEqual([200, 300, 500], [l["distance"] for l in trackview.treefx_model(self.ac, self.name, trees["models"][0])["lods"]])
+        self.assertEqual([600, 700, 800], [l["distance"] for l in trackview.treefx_model(self.ac, self.name, trees["models"][0])["lods"]])
         self.assertFalse(any("m2l_model" in m["name"] for m in view["meshes"]))
         self.assertEqual({"trees": {}, "gone": [instance["id"] + "#0"]}, self.keep([])["treefx"])
 

@@ -70,7 +70,7 @@ export function BuildPanel({tab, onTab, options, onOptions, corridor, disabled, 
           </div>}
           <div className={styles.trees}>
             <div className="label-row"><span>Minimum trunk spacing</span><span className="val">{treeSpacing === 0 ? "Original" : `Min. ${treeSpacing} m`}</span></div>
-            <input type="range" min={0} max={100} step={.5} value={treeSpacing} disabled={disabled}
+            <input type="range" min={0} max={20} step={.5} value={treeSpacing} disabled={disabled}
                    aria-label="Build tree minimum spacing" onChange={e => onOptions({tree_spacing_m: +e.target.value})} />
             <p className={styles.note}>Removed trees cannot be restored in the Editor.</p>
           </div>

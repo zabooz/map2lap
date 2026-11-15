@@ -10,7 +10,8 @@ handle and exits with that session. Linux runs the same executable inside AC's P
 PID and shared mapping are meaningful; a native Linux helper would not share that namespace. Native Proton runtime
 behavior still requires testing on Linux. Starts through Content Manager or Steam do not start Map2Lap's helper.
 The build removes private paths and checks imports; release packaging refuses a missing or stale helper using its
-source/binary hash receipt. Users need no compiler. Rust snow has a nonblocking Lua fallback when the helper is missing,
+source/binary hash receipt. `.gitattributes` keeps the worker source and build script at LF on both platforms so checkout
+line-ending conversion cannot invalidate that receipt. Users need no compiler. Rust snow has a nonblocking Lua fallback when the helper is missing,
 cannot initialize or delivers a result more than 50 ms late.
 The owned development preview can also build/start the same source with `tools/weather_preview/snow_rust.py`;
 its separate binary remains under ignored `out/rust-snow/snow-worker.exe`.

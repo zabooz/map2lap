@@ -3,5 +3,8 @@
 *.sh text eol=lf
 *.desktop text eol=lf
 .githooks/* text eol=lf
+# The snow helper's source receipt hashes these bytes on Windows and Linux.
+native/snowworker/main.rs text eol=lf
+tools/build_snow_worker.py text eol=lf
 # Built bundles contain third-party shader strings; review their sources in ui/.
 src/web/** -whitespace linguist-generated=true

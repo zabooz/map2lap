@@ -2,6 +2,22 @@
 import {card, clickMap, expect, openEditor, test} from "./fixtures";
 import {deleteTree, meshes, saved, saveTrack, stored, treeCount} from "./edit-helpers";
 
+test("new builds start at 2 m tree spacing with half-metre steps from Original to 20 m", async ({page}) => {
+  await page.goto("/");
+  const spacing = page.getByRole("slider", {name: "Build tree minimum spacing"});
+  await expect(spacing).toHaveValue("2");
+  await spacing.focus();
+  for (const value of ["1.5", "1", "0.5", "0"]) {
+    await spacing.press("ArrowLeft");
+    await expect(spacing).toHaveValue(value);
+  }
+  await expect(page.getByRole("tabpanel", {name: "Build options", exact: true})).toContainText("Original");
+  await spacing.press("End");
+  await expect(spacing).toHaveValue("20");
+  await spacing.press("ArrowRight");
+  await expect(spacing).toHaveValue("20");
+});
+
 test("the rebuild API uses the requested corridor and retains it in the rebuilt track", async ({page, backend}) => {
   const response = await page.request.post('/api/rebuild', {data: {name: 'alpha', width: 200}});
   expect(response.ok()).toBe(true);

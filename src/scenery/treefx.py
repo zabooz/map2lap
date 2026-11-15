@@ -31,7 +31,7 @@ from PIL import Image, ImageDraw
 T = 256                     # px of an atlas region; atlas 2T x 2T: A leaves light, B leaves dark, C needle band, D bark
 REGION = {"A": (0, 0), "B": (1, 0), "C": (0, 1), "D": (1, 1)}
 PADPX = 12
-LOD_M = (200, 300, 500)     # m to which each LOD shows, the user's choice 2026-11-12: no change to be seen near the road
+LOD_M = (600, 700, 800)     # m to which each LOD shows: retain detailed crowns farther along the road
 GROW = 1.3                  # card size per halving of the cards: the crown stays about as full
 # a tree's width over its height against the model's, at most this far apart: a model stretched further no longer looks like
 # its kind (the billboards' sprites run from 0.22 to 1.3 of their height wide, a model from about 0.3 to 1.3)

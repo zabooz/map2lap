@@ -95,11 +95,13 @@ buried low-voltage lines, street lamp spacing.
 ### Terrain and scenery build options
 
 `app/buildoptions.py` validates the per-track choices: terrain spacing (2 m by default, optionally 1 m), parked cars
-(on by default) and minimum tree spacing (0–100 m, 0 preserves the generated trees). The generator page captures them
+(on by default) and minimum tree spacing. New tracks on the generator page start at 2 m; its slider runs from
+Original (0 m) to 20 m in 0.5 m steps. The data reader still accepts saved spacings up to 100 m; missing values in old
+tracks and codes mean Original. The generator page captures the choices
 when starting each build and passes an isolated child environment. They are saved in the anchor and track settings;
 Rebuild, Build as copy and track codes retain them. Route rebuilds and copies also accept a changed corridor width,
-falling back to the track's saved width when none is supplied. Older tracks use the defaults. Non-default choices use `M2L2-`
-codes so older applications refuse them rather than silently ignoring them; ordinary default builds retain `M2L1-`.
+falling back to the track's saved width when none is supplied. Choices beyond the legacy defaults use `M2L2-`
+codes so older applications refuse them rather than silently ignoring them; 2 m terrain, cars on and Original trees retain `M2L1-`.
 
 `BNE_AC_GRID_M=1` selects a 1 m lattice for a command-line build; `2` explicitly selects the normal lattice.
 `engine/acgrid.py` owns the terrain spacing. Collision/visible ground, water lowering and the

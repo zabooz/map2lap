@@ -83,7 +83,7 @@ class BuiltinTest(unittest.TestCase):
         item = next(m for m in builtinobjects.catalogue(self.root) if m["builtin"]["name"] == "olive")
         folder = objectlibrary._folder(item["id"])
         native = treefx.read_bin(folder / item["native_tree"]["file"])
-        self.assertEqual([200, 300, 500], [lod["distance"] for lod in native["lods"]])
+        self.assertEqual([600, 700, 800], [lod["distance"] for lod in native["lods"]])
         self.assertEqual("none", item["collision"])
 
     def test_street_lamp_keeps_the_emitting_glass_and_only_the_pole_collides(self):

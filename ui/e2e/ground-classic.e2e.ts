@@ -55,6 +55,22 @@ async function untouchedDelta(page: Page, before: Buffer, after: Buffer, x = .7,
   }, {images: [before.toString("base64"), after.toString("base64")], x, y});
 }
 
+/** Maximum channel difference over the whole frame. Firefox's regional ground can differ by one channel value after Undo/Redo. */
+async function frameDelta(page: Page, before: Buffer, after: Buffer) {
+  return page.evaluate(async images => {
+    const frames = await Promise.all(images.map(async raw => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${raw}`)).blob());
+      const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d")!; ctx.drawImage(bitmap, 0, 0); bitmap.close();
+      return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    }));
+    if (frames[0].width !== frames[1].width || frames[0].height !== frames[1].height) return 255;
+    let maximum = 0;
+    for (let i = 0; i < frames[0].data.length; i++) maximum = Math.max(maximum, Math.abs(frames[0].data[i] - frames[1].data[i]));
+    return maximum;
+  }, [before.toString("base64"), after.toString("base64")]);
+}
+
 test("adding a mapped material to another material preserves the existing colour-only field on the same tile", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, grass: true, ground_split: true});
   await openEditor(page);
@@ -217,9 +233,9 @@ for (const regional of [false, true]) test(`${regional ? "regional" : "single"} 
   const white = await rgb(page, winter, sample, .65);
   expect(white[0], "new grass must retain its snow cover immediately after Apply").toBeGreaterThan(white[1] * .8);
   await scene(page).focus(); await page.keyboard.press("Control+z"); await saved(page);
-  await expect.poll(async () => (await picture(page)).equals(original)).toBe(true);
+  await expect.poll(async () => frameDelta(page, original, await picture(page))).toBeLessThanOrEqual(1);
   await page.keyboard.press("Control+Shift+z"); await saved(page);
-  await expect.poll(async () => (await picture(page)).equals(winter)).toBe(true);
+  await expect.poll(async () => frameDelta(page, winter, await picture(page))).toBeLessThanOrEqual(1);
   await season.selectOption("summer");
   const summer = await picture(page), green = await rgb(page, summer, sample, .65);
   expect(green[1]).toBeGreaterThan(green[0] * 1.5);
@@ -228,7 +244,7 @@ for (const regional of [false, true]) test(`${regional ? "regional" : "single"} 
   const autumn = await rgb(page, await picture(page), sample, .65);
   expect(autumn[0] - green[0]).toBeGreaterThan(15);
   await season.selectOption("winter");
-  await expect.poll(async () => (await picture(page)).equals(winter)).toBe(true);
+  await expect.poll(async () => frameDelta(page, winter, await picture(page))).toBeLessThanOrEqual(1);
   if (!regional) {
     // The regional fixture's soft junction retains a fifth source contribution, beyond native Save's four-layer limit.
     // Its persistent draft still has to reopen with the same season rendering.
@@ -241,7 +257,7 @@ for (const regional of [false, true]) test(`${regional ? "regional" : "single"} 
   await page.reload(); await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
   await season.selectOption("winter");
-  await expect.poll(async () => (await picture(page)).equals(winter)).toBe(true);
+  await expect.poll(async () => frameDelta(page, winter, await picture(page))).toBeLessThanOrEqual(1);
 });
 
 test("a mapped Apply preserves untouched source lighting and +Y normals follow the actual KN5 V direction through Undo/Redo/reopen", async ({page, backend}) => {

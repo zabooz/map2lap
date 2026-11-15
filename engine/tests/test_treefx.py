@@ -89,7 +89,7 @@ class BinTest(unittest.TestCase):
         with zipfile.ZipFile(path) as z:
             ini = ini_of(z.read("tree.ini").decode())
             indices = [index_count(z.read(ini[f"LOD_{i}"]["MODEL"])) for i in range(3)]
-            self.assertEqual(["200", "300", "500"], [ini[f"LOD_{i}"]["DISTANCE"] for i in range(3)])
+            self.assertEqual(["600", "700", "800"], [ini[f"LOD_{i}"]["DISTANCE"] for i in range(3)])
             self.assertEqual(sorted(indices, reverse=True), indices)
             self.assertGreater(indices[0], indices[2])
             self.assertIn("birch_d.png", z.namelist())

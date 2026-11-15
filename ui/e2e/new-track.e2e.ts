@@ -12,7 +12,7 @@ test("two pins make a route, its name and its code", async ({page}) => {
   await expect(pins(page)).toHaveCount(2);
   await expect(page.getByLabel("Track name")).toHaveValue("Testtown Route");
   await expect(page.getByLabel("Start")).toHaveValue(/^Testtown, Part/);
-  await expect(page.getByRole("textbox", {name: "Track code"})).toHaveValue(/^M2L1-/);
+  await expect(page.getByRole("textbox", {name: "Track code"})).toHaveValue(/^M2L2-/);
 });
 
 test("a name typed stays, emptied the places give it again", async ({page}) => {
@@ -31,7 +31,7 @@ test("a changed selection never offers the previous track's code", async ({page}
   await clickMap(page, 0.3, 0.3);
   await clickMap(page, 0.6, 0.6);
   const code = page.getByRole("textbox", {name: "Track code"});
-  await expect(code).toHaveValue(/^M2L1-/);
+  await expect(code).toHaveValue(/^M2L2-/);
   const before = await code.inputValue();
   let release!: () => void;
   const ready = new Promise<void>(ok => { release = ok; });
@@ -43,7 +43,7 @@ test("a changed selection never offers the previous track's code", async ({page}
   } finally {
     release();
   }
-  await expect(code).toHaveValue(/^M2L1-/);
+  await expect(code).toHaveValue(/^M2L2-/);
   expect(await code.inputValue()).not.toBe(before);
 });
 

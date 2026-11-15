@@ -160,7 +160,7 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Atlases keep an empty margin per image: else a cut-out's edges reach into the neighbouring image at small mip levels, or
   through the repeat into their own bottom row (floating lines).
 - Trees and bushes are CSP TreeFX trees (`scenery/treefx.py`, `extension/trees/trees.txt`), not kn5 meshes: they sway, cast
-  and take shadows and switch LOD at 200/300/500 m. In a `.bin` each card face is written once (both sides at one place
+  and take shadows and switch LOD at 600/700/800 m. In a `.bin` each card face is written once (both sides at one place
   flickered far away and showed a grid; CSP draws leaves from both sides), and the coarser LODs are subsets of one crown
   (each with its own random gave another tree on switching).
   Tree wood uses eight height bands (`scenery/treewind.py`), so the trunk follows the

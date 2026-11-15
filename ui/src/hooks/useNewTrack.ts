@@ -60,7 +60,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const [mode, setModeState] = useState<Mode>("route");
   const [title, setTitleState] = useState("My Route");
   const [width, setWidthState] = useState(100);
-  const [options, setOptionsState] = useState<BuildOptions>({terrain_cell_m: 2, parked_cars: true, tree_spacing_m: 0});
+  const [options, setOptionsState] = useState<BuildOptions>({terrain_cell_m: 2, parked_cars: true, tree_spacing_m: 2});
   const [points, setPoints] = useState<Point[]>([]);
   const [area, setArea] = useState<Box | null>(null);
   const [draft, setDraft] = useState<Box | null>(null);     // the box while drawn or resized
