@@ -16,7 +16,7 @@ export function BuildPanel({tab, onTab, options, onOptions, corridor, disabled, 
   focusLog: number;
   compact?: boolean;
 }) {
-  const {terrain_cell_m: terrainCell, parked_cars: parkedCars, tree_spacing_m: treeSpacing} = options;
+  const {terrain_cell_m: terrainCell, parked_cars: parkedCars, tree_spacing_m: treeSpacing, ground_quality: groundQuality} = options;
   const logPanel = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (focusLog) logPanel.current?.focus(); }, [focusLog]);
   const onKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -51,6 +51,17 @@ export function BuildPanel({tab, onTab, options, onOptions, corridor, disabled, 
                       aria-describedby="terrain-grid-hint" disabled={disabled} className={styles.toggle}
                       onClick={() => onOptions({terrain_cell_m: terrainCell === 1 ? 2 : 1})}><span /></button>
               <span className={terrainCell === 1 ? styles.active : ""}>1 m</span>
+            </div>
+          </div>
+          <div className={`${styles.row} ${styles.quality}`}>
+            <div><b className={styles.label}>Ground textures</b><span id="ground-quality-hint" className={styles.detail}>
+              {groundQuality === "sd" ? "Standard textures, smaller files" : "Sharper ground, roads, paths and verges; more texture memory"}</span></div>
+            <div className={styles.choice}>
+              <span className={groundQuality === "sd" ? styles.active : ""}>SD</span>
+              <button type="button" role="switch" aria-label="HD ground textures" aria-checked={groundQuality === "hd"}
+                      aria-describedby="ground-quality-hint" disabled={disabled} className={styles.toggle}
+                      onClick={() => onOptions({ground_quality: groundQuality === "sd" ? "hd" : "sd"})}><span /></button>
+              <span className={groundQuality === "hd" ? styles.active : ""}>HD</span>
             </div>
           </div>
           <div className={`${styles.row} ${styles.cars}`}>

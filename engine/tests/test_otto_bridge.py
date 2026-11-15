@@ -38,6 +38,70 @@ LOWER_BEND = 0.045      # the road under it: largest grade change per vertex (no
 FIDS = ("a4ce4242-6c0c-4f09-af3f-4ef16198fae5", "c055323a-f109-486c-9a9d-ad07f216b366")
 
 
+def nearest_capture(keys):
+    """Index captured integer coordinates; queries preserve the full scan's Chebyshev distance and first-index ties.
+    Pure. The fixture has 143,689 points: scanning all of them for every uncaptured planner query costs minutes.
+    """
+    keys = np.asarray(keys, np.int64)
+    def build(ids):
+        points = keys[ids]
+        low, high = points.min(axis=0), points.max(axis=0)
+        # A leaf's two int64 coordinates occupy at most 1 KiB; vectorized scans stay small.
+        if len(ids) <= 64:
+            return (tuple(low), tuple(high), ids, None, None)
+        axis = int(np.argmax(high - low))
+        middle = len(ids) // 2
+        order = np.argpartition(points[:, axis], middle)
+        return (tuple(low), tuple(high), None, build(ids[order[:middle]]), build(ids[order[middle:]]))
+    root = build(np.arange(len(keys)))
+
+    def query(point):
+        x, y = map(int, point[:2])
+        best_index, best_distance = len(keys), float('inf')
+        def bound(node):
+            low, high = node[:2]
+            return max(0, low[0] - x, x - high[0], low[1] - y, y - high[1])
+        def visit(node):
+            nonlocal best_index, best_distance
+            if bound(node) > best_distance:
+                return
+            ids, left, right = node[2:]
+            if ids is not None:
+                distance = np.abs(keys[ids] - [x, y]).max(axis=1)
+                nearest = int(distance.min())
+                index = int(ids[distance == nearest].min())
+                if (nearest, index) < (best_distance, best_index):
+                    best_distance, best_index = nearest, index
+                return
+            if bound(right) < bound(left):
+                left, right = right, left
+            visit(left)
+            visit(right)  # Equal-distance bounds must remain eligible: the earlier capture wins a tie.
+        visit(root)
+        return best_index, best_distance
+    return query
+
+
+class CaptureLookupTest(TestCase):
+    def test_index_matches_full_scan_including_ties_duplicates_and_far_queries(self):
+        rng = np.random.default_rng(7)
+        keys = np.r_[rng.integers(-1000, 1000, (500, 2)), [[0, 1], [1, 0], [0, 1]]]
+        query = nearest_capture(keys)
+        for point in np.r_[rng.integers(-2000, 2000, (100, 2)), [[0, 0], [0, 1], [1000000, -1000000]]]:
+            distances = np.abs(keys - point).max(axis=1)
+            expected = int(np.argmin(distances))
+            self.assertEqual(query(point), (expected, int(distances[expected])))
+
+    def test_index_matches_original_capture_at_new_query_points(self):
+        with np.load(Path(__file__).parent / "fixtures" / "otto_wyoming.npz", allow_pickle=False) as archive:
+            keys = archive["sample_keys"][:, :2].astype(np.int64) + archive["sample_origin"][:2]
+        query = nearest_capture(keys)
+        for point in keys[::max(1, len(keys) // 40)][:40] + [113, -79]:
+            distances = np.abs(keys - point).max(axis=1)
+            expected = int(np.argmin(distances))
+            self.assertEqual(query(point), (expected, int(distances[expected])))
+
+
 class OttoBridgeTest(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -55,6 +119,7 @@ class OttoBridgeTest(TestCase):
 
         skeys = np.array(list(samples), np.int64)
         svals = np.array(list(samples.values()), np.float64)
+        nearest = nearest_capture(skeys[:, :2])
 
         def sample(la, lo):
             a, b = np.broadcast_arrays(la, lo)
@@ -67,11 +132,10 @@ class OttoBridgeTest(TestCase):
             for k in keys:
                 z = samples.get(tuple(k))
                 if z is None:
-                    d = np.abs(skeys[:, :2] - k[:2]).max(1)
-                    n = int(np.argmin(d))
+                    n, distance = nearest(k[:2])
                     far = max(abs(k[0] / 1e9 - LAT) * 111320.0,
                               abs(k[1] / 1e9 - LON) * 111320.0 * np.cos(np.radians(LAT))) > FAR_M
-                    if d[n] > NEAR_DEG * 1e9 and not far:
+                    if distance > NEAR_DEG * 1e9 and not far:
                         raise KeyError(tuple(k))
                     z = svals[n]
                 out.append(z)

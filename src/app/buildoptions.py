@@ -2,7 +2,7 @@
 import math
 import os
 
-DEFAULTS = {"terrain_cell_m": 2, "parked_cars": True, "tree_spacing_m": 0.0}
+DEFAULTS = {"terrain_cell_m": 2, "parked_cars": True, "tree_spacing_m": 0.0, "ground_quality": "sd"}
 
 
 def terrain_cell(value=2):
@@ -13,7 +13,7 @@ def terrain_cell(value=2):
 
 
 def checked(values):
-    """The three build choices from saved settings or an API request, with legacy defaults. Pure."""
+    """The build choices from saved settings or an API request, with legacy defaults. Pure."""
     grid = terrain_cell(values.get("terrain_cell_m", 2))
     cars = values.get("parked_cars", True)
     spacing = values.get("tree_spacing_m", 0.0)
@@ -21,14 +21,17 @@ def checked(values):
         raise ValueError("Parked cars must be on or off")
     if type(spacing) not in (int, float) or not math.isfinite(spacing) or not 0 <= spacing <= 100:
         raise ValueError("Tree spacing must be 0–100 m")
-    return {"terrain_cell_m": grid, "parked_cars": cars, "tree_spacing_m": float(spacing)}
+    quality = values.get("ground_quality", "sd")
+    if quality not in ("sd", "hd"):
+        raise ValueError("Ground textures must be SD or HD")
+    return {"ground_quality": quality, "terrain_cell_m": grid, "parked_cars": cars, "tree_spacing_m": float(spacing)}
 
 
 def environment(values):
     """The worker's environment entries for validated build choices. Pure."""
     options = checked(values)
     return {"BNE_AC_GRID_M": str(options["terrain_cell_m"]), "BNE_PARKED_CARS": "1" if options["parked_cars"] else "0",
-            "BNE_TREE_SPACING_M": str(options["tree_spacing_m"])}
+            "BNE_TREE_SPACING_M": str(options["tree_spacing_m"]), "BNE_GROUND_QUALITY": options["ground_quality"]}
 
 
 def from_environment():
@@ -37,4 +40,5 @@ def from_environment():
     if cars not in ("0", "1"):
         raise ValueError("BNE_PARKED_CARS must be 0 or 1")
     return checked({"terrain_cell_m": float(os.environ.get("BNE_AC_GRID_M", "2")), "parked_cars": cars == "1",
-                    "tree_spacing_m": float(os.environ.get("BNE_TREE_SPACING_M", "0"))})
+                    "tree_spacing_m": float(os.environ.get("BNE_TREE_SPACING_M", "0")),
+                    "ground_quality": os.environ.get("BNE_GROUND_QUALITY", "sd")})

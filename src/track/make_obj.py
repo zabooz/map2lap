@@ -555,7 +555,10 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
             elif tex in ("@edge", "@arrows"):
                 png = os.path.join(tex_dir, f"{name}.png")
                 if not os.path.exists(png):
-                    (roadtex.make_edge if tex == "@edge" else roadtex.make_arrows)(png)
+                    if tex == "@edge":
+                        roadtex.make_edge(png, scale=4 if ground.TEX_PX > 2048 else 1)
+                    else:
+                        roadtex.make_arrows(png)
                 f.write(f"map_Kd textures/{name}.png\n\n")
             elif tex in ("@gc", "@rock"):
                 if not os.path.exists(os.path.join(tex_dir, "gc_meadow.png")):
@@ -590,10 +593,10 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
                 Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).save(os.path.join(tex_dir, f"{name}.jpg"),
                                                                            quality=92)
                 f.write(f"map_Kd textures/{name}.jpg\n\n")
-            elif name == "asphalt":     # like the asphalt painted into the terrain (ground.ROAD_LOOKS): scaled to
-                fname = "asphalt_ground.jpg"    # 12.5 cm/px and darkened; at full resolution the bridges
-                src, rep, bright = ground.ROAD_LOOKS[ground.DECK_LOOK]  # looked like a different surface
-                px = int(round(rep / (ground.TILE / ground.TEX_PX)))
+            elif name == "asphalt":     # SD matches the terrain's road sampling; HD retains the original source.
+                fname = "asphalt_ground.jpg"
+                src, rep, bright = ground.ROAD_LOOKS[ground.DECK_LOOK]
+                px = roadtex.SURFACE_PX if ground.TEX_PX > 2048 else int(round(rep / (ground.TILE / ground.TEX_PX)))
                 a = ground._texture(os.path.join(tex_dir, f"{src}.png"), px)     # (roadtex.make_surfaces)
                 Image.fromarray(np.clip(a * bright, 0, 255).astype(np.uint8)).save(
                     os.path.join(tex_dir, fname), quality=95)
@@ -734,7 +737,7 @@ def _scenery_tile(tx, ty, part_path):
     returns (objects, vertices, triangles per prefix, unknown materials, messages)."""
     anc, tiles_dir, frame, elev, raw, veg = (_ctx[k] for k in ("anc", "tiles_dir", "frame", "elev", "raw", "veg"))
     obj = Obj(part_path, header=False)
-    obj.editor = editorinfo.Paint(part_path, tx, ty, ground.TEX_PX)
+    obj.editor = editorinfo.Paint(part_path, tx, ty, min(2048, ground.TEX_PX))
     unknown, tris, msgs = set(), {}, []
     log = msgs.append
     depth, wmesh, fmesh = water.water_tile(frame, blockworker._s.md, raw, tx, ty, CELL)

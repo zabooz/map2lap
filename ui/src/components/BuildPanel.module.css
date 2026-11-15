@@ -23,7 +23,7 @@
 .toggle[aria-checked=true] span { transform: translateX(16px); background: var(--accent); }
 .toggle:disabled { opacity: .45; cursor: default; }
 .corridor { margin-top: 16px; }
-.cars, .trees { margin-top: 16px; }
+.cars, .trees, .quality { margin-top: 16px; }
 .note { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 .log { display: flex; }
 @media (max-width: 760px) { .panel { flex: none; height: 300px; } }

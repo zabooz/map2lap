@@ -91,7 +91,7 @@ export function App() {
     ?? tracks.find(t => groupOf(t) === group) : undefined;
   const pick = picked?.name ?? null;
   const options: BuildOptions = mine ? {terrain_cell_m: picked?.terrain_cell_m ?? 2, parked_cars: picked?.parked_cars ?? true,
-    tree_spacing_m: picked?.tree_spacing_m ?? 0, ...(picked ? rebuildOptions[picked.name] : {})} : track.options;
+    tree_spacing_m: picked?.tree_spacing_m ?? 0, ground_quality: picked?.ground_quality ?? "sd", ...(picked ? rebuildOptions[picked.name] : {})} : track.options;
   const setOptions = (value: Partial<BuildOptions>) => {
     if (mine && picked) setRebuildOptions(old => ({...old, [picked.name]: {...old[picked.name], ...value}}));
     else track.setOptions(value);

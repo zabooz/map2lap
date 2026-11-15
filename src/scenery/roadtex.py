@@ -19,10 +19,12 @@ EDGE_RGB = (166, 154, 128)
 ARROW_PX = 512
 
 
-def make_edge(path, seed=5):
-    """Gravel edge (RGBA, seamless along)."""
+def make_edge(path, seed=5, scale=1):
+    """Draw the same gravel edge at scale times its source resolution (RGBA, seamless along)."""
+    if type(scale) is not int or scale not in (1, 4):
+        raise ValueError("Edge texture scale must be 1 or 4")
     rng = random.Random(seed)
-    w, h = EDGE_PX
+    w, h = (size * scale for size in EDGE_PX)
     img = Image.new("RGBA", (w, h), EDGE_RGB + (0,))
     px = img.load()
     waves = [(rng.randint(1, 3) * k, rng.uniform(0, 2 * math.pi), rng.uniform(0.4, 1.0) / k) for k in (1, 3, 7, 13)]
@@ -36,7 +38,7 @@ def make_edge(path, seed=5):
     d = ImageDraw.Draw(img)
     for _ in range(260):            # pebbles: darker and lighter, only in the opaque band
         x, y = rng.uniform(EDGE_MIN * w, EDGE_AT * w), rng.uniform(0, h)
-        r = rng.uniform(1.0, 2.6)
+        r = rng.uniform(1.0, 2.6) * scale
         if px[int(x), int(y) % h][3]:
             c = (128, 118, 96) if rng.random() < 0.6 else (198, 188, 162)
             for dy in (-h, 0, h):   # (drawn across the edge: seamless)

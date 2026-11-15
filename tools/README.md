@@ -10,6 +10,7 @@ line here (`engine/tests/test_tools.py`).
 | Build/start the Rust rain-bead simulation for front and side glass in the owned AC preview | `weather_preview/rain_rust.py [--stop]`; `weather_preview/run.py --mode rainrust\|rainlua` selects the backend |
 | Pass/fail checks: unit tests and a short kn5 build | `check.py [--fast | <test file>]` |
 | Compare roof forms, materials, building parts, equipment and residential/commercial/industrial classes in House without map downloads | `building_gallery.py [--ac-root <AC folder>]` (synthetic labelled Editor/AC gallery; default stages under `out/`) |
+| Compare generated trees/bushes, regional palettes and all terrain/road surfaces (including pavements, verges and ballast) in Vegetation | `vegetation_gallery.py [--ac-root <AC folder>]` (labelled production TreeFX models and surface samples; default stages under `out/`) |
 | A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
 | All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface, vegetation | `spot.py <track> --route <m>` |
 | What grows at a spot and why it looks so: climate zone, land cover, ground painted, the map's areas, trees and bushes by sprite, the tile's cap | `plants.py <track> --route <m>` |

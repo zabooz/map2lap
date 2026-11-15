@@ -83,11 +83,11 @@ def build_log(name, clean):
     return open(os.path.join(work, BUILD_LOG), "w", encoding="utf-8")
 
 
-def run_build(args, name, clean, started, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
+def run_build(args, name, clean, started, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd"):
     code, result, keep = None, None, None
     try:
         keep = build_log(name, clean)
-        options = {"terrain_cell_m": terrain_cell_m, "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m}
+        options = {"terrain_cell_m": terrain_cell_m, "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m, "ground_quality": ground_quality}
         p = subprocess.Popen([named.exe("build"), "-u", os.path.join(SRC, "generator.py"), "--result", *args], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                              errors="replace", env={**named.child_env(), "PYTHONIOENCODING": "utf-8",
@@ -213,7 +213,7 @@ def saved_in_editor(name):
     return 409, {"error": f"A track saved in the Editor is called “{title}”: a build can't replace it, choose another name"}
 
 
-def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0):
+def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd"):
     """Start a build (new and rebuild); returns (HTTP code, response)."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
@@ -221,7 +221,7 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
         return 400, {"error": "Set a start and a finish, or draw an area"}
     try:
         options = buildoptions.checked({"terrain_cell_m": terrain_cell_m, "parked_cars": parked_cars,
-                                        "tree_spacing_m": tree_spacing_m})
+                                        "tree_spacing_m": tree_spacing_m, "ground_quality": ground_quality})
     except ValueError as e:
         return 400, {"error": str(e)}
     s = settings.load()
@@ -251,7 +251,7 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
         job.update(state="running", log=[], result=None, error=None, progress=None, started=time.time(), ended=None)
         started = job["started"]
     threading.Thread(target=run_build, args=(args, name, clean, started, options["terrain_cell_m"],
-                                           options["parked_cars"], options["tree_spacing_m"]), daemon=True).start()
+                                           options["parked_cars"], options["tree_spacing_m"], options["ground_quality"]), daemon=True).start()
     return 200, {"ok": True}
 
 
@@ -1165,7 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
                 name = generator.slug(body.get("name") or "route")
                 self._send(*start_build(name, body.get("title") or name, [tuple(p) for p in body.get("points") or []],
                                         body.get("width", 100), body.get("area"), body.get("terrain_cell_m", 2),
-                                        body.get("parked_cars", True), body.get("tree_spacing_m", 0)))
+                                        body.get("parked_cars", True), body.get("tree_spacing_m", 0), body.get("ground_quality", "sd")))
             elif self.path == "/api/rebuild":           # a track from "My tracks" with its settings,
                 name = generator.slug(body.get("name") or "")      # replaced or (copy) as a new one next to it
                 info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
@@ -1177,7 +1177,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], body.get("width", info.get("width")),
                                         info.get("area"), body.get("terrain_cell_m", info.get("terrain_cell_m", 2)),
                                         body.get("parked_cars", info.get("parked_cars", True)),
-                                        body.get("tree_spacing_m", info.get("tree_spacing_m", 0))))
+                                        body.get("tree_spacing_m", info.get("tree_spacing_m", 0)),
+                                        body.get("ground_quality", info.get("ground_quality", "sd"))))
             elif self.path == "/api/play":
                 self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather")))
             elif self.path == "/api/delete":

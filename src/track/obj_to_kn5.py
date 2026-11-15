@@ -571,6 +571,9 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         shutil.rmtree(chunk_dir, ignore_errors=True)
     from track import groundnormals
     groundnormals.write(kn5_path)
+    if (anchor or {}).get("ground_quality", "sd") == "hd":
+        from track import groundquality
+        groundquality.write(kn5_path, parts, log)
     objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]), objectlist.collect_treefx(parts))
     editorinfo.install(kn5_path, parts)
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "

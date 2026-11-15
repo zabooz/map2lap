@@ -95,13 +95,29 @@ buried low-voltage lines, street lamp spacing.
 ### Terrain and scenery build options
 
 `app/buildoptions.py` validates the per-track choices: terrain spacing (2 m by default, optionally 1 m), parked cars
-(on by default) and minimum tree spacing. New tracks on the generator page start at 2 m; its slider runs from
+(on by default), minimum tree spacing and ground texture quality (SD by default). New tracks on the generator page start at 2 m; its slider runs from
 Original (0 m) to 20 m in 0.5 m steps. The data reader still accepts saved spacings up to 100 m; missing values in old
 tracks and codes mean Original. The generator page captures the choices
 when starting each build and passes an isolated child environment. They are saved in the anchor and track settings;
 Rebuild, Build as copy and track codes retain them. Route rebuilds and copies also accept a changed corridor width,
 falling back to the track's saved width when none is supplied. Choices beyond the legacy defaults use `M2L2-`
-codes so older applications refuse them rather than silently ignoring them; 2 m terrain, cars on and Original trees retain `M2L1-`.
+codes so older applications refuse them rather than silently ignoring them; HD uses `M2L3-`. SD with 2 m terrain, cars on and Original trees retains `M2L1-`.
+
+`BNE_GROUND_QUALITY=hd` samples all terrain colour layers at 4096 px per tile instead of SD's 2048 px:
+land cover, roads, paths, forecourts, stream banks and pitch lines, including procedural wear and colour variation.
+The unchanged guard fraction keeps world phase and geometry identical (about 6.5 cm per colour texel instead of
+12.9 cm). This costs four times the baked colour-texture memory. Selection facts retain their 2048 px budget;
+HD overlay coverage is averaged into it. Standalone road asphalt retains its 512 px source rather than the SD
+terrain-sized reduction. Bankett/edge decals are redrawn at 512 × 2048 instead of 128 × 512, preserving physical
+size and pattern. Other standalone surfaces, such as sidewalks, kerbstones and ballast, already retain their source
+resolution and continue to do so; HD does not invent detail absent from a source.
+
+`track/groundquality.py` additionally retains the generator's 512 px meadow, forest-floor and rock images at their
+original 8 m repeat, using recorded labels/alpha masks and the Editor's classic multilayer shader. The finer baked
+image stays in its fourth layer, preserving road wear and other surfaces. Editor and AC use the same embedded images.
+HD changes colour resolution/materials/UVs, not the terrain lattice, positions, triangles or physics, and uses no
+Painted library assets. Rebuild scenery to change colour resolution: converting kept OBJ files alone only applies
+the shared detail layers to the colour images already present.
 
 `BNE_AC_GRID_M=1` selects a 1 m lattice for a command-line build; `2` explicitly selects the normal lattice.
 `engine/acgrid.py` owns the terrain spacing. Collision/visible ground, water lowering and the

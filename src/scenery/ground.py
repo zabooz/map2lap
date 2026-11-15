@@ -35,7 +35,9 @@ from track.textures import ring_indices
 CELL = acgrid.CELL              # shared with the marks' draping and the water's lowering grid
 TILE = roadsmod.TILE            # 256 m
 LATTICE = int(round(TILE / CELL)) + 1   # vertices per tile edge
-TEX_PX = 2048                   # baked base pixels per tile edge (12.5 cm); groundmaterial adds neutral detail slots
+# HD samples every ground/road/path layer twice as finely, including wear and transitions. Keeping the same
+# guard fraction preserves UVs/physics; four times the texture memory is the cost (long tracks need more VRAM).
+TEX_PX = 4096 if os.environ.get("BNE_GROUND_QUALITY", "sd") == "hd" else 2048
 # AC and the Editor sample a tile's texture repeating (a kn5 material has no clamp): at UV 0 or 1 bilinear filtering mixes
 # in the opposite edge, 256 m away, half and half on every mip level: a thin green line across a road at each tile edge.
 # The tile is baked into TEX_PX - 2 * GUARD_PX pixels and its edge pixels repeated around it (phased, phased_uv): no

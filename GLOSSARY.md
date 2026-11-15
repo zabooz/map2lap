@@ -143,7 +143,7 @@ A 256 m square of the anchor frame (`roads.TILE`); a build makes roads, terrain 
 _Avoid_: block, chunk, cell
 
 **Tile image**:
-A tile’s 2048 px baked ground texture: 1984 px of ground with a 32 px repeated-edge guard on each side, at world phase
+A tile’s baked ground texture: 2048 px in SD, 4096 px in HD, with 1/64 of each edge reserved for a repeated-edge guard, at world phase
 (`scenery/ground.phased`). Save reuses it as a layer. _Avoid_: base copy, ring image.
 
 **Geotile**:

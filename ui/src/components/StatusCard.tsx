@@ -44,7 +44,7 @@ const big = (title: ReactNode, note: ReactNode) => (
 
 function OptionsSummary({options}: {options: BuildOptions}) {
   return <p className={styles.options}>
-    <span>{options.terrain_cell_m} m grid</span><span>Cars {options.parked_cars ? "on" : "off"}</span>
+    <span>{options.ground_quality.toUpperCase()} ground</span><span>{options.terrain_cell_m} m grid</span><span>Cars {options.parked_cars ? "on" : "off"}</span>
     <span>{options.tree_spacing_m ? `Trees min. ${options.tree_spacing_m} m` : "Original trees"}</span>
   </p>;
 }

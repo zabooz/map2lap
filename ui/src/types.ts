@@ -6,7 +6,7 @@ export type Tab = "new" | "mine" | "edit";
 export type Mode = "route" | "area";
 export type TrackGroup = "built" | "edited";
 export type TerrainCell = 1 | 2;
-export interface BuildOptions {terrain_cell_m: TerrainCell; parked_cars: boolean; tree_spacing_m: number;}
+export interface BuildOptions {terrain_cell_m: TerrainCell; parked_cars: boolean; tree_spacing_m: number; ground_quality: "sd" | "hd";}
 
 export interface Track extends Partial<BuildOptions> {
   name: string;

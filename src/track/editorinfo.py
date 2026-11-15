@@ -55,6 +55,11 @@ class Paint:
         """Another painted layer, alpha in 0..255; style records its texture and repeat, without filesystem paths."""
         if not np.any(alpha):
             return
+        # HD colour tiles are finer than selection facts. Average coverage back to the declared mask budget;
+        # geometry and map features retain their original precision, while Editor selection stays bounded.
+        if max(alpha.shape) > self.data["size"]:
+            alpha = np.asarray(Image.fromarray(np.asarray(alpha, np.uint8)).resize(
+                (self.data["size"], self.data["size"]), Image.Resampling.BOX))
         name = f"layer_{len(self.data['layers'])}.png"
         self.zip.writestr(name, _png(alpha))
         self.data["layers"].append({"material": material, "mask": name, **style})

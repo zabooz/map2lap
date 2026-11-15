@@ -324,6 +324,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
     options = buildoptions.from_environment()
+    log(f"Ground textures: {options['ground_quality'].upper()} ({make_obj.ground.TEX_PX} px terrain tiles)")
     log(f"Terrain grid: {make_obj.CELL:g} m")
     log(f"Parked cars: {'on' if options['parked_cars'] else 'off'}")
     log(f"Tree minimum spacing: {options['tree_spacing_m']:g} m")
@@ -383,7 +384,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             finish = end + FINISH_AFTER_M if more >= FINISH_AFTER_M + 20.0 else end
             if finish - START_LINE_M >= 100.0:
                 timing = {"start_m": START_LINE_M, "finish_m": finish}
-                log(f"Timing: start line {START_LINE_M:.0f} m after the start, finish " +
+                log(f"Timing: start line {START_LINE_M:.0f} m along the route from the map start pin; the clock starts at this line. Finish " +
                     (f"{FINISH_AFTER_M:.0f} m after the end pin" if finish > end else
                      "at the end pin (the road does not go on straight after it)"))
             else:

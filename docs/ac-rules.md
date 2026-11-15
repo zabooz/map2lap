@@ -64,9 +64,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - A cell goes as soon as **one** of its corners is a tunnel hole.
 - A wall between two roads cuts the cells along its cut line apart (`scenery/wallcut.py`): a step at the wall's face. A cut cell
   stays in its cell's object, by the same sample.
-- Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, 2048 px): comic ground, the roads on top in
+- Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, SD 2048 px / HD 4096 px): comic ground, the roads on top in
   BeamNG.Earth's shapes and widths (`surface._road_segments`, `earthfast.paint_lines`). AC samples it repeating, so the
-  tile fills 1984 px (12.9 cm/px) and its edge pixels repeat 32 px on each side (`ground.GUARD_PX`). Without that ring
+  SD tile fills 1984 px (12.9 cm/px) and its edge pixels repeat 32 px on each side (`ground.GUARD_PX`). Without that ring
   each tile edge mixed in the opposite edge, 256 m away: a thin green line across the roads. It protects through mip 5
   (4 m a pixel): both rings lie side by side in one 64 px gap, at a mip-6 block. The texture lies at the world's phase
   (`ground.phased`, `textures.ring_indices`): a column holds the world pixel of its column modulo 2048, and a ground UV
@@ -74,6 +74,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   `m2lUVGlobal`, `m2lUVScale`). A painted Save samples the build's image itself as one more layer at UV_SCALE a tile, with
   no copy of it. Tracks built before (`m2lUVGuard`, their ring
   at the texture's edge) are built again before painting.
+- HD doubles colour sampling on each axis for every painted surface, retaining physical texture scale and all wear/masks.
+  Its 64 px guard keeps the same UV scale; baked colour memory is four times SD. Shared original-resolution meadow,
+  forest and rock layers are added by `track/groundquality.py`. Standalone road textures avoid the SD reduction; edge
+  gravel is redrawn at four times each dimension. Already full-resolution sidewalks/kerbs/ballast stay at source size.
+  This changes no collision or vertex positions.
 - The tile images go into the kn5 as DDS (`obj_to_kn5.dds_texture`): BC7 where the tile has a `1ROAD_` object
   (`obj_to_kn5.bc7_images`), else BC1. BC1 keeps two end colours per 4×4 block (50 cm, 1 m one mip down): grey asphalt
   beside green verge and a white marking turned green in places, on every track before (seen in AC, 2026-11-11). BC7 is

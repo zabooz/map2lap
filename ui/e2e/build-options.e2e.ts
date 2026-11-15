@@ -50,6 +50,7 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await options.click();
   expect((await page.locator("#go").boundingBox())!.y).toBe(before.y);
 
+  await page.getByRole("switch", {name: "HD ground textures"}).click();
   await toggle.click();
   await page.getByRole("switch", {name: "Parked cars", exact: true}).click();
   await page.getByRole("slider", {name: "Build tree minimum spacing"}).fill("5.5");
@@ -60,17 +61,18 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await expect(card(page)).toContainText("Cars off");
   await expect(card(page)).toContainText("Trees min. 5.5 m");
   const code = page.getByRole("textbox", {name: "Track code"});
-  await expect(code).toHaveValue(/^M2L2-/);
+  await expect(code).toHaveValue(/^M2L3-/);
   const decoded = await page.request.post("/api/code", {data: {code: await code.inputValue()}});
-  expect(await decoded.json()).toMatchObject({terrain_cell_m: 1, parked_cars: false, tree_spacing_m: 5.5});
+  expect(await decoded.json()).toMatchObject({terrain_cell_m: 1, parked_cars: false, tree_spacing_m: 5.5, ground_quality: "hd"});
   const requested = page.waitForRequest(r => r.url().endsWith("/api/build"));
   await page.locator("#go").click();
-  expect((await requested).postDataJSON()).toMatchObject({terrain_cell_m: 1, parked_cars: false, tree_spacing_m: 5.5});
+  expect((await requested).postDataJSON()).toMatchObject({terrain_cell_m: 1, parked_cars: false, tree_spacing_m: 5.5, ground_quality: "hd"});
   await expect(log).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tabpanel", {name: "Build log", exact: true})).toBeFocused();
   await expect(page.locator("#log")).toContainText("Terrain grid: 1 m");
   await options.click();
   await expect(toggle).toBeDisabled();
+  await expect(page.getByRole("switch", {name: "HD ground textures"})).toBeDisabled();
   await expect(page.locator("#go")).toHaveText("Stop build");
   allowDone = true;
   await expect(card(page)).toContainText("Installed in Assetto Corsa.");
@@ -80,13 +82,14 @@ test("terrain toggle follows codes, builds and rebuilds while the log remains ac
   await page.locator("#pane-mine").getByRole("button").filter({hasText: "Grid trial"}).click();
   await options.click();
   await expect(toggle).toBeChecked();
+  await expect(page.getByRole("switch", {name: "HD ground textures"})).toBeChecked();
   await expect(page.getByRole("switch", {name: "Parked cars", exact: true})).not.toBeChecked();
   await expect(page.getByRole("slider", {name: "Build tree minimum spacing"})).toHaveValue("5.5");
   await page.getByRole("slider", {name: "Corridor each side", exact: true}).fill("200");
   await toggle.click();
   const rebuilt = page.waitForRequest(r => r.url().endsWith("/api/rebuild"));
   await page.locator("#go").click();
-  expect((await rebuilt).postDataJSON()).toMatchObject({terrain_cell_m: 2, width: 200});
+  expect((await rebuilt).postDataJSON()).toMatchObject({terrain_cell_m: 2, width: 200, ground_quality: "hd"});
   await expect.poll(backend.calls).toContainEqual(["scenery", "grid_trial", false, 5.5]);
   await expect.poll(backend.calls).toContainEqual(["terrain", "grid_trial", 2]);
   await expect.poll(backend.calls).toContainEqual(["corridor", "grid_trial", 200]);
@@ -136,10 +139,11 @@ test("pasting a 1 m code selects 1 m and an older code resets it to 2 m", async 
   const toggle = page.getByRole("switch", {name: "1 m terrain grid"});
   const info = {title: "Shared grid", points: [[46, 14], [46.01, 14.01]], width: 100};
   for (const terrain_cell_m of [1, 2]) {
-    const made = await page.request.post("/api/code", {data: {make: {...info, ...(terrain_cell_m === 1 ? {terrain_cell_m} : {})}}});
+    const made = await page.request.post("/api/code", {data: {make: {...info, ...(terrain_cell_m === 1 ? {terrain_cell_m, ground_quality: "hd"} : {})}}});
     await page.getByRole("textbox", {name: "Track code"}).fill((await made.json()).code);
     await page.getByRole("textbox", {name: "Track code"}).press("Enter");
     await expect(toggle).toBeChecked({checked: terrain_cell_m === 1});
+    await expect(page.getByRole("switch", {name: "HD ground textures"})).toBeChecked({checked: terrain_cell_m === 1});
   }
 });
 

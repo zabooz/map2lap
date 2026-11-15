@@ -11,10 +11,24 @@ import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import server
-from app import mytracks, trackcode
+from app import buildoptions, mytracks, trackcode
 
 
 class TrackCodeGridTest(unittest.TestCase):
+    def test_hd_quality_roundtrips_and_old_codes_stay_sd(self):
+        hd = trackcode.encode(self.info(ground_quality='hd'))
+        self.assertTrue(hd.startswith('M2L3-'), 'Old apps must refuse HD instead of silently building SD')
+        self.assertEqual(trackcode.decode(hd)['ground_quality'], 'hd')
+        self.assertEqual(trackcode.decode(trackcode.encode(self.info()))['ground_quality'], 'sd')
+        self.assertNotEqual(mytracks._same(self.info()), mytracks._same(self.info(ground_quality='hd')))
+
+    def test_ground_quality_validation_and_worker_environment(self):
+        self.assertEqual(buildoptions.environment({'ground_quality': 'hd'})['BNE_GROUND_QUALITY'], 'hd')
+        with mock.patch.dict(os.environ, BNE_GROUND_QUALITY='hd'):
+            self.assertEqual(buildoptions.from_environment()['ground_quality'], 'hd')
+        for value in ('HD', 'ultra', None, True, 1):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                buildoptions.checked({'ground_quality': value})
     def info(self, **extra):
         return {"title": "Grid", "track_version": "0.6.0", "points": [[46., 14.], [46.01, 14.01]],
                 "width": 100, **extra}
@@ -39,6 +53,19 @@ class TrackCodeGridTest(unittest.TestCase):
 
 
 class BuildGridTest(unittest.TestCase):
+    def test_ground_quality_is_captured_and_sent_to_only_the_child(self):
+        with mock.patch.object(server.threading, 'Thread') as thread:
+            status, _ = server.start_build('quality', 'Quality', [(46, 14), (47, 15)], 100, None, ground_quality='hd')
+        self.assertEqual(status, 200)
+        self.assertEqual(thread.call_args.kwargs['args'][-1], 'hd')
+        process = mock.Mock(stdout=['RESULT {"name":"quality"}\n'], pid=123, wait=mock.Mock(return_value=0))
+        with (mock.patch.dict(os.environ, BNE_GROUND_QUALITY='hd'),
+              mock.patch.object(server, 'MARK', str(Path(self.root) / 'running.json')),
+              mock.patch.object(server, 'build_log', return_value=None),
+              mock.patch.object(server.subprocess, 'Popen', return_value=process) as popen):
+            server.run_build([], 'quality', False, 0., ground_quality='sd')
+            self.assertEqual(popen.call_args.kwargs['env']['BNE_GROUND_QUALITY'], 'sd')
+            self.assertEqual(os.environ['BNE_GROUND_QUALITY'], 'hd')
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -64,7 +91,7 @@ class BuildGridTest(unittest.TestCase):
             status, _ = server.start_build("grid", "Grid", [(46, 14), (47, 15)], 100, None,
                                            parked_cars=False, tree_spacing_m=5.5)
         self.assertEqual(status, 200)
-        self.assertEqual(thread.call_args.kwargs["args"][5:], (False, 5.5))
+        self.assertEqual(thread.call_args.kwargs["args"][5:], (False, 5.5, "sd"))
         info = {"title": "Sparse", "points": [[46, 14], [47, 15]], "width": 100,
                 "parked_cars": False, "tree_spacing_m": 5.5}
         code = trackcode.encode(info)
