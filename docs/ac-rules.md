@@ -140,8 +140,20 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   and take shadows and switch LOD at 200/300/500 m. In a `.bin` each card face is written once (both sides at one place
   flickered far away and showed a grid; CSP draws leaves from both sides), and the coarser LODs are subsets of one crown
   (each with its own random gave another tree on switching).
+  Tree wood uses eight height bands (`scenery/treewind.py`), so the trunk follows the
+  wind bend instead of cutting across it as one straight face. Spruce and larch retain their original needle faces
+  to avoid [horizontal lighting bands](#treefx-needle-lighting); fir and cypress retain needle subdivision.
+  Spruce, larch and fir boles taper to a point over the
+  last eighth of tree height. Original painted crowns and foliage normals are retained. Owned tree models set
+  `[BAKING] AO_OPACITY=0.75` in their own `tree.ini`, keeping at least quarter visibility in CSP's native vertex-AO bake
+  so enclosed trunks do not turn fully black. Bushes keep native defaults. This does not disable shadow casting or
+  shadowmap reception. Vertex AO also controls fast wind flutter, so changes need a same-wind visual check; old baked
+  meshes are regenerated through the owned format version before Play.
+  The upper spruce/larch skirt starts half a tier spacing plus 1.5 m lower on the 14 m model, nesting its rim inside
+  the lower crowns; the additional overlap scales with model height;
+  its apex and radius, all lower tiers and the painted atlas remain in place.
 - Owned deciduous TreeFX models share one atlas/material and geometry across seasons. Broadleaf, birch and larch add
-  permanent low-cost wood inside the original crowns; original foliage and trunk data are retained. At Play, recognized
+  permanent low-cost wood inside the original crowns; original foliage data are retained. At Play, recognized
   models get their selected atlas: original green in spring/summer, warm foliage in autumn, transparent foliage in winter.
   Baobab retains its existing branches; evergreen/tropical foliage is preserved. Native CSP season conditions provide snow
   shading on wood and needles. Native TreeFX autumn tint is zero because deciduous atlases already supply their autumn
@@ -166,6 +178,25 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   table, and `bld_split` turns the colour jitter into one of 3 brightness levels.
 - Road sign lettering: its texture is flipped, because the sign meshes' v runs the other way.
 - Realistic water instead of comic: `[Material_Water] Materials = water, Type = LAKE` in the track's `ext_config.ini`.
+
+## TreeFX needle lighting
+
+Spruce and larch needle mantles must keep their original triangles, UVs and shading normals. Splitting their triangles
+at the wood's height bands introduces horizontal lighting bands in CSP; keeping the wood subdivision still lets the
+trunks bend and keeps their thin leaders. Format 11 regenerates older owned models, including their baked AO, before Play.
+
+The isolated surface check identifies the prominent band on the fifth needle tier from the top, with dark and light
+regions on the same tier. Neutralizing only that tier's baked vertex AO removes much of the broad dark area, but a thin
+line remains with constant upward normals and even with every other needle tier removed. Removing only its height cuts
+removes that line. Full crowns with their original textures, normals and stored AO also lose the band without needle
+subdivision. Thus neither a visible overlap boundary nor the uppermost skirt's rim explains this case.
+
+The remaining shader mechanism is unresolved: extra vertices change where CSP samples and interpolates lighting even
+when the rest surface is unchanged. Its model vertex shader loads baked AO, multiplies it by instance spherical-harmonic
+occlusion and computes height-dependent lighting inputs; the pixel shader also applies shadows. The sight checks do not
+isolate which remaining term produces the thin line, or prove a geometric crack. The effect is established for these
+TreeFX needle models, not for ordinary KN5 materials or every CSP shader. The installed sight probes used `SPHERE=0.5`;
+the generator retains `SPHERE=1.0`. The earlier SPHERE change did not visibly move or remove the band and is not the fix.
 
 ## Limits
 

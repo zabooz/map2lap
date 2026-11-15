@@ -13,10 +13,15 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'src'))
 from app import seasons, weather
-from scenery import treefx
+from scenery import treebranches, treefx
 
 
 class SeasonTest(unittest.TestCase):
+    def branched(self, name):
+        """Original meshes plus crown wood, before export adds wind samples. Pure."""
+        original = treefx.base_model(name)[1]
+        return [treebranches.extend(name, lod, mesh, original[0], treefx) for lod, mesh in enumerate(original)]
+
     def test_seasons_cover_generated_and_saved_painted_ground_only(self):
         from app.tracknative import PREFIX
         ground = ['1ROAD_ground_0_0', '1GRASS_ground_-2_3', '1GRAVEL_ground_16_-9',
@@ -63,7 +68,8 @@ class SeasonTest(unittest.TestCase):
     def test_original_leaves_and_trunk_are_retained_and_branches_add_no_material(self):
         for name in ('broadleaf', 'birch', 'larch'):
             base_texture, before = treefx.base_model(name)
-            texture, after = treefx.model(name)
+            texture, _ = treefx.model(name)
+            after = self.branched(name)
             np.testing.assert_array_equal(np.asarray(base_texture), np.asarray(texture))
             for old, new in zip(before, after):
                 self.assertGreater(len(new.p), len(old.p))
@@ -76,7 +82,7 @@ class SeasonTest(unittest.TestCase):
     def test_added_wood_follows_the_original_trunks_native_face_winding(self):
         for name in ('broadleaf', 'birch', 'larch'):
             base = treefx.base_model(name)[1]
-            for old, mesh in zip(base, treefx.model(name)[1]):
+            for old, mesh in zip(base, self.branched(name)):
                 p, n = np.asarray(mesh.p), np.asarray(mesh.n)
                 t = np.asarray(mesh.t[len(old.t):])
                 faces = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
@@ -86,7 +92,7 @@ class SeasonTest(unittest.TestCase):
 
     def test_new_trunk_leader_shares_the_original_top_ring_in_every_lod(self):
         for name in ('broadleaf', 'birch'):
-            for lod, (old, mesh) in enumerate(zip(treefx.base_model(name)[1], treefx.model(name)[1])):
+            for lod, (old, mesh) in enumerate(zip(treefx.base_model(name)[1], self.branched(name))):
                 t = np.asarray(mesh.t[len(old.t):])
                 old_trunk_vertices = (6, 5, 4)[lod] * 4
                 joined = (t.min(axis=1) < old_trunk_vertices) & (t.max(axis=1) >= len(old.p))

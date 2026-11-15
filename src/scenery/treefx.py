@@ -23,7 +23,7 @@ import sys
 import zipfile
 import zlib
 
-from . import treebranches
+from . import treebranches, treewind
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -149,16 +149,27 @@ def unit(v):
     return v / (np.linalg.norm(v) or 1)
 
 
-def trunk(m, height, r0, r1, sides, rect):
-    """A trunk into m: a cone of sides from radius r0 at the foot to r1 at height, the bark in rect."""
+def trunk(m, height, r0, r1, sides, rect, tip_length=0):
+    """Add a tapered trunk with bark rect; optional tip_length narrows its last metres to a point."""
     u0, v0, u1, v1 = rect
-    for k in range(sides):
-        a0, a1 = 2 * math.pi * k / sides, 2 * math.pi * (k + 1) / sides
-        c = [(math.cos(a0) * r0, 0, math.sin(a0) * r0), (math.cos(a1) * r0, 0, math.sin(a1) * r0),
-             (math.cos(a1) * r1, height, math.sin(a1) * r1), (math.cos(a0) * r1, height, math.sin(a0) * r1)]
-        n = [(math.cos(a0), 0, math.sin(a0)), (math.cos(a1), 0, math.sin(a1))]
-        du = (u1 - u0) / sides
-        m.quad(c, [n[0], n[1], n[1], n[0]], (u0 + du * k, v0, u0 + du * (k + 1), v1))
+    rings = [(0, r0), (height, r1)]
+    if tip_length:
+        y = height - tip_length
+        rings = [(0, r0), (y, r0 + (r1 - r0) * y / height), (height, 0)]
+    for (bottom, radius), (top, end_radius) in zip(rings, rings[1:]):
+        for k in range(sides):
+            a0, a1 = 2 * math.pi * k / sides, 2 * math.pi * (k + 1) / sides
+            c = [(math.cos(a0) * radius, bottom, math.sin(a0) * radius),
+                 (math.cos(a1) * radius, bottom, math.sin(a1) * radius),
+                 (math.cos(a1) * end_radius, top, math.sin(a1) * end_radius),
+                 (math.cos(a0) * end_radius, top, math.sin(a0) * end_radius)]
+            n = [(math.cos(a0), 0, math.sin(a0)), (math.cos(a1), 0, math.sin(a1))]
+            du = (u1 - u0) / sides
+            m.quad(c, [n[0], n[1], n[1], n[0]],
+                   (u0 + du * k, v0 + (v1 - v0) * bottom / height,
+                    u0 + du * (k + 1), v0 + (v1 - v0) * top / height))
+            if end_radius == 0:
+                m.t.pop()
 
 
 def card(m, centre, size, a, b, normal_from, rect):
@@ -201,19 +212,27 @@ def broadleaf(seed, lod, cards, crown_y, rx, ry, card_m, trunk_top, trunk_r, rou
     return m
 
 
-def conifer(seed, lod, tiers, H, W, trunk_r, rect):
+def conifer(seed, lod, tiers, H, W, trunk_r, rect, pointed=False, inset_tip=False):
     """A conifer's LOD lod, H m high and W wide: tiers of needle cones (rect of the atlas), the same at every LOD with fewer
     sides (7, 5, 4); LOD 2 keeps every other tier, each reaching up to the next kept. Pure."""
     rng = random.Random(seed)
     m = Mesh()
     segs = (7, 5, 4)[lod]
-    trunk(m, H * 0.9, trunk_r, trunk_r * 0.3, (5, 4, 3)[lod], uv_rect("D", 0))
+    # A thin leader ends inside the narrow upper needle tiers, rather than in a blunt exposed ring.
+    trunk(m, H * 0.9, trunk_r, trunk_r * 0.3, (5, 4, 3)[lod], uv_rect("D", 0),
+          tip_length=H / 8 if pointed else 0)
     full = []
     for k in range(tiers):
         t = k / max(1, tiers - 1)
         y_bot = H * (0.1 + 0.68 * t)
         full.append((y_bot, min(H, y_bot + H * (0.32 - 0.1 * t)), W / 2 * (1 - 0.82 * t) * rng.uniform(0.92, 1.05),
                      rng.uniform(0, 2 * math.pi), rng.uniform(-0.03, 0.03) * H))
+    if inset_tip and len(full) > 1:
+        # Nest the upper skirt half a tier spacing plus 1.5 m on our 14 m models.
+        # Scale that extra overlap with height so smaller models do not bury the crown;
+        # the apex, radius, texture and all lower tiers stay in place.
+        bottom, *rest = full[-1]
+        full[-1] = ((bottom + full[-2][0]) / 2 - H * (1.5 / 14), *rest)
     step = 2 if lod == 2 else 1
     kept = full[::step]
     if step == 2 and full[-1] is not kept[-1]:
@@ -268,29 +287,29 @@ def _birch(rng, seed):
     return tex, [broadleaf(seed, lod, 40, 8.2, 2.3, 3.6, 2.0, 7.5, 0.14, round_shell=0.4) for lod in range(3)]
 
 
-def _spruce(rng, seed):
+def _spruce(rng, seed, pointed=False, inset_tip=False):
     tex = atlas({"C": needle_band(rng, 72, (0.32, 0.4)), "D": bark(rng, (56, 40, 30))})
-    return tex, [conifer(seed, lod, 9, 14.0, 4.6, 0.2, uv_rect("C")) for lod in range(3)]
+    return tex, [conifer(seed, lod, 9, 14.0, 4.6, 0.2, uv_rect("C"), pointed, inset_tip) for lod in range(3)]
 
 
-def _larch(rng, seed):
+def _larch(rng, seed, pointed=False, inset_tip=False):
     tex = atlas({"C": needle_band(rng, 128, (0.56, 0.32), loose=True), "D": bark(rng, (92, 66, 46))})
-    return tex, [conifer(seed, lod, 8, 14.0, 5.6, 0.2, uv_rect("C")) for lod in range(3)]
+    return tex, [conifer(seed, lod, 8, 14.0, 5.6, 0.2, uv_rect("C"), pointed, inset_tip) for lod in range(3)]
 
 
-def _fir(rng, seed):
+def _fir(rng, seed, pointed=False):
     """An evergreen fir with dark flat needle fans, a full tapered crown and a pale grey-brown trunk. Pure."""
     tex = atlas({"C": needle_band(rng, 74, (.36, .48)), "D": bark(rng, (106, 98, 83))})
     shape = random.Random(seed + 41)
     tiers = [(16 * (.12 + .79 * k / 10), 3.1 * (1 - .94 * k / 10) ** .8,
               shape.uniform(-.16, .16) + k * 2.39996) for k in range(11)]
-    return tex, [_fir_lod(lod, tiers) for lod in range(3)]
+    return tex, [_fir_lod(lod, tiers, pointed) for lod in range(3)]
 
 
-def _fir_lod(lod, tiers):
+def _fir_lod(lod, tiers, pointed=False):
     """One fir LOD: the same branch tiers with fewer radial fans and lower tiers retained at every distance. Pure."""
     mesh, rect = Mesh(), uv_rect('C')
-    trunk(mesh, 15.8, .23, .035, (6, 5, 4)[lod], uv_rect('D', 0))
+    trunk(mesh, 15.8, .23, .035, (6, 5, 4)[lod], uv_rect('D', 0), tip_length=16 / 8 if pointed else 0)
     spokes = (6, 5, 4)[lod]
     for y, radius, turn in tiers[::(1, 2, 3)[lod]]:
         for j in range(spokes):
@@ -618,7 +637,8 @@ MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102
 
 
 DECIDUOUS = frozenset(('broadleaf', 'birch', 'larch', 'baobab'))
-TREE_FORMAT = 2
+BUSHES = frozenset(('shrub', 'shrub_flowers', 'dry_shrub', 'jungle_bush'))
+TREE_FORMAT = 11
 
 
 @functools.lru_cache(maxsize=None)
@@ -630,11 +650,21 @@ def base_model(name):
 
 @functools.lru_cache(maxsize=None)
 def model(name):
-    """The original tree plus permanent wood inside its crown, with one unchanged atlas/material. Pure."""
+    """The original painted crown with crown wood, pointed leaders and shared wind-height samples. Pure."""
     texture, lods = base_model(name)
-    if name not in ('broadleaf', 'birch', 'larch'):
+    if name in BUSHES:
         return texture, lods
-    return texture, [treebranches.extend(name, i, mesh, lods[0], sys.modules[__name__]) for i, mesh in enumerate(lods)]
+    if name in ('spruce', 'larch', 'fir'):
+        seed, make = MODELS[name]
+        kwargs = {'inset_tip': True} if name in ('spruce', 'larch') else {}
+        texture, lods = make(random.Random(seed), seed, pointed=True, **kwargs)
+    if name in ('broadleaf', 'birch', 'larch'):
+        lods = [treebranches.extend(name, i, mesh, lods[0], sys.modules[__name__]) for i, mesh in enumerate(lods)]
+    height = round(max(p[1] for mesh in lods for p in mesh.p), 4)
+    # Extra height cuts on spruce/larch needle faces produce horizontal lighting bands in CSP,
+    # even on an isolated tier with neutral baked AO and constant normals. Keep their original
+    # faces; wood still needs height samples to follow the wind bend.
+    return texture, [treewind.subdivide(mesh, height, needles=name in ('fir', 'cypress')) for mesh in lods]
 
 
 @functools.lru_cache(maxsize=None)
@@ -737,6 +767,10 @@ def tree_ini(name, H, W, meshes):
     ini = [f"[BASIC]\nHEIGHT={H:.4f}\nWIDTH={W:.4f}\nCACHE_RESOLUTION=256,512\nVERTICAL_OFFSET=0\n",
            "[SHADING]\nSPECULAR=1.0\nSUBSCATTERING=1.0\nREFLECTIVITY=1.0\nBRIGHTNESS=1.0\nUSE_AO_CHANNEL=0\n",
            "[NORMALS]\nBOOST=0.9\nSPHERE=1.0\n", "[LEAVES]\nMULT=20.0\nOFFSET=0.0\n", "[FAKE_SHADOW]\nSIZE=1.0\nOPACITY=1.0\n"]
+    if name not in BUSHES:
+        # Keep at least quarter visibility when opaque needle tiers enclose the trunk.
+        # AO also drives fast wind flutter, so retain the native bake rather than force fully open AO.
+        ini.append("[BAKING]\nAO_OPACITY=0.75\n")
     for i, fname in enumerate(meshes):                  # (beyond the last CSP's far image)
         ini.append(f"[LOD_{i}]\nMODEL={fname}\nDISTANCE={LOD_M[i]}\n")
     return "\n".join(ini)
@@ -832,9 +866,14 @@ def read_bin(path):
     used = {p[k] for lod in out for p in lod["parts"] for k in ("diffuse", "normal_map")} - {None}
     result = {"height": H, "width": W, "lods": out, "textures": {n: files[n] for n in sorted(used) if n in files}}
     marker = ini.get('MAP2LAP', {})
-    if marker.get('TREE_FORMAT') in ('1', str(TREE_FORMAT)) and marker.get('SPECIES') in MODELS:
+    if marker.get('TREE_FORMAT') in map(str, range(1, TREE_FORMAT + 1)) and marker.get('SPECIES') in MODELS:
         result['seasonal'] = {'format': int(marker['TREE_FORMAT']), 'species': marker['SPECIES'],
                               'deciduous': marker.get('DECIDUOUS') == '1', 'season': marker.get('SEASON', 'summer')}
+        if int(marker['TREE_FORMAT']) == 6:
+            # The padded reference of existing format-6 files is not their physical Editor/Library size.
+            points = np.concatenate([part['pos'] for lod in out for part in lod['parts']])
+            result['height'] = round(float(points[:, 1].max()), 4)
+            result['width'] = round(2 * float(np.abs(points[:, [0, 2]]).max()), 4)
     return result
 
 

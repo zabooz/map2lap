@@ -50,7 +50,9 @@ class SpeciesTest(unittest.TestCase):
                 counts = [len(m.t) for m in lods]
                 self.assertGreater(counts[0], counts[1])
                 self.assertGreater(counts[1], counts[2])
-                self.assertLessEqual(counts[0], 300)       # simple instanced scenery, not a detailed leaf-by-leaf model
+                # The shape stays cheap; only wood/needle cones gain samples for the native wind bend.
+                self.assertLessEqual(len(treefx.base_model(name)[1][0].t), 300)
+                self.assertLessEqual(counts[0], 900)
                 for mesh in lods:
                     p, n, uv, t = map(np.asarray, (mesh.p, mesh.n, mesh.uv, mesh.t))
                     self.assertTrue(np.isfinite(p).all() and np.isfinite(n).all())
