@@ -22,6 +22,7 @@ import logging
 import math
 import os
 import re
+import tempfile
 import threading
 import time
 
@@ -132,9 +133,18 @@ class OsmTags:
                     raise
                 size = int(m.group(3))
                 os.makedirs(os.path.dirname(pin), exist_ok=True)
-                with open(pin + ".tmp", "w") as f:
-                    f.write(f"{etag}\n{size}\n{time.time()}\n")
-                os.replace(pin + ".tmp", pin)
+                # Readers in different workers have separate locks. Each needs its own file so one
+                # worker's rename cannot consume another's pending pin; close before replacing on Windows.
+                tmp = tempfile.NamedTemporaryFile(mode="w", dir=os.path.dirname(pin), prefix="pinned.", suffix=".tmp", delete=False)
+                try:
+                    with tmp as f:
+                        f.write(f"{etag}\n{size}\n{time.time()}\n")
+                    os.replace(tmp.name, pin)
+                finally:
+                    try:
+                        os.remove(tmp.name)
+                    except FileNotFoundError:
+                        pass
             d = os.path.join(self.raw_dir, self.sub, re.sub(r"[^A-Za-z0-9]+", "_", etag).strip("_"))
             self._remote = (etag, rangeread.RemoteFile([self.url], size, d, self.fetcher, if_match=etag))
             self._checked = time.time()

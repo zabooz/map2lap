@@ -65,6 +65,10 @@ def cases():
         {'height': 17., 'min_height': 7., 'roof_shape': 'hipped', 'roof_height': 3.,
          'facade_material': 'glass', 'roof_material': 'copper', 'scale': .7},
     ]
+    for outline in ('rectangle', 'L'):
+        add('ROOF EQUIPMENT / ' + outline.upper(), 'flat', outline, height=7., roof_height=0.,
+            roof_material='concrete', seed_id='house-roof-equipment-0')
+        result[-1]['scale'] = 2.
     return result
 
 
@@ -73,7 +77,7 @@ def case_items(case, x, y):
     import numpy as np
     import buildings as bld
     if 'parts' not in case:
-        spec = bld.plan(footprint(case['footprint']) + [x, y], case['attrs'], lat=46.6, lon=14.6)
+        spec = bld.plan(footprint(case['footprint']) * case.get('scale', 1.) + [x, y], case['attrs'], lat=46.6, lon=14.6)
         return [(spec, 0., 0.)]
     import geodesy
     import mapgeom
@@ -201,7 +205,7 @@ def build(ac_root):
     obj.add("1ROAD_road_gallery", "asphalt", ground, ground[:, :2] / 4., quad)
     for i, case in enumerate(examples):
         x, y = (i % 4 - 1.5) * 36., (i // 4) * 36. + 20.
-        ring = footprint(case["footprint"]) + [x, y]
+        ring = footprint(case["footprint"]) * case.get('scale', 1.) + [x, y]
         items = case_items(case, x, y)
         for spec, _, _ in items:
             spec.porch = False

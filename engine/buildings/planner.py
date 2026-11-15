@@ -13,6 +13,7 @@ from .looks import (
     ROW_CLASSES, RUIN_H, SALTBOX_OFFSET, SHED_CLASSES, SHED_LONG_SHARE, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES, STONE_FLOORS, STUCCO,
     TOWER_SHOP_FLOORS, US_WALL_TINTS, WALL_TINTS, WOOD_TINTS, _hash01, custom_look, parse_color
 )
+from .architecture import architecture_values, architecture_pattern
 from .styles import Spec, _area2, brick_share, oriented_box, region_style, roof_box, shed_count, skillion_axis
 
 ALPINE_HUT_M2 = 120.0        # an isolated building this small above the tree line (a summit shelter, a mountain hut) ...
@@ -31,6 +32,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     covers it, garage_rings) and the number of buildings
     sharing a wall with it. Height and roof are predicted when not given. west_town: a small town of the
     arid West (district_town): single-storey main streets and ranch houses."""
+    architecture = architecture_values(attrs)
     area = _area2(ring) / 2
     c = ring.mean(0)
     # (its random choices: keyed on the map feature's id, the same from every anchor and tile; a ring without one
@@ -77,18 +79,18 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     if ((attrs.get("roof_shape") or "").lower() == "pyramidal" and h is not None and rh is not None
             and rh >= PYRAMID_ROOF_SHARE * h and area >= PYRAMID_MIN_M2 and hw > 1.0):
         look = f"{STONE}|0"
-        return Spec(ring=ring, floors=1, floor_h=PYRAMID_PLINTH_M, height=PYRAMID_PLINTH_M, roof="hipped", roof_mat=look,
+        return Spec(architecture=architecture, ring=ring, floors=1, floor_h=PYRAMID_PLINTH_M, height=PYRAMID_PLINTH_M, roof="hipped", roof_mat=look,
                     facade=look, band=None, shop=False, plain=True, seed=seed, min_h=0.0, wall=None, windows=False,
                     steeple=False, porch=False, cls="pyramid", deck=False,
                     pitch=math.degrees(math.atan2(max(h - PYRAMID_PLINTH_M, 0.1), hw)))
     if (town and style.name.startswith("us_") and cls in ELEVATOR_CLASSES and h is not None and h >= ELEVATOR_MIN_H
             and nf is None and area <= ELEVATOR_MAX_M2 and h / math.sqrt(max(area, 1.0)) >= ELEVATOR_SLENDER
             and not (church or terminal or garage)):
-        return Spec(ring=ring, floors=1, floor_h=h, height=h, roof="flat", roof_mat="bne_precast", facade="bne_precast",
+        return Spec(architecture=architecture, ring=ring, floors=1, floor_h=h, height=h, roof="flat", roof_mat="bne_precast", facade="bne_precast",
                     band=None, shop=False, plain=True, seed=seed, min_h=0.0, wall=None, windows=False, steeple=False,
                     porch=False, cls="elevator", deck=False, pitch=None)
     if attrs.get("bridge_part"):    # a mapped part of a bridge's tower (support_rings): a plain box of painted steel
-        return Spec(ring=ring, floors=1, floor_h=h or BRIDGE_PIER_M, height=h or BRIDGE_PIER_M, roof="flat",
+        return Spec(architecture=architecture, ring=ring, floors=1, floor_h=h or BRIDGE_PIER_M, height=h or BRIDGE_PIER_M, roof="flat",
                     roof_mat=f"{STEEL}|{attrs['bridge_part']}", facade=f"{STEEL}|{attrs['bridge_part']}", band=None,
                     shop=False, plain=True,
                     seed=seed, min_h=0.0, wall=None, windows=False, steeple=False, porch=False, cls="bridge_part",
@@ -97,13 +99,13 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     if attrs.get("bridge_masonry") or (cls in BRIDGE_CLASSES and mat_ in MASONRY_MATERIALS):
         # a mapped masonry pier (Tower Bridge's 9 m concrete piers under its stone towers): a solid block, not a frame
         look = f"{STONE}|0" if mat_ in ("stone", "brick") else "bne_precast"
-        return Spec(ring=ring, floors=1, floor_h=h or BRIDGE_PIER_M, height=h or BRIDGE_PIER_M, roof="flat",
+        return Spec(architecture=architecture, ring=ring, floors=1, floor_h=h or BRIDGE_PIER_M, height=h or BRIDGE_PIER_M, roof="flat",
                     roof_mat=look, facade=look, band=None, shop=False, plain=True, seed=seed, min_h=0.0, wall=None,
                     windows=False, steeple=False, porch=False, cls="bridge_pier", deck=False, pitch=None)
     if cls in BRIDGE_CLASSES:       # a bridge's tower or pier: an open steel frame (_steel_frame), the decks through it
         import bridgetypes
         pt = bridgetypes.paint(attrs.get("facade_color"))
-        return Spec(ring=ring, floors=1, floor_h=h or BRIDGE_PIER_M, height=h or BRIDGE_PIER_M, roof="flat",
+        return Spec(architecture=architecture, ring=ring, floors=1, floor_h=h or BRIDGE_PIER_M, height=h or BRIDGE_PIER_M, roof="flat",
                     roof_mat=ROOF_FLAT, facade=f"{STEEL}|{pt}" if pt else STEEL, band=None, shop=False, plain=True,
                     seed=seed, min_h=0.0,
                     wall=None, windows=False, steeple=False, porch=False, cls=cls, deck=False, pitch=None)
@@ -396,8 +398,9 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     if porch:   # pitched roofs draw the walls on the oriented box: an L-shaped house's door wall can be inside it
         _, _, hl, hw = oriented_box(ring)
         porch = area >= 0.9 * 4 * hl * hw
-    return Spec(ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
+    return Spec(architecture=architecture, ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall,
                 windows=windows, steeple=church and area < 2500, porch=porch, cls=cls,
-                deck=garage and roof == "flat", pitch=style.pitch, castle=castle, facade_pattern=style.facade_pattern,
+                deck=garage and roof == "flat", pitch=style.pitch, castle=castle,
+                facade_pattern=architecture_pattern(architecture, style.facade_pattern),
                 roof_height=roof_h, roof_direction=direction, roof_orientation=orientation)

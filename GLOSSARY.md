@@ -416,6 +416,10 @@ One window's width of a band of a facade sheet. A wall's windows each take a bay
 Shared window spacing and entrance-placement rules for a building or regional style (`buildings.FacadePattern`);
 see [buildings.md](docs/buildings.md).
 
+**Architecture profile**:
+An optional rule set selected by a building's architectural-style metadata. The registry is currently empty;
+buildings retain their regional appearance ([buildings.md](docs/buildings.md#architectural-style-extension-point)).
+
 ## BeamNG.Earth
 
 **BeamNG.Earth**:

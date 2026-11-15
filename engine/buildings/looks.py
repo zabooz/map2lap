@@ -80,7 +80,7 @@ FACADE_SURFACES = {"cement_block": "blk", "clay": "cly", "plastic": "vny", "timb
 ROOF_SURFACES = {"eternit": "fbc", "grass": "veg", "plastic": "pol", "solar_panels": "sol", "thatch": "tha",
                  "glass": "rgl", "gravel": "grv", "tar_paper": "bit", "roof_tiles": "rtl", "copper": "cop"}
 SURFACE_MATERIALS = {kind: f"bne_bld_surface_{kind}" for kind in
-                     (*FACADE_SURFACES.values(), *ROOF_SURFACES.values())}
+                     (*FACADE_SURFACES.values(), *ROOF_SURFACES.values(), "hvu")}
 MATERIALS = (FACADE, SHOP, OFFICE, ROOF_FLAT, ROOF_SLATE, ROOF_SHINGLE, SIDING, STUCCO, ROOF_METAL, PANEL, METALWALL,
              STONE, MARBLE, BRICK_WALL, CONCRETE, SKY_WALL) + LETTERS + tuple(SURFACE_MATERIALS.values())
 LOOKS = {

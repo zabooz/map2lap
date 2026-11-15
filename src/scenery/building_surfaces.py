@@ -112,11 +112,27 @@ def _copper(x, y, grain):
     return a
 
 
+def _equipment(x, y, grain):
+    """Equipment atlas: upper half vented metal sides, lower half plain lid. Pure."""
+    a = np.ones((*x.shape, 3)) * (157, 166, 169) + grain[..., None] * 2
+    vent = (x > .12) & (x < .88) & (y > .10) & (y < .40)
+    louvre = (y * 80) % 1
+    a[vent] = np.stack([61 + louvre * 45, 69 + louvre * 45, 73 + louvre * 45], axis=-1)[vent]
+    # Panel perimeter and screw heads remain painted details, without extra geometry.
+    a[(np.abs(x - .06) < .004) | (np.abs(x - .94) < .004)] *= .65
+    for cy in (.06, .44, .56, .94):
+        for cx in (.08, .92):
+            a[(x - cx) ** 2 + (y - cy) ** 2 < .006 ** 2] = (70, 76, 78)
+    return a
+
+
 def texture(kind, color, px=512):
     """RGB repeat for surface kind, multiplicative tint and pixel size. Pure."""
     y, x = np.mgrid[0:px, 0:px].astype(float) / px
     grain = _grain(x, y)
-    if kind in ('blk', 'cly'):
+    if kind == 'hvu':
+        a = _equipment(x, y, grain)
+    elif kind in ('blk', 'cly'):
         a = _masonry(x, y, grain, clay=kind == 'cly')
     elif kind == 'tmf':
         a = _timber(x, y, grain)

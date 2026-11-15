@@ -9,7 +9,7 @@ from .looks import (
     BANDS, BAND_SHOP, BLADE_CAP_M, BLADE_T, BLADE_W, CHURCH_CLASSES, CORNICE_DOWN_M, CORNICE_OUT_M, CORNICE_UP_M,
     EAVE_M, FOUNDATION_M, GREEN_CROSS, GROUND_FLOOR_SHOP_M, HALL_CAP_M, HALL_CAP_SHARE, HALL_CLEAR_M, KEEP_SIDE, MERLON,
     PANEL_CAP, PANEL_H, PITCH, PLATE_H, PLATE_TOP_M, PLATE_W, ROOF_SLATE, ROOF_UV_M, SALTBOX_OFFSET, SHED_LONG_SHARE, SHOP, SIDING_UV_M, SIGN_CAP,
-    SIGN_H, SIGN_MARGIN_M, SIGN_OUT, SIGN_SHOP_M, SIGN_TINTS, SYMBOL_IN_M, SYMBOL_M, TILE_PX_M, _hash01
+    SIGN_H, SIGN_MARGIN_M, SIGN_OUT, SIGN_SHOP_M, SIGN_TINTS, SURFACE_MATERIALS, SYMBOL_IN_M, SYMBOL_M, TILE_PX_M, _hash01
 )
 from .styles import _area2, oriented_box, roof_box, roof_pitch, shed_count, skillion_axis, triangulate
 from .facade import DOOR_GAP_M, HOUSE_BAY_M, bay_width, pattern_for, require_layout
@@ -576,25 +576,61 @@ def _keep(m, spec, z_eave, mat_idx):
 
 
 ROOF_CLUTTER_M2 = 250.0     # flat roofs this large get boxes: air-conditioning units, stair bulkheads
+ROOF_UNIT_CLEAR_M = .5     # Visual maintenance gap from parapets and neighbouring units; not a building-code rule.
+
+
+def _roof_unit_fits(ring, centre, u, hx, hy):
+    """Whether the whole unit and its margin lie within the simple roof ring, including concave edges. Pure."""
+    axes = np.column_stack((u, [-u[1], u[0]]))
+    half = np.array([hx, hy]) + ROOF_UNIT_CLEAR_M
+    for signs in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        if not _inside(ring, centre + axes @ (half * signs)):
+            return False
+    # Corners alone miss a notch crossing the box. SAT against every boundary segment tests
+    # the box axes and the segment's normal, also rejecting a notch ending inside the box.
+    a = (ring - centre) @ axes
+    b = np.roll(a, -1, axis=0)
+    separated = np.any((np.minimum(a, b) > half) | (np.maximum(a, b) < -half), axis=1)
+    delta = b - a
+    normal = np.column_stack((-delta[:, 1], delta[:, 0]))
+    crosses = np.abs(np.sum(normal * a, axis=1)) <= np.abs(normal) @ half
+    return not np.any(~separated & crosses)
+
+
+def _roof_unit(m, p, u, hx, hy, bottom, height, mat):
+    """Emit four vent-panel sides and a plain metal lid from the shared equipment atlas."""
+    v = np.array([-u[1], u[0]])
+    corners = [p + u * sx * hx + v * sy * hy for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    top = bottom + height
+    for a, b in zip(corners, corners[1:] + corners[:1]):
+        m.quad((*a, bottom), (*b, bottom), (*b, top), (*a, top),
+               (.02, .52), (.98, .52), (.98, .98), (.02, .98), mat)
+    m.quad(*[(*c, top) for c in corners], (.02, .02), (.98, .02), (.98, .48), (.02, .48), mat)
 
 
 def _clutter(m, spec, ring, z_eave, mat_idx):
+    """Add deterministic equipment only where its complete footprint fits on the flat roof."""
     area = _area2(ring) / 2
     if spec.roof != "flat" or spec.plain or area < ROOF_CLUTTER_M2 or spec.cls in CHURCH_CLASSES:
         return
     c, u, hl, hw = oriented_box(ring)
     v = np.array([-u[1], u[0]])
     n = min(6, 1 + int(area / 600.0))
-    mat = mat_idx["bne_bld_fac_grey"]
+    mat = mat_idx[f"{SURFACE_MATERIALS['hvu']}|0"]
+    placed = []
     for k in range(n):
         s = (_hash01(spec.seed, "cx", k) * 2 - 1) * (hl - 3.0)
         t = (_hash01(spec.seed, "cy", k) * 2 - 1) * (hw - 3.0)
         p = c + u * s + v * t
-        if not _inside(ring, p):
-            continue
         big = _hash01(spec.seed, "cb", k) < 0.25
         hx, hy, h = (2.0, 1.6, 2.6) if big else (1.1, 0.7, 1.1)
-        _box(m, p, u, hx, hy, z_eave, z_eave + h, mat)
+        if not _roof_unit_fits(ring, p, u, hx, hy):
+            continue
+        if any(abs((p - q) @ u) < hx + qx + ROOF_UNIT_CLEAR_M and
+               abs((p - q) @ v) < hy + qy + ROOF_UNIT_CLEAR_M for q, qx, qy in placed):
+            continue
+        _roof_unit(m, p, u, hx, hy, z_eave, h, mat)
+        placed.append((p, hx, hy))
 
 
 def _clip_roof(points, ring):

@@ -60,7 +60,32 @@ material level. Each added attic window costs two triangles; varying its UVs add
 The first panel bay lights at level 1: white vertex colours clamp at 255, so their exported materials cannot
 reach level 2. Tests cover the exported material selection as well as the mask pixels.
 
+## Architectural-style extension point
+
+`buildings.architecture` retains optional `building:architecture` input (or the canonical `architecture` column).
+Semicolon-separated styles are trimmed, lowercased and deduplicated in source order; unknown styles are retained.
+`Spec.architecture` is a tuple of these names, also recorded in the exported object's parameters. A building part
+uses its own styles when present, otherwise the parent's. Missing metadata is an empty tuple.
+
+`ArchitectureProfile` currently exposes an optional `FacadePattern`. The `PROFILES` registry is empty: no
+architectural style changes the current geometry or textures. A future registered profile supplies its pattern
+through `architecture_pattern`; the first implemented pattern in the ordered style list wins, otherwise the
+regional pattern remains. Explicit per-building `Spec.facade_pattern` assignments can still override it afterwards.
+Mapped dimensions, roof forms and materials are not overridden by this extension point.
+
+This is an internal data contract, not a new data source. The current Overture building query has no architecture
+field and the general OSM building-tag join is not implemented. A future importer must populate `architecture` and
+version the affected map-layer caches when it starts doing so. No new requests or cache invalidation are needed
+for this inactive extension point; existing tracks do not need rebuilding for it.
+
 ## Roof dimensions and comparison gallery
+
+Large, non-plain flat roofs may receive inferred equipment, not mapped rooftop objects. Each unit's complete
+footprint plus a 0.5 m visual maintenance margin must fit inside the drawn roof ring; boundary-segment tests reject
+concave notches even when all four corners lie inside. Units also leave that gap between one another. Unsuitable
+placements are omitted. The rule works on the currently drawn outer ring; courtyard holes are not yet retained.
+The shared `hvu` atlas supplies vented metal side panels and a plain lid, using the same five quads per unit.
+The House gallery includes rectangular and L-shaped roof-equipment examples.
 
 `roof_height` is the rise above the wall eaves. A valid mapped rise is used both when subtracting it from total
 building height in `planner` and when emitting the roof in `mesh`. Missing or inconsistent values use the regional

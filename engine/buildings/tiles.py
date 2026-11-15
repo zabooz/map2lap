@@ -9,6 +9,7 @@ import mapgeom
 import tollsource
 import navgraph
 
+from .architecture import architecture_values
 from .looks import (
     BRIDGE_CLASSES, CHURCH_OVER, FLOOR_M, FOUNDATION_M, INDUSTRIAL_CLASSES, MIN_AREA_M2, SHED_CLASSES, STEEL_MATERIALS,
     _hash01
@@ -93,7 +94,7 @@ class _PartsOf:
         # Each part retains its own roof, materials and colours before parent fallback.
         own = {k: (a[k][i] if k in a else None) for k in
                ("roof_shape", "roof_height", "roof_direction", "roof_orientation", "facade_color", "roof_color",
-                "facade_material", "roof_material")}
+                "facade_material", "roof_material", "architecture", "building:architecture")}
         return np.stack([e, n], 1), _part_heights(a, i), own
 
     def get(self, bid, default=None):
@@ -197,7 +198,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                     continue
             at = {k: (a[k][i] if k in a else None) for k in
                   ("class", "height", "num_floors", "min_height", "roof_shape", "roof_height", "roof_direction", "roof_orientation", "name",
-                   "facade_material", "facade_color", "roof_material", "roof_color")}
+                   "facade_material", "facade_color", "roof_material", "roof_color", "architecture", "building:architecture")}
             if key is not None:         # (plan's random choices keyed on the feature, not where the anchor puts it)
                 at["seed_id"] = str(key)
             hh_ = at.get("height")
@@ -233,6 +234,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                                   "roof_height": pat.get("roof_height"), "roof_direction": pat.get("roof_direction"),
                                   "roof_orientation": pat.get("roof_orientation"),
                                   "building_height": top, "facade_material": p_fmat,
+                                  "architecture": architecture_values(pat) or architecture_values(at),
                                   "facade_color": p_fcol,
                                   "roof_material": p_rmat,
                                   "roof_color": p_rcol,

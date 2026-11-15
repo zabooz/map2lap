@@ -11,7 +11,7 @@ class GalleryTest(unittest.TestCase):
     def test_house_keeps_roofs_and_adds_every_material(self):
         self.assertEqual(building_gallery.TITLE, "House")
         cases = building_gallery.cases()
-        self.assertEqual(len(cases), 58)
+        self.assertEqual(len(cases), 60)
         self.assertEqual({c['attrs']['facade_material'] for c in cases[32:43]},
                          {'brick', 'cement_block', 'clay', 'concrete', 'glass', 'metal', 'plaster',
                           'plastic', 'stone', 'timber_framing', 'wood'})
@@ -29,6 +29,13 @@ class GalleryTest(unittest.TestCase):
         self.assertEqual(bld.LOOKS[top.facade][0], bld.OFFICE)
         self.assertEqual(bld.LOOKS[top.roof_mat][0], bld.SURFACE_MATERIALS['cop'])
         self.assertAlmostEqual(top.min_h, 7.)
+
+    def test_roof_equipment_examples_emit_the_new_textured_units(self):
+        import buildings as bld
+        for case in building_gallery.cases()[58:]:
+            items = building_gallery.case_items(case, 0., 0.)
+            _, _, _, mids, materials, _ = bld.build(items)
+            self.assertIn(bld.SURFACE_MATERIALS['hvu'], {materials[i] for i in mids})
 
     def test_labels_after_32_have_their_own_atlas_space(self):
         import tempfile

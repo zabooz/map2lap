@@ -219,7 +219,7 @@ def _listed(k, item, start, marks):
             "details": {"asset": "generated-building", "footprint": ring.round(3).tolist(),
                         "parameters": {name: getattr(spec, name, None) for name in
                                        ("cls", "floors", "floor_h", "height", "roof", "roof_mat", "roof_height",
-                                        "roof_direction", "roof_orientation", "facade", "pitch", "min_h", "seed")}}}
+                                        "roof_direction", "roof_orientation", "architecture", "facade", "pitch", "min_h", "seed")}}}
 
 
 def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod=False, objects=None):
