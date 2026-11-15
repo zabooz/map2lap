@@ -6,12 +6,12 @@ import numpy as np
 import fast
 
 from .looks import (
-    BANDS, BAND_SHOP, BLADE_CAP_M, BLADE_T, BLADE_W, CHURCH_CLASSES, CORNICE_DOWN_M, CORNICE_OUT_M, CORNICE_UP_M,
+    BANDS, BAND_SHOP, BIG_BOX_CLASSES, BLADE_CAP_M, BLADE_T, BLADE_W, CHURCH_CLASSES, CORNICE_DOWN_M, CORNICE_OUT_M, CORNICE_UP_M,
     EAVE_M, FOUNDATION_M, GREEN_CROSS, GROUND_FLOOR_SHOP_M, HALL_CAP_M, HALL_CAP_SHARE, HALL_CLEAR_M, KEEP_SIDE, MERLON,
     PANEL_CAP, PANEL_H, PITCH, PLATE_H, PLATE_TOP_M, PLATE_W, ROOF_SLATE, ROOF_UV_M, SALTBOX_OFFSET, SHED_LONG_SHARE, SHOP, SIDING_UV_M, SIGN_CAP,
     SIGN_H, SIGN_MARGIN_M, SIGN_OUT, SIGN_SHOP_M, SIGN_TINTS, SURFACE_MATERIALS, SYMBOL_IN_M, SYMBOL_M, TILE_PX_M, _hash01
 )
-from .styles import _area2, oriented_box, roof_box, roof_pitch, shed_count, skillion_axis, triangulate
+from .styles import _area2, oriented_box, roof_box, roof_pitch, round_storage_ring, shed_count, skillion_axis, triangulate
 from .facade import DOOR_GAP_M, HOUSE_BAY_M, bay_width, pattern_for, require_layout
 
 
@@ -129,14 +129,23 @@ def _walls(m, spec, ring, z0, z_eave, mat_idx, lite=False):
     good = list(band[2]) if len(band) > 2 else []
     door = spec.door
     constants = _WALL_CONSTS.copy()
-    constants[6] = pattern_for(spec).door_clearance_m
+    pattern = pattern_for(spec)
+    constants[6] = pattern.door_clearance_m
+    constants[15:18] = [pattern.window_width_m or WIN_W, pattern.window_height_m or WIN_H,
+                        pattern.window_sill_m or WIN_SILL]
+    if pattern.window_height_m is not None:
+        # These profiles describe shorter classroom/office windows; leave headroom on the supplied floors.
+        constants[16] = max(.3, min(constants[16], spec.floor_h - constants[17] - .25))
     constants.append(bay_width(spec))
+    # The native `front` argument requests a shop window strip. A road-facing wall alone does not:
+    # industrial halls, garages and barns use their own openings on spec.front instead.
+    storefront = spec.front if spec.shop or spec.cls in BIG_BOX_CLASSES else None
     P, UV, mid = fast._ef.building_walls(
         np.ascontiguousarray(np.asarray(ring, np.float64)[:, :2]), float(z0), float(z_eave), bool(spec.wall),
         bool(spec.plain), int(band[0]), int(band[1]), [int(g) for g in good], int(spec.floors), float(spec.floor_h),
         bool(spec.shop), int(door[0]) if door else -1, float(door[1]) if door else 0.0, spec.roof == "flat",
         float(spec.seed) if isinstance(spec.seed, float) else 0.0, spec.windows is False,
-        int(spec.front) if spec.front is not None else -1, bool(lite), constants)
+        int(storefront) if storefront is not None else -1, bool(lite), constants)
     if mid:
         m.quads(P, UV, mid, [mat_idx[spec.facade], mat_idx[SHOP] if (spec.shop or spec.wall) else None,
                              mat_idx["bne_bld_fac_white"] if spec.wall else None])
@@ -232,7 +241,10 @@ def _signs(m, spec, ring, z_top, mat_idx, floor=None, z_eave=None, names=None, e
     if names and (spec.windows is False or top):
         tint = SIGN_TINTS[int(_hash01(spec.seed, "signc", 0) * len(SIGN_TINTS))]
         z1 = (z_eave if z_eave is not None else z_top) - 0.3
-        z0 = max(z1 - HALL_CAP_M / SIGN_CAP, (floor if floor is not None else z1 - spec.height) + HALL_CLEAR_M)
+        clearance = 3.65 if spec.cls == 'fire_station' else HALL_CLEAR_M  # Above 3.4 m vehicle gates and their frames.
+        z0 = max(z1 - HALL_CAP_M / SIGN_CAP, (floor if floor is not None else z1 - spec.height) + clearance)
+        if spec.cls == 'fire_station' and z1 - z0 < .35:
+            return
         if z1 - z0 < SIGN_H:                            # (a low hall: the band's place)
             z0, z1 = z_top - 0.15 - SIGN_H, z_top - 0.15
         cap = (z1 - z0) * SIGN_CAP
@@ -399,7 +411,8 @@ def drawn_ring(spec):
     porch go on these walls (on the map's outline they stood off a box wall at an angle, or inside it, only the
     door's frame showing: Stelvio pass)."""
     ring = spec.ring
-    if spec.roof != "flat":
+    if spec.roof != "flat" and not (spec.cls in ('silo', 'grain_silo', 'storage_tank')
+                                   and spec.roof == 'pyramidal' and round_storage_ring(ring)):
         c, u, hl, hw = oriented_box(ring)
         v = np.array([-u[1], u[0]])
         ring = np.array([c - u * hl - v * hw, c + u * hl - v * hw, c + u * hl + v * hw, c - u * hl + v * hw])
@@ -507,17 +520,20 @@ def _steeple(m, spec, z_eave, mat_idx):
     if _hash01(spec.seed, "steeple") < 0.5:
         u = -u
     side = float(np.clip(1.1 * hw, 3.0, 6.0)) / 2
+    if spec.cls == 'chapel':
+        side = min(.8, hw * .25, hl * .25)   # Small roof turret, not the full church's bell tower.
     p = c + u * (hl - side)
     for k in range(1, 12):              # on the footprint (an irregular one's box end can be outside it)
         if _inside(spec.ring, p):
             break
         p = c + u * (hl - side) * (1 - k / 12)
-    rise = (min(hw, 12.0) + EAVE_M) * math.tan(math.radians(spec.pitch or PITCH["gabled"]))
-    top = z_eave + rise + 6.0
+    rise = spec.roof_height if spec.roof_height is not None else \
+        (min(hw, 12.0) + EAVE_M) * math.tan(math.radians(spec.pitch or PITCH["gabled"]))
+    top = z_eave + rise + (1.2 if spec.cls == 'chapel' else 6.0)
     _box(m, p, u, side, side, z_eave - 1.0, top, mat_idx[spec.facade])
     v = np.array([-u[1], u[0]])
     k = [p + u * sx * side + v * sy * side for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
-    apex = (float(p[0]), float(p[1]), top + 2.6 * side * 2)
+    apex = (float(p[0]), float(p[1]), top + (2.4 if spec.cls == 'chapel' else 5.2) * side)
     rm = mat_idx[f"{ROOF_SLATE}|3"]
     for i in range(4):
         a, b = k[i], k[(i + 1) % 4]
@@ -977,6 +993,13 @@ def _roof_eaves(m, ring, first_vertex, first_index, mat):
 
 def _roof(m, spec, ring, z_eave, mat_idx):
     """Emit supported roof planes using the mapped rise and bearing where present."""
+    if spec.roof == 'pyramidal' and spec.cls in ('silo', 'grain_silo', 'storage_tank') and round_storage_ring(ring):
+        centre = np.mean(ring, axis=0)
+        apex = (*centre, z_eave + (spec.roof_height or 0.))
+        for a, b in zip(ring, np.roll(ring, -1, axis=0)):
+            m.tri((*a, z_eave), (*b, z_eave), apex,
+                  tuple(a / ROOF_UV_M), tuple(b / ROOF_UV_M), tuple(centre / ROOF_UV_M), mat_idx[spec.roof_mat])
+        return
     if spec.roof == "skillion":
         return _skillion_roof(m, spec, ring, z_eave, mat_idx)
     if spec.roof == "pyramidal":

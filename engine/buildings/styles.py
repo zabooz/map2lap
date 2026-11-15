@@ -16,6 +16,17 @@ def _area2(p):
     return float(np.dot(x, np.concatenate((y[1:], y[:1]))) - np.dot(np.concatenate((x[1:], x[:1])), y))
 
 
+def round_storage_ring(ring):
+    """Whether a mapped ring describes a round tank/silo rather than a rectangular building. Pure."""
+    if len(ring) < 8:
+        return False
+    r = np.linalg.norm(ring - np.mean(ring, axis=0), axis=1)
+    edges = np.roll(ring, -1, axis=0) - ring
+    turns = edges[:, 0] * np.roll(edges[:, 1], -1) - edges[:, 1] * np.roll(edges[:, 0], -1)
+    # Allow survey/outline simplification noise, but not elongated tanks or concave compounds.
+    return bool(np.min(r) > .9 * np.max(r) and np.all(turns >= -1e-6))
+
+
 def clean_ring(p):
     """The ring (n, 2) without its closing point, duplicate and nearly collinear vertices, counter-clockwise;
     None if fewer than 3 are left. The simplification in Rust (earthfast.clean_ring_core: numpy's arithmetic)."""
@@ -89,7 +100,7 @@ class Spec:
     """What is built for one footprint (decided by plan())."""
     __slots__ = ("ring", "floors", "floor_h", "height", "roof", "roof_mat", "facade", "band", "shop", "plain", "min_h", "wall", "door", "windows", "front", "steeple", "stoop",
                  "sign", "porch", "cls", "seed", "deck", "pitch", "portal", "gring", "names", "plates", "plate",
-                 "castle", "toll", "architecture", "facade_pattern", "roof_height", "roof_direction", "roof_orientation")
+                 "castle", "toll", "architecture", "facade_pattern", "roof_height", "roof_direction", "roof_orientation", "paired_home")
 
     def __init__(self, **kw):
         for k in self.__slots__:

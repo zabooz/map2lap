@@ -74,6 +74,70 @@ window bays and night masks, preserving varied lighting in the Editor and CSP. T
 walls or change collision. Small garages without a supported mapped material fall back to plaster rather than the
 regional shed wood; mapped material/colour and the existing alpine stone-shelter rule retain precedence.
 
+## Industrial openings
+
+Low halls (up to two floors) use class-specific openings: `warehouse` has several loading shutters and sparse rear
+windows; `manufacture` has two vehicle gates and high window bands; `factory` has gates and window rows following
+its floors. `hangar` has a broad sliding door and side vents; generic `industrial` has one vehicle gate and a few
+rear windows. A separate personnel door is added where it fits. Mapped facade materials and supported roof shapes
+still take precedence. These are inferred details, not mapped entrance positions.
+
+`industrial.py` fits panels to the drawn wall and local entrance elevation, leaving wall piers and headroom and
+rejecting overlapping openings. Raised parts receive no ground gates. Only near geometry receives these panels,
+with at most six gates and 48 window/vent quads. Gates, doors and vents share the `ind` atlas; windows reuse the
+facade night-mask bays. Road-facing orientation no longer requests a retail storefront from the native wall emitter
+unless the building actually has a shop or belongs to the retail big-box classes.
+
+## Small utility buildings and storage
+
+`shed`, `hut`, `cabin`, `service`, `toilets` and `static_caravan` get one fitted personnel door, with a few small
+windows where appropriate. Their road-facing wall is preferred; the longest wall is the fallback. These openings
+reuse the utility/industrial atlases and the ordinary night-lit window bays. Inferred roof rises leave 2.4 m of wall
+height where the supplied total height allows it; explicit roof heights and lower mapped total heights still win.
+Caravans default to light cladding and a low roof. Toilets and service buildings default to plaster.
+
+`shelter`, `roof` and `carport` draw a roof on narrow posts, with a bounded support count. The roof is visible from
+below; collision uses the same open structure. `greenhouse` defaults to light glazing with a frame grid (`ghg`) and
+a glass roof. This is opaque textured glazing, not a transparent interior or office curtain-wall system.
+
+Silos and tanks default to metal walls without house windows, keeping the supplied footprint. Near-circular silo
+rings receive a shallow polygonal cone when no roof is mapped; rectangular storage keeps its rectangular outline.
+The House examples use 24-sided round storage footprints, rather than its earlier square test inputs. Mapped
+materials, colours and supported roof forms override these class defaults. Chapels use a small inferred roof turret;
+churches retain the larger bell tower. These details are approximations, not reconstructions of mapped equipment.
+
+## Public and small business frontages
+
+Public classes in `CIVIC_CLASSES` default to plaster, with separate classroom/office-size windows and a wide glazed
+entrance. `FacadePattern` can specify window width, height and sill as well as spacing; these dimensions go through
+the native wall emitter. Public window height is fitted to the supplied floor height so the top row does not disappear
+under a pitched roof. Mapped materials and architecture profiles retain precedence. The profile does not infer a
+campus layout, historic architectural order or additional wings from a class alone.
+
+`frontages.py` adds the access panels and small entrance canopies; train stations use a longer canopy along the front.
+Terraces get repeated inferred dwelling bays with their own doors, rather than a single house entrance. Cafes and
+fast-food buildings get display windows and access; kiosks get a sales window with side access. The road-facing
+wall is preferred, otherwise the longest wall is used. Raised parts get no inferred ground entrances. Windows
+keep the existing varied night-mask bays, and entrances share the `ent` atlas; no building gets a unique texture.
+Door/window counts are bounded, wall margins are retained, and narrow fronts omit display panes that overlap access.
+
+Food businesses also receive a small double-sided projecting sign. Their mapped name is used on the main panel;
+without a renderable name, the neutral use label is `CAFE` or `FAST FOOD`. Fire stations have a bounded row of vehicle
+gates, separate personnel access and windows that leave the gates clear. Their name panel sits above the vehicle
+clearance. The House lab preserves the production facade profile while enabling its attic-window demonstrations;
+its hospital and fire-station examples use larger synthetic footprints to make their intended use legible.
+
+Sign lettering uses the source opacity atlas without a vertical image flip: the KN5 exporter already negates V.
+The export regression samples the actual converted glyph UVs against both production and gallery textures, so
+transparent atlas space cannot silently replace the letters again.
+
+`semidetached_house` uses paired entrances and mirrored front window axes only for an explicitly supplied
+`building:flats=2` with no detected attached neighbour. A narrow facade joint marks the division; the footprint,
+roof and mapped materials remain shared. Attached halves, missing/invalid counts and other dwelling counts keep
+one entrance per outline. This is a conservative visual inference: the class alone does not establish whether an
+outline contains the whole pair. House case 84 explicitly supplies the two-dwelling count. The tile importer retains
+that field when supplied; this does not add a general OSM dwelling-count download. Raised parts get no ground access.
+
 ## Architectural-style extension point
 
 `buildings.architecture` retains optional `building:architecture` input (or the canonical `architecture` column).
@@ -175,7 +239,7 @@ to the short half-span. Direction and orientation do not rotate this ridge-free 
 Eaves extend beyond the walls and small wall caps close the gap under the slopes. Existing footprint suitability
 limits still apply; this does not reconstruct pyramids over arbitrary irregular polygons.
 
-`tools/building_gallery.py` creates **House**, a synthetic comparison pad with 58 labelled cases,
+`tools/building_gallery.py` creates **House**, a synthetic comparison pad with 128 labelled cases,
 using production building geometry and textures. It needs no map downloads. All 14 roof shapes have their own
 geometry paths; the gallery checks that each requested form is drawn. The footprint suitability and geometric
 approximations described above still apply to real map data.
@@ -184,7 +248,20 @@ and a roughly 5.6 m spherical cap whose vertical radius matches the 3 m horizont
 inputs, not overrides of mapped building dimensions.
 Cases 1–32 retain the roof/footprint comparisons; 33–43 show all eleven Overture facade materials and 44–57
 all fourteen roof materials. Case 58 goes through the production part importer: a base inherits the parent's
-stone facade, while its inset glass upper part has its own copper roof. The track id stays
+stone facade, while its inset glass upper part has its own copper roof. Cases 59–60 show fitted roof equipment;
+61–65 compare garage and farm openings. Cases 66–76 cover retail, commercial, supermarket, shop, kiosk, office,
+hotel, restaurant, civic, cafe and fast_food; 77–81 show industrial, warehouse, manufacture, factory and hangar.
+Cases 82–92 cover house, detached, semidetached_house, bungalow, residential, apartments, terrace, dormitory,
+farm, cabin and static_caravan. Cases 93–95 add carport and parking/parking_garage deck examples; 96–98 add
+farm_auxiliary, cowshed and agricultural; 99–105 add shed, hut, shelter, roof, greenhouse, service and toilets.
+Cases 106–108 cover silo, grain_silo and storage_tank; 109–111 cover church, chapel and cathedral; 112–124 cover
+public institutions from fire_station through college. Cases 125–128 compare yes, transportation, a missing
+class key and an unknown class value. These show existing rules, not a promise of distinct geometry for each class.
+Class examples leave facade materials and colours unset; residential examples
+also use regional roof choices. Their heights and footprints are synthetic examples, not inferred dimensions.
+Production name/sign selection and door placement use a synthetic street in front of each example. The normal
+props exporter supplies door meshes, and sign lettering uses its production opacity atlas. Halls get wider spacing
+and supermarket footprints reach the big-box threshold. The track id stays
 `map2lap_building_gallery`, so rebuilding updates the same lab.
 The label atlas grows in power-of-two rows; texture files are regenerated on every gallery build.
 Default output is staged under `out/building-gallery-ac`; `--ac-root` selects an AC installation. Regenerate through

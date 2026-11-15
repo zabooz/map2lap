@@ -538,9 +538,8 @@ def write_mtl(path, tex_dir, ground_mats=(), shutters=False):
             elif tex == "@letters":           # sign lettering: the colour, alpha the letters' opacity map
                 png = os.path.join(tex_dir, f"{name}.png")
                 alpha = Image.open(os.path.join(ROADSIDE, "sign_letters_o.data.png")).convert("L")
-                # (the sign meshes' v runs from the image top, the other meshes' from its bottom: measured on the
-                # glyph quads, 41 % of their area letters this way round, none the other)
-                alpha = alpha.transpose(Image.FLIP_TOP_BOTTOM)
+                # Glyph UVs use the same engine convention as other meshes. The KN5 writer negates V;
+                # flipping this atlas again makes the exported glyphs sample transparent space.
                 Image.merge("RGBA", (*Image.new("RGB", alpha.size,
                                                 tuple(int(v * 255) for v in SIGN_LETTERS[name])).split(), alpha)).save(png)
                 f.write(f"map_Kd textures/{name}.png\n\n")

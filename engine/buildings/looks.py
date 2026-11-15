@@ -80,7 +80,7 @@ FACADE_SURFACES = {"cement_block": "blk", "clay": "cly", "plastic": "vny", "timb
 ROOF_SURFACES = {"eternit": "fbc", "grass": "veg", "plastic": "pol", "solar_panels": "sol", "thatch": "tha",
                  "glass": "rgl", "gravel": "grv", "tar_paper": "bit", "roof_tiles": "rtl", "copper": "cop"}
 SURFACE_MATERIALS = {kind: f"bne_bld_surface_{kind}" for kind in
-                     (*FACADE_SURFACES.values(), *ROOF_SURFACES.values(), "hvu", "utl")}
+                     (*FACADE_SURFACES.values(), *ROOF_SURFACES.values(), "hvu", "utl", "ind", "ghg", "ent")}
 MATERIALS = (FACADE, SHOP, OFFICE, ROOF_FLAT, ROOF_SLATE, ROOF_SHINGLE, SIDING, STUCCO, ROOF_METAL, PANEL, METALWALL,
              STONE, MARBLE, BRICK_WALL, CONCRETE, SKY_WALL) + LETTERS + tuple(SURFACE_MATERIALS.values())
 LOOKS = {
@@ -343,6 +343,8 @@ HOUSE_CLASSES = {"house", "detached", "semidetached_house", "bungalow", "residen
                  "cabin", "dormitory"}
 HOUSE_MAX_M2 = 300.0        # m2: the biggest footprint drawn as a detached house
 ROW_CLASSES = {"terrace"}
+CIVIC_CLASSES = {'school', 'college', 'university', 'kindergarten', 'townhall', 'government', 'public',
+                 'train_station', 'library', 'post_office', 'police', 'hospital'}
 GARAGE_MIN_M2 = 400.0       # a "parking" building this big is a parking structure
 INDUSTRIAL_CLASSES = {"industrial", "warehouse", "manufacture", "factory", "hangar"}
 # The use of a footprint whose class is not mapped (a village's ~90 %, most buildings outside Europe's cities), from

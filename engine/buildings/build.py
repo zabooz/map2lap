@@ -14,6 +14,8 @@ from .mesh import (
 )
 from .garages import _parking_deck, deck_plan
 from .utility import draw_utility
+from .industrial import draw_industrial
+from .frontages import draw_frontage, prepare_frontage
 from .toll import draw_toll
 
 # The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
@@ -42,9 +44,15 @@ def build(specs_and_ground, lite=False, marks=None):
             continue
         z0 = gmin - (SKIRT_LITE_M if lite else SKIRT_M) if mh <= 0.5 else base_z(spec, gmin, gmax) + mh
         z_eave = base_z(spec, gmin, gmax) + mh + spec.height
+        if spec.cls in ('shelter', 'roof', 'carport'):
+            _open_shelter(m, spec, ring, z0, z_eave, mat_idx, lite)
+            continue
+        prepare_frontage(spec)
         _walls(m, spec, ring, z0, z_eave, mat_idx, lite)
         if not lite:
             draw_utility(m, spec, gmin, gmax, mat_idx)
+            draw_industrial(m, spec, gmin, gmax, mat_idx)
+            draw_frontage(m, spec, gmin, gmax, mat_idx)
         if mh > 0.5:                                  # a part standing on another / over a street: its underside
             m.poly([(p[0], p[1], z0) for p in ring[::-1]], [(0.002, 0.995)] * len(ring), mat_idx[spec.facade])
         first_vertex, first_index = m.n, len(m.T)
@@ -84,6 +92,29 @@ def build(specs_and_ground, lite=False, marks=None):
         return None
     P, UV, T, M, C = m.arrays()
     return P, UV, T, M, MATERIALS, C
+
+
+def _open_shelter(m, spec, ring, z0, z_eave, mat_idx, lite=False):
+    """Roof and narrow posts for mapped open shelters; shared by visible and collision geometry."""
+    # Approximate support positions on the mapped boundary, bounded even on detailed outlines.
+    # 26 cm square posts are a visual fallback; mapped engineering dimensions are unavailable.
+    centre = np.mean(ring, axis=0)
+    for i in np.linspace(0, len(ring), min(16, len(ring)), endpoint=False, dtype=int):
+        p = ring[i]
+        inward = centre - p
+        inward /= max(float(np.linalg.norm(inward)), 1e-6)
+        _box(m, p + inward * .18, np.array([1., 0.]), .13, .13, z0, z_eave, mat_idx[spec.facade])
+    start_vertex, start_index = m.n, len(m.T)
+    _roof(m, spec, ring, z_eave, mat_idx)
+    # The roof is seen from below through the open sides, in the Editor and AC's back-face-culling renderer.
+    positions = np.array(m.P[start_vertex * 3:]).reshape(-1, 3)
+    uvs = np.array(m.UV[start_vertex * 2:]).reshape(-1, 2)
+    triangles = np.array(m.T[start_index:]).reshape(-1, 3) - start_vertex
+    for triangle in triangles:
+        a, b, c = triangle[::-1]
+        m.tri(positions[a], positions[b], positions[c], uvs[a], uvs[b], uvs[c], mat_idx[spec.roof_mat])
+    if spec.roof != 'flat' and not lite:
+        _roof_eaves(m, ring, start_vertex, start_index, mat_idx[spec.facade])
 
 
 def _steel_frame(m, spec, gmin, mat, lite=False, legs_only=False):
@@ -140,14 +171,16 @@ def collision_mesh(specs_and_ground, starts=None):
         if spec.cls in BRIDGE_CLASSES:          # its legs (the decks run between them)
             _steel_frame(m, spec, gmin, tok, True, legs_only=True)
             continue
+        if spec.cls in ('shelter', 'roof', 'carport'):
+            mh = spec.min_h or 0.
+            base = base_z(spec, gmin, gmax)
+            _open_shelter(m, spec, drawn_ring(spec), gmin - FOUNDATION_M if mh <= .5 else base + mh,
+                          base + mh + spec.height, _Looks(spec.seed), True)
+            continue
         if deck_plan(spec, gmin, gmax) is not None:
             _parking_deck(m, spec, gmin, gmax, _Looks(spec.seed))
             continue
-        ring = np.asarray(spec.ring, np.float64)
-        if spec.roof != "flat":
-            c, u, hl, hw = oriented_box(ring)
-            v = np.array([-u[1], u[0]])
-            ring = np.array([c - u * hl - v * hw, c + u * hl - v * hw, c + u * hl + v * hw, c - u * hl + v * hw])
+        ring = np.asarray(drawn_ring(spec), np.float64)
         if _area2(ring) < 0:
             ring = ring[::-1]
         mh = spec.min_h or 0.0

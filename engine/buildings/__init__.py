@@ -10,6 +10,8 @@ The parts, each importing only the ones above it (tests/test_part_order.py):
     styles   a region's style: roofs, walls, heights
     mesh     Mesh and the walls, roofs, signs and details of a building
     utility  inferred garage/farm gates and small ventilation openings
+    industrial  loading gates, hangar doors and production window bands
+    frontages  public entrances, terrace access and small business fronts
     places   what a footprint is used for and what it is called
     garages  parking structures: decks, ramps and what stands on a road's deck
     sites    what a footprint must not stand on: roads, tunnels, water, medians
@@ -24,7 +26,7 @@ The parts, each importing only the ones above it (tests/test_part_order.py):
 import sys
 import types
 
-from . import looks, facade, architecture, styles, mesh, utility, places, garages, sites, toll, build, planner, photo, tiles, doors, far
+from . import looks, facade, architecture, styles, mesh, utility, industrial, frontages, places, garages, sites, toll, build, planner, photo, tiles, doors, far
 
 from .facade import FacadePattern
 from .architecture import ArchitectureProfile, architecture_values
@@ -70,7 +72,7 @@ class _Package(types.ModuleType):
     only here would change nothing and a test of it would pass without testing."""
 
     def __setattr__(self, name, value):
-        for part in (looks, facade, architecture, styles, mesh, utility, places, garages, sites, toll, build, planner, photo, tiles, doors, far,):
+        for part in (looks, facade, architecture, styles, mesh, utility, industrial, frontages, places, garages, sites, toll, build, planner, photo, tiles, doors, far,):
             if hasattr(part, name):
                 setattr(part, name, value)
         super().__setattr__(name, value)

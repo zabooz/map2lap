@@ -10,13 +10,15 @@ GARAGE_BAY_M = 3.4          # Approximate 2.6 m car gate plus separating wall pi
 
 
 def utility_kind(spec):
-    """Opening family for explicit map classes at ground level; generic sheds and raised parts stay unchanged. Pure."""
+    """Opening family for explicit map classes at ground level; raised parts have no inferred access. Pure."""
     if (spec.min_h or 0.) > .5 or spec.deck or spec.toll is not None:
         return None
     if spec.cls in ('garage', 'garages'):
         return 'garage'
     if spec.cls in ('stable', 'cowshed'):
         return 'stable'
+    if spec.cls in ('shed', 'hut', 'cabin', 'toilets', 'service', 'static_caravan', 'greenhouse'):
+        return spec.cls
     return 'barn' if spec.cls in BARN_CLASSES else None
 
 
@@ -44,6 +46,9 @@ def draw_utility(m, spec, gmin, gmax, mat_idx):
     eave = base_z(spec, gmin, gmax) + spec.height
     mat = mat_idx[f"{SURFACE_MATERIALS['utl']}|0"]
     a, b, length = ring[front], ring[(front + 1) % len(ring)], lengths[front]
+    if kind not in ('garage', 'stable', 'barn'):
+        _small_access(m, spec, ring, lengths, front, eave, gmax, mat_idx)
+        return
     # Limit gates on very long footprints: this is visual inference, not the actual garage unit count.
     count = min(8, max(1, int(length / GARAGE_BAY_M))) if kind == 'garage' else 1
     width = min(2.6 if kind == 'garage' else 3.2 if kind == 'stable' else 4., length / count - 2 * OPENING_MARGIN_M)
@@ -80,3 +85,41 @@ def draw_utility(m, spec, gmin, gmax, mat_idx):
         budget -= count
         if budget == 0:
             break
+
+
+def _small_access(m, spec, ring, lengths, front, eave, gmax, mat_idx):
+    """One personnel door and a few small windows, fitted below the eave on small utility buildings."""
+    kind, length = spec.cls, lengths[front]
+    bottom = door_ground(spec, front, length / 2, gmax)
+    height = min(2.05, eave - bottom - .15)
+    width = min(1.05, length - 2 * OPENING_MARGIN_M)
+    if height >= 1.7 and width >= .7:
+        wood = kind in ('shed', 'hut', 'cabin')
+        mat = mat_idx[f"{SURFACE_MATERIALS['utl' if wood else 'ind']}|0"]
+        _panel(m, ring[front], ring[(front + 1) % len(ring)], length / 2, width, bottom, height,
+               (1, 0) if wood else (0, 1), mat)
+    if kind in ('service', 'greenhouse'):
+        return
+    budget = 6                         # At most twelve extra window triangles even on complex footprints.
+    for edge, length in enumerate(lengths):
+        if length < 2.4 or (edge == front and kind != 'static_caravan'):
+            continue
+        if kind == 'shed' and edge != (front + len(ring) // 2) % len(ring):
+            continue
+        positions = (.22, .78) if kind == 'static_caravan' and length >= 6. else (.5,)
+        for fraction in positions:
+            if edge == front and fraction == .5:
+                continue
+            along = length * fraction
+            ground = door_ground(spec, edge, along, gmax)
+            wh = .45 if kind in ('shed', 'toilets') else .85
+            z = eave - wh - .25 if kind == 'toilets' else min(ground + 1.1, eave - wh - .25)
+            if z < ground + .6:
+                continue
+            u0, u1, v0, v1 = WIN_UV
+            shift = int(_hash01(spec.seed, edge, fraction) * 4) / 4
+            _panel(m, ring[edge], ring[(edge + 1) % len(ring)], along, .8, z, wh, (0, 0),
+                   mat_idx['bne_bld_fac_white'], (u0 + shift, u1 + shift, v0, v1))
+            budget -= 1
+            if not budget:
+                return

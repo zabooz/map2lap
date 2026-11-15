@@ -239,6 +239,8 @@ def names_for(spec, own, found, country):
         t = sign_text(n)
         if t and t not in names:
             names.append(t)
+    if not names and spec.cls in ('cafe', 'fast_food'):
+        names = ['CAFE' if spec.cls == 'cafe' else 'FAST FOOD']  # Neutral use label when no renderable mapped name exists.
     industrial = spec.cls in INDUSTRIAL_CLASSES
     if not names and (spec.cls in INVENTED_CLASSES or industrial or (hall and spec.cls == "commercial")):
         import shopnames

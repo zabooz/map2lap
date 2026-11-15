@@ -18,6 +18,9 @@ class FacadePattern:
     entrance: str = "auto"
     door_clearance_m: float = DOOR_GAP_M
     attic_windows: bool = False
+    window_width_m: float | None = None
+    window_height_m: float | None = None
+    window_sill_m: float | None = None
 
     def __post_init__(self):
         if self.bay_m is not None and (not math.isfinite(self.bay_m) or self.bay_m <= 0):
@@ -26,6 +29,9 @@ class FacadePattern:
             raise ValueError("Unknown facade entrance preference")
         if not math.isfinite(self.door_clearance_m) or self.door_clearance_m <= 0:
             raise ValueError("Facade entrance clearance must be positive and finite")
+        for value in (self.window_width_m, self.window_height_m, self.window_sill_m):
+            if value is not None and (not math.isfinite(value) or value <= 0):
+                raise ValueError('Window dimensions must be positive and finite')
 
 
 DEFAULT_PATTERN = FacadePattern()

@@ -151,11 +151,57 @@ def _utility(x, y, grain):
     return a
 
 
+def _industrial(x, y, grain):
+    """Two-by-two atlas of loading shutters, sliding hangar panels, a personnel door and a vent. Pure."""
+    u, v = x * 2 % 1, y * 2 % 1
+    a = np.ones((*x.shape, 3)) * (146, 160, 165) + grain[..., None] * 2
+    gate, hangar = (x < .5) & (y < .5), (x >= .5) & (y < .5)
+    seal = (u < .12) | (u > .88) | (v < .10) | (v > .94)
+    a[gate & seal] = (36, 42, 44)
+    a[gate & ~seal & (v * 12 % 1 < .10)] *= .65
+    bumper = gate & (v > .73) & ((u < .09) | (u > .91))
+    a[bumper] = (213, 170, 47)
+    a[bumper & ((u * 8 + v * 14) % 1 < .45)] = (46, 43, 33)
+    a[hangar] = (np.asarray((119, 141, 155)) * (.9 + .1 * np.cos(u * 2 * np.pi * 30))[..., None])[hangar]
+    a[hangar & (u * 6 % 1 < .035)] = (55, 71, 80)
+    a[hangar & (np.abs(u - .5) < .012)] = (30, 39, 44)
+    door = (x < .5) & (y >= .5)
+    a[door] = (86, 112, 124)
+    a[door & ((u < .09) | (u > .91) | (v < .06) | (v > .96))] = (54, 64, 68)
+    a[door & (u > .72) & (u < .86) & (np.abs(v - .58) < .018)] = (194, 201, 199)
+    vent = (x >= .5) & (y >= .5)
+    a[vent] = (np.asarray((50, 61, 66)) + (v * 10 % 1)[..., None] * 45)[vent]
+    a[vent & ((u < .08) | (u > .92) | (v < .08) | (v > .92))] = (142, 154, 157)
+    return a
+
+
 def texture(kind, color, px=512):
     """RGB repeat for surface kind, multiplicative tint and pixel size. Pure."""
     y, x = np.mgrid[0:px, 0:px].astype(float) / px
     grain = _grain(x, y)
-    if kind == 'utl':
+    if kind == 'ent':
+        # Double glazed public entry and single personnel entry in the atlas's upper two cells.
+        u, v = x * 2 % 1, y * 2 % 1
+        a = np.ones((*x.shape, 3)) * (49, 77, 91)
+        frame = (u < .07) | (u > .93) | (v < .05) | (v > .95)
+        frame |= (x < .5) & (np.abs(u - .5) < .025)
+        a[frame] = (190, 198, 192)
+        a[(v > .85) & ~frame] = (96, 111, 115)
+        handle = (v > .47) & (v < .65) & (((x < .5) & (np.abs(u - .5) < .07)) |
+                                                       ((x >= .5) & (u > .8) & (u < .84)))
+        a[handle] = (218, 224, 217)
+        gate = (x < .5) & (y >= .5)
+        a[gate] = (193, 199, 195)
+        a[gate & (v * 10 % 1 < .08)] = (117, 125, 124)
+        a[gate & ((u < .08) | (u > .92) | (v < .06))] = (165, 43, 34)
+        a[gate & (v > .26) & (v < .43) & (u > .12) & (u < .88)] = (48, 76, 88)
+    elif kind == 'ghg':
+        # Light opaque glazing is a cheap distant greenhouse approximation, with no office floor bands.
+        a = np.asarray((147, 186, 188)) * (.90 + .10 * (1 - y))[..., None] + grain[..., None]
+        a[_grid(x, y, 2, 2, .025)] = (208, 217, 211)
+    elif kind == 'ind':
+        a = _industrial(x, y, grain)
+    elif kind == 'utl':
         a = _utility(x, y, grain)
     elif kind == 'hvu':
         a = _equipment(x, y, grain)

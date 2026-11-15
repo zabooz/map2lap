@@ -9,6 +9,8 @@ from .looks import BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, CHURCH_CLASSES, METALW
 from .facade import entrance_position
 from .mesh import PORCH_DECK_M, STOOP_H, _inside, door_ground, drawn_ring
 from .utility import utility_kind
+from .industrial import industrial_kind
+from .frontages import frontage_kind, prepare_frontage
 from .places import castle_boxes, use_data, worship_boxes
 from .garages import DRIVEWAY, DRIVEWAY_W
 from .sites import bridge_lines, garage_rings, road_lines, support_rings, tunnel_lines, water_rings, way_lines
@@ -58,7 +60,9 @@ def doors(items, lines, x0, y0, drives=None):
         if spec.toll is not None:
             continue
         no_door = False
-        utility = utility_kind(spec)
+        industry = industrial_kind(spec)
+        frontage = frontage_kind(spec)
+        utility = utility_kind(spec) or industry or frontage
         if spec.plain or spec.floors >= 7 or spec.band in (BAND_OFFICE, BAND_OFFICE2) or spec.wall:
             if not spec.wall or spec.plain or spec.floors >= 7:
                 no_door = True
@@ -95,6 +99,17 @@ def doors(items, lines, x0, y0, drives=None):
         _, a, d, Le, out, edge, on_main, kseg = best
         if utility:
             spec.front = edge
+            if frontage:
+                prepare_frontage(spec)
+                if named:
+                    spec.plate = edge
+                if frontage in ('food', 'kiosk', 'fire') and spec.names:
+                    spec.sign = edge
+            if industry:
+                spec.sign = edge if spec.names else None
+                if named:
+                    spec.plate = edge
+                rows.extend(_sign_in_open(_wall_sign(spec, a, d, Le, out, gmax), spec, d, out, others))
             continue                         # Gate panels are emitted with the building, not as house-door props.
         if named:
             spec.plate = edge

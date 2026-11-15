@@ -14,7 +14,9 @@ from .looks import (
     TOWER_SHOP_FLOORS, US_WALL_TINTS, WALL_TINTS, WOOD_TINTS, _hash01, custom_look, parse_color
 )
 from .architecture import architecture_values, architecture_pattern
-from .styles import Spec, _area2, brick_share, oriented_box, region_style, roof_box, shed_count, skillion_axis
+from .facade import FacadePattern
+from .looks import CIVIC_CLASSES
+from .styles import Spec, _area2, brick_share, oriented_box, region_style, roof_box, round_storage_ring, shed_count, skillion_axis
 
 ALPINE_HUT_M2 = 120.0        # an isolated building this small above the tree line (a summit shelter, a mountain hut) ...
 GARAGE_TAG_CLASSES = {"", "yes", "commercial", "garage", "garages", "parking", "parking_garage", "carport",
@@ -23,6 +25,16 @@ GARAGE_TAG_CLASSES = {"", "yes", "commercial", "garage", "garages", "parking", "
 
 WEST_TOWN_ONE_STOREY = 0.75     # share of predicted one-storey buildings there
 FALSE_FRONT_M = 1.2             # m of parapet over a one-storey shop there
+
+
+def _whole_semidetached(cls, attrs, neighbours):
+    """Explicit two-dwelling semi with no attached neighbour; ambiguous or individually mapped halves stay single. Pure."""
+    if cls != 'semidetached_house' or neighbours:
+        return False
+    try:
+        return float(attrs.get('building:flats')) == 2.
+    except (TypeError, ValueError):
+        return False
 
 
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
@@ -61,6 +73,9 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     shed = (cls in SHED_CLASSES and not garage) or (area < 40 and not row)
     shop = cls in SHOP_CLASSES
     industrial = cls in INDUSTRIAL_CLASSES and not (garage or terminal)
+    storage = cls in ('silo', 'grain_silo', 'storage_tank')
+    round_silo = cls in ('silo', 'grain_silo') and round_storage_ring(ring)
+    paired_home = _whole_semidetached(cls, attrs, neighbours)
 
     h = attrs.get("height")
     nf = attrs.get("num_floors")
@@ -143,7 +158,11 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         roof = roof_given
     else:
         detached_house = (cls in HOUSE_CLASSES or (area < 260 and not shop)) and not industrial and not row
-        if church and neighbours == 0:
+        if storage:
+            roof = 'pyramidal' if round_silo else 'flat'
+        elif cls in ('greenhouse', 'static_caravan'):
+            roof = 'gabled'
+        elif church and neighbours == 0:
             roof = "gabled"
         elif neighbours >= 1:
             # attached: flat in the US (a pitched roof would show its gable to the neighbour); old European towns
@@ -163,7 +182,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         else:
             roof = "flat"
     # pitched roofs only on near-rectangular footprints (a church's nave keeps its gable beside a tower or an apse)
-    if roof != "flat" and (box_fill < (0.6 if church else 0.8) or hw < 2.0
+    if roof != "flat" and (box_fill < (0.6 if church or round_silo else 0.8) or hw < 2.0
                            or hw > (18.0 if barn else 20.0 if church else 14.0)):
         roof = "flat"
     # a city tower's ground floor is shops or a lobby (Midtown: most towers have no class, and their
@@ -191,6 +210,13 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         mapped_roof = rh is not None and rh > 0 and (h is None or rh < h)
         roof_h = rh if mapped_roof else \
             roof_hw * math.tan(math.radians(style.pitch or PITCH[roof]))
+        if not mapped_roof:
+            if cls == 'static_caravan':
+                roof_h = min(roof_h, .35)       # Low transportable roof; explicit mapped rises still win.
+            elif round_silo:
+                roof_h = min(roof_h, roof_hw * .35)
+            if cls in ('shed', 'hut', 'cabin', 'toilets', 'service', 'greenhouse', 'static_caravan') and h is not None:
+                roof_h = min(roof_h, max(0., h - min(2.4, h)))  # Keep usable door headroom in small structures.
         if h is not None and not mapped_roof:
             # An inferred pitch must leave room for walls: a normal 2.5 m storey, or half a very low structure.
             # Explicit consistent wall/roof heights override this fallback, including attic-heavy houses.
@@ -320,6 +346,23 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     # A small garage is not a timber shed by default. Mapped materials and alpine stone shelters win.
     if cls in ('garage', 'garages') and not mapped_facade and not stone_hut:
         wall = facade = f"{STUCCO}|0"
+    if cls in CIVIC_CLASSES or cls in ('terrace', 'cafe', 'fast_food', 'kiosk', 'fire_station'):
+        if not mapped_facade:
+            wall = facade = f'{STUCCO}|0'
+        plain = False
+    if cls == 'semidetached_house':
+        if not mapped_facade and wall is None:
+            wall = facade = f'{STUCCO}|0'
+        plain = False
+    if not mapped_facade:
+        if storage:
+            wall = facade = f'{METALWALL}|0'
+        elif cls == 'greenhouse':
+            wall = facade = f"{SURFACE_MATERIALS['ghg']}|0"
+        elif cls == 'static_caravan':
+            wall = facade = f"{SURFACE_MATERIALS['vny']}|0"
+        elif cls in ('toilets', 'service', 'chapel') and not stone_hut:
+            wall = facade = f'{STUCCO}|0'
     fc = parse_color(attrs.get("facade_color"))
     if fc is not None and not attrs.get("bridge_part"):
         if wall is not None:
@@ -339,9 +382,15 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         facade, band, plain = FACADE_TINTS[3], BAND_PANEL, False
     # Plain mapped walls use the separate-window mesh path, where `plain` alone does not suppress windows.
     windows = not (barn or shed)
+    if cls in CIVIC_CLASSES:
+        windows = True
+    elif cls in ('terrace', 'cafe', 'fast_food', 'kiosk', 'fire_station', 'semidetached_house'):
+        windows, plain, shop = False, False, False
+    if storage or cls in ('greenhouse', 'static_caravan', 'shelter', 'roof', 'carport'):
+        windows, plain = False, True
     # blank walls only where the data says hall (a class, or footprint_uses' places and land use)
-    if not (shed or barn or row or house or terminal or garage or church) and nf <= 2 and roof == "flat" \
-            and (industrial or (area >= BIG_BOX_M2 and cls in BIG_BOX_CLASSES)):
+    if not (shed or barn or row or house or terminal or garage or church) and nf <= 2 \
+            and (industrial or (roof == "flat" and area >= BIG_BOX_M2 and cls in BIG_BOX_CLASSES)):
         windows = False
         if not mapped_facade:
             kind = METALWALL if industrial else PANEL
@@ -351,7 +400,11 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     rmat = str(attrs.get("roof_material") or "").lower()
     rmat = {"tile": "roof_tiles", "tiles": "roof_tiles", "clay": "roof_tiles", "terracotta": "roof_tiles",
             "bitumen": "tar_paper", "asphalt": "tar_paper", "felt": "tar_paper"}.get(rmat, rmat)
-    if rmat in ROOF_SURFACES:
+    if not rmat and cls == 'greenhouse':
+        roof_mat = f"{SURFACE_MATERIALS['rgl']}|0"
+    elif not rmat and (storage or cls == 'static_caravan'):
+        roof_mat = f'{ROOF_METAL}|0'
+    elif rmat in ROOF_SURFACES:
         roof_mat = f"{SURFACE_MATERIALS[ROOF_SURFACES[rmat]]}|0"
     elif rmat in ("metal", "tin", "steel", "zinc", "corrugated_iron", "sheet"):
         roof_mat = f"{ROOF_METAL}|{int(_hash01(seed, 'roof') * len(ROOF_TINTS[ROOF_METAL]))}"
@@ -372,7 +425,8 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         base_rmat = roof_mat.split("|")[0]
         roof_mat = custom_look(base_rmat, rc)
     # Regional barn/shed colours are fallbacks; mapped surfaces and paint already resolved above.
-    if (barn or shed) and cls not in ('garage', 'garages') and not stone_hut and not mapped_facade and fc is None:
+    if (barn or shed) and cls not in ('garage', 'garages', 'greenhouse', 'toilets', 'service', 'static_caravan', 'kiosk') \
+            and not storage and not stone_hut and not mapped_facade and fc is None:
         tints = WALL_TINTS[SIDING]
         if barn and _hash01(seed, "barn") < style.barn_red:
             facade = f"{SIDING}|{len(tints) - 1 - int(_hash01(seed, 'red') * 2)}"
@@ -401,9 +455,13 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     if porch:   # pitched roofs draw the walls on the oriented box: an L-shaped house's door wall can be inside it
         _, _, hl, hw = oriented_box(ring)
         porch = area >= 0.9 * 4 * hl * hw
+    pattern = style.facade_pattern
+    if cls in CIVIC_CLASSES:
+        pattern = FacadePattern(bay_m=3., entrance='centre', door_clearance_m=1.3,
+                                window_width_m=1.5, window_height_m=1.3, window_sill_m=.8)
     return Spec(architecture=architecture, ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall,
                 windows=windows, steeple=church and area < 2500, porch=porch, cls=cls,
                 deck=garage and roof == "flat", pitch=style.pitch, castle=castle,
-                facade_pattern=architecture_pattern(architecture, style.facade_pattern),
-                roof_height=roof_h, roof_direction=direction, roof_orientation=orientation)
+                facade_pattern=architecture_pattern(architecture, pattern),
+                roof_height=roof_h, roof_direction=direction, roof_orientation=orientation, paired_home=paired_home)
