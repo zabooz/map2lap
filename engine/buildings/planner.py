@@ -5,9 +5,9 @@ import numpy as np
 
 from .looks import (
     BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, BAND_PANEL, BAND_SASH, BAND_TALL, BARN_CLASSES, BARN_REDS, BIG_BOX_CLASSES,
-    BIG_BOX_M2, BRICK_TINTS, BRICK_WALL, BRIDGE_CLASSES, BRIDGE_PIER_M, CASTLE_FLOORS, CHURCH_CLASSES, COLOR_NAMES,
-    CONCRETE, ELEVATOR_CLASSES, ELEVATOR_MAX_M2, ELEVATOR_MIN_H, ELEVATOR_SLENDER, FACADE, FACADE_TINTS, FLOOR_M,
-    GARAGE_MIN_M2, GLASS_FLOORS, GROUND_FLOOR_SHOP_M, HOUSE_CLASSES, HOUSE_MAX_M2, INDUSTRIAL_CLASSES,
+    BIG_BOX_M2, BRICK_TINTS, BRICK_WALL, BRIDGE_CLASSES, BRIDGE_PIER_M, CASTLE_FLOORS, CHURCH_CLASSES,
+    FACADE_SURFACES, ROOF_SURFACES, SURFACE_MATERIALS, CONCRETE, ELEVATOR_CLASSES, ELEVATOR_MAX_M2, ELEVATOR_MIN_H, ELEVATOR_SLENDER, FACADE, FACADE_TINTS, FLOOR_M,
+    GARAGE_MIN_M2, GLASS_FLOORS, GROUND_FLOOR_SHOP_M, HOUSE_CLASSES, HOUSE_MAX_M2, INDUSTRIAL_CLASSES, LOOKS,
     MASONRY_MATERIALS, METALWALL, MIDRISE_GLASS_OFFICE, OFFICE, OLD_TOWER_GLASS, PAINT_TINTS, PANEL, PITCH,
     PYRAMID_MIN_M2, PYRAMID_PLINTH_M, PYRAMID_ROOF_SHARE, ROOF_FLAT, ROOF_METAL, ROOF_SHINGLE, ROOF_SLATE, ROOF_TINTS,
     ROW_CLASSES, RUIN_H, SALTBOX_OFFSET, SHED_CLASSES, SHED_LONG_SHARE, SHOP_CLASSES, SIDING, STEEL, STONE, STONE_FACADES, STONE_FLOORS, STUCCO,
@@ -284,30 +284,41 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     # the mapped facade material (OSM building:material, Overture facade_material) over the guesses (Tower Bridge's
     # stone towers came out as glass towers)
     fm = str(attrs.get("facade_material") or "").lower()
-    if fm in STONE_FACADES and not (barn or shed):
+    mapped_facade = True
+    if fm in FACADE_SURFACES:
+        wall = facade = f"{SURFACE_MATERIALS[FACADE_SURFACES[fm]]}|0"
+        plain = False
+    elif fm in STONE_FACADES:
         wall = f"{STONE}|{int(_hash01(seed, 'stc') * len(WALL_TINTS[STONE]))}"
         facade, plain = wall, False
-    elif fm == "brick" and not (barn or shed):
-        facade, band, plain, wall = BRICK_TINTS[int(seed * 7919) % len(BRICK_TINTS)], BAND_BRICK, False, None
+    elif fm == "brick":
+        # A mapped wall material must not change window density to the legacy brick atlas's five bays.
+        wall = facade = ("bne_brick_red", "bne_brick_dark", "bne_brick_tan")[int(seed * 7919) % 3]
+        plain = False
     elif fm == "glass":
         facade = f"{OFFICE}|{int(_hash01(seed, 'glass tint') * len(WALL_TINTS[OFFICE]))}"
         band, plain, wall = BAND_OFFICE, False, None
-    elif fm in ("wood", "timber", "log", "wood_boards") and not (barn or shed):
+    elif fm in ("wood", "timber", "log", "wood_boards"):
         wall = f"{SIDING}|w{int(_hash01(seed, 'wc') * len(WOOD_TINTS))}"
         facade, plain = wall, False
-    elif fm in ("concrete", "cement", "precast") and not (barn or shed):
-        wall = f"{CONCRETE}|0"
+    elif fm in ("concrete", "cement", "precast"):
+        # Concrete has named looks, not a numbered wall palette; an unknown look falls back to the window sheet.
+        wall = custom_look(CONCRETE, (1., 1., 1.))
         facade, plain = wall, False
-    elif fm in ("plaster", "stucco", "render") and not (barn or shed):
+    elif fm in ("plaster", "stucco", "render"):
         wall = f"{STUCCO}|{int(_hash01(seed, 'wc') * len(WALL_TINTS[STUCCO]))}"
         facade = wall
-    elif fm in ("metal", "steel", "corrugated_iron", "aluminium") and not (barn or shed):
+    elif fm in ("metal", "steel", "corrugated_iron", "aluminium"):
         wall = f"{METALWALL}|{int(_hash01(seed, 'wc') * len(WALL_TINTS[METALWALL]))}"
         facade, plain = wall, False
+    else:
+        mapped_facade = False
+    if barn or shed:
+        plain = True
     fc = parse_color(attrs.get("facade_color"))
     if fc is not None and not attrs.get("bridge_part"):
         if wall is not None:
-            base = wall.split("|")[0]
+            base = LOOKS.get(wall, (wall.split("|")[0],))[0]
             wall = custom_look(base, fc)
             facade = wall
         elif fm == "brick":
@@ -317,32 +328,34 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
             facade = custom_look(OFFICE, fc)
         else:
             facade = custom_look(FACADE, fc)
-    if terminal:
+    if terminal and not mapped_facade:
         facade, band, plain = OFFICE, BAND_OFFICE, False
-    elif garage:
+    elif garage and not mapped_facade:
         facade, band, plain = FACADE_TINTS[3], BAND_PANEL, False
-    windows = True
+    # Plain mapped walls use the separate-window mesh path, where `plain` alone does not suppress windows.
+    windows = not (barn or shed)
     # blank walls only where the data says hall (a class, or footprint_uses' places and land use)
     if not (shed or barn or row or house or terminal or garage or church) and nf <= 2 and roof == "flat" \
             and (industrial or (area >= BIG_BOX_M2 and cls in BIG_BOX_CLASSES)):
-        kind = METALWALL if industrial else PANEL
-        wall = f"{kind}|{int(_hash01(seed, 'wc') * len(WALL_TINTS[kind]))}"
-        facade, windows = wall, False
+        windows = False
+        if not mapped_facade:
+            kind = METALWALL if industrial else PANEL
+            wall = f"{kind}|{int(_hash01(seed, 'wc') * len(WALL_TINTS[kind]))}"
+            facade = custom_look(kind, fc) if fc is not None else wall
+            wall = facade
     rmat = str(attrs.get("roof_material") or "").lower()
-    if rmat in ("metal", "tin", "steel", "zinc", "corrugated_iron", "sheet"):
+    rmat = {"tile": "roof_tiles", "tiles": "roof_tiles", "clay": "roof_tiles", "terracotta": "roof_tiles",
+            "bitumen": "tar_paper", "asphalt": "tar_paper", "felt": "tar_paper"}.get(rmat, rmat)
+    if rmat in ROOF_SURFACES:
+        roof_mat = f"{SURFACE_MATERIALS[ROOF_SURFACES[rmat]]}|0"
+    elif rmat in ("metal", "tin", "steel", "zinc", "corrugated_iron", "sheet"):
         roof_mat = f"{ROOF_METAL}|{int(_hash01(seed, 'roof') * len(ROOF_TINTS[ROOF_METAL]))}"
-    elif rmat == "copper":
-        roof_mat = custom_look(ROOF_METAL, COLOR_NAMES["copper"])
-    elif rmat in ("tile", "tiles", "roof_tiles", "clay", "terracotta"):
-        roof_mat = f"{ROOF_SLATE}|{4 + int(_hash01(seed, 'roof') * 3)}"
     elif rmat in ("slate", "stone"):
         roof_mat = f"{ROOF_SLATE}|{int(_hash01(seed, 'roof') * 4)}"
     elif rmat in ("shingle", "shingles", "wood"):
         roof_mat = f"{ROOF_SHINGLE}|{int(_hash01(seed, 'roof') * len(ROOF_TINTS[ROOF_SHINGLE]))}"
-    elif rmat in ("concrete", "cement", "tar_paper", "bitumen", "asphalt", "felt", "gravel"):
+    elif rmat in ("concrete", "cement"):
         roof_mat = f"{ROOF_FLAT}|{int(_hash01(seed, 'roof') * len(ROOF_TINTS[ROOF_FLAT]))}"
-    elif rmat == "glass":
-        roof_mat = f"{OFFICE}|0"
     elif roof == "flat" or barn or shed:
         roof_mat = ROOF_FLAT if roof == "flat" else ROOF_METAL
         roof_mat = f"{roof_mat}|{int(_hash01(seed, 'roof') * len(ROOF_TINTS[roof_mat]))}"
@@ -353,7 +366,8 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     if rc is not None:
         base_rmat = roof_mat.split("|")[0]
         roof_mat = custom_look(base_rmat, rc)
-    if (barn or shed) and not stone_hut:    # plain walls tinted: barns the region's barn red or wood, sheds the siding colours
+    # Regional barn/shed colours are fallbacks; mapped surfaces and paint already resolved above.
+    if (barn or shed) and not stone_hut and not mapped_facade and fc is None:
         tints = WALL_TINTS[SIDING]
         if barn and _hash01(seed, "barn") < style.barn_red:
             facade = f"{SIDING}|{len(tints) - 1 - int(_hash01(seed, 'red') * 2)}"
@@ -363,7 +377,8 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
             facade = f"{SIDING}|{int(_hash01(seed, 'sc') * (len(tints) - 2))}"
     castle = attrs.get("castle") if not (shed or garage or church or barn) else None
     if castle:                                  # (CASTLE_FLOORS, RUIN_H)
-        wall = facade = f"{STONE}|{int(_hash01(seed, 'stc') * len(WALL_TINTS[STONE]))}"
+        if not mapped_facade:
+            wall = facade = f"{STONE}|{int(_hash01(seed, 'stc') * len(WALL_TINTS[STONE]))}"
         shop = False
         mapped = attrs.get("height") is not None and np.isfinite(attrs.get("height")) or \
             attrs.get("num_floors") is not None and np.isfinite(attrs.get("num_floors"))

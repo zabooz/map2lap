@@ -102,6 +102,21 @@ class MaskTest(unittest.TestCase):
         image = np.asarray(facades.curtain((1.0, 1.0, 1.0)))
         self.assertFalse((glow("off") & (image == (196, 200, 206)).all(axis=2)).any())
 
+    def test_curtain_glass_reaches_the_floor_edge_without_a_dark_spandrel(self):
+        image = np.asarray(facades.curtain((1., 1., 1.)))
+        states = []
+        for y0, bays in ((0, 5), (256, 4)):
+            for bay in range(bays):
+                x = int((bay + .5) * facades.PX / bays)
+                np.testing.assert_array_equal(image[y0 + 240, x], image[y0 + 180, x])
+                for level in range(facades.GLOW_LEVELS):
+                    mask = glow('off', level)
+                    self.assertEqual(mask[y0 + 240, x], mask[y0 + 180, x])
+                    self.assertFalse(mask[y0, x])
+                    self.assertFalse(mask[y0 + 255, x])
+                    states.append(mask[y0 + 240, x])
+        self.assertTrue(any(states), 'Lower glass must still participate in night lighting')
+
 
 class EachWindowItsOwnTest(unittest.TestCase):
     """The floors of a wall share a band of the sheet. A wall drawn in one piece per floor would light whole columns."""

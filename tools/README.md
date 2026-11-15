@@ -9,7 +9,7 @@ line here (`engine/tests/test_tools.py`).
 | Try Rust snow geometry in an owned running AC preview, with automatic Lua fallback | `weather_preview/snow_rust.py [--stop]`; switch with `weather_preview/run.py --mode snowrust\|snowlua` |
 | Build/start the Rust rain-bead simulation for front and side glass in the owned AC preview | `weather_preview/rain_rust.py [--stop]`; `weather_preview/run.py --mode rainrust\|rainlua` selects the backend |
 | Pass/fail checks: unit tests and a short kn5 build | `check.py [--fast | <test file>]` |
-| Compare roof shapes, mapped directions/heights and footprint variants without map downloads | `building_gallery.py [--ac-root <AC folder>]` (synthetic labelled Editor/AC gallery; default stages under `out/`) |
+| Compare all roof forms, facade/roof materials and footprint variants in House without map downloads | `building_gallery.py [--ac-root <AC folder>]` (synthetic labelled Editor/AC gallery; default stages under `out/`) |
 | A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
 | All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface, vegetation | `spot.py <track> --route <m>` |
 | What grows at a spot and why it looks so: climate zone, land cover, ground painted, the map's areas, trees and bushes by sprite, the tile's cap | `plants.py <track> --route <m>` |

@@ -90,9 +90,10 @@ class _PartsOf:
             return None
         e, n = mapgeom.enu_xy(f, self.frame, outer)
         a = f.attrs
-        # (its own roof shape and mapped colours: hudsontadams')
+        # Each part retains its own roof, materials and colours before parent fallback.
         own = {k: (a[k][i] if k in a else None) for k in
-               ("roof_shape", "roof_height", "roof_direction", "roof_orientation", "facade_color", "roof_color")}
+               ("roof_shape", "roof_height", "roof_direction", "roof_orientation", "facade_color", "roof_color",
+                "facade_material", "roof_material")}
         return np.stack([e, n], 1), _part_heights(a, i), own
 
     def get(self, bid, default=None):
@@ -205,7 +206,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                                         # drew a slab with a rim round the booths)
             bparts = parts_of.get(str(key)) if key is not None else None
             if bparts and any(p[1] is not None for p in bparts):
-                # drawn as its parts, with the building's class and one look for all of them; a part
+                # Drawn as parts with the parent class and shared variation seed; each has its mapped surfaces. A part
                 # without a height takes the building's (else its lowest known part's)
                 look = _hash01(str(key), "look")
                 bh = at.get("height")
@@ -223,20 +224,22 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                         continue
                     rings.append(r)
                     p_rshape = str(pat.get("roof_shape") or "").lower() or "flat"
+                    p_fmat = pat.get("facade_material") or at.get("facade_material")
+                    p_rmat = pat.get("roof_material") or at.get("roof_material")
                     p_fcol = pat.get("facade_color") or at.get("facade_color")
                     p_rcol = pat.get("roof_color") or at.get("roof_color")
                     attrs.append({"class": at["class"], "height": ph, "num_floors": None,
                                   "roof_shape": p_rshape,
                                   "roof_height": pat.get("roof_height"), "roof_direction": pat.get("roof_direction"),
                                   "roof_orientation": pat.get("roof_orientation"),
-                                  "building_height": top, "facade_material": at.get("facade_material"),
+                                  "building_height": top, "facade_material": p_fmat,
                                   "facade_color": p_fcol,
-                                  "roof_material": at.get("roof_material"),
+                                  "roof_material": p_rmat,
                                   "roof_color": p_rcol,
-                                  "bridge_part": _on_support(r, supports) if str(at.get("facade_material") or "")
+                                  "bridge_part": _on_support(r, supports) if str(p_fmat or "")
                                   .lower() in STEEL_MATERIALS else None,
-                                  "bridge_masonry": str(at.get("facade_material") or "").lower()
-                                  if _on_support(r, supports) is not None and str(at.get("facade_material") or "")
+                                  "bridge_masonry": str(p_fmat or "").lower()
+                                  if _on_support(r, supports) is not None and str(p_fmat or "")
                                   .lower() not in STEEL_MATERIALS else None})
                     looks.append(look)
                     mins.append(pmh)

@@ -75,8 +75,14 @@ CONCRETE = "bne_bridge_concrete"  # plain concrete (tunnel.materials.json): a pr
 SKY_WALL = "bne_bld_sky"    # the skyline's walls: plain (vertex colours), their windows lit at night (_sky_mesh)
 # the name signs' lettering: the guide signs' (exit.materials.json, the glyph atlas of exitsigns.lettering), light, dark
 LETTERS = ("bne_guide_letters", "bne_guide_letters_black")
+# Mapped surfaces with their own repeating paint. Three-letter keys also identify AC texture families.
+FACADE_SURFACES = {"cement_block": "blk", "clay": "cly", "plastic": "vny", "timber_framing": "tmf"}
+ROOF_SURFACES = {"eternit": "fbc", "grass": "veg", "plastic": "pol", "solar_panels": "sol", "thatch": "tha",
+                 "glass": "rgl", "gravel": "grv", "tar_paper": "bit", "roof_tiles": "rtl", "copper": "cop"}
+SURFACE_MATERIALS = {kind: f"bne_bld_surface_{kind}" for kind in
+                     (*FACADE_SURFACES.values(), *ROOF_SURFACES.values())}
 MATERIALS = (FACADE, SHOP, OFFICE, ROOF_FLAT, ROOF_SLATE, ROOF_SHINGLE, SIDING, STUCCO, ROOF_METAL, PANEL, METALWALL,
-             STONE, MARBLE, BRICK_WALL, CONCRETE, SKY_WALL) + LETTERS
+             STONE, MARBLE, BRICK_WALL, CONCRETE, SKY_WALL) + LETTERS + tuple(SURFACE_MATERIALS.values())
 LOOKS = {
     "bne_bridge_steel": (METALWALL, (0.50, 0.52, 0.54)),
     "bne_marble": (MARBLE, (1.0, 1.0, 1.0)),
@@ -90,6 +96,11 @@ LOOKS = {
     "bne_bld_fac_rose": (FACADE, (0.99, 0.86, 0.82)), "bne_bld_fac_yellow": (FACADE, (1.0, 0.95, 0.72)),
     SHOP: (SHOP, (1.0, 1.0, 1.0)), OFFICE: (OFFICE, (1.0, 1.0, 1.0)), SIDING: (SIDING, (0.93, 0.92, 0.88)),
 }
+# Unpainted surfaces retain their own base colours; mapped paint uses the shared bounded palette.
+for _mat in SURFACE_MATERIALS.values():
+    for _i, _tint in enumerate(((1., 1., 1.), (.7, .7, .7), (.9, .8, .65), (.7, .4, .3),
+                                (.45, .6, .4), (.4, .55, .7), (.45, .3, .2))):
+        LOOKS[f"{_mat}|{_i}"] = (_mat, _tint)
 ROOF_TINTS = {               # per roof material: the colours a building's roof takes (hashed)
     ROOF_FLAT: ((0.85, 0.85, 0.85), (0.62, 0.62, 0.64), (0.95, 0.93, 0.88), (0.45, 0.45, 0.46), (0.75, 0.70, 0.64)),
     # 4..: clay tiles (terracotta, red-brown, faded orange) and dark grey / anthracite / brown-black (regional)

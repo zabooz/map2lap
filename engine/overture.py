@@ -119,9 +119,10 @@ LAYERS = {
     # building's parts in place of its footprint (has_parts)
     "building_parts": dict(theme="buildings", type="building_part", clip=False,
                            cols=f"building_id, {_SRC}, height, min_height, num_floors, min_floor, roof_shape, "
-                                "roof_height, roof_direction, roof_orientation, facade_color, roof_color",
+                                "roof_height, roof_direction, roof_orientation, facade_color, roof_color, "
+                                "facade_material, roof_material",
                            text=("building_id", "src_dataset", "src_record", "roof_shape", "facade_color",
-                                 "roof_color", "roof_orientation"),
+                                 "roof_color", "roof_orientation", "facade_material", "roof_material"),
                            float=("height", "min_height", "num_floors", "min_floor", "roof_height", "roof_direction")),
     "water": dict(theme="base", type="water", clip=True,
                   cols=f"subtype, class, {_NAME}, {_SRC}, level, is_salt, is_intermittent, {_TAGS}",

@@ -8,6 +8,37 @@ import building_gallery
 
 
 class GalleryTest(unittest.TestCase):
+    def test_house_keeps_roofs_and_adds_every_material(self):
+        self.assertEqual(building_gallery.TITLE, "House")
+        cases = building_gallery.cases()
+        self.assertEqual(len(cases), 58)
+        self.assertEqual({c['attrs']['facade_material'] for c in cases[32:43]},
+                         {'brick', 'cement_block', 'clay', 'concrete', 'glass', 'metal', 'plaster',
+                          'plastic', 'stone', 'timber_framing', 'wood'})
+        self.assertEqual({c['attrs']['roof_material'] for c in cases[43:57]},
+                         {'concrete', 'copper', 'eternit', 'glass', 'grass', 'gravel', 'metal', 'plastic',
+                          'roof_tiles', 'slate', 'solar_panels', 'tar_paper', 'thatch', 'wood'})
+
+    def test_part_example_uses_production_material_inheritance(self):
+        import buildings as bld
+        case = building_gallery.cases()[57]
+        items = building_gallery.case_items(case, 20., 20.)
+        self.assertEqual(len(items), 2)
+        base, top = [item[0] for item in items]
+        self.assertEqual(bld.LOOKS[base.facade][0], bld.STONE)
+        self.assertEqual(bld.LOOKS[top.facade][0], bld.OFFICE)
+        self.assertEqual(bld.LOOKS[top.roof_mat][0], bld.SURFACE_MATERIALS['cop'])
+        self.assertAlmostEqual(top.min_h, 7.)
+
+    def test_labels_after_32_have_their_own_atlas_space(self):
+        import tempfile
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            building_gallery.label_texture(Path(tmp), [str(i) for i in range(57)])
+            with Image.open(Path(tmp) / 'labels.png') as img:
+                self.assertEqual(img.size, (1024, 4096))
+                self.assertEqual(img.getpixel((3, 28 * 128 + 3)), (120, 158, 162))
+
     def test_onion_and_spherical_examples_use_tall_roofs_on_small_square_towers(self):
         import numpy as np
         cases = building_gallery.cases()

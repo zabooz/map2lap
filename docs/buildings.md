@@ -65,7 +65,7 @@ reach level 2. Tests cover the exported material selection as well as the mask p
 `roof_height` is the rise above the wall eaves. A valid mapped rise is used both when subtracting it from total
 building height in `planner` and when emitting the roof in `mesh`. Missing or inconsistent values use the regional
 pitch; inferred roofs leave room for walls. Main buildings and building parts retain their own roof dimensions.
-The building-parts cache has its own layer version so previously cached parts are refreshed with direction fields.
+The building-parts cache has its own layer version so old parts are refreshed with direction and material fields.
 
 `roof_direction` is a bearing clockwise from north and takes precedence over `roof_orientation` (`along`/`across`).
 The ridge changes direction while `drawn_ring` keeps the walls fixed. Oblique roof planes are clipped to the drawn
@@ -136,15 +136,50 @@ to the short half-span. Direction and orientation do not rotate this ridge-free 
 Eaves extend beyond the walls and small wall caps close the gap under the slopes. Existing footprint suitability
 limits still apply; this does not reconstruct pyramids over arbitrary irregular polygons.
 
-`tools/building_gallery.py` creates **Building Lab - Roofs**, a synthetic comparison pad with 32 labelled cases,
+`tools/building_gallery.py` creates **House**, a synthetic comparison pad with 58 labelled cases,
 using production building geometry and textures. It needs no map downloads. All 14 roof shapes have their own
 geometry paths; the gallery checks that each requested form is drawn. The footprint suitability and geometric
 approximations described above still apply to real map data.
 Cases 24 and 28 use 6 m square, 9 m high towers with taller roofs to expose their silhouettes: a 6 m onion roof
 and a roughly 5.6 m spherical cap whose vertical radius matches the 3 m horizontal radius. These are gallery
 inputs, not overrides of mapped building dimensions.
+Cases 1–32 retain the roof/footprint comparisons; 33–43 show all eleven Overture facade materials and 44–57
+all fourteen roof materials. Case 58 goes through the production part importer: a base inherits the parent's
+stone facade, while its inset glass upper part has its own copper roof. The track id stays
+`map2lap_building_gallery`, so rebuilding updates the same lab.
+The label atlas grows in power-of-two rows; texture files are regenerated on every gallery build.
 Default output is staged under `out/building-gallery-ac`; `--ac-root` selects an AC installation. Regenerate through
 this tool, not the geographic route builder. It is an asset preview, not a geographic road regression track.
+
+## Surface textures
+
+`looks.FACADE_SURFACES` and `ROOF_SURFACES` map additional Overture material names to shared AC texture families.
+`src/scenery/building_surfaces.py` paints periodic 512 px repeats: concrete block, clay, vinyl, timber framing,
+fibre cement, vegetation, plastic roofing, photovoltaic cells, thatch, roof glass, gravel, bitumen, clay tiles
+and patinated copper. Copper uses its own muted blue-green paint with irregular dark oxidation and standing seams,
+so the metal palette cannot quantize it to uniform olive green. It represents weathered copper, not fresh copper.
+It also paints wooden shingles separately from slate. Facade repeats cover 3 m; roofs cover 6 m.
+The existing plaster, brick, stone, wood siding, metal, concrete and curtain-wall textures remain in use.
+Curtain-wall glass extends to slim floor-edge profiles instead of broad opaque spandrel bands. Its night masks
+cover the full lower panes too; floor profiles and mullions remain dark. Atlas bands and geometry are unchanged.
+Explicit brick facades use plain brick and separate house windows, so specifying brick does not select the
+legacy atlas's denser window spacing. Concrete resolves to a registered concrete look before mesh emission;
+unknown look names would otherwise repeat the residential window atlas across the entire plain wall.
+Mapped materials select these textures through the normal planner and export; aliases such as `tile` and `felt`
+share the canonical material. Building parts select each facade/roof material independently: their own value,
+otherwise the parent's value, otherwise the planner's regional/class fallback. Colours follow the same independent
+inheritance. Part material selection also feeds bridge-support classification. Only the building-part layer cache
+is invalidated when adding these columns; other map layers are retained.
+
+Recognized mapped facade materials take precedence over barn, shed, hall, terminal, garage and castle appearance
+guesses. Windowless uses remain windowless; a concrete hall does not acquire house windows just because it has a
+mapped facade. Unknown materials keep the existing fallback. The special bridge/elevator geometry paths remain
+separate from ordinary facade planning.
+
+These are painted surface approximations: timber braces are not fitted around each window, vegetation has no
+plant geometry, and roof glass/plastic are opaque tinted surfaces. Roof glass and solar textures contain no
+night-window mask. Wall windows retain their separate facade quads and existing glow masks. New texture families
+use bounded palettes and only used textures are exported; no additional geometry is needed for surface detail.
 
 ## Cost and validation
 

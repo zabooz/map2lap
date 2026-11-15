@@ -129,6 +129,7 @@ BLD_KINDS = {buildings.FACADE: ("fac", 1024), buildings.SHOP: ("shp", 1024), bui
              buildings.ROOF_SLATE: ("rsl", 512), buildings.ROOF_SHINGLE: ("rsh", 512),
              buildings.ROOF_METAL: ("rme", 512), buildings.ROOF_FLAT: ("rfl", 512)}
 
+BLD_KINDS.update({mat: (kind, 512) for kind, mat in buildings.SURFACE_MATERIALS.items()})
 
 def _palette(mat):
     """The colours BeamNG.Earth gives material mat (buildings.LOOKS), each once, in table order."""
@@ -441,6 +442,9 @@ def bld_texture(kind, color, shutters, px):
     from PIL import Image
     src = lambda name: Image.open(glob.glob(os.path.join(TEX_SRC, name, "*_Color.jpg"))[0])   # noqa: E731
     color = tuple(float(v) for v in color)
+    if kind in buildings.SURFACE_MATERIALS or kind == "rsh":
+        from scenery import building_surfaces
+        return building_surfaces.texture(kind, color, px)
     if kind == "fac":
         img = facades.sheet(facades.plaster(src("Plaster001"), color), color, shutters)
     elif kind == "shp":
@@ -459,7 +463,7 @@ def bld_texture(kind, color, shutters, px):
         img = facades.tinted(src("Bricks108A"), [v * 0.8 for v in color], 1.0)
     elif kind == "brw":
         img = facades.brickwall(color)
-    elif kind in ("rsl", "rsh"):
+    elif kind == "rsl":
         img = facades.tinted(src("RoofingTiles013A"), [v * 0.75 for v in color], 1.0)
     elif kind == "rme":
         img = facades.ribbed(color, step=96, vertical=False)

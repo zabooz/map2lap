@@ -1260,18 +1260,13 @@ class RealTagsTest(unittest.TestCase):
         sm = bld.plan(rect(0, 0, 10, 10), {"class": "house", "roof_material": "metal"}, 0, 39.2, -76.6)
         self.assertTrue(str(sm.roof_mat).startswith(bld.ROOF_METAL))
 
-        # Copper roof has copper patina tint
+        # Copper has its own patina surface; the export palette must not reduce it to green painted metal.
         sc = bld.plan(rect(0, 0, 10, 10), {"class": "house", "roof_material": "copper"}, 0, 39.2, -76.6)
-        self.assertTrue(str(sc.roof_mat).startswith(bld.ROOF_METAL))
-        mat_idx = bld._Looks(sc.seed)
-        _, rgba = mat_idx[sc.roof_mat]
-        self.assertGreater(rgba[1], rgba[0])  # green tint from copper patina
+        self.assertEqual(bld.LOOKS[sc.roof_mat][0], bld.SURFACE_MATERIALS['cop'])
 
         # Tile roof
         st = bld.plan(rect(0, 0, 10, 10), {"class": "house", "roof_material": "tile"}, 0, 39.2, -76.6)
-        self.assertTrue(str(st.roof_mat).startswith(bld.ROOF_SLATE))
-        k = int(st.roof_mat.split("|")[1])
-        self.assertGreaterEqual(k, 4)
+        self.assertEqual(bld.LOOKS[st.roof_mat][0], bld.SURFACE_MATERIALS["rtl"])
 
         # Slate roof
         ss = bld.plan(rect(0, 0, 10, 10), {"class": "house", "roof_material": "slate"}, 0, 39.2, -76.6)

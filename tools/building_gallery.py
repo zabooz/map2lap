@@ -1,4 +1,4 @@
-"""Build a synthetic, labelled building gallery for fast roof comparisons in the Editor and AC."""
+"""Build a synthetic, labelled building gallery for fast roof and surface comparisons in the Editor and AC."""
 import argparse
 import json
 import math
@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "engine"), str(ROOT / "src")]
 NAME = "map2lap_building_gallery"
-TITLE = "Building Lab - Roofs"
+TITLE = "House"
 
 
 def cases():
@@ -51,7 +51,62 @@ def cases():
     for bearing in (0., 180., 45.):
         add(f"SKILLION / DOWN {bearing:g} DEG", "skillion", roof_direction=bearing)
     add("PYRAMIDAL / SQUARE", "pyramidal", "square")
+    for material in ("brick", "cement_block", "clay", "concrete", "glass", "metal", "plaster", "plastic",
+                     "stone", "timber_framing", "wood"):
+        add("FACADE / " + material.upper(), facade_material=material, facade_color=None)
+    for material in ("concrete", "copper", "eternit", "glass", "grass", "gravel", "metal", "plastic", "roof_tiles",
+                     "slate", "solar_panels", "tar_paper", "thatch", "wood"):
+        shape = "flat" if material in ("concrete", "grass", "gravel", "tar_paper") else "gabled"
+        add("ROOF / " + material.upper(), shape, roof_material=material,
+            height=7. if shape == "flat" else 10., roof_height=0. if shape == "flat" else 3.)
+    add("PARTS / STONE + GLASS", "hipped", height=17., facade_material="stone", facade_color=None)
+    result[-1]['parts'] = [
+        {'height': 7., 'min_height': 0., 'roof_shape': 'flat', 'roof_material': 'concrete', 'scale': 1.},
+        {'height': 17., 'min_height': 7., 'roof_shape': 'hipped', 'roof_height': 3.,
+         'facade_material': 'glass', 'roof_material': 'copper', 'scale': .7},
+    ]
     return result
+
+
+def case_items(case, x, y):
+    """Plan one gallery case through the normal building/part data path at local position x, y."""
+    import numpy as np
+    import buildings as bld
+    if 'parts' not in case:
+        spec = bld.plan(footprint(case['footprint']) + [x, y], case['attrs'], lat=46.6, lon=14.6)
+        return [(spec, 0., 0.)]
+    import geodesy
+    import mapgeom
+    frame = geodesy.EnuFrame(46.6, 14.6)
+    ring = footprint(case['footprint'])
+
+    def layer(name, rows):
+        geometries = []
+        for row in rows:
+            local = ring * row.get('scale', 1.) + [16., 16.]
+            local = np.vstack([local, local[0]])
+            lat, lon, _ = frame.enu_to_geodetic(local[:, 0], local[:, 1], 0.)
+            geometries.append((mapgeom.POLYGON, [[np.stack([lon, lat], axis=1)]]))
+        features = mapgeom.build(name, np.array([f'house_{i}' for i in range(len(rows))]), geometries)
+        keys = set().union(*(row.keys() for row in rows)) - {'scale'}
+        for key in sorted(keys):
+            values = [row.get(key) for row in rows]
+            text = any(isinstance(v, str) for v in values)
+            features.attrs[key] = mapgeom.text_column(values) if text else mapgeom.float_column(values)
+        return features
+
+    parent = layer('buildings', [case['attrs']])
+    parts = layer('building_parts', [dict(part, building_id='house_0') for part in case['parts']])
+    items = bld.tile_buildings(frame, 0., 0., 64., 64., [parent], lambda la, lo: np.zeros(np.shape(la)),
+                              part_layers=[parts])
+    for spec, _, _ in items:
+        spec.ring += [x - 16., y - 16.]
+    return items
+
+
+def atlas_rows(count):
+    """Power-of-two count of 128 px label rows, two labels per row. Pure."""
+    return max(16, 1 << (max(1, math.ceil(count / 2)) - 1).bit_length())
 
 
 def footprint(kind):
@@ -72,7 +127,7 @@ def footprint(kind):
 def label_texture(folder, labels):
     """Draw one shared label atlas; each house has an input label and the actually generated roof type."""
     from PIL import Image, ImageDraw, ImageFont
-    image = Image.new("RGB", (1024, 2048), (30, 38, 43))
+    image = Image.new("RGB", (1024, atlas_rows(len(labels)) * 128), (30, 38, 43))
     draw = ImageDraw.Draw(image)
     font = ImageFont.truetype("DejaVuSans.ttf", 22)
     for i, label in enumerate(labels):
@@ -88,6 +143,7 @@ def write_materials(path, used):
     from track import make_obj
     textures = path.parent / "textures"
     textures.mkdir(exist_ok=True)
+    made = set()
     with path.open("w") as out:
         for name in sorted(used):
             if name == "lab_labels":
@@ -100,8 +156,23 @@ def write_materials(path, used):
                 if tex and tex.startswith("@bld:"):
                     _, kind, index = tex.split(":")
                     filename = f"bld_{kind}_{index}.jpg"
-                    if not (textures / filename).exists():
-                        make_obj.bld_texture(kind, make_obj.BLD_PALETTES[kind][int(index)], True, 1024).save(textures / filename)
+                    if filename not in made:
+                        made.add(filename)
+                        px = next(px for k, px in make_obj.BLD_KINDS.values() if k == kind)
+                        make_obj.bld_texture(kind, make_obj.BLD_PALETTES[kind][int(index)], True, px).save(
+                            textures / filename, quality=90)
+                elif tex and tex.startswith("@wall:"):
+                    import glob
+                    from scenery import facades
+                    _, kind, index = tex.split(":")
+                    filename = f"wall_{kind}_{index}.jpg"
+                    if filename not in made:
+                        made.add(filename)
+                        source, contrast, tones, factor = make_obj.WALL_KINDS[kind]
+                        source = glob.glob(str(Path(make_obj.TEX_SRC) / source / '*_Color.jpg'))[0]
+                        with Image.open(source) as base:
+                            facades.tinted(base, [v * factor for v in tones[int(index)]], contrast,
+                                           make_obj.WALL_TEX_PX).save(textures / filename, quality=90)
                 else:
                     filename = name + ".png"
                     Image.new("RGB", (8, 8), tuple(int(v * 255) for v in color)).save(textures / filename)
@@ -121,36 +192,47 @@ def build(ac_root):
     obj_path = work / "track.obj"
     obj = make_obj.Obj(str(obj_path))
     used, labels, catalogue = {"asphalt", "lab_labels"}, [], []
-    rows = math.ceil(len(cases()) / 4)
+    examples = cases()
+    label_rows = atlas_rows(len(examples))
+    rows = math.ceil(len(examples) / 4)
     length = rows * 36. + 45.
     ground = np.array([[-85., -35., 0.], [85., -35., 0.], [85., length, 0.], [-85., length, 0.]])
     quad = np.array([[0, 1, 2], [0, 2, 3]])
     obj.add("1ROAD_road_gallery", "asphalt", ground, ground[:, :2] / 4., quad)
-    for i, case in enumerate(cases()):
+    for i, case in enumerate(examples):
         x, y = (i % 4 - 1.5) * 36., (i // 4) * 36. + 20.
         ring = footprint(case["footprint"]) + [x, y]
-        spec = bld.plan(ring, case["attrs"], lat=46.6, lon=14.6)
-        spec.porch = False
-        spec.facade_pattern = bld.FacadePattern(attic_windows=spec.roof == "skillion")
-        p, uv, t, mids, materials, colors = bld.build([(spec, 0., 0.)])
+        items = case_items(case, x, y)
+        for spec, _, _ in items:
+            spec.porch = False
+            spec.facade_pattern = bld.FacadePattern(attic_windows=spec.roof == "skillion")
+        spec = items[-1][0]
+        p, uv, t, mids, materials, colors = bld.build(items)
         attic_label = " / attic windows" if spec.facade_pattern.attic_windows else ""
         label = f"{i + 1:02d}  {case['title']}\nDrawn: {spec.roof}{attic_label}\nWall {spec.height:.1f} m / roof {spec.roof_height or 0:.1f} m"
+        if 'parts' in case:
+            label = f"{i + 1:02d}  {case['title']}\nStone base / glass upper\nOwn copper roof / inherited stone"
         labels.append(label)
         details = {"asset": "generated-building", "footprint": ring.tolist(),
-                   "parameters": {"label": case["title"], **case["attrs"], "drawn_roof": spec.roof}}
+                   "parameters": {"label": case["title"], **case["attrs"], "drawn_roof": spec.roof,
+                                  **({'parts': case['parts']} if 'parts' in case else {})}}
         owner = obj.listed.new("bld", x, y, 0., details=details)
         catalogue.append({**case, "position": [x, y], "drawn_roof": spec.roof, "wall_height": spec.height})
         for mid in np.unique(mids):
             source = materials[mid]
             triangles = t[mids == mid]
-            groups = make_obj.bld_split(p, triangles, colors, make_obj.BLD_KINDS[source][0]) if source in make_obj.BLD_KINDS else \
-                {make_obj.SURFACE.get(source, (None, "plaster"))[1]: triangles}
+            if source in make_obj.BLD_KINDS:
+                groups = make_obj.bld_split(p, triangles, colors, make_obj.BLD_KINDS[source][0])
+            elif source in make_obj.WALL_SOURCE:
+                groups = make_obj.wall_split(p, triangles, make_obj.WALL_SOURCE[source])
+            else:
+                groups = {make_obj.SURFACE.get(source, (None, "plaster"))[1]: triangles}
             for material, faces in groups.items():
                 used.add(material)
                 obj.add(f"nocol_bld_{i}_{material}", material, p, uv, faces, owners=np.full(len(faces), owner))
         # The atlas is V-up here, just like production meshes before OBJ/KN5 conversion.
         u0, u1 = (i % 2) / 2, (i % 2 + 1) / 2
-        v1, v0 = 1 - (i // 2) / 16, 1 - (i // 2 + 1) / 16
+        v1, v0 = 1 - (i // 2) / label_rows, 1 - (i // 2 + 1) / label_rows
         board = np.array([[x - 6., y - 10., .2], [x + 6., y - 10., .2],
                           [x + 6., y - 10., 3.2], [x - 6., y - 10., 3.2]])
         sign = obj.listed.new("signs", x, y - 10., .2, details={"label": label})
@@ -172,7 +254,7 @@ def build(ac_root):
     (folder / "data" / "gallery.json").write_text(json.dumps(catalogue, indent=2))
     ui_path = folder / "ui" / "ui_track.json"
     ui = json.loads(ui_path.read_text())
-    ui.update(description="Synthetic roof and footprint gallery. Signs show requested and actually drawn forms. "
+    ui.update(description="Synthetic roof, footprint and material gallery. Signs identify roof forms and facade/roof materials. "
               "Regenerate with tools/building_gallery.py; no geographical source area.", tags=["map2lap", "test", "freeroam"])
     ui_path.write_text(json.dumps(ui, indent=2))
     print(f"{len(catalogue)} labelled buildings: {folder}")

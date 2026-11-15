@@ -145,10 +145,10 @@ def ribbed(color, px=PX, step=32, vertical=True):
 
 def curtain(color):
     """Office curtain wall (BeamNG.Earth's m_highrise_metal bands 0 and 1: 5 and 4 bays): tinted glass in a grid of
-    mullions, a spandrel at each floor's foot; the lower half plain cladding."""
+    slim mullions and rails, glass down to each floor edge; the lower atlas half is plain cladding."""
     glass = tuple(int(v * k) for v, k in zip((118, 150, 182), color))
     hi = tuple(min(255, int(v * 1.25)) for v in glass)
-    frame, spandrel = (196, 200, 206), tuple(int(v * 0.55) for v in glass)
+    frame = (196, 200, 206)
     img = Image.new("RGB", (PX, PX), (184, 186, 190))
     d = ImageDraw.Draw(img)
     for y0, bays in ((0, 5), (256, 4)):
@@ -158,8 +158,17 @@ def curtain(color):
             d.polygon([(x + 12, y0 + 12), (x + 60, y0 + 12), (x + 12, y0 + 120)], fill=hi)
             d.rectangle([x, y0, x + 8, y0 + 256], fill=frame)
         d.rectangle([0, y0 + 108, PX, y0 + 114], fill=frame)
-        d.rectangle([0, y0 + 212, PX, y0 + 256], fill=spandrel)
+        # Narrow floor-edge profiles replace the former 44 px opaque spandrel. Match curtain_panes below.
+        d.rectangle([0, y0, PX, y0 + 2], fill=frame)
+        d.rectangle([0, y0 + 253, PX, y0 + 255], fill=frame)
     return img
+
+
+def curtain_panes():
+    """Glass rectangles in the two curtain-wall bands, excluding every frame and floor-edge profile. Pure."""
+    return [(int(bay * PX / bays) + 9, y0 + top, int((bay + 1) * PX / bays) - 1, y0 + bottom)
+            for y0, bays in ((0, 5), (256, 4)) for bay in range(bays)
+            for top, bottom in ((3, 107), (115, 252))]
 
 
 def shopfront(plaster_img):
@@ -204,14 +213,9 @@ def window_glow(kind, level):
             if _is_lit(level, k):
                 d.rectangle([x0 + 8, y0 + 8, x1 - 8, y1 - 8], fill=255)
     else:
-        k = 0
-        for y0, bays in ((0, 5), (256, 4)):             # (curtain: a bay's two panes, over and under the rail)
-            for bay in range(bays):
-                x0, x1 = int(bay * PX / bays) + 9, int((bay + 1) * PX / bays) - 1
-                for top, bottom in ((y0, y0 + 107), (y0 + 115, y0 + 211)):
-                    if _is_lit(level, k):
-                        d.rectangle([x0, top, x1, bottom], fill=255)
-                    k += 1
+        for k, pane in enumerate(curtain_panes()):
+            if _is_lit(level, k):
+                d.rectangle(pane, fill=255)
     return img
 
 
