@@ -1,6 +1,39 @@
 import {expect, openEditor, scene, test} from "./fixtures";
 import {deleteTree} from "./edit-helpers";
 
+test("roof snow covers red tiles in winter and restores their colour in summer", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", trees: false, roof_material: "rtl_00_1"});
+  await openEditor(page);
+  await page.getByRole("tab", {name: "Properties", exact: true}).click();
+  const season = page.getByRole("combobox", {name: "Season", exact: true});
+  await page.mouse.move(0, 0);
+  const summer = (await scene(page).screenshot()).toString("base64");
+  const cover = async () => page.evaluate(async ({summer, current}) => {
+    const pixels = async (source: string) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${source}`)).blob());
+      const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const context = canvas.getContext("2d")!; context.drawImage(bitmap, 0, 0); bitmap.close();
+      return context.getImageData(0, 0, canvas.width, canvas.height).data;
+    };
+    const [a, b] = await Promise.all([pixels(summer), pixels(current)]);
+    let red = 0, snowy = 0, changed = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      if (a[i] < 60 || a[i] < a[i + 1] * 1.5 || a[i] < a[i + 2] * 1.5) continue;
+      red++;
+      if (b[i + 1] > a[i + 1] + 40 && Math.abs(b[i] - b[i + 1]) < 35) snowy++;
+      if (Math.max(...[0, 1, 2].map(c => Math.abs(a[i + c] - b[i + c]))) > 8) changed++;
+    }
+    return {red, snow: snowy / red, changed: changed / red};
+  }, {summer, current: (await scene(page).screenshot()).toString("base64")});
+  expect((await cover()).red).toBeGreaterThan(500);
+  await season.selectOption("autumn");
+  await expect.poll(async () => (await cover()).changed).toBeLessThan(.01);
+  await season.selectOption("winter");
+  await expect.poll(async () => (await cover()).snow).toBeGreaterThan(.9);
+  await season.selectOption("summer");
+  await expect.poll(async () => (await cover()).changed).toBeLessThan(.01);
+});
+
 test("Properties groups time and season, conditions, and scenery without resetting weather between tabs", async ({page}, testInfo) => {
   await openEditor(page);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();

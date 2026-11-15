@@ -6,6 +6,9 @@ from scenery import treefx
 SEASONS = ('spring', 'summer', 'autumn', 'winter')
 # Saved paints hide the source ground and draw tracknative's non-colliding region copies instead.
 GROUND_MESHES = '1ROAD_ground_?, 1GRASS_ground_?, 1GRAVEL_ground_?, nocol_ground_m2l_?'
+# Dedicated roof texture families only; office glass and concrete walls must not receive roof snow.
+# Keep the Editor's isRoofMaterial selector in scene/seasons.ts in step with this list.
+ROOF_KINDS = ('rsl', 'rsh', 'rme', 'rfl', 'fbc', 'veg', 'pol', 'sol', 'tha', 'rgl', 'grv', 'bit', 'rtl', 'cop')
 
 
 def resolve(options):
@@ -37,6 +40,12 @@ MESHES={GROUND_MESHES}
 CONDITION=M2L_SEASON_AUTUMN
 KEY_0=seasonAutumn
 VALUE_0=0.5
+OFF_VALUE_0=0
+[MATERIAL_ADJUSTMENT_...]
+MATERIALS={', '.join(kind + '_?' for kind in ROOF_KINDS)}
+CONDITION=M2L_SEASON_WINTER
+KEY_0=seasonWinter
+VALUE_0=1
 OFF_VALUE_0=0
 [TREES]
 SEASON_WINTER_0=M2L_SEASON_WINTER

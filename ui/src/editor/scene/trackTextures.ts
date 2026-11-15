@@ -11,7 +11,7 @@ import {WeightBundles} from "./weightBundle";
 import {GroundFrame, GroundLayer} from "./groundRender";
 import {bindLightShares, takesGroundLight} from "./lightShare";
 import {classicGround} from "./classicLight";
-import {bindSeason, seasonNumber} from "./seasons";
+import {bindSeason, seasonNumber, isRoofMaterial} from "./seasons";
 import type {Season} from "./weather";
 import {bindColourBlend, bindWorldColour, bindSplat, type GroundMaterial, type ColourImage, type ColourSplat, type GroundTextureUpdate} from "./colourBlend";
 
@@ -504,8 +504,9 @@ export class TrackTextures {
     const d = data.materials[k], b = groundTint(d);
     if (!this.sourceMaterials.has(k)) this.sourceMaterials.set(k, d.source ?? d);
     const m: GroundMaterial = isGroundTile(d.name) || d.splat ? classicGround(d, b) : new THREE.MeshLambertMaterial({color: new THREE.Color(b, b, b)});
-    const seasonal = isGroundTile(d.name) || !!d.splat || !!d.dual_layer;
-    if (seasonal) bindSeason(m, this.season);
+    const roof = isRoofMaterial(d.name);
+    const seasonal = roof || isGroundTile(d.name) || !!d.splat || !!d.dual_layer;
+    if (seasonal) bindSeason(m, this.season, false, false, false, roof);
     if (d.alpha_ref > 0) m.alphaTest = d.alpha_ref;
     if (d.blend) {
       m.transparent = true;
@@ -535,13 +536,13 @@ export class TrackTextures {
         if (!original || !mask || !colour || mine !== this.host.token()) return;
         m.map = colour;
         bindColourBlend(m, original, mask, layers.scale);
-        if (seasonal) bindSeason(m, this.season);
+        if (seasonal) bindSeason(m, this.season, false, false, false, roof);
         this.host.changed();
       }, () => {}); // The shared loader reports failed images and owns their memory and disposal.
       return m;
     }
     if (d.ambient !== undefined && d.diffuse !== undefined && !d.world_scale && !takesGroundLight(d.name)) bindLightShares(m, d.ambient, d.diffuse);
-    if (seasonal) bindSeason(m, this.season);
+    if (seasonal) bindSeason(m, this.season, false, false, false, roof);
     const i = data.textures.findIndex(t => t.name === d.texture);
     if (i >= 0) {
       const mine = this.host.token();
@@ -549,7 +550,7 @@ export class TrackTextures {
         if (!t || mine !== this.host.token()) return;
         m.map = t;
         if (d.world_scale) bindWorldColour(m, d.world_scale);
-        if (seasonal) bindSeason(m, this.season);
+        if (seasonal) bindSeason(m, this.season, false, false, false, roof);
         m.needsUpdate = true;
         this.host.changed();
       }, () => {});       // (load awaits the textures and reports their failures)

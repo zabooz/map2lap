@@ -29,8 +29,9 @@ class SeasonTest(unittest.TestCase):
         other = ['nocol_house_0', '1ROAD_deck_0', 'nocol_tree_0', 'imported_model']
         for season in seasons.SEASONS:
             adjustments = seasons.config(season).decode().split('[MATERIAL_ADJUSTMENT_...]')[1:]
-            self.assertEqual(len(adjustments), 2)
-            for adjustment in adjustments:
+            ground_adjustments = [a for a in adjustments if 'MESHES=' in a]
+            self.assertEqual(len(ground_adjustments), 2)
+            for adjustment in ground_adjustments:
                 selectors = next(line.split('=', 1)[1] for line in adjustment.splitlines() if line.startswith('MESHES='))
                 # CSP's ? matches an arbitrary suffix, including underscores and minus signs.
                 matches = lambda name: any(fnmatch.fnmatchcase(name, p.strip().replace('?', '*')) for p in selectors.split(','))
@@ -38,6 +39,21 @@ class SeasonTest(unittest.TestCase):
                     self.assertTrue(matches(name), (season, name))
                 for name in other:
                     self.assertFalse(matches(name), (season, name))
+
+    def test_winter_selects_roof_materials_without_facades_or_autumn_tint(self):
+        for season in seasons.SEASONS:
+            adjustments = seasons.config(season).decode().split('[MATERIAL_ADJUSTMENT_...]')[1:]
+            roofs = [a for a in adjustments if 'MATERIALS=' in a]
+            self.assertEqual(len(roofs), 1)
+            roof = roofs[0]
+            self.assertIn('KEY_0=seasonWinter', roof)
+            self.assertNotIn('KEY_0=seasonAutumn', roof)
+            selectors = next(line.split('=', 1)[1] for line in roof.splitlines() if line.startswith('MATERIALS='))
+            matches = lambda name: any(fnmatch.fnmatchcase(name, p.strip().replace('?', '*')) for p in selectors.split(','))
+            for kind in ('rsl', 'rsh', 'rme', 'rfl', 'fbc', 'veg', 'pol', 'sol', 'tha', 'rgl', 'grv', 'bit', 'rtl', 'cop'):
+                self.assertTrue(matches(kind + '_00_1'), kind)
+            for name in ('fac_00_1', 'off_00_1', 'stw_00_1', 'blk_00_1', 'glass', 'concrete', 'imported_model'):
+                self.assertFalse(matches(name), name)
 
     def test_native_tree_tint_does_not_turn_evergreens_or_precoloured_leaves_orange(self):
         for season in seasons.SEASONS:

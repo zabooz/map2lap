@@ -39,6 +39,10 @@ branches added inside the crowns; baobab uses its existing branches. Evergreen a
 Snow weather always uses Winter scenery, temporarily disabling the Season selector while retaining the previous choice.
 The season changes the Editor immediately and applies to AC on the next Play, without Save or a track rebuild.
 Ground season effects also cover replacement Library textures, including the saved regional ground copies.
+Dedicated generated roof materials also receive winter snow, independently of their texture colour. The Editor fades
+coverage on steep slopes and leaves vertical edges and undersides clear; roofs retain their original colour in autumn.
+AC uses native CSP `seasonWinter` on these roof materials; its appearance can differ from the Editor preview.
+The effect changes shading only, without extra roof meshes or collision changes.
 
 Dry offers Clear, Partly cloudy and Overcast; Rain and Snow offer Light,
 Moderate and Heavy. Heavy Rain uses CSP's Heavy Thunderstorm preset, including its native lightning. Heavy Snow already

@@ -174,7 +174,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -195,6 +195,9 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
                 pixels[row * 128:(row + 1) * 128, col * 128:(col + 1) * 128] = ROAD_FIELDS[row][col]
         textures[0] = ("ground_0_0.dds", dds_mipmaps(Image.fromarray(pixels), smallest=1))
     materials = [material("ground_0_0", "ground_0_0.dds"), material("ground_-1_0", "ground_-1_0.dds"), material("ground_far", "ground_far.dds")]
+    # A horizontal roof surface uses the colour-quadrant texture to test snow independently of green pixels.
+    if roof_material:
+        materials[0].name = roof_material
     if ground_brightness is not None:
         for entry in materials[:2]:
             entry.props = [(p[0], ground_brightness / 2 if p[0] in {"ksAmbient", "ksDiffuse"} else p[1], *p[2:]) for p in entry.props]
@@ -483,7 +486,7 @@ class Handler(server.Handler):
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
-                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'))
+                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'), roof_material=body.get('roof_material'))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

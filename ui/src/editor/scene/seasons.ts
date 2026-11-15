@@ -3,20 +3,23 @@ import type {Season} from "./weather";
 
 export interface SeasonValue {value: number}
 type Material = THREE.MeshLambertMaterial | THREE.MeshPhongMaterial;
-interface Binding {state: SeasonValue; tree: boolean; deciduous: boolean; golden: boolean; hook: Material["onBeforeCompile"]}
+interface Binding {state: SeasonValue; tree: boolean; deciduous: boolean; golden: boolean; roof: boolean; hook: Material["onBeforeCompile"]}
+
+/** Dedicated generated roof texture families; mirrors app/seasons.py, excluding wall and window materials. Pure. */
+export const isRoofMaterial = (name: string) => /^(?:rsl|rsh|rme|rfl|fbc|veg|pol|sol|tha|rgl|grv|bit|rtl|cop)_\d{2}_[0-2]$/.test(name);
 
 /** Spring and summer retain the same green source. Pure. */
 export const seasonNumber = (season: Season) => season === "autumn" ? 2 : season === "winter" ? 3 : 1;
 
-/** Chain the existing ground/tree shader: preserve summer colour, warm foliage, hide winter leaves, snow on upper faces. */
-export function bindSeason(material: Material, state: SeasonValue, tree = false, deciduous = false, golden = false) {
+/** Chain the existing ground/tree/roof shader: preserve summer colour, warm foliage, hide winter leaves, snow on upper faces. */
+export function bindSeason(material: Material, state: SeasonValue, tree = false, deciduous = false, golden = false, roof = false) {
   const old = material.userData.m2lSeason as Binding | undefined;
   if (old?.hook === material.onBeforeCompile) {
     if (old.state !== state) { old.state = state; material.needsUpdate = true; }
     return;
   }
   const before = material.onBeforeCompile, key = material.customProgramCacheKey();
-  const binding: Binding = {state, tree, deciduous, golden, hook: before};
+  const binding: Binding = {state, tree, deciduous, golden, roof, hook: before};
   material.onBeforeCompile = (shader, renderer) => {
     before.call(material, shader, renderer);
     shader.uniforms.m2lSeason = binding.state;
@@ -27,7 +30,7 @@ export function bindSeason(material: Material, state: SeasonValue, tree = false,
         m2lWood = step(0.5, vMapUv.x) * step(0.5, vMapUv.y);
       #endif` : ""}
       ${tree && deciduous ? "if (m2lSeason > 2.5 && m2lWood < 0.5) discard;" : ""}
-      if (m2lSeason > 1.5 && m2lSeason < 2.5) {
+      if (${roof ? "false" : "true"} && m2lSeason > 1.5 && m2lSeason < 2.5) {
         float m2lGreen = smoothstep(0.01, 0.13, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
         float m2lBrightness = sqrt(max(0.01, max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b))));
         vec3 m2lWarm = ${golden ? "vec3(0.68, 0.34, 0.025)" : "vec3(0.55, 0.13, 0.02)"} * m2lBrightness;
@@ -38,8 +41,9 @@ export function bindSeason(material: Material, state: SeasonValue, tree = false,
     shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
       if (m2lSeason > 2.5) {
         float m2lUp = inverseTransformDirection(normal, viewMatrix).y;
-        float m2lSnow = smoothstep(-0.05, 0.6, m2lUp) * ${tree ? "0.85" : "0.9"};
-        ${!tree ? "m2lSnow *= smoothstep(0.015, 0.16, diffuseColor.g - min(diffuseColor.r, diffuseColor.b)) * 0.85 + 0.15;" : ""}
+        // Roof cover fades towards steep slopes; vertical edges and downward-facing undersides stay clear.
+        float m2lSnow = smoothstep(${roof ? "0.1, 0.7" : "-0.05, 0.6"}, m2lUp) * ${tree ? "0.85" : "0.9"};
+        ${!tree && !roof ? "m2lSnow *= smoothstep(0.015, 0.16, diffuseColor.g - min(diffuseColor.r, diffuseColor.b)) * 0.85 + 0.15;" : ""}
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.9, 0.94), m2lSnow);
       }
     `);
@@ -58,7 +62,7 @@ export function bindSeason(material: Material, state: SeasonValue, tree = false,
   };
   binding.hook = material.onBeforeCompile;
   material.userData.m2lSeason = binding;
-  material.customProgramCacheKey = () => key + `|m2l-season-1-${tree}-${deciduous}-${golden}`;
+  material.customProgramCacheKey = () => key + `|m2l-season-2-${tree}-${deciduous}-${golden}-${roof}`;
   material.needsUpdate = true;
 }
 
@@ -71,5 +75,5 @@ export function hiddenSeasonFoliage(material: THREE.Material, uv?: THREE.Vector2
 /** Reattach after a texture/ground pass replaces its own shader hook. */
 export function refreshSeason(material: Material) {
   const binding = material.userData.m2lSeason as Binding | undefined;
-  if (binding) bindSeason(material, binding.state, binding.tree, binding.deciduous, binding.golden);
+  if (binding) bindSeason(material, binding.state, binding.tree, binding.deciduous, binding.golden, binding.roof);
 }

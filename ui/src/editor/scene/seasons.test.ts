@@ -1,6 +1,13 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {bindSeason, hiddenSeasonFoliage, refreshSeason} from "./seasons";
+import {bindSeason, hiddenSeasonFoliage, refreshSeason, isRoofMaterial} from "./seasons";
+
+test("all generated roof materials receive snow while facades and windows do not", () => {
+  for (const kind of ["rsl", "rsh", "rme", "rfl", "fbc", "veg", "pol", "sol", "tha", "rgl", "grv", "bit", "rtl", "cop"])
+    expect(isRoofMaterial(`${kind}_00_1`)).toBe(true);
+  for (const name of ["fac_00_1", "off_00_1", "stw_00_1", "blk_00_1", "glass", "concrete", "imported_model"])
+    expect(isRoofMaterial(name)).toBe(false);
+});
 
 test("winter leaf cards stop intercepting rays while the unchanged bark and evergreen foliage remain selectable", () => {
   const state = {value: 3}, material = new THREE.MeshLambertMaterial();
