@@ -13,6 +13,7 @@ from .mesh import (
     drawn_ring
 )
 from .garages import _parking_deck, deck_plan
+from .utility import draw_utility
 from .toll import draw_toll
 
 # The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
@@ -42,6 +43,8 @@ def build(specs_and_ground, lite=False, marks=None):
         z0 = gmin - (SKIRT_LITE_M if lite else SKIRT_M) if mh <= 0.5 else base_z(spec, gmin, gmax) + mh
         z_eave = base_z(spec, gmin, gmax) + mh + spec.height
         _walls(m, spec, ring, z0, z_eave, mat_idx, lite)
+        if not lite:
+            draw_utility(m, spec, gmin, gmax, mat_idx)
         if mh > 0.5:                                  # a part standing on another / over a street: its underside
             m.poly([(p[0], p[1], z0) for p in ring[::-1]], [(0.002, 0.995)] * len(ring), mat_idx[spec.facade])
         first_vertex, first_index = m.n, len(m.T)

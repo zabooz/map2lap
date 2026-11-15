@@ -126,11 +126,38 @@ def _equipment(x, y, grain):
     return a
 
 
+def _utility(x, y, grain):
+    """Two-by-two atlas: metal garage shutter, braced farm gate, small barred window, vent. Pure."""
+    u, v = x * 2 % 1, y * 2 % 1
+    a = np.ones((*x.shape, 3)) * (170, 178, 180) + grain[..., None] * 2
+    shutter = (x < .5) & (y < .5)
+    seam = (v * 9 % 1) < .10
+    a[shutter & seam] *= .60
+    wood = (x >= .5) & (y < .5)
+    boards = .85 + .15 * np.cos(2 * np.pi * u * 14)
+    a[wood] = (np.asarray((137, 94, 53)) * boards[..., None])[wood]
+    brace = (np.abs(v - (.15 + .7 * (u * 2 % 1))) < .035) | (np.abs(v - .15) < .035) | (np.abs(v - .85) < .035)
+    a[wood & brace] = (188, 144, 90)
+    a[wood & (np.abs(u - .5) < .012)] = (49, 39, 29)
+    window = (x < .5) & (y >= .5)
+    a[window] = (34, 57, 71)
+    a[window & ((u * 4 % 1 < .09) | (np.abs(v - .5) < .025))] = (130, 137, 137)
+    vent = (x >= .5) & (y >= .5)
+    a[vent] = (np.ones((*x.shape, 3)) * (52, 60, 63) + (v * 9 % 1)[..., None] * 45)[vent]
+    frame = (u < .07) | (u > .93) | (v < .07) | (v > .93)
+    a[frame] = (99, 108, 110)
+    handle = (np.abs(u - .5) < .06) & (np.abs(v - .65) < .016)
+    a[handle & (y < .5)] = (38, 42, 43)
+    return a
+
+
 def texture(kind, color, px=512):
     """RGB repeat for surface kind, multiplicative tint and pixel size. Pure."""
     y, x = np.mgrid[0:px, 0:px].astype(float) / px
     grain = _grain(x, y)
-    if kind == 'hvu':
+    if kind == 'utl':
+        a = _utility(x, y, grain)
+    elif kind == 'hvu':
         a = _equipment(x, y, grain)
     elif kind in ('blk', 'cly'):
         a = _masonry(x, y, grain, clay=kind == 'cly')

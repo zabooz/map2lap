@@ -60,6 +60,20 @@ material level. Each added attic window costs two triangles; varying its UVs add
 The first panel bay lights at level 1: white vertex colours clamp at 255, so their exported materials cannot
 reach level 2. Tests cover the exported material selection as well as the mask pixels.
 
+## Garages and agricultural openings
+
+Explicit `garage`/`garages` buildings receive closed metal gate panels. `stable`/`cowshed` receive double farm
+gates and small high windows; `barn`/`farm_auxiliary` receive farm gates and ventilation panels. These are inferred
+details, not mapped entrance nodes. They use the road-facing wall chosen by `doors`; without a nearby eligible road,
+the longest drawn wall is the fallback. Thresholds use the same local ground estimate as ordinary entrances.
+Raised parts, carports and generic sheds do not receive these gates. Near geometry alone gets the details.
+
+Each opening is one quad. Gate count is capped at eight and farm windows/vents at 24 per building; frames, shutter
+seams and timber braces are painted into the shared `utl` atlas. Stable windows reuse the ordinary facade's four
+window bays and night masks, preserving varied lighting in the Editor and CSP. These panels do not cut holes into
+walls or change collision. Small garages without a supported mapped material fall back to plaster rather than the
+regional shed wood; mapped material/colour and the existing alpine stone-shelter rule retain precedence.
+
 ## Architectural-style extension point
 
 `buildings.architecture` retains optional `building:architecture` input (or the canonical `architecture` column).

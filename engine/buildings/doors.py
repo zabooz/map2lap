@@ -8,6 +8,7 @@ import fast
 from .looks import BAND_BRICK, BAND_OFFICE, BAND_OFFICE2, CHURCH_CLASSES, METALWALL, _hash01
 from .facade import entrance_position
 from .mesh import PORCH_DECK_M, STOOP_H, _inside, door_ground, drawn_ring
+from .utility import utility_kind
 from .places import castle_boxes, use_data, worship_boxes
 from .garages import DRIVEWAY, DRIVEWAY_W
 from .sites import bridge_lines, garage_rings, road_lines, support_rings, tunnel_lines, water_rings, way_lines
@@ -57,6 +58,7 @@ def doors(items, lines, x0, y0, drives=None):
         if spec.toll is not None:
             continue
         no_door = False
+        utility = utility_kind(spec)
         if spec.plain or spec.floors >= 7 or spec.band in (BAND_OFFICE, BAND_OFFICE2) or spec.wall:
             if not spec.wall or spec.plain or spec.floors >= 7:
                 no_door = True
@@ -64,7 +66,7 @@ def doors(items, lines, x0, y0, drives=None):
         # too: its band hangs under the eave; most village shops have one)
         storefront = (spec.shop or spec.windows is False) and not spec.plain
         named = bool(spec.plates) and not spec.plain     # signs_for's: on the street wall, any building
-        if no_door and not (storefront or named):
+        if no_door and not (storefront or named or utility):
             continue
         ring = drawn_ring(spec) + np.array([x0, y0])
         best = None
@@ -91,6 +93,9 @@ def doors(items, lines, x0, y0, drives=None):
         if best is None:
             continue
         _, a, d, Le, out, edge, on_main, kseg = best
+        if utility:
+            spec.front = edge
+            continue                         # Gate panels are emitted with the building, not as house-door props.
         if named:
             spec.plate = edge
         if spec.windows is False:

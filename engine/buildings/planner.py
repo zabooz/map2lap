@@ -317,6 +317,9 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         mapped_facade = False
     if barn or shed:
         plain = True
+    # A small garage is not a timber shed by default. Mapped materials and alpine stone shelters win.
+    if cls in ('garage', 'garages') and not mapped_facade and not stone_hut:
+        wall = facade = f"{STUCCO}|0"
     fc = parse_color(attrs.get("facade_color"))
     if fc is not None and not attrs.get("bridge_part"):
         if wall is not None:
@@ -369,7 +372,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         base_rmat = roof_mat.split("|")[0]
         roof_mat = custom_look(base_rmat, rc)
     # Regional barn/shed colours are fallbacks; mapped surfaces and paint already resolved above.
-    if (barn or shed) and not stone_hut and not mapped_facade and fc is None:
+    if (barn or shed) and cls not in ('garage', 'garages') and not stone_hut and not mapped_facade and fc is None:
         tints = WALL_TINTS[SIDING]
         if barn and _hash01(seed, "barn") < style.barn_red:
             facade = f"{SIDING}|{len(tints) - 1 - int(_hash01(seed, 'red') * 2)}"

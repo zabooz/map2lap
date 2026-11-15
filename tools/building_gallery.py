@@ -69,6 +69,16 @@ def cases():
         add('ROOF EQUIPMENT / ' + outline.upper(), 'flat', outline, height=7., roof_height=0.,
             roof_material='concrete', seed_id='house-roof-equipment-0')
         result[-1]['scale'] = 2.
+    for title, kind, outline, shape, material in (
+        ('GARAGE / PLASTER DEFAULT', 'garage', 'tower', 'flat', None),
+        ('GARAGES / ROW', 'garages', 'long', 'flat', None),
+        ('STABLE / GATE + SMALL WINDOWS', 'stable', 'rectangle', 'gabled', None),
+        ('BARN / GATE + VENTS', 'barn', 'rectangle', 'gabled', None),
+        ('GARAGE / MAPPED WOOD', 'garage', 'tower', 'gabled', 'wood'),
+    ):
+        add(title, shape, outline, **{'class': kind, 'height': 4. if shape == 'flat' else 7., 'num_floors': 1,
+                                     'roof_height': 0. if shape == 'flat' else 2., 'facade_material': material,
+                                     'facade_color': None})
     return result
 
 
