@@ -4,6 +4,7 @@ mod gpu;
 mod dsm;
 mod vegmask;
 mod roadgeom;
+mod roadcurves;
 mod shore;
 mod photofill;
 mod ambience;
@@ -5030,7 +5031,9 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
-    m.add("VERSION", 115)?;
+    m.add("VERSION", 116)?;
+    m.add("ROAD_CURVES", true)?;
+    m.add_function(wrap_pyfunction!(roadcurves::road_curve, m)?)?;
     m.add("AC_EXPORT_YIELD", 4)?;      // (grade_points takes yl, yield_fade; 4: bw, beside_wider/from/to, tun)
     m.add("AC_EXPORT_PAST", 1)?;       // (grade_points takes past)
     m.add("AC_EXPORT_WALL_ENDS", 1)?;  // (grade_points: a road's carriageway and core end at a drop's wall in pass 0 too)

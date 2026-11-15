@@ -36,9 +36,10 @@ fn interp(x: f64, xp: &[f64], fp: &[f64]) -> f64 {
 /// linspace), and the left / right edges at half[c] m along the mitred normals (cos clipped at 0.5). Returns (left
 /// (m, 2), right (m, 2), arc s (m,), z (m,), out offsets (chunks + 1)); a chunk of zero length gives its first point.
 #[pyfunction]
+#[pyo3(signature = (pts, off, half, step, keep_vertices=false))]
 #[allow(clippy::type_complexity)]
 pub fn ribbon_edges<'py>(py: Python<'py>, pts: PyReadonlyArray2<'py, f64>, off: PyReadonlyArray1<'py, i64>,
-                         half: PyReadonlyArray1<'py, f64>, step: f64)
+                         half: PyReadonlyArray1<'py, f64>, step: f64, keep_vertices: bool)
                          -> (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>,
                              Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<i64>>) {
     let (pts, off, half) = (pts.as_array(), off.as_array(), half.as_array());
@@ -69,7 +70,19 @@ pub fn ribbon_edges<'py>(py: Python<'py>, pts: PyReadonlyArray2<'py, f64>, off: 
                 let n = 1usize.max((s[k - 1] / step).ceil() as usize);
                 // numpy.linspace(0, stop, n + 1): step = stop / n, t[i] = i * step, the last exactly stop
                 let st = s[k - 1] / n as f64;
-                let t: Vec<f64> = (0..=n).map(|i| if i == n { s[k - 1] } else { i as f64 * st }).collect();
+                let mut t: Vec<f64> = (0..=n).map(|i| if i == n { s[k - 1] } else { i as f64 * st }).collect();
+                if keep_vertices {
+                    // A regular lattice alone shortcuts the spline's bends. Prefer original
+                    // knots over almost coincident samples, as fixed decks do in Python.
+                    t.retain(|v| {
+                        let j = s.partition_point(|x| x < v);
+                        (j == s.len() || (s[j] - v).abs() > 1e-8)
+                            && (j == 0 || (s[j - 1] - v).abs() > 1e-8)
+                    });
+                    t.extend_from_slice(&s);
+                    t.sort_by(|a, b| a.total_cmp(b));
+                    t.dedup();
+                }
                 xs = t.iter().map(|&x| interp(x, &s, &px)).collect();
                 ys = t.iter().map(|&x| interp(x, &s, &py_)).collect();
                 zs = t.iter().map(|&x| interp(x, &s, &pz)).collect();

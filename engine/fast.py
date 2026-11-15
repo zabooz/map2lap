@@ -16,7 +16,7 @@ except ImportError:         # no binary for this platform / Python: require() sa
     _ef = None
 
 AVAILABLE = _ef is not None
-MIN_VERSION = 114 # the newest kernel signature the server calls (earthd checks it at start)
+MIN_VERSION = 116 # shared road curves and ribbon sampling that retains their knots
 
 
 class NativeMissing(RuntimeError):

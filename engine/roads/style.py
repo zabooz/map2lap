@@ -17,7 +17,7 @@ SEND_M = float(os.environ.get("BNE_ROADS_SEND_M", "640"))     # tiles whose squa
                                                                 # (Euclidean, tiles_near: a disc) are sent
 DROP_M = float(os.environ.get("BNE_ROADS_DROP_M", str(SEND_M + 320)))   # ... and dropped beyond this
 OVERLAP = 2.0           # m a road reaches past its tile's edge (no gap at tile seams)
-SIMPLIFY_M = 0.25       # RDP tolerance (Road Spline's layerMgr)
+SIMPLIFY_M = 0.01       # 1 cm: below a 10-12 cm marking's width; 25 cm reintroduced corners after spline smoothing
 SIMPLIFY_Z_M = 0.05     # ... and the vertical one of lines drawn at their own heights (decks, tunnels: simplify ztol)
 MAX_NODES = 100         # nodes per DecalRoad (Road Spline's chunk size)
 MAX_SPACING = 12.0      # m between nodes at most (official maps: median 11-12 m)

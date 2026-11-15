@@ -17,6 +17,18 @@ terrain with holes, other shaders), deviate on purpose, with a short reason in t
 
 ## How the ground is built
 
+Road parts share a bounded quadratic spline (`roads.levels._curve_part`, `earthfast.road_curve`) before grading,
+asphalt painting, markings, bridge decks and tunnel floors consume them. Level ranges are cut on the original map
+line first; their boundaries, feature endpoints and mapped interior junctions stay fixed. Rounding stays inside
+the corner's control triangle and moves at most one tenth of the carriageway width, capped at 75 cm. A single
+90-degree or sharper turn stays mapped: it may be a junction or a reversal rather than a sampled road bend.
+Rail geometry is unchanged. The raw feature geometry remains available for map rules and provenance.
+
+Spline samples have at most 5 mm chord error. Render simplification keeps a 1 cm tolerance and ribbon sampling
+retains the resulting knots; a coarse two-metre sampling lattice alone would shortcut the curve again. This
+smooths horizontal survey chords, not the elevation profile or the terrain grid. Sparse sharp bends and corners
+at feature endpoints still require better map geometry; smoothing does not infer a new junction layout.
+
 Utility-pole and pylon meshes share their cable attachment dimensions with the wire layouts (`engine/poleprofile.py`).
 Their model heights are estimates where map heights are unavailable. Wooden poles carry two outer insulators on the
 cross-arm and the middle one on the pole head, keeping the middle wire clear of the wood. Each ceramic body uses

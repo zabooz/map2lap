@@ -230,7 +230,8 @@ class GeometryTest(unittest.TestCase):
 
     def test_simplify_densify_split(self):
         pts = np.array([[0.0, 0, 0], [10, 0.1, 0], [20, 0, 0], [30, 10, 0]])
-        s = roads.simplify(pts)
+        self.assertEqual(len(roads.simplify(pts)), 4, "paint keeps bends larger than its centimetre tolerance")
+        s = roads.simplify(pts, tol=0.25)
         self.assertEqual(len(s), 3, "the 0.1 m bump goes, the corner stays")
         d = roads.densify(np.array([[0.0, 0, 0], [100, 0, 0]]))
         self.assertTrue((np.diff(d[:, 0]) <= roads.MAX_SPACING + 1e-9).all() and d[-1, 0] == 100)

@@ -151,10 +151,10 @@ def ribbons(chunks):
         pts.append(p[:, :3])
         half.append(float(c["w"]) / 2)
     if batch:
-        fast.require(90, "ribbon_edges")
+        fast.require(116, "ribbon_edges with curve knots")
         off = np.r_[0, np.cumsum([len(p) for p in pts])].astype(np.int64)
         L, R, S, Z, o = fast._ef.ribbon_edges(np.ascontiguousarray(np.concatenate(pts)), off,
-                                             np.asarray(half, np.float64), float(DRAPE_STEP))
+                                             np.asarray(half, np.float64), float(DRAPE_STEP), True)
         for n, k in enumerate(batch):
             a, b = int(o[n]), int(o[n + 1])
             if b - a < 2:

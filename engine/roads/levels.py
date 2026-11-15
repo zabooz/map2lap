@@ -694,8 +694,43 @@ def _parts_by_level_new(feats, i, want, rngs=None):
             for a, b in pieces:
                 r = ring if (a, b) == (0.0, 1.0) else sub_polyline(ring, a, b)
                 if len(r) >= 2:
-                    out.append(r)
+                    out.append(_curve_part(feats, i, r))
     return out
+
+
+def _curve_part(feats, i, ring):
+    """Bounded spline of a road's lon/lat part, with mapped joins and level ends fixed. Pure given feats."""
+    width = _structure_width(feats, i)
+    if width is None or len(ring) < 3:
+        return ring
+    ends = feats.__dict__.get("_curve_junctions")
+    if ends is None:
+        # Overture normally splits at junctions. Keep endpoints of other features that
+        # also occur inside this line (a T junction) fixed as well. Raw map data stays raw.
+        ends = set()
+        for j in range(len(feats)):
+            for part in feats.parts(j):
+                for line in part:
+                    if len(line) >= 2:
+                        ends.update(tuple(p[:2]) for p in line[[0, -1]])
+        feats.__dict__["_curve_junctions"] = ends
+    pinned = np.array([tuple(p[:2]) in ends for p in ring], np.uint8)
+    origin = ring[0, :2]
+    scale = np.array([111320.0 * math.cos(math.radians(float(origin[1]))), 111320.0])
+    if abs(scale[0]) < 1e-6:
+        return ring
+    import fast
+    fast.require(116, "road_curve")
+    # At most one tenth of the mapped carriageway width, capped at 75 cm: smooth
+    # survey chords without moving a narrow lane onto its verge or cutting across a
+    # hairpin. A sparse, sharp map corner still needs better source data.
+    xy = np.ascontiguousarray((ring[:, :2] - origin) * scale)
+    curved = fast._ef.road_curve(xy, pinned, min(0.75, width * 0.1))
+    if np.array_equal(curved, xy):
+        return ring
+    result = curved / scale + origin
+    result[0], result[-1] = ring[0, :2], ring[-1, :2]
+    return result
 
 
 def bridge_levels(feats, i):
