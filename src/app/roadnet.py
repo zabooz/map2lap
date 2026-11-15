@@ -7,7 +7,7 @@ import threading
 
 import numpy as np
 
-from app import roadregion, trackband, trackheights
+from app import roadregion, roadsurfaces, trackband, trackheights
 from track import editorinfo
 
 _kept_lock, _kept = threading.Lock(), {}     # (_roads: of the networks marked last)
@@ -180,7 +180,7 @@ def _roads(path, scan, net):
     there, "i0", "j0": the lattice numbers of their first point, "own", "held", "mapped": owns there}. Of the file and the network alone, not of the draft or the
     strength: kept while both stay, so moving the strength doesn't reckon them again (Rechberg: owns, twice a request, 40 of 110 ms). Read-only arrays."""
     unselected, widths = net.get("unselected", []), net.get("widths")
-    key = (path, editorinfo._stamp(path), json.dumps([net["lines"], unselected, widths], default=lambda v: np.asarray(v).tolist()))
+    key = (path, editorinfo._stamp(path), json.dumps([net["lines"], unselected, widths, net.get("pins"), net["segments"]], default=lambda v: np.asarray(v).tolist()))
     with _kept_lock:
         if key in _kept:
             return _kept[key]
@@ -192,7 +192,7 @@ def _roads(path, scan, net):
     widest = max([edge["width"] for edge in unselected], default=0)
     margin = width / 2 + max(trackband.SLOPE_OVER_M, widest / 2 + 3 * trackheights.STEP)
     bounds = np.vstack([points.min(axis=0) - margin, points.max(axis=0) + margin])
-    built, i0, j0 = trackband._ground(path, scan, None, bounds, road_only=True)
+    built, i0, j0 = roadsurfaces.ground(path, scan, None, bounds, net)
     own, held, mapped = owns(built, i0, j0, lines, width / 2, unselected, widths)
     for array in [built, held, mapped, *own]:
         array.setflags(write=False)
@@ -215,10 +215,10 @@ def _placed(mask, i0, j0, shape, at_i0, at_j0):
     return out
 
 
-def _arms(path, scan, moved, roads):
+def _arms(path, scan, moved, roads, net):
     """Each arm of the network (roads: _roads) with its lanes' heights now (moved: the draft's other changes) and as built, and its slopes beyond its ends."""
     lines, width, bounds, built, i0, j0 = (roads[k] for k in ("lines", "width", "bounds", "built", "i0", "j0"))
-    current = built if moved is None else trackband._ground(path, scan, moved, bounds, road_only=True)[0]
+    current = built if moved is None else roadsurfaces.ground(path, scan, moved, bounds, net)[0]
     arms = []
     for line, own in zip(lines, roads["own"]):
         lanes = trackband._across(width / 2)
@@ -230,7 +230,7 @@ def _arms(path, scan, moved, roads):
             groups = np.split(missing, np.flatnonzero(np.diff(missing) > 1) + 1)
             s = trackband._along(line)
             if any(s[group[-1]] - s[group[0]] > trackband.SNAP_M for group in groups):
-                raise ValueError("Part of this road has no editable ground surface; exclude bridges, tunnels or gaps")
+                raise ValueError("Part of this road has no editable ground surface; mark a shorter region around the missing surface")
         h, b = _over_steps(built, i0, j0, line, width / 2, lanes, trackband._lanes(np.where(own, current, np.nan), i0, j0, rows),
                            trackband._lanes(np.where(own, built, np.nan), i0, j0, rows))
         before, after = trackband._onward(line[::-1]), trackband._onward(line)
@@ -360,7 +360,7 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
     if strength == 0:
         raise trackband.Refused("It is smooth here already")
     roads = _roads(path, scan, net)
-    arms = _arms(path, scan, moved, roads)
+    arms = _arms(path, scan, moved, roads, net)
     even = even_network(net, arms, strength)
     largest = max(float(np.abs(value - arm["heights"]).max()) for arm, value in zip(arms, even))
     fade = max(blend, trackband.SOFT_STEEPEST * largest / trackband.SIDE_SLOPE)
@@ -368,9 +368,11 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
     points = np.vstack([arm["line"] for arm in arms])
     reach = width / 2 + fade + 2 * trackheights.STEP
     bounds = np.vstack([points.min(axis=0) - reach, points.max(axis=0) + reach])
-    built, i0, j0 = trackband._ground(path, scan, None, bounds, road_only=True)
-    current = built if moved is None else trackband._ground(path, scan, moved, bounds, road_only=True)[0]
+    built, i0, j0 = roadsurfaces.ground(path, scan, None, bounds, net)
+    current = built if moved is None else roadsurfaces.ground(path, scan, moved, bounds, net)[0]
     selected = roadregion.on_grid(selection, i0, j0, built.shape)
+    gx, gz = np.meshgrid((np.arange(built.shape[1]) + i0) * 2, (np.arange(built.shape[0]) + j0) * 2)
+    selected |= np.isfinite(built) & (roadsurfaces.structures(net, gx, gz) != 0)
     # Include terrain-cell corner vertices touched by the selected paint; the 2 m mesh can extend beyond its image edge.
     on = np.pad(selected, 1)
     active = np.logical_or.reduce([on[z:z + selected.shape[0], x:x + selected.shape[1]] for z in range(3) for x in range(3)])
@@ -405,6 +407,9 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
     if not mm.any():
         raise trackband.Refused("It is smooth here already")
     op = {"id": id, "x": i0 * 2, "z": j0 * 2, "nx": built.shape[1], "nz": built.shape[0], "mm": mm.ravel().tolist()}
+    if any(edge.get("structure") for edge in net["segments"]):
+        roadsurfaces.check_clearance(path, scan, moved, net, op, current, i0, j0)
+        op = roadsurfaces.scope(path, scan, moved, net, op, current, i0, j0)
     wrong = trackheights.problem(op)
     if wrong:
         raise ValueError(wrong)

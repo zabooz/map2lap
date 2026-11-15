@@ -104,7 +104,8 @@ class Paint:
                          and part[0][:, 0].max() >= x0 - margin and part[0][:, 0].min() <= x0 + TILE_M + margin
                          and part[0][:, 1].max() >= y0 - margin and part[0][:, 1].min() <= y0 + TILE_M + margin]
                 for part in parts:
-                    self.feature(source, i, part, spec=spec._asdict() if spec is not None else None)
+                    self.feature(source, i, part, spec=spec._asdict() if spec is not None else None,
+                                 level_ranges=roads.level_ranges(source, i))
                 if parts:
                     seen.add(fid)
 

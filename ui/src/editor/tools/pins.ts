@@ -1,7 +1,7 @@
 // Where a new pin of a band goes among the others: by where it lies along the band, whichever order they were clicked in.
 import type {Place} from "../types";
 
-export type Pin = [number, number];     // (AC x, AC z)
+export type Pin = [number, number, number?];     // (AC x, AC z, optional clicked elevation to distinguish stacked roads)
 
 export const MAX_PINS = 20;             // (trackband.MAX_POINTS)
 

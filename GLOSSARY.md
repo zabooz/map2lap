@@ -39,7 +39,8 @@ Writes source plus draft into the track or a copy, with a recipe (`app/trackcopy
 and cannot be rebuilt in place. _Avoid_: rebuild, modded track.
 
 **Height change**:
-An additive raster of whole-millimetre offsets on a fixed 2 m edit lattice, zero at its edge (`app/trackheights.py`).
+An additive raster of whole-millimetre offsets on a fixed 2 m edit lattice, zero at its edge, with scoped source-vertex offsets
+for Smooth road on bridges and tunnels (`app/trackheights.py`).
 Save reapplies it to the source, so repeated Saves do not compound it.
 
 **Placement**:

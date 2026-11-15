@@ -54,11 +54,24 @@ Imported model placement and Groups use [editor-library.md](editor-library.md).
 Elevation (H) creates a 2 m raster of millimetre height changes (`app/trackheights.py`). Ground moves vertex by vertex,
 objects move whole, wires follow their poles and water stays fixed. Changes reaching decks or railways are refused.
 The server supplies preview and saved mesh deformation; the browser does not implement a second height calculation.
+The Elevation brush continues to refuse decks and railways.
 New mesh kinds must be classified there (`engine/tests/test_trackheights.py`).
 
 Smooth road (R) marks a road region with two terminal points and optional branches (`app/roadregion.py`, `app/roadnet.py`,
 `tools/useBand.ts`). Retained map topology and actual road paint determine the region, including levels and hairpins;
-the main driving route does not constrain it. Orange marks selected road, faint orange the terrain transition.
+the main driving route does not constrain it. Bridge and tunnel ends join their mapped approaches even when structure/layer
+changes there; interior crossings stay separate. Build facts retain the actual partial structure ranges of Overture roads;
+older facts with only whole-way tags need rebuilding for a structure that occupied just part of a road. Clicks retain their
+surface elevation to choose between overlapping deck floors. Orange marks selected road, faint orange the terrain transition.
+
+Bridges and tunnel floors share the same smoothing solve as their approaches (`app/roadsurfaces.py`). Two points can span a
+short structure or just one transition on a longer one. Source collision triangles supply the floor height, including banking;
+the material paint alone cannot describe a deck. Terrain under bridges and above tunnels retains its height. Connected source
+pieces follow the chosen floor, with foundations of tall vertical supports held fixed. A separate crossing deck stays fixed.
+The operation retains explicit source vertex offsets and shading gradients beside its terrain raster; preview, Undo/Redo and
+Save replay them against the same source indices. Ordinary terrain-brush operations gain no permission to move decks.
+Crossing floor gaps retain the generator's fine-elevation headroom plus ordinary slab/girder allowance; a tighter existing
+crossing may improve but must not lose more clearance. This guards sampled road floors, not every overhanging structure.
 
 Strength starts at zero. Changes to strength, transition or points replace one active height operation after debounce;
 returning to zero removes it. `trackedits.moved_without` excludes that operation while recomputing, so adjustments never
@@ -69,7 +82,7 @@ Each arm follows its own road surface (`trackband._own_road`, `roadnet.owns`); n
 separate. Shared junction planes join selected branches, terminal points stay fixed, and all arms contribute to one raster.
 The transition stops at unselected roads and widens for large height changes under the side-slope rule. The solver rejects
 new joins exceeding its grade limit unless improving an already steeper bump, forks requiring an internal wall, and long
-gaps without editable ground. Limits: 20 points, 3 km of road, 64 painted tiles and the height-raster point limit.
+gaps without an editable road surface. Limits: 20 points, 3 km of road, 64 painted tiles and the height-raster point limit.
 Routing/masks cache independently of draft revisions. `app/trackband.py` retains the legacy linear solver/API and its tests.
 
 ## Tree spacing

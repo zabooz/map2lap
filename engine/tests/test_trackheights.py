@@ -117,6 +117,32 @@ class RasterTest(unittest.TestCase):
         self.assertIn("edge", trackheights.problems([raster(), {**raster(id_="b"), "mm": [1] + [0] * 120}]))
 
 
+class ScopedSurfaceTest(Base):
+    def test_scoped_deck_offsets_leave_the_ground_under_it_and_another_deck_alone(self):
+        self.write(mesh("1ROAD_deck_0_0", 0, [(10, 12, 10)] * 3),
+                   mesh("1ROAD_ground_0_0", 0, [(10, 0, 10)] * 3),
+                   mesh("1ROAD_deck_0_0_1", 0, [(10, 25, 10)] * 3))
+        op = raster(peak=0)
+        op["mesh_offsets"] = {"0": [[i, -1000, .1, 0.] for i in range(3)]}
+        out, _ = self.apply([op])
+        np.testing.assert_allclose(out["1ROAD_deck_0_0"].vertices["pos"][:, 1], 11)
+        np.testing.assert_allclose(out["1ROAD_ground_0_0"].vertices["pos"][:, 1], 0)
+        np.testing.assert_allclose(out["1ROAD_deck_0_0_1"].vertices["pos"][:, 1], 25)
+        self.assertLess(out["1ROAD_deck_0_0"].vertices["normal"][0, 0], 0)
+
+    def test_surface_offsets_add_and_survive_kn5_save(self):
+        self.write(mesh("1ROAD_deck_0_0", 0, [(10, 12, 10)] * 3))
+        ops = [{**raster(peak=0, id_=str(k)), "mesh_offsets": {"0": [[i, change, 0., 0.] for i in range(3)]}}
+               for k, change in enumerate((-1000, 250))]
+        out, _ = self.apply(ops)
+        np.testing.assert_allclose(out["1ROAD_deck_0_0"].vertices["pos"][:, 1], 11.25)
+
+    def test_surface_offsets_are_validated(self):
+        for offsets in ({"-1": []}, {"0": [[0, 1e9, 0, 0]]}, {"0": [[0, 10, float("nan"), 0]]},
+                        {"0": [[0, 10, 0, 0], [0, 20, 0, 0]]}):
+            self.assertIsNotNone(trackheights.problem({**raster(), "mesh_offsets": offsets}))
+
+
 class BrushTest(unittest.TestCase):
     def stroke(self, samples=((10.0, 10.0, 0.0),), radius=10.0, soft=0.5, mm=1000, speed=1000):
         return trackheights.brush([list(s) for s in samples], radius, soft, mm, speed, "s")

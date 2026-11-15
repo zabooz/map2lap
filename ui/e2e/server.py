@@ -174,7 +174,7 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
@@ -259,6 +259,23 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
             offset += len(node.indices) // 3
         tree.children[-1:-1] = nodes
         listed["t_0_0"] = entry
+    if structure:
+        # A real separate collision floor inside a ground road, with the same hill as the ordinary smoothing fixture.
+        faces = road.indices.reshape(-1, 3)
+        centre = road.vertices['pos'][faces].mean(axis=1)
+        keep = ~((centre[:, 0] > 120) & (centre[:, 0] < 136) & (centre[:, 2] > -100) & (centre[:, 2] < -60))
+        road.indices = faces[keep].ravel()
+        x, z = np.meshgrid(np.arange(120., 138., 2.), np.arange(-100., -58., 2.))
+        points = np.c_[x.ravel(), [hill_at(v) for v in z.ravel()], z.ravel()]
+        cols = x.shape[1]
+        a = (np.arange(x.shape[0] - 1)[:, None] * cols + np.arange(cols - 1)).ravel()
+        tris = np.r_[np.c_[a, a + cols, a + 1], np.c_[a + 1, a + cols, a + cols + 1]]
+        tree.children.extend(obj_to_kn5.mesh_nodes('1WALL_deck_con_0_0' if structure == 'tunnel' else '1ROAD_deck_0_0', 0, True, points, points[:, [0, 2]] / TILE, tris, up=True))
+        skin = points.copy(); skin[:, 1] += roadmesh.DECK_SKIN
+        skin_nodes = obj_to_kn5.mesh_nodes('nocol_road_asphalt_2lane_0_0', 0, True, skin, skin[:, [0, 2]] / TILE, tris, up=True)
+        for node in skin_nodes:
+            node.lod_out = 100000.0
+        tree.children.extend(skin_nodes)
     kn5.write(os.path.join(root, name + ".kn5"), textures, materials, tree)
     plants = {"next": 2, "trees": {"0": tree_at("spruce", 40.0, -200.0, 12.0), "1": tree_at(tree_model, 128.0, -130.0, tree_height)}} if with_trees else None
     if tree_positions is not None:
@@ -296,6 +313,8 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
             features = [{"id": "fixture-road", "layer": "roads", "tags": {"highway": "residential"},
                          "spec": {"width": 16, "kind": "paved"},
                          "geometry": [[[128, -256], [128, -80], [128, 0], [128, 256]]]}] if hill else []
+            if structure and features:
+                features[0]['level_ranges'] = [[156 / 512, 196 / 512, structure]]
             paint.finish(features=features)
             parts.append(part)
         editorinfo.install(os.path.join(root, name + ".kn5"), parts)
@@ -464,7 +483,7 @@ class Handler(server.Handler):
                        ground_materials=body.get("ground_materials", 0), ground_brightness=body.get("ground_brightness"),
                        tree_height=body.get("tree_height", 30.0), ground_specular=body.get("ground_specular"), walls=body.get("walls", False),
                        tree_model=body.get('tree_model', 'spruce'), terrain_cell_m=body.get('terrain_cell_m', 2),
-                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'))
+                       parked_cars=body.get('parked_cars', True), tree_spacing_m=body.get('tree_spacing_m', 0), tree_positions=body.get('tree_positions'), structure=body.get('structure'))
         elif self.path == "/__test/cut":        # (a build writing it: the file ends halfway)
             path = os.path.join(AC, "content", "tracks", body["name"], body["name"] + ".kn5")
             with open(path, "r+b") as f:

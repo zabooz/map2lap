@@ -12,6 +12,7 @@ seams of tiles and of ROAD, GRAVEL and GRASS stay shut, and a cut line in the gr
   - STAY: water and the distant view keep their height;
   - IN_THE_WAY: a change that reaches a bridge deck, a tunnel floor or a railway is refused: those hold their own heights, and a railway's
     mesh holds its bridges' plates and piers too, which its name doesn't tell from a track on the ground (railways.py).
+    Smooth road has separate source-vertex offsets for its selected structures; these are never an unscoped terrain field.
 """
 import math
 
@@ -48,7 +49,8 @@ class InTheWay(Exception):
 def problem(op):
     """What is wrong with a height change as the draft holds it: {"id", "x", "z" (AC, of its first point, on STEP's lattice), "nx", "nz"
     (its points along x and z), "mm": its change per point in whole mm, row by row along z}; None if nothing. Its edge must be 0: it
-    has nothing to end softly on outside. Pure."""
+    has nothing to end softly on outside. Optional mesh_offsets hold source vertex numbers, millimetre offsets and X/Z shading
+    gradients for a road-region structure edit, independent of terrain below or above it. Pure."""
     if not (isinstance(op, dict) and isinstance(op.get("id"), str) and 0 < len(op["id"]) <= MAX_ID):
         return "no id"
     x, z, nx, nz, mm = (op.get(k) for k in ("x", "z", "nx", "nz", "mm"))
@@ -61,6 +63,23 @@ def problem(op):
     raster = np.array(mm, np.int64).reshape(nz, nx)
     if raster[0].any() or raster[-1].any() or raster[:, 0].any() or raster[:, -1].any():
         return "its edge moves"
+    offsets = op.get("mesh_offsets", {})
+    if not isinstance(offsets, dict):
+        return "no surface offsets"
+    count = 0
+    for mesh, rows in offsets.items():
+        if not isinstance(mesh, str) or not mesh.isdecimal() or not isinstance(rows, list):
+            return "no surface mesh"
+        seen = set()
+        for row in rows:
+            if (not isinstance(row, list) or len(row) != 4 or type(row[0]) is not int or not 0 <= row[0] < 65535
+                    or row[0] in seen or type(row[1]) is not int or abs(row[1]) > MAX_MM
+                    or any(type(v) not in (float, int) or not math.isfinite(v) or abs(v) > MAX_MM / 1000 for v in row[2:])):
+                return "invalid surface offset"
+            seen.add(row[0])
+        count += len(rows)
+    if count > MAX_POINTS:
+        return "too many surface offsets"
     return None
 
 
@@ -165,6 +184,11 @@ def _followed(vertices, field):
     and tangents as the shear turns them, also where the change is 0 on a slope: at a seam they keep whatever differences they had.
     Pure but for vertices."""
     d, along_x, along_z = field.at(vertices["pos"][:, 0], vertices["pos"][:, 2])
+    return _sheared(vertices, d, along_x, along_z)
+
+
+def _sheared(vertices, d, along_x, along_z):
+    """Apply vertical offsets and their gradients to vertices, normals and tangents. Pure but for vertices."""
     touched = (d != 0) | (along_x != 0) | (along_z != 0)
     if not touched.any():
         return None
@@ -290,6 +314,14 @@ def moved(path, scan, objects, ops, under=None):
     under: a kn5.Moved the meshes start from (trackplace: objects placed anew), the result only what the changes move further. InTheWay
     if they reach a deck or a railway, or single objects there is no list of (a track built before lists: they would float)."""
     field = Field(ops)
+    blocked = Field([op for op in ops if "mesh_offsets" not in op])
+    offsets = {}
+    for op in ops:
+        for number, rows in op.get("mesh_offsets", {}).items():
+            number = int(number)
+            if number >= len(scan["meshes"]) or any(row[0] >= scan["meshes"][number]["vertices"] for row in rows):
+                raise InTheWay("The road surface changed: mark the road again")
+            offsets.setdefault(number, []).extend(rows)
     vertices, grow = {}, {}
     meshes = {}
     under = under or kn5.Moved({}, {}, {})
@@ -312,10 +344,10 @@ def moved(path, scan, objects, ops, under=None):
         wires, lifts = _wire_changes(mesh, scan, objects, field, reach), _line_lifts(mesh, scan, field)
         for i, m in enumerate(scan["meshes"]):
             kind = objectlist.kind_of(m["name"])
-            if i not in wires and i not in lifts and not field.reaches(m["center"], reach(i)):
+            if i not in offsets and i not in wires and i not in lifts and not field.reaches(m["center"], reach(i)):
                 continue
             if kind in IN_THE_WAY:
-                if _reached(field, *mesh(i)):
+                if _reached(blocked if kind == "deck" else field, *mesh(i)):
                     raise InTheWay("A bridge, a tunnel or a railway lies in the change: it holds its own heights")
             elif kind in objectlist.LISTED - FOLLOW and not objects:
                 if _reached(field, *mesh(i)):
@@ -332,6 +364,15 @@ def moved(path, scan, objects, ops, under=None):
                     largest = max(largest or 0.0, float(np.abs(wires[i][hung]).max()))
                 if largest is not None:
                     grow[i], vertices[i] = largest, changed
+        for i, rows in offsets.items():
+            changed = vertices.get(i, mesh(i)[0]).copy()
+            values = np.asarray(rows, np.float64).reshape(-1, 4)
+            d, ax, az = np.zeros((3, len(changed)))
+            for target, column in ((d, 1), (ax, 2), (az, 3)):
+                np.add.at(target, values[:, 0].astype(int), values[:, column] / (1000 if column == 1 else 1))
+            largest = _sheared(changed, d, ax, az)
+            if largest is not None:
+                vertices[i], grow[i] = changed, grow.get(i, 0.) + largest
         for i, d in _whole_changes(mesh, scan, objects, field).items():
             if d.any():
                 changed = mesh(i)[0].copy()

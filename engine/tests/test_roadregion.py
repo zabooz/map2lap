@@ -42,6 +42,33 @@ class NetworkTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "connected"):
             roadregion.network(roads, [[-60, 0], [0, 60]])
 
+    def test_bridge_and_tunnel_endpoints_join_their_approaches(self):
+        for kind, level in (("bridge", "1"), ("tunnel", "-1")):
+            with self.subTest(kind=kind):
+                span = road("span", [[40, 0], [80, 0]], layer=level)
+                span["tags"][kind] = "yes"
+                roads = [road("before", [[0, 0], [40, 0]]), span, road("after", [[80, 0], [120, 0]])]
+                net = roadregion.network(roads, [[10, 0], [110, 0]])
+                self.assertAlmostEqual(100, net["length"])
+                self.assertEqual({"before", "span", "after"}, {e["road"] for e in net["segments"]})
+                self.assertEqual(kind, next(e for e in net["segments"] if e["road"] == "span")["structure"])
+
+    def test_crossing_at_a_structure_interior_is_not_an_approach(self):
+        span = road("span", [[0, -80], [0, 0], [0, 80]], layer="1")
+        span["tags"]["bridge"] = "yes"
+        roads = [span, road("below", [[-80, 0], [0, 0]])]
+        with self.assertRaisesRegex(ValueError, "connected"):
+            roadregion.network(roads, [[0, 60], [-60, 0]])
+
+    def test_a_bridge_range_inside_one_overture_road_keeps_its_approaches(self):
+        feature = road('long', [[0, 0], [120, 0]])
+        feature['level_ranges'] = [[.25, .75, 'bridge']]
+        net = roadregion.network([feature], [[10, 0], [110, 0]])
+        self.assertAlmostEqual(net['length'], 100)
+        self.assertEqual({'', 'bridge'}, {e['structure'] for e in net['segments']})
+        bridge = [e for e in net['segments'] if e['structure']]
+        self.assertAlmostEqual(sum(np.linalg.norm(np.array(e['b']) - e['a']) for e in bridge), 60)
+
     def test_a_pin_in_the_middle_of_a_road_clips_the_selected_segment(self):
         result = roadregion.network([road("long", [[-200, 0], [200, 0]])], [[-40, 0], [50, 0]])
         self.assertAlmostEqual(90, result["length"])

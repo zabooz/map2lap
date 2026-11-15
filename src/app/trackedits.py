@@ -98,7 +98,7 @@ def _placements(stored):
 def _parts(stored):
     """A list's ids, sorts, height changes and placements, by all they hold. Pure."""
     return ([d["id"] for d in stored["deleted"]], stored.get("object_sorts", ()),
-            [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"])) for h in stored.get("heights", ())], _placements(stored),
+            [(h["id"], h["x"], h["z"], h["nx"], h["nz"], tuple(h["mm"]), json.dumps(h.get("mesh_offsets", {}), sort_keys=True)) for h in stored.get("heights", ())], _placements(stored),
             [json.dumps(c, sort_keys=True) for c in stored.get("copies", ())], list(enumerate(stored.get("paints", ()))),
             [json.dumps(m, sort_keys=True) for m in stored.get("models", ())],
             [json.dumps(x, sort_keys=True) for x in stored.get("surfaces", ())], [json.dumps(t, sort_keys=True) for t in stored.get("trees", ())],

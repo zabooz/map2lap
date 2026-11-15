@@ -102,3 +102,9 @@ test("whole-sort deletion omits redundant explicit members while keeping other p
     {id: "tile#0", position: [1, 0, 0]},
   ]);
 });
+
+test("Smooth road can start on bridge floors, tunnel floors and their asphalt skins", async () => {
+  const {ROAD} = await import("./selection");
+  for (const name of ["1ROAD_ground_0_0", "1ROAD_deck_0_0", "1WALL_deck_con_0_0", "nocol_road_0_0"]) expect(ROAD.test(name)).toBe(true);
+  for (const name of ["1WALL_tunnel_0_0", "1GRASS_ground_0_0", "nocol_water_0_0"]) expect(ROAD.test(name)).toBe(false);
+});

@@ -66,20 +66,20 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
       asking = false;
       if (!over && next) { const latest = next; next = null; void ask(latest); }
     };
-    view.setMarking((x, z) => { clearTimeout(timer); timer = setTimeout(() => { void ask([x, z]); }, PREVIEW_AFTER_MS); });
+    view.setMarking((x, z) => { clearTimeout(timer); timer = setTimeout(() => { void ask([x, z, view.heightOfGround(x, z)]); }, PREVIEW_AFTER_MS); });
     return () => { over = true; clearTimeout(timer); view.setMarking(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- The captured first point names the preview; source and view own its lifetime.
   }, [view, points, enabled, edits]);
 
   useEffect(() => {
-    const single: Place[] | null = points.length === 1 ? [[points[0][0], view.heightOfGround(points[0][0], points[0][1]), points[0][1]]] : null;
+    const single: Place[] | null = points.length === 1 ? [[points[0][0], points[0][2] ?? view.heightOfGround(points[0][0], points[0][1]), points[0][1]]] : null;
     view.drawBand(single, 0); // Only the initial point has a cross; road regions use masks, never width lines.
-    view.drawPins(enabled ? points.map(([x, z]) => [x, view.heightOfGround(x, z), z]) : []);
+    view.drawPins(enabled ? points.map(([x, z, y]) => [x, y ?? view.heightOfGround(x, z), z]) : []);
     return () => { view.drawBand(null, 0); view.drawPins([]); };
   }, [view, points, enabled]);
 
   const pinMoved = useEffectEvent((k: number, x: number, z: number) => {
-    smoothing.cancel(); setPoints(points.map((p, n): Pin => n === k ? [x, z] : p)); onNote(null);
+    smoothing.cancel(); setPoints(points.map((p, n): Pin => n === k ? [x, z, view.heightOfGround(x, z)] : p)); onNote(null);
   });
   const pinTaken = useEffectEvent((k: number) => {
     smoothing.cancel();
@@ -119,10 +119,10 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
   useEffect(() => () => { smoothing.reset(); void view.setRoadRegion(null); void view.setRoadInfluence(null); }, [smoothing, view]);
   return {
     points, line: lines[0] ?? null, blend, strength, clear,
-    start: (x: number, z: number) => { clear(); setPoints([[x, z]]); onNote(null); },
-    click: (x: number, z: number) => {
+    start: (x: number, z: number, y = view.heightOfGround(x, z)) => { clear(); setPoints([[x, z, y]]); onNote(null); },
+    click: (x: number, z: number, y = view.heightOfGround(x, z)) => {
       if (points.length >= MAX_PINS) return onNote(`A road network has at most ${MAX_PINS} points`);
-      smoothing.cancel(); setPoints([...points, [x, z]]); onNote(points.length ? "Finding the connected road area…" : null);
+      smoothing.cancel(); setPoints([...points, [x, z, y]]); onNote(points.length ? "Finding the connected road area…" : null);
     },
     setStrength: (value: number) => { smoothing.cancel(); onNote(null); setStrengthValue(Math.min(100, Math.max(0, value))); },
     setBlend: (value: number) => { smoothing.cancel(); onNote(null); setBlendValue(Math.min(MAX_BLEND, Math.max(MIN_BLEND, value))); },

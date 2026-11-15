@@ -15,9 +15,32 @@ SNAP_M = 6.0  # A hand's aim and the terrain lattice; never snap across a whole 
 MAX_LENGTH_M = 3000.0
 
 
+def _level_parts(feature):
+    """A retained road split at the build's actual bridge/tunnel ranges; legacy facts use their whole-way tags. Pure."""
+    if "level_ranges" not in feature:
+        return [feature]
+    result = []
+    for line in feature.get("geometry", []):
+        xy = np.asarray(line, np.float64)
+        s = np.r_[0., np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+        if not s[-1]:
+            continue
+        boundaries = sorted({0., 1., *(float(t) for a, b, _k in feature["level_ranges"] for t in (a, b))})
+        for a, b in zip(boundaries, boundaries[1:]):
+            if b <= a:
+                continue
+            kind = next((k for lo, hi, k in feature["level_ranges"] if lo <= (a + b) / 2 <= hi), "")
+            at = np.r_[a * s[-1], s[(s > a * s[-1]) & (s < b * s[-1])], b * s[-1]]
+            tags = {**feature.get("tags", {}), "bridge": "yes" if kind == "bridge" else "no",
+                    "tunnel": "yes" if kind == "tunnel" else "no"}
+            result.append({**feature, "tags": tags, "geometry": [np.c_[np.interp(at, s, xy[:, 0]), np.interp(at, s, xy[:, 1])].tolist()]})
+    return result
+
+
 def _graph(features):
     """Mapped vertices/edges shared by all point sets of one source. Pure."""
     positions, numbers, edges, seen = [], {}, [], set()
+    endpoints = {}
 
     def node(level, point):
         key = level, round(float(point[0]) * 1000), round(float(point[1]) * 1000)
@@ -26,14 +49,20 @@ def _graph(features):
             positions.append(np.asarray(point, np.float64))
         return numbers[key]
 
-    for feature in features:
+    for feature in (part for feature in features for part in _level_parts(feature)):
         spec, tags = feature.get("spec") or {}, feature.get("tags") or {}
         if not spec:
             continue
         level = tuple(str(tags.get(key, "")) for key in ("layer", "bridge", "tunnel"))
         # Missing layer and explicit layer=0 mean the same mapped level.
         level = (level[0] or "0", *level[1:])
+        structure = next((k for k in ("bridge", "tunnel") if tags.get(k) not in (None, "", "no", "false", "0")), "")
         for line in feature.get("geometry", []):
+            if len(line) < 2:
+                continue
+            for point in (line[0], line[-1]):
+                n = node(level, point)
+                endpoints.setdefault(tuple(np.round(point, 3)), set()).add((n, structure))
             for a, b in zip(line, line[1:]):
                 first, last = node(level, a), node(level, b)
                 identity = min(first, last), max(first, last), str(feature["id"])
@@ -41,7 +70,20 @@ def _graph(features):
                     continue
                 seen.add(identity)
                 edges.append({"a": first, "b": last, "level": level, "width": float(spec.get("width", 8)),
-                              "road": str(feature["id"]), "owner": int(feature.get("chain", 0))})
+                              "road": str(feature["id"]), "owner": int(feature.get("chain", 0)), "structure": structure})
+    # A mapped bridge/portal endpoint joins its approach even though layer and structure tags change there.
+    # Interior crossings remain separate: sharing a projected coordinate does not make an interchange junction.
+    aliases = {}
+    for ends in endpoints.values():
+        ground = [n for n, structure in ends if not structure]
+        structures = [n for n, structure in ends if structure]
+        if len(ground) == 1 and len(structures) == 1:
+            aliases[structures[0]] = ground[0]
+    for key, n in list(numbers.items()):
+        numbers[key] = aliases.get(n, n)
+    for edge in edges:
+        for end in ("a", "b"):
+            edge[end] = aliases.get(edge[end], edge[end])
     if not edges:
         raise ValueError("This track has no mapped road connections; build it again")
     return positions, numbers, edges
@@ -56,7 +98,7 @@ def _network(data, points):
     if not isinstance(points, (list, tuple)) or not 2 <= len(points) <= 20:
         raise ValueError("Mark between 2 and 20 road points")
     pins = np.asarray(points, np.float64)
-    if pins.shape != (len(points), 2) or not np.isfinite(pins).all():
+    if pins.ndim != 2 or pins.shape[1] not in (2, 3) or not np.isfinite(pins).all():
         raise ValueError("Invalid road points")
     positions, numbers, edges = list(data[0]), dict(data[1]), data[2]
 
@@ -71,7 +113,7 @@ def _network(data, points):
     vector = ends - starts
     square = (vector * vector).sum(axis=1)
     splits, anchors = {}, []
-    for pin in pins:
+    for pin in pins[:, :2]:
         t = np.clip(((pin - starts) * vector).sum(axis=1) / square, 0, 1)
         projected = starts + t[:, None] * vector
         distance = np.linalg.norm(projected - pin, axis=1)
@@ -119,7 +161,7 @@ def _network(data, points):
     for (a, b), edge in selected.items():
         neighbours[a].add(b)
         neighbours[b].add(a)
-        segments.append({"a": positions[a].tolist(), "b": positions[b].tolist(), **{k: edge[k] for k in ("width", "road", "owner")}})
+        segments.append({"a": positions[a].tolist(), "b": positions[b].tolist(), **{k: edge[k] for k in ("width", "road", "owner", "structure")}})
     length = sum(float(np.linalg.norm(np.asarray(e["b"]) - e["a"])) for e in segments)
     if length > MAX_LENGTH_M:
         raise ValueError("This road network is too long; smooth it in parts")
@@ -145,19 +187,22 @@ def _network(data, points):
     high = np.max([edge["a"] for edge in segments] + [edge["b"] for edge in segments], axis=0)
     reach = max(edge["width"] for edge in segments) + 8
     levels = {edge["level"] for edge in selected.values()}
-    excluded = []
+    excluded, crossings = [], []
     for a, adjacent in graph.items():
         for b, edge in adjacent.items():
-            if a >= b or (a, b) in selected or edge["level"] not in levels:
+            if a >= b or (a, b) in selected:
                 continue
             if ((np.maximum(positions[a], positions[b]) >= low - reach).all()
                     and (np.minimum(positions[a], positions[b]) <= high + reach).all()):
-                excluded.append({"a": positions[a].tolist(), "b": positions[b].tolist(), "width": edge["width"]})
-    return {"lines": lines, "widths": widths, "segments": segments, "unselected": excluded, "length": length,
+                other = {"a": positions[a].tolist(), "b": positions[b].tolist(), "width": edge["width"]}
+                crossings.append({**other, "structure": edge["structure"]})
+                if edge["level"] in levels:
+                    excluded.append(other)
+    return {"lines": lines, "widths": widths, "segments": segments, "unselected": excluded, "crossings": crossings, "length": length,
             "terminals": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) == 1],
             "junctions": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) > 2],
             "held_junctions": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) > 1 and len(graph[n]) > len(neighbours[n])],
-            "pins": [positions[n].tolist() for n in anchors]}
+            "pins": [positions[n].tolist() + ([float(pins[k, 2])] if pins.shape[1] == 3 else []) for k, n in enumerate(anchors)]}
 
 
 def footprint(net, x, z, painted, owners=None):
@@ -213,7 +258,7 @@ def mapped(path, points):
         pins = np.asarray(points, np.float64)
     except (ValueError, TypeError) as error:
         raise ValueError("Invalid road points") from error
-    if pins.shape != (len(points), 2) or not np.isfinite(pins).all():
+    if pins.ndim != 2 or pins.shape[1] not in (2, 3) or not np.isfinite(pins).all():
         raise ValueError("Invalid road points")
     return _mapped(folder, stamp, tuple(tuple(p) for p in pins))
 
@@ -267,9 +312,11 @@ def _selection(path, _stamp, points):
                 mask[z0:z1, x0:x1] = np.maximum(mask[z0:z1, x0:x1], np.where(on, weight[z0:z1, x0:x1], 0))
         if mask.any():
             selected.append({"tile": [tx, ty], "mask": base64.b64encode(editorinfo._png(mask)).decode("ascii")})
-    if not selected:
-        raise ValueError("No painted ground road was found in this region")
-    return {"material": "road_region", "truncated": False, "tiles": selected}
+    from app import roadsurfaces
+    meshes = roadsurfaces.selection(path, net) if any(e.get("structure") for e in net["segments"]) else []
+    if not selected and not meshes:
+        raise ValueError("No editable road surface was found in this region")
+    return {"material": "road_region", "truncated": False, "tiles": selected, "meshes": meshes}
 
 
 def on_grid(selection, i0, j0, shape, step=2):

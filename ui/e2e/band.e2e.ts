@@ -1,7 +1,7 @@
 // Mapped road masks, automatic smoothing, pin editing and cancellation on a real 2 m height lattice.
 import type {Page} from "@playwright/test";
 import {centre, expect, openEditor, scene, test, type Backend} from "./fixtures";
-import {heights, picture, saved} from "./edit-helpers";
+import {heights, picture, saved, saveTrack} from "./edit-helpers";
 
 async function onHill(page: Page, backend: Backend) {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, trees: false});
@@ -218,4 +218,63 @@ test("Shift and Ctrl wheel change strength and terrain transition", async ({page
   await expect(transition(page)).toHaveValue("5");
   await page.keyboard.down("Shift"); await page.mouse.wheel(0, -100); await page.keyboard.up("Shift");
   await expect(strength(page)).toHaveValue("5");
+});
+
+for (const structure of ["bridge", "tunnel"]) test(`smoothing across a short ${structure} retains scoped changes through Undo, Redo, Save and reload`, async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, trees: false, structure});
+  await openEditor(page);
+  await page.locator("#edit-smooth").click();
+  const c = await centre(scene(page));
+  await mark(page, {x: c.x, y: c.y + 236}, {x: c.x, y: c.y - 261});
+  await strength(page).fill("100");
+  await expect(page.locator("#edit-heights")).toHaveText("1 height change");
+  await saved(page);
+  const scoped = async () => {
+    const ops = await heights(page) as unknown as {mesh_offsets?: Record<string, unknown[]>}[];
+    return Object.values(ops[0]?.mesh_offsets ?? {}).some(rows => rows.length > 0);
+  };
+  expect(await scoped()).toBe(true);
+  await escape(page);
+  await page.keyboard.press("Control+z");
+  await expect(page.locator("#edit-heights")).toHaveCount(0);
+  await page.keyboard.press("Control+Shift+z");
+  await expect(page.locator("#edit-heights")).toHaveText("1 height change");
+  await saved(page);
+  await page.reload();
+  await openEditor(page);
+  expect(await scoped()).toBe(true);
+  await saveTrack(page);
+  await page.reload();
+  await openEditor(page);
+  expect(await scoped()).toBe(true);
+});
+
+
+test("the orange road region is visible on the asphalt skin above a bridge floor", async ({page, backend}) => {
+  await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, trees: false, structure: "bridge"});
+  await openEditor(page);
+  const c = await centre(scene(page));
+  let sampleY = c.y;
+  for (let up = 80; up <= 260; up += 20) {
+    sampleY = c.y - up;
+    await page.mouse.move(c.x, sampleY);
+    if (await expect(page.locator("#hover-box")).toContainText("nocol_road_asphalt", {timeout: 200}).then(() => true, () => false)) break;
+  }
+  await expect(page.locator("#hover-box")).toContainText("nocol_road_asphalt");
+  const rect = (await scene(page).boundingBox())!;
+  const sample = {x: c.x - rect.x, y: sampleY - rect.y};
+  const pixel = async () => {
+    const png = await picture(page);
+    return page.evaluate(async ({raw, sample}) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${raw}`)).blob());
+      const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d")!; ctx.drawImage(bitmap, 0, 0);
+      return Array.from(ctx.getImageData(Math.floor(sample.x), Math.floor(sample.y), 1, 1).data).slice(0, 3);
+    }, {raw: png.toString("base64"), sample});
+  };
+  const before = await pixel();
+  await page.locator("#edit-smooth").click();
+  await mark(page, {x: c.x, y: c.y + 236}, {x: c.x, y: c.y - 261});
+  const after = await pixel();
+  expect(Math.max(...after.map((v, i) => Math.abs(v - before[i]))), `visible bridge highlight: ${before} -> ${after}`).toBeGreaterThan(8);
 });

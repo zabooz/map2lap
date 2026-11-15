@@ -61,6 +61,7 @@ export interface Recipe {
 
 /** A change of the ground's height, a raster of whole mm (src/app/trackheights.py). The server makes it: it isn't looked into here. */
 export interface HeightChange {
+  mesh_offsets?: Record<string, [number, number, number, number][]>;
   id: string;
   x: number;
   z: number;

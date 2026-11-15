@@ -166,7 +166,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   /** Smooth road marks A, B and intermediate pins; grass or sky clears the active range. */
   const onClicked = useEffectEvent((p: Picked | null) => {
     if (!marking) return;
-    if (p?.road) band.click(p.road[0], p.road[1]);
+    if (p?.road) band.click(p.road[0], p.road[1], p.position[1]);
     else if (!p?.id) band.clear();
   });
 
@@ -281,10 +281,10 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     const next = tool === t ? "select" : t, road = editable ? smoothStart(tool, next, picked) : null;
     if (next === "move" && wallIds.length) onInspectorCollapsed(false);
     setMenu(null); band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
-    if (road) band.start(road[0], road[1]);
+    if (road) band.start(road[0], road[1], picked?.position[1]);
   };
   const closeMenu = useCallback(() => setMenu(null), []);
-  const startSmooth = (road: [number, number]) => { setMenu(null); setTool("smooth"); band.start(road[0], road[1]); setNote(null); view.focus(); };
+  const startSmooth = (road: [number, number]) => { setMenu(null); setTool("smooth"); band.start(road[0], road[1], picked?.position[1]); setNote(null); view.focus(); };
   /** Edit… of the menu: Select on, the picked ground selected, its textures open, the inspector shown. */
   const editPicked = () => {
     setTool("select");
