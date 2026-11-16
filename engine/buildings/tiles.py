@@ -348,9 +348,17 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         up_all[ok] = np.asarray(frame.geodetic_to_enu(la_all[ok], lo_all[ok], g_all[ok])[2], np.float64)
     out = []
     for k, (ring, at, sh, look, mh) in enumerate(zip(rings, attrs, shared, looks, mins)):
+        i0, i1 = (ends[k - 1] if k else 0), ends[k]
+        if not ok[i0:i1].all():
+            continue
         if mh > 0.5 and at.get("height") is not None and np.isfinite(at["height"]) and look is None:
             at = dict(at, height=max(2.5, float(at["height"]) - mh))     # a building's own height range
-        spec = plan(ring, at, int(sh) if look is None else 0, clat, clon, look, town, dense, west_town, alpine)
+        # The footprint's own ground and position matter near a border or a mountain village; the tile centre
+        # can lie in another country or below the snow-prone slope whose building it is planning.
+        blat, blon = float(la_all[i0:i1].mean()), float(lo_all[i0:i1].mean())
+        ground_m = float(g_all[i0:i1].mean())
+        spec = plan(ring, at, int(sh) if look is None else 0, blat, blon, look, town, dense, west_town, alpine,
+                    elevation_m=ground_m)
         spec.toll = at.get('toll')
         if spec.toll is not None:
             spec.height, spec.roof = spec.toll['top'], 'flat'
@@ -358,9 +366,6 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         spec.portal = bool(at.get("portal"))
         spec.names = names_for(spec, at.get("name"), at.get("places") or (), country) if uses is not None else ()
         spec.plates = signs_for(spec, at.get("name"), at.get("signs") or (), country) if uses is not None else ()
-        i0, i1 = (ends[k - 1] if k else 0), ends[k]
-        if not ok[i0:i1].all():
-            continue
         g = up_all[i0:i1].copy()
         if at.get("ml") and ways_xy is not None and _ml_steep(ring, g, ways_xy):
             continue

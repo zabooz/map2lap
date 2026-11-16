@@ -44,7 +44,28 @@ spec.facade_pattern = FacadePattern(bay_m=3.0, entrance="centre", door_clearance
 
 Set the pattern before `buildings.doors` and `buildings.build`. It controls facade layout only; mapped height,
 storeys, materials and roof decisions remain inputs to their existing planners. The default styles retain their
-existing bay spacing. There is no saved style-file catalogue or visual style editor yet.
+existing bay spacing. There is no visual style editor.
+
+## Regional defaults
+
+`engine/buildings/styles.json` holds the 14 existing `Style` values and their country assignments. The loader checks
+required and unknown fields, shares, materials, tint indices and region references before a build starts. Mapped roof
+shape and materials still take precedence over these defaults. The file is part of the revisit cache key and both
+release archives; it can be edited without changing Python code.
+
+The planner uses each footprint's own coordinates and mean raw ground height. `borders.at` supplies its country from
+the shipped Natural Earth polygons, and `climate.koppen_at` supplies a Köppen class from the shipped raster. No
+building lookup contacts Nominatim. The four existing US/Canada zones keep their previous coordinate boundaries and
+extent; Hawaii and the Canadian Arctic continue to use climate fallback rather than a mainland zone;
+elsewhere a country assignment wins, with dry-summer climate refining selected mixed countries. Cold Alpine climate
+or ground at least 700 m in an Alpine country selects `alpine`: persistent snow and short growing seasons favour
+pitched chalet roofs. This broad threshold can also select plastered high towns such as Davos and mountain places
+outside the Alps in France or Italy; there is no subnational architecture map. On the sea and in unlisted countries,
+Köppen D/E classes use `cool`, all other classes and unknown sea pixels use `warm`.
+
+The country list uses only the 14 existing styles. It does not enable the extra style values, windows or materials in
+`docs/research/2026-11-16-building-styles-proposal.json`. The plaster sheet's shutters still use the style at the
+track anchor once per track; a route crossing a style boundary can show the same shutters on both sides.
 
 `FacadePattern(attic_windows=True)` enables small 0.8 m square windows in roof wall caps, including gable ends
 and the high side of a skillion roof. They follow the native facade axes, with a 0.6 m sill above the attic datum

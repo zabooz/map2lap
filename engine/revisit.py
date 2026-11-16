@@ -56,8 +56,8 @@ def faults():
 
 def code_files(here):
     """The paths under folder here, relative with "/", sorted, whose content is the server's code: the modules, those
-    of its packages too (a change in one must not reuse what the old code built), and the native module. The tests are
-    not. Pure given the folder."""
+    of its packages too (a change in one must not reuse what the old code built), the building style data and the
+    native module. The tests are not. Pure given the folder."""
     out = []
     for folder, dirs, names in os.walk(here):
         dirs[:] = [d for d in dirs if d not in ("tests", "__pycache__")]
@@ -65,7 +65,8 @@ def code_files(here):
         for name in names:
             # (a packaged app's modules are in its archive, not beside __file__: the build's CODE_ID, their
             # fingerprint, is; without it a Python-only update reused the older build's items)
-            if name.endswith(".py") or (rel == "." and (name == "CODE_ID" or name.startswith("earthfast"))):
+            if name.endswith(".py") or (rel == "buildings" and name == "styles.json") or \
+                    (rel == "." and (name == "CODE_ID" or name.startswith("earthfast"))):
                 out.append(name if rel == "." else f"{rel}/{name}")
     return sorted(out)
 

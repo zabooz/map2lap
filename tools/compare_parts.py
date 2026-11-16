@@ -26,6 +26,7 @@ import json
 import os
 import shutil
 import sys
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -62,7 +63,16 @@ def objects(path):
 
 
 def _sha1(path):
-    """The sha1 of a file, anchor.json's without its code_key: that changes with any engine change, the track need not."""
+    """The content hash, excluding build revision and ZIP timestamps from otherwise identical builds."""
+    if path.endswith(".editor.zip"):
+        h = hashlib.sha1()
+        with zipfile.ZipFile(path) as z:
+            for name in sorted(z.namelist()):
+                h.update(name.encode("utf-8"))
+                with z.open(name) as part:
+                    for block in iter(lambda: part.read(1024 * 1024), b""):
+                        h.update(block)
+        return h.hexdigest()
     with open(path, "rb") as f:
         data = f.read()
     if os.path.basename(path) == "anchor.json":

@@ -38,7 +38,7 @@ def _whole_semidetached(cls, attrs, neighbours):
 
 
 def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, dense=False, west_town=False,
-         alpine=False):
+         alpine=False, elevation_m=None):
     """The Spec of a footprint (local ring (n, 2) in metres, counter-clockwise) from its Overture attributes
     (dict: class, height, num_floors, min_height, roof_shape, roof_height; garage: a mapped multi-storey car park
     covers it, garage_rings) and the number of buildings
@@ -53,7 +53,8 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     sid = attrs.get("seed_id")
     seed = look if look is not None else _hash01(sid, "plan") if sid is not None else \
         _hash01(round(float(c[0]) * 2), round(float(c[1]) * 2), round(area))
-    style = region_style(lat, lon)
+    style = region_style(lat, lon, elevation_m=elevation_m)
+    brick_fraction = style.brick if lat is not None else brick_share(lat, lon)
     _, _, hl, hw = oriented_box(ring)
     box_fill = area / max(4 * hl * hw, 1e-6)
     cls = (attrs.get("class") or attrs.get("use") or "").lower()   # (use: footprint_uses', when no class is mapped)
@@ -248,7 +249,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         tall = snf >= GLASS_FLOORS[1] or (snf >= GLASS_FLOORS[0] and (modern or u_glass < OLD_TOWER_GLASS)) \
             or (snf >= 7 and modern)
         if snf >= 7 and not tall and not industrial:
-            if _hash01(seed, "brick") < brick_share(lat, lon) * 1.2:
+            if _hash01(seed, "brick") < brick_fraction * 1.2:
                 facade, band = BRICK_TINTS[int(seed * 7919) % len(BRICK_TINTS)], BAND_BRICK
             else:
                 facade = FACADE_TINTS[int(seed * 7919) % len(FACADE_TINTS)]
@@ -260,7 +261,7 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
         else:
             u_brick = _hash01(seed, "brick")
             detached = (cls in HOUSE_CLASSES or (area < 260 and not shop)) and not row and neighbours == 0
-            brick = u_brick < brick_share(lat, lon) * (1.15 if row else 0.35 if detached else 1.0)
+            brick = u_brick < brick_fraction * (1.15 if row else 0.35 if detached else 1.0)
             if brick:
                 band = BAND_BRICK
                 facade = BRICK_TINTS[int(seed * 7919) % len(BRICK_TINTS)]

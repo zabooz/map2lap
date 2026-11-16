@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import zipfile
 from types import SimpleNamespace
 
 import numpy as np
@@ -553,6 +554,17 @@ class SurroundingsTest(unittest.TestCase):
 
 
 class CompareTest(unittest.TestCase):
+    def test_editor_archive_timestamps_do_not_change_a_snapshot(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "t.editor.zip")
+            hashes = []
+            for year in (2020, 2026):
+                with zipfile.ZipFile(path, "w") as z:
+                    info = zipfile.ZipInfo("tile.json", (year, 1, 1, 0, 0, 0))
+                    z.writestr(info, b'{"tile": [0, 0]}')
+                hashes.append(compare_parts._sha1(path))
+            self.assertEqual(*hashes)
+
     def tree(self, root, track="t", anchor=None):
         """A built track under root: one OBJ part, a texture, an anchor."""
         os.makedirs(os.path.join(root, track, "obj", "parts"))

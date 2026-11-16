@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -61,6 +62,36 @@ class RegionStyleTest(unittest.TestCase):
         self.assertEqual(bld.brick_share(39.29, -76.61), 0.75)      # the US as before
         self.assertEqual(bld.brick_share(30.0, -90.0), 0.35)
         self.assertEqual(bld.brick_share(40.0, -110.0), 0.15)
+
+    def test_alpine_box_does_not_turn_low_cities_into_chalets(self):
+        self.assertEqual(bld.region_style(47.07, 15.44).name, "europe_north")  # Graz
+        self.assertEqual(bld.region_style(45.46, 9.19).name, "mediterranean")  # Milan
+        self.assertEqual(bld.region_style(45.44, 12.33).name, "mediterranean")  # Venice
+        self.assertEqual(bld.brick_share(47.07, 15.44), .5)
+        self.assertEqual(bld.brick_share(45.46, 9.19), .08)
+
+    def test_high_alps_stay_alpine_by_climate_or_ground_height(self):
+        self.assertEqual(bld.region_style(46.59, 7.91).name, "alpine")  # Jungfrau, Köppen ET
+        self.assertEqual(bld.region_style(46.52, 14.58, elevation_m=1000).name, "alpine")
+        self.assertEqual(bld.region_style(46.52, 14.58, elevation_m=350).name, "europe_north")
+
+    def test_sea_uses_climate_fallback(self):
+        with mock.patch("borders.at", return_value=(None, None)), mock.patch("climate.koppen_at", return_value=22):
+            self.assertEqual(bld.region_style(40.0, -30.0).name, "cool")
+
+    def test_unlisted_country_uses_climate_fallback(self):
+        with mock.patch("borders.at", return_value=("ZZ", None)), mock.patch("climate.koppen_at", return_value=14):
+            self.assertEqual(bld.region_style(35.0, 130.0).name, "warm")
+
+    def test_four_us_zones_keep_their_previous_style(self):
+        for lat, lon, name in ((39.29, -76.61, "us_east"), (33.75, -84.39, "us_south"),
+                               (36.15, -97.50, "us_plains"), (37.36, -118.39, "us_west")):
+            with self.subTest(name=name):
+                self.assertEqual(bld.region_style(lat, lon).name, name)
+
+    def test_places_outside_the_old_us_canada_zone_keep_their_climate_style(self):
+        self.assertEqual(bld.region_style(21.31, -157.86).name, "warm")  # Honolulu
+        self.assertEqual(bld.region_style(74.0, -95.0).name, "cool")    # Canadian Arctic
 
     def test_south_asia_houses(self):
         hs = self.houses(28.61, 77.21)                  # Delhi, India
@@ -731,6 +762,24 @@ class Feats:
 
 
 class PartsTest(unittest.TestCase):
+    def test_each_footprint_passes_its_own_place_and_ground_to_the_style(self):
+        import geodesy
+        f = geodesy.EnuFrame(47.07, 15.44)
+
+        def ll(x, y):
+            east = np.array([x, x + 20, x + 20, x, x]); north = np.array([y, y, y + 20, y + 20, y])
+            la, lo, _ = f.enu_to_geodetic(east, north, 0.0)
+            return np.stack([lo, la], 1)
+
+        features = Feats(["a", "b"], [ll(10, 10), ll(210, 210)], **{"class": ["house", "house"]})
+        with mock.patch.object(bld.planner, "region_style", wraps=bld.planner.region_style) as select:
+            items = bld.tile_buildings(f, 0, 0, 256, 256, [features],
+                                       lambda la, lo: np.full(np.shape(la), 850.0))
+        self.assertEqual(len(items), 2)
+        places = [(call.args[0], call.args[1]) for call in select.call_args_list]
+        self.assertNotEqual(places[0], places[1], "two houses in one tile need their own coordinates")
+        self.assertTrue(all(call.kwargs.get("elevation_m") == 850.0 for call in select.call_args_list))
+
     def test_tower_on_podium(self):
         import geodesy
         f = geodesy.EnuFrame(39.28, -76.59)

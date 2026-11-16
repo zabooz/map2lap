@@ -1,9 +1,16 @@
 """A region's style: roofs, walls, heights."""
+import json
+import math
+from pathlib import Path
+
 import numpy as np
 
+import borders
+import climate
 import fast
 
-from .looks import MAX_VERTS, PITCH, ROOF_METAL, ROOF_SHINGLE, ROOF_SLATE, SIDING, SIMPLIFY_M, STUCCO
+from .facade import FacadePattern
+from .looks import BARN_REDS, MAX_VERTS, PITCH, ROOF_TINTS, SIDING, SIMPLIFY_M, WALL_TINTS
 
 
 # ------------------------------------------------------------------------------------------- polygons
@@ -119,7 +126,7 @@ class Style:
     (the US's and Scandinavia's; elsewhere their siding colours: a Lauterbrunnen garage row came out a 150 m red
     wall); attached: low attached buildings (terraces, old town
     blocks) with a pitched roof (the US: flat; Amsterdam's canal houses, Europe's old towns: gables).
-    Coarse boxes by region until a facade-material map; the US ones keep their earlier behaviour."""
+    The style values live in styles.json; mapped building facts take precedence."""
 
     def __init__(self, name, brick, walls, porch, flat, hipped, roofs, pitch=None, paint=0.3, wall_tints=None,
                  wood=False, attached=0.0, barn_red=0.0, stone=0.0, facade_pattern=None):
@@ -130,82 +137,216 @@ class Style:
         self.facade_pattern = facade_pattern
 
 
-_US_ROOFS = ((ROOF_SLATE, (0, 1, 2, 3)), (ROOF_SHINGLE, (0, 1, 2, 3)))
-_CLAY = (ROOF_SLATE, (4, 5, 6))
-_DARK = (ROOF_SLATE, (7, 8, 9))
-STYLES = {
-    "us_east": Style("us_east", 0.75, ((SIDING, 0.75),), 0.55, 0.0, 0.4, _US_ROOFS, barn_red=0.5),
-    "us_south": Style("us_south", 0.35, ((SIDING, 0.75),), 0.55, 0.0, 0.4, _US_ROOFS, barn_red=0.5),
-    "us_plains": Style("us_plains", 0.15, ((SIDING, 0.75),), 0.55, 0.0, 0.4, _US_ROOFS, barn_red=0.5),
-    "us_west": Style("us_west", 0.15, ((STUCCO, 0.65), (SIDING, 0.25)), 0.25, 0.0, 0.4, _US_ROOFS, barn_red=0.5),
-    # Alpine villages: white plaster ground floors, dark wooden chalets, low wide gables of dark or brown roofs
-    "alpine": Style("alpine", 0.05, ((SIDING, 0.45),), 0.0, 0.03, 0.15, (_DARK, (ROOF_SLATE, (9, 5))), pitch=24.0,
-                    paint=0.05, wood=True, attached=0.85, stone=0.15),
-    # north-west / central Europe: brick (Low Countries, northern Germany, Britain) or plaster, steep tiled or
-    # slate roofs
-    "europe_north": Style("europe_north", 0.5, (), 0.02, 0.05, 0.3, (_CLAY, _DARK, (ROOF_SLATE, (5,))), pitch=42.0,
-                          paint=0.15, attached=0.75, stone=0.12),
-    # Scandinavia and Finland: painted wooden houses (siding), little brick, dark or tiled roofs, falu-red barns
-    "nordic": Style("nordic", 0.12, ((SIDING, 0.65),), 0.0, 0.08, 0.2, (_DARK, _CLAY), pitch=35.0, paint=0.2,
-                    attached=0.3, barn_red=0.7),
-    "mediterranean": Style("mediterranean", 0.08, ((STUCCO, 0.85),), 0.0, 0.35, 0.5, (_CLAY,), pitch=22.0,
-                           paint=0.1, wall_tints=(0, 1, 2, 3, 4, 5), attached=0.8, stone=0.4),
-    "latin_america": Style("latin_america", 0.25, ((STUCCO, 0.9),), 0.02, 0.7, 0.3, (_CLAY, (ROOF_METAL, (0, 1))),
-                           pitch=22.0, paint=0.0, wall_tints=(0, 1, 2, 3, 5, 6, 7, 8, 9, 10)),
-    "east_asia": Style("east_asia", 0.08, ((SIDING, 0.5), (STUCCO, 0.3)), 0.0, 0.35, 0.5,
-                       (_DARK, (ROOF_SHINGLE, (6, 7)), (ROOF_METAL, (1, 4))), pitch=25.0, paint=0.0,
-                       wall_tints=(0, 1, 6, 5), attached=0.3),
-    "oceania": Style("oceania", 0.55, ((STUCCO, 0.5), (SIDING, 0.3)), 0.25, 0.05, 0.7, (_CLAY, (ROOF_METAL, (0, 1, 4))),
-                     pitch=24.0, paint=0.1),
-    # South Asia (India, Pakistan, Bangladesh, Sri Lanka, Nepal): a concrete frame and brick under plaster, flat terrace
-    # roofs, pastel and whitewashed walls, metal roofs on sheds (OmdevShastri)
-    "south_asia": Style("south_asia", 0.08, ((STUCCO, 0.92),), 0.0, 0.94, 0.2, (_CLAY, (ROOF_METAL, (0, 1, 3))),
-                        pitch=18.0, paint=0.15, wall_tints=(0, 1, 2, 3, 5, 6, 8, 10), attached=0.90),
-    # elsewhere (Africa, the Middle East, ...): concrete and plaster, mostly flat roofs
-    "warm": Style("warm", 0.15, ((STUCCO, 0.85),), 0.0, 0.75, 0.4, (_CLAY, (ROOF_METAL, (0, 1, 3))), pitch=20.0,
-                  paint=0.0, wall_tints=(0, 1, 2, 3, 4, 5, 6, 8)),
-    "cool": Style("cool", 0.3, ((SIDING, 0.4),), 0.05, 0.1, 0.3, (_DARK, (ROOF_METAL, (0, 1, 2, 3))), pitch=30.0,
-                  paint=0.3, barn_red=0.5),
-}
+STYLE_FILE = Path(__file__).with_name("styles.json")
+_STYLE_FIELDS = frozenset(("brick", "walls", "porch", "flat", "hipped", "roofs", "pitch", "paint",
+                           "wall_tints", "wood", "attached", "barn_red", "stone", "facade_pattern"))
+_SHARE_FIELDS = ("brick", "porch", "flat", "hipped", "paint", "attached", "barn_red", "stone")
 
 
-def region_style(lat, lon):
-    """The Style of the region around (lat, lon) (None: the US East's)."""
+def _share(value, where):
+    """A finite fraction in [0, 1]; where names its source field. Pure."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError(f"{where}: expected a share from 0 to 1")
+    return value
+
+
+def _tints(value, material, where):
+    """Nonempty tint indices for a known material. Pure."""
+    palette = ROOF_TINTS.get(material, WALL_TINTS.get(material))
+    if palette is None or not isinstance(value, list) or not value or any(
+            isinstance(v, bool) or not isinstance(v, int) or not 0 <= v < len(palette) for v in value):
+        raise ValueError(f"{where}: expected tint indices for {material}")
+    return tuple(value)
+
+
+def _style(name, raw):
+    """Validate one named style record and retain the tuple shapes Style consumers use. Pure."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"style {name}: expected an object")
+    unknown, missing = raw.keys() - _STYLE_FIELDS, _STYLE_FIELDS - raw.keys()
+    if unknown or missing:
+        raise ValueError(f"style {name}: unknown {sorted(unknown)}; missing {sorted(missing)}")
+    for field in _SHARE_FIELDS:
+        _share(raw[field], f"style {name}.{field}")
+    walls = raw["walls"]
+    if not isinstance(walls, list):
+        raise ValueError(f"style {name}.walls: expected a list")
+    for item in walls:
+        if not isinstance(item, list) or len(item) != 2 or not isinstance(item[0], str) or item[0] not in WALL_TINTS:
+            raise ValueError(f"style {name}.walls: expected [known material, share]")
+        _share(item[1], f"style {name}.walls")
+    if sum(item[1] for item in walls) > 1:
+        raise ValueError(f"style {name}.walls: shares exceed 1")
+    roofs = raw["roofs"]
+    if not isinstance(roofs, list) or not roofs:
+        raise ValueError(f"style {name}.roofs: expected a nonempty list")
+    for item in roofs:
+        if not isinstance(item, list) or len(item) != 2 or not isinstance(item[0], str) or item[0] not in ROOF_TINTS:
+            raise ValueError(f"style {name}.roofs: expected [known material, tint indices]")
+        _tints(item[1], item[0], f"style {name}.roofs")
+    if raw["pitch"] is not None and (isinstance(raw["pitch"], bool) or not isinstance(raw["pitch"], (int, float))
+                                     or not math.isfinite(raw["pitch"]) or not 0 < raw["pitch"] <= 90):
+        raise ValueError(f"style {name}.pitch: expected degrees from 0 to 90")
+    if not isinstance(raw["wood"], bool):
+        raise ValueError(f"style {name}.wood: expected true or false")
+    tints = raw["wall_tints"]
+    palette_size = max((len(WALL_TINTS[m]) - (BARN_REDS if m == SIDING else 0) for m, _ in walls), default=0)
+    if tints is not None and (not isinstance(tints, list) or not tints or any(
+            isinstance(v, bool) or not isinstance(v, int) or not 0 <= v < palette_size for v in tints)):
+        raise ValueError(f"style {name}.wall_tints: invalid tint index")
+    pattern = raw["facade_pattern"]
+    if pattern is not None:
+        if not isinstance(pattern, dict):
+            raise ValueError(f"style {name}.facade_pattern: expected an object")
+        try:
+            pattern = FacadePattern(**pattern)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"style {name}.facade_pattern: {exc}") from exc
+    return Style(name, raw["brick"], tuple((m, v) for m, v in walls), raw["porch"], raw["flat"], raw["hipped"],
+                 tuple((m, _tints(t, m, f"style {name}.roofs")) for m, t in roofs), pitch=raw["pitch"],
+                 paint=raw["paint"], wall_tints=tuple(tints) if tints is not None else None, wood=raw["wood"],
+                 attached=raw["attached"], barn_red=raw["barn_red"], stone=raw["stone"], facade_pattern=pattern)
+
+
+def _fields(raw, fields, where):
+    """Require exactly fields on a JSON object at where. Pure."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: expected an object")
+    unknown, missing = raw.keys() - fields, fields - raw.keys()
+    if unknown or missing:
+        raise ValueError(f"{where}: unknown {sorted(unknown)}; missing {sorted(missing)}")
+
+
+def _countries(raw, where):
+    """Unique two-letter ISO country codes from raw. Pure."""
+    if not isinstance(raw, list) or any(not isinstance(c, str) or len(c) != 2 or not c.isascii() or not c.isupper()
+                                        for c in raw) or len(set(raw)) != len(raw):
+        raise ValueError(f"{where}: expected unique ISO country codes")
+    return frozenset(raw)
+
+
+def _classes(raw, where):
+    """Unique Köppen class numbers 1..30 from raw. Pure."""
+    if not isinstance(raw, list) or any(isinstance(k, bool) or not isinstance(k, int) or not 1 <= k <= 30
+                                        for k in raw) or len(set(raw)) != len(raw):
+        raise ValueError(f"{where}: expected unique Köppen classes 1..30")
+    return frozenset(raw)
+
+
+def _region_rules(raw, styles):
+    """Validated country, climate and altitude assignments referring to known styles. Pure."""
+    where = "regions"
+    _fields(raw, {"countries", "alpine", "mediterranean_climate_countries", "mediterranean_climate_classes",
+                  "us_zones", "climate_fallback"}, where)
+    countries = raw["countries"]
+    if not isinstance(countries, dict):
+        raise ValueError("regions.countries: expected an object")
+    for code, style in countries.items():
+        _countries([code], f"regions.countries.{code}")
+        if not isinstance(style, str) or style not in styles:
+            raise ValueError(f"regions.countries.{code}: unknown style {style}")
+    alpine = raw["alpine"]
+    _fields(alpine, {"countries", "climate_classes", "min_elevation_m"}, "regions.alpine")
+    alpine_countries = _countries(alpine["countries"], "regions.alpine.countries")
+    alpine_classes = _classes(alpine["climate_classes"], "regions.alpine.climate_classes")
+    height = alpine["min_elevation_m"]
+    # Above 700 m in Alpine countries, cold winters and short growing seasons favour steep chalet roofs; a high
+    # plastered town such as Davos can still be misclassified without local architectural data.
+    if isinstance(height, bool) or not isinstance(height, (int, float)) or not math.isfinite(height) or not 0 <= height <= 9000:
+        raise ValueError("regions.alpine.min_elevation_m: expected metres from 0 to 9000")
+    med_countries = _countries(raw["mediterranean_climate_countries"], "regions.mediterranean_climate_countries")
+    med_classes = _classes(raw["mediterranean_climate_classes"], "regions.mediterranean_climate_classes")
+    us = raw["us_zones"]
+    _fields(us, {"countries", "west_lon", "plains_lon", "south_lat", "min_lat", "max_lat", "min_lon", "max_lon"},
+            "regions.us_zones")
+    us_countries = _countries(us["countries"], "regions.us_zones.countries")
+    for field, low, high in (("west_lon", -180, 180), ("plains_lon", -180, 180), ("south_lat", -90, 90),
+                             ("min_lat", -90, 90), ("max_lat", -90, 90), ("min_lon", -180, 180),
+                             ("max_lon", -180, 180)):
+        value = us[field]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+            raise ValueError(f"regions.us_zones.{field}: expected {low}..{high}")
+    if us["west_lon"] >= us["plains_lon"] or us["min_lat"] >= us["max_lat"] or us["min_lon"] >= us["max_lon"]:
+        raise ValueError("regions.us_zones: bounds must run west to east and south to north")
+    fallback = raw["climate_fallback"]
+    _fields(fallback, {"cool_classes", "cool_style", "default"}, "regions.climate_fallback")
+    cool_classes = _classes(fallback["cool_classes"], "regions.climate_fallback.cool_classes")
+    for field in ("cool_style", "default"):
+        if fallback[field] not in styles:
+            raise ValueError(f"regions.climate_fallback.{field}: unknown style {fallback[field]}")
+    for name in ("alpine", "mediterranean", "us_east", "us_south", "us_plains", "us_west"):
+        if name not in styles:
+            raise ValueError(f"regions: missing referenced style {name}")
+    return {"countries": countries, "alpine_countries": alpine_countries, "alpine_classes": alpine_classes,
+            "alpine_height": height, "med_countries": med_countries, "med_classes": med_classes,
+            "us_countries": us_countries, "us": us, "cool_classes": cool_classes,
+            "cool_style": fallback["cool_style"], "default": fallback["default"]}
+
+
+def _unique_pairs(pairs):
+    """JSON object with no silently overwritten duplicate field. Pure."""
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate field {key}")
+        out[key] = value
+    return out
+
+
+def load_style_data(path):
+    """Validated (styles, region rules) from JSON path; invalid files fail with their field name."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_unique_pairs)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+    _fields(data, {"styles", "regions"}, str(path))
+    if not isinstance(data["styles"], dict):
+        raise ValueError(f"{path}: styles must be an object")
+    if not data["styles"]:
+        raise ValueError(f"{path}: styles must not be empty")
+    styles = {name: _style(name, raw) for name, raw in data["styles"].items()}
+    return styles, _region_rules(data["regions"], styles)
+
+
+STYLES, REGIONS = load_style_data(STYLE_FILE)
+
+
+def region_style(lat, lon, elevation_m=None):
+    """The Style at (lat, lon) and optional ground elevation_m; coordinates absent use the synthetic US default."""
     if lat is None or lon is None:
         return STYLES["us_east"]
-    if 24.0 <= lat <= 72.0 and -170.0 <= lon <= -52.0:          # North America (and Canada)
-        if lon < -100.0:
+    country, _state = borders.at(lat, lon)
+    us = REGIONS["us"]
+    if country in REGIONS["us_countries"] and us["min_lat"] <= lat <= us["max_lat"] and \
+            us["min_lon"] <= lon <= us["max_lon"]:
+        # These three boundaries are the earlier US/Canada style rule, retained so the four existing zones do
+        # not change in this migration. They are compatibility lines, not physical climate boundaries.
+        if lon < us["west_lon"]:
             return STYLES["us_west"]
-        if lon <= -95.0:
+        if lon <= us["plains_lon"]:
             return STYLES["us_plains"]
-        return STYLES["us_east"] if lat > 36.0 else STYLES["us_south"]
-    if -56.0 <= lat < 24.0 and -120.0 <= lon <= -30.0:          # Mexico, the Caribbean, Central and South America
-        return STYLES["latin_america"]
-    if 45.4 <= lat <= 48.0 and 5.8 <= lon <= 16.5:              # the Alps
+        return STYLES["us_east"] if lat > us["south_lat"] else STYLES["us_south"]
+    climate_class = climate.koppen_at(lat, lon)
+    if country in REGIONS["alpine_countries"] and (climate_class in REGIONS["alpine_classes"] or
+            elevation_m is not None and np.isfinite(elevation_m) and elevation_m >= REGIONS["alpine_height"]):
+        # Cold, high Alpine ground favours pitched roofs that shed long-lasting snow. The country guard avoids
+        # giving every cold mountain on earth a Swiss chalet; high plastered towns remain a known coarse case.
         return STYLES["alpine"]
-    if 56.0 <= lat <= 72.0 and 4.5 <= lon <= 32.0:              # Norway, Sweden, Finland (brick Copenhagen, Malmo: not)
-        return STYLES["nordic"]
-    if 46.0 <= lat <= 72.0 and -11.0 <= lon <= 32.0:
-        return STYLES["europe_north"]
-    if 30.0 <= lat < 46.0 and -10.0 <= lon <= 40.0:             # southern Europe, North Africa's coast, Levant
+    if country in REGIONS["med_countries"] and climate_class in REGIONS["med_classes"]:
+        # Köppen dry-summer climates pick the tiled Mediterranean look on the same country's warm coast.
         return STYLES["mediterranean"]
-    if 20.0 <= lat <= 46.0 and 100.0 <= lon <= 146.0:           # China, Korea, Japan, Taiwan
-        return STYLES["east_asia"]
-    if -50.0 <= lat <= -10.0 and 110.0 <= lon <= 180.0:         # Australia, New Zealand
-        return STYLES["oceania"]
-    if 6.0 <= lat <= 37.5 and 68.0 <= lon <= 92.5:              # South Asia (not Myanmar, east of 92.5)
-        return STYLES["south_asia"]
-    if abs(lat) >= 50.0:
-        return STYLES["cool"]
-    return STYLES["warm"]
+    name = REGIONS["countries"].get(country)
+    if name is None:                        # open sea and an unlisted country both have a climate fallback
+        name = REGIONS["cool_style"] if climate_class in REGIONS["cool_classes"] else REGIONS["default"]
+    return STYLES[name]
 
 
-def brick_share(lat, lon):
+def brick_share(lat, lon, elevation_m=None):
     """The share of brick facades in a region (old East Coast / Midwest towns are mostly brick; the South and
     the West plaster, siding and stucco; region_style elsewhere). A coarse stand-in until a facade-material map."""
     if lat is None:
         return 0.4
-    return region_style(lat, lon).brick
+    return region_style(lat, lon, elevation_m).brick
 
 
 def roof_pitch(spec):

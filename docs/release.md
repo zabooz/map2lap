@@ -28,6 +28,8 @@ relevant checks. **Editor WASM → UI build → release packaging** is mandatory
 `bun run build` alone builds the UI but does not satisfy the release browser checks.
 
 Each archive includes its platform's earthfast module and model converter/notices; the Linux converter is executable.
+The tracked `engine/buildings/styles.json` is packed with the engine modules; changing it needs no Python code edit, but
+does change the build's revisit cache key.
 Both include `src/web` and `src/bin/snow-worker.exe`, with its source/binary hash receipt. Packaging refuses a missing or
 stale snow helper; the ignored preview binary is not an input. Users need no Rust, Bun or Blender.
 Product Play starts the snow helper with installed/enabled CSP and Map2Lap weather effects switched on; it exits with
