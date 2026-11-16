@@ -213,7 +213,7 @@ def broadleaf(seed, lod, cards, crown_y, rx, ry, card_m, trunk_top, trunk_r, rou
     return m
 
 
-def conifer(seed, lod, tiers, H, W, trunk_r, rect, pointed=False, inset_tip=False):
+def conifer(seed, lod, tiers, H, W, trunk_r, rect, pointed=False, inset_tip=False, surface_normals=False):
     """A conifer's LOD lod, H m high and W wide: tiers of needle cones (rect of the atlas), the same at every LOD with fewer
     sides (7, 5, 4); LOD 2 keeps every other tier, each reaching up to the next kept. Pure."""
     rng = random.Random(seed)
@@ -241,13 +241,13 @@ def conifer(seed, lod, tiers, H, W, trunk_r, rect, pointed=False, inset_tip=Fals
     for y_bot, y_top, R, turn, droop in kept:
         if step == 2:
             y_top = min(H, y_top + H * 0.68 / max(1, tiers - 1))
-        _tier(m, segs, y_bot, y_top, droop, R, turn, rect)
+        _tier(m, segs, y_bot, y_top, droop, R, turn, rect, surface_normals)
     return m
 
 
-def _tier(m, segs, y_bot, y_top, droop, R, turn, rect):
+def _tier(m, segs, y_bot, y_top, droop, R, turn, rect, surface_normals=False):
     """A needle cone into m: segs faces from radius R at y_bot + droop to R * 0.12 at y_top, turned by turn; its normals
-    lean as from y_bot."""
+    optionally follow the cone surface, with legacy normals retained for old asset recognition."""
     r_top = R * 0.12
     slope = math.atan2(R - r_top, y_top - y_bot)
     for s in range(segs):
@@ -256,6 +256,11 @@ def _tier(m, segs, y_bot, y_top, droop, R, turn, rect):
              (math.cos(a1) * r_top, y_top, math.sin(a1) * r_top), (math.cos(a0) * r_top, y_top, math.sin(a0) * r_top)]
         n = [unit((math.cos(a) * math.cos(math.pi / 2 - slope), math.sin(math.pi / 2 - slope) * 0.8 + 0.2,
                    math.sin(a) * math.cos(math.pi / 2 - slope))) for a in (a0, a1, a1, a0)]
+        if surface_normals:
+            # Outward cone normals use height radially and radius drop vertically. The old
+            # swapped components lit steep needle cones like upward-facing caps in backlight.
+            rise = y_top - y_bot - droop
+            n = [unit((math.cos(a) * rise, R - r_top, math.sin(a) * rise)) for a in (a0, a1, a1, a0)]
         m.quad(c, n, rect)
 
 
@@ -288,26 +293,26 @@ def _birch(rng, seed):
     return tex, [broadleaf(seed, lod, 40, 8.2, 2.3, 3.6, 2.0, 7.5, 0.14, round_shell=0.4) for lod in range(3)]
 
 
-def _spruce(rng, seed, pointed=False, inset_tip=False):
+def _spruce(rng, seed, pointed=False, inset_tip=False, surface_normals=False):
     tex = atlas({"C": needle_band(rng, 72, (0.32, 0.4)), "D": bark(rng, (56, 40, 30))})
-    return tex, [conifer(seed, lod, 9, 14.0, 4.6, 0.2, uv_rect("C"), pointed, inset_tip) for lod in range(3)]
+    return tex, [conifer(seed, lod, 9, 14.0, 4.6, 0.2, uv_rect("C"), pointed, inset_tip, surface_normals) for lod in range(3)]
 
 
-def _larch(rng, seed, pointed=False, inset_tip=False):
+def _larch(rng, seed, pointed=False, inset_tip=False, surface_normals=False):
     tex = atlas({"C": needle_band(rng, 128, (0.56, 0.32), loose=True), "D": bark(rng, (92, 66, 46))})
-    return tex, [conifer(seed, lod, 8, 14.0, 5.6, 0.2, uv_rect("C"), pointed, inset_tip) for lod in range(3)]
+    return tex, [conifer(seed, lod, 8, 14.0, 5.6, 0.2, uv_rect("C"), pointed, inset_tip, surface_normals) for lod in range(3)]
 
 
-def _fir(rng, seed, pointed=False):
+def _fir(rng, seed, pointed=False, surface_normals=False):
     """An evergreen fir with dark flat needle fans, a full tapered crown and a pale grey-brown trunk. Pure."""
     tex = atlas({"C": needle_band(rng, 74, (.36, .48)), "D": bark(rng, (106, 98, 83))})
     shape = random.Random(seed + 41)
     tiers = [(16 * (.12 + .79 * k / 10), 3.1 * (1 - .94 * k / 10) ** .8,
               shape.uniform(-.16, .16) + k * 2.39996) for k in range(11)]
-    return tex, [_fir_lod(lod, tiers, pointed) for lod in range(3)]
+    return tex, [_fir_lod(lod, tiers, pointed, surface_normals) for lod in range(3)]
 
 
-def _fir_lod(lod, tiers, pointed=False):
+def _fir_lod(lod, tiers, pointed=False, surface_normals=False):
     """One fir LOD: the same branch tiers with fewer radial fans and lower tiers retained at every distance. Pure."""
     mesh, rect = Mesh(), uv_rect('C')
     trunk(mesh, 15.8, .23, .035, (6, 5, 4)[lod], uv_rect('D', 0), tip_length=16 / 8 if pointed else 0)
@@ -327,7 +332,7 @@ def _fir_lod(lod, tiers, pointed=False):
             drop = [0, -.42 * min(1., radius), 0]
             normal = unit([axis[0], .4, axis[2]])
             mesh.quad([c + drop, d + drop, d, c], [normal] * 4, rect)
-    _tier(mesh, 4, 14.1, 16., 0, .3, 0, rect)
+    _tier(mesh, 4, 14.1, 16., 0, .3, 0, rect, surface_normals)
     return mesh
 
 
@@ -639,7 +644,12 @@ MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102
 
 DECIDUOUS = frozenset(('broadleaf', 'birch', 'larch', 'baobab'))
 BUSHES = frozenset(('shrub', 'shrub_flowers', 'dry_shrub', 'jungle_bush'))
-TREE_FORMAT = 12
+# Rounded broadleaf card crowns need the dome blend to soften patchy per-card lighting.
+# Larch is deciduous but has needle cones; palms have fronds rather than rounded crowns.
+LEAF_CROWNS = frozenset(('broadleaf', 'birch', 'olive', 'acacia', 'baobab', 'tropical'))
+# Bushes and the low juniper also use rounded card clusters.
+SMOOTH_CROWNS = LEAF_CROWNS | BUSHES | {'juniper'}
+TREE_FORMAT = 16
 
 
 @functools.lru_cache(maxsize=None)
@@ -658,7 +668,7 @@ def model(name):
     if name in ('spruce', 'larch', 'fir'):
         seed, make = MODELS[name]
         kwargs = {'inset_tip': True} if name in ('spruce', 'larch') else {}
-        texture, lods = make(random.Random(seed), seed, pointed=True, **kwargs)
+        texture, lods = make(random.Random(seed), seed, pointed=True, surface_normals=True, **kwargs)
     if name in ('broadleaf', 'birch', 'larch'):
         lods = [treebranches.extend(name, i, mesh, lods[0], sys.modules[__name__]) for i, mesh in enumerate(lods)]
     height = round(max(p[1] for mesh in lods for p in mesh.p), 4)
@@ -765,14 +775,12 @@ def png(img):
 
 def tree_ini(name, H, W, meshes):
     """tree.ini of a model H m high and W wide whose LOD meshes are named meshes, finest first. Pure."""
-    # CSP 0.2.11's model shader linearizes (2 * BRIGHTNESS * texture): half cancels
-    # that gain for our painted sRGB atlases. The flat normal map has no leaf-scale
-    # detail to break up highlights, so photographic-tree gloss/transmission makes
-    # entire needle tiers shine. Keep these painted models diffuse; imported trees
-    # retain their own shading. See the fixed-exposure comparison in tools/rendering_gallery.py.
+    # Keep transmission off. Rounded leaf crowns retain dome smoothing, while needle cones
+    # use their surface normals to avoid the bright upper crown seen in the backlight comparison.
+    sphere = 1.0 if name in SMOOTH_CROWNS else 0.0
     ini = [f"[BASIC]\nHEIGHT={H:.4f}\nWIDTH={W:.4f}\nCACHE_RESOLUTION=256,512\nVERTICAL_OFFSET=0\n",
-           "[SHADING]\nSPECULAR=0.0\nSUBSCATTERING=0.0\nREFLECTIVITY=0.0\nBRIGHTNESS=0.5\nUSE_AO_CHANNEL=0\n",
-           "[NORMALS]\nBOOST=0.9\nSPHERE=1.0\n", "[LEAVES]\nMULT=20.0\nOFFSET=0.0\n", "[FAKE_SHADOW]\nSIZE=1.0\nOPACITY=1.0\n"]
+           "[SHADING]\nSPECULAR=1.0\nSUBSCATTERING=0.0\nREFLECTIVITY=1.0\nBRIGHTNESS=1.0\nUSE_AO_CHANNEL=0\n",
+           f"[NORMALS]\nBOOST=0.9\nSPHERE={sphere:.1f}\n", "[LEAVES]\nMULT=20.0\nOFFSET=0.0\n", "[FAKE_SHADOW]\nSIZE=1.0\nOPACITY=1.0\n"]
     if name not in BUSHES:
         # Keep at least quarter visibility when opaque needle tiers enclose the trunk.
         # AO also drives fast wind flutter, so retain the native bake rather than force fully open AO.

@@ -17,7 +17,7 @@ from scenery import treebranches, treefx
 
 
 class SeasonTest(unittest.TestCase):
-    def test_play_replaces_format_11_shading_and_uses_a_new_cache_identity(self):
+    def test_play_replaces_dimmed_format_12_and_uses_a_new_cache_identity(self):
         import zipfile
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); trees = root / 'extension/trees'; trees.mkdir(parents=True)
@@ -25,10 +25,10 @@ class SeasonTest(unittest.TestCase):
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 files = {n: archive.read(n) for n in archive.namelist()}
             ini = files['tree.ini'].decode()
-            ini = ini.replace(f'TREE_FORMAT={treefx.TREE_FORMAT}', 'TREE_FORMAT=11')
+            ini = ini.replace(f'TREE_FORMAT={treefx.TREE_FORMAT}', 'TREE_FORMAT=12')
             for key in ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
                 import re
-                ini = re.sub(rf'(?m)^{key}=.*$', key + '=1.0', ini)
+                ini = re.sub(rf'(?m)^{key}=.*$', key + ('=0.5' if key == 'BRIGHTNESS' else '=0.0'), ini)
             files['tree.ini'] = ini.encode()
             source = trees / 'spruce.bin'
             with zipfile.ZipFile(source, 'w') as archive:
@@ -37,12 +37,13 @@ class SeasonTest(unittest.TestCase):
             listing = 'tree: spruce.bin; pos=0, 0, 0; angle=0; size=1; width=1\n'
             (trees / 'trees.txt').write_text(listing)
             seasons.install(root)
-            self.assertGreater(treefx.read_bin(source)['seasonal']['format'], 11)
+            self.assertGreater(treefx.read_bin(source)['seasonal']['format'], 12)
             prepared = treefx.parse((trees / 'trees_seasonal.txt').read_text())
             runtime = trees / (prepared['model'] + '.bin')
             with zipfile.ZipFile(runtime) as archive:
                 shading = treefx._ini(archive.read('tree.ini').decode())['SHADING']
-            self.assertEqual(float(shading['BRIGHTNESS']), .5)
+            for key in ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
+                self.assertEqual(float(shading[key]), 0. if key == 'SUBSCATTERING' else 1.)
             self.assertEqual((trees / 'trees.txt').read_text(), listing)
 
     def test_play_isolates_season_cache_and_preserves_baked_models_on_return(self):

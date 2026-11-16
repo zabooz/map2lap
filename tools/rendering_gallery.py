@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,10 +16,20 @@ from PIL import Image
 from scenery import treefx
 
 NAME = 'map2lap_rendering_gallery'
-VARIANTS = ('BASELINE', 'LEGACY', 'BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING', 'NORMAL_ALPHA')
+VARIANTS = ('BASELINE', 'DIMMED', 'BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING', 'NORMAL_ALPHA',
+            'SPHERE', 'SPHERE_SUBSCATTERING')
 ALBEDOS = (.05, .18, .5, .9)
 QUAD = np.array([[0, 1, 2], [0, 2, 3]])
 UV = np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]])
+
+
+def register(folder):
+    """Publish this synthetic gallery in My Tracks without inventing a geographical build route."""
+    from app import mytracks, version
+    mytracks.save(str(folder), {'title': 'Rendering', 'version': version.VERSION,
+                               'track_version': version.TRACK_VERSION, 'points': [], 'width': None,
+                               'area': None, 'area_m': [len(VARIANTS) * 23. + 16., 115.], 'length_m': 0., 'tiles': 1,
+                               'built': time.time(), 'data': {}, 'gallery': True})
 
 
 def grey(value):
@@ -28,7 +39,7 @@ def grey(value):
 
 
 def tree_variant(species, variant):
-    """A named TreeFX archive with old shading or one changed input and isolated caches. Pure."""
+    """A named TreeFX archive with a dimmed comparison or one changed input and isolated caches. Pure."""
     if variant not in VARIANTS:
         raise ValueError(variant)
     texture, lods = treefx.model(species)
@@ -41,9 +52,17 @@ def tree_variant(species, variant):
     meshes = [(f'{name}_lod{i}.mesh', treefx.mesh_bytes(mesh, textures, width / 2, height)[0])
               for i, mesh in enumerate(lods)]
     ini = treefx.tree_ini(species, height, width, [n for n, _ in meshes])
+    # Keep the labelled CM reference columns stable after adopting the production fix.
+    ini = ini.replace('SUBSCATTERING=0.0', 'SUBSCATTERING=1.0').replace('SPHERE=0.0', 'SPHERE=1.0')
     for key in ('SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING', 'BRIGHTNESS'):
-        if variant in (key, 'LEGACY'):
-            ini = ini.replace(key + ('=0.5' if key == 'BRIGHTNESS' else '=0.0'), key + '=1.0')
+        if variant in (key, 'DIMMED'):
+            ini = ini.replace(key + '=1.0', key + ('=0.5' if key == 'BRIGHTNESS' else '=0.0'))
+    if variant in ('SPHERE', 'SPHERE_SUBSCATTERING'):
+        # The backlight comparison isolates the dome-normal blend, then transmission too.
+        # SPHERE_SUBSCATTERING matches needle shading; SUBSCATTERING matches rounded crowns.
+        ini = ini.replace('[NORMALS]\nBOOST=0.9\nSPHERE=1.0', '[NORMALS]\nBOOST=0.9\nSPHERE=0.0')
+        if variant == 'SPHERE_SUBSCATTERING':
+            ini = ini.replace('SUBSCATTERING=1.0', 'SUBSCATTERING=0.0')
     # No owned-species marker: Play must not replace diagnostic inputs with production defaults.
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as archive:
@@ -76,8 +95,9 @@ def build(ac_root):
             placement = treefx.placement(species, (x, .01, -y), 0, height, width / height)
             placement['model'] = name
             obj.listed.treefx.append(placement)
-            detail = {'BASELINE': 'Production inputs', 'LEGACY': 'Before shading correction',
-                      'NORMAL_ALPHA': 'Only normal alpha = 0'}.get(variant, 'Only this input = 1')
+            detail = {'BASELINE': 'CM shading reference', 'DIMMED': 'Half brightness / diffuse',
+                      'NORMAL_ALPHA': 'Only normal alpha = 0', 'BRIGHTNESS': 'Only brightness = 0.5',
+                      'SPHERE_SUBSCATTERING': 'Sphere and subscattering = 0'}.get(variant, 'Only this input = 0')
             labels.append(f'{species.upper()}\n{variant}\n{detail}')
             boards.append((x, y - 7.))
             catalogue.append({'species': species, 'variant': variant, 'model': name, 'pos': placement['pos']})
@@ -129,6 +149,7 @@ def build(ac_root):
     with (folder / 'extension/ext_config.ini').open('a') as stream:
         stream.write(make_track_folder.TREES_CONFIG)
     (folder / 'data/gallery.json').write_text(json.dumps(catalogue, indent=2))
+    register(folder)
     print(folder)
     return folder
 

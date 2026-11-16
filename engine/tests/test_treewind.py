@@ -38,7 +38,7 @@ class WindTest(unittest.TestCase):
             np.testing.assert_array_equal(np.asarray(current_texture), np.asarray(texture))
             for lod, (before, after) in enumerate(zip(old, current)):
                 def needles(mesh, end=None):
-                    return {tuple(np.round((*p, *n, *uv), 7)) for p, n, uv in zip(mesh.p[:end], mesh.n[:end], mesh.uv[:end])
+                    return {tuple(np.round((*p, *uv), 7)) for p, uv in zip(mesh.p[:end], mesh.uv[:end])
                             if uv[0] < .5 and uv[1] > .5}
                 upper = (7, 5, 4)[lod] * 4 if name in ('spruce', 'larch') else 0
                 self.assertTrue(needles(before, len(before.p) - upper) <= needles(after), name)
@@ -98,7 +98,7 @@ class WindTest(unittest.TestCase):
     def test_spruce_and_larch_export_original_needle_faces_without_height_cuts(self):
         for name in ('spruce', 'larch'):
             seed, make = treefx.MODELS[name]
-            _, original = make(random.Random(seed), seed, pointed=True, inset_tip=True)
+            _, original = make(random.Random(seed), seed, pointed=True, inset_tip=True, surface_normals=True)
             exported = treefx.read_bin(io.BytesIO(treefx.bin_bytes(name)))
             for lod, (before, after) in enumerate(zip(original, exported['lods'])):
                 with self.subTest(name=name, lod=lod):

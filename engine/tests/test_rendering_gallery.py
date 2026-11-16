@@ -2,6 +2,7 @@
 import io
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 import zipfile
 
@@ -15,14 +16,28 @@ from scenery import treefx
 
 
 class RenderingGalleryTest(unittest.TestCase):
-    def test_legacy_comparison_retains_old_lighting_with_identical_albedo(self):
+    def test_gallery_is_visible_in_my_tracks_without_a_geographical_route(self):
+        from app import mytracks
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / 'content/tracks' / gallery.NAME
+            (folder / 'data').mkdir(parents=True)
+            (folder / (gallery.NAME + '.kn5')).write_bytes(b'gallery')
+            gallery.register(folder)
+            listed = mytracks.listing(directory)
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]['name'], gallery.NAME)
+            self.assertEqual(listed[0]['title'], 'Rendering')
+            self.assertTrue(listed[0]['gallery'])
+            self.assertEqual(listed[0]['points'], [])
+
+    def test_dimmed_comparison_is_separate_from_production_defaults(self):
         for species in ('spruce', 'broadleaf'):
-            _, raw = gallery.tree_variant(species, 'LEGACY')
+            _, raw = gallery.tree_variant(species, 'DIMMED')
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 shading = treefx._ini(archive.read('tree.ini').decode())['SHADING']
             self.assertEqual({key: float(shading[key]) for key in
                               ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING')},
-                             dict.fromkeys(('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'), 1.))
+                             {'BRIGHTNESS': .5, 'SPECULAR': 0., 'REFLECTIVITY': 0., 'SUBSCATTERING': 0.})
 
     def test_grey_reference_encodes_linear_albedo_as_srgb(self):
         for value in (.05, .18, .5, .9):
@@ -47,8 +62,13 @@ class RenderingGalleryTest(unittest.TestCase):
                 with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                     ini = treefx._ini(archive.read('tree.ini').decode())
                     for key in ('SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING', 'BRIGHTNESS'):
-                        expected = 1. if variant in (key, 'LEGACY') else (.5 if key == 'BRIGHTNESS' else 0.)
+                        expected = (.5 if key == 'BRIGHTNESS' else 0.) if variant in (key, 'DIMMED') else 1.
+                        if variant == 'SPHERE_SUBSCATTERING' and key == 'SUBSCATTERING':
+                            expected = 0.
                         self.assertEqual(float(ini['SHADING'][key]), expected)
+                    # SPHERE blends CSP's crown-dome direction (x, height^4, z) into the shading normal.
+                    self.assertEqual(float(ini['NORMALS']['SPHERE']),
+                                     0. if variant in ('SPHERE', 'SPHERE_SUBSCATTERING') else 1.)
                 for key in ('diffuse', 'normal_map'):
                     before = np.asarray(Image.open(io.BytesIO(source['textures'][source['lods'][0]['parts'][0][key]])))
                     after = np.asarray(Image.open(io.BytesIO(loaded['textures'][loaded['lods'][0]['parts'][0][key]])))

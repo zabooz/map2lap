@@ -172,7 +172,7 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   wind bend instead of cutting across it as one straight face. Spruce and larch retain their original needle faces
   to avoid [horizontal lighting bands](#treefx-needle-lighting); fir and cypress retain needle subdivision.
   Spruce, larch and fir boles taper to a point over the
-  last eighth of tree height. Original painted crowns and foliage normals are retained. Owned tree models set
+  last eighth of tree height. Original painted crowns are retained. Spruce/larch needle cones and the fir tip use surface-aligned normals; other foliage normals are retained. Owned tree models set
   `[BAKING] AO_OPACITY=0.75` in their own `tree.ini`, keeping at least quarter visibility in CSP's native vertex-AO bake
   so enclosed trunks do not turn fully black. Bushes keep native defaults. This does not disable shadow casting or
   shadowmap reception. Vertex AO also controls fast wind flutter, so changes need a same-wind visual check; old baked
@@ -216,26 +216,35 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 
 ## TreeFX needle lighting
 
-Owned painted trees use `BRIGHTNESS=0.5`, with `SPECULAR`, `REFLECTIVITY` and `SUBSCATTERING` zero. The executed
-CSP 0.2.11/build 3465 model pixel shader doubles its brightness-adjusted diffuse sample before raising it to 2.2;
-half brightness cancels that gain for our sRGB atlases. Full photographic-tree highlights on a flat normal map light
-entire painted crown surfaces. The diffuse profile keeps their colour and avoids that broad pale sheen. This applies
-to our generated species and seasons; imported TreeFX assets retain their own parameters. Format 12 refreshes owned
-models before Play. Geometry, normals, native AO and the normal-map alpha remain unchanged.
+All owned TreeFX trees and bushes use `SUBSCATTERING=0`, with `BRIGHTNESS`, `SPECULAR` and `REFLECTIVITY` at 1.
+Rounded leaf crowns (broadleaf, birch, olive, acacia, baobab and tropical), all bushes and juniper use `SPHERE=1`
+to soften per-card lighting; other models retain `SPHERE=0`. Larch has needle cones despite being deciduous; palms have fronds.
+Surface-aligned spruce/larch cone normals (and the fir's conical tip) use the cone's vertical rise
+as their radial component and its radius decrease as their upward component. Legacy base constructors retain the old
+normals so unmarked assets can still be recognized. Geometry, texture alpha, crown overlap and wind subdivisions stay
+unchanged. Format 16 refreshes owned models before Play; content-based runtime names isolate CSP's baked AO and atlases.
 
-`tools/rendering_gallery.py` compares production inputs with `LEGACY` (brightness and all three highlight terms at 1),
-then one-input overrides for brightness, specular, reflectivity, subscattering and normal-map alpha. Each variant owns
-its cache names and retains the production geometry, normals and diffuse atlas. Upright and horizontal grey cards encode
-linear albedo 0.05, 0.18, 0.5 and 0.9 as sRGB, beside production ground swatches. Their displayed brightness depends on
-light, exposure and tone mapping; the 0.18 card is not a fixed screen-grey target. Use a fixed camera, weather and time,
-and compare automatic with fixed exposure before changing generator-wide shading values. The repeatable Windows/Proton
-start, camera, renderer screenshot and restoration commands are in [the rendering workflow](../tools/rendering_preview.md).
-Brightness 0.5 with the diffuse profile was checked in AC at fixed exposure 0.28, clear weather, zero wind and the same
-camera relative to each tree. Natural shadowing still makes lower crowns darker; this does not flatten lighting by height.
+In the AC gallery, removing SPHERE's dome-normal contribution reduced the bright upper spruce crown against the sun;
+removing subscattering as well removed the conspicuous glow while retaining illumination on the sunny side. This was
+also checked with the production crown shape. Transmission remains off for every generated species.
+Rounded leaf crowns and bushes retain dome smoothing after patchy lighting was observed on the real track;
+the final rounded-crown adjustment still needs a visual comparison. The spruce comparison does not establish
+identical results for every species, season or user weather/filter.
 
-Spruce and larch needle mantles must keep their original triangles, UVs and shading normals. Splitting their triangles
-at the wood's height bands introduces horizontal lighting bands in CSP; keeping the wood subdivision still lets the
-trunks bend and keeps their thin leaders. Format 11 regenerates older owned models, including their baked AO, before Play.
+The captured CSP shader passes `(x, height^4, z)` into normal blending and approximate self-shadowing. Its precise
+constant mapping is inferred; neither a universal 75-percent height threshold nor guaranteed absence of shadowing is
+established. Changing whole-tree brightness did not resolve the upper/lower contrast.
+
+`tools/rendering_gallery.py` keeps the original CM shading as `BASELINE`, the discarded dimmed profile as `DIMMED`,
+and individual overrides. `SPHERE_SUBSCATTERING` matches the production needle profile; `SUBSCATTERING` matches
+rounded leaf crowns. All columns share production geometry and normals. Grey cards and ground swatches provide references,
+not fixed screen-brightness targets. Compare sun-facing and shaded sides at the same time and exposure, then real tracks.
+See [the rendering workflow](../tools/rendering_preview.md) for camera, screenshot and restoration commands.
+
+Spruce and larch needle mantles must keep their original triangles and UVs, with the surface-aligned normals described
+above. Splitting their triangles at the wood's height bands introduces horizontal lighting bands in CSP; keeping the
+wood subdivision still lets the trunks bend and keeps their thin leaders. The owned format migration refreshes older
+models and their baked AO before Play.
 
 The isolated surface check identifies the prominent band on the fifth needle tier from the top, with dark and light
 regions on the same tier. Neutralizing only that tier's baked vertex AO removes much of the broad dark area, but a thin

@@ -79,13 +79,13 @@ class MeshTest(unittest.TestCase):
 
 
 class BinTest(unittest.TestCase):
-    def test_painted_atlases_keep_their_diffuse_energy_without_photographic_highlights(self):
+    def test_generated_trees_keep_full_brightness_and_only_rounded_crown_smoothing(self):
         for name in treefx.MODELS:
-            shading = ini_of(treefx.tree_ini(name, *treefx.size(name), ['lod.mesh']))['SHADING']
-            # CSP 0.2.11's model shader linearizes (2 * brightness * texture).
-            self.assertEqual(2 * float(shading['BRIGHTNESS']), 1., name)
-            for term in ('SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
-                self.assertEqual(float(shading[term]), 0., (name, term))
+            ini = ini_of(treefx.tree_ini(name, *treefx.size(name), ['lod.mesh']))
+            shading = ini['SHADING']
+            self.assertEqual(float(ini['NORMALS']['SPHERE']), 1. if name in treefx.SMOOTH_CROWNS else 0.)
+            for term in ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
+                self.assertEqual(float(shading[term]), 0. if term == 'SUBSCATTERING' else 1., (name, term))
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()

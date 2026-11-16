@@ -1,11 +1,22 @@
 # Rendering comparisons
 
 Use `rendering_gallery.py` to build labelled spruce/broadleaf comparisons, ground swatches and grey cards. `BASELINE`
-is the current generator; `LEGACY` retains brightness/specular/reflectivity/subscattering at 1. The other columns change
-one input. Their model and texture names isolate CSP caches; leave the global tree cache intact.
+uses the original brightness/specular/reflectivity/subscattering defaults of 1; `DIMMED` uses brightness 0.5 with the
+three highlight terms zero. Other columns isolate one setting, except `SPHERE_SUBSCATTERING`, which changes both. Their model and texture names isolate CSP caches; leave the global tree cache intact.
 
-The profile applies to generated trees and bushes in every climate and season. Imported models are outside it. When
-testing new shading, include both needle and leaf crowns, then verify an evergreen and a deciduous tree in winter.
+Production keeps SUBSCATTERING=0 and brightness 1 for every generated tree and bush. Rounded leaf crowns, bushes and juniper use
+SPHERE=1 (`SUBSCATTERING` column); other models use SPHERE=0 (`SPHERE_SUBSCATTERING` column).
+Imported models retain their own settings. When testing new shading, include both needle and leaf crowns,
+then verify an evergreen and a deciduous tree in winter.
+
+All columns share production geometry and normals. The gallery changes material inputs only; its diagnostic models
+are not rewritten by Play. Rebuilding the gallery uses the current generator's crown shapes and surface-aligned cone normals.
+
+The `SPHERE` column sets only `[NORMALS] SPHERE=0`; `SPHERE_SUBSCATTERING` also sets `SUBSCATTERING=0`. CSP's model
+shader derives a crown-dome direction per vertex, (x, height⁴, z) with x and z over the half width and height over the
+model height. `SPHERE` scales its addition to the shading normal, and the same direction gates sunlight as an
+approximate self-shadow, including transmitted light. The constant-to-setting mapping is inferred from disassembly.
+Judge these columns from both sun and shadow sides; geometric cone normals are now the production default.
 
 ## Build and run
 
@@ -18,9 +29,9 @@ the installed copy and restores it afterward. Steam and AC/CSP must already work
 ```text
 <python> tools/rendering_gallery.py --ac-root "<AC>"
 <python> tools/rendering_preview.py start --ac-root "<AC>" --fixed 0.28
-<python> tools/rendering_preview.py capture spruce_before --variant LEGACY
-<python> tools/rendering_preview.py capture spruce_after --variant BASELINE
-<python> tools/rendering_preview.py capture leaves_after --species broadleaf --variant BASELINE
+<python> tools/rendering_preview.py capture spruce_dimmed --variant DIMMED
+<python> tools/rendering_preview.py capture spruce_fixed --variant SPHERE_SUBSCATTERING
+<python> tools/rendering_preview.py capture leaves_fixed --species broadleaf --variant SUBSCATTERING
 <python> tools/rendering_preview.py stop
 ```
 
