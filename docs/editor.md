@@ -5,7 +5,7 @@ Start here for data ownership and synchronization, then read only the relevant t
 
 | Task | Reference |
 |---|---|
-| Selection, movement, copies, smoothing, trees and walls | [editor-tools.md](editor-tools.md) |
+| Selection, movement, copies, smoothing, kerbs, trees and walls | [editor-tools.md](editor-tools.md) |
 | Library, model/material import, portable models and Groups | [editor-library.md](editor-library.md) |
 | Ground selection, paint layers, UVs, caches and native export | [editor-ground.md](editor-ground.md) |
 | Clock, seasons, weather, wind and temperatures | [editor-weather.md](editor-weather.md) |

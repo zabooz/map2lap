@@ -12,6 +12,8 @@ test("The Select bar offers what can be done with what is picked, never a tool t
   // (a material area of a separate mesh, the road verge, can't be painted yet, but it can be deleted)
   expect(selectActions({id: null, road: null, surface: {...ground, face: 7}})).toEqual(["delete"]);
   expect(selectActions({id: null, road: null, surface: undefined})).toEqual([]);
+  expect(selectActions({id: null, road: null, surface: undefined, kerbId: "race"})).toEqual(["kerb", "delete"]);
+  expect(selectActions({id: null, road: null, surface: {...ground, face: 7}, kerbId: "race"})).toEqual(["kerb", "delete"]);
 });
 
 test("Alt changes the picked ground's texture or replaces the picked objects", () => {

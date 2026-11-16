@@ -16,16 +16,18 @@ function Place({keys, held, children}: {keys: string; held: boolean; children: R
   return <span className={`${styles.place}${held ? ` ${styles.held}` : ""}`}><kbd className={styles.key} aria-hidden="true">{keys}</kbd>{children}</span>;
 }
 
-/** What the tool on can be set to: a bar of its own at the bottom middle of the view. With every tool its options reach the same keys from left to right: the first Shift, the
-    next Ctrl, then Alt, then Ctrl+Alt; a number by its key with the wheel (the tool's wheel, in that order too). actions: buttons of no key, behind them. id: its name for what
-    asks for it. note: what to do next. */
-export function ToolOptions({id, title, note, options = [], actions}: {id?: string; title: string; note?: string; options?: ReactNode[]; actions?: ReactNode}) {
+/** What the tool on can be set to: a bar of its own at the bottom middle of the view. A keyed options object leaves unused
+    modifiers out; existing positional bars use Shift, Ctrl, Alt and Ctrl+Alt in that order. */
+export function ToolOptions({id, title, note, options = [], actions}: {id?: string; title: string; note?: string;
+  options?: ReactNode[] | Partial<Record<(typeof PLACES)[number]["held"], ReactNode>>; actions?: ReactNode}) {
   const held = useHeld();
+  const slots = Array.isArray(options) ? options : PLACES.map(place => options[place.held]);
   return (
     <div id={id} className={styles.options} data-tool-options="">
       <div className={styles.controls}>
         <b className={styles.title}>{title}</b>
-        {options.map((option, k) => <Place key={PLACES[k].keys} keys={PLACES[k].keys} held={held[PLACES[k].held]}>{option}</Place>)}
+        {slots.map((option, k) => option == null ? null
+          : <Place key={PLACES[k].keys} keys={PLACES[k].keys} held={held[PLACES[k].held]}>{option}</Place>)}
         {actions}
       </div>
       {note && <span className={styles.note}>{note}</span>}

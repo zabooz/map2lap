@@ -27,4 +27,6 @@ test("Insert takes Shift, Ctrl and Alt wheel input; leaving placement restores c
   wheel("shift"); wheel("ctrl"); wheel("alt");
   expect(received).toHaveLength(4);
   expect(cameraInputs).toBe(4);
+  expect(takesWheel("kerb", true, false)).toBe(true);
+  expect(takesWheel("kerb", false, false)).toBe(false);
 });

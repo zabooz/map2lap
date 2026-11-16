@@ -203,6 +203,7 @@ def index(ac, name):
     meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
                "copy": bool(m.get("copy")),
+               **({"kerb_id": m["kerb_id"]} if m.get("kerb_id") else {}),
                **({"model": m["model"]} if m.get("model") else {})}
               for i, m in enumerate(s["meshes"]) if (m["renderable"] or native_sources.get(m['name'])) and not m["name"].startswith(tracknative.PREFIX)]
     anchor, route = _route(os.path.dirname(kn5_path(ac, name)))      # (the track's own: a source holds only the kn5 and its list)
@@ -319,10 +320,11 @@ def copy_index(ac, name):
     _path, scan, listed = trackedits.context(ac, name, revision)
     meshes = [{"i": i, "name": m["name"], "material": m["material"], "vertices": m["vertices"], "indices": m["indices"],
                "lod_in": m["lod_in"], "lod_out": m["lod_out"], "center": m["center"], "radius": m["radius"],
-               "first_face": None, "base": None, "copy": True}
+               "first_face": None, "base": None, "copy": True,
+               **({"kerb_id": m["kerb_id"]} if m.get("kerb_id") else {})}
               for i, m in enumerate(scan["meshes"]) if m.get("copy") and m["renderable"]]
     wall_materials = {}
-    if any(kind in ("retaining wall", "parapet") for entry in listed.values() for kind in entry["kinds"]):
+    if scan.get("kerb_images") or any(kind in ("retaining wall", "parapet") for entry in listed.values() for kind in entry["kinds"]):
         # The current painted-ground descriptors must survive a wall layout change too, including their mask versions.
         complete = index(ac, name)
         wall_materials = {key: complete[key] for key in ("materials", "textures")}
@@ -530,6 +532,8 @@ def texture_bytes(ac, name, i, revision, version="", side=None):
     tex, offset, size = s["textures"][i]
     if tex in s.get("wall_images", {}):
         return tex, s["wall_images"][tex]
+    if tex in s.get("kerb_images", {}):
+        return tex, s["kerb_images"][tex]
     if tex in s.get("model_textures", {}):
         from app import trackmodels
         return tex, trackmodels.image(ac, name, s["model_textures"][tex], side)

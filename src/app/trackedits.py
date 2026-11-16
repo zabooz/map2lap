@@ -16,7 +16,7 @@ import threading
 
 import numpy as np
 
-from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackmodels, tracknative, trackpaint, trackplace, tracksurfaces,
+from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackkerbs, trackmodels, tracknative, trackpaint, trackplace, tracksurfaces,
                  tracktrees, trackview, trackwalls, treespacing)
 from track import groundmaterial, objectlist
 
@@ -103,6 +103,7 @@ def _parts(stored):
             [json.dumps(m, sort_keys=True) for m in stored.get("models", ())],
             [json.dumps(x, sort_keys=True) for x in stored.get("surfaces", ())], [json.dumps(t, sort_keys=True) for t in stored.get("trees", ())],
             [json.dumps(w, sort_keys=True) for w in stored.get("walls", ())],
+            [json.dumps(k, sort_keys=True) for k in stored.get("kerbs", ())],
             [json.dumps(stored['tree_spacing'], sort_keys=True)] if stored.get('tree_spacing') else [],
             [json.dumps(stored['car_density'], sort_keys=True)] if stored.get('car_density') else [])
 
@@ -111,7 +112,8 @@ def _count(stored):
     """How many changes a list holds: each object, each sort, each height change, each object placed. Pure."""
     return (len(stored["deleted"]) + len(stored.get("object_sorts", ())) + len(stored.get("heights", ()))
             + len(stored.get("placed", ())) + len(stored.get("copies", ())) + len(stored.get("paints", ())) + len(stored.get("models", ()))
-            + len(stored.get("surfaces", ())) + len(stored.get("trees", ())) + len(stored.get("walls", ())) + bool(stored.get('tree_spacing')) + bool(stored.get('car_density')))
+            + len(stored.get("surfaces", ())) + len(stored.get("trees", ())) + len(stored.get("walls", ())) + len(stored.get("kerbs", ()))
+            + bool(stored.get('tree_spacing')) + bool(stored.get('car_density')))
 
 
 def _names(value):
@@ -129,6 +131,7 @@ def _well_formed(d):
             and trackcopies.problems(d.get("copies", [])) is None and trackpaint.problems(d.get("paints", [])) is None
             and trackmodels.problems(d.get("models", [])) is None and tracksurfaces.problems(d.get("surfaces", [])) is None
             and trackwalls.problems(d.get("walls", [])) is None
+            and trackkerbs.problems(d.get("kerbs", [])) is None
             and treespacing.problem(d.get('tree_spacing')) is None and cardensity.problem(d.get('car_density')) is None
             and isinstance(d.get("trees", []), list) and all(isinstance(t, dict) and tracktrees.number(t.get("id")) is not None
                                                              for t in d.get("trees", []))
@@ -149,12 +152,13 @@ def _stored(path, saved=None):
             if (trackheights.problems(saved.get("heights", [])) or placement.problems(saved.get("placed", []))
                     or trackcopies.problems(saved.get("copies", [])) or trackpaint.problems(saved.get("paints", []))
                     or trackmodels.problems(saved.get("models", [])) or tracksurfaces.problems(saved.get("surfaces", []))
-                    or trackwalls.problems(saved.get("walls", [])) or treespacing.problem(saved.get('tree_spacing')) or cardensity.problem(saved.get('car_density'))):
+                    or trackwalls.problems(saved.get("walls", [])) or trackkerbs.problems(saved.get("kerbs", []))
+                    or treespacing.problem(saved.get('tree_spacing')) or cardensity.problem(saved.get('car_density'))):
                 return {"base": None, "revision": 0, "deleted": [], "broken": True}
             return {"base": saved["base"], "revision": 0, "deleted": saved["deleted"],
                     "object_sorts": saved["object_sorts"], "heights": saved.get("heights", []), "placed": saved.get("placed", []), "copies": saved.get("copies", []), "paints": saved.get("paints", []), "models": saved.get("models", []),
                     "surfaces": saved.get("surfaces", []), "trees": saved.get("trees", []), "trees_next": saved.get("trees_next", 0),
-                    "walls": saved.get("walls", []), 'tree_spacing': saved.get('tree_spacing'), 'car_density': saved.get('car_density')}
+                    "walls": saved.get("walls", []), "kerbs": saved.get("kerbs", []), 'tree_spacing': saved.get('tree_spacing'), 'car_density': saved.get('car_density')}
         return {"base": None, "revision": 0, "deleted": []}
     except (ValueError, KeyError, TypeError):
         pass
@@ -184,6 +188,7 @@ def load(ac, name):
             "heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "paints": s.get("paints", []) if same else [],
             "models": s.get("models", []) if same else [], "surfaces": s.get("surfaces", []) if same else [], "trees": trees,
             "walls": s.get("walls", []) if same else [],
+            "kerbs": s.get("kerbs", []) if same else [],
             'tree_spacing': s.get('tree_spacing') if same else None,
             'car_density': s.get('car_density') if same else None,
             "trees_next": tracktrees.next_of(trackview.treefx_of(trackview.served(ac, name)[0]), trees, s.get("trees_next", 0) if same else 0),
@@ -196,6 +201,7 @@ def load(ac, name):
                 "surfaces": saved.get("surfaces", []) if not s.get("broken") else [],
                 "trees": saved.get("trees", []) if not s.get("broken") else [],
                 "walls": saved.get("walls", []) if not s.get("broken") else [],
+                "kerbs": saved.get("kerbs", []) if not s.get("broken") else [],
                 'tree_spacing': saved.get('tree_spacing') if not s.get('broken') else None,
                 'car_density': saved.get('car_density') if not s.get('broken') else None}}
 
@@ -208,19 +214,21 @@ def saved_edits(ac, name):
     if saved and saved["base"] != revision:
         raise Conflict("The saved track changed; read it again")
     return {"base": revision, 'tree_spacing': (saved or {}).get('tree_spacing'), 'car_density': (saved or {}).get('car_density'), **{key: (saved or {}).get(key, []) for key in
-            ("deleted", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces", "trees", "walls")}}
+            ("deleted", "object_sorts", "heights", "placed", "copies", "paints", "models", "surfaces", "trees", "walls", "kerbs")}}
 
 
-def context(ac, name, revision, copies=None, models=None, walls=None):
+def context(ac, name, revision, copies=None, models=None, walls=None, kerbs=None):
     """The source path, scan and list extended by the copies of this draft (or the explicit list)."""
     path, scan = trackview._scan_of(ac, name, revision)
-    if copies is not None or models is not None or walls is not None:
+    if copies is not None or models is not None or walls is not None or kerbs is not None:
         stored = _stored(_file(ac, name), trackview.recipe(ac, name))
         copies = copies if copies is not None else stored.get("copies", []) if stored["base"] == revision else []
         models = models if models is not None else stored.get("models", []) if stored["base"] == revision else []
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
         walls = walls if walls is not None else stored.get("walls", []) if stored["base"] == revision else []
         extended, objects = trackwalls.extend(path, extended, objects, walls, {w["material"]: trackwalls.asset(ac, name, w["material"]) for w in walls if w["material"]})
+        kerbs = kerbs if kerbs is not None else stored.get("kerbs", []) if stored["base"] == revision else []
+        extended = trackkerbs.extend(extended, kerbs)
         extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path, "model_source_revision": revision}, objects, models)
         return path, extended, objects
     with _context_lock:
@@ -232,6 +240,7 @@ def context(ac, name, revision, copies=None, models=None, walls=None):
         extended, objects = trackcopies.build(path, scan, trackview.list_of(path), copies)
         walls = stored.get("walls", []) if stored["base"] == revision else []
         extended, objects = trackwalls.extend(path, extended, objects, walls, {w["material"]: trackwalls.asset(ac, name, w["material"]) for w in walls if w["material"]})
+        extended = trackkerbs.extend(extended, stored.get("kerbs", []) if stored["base"] == revision else [])
         extended, objects = trackmodels.extend(ac, name, {**extended, "model_source_path": path, "model_source_revision": revision}, objects, stored.get("models", []) if stored["base"] == revision else [])
         value = path, {**extended, "draft": stored["revision"], "paints": stored.get("paints", []) if stored["base"] == revision else []}, objects
         # An atomic save may have replaced the draft while its geometry was generated. Never cache it under the old stat.
@@ -573,7 +582,8 @@ def _meshes_between(path, scan, objects, before, after):
                  + [h for h in before["heights"] if h["id"] not in now])
     placed_then, placed_now = (set(_placements({"placed": d["placed"]})) for d in (before, after))
     moving = {p[0] for p in placed_then ^ placed_now}
-    copied = before.get("copies", []) != after.get("copies", []) or before.get("walls", []) != after.get("walls", [])
+    copied = (before.get("copies", []) != after.get("copies", []) or before.get("walls", []) != after.get("walls", [])
+              or before.get("kerbs", []) != after.get("kerbs", []))
     modeled = before.get("models", []) != after.get("models", [])
     if not (different or moving or copied or modeled):
         return []
@@ -628,8 +638,11 @@ def save_telling(ac, name, body):
         walls = body.get("walls", s.get("walls", []) if s["base"] == revision else [])
         if wrong := trackwalls.problems(walls):
             raise Invalid(wrong)
+        kerbs = body.get("kerbs", s.get("kerbs", []) if s["base"] == revision else [])
+        if wrong := trackkerbs.problems(kerbs):
+            raise Invalid(wrong)
         try:
-            source, scan, objects = context(ac, name, revision, copies, models, walls)
+            source, scan, objects = context(ac, name, revision, copies, models, walls, kerbs)
         except ValueError as e:
             raise Invalid(str(e)) from e
         section = trackview.treefx_of(source)
@@ -672,7 +685,7 @@ def save_telling(ac, name, body):
             trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
         except ValueError as error:
             raise Invalid(str(error)) from error
-        if not known or ((deleted or object_sorts or heights or placed or copies or paints or models or surfaces or added or walls or spacing or density) and _old(s, revision)):
+        if not known or ((deleted or object_sorts or heights or placed or copies or paints or models or surfaces or added or walls or kerbs or spacing or density) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
         # All material validation/version publication happens before committing the draft. Pixel rendering belongs to GET.
@@ -682,9 +695,10 @@ def save_telling(ac, name, body):
             raise Invalid(str(error)) from error
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted,
                       "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models,
-                      "surfaces": surfaces, "trees": added, "trees_next": trees_next, "walls": walls, 'tree_spacing': spacing, 'car_density': density})
+                      "surfaces": surfaces, "trees": added, "trees_next": trees_next, "walls": walls, "kerbs": kerbs,
+                      'tree_spacing': spacing, 'car_density': density})
         same = s["base"] == revision
-        before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else [], "walls": s.get("walls", []) if same else []}
+        before = {"heights": s.get("heights", []) if same else [], "placed": s.get("placed", []) if same else [], "copies": s.get("copies", []) if same else [], "models": s.get("models", []) if same else [], "walls": s.get("walls", []) if same else [], "kerbs": s.get("kerbs", []) if same else []}
         # (the trees that stand otherwise now, by a placement, a height change or what is added: the page takes them as they come)
         moved_trees = tracktrees.changed(section, {**before, "trees": s.get("trees", []) if same else []},
                                          {"trees": added, "placed": placed, "heights": heights}) if section else None
@@ -697,7 +711,7 @@ def save_telling(ac, name, body):
         scan = {**scan, "draft": new, "paints": paints}
         with _context_lock:
             _context_cache.update(key=_context_key(ac, name, source, revision), value=(source, scan, objects))
-    return {"revision": new, "meshes": _meshes_between(source, scan, objects, before, {"heights": heights, "placed": placed, "copies": copies, "models": models, "walls": walls}),
+    return {"revision": new, "meshes": _meshes_between(source, scan, objects, before, {"heights": heights, "placed": placed, "copies": copies, "models": models, "walls": walls, "kerbs": kerbs}),
             "textures": textures, "treefx": moved_trees}
 
 

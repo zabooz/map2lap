@@ -11,8 +11,9 @@ from PIL import Image
 
 from track import editorinfo, surfaceindex
 
-SNAP_M = 6.0  # A hand's aim and the terrain lattice; never snap across a whole neighbouring carriageway.
+SNAP_M = 6.0  # A hand's aim and the terrain lattice; wider mapped carriageways also accept clicks at their own edge.
 MAX_LENGTH_M = 3000.0
+NEAR_JOIN_M = 3.0  # The build's mapped junction merge distance (junctions.MERGE_M), for a dangling arm at one level.
 
 
 def _level_parts(feature):
@@ -94,13 +95,53 @@ def network(features, points):
     return _network(_graph(features), points)
 
 
-def _network(data, points):
+def _near_connectors(positions, edges):
+    """Short same-level links from a dangling road end to one mapped junction. Pure."""
+    adjacent = {}
+    for edge in edges:
+        for a, b in ((edge["a"], edge["b"]), (edge["b"], edge["a"])):
+            adjacent.setdefault(a, []).append((b, edge))
+    junctions = {n: items for n, items in adjacent.items()
+                 if len({other for other, _ in items}) >= 2 and len({edge["road"] for _, edge in items}) >= 2
+                 and len({edge["level"] for _, edge in items}) == 1 and all(not edge["structure"] for _, edge in items)}
+    cells = {}
+    for n in junctions:
+        x, z = positions[n]
+        cells.setdefault((math.floor(x / NEAR_JOIN_M), math.floor(z / NEAR_JOIN_M)), []).append(n)
+    links = []
+    for end, items in adjacent.items():
+        if len({other for other, _ in items}) != 1 or any(edge["structure"] for _, edge in items):
+            continue
+        source = items[0][1]
+        x, z = positions[end]
+        cell = math.floor(x / NEAR_JOIN_M), math.floor(z / NEAR_JOIN_M)
+        choices = []
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for other in cells.get((cell[0] + dx, cell[1] + dz), []):
+                    if (other == end or junctions[other][0][1]["level"] != source["level"]
+                            or any(edge["road"] == source["road"] for _, edge in junctions[other])):
+                        continue
+                    gap = float(np.linalg.norm(positions[end] - positions[other]))
+                    if 0 < gap <= NEAR_JOIN_M:
+                        choices.append((gap, other))
+        choices.sort()
+        if not choices or len(choices) > 1 and choices[1][0] - choices[0][0] < 0.5:
+            continue  # two close junctions: the map does not say which one this arm joins
+        other = choices[0][1]
+        width = min(float(source["width"]), max(float(edge["width"]) for _, edge in junctions[other]))
+        links.append({**source, "a": end, "b": other, "width": width, "connector": True})
+    return links
+
+
+def _network(data, points, bridge_hints=None, join_near=False):
     if not isinstance(points, (list, tuple)) or not 2 <= len(points) <= 20:
         raise ValueError("Mark between 2 and 20 road points")
     pins = np.asarray(points, np.float64)
     if pins.ndim != 2 or pins.shape[1] not in (2, 3) or not np.isfinite(pins).all():
         raise ValueError("Invalid road points")
-    positions, numbers, edges = list(data[0]), dict(data[1]), data[2]
+    positions, numbers, original = list(data[0]), dict(data[1]), data[2]
+    edges = [*original, *(_near_connectors(positions, original) if join_near else [])]
 
     def node(level, point):
         key = level, round(float(point[0]) * 1000), round(float(point[1]) * 1000)
@@ -112,14 +153,24 @@ def _network(data, points):
     starts, ends = xy[[e["a"] for e in edges]], xy[[e["b"] for e in edges]]
     vector = ends - starts
     square = (vector * vector).sum(axis=1)
+    # Kerb clicks target the edge. On a mapped 20 m carriageway that edge is
+    # about 10 m from the centreline, beyond the ordinary 6 m aiming radius.
+    reach = np.array([max(SNAP_M, float(edge["width"]) / 2 + 1.0) for edge in edges])
     splits, anchors = {}, []
-    for pin in pins[:, :2]:
+    for pin_number, pin in enumerate(pins[:, :2]):
         t = np.clip(((pin - starts) * vector).sum(axis=1) / square, 0, 1)
         projected = starts + t[:, None] * vector
         distance = np.linalg.norm(projected - pin, axis=1)
-        k = int(np.argmin(distance))
-        if distance[k] > SNAP_M:
+        within = np.where(distance <= reach, distance, np.inf)
+        if not np.isfinite(within).any():
             raise ValueError("Click on a mapped road")
+        hint = bridge_hints[pin_number] if bridge_hints is not None else None
+        if hint is not None:
+            matching = np.array([(e["structure"] == "bridge") == hint for e in edges])
+            preferred = np.where(matching, within, np.inf)
+            k = int(np.argmin(preferred if np.isfinite(preferred).any() else within))
+        else:
+            k = int(np.argmin(within))
         anchor = node(edges[k]["level"], projected[k])
         anchors.append(anchor)
         splits.setdefault(k, []).append((float(t[k]), anchor))
@@ -161,7 +212,8 @@ def _network(data, points):
     for (a, b), edge in selected.items():
         neighbours[a].add(b)
         neighbours[b].add(a)
-        segments.append({"a": positions[a].tolist(), "b": positions[b].tolist(), **{k: edge[k] for k in ("width", "road", "owner", "structure")}})
+        segments.append({"a": positions[a].tolist(), "b": positions[b].tolist(), **{k: edge[k] for k in ("width", "road", "owner", "structure")},
+                         **({"connector": True} if edge.get("connector") else {})})
     length = sum(float(np.linalg.norm(np.asarray(e["b"]) - e["a"])) for e in segments)
     if length > MAX_LENGTH_M:
         raise ValueError("This road network is too long; smooth it in parts")
@@ -234,8 +286,8 @@ def footprint(net, x, z, painted, owners=None):
 
 
 @functools.lru_cache(maxsize=32)
-def _mapped(folder, stamp, points):
-    return _network(_source_graph(folder, stamp), points)
+def _mapped(folder, stamp, points, bridge_hints=None, join_near=False):
+    return _network(_source_graph(folder, stamp), points, bridge_hints, join_near)
 
 
 @functools.lru_cache(maxsize=1)
@@ -245,7 +297,7 @@ def _source_graph(folder, stamp):
     return _graph(features)
 
 
-def mapped(path, points):
+def mapped(path, points, scan=None, join_near=False):
     """Read a cached source network from the build's retained map facts; the main driving route is never used."""
     folder = editorinfo._folder(path)
     manifest = editorinfo.manifest(path)
@@ -260,7 +312,11 @@ def mapped(path, points):
         raise ValueError("Invalid road points") from error
     if pins.ndim != 2 or pins.shape[1] not in (2, 3) or not np.isfinite(pins).all():
         raise ValueError("Invalid road points")
-    return _mapped(folder, stamp, tuple(tuple(p) for p in pins))
+    hints = None
+    if scan is not None and pins.shape[1] == 3:
+        from app import roadsurfaces
+        hints = tuple(roadsurfaces.bridge_at(path, scan, point) for point in pins)
+    return _mapped(folder, stamp, tuple(tuple(p) for p in pins), hints, join_near)
 
 
 def selection(path, net):

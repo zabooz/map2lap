@@ -12,6 +12,7 @@ import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeome
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
 import {RoadMarkers} from "./roadMarkers";
+import {KerbHighlight} from "./kerbHighlight";
 import {GeometryPreview} from "./geometryPreview";
 import * as THREE from "three";
 import {makeTexture} from "./texture";
@@ -110,6 +111,7 @@ export class TrackView {
   private geometryPreview = new GeometryPreview(i => this.byNumber.get(i), () => { this.dirty = true; });
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
   private roadMarkers = new RoadMarkers(this.scene, this.camera, (x, z) => this.groundAt(x, z), () => { this.dirty = true; });
+  private kerbHighlight = new KerbHighlight(this.scene, () => { this.dirty = true; });
   private navigation = new Navigation(this.camera, (origin, direction) => this.groundAlong(origin, direction), () => this.moved());
   private resizing: ResizeObserver;
   private down = new THREE.Raycaster();
@@ -263,6 +265,7 @@ export class TrackView {
     this.sun.dispose();
     this.lampCones.dispose();
     this.roadMarkers.dispose();
+    this.kerbHighlight.dispose();
     this.resizing.disconnect();
     this.renderer.setAnimationLoop(null);
     this.renderer.dispose();
@@ -805,6 +808,7 @@ export class TrackView {
     this.textures.reconcile(current, {...current, ...data});
     const added = data.meshes.filter(info => info.copy), tag = data.copy_revision ?? "";
     for (const mesh of this.meshes.filter(m => (m.userData.info as MeshInfo).copy)) {
+      this.kerbHighlight.remove(mesh);
       const info = mesh.userData.info as MeshInfo;
       this.scene.remove(mesh);
       mesh.geometry.boundsTree = undefined;
@@ -1012,7 +1016,10 @@ export class TrackView {
   private pick(e: PointerEvent, el: HTMLElement, point?: THREE.Vector3): Picked | null {
     if (!this.data) return null;
     this.mouse = screenPoint(e, el);
-    const hit = this.pointing.hit(this.mouse);
+    let hit = this.pointing.hit(this.mouse);
+    if (this.cursorTool === "kerb" && hit && !ROAD.test(hit.object.name) && !hit.object.name.startsWith("1KERB_")) {
+      hit = this.pointing.roadUnder(hit) ?? hit;
+    }
     if (hit && point) point.copy(hit.point);
     return this.selection.pick(e, hit, hit ? this.pointing.describe(hit) : null);
   }
@@ -1066,6 +1073,16 @@ export class TrackView {
   stopRide() { this.navigation.stopRide(); }
 
   drawBand(line: Place[] | null, width: number) { this.roadMarkers.drawBand(line, width); }
+  highlightKerb(id: string | null) { this.kerbHighlight.set(id, this.meshes); }
+  /** The retained texture preview of one generated kerb, when its draft mesh is indexed. Pure. */
+  kerbAppearance(id: string) {
+    const data = this.data, mesh = data?.meshes.find(item => item.kerb_id === id);
+    const name = mesh ? data?.materials[mesh.material]?.texture : null;
+    const texture = name ? data?.textures.findIndex(item => item.name === name) ?? -1 : -1;
+    return data && name && texture >= 0
+      ? {name, preview: `/api/editor/${encodeURIComponent(this.trackName)}/thumbnail?${new URLSearchParams({texture: String(texture), r: data.revision})}`}
+      : null;
+  }
   drawPins(pins: Place[]) {
     this.roadMarkers.drawPins(pins);
     this.applyCursor();
@@ -1107,6 +1124,7 @@ export class TrackView {
         const d = this.camera.position.distanceTo(m.geometry.boundingSphere!.center);
         m.visible = d >= m.userData.lodIn && (GROUND.test(m.name) || d < m.userData.lodOut);
       }
+      this.kerbHighlight.follow();
       this.cullModels();
       if (this.brush.goneNow !== this.treesGone) this.leaveOutTrees();
       this.surfaceOverlay?.follow();
@@ -1138,6 +1156,7 @@ export class TrackView {
   }
 
   private clear() {
+    this.kerbHighlight.clear();
     this.meshPreparer?.dispose();
     this.meshPreparer = undefined;
     this.preparationIndexes = undefined;
@@ -1204,6 +1223,7 @@ export class TrackView {
     this.scene.add(m);
     this.textures.attach(m);
     this.meshes.push(m);
+    this.kerbHighlight.add(m);
     this.byNumber.set(info.i, m);
     // (a model is always picked as its object: it never reaches the search for a material's connected faces)
     if (prepared.regions) {

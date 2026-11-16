@@ -27,7 +27,7 @@ STRICT = "MAP2LAP_STRICT"       # set (tools/check.py, tools/measure.py): a mesh
 LISTED = {"cars", "bld", "bldcol", "props", "pylon", "wire", "rocks", "fence", "fencecol", "fuel", "signs", "pool", "play", "sport",
           "graves", "tower", "fountain"}    # single objects: make_obj says whose each triangle is
 TRACK = {"ground", "water", "foam", "far", "road", "walk", "walkcol", "deck", "tunnel", "rail", "railcol", "guardrail",
-         "guardrailcol", "gate"}            # the track itself: nothing to delete by a click
+         "guardrailcol", "gate", "racing"}  # the track itself: nothing to delete by a click
 OF_THE_TRACK = ("_sub",)                    # (a substation's fence: goes with its yard, which stays for now)
 NOT_ALL = {"house"}                         # sorts never deleted all at once: a click would take a whole street
 TREEFX = "trees"                            # the TreeFX trees' ids: trees#<number>

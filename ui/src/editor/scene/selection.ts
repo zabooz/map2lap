@@ -96,7 +96,7 @@ export class Selection {
     }
     const info = hit?.object.userData.info as MeshInfo | undefined;
     let surface: SurfacePoint | undefined;
-    if (info && hit?.uv && !id && (groundTile(hovered.object) || this.host.materialArea(info.i))) {
+    if (info && hit?.uv && !id && !info.kerb_id && (groundTile(hovered.object) || this.host.materialArea(info.i))) {
       surface = {mesh: info.i, u: hit.uv.x, v: hit.uv.y, revision: data.revision, whole: !!whole};
       if (!groundTile(hovered.object)) { surface.face = hit.faceIndex ?? 0; surface.object = null; }
     }
@@ -108,7 +108,7 @@ export class Selection {
     if (!adding && !keeping) this.forget();     // A context menu on a marked member acts on the whole selection.
     const bounds = id ? this.host.objects.boundsOf(id) : null;
     const foot = bounds?.getCenter(new THREE.Vector3()).setY(bounds.min.y);
-    const picked: Picked = {id, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind,
+    const picked: Picked = {id, kerbId: info?.kerb_id ?? null, afterBuild: !id && IN_THE_LIST.test(hovered.object), kind: hovered.kind,
                             sort: hovered.sort, position: (foot ? [foot.x, foot.y, foot.z] : hovered.at) as [number, number, number], left: e.button === LEFT_BUTTON,
                             road: hit && ROAD.test(hit.object.name) ? [hit.point.x, hit.point.z] as [number, number] : null, all: [],
                             adding: !!adding, keeping, whole: !!whole, surface,

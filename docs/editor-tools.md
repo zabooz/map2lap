@@ -85,6 +85,30 @@ new joins exceeding its grade limit unless improving an already steeper bump, fo
 gaps without an editable road surface. Limits: 20 points, 3 km of road, 64 painted tiles and the height-raster point limit.
 Routing/masks cache independently of draft revisions. `app/trackband.py` retains the legacy linear solver/API and its tests.
 
+## Racing kerbs
+
+Racing kerb (B) takes two road clicks as the start and end of one mapped, unbranched road stretch. The first click's
+position relative to the mapped centreline chooses the left or right edge in that click order. A centreline click defaults
+to the right edge. The selected mapped centreline uses the road build's bounded quadratic spline before
+one-metre sampling. Junctions, feature joins and selected ends stay fixed; the kerb samples source height at its edge
+(`app/roadregion.py`, `app/trackkerbs.py`). A selected kerb can change width (0.2–2 m), physical height (0–30 cm) and
+flat, rounded or ribbed profile. To place a kerb on the opposite edge, mark a new range there; each side samples its own road
+height. The selected kerb's actual meshes are tinted amber. Clicking
+any part of a kerb with Select highlights its full range; the Select bar's Racing kerb (B) action opens that range's
+settings. Selection > Options has width, height and profile for the picked range.
+X, Delete or the Select bar's Delete action removes the picked range; Undo restores it. Shift/Ctrl/Alt with the wheel
+change width, height and profile in the Kerb tool. Undo/Redo, the draft and Save keep independent ranges.
+
+The red-white strip is a visible `1KERB_racing_…` KN5 collision mesh with the ordinary AC KERB surface, so its height is
+physical even without CSP. It overlaps the mapped asphalt edge by 15 cm to join it; that small overlap can fail on a
+road whose mapped width exceeds its actual asphalt. Ground roads use their sampled road height. Bridges use the exact
+source deck triangles at the kerb edge, with the build's 1 cm asphalt-skin lift; the 2 m height grid only identifies the
+selected level where bridges cross other roads. Tunnels are refused until the Editor can sample their floor edge reliably.
+A 2 m kerb can extend beyond the supported shoulder on narrow or steep roads. The road-edge decal under the kerb remains;
+the raised strip renders over it. The mesh and DDS texture are regenerated from the retained source on each Save, and
+remain below AC's 65,535 vertices per mesh. Elevation follows the kerb at each vertex. Existing saved kerbs retain their
+stored centreline and height; marking them again applies the current spline and bridge-height sampling.
+
 ## Tree spacing
 
 Build-time minimum spacing permanently removes generated tree placements before the track's source lists are saved

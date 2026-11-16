@@ -4,7 +4,7 @@ import type {Tool} from "./ToolPanel";
 
 /** Ground has its texture changed; an object is replaced, moved, copied or deleted. Smooth road and Elevation are not offered: they
     work on the ground around too, and beside a picked surface they would look as if they changed just that. */
-export type SelectAction = "texture" | "replace" | "move" | "copy" | "delete";
+export type SelectAction = "texture" | "replace" | "move" | "copy" | "delete" | "kerb";
 
 /** Each action's button: its label, the tool whose key it shares, its tooltip. */
 export const ACTIONS: Record<SelectAction, {label: string; tool?: Tool; hint: string}> = {
@@ -13,11 +13,13 @@ export const ACTIONS: Record<SelectAction, {label: string; tool?: Tool; hint: st
   move: {label: "Transform", tool: "move", hint: "Move, turn, raise and size what is picked"},
   copy: {label: "Copy", tool: "copy", hint: "Click to place copies of what is picked"},
   delete: {label: "Delete", tool: "delete", hint: "Delete what is picked; Ctrl+Z brings it back"},
+  kerb: {label: "Racing kerb", tool: "kerb", hint: "Show the complete selected kerb range and change its height, width or profile (B)"},
 };
 
 /** The actions for picked, in the bar's order; texture only where the ground's paint can change (not a separate mesh's area). Pure. */
-export function selectActions(picked: Pick<Picked, "id" | "road" | "surface"> | null): SelectAction[] {
+export function selectActions(picked: Pick<Picked, "id" | "road" | "surface" | "kerbId"> | null): SelectAction[] {
   if (!picked) return [];
+  if (picked.kerbId) return ["kerb", "delete"];
   if (picked.id) return ["replace", "move", "copy", "delete"];
   // (a material area of a separate mesh, the road verge, has no texture to change yet; it goes by its triangles)
   return !picked.surface ? [] : picked.surface.face === undefined ? ["texture"] : ["delete"];

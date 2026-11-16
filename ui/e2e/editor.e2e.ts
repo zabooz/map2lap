@@ -85,7 +85,7 @@ test("the hover box: a tree has its own id, kind and size; beside its crown the 
   await expect(box(page)).toContainText(/Type\s*spruce/);
   await expect(box(page)).toContainText(/Height\s*30\.0 m/);
   await expect(box(page)).toContainText(/Stands at\s*128\.0, -130\.0/);
-  await expect(box(page)).toContainText("spruce_d.png");
+  await expect(box(page)).toContainText("m2l_spruce_f16_summer_d.png");
   await expect(box(page)).not.toContainText(/ID\s*—/);
 });
 

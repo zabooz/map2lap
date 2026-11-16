@@ -55,6 +55,10 @@ that line, excluding neighbouring roads at other levels; the Road region tool re
 The mapped network selected by Smooth road’s terminal/branch points, clipped by actual road paint (`app/roadregion.py`).
 Orange shows selected road, faint orange the terrain transition; the driving route does not constrain it.
 
+**Racing kerb**:
+An Editor-added, red-white `1KERB_` collision mesh following one selected mapped road edge between two clicks.
+Its width, height and profile are retained in the draft and regenerated on Save; see [editor-tools.md](docs/editor-tools.md).
+
 **Object copy**:
 An independent source-object instance with frozen member poses and `copy_<id>#<member>` ids (`app/trackcopies.py`).
 Houses bring children/collision; copied poles have no wires.

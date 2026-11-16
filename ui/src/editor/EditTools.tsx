@@ -1,6 +1,8 @@
 import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
 import {BandOptions} from "./tools/BandOptions";
+import {KerbOptions} from "./tools/KerbOptions";
+import {useKerbs} from "./tools/useKerbs";
 import {CameraOptions, useCamera} from "./tools/Camera";
 import {CopyTool} from "./tools/Copy";
 import {TrackEdits, type EditState} from "./state/edits";
@@ -26,6 +28,7 @@ import {ViewMenu} from "./tools/ViewMenu";
 import {Inspector} from "./inspector/Inspector";
 import {SceneryControls} from "./inspector/SceneryControls";
 import {TransformFields} from "./inspector/TransformFields";
+import {KerbFields} from "./inspector/KerbFields";
 import {WallFields} from "./inspector/WallFields";
 import {useWalls} from "./tools/useWalls";
 import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
@@ -41,7 +44,7 @@ const VERGE_DELETED = "Road verge deleted. Undo brings it back.";
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
-  return (tool === "smooth" && editable && marked) || (tool === "delete" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
+  return (tool === "smooth" && editable && marked) || (tool === "delete" && editable) || (tool === "kerb" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
 }
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
@@ -107,6 +110,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const elevating = tool === "elevation" && editable;
   const deleting = tool === "delete" && editable;
   const marking = tool === "smooth" && editable;
+  const kerbing = tool === "kerb" && editable;
   const moving = tool === "move" && editable;
   const saving = useSave({name, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
@@ -132,6 +136,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile), look) : Promise.resolve(false);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
+  const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: kerbing,
+    highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote});
+  const inspectorKerb = state.kerbs.find(k => k.id === (tool === "kerb" ? kerbs.selected : picked?.kerbId)) ?? null;
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
   const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
   const remover = useDelete({view, edits, enabled: deleting, onNote: setNote});
@@ -141,9 +148,18 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     try { return view.objects.surfaceCuts(view.materialSelection(point).meshes ?? []); } catch { return null; }
   };
 
+  /** A picked kerb is a draft range, not an object in the selection index. */
+  const removePickedKerb = (id: string) => {
+    if (!editable || !state.kerbs.some(kerb => kerb.id === id)) return;
+    edits.removeKerb(id);
+    kerbs.setSelected(null);
+    setNote("Kerb deleted. Undo brings it back.");
+    view.selection.unpick();
+  };
+
   /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
-    if (marking && p?.left) return view.selection.unpick();
+    if ((marking || kerbing) && p?.left) return view.selection.unpick();
     setPicked(p);
     if (!p?.adding && !p?.keeping) setMarked([]);
     if (tool === "select") setSurfacePicks(previous => pickedSurfaces(previous, p));
@@ -152,7 +168,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       const group = p.sort && !NOT_ALL.has(p.sort) ? {sort: p.sort} : null;
       if (group) setMarked(previous => [...(p.adding ? previous : []).filter(g => g.sort !== group.sort), group]);
     }
-    if (deleting && p?.id && p.left) {
+    if (deleting && p?.kerbId && p.left) {
+      removePickedKerb(p.kerbId);
+    } else if (deleting && p?.id && p.left) {
       edits.remove([{id: p.id, position: p.position}]);
       view.selection.unpick();
     } else if (deleting && p?.left && p.surface?.face !== undefined) {
@@ -165,9 +183,16 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   /** Smooth road marks A, B and intermediate pins; grass or sky clears the active range. */
   const onClicked = useEffectEvent((p: Picked | null) => {
-    if (!marking) return;
-    if (p?.road) band.click(p.road[0], p.road[1], p.position[1]);
-    else if (!p?.id) band.clear();
+    if (marking) {
+      if (p?.road) band.click(p.road[0], p.road[1], p.position[1]);
+      else if (!p?.id) band.clear();
+    } else if (kerbing && p?.kerbId && !kerbs.start && state.kerbs.some(kerb => kerb.id === p.kerbId)) {
+      kerbs.setSelected(p.kerbId);
+      setNote(null);
+    } else if (kerbing && (p?.road || p?.inspection?.hovered.object.startsWith("1KERB_")
+      || p?.inspection?.hovered.object.startsWith("nocol_road_edge_"))) {
+      void kerbs.click(p!.position[0], p!.position[2], p!.position[1]);
+    }
   });
 
   useEffect(() => {
@@ -239,6 +264,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     else if (tool === "move") move.wheel(keys, by);
     else if (tool === "copy" || tool === "model" || tool === "group") copyWheel.current(keys, by);
     else if (tool === "smooth") band.wheel(keys, by);
+    else if (tool === "kerb") kerbs.wheel(keys, by);
     else if (tool === "delete") remover.wheel(keys, by);
     else elevation.wheel(keys, by);
   });
@@ -265,7 +291,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   const remove = (cuts = vergeCuts) => {
     if (!editable) return;
-    if (cuts) {
+    if (inspectorKerb) {
+      removePickedKerb(inspectorKerb.id);
+    } else if (cuts) {
       edits.removeSurfaces(cuts);
       setSurfacePicks([]);
       setNote(VERGE_DELETED);
@@ -276,11 +304,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       view.selection.unpick();
     }
   };
-  /** A tool taken up, the one on laid down: Select. Smooth road taken up from Select starts at the road picked there. */
+  /** A tool taken up, the one on laid down: Select. A picked kerb or road becomes the new tool's selected range or start. */
   const takeUp = (t: Tool) => {
     const next = tool === t ? "select" : t, road = editable ? smoothStart(tool, next, picked) : null;
     if (next === "move" && wallIds.length) onInspectorCollapsed(false);
-    setMenu(null); band.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
+    if (tool === "select" && next === "kerb" && picked?.kerbId) kerbs.setSelected(picked.kerbId);
+    setMenu(null); band.clear(); if (next !== "kerb") kerbs.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
     if (road) band.start(road[0], road[1], picked?.position[1]);
   };
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -301,7 +330,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     move: movable || wallIds.length ? () => { setTool("move"); setNote(null); onInspectorCollapsed(false); view.focus(); } : null,
     copy: movable ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null,
     replace: editable && replaceable?.length ? openModels : null,
-    delete: editable && (removable.length > 0 || !!vergeCuts) ? () => { remove(); view.focus(); } : null,
+    delete: editable && (removable.length > 0 || !!vergeCuts || (tool === "select" && !!inspectorKerb)) ? () => { remove(); view.focus(); } : null,
+    kerb: editable && picked?.kerbId && state.kerbs.some(k => k.id === picked.kerbId)
+      ? () => { takeUp("kerb"); setNote(null); view.focus(); } : null,
   };
 
   const offered = tool === "select" ? selectActions(picked) : [], altOffered = altAction(offered);
@@ -339,11 +370,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       setSurfacePicks([]);
       view.brush.cancelStroke();
       band.clear();
+      kerbs.clear();
       view.selection.unpick();
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
     }
-    else if ((marked.length || removable.length || vergeCuts) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
+    else if ((marked.length || removable.length || vergeCuts || inspectorKerb) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
     else if (keyed?.tool === "model") { if (editable) openModels(); }
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
@@ -395,7 +427,10 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
           textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={wallIds.length ? undefined : limitedTiles} colourOnly={!!wallIds.length}
             busy={painting.busy || walls.busy} progress={wallIds.length ? null : painting.progress} error={wallIds.length ? walls.error : painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
       <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
-      {inspectorHost && createPortal(<Inspector name={name} picked={picked} surfaces={tool === "select" ? surfacePicks : []} activeTool={tool}
+      {inspectorHost && createPortal(<Inspector name={name} picked={tool === "kerb" && inspectorKerb && picked?.kerbId !== inspectorKerb.id ? null : picked}
+        surfaces={tool === "select" ? surfacePicks : []} activeTool={tool}
+        standaloneAppearance={inspectorKerb ? view.kerbAppearance(inspectorKerb.id) : null}
+        kerbControls={editable && inspectorKerb ? <KerbFields edit={inspectorKerb} onChange={patch => edits.updateKerb(inspectorKerb.id, patch)} /> : null}
         scenery={<>
           <SceneryControls key={`${name}-trees`} kind="trees" name={name} edits={edits} state={state} objects={view.objects} visible={visible}
             selection={() => view.selection.treeSpacingTargets(marked, state.treeSpacing?.hidden)} />
@@ -425,6 +460,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {elevating && <ElevationOptions elevation={elevation} view={view} />}
       {deleting && <DeleteOptions remove={remover} view={view} />}
       {marking && <BandOptions band={band} view={view} />}
+      {kerbing && <KerbOptions kerb={kerbs} view={view} onDelete={() => remove()} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && (wallIds.length ? <ToolOptions id="edit-move-set" title="Transform"
         note="Change the wall top in Options; both feet stay fixed." /> : <MoveOptions move={move} view={view} />)}

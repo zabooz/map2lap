@@ -53,8 +53,62 @@ def _plane(triangle, x, z):
     return (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6), u * a[1] + v * b[1] + (1 - u - v) * c[1]
 
 
-def ground(path, scan, moved, bounds, net):
-    """Selected ground/deck road heights on the existing lattice, with source ground outside structures."""
+def bridge_at(path, scan, point):
+    """True/False if a deck lies at x/z, matched against clicked [x,z,y]; None away from decks."""
+    x, z, y = point
+    bounds = np.array([[x - 0.1, z - 0.1], [x + 0.1, z + 0.1]])
+    heights = []
+    for i, _faces, triangles in _top_triangles(path, scan, bounds=bounds):
+        if not scan['meshes'][i]['name'].startswith('1ROAD_deck'):
+            continue
+        near = triangles[((triangles[:, :, [0, 2]].min(axis=1) <= [x, z])
+                          & (triangles[:, :, [0, 2]].max(axis=1) >= [x, z])).all(axis=1)]
+        for triangle in near:
+            inside, height = _plane(triangle, x, z)
+            if inside:
+                heights.append(float(height))
+    if not heights:
+        return None
+    # The visible asphalt skin is centimetres above 1ROAD_deck; a road below a
+    # crossing deck is metres away. The tolerance also covers imperfect click rays.
+    return min(abs(height - y) for height in heights) < 0.2
+
+
+def deck_heights(path, scan, moved, points, approximate, net):
+    """Exact visible bridge-road height at x/z; keep approximate heights away from deck faces."""
+    points = np.asarray(points, np.float64)
+    result = np.asarray(approximate, np.float64).copy()
+    on_bridge = structures(net, points[:, 0], points[:, 1], extra=2) == 1
+    if not on_bridge.any():
+        return result
+    best = np.full(len(points), np.inf)
+    bounds = np.array([points.min(axis=0) - 0.1, points.max(axis=0) + 0.1])
+    for i, _faces, triangles in _top_triangles(path, scan, moved, bounds):
+        if not scan['meshes'][i]['name'].startswith('1ROAD_deck') or not len(triangles):
+            continue
+        low = triangles[:, :, [0, 2]].min(axis=1)
+        high = triangles[:, :, [0, 2]].max(axis=1)
+        for k in np.flatnonzero(on_bridge):
+            x, z = points[k]
+            near = triangles[((low <= [x + 1e-6, z + 1e-6])
+                              & (high >= [x - 1e-6, z - 1e-6])).all(axis=1)]
+            if not len(near):
+                continue
+            for triangle in near:
+                inside, height = _plane(triangle, x, z)
+                if not inside:
+                    continue
+                # The raster identifies which of several stacked roads was selected.
+                error = abs(height - approximate[k])
+                if error < min(best[k], 0.5):
+                    # roadmesh.DECK_SKIN raises the visible asphalt 1 cm above the collision slab.
+                    result[k] = height + 0.01
+                    best[k] = error
+    return result
+
+
+def ground(path, scan, moved, bounds, net, driveable_only=False):
+    """Selected ground/deck heights on the existing lattice; driveable_only excludes bridge concrete below the road."""
     grid, i0, j0 = trackband._ground(path, scan, moved, bounds, road_only=True)
     x, z = np.meshgrid((np.arange(grid.shape[1]) + i0) * 2, (np.arange(grid.shape[0]) + j0) * 2)
     kind = structures(net, x, z, extra=2)
@@ -64,6 +118,8 @@ def ground(path, scan, moved, bounds, net):
     grid[kind != 0] = np.nan
     best = np.full(grid.shape, np.inf)
     for _i, _faces, triangles in _top_triangles(path, scan, moved, bounds):
+        if driveable_only and not scan['meshes'][_i]['name'].startswith('1ROAD_deck'):
+            continue
         for triangle in triangles:
             low, high = triangle[:, [0, 2]].min(axis=0), triangle[:, [0, 2]].max(axis=0)
             c0, r0 = np.maximum(np.floor(low / 2).astype(int) - [i0, j0], 0)

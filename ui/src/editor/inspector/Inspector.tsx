@@ -205,13 +205,15 @@ function Appearance({name, picked, version, onEdit, restyling, options}: {name: 
 const INSPECTOR_TABS = ["selection", "properties", "details"] as const;
 
 export function Inspector({name, picked, surfaces, marked, view, state, collapsed, onCollapsed, width, onWidth, onSurface,
-  onMaterialOpen, restyling = null, notes, transform, activeTool, scenery}: {
+  onMaterialOpen, restyling = null, notes, transform, kerbControls, standaloneAppearance, activeTool, scenery}: {
   name: string; picked: Picked | null; surfaces: SurfacePoint[]; marked: Marked[]; view: TrackView; state: EditState;
   collapsed: boolean; onCollapsed: (collapsed: boolean) => void; width: number; onWidth: (width: number) => void;
   onSurface: (selection: SurfaceSelection | null) => void; onMaterialOpen: () => void; textureRevision: number;
   restyling?: Restyling | null;      // (null: the track can't be edited now)
   notes?: ReactNode;
   transform?: ReactNode;      // the picked object's controls, below Appearance in Options
+  kerbControls?: ReactNode;   // the selected full kerb range, including a range chosen in its tool
+  standaloneAppearance?: Pick<TextureAppearance, "name" | "preview"> | null; // selected without a picked mesh
   activeTool?: Tool;
   scenery?: ReactNode;
 }) {
@@ -221,7 +223,7 @@ export function Inspector({name, picked, surfaces, marked, view, state, collapse
     setPrevious({picked, tool: activeTool});
     if (previous.picked !== picked && picked?.kind || previous.tool !== activeTool && activeTool === "move") setTab("selection");
   }
-  const chosen = picked?.kind && (!picked.surface || surfaces.length) ? picked : null;
+  const chosen = picked?.kind && (picked.kerbId || !picked.surface || surfaces.length) ? picked : null;
   const textureVersion = chosen?.inspection?.texture != null ? view.textures.version(chosen.inspection.texture) : "";
   const updateWidth = (value: number) => onWidth(Math.max(260, Math.min(520, value)));
   return <>
@@ -251,11 +253,20 @@ export function Inspector({name, picked, surfaces, marked, view, state, collapse
         {marked.length > 0 && <p className="small">{marked.map(g => `All ${sortName(g.sort)}`).join(", ")}</p>}
         {surfaces.length > 0 && <SurfaceInfo key={JSON.stringify(surfaces)} name={name} surfaces={surfaces} view={view} onSelected={onSurface} />}
         {chosen?.inspection && chosen.all.length <= 1 && <SelectionFacts hovered={chosen.inspection.hovered} />}
-        {!chosen && !surfaces.length && !marked.length && <p className="small muted">Nothing selected. Click a surface or object in the view.</p>}
+        {!chosen && !surfaces.length && !marked.length && <p className="small muted">{kerbControls
+          ? "Racing kerb selected. Its complete mesh is highlighted in the view."
+          : "Nothing selected. Click a surface or object in the view."}</p>}
       </section>
       {chosen?.inspection && <Appearance key={`${name} ${chosen.inspection.revision} ${chosen.inspection.texture}`}
-        name={name} picked={chosen} version={textureVersion} onEdit={chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null}
-        restyling={restyling} options={!chosen.surface ? transform : undefined} />}
+        name={name} picked={chosen} version={textureVersion} onEdit={!chosen.kerbId && chosen.surface && chosen.surface.face === undefined ? onMaterialOpen : null}
+        restyling={restyling} options={chosen.kerbId ? kerbControls : !chosen.surface ? transform : undefined} />}
+      {!chosen && kerbControls && <>
+        <section id="inspect-appearance" className={styles.section}><h3>Appearance</h3>
+          <AppearanceCard info={{name: standaloneAppearance?.name ?? "Racing kerb", preview: standaloneAppearance?.preview ?? "",
+            repeat: null, variation: false, original: false, mixed: false}} />
+        </section>
+        <section id="inspect-options" className={styles.section}><h3>Options</h3>{kerbControls}</section>
+      </>}
       </div>
       <div id="inspector-properties" role="tabpanel" aria-labelledby="inspector-tab-properties" hidden={tab !== "properties"}>
         <WeatherControls key={`${name}-weather`} view={view} />

@@ -12,6 +12,7 @@ terrain with holes, other shaders), deviate on purpose, with a short reason in t
 | `1GRAVEL_ground_…` | terrain with gravel/dust/rock | GRAVEL (0.75, damping, vibration) |
 | `1GRASS_ground_…` | other terrain | GRASS (0.60) |
 | `1KERB_walkcol_…` | kerbs/pavements, invisible collision | KERB (0.92) |
+| `1KERB_racing_…` | Editor racing kerbs, visible collision and red-white paint | KERB (0.92) |
 | `1WALL_` | bridges, tunnels, retaining walls, gate posts, `bldcol`/`guardrailcol` (invisible); double-sided | stays undefined |
 | `nocol_` | markings, pavements, houses and rails (visible), guardrails, wires, water, foam, trees, bushes, distant view | – |
 

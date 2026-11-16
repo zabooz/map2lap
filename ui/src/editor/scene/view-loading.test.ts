@@ -7,6 +7,7 @@ import {Navigation} from "./navigation";
 import {GeometryPreview} from "./geometryPreview";
 import type {LoadingDraw} from "./loadingDraw";
 import {inlinePreparation} from "./meshPrepare.fixture";
+import {KerbHighlight} from "./kerbHighlight";
 
 test("opening limits arrival redraws until success or failure, and always shows the final frame", async () => {
   for (const fail of [false, true]) {
@@ -31,11 +32,12 @@ test("opening limits arrival redraws until success or failure, and always shows 
 
 /** Use real scene modules for loading integration; only the WebGL renderer stays outside these tests. */
 function sceneModules(view: TrackView) {
-  const state = view as unknown as {camera: THREE.PerspectiveCamera; byNumber: Map<number, THREE.Mesh>};
+  const state = view as unknown as {camera: THREE.PerspectiveCamera; scene: THREE.Scene; byNumber: Map<number, THREE.Mesh>};
   Object.assign(view, {
     meshPreparer: inlinePreparation,
     navigation: new Navigation(state.camera, () => undefined, () => {}),
     geometryPreview: new GeometryPreview(i => state.byNumber.get(i), () => {}),
+    kerbHighlight: new KerbHighlight(state.scene, () => {}),
   });
 }
 

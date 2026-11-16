@@ -78,3 +78,27 @@ test("an applied texture's appearance summarizes its look without editable field
   expect(shown).toContain("Normal map off · Gloss 40 % matter");
   expect(renderToStaticMarkup(<AppearanceCard info={info} />)).toContain("Normal map off · Gloss 40 % matter");
 });
+
+test("a picked kerb shows its editable fields in Selection options, even if its mesh has a surface face", () => {
+  const view = {textures: {version: () => ""}, dimensionsOf: () => null} as unknown as TrackView;
+  const state = new TrackEdits("test").state();
+  const picked = {id: null, kerbId: "race", kind: "Kerb", all: [], surface: {mesh: 7, u: 0.2, v: 0.5, face: 3, revision: "r"},
+    inspection: {listed: false, revision: "r", texture: 0, hovered: {...hovered, object: "1KERB_racing_7"}}} as unknown as Picked;
+  const html = renderToStaticMarkup(<Inspector name="test" picked={picked} surfaces={[]} marked={[]}
+    view={view} state={state} collapsed={false} onCollapsed={() => {}} width={320} onWidth={() => {}}
+    onSurface={() => {}} onMaterialOpen={() => {}} textureRevision={0} kerbControls={<p>Kerb settings</p>} />);
+  expect(html).toContain('id="inspect-options"');
+  expect(html).toContain("Kerb settings");
+});
+
+test("a kerb chosen in its tool keeps Appearance above the shared Options section", () => {
+  const view = {textures: {version: () => ""}, dimensionsOf: () => null} as unknown as TrackView;
+  const state = new TrackEdits("test").state();
+  const html = renderToStaticMarkup(<Inspector name="test" picked={null} surfaces={[]} marked={[]}
+    view={view} state={state} collapsed={false} onCollapsed={() => {}} width={320} onWidth={() => {}}
+    onSurface={() => {}} onMaterialOpen={() => {}} textureRevision={0} kerbControls={<p>Kerb settings</p>}
+    standaloneAppearance={{name: "Racing kerb texture", preview: "/kerb-thumbnail"}} />);
+  expect(html.indexOf('id="inspect-appearance"')).toBeLessThan(html.indexOf('id="inspect-options"'));
+  expect(html).toContain('src="/kerb-thumbnail"');
+  expect(html).toContain("Kerb settings");
+});

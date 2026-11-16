@@ -31,6 +31,7 @@ export interface Hovered {
     built again: its build wrote no list of objects yet. */
 export interface Picked {
   id: string | null;
+  kerbId?: string | null;       // the full racing kerb range behind a picked mesh chunk
   afterBuild: boolean;
   kind: string;
   sort: string | null;
@@ -79,6 +80,7 @@ export interface Marked {
 export interface MeshInfo {
   model?: {instance: string; asset: string; primitive: number; material: number | null; at: number[]; scale: number};
   copy?: boolean;
+  kerb_id?: string;
   i: number;
   name: string;
   material: number;

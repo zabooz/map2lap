@@ -7,6 +7,7 @@ import type {ModelDraw} from "./modelDraw";
 import type {TreeFxDraw} from "./treeFx";
 import type {TrackObjects} from "./trackObjects";
 import {FAR_M} from "./treeFx";
+import {ROAD} from "./selection";
 
 const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
@@ -55,6 +56,13 @@ export class Pointing {
                   ...this.host.trees().intersections(this.picker)];
     const solid = hits.sort((a, b) => a.distance - b.distance).find(h => this.solidAt(h));
     return this.wireNear(solid?.distance ?? Infinity) ?? solid;
+  }
+
+  /** Road immediately below an overlay, without reaching through an overpass to a lower road. */
+  roadUnder(hit: THREE.Intersection) {
+    const road = this.picker.intersectObjects(this.host.meshes().filter(mesh => mesh.visible && ROAD.test(mesh.name)), false)
+      .find(candidate => this.solidAt(candidate));
+    return road && Math.abs(road.point.y - hit.point.y) <= 1.5 ? road : undefined;
   }
 
   /** The copy of texture's alpha read for the mouse goes (the texture changed), its memory with it. */

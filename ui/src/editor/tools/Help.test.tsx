@@ -30,6 +30,18 @@ test("every tool has its keys, Elevation its soft edge", () => {
 test("Select's help names Alt and the right-click menu, Smooth road's that R starts at a picked road", () => {
   const select = renderToStaticMarkup(<Help tool="select" />);
   expect(select).toMatch(/Alt.*texture.*replace/);
+  expect(select).toMatch(/B.*kerb/);
   expect(select).not.toContain("marks all of its sort");
   expect(renderToStaticMarkup(<Help tool="smooth" />)).toMatch(/R.*picked road/);
+});
+
+test("Racing kerb Help names B, click-selected edge, and the modifier controls", () => {
+  const help = renderToStaticMarkup(<Help tool="kerb" />);
+  expect(help).toContain("<dt>B</dt>");
+  expect(help).toContain("complete range");
+  expect(help).toContain("first click chooses the road edge");
+  expect(help).not.toContain("<dt>Shift</dt>");
+  expect(help).toMatch(/Shift \+ wheel.*width by 5 cm/);
+  expect(help).toMatch(/Ctrl \+ wheel.*physical height by 1 cm/);
+  expect(help).toMatch(/Alt \+ wheel.*flat, rounded or ribbed profile/);
 });

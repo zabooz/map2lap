@@ -11,6 +11,7 @@ and every build uses the current code (a running server would otherwise build wi
 """
 import json
 import gzip
+import math
 import os
 import re
 import secrets
@@ -32,7 +33,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, tracknative, tracksource,  # noqa: E402
+from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -61,6 +62,7 @@ PROGRESS_PATH = re.compile(r"/api/editor/([^/]+)/paint-progress")
 painting = {}       # {track: {"phase", "done", "total"}} of the Apply running on it (trackedits.paint), for the page's bar
 TREEFX_PATH = re.compile(r"/api/editor/([^/]+)/treefx(?:/([a-z0-9_]+)(?:/([A-Za-z0-9_-]+\.png))?)?")     # (its trees, a model, its images)
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
+KERB_PATH = re.compile(r"/api/editor/([^/]+)/kerb/way")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -836,6 +838,30 @@ class Handler(BaseHTTPRequestHandler):
         except trackview.Unreadable:
             self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
 
+    def _kerb_way(self, name):
+        """A mapped road range with source heights for one editable racing kerb."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can change a track"})
+        if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+            self.close_connection = True
+            return self._send(413, {"error": "No kerb range"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            base = body.get("base")
+            path, scan = trackview._scan_of(ac, name, base)
+            net = roadregion.mapped(path, body.get("points"), scan=scan, join_near=True)
+            side = trackkerbs.side_of_click(net, body["points"][0])
+            width = body.get("width", 0.45)
+            if type(width) not in (int, float) or not math.isfinite(width) or not trackkerbs.MIN_WIDTH_M <= width <= trackkerbs.MAX_WIDTH_M:
+                raise ValueError("Kerb width must be 0.2–2.0 m")
+            line = trackkerbs.prepare(path, scan, None, net, side, width)
+            return self._send(200, {"line": line, "side": side})
+        except (ValueError, trackband.Refused) as error:
+            return self._send(400, {"error": str(error)})
+        except (trackview.Unreadable, trackview.NotOurs) as error:
+            return self._send(409, {"error": str(error)})
+
     def _band(self, name, what):
         """The Editor's smooth tool (trackband). what: "way": where the road goes between the page's points, {"line": [[x, y, z], ...], "width"};
         "preview": what its height change changes (trackedits.preview); None: that change, as _brush answers. 409: it can't be, for the
@@ -1099,6 +1125,9 @@ class Handler(BaseHTTPRequestHandler):
         band = BAND_PATH.fullmatch(self.path)
         if band:
             return self._band(band[1], band[2])
+        kerb = KERB_PATH.fullmatch(self.path)
+        if kerb:
+            return self._kerb_way(kerb[1])
         try:
             body = self._body()
             if self.path == "/api/route":

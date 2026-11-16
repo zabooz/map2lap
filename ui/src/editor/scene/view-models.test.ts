@@ -4,6 +4,7 @@ import {TrackView} from "./view";
 import {brushOf, ghostOf, moverOf, objectsOf, selectionOf} from "./view.fixture";
 import {plainTextures} from "./trackTextures.fixture";
 import {GeometryPreview} from "./geometryPreview";
+import {KerbHighlight} from "./kerbHighlight";
 import {ModelDraw} from "./modelDraw";
 import type {PlacementGhost} from "./ghost";
 import type {MeshInfo} from "../types";
@@ -53,7 +54,8 @@ function setUp() {
     copyVersion: 0, heightsVersion: 0, nightGlow: {bind: () => {}}, textures: plainTextures(), meshPreparer: inlinePreparation,
     ensureModelLight: () => {},
     modelDraw: draw, refreshes: (job: () => Promise<ArrayBuffer>) => job(),
-    geometryPreview: new GeometryPreview(i => byNumber.get(i), () => {}), onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
+    geometryPreview: new GeometryPreview(i => byNumber.get(i), () => {}), kerbHighlight: new KerbHighlight(scene, () => {}),
+    onViewFailed: (message: string | null) => { if (message) errors.push(message); }});
   return {view, draw, served, urls, errors, done: () => { draw.dispose(); globalThis.fetch = before; }};
 }
 

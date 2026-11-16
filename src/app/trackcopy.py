@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackpaint, trackplace, tracksource, tracksurfaces,
+from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackplace, tracksource, tracksurfaces,
                  tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
 from track import editorinfo, groundmaterial, kn5, objectlist
 
@@ -186,7 +186,8 @@ def _save(ac, name, copy_to, title, revision):
     if edits["base"] != objectlist.state_of(path):
         raise Refused("The track changed")
     changed = (edits["deleted"] or edits["object_sorts"] or edits["heights"] or edits["placed"] or edits["copies"] or edits["paints"]
-               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get('tree_spacing') or edits.get('car_density'))
+               or edits.get("models") or edits.get("surfaces") or edits.get("trees") or edits.get("walls") or edits.get("kerbs")
+               or edits.get('tree_spacing') or edits.get('car_density'))
     # (a cold track's kn5 holds its model bindings and regional paints itself: an empty list there removes them, so it is a change)
     built = trackview.recipe(ac, name) if source is None else None
     held = built and built.get("cold_models") and any(built[key] for key in ("models", "paints", "placed", "deleted"))
@@ -219,6 +220,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     walls = edits.get("walls", [])
     scan, objects = trackwalls.extend(path, copied_scan, objects, walls,
                                      {w["material"]: trackwalls.asset(ac, name, w["material"]) for w in walls if w["material"]})
+    scan = trackkerbs.extend(scan, edits.get("kerbs", []))
     scan, objects = trackmodels.extend(ac, name, {**scan, "model_source_path": path}, objects, edits.get("models", []))
     scan = {**scan, "model_images": trackmodels.images(ac, name, scan, own)}       # (the last Save holds them already)
     # (bundled before placements, heights and deletions: they all work on face ranges, as in the source's own shared meshes)
@@ -281,6 +283,9 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
         if scan.get("wall_images"):
             materials = materials if materials is not None else scan["materials"]
             images.extend(scan["wall_images"].items())
+        if scan.get("kerb_images"):
+            materials = materials if materials is not None else scan["materials"]
+            images.extend(scan["kerb_images"].items())
         if edits.get("models"):
             materials = materials if materials is not None else scan["materials"]
             present = {t[0] for t in source_scan["textures"]}
@@ -317,6 +322,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
                   'tree_spacing': edits.get('tree_spacing'), 'car_density': edits.get('car_density'),
                   "object_sorts": edits["object_sorts"], "heights": edits["heights"], "placed": edits["placed"], "copies": edits["copies"], "paints": edits["paints"],
                   "models": edits.get("models", []), "surfaces": edits.get("surfaces", []), "trees": edits.get("trees", []), "walls": walls,
+                  "kerbs": edits.get("kerbs", []),
                   "trees_next": edits.get("trees_next", 0), "detail_profile": trackdetail.PROFILE,
                   "region_geometry": tracknative.GEOMETRY_CACHE_VERSION, "ground_format": groundmaterial.GROUND_FORMAT,
                   "kn5": objectlist.state_of(new_kn5), "saved": time.time()}
