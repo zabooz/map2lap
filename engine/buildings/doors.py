@@ -143,7 +143,8 @@ def doors(items, lines, x0, y0, drives=None):
         # brick row houses (an eastern city's): white marble steps up to the door
         if narrow and spec.band == BAND_BRICK and spec.roof == "flat" and _hash01(spec.seed, "stoop") < STOOP_SHARE:
             spec.stoop = (edge, Le * f)
-        if drives is not None and spec.wall and Le >= 7.0:
+        # The front needs room for both door and driveway; a narrower detached house may park at its side or rear.
+        if drives is not None and spec.house and Le >= 7.0:
             # the driveway beside the door, straight out to the road's edge
             g = 0.82 if f <= 0.5 else 0.18
             p0 = a + d * (Le * g) + out * 0.2
@@ -159,7 +160,7 @@ def doors(items, lines, x0, y0, drives=None):
                                "n": [[round(float(pp[0]), 3), round(float(pp[1]), 3), 0.0] for pp in pts]})
         if spec.roof != "flat" and not narrow and _hash01(spec.seed, "fence") < FENCE_SHARE:
             rows.extend(_front_fence(spec, a, d, Le, f, A[kseg], D[kseg], L2[kseg], SHALF[kseg], gmin,
-                                     drives is not None and spec.wall and Le >= 7.0, (A, B, SHALF)))
+                                     drives is not None and spec.house and Le >= 7.0, (A, B, SHALF)))
         p = a + d * (Le * f) + out * DOOR_OUT_M
         # On a slope the entrance can be in the exposed basement. The uphill corner must not lift it into midair.
         gd = door_ground(spec, edge, Le * f, gmax)

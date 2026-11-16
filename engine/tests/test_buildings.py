@@ -685,6 +685,59 @@ class DoorTest(unittest.TestCase):
         self.assertAlmostEqual(n[0, 1], 19.8, delta=0.3, msg="from the front wall")
         self.assertAlmostEqual(n[-1, 1], 10.1, delta=0.3, msg="to the road's edge")
 
+    def test_detached_house_driveway_independent_of_wall(self):
+        ring = rect(0, 20, 12, 9)
+        road = [(np.array([(-50.0, 6.0), (50.0, 6.0)]), 4.0, "residential", True)]
+        for attrs, has_wall in (({"class": "house"}, False),
+                                ({"class": "house", "facade_material": "plaster"}, True)):
+            with self.subTest(has_wall=has_wall):
+                spec = bld.plan(ring, attrs, 0, 52.37, 4.90)
+                self.assertEqual(bool(spec.wall), has_wall)
+                self.assertTrue(spec.house)
+                drives = []
+                bld.doors([(spec, 0.0, 0.0)], road, 0.0, 0.0, drives)
+                self.assertEqual(len(drives), 1)
+
+    def test_row_house_and_shed_have_no_driveway(self):
+        ring = rect(0, 20, 12, 9)
+        road = [(np.array([(-50.0, 6.0), (50.0, 6.0)]), 4.0, "residential", True)]
+        for attrs, dense in (({"class": "house", "facade_material": "plaster"}, True),
+                             ({"class": "shed", "facade_material": "plaster"}, False)):
+            with self.subTest(attrs=attrs, dense=dense):
+                spec = bld.plan(ring, attrs, 0, 52.37, 4.90, dense=dense)
+                self.assertFalse(spec.house)
+                drives = []
+                bld.doors([(spec, 0.0, 0.0)], road, 0.0, 0.0, drives)
+                self.assertEqual(drives, [])
+
+    def test_driveway_needs_seven_metres_of_front(self):
+        spec = bld.plan(rect(0, 20, 6, 9), {"class": "house", "facade_material": "plaster"},
+                        0, 52.37, 4.90)
+        self.assertTrue(spec.house)
+        drives = []
+        road = [(np.array([(-50.0, 6.0), (50.0, 6.0)]), 4.0, "residential", True)]
+        bld.doors([(spec, 0.0, 0.0)], road, 0.0, 0.0, drives)
+        self.assertEqual(drives, [])
+
+    def test_driveway_gap_in_fence_without_smooth_wall(self):
+        ring = rect(0, 20, 12, 9)
+        road = [(np.array([(-50.0, 6.0), (50.0, 6.0)]), 4.0, "residential", True)]
+        for k in range(100):
+            attrs = {"class": "house", "seed_id": f"fenced-house-{k}"}
+            plain = bld.plan(ring, attrs, 0, 52.37, 4.90)
+            smooth = bld.plan(ring, {**attrs, "facade_material": "plaster"}, 0, 52.37, 4.90)
+            plain_drives, smooth_drives = [], []
+            plain_rows = bld.doors([(plain, 0.0, 0.0)], road, 0.0, 0.0, plain_drives)
+            smooth_rows = bld.doors([(smooth, 0.0, 0.0)], road, 0.0, 0.0, smooth_drives)
+            smooth_fence = [r for r in smooth_rows if r[0] == bld.G_FENCE]
+            if smooth_fence:
+                self.assertEqual(len(plain_drives), 1)
+                self.assertEqual(len(smooth_drives), 1)
+                self.assertEqual([r for r in plain_rows if r[0] == bld.G_FENCE], smooth_fence)
+                break
+        else:
+            self.fail("no fenced house found")
+
     def test_porches_on_the_front_of_some_houses(self):
         with_porch = 0
         for k in range(40):

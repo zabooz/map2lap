@@ -67,6 +67,10 @@ The country list uses only the 14 existing styles. It does not enable the extra 
 `docs/research/2026-11-16-building-styles-proposal.json`. The plaster sheet's shutters still use the style at the
 track anchor once per track; a route crossing a style boundary can show the same shutters on both sides.
 
+The planner marks detached residential houses independently of their wall material. `doors` gives them a driveway
+and a matching front-fence gap when the road-facing wall is at least 7 m wide and the road is close enough. This
+width leaves room beside the entrance; narrower houses may have side or rear parking that the generator cannot infer.
+
 `FacadePattern(attic_windows=True)` enables small 0.8 m square windows in roof wall caps, including gable ends
 and the high side of a skillion roof. They follow the native facade axes, with a 0.6 m sill above the attic datum
 and at least 0.25 m wall left below the roof and beside corners. Both top corners must fit under every roof plane;
