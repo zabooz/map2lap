@@ -17,6 +17,82 @@ from scenery import treebranches, treefx
 
 
 class SeasonTest(unittest.TestCase):
+    def test_play_replaces_format_11_shading_and_uses_a_new_cache_identity(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); trees = root / 'extension/trees'; trees.mkdir(parents=True)
+            raw = treefx.bin_bytes('spruce')
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                files = {n: archive.read(n) for n in archive.namelist()}
+            ini = files['tree.ini'].decode()
+            ini = ini.replace(f'TREE_FORMAT={treefx.TREE_FORMAT}', 'TREE_FORMAT=11')
+            for key in ('BRIGHTNESS', 'SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
+                import re
+                ini = re.sub(rf'(?m)^{key}=.*$', key + '=1.0', ini)
+            files['tree.ini'] = ini.encode()
+            source = trees / 'spruce.bin'
+            with zipfile.ZipFile(source, 'w') as archive:
+                for name, data in files.items():
+                    archive.writestr(name, data)
+            listing = 'tree: spruce.bin; pos=0, 0, 0; angle=0; size=1; width=1\n'
+            (trees / 'trees.txt').write_text(listing)
+            seasons.install(root)
+            self.assertGreater(treefx.read_bin(source)['seasonal']['format'], 11)
+            prepared = treefx.parse((trees / 'trees_seasonal.txt').read_text())
+            runtime = trees / (prepared['model'] + '.bin')
+            with zipfile.ZipFile(runtime) as archive:
+                shading = treefx._ini(archive.read('tree.ini').decode())['SHADING']
+            self.assertEqual(float(shading['BRIGHTNESS']), .5)
+            self.assertEqual((trees / 'trees.txt').read_text(), listing)
+
+    def test_play_isolates_season_cache_and_preserves_baked_models_on_return(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); trees = root / 'extension/trees'; trees.mkdir(parents=True)
+            treefx.write_bin(trees / 'birch.bin', 'birch')
+            alias = 'm2l_tree_' + 'a' * 64
+            treefx.write_bin(trees / (alias + '.bin'), 'birch')
+            custom = trees / 'custom.bin'; custom.write_bytes(b'foreign tree')
+            listing = '; preserve source identities and extra CSP fields\n' + ''.join(
+                f'tree: {name}.bin; pos=1, 2, 3; angle=17; size=1.2; width=0.8; custom=keep\n'
+                for name in ('birch', alias, 'custom'))
+            (trees / 'trees.txt').write_text(listing)
+
+            def prepared(season):
+                seasons.install(root, season)
+                ini = configparser.ConfigParser(strict=False)
+                ini.read(root / 'extension/map2lap_seasons.ini')
+                runtime = root / 'extension' / ini['TREES']['LIST_0']
+                lines = runtime.read_text().splitlines()
+                self.assertEqual(lines[0], listing.splitlines()[0])
+                self.assertEqual(lines[-1], listing.splitlines()[-1])
+                self.assertTrue(all(line.endswith('custom=keep') for line in lines[1:]))
+                models = [runtime.parent / (treefx.parse(line)['model'] + '.bin') for line in lines[1:3]]
+                self.assertEqual(models[0], models[1])  # aliases of the same owned species share the bake
+                self.assertEqual((trees / 'trees.txt').read_text(), listing)
+                return models[0]
+
+            summer = prepared('summer')
+            summer_raw = summer.read_bytes()
+            winter = prepared('winter')
+            self.assertNotEqual(summer.name, winter.name)
+            self.assertEqual(summer.read_bytes(), summer_raw)
+            self.assertEqual(treefx.read_bin(winter)['seasonal']['season'], 'winter')
+            import zipfile
+            with zipfile.ZipFile(summer, 'a') as archive:
+                archive.writestr('csp_baked_marker', b'keep')
+            baked = summer.read_bytes()
+            self.assertEqual(prepared('summer'), summer)
+            self.assertEqual(summer.read_bytes(), baked)
+            self.assertEqual(custom.read_bytes(), b'foreign tree')
+
+    def test_seasonal_atlases_do_not_share_texture_or_mesh_cache_names(self):
+        import zipfile
+        names = []
+        for season in ('summer', 'winter'):
+            with zipfile.ZipFile(io.BytesIO(treefx.bin_bytes('birch', season))) as archive:
+                names.append(set(archive.namelist()) - {'tree.ini'})
+        self.assertFalse(names[0] & names[1])
+
     def branched(self, name):
         """Original meshes plus crown wood, before export adds wind samples. Pure."""
         original = treefx.base_model(name)[1]

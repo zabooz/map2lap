@@ -46,9 +46,10 @@ class WindTest(unittest.TestCase):
     def test_original_shadow_bake_and_unpadded_model_dimensions_are_restored(self):
         for name in ('spruce', 'larch', 'birch'):
             with zipfile.ZipFile(io.BytesIO(treefx.bin_bytes(name))) as z:
-                basic = treefx._ini(z.read('tree.ini').decode())['BASIC']
+                ini = treefx._ini(z.read('tree.ini').decode())
+                basic = ini['BASIC']
                 self.assertEqual((float(basic['HEIGHT']), float(basic['WIDTH'])), treefx.size(name))
-                self.assertEqual(z.read(f'{name}_lod0.mesh')[4], 0)
+                self.assertEqual(z.read(ini['LOD_0']['MODEL'])[4], 0)
 
     def test_conifer_trunks_end_in_a_point_and_keep_their_lower_taper(self):
         for name in ('spruce', 'larch', 'fir'):

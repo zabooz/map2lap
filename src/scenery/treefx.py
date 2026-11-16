@@ -14,6 +14,7 @@ extra); then -1, 4, float trunk width (normalised). CSP writes its baked AO back
 The textures are symmetric top to bottom (mirror_v): whether CSP flips v is not known.
 """
 import functools
+import hashlib
 import io
 import math
 import os
@@ -638,7 +639,7 @@ MODELS = {"broadleaf": (100, _broadleaf), "birch": (101, _birch), "spruce": (102
 
 DECIDUOUS = frozenset(('broadleaf', 'birch', 'larch', 'baobab'))
 BUSHES = frozenset(('shrub', 'shrub_flowers', 'dry_shrub', 'jungle_bush'))
-TREE_FORMAT = 11
+TREE_FORMAT = 12
 
 
 @functools.lru_cache(maxsize=None)
@@ -764,8 +765,13 @@ def png(img):
 
 def tree_ini(name, H, W, meshes):
     """tree.ini of a model H m high and W wide whose LOD meshes are named meshes, finest first. Pure."""
+    # CSP 0.2.11's model shader linearizes (2 * BRIGHTNESS * texture): half cancels
+    # that gain for our painted sRGB atlases. The flat normal map has no leaf-scale
+    # detail to break up highlights, so photographic-tree gloss/transmission makes
+    # entire needle tiers shine. Keep these painted models diffuse; imported trees
+    # retain their own shading. See the fixed-exposure comparison in tools/rendering_gallery.py.
     ini = [f"[BASIC]\nHEIGHT={H:.4f}\nWIDTH={W:.4f}\nCACHE_RESOLUTION=256,512\nVERTICAL_OFFSET=0\n",
-           "[SHADING]\nSPECULAR=1.0\nSUBSCATTERING=1.0\nREFLECTIVITY=1.0\nBRIGHTNESS=1.0\nUSE_AO_CHANNEL=0\n",
+           "[SHADING]\nSPECULAR=0.0\nSUBSCATTERING=0.0\nREFLECTIVITY=0.0\nBRIGHTNESS=0.5\nUSE_AO_CHANNEL=0\n",
            "[NORMALS]\nBOOST=0.9\nSPHERE=1.0\n", "[LEAVES]\nMULT=20.0\nOFFSET=0.0\n", "[FAKE_SHADOW]\nSIZE=1.0\nOPACITY=1.0\n"]
     if name not in BUSHES:
         # Keep at least quarter visibility when opaque needle tiers enclose the trunk.
@@ -782,8 +788,11 @@ def bin_bytes(name, season='summer'):
     _, lods = model(name)
     tex = season_texture(name, season)
     H, W = size(name)
-    textures = [(f"{name}_d.png", png(tex)), (f"{name}_n.png", png(Image.new("RGBA", (64, 64), (128, 128, 255, 255))))]
-    meshes = [(f"{name}_lod{i}.mesh", mesh_bytes(m, textures, W / 2, H)[0]) for i, m in enumerate(lods)]
+    # CSP caches textures by filename, across loads. Winter's transparent foliage must
+    # never replace summer's atlas in that cache, even when the model geometry is shared.
+    prefix = f'm2l_{name}_f{TREE_FORMAT}_{season}'
+    textures = [(f"{prefix}_d.png", png(tex)), (f"{prefix}_n.png", png(Image.new("RGBA", (64, 64), (128, 128, 255, 255))))]
+    meshes = [(f"{prefix}_lod{i}.mesh", mesh_bytes(m, textures, W / 2, H)[0]) for i, m in enumerate(lods)]
     marker = f'\n[MAP2LAP]\nTREE_FORMAT={TREE_FORMAT}\nSPECIES={name}\nSEASON={season}\nDECIDUOUS={int(name in DECIDUOUS)}\n'
     files = meshes + [("tree.ini", (tree_ini(name, H, W, [f for f, _ in meshes]) + marker).encode())] + textures
     buffer = io.BytesIO()
@@ -791,6 +800,12 @@ def bin_bytes(name, season='summer'):
         for fname, data in files:
             z.writestr(zipfile.ZipInfo(fname, (1980, 1, 1, 0, 0, 0)), data, zipfile.ZIP_DEFLATED)
     return buffer.getvalue()
+
+
+def runtime_name(name, season):
+    """CSP cache identity of an owned species, season and complete generated payload. Pure."""
+    digest = hashlib.sha256(bin_bytes(name, season)).hexdigest()[:16]
+    return f'm2l_runtime_{name}_f{TREE_FORMAT}_{season}_{digest}.bin'
 
 
 def write_bin(path, name, season='summer'):
@@ -897,7 +912,7 @@ def owned_model(tree, name):
             if got.shape != wanted.shape or not np.allclose(got, wanted, atol=2e-5, rtol=2e-5):
                 return False
     try:
-        diffuse = tree['textures'][name + '_d.png']
+        diffuse = tree['textures'][tree['lods'][0]['parts'][0]['diffuse']]
         with Image.open(io.BytesIO(diffuse)) as image:
             return np.array_equal(np.asarray(image.convert('RGBA')), np.asarray(texture))
     except (KeyError, OSError, ValueError):
@@ -910,7 +925,7 @@ def generated_species(tree):
     if marked in MODELS:
         return marked
     for name in MODELS:
-        if name + '_d.png' in tree['textures'] and owned_model(tree, name):
+        if any(n == name + '_d.png' or n.startswith(f'm2l_{name}_f') for n in tree['textures']) and owned_model(tree, name):
             return name
     return None
 

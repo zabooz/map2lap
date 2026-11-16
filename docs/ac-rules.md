@@ -189,6 +189,12 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   Seasons do not alter KN5 geometry, placements or tyre grip, and snow weather always selects winter scenery.
   Added wood follows the original trunk's native clockwise face winding. Broadleaf/birch leaders share its top ring;
   the owned format version makes Play refresh older seasonal geometry even when the chosen season stays the same.
+- CSP's global tree cache uses model filenames, and its texture entries use texture filenames. Before Play, owned
+  trees get runtime filenames containing species, format, season and a hash of the generated archive. The separate
+  `trees_seasonal.txt` changes only those file references; `trees.txt`, object-list identities and library snapshots
+  remain stable. `map2lap_seasons.ini` selects that runtime list. Returning to a season retains its baked AO; another
+  season or generated archive cannot inherit that model's old billboard cache. Atlas and mesh names inside the archive
+  also include format and season. Foreign trees and diagnostic variants retain their supplied files.
 - The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
   itself, rings around the camera on the asphalt. Without CSP it casts none.
 - Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),
@@ -209,6 +215,23 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Realistic water instead of comic: `[Material_Water] Materials = water, Type = LAKE` in the track's `ext_config.ini`.
 
 ## TreeFX needle lighting
+
+Owned painted trees use `BRIGHTNESS=0.5`, with `SPECULAR`, `REFLECTIVITY` and `SUBSCATTERING` zero. The executed
+CSP 0.2.11/build 3465 model pixel shader doubles its brightness-adjusted diffuse sample before raising it to 2.2;
+half brightness cancels that gain for our sRGB atlases. Full photographic-tree highlights on a flat normal map light
+entire painted crown surfaces. The diffuse profile keeps their colour and avoids that broad pale sheen. This applies
+to our generated species and seasons; imported TreeFX assets retain their own parameters. Format 12 refreshes owned
+models before Play. Geometry, normals, native AO and the normal-map alpha remain unchanged.
+
+`tools/rendering_gallery.py` compares production inputs with `LEGACY` (brightness and all three highlight terms at 1),
+then one-input overrides for brightness, specular, reflectivity, subscattering and normal-map alpha. Each variant owns
+its cache names and retains the production geometry, normals and diffuse atlas. Upright and horizontal grey cards encode
+linear albedo 0.05, 0.18, 0.5 and 0.9 as sRGB, beside production ground swatches. Their displayed brightness depends on
+light, exposure and tone mapping; the 0.18 card is not a fixed screen-grey target. Use a fixed camera, weather and time,
+and compare automatic with fixed exposure before changing generator-wide shading values. The repeatable Windows/Proton
+start, camera, renderer screenshot and restoration commands are in [the rendering workflow](../tools/rendering_preview.md).
+Brightness 0.5 with the diffuse profile was checked in AC at fixed exposure 0.28, clear weather, zero wind and the same
+camera relative to each tree. Natural shadowing still makes lower crowns darker; this does not flatten lighting by height.
 
 Spruce and larch needle mantles must keep their original triangles, UVs and shading normals. Splitting their triangles
 at the wood's height bands introduces horizontal lighting bands in CSP; keeping the wood subdivision still lets the

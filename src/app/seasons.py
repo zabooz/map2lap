@@ -16,7 +16,7 @@ def resolve(options):
     return 'winter' if options['kind'] == 'snow' else options['season']
 
 
-def config(season):
+def config(season, tree_list=False):
     """Native material/TreeFX conditions, without changing global CSP settings or session date. Pure."""
     winter, autumn = (0.5 if season == 'winter' else 0), (0.85 if season == 'autumn' else 0)
     return f'''[CONDITION_...]
@@ -48,6 +48,7 @@ KEY_0=seasonWinter
 VALUE_0=1
 OFF_VALUE_0=0
 [TREES]
+{'LIST_0=trees/trees_seasonal.txt' if tree_list else ''}
 SEASON_WINTER_0=M2L_SEASON_WINTER
 ; Deciduous foliage is already coloured in its atlas. Native autumn tint also colours evergreen needles.
 SEASON_AUTUMN_0=0
@@ -55,10 +56,13 @@ SEASON_AUTUMN_0=0
 
 
 def install(track, season='summer'):
-    """Prepare only owned shared tree atlases and a native season include before Play; no KN5 or placement writes."""
+    """Prepare owned atlases and a CSP list with isolated cache names; retain source identities and placements."""
     ext = Path(track) / 'extension'
     ext.mkdir(parents=True, exist_ok=True)
+    aliases = {}
     for path in (ext / 'trees').glob('*.bin'):
+        if path.name.startswith('m2l_runtime_'):
+            continue
         try:
             tree = treefx.read_bin(path)
         except ValueError:
@@ -66,10 +70,37 @@ def install(track, season='summer'):
         species = treefx.generated_species(tree)
         if not species:
             continue
+        runtime = path.with_name(treefx.runtime_name(species, season))
+        # CSP writes baked AO into these files. Returning to a season keeps its bake;
+        # a different generated payload gets a new name without deleting global caches.
+        if not runtime.exists():
+            runtime.write_bytes(treefx.bin_bytes(species, season))
+        aliases[path.name] = runtime.name
         marked = tree.get('seasonal', {})
         if marked.get('season') == season and marked.get('format') == treefx.TREE_FORMAT:
             continue                         # CSP may have added AO/cache data; retain it for the same season.
         path.write_bytes(treefx.bin_bytes(species, season))
-    ini, raw = ext / 'map2lap_seasons.ini', config(season)
+    listing = ext / 'trees/trees.txt'
+    if listing.is_file():
+        raw = runtime_list(listing.read_text(encoding='utf-8-sig'), aliases).encode('utf-8')
+        _write(ext / 'trees/trees_seasonal.txt', raw)
+    _write(ext / 'map2lap_seasons.ini', config(season, listing.is_file()))
+
+
+def runtime_list(source, aliases):
+    """Replace only owned filenames in source CSP lines; comments and unknown fields survive. Pure."""
+    lines = []
+    for line in source.splitlines(keepends=True):
+        if line.lstrip().startswith('tree:'):
+            head, sep, tail = line.partition(';')
+            prefix, _, filename = head.partition(':')
+            if filename.strip() in aliases:
+                line = prefix + ': ' + aliases[filename.strip()] + sep + tail
+        lines.append(line)
+    return ''.join(lines)
+
+
+def _write(ini, raw):
+    """Write a generated session file only when its contents change."""
     if not ini.exists() or ini.read_bytes() != raw:
         ini.write_bytes(raw)

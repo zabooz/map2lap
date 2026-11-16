@@ -11,6 +11,8 @@ line here (`engine/tests/test_tools.py`).
 | Pass/fail checks: unit tests and a short kn5 build | `check.py [--fast | <test file>]` |
 | Compare roof forms, materials, building parts, equipment and residential/commercial/industrial classes in House without map downloads | `building_gallery.py [--ac-root <AC folder>]` (synthetic labelled Editor/AC gallery; default stages under `out/`) |
 | Compare generated trees/bushes, regional palettes and all terrain/road surfaces (including pavements, verges and ballast) in Vegetation | `vegetation_gallery.py [--ac-root <AC folder>]` (labelled production TreeFX models and surface samples; default stages under `out/`) |
+| Compare TreeFX crown brightness before/after the correction and isolate individual lighting inputs | `rendering_gallery.py [--ac-root <AC folder>]` (labelled variants, grey cards and production ground swatches; default stages under `out/`) |
+| Repeat an AC lighting comparison on Windows or Proton with fixed cameras, renderer screenshots and recoverable settings | `rendering_preview.py start\|capture\|stop\|restore\|status`; [workflow](rendering_preview.md), camera bridge `rendering_camera.lua`, optional DXBC reader `rendering_disassemble.c` |
 | A mark or a recorded drive from AC: what did the car feel, on what, where, on which side of the line? | `mark.py [track]`, then `docs/ac-reports.md` |
 | All the data about a spot at once: map picture, roads and tags, heights, plans, decks, walls, surface, vegetation | `spot.py <track> --route <m>` |
 | What grows at a spot and why it looks so: climate zone, land cover, ground painted, the map's areas, trees and bushes by sprite, the tile's cap | `plants.py <track> --route <m>` |

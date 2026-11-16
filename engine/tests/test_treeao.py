@@ -23,7 +23,7 @@ class TreeAOTest(unittest.TestCase):
                     self.assertEqual(float(ini['BAKING'].get('AO_EXP', '1')), 1.)
                 # Native CSP performs the bake; we do not supply a fixed replacement AO value.
                 for lod in range(3):
-                    self.assertEqual(model.read(f'{name}_lod{lod}.mesh')[4], 0)
+                    self.assertEqual(model.read(ini[f'LOD_{lod}']['MODEL'])[4], 0)
 
     def test_play_replaces_previously_baked_format_seven_models_and_keeps_custom_files(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -50,7 +50,7 @@ class TreeAOTest(unittest.TestCase):
                     self.assertEqual(int(ini['MAP2LAP']['TREE_FORMAT']), treefx.TREE_FORMAT)
                     self.assertEqual(float(ini['BAKING']['AO_OPACITY']), .75)
                     for lod in range(3):
-                        raw = model.read(f"{ini['MAP2LAP']['SPECIES']}_lod{lod}.mesh")
+                        raw = model.read(ini[f'LOD_{lod}']['MODEL'])
                         self.assertEqual(raw[4], 0, 'Previously baked AO must be computed again by CSP')
 
 

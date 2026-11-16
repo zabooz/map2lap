@@ -79,6 +79,14 @@ class MeshTest(unittest.TestCase):
 
 
 class BinTest(unittest.TestCase):
+    def test_painted_atlases_keep_their_diffuse_energy_without_photographic_highlights(self):
+        for name in treefx.MODELS:
+            shading = ini_of(treefx.tree_ini(name, *treefx.size(name), ['lod.mesh']))['SHADING']
+            # CSP 0.2.11's model shader linearizes (2 * brightness * texture).
+            self.assertEqual(2 * float(shading['BRIGHTNESS']), 1., name)
+            for term in ('SPECULAR', 'REFLECTIVITY', 'SUBSCATTERING'):
+                self.assertEqual(float(shading[term]), 0., (name, term))
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -92,8 +100,9 @@ class BinTest(unittest.TestCase):
             self.assertEqual(["600", "700", "800"], [ini[f"LOD_{i}"]["DISTANCE"] for i in range(3)])
             self.assertEqual(sorted(indices, reverse=True), indices)
             self.assertGreater(indices[0], indices[2])
-            self.assertIn("birch_d.png", z.namelist())
-            self.assertIn("birch_n.png", z.namelist())
+            names, _ = read_mesh(self, z.read(ini['LOD_0']['MODEL']))
+            self.assertTrue(all(name in z.namelist() for name in names))
+            self.assertEqual(len(names), 2)
 
     def test_its_size_is_the_one_in_its_tree_ini(self):
         path = os.path.join(self.dir.name, "spruce.bin")

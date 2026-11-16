@@ -67,8 +67,8 @@ class ReadBinTest(unittest.TestCase):
             np.testing.assert_allclose(part["pos"], np.asarray(mesh.p), atol=1e-4)
             np.testing.assert_allclose(part["uv"], np.asarray(mesh.uv), atol=1e-6)
             self.assertEqual(np.asarray(mesh.t).reshape(-1).tolist(), part["indices"].tolist())
-            self.assertEqual(("spruce_d.png", "spruce_n.png"), (part["diffuse"], part["normal_map"]))
-        self.assertTrue(model["textures"]["spruce_d.png"].startswith(b"\x89PNG"))
+            self.assertTrue(all(part[key] in model['textures'] for key in ('diffuse', 'normal_map')))
+        self.assertTrue(model["textures"][part['diffuse']].startswith(b"\x89PNG"))
 
 
 class ReadTest(TreesBase):
@@ -106,7 +106,8 @@ class ReadTest(TreesBase):
         self.assertEqual(birch["height"], model["height"])
         np.testing.assert_allclose(model["lods"][0]["parts"][0]["pos"], np.asarray(birch["lods"][0]["parts"][0]["pos"]).reshape(-1),
                                    atol=1e-3)
-        self.assertEqual(birch["textures"]["birch_d.png"], trackview.treefx_texture(self.ac, "t", "spruce", "birch_d.png"))
+        diffuse = birch['lods'][0]['parts'][0]['diffuse']
+        self.assertEqual(birch["textures"][diffuse], trackview.treefx_texture(self.ac, "t", "spruce", diffuse))
 
     def test_a_model_not_on_the_track_or_no_model_name_is_refused(self):
         for model in ("larch", "../t", "Spruce"):
@@ -321,7 +322,12 @@ class SaveTest(TreesBase):
         self.assertEqual({"next": 3, "trees": {"1": BIRCH, "2": SPRUCE2}}, self.saved_section("t_mod"))
         self.assertEqual([BIRCH, SPRUCE2], self.lines("t_mod"))
         folder = os.path.join(self.ac, "content", "tracks", "t_mod", "extension", "trees")
-        self.assertEqual({"birch.bin", "spruce.bin", "trees.txt"}, set(os.listdir(folder)))
+        self.assertEqual({"birch.bin", "spruce.bin", "trees.txt", "trees_seasonal.txt",
+                          treefx.runtime_name('birch', 'summer'), treefx.runtime_name('spruce', 'summer')},
+                         set(os.listdir(folder)))
+        with open(os.path.join(folder, 'trees_seasonal.txt'), encoding='utf-8') as stream:
+            runtime = [row for line in stream if (row := treefx.parse(line))]
+        self.assertEqual([row['pos'] for row in runtime], [BIRCH['pos'], SPRUCE2['pos']])
         with zipfile.ZipFile(os.path.join(folder, "spruce.bin")) as z:
             self.assertIn("tree.ini", z.namelist())
 

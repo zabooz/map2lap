@@ -117,9 +117,12 @@ class SpeciesTest(unittest.TestCase):
                         self.assertEqual(first, stream.read())
                     contents.add(hashlib.sha256(first).hexdigest())
                     with zipfile.ZipFile(path) as archive:
+                        ini = treefx._ini(archive.read('tree.ini').decode())
                         for lod in range(3):
-                            self.assertEqual(([name + "_d.png", name + "_n.png"], 1),
-                                             read_mesh(self, archive.read(f"{name}_lod{lod}.mesh")))
+                            textures, parts = read_mesh(self, archive.read(ini[f'LOD_{lod}']['MODEL']))
+                            self.assertEqual(parts, 1)
+                            self.assertEqual(len(textures), 2)
+                            self.assertTrue(all(n in archive.namelist() for n in textures))
             self.assertEqual(len(NEW), len(contents))
 
 
