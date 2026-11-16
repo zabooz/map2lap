@@ -169,12 +169,15 @@ for _f in ("exit.materials.json", "merge.materials.json"):
                 MATERIALS[_name] = ("@letters", (1, 1, 1))
             else:
                 MATERIALS[_name] = (None, _rgb)
-# BeamNG.Earth's regions (buildings.region_style) whose houses have shutters
-SHUTTER_REGIONS = {"alpine", "europe_north", "mediterranean"}
 # colour factors per texture (the meadow looked glaring yellow-green in AC)
 TINT = {"grass": (0.72, 0.82, 0.62)}
 # texture darkened (factor): Concrete034 looked almost white on pavements in AC
 DARKEN = {"sidewalk": 0.55, "kerbstone": 0.7}
+
+
+def shutters_for_anchor(lat, lon):
+    """Whether the style at the track anchor paints shutters onto the shared plaster sheet. Pure."""
+    return buildings.region_style(lat, lon).shutters
 
 
 class Obj:
@@ -698,11 +701,11 @@ def main(tiles_dir=TILES, out_dir=OUT, log=print, progress=None):
     objects, nv, tris, unknown = 0, 0, {}, set()
     with open(os.path.join(tiles_dir, "anchor.json"), encoding="utf-8") as f:
         anc = json.load(f)
-    region = buildings.region_style(anc["lat"], anc["lon"]).name
+    shutters = shutters_for_anchor(anc["lat"], anc["lon"])
     # (beside the workers: no worker reads what it makes, and after them its ~9 s were the whole machine waiting)
     with ThreadPoolExecutor(1) as beside, parallel.pool(n, _init_scenery, (tiles_dir, tex_dir)) as ex:
         mtl = beside.submit(write_mtl, os.path.join(out_dir, "track.mtl"), tex_dir,
-                            [f"ground_{tx}_{ty}" for tx, ty in tiles], shutters=region in SHUTTER_REGIONS)
+                            [f"ground_{tx}_{ty}" for tx, ty in tiles], shutters=shutters)
         futs = [ex.submit(_scenery_job, tx, ty, p) for (tx, ty), p in zip(tiles, parts)]
         for k, fut in enumerate(as_completed(futs), 1):
             o, v, t, u, msgs = fut.result()

@@ -647,16 +647,11 @@ def _pair_site(st, shop, blds, roads, kit=None, at_pin=False):
 
 # --- stations by region ("I want to use them based on region so we should take advantage of the
 # italy assets for europe") ---------------------------------------------------------------------------------------
-EUROPE = {"alpine", "europe_north", "nordic", "mediterranean"}    # buildings.region_style's names
-US_EAST = {"us_east", "us_south"}       # East Coast USA's units ("check the east coast etc.")
-
-
 def style_of(lat, lon):
     """"europe" (Italy's petrol station set), "us_east" (East Coast USA's) or "default" (West Coast USA's) for a
     station at (lat, lon)."""
     import buildings
-    name = buildings.region_style(lat, lon).name
-    return "europe" if name in EUROPE else "us_east" if name in US_EAST else "default"
+    return buildings.region_style(lat, lon).gas_station_kit
 
 
 _ITA = "/levels/italy/art/shapes/buildings/italy_petrolstation_"

@@ -38,24 +38,24 @@ class PolygonTest(unittest.TestCase):
 class RegionStyleTest(unittest.TestCase):
     """Building habits by region (Swiss villages had come out as American clapboard houses)."""
 
-    def houses(self, lat, lon, n=400):
+    def houses(self, lat, lon, n=400, elevation_m=None):
         rng = np.random.default_rng(5)
         out = []
         for i in range(n):
             w, l = rng.uniform(7, 11), rng.uniform(9, 14)
             ring = np.array([[0, 0], [w, 0], [w, l], [0, l]], float) + rng.uniform(-900, 900, 2)
-            out.append(bld.plan(ring, {"class": "house"}, lat=lat, lon=lon))
+            out.append(bld.plan(ring, {"class": "house"}, lat=lat, lon=lon, elevation_m=elevation_m))
         return out
 
     def test_regions(self):
         self.assertEqual(bld.region_style(39.29, -76.61).name, "us_east")
         self.assertEqual(bld.region_style(37.36, -118.39).name, "us_west")
-        self.assertEqual(bld.region_style(46.59, 7.91).name, "alpine")
-        self.assertEqual(bld.region_style(52.37, 4.90).name, "europe_north")
+        self.assertEqual(bld.region_style(46.59, 7.91, elevation_m=800).name, "alpine")
+        self.assertEqual(bld.region_style(52.37, 4.90).name, "northwest_brick")
         self.assertEqual(bld.region_style(40.42, -3.70).name, "mediterranean")
         self.assertEqual(bld.region_style(19.43, -99.13).name, "latin_america")
         self.assertEqual(bld.region_style(35.66, 139.70).name, "east_asia")
-        self.assertEqual(bld.region_style(-33.87, 151.21).name, "oceania")
+        self.assertEqual(bld.region_style(-33.87, 151.21).name, "australia")
         self.assertEqual(bld.region_style(30.9, 75.8).name, "south_asia")
         self.assertEqual(bld.region_style(0.0, 25.0).name, "warm")
         self.assertEqual(bld.region_style(19.7, 96.1).name, "warm", "Myanmar: not South Asia's style")
@@ -64,16 +64,16 @@ class RegionStyleTest(unittest.TestCase):
         self.assertEqual(bld.brick_share(40.0, -110.0), 0.15)
 
     def test_alpine_box_does_not_turn_low_cities_into_chalets(self):
-        self.assertEqual(bld.region_style(47.07, 15.44).name, "europe_north")  # Graz
-        self.assertEqual(bld.region_style(45.46, 9.19).name, "mediterranean")  # Milan
-        self.assertEqual(bld.region_style(45.44, 12.33).name, "mediterranean")  # Venice
-        self.assertEqual(bld.brick_share(47.07, 15.44), .5)
-        self.assertEqual(bld.brick_share(45.46, 9.19), .08)
+        self.assertEqual(bld.region_style(47.07, 15.44).name, "central_europe")  # Graz
+        self.assertEqual(bld.region_style(45.46, 9.19).name, "italy_north")  # Milan
+        self.assertEqual(bld.region_style(45.44, 12.33).name, "italy_north")  # Venice
+        self.assertEqual(bld.brick_share(47.07, 15.44), .04)
+        self.assertEqual(bld.brick_share(45.46, 9.19), .10)
 
-    def test_high_alps_stay_alpine_by_climate_or_ground_height(self):
-        self.assertEqual(bld.region_style(46.59, 7.91).name, "alpine")  # Jungfrau, Köppen ET
+    def test_high_alps_stay_alpine_with_ground_height(self):
+        self.assertEqual(bld.region_style(46.59, 7.91, elevation_m=800).name, "alpine")  # Lauterbrunnen
         self.assertEqual(bld.region_style(46.52, 14.58, elevation_m=1000).name, "alpine")
-        self.assertEqual(bld.region_style(46.52, 14.58, elevation_m=350).name, "europe_north")
+        self.assertEqual(bld.region_style(46.52, 14.58, elevation_m=350).name, "central_europe")
 
     def test_sea_uses_climate_fallback(self):
         with mock.patch("borders.at", return_value=(None, None)), mock.patch("climate.koppen_at", return_value=22):
@@ -89,6 +89,74 @@ class RegionStyleTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(bld.region_style(lat, lon).name, name)
 
+    def test_new_country_styles_and_unselected_countries(self):
+        places = (("Graz", 47.07, 15.44, "central_europe"),
+                  ("Amsterdam", 52.37, 4.90, "northwest_brick"),
+                  ("London", 51.51, -0.13, "britain"),
+                  ("Madrid", 40.42, -3.70, "mediterranean"),
+                  ("Auckland", -36.85, 174.76, "new_zealand"),
+                  ("Sydney", -33.87, 151.21, "australia"),
+                  ("Helsinki", 60.17, 24.94, "nordic"),
+                  ("Delhi", 28.61, 77.21, "south_asia"))
+        for place, lat, lon, expected in places:
+            with self.subTest(place=place):
+                self.assertEqual(bld.region_style(lat, lon).name, expected)
+
+    def test_germany_north_and_east_splits(self):
+        # North of 52 N: Hannover is brick, Berlin east of 11.5 E is plaster; Kassel is south of the brick belt.
+        for place, lat, lon, expected in (("Hannover", 52.375, 9.733, "northwest_brick"),
+                                          ("Kassel", 51.312, 9.479, "central_europe"),
+                                          ("Berlin", 52.52, 13.405, "central_europe")):
+            with self.subTest(place=place):
+                self.assertEqual(bld.region_style(lat, lon).name, expected)
+
+    def test_france_north_of_455_degrees(self):
+        self.assertEqual(bld.region_style(45.834, 1.261).name, "france_north")  # Limoges
+        self.assertEqual(bld.region_style(45.158, 1.533).name, "mediterranean")  # Brive-la-Gaillarde
+
+    def test_italy_north_of_44_degrees(self):
+        self.assertEqual(bld.region_style(44.494, 11.342).name, "italy_north")  # Bologna
+        self.assertEqual(bld.region_style(43.77, 11.255).name, "mediterranean")  # Florence
+
+    def test_italy_south_of_415_degrees(self):
+        self.assertEqual(bld.region_style(41.90, 12.496).name, "mediterranean")  # Rome
+        self.assertEqual(bld.region_style(40.852, 14.268).name, "italy_south")  # Naples
+
+    def test_alpine_height_and_mountain_exclusions(self):
+        self.assertEqual(bld.region_style(47.269, 11.404, elevation_m=574).name, "central_europe")  # Innsbruck
+        self.assertEqual(bld.region_style(46.594, 7.909, elevation_m=800).name, "alpine")  # Lauterbrunnen
+        with mock.patch("climate.koppen_at", return_value=15):
+            self.assertEqual(bld.region_style(46.686, 7.863, elevation_m=699).name, "central_europe")  # Interlaken
+            self.assertEqual(bld.region_style(46.686, 7.863, elevation_m=700).name, "alpine")
+        self.assertEqual(bld.region_style(45.924, 6.869, elevation_m=1035).name, "alpine")  # Chamonix
+        self.assertEqual(bld.region_style(42.937, 0.142, elevation_m=2877).name, "mediterranean")  # Pic du Midi, Pyrenees
+        self.assertEqual(bld.region_style(45.772, 2.965, elevation_m=1465).name, "france_north")  # Puy de Dome, Massif Central
+        self.assertEqual(bld.region_style(44.193, 10.701, elevation_m=2165).name, "italy_north")  # Monte Cimone, Apennines
+
+    def test_cold_climate_alone_does_not_satisfy_alpine_height(self):
+        with mock.patch("climate.koppen_at", return_value=29):
+            self.assertEqual(bld.region_style(46.594, 7.909, elevation_m=699).name, "central_europe")
+            self.assertEqual(bld.region_style(46.594, 7.909, elevation_m=700).name, "alpine")
+
+    def test_alpine_arc_excludes_other_ranges_and_keeps_alpine_towns(self):
+        outside = (("Brocken, Harz", 51.799, 10.616, 1141, "central_europe"),
+                   ("Fichtelberg, Erzgebirge", 50.428, 12.954, 1215, "central_europe"),
+                   ("Schneekopf, Thuringian Forest", 50.666, 10.763, 978, "central_europe"),
+                   ("Grosser Arber, Bavarian Forest", 49.113, 13.136, 1456, "central_europe"),
+                   ("Grand Ballon, Vosges", 47.901, 7.098, 1424, "france_north"),
+                   ("Cret de la Neige, Jura", 46.267, 5.943, 1720, "france_north"))
+        inside = (("Lauterbrunnen", 46.594, 7.909, 800),
+                  ("Chamonix", 45.924, 6.869, 1035),
+                  ("Heiligenblut", 47.041, 12.837, 1288),
+                  ("Oberstdorf, Bavarian Alps", 47.408, 10.279, 813),
+                  ("Selva di Val Gardena, South Tyrol", 46.557, 11.760, 1563))
+        for place, lat, lon, elevation, expected in outside:
+            with self.subTest(place=place):
+                self.assertEqual(bld.region_style(lat, lon, elevation_m=elevation).name, expected)
+        for place, lat, lon, elevation in inside:
+            with self.subTest(place=place):
+                self.assertEqual(bld.region_style(lat, lon, elevation_m=elevation).name, "alpine")
+
     def test_places_outside_the_old_us_canada_zone_keep_their_climate_style(self):
         self.assertEqual(bld.region_style(21.31, -157.86).name, "warm")  # Honolulu
         self.assertEqual(bld.region_style(74.0, -95.0).name, "cool")    # Canadian Arctic
@@ -101,7 +169,7 @@ class RegionStyleTest(unittest.TestCase):
         self.assertTrue(all(not str(h.wall).startswith(bld.SIDING) for h in hs), "no wooden clapboard siding")
 
     def test_alpine_houses(self):
-        hs = self.houses(46.59, 7.91)
+        hs = self.houses(46.59, 7.91, elevation_m=800)
         self.assertFalse(any(h.porch for h in hs), "no porches in the Alps")
         self.assertTrue(any(str(h.wall).startswith(f"{bld.SIDING}|w") for h in hs), "wooden chalets")
         self.assertFalse(any(h.wall and str(h.wall).startswith(bld.SIDING) and "|w" not in str(h.wall) for h in hs))
@@ -1187,6 +1255,18 @@ class PyramidTest(unittest.TestCase):
 
 
 class ElevatorTest(unittest.TestCase):
+    def test_grain_elevator_uses_style_field_not_name(self):
+        import copy
+        import importlib
+        style = copy.copy(importlib.import_module("buildings.styles").STYLES["us_plains"])
+        style.name = "renamed_plains"
+        style.us_special = True
+        planner = importlib.import_module("buildings.planner")
+        with mock.patch.object(planner, "region_style", return_value=style):
+            spec = bld.plan(rect(0, 0, 11, 11), {"class": "", "height": 25.0},
+                            0, 39.73, -104.35, town=True)
+        self.assertEqual(spec.cls, "elevator")
+
     def test_a_tall_slender_footprint_in_a_plains_town_is_a_grain_elevator(self):
         # Strasburg, CO: two 25 m tall footprints by the railroad came out as 8-storey brick apartments
         s = bld.plan(rect(0, 0, 11, 11), {"class": "", "height": 25.0}, 0, 39.73, -104.35, town=True)

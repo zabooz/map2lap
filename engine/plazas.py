@@ -73,7 +73,7 @@ def paving(surface_value, lat, lon):
     if surface_value in UNPAVED:
         return None
     import buildings
-    us = buildings.region_style(lat, lon).name.startswith("us_")
+    us = buildings.region_style(lat, lon).us_special
     if us and surface_value in (None, "paving_stones"):     # (Fells Point's squares, mapped paving_stones: red brick)
         return BRICK, BRICK_REPEAT_M
     return PAVING.get(surface_value, STONE)

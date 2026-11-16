@@ -48,24 +48,46 @@ existing bay spacing. There is no visual style editor.
 
 ## Regional defaults
 
-`engine/buildings/styles.json` holds the 14 existing `Style` values and their country assignments. The loader checks
+`engine/buildings/styles.json` holds 22 `Style` records and their country assignments. The loader checks
 required and unknown fields, shares, materials, tint indices and region references before a build starts. Mapped roof
 shape and materials still take precedence over these defaults. The file is part of the revisit cache key and both
-release archives; it can be edited without changing Python code.
+release archives; it can be edited without changing Python code. `gas_station_kit`, `us_special` and `shutters` are
+explicit style data: tank-station kits, US-only plaza and grain-silo rules, and the shared plaster sheet's shutters
+do not depend on the style's name. Shutters still use the style at the track anchor once per track.
 
 The planner uses each footprint's own coordinates and mean raw ground height. `borders.at` supplies its country from
 the shipped Natural Earth polygons, and `climate.koppen_at` supplies a Köppen class from the shipped raster. No
 building lookup contacts Nominatim. The four existing US/Canada zones keep their previous coordinate boundaries and
-extent; Hawaii and the Canadian Arctic continue to use climate fallback rather than a mainland zone;
-elsewhere a country assignment wins, with dry-summer climate refining selected mixed countries. Cold Alpine climate
-or ground at least 700 m in an Alpine country selects `alpine`: persistent snow and short growing seasons favour
-pitched chalet roofs. This broad threshold can also select plastered high towns such as Davos and mountain places
-outside the Alps in France or Italy; there is no subnational architecture map. On the sea and in unlisted countries,
-Köppen D/E classes use `cool`, all other classes and unknown sea pixels use `warm`.
+extent; Hawaii and the Canadian Arctic continue to use climate fallback rather than a mainland zone. In the selected
+European countries and Oceania, explicit country defaults and ordered latitude/longitude splits select the style.
+The named `Alpenbogen` rule requires an Alpine country, its four-bound box and ground at least 700 m: lasting snow
+favours pitched chalet roofs. The box excludes the Pyrenees, Apennines, Massif
+Central and northern German ranges, but overlaps some of the Swiss Jura and the southern Black Forest (for example
+Hochblauen), and can include plastered high towns such as Davos. A precise Alpine polygon would resolve those cases.
+On the sea and in unlisted countries, Köppen D/E
+classes use `cool`, all other classes and unknown sea pixels use `warm`.
 
-The country list uses only the 14 existing styles. It does not enable the extra style values, windows or materials in
-`docs/research/2026-11-16-building-styles-proposal.json`. The plaster sheet's shutters still use the style at the
-track anchor once per track; a route crossing a style boundary can show the same shutters on both sides.
+The ten selected records from `docs/research/2026-11-16-building-styles-proposal.json` include updates to the
+existing `alpine` and `mediterranean` records and eight new names. Their shares are estimates; the Graz and Auckland
+samples only partly constrain them. The other proposed styles, windows, building elements and additional painted
+surfaces are not enabled. Detached brick remains limited by the planner's 0.35 multiplier, including in Britain,
+the Netherlands, Australia and New Zealand. A route crossing a style boundary can show the same shutters on both
+sides because their texture is selected once at the anchor.
+
+`drawn_ring` places flat-roof walls on the mapped outline and pitched-roof walls on its smallest oriented rectangle.
+The rectangular roof needs these matching walls so doors, steps and porches do not float off an oblique wall or sink
+into it. A style change that switches roof form can therefore move the visible ground-level wall outline and its
+building collision even though the mapped footprint has not changed. The pitched-roof eligibility check requires
+the mapped outline to fill at least 80% of the rectangle. The rectangle's corners can still extend beyond the mapped
+outline into a sidewalk or road carriageway. This pre-existing approximation is not checked against the road surface:
+in the short test tracks, 295 pitched-roof buildings' added rectangle area touches a road band, and 59 cover more than
+5 m² of road band or sidewalk. The mapped outline, not a roof-style change, determines the building's source position.
+
+`gasstations.py`, `plazas.py`, `photo.py` (`brick_share`) and `make_obj.py` call `region_style` without ground height.
+They therefore see the lowland style even at a high Alpine point. Every style pair separated only by the 700 m
+rule has the same tank-station kit, US special rules and shutter flag; a test guards this until those callers can
+receive elevation. `brick_share` is 0.04 in `central_europe` and 0.02 in `alpine`, both below the 0.70 brick-walk
+threshold, so that caller currently makes the same decision. Supplying height there is a separate change.
 
 The planner marks detached residential houses independently of their wall material. `doors` gives them a driveway
 and a matching front-fence gap when the road-facing wall is at least 7 m wide and the road is close enough. This

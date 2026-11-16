@@ -3,6 +3,7 @@ station, the shop and the canopy found among the buildings, and the forecourt la
 ("the refueling is the main part")."""
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -621,11 +622,17 @@ class RegionTest(unittest.TestCase):
     def test_style_of(self):
         self.assertEqual(gs.style_of(48.8566, 2.3522), "europe")        # Paris
         self.assertEqual(gs.style_of(41.9028, 12.4964), "europe")       # Rome
-        self.assertEqual(gs.style_of(47.37, 8.54), "europe")            # Zurich (alpine)
+        self.assertEqual(gs.style_of(47.37, 8.54), "europe")            # Zurich (Central Europe)
         self.assertEqual(gs.style_of(40.403093, -80.041343), "us_east")   # the Pittsburgh area
         self.assertEqual(gs.style_of(33.75, -84.39), "us_east")         # Atlanta (us_south)
         self.assertEqual(gs.style_of(34.05, -118.24), "default")        # Los Angeles
         self.assertEqual(gs.style_of(35.68, 139.69), "default")         # Tokyo
+
+    def test_station_kit_uses_style_field_not_name(self):
+        import buildings
+        from types import SimpleNamespace
+        with mock.patch.object(buildings, "region_style", return_value=SimpleNamespace(name="unexpected", gas_station_kit="europe")):
+            self.assertEqual(gs.style_of(47.07, 15.44), "europe")
 
     def test_europe_canopy_italy_sections(self):
         roof = rect("roof", 0.0, 22.0, 30.0, 13.0, cls="roof")

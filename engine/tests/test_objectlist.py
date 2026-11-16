@@ -361,7 +361,7 @@ class HousesTest(unittest.TestCase):
 
     def test_a_door_row_says_its_house_whatever_shape_its_wall_is_drawn(self):
         l_shaped = np.array([(0.0, 0.0), (20.0, 0.0), (20.0, 8.0), (8.0, 8.0), (8.0, 20.0), (0.0, 20.0)])
-        house = buildings.plan(l_shaped, {"class": "house"}, lat=47.0, lon=14.0)
+        house = buildings.plan(l_shaped, {"class": "house", "facade_material": "plaster"}, lat=47.0, lon=14.0)
         house.roof = "gable"
         other = self.spec(100.0)
         rows = buildings.doors([(other, 0.0, 0.5), (house, 0.0, 0.5)], [(np.array([(-5.0, -3.0), (130.0, -3.0)]), 3.0)], 0.0, 0.0)

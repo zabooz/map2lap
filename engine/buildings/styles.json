@@ -38,7 +38,10 @@
       "attached": 0.0,
       "barn_red": 0.5,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "us_east",
+      "us_special": true,
+      "shutters": false
     },
     "us_south": {
       "brick": 0.35,
@@ -78,7 +81,10 @@
       "attached": 0.0,
       "barn_red": 0.5,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "us_east",
+      "us_special": true,
+      "shutters": false
     },
     "us_plains": {
       "brick": 0.15,
@@ -118,7 +124,10 @@
       "attached": 0.0,
       "barn_red": 0.5,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": true,
+      "shutters": false
     },
     "us_west": {
       "brick": 0.15,
@@ -162,10 +171,13 @@
       "attached": 0.0,
       "barn_red": 0.5,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": true,
+      "shutters": false
     },
     "alpine": {
-      "brick": 0.05,
+      "brick": 0.02,
       "walls": [
         [
           "bne_bld_siding",
@@ -192,14 +204,17 @@
           ]
         ]
       ],
-      "pitch": 24.0,
+      "pitch": 24,
       "paint": 0.05,
       "wall_tints": null,
       "wood": true,
       "attached": 0.85,
       "barn_red": 0.0,
       "stone": 0.15,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
     },
     "europe_north": {
       "brick": 0.5,
@@ -238,7 +253,10 @@
       "attached": 0.75,
       "barn_red": 0.0,
       "stone": 0.12,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
     },
     "nordic": {
       "brick": 0.12,
@@ -276,18 +294,21 @@
       "attached": 0.3,
       "barn_red": 0.7,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": false
     },
     "mediterranean": {
-      "brick": 0.08,
+      "brick": 0.03,
       "walls": [
         [
           "bne_bld_stucco",
-          0.85
+          0.9
         ]
       ],
       "porch": 0.0,
-      "flat": 0.35,
+      "flat": 0.25,
       "hipped": 0.5,
       "roofs": [
         [
@@ -299,8 +320,8 @@
           ]
         ]
       ],
-      "pitch": 22.0,
-      "paint": 0.1,
+      "pitch": 22,
+      "paint": 0.05,
       "wall_tints": [
         0,
         1,
@@ -312,8 +333,11 @@
       "wood": false,
       "attached": 0.8,
       "barn_red": 0.0,
-      "stone": 0.4,
-      "facade_pattern": null
+      "stone": 0.35,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
     },
     "latin_america": {
       "brick": 0.25,
@@ -361,7 +385,10 @@
       "attached": 0.0,
       "barn_red": 0.0,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
     },
     "east_asia": {
       "brick": 0.08,
@@ -414,7 +441,10 @@
       "attached": 0.3,
       "barn_red": 0.0,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
     },
     "oceania": {
       "brick": 0.55,
@@ -456,7 +486,10 @@
       "attached": 0.0,
       "barn_red": 0.0,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
     },
     "south_asia": {
       "brick": 0.08,
@@ -503,7 +536,10 @@
       "attached": 0.9,
       "barn_red": 0.0,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
     },
     "warm": {
       "brick": 0.15,
@@ -550,7 +586,10 @@
       "attached": 0.0,
       "barn_red": 0.0,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
     },
     "cool": {
       "brick": 0.3,
@@ -589,7 +628,410 @@
       "attached": 0.0,
       "barn_red": 0.5,
       "stone": 0.0,
-      "facade_pattern": null
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
+    },
+    "central_europe": {
+      "brick": 0.04,
+      "walls": [
+        [
+          "bne_bld_stucco",
+          0.9
+        ]
+      ],
+      "porch": 0.0,
+      "flat": 0.1,
+      "hipped": 0.2,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            4,
+            5,
+            6
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            7,
+            8,
+            3
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            9,
+            7,
+            3
+          ]
+        ]
+      ],
+      "pitch": 38,
+      "paint": 0.2,
+      "wall_tints": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        10
+      ],
+      "wood": false,
+      "attached": 0.85,
+      "barn_red": 0.0,
+      "stone": 0.03,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
+    },
+    "northwest_brick": {
+      "brick": 0.9,
+      "walls": [],
+      "porch": 0.0,
+      "flat": 0.06,
+      "hipped": 0.15,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            4,
+            5,
+            6
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            5,
+            9
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            7,
+            8
+          ]
+        ]
+      ],
+      "pitch": 45,
+      "paint": 0.08,
+      "wall_tints": null,
+      "wood": false,
+      "attached": 0.9,
+      "barn_red": 0.0,
+      "stone": 0.03,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": false
+    },
+    "italy_north": {
+      "brick": 0.1,
+      "walls": [
+        [
+          "bne_bld_stucco",
+          0.9
+        ]
+      ],
+      "porch": 0.0,
+      "flat": 0.05,
+      "hipped": 0.6,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            4,
+            5,
+            6
+          ]
+        ]
+      ],
+      "pitch": 20,
+      "paint": 0.1,
+      "wall_tints": [
+        0,
+        1,
+        2,
+        5,
+        6,
+        10
+      ],
+      "wood": false,
+      "attached": 0.85,
+      "barn_red": 0.0,
+      "stone": 0.1,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
+    },
+    "italy_south": {
+      "brick": 0.03,
+      "walls": [
+        [
+          "bne_bld_stucco",
+          0.9
+        ]
+      ],
+      "porch": 0.0,
+      "flat": 0.55,
+      "hipped": 0.5,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            4,
+            5,
+            6
+          ]
+        ]
+      ],
+      "pitch": 22,
+      "paint": 0.05,
+      "wall_tints": [
+        0,
+        3,
+        1
+      ],
+      "wood": false,
+      "attached": 0.8,
+      "barn_red": 0.0,
+      "stone": 0.3,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
+    },
+    "france_north": {
+      "brick": 0.15,
+      "walls": [
+        [
+          "bne_bld_stucco",
+          0.85
+        ]
+      ],
+      "porch": 0.0,
+      "flat": 0.03,
+      "hipped": 0.35,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            7,
+            8
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            7,
+            8
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            5,
+            9
+          ]
+        ]
+      ],
+      "pitch": 45,
+      "paint": 0.03,
+      "wall_tints": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "wood": false,
+      "attached": 0.85,
+      "barn_red": 0.0,
+      "stone": 0.25,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": true
+    },
+    "britain": {
+      "brick": 0.8,
+      "walls": [
+        [
+          "bne_bld_stucco",
+          0.3
+        ]
+      ],
+      "porch": 0.0,
+      "flat": 0.03,
+      "hipped": 0.35,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            7,
+            8
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            5,
+            9
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            5,
+            4
+          ]
+        ]
+      ],
+      "pitch": 37,
+      "paint": 0.08,
+      "wall_tints": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "wood": false,
+      "attached": 0.9,
+      "barn_red": 0.0,
+      "stone": 0.15,
+      "facade_pattern": null,
+      "gas_station_kit": "europe",
+      "us_special": false,
+      "shutters": false
+    },
+    "new_zealand": {
+      "brick": 0.35,
+      "walls": [
+        [
+          "bne_bld_siding",
+          0.55
+        ],
+        [
+          "bne_bld_stucco",
+          0.15
+        ]
+      ],
+      "porch": 0.2,
+      "flat": 0.08,
+      "hipped": 0.37,
+      "roofs": [
+        [
+          "bne_bld_roof_metal",
+          [
+            1,
+            4,
+            3,
+            2,
+            0
+          ]
+        ],
+        [
+          "bne_bld_roof_metal",
+          [
+            1,
+            4,
+            3,
+            2,
+            0
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            5,
+            7,
+            8
+          ]
+        ]
+      ],
+      "pitch": 25,
+      "paint": 0.05,
+      "wall_tints": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6
+      ],
+      "wood": false,
+      "attached": 0.2,
+      "barn_red": 0.1,
+      "stone": 0.0,
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
+    },
+    "australia": {
+      "brick": 0.8,
+      "walls": [
+        [
+          "bne_bld_stucco",
+          0.35
+        ],
+        [
+          "bne_bld_siding",
+          0.25
+        ]
+      ],
+      "porch": 0.3,
+      "flat": 0.04,
+      "hipped": 0.75,
+      "roofs": [
+        [
+          "bne_bld_roof_slate",
+          [
+            4,
+            5,
+            9
+          ]
+        ],
+        [
+          "bne_bld_roof_slate",
+          [
+            7,
+            8
+          ]
+        ],
+        [
+          "bne_bld_roof_metal",
+          [
+            0,
+            1,
+            4,
+            3
+          ]
+        ]
+      ],
+      "pitch": 22,
+      "paint": 0.05,
+      "wall_tints": [
+        0,
+        1,
+        2,
+        5,
+        6
+      ],
+      "wood": false,
+      "attached": 0.3,
+      "barn_red": 0.1,
+      "stone": 0.03,
+      "facade_pattern": null,
+      "gas_station_kit": "default",
+      "us_special": false,
+      "shutters": false
     }
   },
   "regions": {
@@ -602,14 +1044,14 @@
       "AM": "warm",
       "AO": "warm",
       "AR": "latin_america",
-      "AT": "europe_north",
-      "AU": "oceania",
+      "AT": "central_europe",
+      "AU": "australia",
       "AX": "nordic",
       "AZ": "warm",
       "BA": "mediterranean",
       "BB": "latin_america",
       "BD": "south_asia",
-      "BE": "europe_north",
+      "BE": "northwest_brick",
       "BF": "warm",
       "BG": "mediterranean",
       "BH": "warm",
@@ -626,7 +1068,7 @@
       "CD": "warm",
       "CF": "warm",
       "CG": "warm",
-      "CH": "europe_north",
+      "CH": "central_europe",
       "CI": "warm",
       "CK": "oceania",
       "CL": "latin_america",
@@ -637,10 +1079,10 @@
       "CU": "latin_america",
       "CV": "warm",
       "CY": "mediterranean",
-      "CZ": "europe_north",
-      "DE": "europe_north",
+      "CZ": "central_europe",
+      "DE": "central_europe",
       "DJ": "warm",
-      "DK": "europe_north",
+      "DK": "northwest_brick",
       "DM": "latin_america",
       "DO": "latin_america",
       "DZ": "warm",
@@ -655,13 +1097,13 @@
       "FJ": "oceania",
       "FM": "oceania",
       "FO": "cool",
-      "FR": "europe_north",
+      "FR": "mediterranean",
       "GA": "warm",
-      "GB": "europe_north",
+      "GB": "britain",
       "GD": "latin_america",
       "GE": "warm",
       "GF": "latin_america",
-      "GG": "europe_north",
+      "GG": "britain",
       "GH": "warm",
       "GI": "mediterranean",
       "GL": "cool",
@@ -677,17 +1119,17 @@
       "HN": "latin_america",
       "HR": "mediterranean",
       "HT": "latin_america",
-      "HU": "europe_north",
+      "HU": "central_europe",
       "ID": "warm",
       "IE": "europe_north",
       "IL": "warm",
-      "IM": "europe_north",
+      "IM": "britain",
       "IN": "south_asia",
       "IQ": "warm",
       "IR": "warm",
       "IS": "cool",
       "IT": "mediterranean",
-      "JE": "europe_north",
+      "JE": "britain",
       "JM": "latin_america",
       "JO": "warm",
       "JP": "east_asia",
@@ -704,12 +1146,12 @@
       "LA": "warm",
       "LB": "warm",
       "LC": "latin_america",
-      "LI": "europe_north",
+      "LI": "central_europe",
       "LK": "warm",
       "LR": "warm",
       "LS": "warm",
       "LT": "cool",
-      "LU": "europe_north",
+      "LU": "central_europe",
       "LV": "cool",
       "LY": "warm",
       "MA": "warm",
@@ -736,11 +1178,11 @@
       "NE": "warm",
       "NG": "warm",
       "NI": "latin_america",
-      "NL": "europe_north",
+      "NL": "northwest_brick",
       "NO": "nordic",
       "NP": "south_asia",
       "NR": "oceania",
-      "NZ": "oceania",
+      "NZ": "new_zealand",
       "OM": "warm",
       "PA": "latin_america",
       "PE": "latin_america",
@@ -765,9 +1207,9 @@
       "SD": "warm",
       "SE": "nordic",
       "SG": "warm",
-      "SI": "europe_north",
+      "SI": "central_europe",
       "SJ": "cool",
-      "SK": "europe_north",
+      "SK": "central_europe",
       "SL": "warm",
       "SM": "mediterranean",
       "SN": "warm",
@@ -817,17 +1259,16 @@
         "FR",
         "SI"
       ],
-      "climate_classes": [
-        27,
-        29,
-        30
-      ],
-      "min_elevation_m": 700
+      "min_elevation_m": 700,
+      "name": "Alpenbogen",
+      "bounds": {
+        "min_lat": 44.5,
+        "max_lat": 47.8,
+        "min_lon": 6.5,
+        "max_lon": 16.5
+      }
     },
     "mediterranean_climate_countries": [
-      "FR",
-      "HR",
-      "SI",
       "TR"
     ],
     "mediterranean_climate_classes": [
@@ -867,6 +1308,34 @@
       ],
       "cool_style": "cool",
       "default": "warm"
-    }
+    },
+    "country_splits": [
+      {
+        "country": "DE",
+        "style": "central_europe",
+        "min_lat": 52.0,
+        "min_lon": 11.5
+      },
+      {
+        "country": "DE",
+        "style": "northwest_brick",
+        "min_lat": 52.0
+      },
+      {
+        "country": "FR",
+        "style": "france_north",
+        "min_lat": 45.5
+      },
+      {
+        "country": "IT",
+        "style": "italy_north",
+        "min_lat": 44.0
+      },
+      {
+        "country": "IT",
+        "style": "italy_south",
+        "max_lat": 41.5
+      }
+    ]
   }
 }

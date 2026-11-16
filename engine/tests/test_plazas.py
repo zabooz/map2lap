@@ -34,6 +34,13 @@ class PavingTest(unittest.TestCase):
         self.assertEqual(plazas.paving(None, 39.28, -76.59)[0], plazas.BRICK, "... in the US: brick")
         self.assertEqual(plazas.paving("paving_stones", 39.28, -76.59)[0], plazas.BRICK, "Fells Point's squares")
 
+    def test_us_paving_uses_style_field_not_name(self):
+        import buildings
+        from types import SimpleNamespace
+        from unittest import mock
+        with mock.patch.object(buildings, "region_style", return_value=SimpleNamespace(name="renamed", us_special=True)):
+            self.assertEqual(plazas.paving(None, 39.28, -76.59)[0], plazas.BRICK)
+
     def test_holes_left_out(self):
         outer = ring([(10, 10), (60, 10), (60, 40), (10, 40), (10, 10)])
         hole = ring([(20, 20), (30, 20), (30, 30), (20, 30), (20, 20)])
