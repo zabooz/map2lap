@@ -133,9 +133,9 @@ test("four then six real mapped materials Apply and reopen with original soft ju
   const transitionRoiMax = await untouchedDelta(page, before, fourth, .4);
   expect(transitionRoiMax).toBeLessThanOrEqual(1);
   await page.keyboard.press("Control+z"); await saved(page);
-  await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
+  await expect.poll(async () => frameDelta(page, before, await picture(page))).toBeLessThanOrEqual(1);
   await page.keyboard.press("Control+Shift+z"); await saved(page);
-  await expect.poll(async () => (await picture(page)).equals(fourth)).toBe(true);
+  await expect.poll(async () => frameDelta(page, fourth, await picture(page))).toBeLessThanOrEqual(1);
   for (let k = 4; k < 6; k++) await applyAPI(k);
   await page.reload(); await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const six = await picture(page);

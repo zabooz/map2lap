@@ -329,8 +329,12 @@ test("the wheel held turns around the view's middle, up to just over the horizon
 
   const p = {x: c.x, y: c.y + 60}, to = {x: c.x + 80, y: c.y + 90};
   const beforePointing = await box(page).innerText();
+  const hoverTime = () => page.evaluate(() => performance.getEntriesByName("map2lap.hover", "measure").at(-1)?.startTime ?? 0);
+  const beforeHover = await hoverTime();
   await page.mouse.move(p.x - 2, p.y);
   await page.mouse.move(p.x, p.y);
+  // Hover is throttled; compare the dragged point only after the move's raycast has run.
+  await expect.poll(hoverTime).toBeGreaterThan(beforeHover);
   await expect(box(page)).not.toHaveText(beforePointing); // hover is throttled; the old centre is also a Road surface
   await expect(box(page)).toContainText("Road surface");
   const grabbed = await placed(page);
