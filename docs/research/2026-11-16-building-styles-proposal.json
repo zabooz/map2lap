@@ -1,0 +1,3933 @@
+{
+ "about": "Research proposal, not read by any build. Regional defaults for buildings missing relevant map tags; mapped shape, material and colour take precedence. The current build reads engine/buildings/styles.json. Values here are estimates from general knowledge of regional housing, not measured statistics, except where 'measured' says so. Check each in the Editor and AC before adopting.",
+ "date": "2026-11-16",
+ "implemented_subset": {
+  "as_of": "2026-11-16: engine/buildings/styles.json has 22 styles. Ten entries from this proposal were adopted: eight new names and revised alpine and mediterranean values; the other proposals below are not build inputs.",
+  "entries": ["central_europe", "alpine", "northwest_brick", "mediterranean", "italy_north", "italy_south", "france_north", "britain", "new_zealand", "australia"],
+  "region_rules": "The build selects by country and Köppen class, plus ground elevation for alpine inside the named Alpenbogen bounds. The US/Canada zones retain their prior coordinate boundaries. The remaining 60-style assignments below are proposals, not the active region table.",
+  "style_capabilities": "Active styles.json also requires gas_station_kit, us_special and shutters for each style. These fields are not supplied by the proposed records below; decide them explicitly when adopting a style. The shutter texture is still chosen once per track at its anchor."
+ },
+ "field_meaning": {
+  "brick": "share of brick facades. The planner multiplies it: x0.35 for detached houses, x1.15 for row houses, x1.2 for 7+ storey masonry.",
+  "walls": "[kind, share] for detached houses up to 3 floors: 'stucco' or 'siding'. The remainder gets the plaster window sheet.",
+  "wall_tints": "indices into looks.WALL_TINTS of that kind. stucco: 0 warm white, 1 cream, 2 sand, 3 white, 4 grey-beige, 5 ochre, 6 terracotta, 7 sky blue, 8 mint, 9 pink, 10 yellow. siding: 0 white, 1 cream, 2 light blue, 3 pale yellow, 4 pale green, 5 beige, 6 grey. null: all of the kind's house tints.",
+  "wood": "siding is stained wood (WOOD_TINTS) instead of painted boards",
+  "paint": "share of plaster houses and row houses in a pastel paint (blue, green, rose, yellow)",
+  "stone": "share of low older buildings in dressed stone, among those that got no stucco/siding wall",
+  "porch": "share of detached houses with a porch",
+  "flat": "share of detached houses with a flat roof",
+  "hipped": "share of the pitched detached roofs that are hipped",
+  "attached": "share of low attached buildings with a gabled roof, the rest flat",
+  "roofs": "[material, tint indices]; one entry is picked uniformly, so a repeated entry counts double. tile (ROOF_SLATE): 1 tan, 3 grey, 4 terracotta, 5 red-brown, 6 faded orange, 7 dark grey, 8 anthracite, 9 brown-black. shingle: 0 light grey, 1 grey-brown, 2 brown, 3 blue-grey, 4 terracotta, 5 red-brown, 6 dark grey, 7 slate blue. metal: 0 silver, 1 grey, 2 green, 3 red, 4 dark blue-grey.",
+  "pitch": "roof pitch in degrees",
+  "barn_red": "share of barns painted barn red"
+ },
+ "code_limits": [
+  "Detached houses reach at most 35 % brick (brick x 0.35), and 'walls' has no brick kind. Britain, the Netherlands and Australia, where most detached houses are brick, cannot be expressed. A brick wall kind would be needed.",
+  "The two barn-red siding tints are excluded for houses. Falu-red houses of Sweden, Norway and Finland cannot be expressed.",
+  "Pitch, floor height and bay spacing are single numbers, without spread.",
+  "One roof entry is picked with the same seed that picks gabled or hipped, so roof material and roof form are correlated.",
+  "borders.at knows states only for the US (51). Splits inside other countries need latitude, climate or elevation, as in 'assign' below."
+ ],
+ "measured": {
+  "source": "mapped buildings in the local Overture cache, release 2026-09-23.1. Biased towards city centres and notable buildings.",
+  "graz_AT": {
+   "tagged_roofs": 8282,
+   "roof_shape": {
+    "gabled": 0.49,
+    "flat": 0.37,
+    "hipped": 0.07,
+    "half_hipped": 0.03
+   },
+   "roof_material_n": 3792,
+   "roof_material": {
+    "roof_tiles": 0.74,
+    "metal": 0.06,
+    "eternit": 0.06,
+    "slate": 0.05
+   },
+   "facade_n": 287,
+   "facade": {
+    "plaster": 0.65,
+    "glass": 0.12,
+    "concrete": 0.09,
+    "wood": 0.09,
+    "brick": 0.02
+   }
+  },
+  "auckland_NZ": {
+   "tagged_roofs": 285,
+   "roof_shape_houses": {
+    "gabled": 0.57,
+    "hipped": 0.33,
+    "flat": 0.08
+   },
+   "facade_n": 129,
+   "facade": {
+    "brick": 0.4,
+    "wood": 0.27,
+    "glass": 0.22
+   }
+  },
+  "rome_IT": "291 tagged houses, 46 % domes: monuments only, not usable",
+  "aerial_2026-11-16": {
+   "source": "basemap.at orthophoto, 30 cm (CC BY 4.0), median colour 1.2 m inside each footprint, simple colour thresholds",
+   "graz_city": {
+    "roofs": 2343,
+    "red": 0.39,
+    "grey": 0.41,
+    "light": 0.18
+   },
+   "carinthia_rural_near_griffen": {
+    "roofs": 410,
+    "red": 0.2,
+    "grey": 0.64,
+    "light": 0.12,
+    "note": "grey here is dark grey and grey-brown pitched roofs, not flat ones"
+   },
+   "check": "of 622 roofs mapped as roof_tiles 79 % read red; of 98 mapped as eternit, metal or concrete 4 % read red",
+   "limits": "four map cells in one country; anthracite and dark brown fall into grey; town and countryside differ, so one share per style fits neither"
+  }
+ },
+ "styles": {
+  "us_east": {
+   "unchanged": true,
+   "note": "unchanged from styles.json"
+  },
+  "us_south": {
+   "unchanged": true,
+   "note": "unchanged from styles.json"
+  },
+  "us_plains": {
+   "unchanged": true,
+   "note": "unchanged from styles.json"
+  },
+  "us_west": {
+   "unchanged": true,
+   "note": "unchanged from styles.json"
+  },
+  "alpine": {
+   "confidence": "medium",
+   "brick": 0.02,
+   "walls": [
+    [
+     "siding",
+     0.45
+    ]
+   ],
+   "wall_tints": null,
+   "wood": true,
+   "paint": 0.05,
+   "stone": 0.15,
+   "porch": 0.0,
+   "flat": 0.03,
+   "hipped": 0.15,
+   "attached": 0.85,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8,
+      9
+     ]
+    ],
+    [
+     "tile",
+     [
+      9,
+      5
+     ]
+    ]
+   ],
+   "pitch": 24,
+   "barn_red": 0.0,
+   "note": "Mountain villages only: white plaster ground floors, dark wooden upper floors, low wide gables. The lowered brick share is already in styles.json; the active region rule also requires the Alpenbogen bounds."
+  },
+  "central_europe": {
+   "confidence": "medium",
+   "brick": 0.04,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    10
+   ],
+   "wood": false,
+   "paint": 0.2,
+   "stone": 0.03,
+   "porch": 0.0,
+   "flat": 0.1,
+   "hipped": 0.2,
+   "attached": 0.85,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8,
+      3
+     ]
+    ],
+    [
+     "tile",
+     [
+      9,
+      7,
+      3
+     ]
+    ]
+   ],
+   "pitch": 38,
+   "barn_red": 0.0,
+   "note": "Lowland Austria, southern Germany, Switzerland's lowlands, Czechia, Slovakia, Hungary, Slovenia: plaster in white, cream and yellow. Roofs one third red clay, two thirds grey to dark, after the aerial measurement below; the first estimate of three quarters red was wrong."
+  },
+  "poland": {
+   "confidence": "low",
+   "brick": 0.12,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4,
+    10
+   ],
+   "wood": false,
+   "paint": 0.15,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.2,
+   "hipped": 0.4,
+   "attached": 0.6,
+   "roofs": [
+    [
+     "tile",
+     [
+      5,
+      4
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8,
+      9
+     ]
+    ],
+    [
+     "metal",
+     [
+      3,
+      4,
+      1
+     ]
+    ]
+   ],
+   "pitch": 35,
+   "barn_red": 0.0,
+   "note": "Plaster, many flat-roofed cube houses of the 1960s-80s, hipped roofs on newer ones, clay and metal tiles."
+  },
+  "northwest_brick": {
+   "confidence": "medium",
+   "brick": 0.9,
+   "walls": [],
+   "wall_tints": null,
+   "wood": false,
+   "paint": 0.08,
+   "stone": 0.03,
+   "porch": 0.0,
+   "flat": 0.06,
+   "hipped": 0.15,
+   "attached": 0.9,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ]
+   ],
+   "pitch": 45,
+   "barn_red": 0.0,
+   "note": "Netherlands, Flanders, northern Germany, Denmark: brick, steep tiled roofs. Detached brick is capped by the code, see code_limits."
+  },
+  "britain": {
+   "confidence": "medium",
+   "brick": 0.8,
+   "walls": [
+    [
+     "stucco",
+     0.3
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.08,
+   "stone": 0.15,
+   "porch": 0.0,
+   "flat": 0.03,
+   "hipped": 0.35,
+   "attached": 0.9,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      4
+     ]
+    ]
+   ],
+   "pitch": 37,
+   "barn_red": 0.0,
+   "note": "Brick terraces and semis, some render and pebble-dash, grey slate and brown-red concrete tiles, stone in the north and west."
+  },
+  "ireland": {
+   "confidence": "medium",
+   "brick": 0.15,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.2,
+   "stone": 0.1,
+   "porch": 0.0,
+   "flat": 0.03,
+   "hipped": 0.3,
+   "attached": 0.85,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      9,
+      5
+     ]
+    ]
+   ],
+   "pitch": 35,
+   "barn_red": 0.0,
+   "note": "Rendered and painted walls, dark slate and dark concrete tiles."
+  },
+  "france_north": {
+   "confidence": "medium",
+   "brick": 0.15,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.03,
+   "stone": 0.25,
+   "porch": 0.0,
+   "flat": 0.03,
+   "hipped": 0.35,
+   "attached": 0.85,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ]
+   ],
+   "pitch": 45,
+   "barn_red": 0.0,
+   "note": "Pale render and stone, steep slate roofs in the west and around Paris, flat brown tiles towards the east, brick in the far north."
+  },
+  "mediterranean": {
+   "confidence": "medium",
+   "brick": 0.03,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.35,
+   "porch": 0.0,
+   "flat": 0.25,
+   "hipped": 0.5,
+   "attached": 0.8,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "Spain, Portugal, southern France, central and southern Italy, the Adriatic coast: plaster and stone, low terracotta roofs."
+  },
+  "italy_north": {
+   "confidence": "low",
+   "brick": 0.1,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    5,
+    6,
+    10
+   ],
+   "wood": false,
+   "paint": 0.1,
+   "stone": 0.1,
+   "porch": 0.0,
+   "flat": 0.05,
+   "hipped": 0.6,
+   "attached": 0.85,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.0,
+   "note": "Po plain: ochre, yellow and terracotta plaster, hipped roofs of clay pantiles, some exposed brick."
+  },
+  "aegean": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.92
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3,
+    1
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.3,
+   "porch": 0.0,
+   "flat": 0.55,
+   "hipped": 0.6,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.0,
+   "note": "Greece, Cyprus, Malta: white plaster, concrete blocks of flats with flat roofs, tiled hips on village houses."
+  },
+  "balkans": {
+   "confidence": "low",
+   "brick": 0.2,
+   "walls": [
+    [
+     "stucco",
+     0.8
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4,
+    10
+   ],
+   "wood": false,
+   "paint": 0.1,
+   "stone": 0.08,
+   "porch": 0.0,
+   "flat": 0.05,
+   "hipped": 0.5,
+   "attached": 0.6,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ]
+   ],
+   "pitch": 30,
+   "barn_red": 0.0,
+   "note": "Serbia, Bosnia, North Macedonia, Bulgaria, Romania, inland Croatia: plaster or unrendered clay block, red tiles, many hipped roofs."
+  },
+  "nordic": {
+   "confidence": "medium",
+   "brick": 0.1,
+   "walls": [
+    [
+     "siding",
+     0.8
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    5,
+    6,
+    2
+   ],
+   "wood": false,
+   "paint": 0.2,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.05,
+   "hipped": 0.15,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8,
+      9
+     ]
+    ],
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ],
+    [
+     "metal",
+     [
+      4,
+      1
+     ]
+    ]
+   ],
+   "pitch": 30,
+   "barn_red": 0.7,
+   "note": "Norway, Sweden, Finland: painted wooden houses, dark or red tiles, dark sheet metal. Falu-red houses are missing, see code_limits."
+  },
+  "iceland": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.6
+    ],
+    [
+     "siding",
+     0.3
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3,
+    4,
+    1
+   ],
+   "wood": false,
+   "paint": 0.3,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.1,
+   "hipped": 0.3,
+   "attached": 0.4,
+   "roofs": [
+    [
+     "metal",
+     [
+      3,
+      2,
+      4,
+      1
+     ]
+    ]
+   ],
+   "pitch": 30,
+   "barn_red": 0.3,
+   "note": "Concrete and corrugated cladding, coloured corrugated metal roofs. Also the Faroes."
+  },
+  "east_europe": {
+   "confidence": "low",
+   "brick": 0.2,
+   "walls": [
+    [
+     "stucco",
+     0.5
+    ],
+    [
+     "siding",
+     0.3
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4,
+    5
+   ],
+   "wood": false,
+   "paint": 0.15,
+   "stone": 0.0,
+   "porch": 0.05,
+   "flat": 0.05,
+   "hipped": 0.3,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      3,
+      2,
+      4
+     ]
+    ],
+    [
+     "shingle",
+     [
+      0,
+      1
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ]
+   ],
+   "pitch": 35,
+   "barn_red": 0.0,
+   "note": "Baltic states, Belarus, Ukraine, Moldova, European Russia: plaster, white silicate brick, wooden houses, grey fibre-cement and coloured metal roofs."
+  },
+  "cool": {
+   "confidence": "low",
+   "brick": 0.15,
+   "walls": [
+    [
+     "siding",
+     0.5
+    ],
+    [
+     "stucco",
+     0.2
+    ]
+   ],
+   "wall_tints": null,
+   "wood": false,
+   "paint": 0.2,
+   "stone": 0.0,
+   "porch": 0.05,
+   "flat": 0.05,
+   "hipped": 0.3,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "metal",
+     [
+      0,
+      1,
+      2,
+      3
+     ]
+    ],
+    [
+     "shingle",
+     [
+      0,
+      1,
+      6
+     ]
+    ]
+   ],
+   "pitch": 32,
+   "barn_red": 0.3,
+   "note": "Fallback for cold climates without their own style (Siberia, Mongolia, Patagonia's south): wood, metal roofs."
+  },
+  "anatolia_caucasus": {
+   "confidence": "low",
+   "brick": 0.1,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.1,
+   "stone": 0.15,
+   "porch": 0.0,
+   "flat": 0.3,
+   "hipped": 0.6,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      3,
+      1
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.0,
+   "note": "Turkey, Georgia, Armenia, Azerbaijan: concrete and plaster, hipped tile or red metal roofs, flat roofs towards the south-east, stone in Armenia."
+  },
+  "levant": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.45
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.6,
+   "porch": 0.0,
+   "flat": 0.85,
+   "hipped": 0.7,
+   "attached": 0.05,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.0,
+   "note": "Jordan, Israel, Palestine, Lebanon, Syria: pale limestone and plaster, flat roofs, red hipped tiles on a minority (Lebanon)."
+  },
+  "arid": {
+   "confidence": "medium",
+   "brick": 0.1,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.05,
+   "porch": 0.0,
+   "flat": 0.95,
+   "hipped": 0.4,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 18,
+   "barn_red": 0.0,
+   "note": "North Africa, the Arabian peninsula, Iraq: plaster in sand colours, flat roofs almost everywhere. Unrendered red brick is common in Egypt."
+  },
+  "iran": {
+   "confidence": "low",
+   "brick": 0.4,
+   "walls": [
+    [
+     "stucco",
+     0.6
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    4
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.1,
+   "porch": 0.0,
+   "flat": 0.85,
+   "hipped": 0.4,
+   "attached": 0.05,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      3,
+      0
+     ]
+    ],
+    [
+     "tile",
+     [
+      5
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "Buff brick and plaster, flat roofs; pitched metal roofs on the wet Caspian side. Also Afghanistan."
+  },
+  "central_asia": {
+   "confidence": "low",
+   "brick": 0.2,
+   "walls": [
+    [
+     "stucco",
+     0.7
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.15,
+   "hipped": 0.5,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      3,
+      2,
+      0
+     ]
+    ],
+    [
+     "shingle",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 28,
+   "barn_red": 0.0,
+   "note": "Kazakhstan, Uzbekistan, Kyrgyzstan, Tajikistan, Turkmenistan: plastered houses, sheet metal and fibre-cement roofs."
+  },
+  "south_asia": {
+   "confidence": "medium",
+   "brick": 0.2,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6,
+    8,
+    10
+   ],
+   "wood": false,
+   "paint": 0.15,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.88,
+   "hipped": 0.2,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   ],
+   "pitch": 18,
+   "barn_red": 0.0,
+   "note": "India, Pakistan, Bangladesh: concrete frame and brick under pastel plaster, flat terrace roofs, exposed brick in the north. 'attached' lowered from 0.90: attached town houses there have flat roofs."
+  },
+  "himalaya": {
+   "confidence": "low",
+   "brick": 0.25,
+   "walls": [
+    [
+     "stucco",
+     0.7
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    5
+   ],
+   "wood": false,
+   "paint": 0.1,
+   "stone": 0.25,
+   "porch": 0.0,
+   "flat": 0.5,
+   "hipped": 0.3,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "metal",
+     [
+      0,
+      1,
+      3,
+      2,
+      4
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "Nepal, Bhutan and the Indian hill states: flat concrete roofs in towns, coloured sheet metal in the hills, stone."
+  },
+  "southeast_asia": {
+   "confidence": "medium",
+   "brick": 0.05,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ],
+    [
+     "siding",
+     0.1
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    10
+   ],
+   "wood": false,
+   "paint": 0.15,
+   "stone": 0.0,
+   "porch": 0.1,
+   "flat": 0.15,
+   "hipped": 0.55,
+   "attached": 0.5,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3,
+      2
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ]
+   ],
+   "pitch": 28,
+   "barn_red": 0.0,
+   "note": "Thailand, Vietnam, Cambodia, Laos, Malaysia, Indonesia, Philippines, Myanmar, Sri Lanka: plastered masonry, pitched roofs of tile or sheet metal against the rain."
+  },
+  "china": {
+   "confidence": "low",
+   "brick": 0.2,
+   "walls": [
+    [
+     "stucco",
+     0.7
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3,
+    4,
+    1
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.03,
+   "porch": 0.0,
+   "flat": 0.2,
+   "hipped": 0.3,
+   "attached": 0.5,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ],
+    [
+     "metal",
+     [
+      4,
+      3
+     ]
+    ]
+   ],
+   "pitch": 27,
+   "barn_red": 0.0,
+   "note": "South of the Qinling-Huai line: white plaster or tiled walls, grey tiles, pitched roofs."
+  },
+  "japan": {
+   "confidence": "medium",
+   "brick": 0.0,
+   "walls": [
+    [
+     "siding",
+     0.65
+    ],
+    [
+     "stucco",
+     0.25
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    5,
+    6
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.1,
+   "hipped": 0.45,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8,
+      9
+     ]
+    ],
+    [
+     "metal",
+     [
+      1,
+      4
+     ]
+    ],
+    [
+     "shingle",
+     [
+      6,
+      7
+     ]
+    ]
+   ],
+   "pitch": 24,
+   "barn_red": 0.0,
+   "note": "Detached houses in pale cladding panels, grey-black tiles, dark metal and slate-like sheets."
+  },
+  "korea_taiwan": {
+   "confidence": "low",
+   "brick": 0.35,
+   "walls": [
+    [
+     "stucco",
+     0.6
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.05,
+   "porch": 0.0,
+   "flat": 0.6,
+   "hipped": 0.5,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "metal",
+     [
+      2,
+      3,
+      4
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.0,
+   "note": "Red brick and plastered low-rises with flat roofs, dark tiles and green or blue metal roofs on older houses."
+  },
+  "australia": {
+   "confidence": "medium",
+   "brick": 0.8,
+   "walls": [
+    [
+     "stucco",
+     0.35
+    ],
+    [
+     "siding",
+     0.25
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    5,
+    6
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.03,
+   "porch": 0.3,
+   "flat": 0.04,
+   "hipped": 0.75,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      9
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      4,
+      3
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.1,
+   "note": "Brick veneer, render and weatherboard, hipped roofs of concrete tile or coloured steel, verandahs."
+  },
+  "new_zealand": {
+   "confidence": "medium",
+   "brick": 0.35,
+   "walls": [
+    [
+     "siding",
+     0.55
+    ],
+    [
+     "stucco",
+     0.15
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    4,
+    5,
+    6
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.0,
+   "porch": 0.2,
+   "flat": 0.08,
+   "hipped": 0.37,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      4,
+      3,
+      2,
+      0
+     ]
+    ],
+    [
+     "metal",
+     [
+      1,
+      4,
+      3,
+      2,
+      0
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      7,
+      8
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.1,
+   "note": "Weatherboard houses under corrugated steel. flat and hipped measured in Auckland (8 %, 37 % of pitched); mapped facades there 40 % brick, 27 % wood."
+  },
+  "mexico": {
+   "confidence": "medium",
+   "brick": 0.15,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.05,
+   "porch": 0.0,
+   "flat": 0.85,
+   "hipped": 0.3,
+   "attached": 0.05,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.0,
+   "note": "Concrete block under bright paint, flat concrete roofs."
+  },
+  "central_america_caribbean": {
+   "confidence": "low",
+   "brick": 0.05,
+   "walls": [
+    [
+     "stucco",
+     0.7
+    ],
+    [
+     "siding",
+     0.2
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    9,
+    10
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.3,
+   "flat": 0.25,
+   "hipped": 0.5,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "metal",
+     [
+      3,
+      0,
+      1,
+      2
+     ]
+    ],
+    [
+     "metal",
+     [
+      3,
+      0,
+      1,
+      2
+     ]
+    ],
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ]
+   ],
+   "pitch": 24,
+   "barn_red": 0.0,
+   "note": "Guatemala to Panama and the islands: painted block and timber houses, corrugated metal roofs, porches."
+  },
+  "andes": {
+   "confidence": "low",
+   "brick": 0.5,
+   "walls": [
+    [
+     "stucco",
+     0.6
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6,
+    10
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.05,
+   "porch": 0.0,
+   "flat": 0.6,
+   "hipped": 0.3,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "Colombia, Ecuador, Peru, Bolivia, Venezuela: unrendered red brick and block, flat slabs left for another storey, clay tiles in older quarters."
+  },
+  "brazil": {
+   "confidence": "medium",
+   "brick": 0.12,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    10
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.15,
+   "flat": 0.1,
+   "hipped": 0.55,
+   "attached": 0.5,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "shingle",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.0,
+   "note": "Painted plaster, low roofs of clay tile, grey fibre-cement sheets on simpler houses. Also the Guianas."
+  },
+  "plata": {
+   "confidence": "low",
+   "brick": 0.3,
+   "walls": [
+    [
+     "stucco",
+     0.75
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.0,
+   "porch": 0.05,
+   "flat": 0.45,
+   "hipped": 0.4,
+   "attached": 0.15,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "Argentina, Uruguay, Paraguay: plaster and exposed brick, flat slabs, clay tiles and sheet metal."
+  },
+  "chile": {
+   "confidence": "low",
+   "brick": 0.15,
+   "walls": [
+    [
+     "siding",
+     0.4
+    ],
+    [
+     "stucco",
+     0.45
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "wood": false,
+   "paint": 0.1,
+   "stone": 0.0,
+   "porch": 0.05,
+   "flat": 0.08,
+   "hipped": 0.3,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      3,
+      4,
+      0,
+      2
+     ]
+    ],
+    [
+     "metal",
+     [
+      1,
+      3,
+      4,
+      0,
+      2
+     ]
+    ],
+    [
+     "tile",
+     [
+      5
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.0,
+   "note": "Timber and plastered houses under sheet metal, more wood towards the south."
+  },
+  "sahel": {
+   "confidence": "low",
+   "brick": 0.05,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    1,
+    2,
+    4,
+    5,
+    0
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.6,
+   "hipped": 0.3,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "metal",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 15,
+   "barn_red": 0.0,
+   "note": "Senegal to Sudan and the Horn's dry lowlands: earth-coloured plaster, flat roofs or low sheet metal."
+  },
+  "tropical_africa": {
+   "confidence": "low",
+   "brick": 0.15,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    10
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.1,
+   "flat": 0.12,
+   "hipped": 0.5,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "metal",
+     [
+      0,
+      1,
+      3,
+      2,
+      4
+     ]
+    ]
+   ],
+   "pitch": 18,
+   "barn_red": 0.0,
+   "note": "West, Central and East Africa: plastered block, exposed fired brick around the Great Lakes, corrugated metal roofs nearly everywhere."
+  },
+  "southern_africa": {
+   "confidence": "low",
+   "brick": 0.45,
+   "walls": [
+    [
+     "stucco",
+     0.6
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.15,
+   "flat": 0.08,
+   "hipped": 0.6,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "tile",
+     [
+      5,
+      4,
+      9
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3,
+      2
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "South Africa, Namibia, Botswana, Zimbabwe, Lesotho, Eswatini: face brick and plaster, hipped concrete-tile roofs, sheet metal."
+  },
+  "warm": {
+   "confidence": "low",
+   "brick": 0.15,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    8
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.5,
+   "hipped": 0.4,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.0,
+   "note": "Fallback for warm climates without their own style. flat lowered from 0.75: it no longer has to stand for the deserts."
+  },
+  "pyrenees": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.5
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.03,
+   "stone": 0.6,
+   "porch": 0.0,
+   "flat": 0.0,
+   "hipped": 0.3,
+   "attached": 0.85,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ]
+   ],
+   "pitch": 45,
+   "barn_red": 0.0,
+   "note": "Stone houses under steep dark slate, both sides of the range.",
+   "derived_from": "france_north"
+  },
+  "carpathian": {
+   "confidence": "low",
+   "brick": 0.02,
+   "walls": [
+    [
+     "siding",
+     0.5
+    ],
+    [
+     "stucco",
+     0.4
+    ]
+   ],
+   "wall_tints": null,
+   "wood": true,
+   "paint": 0.15,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.02,
+   "hipped": 0.3,
+   "attached": 0.6,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      4,
+      3
+     ]
+    ],
+    [
+     "shingle",
+     [
+      1,
+      2,
+      6
+     ]
+    ]
+   ],
+   "pitch": 45,
+   "barn_red": 0.0,
+   "note": "Tatra and Carpathian villages: timber houses, steep shingle and sheet-metal roofs.",
+   "derived_from": "poland"
+  },
+  "caucasus_highland": {
+   "confidence": "low",
+   "brick": 0.1,
+   "walls": [
+    [
+     "stucco",
+     0.5
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.1,
+   "stone": 0.45,
+   "porch": 0.0,
+   "flat": 0.1,
+   "hipped": 0.6,
+   "attached": 0.3,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      3,
+      0
+     ]
+    ]
+   ],
+   "pitch": 28,
+   "barn_red": 0.0,
+   "note": "Stone and plaster under sheet metal.",
+   "derived_from": "anatolia_caucasus"
+  },
+  "andes_highland": {
+   "confidence": "low",
+   "brick": 0.25,
+   "walls": [
+    [
+     "stucco",
+     0.75
+    ]
+   ],
+   "wall_tints": [
+    1,
+    2,
+    4,
+    5
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.05,
+   "porch": 0.0,
+   "flat": 0.3,
+   "hipped": 0.2,
+   "attached": 0.1,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "Highland villages: earth-plastered adobe, clay tiles or sheet metal; fewer flat slabs than the cities.",
+   "derived_from": "andes"
+  },
+  "japan_snow": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "siding",
+     0.65
+    ],
+    [
+     "stucco",
+     0.25
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    5,
+    6
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.05,
+   "hipped": 0.3,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      3,
+      4,
+      2
+     ]
+    ]
+   ],
+   "pitch": 30,
+   "barn_red": 0.0,
+   "note": "Snow country (Hokkaido, Tohoku, the Japan Sea side): sheet-metal roofs, few tiles.",
+   "derived_from": "japan"
+  },
+  "scotland": {
+   "confidence": "medium",
+   "brick": 0.1,
+   "walls": [
+    [
+     "stucco",
+     0.5
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3
+   ],
+   "wood": false,
+   "paint": 0.08,
+   "stone": 0.6,
+   "porch": 0.0,
+   "flat": 0.03,
+   "hipped": 0.2,
+   "attached": 0.9,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ]
+   ],
+   "pitch": 37,
+   "barn_red": 0.0,
+   "note": "Stone and white render (harling), slate.",
+   "derived_from": "britain"
+  },
+  "tibet": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.5
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.6,
+   "porch": 0.0,
+   "flat": 0.95,
+   "hipped": 0.3,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "tile",
+     [
+      5,
+      9
+     ]
+    ],
+    [
+     "metal",
+     [
+      4,
+      3
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.0,
+   "note": "Whitewashed stone, flat roofs.",
+   "derived_from": "china"
+  },
+  "us_mountain": {
+   "confidence": "low",
+   "brick": 0.03,
+   "walls": [
+    [
+     "siding",
+     0.8
+    ]
+   ],
+   "wall_tints": null,
+   "wood": true,
+   "paint": 0.0,
+   "stone": 0.05,
+   "porch": 0.5,
+   "flat": 0.0,
+   "hipped": 0.1,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "metal",
+     [
+      1,
+      2,
+      3,
+      4
+     ]
+    ],
+    [
+     "shingle",
+     [
+      1,
+      2,
+      6
+     ]
+    ]
+   ],
+   "pitch": 35,
+   "barn_red": 0.4,
+   "note": "Rocky Mountain towns: stained timber and log houses, metal roofs for the snow."
+  },
+  "us_southwest": {
+   "confidence": "low",
+   "brick": 0.05,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    1,
+    2,
+    5,
+    6
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.2,
+   "flat": 0.75,
+   "hipped": 0.4,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "shingle",
+     [
+      1,
+      2
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.1,
+   "note": "New Mexico and Arizona: adobe-coloured stucco, flat roofs behind parapets, clay tiles."
+  },
+  "us_florida": {
+   "confidence": "low",
+   "brick": 0.1,
+   "walls": [
+    [
+     "stucco",
+     0.85
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.15,
+   "stone": 0.0,
+   "porch": 0.3,
+   "flat": 0.03,
+   "hipped": 0.7,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "shingle",
+     [
+      0,
+      1,
+      2,
+      3
+     ]
+    ],
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.1,
+   "note": "Stuccoed block houses, low hipped roofs of shingle or barrel tile."
+  },
+  "china_north": {
+   "confidence": "low",
+   "brick": 0.45,
+   "walls": [
+    [
+     "stucco",
+     0.7
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3,
+    4,
+    1
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.03,
+   "porch": 0.0,
+   "flat": 0.6,
+   "hipped": 0.3,
+   "attached": 0.5,
+   "roofs": [
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ],
+    [
+     "metal",
+     [
+      4,
+      3
+     ]
+    ]
+   ],
+   "pitch": 25,
+   "barn_red": 0.0,
+   "note": "North of the Qinling-Huai line: brick, grey tiles, flat-roofed newer village houses.",
+   "derived_from": "china"
+  },
+  "brazil_south": {
+   "confidence": "low",
+   "brick": 0.12,
+   "walls": [
+    [
+     "stucco",
+     0.6
+    ],
+    [
+     "siding",
+     0.3
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    5
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.15,
+   "flat": 0.05,
+   "hipped": 0.55,
+   "attached": 0.5,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   ],
+   "pitch": 30,
+   "barn_red": 0.0,
+   "note": "Parana to Rio Grande do Sul: European settlers' timber and plaster houses, steeper roofs.",
+   "derived_from": "brazil"
+  },
+  "spain_north": {
+   "confidence": "low",
+   "brick": 0.03,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.45,
+   "porch": 0.0,
+   "flat": 0.05,
+   "hipped": 0.5,
+   "attached": 0.8,
+   "roofs": [
+    [
+     "tile",
+     [
+      5,
+      4
+     ]
+    ],
+    [
+     "tile",
+     [
+      7,
+      8
+     ]
+    ]
+   ],
+   "pitch": 28,
+   "barn_red": 0.0,
+   "note": "Galicia to the Basque country (wet Atlantic climate): stone, steeper roofs, slate in Galicia.",
+   "derived_from": "mediterranean"
+  },
+  "italy_south": {
+   "confidence": "low",
+   "brick": 0.03,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    3,
+    1
+   ],
+   "wood": false,
+   "paint": 0.05,
+   "stone": 0.3,
+   "porch": 0.0,
+   "flat": 0.55,
+   "hipped": 0.5,
+   "attached": 0.8,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "pitch": 22,
+   "barn_red": 0.0,
+   "note": "South of Rome and the islands: white and pale plaster, many flat roofs.",
+   "derived_from": "mediterranean"
+  },
+  "cyclades": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.92
+    ]
+   ],
+   "wall_tints": [
+    3
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.1,
+   "porch": 0.0,
+   "flat": 0.9,
+   "hipped": 0.6,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "pitch": 20,
+   "barn_red": 0.0,
+   "note": "White cubic houses of the Aegean islands.",
+   "derived_from": "aegean"
+  },
+  "gulf": {
+   "confidence": "medium",
+   "brick": 0.0,
+   "walls": [
+    [
+     "stucco",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.03,
+   "porch": 0.0,
+   "flat": 0.97,
+   "hipped": 0.4,
+   "attached": 0.0,
+   "roofs": [
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ],
+    [
+     "metal",
+     [
+      0,
+      1
+     ]
+    ]
+   ],
+   "pitch": 18,
+   "barn_red": 0.0,
+   "note": "Arabian peninsula: newer villas in pale plaster behind plot walls, flat roofs.",
+   "derived_from": "arid"
+  },
+  "arctic": {
+   "confidence": "low",
+   "brick": 0.0,
+   "walls": [
+    [
+     "siding",
+     0.9
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "wood": false,
+   "paint": 0.3,
+   "stone": 0.0,
+   "porch": 0.0,
+   "flat": 0.02,
+   "hipped": 0.3,
+   "attached": 0.4,
+   "roofs": [
+    [
+     "metal",
+     [
+      4,
+      1,
+      3
+     ]
+    ],
+    [
+     "shingle",
+     [
+      6,
+      1
+     ]
+    ]
+   ],
+   "pitch": 30,
+   "barn_red": 0.3,
+   "note": "Greenland, Svalbard, the far north: brightly painted timber houses on stilts.",
+   "derived_from": "iceland"
+  },
+  "pacific_islands": {
+   "confidence": "low",
+   "brick": 0.05,
+   "walls": [
+    [
+     "stucco",
+     0.7
+    ],
+    [
+     "siding",
+     0.2
+    ]
+   ],
+   "wall_tints": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8
+   ],
+   "wood": false,
+   "paint": 0.0,
+   "stone": 0.0,
+   "porch": 0.3,
+   "flat": 0.1,
+   "hipped": 0.5,
+   "attached": 0.2,
+   "roofs": [
+    [
+     "metal",
+     [
+      3,
+      0,
+      1,
+      2
+     ]
+    ],
+    [
+     "metal",
+     [
+      3,
+      0,
+      1,
+      2
+     ]
+    ],
+    [
+     "tile",
+     [
+      4,
+      5
+     ]
+    ]
+   ],
+   "pitch": 24,
+   "barn_red": 0.0,
+   "note": "Block and timber houses under corrugated metal.",
+   "derived_from": "central_america_caribbean"
+  }
+ },
+ "assign": {
+  "how": "Proposed 60-style target, not the active styles.json region table: first matching rule wins; then the country table; then the climate fallback. Latitude splits stand in for regions borders.at cannot name; each needs a test at a named town.",
+  "rules": [
+   {
+    "style": "us_southwest",
+    "when": "state US-NM or US-AZ"
+   },
+   {
+    "style": "us_florida",
+    "when": "state US-FL"
+   },
+   {
+    "style": "us_mountain",
+    "when": "country US or CA, longitude west of -104 and ground at least 1,800 m",
+    "note": "Denver (1,600 m) stays us_west; Santa Fe (2,100 m) is caught by us_southwest first"
+   },
+   {
+    "style": "cool",
+    "when": "state US-AK, or country CA and latitude above 60"
+   },
+   {
+    "style": "us_*",
+    "when": "country US or CA, within the current us_zones coordinate extent",
+    "note": "the four zones retain their longitude and latitude boundaries; outside the extent the active build uses the climate fallback"
+   },
+   {
+    "style": "alpine",
+    "when": "country in AT, CH, LI, DE, IT, FR, SI; inside Alpenbogen bounds 44.5-47.8 N and 6.5-16.5 E; ground at least 700 m",
+    "note": "The mapped country and elevation localize snow-influenced mountain building. The box excludes the Pyrenees, Massif Central, Apennines and northern German ranges without scattered national exceptions. This coarse box can still include Swiss Jura, the southern Black Forest and plastered high towns such as Davos; a measured Alpine polygon would be more precise. Köppen alone does not trigger alpine."
+   },
+   {
+    "style": "pyrenees",
+    "when": "country in FR, ES, AD, latitude 42.2-43.3, longitude -2 to 3, ground at least 600 m"
+   },
+   {
+    "style": "carpathian",
+    "when": "country in PL, SK, UA, RO and ground at least 600 m"
+   },
+   {
+    "style": "caucasus_highland",
+    "when": "country in GE, AM, AZ and ground at least 1,000 m"
+   },
+   {
+    "style": "andes_highland",
+    "when": "country in PE, BO, EC and ground at least 2,500 m"
+   },
+   {
+    "style": "tibet",
+    "when": "country CN and ground at least 3,000 m"
+   },
+   {
+    "style": "himalaya",
+    "when": "country IN and ground at least 1,200 m"
+   },
+   {
+    "style": "japan_snow",
+    "when": "country JP and Köppen 25-27 (Dfa, Dfb, Dfc)"
+   },
+   {
+    "style": "scotland",
+    "when": "country GB and latitude above 55.3",
+    "note": "the border runs 55.0-55.8; Newcastle (55.0) stays britain, Berwick comes out Scottish"
+   },
+   {
+    "style": "central_europe",
+    "when": "country DE, latitude above 52.0 and longitude east of 11.5",
+    "note": "Berlin, Brandenburg, Saxony-Anhalt: plaster, before the brick rule"
+   },
+   {
+    "style": "northwest_brick",
+    "when": "country DE and latitude above 52.0",
+    "note": "Hamburg, Bremen, Hannover, Münster"
+   },
+   {
+    "style": "france_north",
+    "when": "country FR and latitude above 45.5"
+   },
+   {
+    "style": "spain_north",
+    "when": "country ES or PT and Köppen 15 (Cfb)"
+   },
+   {
+    "style": "italy_north",
+    "when": "country IT and latitude above 44.0"
+   },
+   {
+    "style": "italy_south",
+    "when": "country IT and latitude below 41.5"
+   },
+   {
+    "style": "cyclades",
+    "when": "country GR, latitude 36.0-37.8, longitude 24.0-26.6"
+   },
+   {
+    "style": "china_north",
+    "when": "country CN and latitude above 34.0",
+    "note": "the Qinling-Huai line, the usual north-south divide"
+   },
+   {
+    "style": "southeast_asia",
+    "when": "country IN and Köppen 1-2 (Af, Am)",
+    "note": "Kerala, the Konkan coast, the north-east: pitched tile roofs"
+   },
+   {
+    "style": "brazil_south",
+    "when": "country BR and latitude south of -25.0"
+   },
+   {
+    "style": "cool",
+    "when": "country RU and longitude east of 60",
+    "note": "Siberia"
+   },
+   {
+    "style": "arid",
+    "when": "Köppen 4-5 (BWh, BWk) in a country of andes, chile, south_asia, china or central_asia",
+    "note": "Peru's and northern Chile's coast, Sindh, Xinjiang"
+   }
+  ],
+  "countries": {
+   "central_europe": [
+    "AT",
+    "DE",
+    "CH",
+    "LI",
+    "CZ",
+    "SK",
+    "HU",
+    "SI",
+    "LU"
+   ],
+   "poland": [
+    "PL"
+   ],
+   "northwest_brick": [
+    "NL",
+    "BE",
+    "DK"
+   ],
+   "britain": [
+    "GB",
+    "IM",
+    "JE",
+    "GG"
+   ],
+   "ireland": [
+    "IE"
+   ],
+   "mediterranean": [
+    "ES",
+    "PT",
+    "FR",
+    "IT",
+    "MC",
+    "SM",
+    "VA",
+    "AD",
+    "HR",
+    "ME",
+    "AL",
+    "GI"
+   ],
+   "aegean": [
+    "GR",
+    "CY",
+    "MT"
+   ],
+   "balkans": [
+    "RS",
+    "BA",
+    "MK",
+    "XK",
+    "BG",
+    "RO"
+   ],
+   "nordic": [
+    "NO",
+    "SE",
+    "FI",
+    "AX"
+   ],
+   "iceland": [
+    "IS",
+    "FO"
+   ],
+   "east_europe": [
+    "EE",
+    "LV",
+    "LT",
+    "BY",
+    "UA",
+    "MD",
+    "RU"
+   ],
+   "anatolia_caucasus": [
+    "TR",
+    "GE",
+    "AM",
+    "AZ"
+   ],
+   "levant": [
+    "JO",
+    "IL",
+    "PS",
+    "LB",
+    "SY"
+   ],
+   "arid": [
+    "MA",
+    "DZ",
+    "TN",
+    "LY",
+    "EG",
+    "EH",
+    "YE",
+    "IQ"
+   ],
+   "iran": [
+    "IR",
+    "AF"
+   ],
+   "central_asia": [
+    "KZ",
+    "UZ",
+    "KG",
+    "TJ",
+    "TM"
+   ],
+   "cool": [
+    "MN"
+   ],
+   "south_asia": [
+    "IN",
+    "PK",
+    "BD"
+   ],
+   "himalaya": [
+    "NP",
+    "BT"
+   ],
+   "southeast_asia": [
+    "TH",
+    "VN",
+    "KH",
+    "LA",
+    "MY",
+    "SG",
+    "BN",
+    "ID",
+    "TL",
+    "PH",
+    "MM",
+    "LK",
+    "MV"
+   ],
+   "china": [
+    "CN",
+    "HK",
+    "MO",
+    "KP"
+   ],
+   "japan": [
+    "JP"
+   ],
+   "korea_taiwan": [
+    "KR",
+    "TW"
+   ],
+   "australia": [
+    "AU"
+   ],
+   "new_zealand": [
+    "NZ"
+   ],
+   "mexico": [
+    "MX"
+   ],
+   "central_america_caribbean": [
+    "GT",
+    "BZ",
+    "HN",
+    "SV",
+    "NI",
+    "CR",
+    "PA",
+    "CU",
+    "JM",
+    "HT",
+    "DO",
+    "PR",
+    "BS",
+    "BB",
+    "TT",
+    "LC",
+    "VC",
+    "GD",
+    "AG",
+    "DM",
+    "KN"
+   ],
+   "andes": [
+    "CO",
+    "EC",
+    "PE",
+    "BO",
+    "VE"
+   ],
+   "brazil": [
+    "BR",
+    "GY",
+    "SR",
+    "GF"
+   ],
+   "plata": [
+    "AR",
+    "UY",
+    "PY"
+   ],
+   "chile": [
+    "CL"
+   ],
+   "sahel": [
+    "SN",
+    "GM",
+    "MR",
+    "ML",
+    "BF",
+    "NE",
+    "TD",
+    "SD",
+    "ER",
+    "DJ",
+    "SO"
+   ],
+   "tropical_africa": [
+    "GW",
+    "GN",
+    "SL",
+    "LR",
+    "CI",
+    "GH",
+    "TG",
+    "BJ",
+    "NG",
+    "CM",
+    "CF",
+    "GQ",
+    "GA",
+    "CG",
+    "CD",
+    "AO",
+    "SS",
+    "ET",
+    "KE",
+    "UG",
+    "RW",
+    "BI",
+    "TZ",
+    "MW",
+    "ZM",
+    "MZ",
+    "MG",
+    "MU",
+    "SC",
+    "KM",
+    "CV",
+    "ST"
+   ],
+   "southern_africa": [
+    "ZA",
+    "NA",
+    "BW",
+    "ZW",
+    "LS",
+    "SZ"
+   ],
+   "gulf": [
+    "SA",
+    "AE",
+    "QA",
+    "KW",
+    "BH",
+    "OM"
+   ],
+   "pacific_islands": [
+    "FJ",
+    "WS",
+    "TO",
+    "VU",
+    "NC",
+    "PF",
+    "PG",
+    "SB",
+    "CK",
+    "KI",
+    "TV",
+    "NR",
+    "FM",
+    "MH",
+    "PW",
+    "GU"
+   ],
+   "arctic": [
+    "GL",
+    "SJ"
+   ]
+  },
+  "fallback": [
+   {
+    "style": "arid",
+    "when": "Köppen 4-5 (BWh, BWk)"
+   },
+   {
+    "style": "cool",
+    "when": "Köppen 17-30 (D, E)"
+   },
+   {
+    "style": "warm",
+    "when": "anything else, and no country"
+   }
+  ],
+  "known_wrong": [
+   "Southern Brazil's, India's and China's variety is reduced to two styles each.",
+   "Indonesia's and the Philippines' islands share one style.",
+   "Canada uses the US zones; Quebec's and the Maritimes' houses differ.",
+   "Countries not listed fall to the climate fallback.",
+   "Latitude lines cut through regions: every one needs a test at a named town on each side."
+  ]
+ },
+ "missing_dimensions": [
+  "Town against village: one style serves both. The planner knows 'dense' and 'town' already (photo.district_coverage); a style could carry a second set of shares for dense districts (more attached, taller, fewer wooden walls).",
+  "Age: old centre, post-war estate and new suburb differ in roof, colour and windows. The map rarely gives a year; density and footprint regularity are the only hints.",
+  "Wealth: unrendered block and sheet metal beside tiled villas in the same country.",
+  "Large slab estates (Eastern Europe, Russia, China, Korea) appear only where floors are mapped."
+ ],
+ "elements": {
+  "about": "Parts a style cannot choose today. 'exists' is what the code has now; each profile says what a region's houses need. Shares are of detached and row houses; all values are estimates.",
+  "exists_today": {
+   "windows": "One painted sash window with optional green side shutters (facades.sheet, facades._window), one panel window for separate quads, shop and curtain-wall sheets. Size and spacing are adjustable through FacadePattern (bay_m, window width, height, sill); the picture is not.",
+   "shutters": "Green hinged shutters painted into the shared plaster sheet. The style at the track anchor selects them once per track through its explicit shutters field in styles.json; individual buildings do not get separate shutter textures.",
+   "doors": "One door prop (propsmesh DOOR cell: panels and handle), glazed public entrances, garage, farm and industrial gates.",
+   "balconies": "None. A US porch and a stoop exist (mesh._porch, _stoop).",
+   "enclosure": "One front fence (doors._front_fence).",
+   "eaves": "0.35 m everywhere (looks.EAVE_M).",
+   "floor_height": "3.0 m everywhere (looks.FLOOR_M).",
+   "roof_details": "Inferred rooftop equipment on large flat roofs. No chimneys, dormers or water tanks.",
+   "surfaces_a_style_cannot_pick": "Painted and exported already, but reachable only from a mapped material: concrete block (blk), clay (cly), vinyl (vny), timber framing (tmf), plain brick (bne_brick_red/dark/tan); roofs: fibre cement (fbc), thatch (tha), clay roof tiles (rtl), grass (veg), copper (cop), gravel (grv), bitumen (bit). Style.walls accepts only siding and stucco, Style.roofs only slate, shingle and metal."
+  },
+  "to_build": {
+   "style_fields": [
+    {
+     "field": "eave_m",
+     "why": "0.2 m in Britain, 1.0 m and more on a chalet, none behind a parapet",
+     "size": "small: a number that exists"
+    },
+    {
+     "field": "floor_m",
+     "why": "2.5-2.6 m in Japan, New Zealand and Scandinavia, 3.0 m and more in warm countries",
+     "size": "small"
+    },
+    {
+     "field": "pitch as a range",
+     "why": "one number makes every roof of a village identical",
+     "size": "small"
+    },
+    {
+     "field": "walls and roofs accept every painted surface",
+     "why": "unlocks brick, block, clay, timber framing, thatch, fibre cement and clay tiles for styles without new art; lifts the 35 % brick cap on detached houses",
+     "size": "medium"
+    },
+    {
+     "field": "house siding may be red",
+     "why": "Scandinavia's falu-red houses",
+     "size": "small"
+    },
+    {
+     "field": "window, shutter, door, balcony, enclosure, roof detail shares",
+     "why": "the profiles below",
+     "size": "per element, see each list"
+    }
+   ],
+   "windows": [
+    {
+     "id": "sash",
+     "exists": true,
+     "look": "two panes one above the other, white frame",
+     "where": "North America, Britain, Ireland"
+    },
+    {
+     "id": "casement",
+     "look": "two side-hung wings, a mullion, often a transom; white or wood frame",
+     "where": "continental Europe, Latin America"
+    },
+    {
+     "id": "french_tall",
+     "look": "narrow and tall, down to near the floor, with a low rail",
+     "where": "France, Italy, Spain, Portugal"
+    },
+    {
+     "id": "sliding",
+     "look": "wide aluminium frame, two sliding leaves",
+     "where": "Japan, Korea, China, Australia, New Zealand, South-East Asia"
+    },
+    {
+     "id": "small_deep",
+     "look": "small opening set deep in a thick wall",
+     "where": "the Alps' stone houses, the Aegean, deserts, adobe"
+    },
+    {
+     "id": "grilled",
+     "look": "any of the above behind an iron grille; a second layer, not a new window",
+     "where": "Latin America, South Asia, Africa, the Middle East"
+    },
+    {
+     "id": "bay",
+     "look": "a canted bay projecting 0.6-0.9 m over one or two floors: geometry, not a picture",
+     "where": "Britain, Ireland, parts of the US and Australia"
+    }
+   ],
+   "shutters": [
+    {
+     "id": "hinged",
+     "exists": true,
+     "look": "solid or louvred leaves beside the window; needs a colour per house (green, brown, blue, grey, white) instead of green only"
+    },
+    {
+     "id": "roller_box",
+     "look": "a box over the window, sometimes half-lowered slats",
+     "where": "Germany, Austria, Spain, Italy, the Balkans, the Middle East"
+    },
+    {
+     "id": "none",
+     "exists": true
+    }
+   ],
+   "doors": [
+    {
+     "id": "panel",
+     "exists": true,
+     "look": "panelled timber; needs a colour per house (Britain and Ireland: strong colours)"
+    },
+    {
+     "id": "glazed",
+     "look": "timber or aluminium with a glass panel or side light",
+     "where": "northern and central Europe, Oceania, newer houses everywhere"
+    },
+    {
+     "id": "double",
+     "look": "two tall narrow leaves, often arched or under a fanlight",
+     "where": "the Mediterranean, Latin America, old town houses"
+    },
+    {
+     "id": "metal",
+     "look": "painted sheet-metal door, plain or with a grille",
+     "where": "Latin America, Africa, South Asia, the Middle East"
+    },
+    {
+     "id": "sliding",
+     "look": "sliding timber or aluminium door in a recessed porch",
+     "where": "Japan"
+    },
+    {
+     "id": "shop_shutter",
+     "look": "a roll-up metal shutter across the whole ground floor",
+     "where": "shophouses of South-East and South Asia, the Mediterranean, Latin America"
+    }
+   ],
+   "balconies": [
+    {
+     "id": "timber_gallery",
+     "look": "a wooden balcony across the gable or long side under the wide eave, turned or sawn balusters",
+     "where": "alpine, carpathian, himalaya, parts of nordic"
+    },
+    {
+     "id": "slab",
+     "look": "a cantilevered concrete slab 1.0-1.5 m deep, metal or masonry rail, one per floor",
+     "where": "the Mediterranean, the Balkans, the Middle East, South and East Asia, Latin America"
+    },
+    {
+     "id": "iron_juliet",
+     "look": "a shallow iron rail in front of a tall window, 0.2-0.4 m deep",
+     "where": "France, Spain, Italy, Latin American old towns"
+    },
+    {
+     "id": "veranda",
+     "exists": "the US porch",
+     "look": "a roofed ground-floor porch on posts along the front",
+     "where": "the US, Australia, New Zealand, the Caribbean, the tropics"
+    },
+    {
+     "id": "enclosed",
+     "look": "a glazed-in balcony",
+     "where": "Korea, China, Eastern Europe, northern Spain (galerias)"
+    }
+   ],
+   "enclosure": [
+    {
+     "id": "picket_or_low_fence",
+     "exists": "one fence"
+    },
+    {
+     "id": "hedge"
+    },
+    {
+     "id": "low_wall",
+     "look": "0.6-1.0 m masonry, sometimes with railings",
+     "where": "Britain, Ireland, the Mediterranean, Japan (block wall)"
+    },
+    {
+     "id": "high_wall",
+     "look": "1.8-2.5 m plastered wall with a metal gate",
+     "where": "Latin America, Africa, the Middle East, South Asia"
+    },
+    {
+     "id": "plank_or_sheet_fence",
+     "look": "1.8 m solid timber or sheet-metal fence",
+     "where": "Eastern Europe, Russia, Central Asia"
+    }
+   ],
+   "roof_details": [
+    {
+     "id": "chimney",
+     "look": "one or two masonry stacks at the ridge or gable",
+     "where": "cold and temperate regions"
+    },
+    {
+     "id": "water_tank",
+     "look": "a black, blue or steel tank on a flat roof",
+     "where": "Mexico, Brazil, South Asia, the Middle East, Africa"
+    },
+    {
+     "id": "dormer",
+     "look": "a small gabled or shed window in a steep roof",
+     "where": "north-west Europe, France, North America"
+    },
+    {
+     "id": "parapet",
+     "look": "the wall rising 0.3-1.0 m above a flat roof; partly exists as the cornice and the false front"
+    }
+   ],
+   "textures": [
+    {
+     "id": "adobe",
+     "look": "earth plaster: buff to red-brown, straw flecks, soft cracks",
+     "where": "andes_highland, sahel, us_southwest, Morocco, Yemen, Central Asia"
+    },
+    {
+     "id": "corrugated_metal",
+     "look": "wavy sheet with lap joints, new silver to rust-streaked; roof and wall. The present metal is standing seam",
+     "where": "Africa, South-East Asia, Latin America, the Caribbean, Oceania, Iceland"
+    },
+    {
+     "id": "barrel_tile",
+     "look": "half-round Roman or mission tiles in strong rows; the present tiles are flat courses",
+     "where": "the Mediterranean, Latin America, us_southwest, us_florida"
+    },
+    {
+     "id": "stone_slab_roof",
+     "look": "thick irregular grey stone slabs",
+     "where": "alpine, pyrenees, carpathian"
+    },
+    {
+     "id": "log_wall",
+     "look": "round or squared horizontal logs with notched corners",
+     "where": "nordic, east_europe, cool, us_mountain, carpathian"
+    },
+    {
+     "id": "rubble_stone",
+     "look": "irregular field stone with wide joints; the present stone is light ashlar",
+     "where": "scotland, ireland, pyrenees, the Balkans, the Aegean"
+    },
+    {
+     "id": "hollow_clay_block",
+     "look": "unrendered orange block with visible concrete frame",
+     "where": "andes, brazil, balkans, Egypt, Turkey"
+    },
+    {
+     "id": "ceramic_tile_facade",
+     "look": "small glazed tiles, white or patterned",
+     "where": "china, korea_taiwan, Portugal"
+    },
+    {
+     "id": "pebble_dash",
+     "look": "coarse grey-brown render",
+     "where": "britain, ireland, scotland"
+    },
+    {
+     "id": "glazed_roof_tile",
+     "look": "glossy blue, green or brown tile; could be a tint of the tile texture",
+     "where": "japan, china, korea_taiwan, southeast_asia"
+    },
+    {
+     "id": "woven_or_bamboo_wall",
+     "look": "split bamboo or woven mat panels",
+     "where": "southeast_asia, pacific_islands"
+    }
+   ]
+  },
+  "profiles": {
+   "anglo_america": {
+    "styles": [
+     "us_east",
+     "us_south",
+     "us_plains",
+     "us_west",
+     "us_florida",
+     "us_mountain"
+    ],
+    "eave_m": 0.4,
+    "floor_m": 2.75,
+    "window": "sash",
+    "shutters": {
+     "hinged": 0.3
+    },
+    "door": {
+     "panel": 0.8,
+     "glazed": 0.2
+    },
+    "balcony": {
+     "veranda": 0.5
+    },
+    "enclosure": {
+     "none": 0.8,
+     "picket_or_low_fence": 0.2
+    },
+    "roof_details": {
+     "chimney": 0.3,
+     "dormer": 0.1
+    }
+   },
+   "us_southwest": {
+    "styles": [
+     "us_southwest"
+    ],
+    "eave_m": 0.0,
+    "floor_m": 2.8,
+    "window": "small_deep",
+    "shutters": {},
+    "door": {
+     "panel": 1.0
+    },
+    "balcony": {
+     "veranda": 0.3
+    },
+    "enclosure": {
+     "low_wall": 0.4,
+     "none": 0.6
+    },
+    "roof_details": {
+     "parapet": 0.75
+    }
+   },
+   "british_isles": {
+    "styles": [
+     "britain",
+     "ireland",
+     "scotland"
+    ],
+    "eave_m": 0.2,
+    "floor_m": 2.6,
+    "window": "sash",
+    "window_extra": {
+     "bay": 0.35
+    },
+    "shutters": {},
+    "door": {
+     "panel": 0.7,
+     "glazed": 0.3
+    },
+    "balcony": {},
+    "enclosure": {
+     "low_wall": 0.5,
+     "hedge": 0.3,
+     "none": 0.2
+    },
+    "roof_details": {
+     "chimney": 0.85
+    }
+   },
+   "northwest_europe": {
+    "styles": [
+     "northwest_brick"
+    ],
+    "eave_m": 0.2,
+    "floor_m": 2.7,
+    "window": "casement",
+    "shutters": {
+     "hinged": 0.05
+    },
+    "door": {
+     "glazed": 0.6,
+     "panel": 0.4
+    },
+    "balcony": {
+     "slab": 0.05
+    },
+    "enclosure": {
+     "hedge": 0.5,
+     "none": 0.5
+    },
+    "roof_details": {
+     "chimney": 0.4,
+     "dormer": 0.3
+    }
+   },
+   "central_europe": {
+    "styles": [
+     "central_europe",
+     "poland"
+    ],
+    "eave_m": 0.5,
+    "floor_m": 2.8,
+    "window": "casement",
+    "shutters": {
+     "roller_box": 0.5,
+     "hinged": 0.15
+    },
+    "door": {
+     "panel": 0.5,
+     "glazed": 0.5
+    },
+    "balcony": {
+     "slab": 0.25
+    },
+    "enclosure": {
+     "picket_or_low_fence": 0.5,
+     "hedge": 0.3,
+     "none": 0.2
+    },
+    "roof_details": {
+     "chimney": 0.7,
+     "dormer": 0.15
+    }
+   },
+   "mountain_timber": {
+    "styles": [
+     "alpine",
+     "carpathian"
+    ],
+    "eave_m": 1.0,
+    "floor_m": 2.6,
+    "window": "casement",
+    "shutters": {
+     "hinged": 0.7
+    },
+    "door": {
+     "panel": 1.0
+    },
+    "balcony": {
+     "timber_gallery": 0.8
+    },
+    "enclosure": {
+     "picket_or_low_fence": 0.3,
+     "none": 0.7
+    },
+    "roof_details": {
+     "chimney": 0.7
+    }
+   },
+   "france": {
+    "styles": [
+     "france_north",
+     "pyrenees"
+    ],
+    "eave_m": 0.25,
+    "floor_m": 2.8,
+    "window": "french_tall",
+    "shutters": {
+     "hinged": 0.8
+    },
+    "door": {
+     "panel": 0.6,
+     "double": 0.2,
+     "glazed": 0.2
+    },
+    "balcony": {
+     "iron_juliet": 0.1
+    },
+    "enclosure": {
+     "low_wall": 0.4,
+     "hedge": 0.3,
+     "none": 0.3
+    },
+    "roof_details": {
+     "chimney": 0.8,
+     "dormer": 0.3
+    }
+   },
+   "mediterranean": {
+    "styles": [
+     "mediterranean",
+     "italy_north",
+     "italy_south",
+     "spain_north",
+     "balkans",
+     "anatolia_caucasus",
+     "caucasus_highland"
+    ],
+    "eave_m": 0.3,
+    "floor_m": 2.9,
+    "window": "french_tall",
+    "shutters": {
+     "hinged": 0.45,
+     "roller_box": 0.35
+    },
+    "door": {
+     "double": 0.4,
+     "panel": 0.4,
+     "metal": 0.2
+    },
+    "balcony": {
+     "slab": 0.5,
+     "iron_juliet": 0.15
+    },
+    "enclosure": {
+     "low_wall": 0.4,
+     "high_wall": 0.2,
+     "none": 0.4
+    },
+    "roof_details": {
+     "chimney": 0.35
+    }
+   },
+   "aegean": {
+    "styles": [
+     "aegean",
+     "cyclades"
+    ],
+    "eave_m": 0.0,
+    "floor_m": 2.9,
+    "window": "small_deep",
+    "shutters": {
+     "hinged": 0.6
+    },
+    "door": {
+     "panel": 0.6,
+     "double": 0.4
+    },
+    "balcony": {
+     "slab": 0.5
+    },
+    "enclosure": {
+     "low_wall": 0.5,
+     "none": 0.5
+    },
+    "roof_details": {
+     "parapet": 0.6,
+     "water_tank": 0.3
+    }
+   },
+   "nordic": {
+    "styles": [
+     "nordic",
+     "iceland",
+     "arctic"
+    ],
+    "eave_m": 0.5,
+    "floor_m": 2.5,
+    "window": "casement",
+    "shutters": {},
+    "door": {
+     "panel": 0.5,
+     "glazed": 0.5
+    },
+    "balcony": {
+     "veranda": 0.15
+    },
+    "enclosure": {
+     "none": 0.7,
+     "hedge": 0.2,
+     "picket_or_low_fence": 0.1
+    },
+    "roof_details": {
+     "chimney": 0.6
+    }
+   },
+   "east_europe": {
+    "styles": [
+     "east_europe",
+     "cool",
+     "central_asia"
+    ],
+    "eave_m": 0.4,
+    "floor_m": 2.7,
+    "window": "casement",
+    "shutters": {
+     "hinged": 0.1
+    },
+    "door": {
+     "panel": 0.6,
+     "metal": 0.4
+    },
+    "balcony": {
+     "enclosed": 0.1
+    },
+    "enclosure": {
+     "plank_or_sheet_fence": 0.7,
+     "none": 0.3
+    },
+    "roof_details": {
+     "chimney": 0.6
+    }
+   },
+   "middle_east": {
+    "styles": [
+     "arid",
+     "gulf",
+     "levant",
+     "iran",
+     "sahel",
+     "tibet"
+    ],
+    "eave_m": 0.0,
+    "floor_m": 3.0,
+    "window": "small_deep",
+    "window_extra": {
+     "grilled": 0.5
+    },
+    "shutters": {
+     "roller_box": 0.3
+    },
+    "door": {
+     "metal": 0.7,
+     "double": 0.3
+    },
+    "balcony": {
+     "slab": 0.3
+    },
+    "enclosure": {
+     "high_wall": 0.75,
+     "none": 0.25
+    },
+    "roof_details": {
+     "parapet": 0.9,
+     "water_tank": 0.5
+    }
+   },
+   "south_asia": {
+    "styles": [
+     "south_asia",
+     "himalaya"
+    ],
+    "eave_m": 0.1,
+    "floor_m": 3.0,
+    "window": "casement",
+    "window_extra": {
+     "grilled": 0.8
+    },
+    "shutters": {},
+    "door": {
+     "metal": 0.5,
+     "panel": 0.3,
+     "shop_shutter": 0.2
+    },
+    "balcony": {
+     "slab": 0.5,
+     "timber_gallery": 0.05
+    },
+    "enclosure": {
+     "high_wall": 0.5,
+     "none": 0.5
+    },
+    "roof_details": {
+     "parapet": 0.8,
+     "water_tank": 0.6
+    }
+   },
+   "southeast_asia": {
+    "styles": [
+     "southeast_asia",
+     "pacific_islands"
+    ],
+    "eave_m": 0.8,
+    "floor_m": 3.0,
+    "window": "sliding",
+    "window_extra": {
+     "grilled": 0.5
+    },
+    "shutters": {
+     "hinged": 0.1
+    },
+    "door": {
+     "metal": 0.3,
+     "panel": 0.3,
+     "shop_shutter": 0.25,
+     "glazed": 0.15
+    },
+    "balcony": {
+     "slab": 0.3,
+     "veranda": 0.2
+    },
+    "enclosure": {
+     "high_wall": 0.3,
+     "low_wall": 0.2,
+     "none": 0.5
+    },
+    "roof_details": {
+     "water_tank": 0.2
+    }
+   },
+   "japan": {
+    "styles": [
+     "japan",
+     "japan_snow"
+    ],
+    "eave_m": 0.5,
+    "floor_m": 2.5,
+    "window": "sliding",
+    "shutters": {
+     "roller_box": 0.4
+    },
+    "door": {
+     "sliding": 0.4,
+     "panel": 0.6
+    },
+    "balcony": {
+     "slab": 0.7
+    },
+    "enclosure": {
+     "low_wall": 0.6,
+     "none": 0.4
+    },
+    "roof_details": {}
+   },
+   "china_korea": {
+    "styles": [
+     "china",
+     "china_north",
+     "korea_taiwan"
+    ],
+    "eave_m": 0.4,
+    "floor_m": 2.9,
+    "window": "sliding",
+    "window_extra": {
+     "grilled": 0.4
+    },
+    "shutters": {},
+    "door": {
+     "metal": 0.6,
+     "double": 0.2,
+     "shop_shutter": 0.2
+    },
+    "balcony": {
+     "enclosed": 0.4,
+     "slab": 0.2
+    },
+    "enclosure": {
+     "high_wall": 0.35,
+     "none": 0.65
+    },
+    "roof_details": {
+     "water_tank": 0.3,
+     "parapet": 0.4
+    }
+   },
+   "oceania": {
+    "styles": [
+     "australia",
+     "new_zealand"
+    ],
+    "eave_m": 0.6,
+    "floor_m": 2.5,
+    "window": "sliding",
+    "shutters": {},
+    "door": {
+     "glazed": 0.5,
+     "panel": 0.5
+    },
+    "balcony": {
+     "veranda": 0.4
+    },
+    "enclosure": {
+     "picket_or_low_fence": 0.4,
+     "hedge": 0.2,
+     "none": 0.4
+    },
+    "roof_details": {
+     "chimney": 0.2
+    }
+   },
+   "latin_america": {
+    "styles": [
+     "mexico",
+     "central_america_caribbean",
+     "andes",
+     "andes_highland",
+     "brazil",
+     "brazil_south",
+     "plata",
+     "chile"
+    ],
+    "eave_m": 0.3,
+    "floor_m": 2.7,
+    "window": "casement",
+    "window_extra": {
+     "grilled": 0.7
+    },
+    "shutters": {
+     "hinged": 0.1
+    },
+    "door": {
+     "metal": 0.6,
+     "double": 0.2,
+     "panel": 0.2
+    },
+    "balcony": {
+     "slab": 0.2,
+     "iron_juliet": 0.1,
+     "veranda": 0.15
+    },
+    "enclosure": {
+     "high_wall": 0.65,
+     "none": 0.35
+    },
+    "roof_details": {
+     "water_tank": 0.5,
+     "parapet": 0.4
+    }
+   },
+   "africa": {
+    "styles": [
+     "tropical_africa",
+     "southern_africa",
+     "warm"
+    ],
+    "eave_m": 0.5,
+    "floor_m": 2.8,
+    "window": "casement",
+    "window_extra": {
+     "grilled": 0.7
+    },
+    "shutters": {},
+    "door": {
+     "metal": 0.6,
+     "panel": 0.4
+    },
+    "balcony": {
+     "veranda": 0.15
+    },
+    "enclosure": {
+     "high_wall": 0.5,
+     "none": 0.5
+    },
+    "roof_details": {
+     "water_tank": 0.2
+    }
+   }
+  },
+  "build_order": [
+   "1. Style fields that are single numbers: eave_m, floor_m, a pitch range, red house siding. No new art.",
+   "2. Styles may pick every painted surface for walls and roofs. No new art; this alone makes brick, block, thatch and fibre cement reachable.",
+   "3. Textures: corrugated metal, barrel tile and adobe first (they cover most of the world outside Europe and North America), then rubble stone, log wall, hollow clay block; the rest later.",
+   "4. Windows: casement and sliding as new painted bays with their night masks; shutters with a colour per house and the roller box; grilles as an overlay.",
+   "5. Doors: a colour per house first, then glazed, double and metal.",
+   "6. Balconies: slab first (widest use), then timber gallery, iron juliet; the veranda from the existing porch.",
+   "7. Enclosure: high wall with gate, low wall, hedge.",
+   "8. Roof details: chimney, water tank, dormer."
+  ],
+  "rules_for_the_builder": [
+   "Every new part needs a case in tools/building_gallery.py (House) so it can be looked at without a map download.",
+   "When adopting a proposed style, add explicit gas_station_kit, us_special and shutters fields in styles.json; do not infer these assets from its name.",
+   "Triangle and material cost is the track's job: bound each part per building as the existing gates and windows are (docs/buildings.md, 'Cost and validation').",
+   "New windows need matching night masks (scenery/facades.py window_glow), or the houses stay dark.",
+   "Mapped attributes keep precedence over every style choice.",
+   "A profile's shares are estimates. Whether a part looks right is decided in the Editor and in AC."
+  ]
+ },
+ "format_note": "engine/buildings/styles.json names materials in full. Here: stucco = bne_bld_stucco, siding = bne_bld_siding, tile = bne_bld_roof_slate, shingle = bne_bld_roof_shingle, metal = bne_bld_roof_metal."
+}
