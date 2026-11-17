@@ -31,6 +31,7 @@ line here (`engine/tests/test_tools.py`).
 | A road beside the route: its profile, the ground across it, what it lies on | `heights.py <track> --from <m> --to <m> --road <name or id>` |
 | Does the land away from the roads lie where the elevation and the map say: hillsides gone, water on land, water walls, a map area that is no water? | `surroundings.py <track>`, then Read the PNG |
 | A tunnel portal's heights | `portal.py <track> <AC x> <AC z>` |
+| Does a retained build have tunnel-portal holes, exposed or proud tubes, blocked mouths, bad internal joins, upper-road conflicts or dropped markings? | `measure_tunnels.py <track> [--json <file>]` (reads `out/tracks/<track>`; reports AC and map coordinates) |
 | The track of a report, built as its sender built it | `from_debug.py <session folder>` |
 | A stretch built again fast, with its profile | `stretch.py` |
 | Did a change leave the tracks as they were, and if not, what moved and where (AC x, z, route metre)? | `compare_parts.py` (all a build leaves up to the OBJ), `compare_kn5.py` (kn5) |
