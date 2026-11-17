@@ -105,7 +105,7 @@ class DividedPrimaryTest(unittest.TestCase):
 
 
 class MedianConnectorTest(unittest.TestCase):
-    def connector(self, developed=False, sidewalk=None):
+    def connector(self, sidewalk=None):
         f = features([[(-500,0),(0,0)],[(-500,30),(0,30)],[(0,0),(0,30)]],['primary']*3)
         f.attrs['name'] = np.array(['US Highway 30','US Highway 30',''])
         f.attrs['osm_lanes'] = np.array([2.,2.,2.])
@@ -115,7 +115,7 @@ class MedianConnectorTest(unittest.TestCase):
             f.attrs['osm_sidewalk'] = np.array(['','',sidewalk])
         def cover(la,lo):
             _, y, _ = FRAME.geodetic_to_enu(np.asarray(la),np.asarray(lo),0.)
-            return np.ones(np.shape(y),bool) if developed else ((abs(y)<6)|(abs(y-30)<6))
+            return (abs(y)<6)|(abs(y-30)<6)
         return f, cover
 
     def test_short_median_link_inherits_connected_rural_context(self):
@@ -129,10 +129,6 @@ class MedianConnectorTest(unittest.TestCase):
 
     def test_mapped_sidewalk_on_link_is_preserved(self):
         f,cover = self.connector(sidewalk='both')
-        self.assertTrue(roads.has_sidewalks(roads.road_specs(f,cover)[2]))
-
-    def test_urban_median_link_keeps_sidewalks(self):
-        f,cover = self.connector(developed=True)
         self.assertTrue(roads.has_sidewalks(roads.road_specs(f,cover)[2]))
 
     def test_nearby_unconnected_link_does_not_inherit_highway_context(self):

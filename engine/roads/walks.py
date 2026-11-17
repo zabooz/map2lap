@@ -129,7 +129,9 @@ def has_sidewalks(spec):
     # Highway, 35 mph, street photos) one on their outer side (walk_sides)
     if getattr(spec, "sides", None) is not None:      # the map says (_osm_sidewalks)
         return spec.kind in BUILT and bool(spec.sides)
-    return spec.kind in BUILT and spec.urban and (spec.cls in SIDEWALK_CLASSES
+    # A separately mapped ramp/slip road may lie in a town without carrying pedestrians; its class and land cover
+    # alone do not establish a sidewalk. Explicit OSM sidewalk sides above still apply to that link.
+    return spec.kind in BUILT and spec.urban and not spec.link and (spec.cls in SIDEWALK_CLASSES
                                                   or (spec.cls == "trunk" and (not spec.oneway or _arterial(spec))))
 
 

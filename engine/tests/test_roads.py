@@ -129,6 +129,21 @@ class RulesTest(unittest.TestCase):
         rural = roads.road_specs(features([[(0, 0), (100, 0)]], ["residential"]))[0]
         self.assertFalse(roads.has_sidewalks(rural))                                     # untagged, rural: none
 
+    def test_urban_links_need_own_sidewalk_tag(self):
+        f = features([[(0, 0), (100, 0)]] * 9,
+                     ["primary", "secondary", "tertiary", "primary", "primary", "primary", "primary", "primary", "primary"])
+        f.rules["subclass"] = rules([(i, "link") for i in range(8)])
+        f.rules["oneway"] = rules([(i, 1.0) for i in range(7)], "float")
+        f.attrs["osm_lanes"] = np.ones(9, np.int32)  # mapped lanes leave width to the urban classifier, as in Weblinger
+        f.attrs["osm_sidewalk"] = np.array(["", "", "", "both", "left", "no", "separate", "", ""], object)
+        s = roads.road_specs(f, urban_fn=lambda lat, lon: np.ones(len(lat), bool))
+        self.assertEqual([sp.link for sp in s], [True] * 8 + [False])
+        self.assertTrue(all(sp.urban for sp in s))
+        self.assertEqual([roads.has_sidewalks(sp) for sp in s],
+                         [False, False, False, True, True, False, False, False, True])
+        self.assertEqual(roads.walk_sides(s[3]), (1, -1))
+        self.assertEqual(roads.walk_sides(s[4]), (1,))
+
     def test_rock_and_grass_live_in_the_ground_layer(self):
         def spec(surf):
             return roads.Spec(6.0, "dirt", False, "residential", False, 2.5, 0, None, surf=surf)
