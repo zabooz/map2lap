@@ -138,6 +138,19 @@ class BuildingClearTest(unittest.TestCase):
         self.assertEqual(buildings.ground_rings([(spec, 0.0, 0.0)], 0.0, 0.0), [])
 
 
+class SidewalkClearTest(unittest.TestCase):
+    def test_rejects_only_spots_whose_car_reaches_a_same_level_sidewalk(self):
+        vertices = np.array([(0, 0, .15), (10, 0, .15), (10, 2, .15), (0, 2, .15)])
+        triangles = np.array([(0, 1, 2), (0, 2, 3)])
+        mesh = (vertices, triangles, None, np.array([1, 1]))
+        on_walk = [5, 1, 0, 0, 1]
+        along_curb = [5, -2, 0, 0]
+        below_walk = [5, 1, -5, 0, 1]
+        spots = [on_walk, along_curb, below_walk]
+        self.assertEqual(parking.clear_of_sidewalks(spots, mesh), [along_curb, below_walk])
+
+
+
 class LotTest(unittest.TestCase):
     LOT = np.array([(0.0, 0.0), (60.0, 0.0), (60.0, 40.0), (0.0, 40.0)])
 

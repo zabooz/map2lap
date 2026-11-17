@@ -207,6 +207,50 @@ def clear_of_buildings(spots, rings):
     return [r for r, k in zip(spots, keep) if k]
 
 
+SIDEWALK_LEVEL_M = 0.5     # a 0.15 m curb and normal draping lie within this; a deck with vehicle clearance does not
+
+
+def clear_of_sidewalks(spots, mesh, origin=(0, 0, 0), ground=None):
+    """Parking rows whose car footprint misses the built sidewalk slabs on the same level. Pure.
+
+    mesh is sidewalks.Builder.arrays() (positions relative to origin); material 0 is curb faces,
+    the other materials are slab/tactile/brick tops. A raised bridge above a lot is left alone.
+    """
+    if not spots or mesh is None:
+        return list(spots or ())
+    p, indices, _uv, materials = mesh
+    tops = np.asarray(indices)[np.asarray(materials) != 0]
+    if not len(tops):
+        return list(spots)
+    triangles = np.asarray(p, np.float64)[tops] + np.asarray(origin, np.float64)
+    lower, upper = triangles[:, :, :2].min(1), triangles[:, :, :2].max(1)
+    kept = []
+    for spot in spots:
+        car = car_points([spot])[0]
+        corners = car[[1, 2, 4, 3]]
+        samples = np.concatenate((car, (corners + np.roll(corners, -1, axis=0)) / 2))
+        near = (lower <= samples.max(0)).all(1) & (upper >= samples.min(0)).all(1)
+        tri = triangles[near]
+        if not len(tri):
+            kept.append(spot)
+            continue
+        a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+        ab, ac = b[:, :2] - a[:, :2], c[:, :2] - a[:, :2]
+        den = ab[:, 0] * ac[:, 1] - ab[:, 1] * ac[:, 0]
+        q = samples[:, None, :] - a[None, :, :2]
+        u = np.divide(q[..., 0] * ac[None, :, 1] - q[..., 1] * ac[None, :, 0], den[None],
+                      out=np.zeros((len(samples), len(tri))), where=np.abs(den[None]) > 1e-12)
+        v = np.divide(ab[None, :, 0] * q[..., 1] - ab[None, :, 1] * q[..., 0], den[None],
+                      out=np.zeros_like(u), where=np.abs(den[None]) > 1e-12)
+        inside = (np.abs(den)[None] > 1e-12) & (u >= 0) & (v >= 0) & (u + v <= 1)
+        surface = a[None, :, 2] + u * (b - a)[None, :, 2] + v * (c - a)[None, :, 2]
+        level = (np.asarray(ground(samples[:, 0], samples[:, 1]), np.float64) if ground is not None
+                 else np.full(len(samples), float(spot[2])))
+        if not np.any(inside & (np.abs(surface - level[:, None]) < SIDEWALK_LEVEL_M)):
+            kept.append(spot)
+    return kept
+
+
 LOT_SPOT_W_M = 2.6          # a lot's stall: width along its row ...
 LOT_SPOT_D_M = 5.5          # ... and depth (US: 8.5-9 ft x 18 ft)
 LOT_AISLE_M = 7.0           # the driving aisle between rows (two-way, 90-degree stalls: ~24 ft)

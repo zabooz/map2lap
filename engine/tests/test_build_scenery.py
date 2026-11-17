@@ -13,6 +13,20 @@ from scenery import treefx
 
 
 class BuildTreeSpacingTest(unittest.TestCase):
+    def test_trees_and_bushes_do_not_stand_on_marked_parking_spaces(self):
+        from scenery import trees
+        spots = [[0, 0, 0, 0, 1], [12, 0, 0, 0]]
+        items = [(kind, x, y, 0, 0, 2, 0.5) for kind, x, y in
+                 (("deciduous", 0, 0), ("shrub", 12, 0), ("shrub", 0, 3), ("deciduous", 12, 3))]
+        self.assertEqual(trees.clear_of_parking(items, spots), items[2:])
+
+    def test_parking_beyond_tile_seam_still_blocks_plants(self):
+        from track import make_obj
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "roads_1_1_0.json"
+            path.write_text(json.dumps({"park": [[256.5, 10, 0, 0, 1]]}), encoding="utf-8")
+            self.assertEqual(make_obj._nearby_parking(folder, 1, 0, 0), [(256.5, 10, 0, 0, 1)])
+
     def test_finished_neighbour_footprint_removes_its_parking_line_and_mesh(self):
         from track import buildscenery
         import numpy as np

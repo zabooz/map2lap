@@ -246,7 +246,7 @@ class _Parts:
 
 
 def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stations, buried, lamp_region, country,
-                q, rkey, centre, skin_margin=0.0, walks_raw=None):
+                q, rkey, centre, skin_margin=0.0, walks_raw=None, sidewalks_enabled=True):
     """A road tile's parts in frame: tile (tx, ty) of an anchor, or a geotiles.GeoBox (its own frame, no anchor in
     it). g: the frame's grading.Grader view (None: no grading); q: the height quantum the sidewalks' curbs are put on
     (None: the ground as it is: a geotile's content); rkey: the railways' ground cache key; centre (lat, lon): the
@@ -331,6 +331,15 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     mark("rails")
     x0, y0, _, _ = box
     park_halo = []
+    if items is not None:
+        # Brick frontages change the actual sidewalk material before the shared mesh is built.
+        buildingsmod.brick_walks(walks, items, centre[0], centre[1], side)
+        if walks_raw is not None:
+            buildingsmod.brick_walks(walks_raw, items, centre[0], centre[1], side)
+    walk_builder = None
+    if sidewalks_enabled and walks:
+        import sidewalks as sidewalksmod
+        walk_builder = sidewalksmod.make_builder(walks, (x0, y0, 0.0))
     if items is not None:               # front doors and shopfronts, driveways into the road mesh
         drives = []
         props.extend(buildingsmod.doors(items, lines, x0, y0, drives))
@@ -341,12 +350,14 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         park = parkingmod.tile_lot_spots(frame, tx, ty, _s.md, elev, items, park, near_roads, aisles,
                                          ground=lambda x, y: roadmeshmod.drawn_ground(frame, drawn, np.c_[x, y], q),
                                          accepted_out=park_halo)
+        if walk_builder is not None and not walk_builder.empty():
+            ground_at = lambda x, y: roadmeshmod.drawn_ground(frame, drawn, np.c_[x, y], q)
+            park_halo[:] = parkingmod.clear_of_sidewalks(park_halo, walk_builder.arrays(), walk_builder.origin,
+                                                         ground=ground_at)
+            park = [spot for spot in park_halo if roadsmod.box_owns(box, spot[0], spot[1])]
         if fuel:
             import gasstations
             park = gasstations.clear_park(park, fuel)
-        buildingsmod.brick_walks(walks, items, centre[0], centre[1], side)
-        if walks_raw is not None:
-            buildingsmod.brick_walks(walks_raw, items, centre[0], centre[1], side)
     mark("doors_park")
     chunks += parkingmod.finish_markings(frame, tx, ty, _s.md, elev, items, marks, near_roads, aisles,
                                          spots=park_halo if items is not None else None,
@@ -431,6 +442,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
                         + industry.power_plant_sound_rows(frame, tx, ty, _s.md, elev))
         mark("powerlines")
     P.chunks, P.ctx, P.walks, P.box, P.origin = chunks, ctx, walks, box, (x0, y0, 0.0)
+    P.walk_builder = walk_builder
     P.bld, P.props, P.wires, P.park, P.fuel, P.fuel_pads = bld, props, wires, park, fuel, fuel_pads
     P.footprints = buildingsmod.ground_rings(items, *box[:2], classes=True) if buildings and items else None
     P.guardrail_rows, P.garage_sound, P.wells = guardrail_rows, garage_sound, oil_wells
@@ -446,7 +458,7 @@ def _roads_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, sidewalks, lift, 
     frame = geodesy.EnuFrame(lat, lon)
     g, _ = _s.anchor(aid, lat, lon)
     P = _tile_parts(mark, frame, (tx, ty), zoom, g, buildings, left_hand, mph, gas_stations, buried, lamp_region,
-                    country, q, (aid, lat, lon), (lat, lon))
+                    country, q, (aid, lat, lon), (lat, lon), sidewalks_enabled=sidewalks)
     mesh = roadmeshmod.build(frame, P.chunks, P.elev, P.origin, lift, clip=P.box, follow=True, q=q, drawn=P.drawn,
                              context=P.ctx)
     mark("mesh")
@@ -455,7 +467,8 @@ def _roads_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, sidewalks, lift, 
     out = roadsmod.write_tile(out_dir, vfs_dir, aid, tx, ty, P.chunks, P.walks if sidewalks else None, mesh, P.dmesh,
                               P.bld, P.props, P.wires, P.park, tunnel_mesh=P.tmesh, fuel=P.fuel, rail_mesh=P.rmesh,
                               guardrail_rows=P.guardrail_rows, garage_sound=P.garage_sound,
-                              wells=P.wells, footprints=P.footprints, wall_objects=P.wall_objects) + (P.fuel_pads, P.wall_cuts)
+                              wells=P.wells, footprints=P.footprints, wall_objects=P.wall_objects,
+                              walk_builder=P.walk_builder) + (P.fuel_pads, P.wall_cuts)
     mark("write")
     return out
 

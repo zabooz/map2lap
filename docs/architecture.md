@@ -143,6 +143,12 @@ inside a mapped lot; accepted stalls are shared with the painted lines, includin
 knows only its own buildings, so OBJ assembly checks parked cars and stall lines against the finished ground-level
 footprints of neighbouring tiles before writing meshes and retained Editor source (`parking.py`,
 `track/buildscenery.py`, `track/make_obj.py`).
+Before writing those shared stalls and lines, the road tile also removes a spot when its car footprint meets the
+actual same-level sidewalk slab. It reuses the sidewalk sweep for the parked cars, collision and saved Editor source;
+a road-level spot below a bridge walkway remains available.
+Scenery also checks every generated tree and bush against the accepted parking spaces in its tile and
+neighbouring tiles. A plant whose foot lands inside a marked bay is omitted even when car density leaves
+that bay empty, so changing the density later cannot uncover a plant beneath a car.
 `tools/measure.py --build` and `--install` give test tracks the generator page's 2 m initial tree spacing when
 `BNE_TREE_SPACING_M` is unset. An explicit environment value still wins; existing tracks keep their saved choice.
 `BNE_TREE_SPACING_M=<metres>` applies the Editor's deterministic nested spacing rule to trees across all tile parts

@@ -252,3 +252,18 @@ def run_geometry(walk_line, side, w):
     curb = np.array(walk_line, np.float64)
     curb[:, :2] = xy - out * (w / 2)
     return curb, out
+
+
+def make_builder(walks, origin):
+    """The built visible and collision sidewalk surfaces of walks, relative to origin. Pure."""
+    builder = Builder(origin, collision=True)
+    for walk in walks:
+        if "corner" in walk:
+            corner = walk["corner"]
+            builder.add_corner(corner["arc"], corner["inward"], corner["outer"], ramps=corner.get("ramps", ()))
+            continue
+        width = walk.get("w", 2.5)
+        curb, outward = run_geometry(walk["pts"], walk["side"], width)
+        builder.add_run(curb, outward, width, caps=walk["caps"], ramps=walk.get("ramps", ()),
+                        slab=BRICK if walk.get("brick") else 1, blockers=walk.get("blockers", ()))
+    return builder

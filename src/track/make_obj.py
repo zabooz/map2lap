@@ -645,6 +645,24 @@ def _footprints(tiles_dir, aid, tx, ty):
     return [r for r, _ in got], [c for _, c in got]
 
 
+@functools.lru_cache(maxsize=64)
+def _tile_parking(path):
+    """Accepted parking rows from one road tile, or () where that tile was not built."""
+    try:
+        with open(path, encoding="utf-8") as stream:
+            return tuple(tuple(row) for row in json.load(stream).get("park", ()))
+    except (OSError, ValueError):
+        return ()
+
+
+def _nearby_parking(tiles_dir, aid, tx, ty, rings=()):
+    """Accepted parking rows in this tile and its eight neighbours, clear of finished building rings. Pure
+    apart from reading the road tiles. A bay centred across a tile seam still occupies ground on this side."""
+    spots = [row for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+             for row in _tile_parking(os.path.join(tiles_dir, f"roads_{aid}_{tx + dx}_{ty + dy}.json"))]
+    return parking.clear_of_buildings(spots, rings)
+
+
 def to_treefx(listed, items, wet, zone):
     """The items' trees and bushes (trees.tile_items' rows) into listed.treefx as CSP TreeFX trees (trees.placements); rocks
     stay for rocks.meshes."""
@@ -751,6 +769,7 @@ def _scenery_tile(tx, ty, part_path):
     # Road tiles were made independently. Resolve parking against the completed neighbours before the
     # scene and its retained Editor source are written.
     data["park"] = parking.clear_of_buildings(data.get("park"), rings)
+    plant_spots = _nearby_parking(tiles_dir, anc["aid"], tx, ty, rings)
     editor_chunks = data.get("editor", {}).get("chunks", [])
     kept_parking_lines, blocked_parking_lines = buildscenery.clear_covered_parking_lines(editor_chunks, rings)
     if "editor" in data:
@@ -933,11 +952,14 @@ def _scenery_tile(tx, ty, part_path):
         log(f"Trees, tile {tx},{ty}: {type(e).__name__}: {e}")
         items = []
     extra = [("deciduous", x, y, z, yaw, h, rank) for x, y, z, yaw, h, rank in street_trees]
-    items, extra = trees.clear_of_buildings(items, rings), trees.clear_of_buildings(extra, rings)    # (no trunk in a house)
+    items = trees.clear_of_parking(trees.clear_of_buildings(items, rings), plant_spots)
+    extra = trees.clear_of_parking(trees.clear_of_buildings(extra, rings), plant_spots)
     zone = trees.tile_zone(frame, items + extra)
     to_treefx(obj.listed, items + extra, wet, zone)      # (rocks stay in items: rocks.meshes)
     try:                        # cheap bushes in groups on shrubland (bushes.py)
-        cheap = trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings)
+        cheap = trees.clear_of_parking(
+            trees.clear_of_buildings(bushes.tile_items(frame, blockworker._s, tx, ty, grid, items + extra, zone), rings),
+            plant_spots)
         to_treefx(obj.listed, cheap, wet, zone)
     except Exception as e:      # (rather without them than without the tile)
         log(f"Cheap bushes, tile {tx},{ty}: {type(e).__name__}: {e}")

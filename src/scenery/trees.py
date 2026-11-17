@@ -7,8 +7,10 @@ oak_west, juniper, desert_shrub: vegetation.regional); the generic deciduous, co
 trees of the tile's climate zone (zone(): Koppen-Geiger from BeamNG.Earth's climate map).
 """
 import numpy as np
+from polygon import Path
 
 import climate
+import parking
 import vegetation
 from scenery import treefx
 
@@ -99,6 +101,24 @@ def clear_of_buildings(items, rings, clear=TRUNK_CLEAR_M):
             / np.where(d[None, :, 1] == 0, 1e-12, d[None, :, 1]))
         bad[near] = (cross.sum(1) % 2 == 1) | (dist < clear)
     return [t for t, b in zip(items, bad) if not b]
+
+
+def clear_of_parking(items, spots):
+    """Plants whose foot is outside every accepted parking space; spots are parking.py rows. Pure.
+
+    The full marked space is reserved even when no car is spawned there, so a later car-density edit
+    cannot uncover a tree or bush in its bay. The boundary comes from the actual space geometry.
+    """
+    if not items or not spots:
+        return list(items or ())
+    points = np.asarray([(float(item[1]), float(item[2])) for item in items], np.float64)
+    blocked = np.zeros(len(points), bool)
+    for spot in spots:
+        ring = parking._spot_corners(spot)
+        near = np.flatnonzero(((points >= ring.min(0)) & (points <= ring.max(0))).all(1) & ~blocked)
+        if len(near):
+            blocked[near] |= Path(ring).contains_points(points[near])
+    return [item for item, hit in zip(items, blocked) if not hit]
 
 
 def tile_zone(frame, items):
