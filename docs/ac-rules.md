@@ -63,6 +63,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - One mesh for looks **and** physics per tile. Object name per cell by BeamNG.Earth's surface: asphalt/cobbles →
   `1ROAD_ground_…`, gravel/dust/rock → `1GRAVEL_ground_…`, else `1GRASS_ground_…` (the sample in the SW corner).
 - A cell goes as soon as **one** of its corners is a tunnel hole.
+- The soil cap of a low tunnel arch stays a `1WALL_` collision mesh but uses its tile's `ground_<tx>_<ty>` material.
+  Its UVs follow world position, so the baked tile image and HD meadow, forest and rock masks continue across the arch;
+  the source's 1 m repeating BeamNG grass UVs would sample the tile image at unrelated places.
 - A wall between two roads cuts the cells along its cut line apart (`scenery/wallcut.py`): a step at the wall's face. A cut cell
   stays in its cell's object, by the same sample.
 - Looks: one texture per tile (`ground_<tx>_<ty>.jpg`, SD 2048 px / HD 4096 px): comic ground, the roads on top in

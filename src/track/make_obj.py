@@ -55,7 +55,7 @@ SURFACE = {
     "bne_bld_panel": ("1WALL", "plaster"), "bne_bld_metalwall": ("1WALL", "concrete"), "bne_bld_stone": ("1WALL", "bricks"),
     "bne_bld_roof_slate": ("1WALL", "roof"), "bne_bld_roof_metal": ("1WALL", "roof"), "bne_bld_roof_flat": ("1WALL", "concrete"),
     "bne_tunnel_stone": ("1WALL", "concrete"), "bne_tunnel_stone_in": ("1WALL", "concrete"),
-    "bne_tunnel_soil": ("1WALL", "grass"),      # (BeamNG.Earth: grass texture, tunnel.materials.json)
+    "bne_tunnel_soil": ("1WALL", "grass"),      # tile ground material replaces grass in shape_material
     "bne_bridge_concrete": ("1WALL", "concrete"), "bne_wire": (None, "wire"),
     "bne_bridge_asphalt": ("1ROAD", "asphalt"),     # (road on bridges: as a wall you'd have crashed into it)
     "m_dirt_road": ("1GRAVEL", "dirt"),         # (OSM surface=gravel/unpaved/dirt: its own surface, less grip)
@@ -95,6 +95,18 @@ def collision_prefix(what, surf, data):
     if base in ("walk", "bld", "rail") and f"{base}col" in data:
         return "nocol"
     return surf
+
+
+def shape_material(bname, positions, uv, tile_material):
+    """AC surface, material, object suffix and UVs for a source shape in one ground tile. Pure.
+
+    A tunnel's soil cap shares the tile's baked ground and HD masks. Its source UVs repeat BeamNG grass every metre,
+    so sample the tile texture at the same world phase as the surrounding terrain instead.
+    """
+    surf, mat = SURFACE.get(bname, FALLBACK)
+    if bname == "bne_tunnel_soil":
+        return surf, tile_material, "cap", ground.phased_uv(positions[:, :2] / ground.TILE, (0, 0))
+    return surf, mat, mat, uv
 
 
 MATERIALS = {   # our material -> (texture or None, base colour)
@@ -815,25 +827,25 @@ def _scenery_tile(tx, ty, part_path):
                 road_xy.append(P[np.unique(T), :2])
             if bname in BLD_KINDS:
                 for mat, t in bld_split(P, T, C, BLD_KINDS[bname][0]).items():
-                    groups.setdefault(("1WALL", mat), []).append((P, UV, t, vertex))
+                    groups.setdefault(("1WALL", mat, mat), []).append((P, UV, t, vertex))
                 continue
             if bname in WALL_SOURCE:
                 for mat, t in wall_split(P, T, WALL_SOURCE[bname]).items():
-                    groups.setdefault((SURFACE[bname][0], mat), []).append((P, UV, t, vertex))
+                    groups.setdefault((SURFACE[bname][0], mat, mat), []).append((P, UV, t, vertex))
                 continue
             if bname not in SURFACE:
                 unknown.add(bname)
-            surf, mat = SURFACE.get(bname, FALLBACK)
-            key = (surf, mat)
+            surf, mat, tag, UV = shape_material(bname, P, UV, gmat)
+            key = (surf, mat, tag)
             groups.setdefault(key, []).append((P, UV, T, vertex))
-        for (surf, mat), parts in groups.items():
+        for (surf, mat, tag), parts in groups.items():
             P = np.concatenate([p for p, _, _, _ in parts])
             UV = np.concatenate([uv for _, uv, _, _ in parts])
             off = np.cumsum([0] + [len(p) for p, _, _, _ in parts[:-1]])
             T = np.concatenate([t + o for (_, _, t, _), o in zip(parts, off)])
             prefix = collision_prefix(what, surf, data)
             owners = np.concatenate([v for *_, v in parts])[T[:, 0]] if vertex is not None else None
-            obj.add(f"{prefix}_{what}_{mat}_{tx}_{ty}", mat, P, UV, T, owners=owners)
+            obj.add(f"{prefix}_{what}_{tag}_{tx}_{ty}", mat, P, UV, T, owners=owners)
             tris[prefix] = tris.get(prefix, 0) + len(T)
 
     street_trees = []           # street furniture (propsmesh.py): poles/street lights/sign posts with collision

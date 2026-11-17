@@ -15,6 +15,13 @@ from track import editorinfo, groundmaterial, kn5, make_obj, obj_to_kn5
 
 
 class GroundQualityTest(unittest.TestCase):
+    def test_tunnel_cap_uses_its_tile_texture_at_world_phase(self):
+        points = np.array([[-512., 768., 10.], [-508., 772., 11.], [-510., 770., 12.]])
+        source_uv = np.array([[0., 0.], [4., 4.], [2., 2.]])
+        surf, material, name, uv = make_obj.shape_material('bne_tunnel_soil', points, source_uv, 'ground_-2_3')
+        self.assertEqual((surf, material, name), ('1WALL', 'ground_-2_3', 'cap'))
+        np.testing.assert_allclose(uv, points[:, :2] / 256 * groundmaterial.UV_SCALE)
+
     def test_hd_conversion_preserves_geometry_base_and_road_masks(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -23,6 +30,9 @@ class GroundQualityTest(unittest.TestCase):
             obj = make_obj.Obj(str(part))
             obj.add('1ROAD_ground_-2_3', 'ground_-2_3', p, p[:, :2] / 256 * groundmaterial.UV_SCALE,
                     np.array([[0, 1, 2], [0, 2, 3]]))
+            cap = p[:3].copy(); cap[:, 2] = 4.
+            surf, material, tag, uv = make_obj.shape_material('bne_tunnel_soil', cap, np.zeros((3, 2)), 'ground_-2_3')
+            obj.add(f'{surf}_tunnel_{tag}_-2_3', material, cap, uv, np.array([[0, 1, 2]]))
             obj.close()
             Image.new('RGB', (64, 64), (90, 110, 80)).save(root / 'ground_-2_3.jpg')
             part.with_suffix('.mtl').write_text('newmtl ground_-2_3\nmap_Kd ground_-2_3.jpg\n')
@@ -41,6 +51,9 @@ class GroundQualityTest(unittest.TestCase):
                 self.assertIsNotNone(editorinfo.manifest(str(path)))
             sd, hd = outputs['sd'], outputs['hd']
             s, h = next(iter(kn5.walk_meshes(sd['root']))), next(iter(kn5.walk_meshes(hd['root'])))
+            cap_mesh = next(mesh for mesh in kn5.walk_meshes(hd['root']) if mesh.name.startswith('1WALL_tunnel_cap'))
+            self.assertEqual(cap_mesh.material, h.material)
+            np.testing.assert_array_equal(cap_mesh.vertices['uv'], h.vertices['uv'][:3])
             np.testing.assert_array_equal(s.vertices['pos'], h.vertices['pos'])
             np.testing.assert_array_equal(s.indices, h.indices)
             self.assertEqual(s.renderable, h.renderable)

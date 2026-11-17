@@ -126,7 +126,7 @@ def _read_tile(path):
         elif name.startswith("1WALL_tunnel"):
             got["wall"].append(pos[faces])
             got["cover"].append(pos[faces])
-            if name.startswith("1WALL_tunnel_grass"):
+            if name.startswith(("1WALL_tunnel_cap", "1WALL_tunnel_grass")):
                 got["grass_cover"].append(pos[faces])
         elif name.startswith(("nocol_road_paint", "nocol_road_edge_dirt")):
             got["marking"].append(pos[faces])
@@ -374,7 +374,7 @@ def _upper_wall(mesh, mouths, frame):
         if hit.any():
             k = int(np.flatnonzero(hit)[0])
             out.append(_record("breaks_upper", 1.0, plan[k], frame, reason="wall_physics",
-                               surface="1WALL_tunnel_grass", marking_height=round(float(q[k, 1]), 2)))
+                               surface="1WALL_tunnel_cap/grass", marking_height=round(float(q[k, 1]), 2)))
     return out
 
 
