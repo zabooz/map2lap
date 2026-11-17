@@ -155,20 +155,21 @@ class Builder:
 
     def __init__(self, origin, collision=False):
         self.origin = np.asarray(origin, np.float64)
-        self.pieces = []            # (kind 0 run / 1 corner, points (k, 3), dirs (k, 2), outer (m, 3), ramps, w, h, caps,
-        self._built = None          # slab); the Rust meshes once built (full, lean)
+        self.pieces = []            # (kind, points, dirs, outer, ramps, width, height, caps, slab, blockers)
+        self._built = None          # the Rust meshes once built (full, lean)
         self.col = _Lean(self) if collision else None
 
-    def add_run(self, curb, toward_out, w, h=CURB_H, caps=(True, True), ramps=(), slab=1):
+    def add_run(self, curb, toward_out, w, h=CURB_H, caps=(True, True), ramps=(), slab=1, blockers=()):
         """One sidewalk run: curb (k, 3) the curb line (z = the road there), toward_out (k, 2) unit
         vectors from the curb outwards (scaled by the miter), w its width; caps: end caps at the
         (start, end) (not where the run goes on in the next tile or meets a corner piece); ramps:
-        curb ramps [(s0, s1)] in arc length along the curb."""
+        curb ramps [(s0, s1)] in arc length along the curb; blockers are other ground carriageways
+        [(centreline xy, half width)] whose overlap is cut from the full profile in Rust."""
         curb = np.asarray(curb, np.float64)
         if len(curb) < 2:
             return
         self.pieces.append((0, curb[:, :3], np.asarray(toward_out, np.float64)[:, :2], None, list(ramps), float(w),
-                            float(h), (bool(caps[0]), bool(caps[1])), int(slab)))
+                            float(h), (bool(caps[0]), bool(caps[1])), int(slab), blockers))
         self._built = None
 
     def add_corner(self, arc, inward, outer, h=CURB_H, ramps=()):
@@ -179,7 +180,7 @@ class Builder:
         where the curb is lowered (the slab then slopes up from it toward the outer corner)."""
         self.pieces.append((1, np.asarray(arc, np.float64)[:, :3], np.asarray(inward, np.float64)[:, :2],
                             np.asarray(outer, np.float64).reshape(-1, 3), list(ramps), 2.5, float(h), (False, False),
-                            1))
+                            1, ()))
         self._built = None
 
     def empty(self):
@@ -200,10 +201,18 @@ class Builder:
             rs = [np.asarray(p[4], np.float64).reshape(-1, 2) for p in ps]
             ramps = np.ascontiguousarray(np.concatenate(rs) if ps else np.zeros((0, 2)))
             roff = np.r_[0, np.cumsum([len(r) for r in rs])].astype(np.int64)
-            self._built = fast._ef.sidewalk_mesh(
+            bs = [fast.segments(p[9]) for p in ps]
+            segs = np.ascontiguousarray(np.concatenate([b[0] for b in bs]) if bs else np.zeros((0, 4)))
+            half = np.ascontiguousarray(np.concatenate([b[1] for b in bs]) if bs else np.zeros(0))
+            boff = np.r_[0, np.cumsum([len(b[0]) for b in bs])].astype(np.int64)
+            if len(segs):
+                fast.require(121, "sidewalk_mesh_clipped")
+            mesh = fast._ef.sidewalk_mesh_clipped if len(segs) else fast._ef.sidewalk_mesh
+            args = (
                 kind, pts, dirs, off, outer, ooff, ramps, roff, np.array([p[5] for p in ps], np.float64),
                 np.array([p[6] for p in ps], np.float64), np.array([p[7] for p in ps], bool).reshape(-1, 2),
                 np.array([p[8] for p in ps], np.int64), tuple(float(v) for v in self.origin), self.col is not None)
+            self._built = mesh(*args, segs, half, boff) if len(segs) else mesh(*args)
         return self._built
 
     def arrays(self):

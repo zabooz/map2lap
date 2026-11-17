@@ -5028,11 +5028,12 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(geocontent::cdae_shear, m)?)?;
     m.add_function(wrap_pyfunction!(geocontent::clip_segments_convex, m)?)?;
     m.add_function(wrap_pyfunction!(sidewalks::sidewalk_mesh, m)?)?;
+    m.add_function(wrap_pyfunction!(sidewalks::sidewalk_mesh_clipped, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::tile_warp, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
-    m.add("VERSION", 120)?;
+    m.add("VERSION", 121)?;
     m.add_function(wrap_pyfunction!(deckskin::deck_skin, m)?)?;
     m.add("ROAD_CURVES", true)?;
     m.add_function(wrap_pyfunction!(roadcurves::road_curve, m)?)?;

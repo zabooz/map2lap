@@ -27,6 +27,7 @@ const PAD_W: f64 = 0.6;
 const NARROW_EDGE_M: f64 = 0.05;
 const LEAN: [usize; 5] = [0, 2, 5, 6, 7];
 const LEAN_TOL_M: f64 = 0.03;
+const FULL_TOL_M: f64 = 0.02; // below a visible curb shift; straight sampled spans need only their ends
 
 fn v_band_top() -> f64 { 1.0 - 1.0 / 512.0 }
 fn v_light_low() -> f64 { 1.0 - 40.0 / 512.0 }
@@ -46,7 +47,7 @@ fn strips() -> Vec<(usize, usize, i64, f64, f64)> {
 }
 
 /// sidewalks.profile: the 8 cross-section points (offset out, height) for curb height hr.
-fn profile(h: f64, w: f64, hr: f64) -> [[f64; 2]; 8] {
+fn profile(h: f64, w: f64, hr: f64, back: f64) -> [[f64; 2]; 8] {
     let f = if h > 0.0 { hr / h } else { 0.0 };
     let rr = (CURB_W + NARROW_EDGE_M).max(RAMP_RUN.min(w - NARROW_EDGE_M));
     let zr = h + rr * CROSS_SLOPE;
@@ -54,7 +55,45 @@ fn profile(h: f64, w: f64, hr: f64) -> [[f64; 2]; 8] {
     let zp = hr + (zr - hr) * (xp - CURB_W) / (rr - CURB_W);
     let top = h + w * CROSS_SLOPE;
     [[0.0, -SINK], [BATTER * f, hr - NOSE * f], [NOSE_W * f, hr], [CURB_W, hr], [xp, zp], [rr, zr], [w, top],
-     [w + BACK_RUN * (top + SINK), -SINK]]
+     [w + back * (top + SINK), -SINK]]
+}
+
+fn inside_road(p: [f64; 2], roads: &[([f64; 4], f64)]) -> bool {
+    roads.iter().any(|&(s, h)| {
+        let (dx, dy) = (s[2] - s[0], s[3] - s[1]);
+        let t = (((p[0] - s[0]) * dx + (p[1] - s[1]) * dy) / (dx * dx + dy * dy).max(1e-12)).clamp(0.0, 1.0);
+        (p[0] - s[0] - t * dx).hypot(p[1] - s[1] - t * dy) < h + 0.04 // sampling's 5 cm lateral interval
+    })
+}
+
+/// Keep the widest part of a cross-section outside other ground carriageways. A sidewalk's line alone can clear
+/// an intersecting road while its slab and the falling back still cover the asphalt (Weblinger, Friedensbrücke).
+fn clip_section(curb: [f64; 3], out: [f64; 2], w: f64, h: f64,
+                roads: &[([f64; 4], f64)]) -> Option<([f64; 3], f64, f64)> {
+    if roads.is_empty() { return Some((curb, w, BACK_RUN)); }
+    let near: Vec<_> = roads.iter().copied().filter(|&(s, h)| {
+        let (x0, x1) = (s[0].min(s[2]) - h - w - 1.0, s[0].max(s[2]) + h + w + 1.0);
+        let (y0, y1) = (s[1].min(s[3]) - h - w - 1.0, s[1].max(s[3]) + h + w + 1.0);
+        curb[0] >= x0 && curb[0] <= x1 && curb[1] >= y0 && curb[1] <= y1
+    }).collect();
+    if near.is_empty() { return Some((curb, w, BACK_RUN)); }
+    let n = (w / 0.05).ceil().max(1.0) as usize; // resolve a narrow strip without shifting its edge by >5 cm
+    let free: Vec<bool> = (0..=n).map(|i| {
+        let t = w * i as f64 / n as f64;
+        !inside_road([curb[0] + out[0] * t, curb[1] + out[1] * t], &near)
+    }).collect();
+    // Keep the strip attached to this road's curb. A wider free strip beyond another road is not a walk connection.
+    if !free[0] { return None; }
+    let b = free.iter().position(|&v| !v).unwrap_or(n + 1) - 1;
+    let hi = w * b as f64 / n as f64;
+    let lo = 0.0;
+    if hi - lo < CURB_W + NARROW_EDGE_M + 0.02 { return None; }
+    let c = [curb[0] + out[0] * lo, curb[1] + out[1] * lo, curb[2]];
+    let top = h + (hi - lo) * CROSS_SLOPE;
+    let back_pt = [c[0] + out[0] * (hi - lo + BACK_RUN * (top + SINK)),
+                   c[1] + out[1] * (hi - lo + BACK_RUN * (top + SINK))];
+    let back = if hi < w || inside_road(back_pt, &near) { 0.0 } else { BACK_RUN };
+    Some((c, hi - lo, back))
 }
 
 /// np.interp(x, xp, fp) for increasing xp (numpy's formula: slope (fp[j+1] - fp[j]) / (xp[j+1] - xp[j]) times
@@ -251,12 +290,13 @@ impl Mesh {
     }
 
     /// The ring (k x profile points, minus origin) and per-point profiles of a curb line.
-    fn sections(curb: &[[f64; 3]], out: &[[f64; 2]], w: f64, h: f64, hr: &[f64], origin: [f64; 3])
+    fn sections(curb: &[[f64; 3]], out: &[[f64; 2]], widths: &[f64], backs: &[f64], h: f64,
+                hr: &[f64], origin: [f64; 3])
                 -> (Vec<Vec<[f64; 3]>>, Vec<Vec<[f64; 2]>>) {
         let mut ring = Vec::with_capacity(curb.len());
         let mut prof = Vec::with_capacity(curb.len());
         for (i, c) in curb.iter().enumerate() {
-            let pr = profile(h, w, hr[i]);
+            let pr = profile(h, widths[i], hr[i], backs[i]);
             ring.push(pr.iter().map(|q| [c[0] + out[i][0] * q[0] - origin[0], c[1] + out[i][1] * q[0] - origin[1],
                                          c[2] + q[1] - origin[2]]).collect());
             prof.push(pr.to_vec());
@@ -267,7 +307,7 @@ impl Mesh {
     /// Builder.add_run.
     #[allow(clippy::too_many_arguments)]
     fn run(&mut self, curb0: &[[f64; 3]], out0: &[[f64; 2]], w: f64, h: f64, caps: (bool, bool),
-           ramps: &[(f64, f64)], slab: i64, lean: bool, origin: [f64; 3]) {
+           ramps: &[(f64, f64)], slab: i64, lean: bool, origin: [f64; 3], roads: &[([f64; 4], f64)]) {
         if curb0.len() < 2 {
             return;
         }
@@ -284,17 +324,63 @@ impl Mesh {
             out = s2.iter().map(|&v| [interp(v, &s, &ox), interp(v, &s, &oy)]).collect();
             s = s2;
         }
-        let mut hr = curb_heights(&s, ramps, h);
-        if lean {
-            let pts: Vec<Vec<f64>> = (0..curb.len()).map(|i| vec![curb[i][0], curb[i][1], curb[i][2], hr[i]]).collect();
-            let keep = simplify(&pts, LEAN_TOL_M);
+        if !roads.is_empty() {
+            let mut s2 = Vec::new();
+            for pair in s.windows(2) {
+                let steps = ((pair[1] - pair[0]) / 0.5).ceil().max(1.0) as usize;
+                for j in 0..steps { s2.push(pair[0] + (pair[1] - pair[0]) * j as f64 / steps as f64); }
+            }
+            s2.push(*s.last().unwrap());
+            let col = |c: usize| -> Vec<f64> { curb.iter().map(|p| p[c]).collect() };
+            let (cx, cy, cz) = (col(0), col(1), col(2));
+            let ox: Vec<f64> = out.iter().map(|p| p[0]).collect();
+            let oy: Vec<f64> = out.iter().map(|p| p[1]).collect();
+            curb = s2.iter().map(|&v| [interp(v, &s, &cx), interp(v, &s, &cy), interp(v, &s, &cz)]).collect();
+            out = s2.iter().map(|&v| [interp(v, &s, &ox), interp(v, &s, &oy)]).collect();
+            s = s2;
+        }
+        let hr = curb_heights(&s, ramps, h);
+        let clipped: Vec<_> = curb.iter().zip(&out).map(|(&c, &o)| clip_section(c, o, w, h, roads)).collect();
+        let mut start = 0usize;
+        while start < clipped.len() {
+            while start < clipped.len() && clipped[start].is_none() { start += 1; }
+            if start >= clipped.len() { break; }
+            let mut end = start + 1;
+            while end < clipped.len() && clipped[end].is_some() { end += 1; }
+            if end - start >= 2 {
+                let mut cc = Vec::with_capacity(end - start);
+                let mut ww = Vec::with_capacity(end - start);
+                let mut bb = Vec::with_capacity(end - start);
+                for item in &clipped[start..end] {
+                    let (c, w0, b) = item.unwrap();
+                    cc.push(c); ww.push(w0); bb.push(b);
+                }
+                self.run_prepared(cc, out[start..end].to_vec(), s[start..end].to_vec(), hr[start..end].to_vec(),
+                                  ww, bb, h, (if start == 0 { caps.0 } else { true },
+                                              if end == clipped.len() { caps.1 } else { true }), slab, lean,
+                                  !roads.is_empty(), origin);
+            }
+            start = end;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_prepared(&mut self, mut curb: Vec<[f64; 3]>, mut out: Vec<[f64; 2]>, mut s: Vec<f64>,
+                    mut hr: Vec<f64>, mut widths: Vec<f64>, mut backs: Vec<f64>, h: f64, caps: (bool, bool),
+                    slab: i64, lean: bool, sampled: bool, origin: [f64; 3]) {
+        if lean || sampled {
+            let pts: Vec<Vec<f64>> = (0..curb.len()).map(|i| vec![curb[i][0], curb[i][1], curb[i][2], hr[i],
+                                                                   out[i][0], out[i][1], widths[i], backs[i]]).collect();
+            let keep = simplify(&pts, if lean { LEAN_TOL_M } else { FULL_TOL_M });
             curb = keep.iter().map(|&i| curb[i]).collect();
             out = keep.iter().map(|&i| out[i]).collect();
             s = keep.iter().map(|&i| s[i]).collect();
             hr = keep.iter().map(|&i| hr[i]).collect();
+            widths = keep.iter().map(|&i| widths[i]).collect();
+            backs = keep.iter().map(|&i| backs[i]).collect();
         }
         let k = curb.len();
-        let (mut ring, mut prof) = Mesh::sections(&curb, &out, w, h, &hr, origin);
+        let (mut ring, mut prof) = Mesh::sections(&curb, &out, &widths, &backs, h, &hr, origin);
         if lean {
             ring = ring.iter().map(|r| LEAN.iter().map(|&j| r[j]).collect()).collect();
             prof = prof.iter().map(|r| LEAN.iter().map(|&j| r[j]).collect()).collect();
@@ -361,7 +447,7 @@ impl Mesh {
             hr = keep.iter().map(|&i| hr[i]).collect();
         }
         let k = arc.len();
-        let (ring, prof) = Mesh::sections(&arc, &inward, 2.5, h, &hr, origin);
+        let (ring, prof) = Mesh::sections(&arc, &inward, &vec![2.5; arc.len()], &vec![BACK_RUN; arc.len()], h, &hr, origin);
         if lean {
             self.strips(&ring, &prof, &inward, &s, &[(0, 3, 0, 0.0, 0.0)], None, 1);
         } else {
@@ -452,15 +538,16 @@ fn mesh_out<'py>(py: Python<'py>, m: Mesh) -> MeshOut<'py> {
 /// its points pts[off[i]..off[i+1]] (a run's curb line, a corner's arc), dirs the same rows (toward_out / inward),
 /// a corner's outer points outer[ooff[i]..ooff[i+1]], ramps[roff[i]..roff[i+1]] (s0, s1), w, h, caps (2 per piece),
 /// slab.
-#[pyfunction]
 #[allow(clippy::too_many_arguments)]
-pub fn sidewalk_mesh<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts: PyReadonlyArray2<'py, f64>,
+fn sidewalk_mesh_impl<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts: PyReadonlyArray2<'py, f64>,
                           dirs: PyReadonlyArray2<'py, f64>, off: PyReadonlyArray1<'py, i64>,
                           outer: PyReadonlyArray2<'py, f64>, ooff: PyReadonlyArray1<'py, i64>,
                           ramps: PyReadonlyArray2<'py, f64>, roff: PyReadonlyArray1<'py, i64>,
                           w: PyReadonlyArray1<'py, f64>, h: PyReadonlyArray1<'py, f64>,
                           caps: PyReadonlyArray2<'py, bool>, slab: PyReadonlyArray1<'py, i64>,
-                          origin: (f64, f64, f64), collision: bool) -> PyResult<(MeshOut<'py>, MeshOut<'py>)> {
+                          origin: (f64, f64, f64), collision: bool,
+                          blocks: Option<(PyReadonlyArray2<'py, f64>, PyReadonlyArray1<'py, f64>,
+                                          PyReadonlyArray1<'py, i64>)>) -> PyResult<(MeshOut<'py>, MeshOut<'py>)> {
     let (kind, pts, dirs, off) = (kind.as_array(), pts.as_array(), dirs.as_array(), off.as_array());
     let (outer, ooff, ramps, roff) = (outer.as_array(), ooff.as_array(), ramps.as_array(), roff.as_array());
     let (w, h, caps, slab) = (w.as_array(), h.as_array(), caps.as_array(), slab.as_array());
@@ -468,6 +555,12 @@ pub fn sidewalk_mesh<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts
     if off.len() != n + 1 || ooff.len() != n + 1 || roff.len() != n + 1 || w.len() != n || h.len() != n
         || caps.nrows() != n || slab.len() != n || dirs.nrows() != pts.nrows() {
         return Err(PyValueError::new_err("sidewalk_mesh: inconsistent piece arrays"));
+    }
+    let block_views = blocks.as_ref().map(|(seg, hw, off)| (seg.as_array(), hw.as_array(), off.as_array()));
+    if let Some((seg, hw, boff)) = &block_views {
+        if seg.ncols() != 4 || seg.nrows() != hw.len() || boff.len() != n + 1 {
+            return Err(PyValueError::new_err("sidewalk_mesh: inconsistent blockers"));
+        }
     }
     let o = [origin.0, origin.1, origin.2];
     let (mut full, mut lean) = (Mesh::default(), Mesh::default());
@@ -478,10 +571,15 @@ pub fn sidewalk_mesh<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts
         let rr: Vec<(f64, f64)> = (roff[i] as usize..roff[i + 1] as usize).map(|j| (ramps[[j, 0]], ramps[[j, 1]])).collect();
         if kind[i] == 0 {
             let c = (caps[[i, 0]], caps[[i, 1]]);
+            let roads: Vec<([f64; 4], f64)> = if let Some((seg, hw, boff)) = &block_views {
+                (boff[i] as usize..boff[i + 1] as usize).map(|j| {
+                    ([seg[[j, 0]], seg[[j, 1]], seg[[j, 2]], seg[[j, 3]]], hw[j])
+                }).collect()
+            } else { Vec::new() };
             if collision {
-                lean.run(&p, &d, w[i], h[i], c, &rr, 1, true, o);
+                lean.run(&p, &d, w[i], h[i], c, &rr, 1, true, o, &roads);
             }
-            full.run(&p, &d, w[i], h[i], c, &rr, slab[i], false, o);
+            full.run(&p, &d, w[i], h[i], c, &rr, slab[i], false, o, &roads);
         } else {
             let ou = pts3(&outer, ooff[i] as usize..ooff[i + 1] as usize);
             if collision {
@@ -491,6 +589,33 @@ pub fn sidewalk_mesh<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts
         }
     }
     Ok((mesh_out(py, full), mesh_out(py, lean)))
+}
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn sidewalk_mesh<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts: PyReadonlyArray2<'py, f64>,
+                          dirs: PyReadonlyArray2<'py, f64>, off: PyReadonlyArray1<'py, i64>,
+                          outer: PyReadonlyArray2<'py, f64>, ooff: PyReadonlyArray1<'py, i64>,
+                          ramps: PyReadonlyArray2<'py, f64>, roff: PyReadonlyArray1<'py, i64>,
+                          w: PyReadonlyArray1<'py, f64>, h: PyReadonlyArray1<'py, f64>,
+                          caps: PyReadonlyArray2<'py, bool>, slab: PyReadonlyArray1<'py, i64>,
+                          origin: (f64, f64, f64), collision: bool) -> PyResult<(MeshOut<'py>, MeshOut<'py>)> {
+    sidewalk_mesh_impl(py, kind, pts, dirs, off, outer, ooff, ramps, roff, w, h, caps, slab, origin, collision, None)
+}
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn sidewalk_mesh_clipped<'py>(py: Python<'py>, kind: PyReadonlyArray1<'py, i64>, pts: PyReadonlyArray2<'py, f64>,
+                                  dirs: PyReadonlyArray2<'py, f64>, off: PyReadonlyArray1<'py, i64>,
+                                  outer: PyReadonlyArray2<'py, f64>, ooff: PyReadonlyArray1<'py, i64>,
+                                  ramps: PyReadonlyArray2<'py, f64>, roff: PyReadonlyArray1<'py, i64>,
+                                  w: PyReadonlyArray1<'py, f64>, h: PyReadonlyArray1<'py, f64>,
+                                  caps: PyReadonlyArray2<'py, bool>, slab: PyReadonlyArray1<'py, i64>,
+                                  origin: (f64, f64, f64), collision: bool,
+                                  block_segs: PyReadonlyArray2<'py, f64>, block_hw: PyReadonlyArray1<'py, f64>,
+                                  block_off: PyReadonlyArray1<'py, i64>) -> PyResult<(MeshOut<'py>, MeshOut<'py>)> {
+    sidewalk_mesh_impl(py, kind, pts, dirs, off, outer, ooff, ramps, roff, w, h, caps, slab, origin, collision,
+                       Some((block_segs, block_hw, block_off)))
 }
 
 #[cfg(test)]
@@ -512,7 +637,7 @@ mod tests {
         let mut m = Mesh::default();
         let curb: Vec<[f64; 3]> = (0..5).map(|i| [i as f64 * 2.0, 0.0, 1.0]).collect();
         let out = vec![[0.0, 1.0]; 5];
-        m.run(&curb, &out, 2.5, CURB_H, (true, true), &[], 1, false, [0.0, 0.0, 0.0]);
+        m.run(&curb, &out, 2.5, CURB_H, (true, true), &[], 1, false, [0.0, 0.0, 0.0], &[]);
         assert_eq!(m.p.len(), 7 * 2 * 5 + 2 * 8);
         assert_eq!(m.t.len(), 7 * 2 * 4 + 2 * 6);
     }

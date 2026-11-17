@@ -420,6 +420,19 @@ class BuildTileTest(unittest.TestCase):
         self.assertTrue(all(c for w in cut for c, end in zip(w["caps"], (w["pts"][0], w["pts"][-1]))
                             if abs(end[0] - 50) < 6 and end[1] < 100), "the cut ends capped")
 
+    def test_sidewalk_passes_foreign_ground_road_to_mesh(self):
+        """The cross road clips a sidewalk's slab even where its centreline remains clear."""
+        f = features([[(-300, 100), (300, 100)], [(120, -100), (120, 300)]],
+                     ["secondary", "residential"])
+        walks = []
+        roads.build_tile(FRAME, 0, 0, [f], flat, lambda la, lo: np.ones(np.shape(la), bool), walks=walks)
+        own = [w for w in walks if w["fid"] == "id000"]
+        self.assertTrue(own)
+        self.assertTrue(any(any(abs(line[:, 0].mean() - 120) < 1 for line, _ in w.get("blockers", ())) for w in own),
+                        "the other road reaches the Rust mesh builder")
+        self.assertTrue(all(np.ptp(line[:, 0]) < 1 for w in own
+                            for line, _ in w.get("blockers", ())), "its own road is never a blocker")
+
     def test_sidewalk_mesh_runs_and_drains(self):
         import tempfile
         import cdae

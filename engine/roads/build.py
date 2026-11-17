@@ -494,6 +494,19 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             import copy
             walks_raw.extend(copy.deepcopy(walks))
         drape_walks(frame, elev, walks, ground)
+        # A run's centreline can clear a crossing road while its full slab extends over that road.
+        # Pass nearby ground carriageways to the Rust sweep, which trims only the intersecting width.
+        for wk in walks:
+            if "corner" in wk:
+                continue
+            pts = wk["pts"]
+            reach = wk["w"] + 2.0   # sidewalk slab plus its falling back; the road's half width is added below
+            wk["blockers"] = [(p2[:, :2], s2.width / 2) for f2, s2, p2, _ in roads
+                              if f2 != wk["fid"] and
+                              p2[:, 0].max() + s2.width / 2 + reach >= pts[:, 0].min() and
+                              p2[:, 0].min() - s2.width / 2 - reach <= pts[:, 0].max() and
+                              p2[:, 1].max() + s2.width / 2 + reach >= pts[:, 1].min() and
+                              p2[:, 1].min() - s2.width / 2 - reach <= pts[:, 1].max()]
         for wk, side, ends, w in drain_runs:
             chunks.extend(drains(wk["pts"], side, ends, w))
     if lines is not None:                           # the centrelines near the tile (buildings' front doors)
@@ -644,7 +657,8 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
             [c for c in chunks if not c.get("tube_only")]}
     # The merged meshes lose the road/marking runs and sidewalk sections. Keep their generating descriptions for
     # the Editor even when the game needs only meshes; no change to what is built or drawn.
-    data["editor"] = _editor_value({"chunks": chunks, "walks": walks or []})
+    data["editor"] = _editor_value({"chunks": chunks, "walks": [{k: v for k, v in wk.items() if k != "blockers"}
+                                                         for wk in (walks or [])]})
     sound = sound_boxes(chunks) + list(garage_sound)      # (garage_sound: buildings.garage_sound_boxes)
     if sound:
         data["sound"] = sound
@@ -695,7 +709,7 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
             ww = wk.get("w", SIDEWALK["w"])
             curb, out = sidewalks.run_geometry(wk["pts"], wk["side"], ww)
             b.add_run(curb, out, ww, caps=wk["caps"], ramps=wk.get("ramps", ()),
-                      slab=sidewalks.BRICK if wk.get("brick") else 1)
+                      slab=sidewalks.BRICK if wk.get("brick") else 1, blockers=wk.get("blockers", ()))
         if not b.empty():
             shape = f"walks_{aid}_{tx}_{ty}.cdae"
             b.write(os.path.join(out_dir, shape))

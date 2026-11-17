@@ -92,6 +92,30 @@ class LeanMeshTest(unittest.TestCase):
     def test_without_collision_no_lean_builder(self):
         self.assertIsNone(sidewalks.Builder((0.0, 0.0, 0.0)).col)
 
+    def test_parallel_road_clips_only_the_sidewalk_edge(self):
+        """A nearby carriageway takes the outer strip, not the whole 20 m sidewalk run."""
+        b = sidewalks.Builder((0.0, 0.0, 0.0), collision=True)
+        curb = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
+        out = np.array([[0.0, 1.0], [0.0, 1.0]])
+        road = (np.array([[0.0, 2.0], [20.0, 2.0]]), 0.5)
+        b.add_run(curb, out, 2.5, blockers=[road])
+        for mesh in (b.arrays(), b.col.arrays()):
+            p = mesh[0]
+            self.assertLessEqual(p[:, 1].max(), 1.5 + 1e-3, "neither mesh enters the other road")
+            self.assertGreater(p[:, 1].max(), 1.0, "the usable width stays")
+            self.assertGreater(p[:, 0].max() - p[:, 0].min(), 19.0, "the full run stays")
+        self.assertLess(len(b.arrays()[0]), 80, "a constant clipped width needs no interior cross-sections")
+
+    def test_middle_road_does_not_move_sidewalk_across_it(self):
+        """A remaining outer strip cannot become a detached sidewalk on the far side of the road."""
+        b = sidewalks.Builder((0.0, 0.0, 0.0), collision=True)
+        curb = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]])
+        out = np.array([[0.0, 1.0], [0.0, 1.0]])
+        b.add_run(curb, out, 2.5, blockers=[(np.array([[0.0, 1.1], [20.0, 1.1]]), 0.2)])
+        for mesh in (b.arrays(), b.col.arrays()):
+            self.assertLess(mesh[0][:, 1].max(), 1.0)
+            self.assertGreater(mesh[0][:, 1].max(), 0.7)
+
 
 if __name__ == "__main__":
     unittest.main()
