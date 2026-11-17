@@ -38,6 +38,7 @@ export class RoadMarkers {
   onPinTaken: (pin: number) => void = () => {};
   private band: THREE.LineSegments | null = null;
   private crossings: THREE.LineSegments | null = null;
+  private blockers: THREE.LineSegments | null = null;
 
   constructor(private readonly scene: THREE.Scene, private readonly camera: THREE.PerspectiveCamera,
     private readonly groundAt: (x: number, z: number) => number | null, private readonly changed: () => void,
@@ -47,6 +48,7 @@ export class RoadMarkers {
     this.drawBand(null, 0);
     this.drawPins([]);
     this.drawCrossings([]);
+    this.drawBlockers([]);
     this.pinTexture?.dispose();
     this.pinTexture = null;
   }
@@ -104,6 +106,24 @@ export class RoadMarkers {
     this.crossings.renderOrder = 12;
     this.crossings.frustumCulled = false;
     this.scene.add(this.crossings);
+    this.changed();
+  }
+
+  /** Red crosses at fixed rail or tunnel parts that prevent the marked road correction. */
+  drawBlockers(places: Place[]) {
+    if (this.blockers) {
+      this.scene.remove(this.blockers);
+      this.blockers.geometry.dispose();
+      (this.blockers.material as THREE.Material).dispose();
+      this.blockers = null;
+    }
+    if (!places.length) { this.changed(); return; }
+    this.blockers = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position",
+      new THREE.Float32BufferAttribute(places.flatMap(crossLines), 3)),
+    new THREE.LineBasicMaterial({color: "#e5484d", depthTest: false}));
+    this.blockers.renderOrder = 13;
+    this.blockers.frustumCulled = false;
+    this.scene.add(this.blockers);
     this.changed();
   }
 

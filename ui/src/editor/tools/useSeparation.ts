@@ -7,6 +7,7 @@ import type {WheelKeys} from "../types";
 import type {Pin} from "./pins";
 
 interface Crossing {x: number; z: number; upper_y: number; gap: number}
+interface Blocker {mesh: string; kind: string; x: number; y: number; z: number}
 interface Answer {height?: HeightChange; crossings?: Crossing[]; error?: string}
 type BridgeKind = "road" | "rail";
 const GAP_WHEEL_M = 0.1;
@@ -80,7 +81,9 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
   const [session] = useState(() => new SeparationSession(edits, name));
   const [points, setPoints] = useState<Pin[]>([]);
   const [kind, setKind] = useState<BridgeKind | null>(null);
+  const [selectedSide, setSelectedSide] = useState<"upper" | "lower">("upper");
   const [crossings, setCrossings] = useState<Crossing[]>([]);
+  const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [gap, setGapValue] = useState(0);
   const [minGap, setMinGap] = useState(0);
   const [roadGrade, setRoadGrade] = useState(15);
@@ -93,13 +96,14 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
   const generation = useRef(0);
   const clear = () => {
     generation.current++;
-    session.clear(); setPoints([]); setKind(null); setCrossings([]); setReady(false);
+    session.clear(); setPoints([]); setKind(null); setSelectedSide("upper"); setCrossings([]); setBlockers([]); setReady(false);
     setGapValue(0); setMinGap(0); setArmed(false);
     setStatus(null);
     void view.setRoadRegion(null); void view.setLowerRoadRegion(null);
   };
   const measure = useCallback(async (pins: Pin[], token: number, selected: BridgeKind) => {
-    const answer = await post<{crossings?: Crossing[]; min_gap?: number; replace?: string[]; max_grade_percent?: number | null;
+    const answer = await post<{crossings?: Crossing[]; blockers?: Blocker[]; min_gap?: number; replace?: string[]; max_grade_percent?: number | null;
+      selected_side?: "upper" | "lower";
       upper_region?: SurfaceSelection; lower_region?: SurfaceSelection; error?: string}>(`/api/editor/${encodeURIComponent(name)}/separate/way`,
       {base: edits.boundRevision(), revision, points: pins, kind: selected});
     if (token !== generation.current) return;
@@ -114,13 +118,17 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
     }
     if (token !== generation.current) return;
     session.adopt(answer.replace ?? []);
+    setSelectedSide(answer.selected_side ?? "upper");
     setCrossings(answer.crossings);
+    setBlockers(answer.blockers ?? []);
     setMinGap(answer.min_gap ?? Math.min(...answer.crossings.map(c => c.gap)));
     setGapValue(Math.min(...answer.crossings.map(c => c.gap)));
     setArmed(false);
     if (answer.max_grade_percent != null) (selected === "rail" ? setRailGrade : setRoadGrade)(answer.max_grade_percent);
     setReady(true);
-    const measured = `${answer.crossings.length} crossing${answer.crossings.length === 1 ? "" : "s"}: ${selected === "rail" ? "rail bed gap" : "gap"} ${answer.crossings.map(c => `${c.gap.toFixed(2)} m`).join(", ")}; original ${answer.min_gap?.toFixed(2) ?? "?"} m. Shift + wheel changes Gap; Ctrl + wheel changes maximum slope.`;
+    const action = answer.selected_side === "lower" ? "The marked ground road moves down." : "The marked bridge moves up.";
+    const warning = answer.blockers?.length ? ` In the way: ${answer.blockers.length >= 16 ? "at least " : ""}${answer.blockers.length} rail/tunnel part${answer.blockers.length === 1 ? "" : "s"}, marked red. First: ${answer.blockers[0].mesh} at x=${answer.blockers[0].x}, z=${answer.blockers[0].z}.` : "";
+    const measured = `${answer.crossings.length} crossing${answer.crossings.length === 1 ? "" : "s"}: ${selected === "rail" ? "rail bed gap" : "gap"} ${answer.crossings.map(c => `${c.gap.toFixed(2)} m`).join(", ")}; original ${answer.min_gap?.toFixed(2) ?? "?"} m. ${action}${warning} Shift + wheel changes Gap; Ctrl + wheel changes maximum slope.`;
     setStatus(measured); onNote(measured);
   }, [name, edits, revision, session, onNote, view]);
 
@@ -138,13 +146,19 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
 
   useEffect(() => {
     if (!enabled) return;
+    view.drawBlockers(blockers.map(b => [b.x, b.y, b.z]));
+    return () => view.drawBlockers([]);
+  }, [enabled, blockers, view]);
+
+  useEffect(() => {
+    if (!enabled) return;
     view.setPinned((k, x, z) => {
       session.cancel();
       const token = ++generation.current;
       const next = points.map((p, i): Pin => i === k ? [x, z, view.heightOfGround(x, z)] : p);
-      setPoints(next); setReady(false); setCrossings([]); setStatus(next.length === 2 ? "Measuring the crossing…" : null);
+      setPoints(next); setReady(false); setCrossings([]); setBlockers([]); setStatus(next.length === 2 ? "Measuring the crossing…" : null);
       if (next.length === 2) void measure(next, token, kind ?? "road");
-    }, k => { generation.current++; session.cancel(); setPoints(points.filter((_p, i) => i !== k)); setReady(false); setCrossings([]); setStatus(null); });
+    }, k => { generation.current++; session.cancel(); setPoints(points.filter((_p, i) => i !== k)); setReady(false); setCrossings([]); setBlockers([]); setStatus(null); });
     return () => view.setPinned(() => {}, () => {});
   }, [enabled, points, kind, view, session, measure]);
 
@@ -163,15 +177,15 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
     // eslint-disable-next-line react-hooks/exhaustive-deps -- A saved revision or new settings retries against the current draft.
   }, [enabled, ready, armed, points, gap, minGap, kind, grade, revision, session]);
 
-  useEffect(() => () => { session.clear(); view.drawPins([]); view.drawCrossings([]);
+  useEffect(() => () => { session.clear(); view.drawPins([]); view.drawCrossings([]); view.drawBlockers([]);
     void view.setRoadRegion(null); void view.setLowerRoadRegion(null); }, [session, view]);
-  return {points, crossings, gap, minGap, grade, kind, status, clear,
+  return {points, crossings, gap, minGap, grade, kind, selectedSide, status, clear,
     click: (x: number, z: number, y: number, selected: BridgeKind = "road") => {
       if (points.length === 2) { onNote("A and B are set. Use Mark again to start another bridge."); return; }
       if (kind && kind !== selected) { setStatus("Mark A and B on the same road or railway line"); return; }
       const next: Pin[] = [...points, [x, z, y]];
       const token = ++generation.current;
-      session.cancel(); setKind(selected); setPoints(next); setReady(false); setCrossings([]); setStatus(null);
+      session.cancel(); setKind(selected); setPoints(next); setReady(false); setCrossings([]); setBlockers([]); setStatus(null);
       if (next.length === 2) { setStatus("Measuring the crossing…"); onNote("Measuring the crossing…"); void measure(next, token, selected); }
     },
     setGap: (value: number) => {

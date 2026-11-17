@@ -936,16 +936,22 @@ class Handler(BaseHTTPRequestHandler):
                 describe = railbridges.describe if rail else roadseparation.describe
                 upper, lower, above, below, crossings = describe(path, scan, moved, body.get("points"))
                 matching = roadseparation.matching(path, scan, moved, draft["heights"], upper, crossings,
-                                                    describe, "rail" if rail else "road")
+                                                    describe, "rail" if rail else "road", "lower" if lower.get("selected") else "upper")
                 replace = [op["id"] for op in matching]
                 baseline = trackedits.moved_without(ac, name, base, replace) if replace else moved
                 base_crossings = describe(path, scan, baseline, body.get("points"))[-1] if replace else crossings
+                blockers = [] if rail else roadseparation.blockers(path, scan, moved, upper, lower, above, below, crossings,
+                                                                    tracksurfaces.going(scan, draft.get("surfaces", [])))
                 common = {"crossings": crossings, "replace": replace,
+                          "blockers": blockers,
+                          "selected_side": "lower" if lower.get("selected") else "upper",
                           "min_gap": (min if len(body.get("points")) == 2 else max)(c["gap"] for c in base_crossings),
                           "max_grade_percent": matching[-1]["separation"].get("max_grade_percent", 2 if rail else 15) if matching else None}
                 if rail:
                     selection, _cuts = railbridges.selection(path, scan, [crossings[0]["x"], crossings[0]["z"]])
                     return self._send(200, {**common, "upper_region": selection, "lower_region": None})
+                if lower.get("selected"):
+                    return self._send(200, {**common, "upper_region": None, "lower_region": roadregion.selection(path, lower)})
                 return self._send(200, {**common, "upper_region": roadregion.selection(path, upper),
                                         "lower_region": roadregion.selection(path, lower) if len(body.get("points")) == 4 else None})
             moved = trackedits.moved_without(ac, name, base, body.get("replace"))

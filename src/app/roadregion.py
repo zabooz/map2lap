@@ -3,6 +3,7 @@ import functools
 import heapq
 import base64
 import io
+import json
 import math
 import os
 
@@ -247,7 +248,7 @@ def _network(data, points, bridge_hints=None, join_near=False):
             if ((np.maximum(positions[a], positions[b]) >= low - reach).all()
                     and (np.minimum(positions[a], positions[b]) <= high + reach).all()):
                 other = {"a": positions[a].tolist(), "b": positions[b].tolist(), "width": edge["width"]}
-                crossings.append({**other, "structure": edge["structure"]})
+                crossings.append({**other, "road": edge["road"], "structure": edge["structure"]})
                 if edge["level"] in levels:
                     excluded.append(other)
     return {"lines": lines, "widths": widths, "segments": segments, "unselected": excluded, "crossings": crossings, "length": length,
@@ -320,16 +321,19 @@ def mapped(path, points, scan=None, join_near=False):
 
 
 def selection(path, net):
-    """A cached painted footprint for this immutable source and point set."""
+    """A cached painted footprint of the selected mapped network, preserving its bridge/ground choice."""
     folder = editorinfo._folder(path)
     stamp = editorinfo._stamp(path), editorinfo._stamp(os.path.join(folder, "manifest.json"))
-    return _selection(path, stamp, tuple(tuple(p) for p in net["pins"]))
+    fields = {key: net[key] for key in ("segments", "lines", "pins", "terminals", "unselected")}
+    packed = json.dumps(fields, sort_keys=True, separators=(",", ":"),
+                        default=lambda value: value.tolist() if isinstance(value, np.ndarray) else value.item())
+    return _selection(path, stamp, packed)
 
 
 @functools.lru_cache(maxsize=2)
-def _selection(path, _stamp, points):
+def _selection(path, _stamp, packed):
     """Only two compressed footprint sets remain in memory; neither decoded images nor graph copies are retained here."""
-    net = mapped(path, points)
+    net = json.loads(packed)
     _folder, target, available, _roads, _chains = surfaceindex._context(path)
     selected = []
     for key in available:

@@ -1102,6 +1102,7 @@ export class TrackView {
     this.applyCursor();
   }
   drawCrossings(places: Place[]) { this.roadMarkers.drawCrossings(places); }
+  drawBlockers(places: Place[]) { this.roadMarkers.drawBlockers(places); }
   setPinned(moved: (pin: number, x: number, z: number) => void, taken: (pin: number) => void) { this.roadMarkers.setPinned(moved, taken); }
 
   takeBackPreview() { this.geometryPreview.takeBackPreview(); }
