@@ -140,8 +140,14 @@ test("Escape cancels a live browser preview; deleting the group keeps already pl
   await openEditor(page); const library = await prepare(page);
   await library.getByRole("button", {name: "Paint group", exact: true}).click();
   const box = (await scene(page).boundingBox())!;
-  await page.mouse.move(box.x + 600, box.y + 400); await page.mouse.down();
+  await page.mouse.move(box.x + 590, box.y + 395); await page.mouse.move(box.x + 600, box.y + 400);
+  await expect.poll(async () => (await preview(page))?.key).toBe("hover");
   await expect.poll(async () => (await preview(page))?.count ?? 0).toBeGreaterThan(0);
+  await page.mouse.down();
+  await expect.poll(async () => {
+    const shown = await preview(page);
+    return shown?.key === "hover" ? 0 : shown?.count ?? 0;
+  }).toBeGreaterThan(0);
   await page.keyboard.press("Escape"); await page.mouse.up();
   expect((await draft(page)).models ?? []).toHaveLength(0);
   await page.getByRole("button", {name: "Library", exact: true}).click();
