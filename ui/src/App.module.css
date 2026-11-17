@@ -7,8 +7,9 @@
         color: var(--muted); cursor: pointer; display: grid; place-items: center; }
 .gear:hover { color: var(--text); background: var(--raised); }
 .gear.on { color: var(--accent); background: var(--accent-soft); }
-.gear.warn::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%;
-                    background: var(--accent); }
+.attention { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px; border: 2px solid var(--panel);
+             border-radius: 50%; display: grid; place-items: center; background: var(--warn); color: var(--panel);
+             font-size: 10px; font-weight: 800; line-height: 1; }
 /* A newer Map2Lap on GitHub, opens Settings: left of the gear on the name's line (the tagline below runs under
    it), so nothing moves when it shows */
 .update { position: absolute; right: 40px; top: 1px; font-size: 11px; font-weight: 700; border: 0; cursor: pointer;

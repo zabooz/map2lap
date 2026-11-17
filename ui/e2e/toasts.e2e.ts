@@ -13,6 +13,7 @@ test("an untested preview warns without replacing CSP or blocking Play", async (
   await expect(warning).toContainText("Untested CSP version");
   await expect(warning).toContainText("0.3.1-preview1");
   await expect(warning).toContainText("0.2.11");
+  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
   await expect(page.getByRole("button", {name: "Install CSP"})).toHaveCount(0);
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
@@ -20,6 +21,10 @@ test("an untested preview warns without replacing CSP or blocking Play", async (
   expect(installs).toBe(0);
   await warning.getByRole("button", {name: "Dismiss notification"}).click();
   await expect(warning).toBeHidden();
+  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
 });
 
 test("CSP is checked once at startup, manually and for another AC path; closing the server causes no periodic warning", async ({page}) => {
@@ -43,6 +48,7 @@ test("CSP is checked once at startup, manually and for another AC path; closing 
   await expect(path).toHaveValue(originalPath);
   await expect.poll(() => checks).toBe(4);
   await expect(page.locator("#csp-settings").getByRole("status")).toContainText("CSP 0.2.11 installed");
+  await expect(page.locator("#t-set").getByText("!", {exact: true})).toHaveCount(0);
   await page.getByRole("button", {name: "Close settings"}).click();
   offline = true;
   await page.clock.runFor(6500);
@@ -81,6 +87,7 @@ test("missing CSP slides down at the top, opens its settings and never installs 
   await page.goto("/");
   const warning = page.getByRole("alert");
   await expect(warning).toContainText("CSP is not installed");
+  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
   await expect(warning.getByRole("button", {name: "Install CSP"})).toBeVisible();
   await expect(page.getByRole("dialog", {name: "Settings"})).toBeHidden();
   await page.screenshot({path: testInfo.outputPath("warning-toast.png"), animations: "disabled"});
@@ -105,6 +112,7 @@ test("missing AC takes priority and its toast opens the folder field", async ({p
   await page.goto("/");
   const warning = page.getByRole("alert");
   await expect(warning).toContainText("Assetto Corsa folder not found");
+  await expect(page.locator("#t-set").getByText("!", {exact: true})).toBeVisible();
   await expect(page.getByRole("dialog", {name: "Settings"})).toBeHidden();
   await warning.getByRole("button", {name: "Choose folder"}).click();
   await expect(page.getByLabel("Assetto Corsa folder", {exact: true})).toBeFocused();

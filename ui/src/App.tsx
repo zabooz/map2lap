@@ -10,6 +10,7 @@ import {useToasts} from "./components/toastStore";
 import {loadingToast} from "./editor/editorToasts";
 import type {Say} from "./editor/scene/view";
 import {installationNotice, type InstallationTarget} from "./components/installationNotice";
+import {activeInstallation, settingsAttention} from "./components/settingsAttention";
 import {GearIcon} from "./components/icons";
 import {groupOf, MyTracksPane} from "./components/MyTracksPane";
 import {NewTrackPane} from "./components/NewTrackPane";
@@ -57,6 +58,7 @@ export function App() {
   const [notesHost, setNotesHost] = useState<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTarget, setSettingsTarget] = useState<InstallationTarget | null>(null);
+  const [acknowledgedCspVersion, setAcknowledgedCspVersion] = useStored<string>("map2lap.acknowledgedCspVersion", "");
   const [picks, setPicks] = useState<Record<TrackGroup, string | null>>({built: null, edited: null});
   const [showResult, setShowResult] = useState(true);   // false: the selection is newer than the last build's result
   const [move, setMove] = useState<MapMove | null>(null);
@@ -67,9 +69,10 @@ export function App() {
   const {tracks, car, reload} = useTracks();
   const settings = useSettings();
   const patch = useCspStatus(settings.settings?.ac_ok ? settings.settings.ac_path : null);
-  const installation = installationNotice(settings.settings?.ac_ok, patch.info, patch.error);
+  const installation = activeInstallation(installationNotice(settings.settings?.ac_ok, patch.info, patch.error), acknowledgedCspVersion);
   const version = settings.settings?.version ?? "";
   const release = useRelease(settings.settings?.version);
+  const attention = settingsAttention(installation, release.newer);
   const build = useBuild(() => setShowResult(true), () => void reload());
   const {starting, play} = usePlay();
   const {controls, save: saveControls} = useControls();
@@ -179,8 +182,10 @@ export function App() {
             <button className={styles.update} title={`Map2Lap ${release.newer} is out (you have ${version}): open Settings`}
                     onClick={() => setSettingsOpen(true)}>v{release.newer} available</button>
           )}
-          <button id="t-set" className={`${styles.gear}${settingsOpen ? ` ${styles.on}` : ""}${acOk ? "" : ` ${styles.warn}`}`} title="Settings"
-                  aria-label="Settings" onClick={() => setSettingsOpen(true)}><GearIcon /></button>
+          <button id="t-set" className={`${styles.gear}${settingsOpen ? ` ${styles.on}` : ""}`} title={attention ?? "Settings"}
+                  aria-label="Settings" onClick={() => setSettingsOpen(true)}><GearIcon />
+            {attention && <span className={styles.attention} aria-hidden="true">!</span>}
+          </button>
         </div>
 
         <nav className="tabs">
@@ -250,7 +255,8 @@ export function App() {
                         onCar={() => void reload()} onClose={closeSettings} />
       )}
       <ToastHost />
-      {installation && <InstallationToast key={`${settings.settings?.ac_path}:${installation.id}`} notice={installation} hidden={settingsOpen} onOpen={openInstallation} />}
+      {installation && <InstallationToast key={`${settings.settings?.ac_path}:${installation.id}`} notice={installation} hidden={settingsOpen}
+        onOpen={openInstallation} onDismiss={() => { if (installation.id.startsWith("csp-version-")) setAcknowledgedCspVersion(installation.id); }} />}
     </>
   );
 }
