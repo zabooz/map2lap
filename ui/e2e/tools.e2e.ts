@@ -42,6 +42,18 @@ test("the buttons stand in the sidebar, gone with its tab, back as they were; wh
   await expect(set.getByLabel("Radius")).toHaveValue("7");
 });
 
+test("Road has Smooth road and Racing kerb, while Terrain has only Elevation", async ({page}) => {
+  await openEditor(page);
+  const bar = page.locator("#edit-bar");
+  const road = bar.getByRole("heading", {name: "Road", exact: true}).locator("..");
+  const terrain = bar.getByRole("heading", {name: "Terrain", exact: true}).locator("..");
+  await expect(road.locator("button")).toHaveCount(2);
+  await expect(road.locator("button").first()).toHaveAttribute("id", "edit-smooth");
+  await expect(road.locator("button").last()).toHaveAttribute("id", "edit-kerb");
+  await expect(terrain.locator("button")).toHaveCount(1);
+  await expect(terrain.locator("button")).toHaveAttribute("id", "edit-elevation");
+});
+
 test("each tool has its key, one is on at a time, Esc goes back to Select from each, from a number and a button of it too", async ({page}) => {
   await openEditor(page);
   await keysOnView(page);

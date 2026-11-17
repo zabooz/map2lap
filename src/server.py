@@ -339,14 +339,17 @@ def valid_clock(clock):
     return isinstance(clock, (int, float)) and not isinstance(clock, bool) and 0 <= clock < 24     # (NaN compares false)
 
 
-def play(name, clock=None, weather_options=None):
+def play(name, clock=None, weather_options=None, car=None):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
     settings (car, skin, weather, assists) but this track, Practice, no opponents and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
+    car: an installed car folder for this session, empty for last driven, None for the saved setting.
     Returns (HTTP code, response)."""
     import configparser
     if clock is not None and not valid_clock(clock):
         return 400, {"error": "The time of day is not an hour of the day"}
+    if car is not None and (not isinstance(car, str) or (car and car not in {c["id"] for c in cars()})):
+        return 400, {"error": "That car is not installed"}
     try:
         selected_weather = weather.parse(weather_options) if weather_options is not None else None
     except ValueError as error:
@@ -371,7 +374,7 @@ def play(name, clock=None, weather_options=None):
         ini = None
     if ini is None or not ini.has_option("RACE", "MODEL"):
         return 409, {"error": "Drive once in Assetto Corsa first, so Map2Lap knows your car"}
-    model, _ = play_car()
+    model = play_car()[0] if car is None else (last_car() if car == "" else car)
     if model and model != ini.get("RACE", "MODEL"):        # (the car set, its first skin)
         skins = os.path.join(ac, "content", "cars", model, "skins")
         skin = next(iter(sorted(d for d in os.listdir(skins) if os.path.isdir(os.path.join(skins, d)))), "")
@@ -1209,7 +1212,7 @@ class Handler(BaseHTTPRequestHandler):
                                         body.get("tree_spacing_m", info.get("tree_spacing_m", 0)),
                                         body.get("ground_quality", info.get("ground_quality", "sd"))))
             elif self.path == "/api/play":
-                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather")))
+                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"), body.get("car")))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":

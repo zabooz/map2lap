@@ -1,5 +1,5 @@
 // Building and My tracks: progress, stop, result, error, Play, rebuild, copy, delete.
-import {button, card, clickMap, expect, test} from "./fixtures";
+import {button, card, clickMap, expect, startDriving, test} from "./fixtures";
 
 async function route(page: import("@playwright/test").Page, name: string) {
   await page.goto("/");
@@ -18,8 +18,27 @@ test("a build shows its progress and ends with Play", async ({page, backend}) =>
   await expect(card(page)).toContainText("Installed in Assetto Corsa.");
   await expect(card(page)).toContainText("Done");
   await card(page).getByRole("button", {name: "▶ Play"}).click();
+  await startDriving(page);
   await expect.poll(backend.calls).toContainEqual(["play", "fresh_one"]);
   await expect(page.locator("#t-mine")).toContainText("4");
+});
+
+test("My tracks Play asks for this drive's car and weather before starting", async ({page, backend}) => {
+  await page.goto("/");
+  const defaultCar = ((await (await page.request.get("/api/settings")).json()) as {car: string | null}).car;
+  await page.locator("#t-mine").click();
+  await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
+  const dialog = page.getByRole("dialog", {name: "Play"});
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", {name: "Cancel"}).click();
+  expect(await backend.calls()).not.toContainEqual(["play", "alpha"]);
+  await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
+  await dialog.getByRole("combobox", {name: "Car"}).selectOption("car_a");
+  await dialog.getByRole("combobox", {name: "Weather"}).selectOption("rain");
+  const started = page.waitForRequest("**/api/play");
+  await dialog.getByRole("button", {name: "Start driving"}).click();
+  expect((await started).postDataJSON()).toMatchObject({name: "alpha", car: "car_a", weather: {kind: "rain"}});
+  expect(((await (await page.request.get("/api/settings")).json()) as {car: string | null}).car).toBe(defaultCar);
 });
 
 test("a build stopped", async ({page}) => {
@@ -65,6 +84,7 @@ test("My tracks: rebuild, copy, Play and delete", async ({page, backend}) => {
   await list.filter({hasText: "Beta Test"}).click();
 
   await page.locator("#actions").getByRole("button", {name: "▶ Play"}).click();
+  await startDriving(page);
   await expect.poll(backend.calls).toContainEqual(["play", "beta"]);
 
   await button(page, "Rebuild").click();

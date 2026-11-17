@@ -1,4 +1,4 @@
-import {expect, openEditor, scene, test} from "./fixtures";
+import {expect, openEditor, scene, startDriving, test} from "./fixtures";
 import {deleteTree} from "./edit-helpers";
 
 test("roof snow covers red tiles in winter and restores their colour in summer", async ({page, backend}) => {
@@ -102,6 +102,7 @@ test("the chosen season reaches Play, while selecting snow forces the season sho
   await season.selectOption("autumn");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
+  await startDriving(page);
   expect((await started).postDataJSON().weather.season).toBe("autumn");
   await page.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
   await expect(season).toHaveValue("winter");
@@ -170,7 +171,8 @@ test("Play carries the selected weather, wind, additional fog and clock into the
   await page.getByRole("slider", {name: "Time of day"}).fill("1110");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
-  expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5,
+  await startDriving(page);
+  expect((await started).postDataJSON()).toMatchObject({name: "alpha", clock: 18.5,
     weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true, season: "summer", airTemperature: -5, roadTemperature: 2}});
 });
 
@@ -188,6 +190,7 @@ test("random precedes north and changing tracks resets the preview weather", asy
   await expect(weather).toContainText("Wind speed: 100 km/h");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
+  await startDriving(page);
   expect((await started).postDataJSON().weather.windSpeed).toBe(100);
   await weather.getByRole("slider", {name: "Wind speed"}).fill("-1");
   await expect(weather).toContainText("Wind speed: Random");
@@ -216,10 +219,11 @@ test("windscreen snow can be disabled while the native snowfall remains selected
   await toggle.uncheck();
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
+  await startDriving(page);
   expect((await started).postDataJSON().weather).toMatchObject({kind: "snow", windscreenSnow: false});
 });
 
-test("Save as new track followed by Play keeps the chosen weather and clock through the track switch", async ({page}) => {
+test("Play saves current edits and keeps the chosen weather and clock", async ({page}) => {
   await openEditor(page);
   await deleteTree(page);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
@@ -230,10 +234,9 @@ test("Save as new track followed by Play keeps the chosen weather and clock thro
   await weather.getByRole("slider", {name: "Road temperature"}).fill("-6");
   await page.getByRole("slider", {name: "Time of day"}).fill("1110");
   await page.locator("#edit-play").click();
-  await expect(page.locator("#save-dialog")).toBeVisible();
-  await page.locator("#save-name").fill("Snow copy");
   const started = page.waitForRequest("**/api/play");
-  await page.locator("#save-dialog").getByRole("button", {name: "Save as new track", exact: true}).click();
-  expect((await started).postDataJSON()).toEqual({name: "snow_copy", clock: 18.5,
+  await startDriving(page);
+  await expect(page.locator("#save-dialog")).toBeHidden();
+  expect((await started).postDataJSON()).toMatchObject({name: "alpha", clock: 18.5,
     weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer", airTemperature: -12, roadTemperature: -6}});
 });

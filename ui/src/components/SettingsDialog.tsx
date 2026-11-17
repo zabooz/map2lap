@@ -65,7 +65,7 @@ function Play({settings: s, onCar}: {settings: ReturnType<typeof useSettings>; o
         <option value="">{cars?.last ? `Last driven (${cars.last})` : "Last driven"}</option>
         {cars?.cars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
-      <p className="small muted">“Play” starts a practice session on your track with this car.</p>
+      <p className="small muted">Default car for Play. You can choose another car for each drive.</p>
     </Group>
   );
 }

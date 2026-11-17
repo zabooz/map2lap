@@ -64,8 +64,12 @@ reads these temperatures and wind speed directly, without changing CSP's global 
 
 These controls are session-only like the clock: no draft change, Save or Undo entry. A track opens with dry, clear weather,
 random wind direction and speed. `weatherPreview.ts` gives a small GPU particle field, approximate lighting and distance fog;
-AC uses CSP's actual sky, clouds, light and wind. Weather and the clock travel together through Save-as-new-track followed
-by Play. Wind-only and temperature-only changes leave the editor's lighting/reflection maps alone.
+AC uses CSP's actual sky, clouds, light and wind. Every Play button opens a session dialog for car, time and conditions;
+the Editor fills it from its preview controls and starts saving any track edits when Play is first pressed. Start driving
+waits for that Save to finish. The other Play buttons start with dry, clear conditions and the previous AC session time.
+Changes in the dialog apply to that drive only.
+Weather and the clock travel together through Save-as-new-track followed by Play. Wind-only and temperature-only changes
+leave the editor's lighting/reflection maps alone.
 
 `app/weather.py` validates the settings and writes the session. It installs an owned Map2Lap controller alongside CSP's
 controllers, without changing the stock ones. Generated and saved tracks include `assets/weather/weather.lua` as a

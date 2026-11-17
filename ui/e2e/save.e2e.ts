@@ -1,5 +1,5 @@
 // Save in the Editor: in its place or as a new track, Play, what stands under Edited in My tracks.
-import {button, card, expect, openEditor, scene, test} from "./fixtures";
+import {button, card, expect, openEditor, scene, startDriving, test} from "./fixtures";
 import {deleteTree, findTree, picture, saveTrack, saved, stored, treeCount} from "./edit-helpers";
 
 test("File keeps save status and Undo, without a Revert action", async ({page}) => {
@@ -13,6 +13,55 @@ test("File keeps save status and Undo, without a Revert action", async ({page}) 
   await expect(page.locator("#edit-count")).toHaveCount(0);
   await page.getByRole("button", {name: /Redo/}).click(); await saved(page);
   await expect(page.locator("#edit-count")).toHaveText("1 object deleted");
+});
+
+test("Editor Play starts saving at once and holds Start driving until Save finishes", async ({page, backend}) => {
+  await openEditor(page);
+  await deleteTree(page);
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let received = () => {};
+  const writing = new Promise<void>(resolve => { received = resolve; });
+  await page.route("**/api/editor/alpha/save", async route => {
+    const response = await route.fetch();
+    received();
+    await held;
+    await route.fulfill({response});
+  });
+
+  await page.locator("#edit-play").click();
+  const dialog = page.getByRole("dialog", {name: "Play"});
+  await expect(dialog).toBeVisible();
+  await writing;
+  await expect(dialog.getByRole("button", {name: "Saving …"})).toBeDisabled();
+  await expect(page.locator("#edit-play")).toHaveText("Saving …");
+  expect(await backend.calls()).not.toContainEqual(["play", "alpha"]);
+  release();
+  await expect(dialog.getByRole("button", {name: "Start driving"})).toBeEnabled();
+  await expect(page.locator("#save-dialog")).toBeHidden();
+  await startDriving(page);
+  await expect.poll(backend.calls).toContainEqual(["play", "alpha"]);
+});
+
+test("Cancelling Editor Play still keeps the save started by its first click", async ({page, backend}) => {
+  await openEditor(page);
+  await deleteTree(page);
+  await page.locator("#edit-play").click();
+  await page.getByRole("dialog", {name: "Play"}).getByRole("button", {name: "Cancel"}).click();
+  await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
+  await expect(page.locator("#save-dialog")).toBeHidden();
+  expect(await backend.calls()).not.toContainEqual(["play", "alpha"]);
+});
+
+test("a failed immediate Save keeps Start driving disabled", async ({page, backend}) => {
+  await openEditor(page);
+  await deleteTree(page);
+  await page.route("**/api/editor/alpha/save", route => route.fulfill({status: 409, json: {error: "Write refused"}}));
+  await page.locator("#edit-play").click();
+  const dialog = page.getByRole("dialog", {name: "Play"});
+  await expect(dialog).toContainText("Track could not be saved");
+  await expect(dialog.getByRole("button", {name: "Start driving"})).toBeDisabled();
+  expect(await backend.calls()).not.toContainEqual(["play", "alpha"]);
 });
 
 test("Delete track in the Save popup asks first, then the open track is gone from Assetto Corsa and the Editor's list", async ({page}) => {
@@ -70,6 +119,7 @@ test("Save: asked once, then written at once; the trees AC gets are without the 
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText("Not saved");
   await page.locator("#edit-play").click();     // (Play: saved first, at once now, then AC)
+  await startDriving(page);
   await expect(page.locator("#save-dialog")).toBeHidden();
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   expect((await treeCount(page))).toBe(trees);
@@ -87,10 +137,6 @@ test("Save as new track: only under a new name, shown with the work and its undo
   const trees = (await treeCount(page));
   await deleteTree(page);
   const preview = await picture(page);
-  await page.locator("#edit-play").click();     // (never saved: Play asks first, Cancel starts nothing)
-  await expect(page.locator("#save-dialog")).toBeVisible();
-  await page.locator("#save-dialog").getByRole("button", {name: "Cancel"}).click();
-  expect((await (await page.request.get("/__test/calls")).json()) as unknown[][]).not.toContainEqual(["play", "alpha"]);
   await page.locator("#edit-save-more").click();
   await expect(page.locator("#save-name")).toHaveValue("Alpha Test");
   const go = page.locator("#save-dialog").getByRole("button", {name: "Save as new track"});
@@ -181,9 +227,10 @@ test("the name left as it is, a new track gets its (copy) by itself", async ({pa
   await expect(card(page)).toContainText("No edited tracks yet");
 });
 
-test("nothing changed: Play starts the track at once, nothing asked", async ({page}) => {
+test("nothing changed: Play asks for the session, then starts without asking to Save", async ({page}) => {
   await openEditor(page);
   await page.locator("#edit-play").click();
+  await startDriving(page);
   await expect(page.locator("#save-dialog")).toBeHidden();
   await expect.poll(async () => (await (await page.request.get("/__test/calls")).json()) as unknown[][]).toContainEqual(["play", "alpha"]);
 });
@@ -194,7 +241,8 @@ test("Play starts Assetto Corsa at the hour the Editor's clock shows", async ({p
   await page.locator("#sun-clock").getByRole("slider", {name: "Time of day"}).fill("1110");
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
-  expect((await started).postDataJSON()).toEqual({name: "alpha", clock: 18.5,
+  await startDriving(page);
+  expect((await started).postDataJSON()).toMatchObject({name: "alpha", clock: 18.5,
     weather: {kind: "dry", intensity: "light", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer", airTemperature: 20, roadTemperature: 26}});
 });
 

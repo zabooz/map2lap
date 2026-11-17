@@ -74,7 +74,7 @@ export function App() {
   const release = useRelease(settings.settings?.version);
   const attention = settingsAttention(installation, release.newer);
   const build = useBuild(() => setShowResult(true), () => void reload());
-  const {starting, play} = usePlay();
+  const {starting, play, choose, dialog: playDialog} = usePlay();
   const {controls, save: saveControls} = useControls();
 
   const chooseTab = (t: Tab) => {
@@ -159,8 +159,12 @@ export function App() {
   const goText = busy ? (status.state === "stopping" ? "Stopping …" : "Stop build") : !mine ? "Build track" : group === "edited" ? "Edit" : "Rebuild";
   const goTitle = busy ? undefined : !acOk ? NO_AC : !mine ? undefined : group === "edited" ? "Open it in the Editor" : "Build it again with this version and replace it";
 
+  const startPlay = async (name: string) => {
+    const session = await choose();
+    if (session) void play(name, session);
+  };
   const playButton = (name: string) => (
-    <PlayButton title={playTitle} disabled={!acOk || starting} starting={starting} onClick={() => void play(name)} />
+    <PlayButton title={playTitle} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name)} />
   );
 
   const tabButton = (t: Tab, text: string, extra?: ReactNode) => (
@@ -227,7 +231,7 @@ export function App() {
             )}
             <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
             {mine && (
-              <button className={styles.playAct} title={playTitle} onClick={() => { if (pick) void play(pick); }}
+              <button className={styles.playAct} title={playTitle} onClick={() => { if (pick) void startPlay(pick); }}
                       disabled={busy || !picked?.kn5_bytes || starting || !acOk}>{starting ? "Starting …" : "▶ Play"}</button>
             )}
           </div>
@@ -254,6 +258,7 @@ export function App() {
         <SettingsDialog settings={settings} release={release} patch={patch} focusTarget={settingsTarget} busy={busy} controls={controls} onControls={saveControls}
                         onCar={() => void reload()} onClose={closeSettings} />
       )}
+      {playDialog}
       <ToastHost />
       {installation && <InstallationToast key={`${settings.settings?.ac_path}:${installation.id}`} notice={installation} hidden={settingsOpen}
         onOpen={openInstallation} onDismiss={() => { if (installation.id.startsWith("csp-version-")) setAcknowledgedCspVersion(installation.id); }} />}

@@ -1,5 +1,5 @@
 // Elevation, the Editor's brush: a click, held, its keys, strokes on their way; and X, where each click deletes.
-import {button, centre, expect, openEditor, openSettings, scene, test} from "./fixtures";
+import {button, centre, expect, openEditor, openSettings, scene, startDriving, test} from "./fixtures";
 import {box, brushStroke, deleteTree, findTree, heights, NEAR_TREE, picture, saveTrack, saved} from "./edit-helpers";
 
 test("the brush: a stroke raises the ground with what stands there, shows at once, Ctrl+Z takes it back whole", async ({page}) => {
@@ -165,6 +165,7 @@ test("the brush: Play waits for a stroke on its way, and saves it first", async 
   await page.locator("#edit-elevation").click();
   await brushStroke(page);
   await page.locator("#edit-play").click();
+  await startDriving(page);
   await expect.poll(backend.calls).toContainEqual(["play", "alpha"]);
   const r = await (await page.request.get("/api/editor/alpha/edits")).json() as {saved: {heights: string[]}};
   expect(r.saved.heights.length).toBe(1);

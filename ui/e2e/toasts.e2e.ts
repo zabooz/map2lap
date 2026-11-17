@@ -1,4 +1,4 @@
-import {expect, openEditor, openSettings, test} from "./fixtures";
+import {expect, openEditor, openSettings, startDriving, test} from "./fixtures";
 
 const missing = {status: "missing", version: null, build: null, enabled: null, stage: "idle", done: 0,
   total: 0, busy: false, can_install: true, linux: false, website: "https://acstuff.club/patch/", error: null};
@@ -17,6 +17,7 @@ test("an untested preview warns without replacing CSP or blocking Play", async (
   await expect(page.getByRole("button", {name: "Install CSP"})).toHaveCount(0);
   const started = page.waitForRequest("**/api/play");
   await page.locator("#edit-play").click();
+  await startDriving(page);
   await started;
   expect(installs).toBe(0);
   await warning.getByRole("button", {name: "Dismiss notification"}).click();

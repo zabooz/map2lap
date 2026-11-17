@@ -476,6 +476,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       )}
       {saving.asking && <SaveDialog title={title} taken={taken} canOverwrite={saving.canSave} onOverwrite={() => void saving.chosen(null)}
                                     onSaveNew={t => void saving.chosen(t)} onCancel={saving.cancel} onDelete={onDelete} />}
+      {saving.dialog}
     </>
   );
 }

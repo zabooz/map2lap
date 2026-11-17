@@ -16,17 +16,17 @@ const clock = (at: number) => new Date(at * 1000).toLocaleTimeString([], {hour: 
 
 /** Saving the track name, whose edits have the state now. onSaved: the track is saved as name (a copy: another one). */
 export function useSave({name, edits, state, view, onSaved}: {name: string; edits: TrackEdits; state: EditState; view: TrackView; onSaved: (name: string) => void}) {
-  const [asking, setAsking] = useState<{play: boolean} | null>(null);     // (play: AC starts once it is saved)
+  const [asking, setAsking] = useState(false);
   const [saving, setSaving] = useState<{busy: boolean; text: string | null}>({busy: false, text: null});
   const [waiting, setWaiting] = useState<{play: boolean} | null>(null);   // (Save or Play pressed, changes still on their way)
-  const {starting, play} = usePlay();
+  const {starting, play, choose, choosing, dialog} = usePlay();
   const current = isCurrent(state), asBuilt = isAsBuilt(state);
   const canSave = edits.canEdit() && !saving.busy && !current && !asBuilt;
 
   /** The track written as its edits say (trackcopy.save): in its place, or (copyTitle) as a new track the Editor then goes on
       with. The name it was written as, or null. */
   const write = async (copyTitle: string | null = null) => {
-    setAsking(null);
+    setAsking(false);
     setSaving({busy: true, text: null});
     await edits.settled();
     edits.hold(true);
@@ -59,23 +59,21 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
   };
 
   return {
-    asking, canSave, starting,
+    asking, canSave, starting, dialog,
     waiting: waiting && {changes: state.inTurn, play: waiting.play},
     busy: saving.busy,
     failed: saving.text,
     savedText: saving.busy ? "Saving …" : current ? `Saved ${clock(state.recipe!.at)}` : asBuilt ? "" : "Not saved",
-    canPlay: !starting && !saving.busy && !waiting && state.save !== "loading" && (current || asBuilt || canSave),
+    canPlay: !starting && !choosing && !saving.busy && !waiting && state.save !== "loading" && (current || asBuilt || canSave),
     /** ▾: it asks, in its place or a new track. */
-    saveAs: () => setAsking({play: false}),
-    /** What the dialog chose, then AC if Play asked for it. */
+    saveAs: () => setAsking(true),
+    /** What the Save dialog chose. */
     chosen: async (copyTitle: string | null) => {
       view.focus();
-      const hour = view.clockHours(), weather = view.weatherOptions();
-      const then = asking?.play, saved = await write(copyTitle);
-      if (saved && then) void play(saved, hour, weather);
+      await write(copyTitle);
     },
     cancel: useCallback(() => {
-      setAsking(null);
+      setAsking(false);
       view.focus();
     }, [view]),
     /** Save: a track never saved here asks once (in its place, or a new track), then it writes at once. After the strokes on their way:
@@ -85,16 +83,20 @@ export function useSave({name, edits, state, view, onSaved}: {name: string; edit
       const now = edits.state();
       if (!edits.canEdit() || saving.busy || isCurrent(now) || isAsBuilt(now)) return;
       if (now.recipe) void write();
-      else setAsking({play: false});
+      else setAsking(true);
     },
-    /** Play: saved first if it isn't, the same way, after the strokes on their way too. */
+    /** Play begins writing immediately, including the first in-place Save; its dialog waits for the write before AC starts. */
     drive: async () => {
-      await settle(true);
-      const now = edits.state();
-      const hour = view.clockHours(), weather = view.weatherOptions();
-      if (isCurrent(now) || isAsBuilt(now)) void play(name, hour, weather);
-      else if (!now.recipe) setAsking({play: true});
-      else if (await write()) void play(name, hour, weather);
+      const before = edits.state();
+      const needsSave = !!before.inTurn || (!isCurrent(before) && !isAsBuilt(before));
+      const prepared = needsSave ? (async () => {
+        await settle(true);
+        const now = edits.state();
+        return isCurrent(now) || isAsBuilt(now) ? name : write();
+      })() : undefined;
+      const session = await choose(view.clockHours(), view.weatherOptions(), prepared);
+      if (!session) return;
+      if (!prepared || await prepared) void play(name, session);
     },
   };
 }

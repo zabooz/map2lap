@@ -66,6 +66,17 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual((200, True), self.started(18.5))
         self.assertAlmostEqual(88.0, self.ini().getfloat("LIGHTING", "SUN_ANGLE"))
 
+    def test_selected_car_is_used_for_this_session(self):
+        skins = self.ac / "content/cars/selected/skins/first"
+        skins.mkdir(parents=True)
+        self.assertEqual((200, True), self.started(10, None, "selected"))
+        self.assertEqual("selected", self.ini().get("RACE", "MODEL"))
+        self.assertEqual("first", self.ini().get("RACE", "SKIN"))
+
+    def test_uninstalled_car_cannot_start(self):
+        self.assertEqual((400, False), self.started(10, None, "missing"))
+        self.assertEqual(RACE, self.race.read_text())
+
     def test_midnight_is_an_hour_too(self):
         self.assertEqual((200, True), self.started(0.0))
         self.assertAlmostEqual(-208.0, self.ini().getfloat("LIGHTING", "SUN_ANGLE"))

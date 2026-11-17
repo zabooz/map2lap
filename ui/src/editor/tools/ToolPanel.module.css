@@ -12,6 +12,7 @@
 /* One tool at a time, each with its key */
 .picker { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .picker button { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.picker button:only-child { grid-column: 1 / -1; }
 .key { color: var(--muted); font-size: 11px; }
 .split { display: flex; }
 .split button:first-child { flex: 1; border-radius: 7px 0 0 7px; }

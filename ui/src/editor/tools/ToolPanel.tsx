@@ -7,12 +7,12 @@ import type {TrackView} from "../scene/view";
 import {Help} from "./Help";
 
 export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "kerb" | "model" | "group";
-type Group = "general" | "terrain" | "objects";
+type Group = "general" | "road" | "terrain" | "objects";
 export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
   {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click to pick a surface or object; left drag selects objects in a rectangle. Add or Ctrl adds more, Shift + click selects all matching; Alt changes the ground's texture or replaces trees; X or Delete takes them out (V)"},
   {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
-  {tool: "smooth", group: "terrain", id: "edit-smooth", label: "Smooth road", key: "R", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (R)"},
-  {tool: "kerb", group: "terrain", id: "edit-kerb", label: "Racing kerb", key: "B", hint: "Click the desired road edge, then mark the end; adjust width, physical height and profile (B)"},
+  {tool: "smooth", group: "road", id: "edit-smooth", label: "Smooth road", key: "R", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (R)"},
+  {tool: "kerb", group: "road", id: "edit-kerb", label: "Racing kerb", key: "B", hint: "Click the desired road edge, then mark the end; adjust width, physical height and profile (B)"},
   {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
   {tool: "move", group: "objects", id: "edit-move", label: "Transform", key: "T", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (T; Esc ends it)"},
   {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},
@@ -42,8 +42,8 @@ export function FileButtons({edits, view, saving, onLibrary}: {edits: TrackEdits
           <button type="button" id="edit-save-more" aria-label="Save as new track" title="Save as new track …"
                   disabled={!edits.canEdit() || saving.busy} onClick={saving.saveAs}>▾</button>
         </span>
-        <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save if needed, then drive it in Assetto Corsa"
-                onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : saving.waiting?.play ? "Waiting …" : "▶ Play"}</button>
+        <button type="button" id="edit-play" disabled={!saving.canPlay} title="Save now if needed, then choose the drive in Assetto Corsa"
+                onClick={then(() => void saving.drive())}>{saving.starting ? "Starting …" : saving.busy ? "Saving …" : saving.waiting?.play ? "Waiting …" : "▶ Play"}</button>
       </div>
       <button type="button" id="edit-library" className={styles.library} title="Textures and objects: import them, paint the picked ground, place models"
               onClick={then(onLibrary)}>Library</button>
@@ -77,6 +77,7 @@ export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: 
         </div>
         {buttons("general")}
       </Section>
+      <Section title="Road">{buttons("road")}</Section>
       <Section title="Terrain">{buttons("terrain")}</Section>
       <Section title="Objects">{buttons("objects")}</Section>
       <Help tool={shownTool} />

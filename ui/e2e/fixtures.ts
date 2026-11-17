@@ -61,6 +61,11 @@ export const pins = (page: Page) => page.locator(".leaflet-marker-icon:not([clas
 export const handles = (page: Page) => page.locator("[class*=handle_]");
 export const scene = (page: Page) => page.locator("#scene canvas");
 
+/** Accept the session choices shown by any Play button. */
+export async function startDriving(page: Page) {
+  await page.getByRole("dialog", {name: "Play"}).getByRole("button", {name: "Start driving"}).click();
+}
+
 /** A point of the map, as shares of its width and height. */
 export async function mapPoint(page: Page, x: number, y: number) {
   const box = (await page.locator(".leaflet-container").boundingBox())!;

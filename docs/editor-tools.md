@@ -2,6 +2,7 @@
 
 Start with [Editor data flow and Save](editor.md). Source owners below are relative to `src/` or `ui/src/editor/`.
 The authoritative tool names and keys are `tools/ToolPanel.tsx`; help and modifiers are in `tools/Help.tsx`.
+In the sidebar, Road holds Smooth road and Racing kerb; Terrain holds Elevation.
 
 ## Selection and Inspector
 
