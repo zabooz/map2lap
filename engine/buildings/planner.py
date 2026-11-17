@@ -196,6 +196,8 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     direction, orientation = attrs.get("roof_direction"), attrs.get("roof_orientation")
     if direction is not None and (not np.isfinite(direction) or not 0 <= direction < 360):
         direction = None
+    elif direction is not None:
+        direction = float(direction)    # (the map cells keep it as float32: the object list's JSON can't write that)
     roof_h = 0.0
     if roof != "flat":
         roof_hw = hw

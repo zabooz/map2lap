@@ -424,6 +424,31 @@ class RoofTest(unittest.TestCase):
                 self.assertEqual((spec.roof_direction, spec.roof_orientation, spec.roof_height), (45., "across", 2.))
                 self.assertAlmostEqual(spec.height, 8.)
 
+    def test_cached_float32_roof_tags_reach_the_object_list_as_json(self):
+        """The map cells keep numbers as float32 (mapdata's npz), which json can't write; a building's details in the
+        tile's object list (write_objects) carry its roof direction: one mapped roof:direction stopped the build."""
+        import json
+        import geodesy
+        from test_buildings import Feats
+        from buildings.build import _listed
+        frame = geodesy.EnuFrame(46.6, 14.6)
+        ring = np.array([[10., 10.], [26., 10.], [26., 18.], [10., 18.], [10., 10.]])
+        la, lo, _ = frame.enu_to_geodetic(ring[:, 0], ring[:, 1], 0.)
+        polygon = np.c_[lo, la]
+        attrs = {"height": [10.], "roof_shape": ["gabled"], "roof_height": [2.], "roof_direction": [45.]}
+        for parts in (False, True):
+            with self.subTest(parts=parts):
+                parent = Feats(["B"], [polygon], **{"class": ["house"], **({} if parts else attrs)})
+                children = [Feats(["P"], [polygon], **{"building_id": ["B"], **attrs})] if parts else []
+                for layer in (parent, *children):
+                    layer.attrs = {k: v.astype(np.float32) if v.dtype == np.float64 else v
+                                   for k, v in layer.attrs.items()}
+                items = bld.tile_buildings(frame, 0., 0., 256., 256., [parent], lambda la, lo: np.zeros(np.shape(la)),
+                                           part_layers=children)
+                self.assertEqual(len(items), 1)
+                self.assertEqual(items[0][0].roof_direction, 45.)
+                json.dumps(_listed(0, items[0], 0, []), allow_nan=False)
+
     def test_oblique_roofs_have_finite_nonzero_upward_roof_faces(self):
         for shape in ("gabled", "hipped"):
             for bearing in (0., 30., 45., 90., 135., 270.):
