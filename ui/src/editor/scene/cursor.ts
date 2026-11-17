@@ -7,6 +7,7 @@ export interface Pointed {
   object: boolean;
   movable: boolean;
   road: boolean;
+  rail?: boolean;
 }
 
 /** The view beside the tool on. dragging: Move takes objects along; pin: the mouse is on a road pin; aiming: a brush's ring or a
@@ -35,6 +36,7 @@ export function cursorFor(state: CursorState, pointed: Pointed | null): string {
     case "copy": return pointed.movable ? "copy" : "";
     case "delete": return pointed.object ? DELETE_CURSOR : "";
     case "smooth": return pointed.road ? "crosshair" : "";
+    case "separate": return pointed.road || pointed.rail ? "crosshair" : "";
     case "kerb": return pointed.road ? "crosshair" : "";
     default: return "";
   }

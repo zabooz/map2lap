@@ -1,11 +1,13 @@
 import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
+import {post} from "../api";
 import {BandOptions} from "./tools/BandOptions";
+import {SeparationOptions} from "./tools/SeparationOptions";
 import {KerbOptions} from "./tools/KerbOptions";
 import {useKerbs} from "./tools/useKerbs";
 import {CameraOptions, useCamera} from "./tools/Camera";
 import {CopyTool} from "./tools/Copy";
-import {TrackEdits, type EditState} from "./state/edits";
+import {TrackEdits, type EditState, type Removed} from "./state/edits";
 import {EditNotes} from "./inspector/EditNotes";
 import {ElevationOptions, useElevation} from "./tools/Elevation";
 import {DeleteOptions, useDelete} from "./tools/Delete";
@@ -21,6 +23,7 @@ import {NOT_ALL, sortName} from "./scene/inspect";
 import {SaveDialog} from "./state/SaveDialog";
 import {FileButtons, TOOLS, ToolPanel, type Tool} from "./tools/ToolPanel";
 import {useBand} from "./tools/useBand";
+import {useSeparation} from "./tools/useSeparation";
 import {useSave} from "./state/useSave";
 import type {Marked, MenuAt, Picked, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
@@ -32,6 +35,7 @@ import {KerbFields} from "./inspector/KerbFields";
 import {WallFields} from "./inspector/WallFields";
 import {useWalls} from "./tools/useWalls";
 import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
+import type {SurfaceCut} from "./scene/surfaceCuts";
 import {usePaint} from "./tools/usePaint";
 import type {TextureLook} from "./library/textureLook";
 import {ToolAction, ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
@@ -41,10 +45,12 @@ import {useToasts} from "../components/toastStore";
 import {editorToasts} from "./editorToasts";
 
 const VERGE_DELETED = "Road verge deleted. Undo brings it back.";
+const RAIL_BRIDGE = /^(?:nocol_rail_|1(?:GRAVEL|WALL)_railcol_)/;
+const SIDEWALK = /^nocol_(?:walk_|guardrail_)/;
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
-  return (tool === "smooth" && editable && marked) || (tool === "delete" && editable) || (tool === "kerb" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
+  return (tool === "smooth" && editable && marked) || (tool === "separate" && editable) || (tool === "delete" && editable) || (tool === "kerb" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
 }
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
@@ -80,6 +86,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const [marked, setMarked] = useState<Marked[]>([]);
   const [surfacePicks, setSurfacePicks] = useState<SurfacePoint[]>([]);
   const [surfaceInfo, setSurfaceInfo] = useState<{points: SurfacePoint[]; selection: SurfaceSelection | null} | null>(null);
+  const [railBridge, setRailBridge] = useState<{cuts: SurfaceCut[]; selection: SurfaceSelection} | null>(null);
+  const [sidewalk, setSidewalk] = useState<{cuts: SurfaceCut[]; objects: Removed[]; selection: SurfaceSelection} | null>(null);
+  const railPick = useRef(0);
   const onSurface = useCallback((selection: SurfaceSelection | null) => setSurfaceInfo({points: surfacePicks, selection}), [surfacePicks]);
   const [selectWhole, setSelectWhole] = useState(false);
   const [selectAdd, setSelectAdd] = useState(false);
@@ -110,6 +119,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const elevating = tool === "elevation" && editable;
   const deleting = tool === "delete" && editable;
   const marking = tool === "smooth" && editable;
+  const separating = tool === "separate" && editable;
   const kerbing = tool === "kerb" && editable;
   const moving = tool === "move" && editable;
   const saving = useSave({name, edits, state, view, onSaved});
@@ -136,6 +146,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile), look) : Promise.resolve(false);
   const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
+  const separation = useSeparation({name, view, edits, enabled: separating, revision: state.keptRevision, onNote: setNote});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: kerbing,
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote});
   const inspectorKerb = state.kerbs.find(k => k.id === (tool === "kerb" ? kerbs.selected : picked?.kerbId)) ?? null;
@@ -159,8 +170,64 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
-    if ((marking || kerbing) && p?.left) return view.selection.unpick();
+    if ((marking || separating || kerbing) && p?.left) return view.selection.unpick();
     setPicked(p);
+    const rail = p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object);
+    const walk = p?.inspection?.hovered.object && SIDEWALK.test(p.inspection.hovered.object);
+    if ((tool === "select" || deleting) && walk && p) {
+      const token = ++railPick.current;
+      setSurfacePicks([]); setRailBridge(null); setSidewalk(null); void view.setSurface(null);
+      const guardrail = p.inspection!.hovered.object!.startsWith("nocol_guardrail_");
+      const label = guardrail ? "Guardrail" : "Sidewalk";
+      setNote(`Selecting ${label.toLowerCase()}…`);
+      const deletingClick = deleting && p.left;
+      const request = () => post<{selection?: SurfaceSelection; cuts?: SurfaceCut[]; objects?: Removed[]; error?: string}>(`/api/editor/${encodeURIComponent(name)}/${guardrail ? "guardrail" : "sidewalk"}`,
+        {base: edits.boundRevision(), point: [p.position[0], p.position[1], p.position[2]], mesh: p.inspection!.hovered.object});
+      const received = async (answer: Awaited<ReturnType<typeof request>>) => {
+        if (!deletingClick && token !== railPick.current) return;
+        if (answer.error || !answer.selection || !answer.cuts?.length) {
+          setNote(answer.error ?? `No ${label.toLowerCase()} section found here`); return;
+        }
+        if (deletingClick) {
+          const changed = edits.removeSurfaceSection(answer.cuts, answer.objects ?? []);
+          setNote(changed ? `${label} section deleted. Ctrl+Z restores it.` : `${label} section was already deleted.`);
+        } else {
+          setSidewalk({selection: answer.selection, cuts: answer.cuts, objects: answer.objects ?? []});
+          await view.setSurface(answer.selection).catch(error => setNote(String(error)));
+          setNote(`${label} section selected. Delete removes its visible and collision parts${guardrail ? "" : " and objects"}; Ctrl+Z restores them.`);
+        }
+      };
+      if (deletingClick) void edits.inTurn(async () => received(await request()));
+      else void request().then(received);
+      return;
+    }
+    if ((tool === "select" || deleting) && rail && p) {
+      const token = ++railPick.current;
+      setSurfacePicks([]); setRailBridge(null); setSidewalk(null); void view.setSurface(null);
+      setNote("Selecting railway section…");
+      const deletingClick = deleting && p.left;
+      const request = () => post<{selection?: SurfaceSelection; cuts?: SurfaceCut[]; error?: string}>(`/api/editor/${encodeURIComponent(name)}/railbridge`,
+        {base: edits.boundRevision(), point: [p.position[0], p.position[2], p.position[1]]});
+      const received = async (answer: Awaited<ReturnType<typeof request>>) => {
+        if (!deletingClick && token !== railPick.current) return;
+        if (answer.error || !answer.selection || !answer.cuts?.length) {
+          setNote(answer.error ?? "No railway section found here"); return;
+        }
+        if (deletingClick) {
+          const changed = edits.removeSurfaces(answer.cuts);
+          setNote(changed ? "Railway section deleted. Ctrl+Z restores it." : "Railway section was already deleted.");
+        } else {
+          setRailBridge({selection: answer.selection, cuts: answer.cuts});
+          await view.setSurface(answer.selection).catch(error => setNote(String(error)));
+          setNote("Railway section selected. Delete removes its rails, bed and collision; Ctrl+Z restores it.");
+        }
+      };
+      if (deletingClick) void edits.inTurn(async () => received(await request()));
+      else void request().then(received);
+      return;
+    }
+    railPick.current++;
+    if (railBridge || sidewalk) { setRailBridge(null); setSidewalk(null); void view.setSurface(null); }
     if (!p?.adding && !p?.keeping) setMarked([]);
     if (tool === "select") setSurfacePicks(previous => pickedSurfaces(previous, p));
     else if (!p?.adding) setSurfacePicks([]);
@@ -178,6 +245,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       const cuts = vergeAt(p.surface);
       if (cuts) { edits.removeSurfaces(cuts); setNote(VERGE_DELETED); }
       view.selection.unpick();
+    } else if (deleting && p?.left) {
+      setNote("Nothing editable at this point.");
     }
   });
 
@@ -186,6 +255,10 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     if (marking) {
       if (p?.road) band.click(p.road[0], p.road[1], p.position[1]);
       else if (!p?.id) band.clear();
+    } else if (separating && p?.road) {
+      separation.click(p.road[0], p.road[1], p.position[1]);
+    } else if (separating && p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object)) {
+      separation.click(p.position[0], p.position[2], p.position[1], "rail");
     } else if (kerbing && p?.kerbId && !kerbs.start && state.kerbs.some(kerb => kerb.id === p.kerbId)) {
       kerbs.setSelected(p.kerbId);
       setNote(null);
@@ -213,6 +286,13 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     if (tool !== "smooth") band.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- (a tool that doesn't work on it ends the marking; band is new each time)
   }, [tool]);
+
+  useEffect(() => {
+    if (tool !== "separate") separation.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Changing tools ends the current marking.
+  }, [tool]);
+
+  useEffect(() => { railPick.current++; }, [tool]);
 
   useEffect(() => {
     void edits.start();
@@ -264,6 +344,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     else if (tool === "move") move.wheel(keys, by);
     else if (tool === "copy" || tool === "model" || tool === "group") copyWheel.current(keys, by);
     else if (tool === "smooth") band.wheel(keys, by);
+    else if (tool === "separate") separation.wheel(keys, by);
     else if (tool === "kerb") kerbs.wheel(keys, by);
     else if (tool === "delete") remover.wheel(keys, by);
     else elevation.wheel(keys, by);
@@ -291,7 +372,15 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   const remove = (cuts = vergeCuts) => {
     if (!editable) return;
-    if (inspectorKerb) {
+    if (railBridge) {
+      edits.removeSurfaces(railBridge.cuts);
+      setRailBridge(null); void view.setSurface(null); setNote("Railway section deleted. Ctrl+Z restores it.");
+      view.selection.unpick();
+    } else if (sidewalk) {
+      edits.removeSurfaceSection(sidewalk.cuts, sidewalk.objects);
+      setSidewalk(null); void view.setSurface(null); setNote("Selected section deleted. Ctrl+Z restores it.");
+      view.selection.unpick();
+    } else if (inspectorKerb) {
       removePickedKerb(inspectorKerb.id);
     } else if (cuts) {
       edits.removeSurfaces(cuts);
@@ -309,7 +398,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     const next = tool === t ? "select" : t, road = editable ? smoothStart(tool, next, picked) : null;
     if (next === "move" && wallIds.length) onInspectorCollapsed(false);
     if (tool === "select" && next === "kerb" && picked?.kerbId) kerbs.setSelected(picked.kerbId);
-    setMenu(null); band.clear(); if (next !== "kerb") kerbs.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
+    setRailBridge(null); setSidewalk(null); void view.setSurface(null);
+    setMenu(null); band.clear(); separation.clear(); if (next !== "kerb") kerbs.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
     if (road) band.start(road[0], road[1], picked?.position[1]);
   };
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -330,12 +420,12 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     move: movable || wallIds.length ? () => { setTool("move"); setNote(null); onInspectorCollapsed(false); view.focus(); } : null,
     copy: movable ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null,
     replace: editable && replaceable?.length ? openModels : null,
-    delete: editable && (removable.length > 0 || !!vergeCuts || (tool === "select" && !!inspectorKerb)) ? () => { remove(); view.focus(); } : null,
+    delete: editable && (removable.length > 0 || !!vergeCuts || !!railBridge || !!sidewalk || (tool === "select" && !!inspectorKerb)) ? () => { remove(); view.focus(); } : null,
     kerb: editable && picked?.kerbId && state.kerbs.some(k => k.id === picked.kerbId)
       ? () => { takeUp("kerb"); setNote(null); view.focus(); } : null,
   };
 
-  const offered = tool === "select" ? selectActions(picked) : [], altOffered = altAction(offered);
+  const offered = tool === "select" ? railBridge || sidewalk ? ["delete" as const] : selectActions(picked) : [], altOffered = altAction(offered);
   /** The Select bar's button of action, with the key of the tool it takes up. */
   const actionButton = (action: SelectAction) => {
     const {label, tool: keyed, hint} = ACTIONS[action], perform = run[action];
@@ -370,12 +460,13 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       setSurfacePicks([]);
       view.brush.cancelStroke();
       band.clear();
+      separation.clear();
       kerbs.clear();
       view.selection.unpick();
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
     }
-    else if ((marked.length || removable.length || vergeCuts || inspectorKerb) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
+    else if ((marked.length || removable.length || vergeCuts || inspectorKerb || railBridge || sidewalk) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
     else if (keyed?.tool === "model") { if (editable) openModels(); }
     else if (keyed) takeUp(keyed.tool);
     else if (e.key === "Home") view.home();
@@ -447,7 +538,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
         transform={editable && (wallIds.length ? <WallFields rise={wallSettings?.rise ?? 0} textured={!!wallSettings?.material} busy={walls.busy} error={walls.error}
           onHeight={rise => walls.change(wallIds, {rise})} onTexture={() => { setMenu(null); setLibraryTab("textures"); }}
           onOriginal={() => walls.change(wallIds, {material: null})} onReset={() => walls.change(wallIds, {reset: true})} /> : <TransformFields move={move} />)} />, inspectorHost)}
-      {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note="Click to pick; left drag selects objects in a rectangle. Add or Ctrl adds to the selection."
+      {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note={railBridge ? "Railway section selected with rails, bed and collision faces." : sidewalk ? sidewalk.selection.material === "guardrail" ? "Guardrail section selected with its collision faces." : "Sidewalk section selected with curb, collision and objects standing on it." : "Click to pick; left drag selects objects in a rectangle. Add or Ctrl adds to the selection."}
         options={[
           <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
             setSelectWhole(!selectWhole);
@@ -460,6 +551,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {elevating && <ElevationOptions elevation={elevation} view={view} />}
       {deleting && <DeleteOptions remove={remover} view={view} />}
       {marking && <BandOptions band={band} view={view} />}
+      {separating && <SeparationOptions separation={separation} view={view} />}
       {kerbing && <KerbOptions kerb={kerbs} view={view} onDelete={() => remove()} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && (wallIds.length ? <ToolOptions id="edit-move-set" title="Transform"

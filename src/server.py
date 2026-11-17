@@ -33,7 +33,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, roadnet, roadregion, settings, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource,  # noqa: E402
+from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -62,6 +62,9 @@ PROGRESS_PATH = re.compile(r"/api/editor/([^/]+)/paint-progress")
 painting = {}       # {track: {"phase", "done", "total"}} of the Apply running on it (trackedits.paint), for the page's bar
 TREEFX_PATH = re.compile(r"/api/editor/([^/]+)/treefx(?:/([a-z0-9_]+)(?:/([A-Za-z0-9_-]+\.png))?)?")     # (its trees, a model, its images)
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
+SEPARATE_PATH = re.compile(r"/api/editor/([^/]+)/separate(?:/(way))?")
+RAILBRIDGE_PATH = re.compile(r"/api/editor/([^/]+)/railbridge")
+SIDEWALK_PATH = re.compile(r"/api/editor/([^/]+)/(?:sidewalk|guardrail)")
 KERB_PATH = re.compile(r"/api/editor/([^/]+)/kerb/way")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
@@ -912,6 +915,90 @@ class Handler(BaseHTTPRequestHandler):
         except trackview.Unreadable:
             self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
 
+    def _separate(self, name, what):
+        """Measure or correct a mapped bridge and the ground road beneath it."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can change a track"})
+        if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+            self.close_connection = True
+            return self._send(413, {"error": "Road selection is too large"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            base = body.get("base")
+            path, scan = trackview._scan_of(ac, name, base)
+            draft = trackedits.load(ac, name)
+            if body.get("revision") != draft["revision"]:
+                return self._send(409, {"error": "The road edits changed: mark the crossing again"})
+            moved = trackedits.moved_without(ac, name, base, body.get("replace"))
+            rail = body.get("kind") == "rail"
+            if what == "way":
+                if rail:
+                    upper, lower, above, below, crossings = railbridges.describe(path, scan, moved, body.get("points"))
+                    selection, _cuts = railbridges.selection(path, scan, [crossings[0]["x"], crossings[0]["z"]])
+                    return self._send(200, {"crossings": crossings, "upper_region": selection, "lower_region": None})
+                upper, lower, above, below, crossings = roadseparation.describe(path, scan, moved, body.get("points"))
+                return self._send(200, {"crossings": crossings, "upper_region": roadregion.selection(path, upper),
+                                        "lower_region": roadregion.selection(path, lower) if len(body.get("points")) == 4 else None})
+            if rail:
+                op, crossings = railbridges.change_of(path, scan, moved, body.get("points"), body.get("gap"), secrets.token_hex(8),
+                                                       body.get("max_grade_percent", 2))
+            else:
+                op, crossings = roadseparation.change_of(path, scan, moved, body.get("points"), body.get("gap"),
+                                                           body.get("upper_percent", 100), secrets.token_hex(8),
+                                                           tracksurfaces.going(scan, draft.get("surfaces", [])),
+                                                           body.get("max_grade_percent", 15))
+            trackedits.remember_meshes(ac, name, base, op, body.get("replace"))
+            return self._send(200, {"height": op, "crossings": crossings})
+        except (ValueError, AttributeError, TypeError, trackband.Refused, trackheights.InTheWay) as error:
+            self._send(409, {"error": str(error)})
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+
+    def _railbridge(self, name):
+        """Select one mapped railway bridge, including its physical mesh faces."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can select a railway bridge"})
+        if int(self.headers.get("Content-Length") or 0) > 4096:
+            self.close_connection = True
+            return self._send(413, {"error": "Railway bridge selection is too large"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            path, scan = trackview._scan_of(ac, name, body.get("base"))
+            # Face numbers belong to the source KN5 (base), not to the changing draft revision.
+            # A quick second Delete can arrive while the first one's draft PUT is being saved.
+            selection, cuts = railbridges.selection(path, scan, body.get("point"))
+            return self._send(200, {"selection": selection, "cuts": cuts})
+        except (ValueError, AttributeError, TypeError) as error:
+            self._send(409, {"error": str(error)})
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+
+    def _sidewalk(self, name):
+        """Select one sidewalk or guardrail section with its visible and collision faces."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can select a sidewalk"})
+        if int(self.headers.get("Content-Length") or 0) > 4096:
+            self.close_connection = True
+            return self._send(413, {"error": "Sidewalk selection is too large"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            path, scan = trackview._scan_of(ac, name, body.get("base"))
+            selection, cuts, objects = sidewalkcuts.selection(path, scan, body.get("point"), body.get("mesh"))
+            return self._send(200, {"selection": selection, "cuts": cuts, "objects": objects})
+        except (ValueError, AttributeError, TypeError) as error:
+            self._send(409, {"error": str(error)})
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+
     def do_PUT(self):
         edits = EDITS_PATH.fullmatch(self.path)
         if not edits:
@@ -1128,6 +1215,15 @@ class Handler(BaseHTTPRequestHandler):
         band = BAND_PATH.fullmatch(self.path)
         if band:
             return self._band(band[1], band[2])
+        separate = SEPARATE_PATH.fullmatch(self.path)
+        if separate:
+            return self._separate(separate[1], separate[2])
+        railbridge = RAILBRIDGE_PATH.fullmatch(self.path)
+        if railbridge:
+            return self._railbridge(railbridge[1])
+        sidewalk = SIDEWALK_PATH.fullmatch(self.path)
+        if sidewalk:
+            return self._sidewalk(sidewalk[1])
         kerb = KERB_PATH.fullmatch(self.path)
         if kerb:
             return self._kerb_way(kerb[1])

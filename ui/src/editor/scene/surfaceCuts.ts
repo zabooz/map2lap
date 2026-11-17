@@ -1,4 +1,4 @@
-// Surfaces left out by their triangles, not as objects: the road verge (src/app/tracksurfaces.py). A draft holds them by the mesh's
+// Surfaces left out by their triangles, not as objects: road verges and mapped railway bridges (src/app/tracksurfaces.py). A draft holds them by the mesh's
 // name and ranges of its triangles, numbers of the kn5 the view shows. No three.js: the edit list and the view both read it.
 
 /** Triangles of a mesh that go: [first, count] sorted and joined. */

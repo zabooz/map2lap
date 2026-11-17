@@ -72,6 +72,7 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
   }, [view, points, enabled, edits]);
 
   useEffect(() => {
+    if (!enabled) return;
     const single: Place[] | null = points.length === 1 ? [[points[0][0], points[0][2] ?? view.heightOfGround(points[0][0], points[0][1]), points[0][1]]] : null;
     view.drawBand(single, 0); // Only the initial point has a cross; road regions use masks, never width lines.
     view.drawPins(enabled ? points.map(([x, z, y]) => [x, y ?? view.heightOfGround(x, z), z]) : []);
@@ -92,9 +93,10 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
     onNote(null);
   });
   useEffect(() => {
+    if (!enabled) return;
     view.setPinned((k, x, z) => pinMoved(k, x, z), k => pinTaken(k));
     return () => view.setPinned(() => {}, () => {});
-  }, [view]);
+  }, [view, enabled]);
 
   useEffect(() => {
     if (!enabled || !lines.length || points !== good) { smoothing.cancel(); return; }

@@ -91,7 +91,7 @@ export interface EditState {
   copies: ObjectCopy[];
   paints: string[];             // Immutable texture edits, in compositing order; assets and masks stay on the server.
   models: ModelInstance[];
-  surfaces: SurfaceCut[];       // the road verge left out by its triangles (src/app/tracksurfaces.py)
+  surfaces: SurfaceCut[];       // track pieces left out by their triangles (src/app/tracksurfaces.py)
   trees: AddedTree[];           // TreeFX trees Copy added (src/app/tracktrees.py)
   walls: WallEdit[];
   kerbs: KerbEdit[];
@@ -341,10 +341,20 @@ export class TrackEdits {
       objectSorts: [...new Set([...this.now.objectSorts, ...groups.map(g => g.sort)])]});
   }
 
+  /** A connected surface section and its anchored objects, as one change and one Undo. */
+  removeSurfaceSection(cuts: SurfaceCut[], items: Removed[] = []) {
+    if (!this.canEdit()) return false;
+    const surfaces = joinedCuts(this.now.surfaces, cuts);
+    const have = new Set(this.now.removed.map(r => r.id));
+    const removed = [...this.now.removed, ...items.filter(r => !have.has(r.id))];
+    if (JSON.stringify(surfaces) === JSON.stringify(this.now.surfaces) && removed.length === this.now.removed.length) return false;
+    this.change({...this.edits(), surfaces, removed});
+    return true;
+  }
+
   /** Stretches of road verge, by their triangles, as one change and one Undo. */
   removeSurfaces(cuts: SurfaceCut[]) {
-    const surfaces = joinedCuts(this.now.surfaces, cuts);
-    if (JSON.stringify(surfaces) !== JSON.stringify(this.now.surfaces)) this.change({...this.edits(), surfaces});
+    return this.removeSurfaceSection(cuts);
   }
 
   /** All listed objects of a sort (track/objectlist.py), wherever they stand. */

@@ -107,6 +107,7 @@ export class TrackView {
   private surfaceOverlay: SurfaceOverlay | null = null;
   private roadRegionOverlay: SurfaceOverlay | null = null;
   private roadInfluenceOverlay: SurfaceOverlay | null = null;
+  private lowerRoadOverlay: SurfaceOverlay | null = null;
   private surfaceFailed: (message: string) => void = () => {};
   private geometryPreview = new GeometryPreview(i => this.byNumber.get(i), () => { this.dirty = true; });
   private camera = new THREE.PerspectiveCamera(55, 1, 0.5, VIEW_M);
@@ -369,6 +370,16 @@ export class TrackView {
     if (!selection) { this.roadInfluenceOverlay?.clear(); return; }
     this.roadInfluenceOverlay ??= this.makeRoadOverlay();
     await this.roadInfluenceOverlay.set(selection, this.meshes);
+  }
+
+  /** Lower road of a separated crossing, cyan beside the upper road's orange. */
+  async setLowerRoadRegion(selection: SurfaceSelection | null) {
+    if (!selection) { this.lowerRoadOverlay?.clear(); return; }
+    this.lowerRoadOverlay ??= new SurfaceOverlay(this.scene, () => { this.dirty = true; }, bytes => {
+      if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
+      this.usedBytes += bytes; return true;
+    }, bytes => { this.usedBytes -= bytes; }, undefined, 0x25c6d9, .48);
+    await this.lowerRoadOverlay.set(selection, this.meshes);
   }
 
   private makeRoadOverlay() {
@@ -1046,6 +1057,7 @@ export class TrackView {
     const hovered = hit ? this.pointing.describe(hit) : null;
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
+      rail: /^(?:nocol_rail_|1(?:GRAVEL|WALL)_railcol_)/.test(hit.object.name),
       movable: taking && !!hovered.id && this.mover.canMove(this.mover.on ? this.objects.rootOf(hovered.id) : hovered.id)} : null;
     this.applyCursor();
     this.onHover(hovered);
@@ -1087,6 +1099,7 @@ export class TrackView {
     this.roadMarkers.drawPins(pins);
     this.applyCursor();
   }
+  drawCrossings(places: Place[]) { this.roadMarkers.drawCrossings(places); }
   setPinned(moved: (pin: number, x: number, z: number) => void, taken: (pin: number) => void) { this.roadMarkers.setPinned(moved, taken); }
 
   takeBackPreview() { this.geometryPreview.takeBackPreview(); }
@@ -1132,6 +1145,7 @@ export class TrackView {
       this.treeFx.follow(this.camera.position);
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
+      this.lowerRoadOverlay?.follow();
       this.nightSky.follow(this.camera.position);
       this.modelDraw.setNight(this.nightGlow.on);
       this.lampCones.update(this.lampGlass, this.nightGlow.on, this.nightGlow.on ? this.modelDraw.lamps() : []);
@@ -1171,6 +1185,7 @@ export class TrackView {
     this.surfaceOverlay?.clear();
     this.roadRegionOverlay?.clear();
     this.roadInfluenceOverlay?.clear();
+    this.lowerRoadOverlay?.clear();
     this.ghost.setCopy(null, null);
     this.ghost.dropAll();
     this.modelLight?.dispose(); this.modelLight = null;
@@ -1233,6 +1248,7 @@ export class TrackView {
     void this.surfaceOverlay?.add(m).catch(e => this.surfaceFailed(String(e.message ?? e)));
     void this.roadRegionOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     void this.roadInfluenceOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
+    void this.lowerRoadOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     this.geometryPreview.apply(info.i);
     this.objects.hideIn(m);
     this.selection.markLater();

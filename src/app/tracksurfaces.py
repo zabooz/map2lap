@@ -1,6 +1,5 @@
-"""Surfaces the Editor leaves out by their triangles, not as objects: the road verge (roads.EDGE_DECAL, meshes nocol_road_edge_dirt_),
-a decal 3 mm over the ground without collision, so taking it away changes nothing a car feels. It isn't in the object list: a click
-selects a connected stretch of it (the page's MaterialRegions), and what goes are those triangles.
+"""Track pieces the Editor leaves out by their triangles, not as objects: verges, railways, sidewalks and guardrails.
+The verge is only a decal. Railway, sidewalk and guardrail selections include their visible and collision faces.
 
 A draft's "surfaces": [{"mesh": the mesh's name, "faces": [[first triangle, count], ...]}], sorted, joined, each mesh once. The numbers
 are of the kn5 the draft is of (trackview.served, its "base"), as an object's id is: a build makes them mean other triangles.
@@ -9,7 +8,7 @@ import re
 
 import numpy as np
 
-DELETABLE = re.compile(r"nocol_road_edge_dirt_")     # (make_obj: the verge's meshes; a road, a wall or the ground never go this way)
+DELETABLE = re.compile(r"(?:nocol_road_edge_dirt_|nocol_rail_|1(?:GRAVEL|WALL)_railcol_|nocol_walk_|1KERB_walkcol_|nocol_guardrail_|1WALL_guardrailcol_)")
 MAX_RANGES = 200000                                    # (all verges of a long track, cut by clicks: far more than that is no draft)
 
 
@@ -45,7 +44,7 @@ def _joined(ranges):
 
 
 def checked(surfaces, scan):
-    """surfaces as a draft holds them, for the meshes of scan: each a verge's, there once, its ranges within it. Raises ValueError. Pure."""
+    """Surface face cuts for deletable verge, railway or sidewalk meshes, unique and within the source KN5. Raises ValueError. Pure."""
     wrong = problems(surfaces)
     if wrong:
         raise ValueError(wrong)

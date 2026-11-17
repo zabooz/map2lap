@@ -37,6 +37,7 @@ export class RoadMarkers {
   private onPinMoved: (pin: number, x: number, z: number) => void = () => {};
   onPinTaken: (pin: number) => void = () => {};
   private band: THREE.LineSegments | null = null;
+  private crossings: THREE.LineSegments | null = null;
 
   constructor(private readonly scene: THREE.Scene, private readonly camera: THREE.PerspectiveCamera,
     private readonly groundAt: (x: number, z: number) => number | null, private readonly changed: () => void,
@@ -45,6 +46,7 @@ export class RoadMarkers {
   dispose() {
     this.drawBand(null, 0);
     this.drawPins([]);
+    this.drawCrossings([]);
     this.pinTexture?.dispose();
     this.pinTexture = null;
   }
@@ -85,6 +87,24 @@ export class RoadMarkers {
     this.pinMarks.renderOrder = 11;
     this.pinMarks.frustumCulled = false;
     this.scene.add(this.pinMarks);
+  }
+
+  /** Crosses above mapped road intersections; they are display marks, never draggable pins. */
+  drawCrossings(places: Place[]) {
+    if (this.crossings) {
+      this.scene.remove(this.crossings);
+      this.crossings.geometry.dispose();
+      (this.crossings.material as THREE.Material).dispose();
+      this.crossings = null;
+    }
+    if (!places.length) { this.changed(); return; }
+    this.crossings = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position",
+      new THREE.Float32BufferAttribute(places.flatMap(crossLines), 3)),
+      new THREE.LineBasicMaterial({color: "#ffe05a", depthTest: false}));
+    this.crossings.renderOrder = 12;
+    this.crossings.frustumCulled = false;
+    this.scene.add(this.crossings);
+    this.changed();
   }
 
   /** moved gets a pin's number and where it was dragged to, taken the number of one a right click took away. */

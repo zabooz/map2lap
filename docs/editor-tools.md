@@ -58,6 +58,25 @@ The server supplies preview and saved mesh deformation; the browser does not imp
 The Elevation brush continues to refuse decks and railways.
 New mesh kinds must be classified there (`engine/tests/test_trackheights.py`).
 
+Separate crossing (J) marks A and B on one existing road or railway bridge, with the crossing between them. The marked
+ends stay fixed. The server reads the mapped bridge and the ground road below, shows their present surface gap, and makes
+a smooth height correction when Gap changes. Road bridges use their driving deck; railway bridges use the physical ballast
+top. The lower road stays fixed. The maximum slope of the added correction ramp is adjustable, starting at 15% for roads
+and 2% for railways. Shift + wheel changes Gap by 0.1 m; Ctrl + wheel changes the maximum by 0.5 percentage points.
+The maximum can also be typed directly; the editor retains separate road and railway values while it stays open.
+This first editor operation needs exactly one mapped ground-road crossing between A and B. It stores source vertex offsets
+for the bridge, its attached render/collision parts and approaches in the draft, so Undo and Save use the same geometry.
+Road separation checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer
+block a road correction or hold its terrain down.
+
+Select on a railway bridge selects its complete connected mapped bridge span. Delete removes its visible rails, sleepers,
+ballast, concrete and corresponding collision triangles together; a parallel railway bridge remains independent. The
+draft's `surfaces` face ranges and Save apply that removal, and Undo restores it.
+An ordinary rail section beside a bridge can be selected and deleted separately, including rails, sleepers, ballast and
+collision. Select on a sidewalk takes its connected section inside the source tile, with slab, curb, collision and objects
+whose feet stand on its slab (street furniture, signs, poles and trees). Delete and Undo handle these together.
+Guardrail sections can be selected and deleted with their matching collision faces in the same way.
+
 Smooth road (R) marks a road region with two terminal points and optional branches (`app/roadregion.py`, `app/roadnet.py`,
 `tools/useBand.ts`). Retained map topology and actual road paint determine the region, including levels and hairpins;
 the main driving route does not constrain it. Bridge and tunnel ends join their mapped approaches even when structure/layer
