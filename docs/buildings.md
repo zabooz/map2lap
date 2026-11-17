@@ -153,6 +153,14 @@ The House examples use 24-sided round storage footprints, rather than its earlie
 materials, colours and supported roof forms override these class defaults. Chapels use a small inferred roof turret;
 churches retain the larger bell tower. These details are approximations, not reconstructions of mapped equipment.
 
+For a mapped church, chapel, cathedral or synagogue with building parts, the parent footprint supplies the body
+where grounded parts leave at least the normal minimum building area, and below parts raised onto its roof. The
+finished parent mesh and collision are clipped against mapped part volumes, so shared walls and roofs are not drawn
+twice. A mapped pyramidal, onion, dome or spherical part roof supplies the tower feature; otherwise the body gets
+at most one inferred steeple. A raised part starting at the mapped parent height receives a flat supporting parent
+roof when that roof has no mapped shape. This cannot infer a local ridge beneath an upper part from missing roof
+tags; the result still depends on the source building outlines and heights.
+
 ## Public and small business frontages
 
 Public classes in `CIVIC_CLASSES` default to plaster, with separate classroom/office-size windows and a wide glazed

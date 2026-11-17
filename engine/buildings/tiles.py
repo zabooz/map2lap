@@ -11,15 +11,15 @@ import navgraph
 
 from .architecture import architecture_values
 from .looks import (
-    BRIDGE_CLASSES, CHURCH_OVER, FLOOR_M, FOUNDATION_M, INDUSTRIAL_CLASSES, MIN_AREA_M2, SHED_CLASSES, STEEL_MATERIALS,
+    BRIDGE_CLASSES, CHURCH_CLASSES, CHURCH_OVER, FLOOR_M, FOUNDATION_M, INDUSTRIAL_CLASSES, MIN_AREA_M2, SHED_CLASSES, STEEL_MATERIALS,
     _hash01
 )
 from .styles import _area2, clean_ring, oriented_box, tree_line_m
-from .mesh import OVER_TUNNEL_CLEAR_M, _portal_lift
+from .mesh import OVER_TUNNEL_CLEAR_M, _portal_lift, base_z, drawn_ring
 from .places import castle_rings, church_rings, footprint_names, footprint_signs, footprint_uses, names_for, signs_for
 from .garages import deck_plan, on_deck
 from .sites import _covers_garage, _ml_false, _ml_steep, _on_support, _passages, road_across, road_through
-from .build import _part_heights, _shared_walls
+from .build import _part_heights, _shared_walls, uncovered_area
 from .planner import plan
 from .toll import layout_toll
 from .photo import BRICK_WALK_COVERAGE
@@ -159,6 +159,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
     parts_of = _PartsOf(frame, part_layers)     # building id -> [(ring in the anchor frame, (own height, bottom))]
     seen = set()
     rings, attrs, looks, mins = [], [], [], []
+    parent_groups = []
+    parent_cover_overlap = 0.0
     for f in layers:
         if f is None or len(f.kind) == 0:
             continue
@@ -215,6 +217,16 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                 fill = float(bh) if bh is not None and np.isfinite(bh) and bh > 0 else \
                     min(p[1][0] + p[1][1] for p in bparts if p[1] is not None)
                 top = max([fill] + [p[1][0] + p[1][1] for p in bparts if p[1] is not None])
+                parent_ring = clean_ring(np.stack([e - x0, n - y0], 1))
+                cls = str(at.get("class") or "").lower()
+                worship_building = cls in (*CHURCH_CLASSES, "synagogue") or (
+                    parent_ring is not None and cls in CHURCH_OVER and bool(church_rings([parent_ring], worship)))
+                if worship_building and cls in CHURCH_OVER:
+                    at["class"] = "church"
+                first_part = len(rings)
+                roof_feature = False
+                ground_parts = []
+                raised_at_parent_top = False
                 for ppart in bparts:
                     pring, hh = ppart[0], ppart[1]
                     pat = ppart[2] if len(ppart) > 2 else {}
@@ -226,12 +238,18 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                         continue
                     rings.append(r)
                     p_rshape = str(pat.get("roof_shape") or "").lower() or "flat"
+                    roof_feature |= p_rshape in ("pyramidal", "onion", "dome", "spherical")
+                    if pmh <= 0.5:
+                        ground_parts.append(r)
+                    elif bh is not None and np.isfinite(bh) and abs(float(pmh) - float(bh)) < 1e-6:
+                        raised_at_parent_top = True
                     p_fmat = pat.get("facade_material") or at.get("facade_material")
                     p_rmat = pat.get("roof_material") or at.get("roof_material")
                     p_fcol = pat.get("facade_color") or at.get("facade_color")
                     p_rcol = pat.get("roof_color") or at.get("roof_color")
                     attrs.append({"class": at["class"], "height": ph, "num_floors": None,
                                   "roof_shape": p_rshape,
+                                  "suppress_steeple": worship_building,
                                   "roof_height": pat.get("roof_height"), "roof_direction": pat.get("roof_direction"),
                                   "roof_orientation": pat.get("roof_orientation"),
                                   "building_height": top, "facade_material": p_fmat,
@@ -246,6 +264,32 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                                   .lower() not in STEEL_MATERIALS else None})
                     looks.append(look)
                     mins.append(pmh)
+                part_indices = list(range(first_part, len(rings)))
+                if worship_building and parent_ring is not None and part_indices:
+                    # The mapped body is needed wherever grounded parts leave a real room, and below raised parts.
+                    # The existing minimum building footprint rejects survey slivers smaller than a usable room.
+                    remainder = uncovered_area(parent_ring, ground_parts)
+                    keep_parent = remainder >= MIN_AREA_M2 or float(bh or 0) > top
+                    if keep_parent:
+                        parent_index = len(rings)
+                        parent_attrs = dict(at, suppress_steeple=roof_feature, building_height=top)
+                        if raised_at_parent_top and not at.get("roof_shape"):
+                            # A mapped upper part starts on the parent's mapped top: give it a horizontal landing.
+                            # An untagged pitched roof with a part only on its ridge would need a more local support.
+                            parent_attrs["roof_shape"] = "flat"
+                        rings.append(parent_ring)
+                        attrs.append(parent_attrs)
+                        looks.append(look)
+                        parent_mh = at.get("min_height")
+                        parent_mh = float(parent_mh) if parent_mh is not None and np.isfinite(parent_mh) and parent_mh > 0 else 0.0
+                        mins.append(parent_mh)
+                        if parent_mh <= 0.5:
+                            parent_cover_overlap += _area2(parent_ring) / 2 - remainder
+                        parent_groups.append((parent_index, part_indices))
+                    elif not roof_feature:
+                        # Fully mapped churches still get one inferred steeple if no mapped roof feature exists.
+                        main = max(part_indices, key=lambda k: _area2(rings[k]))
+                        attrs[main]["suppress_steeple"] = False
                 if key is not None:
                     seen.add(key)
                 continue
@@ -321,7 +365,8 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
             return float(frame.geodetic_to_enu(float(la), float(lo), z)[2])       # (the decks' frame up)
         rings, attrs, looks, mins = _passages(rings, attrs, looks, mins, bridges_xy, decks, ground_at)
     shared = _shared_walls(rings)
-    cover = sum(_area2(r) / 2 for r, mh in zip(rings, mins) if mh <= 0.5) / ((x1 - x0) * (y1 - y0))
+    # The restored body and its grounded mapped parts are one footprint for neighbourhood density.
+    cover = (sum(_area2(r) / 2 for r, mh in zip(rings, mins) if mh <= 0.5) - parent_cover_overlap) / ((x1 - x0) * (y1 - y0))
     town, dense = cover < TOWN_COVERAGE, cover > BRICK_WALK_COVERAGE
     clat, clon, _ = frame.enu_to_geodetic((x0 + x1) / 2, (y0 + y1) / 2, 0.0)
     clat, clon = float(clat), float(clon)
@@ -347,6 +392,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
     if ok.any():
         up_all[ok] = np.asarray(frame.geodetic_to_enu(la_all[ok], lo_all[ok], g_all[ok])[2], np.float64)
     out = []
+    planned = {}
     for k, (ring, at, sh, look, mh) in enumerate(zip(rings, attrs, shared, looks, mins)):
         i0, i1 = (ends[k - 1] if k else 0), ends[k]
         if not ok[i0:i1].all():
@@ -383,7 +429,20 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
         spec.gring = g              # the ground at each corner (door_ground: the door's, not the footprint's highest)
         if spec.toll is not None:
             tollsource.ground_layout(spec.toll, frame, elev, x0, y0)
+        planned[k] = len(out)
         out.append((spec, float(g.min()), float(g.max())))
+    for parent, parts in parent_groups:
+        if parent not in planned:
+            continue
+        cutouts = []
+        for part in parts:
+            if part not in planned:
+                continue
+            pspec, pgmin, pgmax = out[planned[part]]
+            bottom = base_z(pspec, pgmin, pgmax) + (pspec.min_h or 0.0)
+            top = bottom + pspec.height + (pspec.roof_height or 0.0)
+            cutouts.append((drawn_ring(pspec), bottom, top))
+        out[planned[parent]][0].cutouts = cutouts
     lines = roads_xy if roads_xy else ml_roads_xy
     if lines and out:
         isl = _toll_islands(frame, layers, parts_of, lines, x0, y0)

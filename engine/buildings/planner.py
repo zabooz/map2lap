@@ -464,7 +464,8 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
                                 window_width_m=1.5, window_height_m=1.3, window_sill_m=.8)
     return Spec(architecture=architecture, ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall, house=house,
-                windows=windows, steeple=church and area < 2500, porch=porch, cls=cls,
+                windows=windows, steeple=church and area < 2500 and not attrs.get("suppress_steeple")
+                and roof not in ("pyramidal", "onion", "dome", "spherical"), porch=porch, cls=cls,
                 deck=garage and roof == "flat", pitch=style.pitch, castle=castle,
                 facade_pattern=architecture_pattern(architecture, pattern),
                 roof_height=roof_h, roof_direction=direction, roof_orientation=orientation, paired_home=paired_home)

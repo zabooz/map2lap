@@ -7,7 +7,7 @@ from .looks import (
     BRIDGE_CLASSES, FLOOR_M, FOUNDATION_M, GROUND_FLOOR_SHOP_M, LOOKS, MATERIALS, PANEL, SKIRT_LITE_M, SKIRT_M, STEEL,
     STEEL_BAY_M, STEEL_LEG_MAX, STEEL_TOP_SHARE, _Looks
 )
-from .styles import _area2, oriented_box
+from .styles import _area2, oriented_box, triangulate
 from .mesh import (
     Mesh, _box, _clutter, _cornice, _keep, _merlons, _plates, _porch, _roof, _roof_eaves, _signs, _steeple, _stoop, _walls, base_z,
     drawn_ring
@@ -21,6 +21,147 @@ from .toll import draw_toll
 # The engine draws a shape's mesh with 16-bit indices: past 65,535 vertices they wrap and triangles join far-apart
 # vertices (the: slabs across a Fells Point street; dense tiles had up to 81k vertices).
 MAX_MESH_VERTS = 60000
+
+
+def _half_polygon(face, normal, offset, positive):
+    """A face with interpolated attributes on one side of a 3D plane. Pure."""
+    out = []
+    prev = face[-1]
+    old = float(np.dot(prev[:3], normal) - offset)
+    old_in = old >= -1e-8 if positive else old < -1e-8
+    for point in face:
+        new = float(np.dot(point[:3], normal) - offset)
+        new_in = new >= -1e-8 if positive else new < -1e-8
+        if old_in != new_in and abs(old - new) > 1e-12:
+            out.append(prev + old / (old - new) * (point - prev))
+        if new_in:
+            out.append(point)
+        prev, old, old_in = point, new, new_in
+    return out
+
+
+def _subtract_prism(face, planes):
+    """The portions of a mesh face outside one convex vertical prism. Pure."""
+    outside, inside = [], face
+    for normal, offset in planes:
+        if len(inside) < 3:
+            break
+        piece = _half_polygon(inside, normal, offset, False)
+        if len(piece) >= 3:
+            outside.append(piece)
+        inside = _half_polygon(inside, normal, offset, True)
+    return outside
+
+
+def _part_prisms(cutouts):
+    """Convex prisms from (simple part ring, bottom z, top z). Pure."""
+    prisms = []
+    for ring, bottom, top in cutouts:
+        ring = np.asarray(ring, np.float64)
+        if len(ring) < 3 or top <= bottom:
+            continue
+        for tri in triangulate(ring):
+            corners = ring[np.asarray(tri, np.int64)]
+            if _area2(corners) < 0:
+                corners = corners[::-1]
+            if abs(_area2(corners)) < 1e-8:
+                continue
+            planes = []
+            for a, b in zip(corners, np.roll(corners, -1, axis=0)):
+                edge = b - a
+                normal = np.array([-edge[1], edge[0], 0.0])
+                planes.append((normal, float(normal[:2] @ a)))
+            planes += [(np.array([0.0, 0.0, 1.0]), float(bottom)),
+                       (np.array([0.0, 0.0, -1.0]), -float(top))]
+            prisms.append((planes, np.min(corners, axis=0), np.max(corners, axis=0), bottom, top))
+    return prisms
+
+
+def _outside_parts(face, prisms):
+    """Face fragments outside all part volumes. Pure."""
+    pieces = [face]
+    for planes, lo, hi, bottom, top in prisms:
+        if not pieces:
+            break
+        next_pieces = []
+        for piece in pieces:
+            pts = np.asarray(piece)
+            if (np.any(pts[:, :2].max(axis=0) < lo - 1e-8)
+                    or np.any(pts[:, :2].min(axis=0) > hi + 1e-8)
+                    or pts[:, 2].max() < bottom - 1e-8 or pts[:, 2].min() > top + 1e-8):
+                next_pieces.append(piece)
+            else:
+                next_pieces.extend(_subtract_prism(piece, planes))
+        pieces = next_pieces
+    return pieces
+
+
+def uncovered_area(ring, ground_parts):
+    """Area of a parent footprint outside its grounded part rings, in square metres. Pure."""
+    prisms = _part_prisms([(r, 0.0, 1.0) for r in ground_parts])
+    area = 0.0
+    for tri in triangulate(ring):
+        face = [np.array([*p, 0.5]) for p in np.asarray(ring)[tri]]
+        for piece in _outside_parts(face, prisms):
+            xy = np.asarray(piece)[:, :2]
+            area += abs(_area2(xy)) / 2
+    return area
+
+
+def _clip_parent_mesh(mesh, cutouts, marks=None):
+    """Remove faces occupied by mapped parts from a parent's visible or collision mesh. Pure.
+
+    Cutting the finished mesh preserves the parent's mapped roof planes and window axes. Raised parts only cut
+    at their own height, leaving the parent body underneath as their support. The same operation is used for
+    visible and collision geometry, so a shared church wall is not drawn or collided with twice.
+    """
+    if mesh is None or not cutouts:
+        return mesh
+    positions, uvs, triangles, materials, palette, colours = mesh
+    prisms = _part_prisms(cutouts)
+    out_p, out_uv, out_t, out_m, out_c = [], [], [], [], []
+    old_marks = list(marks or ())
+    new_marks = []
+    mark_i = 0
+    for triangle, material in zip(triangles, materials):
+        while mark_i < len(old_marks) and old_marks[mark_i][0] <= int(min(triangle)):
+            new_marks.append((len(out_p), old_marks[mark_i][1]))
+            mark_i += 1
+        face = [np.concatenate((positions[v], uvs[v], colours[v].astype(np.float64))) for v in triangle]
+        for piece in _outside_parts(face, prisms):
+            for k in range(1, len(piece) - 1):
+                tri = np.asarray((piece[0], piece[k], piece[k + 1]), np.float64)
+                if np.linalg.norm(np.cross(tri[1, :3] - tri[0, :3], tri[2, :3] - tri[0, :3])) < 1e-8:
+                    continue
+                start = len(out_p)
+                out_p.extend(tri[:, :3]); out_uv.extend(tri[:, 3:5]); out_c.extend(tri[:, 5:9])
+                out_t.append((start, start + 1, start + 2)); out_m.append(material)
+    while mark_i < len(old_marks):
+        new_marks.append((len(out_p), old_marks[mark_i][1]))
+        mark_i += 1
+    if marks is not None:
+        marks[:] = new_marks
+    if not out_p:
+        return None
+    return (np.asarray(out_p, np.float64), np.asarray(out_uv, np.float64), np.asarray(out_t, np.int64),
+            np.asarray(out_m, np.int64), palette, np.rint(np.asarray(out_c)).clip(0, 255).astype(np.uint8))
+
+
+def _cut_mesh_tail(mesh, start, cutouts):
+    """Replace one collision building's newly appended faces with its exposed portion."""
+    first_tri = next((i for i, t in enumerate(mesh.T[::3]) if t >= start), len(mesh.M))
+    one = (np.asarray(mesh.P[start * 3:], np.float64).reshape(-1, 3),
+           np.asarray(mesh.UV[start * 2:], np.float64).reshape(-1, 2),
+           np.asarray(mesh.T[first_tri * 3:], np.int64).reshape(-1, 3) - start,
+           np.asarray(mesh.M[first_tri:], np.int64), MATERIALS,
+           np.asarray(mesh.C[start * 4:], np.uint8).reshape(-1, 4))
+    clipped = _clip_parent_mesh(one, cutouts)
+    mesh.P[start * 3:] = [] if clipped is None else clipped[0].ravel().tolist()
+    mesh.UV[start * 2:] = [] if clipped is None else clipped[1].ravel().tolist()
+    mesh.C[start * 4:] = [] if clipped is None else clipped[5].ravel().tolist()
+    mesh.T[first_tri * 3:] = [] if clipped is None else (clipped[2] + start).ravel().tolist()
+    mesh.M[first_tri:] = [] if clipped is None else clipped[3].tolist()
+    mesh.n = start + (0 if clipped is None else len(clipped[0]))
 
 
 def build(specs_and_ground, lite=False, marks=None):
@@ -163,6 +304,7 @@ def collision_mesh(specs_and_ground, starts=None):
     tok = (MATERIALS.index(PANEL), (128, 128, 128, 255))
     zero = (0.0, 0.0)
     for spec, gmin, gmax in specs_and_ground:
+        start = m.n
         if starts is not None:
             starts.append(m.n)
         if spec.toll is not None:
@@ -192,6 +334,8 @@ def collision_mesh(specs_and_ground, starts=None):
         m.poly([(p[0], p[1], z1) for p in ring], [zero] * len(ring), tok)
         if mh > 0.5:                # over a street: its underside
             m.poly([(p[0], p[1], z0) for p in ring[::-1]], [zero] * len(ring), tok)
+        if spec.cutouts:
+            _cut_mesh_tail(m, start, spec.cutouts)
     if m.n == 0:
         return None
     P, UV, T, M, C = m.arrays()
@@ -275,6 +419,8 @@ def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod
     for k, item in enumerate(specs_and_ground):
         marks = []
         one = build([item], lite, marks)
+        if one is not None and item[0].cutouts:
+            one = _clip_parent_mesh(one, item[0].cutouts, marks)
         if one is None:
             continue
         if cur and n + len(one[0]) > max_verts:
@@ -285,6 +431,8 @@ def build_parts(specs_and_ground, lite=False, max_verts=MAX_MESH_VERTS, with_lod
         n += len(one[0])
         if with_lod and not lite:
             o = build([item], lite=True)
+            if o is not None and item[0].cutouts:
+                o = _clip_parent_mesh(o, item[0].cutouts)
             if o is not None:
                 cur_lite.append(o)
     flush()
