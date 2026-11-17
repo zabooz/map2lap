@@ -393,14 +393,24 @@ def moved_now(ac, name, revision):
 
 
 def moved_without(ac, name, revision, omit):
-    """Current placements/heights excluding one active smoothing result, so adjusting it never smooths twice."""
+    """Current placements/heights excluding selected replacements, so adjusting them never compounds their height."""
     heights, placed, moved = _heights_and_moved(ac, name, revision)
-    if omit is None:
+    omitted = _replace_ids(heights, omit)
+    if not omitted:
         return moved
-    if not isinstance(omit, str) or not any(h["id"] == omit for h in heights):
-        raise ValueError("The smoothing operation changed: mark the road again")
     path, scan, objects = context(ac, name, revision)
-    return _changed(path, scan, objects, [h for h in heights if h["id"] != omit], placed)
+    return _changed(path, scan, objects, [h for h in heights if h["id"] not in omitted], placed)
+
+
+def _replace_ids(heights, replace):
+    """Ids of height operations still present in heights, accepting one id or a list. Pure."""
+    ids = [] if replace is None else [replace] if isinstance(replace, str) else replace
+    if not isinstance(ids, list) or any(not isinstance(id_, str) for id_ in ids):
+        raise ValueError("Invalid height operations to replace")
+    wanted = set(ids)
+    if len(wanted) != len(ids) or not wanted.issubset({h["id"] for h in heights}):
+        raise ValueError("The crossing operations changed: mark the bridge again")
+    return wanted
 
 
 def _state_key(path, scan, heights, placed):
@@ -557,7 +567,8 @@ def remember_meshes(ac, name, revision, op, replace=None):
     InTheWay if it can't be applied (trackheights.moved)."""
     path, scan, objects = context(ac, name, revision)
     heights, placed, _moved = _heights_and_moved(ac, name, revision)
-    others = [h for h in heights if h["id"] != replace]
+    omitted = _replace_ids(heights, replace)
+    others = [h for h in heights if h["id"] not in omitted]
     before, after = _changed(path, scan, objects, others, placed), _changed(path, scan, objects, others + [op], placed)
     both = before.vertices.keys() & after.vertices.keys()
     known = sorted((before.vertices.keys() ^ after.vertices.keys()) | {i for i in both if not _alike(before.vertices[i], after.vertices[i])}

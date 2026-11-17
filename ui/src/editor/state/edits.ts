@@ -368,9 +368,10 @@ export class TrackEdits {
   }
 
   /** Update the active smoothing result instead of adding it again; its adjustments share one Undo entry. */
-  replaceHeight(previous: string | null, height: HeightChange | null, join: boolean) {
-    if (!this.canEdit() || previous && !this.now.heights.some(h => h.id === previous)) return false;
-    const next = {...this.edits(), heights: [...this.now.heights.filter(h => h.id !== previous), ...(height ? [height] : [])]};
+  replaceHeight(previous: string | string[] | null, height: HeightChange | null, join: boolean) {
+    const old = new Set(previous === null ? [] : typeof previous === "string" ? [previous] : previous);
+    if (!this.canEdit() || [...old].some(id => !this.now.heights.some(h => h.id === id))) return false;
+    const next = {...this.edits(), heights: [...this.now.heights.filter(h => !old.has(h.id)), ...(height ? [height] : [])]};
     if (sameEdits(next, this.edits())) return true;
     if (join && this.past.length) {
       if (sameEdits(next, this.past.at(-1)!)) this.past.pop();

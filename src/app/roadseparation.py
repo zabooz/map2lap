@@ -166,6 +166,33 @@ def describe(path, scan, moved, points):
     return upper, lower, above, below, result
 
 
+def matching(path, scan, moved, heights, upper, crossings, describe_old, kind):
+    """Prior corrections of this mapped bridge crossing, identified by bridge road ids and crossing positions."""
+    roads = {edge.get('road') for edge in upper['segments'] if edge['structure'] == 'bridge'} - {None}
+    at = np.asarray([[c['x'], c['z']] for c in crossings], np.float64)
+    found = []
+    for op in heights:
+        previous = op.get('separation')
+        if not isinstance(previous, dict) or previous.get('kind', 'road') != kind:
+            continue
+        old_roads, old_at = set(previous.get('road_ids', [])), previous.get('crossings')
+        if not old_roads or not old_at:
+            try:
+                old_upper, _lower, _above, _below, old_crossings = describe_old(path, scan, moved, previous['points'])
+            except (KeyError, ValueError, TypeError):
+                continue
+            old_roads = {edge.get('road') for edge in old_upper['segments'] if edge['structure'] == 'bridge'} - {None}
+            old_at = [[c['x'], c['z']] for c in old_crossings]
+        if not roads.intersection(old_roads) or len(old_at) != len(at):
+            continue
+        places = np.asarray(old_at, np.float64)
+        # The map crossing is fixed; half a metre admits rounding without joining neighbouring divided carriageways.
+        if all(np.linalg.norm(places - point, axis=1).min() <= .5 for point in at) \
+                and all(np.linalg.norm(at - point, axis=1).min() <= .5 for point in places):
+            found.append(op)
+    return found
+
+
 def _profile(station, length, targets):
     """Smooth zero-ended vertical correction through all crossing targets. Pure."""
     marks = [(0., 0.), *sorted(targets), (length, 0.)]
@@ -415,7 +442,9 @@ def change_of(path, scan, moved, points, gap, upper_percent, id_, gone=None, max
         raise ValueError('Mark shorter road stretches')
     op = {'id': id_, 'x': x0, 'z': z0, 'nx': nx, 'nz': nz, 'mm': [0] * (nx * nz),
           'mesh_offsets': _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower_targets, gone),
-          'separation': {'points': points, 'gap': gap, 'upper_percent': upper_percent, 'max_grade_percent': max_grade_percent}}
+          'separation': {'points': points, 'gap': gap, 'upper_percent': upper_percent, 'max_grade_percent': max_grade_percent,
+                         'road_ids': sorted({e['road'] for e in upper['segments'] if e['structure'] == 'bridge' and e.get('road')}),
+                         'crossings': [[c['x'], c['z']] for c in crossings]}}
     problem = trackheights.problem(op)
     if problem:
         raise ValueError(problem)

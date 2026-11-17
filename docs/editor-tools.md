@@ -64,6 +64,8 @@ a smooth height correction when Gap changes. Road bridges use their driving deck
 top. The lower road stays fixed. The maximum slope of the added correction ramp is adjustable, starting at 15% for roads
 and 2% for railways. Shift + wheel changes Gap by 0.1 m; Ctrl + wheel changes the maximum by 0.5 percentage points.
 The maximum can also be typed directly; the editor retains separate road and railway values while it stays open.
+Marking an already corrected crossing again shows its current gap and resumes all corrections at that crossing.
+Reducing Gap replaces them together; returning to the original gap removes them in one Undo step.
 This first editor operation needs exactly one mapped ground-road crossing between A and B. It stores source vertex offsets
 for the bridge, its attached render/collision parts and approaches in the draft, so Undo and Save use the same geometry.
 Road separation checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer

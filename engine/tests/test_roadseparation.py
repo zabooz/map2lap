@@ -47,6 +47,22 @@ class RampLimitTest(unittest.TestCase):
         self.assertEqual(20, op["separation"]["max_grade_percent"])
 
 
+class ExistingCorrectionTest(unittest.TestCase):
+    def test_same_crossing_collects_stacked_corrections_but_leaves_next_bridge_alone(self):
+        upper, lower, above, below, crossings = networks()
+        upper['segments'][0]['road'] = 'bridge-a'
+        old_points = [[0., 0., 0.], [20., 0., 0.]]
+        heights = [
+            {'id': 'first', 'separation': {'points': old_points}},
+            {'id': 'second', 'separation': {'points': old_points, 'road_ids': ['bridge-a'], 'crossings': [[10., 0.]]}},
+            {'id': 'next', 'separation': {'road_ids': ['bridge-a'], 'crossings': [[30., 0.]]}},
+            {'id': 'rail', 'separation': {'kind': 'rail', 'road_ids': ['bridge-a'], 'crossings': [[10., 0.]]}},
+        ]
+        describe = mock.Mock(return_value=(upper, lower, above, below, crossings))
+        found = roadseparation.matching('unused', {}, None, heights, upper, crossings, describe, 'road')
+        self.assertEqual(['first', 'second'], [op['id'] for op in found])
+        describe.assert_called_once_with('unused', {}, None, old_points)
+
 class DeletedRailTest(unittest.TestCase):
     def test_deleted_ballast_no_longer_blocks_but_remaining_ballast_does(self):
         vertices = np.zeros(6, dtype=kn5.VERTEX)

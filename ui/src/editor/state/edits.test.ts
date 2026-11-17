@@ -240,6 +240,20 @@ test("adjusting one smoothing operation replaces it, including zero, as one undo
   expect(edits.state().heights.map(h => h.id)).toEqual(["third"]);
 });
 
+test("two previous crossing corrections can be replaced or removed in one Undo step", async () => {
+  const {edits} = await started();
+  const height = (id: string) => ({id, x: 0, z: 0, nx: 2, nz: 2, mm: [0, 10, 10, 0]});
+  edits.addHeight(height("first"));
+  edits.addHeight(height("second"));
+  edits.addHeight(height("other"));
+  expect(edits.replaceHeight(["first", "second"], height("merged"), false)).toBe(true);
+  expect(edits.state().heights.map(h => h.id)).toEqual(["other", "merged"]);
+  expect(edits.replaceHeight(["merged"], null, true)).toBe(true);
+  expect(edits.state().heights.map(h => h.id)).toEqual(["other"]);
+  edits.undo();
+  expect(edits.state().heights.map(h => h.id)).toEqual(["first", "second", "other"]);
+});
+
 test("a whole sort is one step, once, saved as a rule beside the single ones", async () => {
   const {s, edits} = await started();
   edits.remove([tree(1)]);

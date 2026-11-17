@@ -930,16 +930,25 @@ class Handler(BaseHTTPRequestHandler):
             draft = trackedits.load(ac, name)
             if body.get("revision") != draft["revision"]:
                 return self._send(409, {"error": "The road edits changed: mark the crossing again"})
-            moved = trackedits.moved_without(ac, name, base, body.get("replace"))
             rail = body.get("kind") == "rail"
             if what == "way":
+                moved = trackedits.moved_without(ac, name, base, None)
+                describe = railbridges.describe if rail else roadseparation.describe
+                upper, lower, above, below, crossings = describe(path, scan, moved, body.get("points"))
+                matching = roadseparation.matching(path, scan, moved, draft["heights"], upper, crossings,
+                                                    describe, "rail" if rail else "road")
+                replace = [op["id"] for op in matching]
+                baseline = trackedits.moved_without(ac, name, base, replace) if replace else moved
+                base_crossings = describe(path, scan, baseline, body.get("points"))[-1] if replace else crossings
+                common = {"crossings": crossings, "replace": replace,
+                          "min_gap": max(c["gap"] for c in base_crossings),
+                          "max_grade_percent": matching[-1]["separation"].get("max_grade_percent", 2 if rail else 15) if matching else None}
                 if rail:
-                    upper, lower, above, below, crossings = railbridges.describe(path, scan, moved, body.get("points"))
                     selection, _cuts = railbridges.selection(path, scan, [crossings[0]["x"], crossings[0]["z"]])
-                    return self._send(200, {"crossings": crossings, "upper_region": selection, "lower_region": None})
-                upper, lower, above, below, crossings = roadseparation.describe(path, scan, moved, body.get("points"))
-                return self._send(200, {"crossings": crossings, "upper_region": roadregion.selection(path, upper),
+                    return self._send(200, {**common, "upper_region": selection, "lower_region": None})
+                return self._send(200, {**common, "upper_region": roadregion.selection(path, upper),
                                         "lower_region": roadregion.selection(path, lower) if len(body.get("points")) == 4 else None})
+            moved = trackedits.moved_without(ac, name, base, body.get("replace"))
             if rail:
                 op, crossings = railbridges.change_of(path, scan, moved, body.get("points"), body.get("gap"), secrets.token_hex(8),
                                                        body.get("max_grade_percent", 2))

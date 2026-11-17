@@ -207,7 +207,9 @@ def change_of(path, scan, moved, points, gap, id_, max_grade_percent=2):
         raise ValueError('Mark a shorter railway stretch')
     op = {'id': id_, 'x': x0, 'z': z0, 'nx': nx, 'nz': nz, 'mm': [0] * (nx * nz),
           'mesh_offsets': _offsets(path, scan, moved, upper, lower, above, below, targets),
-          'separation': {'points': points, 'gap': gap, 'kind': 'rail', 'max_grade_percent': max_grade_percent}}
+          'separation': {'points': points, 'gap': gap, 'kind': 'rail', 'max_grade_percent': max_grade_percent,
+                         'road_ids': sorted({e['road'] for e in upper['segments'] if e['structure'] == 'bridge' and e.get('road')}),
+                         'crossings': [[c['x'], c['z']] for c in crossings]}}
     problem = trackheights.problem(op)
     if problem:
         raise ValueError(problem)
