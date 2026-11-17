@@ -40,9 +40,9 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 320,
-   "over_05g_m": 8,
+   "over_05g_m": 9,
    "lanes_over_05g_m": 21,
-   "max_g": 2.88,
+   "max_g": 2.86,
    "max_g_at_m": 150.0,
    "edges_m": 0,
    "transitions": 0,
@@ -114,7 +114,7 @@
    "max_g_transition": 2.19,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 383.0
+   "max_warp_at_m": 368.0
   }
  },
  "friedensbruecke_test": {
@@ -155,18 +155,18 @@
   ],
   "reference": {
    "off_road_m": 0,
-   "over_deck_spots": 1,
-   "max_over_deck": 0.169,
+   "over_deck_spots": 0,
+   "max_over_deck": 0.0,
    "length_m": 511,
-   "over_05g_m": 3,
-   "lanes_over_05g_m": 11,
-   "max_g": 0.91,
+   "over_05g_m": 2,
+   "lanes_over_05g_m": 8,
+   "max_g": 1.02,
    "max_g_at_m": 313.0,
-   "edges_m": 3,
+   "edges_m": 0,
    "transitions": 4,
-   "max_g_transition": 0.91,
+   "max_g_transition": 1.02,
    "warp_m": 26,
-   "max_warp": 0.45,
+   "max_warp": 0.4,
    "max_warp_at_m": 244.0
   }
  },
@@ -268,20 +268,20 @@
    ]
   ],
   "reference": {
-   "off_road_m": 626,
+   "off_road_m": 625,
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 1245,
-   "over_05g_m": 9,
-   "lanes_over_05g_m": 14,
-   "max_g": 1.35,
-   "max_g_at_m": 699.0,
-   "edges_m": 1,
+   "over_05g_m": 7,
+   "lanes_over_05g_m": 7,
+   "max_g": 0.89,
+   "max_g_at_m": 702.0,
+   "edges_m": 0,
    "transitions": 4,
-   "max_g_transition": 0.96,
+   "max_g_transition": 0.71,
    "warp_m": 0,
    "max_warp": 0.02,
-   "max_warp_at_m": 72.0
+   "max_warp_at_m": 698.0
   }
  },
  "drau_bruecke_test": {
@@ -323,14 +323,14 @@
    "length_m": 919,
    "over_05g_m": 0,
    "lanes_over_05g_m": 0,
-   "max_g": 0.15,
-   "max_g_at_m": 660.0,
+   "max_g": 0.19,
+   "max_g_at_m": 661.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 0.12,
+   "max_g_transition": 0.11,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 487.0
+   "max_warp_at_m": 489.0
   }
  },
  "otto_bridge_test": {
@@ -367,7 +367,7 @@
    "max_g_transition": 0.16,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 895.0
+   "max_warp_at_m": 893.0
   }
  },
  "a2_voelkermarkt_test": {
@@ -465,16 +465,16 @@
   "reference": {
    "off_road_m": 0,
    "over_deck_spots": 2,
-   "max_over_deck": 0.128,
+   "max_over_deck": 0.131,
    "length_m": 12681,
    "over_05g_m": 20,
-   "lanes_over_05g_m": 122,
-   "max_g": 3.19,
+   "lanes_over_05g_m": 128,
+   "max_g": 3.2,
    "max_g_at_m": 12551.0,
    "edges_m": 0,
    "transitions": 20,
-   "max_g_transition": 0.55,
-   "warp_m": 448,
+   "max_g_transition": 0.56,
+   "warp_m": 446,
    "max_warp": 0.18,
    "max_warp_at_m": 7516.0
   },
@@ -571,15 +571,15 @@
    "max_over_deck": 0.0,
    "length_m": 13510,
    "over_05g_m": 73,
-   "lanes_over_05g_m": 444,
-   "max_g": 3.61,
+   "lanes_over_05g_m": 446,
+   "max_g": 3.58,
    "max_g_at_m": 5223.0,
-   "edges_m": 1,
+   "edges_m": 2,
    "transitions": 16,
-   "max_g_transition": 1.07,
-   "warp_m": 53,
-   "max_warp": 9.11,
-   "max_warp_at_m": 12999.0
+   "max_g_transition": 0.84,
+   "warp_m": 0,
+   "max_warp": 0.02,
+   "max_warp_at_m": 10806.0
   }
  },
  "rauma_test": {
@@ -619,16 +619,16 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 580,
-   "over_05g_m": 7,
-   "lanes_over_05g_m": 71,
-   "max_g": 1.61,
-   "max_g_at_m": 288.0,
+   "over_05g_m": 5,
+   "lanes_over_05g_m": 79,
+   "max_g": 2.12,
+   "max_g_at_m": 289.0,
    "edges_m": 0,
-   "transitions": 0,
-   "max_g_transition": 0.0,
+   "transitions": 2,
+   "max_g_transition": 2.12,
    "warp_m": 0,
-   "max_warp": 0.0,
-   "max_warp_at_m": 0.0
+   "max_warp": 0.01,
+   "max_warp_at_m": 289.0
   }
  },
  "auckland_interchange_test": {
@@ -664,13 +664,13 @@
    "over_deck_spots": 0,
    "max_over_deck": 0.0,
    "length_m": 1396,
-   "over_05g_m": 1,
-   "lanes_over_05g_m": 9,
-   "max_g": 0.51,
+   "over_05g_m": 0,
+   "lanes_over_05g_m": 8,
+   "max_g": 0.49,
    "max_g_at_m": 974.0,
    "edges_m": 1,
    "transitions": 2,
-   "max_g_transition": 0.32,
+   "max_g_transition": 0.31,
    "warp_m": 58,
    "max_warp": 0.51,
    "max_warp_at_m": 1049.0
@@ -699,17 +699,17 @@
   "reference": {
    "off_road_m": 0,
    "over_deck_spots": 2,
-   "max_over_deck": 0.277,
+   "max_over_deck": 0.294,
    "length_m": 487,
    "over_05g_m": 38,
-   "lanes_over_05g_m": 51,
-   "max_g": 4.71,
+   "lanes_over_05g_m": 52,
+   "max_g": 4.7,
    "max_g_at_m": 286.0,
    "edges_m": 0,
-   "transitions": 10,
-   "max_g_transition": 4.71,
-   "warp_m": 9,
-   "max_warp": 0.15,
+   "transitions": 8,
+   "max_g_transition": 4.7,
+   "warp_m": 12,
+   "max_warp": 0.16,
    "max_warp_at_m": 248.0
   }
  },
@@ -739,14 +739,14 @@
    "length_m": 369,
    "over_05g_m": 0,
    "lanes_over_05g_m": 8,
-   "max_g": 0.35,
+   "max_g": 0.32,
    "max_g_at_m": 2.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 0.35,
+   "max_g_transition": 0.32,
    "warp_m": 0,
    "max_warp": 0.0,
-   "max_warp_at_m": 1.0
+   "max_warp_at_m": 2.0
   }
  },
  "cap_corse_bruecke_test": {
@@ -779,15 +779,15 @@
    "max_over_deck": 0.0,
    "length_m": 240,
    "over_05g_m": 6,
-   "lanes_over_05g_m": 21,
-   "max_g": 1.16,
+   "lanes_over_05g_m": 24,
+   "max_g": 1.13,
    "max_g_at_m": 119.0,
    "edges_m": 3,
    "transitions": 2,
-   "max_g_transition": 1.16,
+   "max_g_transition": 1.13,
    "warp_m": 0,
-   "max_warp": 0.01,
-   "max_warp_at_m": 118.0
+   "max_warp": 0.0,
+   "max_warp_at_m": 116.0
   }
  },
  "a2_bruecke_3740_test": {
@@ -820,8 +820,8 @@
    "max_over_deck": 0.0,
    "length_m": 300,
    "over_05g_m": 1,
-   "lanes_over_05g_m": 51,
-   "max_g": 0.6,
+   "lanes_over_05g_m": 54,
+   "max_g": 0.61,
    "max_g_at_m": 147.0,
    "edges_m": 0,
    "transitions": 2,
@@ -903,11 +903,11 @@
    "length_m": 350,
    "over_05g_m": 2,
    "lanes_over_05g_m": 2,
-   "max_g": 0.63,
+   "max_g": 0.57,
    "max_g_at_m": 97.0,
    "edges_m": 0,
    "transitions": 2,
-   "max_g_transition": 0.63,
+   "max_g_transition": 0.57,
    "warp_m": 0,
    "max_warp": 0.01,
    "max_warp_at_m": 97.0
