@@ -115,8 +115,8 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
     if (token !== generation.current) return;
     session.adopt(answer.replace ?? []);
     setCrossings(answer.crossings);
-    setMinGap(answer.min_gap ?? Math.max(...answer.crossings.map(c => c.gap)));
-    setGapValue(Math.max(...answer.crossings.map(c => c.gap)));
+    setMinGap(answer.min_gap ?? Math.min(...answer.crossings.map(c => c.gap)));
+    setGapValue(Math.min(...answer.crossings.map(c => c.gap)));
     setArmed(false);
     if (answer.max_grade_percent != null) (selected === "rail" ? setRailGrade : setRoadGrade)(answer.max_grade_percent);
     setReady(true);

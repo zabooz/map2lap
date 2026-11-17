@@ -941,7 +941,7 @@ class Handler(BaseHTTPRequestHandler):
                 baseline = trackedits.moved_without(ac, name, base, replace) if replace else moved
                 base_crossings = describe(path, scan, baseline, body.get("points"))[-1] if replace else crossings
                 common = {"crossings": crossings, "replace": replace,
-                          "min_gap": max(c["gap"] for c in base_crossings),
+                          "min_gap": (min if len(body.get("points")) == 2 else max)(c["gap"] for c in base_crossings),
                           "max_grade_percent": matching[-1]["separation"].get("max_grade_percent", 2 if rail else 15) if matching else None}
                 if rail:
                     selection, _cuts = railbridges.selection(path, scan, [crossings[0]["x"], crossings[0]["z"]])

@@ -1,10 +1,11 @@
 // The mouse pointer over the view says what a click of the tool on would do to what is under it.
 import type {Tool} from "../tools/ToolPanel";
 
-/** What is under the mouse, as far as the pointer goes by it. object: a single object (it has an id); movable: Move and Copy can
-    take it (not a span of wires); road: the road's own surface, where Smooth road sets its points. */
+/** What is under the mouse, as far as the pointer goes by it. object: a single object (it has an id); deletable includes
+    unlisted surface sections; movable: Move and Copy can take it; road: Smooth road can mark it. */
 export interface Pointed {
   object: boolean;
+  deletable?: boolean;
   movable: boolean;
   road: boolean;
   rail?: boolean;
@@ -34,7 +35,7 @@ export function cursorFor(state: CursorState, pointed: Pointed | null): string {
     case "select": return pointed.object ? "pointer" : "";
     case "move": return pointed.movable ? "grab" : "";
     case "copy": return pointed.movable ? "copy" : "";
-    case "delete": return pointed.object ? DELETE_CURSOR : "";
+    case "delete": return pointed.deletable || pointed.object ? DELETE_CURSOR : "";
     case "smooth": return pointed.road ? "crosshair" : "";
     case "separate": return pointed.road || pointed.rail ? "crosshair" : "";
     case "kerb": return pointed.road ? "crosshair" : "";

@@ -11,7 +11,7 @@ const KEYS: Record<Tool, [string, string][]> = {
            ["Alt", "change the picked ground's texture, or replace the picked trees"], ["X or Delete", "delete what is picked"], ["Esc", "pick nothing"]],
   camera: [["Shift + wheel", "forwards, backwards along the track"], ["Ctrl + wheel", "height"], ["Alt + wheel", "speed of Ride"], ["Home", "back to the first view"]],
   smooth: [["R with a road picked", "starts at the picked road"], ["Click", "mark road points, drag them, add branches"], ["Shift + wheel", "strength"], ["Ctrl + wheel", "transition into the terrain"]],
-  separate: [["Click twice", "A and B on the same road or railway bridge, before and after the crossing"], ["Shift + wheel", "change Gap by 0.1 m"],
+  separate: [["Click twice", "A and B on the same road around one or more bridge crossings, or on one railway bridge"], ["Shift + wheel", "change Gap by 0.1 m"],
              ["Ctrl + wheel", "change maximum ramp slope by 0.5 percentage points"], ["Gap", "upper road or rail bed to lower road; the lower road stays fixed"],
              ["Ctrl+Z", "undo the crossing correction"]],
   kerb: [["B", "turn Racing kerb on or off"], ["Click twice", "first click chooses the road edge; second click marks the end"],

@@ -80,6 +80,17 @@ def _oriented_owner(points, upper, lower):
     return None
 
 
+def _lower_distance(points, below, lower):
+    """Distance to any selected ground road below the marked bridge. Pure."""
+    lines = [below, *lower.get('other_lines', [])]
+    return np.minimum.reduce([_project(points, line)[1] for line in lines])
+
+
+def _nearest_lower(point, below, lower):
+    """Ground road nearest one road-part centre. Pure."""
+    return min([below, *lower.get('other_lines', [])], key=lambda line: _project(point[None], line)[1][0])
+
+
 def _intersections(upper, lower):
     """Mapped centreline crossing points, with stations on each road. Pure."""
     up, down = _stations(upper), _stations(lower)
@@ -143,14 +154,19 @@ def describe(path, scan, moved, points):
                     candidates.append((edge, line, point, upper_s, lower_s))
         if not candidates:
             raise ValueError('No ground road crosses the marked bridge')
-        if len(candidates) != 1:
-            raise ValueError('Several ground roads cross here; mark a shorter bridge stretch')
+        # Two bridge spans may cross separate ground roads. Each crossing keeps its own lower road;
+        # the upper route receives one shared rise so the road between the spans stays level.
+        if len(candidates) > 8 or any(np.linalg.norm(a[2] - b[2]) < 2 for i, a in enumerate(candidates) for b in candidates[i + 1:]):
+            raise ValueError('The ground-road crossings are ambiguous; mark a shorter bridge stretch')
         edge, below, _point, _upper_s, _lower_s = candidates[0]
-        lower = {'segments': [edge], 'pins': [edge['a'], edge['b']], 'unselected': [], 'held_junctions': []}
-    crossings = _intersections(above, below)
+        lower = {'segments': [item[0] for item in candidates], 'pins': [edge['a'], edge['b']],
+                 'unselected': [], 'held_junctions': [], 'other_lines': [item[1] for item in candidates[1:]]}
+    crossings = ([(point, upper_s, lower_s) for _edge, _line, point, upper_s, lower_s in candidates]
+                 if len(points) == 2 else _intersections(above, below))
     if not crossings:
         raise ValueError('The marked roads do not cross')
-    bounds = np.vstack([below.min(axis=0) - 4, below.max(axis=0) + 4])
+    lower_points = np.vstack([below, *lower.get('other_lines', [])])
+    bounds = np.vstack([lower_points.min(axis=0) - 4, lower_points.max(axis=0) + 4])
     # A marked ground road can have ROAD, GRAVEL or GRASS collision, depending on its surface tags.
     ground, i0, j0 = trackband._ground(path, scan, moved, bounds)
     result = []
@@ -183,12 +199,11 @@ def matching(path, scan, moved, heights, upper, crossings, describe_old, kind):
                 continue
             old_roads = {edge.get('road') for edge in old_upper['segments'] if edge['structure'] == 'bridge'} - {None}
             old_at = [[c['x'], c['z']] for c in old_crossings]
-        if not roads.intersection(old_roads) or len(old_at) != len(at):
+        if not roads.intersection(old_roads) or len(old_at) > len(at):
             continue
         places = np.asarray(old_at, np.float64)
         # The map crossing is fixed; half a metre admits rounding without joining neighbouring divided carriageways.
-        if all(np.linalg.norm(places - point, axis=1).min() <= .5 for point in at) \
-                and all(np.linalg.norm(at - point, axis=1).min() <= .5 for point in places):
+        if all(np.linalg.norm(at - point, axis=1).min() <= .5 for point in places):
             found.append(op)
     return found
 
@@ -281,8 +296,9 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
     result = {}
     reach = max(max(edge['width'] for edge in upper['segments']), max(edge['width'] for edge in lower['segments']))
     reach += max(6., 15. * max(abs(value) for _at, value in [*upper_targets, *lower_targets]))
-    low = np.minimum(above.min(axis=0), below.min(axis=0)) - reach
-    high = np.maximum(above.max(axis=0), below.max(axis=0)) + reach
+    lower_points = np.vstack([below, *lower.get('other_lines', [])])
+    low = np.minimum(above.min(axis=0), lower_points.min(axis=0)) - reach
+    high = np.maximum(above.max(axis=0), lower_points.max(axis=0)) + reach
     upper_half = max(edge['width'] for edge in upper['segments']) / 2
     lower_half = max(edge['width'] for edge in lower['segments']) / 2
     with open(path, 'rb') as source:
@@ -342,7 +358,7 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
             else:
                 change = np.zeros(len(points))
                 _us, du = _project(xy, above)
-                _ls, dl = _project(xy, below)
+                dl = _lower_distance(xy, below, lower)
                 uw = max(edge['width'] for edge in upper['segments']) / 2 + 2
                 lw = max(edge['width'] for edge in lower['segments']) / 2 + 2
                 for component in roadsurfaces._components(points, faces):
@@ -362,14 +378,16 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                             elif lower_score < .7 * upper_score:
                                 choose = 'lower'
                             else:
-                                choose = _oriented_owner(points[component], above, below)
+                                centre = xy[component].mean(axis=0)
+                                choose = _oriented_owner(points[component], above, _nearest_lower(centre, below, lower))
                                 if choose is None:
                                     raise ValueError(f'A road mesh joins the two marked roads: {mesh["name"]}')
                         else:
                             choose = 'upper' if upper_only else 'lower' if lower_only else None
                         if choose is None and np.any((du[component] < uw) & (dl[component] < lw)
                                                       & ((np.abs(up[component]) > .001) | (np.abs(down[component]) > .001))):
-                            choose = _oriented_owner(points[component], above, below)
+                            centre = xy[component].mean(axis=0)
+                            choose = _oriented_owner(points[component], above, _nearest_lower(centre, below, lower))
                             if choose is None:
                                 raise ValueError(f'A road part at the crossing has no unique mapped owner: {mesh["name"]}')
                     if choose == 'upper':
@@ -417,10 +435,14 @@ def change_of(path, scan, moved, points, gap, upper_percent, id_, gone=None, max
         raise ValueError('The two-point tool moves only the bridge')
     if any(edge['structure'] == 'tunnel' for edge in upper['segments']):
         raise ValueError('A tunnel joins the marked bridge road; mark a shorter range')
-    if any(cross['gap'] > gap + .001 for cross in crossings):
+    floor = min(cross['gap'] for cross in crossings) if len(points) == 2 else max(cross['gap'] for cross in crossings)
+    if gap < floor - .001:
         raise ValueError('This tool only increases the existing crossing gap')
     fraction = upper_percent / 100
-    upper_targets = [(cross['upper_s'], (gap - cross['gap']) * fraction) for cross in crossings]
+    # A two-point selection lifts both decks by the same amount, leaving a flat correction between them.
+    shared_lift = max(0., gap - floor) if len(points) == 2 else None
+    upper_targets = [(cross['upper_s'], (shared_lift if shared_lift is not None else gap - cross['gap']) * fraction)
+                     for cross in crossings]
     lower_targets = [] if len(points) == 2 else [(cross['lower_s'], -(gap - cross['gap']) * (1 - fraction)) for cross in crossings]
     for net, line, targets in ((upper, above, upper_targets), (lower, below, lower_targets)):
         if net['held_junctions'] and np.any(np.abs(_field(np.asarray(net['held_junctions']), line, net, targets)) > .01):

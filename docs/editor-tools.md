@@ -58,7 +58,7 @@ The server supplies preview and saved mesh deformation; the browser does not imp
 The Elevation brush continues to refuse decks and railways.
 New mesh kinds must be classified there (`engine/tests/test_trackheights.py`).
 
-Separate crossing (J) marks A and B on one existing road or railway bridge, with the crossing between them. The marked
+Separate crossing (J) marks A and B on one road with existing bridge spans, or on one railway bridge. The marked
 ends stay fixed. The server reads the mapped bridge and the ground road below, shows their present surface gap, and makes
 a smooth height correction when Gap changes. Road bridges use their driving deck; railway bridges use the physical ballast
 top. The lower road stays fixed. The maximum slope of the added correction ramp is adjustable, starting at 15% for roads
@@ -66,7 +66,8 @@ and 2% for railways. Shift + wheel changes Gap by 0.1 m; Ctrl + wheel changes th
 The maximum can also be typed directly; the editor retains separate road and railway values while it stays open.
 Marking an already corrected crossing again shows its current gap and resumes all corrections at that crossing.
 Reducing Gap replaces them together; returning to the original gap removes them in one Undo step.
-This first editor operation needs exactly one mapped ground-road crossing between A and B. It stores source vertex offsets
+With two or more road crossings between A and B, Gap is the smallest measured clearance and all bridge spans get the same
+added lift. The added lift stays constant between the crossings. It stores source vertex offsets
 for the bridge, its attached render/collision parts and approaches in the draft, so Undo and Save use the same geometry.
 Road separation checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer
 block a road correction or hold its terrain down.

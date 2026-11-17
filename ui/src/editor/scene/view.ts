@@ -1058,6 +1058,8 @@ export class TrackView {
     const taking = this.cursorTool === "move" || this.cursorTool === "copy";
     this.pointed = hit && hovered ? {object: !!hovered.id, road: ROAD.test(hit.object.name),
       rail: /^(?:nocol_rail_|1(?:GRAVEL|WALL)_railcol_)/.test(hit.object.name),
+      deletable: /^(?:nocol_(?:walk_|guardrail_|road_edge_dirt_|rail_)|1(?:GRAVEL|WALL)_railcol_)/.test(hit.object.name)
+        || !!(hit.object.userData.info as MeshInfo | undefined)?.kerb_id,
       movable: taking && !!hovered.id && this.mover.canMove(this.mover.on ? this.objects.rootOf(hovered.id) : hovered.id)} : null;
     this.applyCursor();
     this.onHover(hovered);
