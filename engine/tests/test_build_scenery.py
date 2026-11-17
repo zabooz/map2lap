@@ -13,6 +13,33 @@ from scenery import treefx
 
 
 class BuildTreeSpacingTest(unittest.TestCase):
+    def test_finished_neighbour_footprint_removes_its_parking_line_and_mesh(self):
+        from track import buildscenery
+        import numpy as np
+        house = [(0, 0), (10, 0), (10, 8), (0, 8)]
+        line = {"m": "line_white", "w": 0.1, "n": [[-1, 4, 1], [2, 4, 1]]}
+        clear = {"m": "line_white", "w": 0.1, "n": [[15, 4, 1], [18, 4, 1]]}
+        kept, blocked = buildscenery.clear_covered_parking_lines([line, clear], [house])
+        self.assertEqual(kept, [clear])
+        p = np.array([[0, 4, 1], [1, 4, 1], [0, 4.1, 1],
+                      [15, 4, 1], [16, 4, 1], [15, 4.1, 1]], float)
+        triangles = np.array([[0, 1, 2], [3, 4, 5]])
+        np.testing.assert_array_equal(buildscenery.clear_covered_mark_mesh(p, triangles, blocked),
+                                      triangles[1:])
+        thin = [(0.1, 0), (0.2, 0), (0.2, 8), (0.1, 8)]
+        kept, blocked = buildscenery.clear_covered_parking_lines([line], [thin])
+        self.assertFalse(kept, "a narrow building crossing the line still covers it")
+        self.assertEqual(blocked, [line])
+
+    def test_cars_clear_neighbouring_tile_buildings_before_mesh(self):
+        from unittest import mock
+        from track import buildscenery
+        house = [(0, 0), (10, 0), (10, 8), (0, 8)]
+        spots = [[5, 4, 0, 0], [20, 4, 0, 0]]
+        with mock.patch.object(buildscenery.cars, "build") as build:
+            buildscenery.car_mesh(spots, None, [house], ["apartments"], [])
+            self.assertEqual(build.call_args.args[0], [spots[1]])
+
     def test_disabling_cars_does_not_generate_meshes_or_consume_the_parking_spots(self):
         from unittest import mock
         from track import buildscenery

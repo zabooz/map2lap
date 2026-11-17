@@ -27,6 +27,7 @@ import blockworker          # noqa: E402
 import buildings            # noqa: E402
 import cdae                 # noqa: E402
 import geodesy              # noqa: E402
+import parking              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
 from scenery import bushes, cars, facades, fences, ground, groundcover, leisure, propsmesh, roadtex, rocks, trees, water  # noqa: E402
@@ -746,6 +747,14 @@ def _scenery_tile(tx, ty, part_path):
     depth, wmesh, fmesh = water.water_tile(frame, blockworker._s.md, raw, tx, ty, CELL)
     with open(os.path.join(tiles_dir, f"roads_{anc['aid']}_{tx}_{ty}.json"), encoding="utf-8") as f:
         data = json.load(f)
+    rings, rclasses = _footprints(tiles_dir, anc["aid"], tx, ty)
+    # Road tiles were made independently. Resolve parking against the completed neighbours before the
+    # scene and its retained Editor source are written.
+    data["park"] = parking.clear_of_buildings(data.get("park"), rings)
+    editor_chunks = data.get("editor", {}).get("chunks", [])
+    kept_parking_lines, blocked_parking_lines = buildscenery.clear_covered_parking_lines(editor_chunks, rings)
+    if "editor" in data:
+        data["editor"]["chunks"] = kept_parking_lines
     shapes = [(what, list(shape_parts(os.path.join(tiles_dir, os.path.basename(v["shape"])), v["pos"])))
               for what, v in data.items() if isinstance(v, dict) and "shape" in v]
     # terrain like BeamNG.Earth's terrain block: looks and physics in one, roads as texture (ground.py)
@@ -779,6 +788,10 @@ def _scenery_tile(tx, ty, part_path):
         groups = {}
         vertex = vertex_owners.get(what)
         for bname, P, UV, T, C in parts_:
+            if what == "road" and bname == "line_white":
+                T = buildscenery.clear_covered_mark_mesh(P, T, blocked_parking_lines)
+                if not len(T):
+                    continue
             if what == "road":  # (markings: the road itself is terrain texture now)
                 road_xy.append(P[np.unique(T), :2])
             if bname in BLD_KINDS:
@@ -891,8 +904,6 @@ def _scenery_tile(tx, ty, part_path):
                     tris["fuel"] = tris.get("fuel", 0) + len(mesh[2])
         except Exception as e:
             log(f"Gas stations, tile {tx},{ty}: {type(e).__name__}: {e}")
-    rings, rclasses = _footprints(tiles_dir, anc["aid"], tx, ty)      # the buildings as drawn round the tile
-
     def on_ground(x, y):
         la, lo, _ = frame.enu_to_geodetic(np.asarray(x, float), np.asarray(y, float), 0.0)
         z = np.array([elev(float(a), float(b)) for a, b in zip(np.atleast_1d(la), np.atleast_1d(lo))])

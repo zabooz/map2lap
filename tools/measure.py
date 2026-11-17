@@ -778,14 +778,26 @@ def report_holes(track):
               f"route {t[k]:7.0f} m, {float(d[k].min()):5.1f} m off the line")
 
 
-def code(entry):
-    """The track code of a test track (a test_tracks.json entry) at this track version."""
+def code(entry, track=None):
+    """Code of a test track, using its built options when track and its anchor exist. Pure except for file reads."""
+    options = {}
+    if track is not None:
+        anchor = os.path.join(HERE, "out", "tracks", track, "tiles", "anchor.json")
+        try:
+            with open(anchor, encoding="utf-8") as stream:
+                saved = json.load(stream)
+            options = {k: saved[k] for k in ("terrain_cell_m", "parked_cars", "tree_spacing_m", "ground_quality")
+                       if k in saved}
+        except (OSError, ValueError):
+            pass
     return trackcode.encode({"points": entry["points"], "width": entry["width"], "title": entry["title"],
-                             "track_version": version.TRACK_VERSION})
+                             "track_version": version.TRACK_VERSION, **options})
 
 
 def build_one(test, t, install, share):
     """Build test track t (into AC with install, else up to the OBJ parts) with share of the cores."""
+    # New tracks on the generator page start at 2 m trunk spacing; an explicit environment choice still wins.
+    os.environ.setdefault("BNE_TREE_SPACING_M", "2")
     import generator
     import buildtrace       # (engine/ is on the path through generator)
     from track import parallel
@@ -887,7 +899,7 @@ def main():
     refs = {}
     for t, r in measured(tracks, a.start, a.end):
         if t in test:
-            print(f"\n{test[t]['about']}\n  code {code(test[t])}", end="")
+            print(f"\n{test[t]['about']}\n  code {code(test[t], t)}", end="")
             for m, what in test[t].get("spots", ()):
                 print(f"\n  spot {m} m: {what}", end="")
         report(t, r, None if part else test.get(t, {}).get("reference"), everything=part)

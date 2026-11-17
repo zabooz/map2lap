@@ -330,6 +330,7 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
     chunks += railsmod.tile_chunks(frame, tx, ty, cells)     # railway and tram tracks on the ground
     mark("rails")
     x0, y0, _, _ = box
+    park_halo = []
     if items is not None:               # front doors and shopfronts, driveways into the road mesh
         drives = []
         props.extend(buildingsmod.doors(items, lines, x0, y0, drives))
@@ -337,7 +338,9 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         drives.extend(buildingsmod.garage_drives(items, lines, x0, y0))
         chunks += drives
         park = parkingmod.clear_of(park, props, drives)
-        park = parkingmod.tile_lot_spots(frame, tx, ty, _s.md, elev, items, park, near_roads, aisles)
+        park = parkingmod.tile_lot_spots(frame, tx, ty, _s.md, elev, items, park, near_roads, aisles,
+                                         ground=lambda x, y: roadmeshmod.drawn_ground(frame, drawn, np.c_[x, y], q),
+                                         accepted_out=park_halo)
         if fuel:
             import gasstations
             park = gasstations.clear_park(park, fuel)
@@ -345,7 +348,10 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
         if walks_raw is not None:
             buildingsmod.brick_walks(walks_raw, items, centre[0], centre[1], side)
     mark("doors_park")
-    chunks += parkingmod.finish_markings(frame, tx, ty, _s.md, elev, items, marks, near_roads, aisles)
+    chunks += parkingmod.finish_markings(frame, tx, ty, _s.md, elev, items, marks, near_roads, aisles,
+                                         spots=park_halo if items is not None else None,
+                                         ground=lambda x, y: roadmeshmod.drawn_ground(
+                                             frame, drawn, np.c_[x, y], q))
     mark("markings")
     # Share the bridge mesh's exact parapet geometry with the tile builder.
     # (the junction pads on the bridges round the tile: their decks' parapets stop at them; the tile draws its own:

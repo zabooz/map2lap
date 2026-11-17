@@ -36,6 +36,18 @@ def eligible(cls="residential", width=10.0):
 
 
 class CurbTest(unittest.TestCase):
+    def test_inside_of_bend_does_not_compress_curb_spots(self):
+        r = eligible()
+        fid, spec, _, lon = r
+        line = np.array([(-100.0, 50.0, 0.0), (20.0, 50.0, 0.0),
+                         (20.0, 150.0, 0.0)])
+        r = (fid, spec, line, lon)
+        spots = parking.curb_spots([r], walks(r), (0, 0, 256, 256))
+        self.assertTrue(spots)
+        for i, a in enumerate(spots):
+            for b in spots[i + 1:]:
+                self.assertGreaterEqual(math.dist(a[:2], b[:2]), 4.0)
+
     def test_both_sides_of_a_wide_street_facing_the_traffic(self):
         r = eligible()
         spots = parking.curb_spots([r], walks(r), (0, 0, 256, 256))
@@ -165,6 +177,34 @@ class LotTest(unittest.TestCase):
         self.assertEqual(sorted(map(tuple, spots)), sorted(map(tuple, clear)))
         self.assertIsNone(parking.through_roads([aisle], {"a"}))
 
+    def test_lot_stalls_leave_a_mapped_parking_aisle_clear(self):
+        aisle = ("a", roads.Spec(6.0, "paved", False, "service", False),
+                 np.array([(0.0, 20.0, 0.0), (60.0, 20.0, 0.0)]), 0.0)
+        through = parking.through_roads([aisle], {"a"}, include_aisles=True)
+        spots = parking.lot_spots([self.LOT], (0, 0, 256, 256), _z, (), through)
+        self.assertTrue(spots)
+        self.assertTrue(all(abs(s[1] - 20.0) > 3.0 + parking.LOT_SPOT_D_M / 2 - 0.2 for s in spots))
+
+    def test_overlapping_lots_agree_across_tile_boundary(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_roads import FRAME
+
+        class Map:
+            def cell(self, *_args, **_kwargs):
+                return SimpleNamespace(layers={"infrastructure": None})
+
+        lots = [np.array([(240, 0), (270, 0), (270, 40), (240, 40)]),
+                np.array([(248, 0), (278, 0), (278, 40), (248, 40)])]
+        with mock.patch.object(parking, "lot_rings", return_value=lots):
+            a = parking.tile_lot_spots(FRAME, 0, 0, Map(), _z, ground=_z)
+            b = parking.tile_lot_spots(FRAME, 1, 0, Map(), _z, ground=_z)
+        self.assertTrue(a and b)
+        for x in a:
+            for y in b:
+                self.assertFalse(parking._spots_overlap(parking._spot_corners(x), parking._spot_corners(y)))
+
     def test_no_stall_on_an_embankment(self):
         # the lot's north half falls 1:1 (the slope down to a lower deck the polygon takes in), its south half is level
         z = lambda x, y: np.where(np.asarray(y) > 20.0, 20.0 - np.asarray(y), 0.0)
@@ -179,6 +219,43 @@ class LotTest(unittest.TestCase):
 
 
 class AisleTest(unittest.TestCase):
+    def test_stalls_clear_another_mapped_aisle(self):
+        horizontal = ("h", roads.Spec(6.0, "paved", True, "service", False),
+                      np.array([(0.0, 50.0, 0.0), (80.0, 50.0, 0.0)]), 0.0)
+        vertical = ("v", roads.Spec(6.0, "paved", True, "service", False),
+                    np.array([(40.0, 0.0, 0.0), (40.0, 100.0, 0.0)]), 0.0)
+        spots = parking.aisle_spots([horizontal, vertical], {"h", "v"}, (0, 0, 256, 256))
+        self.assertTrue(spots)
+        for row in spots:
+            corners = parking._spot_corners(row)
+            self.assertTrue(all(abs(p[0] - 40.0) >= 3.0 or not (0 < p[1] < 100) for p in corners))
+            self.assertTrue(all(abs(p[1] - 50.0) >= 3.0 or not (0 < p[0] < 80) for p in corners))
+
+    def test_overlapping_rows_keep_one_stall(self):
+        a = [20.0, 20.0, 0.0, 90.0, 1]
+        b = [20.1, 20.2, 0.0, 95.0, 1]
+        c = [26.0, 20.0, 0.0, 90.0, 1]
+        self.assertEqual(parking.resolve_spots([a, b], [c]), [a, c])
+
+    def test_aisle_blockers_accept_three_dimensional_station_points(self):
+        aisle = ("a", roads.Spec(6.0, "paved", True, "service", False),
+                 np.array([(0.0, 50.0, 1.0), (80.0, 50.0, 1.0)]), 0.0)
+        house = np.array([(30.0, 52.0), (40.0, 52.0), (40.0, 65.0), (30.0, 65.0)])
+        spots = parking.aisle_spots([aisle], {"a"}, (0, 0, 256, 256), blockers=[house])
+        marks = parking.aisle_markings([aisle], {"a"}, (0, 0, 256, 256), blockers=[house])
+        self.assertTrue(spots and marks)
+
+    def test_inside_of_bend_keeps_stall_spacing(self):
+        line = np.array([(0.0, 50.0, 0.0), (20.0, 50.0, 0.0), (24.0, 54.0, 0.0),
+                         (24.0, 80.0, 0.0)])
+        aisle = ("bend", roads.Spec(6.0, "paved", True, "service", False), line, 0.0)
+        spots = parking.aisle_spots([aisle], {"bend"}, (0, 0, 256, 256))
+        self.assertGreater(len(spots), 20)
+        for i, a in enumerate(spots):
+            for b in spots[i + 1:]:
+                if abs(a[0] - b[0]) < 2.0 and abs(a[1] - b[1]) < 2.0:
+                    self.assertGreaterEqual(math.dist(a[:2], b[:2]), 2.0)
+
     def test_stalls_both_sides_nose_out(self):
         aisle = ("a", roads.Spec(6.0, "paved", True, "service", False), np.array([(0.0, 50.0, 0.0), (80.0, 50.0, 0.0)]), 0.0)
         spots = parking.aisle_spots([aisle], {"a"}, (0, 0, 256, 256))
@@ -231,6 +308,15 @@ class MarkTest(unittest.TestCase):
             b = (round(c["n"][1][0], 2), round(c["n"][1][1], 2))
             keys.append(tuple(sorted((a, b))))
         self.assertEqual(len(keys), len(set(keys)), "a shared head line drawn once")
+
+    def test_lines_follow_only_accepted_spaces(self):
+        spots = parking.lot_spots([self.LOT], (0, 0, 256, 256), _z)
+        one = spots[0]
+        allowed = {(one[0], one[1])}
+        chunks = parking.lot_markings([self.LOT], (0, 0, 256, 256), _z, allowed=allowed)
+        self.assertEqual(len(chunks), 3, "one stall has two dividers and a head line")
+        all_chunks = parking.lot_markings([self.LOT], (0, 0, 256, 256), _z)
+        self.assertLess(len(chunks), len(all_chunks))
 
     def test_no_lines_on_the_road_or_the_embankment(self):
         road = ("r", roads.Spec(7.0, "paved", False, "secondary", False), np.array([(-50.0, 0.0, 0.0), (110.0, 0.0, 0.0)]), 0.0)

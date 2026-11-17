@@ -291,6 +291,30 @@ class OverDeckTest(unittest.TestCase):
         self.assertEqual([u["from"] for u in measure.over_deck_spots(rows, ss, np.zeros(len(ss)), ss, 250.0, 350.0)], [300.0])
 
 
+class MeasureBuildOptionsTest(unittest.TestCase):
+    def test_test_track_build_uses_the_new_track_tree_default(self):
+        seen = []
+        fake = SimpleNamespace(build=lambda *_args, **_kwargs: seen.append(os.environ.get("BNE_TREE_SPACING_M")))
+        entry = {"example": {"points": [[46, 14], [46.01, 14]], "width": 100, "title": "Example"}}
+        with (unittest.mock.patch.dict(os.environ, {}, clear=True),
+              unittest.mock.patch.dict(sys.modules, {"generator": fake,
+                                                     "buildtrace": SimpleNamespace(ENV="TEST_BUILD_TRACE")}),
+              unittest.mock.patch.object(measure.shutil, "rmtree"),
+              unittest.mock.patch.object(measure.parallel, "SHARE", 1.0)):
+            measure.build_one(entry, "example", False, 1.0)
+            self.assertEqual(seen, ["2"])
+
+    def test_reported_code_uses_the_options_of_the_built_track(self):
+        from app import trackcode
+        entry = {"points": [[46, 14], [46.01, 14]], "width": 100, "title": "Example"}
+        with tempfile.TemporaryDirectory() as folder, unittest.mock.patch.object(measure, "HERE", folder):
+            tile = os.path.join(folder, "out", "tracks", "example", "tiles")
+            os.makedirs(tile)
+            with open(os.path.join(tile, "anchor.json"), "w", encoding="utf-8") as f:
+                json.dump({"tree_spacing_m": 2, "terrain_cell_m": 2}, f)
+            self.assertEqual(trackcode.decode(measure.code(entry, "example"))["tree_spacing_m"], 2)
+
+
 class SurfaceTest(unittest.TestCase):
     def test_a_tile_touches_a_box_within_its_reach(self):
         # t_-22_15: x -5632..-5376, north 3840..4096, so z -4096..-3840

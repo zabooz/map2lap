@@ -46,7 +46,7 @@ def curb_spots(roads, walks, box, left_hand=False, directions=None):
     (fid, spec, centreline (k, 3), lon); walks: its sidewalk runs (dicts with fid, pts, side, w). left_hand:
     traffic drives on the left (the car's left side to the curb). directions: fid -> +1 / -1, a one-way street's
     traffic along / against its geometry (Overture's one-way rule; +1 when unknown)."""
-    x0, y0, x1, y1 = box
+    import roads as roadsmod
     by_fid = {fid: (spec, pts) for fid, spec, pts, _ in roads}
     out = []
     for wk in walks:
@@ -65,20 +65,33 @@ def curb_spots(roads, walks, box, left_hand=False, directions=None):
         if len(run) < 2:
             continue
         w = wk.get("w", 2.5)
+        # The occupied row lies inside the curb. At a bend it has a different length from the road centreline;
+        # stationing on the latter placed two cars on top of one another at the inside corner.
+        row = roadsmod.offset_polyline(line, side * (spec.width / 2 - CURB_OFF_M))
         phase = furniture._h01(fid, side, "parkph") * SPOT_LEN_M
-        for p, away in furniture._stations(run, line, SPOT_LEN_M, phase, CORNER_CLEAR_M, side):
-            q = p[:2] - away * (w / 2 + CURB_OFF_M)          # from the sidewalk's middle past the curb
-            if not (_owns(box, q[0], q[1])):
+        stations = np.arange(phase, furniture._arclen(row)[-1], SPOT_LEN_M)
+        if not len(stations):
+            continue
+        centres, tangents = furniture._at(row, stations)
+        on_run = furniture._project(run, centres[:, :2])
+        run_pts, _ = furniture._at(run, on_run)
+        length = furniture._arclen(run)[-1]
+        for q, t, s, p in zip(centres, tangents, on_run, run_pts):
+            if not (CORNER_CLEAR_M <= s <= length - CORNER_CLEAR_M):
                 continue
-            # the car's right side to the curb: heading h with right(h) = (h_y, -h_x) = away
+            if np.linalg.norm(q[:2] - p[:2]) > w / 2 + CURB_OFF_M + 0.5:
+                continue
+            if not _owns(box, q[0], q[1]):
+                continue
+            # On a two-way road the car faces away from the row's tangent on the left side (right-hand traffic).
             if spec.oneway:
-                _, d = furniture._at(line, furniture._project(line, q[None]))
+                _, d = furniture._at(line, furniture._project(line, q[None, :2]))
                 h = d[0] * (-1.0 if (directions or {}).get(fid, 1) < 0 else 1.0)
             elif left_hand:             # left(h) = (-h_y, h_x) = away
-                h = np.array([away[1], -away[0]])
+                h = t * side
             else:
-                h = np.array([-away[1], away[0]])
-            out.append([round(float(q[0]), 2), round(float(q[1]), 2), round(float(p[2]), 2),
+                h = -t * side
+            out.append([round(float(q[0]), 2), round(float(q[1]), 2), round(float(q[2]), 2),
                         round(math.degrees(math.atan2(h[1], h[0])) % 360.0, 1)])
     return out
 
@@ -116,6 +129,56 @@ def car_points(spots):
     return np.stack([s[:, :2] + u * a_ + v * b_ for a_, b_ in offs], 1)
 
 
+def _spot_corners(row):
+    """Four corners of a marked parking space [x, y, z, heading, optional lot flag]. Pure."""
+    x, y, _, heading = row[:4]
+    half_l, half_w = ((LOT_SPOT_D_M / 2, LOT_SPOT_W_M / 2) if len(row) > 4
+                      else (SPOT_LEN_M / 2, SPOT_W_M / 2))
+    a = math.radians(heading)
+    u = np.array([math.cos(a), math.sin(a)]) * half_l
+    v = np.array([-math.sin(a), math.cos(a)]) * half_w
+    c = np.array([x, y])
+    return np.array([c + u + v, c + u - v, c - u - v, c - u + v])
+
+
+def _spots_overlap(a, b):
+    """Whether two oriented marked spaces overlap beyond their centimetre-rounding error. Pure."""
+    # Spot coordinates are rounded to 0.01 m. Adjacent spaces share a line; 0.02 m covers both endpoints'
+    # rounding and avoids treating their common boundary as occupied area.
+    for ring in (a, b):
+        for edge in np.roll(ring, -1, axis=0) - ring:
+            axis = np.array([-edge[1], edge[0]])
+            aa, bb = a @ axis, b @ axis
+            if min(aa.max(), bb.max()) - max(aa.min(), bb.min()) <= 0.02 * np.linalg.norm(axis):
+                return False
+    return True
+
+
+def resolve_spots(existing, lot=()):
+    """Non-overlapping curb/aisle rows and mapped-lot rows, with mapped aisles first. Pure.
+
+    Each source proposes full-size spaces. A curve or two sources may put them on top of one another; keep the
+    first one in a stable coordinate order instead of squeezing it. The caller uses this same list for cars and
+    stall markings.
+    """
+    groups = (sorted((r for r in existing if len(r) > 4), key=lambda r: tuple(r[:4])),
+              sorted((r for r in existing if len(r) == 4), key=lambda r: tuple(r[:4])),
+              sorted(lot, key=lambda r: tuple(r[:4])))
+    cells, kept = {}, []
+    for group in groups:
+        for row in group:
+            x, y = float(row[0]), float(row[1])
+            key = (math.floor(x / 10), math.floor(y / 10))
+            poly = _spot_corners(row)
+            near = (j for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                    for j in cells.get((key[0] + dx, key[1] + dy), ()))
+            if any(_spots_overlap(poly, _spot_corners(kept[j])) for j in near):
+                continue
+            cells.setdefault(key, []).append(len(kept))
+            kept.append(row)
+    return kept
+
+
 def clear_of_buildings(spots, rings):
     """The spots whose car (car_points: its corners and centre) stands in none of the rings and has none of their
     corners inside it (a house's corner reaching into its side between the car's corners): the buildings as drawn (a
@@ -149,6 +212,9 @@ LOT_SPOT_D_M = 5.5          # ... and depth (US: 8.5-9 ft x 18 ft)
 LOT_AISLE_M = 7.0           # the driving aisle between rows (two-way, 90-degree stalls: ~24 ft)
 LOT_MARGIN_M = 0.8          # kept in from the lot's edge
 LOT_MAX_PER_TILE = 500
+# The sum of two curb-space corner radii: any spaces on opposite sides of a tile seam that can overlap have
+# centres within this halo. It also covers shorter 5.5 x 2.6 m lot spaces, without a guessed map distance.
+SPOT_HALO_M = 2 * math.hypot(SPOT_LEN_M / 2, SPOT_W_M / 2)
 LOT_CLASSES = {"parking"}   # (surface.PARKING_CLASSES: the lots painted asphalt)
 # a mapped surface that is not a paved lot (OSM surface= on amenity=parking): no asphalt, no paint
 LOT_UNPAVED = {"unpaved", "ground", "dirt", "earth", "mud", "grass", "sand", "soil", "gravel",
@@ -160,16 +226,18 @@ MARK_EDGE_M = 1e-3          # the tile box is half-open: a line on the far edge 
 # A mapped lot's polygon often takes in more than its stalls: drawn up to the road's centre line (its nodes shared
 # with the way), its stalls and lines stood on half the carriageway (the Grossglockner road at the Glocknerhaus); drawn
 # over the embankment down to a lower deck, its cars stood on their noses on the 13 m slope (4-9 m over a stall's
-# 5.5 m). A stall stands clear of the through roads' carriageways (not the lot's own aisles) and on ground no steeper
+# 5.5 m). A stall stands clear of all mapped carriageways, including a lot's own aisles, and on ground no steeper
 # than LOT_MAX_GRADE. (The elevation data's pixels blur a terraced lot's edge, so a real stall there can read steep:
 # the limit stays well above a lot's few percent and well below an embankment's 80 %.)
 LOT_MAX_GRADE = 0.45
 
 
-def through_roads(roads, aisles=()):
+def through_roads(roads, aisles=(), include_aisles=False):
     """fast.Others of the carriageways of roads ((fid, spec, centreline (k, 3), lon): build_tile's roads_out) but the
-    parking aisles (aisles: their fids), or None without any."""
-    rs = [(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads or () if fid not in aisles and len(pts) >= 2]
+    parking aisles (aisles: their fids), or None without any. include_aisles: lot-grid stalls also clear mapped
+    driving aisles within a lot; aisle_spots supply the stalls beside those roads instead."""
+    rs = [(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads or ()
+          if (include_aisles or fid not in aisles) and len(pts) >= 2]
     if not rs:
         return None
     import fast
@@ -303,38 +371,39 @@ def lot_rings(frame, feats_list, paved_only=False):
     return out
 
 
-def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None, roads_near=(), aisles=()):
-    """existing (the tile's other spots) without those whose car reaches into a building (clear_of_buildings) and
-    without its lot stalls (aisle_spots' rows, kind 1) in a mapped lot, plus lot_spots of road tile (tx, ty): the
-    lots of the map cells under it (md: mapdata.MapData), the tile's buildings (items: buildings.road_tile_items'
-    result, rings tile-local; one lifted over a street leaves room under it) as blockers, the roads near it
-    (roads_near: build_tile's roads_out; aisles: build_tile's aisles_out) kept clear, elev(lat, lon) the ground."""
+def tile_lot_spots(frame, tx, ty, md, elev, items=None, existing=None, roads_near=(), aisles=(), ground=None,
+                   accepted_out=None):
+    """The tile's accepted curb, aisle and mapped-lot spots; accepted_out includes the halo across tile edges.
+    md supplies mapped lots; items supplies this tile's ground-level building blockers; roads_near and aisles
+    supply carriageway blockers. ground or elev samples the drawn surface. Pure except for map-cell reads."""
     import roads
     existing = list(existing or [])
     box = roads.tile_bbox(tx, ty)
+    halo = (box[0] - SPOT_HALO_M, box[1] - SPOT_HALO_M,
+            box[2] + SPOT_HALO_M, box[3] + SPOT_HALO_M)
     import buildings
     blockers = buildings.ground_rings(items, *box[:2])     # (as drawn: a pitched roof's house is its oriented box)
     try:
         feats = [md.cell(k, layers=("infrastructure",), kind="demand").layers.get("infrastructure")
-                 for k in roads.cells_of_tile(frame, tx, ty, margin=0.0)]
+                 for k in roads.cells_of_tile(frame, tx, ty, margin=SPOT_HALO_M)]
         rings = lot_rings(frame, feats)
     except Exception:
         rings = []
-    existing = clear_of_buildings(existing, blockers)
-    if rings and existing:              # (a mapped lot draws its own stalls: lot_spots)
-        pts = np.array([r[:2] for r in existing], np.float64)
-        drop = np.zeros(len(existing), bool)
-        for pa in (Path(np.asarray(r, np.float64)) for r in rings if len(r) >= 3):
-            drop |= pa.contains_points(pts)
-        existing = [r for r, d in zip(existing, drop) if not (d and len(r) > 4 and r[4] == 1)]
-    if not rings:
-        return existing
-
     def z_at(x, y):                 # the anchor frame's up, as the ground drawn (the Earth's curve: raw heights stood a
+        if ground is not None:
+            return np.asarray(ground(x, y), np.float64)
         la, lo, _ = frame.enu_to_geodetic(x, y, 0.0)    # spot ~6 m up 10 km from the anchor, 18 m at 15 km)
         return frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2]
-    return existing + clear_of_buildings(lot_spots(rings, box, z_at, blockers, through_roads(roads_near, aisles)),
-                                         blockers)
+    if aisles:
+        extra = aisle_spots(roads_near, aisles, halo, z_at=z_at)
+        existing += [r for r in extra if not _owns(box, r[0], r[1])]
+    existing = clear_of_buildings(existing, blockers)
+    lots = clear_of_buildings(lot_spots(rings, halo, z_at, blockers,
+                                       through_roads(roads_near, aisles, include_aisles=True)), blockers) if rings else []
+    accepted = resolve_spots(existing, lots)
+    if accepted_out is not None:
+        accepted_out.extend(accepted)  # the markings crossing this tile's edge use the same accepted halo rows
+    return [r for r in accepted if _owns(box, r[0], r[1])]
 
 
 AISLE_END_M = 6.0           # stalls kept this far from an aisle's ends (its junctions)
@@ -343,29 +412,25 @@ AISLE_END_M = 6.0           # stalls kept this far from an aisle's ends (its jun
 def aisle_spots(roads, aisles, box, blockers=(), lots=(), z_at=None):
     """Rows [x, y, z, heading, 1] of 90-degree stalls along both sides of the parking aisles (aisles: their
     fids; Overture maps many lots by their aisles alone), LOT_SPOT_W_M apart at stations of the aisle, clear
-    of its ends, of other roads, of buildings (blockers) and of mapped lots (lots: lot_spots covers those), on
-    ground level enough (_stalls_ok; z_at(x, y) -> the ground, arrays; None: any); nose in, away from the aisle.
+    of its ends, of other roads and of buildings (blockers). If lots is given, it excludes those polygons.
+    Stalls must be level enough (_stalls_ok; z_at(x, y) -> the ground, arrays; None: any); nose in, away from the aisle.
     (An aisle along a slope's edge: its stalls on the valley side stood on the slope.)"""
     x0, y0, x1, y1 = box
     import fast
     others = fast.Others([(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads if fid not in aisles])
+    all_roads = through_roads(roads, include_aisles=True)
     paths = [Path(np.asarray(b, np.float64)) for b in list(blockers) + list(lots) if len(b) >= 3]
     out = []
     for fid, spec, line, _ in roads:
         if fid not in aisles or len(line) < 2:
             continue
-        L = furniture._arclen(line)[-1]
-        if L < 2 * AISLE_END_M + LOT_SPOT_W_M:
-            continue
-        phase = furniture._h01(fid, "aisle") * LOT_SPOT_W_M
-        st = np.arange(AISLE_END_M + phase, L - AISLE_END_M, LOT_SPOT_W_M)
-        if not len(st):
-            continue
-        P, D = furniture._at(line, st)
         for side in (1.0, -1.0):
+            Q, D, st, offset = _aisle_stations(fid, spec, line, side)
+            if not len(st):
+                continue
+            P, _ = furniture._at(line, furniture._project(line, Q[:, :2]))
             n = np.stack([-D[:, 1], D[:, 0]], 1) * side
-            Q = P[:, :2] + n * (spec.width / 2 + LOT_SPOT_D_M / 2)
-            flat = _stalls_ok(Q, np.degrees(np.arctan2(n[:, 1], n[:, 0])), z_at)
+            flat = _stalls_ok(Q[:, :2], np.degrees(np.arctan2(n[:, 1], n[:, 0])), z_at, all_roads)
             for q, nn, p in zip(Q[flat], n[flat], P[flat]):
                 if not (_owns(box, q[0], q[1])):
                     continue
@@ -378,11 +443,31 @@ def aisle_spots(roads, aisles, box, blockers=(), lots=(), z_at=None):
     return out
 
 
+def _aisle_stations(fid, spec, line, side):
+    """Spot centres and tangents at regular distances along the actual stall row, not the aisle's middle. Pure.
+
+    On the inside of a bend the row is shorter than the centreline; centreline stationing compressed adjacent
+    2.6 m stalls into one another at Friedensbruecke and Weblinger Guertel. The offset is the aisle's half width
+    plus half a 5.5 m deep stall. A mitered sharp corner can still fold; final overlap filtering handles that.
+    """
+    import roads
+    offset = roads.offset_polyline(line, side * (spec.width / 2 + LOT_SPOT_D_M / 2))
+    length = furniture._arclen(offset)[-1]
+    if length < 2 * AISLE_END_M + LOT_SPOT_W_M:
+        return np.empty((0, 3)), np.empty((0, 2)), np.empty(0), offset
+    phase = furniture._h01(fid, "aisle", side) * LOT_SPOT_W_M
+    st = np.arange(AISLE_END_M + phase, length - AISLE_END_M, LOT_SPOT_W_M)
+    if not len(st):
+        return np.empty((0, 3)), np.empty((0, 2)), st, offset
+    q, d = furniture._at(offset, st)
+    return q, d, st, offset
+
+
 def _hit(paths, q):
     """Does q lie in any of the polygons (Path.contains_points; one point)?"""
     if not paths:
         return False
-    pt = np.atleast_2d(np.asarray(q, np.float64))
+    pt = np.atleast_2d(np.asarray(q, np.float64))[..., :2]
     return any(bool(np.asarray(pa.contains_points(pt)).reshape(-1)[0]) for pa in paths)
 
 
@@ -507,7 +592,7 @@ def _row_segs(c, u, v, along, off, hw, nose, ok, back):
     return segs
 
 
-def lot_markings(rings, box, z_at, blockers=(), through=None):
+def lot_markings(rings, box, z_at, blockers=(), through=None, allowed=None):
     """line_white chunks of the stall lines of parking lots (the rows lot_spots parks cars in): a divider
     between stalls and a line across their heads, each stall wholly inside its lot, its centre in none of
     the blockers (a garage), clear of the through roads (through_roads) and level enough (_stalls_ok). A
@@ -551,6 +636,8 @@ def lot_markings(rings, box, z_at, blockers=(), through=None):
             if ok.any():
                 ok[ok] = _stalls_ok(centres[ok], math.degrees(math.atan2(nose * v[1], nose * v[0])) % 360.0, z_at,
                                     through)
+            if allowed is not None:
+                ok &= np.array([(round(float(q[0]), 2), round(float(q[1]), 2)) in allowed for q in centres], bool)
             room = LOT_MAX_PER_TILE - n_stalls
             if int(ok.sum()) > room:
                 idx = np.flatnonzero(ok)
@@ -571,18 +658,17 @@ def lot_markings(rings, box, z_at, blockers=(), through=None):
     return chunks
 
 
-def _aisle_side_segs(line, spec, st, keep, side):
+def _aisle_side_segs(offset, st, keep, side):
     """Divider and head-line segments along one side of an aisle, for the stations keep marks."""
-    reach0, reach1 = spec.width / 2, spec.width / 2 + LOT_SPOT_D_M
-    half = LOT_SPOT_W_M / 2
+    half, depth = LOT_SPOT_W_M / 2, LOT_SPOT_D_M / 2
     segs = []
     for a, b in _groups(keep):
         ends = np.array([st[a] - half] + [st[i] + half for i in range(a, b + 1)], np.float64)
-        ends = np.clip(ends, 0.0, furniture._arclen(line)[-1])
-        P, D = furniture._at(line, ends)
+        ends = np.clip(ends, 0.0, furniture._arclen(offset)[-1])
+        P, D = furniture._at(offset, ends)
         nrm = np.stack([-D[:, 1], D[:, 0]], 1) * side
-        inner = P[:, :2] + nrm * reach0
-        outer = P[:, :2] + nrm * reach1
+        inner = P[:, :2] - nrm * depth
+        outer = P[:, :2] + nrm * depth
         for i in range(len(ends)):
             z = float(P[i, 2])
             segs.append(((float(inner[i, 0]), float(inner[i, 1]), z), (float(outer[i, 0]), float(outer[i, 1]), z)))
@@ -592,7 +678,7 @@ def _aisle_side_segs(line, spec, st, keep, side):
     return segs
 
 
-def aisle_markings(roads, aisles, box, blockers=(), lots=(), z_at=None):
+def aisle_markings(roads, aisles, box, blockers=(), lots=(), z_at=None, allowed=None):
     """line_white chunks of the stall lines along both sides of the parking aisles (aisles: their fids),
     the rows aisle_spots parks in: clear of the aisle's ends, of other roads, of buildings and of mapped
     lots, on ground level enough (z_at: as aisle_spots'). Nose away from the aisle. Clipped to the tile box.
@@ -600,6 +686,7 @@ def aisle_markings(roads, aisles, box, blockers=(), lots=(), z_at=None):
     x0, y0, x1, y1 = box
     import fast
     others = fast.Others([(fid, spec.width / 2, pts) for fid, spec, pts, _ in roads if fid not in aisles])
+    all_roads = through_roads(roads, include_aisles=True)
     paths = [Path(np.asarray(b, np.float64)) for b in list(blockers) + list(lots) if len(np.asarray(b)) >= 3]
     pad = LOT_SPOT_D_M
     ex0, ey0, ex1, ey1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
@@ -607,21 +694,20 @@ def aisle_markings(roads, aisles, box, blockers=(), lots=(), z_at=None):
     for fid, spec, line, _ in roads:
         if n_stalls >= LOT_MAX_PER_TILE or fid not in aisles or len(line) < 2:
             continue
-        L = furniture._arclen(line)[-1]
-        if L < 2 * AISLE_END_M + LOT_SPOT_W_M:
-            continue
-        phase = furniture._h01(fid, "aisle") * LOT_SPOT_W_M
-        st = np.arange(AISLE_END_M + phase, L - AISLE_END_M, LOT_SPOT_W_M)
-        if not len(st):
-            continue
-        P, D = furniture._at(line, st)
         for side in (1.0, -1.0):
             if n_stalls >= LOT_MAX_PER_TILE:
                 break
+            Q, D, st, offset = _aisle_stations(fid, spec, line, side)
+            if not len(st):
+                continue
+            P, _ = furniture._at(line, furniture._project(line, Q[:, :2]))
             n = np.stack([-D[:, 1], D[:, 0]], 1) * side
-            Q = P[:, :2] + n * (spec.width / 2 + LOT_SPOT_D_M / 2)
-            keep = _stalls_ok(Q, np.degrees(np.arctan2(n[:, 1], n[:, 0])), z_at)
+            keep = _stalls_ok(Q[:, :2], np.degrees(np.arctan2(n[:, 1], n[:, 0])), z_at, all_roads)
             for i, (q, p) in enumerate(zip(Q, P)):
+                if allowed is not None and \
+                        (round(float(q[0]), 2), round(float(q[1]), 2)) not in allowed:
+                    keep[i] = False
+                    continue
                 if not (ex0 <= q[0] < ex1 and ey0 <= q[1] < ey1):
                     keep[i] = False
                     continue
@@ -637,7 +723,7 @@ def aisle_markings(roads, aisles, box, blockers=(), lots=(), z_at=None):
                 keep[idx[:room]] = True
             n_stalls += int(keep.sum())
             if keep.any():
-                segs.extend(_aisle_side_segs(line, spec, st, keep, side))
+                segs.extend(_aisle_side_segs(offset, st, keep, side))
     return _boxed_chunks(segs, box)
 
 
@@ -659,9 +745,9 @@ def drop_covered(chunks, rings):
     return kept
 
 
-def finish_markings(frame, tx, ty, md, elev, items=None, marks=(), roads_near=(), aisles=()):
-    """A road tile's stall-line chunks: the aisle lines (marks, from build_tile) that are not inside a
-    building or a mapped lot, plus lot_markings of the paved lots under the tile, clear of the roads near it
+def finish_markings(frame, tx, ty, md, elev, items=None, marks=(), roads_near=(), aisles=(), spots=None, ground=None):
+    """A road tile's stall-line chunks: accepted aisle lines outside this tile's buildings, plus
+    lot_markings of the paved lots under the tile, clear of all mapped roads near it
     (roads_near: build_tile's roads_out; aisles: build_tile's aisles_out). elev(lat, lon) the ground."""
     import roads
     box = roads.tile_bbox(tx, ty)
@@ -674,8 +760,14 @@ def finish_markings(frame, tx, ty, md, elev, items=None, marks=(), roads_near=()
         rings = []
 
     def z_at(x, y):
+        if ground is not None:
+            return np.asarray(ground(x, y), np.float64)
         la, lo, _ = frame.enu_to_geodetic(np.asarray(x, np.float64), np.asarray(y, np.float64), 0.0)
         return frame.geodetic_to_enu(la, lo, np.asarray(elev(la, lo), np.float64))[2]
 
-    return drop_covered(marks, blockers + rings) + lot_markings(rings, box, z_at, blockers,
-                                                                through_roads(roads_near, aisles))
+    allowed = {(r[0], r[1]) for r in spots} if spots is not None else None
+    if allowed is not None:
+        marks = aisle_markings(roads_near, aisles, box, blockers, z_at=z_at, allowed=allowed)
+    return drop_covered(marks, blockers) + lot_markings(rings, box, z_at, blockers,
+                                                       through_roads(roads_near, aisles, include_aisles=True),
+                                                       allowed=allowed)
