@@ -385,6 +385,19 @@ class BridgeLookTest(unittest.TestCase):
         top = P[np.abs(P[:, 2] - 20.0) < 1e-6]
         self.assertTrue(((top[:, 1] > 5.3) & (top[:, 1] < 5.7)).any(), "the slabs reach the median's middle")
 
+    def test_no_median_past_the_other_decks_end(self):
+        """Twin bridges ending staggered (A2 Völkermarkt, 1736 m): past the other deck's end there is no median, so the
+        slab keeps its own edge. Measured to the other deck's end corner, the "median" there grew to 4.4 m and the slab
+        reached 2.2 m across into the other carriageway."""
+        short = {**self.deck(11.0, "b"), "n": [[0, 11.0, 20.0], [25, 11.0, 20.0]]}
+        P = roadmesh.deck([self.deck(0.0, "a"), short], (0.0, 0.0, 0.0))[0]
+        top = P[np.abs(P[:, 2] - 20.0) < 1e-6]
+        beside = top[(top[:, 0] < 24.0) & (top[:, 1] > 4.0) & (top[:, 1] < 7.0)]
+        self.assertTrue(((beside[:, 1] > 5.3) & (beside[:, 1] < 5.7)).any(), "beside it the slab meets the median's middle")
+        past = top[(top[:, 0] > 26.0) & (top[:, 1] > 0.0) & (top[:, 1] < 9.0)]
+        self.assertLessEqual(past[:, 1].max(), 4.0 + roadmesh.PARAPET_W + 0.01,
+                             "past the other deck's end its own edge: %s" % np.unique(np.round(past[:, 1], 2)))
+
     def test_parapets_beside_a_deck_well_apart(self):
         P = roadmesh.deck([self.deck(0.0, "a"), self.deck(20.0, "b")], (0.0, 0.0, 0.0))[0]
         ys = np.unique(np.round(self.parapet_tops(P)[:, 1], 2))

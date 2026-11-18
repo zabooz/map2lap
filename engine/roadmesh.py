@@ -1030,9 +1030,7 @@ def _median_gaps(rb, context=()):
                         or O[:, 1].min() > E[:, 1].max() + MEDIAN_JOIN_M
                         or O[:, 1].max() < E[:, 1].min() - MEDIAN_JOIN_M):
                     continue
-                d = np.hypot(E[:, None, 0] - O[None, :, 0], E[:, None, 1] - O[None, :, 1])
-                dz = np.abs(E[:, None, 2] - O[None, :, 2])
-                d = np.where(dz < PARAPET_COVER_DZ, d, np.inf).min(1)
+                d = _beside_distance(E, O)
                 hit = (d < MEDIAN_JOIN_M) & ((g == 0) | (d < g))
                 g = np.where(hit, np.maximum(d, 1e-3), g)
             sides.append(g)
@@ -1044,6 +1042,34 @@ def _median_gaps(rb, context=()):
         gr = np.where(both & (gr >= sides[0]), 0.0, gr)
         out.append((_fill_short(gl, MEDIAN_FILL_PTS), _fill_short(gr, MEDIAN_FILL_PTS)))
     return out
+
+
+def _beside_distance(E, O):
+    """Per edge point of E (k, 3: x, y, z) its distance to the other deck's edge O (m, 3) where O runs beside it: the
+    perpendicular to one of O's segments landing on it, or one of O's inner points; inf where none lies within
+    PARAPET_COVER_DZ of its height. Pure.
+
+    Not past O's two ends: there the other deck has ended and no median lies beside this one. Measured to O's end
+    point instead, twin bridges ending staggered got a 4.4 m "median" and the slab reached 2.2 m into the other
+    carriageway (A2 Völkermarkt, 1736 m)."""
+    d = np.full(len(E), np.inf)
+    keep = np.r_[True, np.hypot(*np.diff(O[:, :2], axis=0).T) > 1e-6]
+    O = O[keep]
+    if len(O) < 2:
+        return d
+    a, b = O[:-1], O[1:]
+    ab = b[:, :2] - a[:, :2]
+    u = ((E[:, None, :2] - a[None, :, :2]) * ab[None]).sum(axis=2) / (ab * ab).sum(axis=1)[None]
+    foot = a[None, :, :2] + np.clip(u, 0, 1)[:, :, None] * ab[None]
+    dist = np.hypot(*(E[:, None, :2] - foot).transpose(2, 0, 1))
+    fz = a[None, :, 2] + np.clip(u, 0, 1) * (b[None, :, 2] - a[None, :, 2])
+    level = np.abs(E[:, None, 2] - fz) < PARAPET_COVER_DZ
+    d = np.minimum(d, np.where((u >= 0) & (u <= 1) & level, dist, np.inf).min(axis=1))
+    # An inner corner of O faces the points in its outer wedge only: past the segment before it, before the one after
+    # (the last inner point, reached at a slant past O's end, gave the stagger its median again).
+    wedge = (u[:, :-1] > 1) & (u[:, 1:] < 0) & level[:, 1:]
+    corner = np.hypot(E[:, None, 0] - O[None, 1:-1, 0], E[:, None, 1] - O[None, 1:-1, 1])
+    return np.minimum(d, np.where(wedge, corner, np.inf).min(axis=1, initial=np.inf))
 
 
 MEDIAN_FILL_PTS = 8     # a median's run of points missing it between two that face it (this many or fewer) faces it too
