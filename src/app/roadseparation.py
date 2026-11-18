@@ -3,7 +3,7 @@ import math
 
 import numpy as np
 
-from app import roadregion, roadsurfaces, trackband, trackheights
+from app import builtroad, roadsurfaces, trackband, trackheights
 from track import editorinfo, kn5, objectlist
 
 RAMP_GRADE = .15  # Default correction limit: 15% is a steep road ramp; the editor can set another limit.
@@ -205,7 +205,7 @@ def describe(path, scan, moved, points):
     """Mapped roads, crossings and their current driveable surface gaps."""
     if not isinstance(points, list) or len(points) not in (2, 4):
         raise ValueError('Mark A and B on a road above or below a bridge')
-    selected = roadregion.mapped(path, points[:2], scan=scan, join_near=True)
+    selected = builtroad.pick(path, scan, points[:2], join_near=True)
     selected_lower = len(points) == 2 and not any(edge['structure'] == 'bridge' for edge in selected['segments'])
     candidates = []
     if selected_lower:
@@ -230,7 +230,7 @@ def describe(path, scan, moved, points):
             raise ValueError('The upper road needs an existing mapped bridge')
         above = _route(upper)
     if len(points) == 4:
-        lower = roadregion.mapped(path, points[2:], scan=scan, join_near=True)
+        lower = builtroad.pick(path, scan, points[2:], join_near=True)
         if any(edge['structure'] for edge in lower['segments']):
             raise ValueError('The lower road must be on the ground in this first version')
         below = _route(lower)

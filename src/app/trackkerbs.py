@@ -6,7 +6,7 @@ import math
 import numpy as np
 from PIL import Image
 
-from app import roadsurfaces, trackband
+from app import builtroad, trackband
 from track import kn5, obj_to_kn5
 from track.textures import dds_mipmaps
 
@@ -216,7 +216,7 @@ def rounded(net, side, width):
 
 
 def _continuous_heights(edge, heights):
-    """Repair isolated wrong-level road samples; refuse an implausible sustained step. Pure."""
+    """Repair isolated wrong-level road samples; refuse an implausible sustained step, naming where it is. Pure."""
     heights = np.asarray(heights, np.float64).copy()
     distance = np.linalg.norm(np.diff(edge, axis=0), axis=1)
     for i in range(1, len(heights) - 1):
@@ -225,8 +225,11 @@ def _continuous_heights(edge, heights):
                 and abs(heights[i + 1] - heights[i]) > trackband.MAX_GRADE * b
                 and abs(heights[i + 1] - heights[i - 1]) <= trackband.MAX_GRADE * (a + b)):
             heights[i] = (b * heights[i - 1] + a * heights[i + 1]) / (a + b)
-    if np.any(np.abs(np.diff(heights)) > trackband.MAX_GRADE * np.maximum(distance, 0.1)):
-        raise ValueError("Could not follow one road height here; mark a shorter kerb range")
+    steps = np.flatnonzero(np.abs(np.diff(heights)) > trackband.MAX_GRADE * np.maximum(distance, 0.1))
+    if len(steps):
+        x, z = edge[steps[0] + 1]
+        raise ValueError(f"The road edge steps {abs(heights[steps[0] + 1] - heights[steps[0]]):.1f} m at "
+                         f"x={x:.0f}, z={z:.0f}; mark a kerb range that avoids it")
     return heights
 
 
@@ -240,20 +243,14 @@ def prepare(path, scan, moved, net, side, width=0.45):
     edge = rows[:, :2] + sign * normal * (rows[:, 2:3] / 2 - 0.15)
     heights = []
     # Chunks keep a winding road's height grid bounded even if the selected path circles back.
-    # On bridges the existing scoped road solver replaces ground cells with the source deck's
-    # collision triangles, using the click elevations to choose the right level at crossings.
-    bridge = any(edge.get("structure") == "bridge" for edge in net["segments"])
-    for first in range(0, len(rows), 80):
-        try:
-            part = edge[first:first + 80]
-            if bridge:
-                grid, i0, j0 = roadsurfaces.ground(path, scan, moved, part, net, driveable_only=True)
-                approximate = trackband._sampled(grid, i0, j0, part)
-                heights.extend(roadsurfaces.deck_heights(path, scan, moved, part, approximate, net).tolist())
-            else:
-                heights.extend(trackband.road_heights(path, scan, moved, part).tolist())
-        except trackband.Refused as error:
-            raise ValueError(f"Could not place a kerb on this road edge: {error}") from error
+    # The selected road's own deck faces decide where it is on its bridge (builtroad), so a skewed
+    # deck end and another road's deck or the ground beneath give no height to this kerb.
+    try:
+        for first in range(0, len(rows), 80):
+            heights.extend(builtroad.heights(path, scan, moved, net, edge[first:first + 80])[0].tolist())
+        heights = builtroad.filled(edge, heights)
+    except trackband.Refused as error:
+        raise ValueError(f"Could not place a kerb on this road edge: {error}") from error
     heights = _continuous_heights(edge, heights)
     return np.c_[rows[:, 0], heights, rows[:, 1], rows[:, 2]].round(3).tolist()
 

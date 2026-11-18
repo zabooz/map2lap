@@ -50,6 +50,17 @@ together from the full index. Models own no numbered scene meshes, so copies can
 Unchanged copies and original meshes stay loaded. Save bundles copies by tile, kind, material and flags within KN5 limits.
 Imported model placement and Groups use [editor-library.md](editor-library.md).
 
+## Selecting a built road
+
+Road bend, Smooth road and Racing kerb select and read roads through one query (`app/builtroad.py`). Map facts give the
+connections and each road's ID; the build's faces decide where that road lies. A click's height picks the road whose own
+deck face (by face owner ID) or graded ground lies there, so a flat deck lying on the road it crosses (Perth, no elevation
+data) still selects correctly. Heights come from the selected road's own deck faces within 0.5 m, otherwise from the
+graded ground, also under another road's bridge. Map bridge ranges are not consulted for heights: a skewed deck end reaches
+past them. Each tile stores the bridge/tunnel ranges it reckoned for a whole way; tiles far from a structure can disagree
+with the one that built it, so the graph takes each structure's range from the tile holding its middle
+(`roadregion.merged_roads`). New road tools should select and sample through this query.
+
 ## Elevation and Smooth road
 
 Elevation (H) creates a 2 m raster of millimetre height changes (`app/trackheights.py`). Ground moves vertex by vertex,
@@ -101,7 +112,8 @@ Smooth road (R) marks a road region with two terminal points and optional branch
 the main driving route does not constrain it. Bridge and tunnel ends join their mapped approaches even when structure/layer
 changes there; interior crossings stay separate. Build facts retain the actual partial structure ranges of Overture roads;
 older facts with only whole-way tags need rebuilding for a structure that occupied just part of a road. Clicks retain their
-surface elevation to choose between overlapping deck floors. Orange marks selected road, faint orange the terrain transition.
+surface elevation to choose the built level ([Selecting a built road](#selecting-a-built-road)); the selected road's own
+deck faces replace the terrain wherever they cover a lattice cell. Orange marks selected road, faint orange the terrain transition.
 
 Bridges and tunnel floors share the same smoothing solve as their approaches (`app/roadsurfaces.py`). Two points can span a
 short structure or just one transition on a longer one. Source collision triangles supply the floor height, including banking;
@@ -130,7 +142,7 @@ Racing kerb (B) takes two road clicks as the start and end of one mapped, unbran
 position relative to the mapped centreline chooses the left or right edge in that click order. A centreline click defaults
 to the right edge. The selected mapped centreline uses the road build's bounded quadratic spline before
 one-metre sampling. Junctions, feature joins and selected ends stay fixed; the kerb samples source height at its edge
-(`app/roadregion.py`, `app/trackkerbs.py`). A selected kerb can change width (0.2–2 m), physical height (0–30 cm) and
+(`app/builtroad.py`, `app/trackkerbs.py`). A selected kerb can change width (0.2–2 m), physical height (0–30 cm) and
 flat, rounded or ribbed profile. To place a kerb on the opposite edge, mark a new range there; each side samples its own road
 height. The selected kerb's actual meshes are tinted amber. Clicking
 any part of a kerb with Select highlights its full range; the Select bar's Racing kerb (B) action opens that range's
@@ -140,11 +152,12 @@ change width, height and profile in the Kerb tool. Undo/Redo, the draft and Save
 
 The red-white strip is a visible `1KERB_racing_…` KN5 collision mesh with the ordinary AC KERB surface, so its height is
 physical even without CSP. It overlaps the mapped asphalt edge by 15 cm to join it; that small overlap can fail on a
-road whose mapped width exceeds its actual asphalt. Ground roads use their sampled road height. Bridges use the source
-deck triangles of the selected mapped road, with the build's 1 cm asphalt-skin lift. A kerb edge up to 0.5 m outside a
-deck uses its nearest edge height, because mapped widths and deck triangulation can differ by a few decimetres. Beyond
-0.5 m the kerb is refused instead of taking the height of a road under the bridge. Tunnels are refused until the Editor
-can sample their floor edge reliably.
+road whose mapped width exceeds its actual asphalt. Heights come from the shared built-road query: the selected road's
+own deck triangles with the build's 1 cm asphalt-skin lift, else the graded road ground. A kerb edge up to 0.5 m outside a
+deck uses its nearest edge height, because mapped widths and deck triangulation can differ by a few decimetres. A step
+steeper than a road takes (beyond 0.5 m the ground under a bridge, or an edge running onto the other carriageway at a
+narrow divided end) refuses the range and names its place. Tunnels are refused until the Editor can sample their floor
+edge reliably.
 A 2 m kerb can extend beyond the supported shoulder on narrow or steep roads. The road-edge decal under the kerb remains;
 the raised strip renders over it. The mesh and DDS texture are regenerated from the retained source on each Save, and
 remain below AC's 65,535 vertices per mesh. Elevation follows the kerb at each vertex. Bend road follows the kerb on its

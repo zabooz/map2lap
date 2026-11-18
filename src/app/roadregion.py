@@ -135,12 +135,48 @@ def _near_connectors(positions, edges):
     return links
 
 
-def _network(data, points, bridge_hints=None, join_near=False):
+def checked_points(points):
+    """2 to 20 clicked [x,z] or [x,z,y] road points as an array; ValueError otherwise. Pure."""
     if not isinstance(points, (list, tuple)) or not 2 <= len(points) <= 20:
         raise ValueError("Mark between 2 and 20 road points")
-    pins = np.asarray(points, np.float64)
+    try:
+        pins = np.asarray(points, np.float64)
+    except (ValueError, TypeError) as error:
+        raise ValueError("Invalid road points") from error
     if pins.ndim != 2 or pins.shape[1] not in (2, 3) or not np.isfinite(pins).all():
         raise ValueError("Invalid road points")
+    return pins
+
+
+def reach_of(edge):
+    """How far from a mapped centreline a click still selects it. Pure.
+
+    Kerb clicks target the edge: on a mapped 20 m carriageway that edge is about 10 m from the centreline,
+    beyond the ordinary 6 m aiming radius.
+    """
+    return max(SNAP_M, float(edge["width"]) / 2 + 1.0)
+
+
+def _hinted(edges, within, hint):
+    """Edge number for one click: the nearest edge of the built road and level the click hit, else the nearest. Pure.
+
+    hint: (road IDs, on_deck) from builtroad, or None. A deck click prefers that road's bridge edges, a ground click
+    its ground edges; a skewed deck end can put the click nearer the road's other kind, which is then taken.
+    """
+    if hint is not None:
+        ids, on_deck = hint
+        wanted = "bridge" if on_deck else ""
+        same_road = np.array([str(e["road"]) in ids for e in edges])
+        same_level = same_road & np.array([(e.get("structure") or "") == wanted for e in edges])
+        for mask in (same_level, same_road):
+            preferred = np.where(mask, within, np.inf)
+            if np.isfinite(preferred).any():
+                return int(np.argmin(preferred))
+    return int(np.argmin(within))
+
+
+def _network(data, points, hints=None, join_near=False):
+    pins = checked_points(points)
     positions, numbers, original = list(data[0]), dict(data[1]), data[2]
     edges = [*original, *(_near_connectors(positions, original) if join_near else [])]
 
@@ -165,13 +201,7 @@ def _network(data, points, bridge_hints=None, join_near=False):
         within = np.where(distance <= reach, distance, np.inf)
         if not np.isfinite(within).any():
             raise ValueError("Click on a mapped road")
-        hint = bridge_hints[pin_number] if bridge_hints is not None else None
-        if hint is not None:
-            matching = np.array([(e["structure"] == "bridge") == hint for e in edges])
-            preferred = np.where(matching, within, np.inf)
-            k = int(np.argmin(preferred if np.isfinite(preferred).any() else within))
-        else:
-            k = int(np.argmin(within))
+        k = _hinted(edges, within, hints[pin_number] if hints is not None else None)
         anchor = node(edges[k]["level"], projected[k])
         anchors.append(anchor)
         splits.setdefault(k, []).append((float(t[k]), anchor))
@@ -287,37 +317,69 @@ def footprint(net, x, z, painted, owners=None):
 
 
 @functools.lru_cache(maxsize=32)
-def _mapped(folder, stamp, points, bridge_hints=None, join_near=False):
-    return _network(_source_graph(folder, stamp), points, bridge_hints, join_near)
+def _mapped(folder, stamp, points, hints=None, join_near=False):
+    return _network(_source_graph(folder, stamp), points, hints, join_near)
+
+
+def _ranges_of(road_id, geometry, variants):
+    """One road's bridge/tunnel ranges from the tile that contains each structure. Pure.
+
+    variants: [(tile key, level_ranges)] of tiles that disagree. Each tile reckons a way's ranges from the map cells
+    it loaded, so a tile far from a structure can differ from the tile that built its deck (A2 Völkermarkt, one
+    motorway: 0.3973-0.4118 far away, 0.3935-0.4142 where the deck stands). Joining both splits would fork the
+    road at the structure's end. Overlapping ranges are one structure; the tile holding its middle decides, and a
+    structure whose middle tile is not in the build keeps the union of what the others say.
+    """
+    xy = np.asarray(geometry[0], np.float64)
+    s = np.r_[0., np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+    found = sorted({(float(a), float(b), k) for _key, ranges in variants for a, b, k in ranges})
+    groups = []
+    for a, b, k in found:
+        if groups and groups[-1][2] == k and a <= groups[-1][1]:
+            groups[-1][1] = max(groups[-1][1], b)
+        else:
+            groups.append([a, b, k])
+    by_tile = dict(variants)
+    result = []
+    for a, b, k in groups:
+        middle = (a + b) / 2 * s[-1]
+        x, z = np.interp(middle, s, xy[:, 0]), np.interp(middle, s, xy[:, 1])
+        key = f"{int(np.floor(x / editorinfo.TILE_M))}_{int(np.floor(-z / editorinfo.TILE_M))}"
+        if key not in by_tile:
+            result.append([a, b, k])
+            continue
+        result.extend([lo, hi, kind] for lo, hi, kind in by_tile[key] if kind == k and lo < b and hi > a)
+    return result
+
+
+def merged_roads(tile_roads):
+    """One retained feature per mapped road and geometry across tiles, with consistent level ranges. Pure."""
+    found = {}
+    for key in sorted(tile_roads):
+        for feature in tile_roads[key]:
+            identity = str(feature["id"]), json.dumps(feature.get("geometry"))
+            found.setdefault(identity, []).append((key, feature))
+    result = []
+    for (road_id, _geometry), entries in found.items():
+        first = entries[0][1]
+        variants = [(key, f["level_ranges"]) for key, f in entries if "level_ranges" in f]
+        if len({json.dumps(ranges) for _key, ranges in variants}) > 1 and first.get("geometry"):
+            first = {**first, "level_ranges": _ranges_of(road_id, first["geometry"], variants)}
+        result.append(first)
+    return result
 
 
 @functools.lru_cache(maxsize=1)
 def _source_graph(folder, stamp):
     _fingerprint, tile_roads, chains = surfaceindex._catalog(folder, stamp)
-    features = [{**feature, "chain": chains.get(str(feature["id"]), 0)} for roads in tile_roads.values() for feature in roads]
+    features = [{**feature, "chain": chains.get(str(feature["id"]), 0)} for feature in merged_roads(tile_roads)]
     return _graph(features)
 
 
-def mapped(path, points, scan=None, join_near=False):
-    """Read a cached source network from the build's retained map facts; the main driving route is never used."""
-    folder = editorinfo._folder(path)
-    manifest = editorinfo.manifest(path)
-    if manifest is None:
-        raise ValueError("This track needs a new build for road-area smoothing")
-    stamp = editorinfo._stamp(os.path.join(folder, "manifest.json"))
-    if not isinstance(points, (list, tuple)) or not 2 <= len(points) <= 20:
-        raise ValueError("Mark between 2 and 20 road points")
-    try:
-        pins = np.asarray(points, np.float64)
-    except (ValueError, TypeError) as error:
-        raise ValueError("Invalid road points") from error
-    if pins.ndim != 2 or pins.shape[1] not in (2, 3) or not np.isfinite(pins).all():
-        raise ValueError("Invalid road points")
-    hints = None
-    if scan is not None and pins.shape[1] == 3:
-        from app import roadsurfaces
-        hints = tuple(roadsurfaces.bridge_at(path, scan, point) for point in pins)
-    return _mapped(folder, stamp, tuple(tuple(p) for p in pins), hints, join_near)
+def mapped(path, points, join_near=False):
+    """A cached source network by mapped distance alone; builtroad.pick also uses click heights to choose levels."""
+    from app import builtroad
+    return builtroad.pick(path, None, points, join_near)
 
 
 def selection(path, net):

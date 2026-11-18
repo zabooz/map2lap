@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from app import roadsurfaces, trackkerbs
+from app import builtroad, trackkerbs
 from app import trackcopy, trackedits, trackview
 from track import kn5, objectlist
 from test_trackcopy import Base
@@ -37,7 +37,7 @@ class KerbTest(unittest.TestCase):
             {"a": [0, 0], "b": [20, 0], "width": 6, "road": "a", "structure": ""},
             {"a": [20, 0], "b": [40, 10], "width": 6, "road": "a", "structure": ""},
         ], "pins": [[1, 0, 0], [39, 10, 0]], "junctions": [], "held_junctions": []}
-        with mock.patch.object(trackkerbs.trackband, "road_heights", side_effect=lambda _p, _s, _m, edge: np.zeros(len(edge))):
+        with mock.patch.object(builtroad, "heights", side_effect=lambda _p, _s, _m, _n, edge: (np.zeros(len(edge)), np.zeros(len(edge), bool))):
             line = trackkerbs.prepare(None, {}, None, net, "right")
         xy = np.asarray(line)[:, [0, 2]]
         heading = np.unwrap(np.arctan2(np.diff(xy[:, 1]), np.diff(xy[:, 0])))
@@ -50,7 +50,7 @@ class KerbTest(unittest.TestCase):
             {"a": [0, 0], "b": [20, 0], "width": 6, "road": "a", "structure": ""},
             {"a": [20, 0], "b": [40, 10], "width": 6, "road": "b", "structure": ""},
         ], "pins": [[1, 0, 0], [39, 10, 0]], "junctions": [], "held_junctions": []}
-        with mock.patch.object(trackkerbs.trackband, "road_heights", side_effect=lambda _p, _s, _m, edge: np.zeros(len(edge))):
+        with mock.patch.object(builtroad, "heights", side_effect=lambda _p, _s, _m, _n, edge: (np.zeros(len(edge)), np.zeros(len(edge), bool))):
             line = trackkerbs.prepare(None, {}, None, net, "right")
         self.assertTrue(np.any(np.all(np.asarray(line)[:, [0, 2]] == [20, 0], axis=1)))
 
@@ -60,7 +60,7 @@ class KerbTest(unittest.TestCase):
             {"a": [0, 0], "b": [20, 0], "width": 6, "road": "a", "owner": 1, "structure": ""},
             {"a": [20, 0], "b": [40, 10], "width": 6, "road": "a", "owner": 2, "structure": ""},
         ], "pins": [[1, 0, 0], [39, 10, 0]], "junctions": [], "held_junctions": []}
-        with mock.patch.object(trackkerbs.trackband, "road_heights", side_effect=lambda _p, _s, _m, edge: np.zeros(len(edge))):
+        with mock.patch.object(builtroad, "heights", side_effect=lambda _p, _s, _m, _n, edge: (np.zeros(len(edge)), np.zeros(len(edge), bool))):
             line = trackkerbs.prepare(None, {}, None, net, "right")
         xy = np.asarray(line)[:, [0, 2]]
         heading = np.unwrap(np.arctan2(np.diff(xy[:, 1]), np.diff(xy[:, 0])))
@@ -68,18 +68,18 @@ class KerbTest(unittest.TestCase):
 
 
     def test_bridge_kerb_uses_the_sloped_deck_face_at_its_edge(self):
-        net = {"segments": [{"a": [0, 0], "b": [4, 0], "width": 6, "structure": "bridge"}],
+        net = {"segments": [{"a": [0, 0], "b": [4, 0], "width": 6, "road": "a", "structure": "bridge"}],
                "pins": [[0, 0, 10], [4, 0, 10.4]]}
         floor = np.array([[[0, 10, -5], [0, 10, 5], [4, 10.4, -5]],
                           [[4, 10.4, -5], [0, 10, 5], [4, 10.4, 5]]], dtype=float)
         stacked = floor.copy()
         stacked[:, :, 1] += 10
-        scan = {"meshes": [{"name": "1ROAD_deck_0"}]}
-        faces = [(0, np.arange(4), np.concatenate((floor, stacked)))]
-        with (mock.patch.object(roadsurfaces, "ground", return_value=(np.zeros((2, 2)), 0, 0)),
-              mock.patch.object(trackkerbs.trackband, "_sampled", side_effect=lambda _g, _i, _j, edge: np.full(len(edge), 10.0)),
-              mock.patch.object(roadsurfaces, "_top_triangles", return_value=faces)):
-            line = np.asarray(trackkerbs.prepare(None, scan, None, net, "left"))
+        # A crossing deck of another road at the same projection gives the kerb no height.
+        found = [(t, t[:, :, [0, 2]].min(axis=1), t[:, :, [0, 2]].max(axis=1), np.array([owner, owner]))
+                 for t, owner in ((stacked, "b"), (floor, "a"))]
+        with (mock.patch.object(builtroad, "decks", return_value=found),
+              mock.patch.object(builtroad.trackband, "_ground", return_value=(np.zeros((8, 8)), -2, -4))):
+            line = np.asarray(trackkerbs.prepare(None, {"meshes": []}, None, net, "left"))
         np.testing.assert_allclose(line[:, 1], 10.01 + 0.1 * line[:, 0], atol=0.001)
 
     def test_bridge_kerb_uses_its_road_id_just_outside_the_deck_edge(self):
@@ -89,15 +89,14 @@ class KerbTest(unittest.TestCase):
                           [[4, 1, -4], [0, 1, 4], [4, 1, 4]]], dtype=float)
         deck = floor.copy()
         deck[:, :, 1] = 10 + 0.1 * deck[:, :, 0]
-        scan = {"meshes": [{"name": "1ROAD_deck_asphalt_0_0"}]}
-        faces = [(0, np.arange(4), np.concatenate((floor, deck)))]
-        owners = np.array(["lower", "lower", "upper", "upper"])
-        with (mock.patch.object(roadsurfaces, "_top_triangles", return_value=faces),
-              mock.patch.object(roadsurfaces.editorinfo, "surface_face_owners", return_value=owners)):
-            height = roadsurfaces.deck_heights(None, scan, None, np.array([[2, 4.18]]), np.array([1.0]), net)
-            self.assertAlmostEqual(float(height[0]), 10.21, places=2)
-            with self.assertRaisesRegex(ValueError, "more than 0.5 m"):
-                roadsurfaces.deck_heights(None, scan, None, np.array([[2, 4.6]]), np.array([1.0]), net)
+        found = [(t, t[:, :, [0, 2]].min(axis=1), t[:, :, [0, 2]].max(axis=1), np.array([owner, owner]))
+                 for t, owner in ((floor, "lower"), (deck, "upper"))]
+        with (mock.patch.object(builtroad, "decks", return_value=found),
+              mock.patch.object(builtroad.trackband, "_ground", return_value=(np.zeros((8, 8)), -2, -2))):
+            height, on_deck = builtroad.heights(None, {"meshes": []}, None, net, np.array([[2, 4.18], [2, 4.6]]))
+        self.assertTrue(on_deck[0])
+        self.assertAlmostEqual(float(height[0]), 10.21, places=2)
+        self.assertFalse(on_deck[1], "beyond half a metre the deck edge is not extended")
 
 
     def test_kerb_mesh_has_real_ac_collision_and_adjustable_profile(self):

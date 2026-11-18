@@ -4,7 +4,7 @@ import sys
 
 import numpy as np
 
-from app import paths, roadregion, roadseparation, roadsurfaces, trackband, trackheights
+from app import builtroad, paths, roadseparation, roadsurfaces, trackband, trackheights
 
 if paths.ENGINE not in sys.path:
     sys.path.insert(0, paths.ENGINE)
@@ -17,7 +17,7 @@ def describe(path, scan, points):
     """The selected unbranched road and its ordered centreline."""
     if not isinstance(points, list) or len(points) != 2:
         raise ValueError('Mark A and B on the same road')
-    net = roadregion.mapped(path, points, scan=scan, join_near=True)
+    net = builtroad.pick(path, scan, points, join_near=True)
     if any(edge['structure'] == 'tunnel' for edge in net['segments']):
         raise ValueError('Mark a stretch outside the tunnel')
     return net, roadseparation._route(net)

@@ -311,7 +311,7 @@ def _wire_changes(mesh, scan, objects, field, reach):
 
 def _kerb_owners(path, scan):
     """Mapped road IDs for generated kerbs, including drafts placed before IDs were retained. Pure."""
-    from app import roadregion
+    from app import builtroad
     owners, known = {}, {}
     for i, mesh in enumerate(scan["meshes"]):
         if objectlist.kind_of(mesh["name"]) != "racing":
@@ -321,7 +321,7 @@ def _kerb_owners(path, scan):
             key = mesh.get("kerb_id", i)
             if key not in known:
                 try:
-                    net = roadregion.mapped(path, mesh["road_points"], scan=scan, join_near=True)
+                    net = builtroad.pick(path, scan, mesh["road_points"], join_near=True)
                     known[key] = {edge["road"] for edge in net["segments"] if edge.get("road")}
                 except (ValueError, OSError, KeyError):
                     known[key] = set()
@@ -332,7 +332,7 @@ def _kerb_owners(path, scan):
 
 def _kerb_bends(path, scan, ops, wanted):
     """Mapped road profiles that move editor kerbs along with Bend road. Pure."""
-    from app import roadregion, roadseparation
+    from app import builtroad, roadseparation
     profiles = []
     for op in ops:
         bend = op.get("bend")
@@ -341,7 +341,7 @@ def _kerb_bends(path, scan, ops, wanted):
         line = bend.get("line")
         if line is None:
             # A draft bend made before the route was retained still names its mapped road and pins.
-            line = roadseparation._route(roadregion.mapped(path, bend["points"], scan=scan, join_near=True))
+            line = roadseparation._route(builtroad.pick(path, scan, bend["points"], join_near=True))
         line = np.asarray(line, np.float64)
         profiles.append((set(bend.get("road_ids", [])), line,
                          [(float(roadseparation._stations(line)[-1] / 2), float(bend["delta"]))]))

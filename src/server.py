@@ -33,7 +33,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource, tracksurfaces,  # noqa: E402
+from app import (builtroad, csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -857,7 +857,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             base = body.get("base")
             path, scan = trackview._scan_of(ac, name, base)
-            net = roadregion.mapped(path, body.get("points"), scan=scan, join_near=True)
+            net = builtroad.pick(path, scan, body.get("points"), join_near=True)
             side = trackkerbs.side_of_click(net, body["points"][0])
             width = body.get("width", 0.45)
             if type(width) not in (int, float) or not math.isfinite(width) or not trackkerbs.MIN_WIDTH_M <= width <= trackkerbs.MAX_WIDTH_M:
@@ -887,7 +887,8 @@ class Handler(BaseHTTPRequestHandler):
             if "revision" in body and body["revision"] != trackedits.load(ac, name)["revision"]:
                 return self._send(409, {"error": "The road edits changed: mark the road again"})
             if body.get("network"):
-                net = roadregion.mapped(path, body.get("points"))
+                # The click heights choose the road level built there, as in Bend road and Racing kerb.
+                net = builtroad.pick(path, scan, body.get("points"))
                 region = roadregion.selection(path, net)
                 if what == "way":
                     lines = [[[x, 0., z] for x, z in line] for line in net["lines"]]

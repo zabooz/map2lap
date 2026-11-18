@@ -6,10 +6,6 @@ import numpy as np
 from app import trackband, trackheights
 from track import editorinfo, kn5, objectlist
 
-# The mapped road edge can lie a few decimetres outside its triangulated deck (A2 Völkermarkt: 18 cm).
-# The kerb overlaps the asphalt by 15 cm; beyond half a metre there is no reliable deck edge to extend.
-KERB_DECK_REACH_M = 0.5
-
 
 def structures(net, x, z, extra=0):
     """The nearest mapped segment's structure type, within its road width. Pure."""
@@ -72,77 +68,32 @@ def _nearest_deck(triangle, point):
     return best
 
 
-def bridge_at(path, scan, point):
-    """True/False if a deck lies at x/z, matched against clicked [x,z,y]; None away from decks."""
-    x, z, y = point
-    bounds = np.array([[x - 0.1, z - 0.1], [x + 0.1, z + 0.1]])
-    heights = []
-    for i, _faces, triangles in _top_triangles(path, scan, bounds=bounds):
-        if not scan['meshes'][i]['name'].startswith('1ROAD_deck'):
-            continue
-        near = triangles[((triangles[:, :, [0, 2]].min(axis=1) <= [x, z])
-                          & (triangles[:, :, [0, 2]].max(axis=1) >= [x, z])).all(axis=1)]
-        for triangle in near:
-            inside, height = _plane(triangle, x, z)
-            if inside:
-                heights.append(float(height))
-    if not heights:
-        return None
-    # The visible asphalt skin is centimetres above 1ROAD_deck; a road below a
-    # crossing deck is metres away. The tolerance also covers imperfect click rays.
-    return min(abs(height - y) for height in heights) < 0.2
-
-
-def deck_heights(path, scan, moved, points, approximate, net):
-    """Visible height of the selected bridge road, extending its deck edge by at most KERB_DECK_REACH_M."""
-    points = np.asarray(points, np.float64)
-    result = np.asarray(approximate, np.float64).copy()
-    on_bridge = structures(net, points[:, 0], points[:, 1], extra=2) == 1
-    if not on_bridge.any():
-        return result
-    selected_ids = {edge.get('road') for edge in net['segments'] if edge['structure'] == 'bridge'} - {None}
-    best = np.full(len(points), np.inf)
-    bounds = np.array([points.min(axis=0) - KERB_DECK_REACH_M, points.max(axis=0) + KERB_DECK_REACH_M])
-    for i, faces, triangles in _top_triangles(path, scan, moved, bounds):
-        if not scan['meshes'][i]['name'].startswith('1ROAD_deck') or not len(triangles):
-            continue
-        owners = editorinfo.surface_face_owners(path, scan['meshes'][i]['name'])[faces] if selected_ids else None
-        low = triangles[:, :, [0, 2]].min(axis=1)
-        high = triangles[:, :, [0, 2]].max(axis=1)
-        for k in np.flatnonzero(on_bridge):
-            point = points[k]
-            near = np.flatnonzero(((low <= point + KERB_DECK_REACH_M)
-                                   & (high >= point - KERB_DECK_REACH_M)).all(axis=1))
-            for j in near:
-                if owners is not None and owners[j] not in selected_ids:
-                    continue
-                distance, height = _nearest_deck(triangles[j], point)
-                if owners is None:
-                    # A synthetic or old source without IDs still uses its click-height hint on exact deck faces.
-                    distance = abs(height - approximate[k]) if distance < 1e-6 else np.inf
-                if distance < min(best[k], KERB_DECK_REACH_M + 1e-6):
-                    # roadmesh.DECK_SKIN raises the visible asphalt 1 cm above the collision slab.
-                    result[k] = height + 0.01
-                    best[k] = distance
-    if selected_ids and np.any(on_bridge & ~np.isfinite(best)):
-        raise ValueError('Kerb edge is more than 0.5 m from its mapped bridge deck; mark a shorter road stretch')
-    return result
-
-
 def ground(path, scan, moved, bounds, net, driveable_only=False):
-    """Selected ground/deck heights on the existing lattice; driveable_only excludes bridge concrete below the road."""
+    """Selected ground/deck heights on the existing lattice; driveable_only excludes bridge concrete below the road.
+
+    The selected roads' own driving decks (face owner IDs) replace the terrain wherever they cover a cell, also past a
+    skewed end's mapped structure range. Other cells inside the mapped structure take the floor nearest the clicked
+    level; another road's deck never counts. Sources without face IDs keep only the mapped-range rule.
+    """
     grid, i0, j0 = trackband._ground(path, scan, moved, bounds, road_only=True)
     x, z = np.meshgrid((np.arange(grid.shape[1]) + i0) * 2, (np.arange(grid.shape[0]) + j0) * 2)
     kind = structures(net, x, z, extra=2)
-    if not kind.any():
-        return grid, i0, j0
-    expected = _expected(net, grid, i0, j0, x, z)
+    ids = {str(edge['road']) for edge in net['segments'] if edge.get('road') is not None}
+    expected = _expected(net, grid, i0, j0, x, z) if kind.any() else np.zeros(grid.shape)
     grid[kind != 0] = np.nan
     best = np.full(grid.shape, np.inf)
-    for _i, _faces, triangles in _top_triangles(path, scan, moved, bounds):
-        if driveable_only and not scan['meshes'][_i]['name'].startswith('1ROAD_deck'):
+    for _i, faces, triangles in _top_triangles(path, scan, moved, bounds):
+        name = scan['meshes'][_i]['name']
+        driving = name.startswith('1ROAD_deck')
+        if driveable_only and not driving:
             continue
-        for triangle in triangles:
+        owners = _face_owners(path, name)
+        owned = np.isin(owners[faces], list(ids)) if owners is not None else np.zeros(len(faces), bool)
+        if owners is not None:
+            triangles, owned = triangles[owned], owned[owned]
+        elif not kind.any():
+            continue
+        for triangle, own in zip(triangles, owned):
             low, high = triangle[:, [0, 2]].min(axis=0), triangle[:, [0, 2]].max(axis=0)
             c0, r0 = np.maximum(np.floor(low / 2).astype(int) - [i0, j0], 0)
             c1, r1 = np.minimum(np.ceil(high / 2).astype(int) - [i0, j0] + 1, grid.shape[::-1])
@@ -151,9 +102,21 @@ def ground(path, scan, moved, bounds, net, driveable_only=False):
             part = np.s_[r0:r1, c0:c1]
             inside, height = _plane(triangle, x[part], z[part])
             error = np.abs(height - expected[part])
-            on = inside & (kind[part] != 0) & (error < best[part])
+            # A road's own deck is its surface wherever it covers; concrete tops count only inside the mapped structure.
+            allowed = (kind[part] != 0) | (own and driving)
+            on = inside & allowed & (error < best[part])
             grid[part][on], best[part][on] = height[on], error[on]
     return grid, i0, j0
+
+
+def _face_owners(path, name):
+    """Source road ID per face of a deck mesh, or None for a synthetic or pre-ownership source."""
+    if not name.startswith(('1ROAD_deck_', '1WALL_deck_')):
+        return None
+    try:
+        return editorinfo.surface_face_owners(path, name)
+    except (ValueError, OSError, KeyError):
+        return None
 
 
 def _expected(net, ground, i0, j0, x, z):
