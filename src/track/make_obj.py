@@ -825,7 +825,6 @@ def _scenery_tile(tx, ty, part_path):
             i = min(depth.shape[1] - 1, max(0, int(round((x - x0) / CELL))))
             j = min(depth.shape[0] - 1, max(0, int(round((y - y0) / CELL))))
             return d[j, i] > 0
-    road_xy = []                # road points of the tile (street light arms point to the nearest one)
     vertex_owners, houses = _buildings_listed(obj.listed, data, shapes, tiles_dir)
     vertex_owners.update(_wires_listed(obj.listed, data, shapes, tiles_dir))
     vertex_owners.update(_walls_listed(obj.listed, data, shapes))
@@ -861,8 +860,6 @@ def _scenery_tile(tx, ty, part_path):
                 if source_ids is not None and len(T) != len(original):
                     kept = {tuple(face) for face in T}
                     source_ids = source_ids[[tuple(face) in kept for face in original]]
-            if what == "road":  # (markings: the road itself is terrain texture now)
-                road_xy.append(P[np.unique(T), :2])
             if bname in BLD_KINDS:
                 for mat, t in bld_split(P, T, C, BLD_KINDS[bname][0]).items():
                     groups.setdefault(("1WALL", mat, mat), []).append((P, UV, t, vertex, None))
@@ -896,8 +893,7 @@ def _scenery_tile(tx, ty, part_path):
         try:
             marks = []
             solid, deco, glass, street_trees = propsmesh.build(
-                data["props"]["groups"], data["props"]["items"],
-                np.concatenate(road_xy) if road_xy else None, marks)
+                data["props"]["groups"], data["props"]["items"], marks)
             of_solid, of_deco, of_glass = _props_listed(obj.listed, data["props"]["groups"], data["props"]["items"], marks, solid, deco, glass, houses)
             for name, material, mesh, vertex in ((f"1WALL_props_{tx}_{ty}", "props", solid, of_solid), (f"nocol_props_{tx}_{ty}", "props", deco, of_deco),
                                                  (f"nocol_props_glass_{tx}_{ty}", "lamp_glass", glass, of_glass)):

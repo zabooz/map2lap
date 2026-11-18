@@ -18,7 +18,7 @@ class PoleAttachmentTest(unittest.TestCase):
         for height in (7., 9.2, 12.):
             for yaw in (0., 37., 90.):
                 rows = [[0, 4., 8., 100., yaw, 1., height, 0.]]
-                solid, deco, _, _ = propsmesh.build(['pole'], rows, None)
+                solid, deco, _, _ = propsmesh.build(['pole'], rows)
                 self.assertIsNotNone(deco, 'the pole needs visible insulators above its cross-arm')
                 self.assertLessEqual(len(deco[2]), 36, 'three insulators at 12 triangles each')
                 self.assertLessEqual(len(deco[0]), 24, 'eight vertices per insulator, shared within it')

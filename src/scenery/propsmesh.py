@@ -410,15 +410,6 @@ def fuel(records, marks=None):
     return solid.mesh(), deco.mesh()
 
 
-def _toward(x, y, road_xy):
-    """Direction (rad) to the nearest road vertex, or None."""
-    if road_xy is None or not len(road_xy):
-        return None
-    d = road_xy - (x, y)
-    i = int(np.argmin(np.einsum("ij,ij->i", d, d)))
-    return math.atan2(d[i, 1], d[i, 0])
-
-
 def kind_of(group):
     """What a prop row's group is, for the track's list of objects. Pure."""
     if group == "door":
@@ -436,7 +427,7 @@ def sort_of(group):
     return "substation" if group in SUBSTATION else group
 
 
-def build(groups, rows, road_xy=None, marks=None):
+def build(groups, rows, marks=None):
     """(collision mesh, visible mesh without collision, the street lamps' glass, street tree rows [x, y, z, yaw, h, rank]). marks: a
     list that gets per row (its number, the vertices so far of the first mesh, of the second, of the glass)."""
     solid, deco, glass, street_trees = Builder(), Builder(), Builder(), []
@@ -458,9 +449,8 @@ def build(groups, rows, road_xy=None, marks=None):
             for off, bottom, top in poleprofile.pole_attachments(h):
                 px, py = x + math.cos(yaw) * off, y + math.sin(yaw) * off
                 _insulator(deco, (px, py, z + bottom), (px, py, z + top), .11)
-        elif g == "streetlight":                            # pole, arm towards the road, lamp head
-            a = _toward(x, y, road_xy)
-            a = yaw if a is None else a
+        elif g == "streetlight":                            # the row's yaw points its arm at its own road
+            a = yaw
             solid.box(x, y, z - 0.3, 0.2, 0.2, h + 0.3, a, METAL)
             ax, ay = x + math.cos(a) * 0.8, y + math.sin(a) * 0.8
             deco.box(ax, ay, z + h - 0.2, 1.6, 0.12, 0.12, a, METAL)

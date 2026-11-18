@@ -21,7 +21,7 @@ ROWS = [[0, 0.0, 0.0, 100.0, 0.0, 1.0, 9.0, 0.5],
 def built():
     """(the meshes of a streetlight, a pole with its lamp and a bin, their objects, whose each vertex of the glass is)."""
     marks = []
-    solid, deco, glass, _trees = propsmesh.build(GROUPS, ROWS, None, marks)
+    solid, deco, glass, _trees = propsmesh.build(GROUPS, ROWS, marks)
     objects = objectlist.TileList()
     _, _, of_glass = make_obj._props_listed(objects, GROUPS, ROWS, marks, solid, deco, glass, {})
     return solid, deco, glass, objects, of_glass
@@ -54,7 +54,7 @@ class GlassTest(unittest.TestCase):
         self.assertFalse(yellow & {tuple(uv) for uv in deco[1].round(5).tolist()})
 
     def test_no_lamp_no_glass_mesh(self):
-        self.assertIsNone(propsmesh.build(["bin"], [[0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.5]], None, [])[2])
+        self.assertIsNone(propsmesh.build(["bin"], [[0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.5]], [])[2])
 
     def test_the_glass_is_a_listed_mesh(self):
         self.assertIsNone(objectlist.problem("nocol_props_glass_3_-4", True))
