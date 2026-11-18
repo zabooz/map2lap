@@ -19,6 +19,24 @@ def plan(kind, ring=None, **attrs):
 
 
 class OutbuildingTest(unittest.TestCase):
+    def test_unclassified_tiny_building_has_shed_access(self):
+        ring = np.array([[0., 0.], [4.5, 0.], [4.5, 3.2], [0., 3.2]])
+        spec = bld.plan(ring, {'class': '', 'height': np.nan, 'num_floors': np.nan},
+                        lat=46.65, lon=14.63)
+        p, uv, t, mids, materials, _ = bld.build([(spec, 0., 0.)])
+        access = materials.index(bld.SURFACE_MATERIALS['utl'])
+        self.assertGreater(np.count_nonzero(mids == access), 0)
+        self.assertGreater(np.count_nonzero(mids == materials.index('bne_bld_facade')), 0)
+
+    def test_narrow_rectangular_buildings_keep_mapped_pitched_roofs(self):
+        ring = np.array([[0., 0.], [4.5, 0.], [4.5, 3.2], [0., 3.2]])
+        for kind in ('', 'shed', 'garage', 'kiosk'):
+            spec = bld.plan(ring, {'class': kind, 'roof_shape': 'gabled'},
+                            lat=46.65, lon=14.63)
+            self.assertEqual(spec.roof, 'gabled', kind)
+        inferred = bld.plan(ring, {'class': ''}, lat=46.65, lon=14.63, look=.927682)
+        self.assertEqual(inferred.roof, 'gabled')
+
     def test_closed_small_utilities_get_a_door_without_a_nearby_road(self):
         for kind in ('shed', 'hut', 'cabin', 'toilets', 'service', 'static_caravan'):
             spec = plan(kind)

@@ -10,7 +10,7 @@ GARAGE_BAY_M = 3.4          # Approximate 2.6 m car gate plus separating wall pi
 
 
 def utility_kind(spec):
-    """Opening family for explicit map classes at ground level; raised parts have no inferred access. Pure."""
+    """Opening family for mapped types or inferred tiny sheds; raised parts have none. Pure."""
     if (spec.min_h or 0.) > .5 or spec.deck or spec.toll is not None:
         return None
     if spec.cls in ('garage', 'garages'):
@@ -19,7 +19,9 @@ def utility_kind(spec):
         return 'stable'
     if spec.cls in ('shed', 'hut', 'cabin', 'toilets', 'service', 'static_caravan', 'greenhouse'):
         return spec.cls
-    return 'barn' if spec.cls in BARN_CLASSES else None
+    if spec.cls in BARN_CLASSES:
+        return 'barn'
+    return 'shed' if spec.inferred_shed else None
 
 
 def _panel(m, a, b, along, width, bottom, height, cell, mat, window_uv=None):
@@ -47,7 +49,7 @@ def draw_utility(m, spec, gmin, gmax, mat_idx):
     mat = mat_idx[f"{SURFACE_MATERIALS['utl']}|0"]
     a, b, length = ring[front], ring[(front + 1) % len(ring)], lengths[front]
     if kind not in ('garage', 'stable', 'barn'):
-        _small_access(m, spec, ring, lengths, front, eave, gmax, mat_idx)
+        _small_access(m, spec, kind, ring, lengths, front, eave, gmax, mat_idx)
         return
     # Limit gates on very long footprints: this is visual inference, not the actual garage unit count.
     count = min(8, max(1, int(length / GARAGE_BAY_M))) if kind == 'garage' else 1
@@ -87,9 +89,9 @@ def draw_utility(m, spec, gmin, gmax, mat_idx):
             break
 
 
-def _small_access(m, spec, ring, lengths, front, eave, gmax, mat_idx):
+def _small_access(m, spec, kind, ring, lengths, front, eave, gmax, mat_idx):
     """One personnel door and a few small windows, fitted below the eave on small utility buildings."""
-    kind, length = spec.cls, lengths[front]
+    length = lengths[front]
     bottom = door_ground(spec, front, length / 2, gmax)
     height = min(2.05, eave - bottom - .15)
     width = min(1.05, length - 2 * OPENING_MARGIN_M)

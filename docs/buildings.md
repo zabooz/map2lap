@@ -88,6 +88,9 @@ the mapped outline to fill at least 80% of the rectangle. The rectangle's corner
 outline into a sidewalk or road carriageway. This pre-existing approximation is not checked against the road surface:
 in the short test tracks, 295 pitched-roof buildings' added rectangle area touches a road band, and 59 cover more than
 5 m² of road band or sidewalk. The mapped outline, not a roof-style change, determines the building's source position.
+Narrow, near-rectangular footprints keep pitched roofs, including mapped shapes on small sheds and kiosks; the old
+4 m minimum width flattened them without a geometric need. Irregular outlines and oversized roofs still fall back
+to flat roofs.
 
 `gasstations.py`, `plazas.py`, `photo.py` (`brick_share`) and `make_obj.py` call `region_style` without ground height.
 They therefore see the lowland style even at a high Alpine point. Every style pair separated only by the 700 m
@@ -148,6 +151,8 @@ windows where appropriate. Their road-facing wall is preferred; the longest wall
 reuse the utility/industrial atlases and the ordinary night-lit window bays. Inferred roof rises leave 2.4 m of wall
 height where the supplied total height allows it; explicit roof heights and lower mapped total heights still win.
 Caravans default to light cladding and a low roof. Toilets and service buildings default to plaster.
+An unclassified footprint below 40 m² also uses the shed access details, matching its shed-shaped walls rather than
+leaving a plain box. This is a drawing inference; a wrong source footprint remains a building until removed or filtered.
 
 `shelter`, `roof` and `carport` draw a roof on narrow posts, with a bounded support count. The roof is visible from
 below; collision uses the same open structure. `greenhouse` defaults to light glazing with a frame grid (`ghg`) and

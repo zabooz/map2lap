@@ -186,8 +186,9 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
                 roof = "gabled" if seed < 1.0 - style.hipped else "hipped"
         else:
             roof = "flat"
-    # pitched roofs only on near-rectangular footprints (a church's nave keeps its gable beside a tower or an apse)
-    if roof != "flat" and (box_fill < (0.6 if church or round_silo else 0.8) or hw < 2.0
+    # A narrow but rectangular shed can carry a pitched roof; width alone is no reason to flatten a mapped roof.
+    # The fill test still keeps a rectangular roof off irregular outlines, and the maximum limits large roofs.
+    if roof != "flat" and (box_fill < (0.6 if church or round_silo else 0.8)
                            or hw > (18.0 if barn else 20.0 if church else 14.0)):
         roof = "flat"
     # a city tower's ground floor is shops or a lobby (Midtown: most towers have no class, and their
@@ -475,9 +476,12 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
     if cls in CIVIC_CLASSES:
         pattern = FacadePattern(bay_m=3., entrance='centre', door_clearance_m=1.3,
                                 window_width_m=1.5, window_height_m=1.3, window_sill_m=.8)
+    # An unclassified small footprint uses shed walls, so its access follows that same inference.
+    inferred_shed = bool(shed and not cls and not (church or terminal or garage))
     return Spec(architecture=architecture, ring=ring, floors=nf, floor_h=floor_h, height=h, roof=roof, roof_mat=roof_mat, facade=facade,
                 band=band, shop=shop and not shed and nf >= 1, plain=plain, seed=seed, min_h=0.0, wall=wall, house=house,
-                windows=windows, steeple=church and area < 2500 and not attrs.get("suppress_steeple")
+                windows=windows, inferred_shed=inferred_shed,
+                steeple=church and area < 2500 and not attrs.get("suppress_steeple")
                 and roof not in ("pyramidal", "onion", "dome", "spherical"), porch=porch, cls=cls,
                 deck=garage and roof == "flat", pitch=style.pitch, castle=castle,
                 facade_pattern=architecture_pattern(architecture, pattern),
