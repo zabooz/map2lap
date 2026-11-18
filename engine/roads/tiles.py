@@ -5,8 +5,8 @@ import numpy as np
 
 import mapcells
 
-from .style import LANE_M, MAX_NODES, OVERLAP, TILE, URBAN_ARTERIAL
-from .specs import PARKING_CLASSES, PARKING_M, edge_margin
+from .style import LANE_M, MAX_NODES, OVERLAP, TILE
+from .specs import PARKING_M, edge_margin, parks
 
 
 def split(pts, n=MAX_NODES):
@@ -120,7 +120,7 @@ def lane_layout(spec):
     carriageway less a town street's parking lanes or a rural road's edge strips (counted as lanes, every rural
     Interstate had three), its lanes OpenStreetMap's count or as many LANE_M as fit. Pure."""
     w, cls = spec.width, spec.cls
-    parked = spec.urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
+    parked = parks(spec)
     drive = w - ((PARKING_M if spec.oneway else 2 * PARKING_M) if parked else 2 * edge_margin(spec))
     lanes = int(spec.lanes) if spec.lanes else int(drive // LANE_M)
     # A motorway mainline is at least two lanes when the map omits the count. A2 Völkermarkt's

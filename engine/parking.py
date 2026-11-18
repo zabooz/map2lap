@@ -21,6 +21,7 @@ import numpy as np
 from polygon import Path
 
 import furniture
+from roads import parking_speed
 
 PARK_CLASSES = {"residential", "tertiary", "secondary", "unclassified", "living_street"}
 SPOT_LEN_M = 6.5            # a spot's length along the curb (US parallel parking: 6-7 m)
@@ -54,7 +55,8 @@ def curb_spots(roads, walks, box, left_hand=False, directions=None):
         if fid is None or "pts" not in wk or fid not in by_fid:
             continue
         spec, line = by_fid[fid]
-        if not spec.urban or spec.cls not in PARK_CLASSES or spec.width < MIN_WIDTH_M:
+        if (not spec.urban or spec.cls not in PARK_CLASSES or spec.width < MIN_WIDTH_M
+                or not parking_speed(getattr(spec, "kmh", None))):   # (no parking lanes above a town's speed)
             continue
         if furniture._h01(fid, "park") >= STREET_SHARE:
             continue

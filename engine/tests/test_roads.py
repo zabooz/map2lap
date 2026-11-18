@@ -195,6 +195,18 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(s[0][0], roads.STYLE["residential"][0] + 2 * roads.PARKING_M)
         self.assertEqual(s[1][0], 9.0, "width rule wins over the parking guess")
 
+    def test_no_parking_lanes_on_a_fast_town_street(self):
+        """Völkermarkt's Seenstraße, the old B82 mapped at 100 km/h through a built-up stretch, was drawn 10.8 m with two
+        parking lanes for its 6.2 m: no parking lanes above a town's 50 km/h or 35 mph; unknown limits keep them."""
+        f = features([[(0, 0), (300, 0)]] * 5, ["residential"] * 5)
+        f.attrs["osm_maxspeed"] = np.array([100.0, 60.0, 35 * 1.609344, 50.0, np.nan])
+        s = roads.road_specs(f, lambda lat, lon: np.ones(np.shape(lat), bool))
+        base = roads.STYLE["residential"][0]
+        self.assertEqual([sp.width for sp in s], [base, base] + [base + 2 * roads.PARKING_M] * 3)
+        for sp in s:
+            drive, _lanes = roads.lane_layout(sp)
+            self.assertEqual(drive, base, "the lanes painted and driven on the driving width")
+
 
 class DualCarriagewayTest(unittest.TestCase):
     def feats(self, lines, names, classes=None):

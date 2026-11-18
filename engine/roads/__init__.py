@@ -33,7 +33,8 @@ from .style import (
 from .tags import _feature_length_m, _level_ranges, _osm, _rule_value, tag_level_ranges
 from .specs import (
     DUAL_MIN_MEDIAN_M, EDGE_STRIP_M, MIN_PART, MOTORWAY_RURAL_M, PARKING_M, RING_EXTRA_LANE_M, RING_LANE_M, SHOULDER_M,
-    _road_specs, carriageway, dual_cap, edge_margin, is_ring, motorway_shoulder, road_specs, rural_motorway,
+    PARKING_MAX_KMH, _road_specs, carriageway, dual_cap, edge_margin, is_ring, motorway_shoulder, parking_speed, parks,
+    road_specs, rural_motorway,
     surface_kind, surface_token, unbuilt
 )
 from .levels import (

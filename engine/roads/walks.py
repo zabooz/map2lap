@@ -5,9 +5,9 @@ import numpy as np
 
 from .style import (
     BUILT, CENTRE, CENTRE_CLASSES, EDGE_DECAL, EDGE_DECAL_AT, EDGE_LINE, EDGE_LINE_CLASSES, GUTTER, LANE_CLASSES,
-    LANE_M, MAX_SPACING, SIDEWALK, SIDEWALK_CLASSES, SIMPLIFY_M, URBAN_ARTERIAL
+    LANE_M, MAX_SPACING, SIDEWALK, SIDEWALK_CLASSES, SIMPLIFY_M
 )
-from .specs import PARKING_CLASSES, PARKING_M, edge_margin, motorway_shoulder, rural_motorway
+from .specs import PARKING_M, edge_margin, motorway_shoulder, parks, rural_motorway
 from .tiles import lane_layout
 
 
@@ -240,7 +240,7 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
             out.append(({"m": mat, "tl": max(1.0, pattern[0]), "p": CENTRE["p"], "kind": kind_}, width, piece))
     # the driving width (a town street's parking lanes and a rural road's edge strips left out: three lanes on every
     # rural Interstate) and its lanes (OpenStreetMap's count where known)
-    parked = urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
+    parked = parks(spec)
     drive, lanes = lane_layout(spec)
     plan = markings.lane_plan(osm, not spec.oneway, drive, lanes, left_hand) \
         if kind == "paved" and (cls in CENTRE_CLASSES or cls in LANE_CLASSES) else None
@@ -348,7 +348,7 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
                 out.append((look, CENTRE["w"], offset_polyline(pts, side * CENTRE["gap"])))
     if kind == "paved" and cls in LANE_CLASSES:
         # lane lines (white dashes) where the driving width holds two or more lanes a direction
-        parked = urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
+        parked = parks(spec)
         # (a rural road's edge strips counted as lanes: three on every rural Interstate)
         drive = w - ((PARKING_M if spec.oneway else 2 * PARKING_M) if parked else 2 * edge_margin(spec))
         lanes = spec.lanes if spec.lanes else int(drive // LANE_M)      # (OpenStreetMap's count where known)

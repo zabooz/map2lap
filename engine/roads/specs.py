@@ -15,6 +15,24 @@ from .tags import _facts_load, _facts_store, _osm, _rule_value, raw_level_ranges
 # West Coast USA's plain streets 12.5 m for 8 m of driving: ~2.3 m of parking each side). A width
 # rule, where Overture has one, is the carriageway already.
 PARKING_M = 2.3
+# ... only on a street mapped at a town's speed: 50 km/h, or 35 mph where limits are in miles (56 km/h: a town street
+# with parking there; 40 mph and 60 km/h are through roads). Völkermarkt's Seenstraße, the old B82 at 100 km/h past a
+# car dealer's yard, got two parking lanes (10.8 m for its 6.2 m): such a road's cars stand in yards and lots. An
+# unknown limit keeps them. Fails where a faster town road has kerbside parking: it is drawn without.
+PARKING_MAX_KMH = 57.0
+
+
+def parking_speed(kmh):
+    """Is a speed limit (km/h; None unknown) one a street has parking lanes at (PARKING_MAX_KMH)? Pure."""
+    return kmh is None or kmh <= PARKING_MAX_KMH
+
+
+def parks(spec):
+    """Has a road (Spec) parking lanes on its carriageway: a town street of PARKING_CLASSES at a parking speed, not a
+    two-way urban arterial (its four lanes, carriageway)? carriageway, the lanes painted and driven, and the parked
+    cars all ask this. Pure."""
+    return (spec.urban and spec.cls in PARKING_CLASSES and not (not spec.oneway and spec.cls in URBAN_ARTERIAL)
+            and parking_speed(getattr(spec, "kmh", None)))
 
 # Rural motorways: two lanes a direction (most rural Interstates and European motorways; every US Interstate was drawn
 # with three) between paved shoulders, the edge line along each; urban ones keep STYLE's three lanes.
@@ -79,11 +97,11 @@ def surface_kind(cls, surface):
     return "paved" if STYLE.get(cls, STYLE["unknown"])[1] else "dirt"
 
 
-def carriageway(cls, kind, urban, rule_width=None, oneway=False, lanes=None):
+def carriageway(cls, kind, urban, rule_width=None, oneway=False, lanes=None, kmh=None):
     """Paved / dirt width (m) of a road: the width rule if any, else the driving width (OpenStreetMap's lanes x the
-    class's LANE_W when known, else the class's) plus parking lanes (urban paved streets; one side on a one-way street)
-    or edge strips (rural paved roads). One-way: ONEWAY_STYLE's driving width (motorways and trunks are per carriageway
-    already). Pure."""
+    class's LANE_W when known, else the class's) plus parking lanes (urban paved streets at a parking speed, kmh its
+    limit: parking_speed; one side on a one-way street) or edge strips (rural paved roads). One-way: ONEWAY_STYLE's
+    driving width (motorways and trunks are per carriageway already). Pure."""
     if rule_width is not None:
         return rule_width
     w = STYLE.get(cls, STYLE["unknown"])[0]
@@ -97,8 +115,10 @@ def carriageway(cls, kind, urban, rule_width=None, oneway=False, lanes=None):
         return w + 2 * SHOULDER_M
     if urban and not oneway and cls in URBAN_ARTERIAL and not lanes:
         return URBAN_ARTERIAL[cls]          # four lanes, no parking (a walled street is measured instead)
-    if urban and cls in PARKING_CLASSES:
+    if urban and cls in PARKING_CLASSES and parking_speed(kmh):
         return w + (1 if oneway else 2) * PARKING_M
+    if urban and cls in PARKING_CLASSES:
+        return w            # (a fast town road: no parking lanes, and no rural edge strips)
     if not urban and cls != "service":
         if oneway and cls == "motorway":
             return MOTORWAY_RURAL_M + 2 * SHOULDER_M
@@ -237,7 +257,7 @@ def dual_carriageways(feats, specs, left_hand=False):
             d = (1 if best[1] > 0 else -1) * (-1 if left_hand else 1)
             w = sp.width if (_rule_value(feats.rules.get("width"), i) is not None
                              or _osm(feats, "width", i, *OSM_WIDTH_M) is not None) else \
-                carriageway(sp.cls, sp.kind, sp.urban, None, True, sp.lanes)
+                carriageway(sp.cls, sp.kind, sp.urban, None, True, sp.lanes, sp.kmh)
             out[i] = sp._replace(oneway=True, dir=d, width=_dual_width(sp, w, gap, feats, i), median=gap)
     return out
 
@@ -419,7 +439,7 @@ def _road_specs(feats, urban_fn, left_hand):
                      and (cls not in ("motorway", "trunk")
                           or float(np.mean(both[k:k + c])) >= URBAN_BOTH_SHARE))
             k += c
-            out[j] = Spec(carriageway(cls, kind, urban, None, ow, lanes), kind, urban, cls, ow, 2.5, *dk, lanes=lanes,
+            out[j] = Spec(carriageway(cls, kind, urban, None, ow, lanes, dk[1]), kind, urban, cls, ow, 2.5, *dk, lanes=lanes,
                           surf=token, link=link)
     out = _short_pieces(feats, out)
     out = _rings(feats, out)
@@ -476,7 +496,7 @@ def _short_pieces(feats, specs):
         urban = context.pop()
         width = _rule_value(feats.rules.get("width"), i)
         width = float(width) if width is not None and 1.0 <= float(width) <= 40.0 else _osm(feats, "width", i, *OSM_WIDTH_M)
-        out[i] = sp._replace(urban=urban, width=carriageway(sp.cls, sp.kind, urban, width, sp.oneway, sp.lanes))
+        out[i] = sp._replace(urban=urban, width=carriageway(sp.cls, sp.kind, urban, width, sp.oneway, sp.lanes, sp.kmh))
     return out
 
 
@@ -600,7 +620,7 @@ def _measured_widths(feats, specs, widths):
         if _osm(feats, "width", j, *OSM_WIDTH_M) is not None or sp.lanes:
             continue        # (OpenStreetMap's own width, or its lane count's)
         m = widths(str(feats.ids[j]), feats.lonlat[a:b]) if b > a else None
-        dflt = carriageway(sp.cls, sp.kind, True, None, sp.oneway, sp.lanes)
+        dflt = carriageway(sp.cls, sp.kind, True, None, sp.oneway, sp.lanes, sp.kmh)
         # Historic streets can be one shared lane between close building fronts. Rejecting these measurements
         # kept a default carriageway wider than the street itself.
         minimum = 3.0 if sp.cls in {"residential", "living_street", "unclassified", "tertiary"} else 0.6 * dflt

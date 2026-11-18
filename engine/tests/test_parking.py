@@ -36,6 +36,14 @@ def eligible(cls="residential", width=10.0):
 
 
 class CurbTest(unittest.TestCase):
+    def test_no_curb_parking_on_a_fast_street(self):
+        """A town street mapped faster than a town's 50 km/h or 35 mph (Völkermarkt's Seenstraße, the old B82 at
+        100 km/h, got parking lanes and parked cars) has no curbside spots; 35 mph and unknown limits keep theirs."""
+        fid, spec, pts, lon = eligible()
+        for kmh, parks in ((100.0, False), (60.0, False), (35 * 1.609344, True), (50.0, True), (None, True)):
+            r = (fid, spec._replace(kmh=kmh), pts, lon)
+            self.assertEqual(bool(parking.curb_spots([r], walks(r), (0, 0, 256, 256))), parks, kmh)
+
     def test_inside_of_bend_does_not_compress_curb_spots(self):
         r = eligible()
         fid, spec, _, lon = r
