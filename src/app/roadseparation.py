@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from app import roadregion, roadsurfaces, trackband, trackheights
-from track import kn5, objectlist
+from track import editorinfo, kn5, objectlist
 
 RAMP_GRADE = .15  # Default correction limit: 15% is a steep road ramp; the editor can set another limit.
 
@@ -78,6 +78,66 @@ def _oriented_owner(points, upper, lower):
     if bottom > top + .4:
         return 'lower'
     return None
+
+
+def _on_rail_ballast(row, rail_slabs):
+    """Whether a guardrail module stands in a retained railway ballast surface. Pure."""
+    x, y, z = float(row[1]), float(row[3]), -float(row[2])
+    for triangles, low, high in rail_slabs:
+        near = np.all((low <= [x, z]) & (high >= [x, z]), axis=1)
+        if not near.any():
+            continue
+        for triangle in triangles[near]:
+            a, b, c = triangle
+            det = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+            if abs(det) < 1e-8:
+                continue
+            inside, height = roadsurfaces._plane(triangle, x, z)
+            # Posts start 0.3 m below their surface; the ballast top is about 0.3 m
+            # above the row origin. This catches rails planted in the railway bed.
+            if inside and abs(height - y) <= .5:
+                return True
+    return False
+
+
+def _guardrail_owner(path, name, faces, up, down, upper, lower, rail_slabs=()):
+    """Per-vertex mapped road side for source guardrail modules, or None without build facts."""
+    match = editorinfo.GUARDRAIL_MESH.fullmatch(name)
+    if match is None:
+        return None
+    key, part = f'{match[2]}_{match[3]}', int(match[4] or 0)
+    try:
+        rows, spans, roads = editorinfo.guardrail_modules(path, key)
+    except (OSError, KeyError, ValueError):
+        return None
+    raw_total = max((span[2] + span[3] if match[1] == '1WALL_guardrailcol' else span[0] + span[1]
+                     for span in spans), default=0)
+    offset = part * editorinfo.GUARDRAIL_FACES_PER_PART
+    raw_count = min(editorinfo.GUARDRAIL_FACES_PER_PART, max(0, raw_total - offset))
+    doubled = match[1] == '1WALL_guardrailcol'
+    if len(faces) != raw_count * (2 if doubled else 1):
+        return None
+    upper_ids = {e.get('road') for e in upper['segments']} - {None}
+    lower_ids = {e.get('road') for e in lower['segments']} - {None}
+    owner = np.zeros(len(up), np.uint8)
+    for row, span, candidates in zip(rows, spans, roads):
+        first, count = span[2:4] if doubled else span[:2]
+        lo, hi = max(first, offset), min(first + count, offset + raw_count)
+        if lo >= hi:
+            continue
+        local = np.arange(lo - offset, hi - offset, dtype=np.int64)
+        if doubled:
+            local = np.r_[local, local + raw_count]
+        vertices = np.unique(faces[local])
+        if _on_rail_ballast(row, rail_slabs.get(key, ())):
+            continue
+        top, bottom = bool(upper_ids.intersection(candidates)), bool(lower_ids.intersection(candidates))
+        active = np.any(np.abs(up[vertices]) > .001) or np.any(np.abs(down[vertices]) > .001)
+        if active and top and bottom:
+            raise ValueError(f'A guardrail module has no unique mapped road owner: {name}')
+        if top != bottom:
+            owner[vertices] = 1 if top else 2
+    return owner
 
 
 def _lower_distance(points, below, lower):
@@ -297,7 +357,8 @@ def _ground_change(xy, above, below, upper, lower, upper_targets, lower_targets)
     """Terrain correction from the two mapped roads, excluding bridge ground. Pure."""
     up = _field(xy, above, upper, upper_targets)
     down = _field(xy, below, lower, lower_targets)
-    # A bridge's ground is independent. Its first two terrain cells share vertices with the approach at the abutment.
+    # A bridge's ground is independent, including the side slope beside the deck.
+    # Only the road-width cells at an abutment share vertices with the approach.
     bridge_ends = {}
     for edge in upper['segments']:
         if edge['structure'] == 'bridge':
@@ -317,7 +378,7 @@ def _ground_change(xy, above, below, upper, lower, upper_targets, lower_targets)
         v = b - a
         t = (xy - a) @ v / (v @ v)
         distance = np.linalg.norm(xy - (a + np.clip(t, 0, 1)[:, None] * v), axis=1)
-        up[(t >= 0) & (t <= 1) & (distance <= edge['width'] / 2) & ~near_abutment] = 0
+        up[(t >= 0) & (t <= 1) & ~((distance <= edge['width'] / 2) & near_abutment)] = 0
     return up * _kept_road_weight(xy, above, upper) + down * _kept_road_weight(xy, below, lower)
 
 
@@ -354,56 +415,42 @@ def _rail_bridge_at(path, points):
     return bridge & (nearest <= railbridges.FACE_REACH)
 
 
-def _selected_deck_edges(source, scan, moved, above, upper, targets, low, high):
-    """Source edge vertices of asphalt deck pieces attached to the marked bridge."""
-    if not targets:
-        return {}
-    width = max(edge['width'] for edge in upper['segments']) / 2 + 2
-    edges = {}
-    for i, mesh in enumerate(scan['meshes']):
-        if not mesh['name'].startswith('1ROAD_deck'):
-            continue
-        centre = np.asarray(mesh['center'])[[0, 2]]
-        if (centre + mesh['radius'] < low).any() or (centre - mesh['radius'] > high).any():
-            continue
-        vertices, faces = kn5.mesh_arrays(source, mesh)
-        if moved and i in moved.vertices:
-            vertices = moved.vertices[i]
-        points = vertices['pos'].astype(np.float64)
-        xy = points[:, [0, 2]]
-        nearby = (_upper_distance(xy, above, upper) < width) & (np.abs(_field(xy, above, upper, targets)) > .001)
-        for component in roadsurfaces._components(points, faces):
-            if nearby[component].any():
-                for x, y, z in np.unique(np.round(points[component], 3), axis=0):
-                    edges.setdefault((x, z), []).append(y)
-    return edges
+def _own_road_part(xy, line, net):
+    """Whether a connected road part belongs to this road rather than another at its level. Pure."""
+    if not net.get('unselected'):
+        return True
+    own = _project(xy, line)[1]
+    others = np.full(len(xy), np.inf)
+    for edge in net['unselected']:
+        other = np.asarray([edge['a'], edge['b']], np.float64)
+        others = np.minimum(others, _project(xy, other)[1])
+    # Two carriageways can come within one mapped road width. An isolated corner
+    # near the chosen centreline must not claim the entire neighbouring bridge.
+    return float(np.mean(own)) < float(np.mean(others))
 
 
-def _shares_deck_edge(points, edges):
-    """Whether a connected part shares two source positions with the selected deck. Pure."""
-    shared = 0
-    for x, y, z in np.unique(np.round(points, 3), axis=0):
-        # The visible asphalt skin can sit 1 cm above its concrete source edge.
-        if any(abs(y - top) <= .02 for top in edges.get((x, z), ())):
-            shared += 1
-            if shared == 2:
-                return True
-    return False
-
-
-def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower_targets, gone=None, blockers=None):
+def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower_targets, gone=None, blockers=None, solo=None):
     """Source vertex corrections; blockers collects obstructions alone for the marked-road preview."""
     result = {}
     reach = max(max(edge['width'] for edge in upper['segments']), max(edge['width'] for edge in lower['segments']))
     reach += max(6., 15. * max(abs(value) for _at, value in [*upper_targets, *lower_targets]))
     lower_points = np.vstack([below, *lower.get('other_lines', [])])
     upper_points = np.vstack([above, *upper.get('other_lines', [])])
-    low = np.minimum(upper_points.min(axis=0), lower_points.min(axis=0)) - reach
-    high = np.maximum(upper_points.max(axis=0), lower_points.max(axis=0)) + reach
+    if solo == 'upper':
+        low, high = upper_points.min(axis=0) - reach, upper_points.max(axis=0) + reach
+    elif solo == 'lower':
+        low, high = lower_points.min(axis=0) - reach, lower_points.max(axis=0) + reach
+    else:
+        low = np.minimum(upper_points.min(axis=0), lower_points.min(axis=0)) - reach
+        high = np.maximum(upper_points.max(axis=0), lower_points.max(axis=0)) + reach
     upper_half = max(edge['width'] for edge in upper['segments']) / 2
     lower_half = max(edge['width'] for edge in lower['segments']) / 2
+    upper_ids = {str(edge['road']) for edge in upper['segments'] if edge.get('road') is not None}
+    lower_ids = {str(edge['road']) for edge in lower['segments'] if edge.get('road') is not None}
+    selected_deck_faces = 0
+    seen_deck_mesh = False
     with open(path, 'rb') as source:
-        fixed = []
+        fixed, rail_slabs = [], {}
         for i, mesh in enumerate(scan['meshes']):
             if objectlist.kind_of(mesh['name']) not in {'rail', 'railcol', 'tunnel'}:
                 continue
@@ -417,6 +464,11 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                 faces = faces[~gone[i]]
             if not len(faces):
                 continue
+            if mesh['name'].startswith('1GRAVEL_railcol_ballast_'):
+                tile = '_'.join(mesh['name'].removeprefix('1GRAVEL_railcol_ballast_').split('_')[:2])
+                triangles = vertices['pos'][faces].astype(np.float64)
+                xy = triangles[:, :, [0, 2]]
+                rail_slabs.setdefault(tile, []).append((triangles, xy.min(axis=1), xy.max(axis=1)))
             # Deleted railway pieces no longer block a road, even though their source vertices remain in the KN5.
             positions = vertices['pos'][np.unique(faces)].astype(np.float64)
             xy = positions[:, [0, 2]]
@@ -446,11 +498,6 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
         if blockers is not None:
             return blockers
         fixed = np.unique(np.round(np.asarray(fixed, np.float64).reshape(-1, 2), 1), axis=0)
-        deck_edges = _selected_deck_edges(source, scan, moved, above, upper, upper_targets, low, high)
-        deck_bounds = np.asarray(list(deck_edges), np.float64) if deck_edges else None
-        deck_low = deck_bounds.min(axis=0) if deck_bounds is not None else None
-        deck_high = deck_bounds.max(axis=0) if deck_bounds is not None else None
-
         def terrain(place):
             value = _ground_change(place, above, below, upper, lower, upper_targets, lower_targets)
             if not len(fixed):
@@ -463,14 +510,15 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
             kind = objectlist.kind_of(mesh['name'])
             if kind in {'rail', 'railcol', 'tunnel'}:
                 continue
+            if kind == 'deck' and not upper_targets:
+                continue
             if kind not in {'ground', 'deck', 'road', 'walk', 'walkcol', 'guardrail', 'guardrailcol', 'racing'}:
                 continue
             centre = np.asarray(mesh['center'])[[0, 2]]
-            outside_route = (centre + mesh['radius'] < low).any() or (centre - mesh['radius'] > high).any()
-            outside_deck = (deck_bounds is None or (centre + mesh['radius'] < deck_low).any()
-                            or (centre - mesh['radius'] > deck_high).any())
-            if outside_route and (kind != 'deck' or outside_deck):
+            if (centre + mesh['radius'] < low).any() or (centre - mesh['radius'] > high).any():
                 continue
+            if kind == 'deck':
+                seen_deck_mesh = True
             vertices, faces = kn5.mesh_arrays(source, mesh)
             if moved and i in moved.vertices:
                 vertices = moved.vertices[i]
@@ -484,21 +532,52 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                 owner[:] = 3
             else:
                 change = np.zeros(len(points))
-                du = _upper_distance(xy, above, upper)
-                dl = _lower_distance(xy, below, lower)
-                uw = max(edge['width'] for edge in upper['segments']) / 2 + 2
-                lw = max(edge['width'] for edge in lower['segments']) / 2 + 2
-                for component in roadsurfaces._components(points, faces):
-                    upper_only = np.any((du[component] < uw) & (dl[component] >= lw))
-                    lower_only = np.any((dl[component] < lw) & (du[component] >= uw))
+                source_parts = kind == 'deck' or kind == 'road' and mesh['name'].startswith('nocol_road_')
+                if source_parts:
+                    face_ids = editorinfo.surface_face_owners(path, mesh['name'])
+                    if len(face_ids) != len(faces):
+                        raise ValueError(f'Road or bridge part IDs do not match the KN5 mesh: {mesh["name"]}')
+                    upper_faces = np.isin(face_ids, list(upper_ids)) if upper_targets else np.zeros(len(faces), bool)
+                    lower_faces = np.isin(face_ids, list(lower_ids)) if lower_targets else np.zeros(len(faces), bool)
                     if kind == 'deck':
-                        # The source asphalt and its concrete slab share edge vertices even when the mapped
-                        # road width misses the slab. Two shared positions identify an edge, not a crossing point.
-                        choose = 'upper' if np.any(du[component] < uw) or _shares_deck_edge(points[component], deck_edges) else None
-                    else:
+                        selected_deck_faces += int(upper_faces.sum())
+                    if (upper_faces & lower_faces).any():
+                        raise ValueError(f'Two selected road levels share one source ID: {mesh["name"]}')
+                    upper_vertices = np.unique(faces[upper_faces])
+                    lower_vertices = np.unique(faces[lower_faces])
+                    if np.intersect1d(upper_vertices, lower_vertices).size:
+                        raise ValueError(f'Two road levels share source vertices: {mesh["name"]}')
+                    if len(upper_vertices):
+                        change[upper_vertices] = (_deck_field(xy[upper_vertices], above, upper_targets)
+                                                  if kind == 'deck' else up[upper_vertices])
+                        owner[upper_vertices] = 4 if kind == 'deck' else 1
+                    if len(lower_vertices):
+                        change[lower_vertices] = down[lower_vertices]
+                        owner[lower_vertices] = 2
+                    if kind == 'deck' and upper_faces.any():
+                        for component in roadsurfaces._components(points, faces[upper_faces]):
+                            p = points[component]
+                            vertical = np.ptp(p[:, 1])
+                            horizontal = np.ptp(p[:, [0, 2]], axis=0).max()
+                            if vertical > horizontal and vertical > 1:
+                                weight[component] = np.clip((p[:, 1] - p[:, 1].min()) / vertical, 0, 1)
+                                change[component] *= weight[component]
+                mapped_guardrail = (_guardrail_owner(path, mesh['name'], faces, up, down, upper, lower, rail_slabs)
+                                    if kind in {'guardrail', 'guardrailcol'} else None)
+                if mapped_guardrail is not None:
+                    owner[:] = mapped_guardrail
+                    change[owner == 1] = up[owner == 1]
+                    change[owner == 2] = down[owner == 2]
+                # Source module IDs keep unrelated roads fixed inside the same combined tile mesh.
+                if mapped_guardrail is None and not source_parts:
+                    du = _upper_distance(xy, above, upper)
+                    dl = _lower_distance(xy, below, lower)
+                    uw = max(edge['width'] for edge in upper['segments']) / 2 + 2
+                    lw = max(edge['width'] for edge in lower['segments']) / 2 + 2
+                    for component in roadsurfaces._components(points, faces):
+                        upper_only = np.any((du[component] < uw) & (dl[component] >= lw))
+                        lower_only = np.any((dl[component] < lw) & (du[component] >= uw))
                         if upper_only and lower_only:
-                            # A bridge skin can cross both corridors. Its strip direction identifies its road even
-                            # when the two road surfaces are nearly coincident in height.
                             upper_score = float(np.mean(du[component])) / uw
                             lower_score = float(np.mean(dl[component])) / lw
                             if upper_score < .7 * lower_score:
@@ -520,19 +599,16 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                                                      _nearest_lower(centre, below, lower))
                             if choose is None:
                                 raise ValueError(f'A road part at the crossing has no unique mapped owner: {mesh["name"]}')
-                    if choose == 'upper':
-                        change[component] = _deck_field(xy[component], above, upper_targets) if kind == 'deck' else up[component]
-                        owner[component] = 4 if kind == 'deck' else 1
-                    elif choose == 'lower':
-                        change[component] = down[component]
-                        owner[component] = 2
-                    if kind == 'deck' and choose == 'upper':
-                        p = points[component]
-                        vertical = np.ptp(p[:, 1])
-                        horizontal = np.ptp(p[:, [0, 2]], axis=0).max()
-                        if vertical > horizontal and vertical > 1:
-                            weight[component] = np.clip((p[:, 1] - p[:, 1].min()) / vertical, 0, 1)
-                            change[component] *= weight[component]
+                        if choose == 'upper' and not _own_road_part(xy[component], above, upper):
+                            choose = None
+                        if choose == 'lower' and not _own_road_part(xy[component], below, lower):
+                            choose = None
+                        if choose == 'upper':
+                            change[component] = _deck_field(xy[component], above, upper_targets) if kind == 'deck' else up[component]
+                            owner[component] = 4 if kind == 'deck' else 1
+                        elif choose == 'lower':
+                            change[component] = down[component]
+                            owner[component] = 2
             touched = np.flatnonzero(np.abs(change) >= .0005)
             if len(touched):
                 def sampled(dx, dz):
@@ -552,6 +628,8 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                 gz = (sampled(0, .25) - sampled(0, -.25)) / .5
                 result[str(i)] = [[int(k), int(round(change[k] * 1000)), round(float(gx[n]), 7), round(float(gz[n]), 7)]
                                   for n, k in enumerate(touched)]
+    if seen_deck_mesh and upper_targets and any(edge['structure'] == 'bridge' for edge in upper['segments']) and not selected_deck_faces:
+        raise ValueError('No bridge part carries the marked road ID; rebuild the track')
     return result
 
 

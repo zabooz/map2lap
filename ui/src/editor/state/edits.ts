@@ -23,6 +23,7 @@ export interface WallEdit {
 export interface KerbEdit {
   id: string;
   line: [number, number, number, number][]; // source [x,y,z,road width]
+  road_ids?: string[];                 // mapped roads whose bend this kerb follows
   side: "left" | "right";
   profile: "flat" | "rounded" | "ribbed";
   width: number;

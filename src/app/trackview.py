@@ -239,6 +239,7 @@ def index(ac, name):
             "anchor": anchor, "route": route, "objects": _view_objects(listed), "draft": s.get("draft", 0),
             "wall_hidden": s.get("wall_hidden", []),
             "copy_revision": s.get("copy_key", ""), "surface_tiles": facts["tiles"] if facts else [],
+            "source_ownership": editorinfo.source_ownership(path, facts["tiles"]) if facts else {},
             "surface_unprepared": surfaceindex.unprepared(path) if facts else 0,
             "models": s.get("models", []), "model_assets": s.get("model_assets", {}),
             "model_replacements": s.get("model_replacements", []),

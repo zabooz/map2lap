@@ -27,6 +27,7 @@ import blockworker          # noqa: E402
 import buildings            # noqa: E402
 import cdae                 # noqa: E402
 import geodesy              # noqa: E402
+import medians              # noqa: E402
 import parking              # noqa: E402
 import roads as roadsmod    # noqa: E402
 import vegetation           # noqa: E402
@@ -208,8 +209,9 @@ class Obj:
         self.objects = 0
         self.editor = None
         self.mesh_facts = []
+        self.source_ownership = {}
 
-    def add(self, name, mat, P, UV, T, N=None, owners=None):
+    def add(self, name, mat, P, UV, T, N=None, owners=None, source_ids=None):
         """N: normals per vertex (ENU) or None (obj_to_kn5 makes them). owners: whose each triangle is, a number from self.listed
         or -1 for no one's."""
         fault = objectlist.problem(name, owners is not None)
@@ -219,17 +221,29 @@ class Obj:
             self.problems.append(fault)
         if owners is not None:
             self.listed.note(name, owners)
+        if source_ids is not None and len(source_ids) != len(T):
+            raise ValueError("Deck face ownership does not match its triangles")
         if self.editor is not None and len(T):
             used = P[np.unique(T)]
             bounds = np.c_[used[:, 0], used[:, 2], -used[:, 1]]
             self.mesh_facts.append({"name": name, "material": mat, "role": objectlist.kind_of(name),
                                     "bounds": [bounds.min(0).round(3).tolist(), bounds.max(0).round(3).tolist()],
                                     "triangles": len(T)})
-        for s in range(0, len(T), MAX_VERTS // 3):          # (triangles per part: at most MAX_VERTS vertices)
-            t = T[s:s + MAX_VERTS // 3]
+        # AC duplicates wall faces for two-sided collision. Keep each bridge-concrete OBJ part
+        # within one KN5 node so its source ID span stays aligned with the final triangles.
+        step = MAX_VERTS // (6 if name.startswith("1WALL_deck_") else 3)
+        for s in range(0, len(T), step):
+            t = T[s:s + step]
             used, inv = np.unique(t.ravel(), return_inverse=True)
             p, uv, t = P[used], UV[used], inv.reshape(-1, 3) - len(used)
-            part = name if s == 0 else f"{name}_{s // (MAX_VERTS // 3)}"
+            part = name if s == 0 else f"{name}_{s // step}"
+            if source_ids is not None:
+                labels = source_ids[s:s + len(t)]
+                if name.startswith("1WALL_deck_"):
+                    labels = np.r_[labels, labels]
+                starts = np.r_[0, np.flatnonzero(labels[1:] != labels[:-1]) + 1]
+                self.source_ownership[part] = [[labels[a], int(b - a)]
+                                               for a, b in zip(starts, np.r_[starts[1:], len(labels)])]
             self.f.write(f"o {part}\nusemtl {mat}\n")
             self.f.write("".join(f"v {x:.3f} {z:.3f} {-y:.3f}\n" for x, y, z in p))
             self.f.write("".join(f"vt {u:.4f} {v:.4f}\n" for u, v in uv))
@@ -815,38 +829,67 @@ def _scenery_tile(tx, ty, part_path):
     vertex_owners, houses = _buildings_listed(obj.listed, data, shapes, tiles_dir)
     vertex_owners.update(_wires_listed(obj.listed, data, shapes, tiles_dir))
     vertex_owners.update(_walls_listed(obj.listed, data, shapes))
+    deck_runs = data.get("deck", {}).get("ownership")
+    deck_vertices = None
+    if deck_runs is not None:
+        deck_vertices = np.repeat([road_id for road_id, _count in deck_runs],
+                                  [count for _road_id, count in deck_runs])
+        deck_parts = next((parts for what, parts in shapes if what == "deck"), [])
+        if not deck_parts or len(deck_vertices) != len(deck_parts[0][1]):
+            raise ValueError("Deck vertex ownership does not match its shape")
+    road_runs = data.get("road", {}).get("ownership")
+    road_faces = (np.repeat([road_id for road_id, _count in road_runs],
+                            [count for _road_id, count in road_runs]) if road_runs is not None else None)
+    road_face_cursor = 0
     for what, parts_ in shapes:
         groups = {}
         vertex = vertex_owners.get(what)
         for bname, P, UV, T, C in parts_:
+            source_ids = None
+            if what == "road" and road_faces is not None:
+                source_ids = road_faces[road_face_cursor:road_face_cursor + len(T)]
+                road_face_cursor += len(T)
+                if len(source_ids) != len(T):
+                    raise ValueError("Road face ownership does not match its shape")
+            elif what == "deck" and deck_vertices is not None:
+                source_ids = deck_vertices[T[:, 0]]
             if what == "road" and bname == "line_white":
+                original = T
                 T = buildscenery.clear_covered_mark_mesh(P, T, blocked_parking_lines)
                 if not len(T):
                     continue
+                if source_ids is not None and len(T) != len(original):
+                    kept = {tuple(face) for face in T}
+                    source_ids = source_ids[[tuple(face) in kept for face in original]]
             if what == "road":  # (markings: the road itself is terrain texture now)
                 road_xy.append(P[np.unique(T), :2])
             if bname in BLD_KINDS:
                 for mat, t in bld_split(P, T, C, BLD_KINDS[bname][0]).items():
-                    groups.setdefault(("1WALL", mat, mat), []).append((P, UV, t, vertex))
+                    groups.setdefault(("1WALL", mat, mat), []).append((P, UV, t, vertex, None))
                 continue
             if bname in WALL_SOURCE:
                 for mat, t in wall_split(P, T, WALL_SOURCE[bname]).items():
-                    groups.setdefault((SURFACE[bname][0], mat, mat), []).append((P, UV, t, vertex))
+                    ids = deck_vertices[t[:, 0]] if what == "deck" and deck_vertices is not None else None
+                    groups.setdefault((SURFACE[bname][0], mat, mat), []).append((P, UV, t, vertex, ids))
                 continue
             if bname not in SURFACE:
                 unknown.add(bname)
             surf, mat, tag, UV = shape_material(bname, P, UV, gmat)
             key = (surf, mat, tag)
-            groups.setdefault(key, []).append((P, UV, T, vertex))
+            groups.setdefault(key, []).append((P, UV, T, vertex, source_ids))
         for (surf, mat, tag), parts in groups.items():
-            P = np.concatenate([p for p, _, _, _ in parts])
-            UV = np.concatenate([uv for _, uv, _, _ in parts])
-            off = np.cumsum([0] + [len(p) for p, _, _, _ in parts[:-1]])
-            T = np.concatenate([t + o for (_, _, t, _), o in zip(parts, off)])
+            P = np.concatenate([p for p, *_ in parts])
+            UV = np.concatenate([uv for _, uv, *_ in parts])
+            off = np.cumsum([0] + [len(p) for p, *_ in parts[:-1]])
+            T = np.concatenate([t + o for (_, _, t, *_), o in zip(parts, off)])
             prefix = collision_prefix(what, surf, data)
-            owners = np.concatenate([v for *_, v in parts])[T[:, 0]] if vertex is not None else None
-            obj.add(f"{prefix}_{what}_{tag}_{tx}_{ty}", mat, P, UV, T, owners=owners)
+            owners = np.concatenate([v for _p, _uv, _t, v, _s in parts])[T[:, 0]] if vertex is not None else None
+            source_ids = (np.concatenate([ids for _p, _uv, _t, _v, ids in parts])
+                          if all(ids is not None for _p, _uv, _t, _v, ids in parts) else None)
+            obj.add(f"{prefix}_{what}_{tag}_{tx}_{ty}", mat, P, UV, T, owners=owners, source_ids=source_ids)
             tris[prefix] = tris.get(prefix, 0) + len(T)
+    if road_faces is not None and road_face_cursor != len(road_faces):
+        raise ValueError("Road face ownership has extra triangles")
 
     street_trees = []           # street furniture (propsmesh.py): poles/street lights/sign posts with collision
     if data.get("props"):
@@ -872,7 +915,15 @@ def _scenery_tile(tx, ty, part_path):
             log(f"Street furniture, tile {tx},{ty}: {type(e).__name__}: {e}")
     if data.get("guardrails"):  # guardrails, concrete barriers, cable barriers (propsmesh.rails)
         try:
-            deco, col = propsmesh.rails(data["guardrails"]["groups"], data["guardrails"]["items"])
+            ranges = []
+            deco, col = propsmesh.rails(data["guardrails"]["groups"], data["guardrails"]["items"], ranges)
+            # The KN5 merges every module of one tile/material. Keep each source row's two face spans
+            # so the Editor can pick, move or delete a module and its collision without reconnecting meshes.
+            data["guardrails"]["faces"] = ranges
+            features = obj.editor.data["features"]
+            data["guardrails"]["roads"] = [editorinfo.guardrail_roads(features, row, data["guardrails"]["groups"][int(row[0])], medians.MAX_GAP_M)
+                                               for row in data["guardrails"]["items"]]
+            data["guardrails"]["road_rule"] = 1
             for name, mesh in ((f"nocol_guardrail_{tx}_{ty}", deco), (f"1WALL_guardrailcol_{tx}_{ty}", col)):
                 if mesh is not None:
                     obj.add(name, "props", *mesh)
@@ -982,6 +1033,8 @@ def _scenery_tile(tx, ty, part_path):
         tris["rocks"] = tris.get("rocks", 0) + len(mesh[2])
     obj.close()
     obj.editor.data["build"] = {key: data[key] for key in ("editor", "props", "guardrails", "park", "fuel", "footprints", "footprint_cls") if key in data}
+    if obj.source_ownership:
+        obj.editor.data["build"]["source_ownership"] = obj.source_ownership
     obj.editor.finish(meshes=obj.mesh_facts)
     msgs += obj.problems
     return obj.objects, obj.nv, tris, unknown, msgs

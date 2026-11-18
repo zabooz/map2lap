@@ -267,6 +267,10 @@ def problems(edits):
         if not isinstance(edit, dict) or not isinstance(edit.get("id"), str) or len(edit["id"]) > 64 or edit["id"] in seen:
             return "Each kerb needs a unique id"
         seen.add(edit["id"])
+        road_ids = edit.get("road_ids", [])
+        if (not isinstance(road_ids, list) or len(road_ids) > 64 or
+                any(not isinstance(road_id, str) or not road_id or len(road_id) > 128 for road_id in road_ids)):
+            return "Invalid kerb road IDs"
         if edit.get("side") not in ("left", "right") or edit.get("profile") not in PROFILES:
             return "Choose a kerb side and profile"
         width, height = edit.get("width"), edit.get("height")
@@ -366,7 +370,10 @@ def extend(scan, edits):
             vertices, triangles = mesh(line[first:min(first + CHUNK_ROWS, len(line))], side=edit["side"],
                                        profile=edit["profile"], width=edit["width"], height=edit["height"])
             centre = (vertices["pos"].min(0).astype(float) + vertices["pos"].max(0)) / 2
-            meshes.append({**template, "name": f"1KERB_racing_{len(meshes)}", "copy": True, "kerb_id": edit["id"], "vertices": len(vertices),
+            meshes.append({**template, "name": f"1KERB_racing_{len(meshes)}", "copy": True, "kerb_id": edit["id"],
+                           "road_ids": edit.get("road_ids", []),
+                           "road_points": [[row[0], row[2], row[1]] for row in (line[0], line[-1])],
+                           "vertices": len(vertices),
                            "indices": triangles.size, "data": (vertices, triangles), "material": slot,
                            "center": centre.tolist(), "radius": float(np.linalg.norm(vertices["pos"] - centre, axis=1).max()),
                            "renderable": 1})

@@ -13,6 +13,15 @@ const WIRE = /_wire_/;
 const WIRE_REACH_PX = 6;            // a wire is thinner than a pixel from afar: the mouse this near it finds it
 const FACES_PER_WIRE_SEGMENT = 8;   // (furniture.wire_mesh: two crossed ribbons, each side of each two triangles)
 
+export function sourceRoadId(runs: [string | null, number][] | undefined, face: number): string | null {
+  if (!runs || face < 0) return null;
+  for (const [id, count] of runs) {
+    if (face < count) return id;
+    face -= count;
+  }
+  return null;
+}
+
 /** An image's pixels, to read. (A plain canvas: not every browser has OffscreenCanvas.) */
 function pixelsOf(image: ImageBitmap) {
   const canvas = document.createElement("canvas");
@@ -140,6 +149,7 @@ export class Pointing {
     const k = listed ? Number(listed.slice(listed.lastIndexOf("#") + 1)) : -1;
     return {
       id: listed,
+      roadId: listed ? null : sourceRoadId(data.source_ownership?.[info.name], face),
       kind: listed ? kindName(tile!.kinds[k]) : kindOf(info.name),
       sort: listed ? sortOf(tile!, k) : null,
       object: info.name,

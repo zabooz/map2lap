@@ -128,7 +128,7 @@ def ribbon_pairs(chunks):
     return [(r, c) for c in chunks for r in ribbons([c])]
 
 
-def ribbons(chunks):
+def ribbons(chunks, sources=None):
     """Per chunk: (left (k, 2), right (k, 2), v (k,), material, layer, z (k,) or None) in the anchor
     frame; z: the chunk's own heights where it is "fixed" (bridge decks), else None (draped). Pure. The draped and
     plain chunks' resampling and normals in one Rust call (earthfast.ribbon_edges: numpy per chunk was ~0.9 s of 8
@@ -162,6 +162,8 @@ def ribbons(chunks):
             c = chunks[k]
             out[k] = (L[a:b], R[a:b], S[a:b] / float(c.get("tl") or 10.0), c["m"], layer_of(c),
                       Z[a:b] if c.get("fixed") else None)
+    if sources is not None:
+        sources.extend(c for c, r in zip(chunks, out) if r is not None)
     return [r for r in out if r is not None]
 
 
@@ -399,10 +401,10 @@ def _deck_skins(P, T, UV, M, TL, groups, lifts, chunks, context):
     import fast
     refs = [c for c in chunks if c.get('deck') and not c.get('tunnel')]
     if not refs:
-        return P, T, UV, M, TL
+        return P, T, UV, M, TL, groups
     fast.require(117, 'deck_skin')
     used = np.zeros(len(T), bool)
-    pp, tt, uu, mm, ll = [P], [], [UV], [], []
+    pp, tt, uu, mm, ll, gg = [P], [], [UV], [], [], []
     size = len(P)
     for owner in dict.fromkeys(c.get('surface_id') for c in refs):
         own = [c for c in refs if c.get('surface_id') == owner]
@@ -422,14 +424,16 @@ def _deck_skins(P, T, UV, M, TL, groups, lifts, chunks, context):
         tt.append(t + size)
         mm.append(M[selected[source]])
         ll.append(TL[selected[source]])
+        gg.append(groups[selected[source]])
         size += len(p)
         used[selected] = True
     return (np.concatenate(pp), np.concatenate([T[~used]] + tt), np.concatenate(uu),
-            np.concatenate([M[~used]] + mm), np.concatenate([TL[~used]] + ll))
+            np.concatenate([M[~used]] + mm), np.concatenate([TL[~used]] + ll),
+            np.concatenate([groups[~used]] + gg))
 
 
 def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None, drawn=None, context=(),
-          clip_poly=None):
+          clip_poly=None, face_owners=None):
     """The road mesh of a tile (render only; on bridges it lies DECK_SKIN over deck()'s slab): (positions
     relative to origin, tris, uvs, materials, tri material index), or None. elev(lat, lon) -> m (graded,
     as the physics block). One elev call. lift: m more for the draped surfaces (detail mode: the physics
@@ -446,12 +450,14 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
     chunks = [c for c in chunks if not c.get("tube_only")]  # (twin tunnels' tube: no road surface, roads._tunnel_chunks)
     if clip is not None:
         chunks = [_reach_past(c, clip) for c in chunks]
-    rb = ribbons(chunks)                        # deck surfaces too: their asphalt over deck()'s concrete
+    rb_sources = []
+    rb = ribbons(chunks, rb_sources)             # deck surfaces too: their asphalt over deck()'s concrete
     tilts = None                                # (per ribbon a deck's cross slope by row)
     if any(r[5] is not None for r in rb):       # (trimmed as deck() trims their slabs: context, the decks around)
         ctx = [(r, c) for r, c in ribbon_pairs(list(context)) if r[5] is not None]
         rbc = trim_overlaps(ribbon_pairs(chunks), ctx)
         rb = [r for r, _c in rbc]
+        rb_sources = [c for _r, c in rbc]
         tilts = [(_row_bank(c, (r[0] + r[1]) / 2), _row_off(c, r[0], r[1])) if r[5] is not None and c.get("bank") else None
                  for r, c in rbc]
     polys = [c for c in chunks if c.get("poly")]
@@ -497,7 +503,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         cz = e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]
         keep = cz * np.sign(np.median(cz) or 1.0) > 1e-6
         T.append(tri[keep])
-        owner = rbc[n_rb][1].get('surface_id') if tilts is not None else None
+        owner = rb_sources[n_rb].get('surface_id')
         groups.append(np.full(int(keep.sum()), owner, object))
         skin_lifts.append(np.full(int(keep.sum()), LIFT[layer] + DECK_SKIN))
         M.append(np.full(int(keep.sum()), mi))
@@ -519,15 +525,15 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         flip = nrm[:, 2] < 0
         fan[flip] = fan[flip][:, ::-1]
         T.append(fan)
-        groups.append(np.full(len(fan), None, object))
+        groups.append(np.full(len(fan), c.get('surface_id'), object))
         skin_lifts.append(np.zeros(len(fan)))
         M.append(np.full(len(fan), mats.index(c["m"])))
         TL.append(np.full(len(fan), LIFT[layer_of(c)] + lift))
         nverts += k
     P, T, UV, M = np.concatenate(P), np.concatenate(T), np.concatenate(UV), np.concatenate(M)
     TL = np.concatenate(TL)
-    P, T, UV, M, TL = _deck_skins(P, T, UV, M, TL, np.concatenate(groups),
-                                 np.concatenate(skin_lifts), chunks, context)
+    P, T, UV, M, TL, groups = _deck_skins(P, T, UV, M, TL, np.concatenate(groups),
+                                         np.concatenate(skin_lifts), chunks, context)
     tid = np.arange(len(T))
     if clip_poly is not None:
         import fast
@@ -543,7 +549,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         P, T, UV, tid = _clip_tris(P, T, UV, tid, clip)
         if not len(T):
             return None
-    M, TL = M[tid], TL[tid]
+    M, TL, groups = M[tid], TL[tid], groups[tid]
     if follow:
         dr = np.isfinite(TL)
         if dr.any():
@@ -560,11 +566,15 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
                 UV = np.concatenate([UV, fUV])
                 T = np.concatenate([T[~dr], fT + n0])
                 M = np.concatenate([M[~dr], M[dr][src]])
+                groups = np.concatenate([groups[~dr], groups[dr][src]])
             else:
                 T, M = T[~dr], M[~dr]
+                groups = groups[~dr]
             if not len(T):
                 return None
         P, UV, T = _shared(P, UV, T)
+    if face_owners is not None:
+        face_owners.extend([str(group).split(':', 1)[0] if group is not None else None for group in groups])
     return P - np.asarray(origin, np.float64), T, UV, mats, M
 
 
@@ -700,7 +710,7 @@ def barrier_solid(edge, inward, z, h, v=None, section=JERSEY):
 
 
 def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=None, parapet_h=PARAPET_H,
-         low_parapet_decks=(), pads=(), surface_only=False):
+         low_parapet_decks=(), pads=(), surface_only=False, ownership=None, pier_owners=None):
     """The bridge decks of a tile as one colliding mesh: per "deck" chunk a slab of opaque concrete
     (DECK_SIDE) whose top is at the chunk's fixed heights (the road surface, drawn DECK_SKIN above it
     by build()), with sides and underside DECK_DEPTH below; the piers, and the truss beams (p, q, width, height:
@@ -759,6 +769,7 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
     medians = _median_gaps([(r, c) for r, c in rb],
                            [(r, c) for r, c in zip(ribbons(list(context)), context) if r[5] is not None])
     for n, ((left, right, v, m, layer, z), c) in enumerate(rb):
+        first_vertex = nv
         k = len(z)
         p0 = len(P)                             # (what this deck adds, tilted at its end)
         lat = left - right
@@ -791,11 +802,15 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
         quads(C, R, across / 2, across, v * DECK_TOP_V, v * DECK_TOP_V, top if not c.get("tunnel") else side,
               np.array([0.0, 0.0, 1.0]))
         if surface_only:
+            if ownership is not None and c.get('fid') is not None:
+                ownership.append((first_vertex, nv, str(c['fid'])))
             continue
         quads(L, Lb, 0.0, 0.1, v, v, side, out_l)
         quads(R, Rb, 0.0, 0.1, v, v, side, -out_l)
         quads(Lb, Rb, 0.0, 1.0, v, v, side, np.array([0.0, 0.0, -1.0]))
         if c.get("tunnel"):                     # a tunnel's floor: the slab alone
+            if ownership is not None and c.get('fid') is not None:
+                ownership.append((first_vertex, nv, str(c['fid'])))
             continue
         # girders under the slab
         half = float(np.median(np.hypot(lat[:, 0], lat[:, 1]))) / 2
@@ -823,9 +838,16 @@ def deck(chunks, origin, piers=(), context=(), beams=(), ground=(), parapets=Non
         if c.get("bank"):                       # (about its line, not the trimmed middle: _row_off)
             _tilt_since(P, p0, (left + right) / 2 - u * _row_off(c, left, right)[:, None] - np.asarray(origin, np.float64)[:2],
                         u, _row_bank(c, (left + right) / 2))
+        if ownership is not None and c.get('fid') is not None:
+            ownership.append((first_vertex, nv, str(c['fid'])))
+    pier_ids = {id(p): owner for p, owner in zip(piers, pier_owners or ())}
     for p in _piers_clear(piers, rb):
+        first_vertex = nv
         _pier(p, origin, P, T, UV, M, side)
         nv = sum(len(a) for a in P)
+        owner = pier_ids.get(id(p))
+        if ownership is not None and owner is not None:
+            ownership.append((first_vertex, nv, str(owner)))
     for pad in pads:                # (junction pads on bridges: roads.deck_pads; their rim's railings)
         ring, centre = pad[0], pad[1]
         _pad(ring, centre, origin, P, T, UV, M, top, side)
@@ -1619,6 +1641,27 @@ def wall_owners(mesh, objects):
     owner = owner[cdae.vertex_order(T, M, len(mats))]
     starts = np.r_[0, np.flatnonzero(owner[1:] != owner[:-1]) + 1]
     return [[int(owner[a]), int(b - a)] for a, b in zip(starts, np.r_[starts[1:], len(owner)])]
+
+
+def deck_owner_runs(mesh, ownership):
+    """Source road ID per CDAE vertex, run-length encoded after material sorting. Pure."""
+    P, T, _UV, mats, M = mesh
+    owner = np.full(len(P), None, dtype=object)
+    for first, end, road_id in ownership:
+        owner[first:end] = road_id
+    owner = owner[cdae.vertex_order(T, M, len(mats))]
+    starts = np.r_[0, np.flatnonzero(owner[1:] != owner[:-1]) + 1]
+    return [[owner[a], int(b - a)] for a, b in zip(starts, np.r_[starts[1:], len(owner)])]
+
+
+def face_owner_runs(mesh, owners):
+    """Source road IDs per CDAE face after the writer's stable material sort. Pure."""
+    _P, T, _UV, _mats, M = mesh
+    if len(owners) != len(T):
+        raise ValueError('Road face ownership does not match its mesh')
+    labels = np.asarray(owners, dtype=object)[np.argsort(M, kind='stable')]
+    starts = np.r_[0, np.flatnonzero(labels[1:] != labels[:-1]) + 1]
+    return [[labels[a], int(b - a)] for a, b in zip(starts, np.r_[starts[1:], len(labels)])]
 
 
 def write(path, mesh):

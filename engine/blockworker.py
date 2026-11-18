@@ -397,8 +397,12 @@ def _tile_parts(mark, frame, tile, zoom, g, buildings, left_hand, mph, gas_stati
                                                    tx, ty, deck_parts)
     guardrail_rows = roadsmod.tilt_rows_on_decks(guardrail_rows, deck_parts, bridges)
     mark("medians")
-    P.dmesh = roadmeshmod.deck(chunks, (x0, y0, 0.0), bridges.piers_in(box), ctx, bridges.beams_in(box), ground=cover,
-                               parapets=parapets, low_parapet_decks=low_parapet_decks, pads=pads)
+    pier_items = bridges.pier_items_in(box)
+    P.downers = []
+    P.dmesh = roadmeshmod.deck(chunks, (x0, y0, 0.0), [p for _owner, p in pier_items], ctx,
+                               bridges.beams_in(box), ground=cover, parapets=parapets,
+                               low_parapet_decks=low_parapet_decks, pads=pads, ownership=P.downers,
+                               pier_owners=[owner for owner, _p in pier_items])
     mark("deck_mesh")
     P.wall_objects = []
     P.tmesh = roadmeshmod.tunnel(chunks, (x0, y0, 0.0), rwalls, rgalleries, objects=P.wall_objects)
@@ -459,16 +463,20 @@ def _roads_tile(aid, lat, lon, zoom, tx, ty, out_dir, vfs_dir, sidewalks, lift, 
     g, _ = _s.anchor(aid, lat, lon)
     P = _tile_parts(mark, frame, (tx, ty), zoom, g, buildings, left_hand, mph, gas_stations, buried, lamp_region,
                     country, q, (aid, lat, lon), (lat, lon), sidewalks_enabled=sidewalks)
+    P.road_owners = []
     mesh = roadmeshmod.build(frame, P.chunks, P.elev, P.origin, lift, clip=P.box, follow=True, q=q, drawn=P.drawn,
-                             context=P.ctx)
+                             context=P.ctx, face_owners=P.road_owners)
     mark("mesh")
     mesh = _with_plazas(mesh, frame, P.box, P.elev, P.origin, getattr(_s, "surface", None))
+    if mesh is not None:
+        P.road_owners.extend([None] * (len(mesh[1]) - len(P.road_owners)))
     mark("plazas")
     out = roadsmod.write_tile(out_dir, vfs_dir, aid, tx, ty, P.chunks, P.walks if sidewalks else None, mesh, P.dmesh,
                               P.bld, P.props, P.wires, P.park, tunnel_mesh=P.tmesh, fuel=P.fuel, rail_mesh=P.rmesh,
                               guardrail_rows=P.guardrail_rows, garage_sound=P.garage_sound,
                               wells=P.wells, footprints=P.footprints, wall_objects=P.wall_objects,
-                              walk_builder=P.walk_builder) + (P.fuel_pads, P.wall_cuts)
+                              walk_builder=P.walk_builder, deck_ownership=P.downers,
+                              road_ownership=P.road_owners) + (P.fuel_pads, P.wall_cuts)
     mark("write")
     return out
 

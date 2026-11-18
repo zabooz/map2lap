@@ -58,25 +58,35 @@ The server supplies preview and saved mesh deformation; the browser does not imp
 The Elevation brush continues to refuse decks and railways.
 New mesh kinds must be classified there (`engine/tests/test_trackheights.py`).
 
-Separate crossing (J) marks A and B on one road with existing bridge spans, or on one railway bridge. The marked
-ends stay fixed. The server reads the mapped bridge and the ground road below, shows their present surface gap, and makes
-a smooth height correction when Gap changes. Road bridges use their driving deck; railway bridges use the physical ballast
-top. Marking the road below one or several road bridges lowers only that road; marking the road above lifts the bridges.
-The maximum slope of the added correction ramp is adjustable, starting at 15% for roads
-and 2% for railways. Shift + wheel changes Gap by 0.1 m; Ctrl + wheel changes the maximum by 0.5 percentage points.
+Road bend (J) marks A and B on one mapped road, with or without an existing bridge or crossing. The marked ends stay
+fixed. A signed Height raises or lowers the middle with a smooth correction; zero removes that correction. This works
+independently on each road level. The server checks mapped crossing clearances and refuses a bend that would reduce the
+available road clearance. A junction on the selected road inside the correction is refused if its side road cannot follow;
+a junction on another level stays fixed. The road's maximum added ramp slope starts at 15%.
+On a selected railway bridge the same tool still uses the measured Gap above the road below. Its slope starts at 2%.
+Shift + wheel changes Height or Gap by 0.1 m; Ctrl + wheel changes the slope limit by 0.5 percentage points.
 The maximum can also be typed directly; the editor retains separate road and railway values while it stays open.
-It limits the slope of the added height correction along the marked road, not the shape of the other road at the crossing.
-Marking an already corrected crossing again shows its current gap and resumes corrections on the selected road side.
-Bridge lifts and lower-road drops stay independent; reducing Gap replaces only the selected side's corrections, and
-returning to that side's original gap removes them in one Undo step.
-With two or more road crossings between A and B, Gap is the smallest measured clearance. The marked road receives the same
-vertical correction at every crossing, constant between them. It stores source vertex offsets
-for the bridge, its attached render/collision parts and approaches in the draft, so Undo and Save use the same geometry.
-Concrete deck pieces follow the marked asphalt deck through shared source edge vertices, even where the mapped road width
-understates the concrete span; a neighbouring deck with different edges stays independent.
-Road separation checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer
+Marking an already corrected road again resumes its signed Height. Returning Height to zero removes the correction in
+one Undo step.
+With two or more bridge spans between A and B, the marked road gets one smooth central bend. It stores source vertex
+offsets for the road, bridge parts and approaches in the draft, so Undo and Save use the same geometry.
+Terrain beside and beneath a bridge span stays fixed; only terrain cells within the road width at an abutment join the
+raised or lowered approach.
+The build retains each road and bridge face's mapped road ID through material sorting and KN5 export. Bridge slabs,
+girders, parapets and piers use the generating deck or pier's ID; the road skin uses its generating ribbon's ID.
+Ground road markings, gutters and drains use the mapped road's ID as well. Under pointer shows that ID for the hit
+triangle of a merged road or bridge mesh; it does not make the whole tile one selectable object.
+The Editor moves only faces of the marked road, even where two carriageways share one tile mesh or a concrete member
+extends beneath the other road. Tracks built before these IDs need rebuilding for Road bend.
+Road bend checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer
 block a road correction or hold its terrain down. After A and B are marked, the server checks a nominal one-metre
-correction along the selected road and reports blocking rail/tunnel parts with red crosses before Gap is changed.
+correction along the selected road and reports blocking rail/tunnel parts with red crosses before Height is changed.
+Guardrails retain source module face spans and candidate mapped road IDs in each tile's build facts. The module's tile and
+row number identify its visible and doubled collision faces together. At a crossing, the correction moves a guardrail
+only when its candidate IDs belong to the selected road side; a median may have both carriageway IDs. A crossed road's
+centreline alone cannot claim a guardrail because its direction differs. Ambiguous modules stop the correction rather
+than moving a barrier onto the wrong level. Modules planted in the retained railway ballast stay with the railway even
+when a parallel road's centreline is nearby. Older tracks derive this index from their retained rows and road features.
 
 Select on a railway bridge selects its complete connected mapped bridge span. Delete removes its visible rails, sleepers,
 ballast, concrete and corresponding collision triangles together; a parallel railway bridge remains independent. The
@@ -130,12 +140,16 @@ change width, height and profile in the Kerb tool. Undo/Redo, the draft and Save
 
 The red-white strip is a visible `1KERB_racing_…` KN5 collision mesh with the ordinary AC KERB surface, so its height is
 physical even without CSP. It overlaps the mapped asphalt edge by 15 cm to join it; that small overlap can fail on a
-road whose mapped width exceeds its actual asphalt. Ground roads use their sampled road height. Bridges use the exact
-source deck triangles at the kerb edge, with the build's 1 cm asphalt-skin lift; the 2 m height grid only identifies the
-selected level where bridges cross other roads. Tunnels are refused until the Editor can sample their floor edge reliably.
+road whose mapped width exceeds its actual asphalt. Ground roads use their sampled road height. Bridges use the source
+deck triangles of the selected mapped road, with the build's 1 cm asphalt-skin lift. A kerb edge up to 0.5 m outside a
+deck uses its nearest edge height, because mapped widths and deck triangulation can differ by a few decimetres. Beyond
+0.5 m the kerb is refused instead of taking the height of a road under the bridge. Tunnels are refused until the Editor
+can sample their floor edge reliably.
 A 2 m kerb can extend beyond the supported shoulder on narrow or steep roads. The road-edge decal under the kerb remains;
 the raised strip renders over it. The mesh and DDS texture are regenerated from the retained source on each Save, and
-remain below AC's 65,535 vertices per mesh. Elevation follows the kerb at each vertex. Existing saved kerbs retain their
+remain below AC's 65,535 vertices per mesh. Elevation follows the kerb at each vertex. Bend road follows the kerb on its
+mapped road, whether the kerb was placed before or after the bend; a kerb on another road at the same crossing stays put.
+Existing saved kerbs retain their
 stored centreline and height; marking them again applies the current spline and bridge-height sampling.
 
 ## Tree spacing

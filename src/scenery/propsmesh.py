@@ -551,12 +551,15 @@ RAIL_CAP_LOW = 0.15             # m: top at the ground end of an end piece
 CABLE_AT = (0.55, 0.67, 0.79, 0.91)     # m: the four cables
 
 
-def rails(groups, rows):
-    """(visible mesh, collision mesh) of the guardrail rows; each None when there are none."""
+def rails(groups, rows, ranges=None):
+    """Guardrail meshes; optional ranges receives visible/collision triangle spans per source row."""
     deco, col = Builder(), Builder()
     for row in rows:
+        first_deco, first_col = len(deco.T), len(col.T)
         kind = RAIL_GROUPS.get(groups[int(row[0])])
         if kind is None:
+            if ranges is not None:
+                ranges.append([first_deco, 0, first_col, 0])
             continue
         x, y, z, h = row[1], row[2], row[3], row[6]
         c0, c1, U = np.asarray(row[8:11], float), np.asarray(row[11:14], float), np.asarray(row[14:17], float)
@@ -609,4 +612,6 @@ def rails(groups, rows):
         hc = h if kind == "cable" else None        # collision: one vertical wall per module (obj_to_kn5: double-sided)
         col.quad(pt(L[0], 0.0, -0.3), pt(L[1], 0.0, -0.3), pt(L[1], 0.0, hc or top(L[1])), pt(L[0], 0.0, hc or top(L[0])),
                  METAL)
+        if ranges is not None:
+            ranges.append([first_deco, len(deco.T) - first_deco, first_col, len(col.T) - first_col])
     return deco.mesh(), col.mesh()

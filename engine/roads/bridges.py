@@ -1191,13 +1191,17 @@ class BridgeProfiles:
             allb = [b for v in self.trusses.values() for b in v]
         return sorted((b for b in allb if box_owns(box, (b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2)), key=beam_place)
 
-    def piers_in(self, box):
-        """The piers (pier_sites) of the parts solved so far standing in box (x0, y0, x1, y1): x0 <= x < x1, y0 <= y
-        < y1 (each in one tile), by pier_place."""
+    def pier_items_in(self, box):
+        """(Road ID, pier) in this tile, in the same deterministic order as piers_in."""
         x0, y0, x1, y1 = box
         with self.lock:
-            allp = [p for v in self.piers.values() for p in v]
-        return sorted((p for p in allp if box_owns(box, p[0], p[1])), key=pier_place)
+            allp = [(str(key[0]) if key[0] != 'truss' else None, p)
+                    for key, values in self.piers.items() for p in values]
+        return sorted(((owner, p) for owner, p in allp if box_owns(box, p[0], p[1])), key=lambda item: pier_place(item[1]))
+
+    def piers_in(self, box):
+        """The piers (pier_sites) standing in box, sorted by pier_place."""
+        return [p for _owner, p in self.pier_items_in(box)]
 
     @staticmethod
     def _part_id(key):

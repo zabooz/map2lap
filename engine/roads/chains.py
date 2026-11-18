@@ -157,27 +157,34 @@ class ChainView:
         with st.lock:
             ver = (len(st.piers), sum(len(v) for v in st.piers.values()), len(st.trusses),
                    sum(len(v) for v in st.trusses.values()))
-            piers = [q for v in st.piers.values() for q in v]
+            piers = [(str(owner[0]) if owner[0] != 'truss' else None, q)
+                     for owner, values in st.piers.items() for q in values]
             beams = [b for v in st.trusses.values() for b in v]
         key = (id(st), st.region)
         with self.lock:
             hit = self._piers.get(key)
         if hit is None or hit[0] != ver:
             mp = _Mapper(st.frame, self.frame)
-            hit = (ver, [mp.pier(q) for q in piers], [mp.beam(b) for b in beams])
+            hit = (ver, [(owner, mp.pier(q)) for owner, q in piers], [mp.beam(b) for b in beams])
             with self.lock:
                 self._piers[key] = hit
         return hit[1], hit[2]
 
-    def piers_in(self, box):
+    def pier_items_in(self, box):
+        """Mapped piers together with the source road IDs that generated them."""
         x0, y0, x1, y1 = box
         out, seen = [], set()
-        for q in sorted((q for st in self._stores() for q in self._mapped_piers(st)[0]), key=pier_place):
+        for owner, q in sorted((item for st in self._stores() for item in self._mapped_piers(st)[0]),
+                               key=lambda item: pier_place(item[1])):
             k = (round(q[0], 3), round(q[1], 3))
             if box_owns(box, q[0], q[1]) and k not in seen:
                 seen.add(k)
-                out.append(q)
+                out.append((owner, q))
         return out
+
+    def piers_in(self, box):
+        """Mapped piers in the stable tile order."""
+        return [q for _owner, q in self.pier_items_in(box)]
 
     def beams_in(self, box):
         x0, y0, x1, y1 = box

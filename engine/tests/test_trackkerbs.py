@@ -82,6 +82,23 @@ class KerbTest(unittest.TestCase):
             line = np.asarray(trackkerbs.prepare(None, scan, None, net, "left"))
         np.testing.assert_allclose(line[:, 1], 10.01 + 0.1 * line[:, 0], atol=0.001)
 
+    def test_bridge_kerb_uses_its_road_id_just_outside_the_deck_edge(self):
+        net = {"segments": [{"a": [0, 0], "b": [4, 0], "width": 8,
+                             "road": "upper", "structure": "bridge"}]}
+        floor = np.array([[[0, 1, -4], [0, 1, 4], [4, 1, -4]],
+                          [[4, 1, -4], [0, 1, 4], [4, 1, 4]]], dtype=float)
+        deck = floor.copy()
+        deck[:, :, 1] = 10 + 0.1 * deck[:, :, 0]
+        scan = {"meshes": [{"name": "1ROAD_deck_asphalt_0_0"}]}
+        faces = [(0, np.arange(4), np.concatenate((floor, deck)))]
+        owners = np.array(["lower", "lower", "upper", "upper"])
+        with (mock.patch.object(roadsurfaces, "_top_triangles", return_value=faces),
+              mock.patch.object(roadsurfaces.editorinfo, "surface_face_owners", return_value=owners)):
+            height = roadsurfaces.deck_heights(None, scan, None, np.array([[2, 4.18]]), np.array([1.0]), net)
+            self.assertAlmostEqual(float(height[0]), 10.21, places=2)
+            with self.assertRaisesRegex(ValueError, "more than 0.5 m"):
+                roadsurfaces.deck_heights(None, scan, None, np.array([[2, 4.6]]), np.array([1.0]), net)
+
 
     def test_kerb_mesh_has_real_ac_collision_and_adjustable_profile(self):
         line = [[0, 1, 0, 8], [2, 1, 0, 8]]

@@ -4,11 +4,13 @@ import re
 import numpy as np
 
 from app import roadsurfaces, trackview
-from track import kn5, objectlist
+from track import editorinfo, kn5, objectlist
 
 WALK = re.compile(r"(?:nocol_walk_|1KERB_walkcol_)")
 VISIBLE = re.compile(r"nocol_walk_")
 GUARDRAIL = re.compile(r"(?:nocol_guardrail_|1WALL_guardrailcol_)")
+RAIL_MESH = editorinfo.GUARDRAIL_MESH
+FACES_PER_PART = editorinfo.GUARDRAIL_FACES_PER_PART
 ON_TOP = {"street furniture", "road sign", "town sign", "power pole", "fence", "tree", "bush"}
 
 
@@ -20,18 +22,25 @@ def _ranges(numbers):
     return [[int(numbers[a]), int(b - a)] for a, b in zip(starts, starts[1:])]
 
 
-def _near(points, others, reach):
-    """Whether any point is close in x/z and height to another piece. Pure."""
-    if not len(points) or not len(others):
-        return False
-    # A 10 cm spatial hash avoids quadratic distance checks on long urban sidewalks.
-    grid = np.floor(others / reach).astype(np.int64)
-    cells = {tuple(row) for row in grid}
-    for row in np.floor(points / reach).astype(np.int64):
-        if any((row[0] + dx, row[1] + dy, row[2] + dz) in cells
-               for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)):
-            return True
-    return False
+def _connected(pieces, seed, reach=.12):
+    """Pieces touching the clicked source piece through a spatial index. Pure."""
+    cells, occupied = {}, []
+    for i, piece in enumerate(pieces):
+        own = {tuple(cell) for cell in np.floor(piece[2] / reach).astype(np.int64)}
+        occupied.append(own)
+        for cell in own:
+            cells.setdefault(cell, []).append(i)
+    chosen, pending = {seed}, [seed]
+    while pending:
+        for x, y, z in occupied[pending.pop()]:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        for other in cells.get((x + dx, y + dy, z + dz), ()):
+                            if other not in chosen:
+                                chosen.add(other)
+                                pending.append(other)
+    return [pieces[i] for i in sorted(chosen)]
 
 
 def _parts(path, scan, point, name):
@@ -74,16 +83,8 @@ def _parts(path, scan, point, name):
     seed = min(clicked, key=distance)
     if distance(seed) > 3:
         raise ValueError("Click nearer the sidewalk")
-    chosen = {id(seed)}
-    connected = [seed]
     # Visible and collision profiles meet at their curb and slab vertices, even across material seams.
-    for _ in range(len(pieces)):
-        more = [p for p in pieces if id(p) not in chosen and any(_near(p[2], old[2], .12) for old in connected)]
-        if not more:
-            break
-        chosen.update(id(p) for p in more)
-        connected.extend(more)
-    return connected
+    return _connected(pieces, next(i for i, piece in enumerate(pieces) if piece is seed))
 
 
 def _on_slab(at, triangles):
@@ -99,12 +100,65 @@ def _on_slab(at, triangles):
     return False
 
 
+def _guardrail_faces(path, scan, parts):
+    """Source-row guardrail faces, pairing the chosen visible modules with their collision faces."""
+    visible = next((name for _i, name, _p, _f, _t in parts if name.startswith('nocol_guardrail_')), None)
+    match = RAIL_MESH.fullmatch(visible or '')
+    if match is None:
+        return None
+    key = f'{match[2]}_{match[3]}'
+    try:
+        rows, spans, _roads = editorinfo.guardrail_modules(path, key)
+    except (OSError, KeyError, ValueError):
+        return None
+    if len(spans) != len(rows) or any(len(span) != 4 for span in spans):
+        return None
+    meshes = {}
+    for i, mesh in enumerate(scan['meshes']):
+        found = RAIL_MESH.fullmatch(mesh['name'])
+        if found and f'{found[2]}_{found[3]}' == key:
+            meshes[(found[1], int(found[4] or 0))] = (i, mesh['indices'] // 3)
+    for kind, start in (('nocol_guardrail', 0), ('1WALL_guardrailcol', 2)):
+        total = sum(count for (name, _part), (_i, count) in meshes.items() if name == kind)
+        expected = max((span[start] + span[start + 1] for span in spans), default=0)
+        if total != expected * (2 if kind == '1WALL_guardrailcol' else 1):
+            return None
+    selected = set()
+    for _i, name, _p, faces, _t in parts:
+        found = RAIL_MESH.fullmatch(name)
+        if found and found[1] == 'nocol_guardrail':
+            selected.update(faces + int(found[4] or 0) * FACES_PER_PART)
+    rows_hit = [span for span in spans if any(face in selected for face in range(span[0], span[0] + span[1]))]
+    if not rows_hit:
+        return None
+    by_mesh = {}
+    for kind, first in (('nocol_guardrail', 0), ('1WALL_guardrailcol', 2)):
+        for (name, part), (i, count) in meshes.items():
+            if name != kind:
+                continue
+            offset = part * FACES_PER_PART
+            raw_count = count // 2 if kind == '1WALL_guardrailcol' else count
+            for span in rows_hit:
+                a, n = span[first:first + 2]
+                lo, hi = max(a, offset), min(a + n, offset + raw_count)
+                if lo < hi:
+                    by_mesh.setdefault(i, []).extend(range(lo - offset, hi - offset))
+                    if kind == '1WALL_guardrailcol':
+                        # obj_to_kn5 appends the reversed wall faces after the whole OBJ part.
+                        by_mesh[i].extend(range(lo - offset + raw_count, hi - offset + raw_count))
+    return by_mesh
+
+
 def selection(path, scan, point, name):
     """Selected sidewalk triangles and listed objects whose feet stand on its slab."""
     parts = _parts(path, scan, point, name)
     by_mesh = {}
-    for i, mesh_name, _vertices, faces, _triangles in parts:
-        by_mesh.setdefault((i, mesh_name), []).extend(faces.tolist())
+    paired = _guardrail_faces(path, scan, parts) if name.startswith('nocol_guardrail_') else None
+    if paired is not None:
+        by_mesh = {(i, scan['meshes'][i]['name']): faces for i, faces in paired.items()}
+    else:
+        for i, mesh_name, _vertices, faces, _triangles in parts:
+            by_mesh.setdefault((i, mesh_name), []).extend(faces.tolist())
     meshes, cuts = [], []
     for (i, mesh_name), faces in sorted(by_mesh.items()):
         numbers = np.unique(faces)

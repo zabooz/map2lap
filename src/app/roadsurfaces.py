@@ -4,7 +4,11 @@ import math
 import numpy as np
 
 from app import trackband, trackheights
-from track import kn5, objectlist
+from track import editorinfo, kn5, objectlist
+
+# The mapped road edge can lie a few decimetres outside its triangulated deck (A2 Völkermarkt: 18 cm).
+# The kerb overlaps the asphalt by 15 cm; beyond half a metre there is no reliable deck edge to extend.
+KERB_DECK_REACH_M = 0.5
 
 
 def structures(net, x, z, extra=0):
@@ -53,6 +57,21 @@ def _plane(triangle, x, z):
     return (u >= -1e-6) & (v >= -1e-6) & (u + v <= 1 + 1e-6), u * a[1] + v * b[1] + (1 - u - v) * c[1]
 
 
+def _nearest_deck(triangle, point):
+    """Plan distance and height at the nearest point of an upward deck triangle. Pure."""
+    inside, height = _plane(triangle, *point)
+    if inside:
+        return 0.0, float(height)
+    best = (float('inf'), 0.0)
+    for a, b in zip(triangle, np.roll(triangle, -1, axis=0)):
+        way = b[[0, 2]] - a[[0, 2]]
+        t = float(np.clip(np.dot(point - a[[0, 2]], way) / max(np.dot(way, way), 1e-12), 0, 1))
+        distance = float(np.linalg.norm(point - a[[0, 2]] - t * way))
+        if distance < best[0]:
+            best = distance, float(a[1] + t * (b[1] - a[1]))
+    return best
+
+
 def bridge_at(path, scan, point):
     """True/False if a deck lies at x/z, matched against clicked [x,z,y]; None away from decks."""
     x, z, y = point
@@ -75,35 +94,38 @@ def bridge_at(path, scan, point):
 
 
 def deck_heights(path, scan, moved, points, approximate, net):
-    """Exact visible bridge-road height at x/z; keep approximate heights away from deck faces."""
+    """Visible height of the selected bridge road, extending its deck edge by at most KERB_DECK_REACH_M."""
     points = np.asarray(points, np.float64)
     result = np.asarray(approximate, np.float64).copy()
     on_bridge = structures(net, points[:, 0], points[:, 1], extra=2) == 1
     if not on_bridge.any():
         return result
+    selected_ids = {edge.get('road') for edge in net['segments'] if edge['structure'] == 'bridge'} - {None}
     best = np.full(len(points), np.inf)
-    bounds = np.array([points.min(axis=0) - 0.1, points.max(axis=0) + 0.1])
-    for i, _faces, triangles in _top_triangles(path, scan, moved, bounds):
+    bounds = np.array([points.min(axis=0) - KERB_DECK_REACH_M, points.max(axis=0) + KERB_DECK_REACH_M])
+    for i, faces, triangles in _top_triangles(path, scan, moved, bounds):
         if not scan['meshes'][i]['name'].startswith('1ROAD_deck') or not len(triangles):
             continue
+        owners = editorinfo.surface_face_owners(path, scan['meshes'][i]['name'])[faces] if selected_ids else None
         low = triangles[:, :, [0, 2]].min(axis=1)
         high = triangles[:, :, [0, 2]].max(axis=1)
         for k in np.flatnonzero(on_bridge):
-            x, z = points[k]
-            near = triangles[((low <= [x + 1e-6, z + 1e-6])
-                              & (high >= [x - 1e-6, z - 1e-6])).all(axis=1)]
-            if not len(near):
-                continue
-            for triangle in near:
-                inside, height = _plane(triangle, x, z)
-                if not inside:
+            point = points[k]
+            near = np.flatnonzero(((low <= point + KERB_DECK_REACH_M)
+                                   & (high >= point - KERB_DECK_REACH_M)).all(axis=1))
+            for j in near:
+                if owners is not None and owners[j] not in selected_ids:
                     continue
-                # The raster identifies which of several stacked roads was selected.
-                error = abs(height - approximate[k])
-                if error < min(best[k], 0.5):
+                distance, height = _nearest_deck(triangles[j], point)
+                if owners is None:
+                    # A synthetic or old source without IDs still uses its click-height hint on exact deck faces.
+                    distance = abs(height - approximate[k]) if distance < 1e-6 else np.inf
+                if distance < min(best[k], KERB_DECK_REACH_M + 1e-6):
                     # roadmesh.DECK_SKIN raises the visible asphalt 1 cm above the collision slab.
                     result[k] = height + 0.01
-                    best[k] = error
+                    best[k] = distance
+    if selected_ids and np.any(on_bridge & ~np.isfinite(best)):
+        raise ValueError('Kerb edge is more than 0.5 m from its mapped bridge deck; mark a shorter road stretch')
     return result
 
 

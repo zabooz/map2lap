@@ -66,6 +66,21 @@ class Base(unittest.TestCase):
         return {m.name: m for m in kn5.walk_meshes(kn5.read(out)["root"])}, kn5.scan(out)
 
 
+class KerbBendTest(Base):
+    def test_racing_kerb_follows_its_mapped_road_bend_on_either_edit_order(self):
+        self.write(mesh("1KERB_racing_0", 0, [(0, 0, 3), (10, 0, 3), (20, 0, 3)]),
+                   mesh("1KERB_racing_1", 0, [(0, 0, 3), (10, 0, 3), (20, 0, 3)]))
+        scan = kn5.scan(self.path)
+        scan["meshes"][0]["road_ids"] = ["road-a"]
+        scan["meshes"][1]["road_ids"] = ["road-b"]
+        op = {**raster(nx=13, nz=5, peak=0), "mesh_offsets": {},
+              "bend": {"kind": "road", "road_ids": ["road-a"], "line": [[0, 0], [20, 0]], "delta": 3}}
+        moved = trackheights.moved(self.path, scan, {}, [op])
+        self.assertAlmostEqual(float(moved.vertices[0]["pos"][1, 1]), 3, places=3)
+        self.assertAlmostEqual(float(moved.vertices[0]["pos"][0, 1]), 0, places=3)
+        self.assertNotIn(1, moved.vertices)
+
+
 class RasterTest(unittest.TestCase):
     def test_a_good_one_has_no_problem(self):
         self.assertIsNone(trackheights.problem(raster()))

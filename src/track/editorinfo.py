@@ -24,6 +24,9 @@ FOLDER = os.path.join("data", "map2lap_editor")
 SCHEMA = 1
 TILE_M = 256
 TILE_KEY = re.compile(r"-?\d+_-?\d+")
+GUARDRAIL_MESH = re.compile(r"(nocol_guardrail|1WALL_guardrailcol)_(-?\d+)_(-?\d+)(?:_(\d+))?$")
+DECK_TILE = re.compile(r"_(-?\d+)_(-?\d+)(?:_(\d+))?$")
+GUARDRAIL_FACES_PER_PART = 65000 // 3  # make_obj.Obj.add's triangle split.
 
 
 def side_file(part):
@@ -123,6 +126,119 @@ class Paint:
 
 def _folder(kn5):
     return os.path.join(os.path.dirname(kn5), FOLDER)
+
+
+def guardrail_roads(features, row, group, median_gap):
+    """Mapped road IDs whose corridor and direction contain a guardrail module. Pure.
+
+    A median can belong to both carriageways. A crossed road has a closer centreline but
+    a different direction, so proximity alone cannot identify its owner.
+    """
+    point = np.array([row[1], -row[2]], np.float64)
+    along = row[11:13] if group in ("jersey", "jersey_end") else row[8:10]
+    direction = np.array([along[0], -along[1]], np.float64)
+    direction /= max(float(np.linalg.norm(direction)), 1e-9)
+    found = set()
+    for feature in features:
+        spec = feature.get("spec")
+        if not spec or not feature.get("geometry"):
+            continue
+        width = float(spec.get("width") or 0)
+        if width <= 0:
+            continue
+        for line in feature["geometry"]:
+            vertices = np.asarray(line, np.float64)
+            if len(vertices) < 2:
+                continue
+            a, delta = vertices[:-1], np.diff(vertices, axis=0)
+            length = np.linalg.norm(delta, axis=1)
+            valid = length > 1e-6
+            if not valid.any():
+                continue
+            t = np.clip(np.sum((point - a) * delta, axis=1) / np.maximum(length * length, 1e-12), 0, 1)
+            distance = np.linalg.norm(point - (a + t[:, None] * delta), axis=1)
+            aligned = np.abs(delta @ direction) / np.maximum(length, 1e-9)
+            # A generated median barrier can stand halfway across the generator's maximum
+            # median gap (medians.MAX_GAP_M) beyond either carriageway edge. Roadside rails
+            # need only the 2 m shoulder allowance. Direction rejects a crossing road nearby.
+            median = median_gap / 2 if spec.get("oneway") and spec.get("cls") in ("motorway", "trunk") else 0.0
+            if np.any(valid & (aligned >= .85) & (distance <= width / 2 + median + 2)):
+                found.add(feature["id"])
+    return sorted(found)
+
+
+def guardrail_modules(kn5, key):
+    """Source rows, face spans and candidate road IDs for one tile, including older build facts."""
+    from scenery import propsmesh
+    import medians
+    archive, data = _read(_folder(kn5), key)
+    with archive:
+        built = data["build"]["guardrails"]
+        rows, groups = built["items"], built["groups"]
+        faces = built.get("faces")
+        if faces is None:
+            faces = []
+            propsmesh.rails(groups, rows, faces)
+        roads = built.get("roads") if built.get("road_rule") == 1 else None
+        if roads is None:
+            roads = [guardrail_roads(data["features"], row, groups[int(row[0])], medians.MAX_GAP_M) for row in rows]
+        if len(faces) != len(rows) or len(roads) != len(rows):
+            raise ValueError("Incomplete guardrail ownership")
+        return rows, faces, roads
+
+
+@functools.lru_cache(maxsize=128)
+def _surface_face_owners(folder, tile, name, stamp):
+    """Source road ID per face of one KN5 mesh; cached by its tile archive stamp."""
+    archive, data = _read(folder, tile)
+    with archive:
+        runs = data.get("build", {}).get("source_ownership", {}).get(name)
+        _check_owner_runs(runs)
+        return np.repeat([road_id for road_id, _count in runs], [count for _road_id, count in runs])
+
+
+def _check_owner_runs(runs):
+    """Validate a built mesh's compact face owners. Pure."""
+    if runs is None:
+        raise ValueError("This track needs a new build for road and bridge part IDs")
+    if any(not isinstance(run, list) or len(run) != 2 or type(run[1]) is not int or run[1] < 1
+           or run[0] is not None and not isinstance(run[0], str) for run in runs):
+        raise ValueError("Invalid bridge part ownership")
+
+
+def source_ownership(kn5, tiles):
+    """Compact mapped road IDs for the Editor's hovered road and bridge triangles."""
+    folder = _folder(kn5)
+    result = {}
+    for tile in tiles:
+        archive, data = _read(folder, tile)
+        with archive:
+            for name, runs in data.get("build", {}).get("source_ownership", {}).items():
+                _check_owner_runs(runs)
+                result[name] = runs
+    return result
+
+
+def surface_face_owners(kn5, name):
+    """Source road ID for each face of a built road or deck mesh; older tracks need rebuilding."""
+    if DECK_TILE.search(name) is None or not name.startswith(("1ROAD_deck_", "1WALL_deck_", "nocol_road_")):
+        raise ValueError("Not a built road or bridge mesh")
+    folder = _folder(kn5)
+    parts = name.split("_")
+    # A numeric concrete material suffix and an OBJ split suffix can both look like
+    # tile coordinates. The archive containing this exact mesh name resolves them.
+    candidates = ["_".join(parts[-2:])]
+    if len(parts) >= 3 and parts[-1].isdigit():
+        candidates.append("_".join(parts[-3:-1]))
+    for tile in candidates:
+        try:
+            return _surface_face_owners(folder, tile, name, _stamp(os.path.join(folder, tile + ".zip")))
+        except FileNotFoundError:
+            continue
+        except ValueError as error:
+            if str(error) != "This track needs a new build for road and bridge part IDs":
+                raise
+    raise ValueError("This track needs a new build for road and bridge part IDs")
 
 
 def _stamp(path):

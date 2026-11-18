@@ -6,6 +6,7 @@ import type {ColourLayers, ColourSplat} from "./scene/colourBlend";
 /** What the mouse points at (the hover box). */
 export interface Hovered {
   id: string | null;            // (a single object's, which can be deleted)
+  roadId?: string | null;        // (mapped road owning the hit triangle of a combined mesh)
   kind: string;
   sort: string | null;          // (a listed object's or a tree's model: what deleting all of a sort goes by)
   object: string;
@@ -119,6 +120,7 @@ export interface TrackIndex {
   paint_errors?: string[];
   paints?: string[];
   surface_tiles?: string[];
+  source_ownership?: Record<string, [string | null, number][]>;
   surface_unprepared?: number;     // (tiles whose sections a first opening computes)
   draft?: number;
   copy_revision?: string;

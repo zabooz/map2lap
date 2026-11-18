@@ -309,6 +309,63 @@ def _wire_changes(mesh, scan, objects, field, reach):
     return out
 
 
+def _kerb_owners(path, scan):
+    """Mapped road IDs for generated kerbs, including drafts placed before IDs were retained. Pure."""
+    from app import roadregion
+    owners, known = {}, {}
+    for i, mesh in enumerate(scan["meshes"]):
+        if objectlist.kind_of(mesh["name"]) != "racing":
+            continue
+        ids = set(mesh.get("road_ids", []))
+        if not ids and mesh.get("road_points"):
+            key = mesh.get("kerb_id", i)
+            if key not in known:
+                try:
+                    net = roadregion.mapped(path, mesh["road_points"], scan=scan, join_near=True)
+                    known[key] = {edge["road"] for edge in net["segments"] if edge.get("road")}
+                except (ValueError, OSError, KeyError):
+                    known[key] = set()
+            ids = known[key]
+        owners[i] = ids
+    return owners
+
+
+def _kerb_bends(path, scan, ops, wanted):
+    """Mapped road profiles that move editor kerbs along with Bend road. Pure."""
+    from app import roadregion, roadseparation
+    profiles = []
+    for op in ops:
+        bend = op.get("bend")
+        if not isinstance(bend, dict) or bend.get("kind") != "road" or not wanted.intersection(bend.get("road_ids", [])):
+            continue
+        line = bend.get("line")
+        if line is None:
+            # A draft bend made before the route was retained still names its mapped road and pins.
+            line = roadseparation._route(roadregion.mapped(path, bend["points"], scan=scan, join_near=True))
+        line = np.asarray(line, np.float64)
+        profiles.append((set(bend.get("road_ids", [])), line,
+                         [(float(roadseparation._stations(line)[-1] / 2), float(bend["delta"]))]))
+    return profiles
+
+
+def _kerb_bend(positions, road_ids, profiles):
+    """Signed bend and local slope at a kerb's vertices, only for its mapped road. Pure."""
+    from app import roadseparation
+    points = positions[:, [0, 2]].astype(np.float64)
+    d = np.zeros(len(points))
+    ax, az = np.zeros(len(points)), np.zeros(len(points))
+    for ids, line, targets in profiles:
+        if not ids.intersection(road_ids):
+            continue
+        def height(at):
+            return roadseparation._deck_field(at, line, targets)
+        d += height(points)
+        # The generated strip is only metres wide; local derivatives preserve its lighting as it bends.
+        ax += (height(points + [0.05, 0]) - height(points - [0.05, 0])) / 0.1
+        az += (height(points + [0, 0.05]) - height(points - [0, 0.05])) / 0.1
+    return d, ax, az
+
+
 def moved(path, scan, objects, ops, under=None):
     """What the height changes ops move in the kn5 at path: a kn5.Moved. objects: its object list, with the places the objects stand at.
     under: a kn5.Moved the meshes start from (trackplace: objects placed anew), the result only what the changes move further. InTheWay
@@ -322,6 +379,8 @@ def moved(path, scan, objects, ops, under=None):
             if number >= len(scan["meshes"]) or any(row[0] >= scan["meshes"][number]["vertices"] for row in rows):
                 raise InTheWay("The road surface changed: mark the road again")
             offsets.setdefault(number, []).extend(rows)
+    kerb_owners = _kerb_owners(path, scan) if any(isinstance(op.get("bend"), dict) and op["bend"].get("kind") == "road" for op in ops) else {}
+    kerb_profiles = _kerb_bends(path, scan, ops, set().union(*kerb_owners.values())) if kerb_owners else []
     vertices, grow = {}, {}
     meshes = {}
     under = under or kn5.Moved({}, {}, {})
@@ -344,7 +403,8 @@ def moved(path, scan, objects, ops, under=None):
         wires, lifts = _wire_changes(mesh, scan, objects, field, reach), _line_lifts(mesh, scan, field)
         for i, m in enumerate(scan["meshes"]):
             kind = objectlist.kind_of(m["name"])
-            if i not in offsets and i not in wires and i not in lifts and not field.reaches(m["center"], reach(i)):
+            kerb_bends = kind == "racing" and any(ids.intersection(kerb_owners.get(i, ())) for ids, _line, _targets in kerb_profiles)
+            if i not in offsets and i not in wires and i not in lifts and not kerb_bends and not field.reaches(m["center"], reach(i)):
                 continue
             if kind in IN_THE_WAY:
                 if _reached(blocked if kind == "deck" else field, *mesh(i)):
@@ -355,6 +415,11 @@ def moved(path, scan, objects, ops, under=None):
             elif kind in FOLLOW:
                 changed = mesh(i)[0].copy()
                 largest = _followed(changed, field)
+                if kerb_bends:
+                    d, ax, az = _kerb_bend(changed["pos"], kerb_owners[i], kerb_profiles)
+                    lifted = _sheared(changed, d, ax, az)
+                    if lifted is not None:
+                        largest = (largest or 0.0) + lifted
                 if i in lifts:
                     changed["pos"][:, 1] = changed["pos"][:, 1].astype(np.float64) + lifts[i]
                     largest = (largest or 0.0) + float(lifts[i].max())

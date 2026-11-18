@@ -26,6 +26,17 @@ def slope(la, lo):
 
 
 class RoadMeshTest(unittest.TestCase):
+    def test_ground_markings_keep_their_mapped_road_ids(self):
+        first = chunk("line_white", 0.15, [(0, 0, 0), (20, 0, 0)])
+        second = chunk("line_white", 0.15, [(0, 8, 0), (20, 8, 0)])
+        first["surface_id"], second["surface_id"] = "road-a", "road-b"
+        owners = []
+        mesh = roadmesh.build(FRAME, [first, second], slope, (0., 0., 0.), face_owners=owners)
+        self.assertEqual(len(mesh[1]), len(owners))
+        self.assertEqual({"road-a", "road-b"}, set(owners))
+        self.assertEqual("road-a", owners[0])
+        self.assertEqual("road-b", owners[-1])
+
     def test_ribbons_drape_face_up_and_lift(self):
         chunks = [chunk("road_asphalt_2lane", 6.0, [(0, 0, 0), (40, 0, 0), (80, 20, 0)]),
                   chunk("line_yellow", 0.12, [(0, 0.12, 0), (40, 0.12, 0)])]

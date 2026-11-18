@@ -273,7 +273,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
             for piece in clip_polyline(line, *box):
                 for c in split(densify(simplify(piece))):
                     if len(c) >= 2:
-                        chunks.append(_chunk(look, lw, c))
+                        chunks.append(dict(_chunk(look, lw, c), surface_id=fid))
     decks_near = []                             # (retaining_walls: none under a bridge)
     for ch in _bridge_chunks(frame, bseen, elev, (x0, y0, x1, y1), bridges, cells):
         if ch.get("deck"):
@@ -384,7 +384,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                     and corners[:, 1].max() >= wexact[1] and corners[:, 1].min() < wexact[3]):
                 chunks.append({"m": markings.ARROW_MATERIAL, "w": 0.0, "tl": 4.0, "p": CENTRE["p"], "layer": "mark",
                                "poly": [[round(float(v), 3) for v in q] for q in corners],
-                               "uvq": uv.tolist(), "n": []})
+                               "uvq": uv.tolist(), "n": [], "surface_id": fid})
     gore_look = {"m": "line_white", "tl": EDGE_LINE["tl"], "p": CENTRE["p"]}
     for kind_, gw, gl in markings.gores(roads):     # ramp gores: channelizing lines and stripes (MUTCD 3B.08 / 3B.25)
         if kind_ == "fill":
@@ -468,7 +468,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                 for run in cut_outside(piece, wb if walk else blockers, 0.5 if walk else 2.0):
                     for c in split(densify(simplify(run))):
                         if len(c) >= 2:
-                            chunks.append(_chunk(look, w, c))
+                            chunks.append(dict(_chunk(look, w, c), surface_id=fid))
     if walks is not None:
         runs_near = join_walk_ends(runs_near, [(p2[:, :2], s2.width / 2) for _, s2, p2, _ in roads]
                                    + list(walk_cuts))       # (a cut's gap stays open: a driveway crosses it)
@@ -508,7 +508,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                               p2[:, 1].max() + s2.width / 2 + reach >= pts[:, 1].min() and
                               p2[:, 1].min() - s2.width / 2 - reach <= pts[:, 1].max()]
         for wk, side, ends, w in drain_runs:
-            chunks.extend(drains(wk["pts"], side, ends, w))
+            chunks.extend(dict(ch, surface_id=wk["fid"]) for ch in drains(wk["pts"], side, ends, w))
     if lines is not None:                           # the centrelines near the tile (buildings' front doors)
         lines.extend((pts[:, :2], spec.width / 2, spec.cls, spec.urban) for _, spec, pts, _ in roads)
     if props is not None and walks is not None:     # street lights and utility poles (furniture.py)
@@ -640,7 +640,7 @@ def _editor_value(value):
 def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None, deck_mesh=None, bld=None,
                props=None, wires=None, park=None, tunnel_mesh=None, fuel=None,
                rail_mesh=None, garage_sound=(), wells=(), guardrail_rows=None, decals=True, footprints=None,
-               wall_objects=(), walk_builder=None):
+               wall_objects=(), walk_builder=None, deck_ownership=None, road_ownership=None):
     """Write a tile's chunks (atomically), its sidewalk mesh (walks: build_tile's runs, if any:
     `walks_<a>_<tx>_<ty>.cdae`, announced in the tile as "walk": {shape, pos}) and its road mesh
     (road_mesh: roadmesh.build's result: `road_<a>_<tx>_<ty>.cdae`, "road": {shape, pos}; the mod then
@@ -670,11 +670,15 @@ def write_tile(out_dir, vfs_dir, aid, tx, ty, chunks, walks=None, road_mesh=None
         shape = f"road_{aid}_{tx}_{ty}.cdae"
         roadmesh.write(os.path.join(out_dir, shape), road_mesh)
         data["road"] = {"shape": f"{vfs_dir}/{shape}", "pos": [x0, y0, 0.0]}
+        if road_ownership is not None:
+            data["road"]["ownership"] = roadmesh.face_owner_runs(road_mesh, road_ownership)
     if deck_mesh is not None:
         x0, y0, _, _ = tile_bbox(tx, ty)
         shape = f"deck_{aid}_{tx}_{ty}.cdae"
         roadmesh.write(os.path.join(out_dir, shape), deck_mesh)
         data["deck"] = {"shape": f"{vfs_dir}/{shape}", "pos": [x0, y0, 0.0]}
+        if deck_ownership is not None:
+            data["deck"]["ownership"] = roadmesh.deck_owner_runs(deck_mesh, deck_ownership)
     if tunnel_mesh is not None:     # roadmesh.tunnel: the tubes and portals (colliding)
         x0, y0, _, _ = tile_bbox(tx, ty)
         shape = f"tunnel_{aid}_{tx}_{ty}.cdae"

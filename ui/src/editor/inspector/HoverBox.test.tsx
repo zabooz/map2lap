@@ -24,6 +24,11 @@ test("A tree under the pointer fills the same rows a meadow has", () => {
   expect(tree).toContain("9.0 m");
 });
 
+test("a merged road shows the mapped road ID without claiming it is a deletable object", () => {
+  const html = renderToStaticMarkup(<HoverBox hovered={{...hovered, kind: "Road", roadId: "road-a"}} />);
+  expect(html).toContain("<dt>ID</dt><dd>road-a</dd>");
+});
+
 test("collapsed pointer information contains coordinates only", () => {
   const html = renderToStaticMarkup(<HoverBox hovered={hovered} positionOnly />);
   expect(labels(html)).toEqual(["AC x, y, z", "Lat, lon"]);

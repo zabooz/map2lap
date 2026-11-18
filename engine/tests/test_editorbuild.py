@@ -20,6 +20,29 @@ from buildings.build import _listed  # noqa: E402
 
 
 class BuildFactsTest(unittest.TestCase):
+    def test_bridge_concrete_ids_follow_both_collision_faces_and_numeric_tile(self):
+        with tempfile.TemporaryDirectory() as folder:
+            part = str(Path(folder) / "t_-1_0.obj")
+            obj = make_obj.Obj(part)
+            points = np.array([[0., 0., 0.], [1., 0., 0.], [0., 1., 0.],
+                               [2., 0., 0.], [3., 0., 0.], [2., 1., 0.]])
+            faces = np.array([[0, 1, 2], [3, 4, 5]])
+            name = "1WALL_deck_con_02_0_-1_0"
+            obj.add(name, "con_02_0", points, np.zeros((6, 2)), faces,
+                    source_ids=np.array(["bridge-a", "bridge-b"]))
+            obj.close()
+            self.assertEqual([["bridge-a", 1], ["bridge-b", 1], ["bridge-a", 1], ["bridge-b", 1]],
+                             obj.source_ownership[name])
+            archive = Path(folder) / "data" / "map2lap_editor"
+            archive.mkdir(parents=True)
+            with zipfile.ZipFile(archive / "-1_0.zip", "w") as z:
+                z.writestr("tile.json", json.dumps({"schema": editorinfo.SCHEMA, "size": 8,
+                           "build": {"source_ownership": obj.source_ownership}}))
+            np.testing.assert_array_equal(["bridge-a", "bridge-b", "bridge-a", "bridge-b"],
+                                          editorinfo.surface_face_owners(str(Path(folder) / "track.kn5"), name))
+            self.assertEqual(obj.source_ownership,
+                             editorinfo.source_ownership(str(Path(folder) / "track.kn5"), ["-1_0"]))
+
     def test_generated_building_dimensions_and_footprint_are_kept(self):
         spec = SimpleNamespace(ring=np.array([[0, 0], [4, 0], [4, 6], [0, 6]]), cls="house", height=9.0, roof="hipped", floors=3)
         item = _listed(7, (spec, 12.0, 12.0), 0, [])

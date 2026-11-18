@@ -19,7 +19,7 @@ export function HoverBox({hovered: h, id = "hover-box", positionOnly = false}: {
     <div id={id} className={styles.box} data-empty={h ? undefined : ""}>
       {!positionOnly && <><h4>{h ? h.kind : NONE}</h4>
       <dl>
-        <Row label="ID">{or(h?.id)}</Row>
+        <Row label="ID">{or(h?.id ?? h?.roadId)}</Row>
         <Row label="Type">{or(h?.sort)}</Row>
         <Row label="Height">{or(b && `${fixed(b.height, 1)} m`)}</Row>
         <Row label="Width">{or(b && `${fixed(b.width, 1)} m`)}</Row>

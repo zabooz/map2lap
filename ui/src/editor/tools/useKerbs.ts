@@ -34,12 +34,12 @@ export function useKerbs({name, view, edits, kerbs, enabled, highlightId, onNote
     if (!start) { setStart([x, z, y]); setSelected(null); onNote("Mark the end of the kerb on the same road. The first click chooses its edge."); return; }
     setBusy(true);
     onNote("Following the selected road edge…");
-    const result = await post<{line: KerbEdit["line"]; side: Side}>(`/api/editor/${encodeURIComponent(name)}/kerb/way`,
+    const result = await post<{line: KerbEdit["line"]; side: Side; road_ids: string[]}>(`/api/editor/${encodeURIComponent(name)}/kerb/way`,
       {base: edits.boundRevision(), points: [start, [x, z, y]], width});
     setBusy(false);
     if (result.error || !result.line || !result.side) { onNote(result.error ?? "No connected road stretch found"); return; }
     const id = crypto.randomUUID();
-    edits.addKerb({id, line: result.line, side: result.side, profile, width, height});
+    edits.addKerb({id, line: result.line, road_ids: result.road_ids, side: result.side, profile, width, height});
     setStart(null); setSelected(id); onNote(`Kerb added on the ${result.side} edge. Change its height or profile, or mark another range.`);
   };
 

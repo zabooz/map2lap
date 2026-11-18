@@ -1,7 +1,15 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {Pointing, type PointingHost} from "./pointing";
+import {Pointing, sourceRoadId, type PointingHost} from "./pointing";
 import type {TrackIndex} from "../types";
+
+test("a road triangle resolves its mapped ID from compact build runs", () => {
+  const runs: [string | null, number][] = [[null, 3], ["road-a", 2], ["road-b", 4]];
+  expect(sourceRoadId(runs, 2)).toBeNull();
+  expect(sourceRoadId(runs, 3)).toBe("road-a");
+  expect(sourceRoadId(runs, 5)).toBe("road-b");
+  expect(sourceRoadId(runs, 9)).toBeNull();
+});
 
 test("a native library tree can be hovered without an invented KN5 mesh or material slot", () => {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial());

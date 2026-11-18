@@ -33,7 +33,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource, tracksurfaces,  # noqa: E402
+from app import (csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -63,6 +63,7 @@ painting = {}       # {track: {"phase", "done", "total"}} of the Apply running o
 TREEFX_PATH = re.compile(r"/api/editor/([^/]+)/treefx(?:/([a-z0-9_]+)(?:/([A-Za-z0-9_-]+\.png))?)?")     # (its trees, a model, its images)
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
 SEPARATE_PATH = re.compile(r"/api/editor/([^/]+)/separate(?:/(way))?")
+BEND_PATH = re.compile(r"/api/editor/([^/]+)/bend(?:/(way))?")
 RAILBRIDGE_PATH = re.compile(r"/api/editor/([^/]+)/railbridge")
 SIDEWALK_PATH = re.compile(r"/api/editor/([^/]+)/(?:sidewalk|guardrail)")
 KERB_PATH = re.compile(r"/api/editor/([^/]+)/kerb/way")
@@ -862,7 +863,8 @@ class Handler(BaseHTTPRequestHandler):
             if type(width) not in (int, float) or not math.isfinite(width) or not trackkerbs.MIN_WIDTH_M <= width <= trackkerbs.MAX_WIDTH_M:
                 raise ValueError("Kerb width must be 0.2–2.0 m")
             line = trackkerbs.prepare(path, scan, None, net, side, width)
-            return self._send(200, {"line": line, "side": side})
+            return self._send(200, {"line": line, "side": side,
+                                    "road_ids": sorted({edge["road"] for edge in net["segments"] if edge.get("road")})})
         except (ValueError, trackband.Refused) as error:
             return self._send(400, {"error": str(error)})
         except (trackview.Unreadable, trackview.NotOurs) as error:
@@ -910,6 +912,44 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(e)})
         except (trackband.Refused, trackheights.InTheWay) as e:
             self._send(409, {"error": str(e)})
+        except trackview.NotOurs:
+            self._send(404, {"error": "This track has no track file (build it again)"})
+        except trackview.Unreadable:
+            self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
+
+    def _bend(self, name, what):
+        """Mark or apply one signed height bend between two road points."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can change a track"})
+        if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+            self.close_connection = True
+            return self._send(413, {"error": "Road selection is too large"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            base = body.get("base")
+            path, scan = trackview._scan_of(ac, name, base)
+            draft = trackedits.load(ac, name)
+            if body.get("revision") != draft["revision"]:
+                return self._send(409, {"error": "The road edits changed: mark A and B again"})
+            points = body.get("points")
+            if what == "way":
+                net, _line = roadbend.describe(path, scan, points)
+                matching = roadbend.matching(draft["heights"], net, points)
+                moved = trackedits.moved_without(ac, name, base, [op["id"] for op in matching])
+                gone = tracksurfaces.going(scan, draft.get("surfaces", []))
+                return self._send(200, {"region": roadregion.selection(path, net),
+                                        "replace": [op["id"] for op in matching],
+                                        "delta": matching[-1]["bend"]["delta"] if matching else 0,
+                                        "max_grade_percent": matching[-1]["bend"].get("max_grade_percent", 15) if matching else None,
+                                        "blockers": roadbend.blockers(path, scan, moved, points, gone)})
+            moved = trackedits.moved_without(ac, name, base, body.get("replace"))
+            op = roadbend.change_of(path, scan, moved, points, body.get("delta"), secrets.token_hex(8),
+                                    tracksurfaces.going(scan, draft.get("surfaces", [])), body.get("max_grade_percent", 15))
+            trackedits.remember_meshes(ac, name, base, op, body.get("replace"))
+            self._send(200, {"height": op})
+        except (ValueError, AttributeError, TypeError, trackband.Refused, trackheights.InTheWay) as error:
+            self._send(409, {"error": str(error)})
         except trackview.NotOurs:
             self._send(404, {"error": "This track has no track file (build it again)"})
         except trackview.Unreadable:
@@ -1230,6 +1270,9 @@ class Handler(BaseHTTPRequestHandler):
         band = BAND_PATH.fullmatch(self.path)
         if band:
             return self._band(band[1], band[2])
+        bend = BEND_PATH.fullmatch(self.path)
+        if bend:
+            return self._bend(bend[1], bend[2])
         separate = SEPARATE_PATH.fullmatch(self.path)
         if separate:
             return self._separate(separate[1], separate[2])
