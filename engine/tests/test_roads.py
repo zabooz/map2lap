@@ -17,6 +17,7 @@ import geodesy  # noqa: E402
 import grading  # noqa: E402
 import mapgeom  # noqa: E402
 import roads  # noqa: E402
+import sidewalks  # noqa: E402
 import surface as sf  # noqa: E402
 
 LAT, LON = 39.2834, -76.5934
@@ -57,6 +58,44 @@ def features(lines, classes, surfaces=(), widths=(), levels=(), flags=(), ids=No
 
 def flat(lat, lon):
     return np.full(np.shape(lat), 10.0)
+
+
+class OffsetPolylineTest(unittest.TestCase):
+    def test_inner_sidewalk_does_not_loop_inside_a_tight_bend(self):
+        """A 10.6 m street plus sidewalk bends more tightly than its 6.55 m offset at Cap Corse."""
+        radius = 4.0
+        t = np.linspace(0.0, np.pi / 2, 41)
+        arc = np.c_[radius * np.cos(t), radius * np.sin(t), np.zeros(len(t))]
+        centre = np.vstack([[[radius, -12.0, 0.0]], arc, [[-12.0, radius, 0.0]]])
+        self.assertEqual(len(roads.offset_polyline(centre, 6.55)), len(centre),
+                         "other offset users pair points with their source line")
+        spec = roads.Spec(10.6, "paved", True, "residential", False, 2.5, 0, None)
+        extras = roads.extras(spec, centre, 9.35, country="FR")
+        edge = next(line for look, _, line in extras if look["m"] == "sidewalk_concrete" and look["side"] == 1)
+
+        def cross(a, b):
+            return a[0] * b[1] - a[1] * b[0]
+
+        for i in range(len(edge) - 1):
+            for j in range(i + 2, len(edge) - 1):
+                a, v = edge[i, :2], edge[i + 1, :2] - edge[i, :2]
+                b, w = edge[j, :2], edge[j + 1, :2] - edge[j, :2]
+                den = cross(v, w)
+                if abs(den) < 1e-9:
+                    continue
+                along = cross(b - a, w) / den
+                across = cross(b - a, v) / den
+                self.assertFalse(1e-8 < along < 1 - 1e-8 and 1e-8 < across < 1 - 1e-8,
+                                 f"the inner curb crosses itself at segments {i}, {j}")
+        curb, outward = sidewalks.run_geometry(edge, 1, 2.5)
+        mesh = sidewalks.Builder((0.0, 0.0, 0.0), collision=True)
+        mesh.add_run(curb, outward, 2.5)
+        a, ab = centre[:-1, :2], np.diff(centre[:, :2], axis=0)
+        for vertices in (mesh.arrays()[0], mesh.col.arrays()[0]):
+            rel = vertices[:, None, :2] - a[None]
+            along = np.clip((rel * ab).sum(2) / (ab * ab).sum(1), 0.0, 1.0)
+            distance = np.linalg.norm(rel - along[:, :, None] * ab, axis=2).min(1)
+            self.assertGreaterEqual(distance.min(), 5.2, "the sidewalk stays outside its road's 5.3 m half width")
 
 
 

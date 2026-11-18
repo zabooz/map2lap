@@ -22,6 +22,45 @@ def centre_colour(lon):
     return "line_yellow" if -170.0 <= float(lon) <= -30.0 else "line_white"
 
 
+def _unloop_offset(line, reversed_segments):
+    """Remove an offset line's loops enclosing a segment that runs against its source line. Pure.
+
+    A bend tighter than its offset folds the inner curb back through itself (Cap Corse's hairpin).
+    Its two crossing segments meet at one point; the enclosed detour has no usable pavement.
+    """
+    line = np.asarray(line, np.float64)
+    reversed_segments = np.asarray(reversed_segments, bool)
+    while reversed_segments.any():
+        found = False
+        for i in range(len(line) - 3):
+            a, v = line[i, :2], line[i + 1, :2] - line[i, :2]
+            for j in range(i + 2, len(line) - 1):
+                if not reversed_segments[i:j + 1].any():
+                    continue
+                b, w = line[j, :2], line[j + 1, :2] - line[j, :2]
+                den = v[0] * w[1] - v[1] * w[0]
+                if abs(den) < 1e-12:
+                    continue
+                ab = b - a
+                along = (ab[0] * w[1] - ab[1] * w[0]) / den
+                across = (ab[0] * v[1] - ab[1] * v[0]) / den
+                if not (1e-8 < along < 1 - 1e-8 and 1e-8 < across < 1 - 1e-8):
+                    continue
+                q = line[i] + along * (line[i + 1] - line[i])
+                if line.shape[1] > 2:
+                    other = line[j] + across * (line[j + 1] - line[j])
+                    q[2:] = (q[2:] + other[2:]) / 2
+                line = np.vstack((line[:i + 1], q[None], line[j + 1:]))
+                reversed_segments = np.r_[reversed_segments[:i + 1], reversed_segments[j:]]
+                found = True
+                break
+            if found:
+                break
+        if not found:
+            break
+    return line
+
+
 def offset_polyline(pts, d):
     """The polyline moved d m to its left (xy; z kept), with mitred joints (miter at most 2x). Pure."""
     pts = np.asarray(pts, np.float64)
@@ -44,6 +83,13 @@ def offset_polyline(pts, d):
     out = pts.copy()
     out[:, :2] += vn * d
     return out
+
+
+def _walk_offset(pts, d):
+    """A sidewalk or gutter line at offset d, without the loop of a tighter inner bend. Pure."""
+    out = offset_polyline(pts, d)
+    backwards = np.sum(np.diff(out[:, :2], axis=0) * np.diff(pts[:, :2], axis=0), axis=1) < -1e-9
+    return _unloop_offset(out, backwards) if backwards.any() else out
 
 
 def _seg_dist(p, a, b):
@@ -206,8 +252,8 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
     if has_sidewalks(spec):
         for side in walk_sides(spec, left_hand):
             out.append(({**SIDEWALK, "side": side}, spec.walk,
-                        offset_polyline(pts, side * (w / 2 + spec.walk / 2))))
-            out.append(({**GUTTER, "side": side}, GUTTER["w"], offset_polyline(pts, side * (w / 2 - GUTTER["w"] / 2))))
+                        _walk_offset(pts, side * (w / 2 + spec.walk / 2))))
+            out.append(({**GUTTER, "side": side}, GUTTER["w"], _walk_offset(pts, side * (w / 2 - GUTTER["w"] / 2))))
         ms = median_side(spec, left_hand)
         if ms is not None:
             # the median: a curbed band, lawn beyond it (two sidewalks back to back made a concrete strip, the user's
@@ -216,14 +262,14 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
             # (each carriageway's half, a hair short of the middle: touching the other's carriageway where the gap
             # narrows, the band was cut away)
             band = max(0.3, mw / 2 - 0.15) if mw <= MEDIAN_SLAB_M else MEDIAN_CURB_W
-            out.append(({**SIDEWALK, "side": ms, "median": True}, band, offset_polyline(pts, ms * (w / 2 + band / 2))))
+            out.append(({**SIDEWALK, "side": ms, "median": True}, band, _walk_offset(pts, ms * (w / 2 + band / 2))))
             if kind == "paved":     # a double yellow line along it (Boston Street, Mapillary) ...
                 look = {"m": st.centre, "tl": CENTRE["tl"], "p": CENTRE["p"]}
                 # ... where centre lines are white one solid white edge line along the median's curb
                 for k in ((0,) if st.centre == "line_white" else (0, 1)):
                     out.append((look, st.w, offset_polyline(
                         pts, ms * (w / 2 - EDGE_LINE["inset"] - k * (st.w + st.double_gap)))))
-            out.append(({**GUTTER, "side": ms}, GUTTER["w"], offset_polyline(pts, ms * (w / 2 - GUTTER["w"] / 2))))
+            out.append(({**GUTTER, "side": ms}, GUTTER["w"], _walk_offset(pts, ms * (w / 2 - GUTTER["w"] / 2))))
     motorway = cls == "motorway"
     lw_ = st.w_motorway if motorway else st.w           # a line's width
 
@@ -319,8 +365,8 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
     if has_sidewalks(spec):
         for side in walk_sides(spec, left_hand):
             out.append(({**SIDEWALK, "side": side}, spec.walk,
-                        offset_polyline(pts, side * (w / 2 + spec.walk / 2))))
-            out.append(({**GUTTER, "side": side}, GUTTER["w"], offset_polyline(pts, side * (w / 2 - GUTTER["w"] / 2))))
+                        _walk_offset(pts, side * (w / 2 + spec.walk / 2))))
+            out.append(({**GUTTER, "side": side}, GUTTER["w"], _walk_offset(pts, side * (w / 2 - GUTTER["w"] / 2))))
         ms = median_side(spec, left_hand)
         if ms is not None:
             # the median: a curbed band, lawn beyond it (two sidewalks back to back made a concrete strip, the user's
@@ -329,14 +375,14 @@ def extras(spec, pts, lon, left_hand=False, country=None, osm=None):
             # (each carriageway's half, a hair short of the middle: touching the other's carriageway where the gap
             # narrows, the band was cut away)
             band = max(0.3, mw / 2 - 0.15) if mw <= MEDIAN_SLAB_M else MEDIAN_CURB_W
-            out.append(({**SIDEWALK, "side": ms, "median": True}, band, offset_polyline(pts, ms * (w / 2 + band / 2))))
+            out.append(({**SIDEWALK, "side": ms, "median": True}, band, _walk_offset(pts, ms * (w / 2 + band / 2))))
             if kind == "paved":     # a double yellow line along it (Boston Street, Mapillary) ...
                 look = {"m": centre_colour(lon), "tl": CENTRE["tl"], "p": CENTRE["p"]}
                 # ... outside the Americas one solid white edge line along the median's curb
                 for k in ((0,) if centre_colour(lon) == "line_white" else (0, 1)):
                     out.append((look, CENTRE["w"], offset_polyline(
                         pts, ms * (w / 2 - EDGE_LINE["inset"] - 2 * k * CENTRE["gap"]))))
-            out.append(({**GUTTER, "side": ms}, GUTTER["w"], offset_polyline(pts, ms * (w / 2 - GUTTER["w"] / 2))))
+            out.append(({**GUTTER, "side": ms}, GUTTER["w"], _walk_offset(pts, ms * (w / 2 - GUTTER["w"] / 2))))
     if kind == "paved" and cls in CENTRE_CLASSES and w >= 6.0 and not spec.oneway:   # no paint on cobbles
         if centre_colour(lon) == "line_white":
             # outside the Americas one broken white line (the Gotthard road on Mapillary: ours had the
