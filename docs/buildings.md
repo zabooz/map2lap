@@ -48,6 +48,12 @@ existing bay spacing. There is no visual style editor.
 
 ## Regional defaults
 
+The building planner uses each height's map source. Microsoft ML Buildings estimates that leave less than
+2.4 m of wall per occupied floor are discarded, then height and roof rise are inferred from the remaining
+mapped facts. A typical door needs about 2.1 m of clearance plus a lintel; Perth contains ML estimates below
+1 m that would otherwise flatten houses and put doors above their roofs. Explicit OpenStreetMap heights and
+small sheds, storage buildings and open shelters keep their mapped dimensions.
+
 `engine/buildings/styles.json` holds 22 `Style` records and their country assignments. The loader checks
 required and unknown fields, shares, materials, tint indices and region references before a build starts. Mapped roof
 shape and materials still take precedence over these defaults. The file is part of the revisit cache key and both

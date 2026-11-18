@@ -233,6 +233,23 @@ class PlanTest(unittest.TestCase):
         self.assertAlmostEqual(s.height, 18.0)
         self.assertEqual(s.floors, 6)
 
+    def test_implausible_ml_height_does_not_crush_a_perth_house(self):
+        ring = rect(0, 0, 16, 8)
+        for roof, height in (("hipped", 0.411), ("flat", 0.759)):
+            spec = bld.plan(ring, {"class": "house", "height": height,
+                                   "height_src": "Microsoft ML Buildings", "roof_shape": roof},
+                            lat=-31.89, lon=115.92)
+            self.assertEqual(spec.floors, 1)
+            self.assertGreaterEqual(spec.floor_h, 2.4)
+            if roof == "hipped":
+                self.assertGreater(spec.roof_height, 0.5)
+        mapped = bld.plan(ring, {"class": "house", "height": 0.411,
+                                  "height_src": "OpenStreetMap", "roof_shape": "hipped"})
+        self.assertAlmostEqual(mapped.height + mapped.roof_height, 0.411)
+        credible = bld.plan(ring, {"class": "house", "height": 4.308,
+                                    "height_src": "Microsoft ML Buildings", "roof_shape": "flat"})
+        self.assertAlmostEqual(credible.height, 4.308)
+
     def test_row_house_three_storeys_or_two_flat(self):
         s = bld.plan(rect(0, 0, 5, 18), {"class": ""}, neighbours=2)
         self.assertIn(s.floors, (2, 3))

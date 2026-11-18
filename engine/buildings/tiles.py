@@ -199,7 +199,7 @@ def tile_buildings(frame, x0, y0, x1, y1, layers, elev, water=None, part_layers=
                 if h_ < min_size[0] and abs(float(np.dot(e[:-1], n[1:]) - np.dot(e[1:], n[:-1]))) / 2 < min_size[1]:
                     continue
             at = {k: (a[k][i] if k in a else None) for k in
-                  ("class", "height", "num_floors", "min_height", "roof_shape", "roof_height", "roof_direction", "roof_orientation", "name",
+                  ("class", "height", "height_src", "num_floors", "min_height", "roof_shape", "roof_height", "roof_direction", "roof_orientation", "name",
                    "facade_material", "facade_color", "roof_material", "roof_color", "architecture", "building:architecture",
                    "building:flats")}
             if key is not None:         # (plan's random choices keyed on the feature, not where the anchor puts it)

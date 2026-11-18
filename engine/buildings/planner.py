@@ -25,6 +25,10 @@ GARAGE_TAG_CLASSES = {"", "yes", "commercial", "garage", "garages", "parking", "
 
 WEST_TOWN_ONE_STOREY = 0.75     # share of predicted one-storey buildings there
 FALSE_FRONT_M = 1.2             # m of parapet over a one-storey shop there
+# A normal door needs about 2.1 m clear height, plus a lintel. Microsoft ML Buildings' estimated
+# heights can be below 1 m in Perth; those cannot describe an occupied storey. Small sheds and
+# open/storage structures can legitimately be lower, and explicit OSM heights retain priority.
+ML_MIN_WALL_PER_FLOOR_M = 2.4
 
 
 def _whole_semidetached(cls, attrs, neighbours):
@@ -224,6 +228,15 @@ def plan(ring, attrs, neighbours=0, lat=None, lon=None, look=None, town=False, d
             # An inferred pitch must leave room for walls: a normal 2.5 m storey, or half a very low structure.
             # Explicit consistent wall/roof heights override this fallback, including attic-heavy houses.
             roof_h = min(roof_h, max(0., h - min(2.5, h / 2)))
+    if (h is not None and attrs.get("height_src") == "Microsoft ML Buildings"
+            and not (shed or storage or cls in ("roof", "shelter", "carport"))
+            and h - roof_h < ML_MIN_WALL_PER_FLOOR_M * (nf or 1)):
+        # Replan from the remaining mapped facts. The weak height otherwise compresses walls and leaves
+        # doors above the roof; without a mapped floor count it still describes at most one storey.
+        # Repeating with height absent also restores the normal inferred roof rise.
+        fallback = {**attrs, "height": None, "num_floors": nf or 1}
+        return plan(ring, fallback, neighbours, lat, lon, look, town, dense, west_town,
+                    alpine, elevation_m)
     if h is None:
         h = nf * floor_h + (GROUND_FLOOR_SHOP_M - floor_h if shop and nf > 1 else 0.0) + (0.6 if roof == "flat" else 0.2)
         if west_town and roof == "flat" and nf == 1 and area >= 80 and not (shed or barn):
