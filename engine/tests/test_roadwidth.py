@@ -41,6 +41,38 @@ class MeasureTest(unittest.TestCase):
         self.assertIsNone(roadwidth.measure_row(np.array([(-100.0, 0.0), (100.0, 0.0)]), roadwidth.Walls([])))
         self.assertIsNone(roadwidth.split(4.0), "no plausible carriageway and sidewalks")
 
+    def test_limit_from_one_side(self):
+        """A lane with houses on one side only (Völkermarkt's Postriegelstraße: 3.8-4.7 m from its centreline, a
+        lawn opposite) has no right-of-way, but its houses still limit how far the street may reach."""
+        line = np.array([(-100.0, 0.0), (100.0, 0.0)])
+        one = roadwidth.Walls(row_of_houses(4.2, 1))
+        self.assertAlmostEqual(roadwidth.measure_clear(line, one), 4.2, delta=0.05)
+        other = roadwidth.Walls(row_of_houses(-4.2, -1))
+        self.assertAlmostEqual(roadwidth.measure_clear(line, other), 4.2, delta=0.05, msg="either side")
+        both = roadwidth.Walls(row_of_houses(4.2, 1) + row_of_houses(-9.0, -1))
+        self.assertAlmostEqual(roadwidth.measure_clear(line, both), 4.2, delta=0.05, msg="the nearer side")
+        self.assertIsNone(roadwidth.measure_clear(line, roadwidth.Walls([])), "open land")
+
+    def test_limit_ignores_a_lone_building(self):
+        """One shed or carport close to a long street (the Bärenweg's carports, 4.1 m from its centreline) sets no
+        limit for all of it; a row along a good part of it does."""
+        line = np.array([(-100.0, 0.0), (100.0, 0.0)])
+        shed = roadwidth.Walls(row_of_houses(4.2, 1, x0=0.0, x1=16.0))
+        self.assertIsNone(roadwidth.measure_clear(line, shed))
+        part = roadwidth.Walls(row_of_houses(4.2, 1, x0=-100.0, x1=-20.0))      # 80 of 180 measured m
+        self.assertAlmostEqual(roadwidth.measure_clear(line, part), 4.2, delta=0.05)
+
+    def test_measure(self):
+        """measure: a walled street's carriageway and sidewalks, else the limit of a street lined on one side."""
+        line = np.array([(-100.0, 0.0), (100.0, 0.0)])
+        walled = roadwidth.measure(line, roadwidth.Walls(row_of_houses(9.0, 1) + row_of_houses(-9.0, -1)))
+        self.assertIsNone(walled.limit)
+        self.assertAlmostEqual(walled.cw + 2 * walled.walk, 18.0, delta=0.1)
+        one = roadwidth.measure(line, roadwidth.Walls(row_of_houses(4.2, 1)))
+        self.assertEqual((one.cw, one.walk), (None, None))
+        self.assertAlmostEqual(one.limit, 4.2, delta=0.05)
+        self.assertIsNone(roadwidth.measure(line, roadwidth.Walls([])))
+
 
 class UseTest(unittest.TestCase):
     def test_measured_width_and_sidewalks(self):
@@ -59,6 +91,39 @@ class UseTest(unittest.TestCase):
         self.assertNotEqual(roads.road_specs(f, None, too_wide)[0].width, 60.0, "implausible: the default stays")
         svc = features([[(-300, 50), (300, 50)]], ["service"])
         self.assertEqual(roads.road_specs(svc, None, widths)[0].walk, roads.SIDEWALK["w"], "service: not measured")
+
+    def test_limit_keeps_a_street_out_of_its_buildings(self):
+        """A town street the map gives no width (6 m, two 2.3 m parking lanes and two 2.5 m sidewalks by default:
+        7.8 m from its centreline) with houses 4.2 m from it on one side ends in front of their walls."""
+        f = features([[(-300, 50), (300, 50)]], ["residential"])
+        town = lambda la, lo: np.ones(np.shape(la), bool)
+        dflt = roads.road_specs(f, town)[0]
+        self.assertGreater(dflt.width / 2 + dflt.walk, 4.2, "(the default reaches into the houses)")
+        near = lambda fid, ll: roadwidth.Measured(None, None, 4.2)
+        sp = roads.road_specs(f, town, near)[0]
+        self.assertLessEqual(sp.width / 2 + sp.walk, 4.2 + 1e-6)
+        self.assertGreaterEqual(sp.width, roadwidth.CARRIAGE_MIN)
+        walks = []
+        roads.build_tile(FRAME, 0, 0, [f], flat, town, walks=walks, widths=near)
+        runs = [w for w in walks if "pts" in w]
+        self.assertTrue(runs)
+        for w in runs:                          # the sidewalk's outer edge in front of the walls
+            self.assertLessEqual(abs(float(np.mean(w["pts"][:, 1])) - 50.0) + w["w"] / 2, 4.2 + 0.3)
+        far = lambda fid, ll: roadwidth.Measured(None, None, 9.0)
+        self.assertEqual(roads.road_specs(f, town, far)[0], dflt, "front yards: the default fits, never widened")
+        over = lambda fid, ll: roadwidth.Measured(None, None, 1.2)
+        self.assertEqual(roads.road_specs(f, town, over)[0], dflt, "no street fits: a building mapped over it")
+
+    def test_limit_without_sidewalks(self):
+        """Out of town (no sidewalks) only the carriageway is kept in front of the walls."""
+        f = features([[(-300, 50), (300, 50)]], ["residential"])
+        dflt = roads.road_specs(f, None)[0]
+        lim = dflt.width / 2 - 0.6
+        sp = roads.road_specs(f, None, lambda fid, ll: roadwidth.Measured(None, None, lim))[0]
+        self.assertAlmostEqual(sp.width, 2 * lim)
+        self.assertEqual(sp.walk, dflt.walk)
+        self.assertEqual(roads.road_specs(f, None, lambda fid, ll: roadwidth.Measured(None, None, dflt.width))[0],
+                         dflt)
 
 
 

@@ -508,9 +508,33 @@ def _rings(feats, specs):
     return out
 
 
+def _limited(sp, limit, minimum):
+    """sp ending limit m from its centreline (roadwidth.Measured.limit: the walls along one side), its sidewalks
+    included, where its class default reaches further: the sidewalks no wider than the default and than a walled
+    street's of twice the limit (roadwidth.split), the carriageway the rest (the parking lanes go first: parking.py
+    parks by width). A street without sidewalks narrows its carriageway only. sp where it fits, or where less than
+    minimum m of carriageway would be left (a building mapped over the street, a misplaced import). Pure."""
+    import roadwidth
+    # (walks.has_sidewalks for the measured classes: the map's sidewalk tag, else a town street)
+    walks = bool(sp.sides) if sp.sides is not None else sp.urban
+    if sp.width / 2 + (sp.walk if walks else 0.0) <= limit:
+        return sp
+    walk = 0.0
+    if walks:
+        got = roadwidth.split(2 * limit)
+        if got is None:
+            return sp
+        walk = min(sp.walk, got[1])
+    cw = 2 * (limit - walk)
+    if cw < minimum:
+        return sp
+    return sp._replace(width=cw, walk=walk) if walks else sp._replace(width=cw)
+
+
 def _measured_widths(feats, specs, widths):
-    """specs with the widths measured between the buildings (roadwidth.py: widths(id, lonlat) -> (carriageway m,
-    sidewalk m) or None) where the map gives none. Pure given widths."""
+    """specs with the widths measured between the buildings where the map gives none (roadwidth.py: widths(id,
+    lonlat) -> its Measured, or None): a walled street's carriageway and sidewalk, a street lined on one side only
+    kept in front of its walls (_limited). Pure given widths."""
     rules = feats.rules
     out = list(specs)
     for j, sp in enumerate(out):
@@ -531,8 +555,15 @@ def _measured_widths(feats, specs, widths):
         # Historic streets can be one shared lane between close building fronts. Rejecting these measurements
         # kept a default carriageway wider than the street itself.
         minimum = 3.0 if sp.cls in {"residential", "living_street", "unclassified", "tertiary"} else 0.6 * dflt
-        if m is not None and minimum <= m[0] <= MEASURE_MAX * dflt:
+        if m is None:
+            continue
+        if m[0] is not None and minimum <= m[0] <= MEASURE_MAX * dflt:
             out[j] = sp._replace(width=m[0], walk=m[1])
+        elif len(m) > 2 and m[2] is not None:
+            # Houses close along one side of a street the map gives no width (a village lane, an old town's street
+            # along a river): its default with parking lanes and sidewalks reached into them (Völkermarkt's
+            # Postriegelstraße: 7.8 m from its centreline, its houses at 3.8-4.7 m). It ends in front of them.
+            out[j] = _limited(sp, float(m[2]), minimum)
     return out
 
 

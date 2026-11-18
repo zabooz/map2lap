@@ -1036,12 +1036,14 @@ fn np_percentile(v: &[f64], q: f64) -> f64 {
     if g >= 0.5 { b - d * (1.0 - g) } else { a + d * g }
 }
 
-/// roadwidth.measure_row: the right-of-way between the building walls of a street (centreline (k, >=2)), or None.
+/// The cross-sections of a street (centreline (k, >=2)) every step m, end_skip m clear of its ends: their count and
+/// per section the distance to the first building wall to the left and to the right (NaN: none within reach).
+/// None for a street too short to measure.
 #[allow(clippy::too_many_arguments)]
-fn measure_row_any<T: Copy + Into<f64> + numpy::Element>(
-        line: PyReadonlyArray2<f64>, keys: PyReadonlyArray1<i64>, first: PyReadonlyArray1<i64>,
-        counts: PyReadonlyArray1<i64>, seg_of: PyReadonlyArray1<i64>, segs: PyReadonlyArray2<T>, bucket: f64,
-        step: f64, end_skip: f64, reach: f64, min_samples: usize, walled: f64, agree: f64) -> Option<f64> {
+fn row_rays<T: Copy + Into<f64> + numpy::Element>(
+        line: &PyReadonlyArray2<f64>, keys: &PyReadonlyArray1<i64>, first: &PyReadonlyArray1<i64>,
+        counts: &PyReadonlyArray1<i64>, seg_of: &PyReadonlyArray1<i64>, segs: &PyReadonlyArray2<T>, bucket: f64,
+        step: f64, end_skip: f64, reach: f64) -> Option<(usize, Vec<(f64, f64)>)> {
     let l = line.as_array();
     let k = l.nrows();
     if k < 2 {
@@ -1063,7 +1065,7 @@ fn measure_row_any<T: Copy + Into<f64> + numpy::Element>(
     let (keys, first, counts, seg_of) = (keys.as_slice().unwrap(), first.as_slice().unwrap(),
                                          counts.as_slice().unwrap(), seg_of.as_slice().unwrap());
     let sg = segs.as_array();
-    let mut w = Vec::with_capacity(count);
+    let mut out = Vec::with_capacity(count);
     let mut n = 0usize;
     for i in 0..count {
         let dd = end_skip + i as f64 * step;
@@ -1080,11 +1082,19 @@ fn measure_row_any<T: Copy + Into<f64> + numpy::Element>(
         let (cx, cy) = (np_interp(dd, &s, &xs), np_interp(dd, &s, &ys));
         let a = wall_ray(keys, first, counts, seg_of, &sg, bucket, cx, cy, nx, ny, reach);
         let b = wall_ray(keys, first, counts, seg_of, &sg, bucket, cx, cy, -nx, -ny, reach);
-        let v = a + b;
-        if !v.is_nan() {
-            w.push(v);
-        }
+        out.push((a, b));
     }
+    Some((n, out))
+}
+
+/// roadwidth.measure_row: the right-of-way between the building walls of a street (centreline (k, >=2)), or None.
+#[allow(clippy::too_many_arguments)]
+fn measure_row_any<T: Copy + Into<f64> + numpy::Element>(
+        line: PyReadonlyArray2<f64>, keys: PyReadonlyArray1<i64>, first: PyReadonlyArray1<i64>,
+        counts: PyReadonlyArray1<i64>, seg_of: PyReadonlyArray1<i64>, segs: PyReadonlyArray2<T>, bucket: f64,
+        step: f64, end_skip: f64, reach: f64, min_samples: usize, walled: f64, agree: f64) -> Option<f64> {
+    let (n, rays) = row_rays(&line, &keys, &first, &counts, &seg_of, &segs, bucket, step, end_skip, reach)?;
+    let mut w: Vec<f64> = rays.iter().map(|&(a, b)| a + b).filter(|v| !v.is_nan()).collect();
     if n == 0 || w.len() < min_samples || (w.len() as f64) / (n as f64) < walled {
         return None;
     }
@@ -1116,6 +1126,48 @@ fn measure_row32(line: PyReadonlyArray2<f64>, keys: PyReadonlyArray1<i64>, first
                  bucket: f64, step: f64, end_skip: f64, reach: f64, min_samples: usize, walled: f64, agree: f64)
                  -> Option<f64> {
     measure_row_any(line, keys, first, counts, seg_of, segs, bucket, step, end_skip, reach, min_samples, walled, agree)
+}
+
+/// roadwidth.measure_clear: how far a street (centreline (k, >=2)) may reach from its centreline before a building
+/// wall, on either side: per cross-section the nearer wall (none within reach: unlimited), of these the distance
+/// within which share of the sections have a wall (a lone shed sets no limit for the whole street). None when fewer
+/// than min_samples sections have a wall or the share's section has none.
+#[allow(clippy::too_many_arguments)]
+fn measure_clear_any<T: Copy + Into<f64> + numpy::Element>(
+        line: PyReadonlyArray2<f64>, keys: PyReadonlyArray1<i64>, first: PyReadonlyArray1<i64>,
+        counts: PyReadonlyArray1<i64>, seg_of: PyReadonlyArray1<i64>, segs: PyReadonlyArray2<T>, bucket: f64,
+        step: f64, end_skip: f64, reach: f64, min_samples: usize, share: f64) -> Option<f64> {
+    let (n, rays) = row_rays(&line, &keys, &first, &counts, &seg_of, &segs, bucket, step, end_skip, reach)?;
+    let mut d: Vec<f64> = rays.iter().map(|&(a, b)| match (a.is_nan(), b.is_nan()) {
+        (false, false) => a.min(b),
+        (false, true) => a,
+        (true, false) => b,
+        (true, true) => f64::INFINITY,
+    }).collect();
+    if n == 0 || d.iter().filter(|v| v.is_finite()).count() < min_samples {
+        return None;
+    }
+    d.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // the lower nearest rank: the share's section itself, never a blend with an open one
+    let v = d[((share * (n as f64 - 1.0)).floor() as usize).min(n - 1)];
+    if v.is_finite() { Some(v) } else { None }
+}
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn measure_clear(line: PyReadonlyArray2<f64>, keys: PyReadonlyArray1<i64>, first: PyReadonlyArray1<i64>,
+                 counts: PyReadonlyArray1<i64>, seg_of: PyReadonlyArray1<i64>, segs: PyReadonlyArray2<f64>,
+                 bucket: f64, step: f64, end_skip: f64, reach: f64, min_samples: usize, share: f64) -> Option<f64> {
+    measure_clear_any(line, keys, first, counts, seg_of, segs, bucket, step, end_skip, reach, min_samples, share)
+}
+
+/// measure_clear with the walls as float32 (measure_row32).
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn measure_clear32(line: PyReadonlyArray2<f64>, keys: PyReadonlyArray1<i64>, first: PyReadonlyArray1<i64>,
+                   counts: PyReadonlyArray1<i64>, seg_of: PyReadonlyArray1<i64>, segs: PyReadonlyArray2<f32>,
+                   bucket: f64, step: f64, end_skip: f64, reach: f64, min_samples: usize, share: f64) -> Option<f64> {
+    measure_clear_any(line, keys, first, counts, seg_of, segs, bucket, step, end_skip, reach, min_samples, share)
 }
 
 /// grading.grade_points: base heights at the points (px, py) graded under the plans' segments a-b (heights za-zb,
@@ -4923,6 +4975,8 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(densify, m)?)?;
     m.add_function(wrap_pyfunction!(measure_row, m)?)?;
     m.add_function(wrap_pyfunction!(measure_row32, m)?)?;
+    m.add_function(wrap_pyfunction!(measure_clear, m)?)?;
+    m.add_function(wrap_pyfunction!(measure_clear32, m)?)?;
     m.add_function(wrap_pyfunction!(grade_points, m)?)?;
     m.add_function(wrap_pyfunction!(bank_profile, m)?)?;
     m.add_function(wrap_pyfunction!(resample, m)?)?;
@@ -5033,7 +5087,7 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
-    m.add("VERSION", 121)?;
+    m.add("VERSION", 122)?;            // (122: measure_clear)
     m.add_function(wrap_pyfunction!(deckskin::deck_skin, m)?)?;
     m.add("ROAD_CURVES", true)?;
     m.add_function(wrap_pyfunction!(roadcurves::road_curve, m)?)?;

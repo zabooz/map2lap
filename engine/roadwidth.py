@@ -13,6 +13,10 @@ each way up to REACH m to the first building wall. The street is "walled" when b
 least WALLED of the cross-sections and the face-to-face distances agree (IQR within AGREE of the
 median); its right-of-way is then that median, split by split(): two sidewalks of WALK_SHARE of it
 (clamped to WALK_MIN..WALK_MAX, down to WALK_NARROW_MIN on very narrow streets) and the carriageway between.
+measure_clear(): a street lined on one side only (or unevenly) has no right-of-way, but its walls still limit it:
+per cross-section the nearer wall, of these the distance within which CLEAR_SHARE of the sections have one. The
+street then ends in front of them (roads._measured_widths narrows it where its default reaches further: Völkermarkt's
+Postriegelstraße, houses 3.8-4.7 m from its centreline, was drawn 10.6 m wide with 2.5 m sidewalks into them).
 Elsewhere (front yards, open land): None,
 and the class defaults stay. Pure; RoadWidths memoises per road for the life of the server, so the
 physics block, grading, the road meshes and the surface masks always agree.
@@ -20,7 +24,7 @@ physics block, grading, the road meshes and the surface masks always agree.
 import logging
 import os
 import threading
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 
 import numpy as np
 
@@ -43,7 +47,16 @@ WALK_SHARE = 0.2        # each sidewalk this share of the right-of-way ...
 WALK_MIN, WALK_MAX = 1.8, 4.5   # ... within these (m)
 CARRIAGE_MIN = 3.0      # m: a measured single-lane street, including old town streets
 WALK_NARROW_MIN = 0.6   # m: keep narrow streets within their measured building-to-building width
+# The share of a street's cross-sections with a wall at most its limit away. A quarter: a row of houses along a
+# quarter of the street narrows all of it (one width per road, no edge wandering from house to house), while a lone
+# shed or carport near a long street (two sections of thirty) does not. Fails where a street's walls are mapped too
+# close along a quarter of it (a misplaced import): the street is drawn narrower than it is.
+CLEAR_SHARE = 0.25
 BUCKET = 16.0           # m, wall segment buckets
+
+# A road's measurement: a walled street's carriageway and sidewalk (m, limit None), or for a street lined on one side
+# only its limit (m from its centreline to the walls, cw and walk None).
+Measured = namedtuple("Measured", "cw walk limit")
 
 
 WALL_CELLS = 48          # cells of building walls kept per process (budget.py: fewer on a small machine)
@@ -148,6 +161,17 @@ class Walls:
         return out
 
 
+def _rust_walls(walls):
+    """The walls' arrays as the Rust ray loops take them (kept on walls) and whether they are float32."""
+    k = walls.__dict__.get("_rs")
+    f32 = walls.segs.dtype == np.float32
+    if k is None:
+        k = walls._rs = tuple(np.ascontiguousarray(a, t) for a, t in
+                              ((walls.keys, np.int64), (walls.first, np.int64), (walls.counts, np.int64),
+                               (walls.seg_of, np.int64), (walls.segs, np.float32 if f32 else np.float64)))
+    return k, f32
+
+
 def measure_row(centreline, walls):
     """The right-of-way (m) of a street (centreline (k, 2), metres) between the building walls, or None
     where it is not walled on both sides consistently. Pure."""
@@ -155,15 +179,34 @@ def measure_row(centreline, walls):
     if not len(walls.keys):         # (no walls at all: not walled)
         return None
     fast.require(34, "measure_row")     # (the Rust loop; ~3000 streets a 9-tile set)
-    k = walls.__dict__.get("_rs")
-    f32 = walls.segs.dtype == np.float32
-    if k is None:
-        k = walls._rs = tuple(np.ascontiguousarray(a, t) for a, t in
-                              ((walls.keys, np.int64), (walls.first, np.int64), (walls.counts, np.int64),
-                               (walls.seg_of, np.int64), (walls.segs, np.float32 if f32 else np.float64)))
+    k, f32 = _rust_walls(walls)
     fn = fast._ef.measure_row32 if f32 else fast._ef.measure_row
     return fn(np.ascontiguousarray(np.asarray(centreline, np.float64)[:, :2]), *k, BUCKET,
               STEP, END_SKIP, REACH, MIN_SAMPLES, WALLED, AGREE)
+
+
+def measure_clear(centreline, walls):
+    """How far (m) a street (centreline (k, 2), metres) may reach from its centreline before the building walls on
+    either side (CLEAR_SHARE of its cross-sections), or None where too few walls stand within REACH. Pure."""
+    import fast
+    if not len(walls.keys):
+        return None
+    fast.require(122, "measure_clear")
+    k, f32 = _rust_walls(walls)
+    fn = fast._ef.measure_clear32 if f32 else fast._ef.measure_clear
+    return fn(np.ascontiguousarray(np.asarray(centreline, np.float64)[:, :2]), *k, BUCKET,
+              STEP, END_SKIP, REACH, MIN_SAMPLES, CLEAR_SHARE)
+
+
+def measure(centreline, walls):
+    """A street's Measured (centreline (k, 2), metres): its carriageway and sidewalk where walled on both sides
+    (split of measure_row), else its limit (measure_clear), else None. Pure."""
+    row = measure_row(centreline, walls)
+    got = split(row) if row is not None else None
+    if got is not None:
+        return Measured(got[0], got[1], None)
+    clear = measure_clear(centreline, walls)
+    return Measured(None, None, clear) if clear is not None else None
 
 def split(row):
     """(carriageway m, sidewalk m) of a right-of-way, or None when the carriageway would be implausible."""
@@ -375,7 +418,7 @@ class RoadWidths:
         return got
 
     def get(self, fid, lonlat):
-        """(carriageway m, sidewalk m) of road fid (geometry lonlat (k, 2)), or None (defaults)."""
+        """The Measured of road fid (geometry lonlat (k, 2)), or None (defaults)."""
         with self.lock:
             if fid in self.memo:
                 return self.memo[fid]
@@ -384,8 +427,7 @@ class RoadWidths:
         res = None
         if len(walls.segs):
             e, n, _ = frame.geodetic_to_enu(ll[:, 1], ll[:, 0], 0.0)
-            row = measure_row(np.c_[e, n], walls)
-            res = split(row) if row is not None else None
+            res = measure(np.c_[e, n], walls)
         with self.lock:
             self.memo.setdefault(fid, res)
             return self.memo[fid]
