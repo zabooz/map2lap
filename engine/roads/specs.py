@@ -41,6 +41,12 @@ URBAN_STEP_M = 10.0             # m between the points those shares are taken at
                                 # road's length, not of its vertices, which crowd where it bends and joins (a 762 m
                                 # primary through fields read 64 % built-up from the 9 of its 14 vertices in the
                                 # village at its end, 41 % along its length, and got curbs and sidewalks throughout)
+# A piece of a street this short is read at three or four land-cover points, so one pixel (a house at the corner, the
+# junction's own pavement) decides it: it takes the context of the street it continues (_short_pieces). Völkermarkt's
+# Seenstraße, a 21 m piece between two junctions, was urban (parking lanes, 10.8 m) between its 6.2 m rural self and
+# a primary. Fails where a street really enters a town within such a piece: it switches one piece later.
+SHORT_PIECE_M = 3 * URBAN_STEP_M
+PIECE_JOIN_M = 2.5              # m between a piece's end and its neighbour's (map nodes shared or nearly)
 MIN_PART = 1e-3     # parts shorter than this share of a segment are dropped
 
 
@@ -415,6 +421,7 @@ def _road_specs(feats, urban_fn, left_hand):
             k += c
             out[j] = Spec(carriageway(cls, kind, urban, None, ow, lanes), kind, urban, cls, ow, 2.5, *dk, lanes=lanes,
                           surf=token, link=link)
+    out = _short_pieces(feats, out)
     out = _rings(feats, out)
     out = dual_carriageways(feats, out, left_hand)
     # A primary's opposite carriageway can supply all of its apparent development
@@ -429,6 +436,48 @@ def _road_specs(feats, urban_fn, left_hand):
             w = carriageway(sp.cls, sp.kind, False, width, sp.oneway, sp.lanes)
             out[j] = sp._replace(urban=False, width=_dual_width(sp._replace(urban=False), w, sp.median, feats, j))
     return _osm_sidewalks(feats, _rural_connectors(feats, out))
+
+
+def _ends(feats, i):
+    """The first and last lon/lat of feature i ((2, 2)), or None without points. Pure."""
+    a = feats.coord_off[feats.ring_off[feats.part_off[i]]]
+    b = feats.coord_off[feats.ring_off[feats.part_off[i + 1]]]
+    return feats.lonlat[[a, b - 1]] if b > a else None
+
+
+def _short_pieces(feats, specs):
+    """specs with each piece shorter than SHORT_PIECE_M in the urban context of the street it continues: the pieces
+    of its name and class whose ends meet its ends (PIECE_JOIN_M), where all of them agree; its width the class
+    default of that context (a mapped width stays). Neighbours that disagree, or none: its own. Pure."""
+    lengths = _lengths(feats)
+    names = feats.attrs.get("name")
+    name = (lambda i: str(names[i])) if names is not None else (lambda i: "")
+    short = [i for i, sp in enumerate(specs) if sp is not None and sp.kind in BUILT and lengths[i] < SHORT_PIECE_M]
+    if not short:
+        return specs
+    ends = {i: e for i, sp in enumerate(specs) if sp is not None and (e := _ends(feats, i)) is not None}
+    if not ends:
+        return specs
+    ids = list(ends)
+    points = np.concatenate([ends[i] for i in ids])
+    owners = np.repeat(ids, 2)
+    scale = np.array([111320.0 * math.cos(math.radians(float(points[:, 1].mean()))), 110540.0])
+    out = list(specs)
+    for i in short:
+        if i not in ends:
+            continue
+        sp = specs[i]
+        near = np.linalg.norm((ends[i][:, None] - points[None]) * scale, axis=2) < PIECE_JOIN_M
+        same = {int(j) for j in owners[near.any(axis=0)]
+                if j != i and specs[j].cls == sp.cls and name(j) == name(i) and lengths[j] >= SHORT_PIECE_M}
+        context = {specs[j].urban for j in same}
+        if len(context) != 1 or sp.urban in context:
+            continue
+        urban = context.pop()
+        width = _rule_value(feats.rules.get("width"), i)
+        width = float(width) if width is not None and 1.0 <= float(width) <= 40.0 else _osm(feats, "width", i, *OSM_WIDTH_M)
+        out[i] = sp._replace(urban=urban, width=carriageway(sp.cls, sp.kind, urban, width, sp.oneway, sp.lanes))
+    return out
 
 
 def _rural_connectors(feats, specs):

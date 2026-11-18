@@ -960,6 +960,59 @@ class UrbanBesideTest(unittest.TestCase):
             FRAME.geodetic_to_enu(np.asarray(lat), np.asarray(lon), 0.0)[0]) > 100.0)
         self.assertTrue(town[0].urban, "built-up along most of its length")
 
+    @staticmethod
+    def _named(lines, classes, names):
+        f = features(lines, classes)
+        f.attrs["name"] = np.array(names)
+        return f
+
+    @staticmethod
+    def _east(test):
+        def fn(lat, lon):
+            e, _n, _ = FRAME.geodetic_to_enu(np.asarray(lat), np.asarray(lon), 0.0)
+            return test(np.asarray(e))
+        return fn
+
+    def test_a_short_piece_takes_its_street_s_context(self):
+        """Völkermarkt's Seenstraße: a 21 m piece between two junctions, three of its four land-cover points built-up
+        (a house at the corner, the junction's pavement), got parking lanes (10.8 m) between the 6.2 m rural street it
+        continues and the primary it meets."""
+        f = self._named([[(-200, 0), (0, 0)], [(0, 0), (20, 0)], [(20, -100), (20, 100)]],
+                        ["tertiary", "tertiary", "primary"], ["Seenstraße", "Seenstraße", ""])
+        corner = self._east(lambda e: (e > 5.0) & (e < 60.0))
+        own = roads.road_specs(f, None)
+        specs = roads.road_specs(f, corner)
+        self.assertFalse(specs[0].urban)
+        self.assertFalse(specs[1].urban, "the street it continues is rural")
+        self.assertEqual(specs[1].width, specs[0].width)
+        self.assertEqual(specs[1].width, own[1].width)
+
+    def test_a_short_piece_in_town_stays_a_town_street(self):
+        """A short piece of a town street over a gap in the land cover (a square, a park's corner) keeps its street's
+        parking lanes and sidewalks."""
+        f = self._named([[(-200, 0), (0, 0)], [(0, 0), (20, 0)], [(20, 0), (220, 0)]],
+                        ["residential"] * 3, ["Hauptstraße"] * 3)
+        gap = self._east(lambda e: (e < -5.0) | (e > 25.0))
+        specs = roads.road_specs(f, gap)
+        self.assertTrue(specs[0].urban and specs[2].urban)
+        self.assertTrue(specs[1].urban, "both ends a town street of its name")
+        self.assertEqual(specs[1].width, specs[0].width)
+
+    def test_a_short_piece_keeps_its_own_context_otherwise(self):
+        """Another street's piece, a long piece, or neighbours that disagree: the land cover's own answer stays."""
+        corner = self._east(lambda e: (e > 5.0) & (e < 60.0))
+        other = self._named([[(-200, 0), (0, 0)], [(0, 0), (20, 0)]], ["tertiary"] * 2, ["Seenstraße", "Drauweg"])
+        self.assertTrue(roads.road_specs(other, corner)[1].urban, "another name")
+        long_ = self._named([[(-200, 0), (0, 0)], [(0, 0), (60, 0)]], ["tertiary"] * 2, ["Seenstraße"] * 2)
+        self.assertTrue(roads.road_specs(long_, self._east(lambda e: (e > 5.0) & (e < 90.0)))[1].urban, "long enough")
+        split = self._named([[(-200, 0), (0, 0)], [(0, 0), (20, 0)], [(20, 0), (220, 0)]],
+                            ["tertiary"] * 3, ["Seenstraße"] * 3)
+        east_town = self._east(lambda e: e > 5.0)
+        got = roads.road_specs(split, east_town)
+        self.assertFalse(got[0].urban)
+        self.assertTrue(got[2].urban)
+        self.assertTrue(got[1].urban, "a rural end and an urban end: its own")
+
 
 class TileNeedsTest(unittest.TestCase):
     def test_the_cells_a_tile_asks_for(self):
