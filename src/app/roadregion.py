@@ -441,6 +441,31 @@ def _selection(path, _stamp, packed):
     return {"material": "road_region", "truncated": False, "tiles": selected, "meshes": meshes}
 
 
+def strip_selection(path, net, size=256):
+    """The selection() of Smooth road's Strip mode: every point within net["strip"] / 2 of the marked lines, painted or not,
+    as tile masks of size pixels (1 m on a 256 m tile); deck faces as selection() gives them."""
+    half = float(net["strip"]) / 2
+    lines = [np.asarray(line, np.float64) for line in net["lines"]]
+    points = np.vstack(lines)
+    low, high = points.min(axis=0) - half, points.max(axis=0) + half
+    selected = []
+    for tx in range(math.floor(low[0] / 256), math.floor(high[0] / 256) + 1):
+        for ty in range(math.floor(-high[1] / 256), math.floor(-low[1] / 256) + 1):
+            x, z = np.meshgrid(tx * 256 + (np.arange(size) + .5) * 256 / size, -(ty + 1) * 256 + (np.arange(size) + .5) * 256 / size)
+            near = np.full(x.shape, np.inf)
+            for line in lines:
+                for a, b in zip(line, line[1:]):
+                    d = b - a
+                    t = np.clip(((x - a[0]) * d[0] + (z - a[1]) * d[1]) / max(float(d @ d), 1e-12), 0, 1)
+                    near = np.minimum(near, np.hypot(x - a[0] - t * d[0], z - a[1] - t * d[1]))
+            mask = np.where(near <= half, 255, 0).astype(np.uint8)
+            if mask.any():
+                selected.append({"tile": [tx, ty], "mask": base64.b64encode(editorinfo._png(mask)).decode("ascii")})
+    from app import roadsurfaces
+    meshes = roadsurfaces.selection(path, net) if any(e.get("structure") for e in net["segments"]) else []
+    return {"material": "road_region", "truncated": False, "tiles": selected, "meshes": meshes}
+
+
 def on_grid(selection, i0, j0, shape, step=2):
     """Sample a selected road mask on the existing terrain lattice. Pure."""
     result = np.zeros(shape, bool)

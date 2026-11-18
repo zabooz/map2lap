@@ -20,13 +20,22 @@ test("each problem without a window of its own is a toast with its way out", () 
     ["edit-view-failed", "warning", "Load again"],
     ["edit-copy-failed", "error", undefined],
     ["edit-made", "error", undefined],
-    ["edit-stuck", "error", "Read again"],
+    ["edit-stuck", "error", undefined],
     ["edit-outdated", "warning", "Give up"],
   ]);
   expect(all[0].title).toBe("The view doesn't show the last change");
   expect(all[0].message).toContain("The models exceed the Editor memory limit");
   expect(all[1].message).toBe("Copy was refused");
   expect(all[4].title).toBe("2 older changes not applied");
+  expect(all[3].message).toContain("Reading the track's changes again");
+});
+
+test("a change the server refused shows as taken back, each refusal a toast of its own", () => {
+  const first = editorToasts({...none, refused: {message: "This kerb crosses itself", n: 1}}, new Set(), actions);
+  expect(first).toMatchObject([{id: "edit-refused-1", tone: "error", title: "Change taken back", message: "This kerb crosses itself"}]);
+  expect(first[0].action).toBeUndefined();
+  const again = editorToasts({...none, refused: {message: "This kerb crosses itself", n: 2}}, new Set([first[0].key]), actions);
+  expect(again.map(t => t.id)).toEqual(["edit-refused-2"]);
 });
 
 test("saving again after a failed write is a warning; a dismissed toast stays away until its message changes", () => {

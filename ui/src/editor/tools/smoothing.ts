@@ -3,7 +3,7 @@ import type {Pin} from "./pins";
 import type {SurfaceSelection} from "../scene/surfaces";
 
 export const INITIAL_SMOOTH_STRENGTH = 0;
-export interface SmoothRequest {base: string; revision: number; points: Pin[]; blend: number; strength: number; network: true; replace?: string}
+export interface SmoothRequest {base: string; revision: number; points: Pin[]; blend: number; strength: number; network: true; replace?: string; strip?: number}
 interface Answer {height?: HeightChange; standing?: number; error?: string; influence?: SurfaceSelection}
 interface Result {state: "unchanged" | "applied" | "cancelled" | "undone" | "error"; message?: string; influence?: SurfaceSelection | null}
 
@@ -17,13 +17,13 @@ export class SmoothSession {
 
   cancel() { this.epoch++; }
   reset() { this.cancel(); this.owned = null; this.joined = false; this.key = null; }
-  async update(points: Pin[], blend: number, strength: number): Promise<Result> {
+  async update(points: Pin[], blend: number, strength: number, strip: number | null = null): Promise<Result> {
     const state = this.edits.state();
     if (this.owned && !state.heights.some(h => h.id === this.owned)) {
       this.reset();
       return {state: "undone"};
     }
-    const key = JSON.stringify([points, blend, strength, state.heights.filter(h => h.id !== this.owned).map(h => h.id), state.placed, state.copies]);
+    const key = JSON.stringify([points, blend, strength, strip, state.heights.filter(h => h.id !== this.owned).map(h => h.id), state.placed, state.copies]);
     if (key === this.key) return {state: "unchanged"};
     const epoch = ++this.epoch;
     let result: Result = {state: "cancelled"};
@@ -37,7 +37,7 @@ export class SmoothSession {
           this.reset(); result = {state: "undone"}; return;
         }
         if (strength === 0 && !this.owned) { this.key = key; result = {state: "unchanged"}; return; }
-        const answer: Answer = strength === 0 ? {} : await this.request({base, revision, points, blend, strength: strength / 100, network: true, replace: this.owned ?? undefined});
+        const answer: Answer = strength === 0 ? {} : await this.request({base, revision, points, blend, strength: strength / 100, network: true, replace: this.owned ?? undefined, strip: strip ?? undefined});
         if (epoch !== this.epoch) return;
         if (answer.error || strength > 0 && !answer.height) throw new Error(answer.error ?? "The road could not be smoothed");
         if (!this.edits.replaceHeight(this.owned, answer.height ?? null, this.joined)) throw new Error("The smoothing operation changed; mark the road again");

@@ -33,7 +33,7 @@ if __name__ == "__main__":      # (before the engine loads: the python.exe left 
 import generator  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import (builtroad, csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, tracksource, tracksurfaces,  # noqa: E402
+from app import (builtroad, csp, debugapp, mapcache, materiallibrary, objectlibrary, modeldata, mytracks, railbridges, roadbend, roadnet, roadregion, roadseparation, settings, sidewalkcuts, system, trackband, trackcode, trackcopy, trackedits, trackheights, trackkerbs, tracknative, trackstitch, tracksource, tracksurfaces,  # noqa: E402
                  trackdetail, trackinspect, trackpaint, trackview, updater, version, weather)
 from app.paths import ROOT, SRC  # noqa: E402
 
@@ -67,6 +67,7 @@ BEND_PATH = re.compile(r"/api/editor/([^/]+)/bend(?:/(way))?")
 RAILBRIDGE_PATH = re.compile(r"/api/editor/([^/]+)/railbridge")
 SIDEWALK_PATH = re.compile(r"/api/editor/([^/]+)/(?:sidewalk|guardrail)")
 KERB_PATH = re.compile(r"/api/editor/([^/]+)/kerb/way")
+STITCH_PATH = re.compile(r"/api/editor/([^/]+)/stitch/way")
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 TITLE_MAX = 80                  # (a track's name as Save in the Editor takes it: longer ones are cut)
 IMAGE_TYPES = {".dds": "image/vnd-ms.dds", ".png": "image/png", ".jpg": "image/jpeg"}
@@ -857,14 +858,46 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             base = body.get("base")
             path, scan = trackview._scan_of(ac, name, base)
+            width = body.get("width", 0.45)
+            if type(width) not in (int, float) or not math.isfinite(width) or not trackkerbs.MIN_WIDTH_M <= width <= trackkerbs.MAX_WIDTH_M:
+                raise ValueError("Kerb width must be 0.2–2.0 m")
+            if body.get("mode") == "free":
+                # A kerb drawn by hand, centred on its clicked line.
+                line = trackkerbs.free_line(path, scan, body.get("points"), width, trackedits.moved_without(ac, name, base, None))
+                return self._send(200, {"line": line, "side": "left", "centred": True, "road_ids": []})
             net = builtroad.pick(path, scan, body.get("points"), join_near=True)
             side = trackkerbs.side_of_click(net, body["points"][0])
             width = body.get("width", 0.45)
             if type(width) not in (int, float) or not math.isfinite(width) or not trackkerbs.MIN_WIDTH_M <= width <= trackkerbs.MAX_WIDTH_M:
                 raise ValueError("Kerb width must be 0.2–2.0 m")
-            line = trackkerbs.prepare(path, scan, None, net, side, width)
+            line = trackkerbs.prepare(path, scan, None, net, side, width, trackedits.moved_without(ac, name, base, None))
             return self._send(200, {"line": line, "side": side,
                                     "road_ids": sorted({edge["road"] for edge in net["segments"] if edge.get("road")})})
+        except (ValueError, trackband.Refused) as error:
+            return self._send(400, {"error": str(error)})
+        except (trackview.Unreadable, trackview.NotOurs) as error:
+            return self._send(409, {"error": str(error)})
+
+    def _stitch_way(self, name):
+        """One Stitch road proposal between two road clicks: its draft descriptor and what the page previews."""
+        if not self._own_page():
+            return self._send(403, {"error": "Only the page itself can change a track"})
+        if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
+            self.close_connection = True
+            return self._send(413, {"error": "No stitch range"})
+        ac, name = settings.ac_path(), generator.slug(name)
+        try:
+            body = self._body()
+            path, scan = trackview._scan_of(ac, name, body.get("base"))
+            net = builtroad.pick(path, scan, body.get("points"), join_near=True)
+            width = body.get("width")
+            if width is not None and not (type(width) in (int, float) and math.isfinite(width)):
+                raise ValueError("Stitch width must be a number")
+            existing = body.get("existing") or []
+            if wrong := trackstitch.problems(existing):
+                raise ValueError(wrong)
+            stitch, info = trackstitch.union(path, scan, net, width, existing)
+            return self._send(200, {"stitch": stitch, **info})
         except (ValueError, trackband.Refused) as error:
             return self._send(400, {"error": str(error)})
         except (trackview.Unreadable, trackview.NotOurs) as error:
@@ -889,10 +922,19 @@ class Handler(BaseHTTPRequestHandler):
             if body.get("network"):
                 # The click heights choose the road level built there, as in Bend road and Racing kerb.
                 net = builtroad.pick(path, scan, body.get("points"))
-                region = roadregion.selection(path, net)
+                mapped_width = max(edge["width"] for edge in net["segments"])
+                strip = body.get("strip")
+                if strip is not None:
+                    # Strip mode: a chosen width around the marked lines, as Stitch road (roadnet._strip_owns).
+                    if type(strip) not in (int, float) or not math.isfinite(strip) or not 2 <= strip <= 40:
+                        raise ValueError("Strip width must be 2–40 m")
+                    net = {**net, "strip": float(strip)}
+                    region = roadregion.strip_selection(path, net)
+                else:
+                    region = roadregion.selection(path, net)
                 if what == "way":
                     lines = [[[x, 0., z] for x, z in line] for line in net["lines"]]
-                    answer = {"lines": lines, "region": region}
+                    answer = {"lines": lines, "region": region, "width": round(mapped_width, 1)}
                     if body.get("preview") is True:
                         try:
                             moved = trackedits.moved_without(ac, name, base, body.get("replace"))
@@ -1295,6 +1337,9 @@ class Handler(BaseHTTPRequestHandler):
         kerb = KERB_PATH.fullmatch(self.path)
         if kerb:
             return self._kerb_way(kerb[1])
+        stitch = STITCH_PATH.fullmatch(self.path)
+        if stitch:
+            return self._stitch_way(stitch[1])
         try:
             body = self._body()
             if self.path == "/api/route":

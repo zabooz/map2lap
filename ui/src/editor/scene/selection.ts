@@ -13,7 +13,7 @@ const BOX_EDGES = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7
                    [3, 7]];         // (a box's 12 edges by their corners' numbers: bits x 1, y 2, z 4)
 // what the build lists (src/track/objectlist.py, LISTED): an older track's can't be picked yet
 const IN_THE_LIST = /^(?!.*_sub_).*(_cars_|_bld|_props_|_wire_|_pylon_|_rocks_|_fence|_fuel_|_signs_|_pool_|_play_|_sport_|_graves_|_tower_|_fountain_)/;
-export const ROAD = /^(?:1ROAD_(?:ground|deck)|1WALL_deck_con|nocol_road)_/;    // Driving surfaces and their asphalt skins can mark a road region.
+export const ROAD = /^(?:1ROAD_(?:ground|deck|stitch|stitchcut)|1WALL_deck_con|nocol_(?:road|stitch|stitchcut))_/;    // Driving surfaces and their asphalt skins can mark a road region.
 
 /** A frame around bounds in scene, seen through what stands before it; changed hears that the view is to be drawn again. */
 export function frameOf(scene: THREE.Scene, bounds: THREE.Box3, changed: () => void) {

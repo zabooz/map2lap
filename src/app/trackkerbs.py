@@ -334,7 +334,7 @@ def _round_offset(path, distance, sign):
     return _without_loops(np.asarray(result))
 
 
-def _strip_xy(line, side, width):
+def _strip_xy(line, side, width, centred=False):
     """Inner and outer AC x/z edges; remove sharp-corner folds before meshing. Pure."""
     centre = line[:, [0, 2]]
     sign = 1 if side == "left" else -1
@@ -342,7 +342,11 @@ def _strip_xy(line, side, width):
     # The kerb uses the rounded mapped road, including where a sidewalk is later
     # removed in the Editor. Built sidewalk edges can jump across acute junctions.
     outer = line[:, 3] / 2 - 0.15 + width
-    inner_xy = centre + sign * normal * (outer - width)[:, None]
+    inner = outer - width
+    if centred:
+        # A free kerb lies on its own clicked line, half its width each side; widening it grows both sides.
+        inner, outer = np.full(len(line), -width / 2), np.full(len(line), width / 2)
+    inner_xy = centre + sign * normal * inner[:, None]
     outer_xy = centre + sign * normal * outer[:, None]
     perimeter = np.concatenate((inner_xy, outer_xy[::-1], inner_xy[:1]))
     winding = np.array([_cross(step, across) for step, across in
@@ -350,7 +354,7 @@ def _strip_xy(line, side, width):
     if (_first_loop(perimeter) is not None or np.any(sign * winding <= 0)):
         # At a tight inside turn, the normal samples can reverse even though the
         # road's spline is smooth. Build round parallel edges and cut their loops.
-        inner_clean = _round_offset(centre, outer - width, sign)
+        inner_clean = _round_offset(centre, inner, sign)
         outer_clean = _round_offset(centre, outer, sign)
         inner_xy = _resample_path(inner_clean, len(line))
         outer_xy = _matched_edge(inner_xy, outer_clean)
@@ -362,25 +366,127 @@ def _strip_xy(line, side, width):
     return inner_xy, outer_xy
 
 
-def prepare(path, scan, moved, net, side, width=0.45):
-    """Mapped road range with sampled source height at the kerb's inner edge."""
+def prepare(path, scan, moved, net, side, width=0.45, current=None):
+    """Mapped road range with sampled source height at the kerb's inner edge.
+
+    current: the draft's height changes (trackedits.moved_without), or None. The road edge is checked for steps as the
+    draft has it: a step Smooth road already evened out no longer refuses the kerb (Rechberg, 0.9 m at a junction). The
+    line keeps the source heights, since height changes lift a kerb vertex by vertex on preview and Save (trackheights
+    FOLLOW): stored as the draft has them, the change would count twice."""
     if side not in ("left", "right"):
         raise ValueError("Choose left or right")
     rows = _spaced_line(sampled(rounded(net, side, width)), [0, 1])
     strip = np.c_[rows[:, 0], np.zeros(len(rows)), rows[:, 1], rows[:, 2]]
     edge, _outer_edge = _strip_xy(strip, side, width)
-    heights = []
-    # Chunks keep a winding road's height grid bounded even if the selected path circles back.
-    # The selected road's own deck faces decide where it is on its bridge (builtroad), so a skewed
-    # deck end and another road's deck or the ground beneath give no height to this kerb.
-    try:
+    def sampled_heights(changes):
+        """Edge heights with gaps filled, in chunks that keep a winding road's height grid bounded."""
+        heights = []
+        # The selected road's own deck faces decide where it is on its bridge (builtroad), so a skewed
+        # deck end and another road's deck or the ground beneath give no height to this kerb.
         for first in range(0, len(rows), 80):
-            heights.extend(builtroad.heights(path, scan, moved, net, edge[first:first + 80])[0].tolist())
-        heights = builtroad.filled(edge, heights)
+            heights.extend(builtroad.heights(path, scan, changes, net, edge[first:first + 80])[0].tolist())
+        return builtroad.filled(edge, heights)
+    try:
+        heights = sampled_heights(moved)
+        now = heights if current is None else sampled_heights(current)
     except trackband.Refused as error:
         raise ValueError(f"Could not place a kerb on this road edge: {error}") from error
-    heights = _continuous_heights(edge, heights)
+    # Steps and isolated wrong samples are judged on the road as the draft has it; their repairs go onto the source line.
+    heights = heights + (_continuous_heights(edge, now) - now)
     return np.c_[rows[:, 0], heights, rows[:, 1], rows[:, 2]].round(3).tolist()
+
+
+# ---------------------------------------------------------------- free kerbs: a line clicked by hand
+
+FREE_ROAD_W = 2.0       # a free kerb's stored "road width": problems() takes 2-60 m; its inner edge then lies 0.85 m off the stored line
+FREE_MAX_POINTS = 200
+
+
+def _through(points):
+    """A smooth curve [x, z, y] through clicked points (centripetal-free Catmull-Rom, ends doubled), at most 0.5 m apart. Pure."""
+    p = np.asarray(points, np.float64)
+    if len(p) == 2:
+        n = max(1, math.ceil(np.linalg.norm(p[1, :2] - p[0, :2]) / 0.5))
+        return np.array([p[0] + (p[1] - p[0]) * t / n for t in range(n + 1)])
+    q = np.vstack([p[:1], p, p[-1:]])
+    out = [p[0]]
+    for k in range(1, len(q) - 2):
+        a, b, c, d = q[k - 1], q[k], q[k + 1], q[k + 2]
+        n = max(1, math.ceil(np.linalg.norm(c[:2] - b[:2]) / 0.5))
+        for j in range(1, n + 1):
+            t = j / n
+            out.append(0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t ** 2 + (-a + 3 * b - 3 * c + d) * t ** 3))
+    return np.asarray(out)
+
+
+def _surfaces_near(path, scan, bounds):
+    """Upward triangles (n, 3, 3) of every driving surface near bounds: ground and decks, any road's. Pure apart from reading path."""
+    found = []
+    with open(path, "rb") as f:
+        for mesh in scan["meshes"]:
+            if not mesh["name"].startswith(("1ROAD_", "1KERB_", "1GRAVEL_", "1GRASS_")) or mesh.get("copy"):
+                continue
+            at = np.asarray(mesh["center"])[[0, 2]]
+            if np.any(at + mesh["radius"] < bounds[0]) or np.any(at - mesh["radius"] > bounds[1]):
+                continue
+            vertices, faces = kn5.mesh_arrays(f, mesh)
+            tri = vertices["pos"][faces.reshape(-1, 3)].astype(np.float64)
+            n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            found.append(tri[n[:, 1] > 1e-8])
+    return np.concatenate(found) if found else np.zeros((0, 3, 3))
+
+
+def _surface_at(triangles, points, near):
+    """Per [x, z] point the surface height closest to near (the clicked level there); NaN where none. Pure."""
+    points = np.asarray(points, np.float64)
+    out = np.full(len(points), np.nan)
+    if not len(triangles):
+        return out
+    low, high = triangles[:, :, [0, 2]].min(axis=1), triangles[:, :, [0, 2]].max(axis=1)
+    for k, (x, z) in enumerate(points):
+        idx = np.flatnonzero((low[:, 0] <= x) & (high[:, 0] >= x) & (low[:, 1] <= z) & (high[:, 1] >= z))
+        if not len(idx):
+            continue
+        a, b, c = triangles[idx, 0], triangles[idx, 1], triangles[idx, 2]
+        d = (b[:, 2] - c[:, 2]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 2] - c[:, 2])
+        with np.errstate(all="ignore"):
+            l1 = ((b[:, 2] - c[:, 2]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (z - c[:, 2])) / d
+            l2 = ((c[:, 2] - a[:, 2]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (z - c[:, 2])) / d
+        ok = (l1 >= -1e-6) & (l2 >= -1e-6) & (1 - l1 - l2 >= -1e-6) & (np.abs(d) > 1e-12)
+        if ok.any():
+            y = (l1 * a[:, 1] + l2 * b[:, 1] + (1 - l1 - l2) * c[:, 1])[ok]
+            out[k] = y[np.argmin(np.abs(y - near[k]))]
+    return out
+
+
+def free_line(path, scan, points, width=0.45, current=None):
+    """The line [x, y, z, FREE_ROAD_W] of a kerb drawn by hand, centred on its clicked [x, z, y] points (a "centred"
+    kerb: mesh() lays half its width each side). Heights: the surface under the line nearest each click's level; steps
+    judged with the draft's changes (current), source heights stored as prepare() does."""
+    points = np.asarray(points, np.float64)
+    if points.ndim != 2 or points.shape[1] != 3 or not 2 <= len(points) <= FREE_MAX_POINTS or not np.isfinite(points).all():
+        raise ValueError(f"Click 2 to {FREE_MAX_POINTS} points for a free kerb")
+    curve = _spaced_line(_through(points), [0, 1])
+    length = float(np.linalg.norm(np.diff(curve[:, :2], axis=0), axis=1).sum())
+    if not 1 <= length <= MAX_LENGTH_M:
+        raise ValueError("A free kerb must be between 1 m and 3 km long")
+    xy = curve[:, :2]
+    triangles = _surfaces_near(path, scan, np.array([xy.min(axis=0) - 2, xy.max(axis=0) + 2]))
+    try:
+        heights = builtroad.filled(xy, _surface_at(triangles, xy, curve[:, 2]))
+    except trackband.Refused as error:
+        raise ValueError(f"Could not place a kerb here: {error}") from error
+    now = heights
+    if current is not None:
+        grid0, i0, j0 = trackband._ground(path, scan, None, xy)
+        grid1, i1, j1 = trackband._ground(path, scan, current, xy)
+        now = heights + np.nan_to_num(trackband._on_grid(grid1, i1, j1, xy) - trackband._on_grid(grid0, i0, j0, xy))
+    heights = heights + (_continuous_heights(xy, now) - now)
+    line = np.c_[xy[:, 0], heights, xy[:, 1], np.full(len(xy), FREE_ROAD_W)].round(3)
+    # Built once here: a line whose kerb edge crosses itself (a sharp turn, clicks going back) is refused now, with its
+    # reason, instead of entering the draft, where Save and every later draft write would refuse it.
+    mesh(line, side="left", profile="flat", width=width, height=0.0, centred=True)
+    return line.tolist()
 
 
 def problems(edits):
@@ -396,6 +502,8 @@ def problems(edits):
         if (not isinstance(road_ids, list) or len(road_ids) > 64 or
                 any(not isinstance(road_id, str) or not road_id or len(road_id) > 128 for road_id in road_ids)):
             return "Invalid kerb road IDs"
+        if "centred" in edit and type(edit["centred"]) is not bool:
+            return "Invalid kerb centring"
         if edit.get("side") not in ("left", "right") or edit.get("profile") not in PROFILES:
             return "Choose a kerb side and profile"
         width, height = edit.get("width"), edit.get("height")
@@ -426,10 +534,10 @@ def _rib_rows(line):
     return np.asarray(result)
 
 
-def mesh(line, *, side, profile, width, height):
+def mesh(line, *, side, profile, width, height, centred=False):
     """One visible and collidable AC mesh (vertices, triangles) along a road-side line. Pure."""
     line = _spaced_line(line, [0, 2])
-    inner_xy, outer_xy = _strip_xy(line, side, width)
+    inner_xy, outer_xy = _strip_xy(line, side, width, centred)
     if profile == "ribbed":
         combined = _rib_rows(np.c_[line, inner_xy, outer_xy])
         inner_xy, outer_xy = combined[:, -4:-2], combined[:, -2:]
@@ -496,7 +604,8 @@ def extend(scan, edits):
         line = edit["line"]
         for first in range(0, len(line) - 1, CHUNK_ROWS - 1):
             vertices, triangles = mesh(line[first:min(first + CHUNK_ROWS, len(line))], side=edit["side"],
-                                       profile=edit["profile"], width=edit["width"], height=edit["height"])
+                                       profile=edit["profile"], width=edit["width"], height=edit["height"],
+                                       centred=edit.get("centred") is True)
             centre = (vertices["pos"].min(0).astype(float) + vertices["pos"].max(0)) / 2
             meshes.append({**template, "name": f"1KERB_racing_{len(meshes)}", "copy": True, "kerb_id": edit["id"],
                            "road_ids": edit.get("road_ids", []),

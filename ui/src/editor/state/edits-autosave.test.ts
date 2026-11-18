@@ -149,16 +149,35 @@ test("an answer lost on the way: the next save names it, and goes through", asyn
   expect(edits.state().save).toBe("saved");
 });
 
-test("what can't ever go through stops instead of trying for ever", async () => {
+test("a change that can't ever go through is taken back alone; earlier changes and their Undo stay, nothing is locked", async () => {
   const {s, edits} = await started();
   edits.remove([tree(1)]);
   edits.saveNow();
   await settle();
-  s.asked[0].answer(json({error: "no object to delete"}, 400));
+  s.asked[0].answer(json({revision: 1}));
+  await settle();
+  edits.remove([tree(2)]);
+  edits.saveNow();
+  await settle();
+  s.asked[1].answer(json({error: "no object to delete"}, 400));
+  await settle();
+  await settle();
+  expect(edits.state().save).toBe("saved");
+  expect(edits.state().refused?.message).toBe("no object to delete");
+  expect(edits.state().removed.map(r => r.id)).toEqual([tree(1).id]);
+  expect(edits.state().canUndo).toBe(true);
+  expect(edits.canEdit()).toBe(true);
+});
+
+test("a conflict with another tab or a build still stops for reading again", async () => {
+  const {s, edits} = await started();
+  edits.remove([tree(1)]);
+  edits.saveNow();
+  await settle();
+  s.asked[0].answer(json({error: "changed"}, 409));
   await settle();
   await settle();
   expect(edits.state().save).toBe("stuck");
-  expect(edits.state().error).toBe("no object to delete");
 });
 
 test("the revision of what is saved, none while it can't get there", async () => {

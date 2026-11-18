@@ -36,7 +36,11 @@ STANDING_REACH_M = 50.0     # how far from an object's place its triangles are l
 MAX_LIFT_M = 0.5            # how far a road's line goes up over a bulge at most: it has no collision, but further up, at the far end of a long edge, it is seen to float
 SAG_STEP_M = 0.25           # how often along an edge the bulge is looked at: a raster's top lies at its points, this finds it to within 2 cm on a slope of 15 %
 LINE_EDGE_M = 50.0          # how far past a change a line's edge can carry a lift: the longest measured is 22.5 m (Auckland); a longer one could jump at a tile's border
-FOLLOW = {"ground", "road", "walk", "walkcol", "tunnel", "guardrail", "guardrailcol", "gate", "fence", "fencecol", "wire", "racing"}
+FOLLOW = {"ground", "road", "walk", "walkcol", "tunnel", "guardrail", "guardrailcol", "gate", "fence", "fencecol", "wire", "racing",
+          "stitch", "stitchcut"}
+# Editor-generated road pieces that follow Bend road on their mapped road, by their retained road IDs: racing kerbs and
+# Stitch road's surface, markings, apron and cut remainders (app/trackstitch.py), which hold absolute heights.
+ROAD_FOLLOWERS = {"racing", "stitch", "stitchcut"}
 ON_THE_GROUND = {"road"}    # (lying on it by a few cm, with no collision: _sag. A kerb's visible mesh and its collision have edges of their own: lifted, they would part)
 STAY = {"water", "foam", "far"}
 IN_THE_WAY = {"deck", "rail", "railcol"}
@@ -314,7 +318,7 @@ def _kerb_owners(path, scan):
     from app import builtroad
     owners, known = {}, {}
     for i, mesh in enumerate(scan["meshes"]):
-        if objectlist.kind_of(mesh["name"]) != "racing":
+        if objectlist.kind_of(mesh["name"]) not in ROAD_FOLLOWERS:
             continue
         ids = set(mesh.get("road_ids", []))
         if not ids and mesh.get("road_points"):
@@ -403,7 +407,7 @@ def moved(path, scan, objects, ops, under=None):
         wires, lifts = _wire_changes(mesh, scan, objects, field, reach), _line_lifts(mesh, scan, field)
         for i, m in enumerate(scan["meshes"]):
             kind = objectlist.kind_of(m["name"])
-            kerb_bends = kind == "racing" and any(ids.intersection(kerb_owners.get(i, ())) for ids, _line, _targets in kerb_profiles)
+            kerb_bends = kind in ROAD_FOLLOWERS and any(ids.intersection(kerb_owners.get(i, ())) for ids, _line, _targets in kerb_profiles)
             if i not in offsets and i not in wires and i not in lifts and not kerb_bends and not field.reaches(m["center"], reach(i)):
                 continue
             if kind in IN_THE_WAY:

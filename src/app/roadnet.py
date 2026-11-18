@@ -180,13 +180,13 @@ def _roads(path, scan, net):
     """The marked network's roads as built in the kn5 at path (scan): {"lines": its arms' lines, "width": the widest, "bounds", "built": the road's heights
     there, "i0", "j0": the lattice numbers of their first point, "own", "held", "mapped": owns there}. Of the file and the network alone, not of the draft or the
     strength: kept while both stay, so moving the strength doesn't reckon them again (Rechberg: owns, twice a request, 40 of 110 ms). Read-only arrays."""
-    unselected, widths = net.get("unselected", []), net.get("widths")
-    key = (path, editorinfo._stamp(path), json.dumps([net["lines"], unselected, widths, net.get("pins"), net["segments"]], default=lambda v: np.asarray(v).tolist()))
+    unselected, widths, strip = net.get("unselected", []), net.get("widths"), net.get("strip")
+    key = (path, editorinfo._stamp(path), json.dumps([net["lines"], unselected, widths, net.get("pins"), net["segments"], strip], default=lambda v: np.asarray(v).tolist()))
     with _kept_lock:
         if key in _kept:
             return _kept[key]
     lines = [resample(line) for line in net["lines"]]
-    width = max(edge["width"] for edge in net["segments"])
+    width = road_width(net)
     points = np.vstack(lines)
     # (the slope read beyond the ends; and an unselected road holding a point of an arm's within its half width has its line inside, so its own road is
     # the same on this grid as on change_of's larger one: a wide road beside the network, half 20 m, would lie outside SLOPE_OVER_M)
@@ -195,6 +195,8 @@ def _roads(path, scan, net):
     bounds = np.vstack([points.min(axis=0) - margin, points.max(axis=0) + margin])
     built, i0, j0 = roadsurfaces.ground(path, scan, None, bounds, net)
     own, held, mapped = owns(built, i0, j0, lines, width / 2, unselected, widths)
+    if strip:
+        own, held, mapped = _strip_owns(built, i0, j0, lines, width / 2, held)
     for array in [built, held, mapped, *own]:
         array.setflags(write=False)
     roads = {"lines": lines, "width": width, "bounds": bounds, "built": built, "i0": i0, "j0": j0, "own": own, "held": held, "mapped": mapped}
@@ -203,6 +205,21 @@ def _roads(path, scan, net):
             _kept.pop(next(iter(_kept)))
         _kept[key] = roads
     return roads
+
+
+def road_width(net):
+    """The width an arm's road is read and smoothed across: the strip chosen in Strip mode, else the widest mapped. Pure."""
+    return float(net["strip"]) if net.get("strip") else max(edge["width"] for edge in net["segments"])
+
+
+def _strip_owns(grid, i0, j0, lines, half, held):
+    """owns() in Strip mode: each arm's road is every lattice point within half of its line, whoever the paint or the map
+    gives it to (Rechberg: the side road's edge at the wall lies in the main road's mapped width and Smooth left it 3.5 m
+    down), as Stitch road takes its strip. Other roads still hold their points outside the strip, so the transition stops
+    there. Pure."""
+    own = [np.isfinite(grid) & (_apart(grid.shape, i0, j0, line, half) <= half) for line in lines]
+    inside = np.logical_or.reduce(own)
+    return own, held & ~inside, inside
 
 
 def _placed(mask, i0, j0, shape, at_i0, at_j0):
@@ -410,7 +427,7 @@ def change_of(path, scan, moved, net, selection, blend, strength, id, preview=Fa
     even = even_network(net, arms, shape_strength)
     largest = max(float(np.abs(value - arm["heights"]).max()) for arm, value in zip(arms, even))
     fade = max(blend, trackband.SOFT_STEEPEST * largest / trackband.SIDE_SLOPE)
-    width = max(edge["width"] for edge in net["segments"])
+    width = road_width(net)
     points = np.vstack([arm["line"] for arm in arms])
     reach = width / 2 + fade + 2 * trackheights.STEP
     bounds = np.vstack([points.min(axis=0) - reach, points.max(axis=0) + reach])

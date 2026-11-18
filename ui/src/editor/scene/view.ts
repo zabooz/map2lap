@@ -1039,7 +1039,7 @@ export class TrackView {
     if (!this.data) return null;
     this.mouse = screenPoint(e, el);
     let hit = this.pointing.hit(this.mouse);
-    if (this.cursorTool === "kerb" && hit && !ROAD.test(hit.object.name) && !hit.object.name.startsWith("1KERB_")) {
+    if ((this.cursorTool === "kerb" || this.cursorTool === "stitch") && hit && !ROAD.test(hit.object.name) && !hit.object.name.startsWith("1KERB_")) {
       hit = this.pointing.roadUnder(hit) ?? hit;
     }
     if (hit && point) point.copy(hit.point);

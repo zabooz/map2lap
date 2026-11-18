@@ -35,13 +35,14 @@ test("Select's help names Alt and the right-click menu, Smooth road's that R sta
   expect(renderToStaticMarkup(<Help tool="smooth" />)).toMatch(/R.*picked road/);
 });
 
-test("Racing kerb Help names B, click-selected edge, and the modifier controls", () => {
+test("Racing kerb Help names B, Road and Free, and the modifier controls", () => {
   const help = renderToStaticMarkup(<Help tool="kerb" />);
   expect(help).toContain("<dt>B</dt>");
   expect(help).toContain("complete range");
   expect(help).toContain("first click chooses the road edge");
-  expect(help).not.toContain("<dt>Shift</dt>");
-  expect(help).toMatch(/Shift \+ wheel.*width by 5 cm/);
-  expect(help).toMatch(/Ctrl \+ wheel.*physical height by 1 cm/);
-  expect(help).toMatch(/Alt \+ wheel.*flat, rounded or ribbed profile/);
+  expect(help).toMatch(/<dt>Shift<\/dt><dd>switch between Road and Free/);
+  expect(help).toMatch(/Free: click.*centred on them/);
+  expect(help).toMatch(/Ctrl \+ wheel.*width by 5 cm/);
+  expect(help).toMatch(/Alt \+ wheel.*physical height by 1 cm/);
+  expect(help).toMatch(/Ctrl \+ Alt \+ wheel.*flat, rounded or ribbed profile/);
 });

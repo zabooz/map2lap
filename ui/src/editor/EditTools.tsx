@@ -5,6 +5,9 @@ import {BandOptions} from "./tools/BandOptions";
 import {SeparationOptions} from "./tools/SeparationOptions";
 import {KerbOptions} from "./tools/KerbOptions";
 import {useKerbs} from "./tools/useKerbs";
+import {useStitch} from "./tools/useStitch";
+import {StitchOptions} from "./tools/StitchOptions";
+import {ToolToasts} from "./tools/ToolToasts";
 import {CameraOptions, useCamera} from "./tools/Camera";
 import {CopyTool} from "./tools/Copy";
 import {TrackEdits, type EditState, type Removed} from "./state/edits";
@@ -50,7 +53,7 @@ const SIDEWALK = /^nocol_(?:walk_|guardrail_)/;
 
 /** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
 export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
-  return (tool === "smooth" && editable && marked) || (tool === "separate" && editable) || (tool === "delete" && editable) || (tool === "kerb" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
+  return (tool === "smooth" && editable && marked) || (tool === "separate" && editable) || (tool === "delete" && editable) || (tool === "kerb" && editable) || (tool === "stitch" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
 }
 
 /** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
@@ -94,7 +97,13 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const [selectAdd, setSelectAdd] = useState(false);
   const [tool, setTool] = useState<Tool>("select");
   const [copyTake, setCopyTake] = useState(0);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNoteState] = useState<string | null>(null);
+  const [toolToast, setToolToast] = useState<{text: string; n: number} | null>(null);
+  /** A tool's note: kept for the Inspector's notes, and each one shown as a toast at the view's bottom right (ToolToasts). */
+  const setNote = useCallback((text: string | null) => {
+    setNoteState(text);
+    if (text) setToolToast(previous => ({text, n: (previous?.n ?? 0) + 1}));
+  }, []);
   const [viewFailed, setViewFailed] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState<string | null>(null);
   const [groupFailed, setGroupFailed] = useState<string | null>(null);
@@ -121,6 +130,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const marking = tool === "smooth" && editable;
   const separating = tool === "separate" && editable;
   const kerbing = tool === "kerb" && editable;
+  const stitching = tool === "stitch" && editable;
   const moving = tool === "move" && editable;
   const saving = useSave({name, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
@@ -149,6 +159,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const separation = useSeparation({name, view, edits, enabled: separating, revision: state.keptRevision, onNote: setNote});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: kerbing,
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote});
+  const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: stitching, onNote: setNote});
   const inspectorKerb = state.kerbs.find(k => k.id === (tool === "kerb" ? kerbs.selected : picked?.kerbId)) ?? null;
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
   const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
@@ -170,7 +181,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
   const onPicked = useEffectEvent((p: Picked | null) => {
-    if ((marking || separating || kerbing) && p?.left) return view.selection.unpick();
+    if ((marking || separating || kerbing || stitching) && p?.left) return view.selection.unpick();
     setPicked(p);
     const rail = p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object);
     const walk = p?.inspection?.hovered.object && SIDEWALK.test(p.inspection.hovered.object);
@@ -259,6 +270,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       separation.click(p.road[0], p.road[1], p.position[1]);
     } else if (separating && p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object)) {
       separation.click(p.position[0], p.position[2], p.position[1], "rail");
+    } else if (stitching && p?.road) {
+      stitch.click(p.position[0], p.position[2], p.position[1]);
+    } else if (kerbing && kerbs.mode === "free" && p) {
+      // (before picking a kerb: the free kerb being drawn lies under the next click along its line)
+      void kerbs.click(p.position[0], p.position[2], p.position[1]);
     } else if (kerbing && p?.kerbId && !kerbs.start && state.kerbs.some(kerb => kerb.id === p.kerbId)) {
       kerbs.setSelected(p.kerbId);
       setNote(null);
@@ -346,6 +362,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     else if (tool === "smooth") band.wheel(keys, by);
     else if (tool === "separate") separation.wheel(keys, by);
     else if (tool === "kerb") kerbs.wheel(keys, by);
+    else if (tool === "stitch") stitch.wheel(keys, by);
     else if (tool === "delete") remover.wheel(keys, by);
     else elevation.wheel(keys, by);
   });
@@ -362,6 +379,14 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     await edits.start();
     if (edits.viewBehind() || meshesOf(edits.state()) !== shown) reopen();     // (the meshes as the list it read says)
   };
+
+  // A conflict (another tab, a build) reads the changes again by itself; at most every few seconds, so a refusal that
+  // repeats cannot loop.
+  const lastRead = useRef(0);
+  const readAgainEvent = useEffectEvent(() => { lastRead.current = Date.now(); void readAgain(); });
+  useEffect(() => {
+    if (state.save === "stuck" && Date.now() - lastRead.current > 5000) readAgainEvent();
+  }, [state.save]);
 
   const removable = picked?.all ?? [];
   // (a selected stretch of road verge, or all of it loaded with Shift: Delete takes those triangles)
@@ -399,7 +424,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     if (next === "move" && wallIds.length) onInspectorCollapsed(false);
     if (tool === "select" && next === "kerb" && picked?.kerbId) kerbs.setSelected(picked.kerbId);
     setRailBridge(null); setSidewalk(null); void view.setSurface(null);
-    setMenu(null); band.clear(); separation.clear(); if (next !== "kerb") kerbs.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
+    setMenu(null); band.clear(); separation.clear(); stitch.clear(); if (next !== "kerb") kerbs.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
     if (road) band.start(road[0], road[1], picked?.position[1]);
   };
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -451,7 +476,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     if (e.key !== "Escape" && e.key !== "Enter" && ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName)) return; // Fields keep their typing and option keys.
     altAlone.down(e);
     const keyed = control ? undefined : TOOLS.find(t => t.key.toLowerCase() === key);
-    if (e.key === "Delete") remove();
+    if (kerbing && kerbs.mode === "free" && kerbs.freePoints.length && e.key === "Backspace") {
+      e.preventDefault();
+      kerbs.dropPoint();
+    }
+    else if (e.key === "Delete") remove();
     else if (e.key === "Escape") {
       setMenu(null);
       setMarked([]);
@@ -462,6 +491,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       band.clear();
       separation.clear();
       kerbs.clear();
+      stitch.clear();
       view.selection.unpick();
       setTool("select");        // (with it go a marking and a ride)
       view.focus();
@@ -495,7 +525,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
   // ×'d, it stays away until its text changes)
   const problems = editorToasts({viewFailed, copyFailed, groupFailed, saveFailed: saving.failed, save: state.save, error: state.error, outdated: state.outdated,
-    saving: saving.busy, waiting: saving.waiting},
+    saving: saving.busy, waiting: saving.waiting, refused: state.refused},
     dismissed, {reopen: thenView(view, reopen), readAgain: thenView(view, () => void readAgain()), giveUp: thenView(view, () => edits.discardOutdated())});
   useToasts(!visible ? [] : problems.map(t => ({...t, onDismiss: () => {
     setDismissed(previous => new Set(previous).add(t.key));
@@ -552,6 +582,8 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {deleting && <DeleteOptions remove={remover} view={view} />}
       {marking && <BandOptions band={band} view={view} />}
       {separating && <SeparationOptions separation={separation} view={view} />}
+      <ToolToasts note={toolToast} />
+      {stitching && <StitchOptions stitch={stitch} view={view} />}
       {kerbing && <KerbOptions kerb={kerbs} view={view} onDelete={() => remove()} />}
       {tool === "camera" && <CameraOptions camera={camera} view={view} />}
       {moving && (wallIds.length ? <ToolOptions id="edit-move-set" title="Transform"

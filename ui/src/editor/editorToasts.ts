@@ -15,6 +15,7 @@ export interface EditorProblems {
   outdated: number;
   saving?: boolean;
   waiting?: {changes: number; play: boolean} | null;
+  refused?: {message: string; n: number} | null;
 }
 
 /** A toast with what makes it the same one: dismissed, it stays away until its text changes. */
@@ -36,8 +37,8 @@ export function editorToasts(p: EditorProblems, dismissed: ReadonlySet<string>,
     !!p.groupFailed && {id: "edit-group-failed", tone: "error", title: "Group placement failed", message: p.groupFailed},
     !!p.saveFailed && {id: "edit-made", tone: "error", title: "Not saved", message: p.saveFailed},
     p.save === "failed" && {id: "edit-kept", tone: "warning", title: "Changes not kept: trying again"},
-    p.save === "stuck" && {id: "edit-stuck", tone: "error", title: "Changes not kept", message: p.error ?? "",
-      action: {label: "Read again", run: actions.readAgain}},
+    p.save === "stuck" && {id: "edit-stuck", tone: "error", title: "Changes not kept", message: `${p.error ?? ""} Reading the track's changes again …`},
+    !!p.refused && {id: `edit-refused-${p.refused.n}`, tone: "error", title: "Change taken back", message: p.refused.message},
     p.outdated > 0 && {id: "edit-outdated", tone: "warning",
       title: `${p.outdated} older ${p.outdated === 1 ? "change" : "changes"} not applied`,
       message: `${p.outdated === 1 ? "It belongs" : "They belong"} to an earlier build of this track.`, action: {label: "Give up", run: actions.giveUp}},
