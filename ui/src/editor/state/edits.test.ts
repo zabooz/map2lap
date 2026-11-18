@@ -1,5 +1,5 @@
 import {expect, test} from "bun:test";
-import {isCurrent, TrackEdits, type Removed} from "./edits";
+import {isCurrent, TrackEdits, type KerbEdit, type Removed, type StitchEdit} from "./edits";
 import {tree, json, server, settle, started} from "./edits.fixture";
 import type {SurfaceCut} from "../scene/surfaceCuts";
 import {isChanged} from "./useSave";
@@ -71,6 +71,34 @@ test("wall height and texture change together in one Undo step and travel in the
   expect(edits.changed()).toBe(true);
   edits.markSaved();
   expect(isCurrent(edits.state())).toBe(true);
+});
+
+test("a growing free kerb keeps its id and each new point is undoable", async () => {
+  const {edits} = await started();
+  const first: KerbEdit = {id: "free-one", line: [[0, 2, 0, 2], [2, 2, 0, 2]], road_ids: [], side: "left",
+    centred: true, profile: "rounded", width: 0.4, height: 0.06};
+  edits.addKerb(first);
+  edits.replaceKerb(first.id, {...first, line: [...first.line, [4, 2, 1, 2]]});
+  expect(edits.state().kerbs).toHaveLength(1);
+  expect(edits.state().kerbs[0].id).toBe(first.id);
+  edits.undo(); expect(edits.state().kerbs).toEqual([first]);
+  edits.redo(); expect(edits.state().kerbs[0].line).toHaveLength(3);
+  edits.stop();
+});
+
+test("a stitch growing over an older stitch replaces it in one Undo step and reaches the draft", async () => {
+  const {edits, s} = await started();
+  const old: StitchEdit = {id: "old", road_ids: ["main"], rows: [[0, 0], [10, 0]], width: [8, 8],
+    heights: [[2], [2]], marks: []};
+  const grown: StitchEdit = {...old, id: "grown", rows: [[0, 0], [20, 0]]};
+  edits.addStitch(old);
+  edits.addStitch(grown, [old.id]);
+  expect(edits.state().stitches).toEqual([grown]);
+  edits.undo(); expect(edits.state().stitches).toEqual([old]);
+  edits.redo(); expect(edits.state().stitches).toEqual([grown]);
+  edits.saveNow(); await settle();
+  expect((s.asked[0].body as unknown as {stitches: StitchEdit[]}).stitches).toEqual([grown]);
+  edits.stop();
 });
 
 test("changes still on their way are counted until each is done, a failed one too", async () => {

@@ -52,7 +52,7 @@ Imported model placement and Groups use [editor-library.md](editor-library.md).
 
 ## Selecting a built road
 
-Smooth road, Bend road and Racing kerb select and read roads through one query (`app/builtroad.py`). Map facts give the
+Smooth road, Bend road, Stitch road and mapped Racing kerbs select and read roads through one query (`app/builtroad.py`). Map facts give the
 connections and each road's ID; the build's faces decide where that road lies. A click's height picks the road whose own
 deck face (by face owner ID) or graded ground lies there, so a flat deck lying on the road it crosses (Perth, no elevation
 data) still selects correctly. Heights come from the selected road's own deck faces within 0.5 m, otherwise from the
@@ -121,6 +121,12 @@ relative height difference within the marked region.
 After each saved height edit, the colours are recalculated from the current road surface; an already smoothed stretch
 returns to green where no further correction is needed.
 
+Smooth road has Road and Free modes (Shift switches). Road follows each selected mapped road's own ground. Free takes a
+2–40 m wide strip around the marked road lines, including ground assigned to another mapped road inside that strip; beyond
+the strip, the other road keeps its ground. Free starts at the mapped width, or 8 m when none is available. Alt + wheel
+changes its width by 0.5 m. Both modes keep the same pins, strength, terrain transition and replaceable draft height edit
+(`app/roadnet.py`, `app/roadregion.py`, `tools/useBand.ts`).
+
 Bridges and tunnel floors share the same smoothing solve as their approaches (`app/roadsurfaces.py`). Two points can span a
 short structure or just one transition on a longer one. Source collision triangles supply the floor height, including banking;
 the material paint alone cannot describe a deck. Terrain under bridges and above tunnels retains its height. Connected source
@@ -138,12 +144,27 @@ returning to zero removes it. `trackedits.moved_without` excludes that operation
 compound it. Esc cancels pending work, Undo closes the active region, and late answers cannot re-enter the draft
 (`tools/smoothing.ts`). Mark road starts a new region.
 
-Each arm follows its own road surface (`trackband._own_road`, `roadnet.owns`); neighbouring roads on other levels stay
+In Road mode, each arm follows its own road surface (`trackband._own_road`, `roadnet.owns`); neighbouring roads on other levels stay
 separate. Shared junction planes join selected branches, terminal points stay fixed, and all arms contribute to one raster.
 The transition stops at unselected roads and widens for large height changes under the side-slope rule. The solver rejects
 new joins exceeding its grade limit unless improving an already steeper bump, forks requiring an internal wall, and long
 gaps without an editable road surface. Limits: 20 points, 3 km of road, 64 painted tiles and the height-raster point limit.
 Routing/masks cache independently of draft revisions. `app/trackband.py` retains the legacy linear solver/API and its tests.
+
+## Stitch road
+
+Stitch road (N) rebuilds one unbranched mapped carriageway between clicks A and B on ground, a bridge deck or a tunnel
+floor (`app/trackstitch.py`, `tools/useStitch.ts`). The preview shows its proposed width, height change, deck rows and
+continued road markings. Auto width uses the ground road's mapped width at A and B where available; Shift + wheel or Width
+sets a constant 2–40 m width. Apply adds one draft operation; Ctrl+Z undoes it. A range is 2 m to 1 km long. If it meets an
+existing stitch on the same road, the proposal grows to their outer ends and Apply replaces the old stitch.
+
+The new `1ROAD_` surface keeps the original heights across A and B, follows the road's own deck where it covers a row and
+blends the intervening rows across the full width. Source road, asphalt and marking triangles inside its strip are cut and
+their outside parts retained; the road beneath a bridge and terrain above a tunnel stay. Markings seen just outside the
+ends continue across the new surface. The draft stores the stitch rows, heights and markings; preview and Save regenerate
+its meshes from the retained source. This is a prototype: inspect the proposed cut and drive the saved result in AC before
+relying on a difficult crossing.
 
 ## Racing kerbs
 
@@ -156,21 +177,28 @@ flat, rounded or ribbed profile. To place a kerb on the opposite edge, mark a ne
 height. The selected kerb's actual meshes are tinted amber. Clicking
 any part of a kerb with Select highlights its full range; the Select bar's Racing kerb (B) action opens that range's
 settings. Selection > Options has width, height and profile for the picked range.
-Kerbs follow the mapped road's rounded spline independently of sidewalks, including sidewalks later removed in the
+Shift switches the Kerb tool between Road and Free. Free clicks draw a kerb centred on the clicked line anywhere a driving
+surface can be sampled; it appears after the second point and each further click extends the same draft kerb. Backspace
+removes the last point. The source surface nearest each click's height supplies its level, so a clicked deck can be chosen
+over the road below. A free kerb needs 2–200 points and a length of 1 m to 3 km (`app/trackkerbs.py`, `tools/useKerbs.ts`).
+Its width, height, profile, deletion, Undo and Save use the same kerb edit as Road mode.
+
+Road-mode kerbs follow the mapped road's rounded spline independently of sidewalks, including sidewalks later removed in the
 Editor. Tight inside bends use round parallel edges with overlapping loops cut before meshing. Source heights are
 sampled at the inner edge.
-X, Delete or the Select bar's Delete action removes the picked range; Undo restores it. Shift/Ctrl/Alt with the wheel
-change width, height and profile in the Kerb tool. Undo/Redo, the draft and Save keep independent ranges.
+X, Delete or the Select bar's Delete action removes the picked range; Undo restores it. Ctrl + wheel changes width,
+Alt + wheel changes height and Ctrl + Alt + wheel changes profile in the Kerb tool. Undo/Redo, the draft and Save keep
+independent ranges.
 
 The red-white strip is a visible `1KERB_racing_…` KN5 collision mesh with the ordinary AC KERB surface, so its height is
-physical even without CSP. It overlaps the mapped asphalt edge by 15 cm to join it; that small overlap can fail on a
-road whose mapped width exceeds its actual asphalt. Heights come from the shared built-road query: the selected road's
+physical even without CSP. In Road mode it overlaps the mapped asphalt edge by 15 cm to join it; that small overlap can fail on a
+road whose mapped width exceeds its actual asphalt. Road-mode heights come from the shared built-road query: the selected road's
 own deck triangles with the build's 1 cm asphalt-skin lift, else the graded road ground. A kerb edge up to 0.5 m outside a
 deck uses its nearest edge height, because mapped widths and deck triangulation can differ by a few decimetres. A step
 steeper than a road takes (beyond 0.5 m the ground under a bridge, or an edge running onto the other carriageway at a
 narrow divided end) refuses the range and names its place. Tunnels are refused until the Editor can sample their floor
 edge reliably.
-A 2 m kerb can extend beyond the supported shoulder on narrow or steep roads. The road-edge decal under the kerb remains;
+A 2 m Road-mode kerb can extend beyond the supported shoulder on narrow or steep roads. The road-edge decal under the kerb remains;
 the raised strip renders over it. The mesh and DDS texture are regenerated from the retained source on each Save, and
 remain below AC's 65,535 vertices per mesh. Elevation follows the kerb at each vertex. Bend road follows the kerb on its
 mapped road, whether the kerb was placed before or after the bend; a kerb on another road at the same crossing stays put.

@@ -93,6 +93,18 @@ class NetworkTest(unittest.TestCase):
 
 
 class SurfaceTest(unittest.TestCase):
+    def test_free_smooth_claims_its_strip_across_an_unselected_road(self):
+        grid = np.full((9, 11), 100.0)
+        line = np.array([[0.0, 0.0], [20.0, 0.0]])
+        held = np.zeros(grid.shape, bool)
+        held[5, 5] = held[8, 5] = True  # Another road owns one point inside and one beyond the chosen strip.
+        free, free_held, inside = roadnet._strip_owns(grid, 0, -4, [line], 4, held)
+        self.assertTrue(free[0][5, 5], "Free mode takes the entire chosen strip")
+        self.assertTrue(inside[5, 5])
+        self.assertFalse(free_held[5, 5])
+        self.assertFalse(free[0][8, 5], "the strip stops at its width")
+        self.assertTrue(free_held[8, 5], "another road still holds its ground beyond the strip")
+
     def test_three_arms_share_one_junction_surface_without_pinning_its_old_bump(self):
         net = roadregion.network([road("stem", [[0, -90], [0, 0]]), road("up", [[0, 0], [100, 70]]),
                                   road("down", [[0, 0], [100, -70]])], [[0, 0], [0, -80], [80, 56], [80, -56]])

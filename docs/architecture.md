@@ -34,7 +34,9 @@ meshes use the same roof, room and island layout, including at bends, divided ro
 count or a height; real height/min-height attributes override the estimated roof clearance.
 
 The page is React and TypeScript in `ui/`, built with Bun into the committed `src/web` files. `server.py` serves these
-and the `/api/` endpoints. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
+and routes `/api/` requests. Its Editor read endpoints live in `server_editor.py`, material/model/group endpoints in
+`server_library.py`, and road-tool endpoints in `server_roadtools.py`; the build, settings and HTTP dispatch stay in
+`server.py`. Bun is needed only for development; `bun run dev` proxies API calls to the running Map2Lap.
 The Editor's three.js code loads on the first visit to its tab; camera and mesh data live outside React.
 
 The Editor's loading, drafts, saving and tools: [editor.md](editor.md).

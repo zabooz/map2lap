@@ -83,7 +83,10 @@ def _download(rel):
             state["done"] += len(chunk)
     if state["done"] != a["size"] or a.get("digest") not in (None, "sha256:" + sha.hexdigest()):
         raise ValueError("The download is damaged (try again)")
-    need = {"Map2Lap/src/server.py", "Map2Lap/" + PYTHON}
+    # server.py imports these handlers at startup; an incomplete archive must not replace a working installation.
+    need = {"Map2Lap/src/" + name for name in
+            ("server.py", "server_editor.py", "server_library.py", "server_roadtools.py")}
+    need.add("Map2Lap/" + PYTHON)
     if path.endswith(".zip"):
         with zipfile.ZipFile(path) as zf:
             _check_library(zf.namelist())

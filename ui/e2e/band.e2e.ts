@@ -240,11 +240,12 @@ test("Mark road keeps the completed change and begins a fresh zero-strength rang
   await expect(page.locator("#edit-heights")).toHaveText("1 height change");
 });
 
-test("Shift and Ctrl wheel change strength and terrain transition", async ({page, backend}) => {
+test("Ctrl and Ctrl+Alt wheel change strength and terrain transition", async ({page, backend}) => {
   const {a, b} = await onHill(page, backend); await mark(page, a, b);
-  await page.mouse.move(a.x, a.y); await page.keyboard.down("Control"); await page.mouse.wheel(0, 100); await page.keyboard.up("Control");
+  await page.mouse.move(a.x, a.y); await page.keyboard.down("Control"); await page.keyboard.down("Alt");
+  await page.mouse.wheel(0, 100); await page.keyboard.up("Alt"); await page.keyboard.up("Control");
   await expect(transition(page)).toHaveValue("5");
-  await page.keyboard.down("Shift"); await page.mouse.wheel(0, -100); await page.keyboard.up("Shift");
+  await page.keyboard.down("Control"); await page.mouse.wheel(0, -100); await page.keyboard.up("Control");
   await expect(strength(page)).toHaveValue("5");
 });
 

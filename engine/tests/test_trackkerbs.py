@@ -13,6 +13,21 @@ from test_trackcopy import Base
 
 
 class KerbTest(unittest.TestCase):
+    def test_free_kerb_follows_clicked_level_and_centres_its_collision_strip(self):
+        def ground(y):
+            return np.array([[[0, y, -5], [20, y, -5], [0, y, 5]],
+                             [[20, y, -5], [20, y, 5], [0, y, 5]]], dtype=float)
+
+        surfaces = np.concatenate([ground(2), ground(12)])
+        with mock.patch.object(trackkerbs, "_surfaces_near", return_value=surfaces):
+            line = trackkerbs.free_line("unused", {"meshes": []}, [[2, 0, 12], [18, 0, 12]], width=0.6)
+        self.assertTrue(all(abs(row[1] - 12) < 0.001 for row in line), "the clicked deck level wins over ground below")
+        self.assertTrue(all(row[3] == trackkerbs.FREE_ROAD_W for row in line))
+        vertices, _faces = trackkerbs.mesh(line, side="left", profile="flat", width=0.6, height=0.05, centred=True)
+        z = vertices["pos"][:, 2]
+        self.assertLess(float(z.min()), -0.29)
+        self.assertGreater(float(z.max()), 0.29)
+
     def test_first_edge_click_chooses_side_relative_to_click_order(self):
         net = {"segments": [{"a": [0, 0], "b": [20, 0], "width": 8, "structure": ""}],
                "pins": [[1, 0, 0], [19, 0, 0]]}

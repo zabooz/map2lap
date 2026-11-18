@@ -32,10 +32,13 @@ class DownloadTest(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def package(self, kind, extra=(), missing=False):
+    def package(self, kind, extra=(), missing=False, page_modules=True):
         """A small release archive for kind (ZIP or TAR.GZ), with optional extra/missing files. Pure."""
         stream = io.BytesIO()
         files = [("Map2Lap/src/server.py", b"new server"), *extra]
+        if page_modules:
+            files.extend(("Map2Lap/src/" + name, b"handler") for name in
+                         ("server_editor.py", "server_library.py", "server_roadtools.py"))
         if not missing:
             files.append(("Map2Lap/" + updater.PYTHON, b"python"))
         if kind == "zip":
@@ -83,6 +86,13 @@ class DownloadTest(unittest.TestCase):
                     with self.assertRaises((ValueError, zipfile.BadZipFile, tarfile.ReadError)):
                         self.fetch(raw, kind)
                     self.assertFalse(Path(updater.DIR).exists())
+
+    def test_release_needs_the_page_handler_modules_before_restart(self):
+        for kind in ("zip", "tar.gz"):
+            with self.subTest(kind=kind):
+                with self.assertRaisesRegex(ValueError, "Map2Lap folder"):
+                    self.fetch(self.package(kind, page_modules=False), kind)
+                self.assertFalse(Path(updater.READY).exists())
 
     def test_user_library_is_refused_in_both_formats(self):
         for kind in ("zip", "tar.gz"):

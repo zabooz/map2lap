@@ -56,6 +56,22 @@ test("Escape cancellation discards a late smoothing response and Undo never reap
   } finally { edits.stop(); }
 });
 
+test("Free Smooth sends its strip width and replaces the same height edit when width changes", async () => {
+  const edits = await setup(), widths: (number | undefined)[] = [];
+  const session = new SmoothSession(edits, async body => {
+    widths.push(body.strip);
+    return {height: height(`strip-${widths.length}`), standing: 0};
+  });
+  try {
+    await session.update(points, 6, 50, 8);
+    await session.update(points, 6, 50, 12);
+    expect(widths).toEqual([8, 12]);
+    expect(edits.state().heights.map(h => h.id)).toEqual(["strip-2"]);
+    edits.undo();
+    expect(edits.state().heights).toEqual([]);
+  } finally { edits.stop(); }
+});
+
 test("the tool list has Smooth road and Road camera without a separate Mark road tool", () => {
   expect(TOOLS.some(tool => tool.label === "Mark road")).toBe(false);
   expect(TOOLS.find(tool => tool.tool === "smooth")?.label).toBe("Smooth road");
