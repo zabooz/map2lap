@@ -38,12 +38,11 @@ Steam. Before the first track:
   lakes, trees, rocks, fields – plus distant terrain up to 40 km.
 - **Timing:** routes get a start line, a finish line and START/FINISH gantries, timed like a rally stage.
 - **Editor:** inspect a track in 3D, move/copy/delete objects, import models and textures, paint object groups,
-  adjust tree spacing, raise terrain and smooth selected roads. Changes are kept automatically as a draft; Undo restores
-  the previous step. **Save** writes the track without rebuilding, **▾** offers Save as new track, and **▶ Play** saves
-  if needed before driving. Keep the retained source to restore deleted built objects after Save.
-- **Controls:** Select **V**, Road camera **K**, Smooth road **R**, Elevation **H**, Transform **T**, Copy **C**,
-  Delete **X**, Insert **E**. Ctrl adds to a selection; Shift selects all matching objects/ground regions. Help below
-  the tools explains the active tool and its modifiers.
+  adjust tree spacing, raise terrain, edit roads and add racing kerbs. Changes are kept automatically as a draft;
+  Undo restores the previous step. **Save** writes the track without rebuilding, **▾** offers Save as new track,
+  and **▶ Play** saves if needed before driving. Keep the retained source to restore deleted built objects after Save.
+- **Controls:** The tool list shows the current shortcuts. Ctrl adds to a selection; Shift selects all matching
+  objects or ground regions. Help below the tools explains the active tool and its modifiers.
 - **Conditions:** preview time of day, seasons and weather, then use them for the next Play, with independent air/road
   temperatures and wind. These session controls do not change the saved track.
 - **My tracks:** Built tracks can be rebuilt or copied from the map. Edited tracks can be reopened, played, deleted,

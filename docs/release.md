@@ -68,31 +68,15 @@ Release notes belong in that GitHub release; keep drafts/previews under ignored 
 
 ## Linux
 
-Everything that differs between the systems is in `app/system.py`: Steam and its libraries, AC's Proton prefix (its
+Platform handling is in `app/system.py`: Steam and its libraries, AC's Proton prefix (its
 `Documents` with `race.ini`), Play, processes, the folder picker, free memory.
 
-The page checks the AC folder and Custom Shaders Patch locally on opening. CSP is checked again when the AC folder changes
-or Check again is pressed; only an active installation is polled, until it finishes. An idle page does not poll CSP, so
-stopping Map2Lap produces no new CSP connection warning. Missing AC or
-missing, disabled or unreadable CSP shows a dismissible warning toast at the top centre. Its action opens the relevant
-Settings control; it never installs anything by itself. Dismissal lasts until that issue clears, the folder changes or the
-page reloads. A failed status request offers checking again rather than claiming CSP is missing. The warning explains that
-tracks require installed and enabled CSP for correct rendering; the check does not block Play. The shared toast component
-also supports information, success and error messages, and respects reduced motion.
+The page detects the AC folder and enabled CSP locally and warns when either is missing or CSP differs from the
+tested public 0.2.11. Play remains available. **Install CSP** is explicit: it downloads the official public archive,
+checks and stages it, merges with rollback, and activates `dwrite.dll` last (`app/csp.py`). CSP is not bundled;
+Build, Play and updates are refused during installation.
 
-An installed, enabled CSP version other than the tested public 0.2.11 also shows a dismissible warning, including paid
-preview versions. Play remains available; the warning makes no compatibility promise and leaves that installation intact.
-Wind speed in Properties defaults to Random, resolved once per Play in 0–100 km/h; explicit speeds use the same range.
-Our WeatherFX controller reads the session's raw wind speeds to avoid the native input's default 35 km/h limit, without
-changing global CSP tweaks. Controller data is tested; the final visual/physics effect at high speeds still needs an AC drive.
-
-Map2Lap detects Custom Shaders Patch from `dwrite.dll` and `extension/config/data_manifest.ini`, including
-the user's enable override in Documents. Missing installations offer an explicit **Install CSP** button: it downloads
-the recommended public archive directly from the official `acstuff.club/patch/` page, stages and checks it, then merges
-its files with rollback and activates the DLL last. Existing loaders/patches are never upgraded by this action. CSP is
-not bundled with Map2Lap. A failed rollback retains recovery copies in the AC folder and reports their location.
-The download does not require the browser to stay open; the page polls only local status. Builds, Play and Map2Lap
-updates are refused during installation. Changing the selected AC folder does not retarget an already requested install.
+Weather and wind session controls are described in [editor-weather.md](editor-weather.md).
 
 Play starts `acs.exe` the way Steam does (`_v2-entry-point` of the Steam Linux Runtime the Proton names, then `proton
 waitforexitandrun`, with the `STEAM_COMPAT_*` environment), with the Proton Steam last used for AC

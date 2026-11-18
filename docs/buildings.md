@@ -48,55 +48,31 @@ existing bay spacing. There is no visual style editor.
 
 ## Regional defaults
 
-The building planner uses each height's map source. Microsoft ML Buildings estimates that leave less than
-2.4 m of wall per occupied floor are discarded, then height and roof rise are inferred from the remaining
-mapped facts. A typical door needs about 2.1 m of clearance plus a lintel; Perth contains ML estimates below
-1 m that would otherwise flatten houses and put doors above their roofs. Explicit OpenStreetMap heights and
-small sheds, storage buildings and open shelters keep their mapped dimensions.
+Microsoft ML Buildings heights leaving less than 2.4 m of wall per occupied floor are discarded; the planner
+infers height and roof rise from the remaining facts. Explicit OSM heights and small sheds, storage buildings and
+open shelters retain their mapped dimensions.
 
-`engine/buildings/styles.json` holds 22 `Style` records and their country assignments. The loader checks
-required and unknown fields, shares, materials, tint indices and region references before a build starts. Mapped roof
-shape and materials still take precedence over these defaults. The file is part of the revisit cache key and both
-release archives; it can be edited without changing Python code. `gas_station_kit`, `us_special` and `shutters` are
-explicit style data: tank-station kits, US-only plaza and grain-silo rules, and the shared plaster sheet's shutters
-do not depend on the style's name. Shutters still use the style at the track anchor once per track.
+`engine/buildings/styles.json` holds 22 validated regional styles and is part of the revisit cache key and release
+archives. Mapped roof shapes and materials take precedence. Tank-station kits, US specials and shutters are explicit
+style fields; shutter textures use the style at the track anchor for the whole track.
 
-The planner uses each footprint's own coordinates and mean raw ground height. `borders.at` supplies its country from
-the shipped Natural Earth polygons, and `climate.koppen_at` supplies a Köppen class from the shipped raster. No
-building lookup contacts Nominatim. The four existing US/Canada zones keep their previous coordinate boundaries and
-extent; Hawaii and the Canadian Arctic continue to use climate fallback rather than a mainland zone. In the selected
-European countries and Oceania, explicit country defaults and ordered latitude/longitude splits select the style.
-The named `Alpenbogen` rule requires an Alpine country, its four-bound box and ground at least 700 m: lasting snow
-favours pitched chalet roofs. The box excludes the Pyrenees, Apennines, Massif
-Central and northern German ranges, but overlaps some of the Swiss Jura and the southern Black Forest (for example
-Hochblauen), and can include plastered high towns such as Davos. A precise Alpine polygon would resolve those cases.
-On the sea and in unlisted countries, Köppen D/E
-classes use `cool`, all other classes and unknown sea pixels use `warm`.
+Each footprint's coordinates and mean raw height select its style. `borders.at` uses shipped country polygons;
+`climate.koppen_at` uses a shipped Köppen raster, with no Nominatim lookup. The US and Canada use four zones;
+selected European and Oceanian countries use regional splits. The `Alpenbogen` rule needs an Alpine country,
+its bounding box and ground at least 700 m. The box can include Jura,
+Black Forest and high plastered towns. Elsewhere Köppen D/E uses `cool`, other and unknown classes `warm`.
 
-The ten selected records from `docs/research/2026-11-16-building-styles-proposal.json` include updates to the
-existing `alpine` and `mediterranean` records and eight new names. Their shares are estimates; the Graz and Auckland
-samples only partly constrain them. The other proposed styles, windows, building elements and additional painted
-surfaces are not enabled. Detached brick remains limited by the planner's 0.35 multiplier, including in Britain,
-the Netherlands, Australia and New Zealand. A route crossing a style boundary can show the same shutters on both
-sides because their texture is selected once at the anchor.
+Regional appearance shares are estimates; detached brick is limited by the planner's 0.35 multiplier even in
+brick-heavy regions. A route crossing a style boundary can retain the anchor's shutter texture on both sides.
 
-`drawn_ring` places flat-roof walls on the mapped outline and pitched-roof walls on its smallest oriented rectangle.
-The rectangular roof needs these matching walls so doors, steps and porches do not float off an oblique wall or sink
-into it. A style change that switches roof form can therefore move the visible ground-level wall outline and its
-building collision even though the mapped footprint has not changed. The pitched-roof eligibility check requires
-the mapped outline to fill at least 80% of the rectangle. The rectangle's corners can still extend beyond the mapped
-outline into a sidewalk or road carriageway. This pre-existing approximation is not checked against the road surface:
-in the short test tracks, 295 pitched-roof buildings' added rectangle area touches a road band, and 59 cover more than
-5 m² of road band or sidewalk. The mapped outline, not a roof-style change, determines the building's source position.
-Narrow, near-rectangular footprints keep pitched roofs, including mapped shapes on small sheds and kiosks; the old
-4 m minimum width flattened them without a geometric need. Irregular outlines and oversized roofs still fall back
-to flat roofs.
+`drawn_ring` uses the mapped outline for flat roofs and its smallest oriented rectangle for pitched roofs, keeping
+walls, doors and porches aligned. A pitched roof requires the outline to fill at least 80% of that rectangle.
+Switching roof form can move visible walls and collision beyond the mapped footprint, even into a road or sidewalk;
+the approximation does not check road clearance. Irregular or oversized roofs fall back to flat roofs.
 
-`gasstations.py`, `plazas.py`, `photo.py` (`brick_share`) and `make_obj.py` call `region_style` without ground height.
-They therefore see the lowland style even at a high Alpine point. Every style pair separated only by the 700 m
-rule has the same tank-station kit, US special rules and shutter flag; a test guards this until those callers can
-receive elevation. `brick_share` is 0.04 in `central_europe` and 0.02 in `alpine`, both below the 0.70 brick-walk
-threshold, so that caller currently makes the same decision. Supplying height there is a separate change.
+`gasstations.py`, `plazas.py`, `photo.py` and `make_obj.py` call `region_style` without elevation and thus use the
+lowland style at high Alpine points. The style pairs across this boundary currently share the affected kit and
+shutter choices; tests guard that constraint.
 
 The planner marks detached residential houses independently of their wall material. `doors` gives them a driveway
 and a matching front-fence gap when the road-facing wall is at least 7 m wide and the road is close enough. This
@@ -104,19 +80,10 @@ width leaves room beside the entrance; narrower houses may have side or rear par
 House and open-garage driveway meshes sit 3 cm above the ungraded ground they cross. The offset clears the road
 mesh's 2 cm terrain-following tolerance; these generated strips do not have mapped road plans that lift the ground.
 
-`FacadePattern(attic_windows=True)` enables small 0.8 m square windows in roof wall caps, including gable ends
-and the high side of a skillion roof. They follow the native facade axes, with a 0.6 m sill above the attic datum
-and at least 0.25 m wall left below the roof and beside corners. Both top corners must fit under every roof plane;
-low caps and explicitly windowless buildings stay blank. This is an optional appearance rule, off by default,
-not an inference that every attic is inhabited. The gallery enables it on its skillion cases.
-
-Attic quads reuse the ordinary panel-window UVs and facade material, including CSP's existing night mask.
-Frames and crosses stay dark. Ordinary separate windows and attic windows pick one of four visually identical
-panel bays using the building seed, wall, floor and window index. Their night masks differ, so individual windows
-light up instead of whole houses; rebuilding keeps the same pattern. One of the four panel bays is lit per
-material level. Each added attic window costs two triangles; varying its UVs adds no geometry or materials.
-The first panel bay lights at level 1: white vertex colours clamp at 255, so their exported materials cannot
-reach level 2. Tests cover the exported material selection as well as the mask pixels.
+`FacadePattern(attic_windows=True)` adds 0.8 m windows to roof caps where both corners clear every roof plane;
+low caps and windowless buildings stay blank. It is off by default. Attic and separate facade windows reuse the
+panel material and four deterministic UV bays with different night masks, lighting individual windows while
+keeping frames dark. Vertex colours limit the first bay to brightness level 1.
 
 ## Garages and agricultural openings
 
@@ -238,102 +205,28 @@ building height in `planner` and when emitting the roof in `mesh`. Missing or in
 pitch; inferred roofs leave room for walls. Main buildings and building parts retain their own roof dimensions.
 The building-parts cache has its own layer version so old parts are refreshed with direction and material fields.
 
-`roof_direction` is a bearing clockwise from north and takes precedence over `roof_orientation` (`along`/`across`).
-The ridge changes direction while `drawn_ring` keeps the walls fixed. Oblique roof planes are clipped to the drawn
-wall rectangle plus eaves, with wall caps up to those planes. This is a simple rectangular roof construction; it
-does not reconstruct complex roof valleys or change the existing rectangular approximation of pitched footprints.
-Ordinary roofs without direction overrides retain the direct quad emitter. Flat roofs keep their actual outline.
+`roof_direction` is clockwise from north and overrides `roof_orientation` (`along`/`across`). Roofs use the
+mapped rise where valid; otherwise they use a regional pitch. Their planes are clipped to the drawn wall box,
+with wall caps and closed overhangs. Flat roofs retain the mapped outline.
 
-`skillion` has its own single sloped quad with wall caps, instead of a gabled fallback. Its mapped height is the
-rise between the outer roof edges, keeping the building's maximum roof elevation at the mapped total height.
-For this asymmetric roof, direction denotes downhill/runoff, following
-[OSM roof:direction](https://wiki.openstreetmap.org/wiki/Key:roof:direction). Without a bearing the slope crosses
-the short dimension by default; `across` switches dimensions. A missing height uses a pitch over the full span.
+| Roof shape | Construction and limit |
+|---|---|
+| `skillion` | One slope; direction is downhill, and mapped rise spans the outer edges. |
+| `dome`, `onion`, `spherical` | Radial profiles on the wall box with a closed corner apron; mapped rise sets the top. Unequal sides stretch the profile, and no compound roof is inferred. |
+| `sawtooth` | Repeated 80/20 slopes, 2–8 teeth at a nominal 6 m repeat; no inferred glazing. |
+| `round` | Elliptical barrel with 12 angular segments; large roofs remain visibly faceted. |
+| `saltbox` | Offset ridge with equal pitch and unequal 65/35 runs by default. |
+| `mansard`, `gambrel` | Shared two-pitch planes; mansard has hipped ends, gambrel upright gables. No dormers are inferred. |
+| `half_hipped` | Upper half of the gable is clipped by short hip planes. |
+| `pyramidal` | Four faces meet at one apex, even over a long rectangle; no irregular-polygon reconstruction. |
 
-`dome` is an elliptical cap fitted to the existing drawn wall box, with a flat apron closing the rectangular
-corners. Six height bands and 16 angular sides use 208 top triangles including the apron; the apex is emitted
-as triangles, without collapsed quads. Mapped rise sets the top height, and ridge/orientation tags have no effect.
-The existing pitched-footprint suitability limits and rectangular wall approximation still apply: circular
-wall reconstruction and compound domes are not part of this roof emitter. Overhang undersides close the apron.
+Direction and orientation choose the axis where a roof has one. Profile proportions are appearance defaults;
+these shapes do not reconstruct unmapped valleys, glazing or interiors. `attic_windows` fits only below every roof
+plane. The mapped footprint and roof suitability rules above still apply.
 
-`onion` shares the radial emitter and corner apron, using seven profile intervals with a narrow base, a widening
-bulb and a concave neck ending at one tip. Its maximum radius stays within the wall box. The 240 top triangles
-include the apron; widening lower faces point outward/downward so the bulb is visible from below. Profile
-proportions are appearance defaults; mapped roof rise still sets the exact tip height. Ridge tags have no effect.
-
-`spherical` uses a truncated spherical profile from -60 to +90 degrees: a narrow lower support, a rounded belly
-and a rounded crown, rather than the onion's concave neck. Ten profile intervals and 16 angular sides use 336
-triangles including the apron. Scaling fits the wall box and mapped rise, so unequal dimensions produce an
-ellipsoid, not a mathematically exact sphere. Lower faces point outward/downward. Ridge tags have no effect.
-
-`sawtooth` repeats asymmetric bays with an 80/20 long-slope/steep-return split. Without mapped bay spacing,
-the nominal repeat is 6 m, limited to 2–8 teeth to bound mesh cost. Mapped roof height is the rise of each tooth;
-inferred rise uses one bay's long run. Ridge bearing/orientation select the repeated profile's axis. Exterior
-walls are capped per bay so valleys remain open above the wall datum; roof faces use the existing roof material,
-without invented glazing. Overhangs sample the actual local roof triangles, not the lowest extended slope plane.
-
-`round` is an elliptical barrel with 12 angular segments (24 upper triangles before footprint clipping), including
-the exact crown height. Mapped rise controls its vertical radius; without it the regional height fallback applies.
-Bearing and orientation choose the barrel axis. UVs follow the accumulated slope lengths, and end walls, optional
-attic openings and overhang undersides use the same segmented roof planes. The segment count is fixed to bound
-geometry cost; very large roofs retain a visibly faceted silhouette.
-
-`saltbox` has an offset ridge with equal pitch on unequal roof runs, ending at a lower and a higher eave.
-Without mapped offsets/eave heights the runs use a 65/35 split. Mapped roof height is the rise from the lower
-eave to the ridge; inferred height uses the longer run. Bearing/orientation select the ridge frame, with the
-short side toward its positive transverse axis. This side choice is a deterministic appearance default, not a
-mapped entrance/back-of-house inference. The wall caps and closed overhangs follow the asymmetric planes.
-
-`mansard` has four steep lower slopes and a shallow hipped top. Without mapped break dimensions, the lower
-slopes take 65% of the roof rise over an inset of 25% of the smaller half-span. These are appearance defaults,
-not measured attic-floor dimensions. Height, bearing and orientation use the existing roof inputs; faces are
-clipped to the unchanged wall rectangle and wall caps close underneath. Texture scale follows each slope's
-actual surface distances. Dormers are not inferred or added.
-
-`gambrel` shares the mansard's two-pitch construction and default break proportions, but only the two long sides
-are roof slopes: upright gable walls follow the full broken profile up to the ridge. The ridge spans the full
-roof length, with no hipped ends. Both forms use `_broken_roof`, including the same mapped dimensions, direction,
-clipping, wall caps and optional attic windows wherever their frames fit below all roof planes.
-
-`half_hipped` (also accepted as `half-hipped`) keeps the lower gable wall and clips its upper half with two small
-hip planes. Without mapped clip dimensions, half the roof rise is the appearance default; the end run is limited
-to half the ridge-axis span so even across roofs retain a ridge. Roof height, direction and orientation use the
-same planes-and-wall-caps path as oblique gabled roofs. This does not model a lower hip beneath an upright upper
-gable, which is a different roof construction.
-
-`pyramidal` forms four triangles meeting at one apex above the drawn rectangle's centre, including on long
-rectangles where a hipped roof would have a ridge. Roof height sets its rise; without it the regional pitch applies
-to the short half-span. Direction and orientation do not rotate this ridge-free roof or change its inferred height.
-Eaves extend beyond the walls and small wall caps close the gap under the slopes. Existing footprint suitability
-limits still apply; this does not reconstruct pyramids over arbitrary irregular polygons.
-
-`tools/building_gallery.py` creates **House**, a synthetic comparison pad with 128 labelled cases,
-using production building geometry and textures. It needs no map downloads. All 14 roof shapes have their own
-geometry paths; the gallery checks that each requested form is drawn. The footprint suitability and geometric
-approximations described above still apply to real map data.
-Cases 24 and 28 use 6 m square, 9 m high towers with taller roofs to expose their silhouettes: a 6 m onion roof
-and a roughly 5.6 m spherical cap whose vertical radius matches the 3 m horizontal radius. These are gallery
-inputs, not overrides of mapped building dimensions.
-Cases 1–32 retain the roof/footprint comparisons; 33–43 show all eleven Overture facade materials and 44–57
-all fourteen roof materials. Case 58 goes through the production part importer: a base inherits the parent's
-stone facade, while its inset glass upper part has its own copper roof. Cases 59–60 show fitted roof equipment;
-61–65 compare garage and farm openings. Cases 66–76 cover retail, commercial, supermarket, shop, kiosk, office,
-hotel, restaurant, civic, cafe and fast_food; 77–81 show industrial, warehouse, manufacture, factory and hangar.
-Cases 82–92 cover house, detached, semidetached_house, bungalow, residential, apartments, terrace, dormitory,
-farm, cabin and static_caravan. Cases 93–95 add carport and parking/parking_garage deck examples; 96–98 add
-farm_auxiliary, cowshed and agricultural; 99–105 add shed, hut, shelter, roof, greenhouse, service and toilets.
-Cases 106–108 cover silo, grain_silo and storage_tank; 109–111 cover church, chapel and cathedral; 112–124 cover
-public institutions from fire_station through college. Cases 125–128 compare yes, transportation, a missing
-class key and an unknown class value. These show existing rules, not a promise of distinct geometry for each class.
-Class examples leave facade materials and colours unset; residential examples
-also use regional roof choices. Their heights and footprints are synthetic examples, not inferred dimensions.
-Production name/sign selection and door placement use a synthetic street in front of each example. The normal
-props exporter supplies door meshes, and sign lettering uses its production opacity atlas. Halls get wider spacing
-and supermarket footprints reach the big-box threshold. The track id stays
-`map2lap_building_gallery`, so rebuilding updates the same lab.
-The label atlas grows in power-of-two rows; texture files are regenerated on every gallery build.
-Default output is staged under `out/building-gallery-ac`; `--ac-root` selects an AC installation. Regenerate through
-this tool, not the geographic route builder. It is an asset preview, not a geographic road regression track.
+`tools/building_gallery.py` builds **House**, 128 synthetic labelled examples of production roofs, materials,
+building classes and parts, without map downloads. It stages under `out/building-gallery-ac` by default;
+`--ac-root` selects an AC installation. The examples test appearance and export, not geographic road behaviour.
 
 ## Surface textures
 

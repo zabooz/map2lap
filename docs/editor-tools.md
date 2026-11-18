@@ -2,7 +2,7 @@
 
 Start with [Editor data flow and Save](editor.md). Source owners below are relative to `src/` or `ui/src/editor/`.
 The authoritative tool names and keys are `tools/ToolPanel.tsx`; help and modifiers are in `tools/Help.tsx`.
-In the sidebar, Road holds Smooth road and Racing kerb; Terrain holds Elevation.
+Road tools are in the sidebar's Road group; Elevation is under Terrain.
 
 ## Selection and Inspector
 
@@ -52,7 +52,7 @@ Imported model placement and Groups use [editor-library.md](editor-library.md).
 
 ## Selecting a built road
 
-Road bend, Smooth road and Racing kerb select and read roads through one query (`app/builtroad.py`). Map facts give the
+Smooth road, Bend road and Racing kerb select and read roads through one query (`app/builtroad.py`). Map facts give the
 connections and each road's ID; the build's faces decide where that road lies. A click's height picks the road whose own
 deck face (by face owner ID) or graded ground lies there, so a flat deck lying on the road it crosses (Perth, no elevation
 data) still selects correctly. Heights come from the selected road's own deck faces within 0.5 m, otherwise from the
@@ -69,7 +69,7 @@ The server supplies preview and saved mesh deformation; the browser does not imp
 The Elevation brush continues to refuse decks and railways.
 New mesh kinds must be classified there (`engine/tests/test_trackheights.py`).
 
-Road bend (J) marks A and B on one mapped road, with or without an existing bridge or crossing. The marked ends stay
+Bend road (J) marks A and B on one mapped road, with or without an existing bridge or crossing. The marked ends stay
 fixed. A signed Height raises or lowers the middle with a smooth correction; zero removes that correction. This works
 independently on each road level. The server checks mapped crossing clearances and refuses a bend that would reduce the
 available road clearance. A junction on the selected road inside the correction is refused if its side road cannot follow;
@@ -88,8 +88,8 @@ girders, parapets and piers use the generating deck or pier's ID; the road skin 
 Ground road markings, gutters and drains use the mapped road's ID as well. Under pointer shows that ID for the hit
 triangle of a merged road or bridge mesh; it does not make the whole tile one selectable object.
 The Editor moves only faces of the marked road, even where two carriageways share one tile mesh or a concrete member
-extends beneath the other road. Tracks built before these IDs need rebuilding for Road bend.
-Road bend checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer
+extends beneath the other road. Tracks built before these IDs need rebuilding for Bend road.
+Bend road checks railway and tunnel faces that remain in the draft; railway faces deleted in the Editor no longer
 block a road correction or hold its terrain down. After A and B are marked, the server checks a nominal one-metre
 correction along the selected road and reports blocking rail/tunnel parts with red crosses before Height is changed.
 Guardrails retain source module face spans and candidate mapped road IDs in each tile's build facts. The module's tile and

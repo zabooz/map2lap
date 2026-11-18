@@ -83,10 +83,8 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   forest and rock layers are added by `track/groundquality.py`. Standalone road textures avoid the SD reduction; edge
   gravel is redrawn at four times each dimension. Already full-resolution sidewalks/kerbs/ballast stay at source size.
   This changes no collision or vertex positions.
-- The tile images go into the kn5 as DDS (`obj_to_kn5.dds_texture`): BC7 where the tile has a `1ROAD_` object
-  (`obj_to_kn5.bc7_images`), else BC1. BC1 keeps two end colours per 4×4 block (50 cm, 1 m one mip down): grey asphalt
-  beside green verge and a white marking turned green in places, on every track before (seen in AC, 2026-11-11). BC7 is
-  twice the size (2.7 -> 5.3 MiB a tile), hence only tiles with roads. The Editor draws BC7 as BPTC
+- Tile images go into the KN5 as DDS (`obj_to_kn5.dds_texture`): BC7 on tiles with a `1ROAD_` object to preserve
+  road-edge colour and markings, BC1 elsewhere to save memory. The Editor draws BC7 as BPTC
   (`ui/src/editor/scene/texture.ts`).
 - Ground materials are CSP's `ksMultilayer_objsp_nm4` itself (`groundmaterial.ground`, written by
   `groundmaterial.classic`): the tile image stays in `txDiffuse` with its UVs, a shared 4 px mask selects one white layer with
@@ -94,11 +92,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   stay as they are. It adds no geometry or higher-resolution image.
 - The material names its images by the shader's own slots and numbers, t0..t9 as CSP's compiled shader declares them
   (`groundmaterial.NM4_SLOTS`): `txDiffuse` 0, `txMask` 1, `txDetailR`..`txDetailA` 2..5, `txNormalR`..`txNormalA` 6..9; its
-  values are kn5 properties: `multR`..`multA` float2 (the second field), `magicMult`, `multTilingFix`, `tilingFixR`..`A`
-  (floats). AC loads the images with the material, normal maps included, and the tiling fix acts per layer
-  (`stausee_nm4_direkt`, 2026-11-11). Bound instead by a `[SHADER_REPLACEMENT]` with `RESOURCE_TEXTURE` or `RESOURCE_REF`,
-  embedded images stayed unbound in AC (fuPBR: black ground mirroring the sky and road, Heiligenblut, 2026-11-11). Why is
-  not known.
+  values are KN5 properties: `multR`..`multA` float2, `magicMult`, `multTilingFix` and `tilingFixR`..`A`. AC loads
+  the images and per-layer tiling fix from the material. Binding embedded images through `[SHADER_REPLACEMENT]`
+  failed in AC, so do not move these inputs into an extension config.
 - The shader samples `txDiffuse`, the mask and every layer at one mesh UV, a layer times its multiplier, with no offset; it
   multiplies `txDiffuse` by the layers mixed by the mask. Its gloss is ksSpecular times the mixed alpha
   (`txDiffuse.a` · Σ weight · layer alpha), at one ksSpecularEXP for the whole material.
@@ -115,11 +111,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   float2 multiplier is its repeats a tile times that share: every layer lies at the world's phase on every region and tile,
   square and rectangular repeats alike. The tile image is one more layer at UV_SCALE a tile, the build's own (the kn5 holds
   it once); a photo a source's last Save wrote is taken the same way. Collision stays unchanged.
-- Gloss: a painted region keeps its ground's ksSpecular and ksSpecularEXP. The tile image, sampled itself, has alpha 1, so
-  the unpainted rest of a painted tile shines as the tile beside it; a photo's alpha is its gloss, 1 - roughness (its
-  roughness map, else the layer's flat roughness: `tracknative._photo_colour`). A photo therefore shines at most as the
-  ground, ksSpecular 0.02 (decided 2026-11-11; the alternative, gloss alpha in the tile image itself, needs rebuilt tracks
-  and BC7 for tiles without roads).
+- Gloss: a painted region keeps its ground's ksSpecular and ksSpecularEXP. The source tile image has alpha 1;
+  a photo's alpha is 1 - roughness (`tracknative._photo_colour`). A photo therefore shines at most as strongly
+  as the ground (ksSpecular 0.02).
 - Variation: CSP's tiling fix per layer (`tilingFix?` 1) blends two offsets of the layer, colour and gloss alpha alike, its
   normal map with the same offsets (its own blend weight). The tile image and a source's photos stay at 0: the road image
   never moves. The noise lies in world X/Z (`multTilingFix` 1 everywhere), so patches meet across region and tile borders.
@@ -168,37 +162,14 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Scale textures down to the target resolution before sampling them (else a blotchy pattern: asphalt like cobbles).
 - Atlases keep an empty margin per image: else a cut-out's edges reach into the neighbouring image at small mip levels, or
   through the repeat into their own bottom row (floating lines).
-- Trees and bushes are CSP TreeFX trees (`scenery/treefx.py`, `extension/trees/trees.txt`), not kn5 meshes: they sway, cast
-  and take shadows and switch LOD at 600/700/800 m. In a `.bin` each card face is written once (both sides at one place
-  flickered far away and showed a grid; CSP draws leaves from both sides), and the coarser LODs are subsets of one crown
-  (each with its own random gave another tree on switching).
-  Tree wood uses eight height bands (`scenery/treewind.py`), so the trunk follows the
-  wind bend instead of cutting across it as one straight face. Spruce and larch retain their original needle faces
-  to avoid [horizontal lighting bands](#treefx-needle-lighting); fir and cypress retain needle subdivision.
-  Spruce, larch and fir boles taper to a point over the
-  last eighth of tree height. Original painted crowns are retained. Spruce/larch needle cones and the fir tip use surface-aligned normals; other foliage normals are retained. Owned tree models set
-  `[BAKING] AO_OPACITY=0.75` in their own `tree.ini`, keeping at least quarter visibility in CSP's native vertex-AO bake
-  so enclosed trunks do not turn fully black. Bushes keep native defaults. This does not disable shadow casting or
-  shadowmap reception. Vertex AO also controls fast wind flutter, so changes need a same-wind visual check; old baked
-  meshes are regenerated through the owned format version before Play.
-  The upper spruce/larch skirt starts half a tier spacing plus 1.5 m lower on the 14 m model, nesting its rim inside
-  the lower crowns; the additional overlap scales with model height;
-  its apex and radius, all lower tiers and the painted atlas remain in place.
-- Owned deciduous TreeFX models share one atlas/material and geometry across seasons. Broadleaf, birch and larch add
-  permanent low-cost wood inside the original crowns; original foliage data are retained. At Play, recognized
-  models get their selected atlas: original green in spring/summer, warm foliage in autumn, transparent foliage in winter.
-  Baobab retains its existing branches; evergreen/tropical foliage is preserved. Native CSP season conditions provide snow
-  shading on wood and needles. Native TreeFX autumn tint is zero because deciduous atlases already supply their autumn
-  colours; the native global tint also colours evergreen needles. Owned Library aliases are prepared in the track folder; their immutable snapshots stay intact.
-  Seasons do not alter KN5 geometry, placements or tyre grip, and snow weather always selects winter scenery.
-  Added wood follows the original trunk's native clockwise face winding. Broadleaf/birch leaders share its top ring;
-  the owned format version makes Play refresh older seasonal geometry even when the chosen season stays the same.
-- CSP's global tree cache uses model filenames, and its texture entries use texture filenames. Before Play, owned
-  trees get runtime filenames containing species, format, season and a hash of the generated archive. The separate
-  `trees_seasonal.txt` changes only those file references; `trees.txt`, object-list identities and library snapshots
-  remain stable. `map2lap_seasons.ini` selects that runtime list. Returning to a season retains its baked AO; another
-  season or generated archive cannot inherit that model's old billboard cache. Atlas and mesh names inside the archive
-  also include format and season. Foreign trees and diagnostic variants retain their supplied files.
+- Trees and bushes are CSP TreeFX models (`scenery/treefx.py`), not KN5 meshes. Each card face is stored once;
+  coarser LODs reuse subsets of one crown. Wood has eight height bands for wind bending. Spruce and larch needle
+  triangles remain unsplit at those bands to avoid horizontal lighting lines; their cone normals follow the surface.
+- Owned deciduous models share geometry across seasons. Play selects green, autumn or transparent winter foliage
+  atlases; snow weather uses winter. Native CSP autumn tint stays zero so evergreen needles remain green. Library
+  snapshots and object identities stay unchanged.
+- CSP caches TreeFX models and atlases by filename. Runtime names contain species, format, season and content hash;
+  `trees_seasonal.txt` changes references while `trees.txt` remains stable. Foreign models keep their files.
 - The terrain casts shadows only at a low sun, through CSP (`CAST_SHADOWS = TERRAIN` in `ext_config.ini`): all day it shadowed
   itself, rings around the camera on the asphalt. Without CSP it casts none.
 - Street lamps shine at night through CSP: the glass of each head has its own material (`lamp_glass`, meshes `nocol_props_glass_`),
@@ -220,48 +191,16 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 
 ## TreeFX needle lighting
 
-All owned TreeFX trees and bushes use `SUBSCATTERING=0`, with `BRIGHTNESS`, `SPECULAR` and `REFLECTIVITY` at 1.
-Rounded leaf crowns (broadleaf, birch, olive, acacia, baobab and tropical), all bushes and juniper use `SPHERE=1`
-to soften per-card lighting; other models retain `SPHERE=0`. Larch has needle cones despite being deciduous; palms have fronds.
-Surface-aligned spruce/larch cone normals (and the fir's conical tip) use the cone's vertical rise
-as their radial component and its radius decrease as their upward component. Legacy base constructors retain the old
-normals so unmarked assets can still be recognized. Geometry, texture alpha, crown overlap and wind subdivisions stay
-unchanged. Format 16 refreshes owned models before Play; content-based runtime names isolate CSP's baked AO and atlases.
+Owned trees and bushes use `SUBSCATTERING=0`, with `BRIGHTNESS`, `SPECULAR` and `REFLECTIVITY` at 1.
+Rounded leaf crowns, bushes and juniper use `SPHERE=1` to soften card lighting; needle and frond models use
+`SPHERE=0`. Owned trees set `AO_OPACITY=0.75` so enclosed trunks remain visible; bushes retain native AO.
+Spruce/larch cone normals and fir tips follow their surfaces. Format 16 refreshes owned models before
+Play, and content-based runtime names isolate CSP's baked AO and atlases.
 
-In the AC gallery, removing SPHERE's dome-normal contribution reduced the bright upper spruce crown against the sun;
-removing subscattering as well removed the conspicuous glow while retaining illumination on the sunny side. This was
-also checked with the production crown shape. Transmission remains off for every generated species.
-Rounded leaf crowns and bushes retain dome smoothing after patchy lighting was observed on the real track;
-the final rounded-crown adjustment still needs a visual comparison. The spruce comparison does not establish
-identical results for every species, season or user weather/filter.
-
-The captured CSP shader passes `(x, height^4, z)` into normal blending and approximate self-shadowing. Its precise
-constant mapping is inferred; neither a universal 75-percent height threshold nor guaranteed absence of shadowing is
-established. Changing whole-tree brightness did not resolve the upper/lower contrast.
-
-`tools/rendering_gallery.py` keeps the original CM shading as `BASELINE`, the discarded dimmed profile as `DIMMED`,
-and individual overrides. `SPHERE_SUBSCATTERING` matches the production needle profile; `SUBSCATTERING` matches
-rounded leaf crowns. All columns share production geometry and normals. Grey cards and ground swatches provide references,
-not fixed screen-brightness targets. Compare sun-facing and shaded sides at the same time and exposure, then real tracks.
-See [the rendering workflow](../tools/rendering_preview.md) for camera, screenshot and restoration commands.
-
-Spruce and larch needle mantles must keep their original triangles and UVs, with the surface-aligned normals described
-above. Splitting their triangles at the wood's height bands introduces horizontal lighting bands in CSP; keeping the
-wood subdivision still lets the trunks bend and keeps their thin leaders. The owned format migration refreshes older
-models and their baked AO before Play.
-
-The isolated surface check identifies the prominent band on the fifth needle tier from the top, with dark and light
-regions on the same tier. Neutralizing only that tier's baked vertex AO removes much of the broad dark area, but a thin
-line remains with constant upward normals and even with every other needle tier removed. Removing only its height cuts
-removes that line. Full crowns with their original textures, normals and stored AO also lose the band without needle
-subdivision. Thus neither a visible overlap boundary nor the uppermost skirt's rim explains this case.
-
-The remaining shader mechanism is unresolved: extra vertices change where CSP samples and interpolates lighting even
-when the rest surface is unchanged. Its model vertex shader loads baked AO, multiplies it by instance spherical-harmonic
-occlusion and computes height-dependent lighting inputs; the pixel shader also applies shadows. The sight checks do not
-isolate which remaining term produces the thin line, or prove a geometric crack. The effect is established for these
-TreeFX needle models, not for ordinary KN5 materials or every CSP shader. The installed sight probes used `SPHERE=0.5`;
-the generator retains `SPHERE=1.0`. The earlier SPHERE change did not visibly move or remove the band and is not the fix.
+Keep spruce and larch needle mantles' triangles and UVs intact. Splitting triangles at wood height bands creates
+horizontal lighting lines in CSP even with flat normals; wood may still be subdivided for wind. CSP's exact
+lighting mechanism for that line remains unresolved. Compare sun-facing and shaded crowns at fixed exposure
+with `tools/rendering_gallery.py` and [the rendering workflow](../tools/rendering_preview.md), then drive a real track.
 
 ## Limits
 
