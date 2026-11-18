@@ -23,8 +23,11 @@ import acgrid
 import cdae
 
 DRAPE_STEP = 2.0        # m between initial ribbon rows; follow_ground cuts further along the actual terrain lattice
-LIFT = {"base": 0.0, "edge": 0.003, "gutter": 0.005, "mark": 0.01}   # m above the physics ground (lifted under roads
-                                                        # by grading.ROAD_LIFT over the visible ground)
+LIFT = {"base": 0.0, "edge": 0.003, "gutter": 0.005, "mark": 0.01,
+        "driveway": 0.03}  # m above the physics ground; mapped roads get grading.ROAD_LIFT over the visible ground.
+                           # Generated house and garage accesses cross ungraded grass: 3 cm clears the 2 cm drape
+                           # tolerance there. A zero lift put their asphalt in the terrain, exposing jagged patches.
+                           # At a sharp retaining-wall step, follow_ground may hold the strip below the high side.
 
 
 def layer_of(chunk):

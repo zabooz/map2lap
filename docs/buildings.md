@@ -101,6 +101,8 @@ threshold, so that caller currently makes the same decision. Supplying height th
 The planner marks detached residential houses independently of their wall material. `doors` gives them a driveway
 and a matching front-fence gap when the road-facing wall is at least 7 m wide and the road is close enough. This
 width leaves room beside the entrance; narrower houses may have side or rear parking that the generator cannot infer.
+House and open-garage driveway meshes sit 3 cm above the ungraded ground they cross. The offset clears the road
+mesh's 2 cm terrain-following tolerance; these generated strips do not have mapped road plans that lift the ground.
 
 `FacadePattern(attic_windows=True)` enables small 0.8 m square windows in roof wall caps, including gable ends
 and the high side of a skillion roof. They follow the native facade axes, with a 0.6 m sill above the attic datum

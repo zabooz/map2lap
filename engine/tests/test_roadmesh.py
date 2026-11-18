@@ -172,6 +172,17 @@ class FollowTest(unittest.TestCase):
         e1, e2 = a[:, 1] - a[:, 0], a[:, 2] - a[:, 0]
         self.assertTrue((e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0] > 0).all(), "facing up")
 
+    def test_driveway_clears_visible_ground_between_mapped_roads(self):
+        """A generated house access crosses grass without a road plan's ground lift."""
+        drive = chunk("road_asphalt_2lane", 3.2, [(4, 5, 0), (4, 19, 0)])
+        drive["layer"] = "driveway"
+        P, T, *_ = roadmesh.build(FRAME, [drive], slope, (0., 0., 0.), follow=True, q=1 / 32,
+                                  drawn=slope)
+        centres = P[T].mean(axis=1)
+        ground = roadmesh.drawn_ground(FRAME, slope, centres[:, :2], 1 / 32)
+        self.assertGreater((centres[:, 2] - ground).min(), 0.02,
+                           "leave room for the drape tolerance and terrain quantization")
+
 
     def test_no_climbing_a_step(self):
         """A strip beside a cutting's wall: in the lattice cells holding the step it stays at the road's level instead

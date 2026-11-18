@@ -7,7 +7,7 @@ from .mesh import _box, _box_tiled, _inside
 
 
 DRIVEWAY_W = 3.2            # m
-DRIVEWAY = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 19}     # a road tile chunk's look (roads.LOOK)
+DRIVEWAY = {"m": "road_asphalt_2lane", "tl": 11.0, "p": 19, "layer": "driveway"}
 
 
 # A parking structure you can drive into ("garage buildings ... are solid"): open storeys of
@@ -251,7 +251,7 @@ def garage_drives(items, lines, x0, y0):
         p1 = qn + v / max(dl, 1e-9) * (half + 0.1)
         n = max(2, int(np.hypot(*(p1 - p0)) // 4.0) + 1)
         pts = [p0 + (p1 - p0) * (j / (n - 1)) for j in range(n)]
-        out.append({"m": DRIVEWAY["m"], "w": GARAGE_DRIVE_W, "tl": DRIVEWAY["tl"], "p": DRIVEWAY["p"],
+        out.append({**DRIVEWAY, "w": GARAGE_DRIVE_W,
                     "n": [[round(float(pp[0]), 3), round(float(pp[1]), 3), 0.0] for pp in pts]})
     return out
 

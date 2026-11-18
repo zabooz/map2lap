@@ -597,6 +597,7 @@ class ParkingDeckTest(unittest.TestCase):
         road = (np.array([[-50.0, -12.0], [120.0, -12.0]]), 4.0)
         drives = bld.garage_drives([(spec, 0.0, 0.0)], [road], 0.0, 0.0)
         self.assertEqual(len(drives), 1)
+        self.assertEqual(drives[0]["layer"], "driveway", "asphalt over ungraded ground needs clearance")
         n = np.array(drives[0]["n"])[:, :2]
         self.assertGreater(n[:, 1].max(), 0.0, "into the ground deck")
         self.assertAlmostEqual(n[:, 1].min(), -12.0 + 4.1, places=1, msg="to the road's edge")
@@ -766,6 +767,7 @@ class DoorTest(unittest.TestCase):
         bld.doors([(spec, 0.0, 0.0)], [(np.array([(-50.0, 6.0), (2000.0, 6.0)]), 4.0, "residential", True)], 0.0, 0.0,
                   drives)
         self.assertEqual(len(drives), 1)
+        self.assertEqual(drives[0]["layer"], "driveway", "asphalt over ungraded ground needs clearance")
         n = np.array(drives[0]["n"])
         self.assertAlmostEqual(n[0, 1], 19.8, delta=0.3, msg="from the front wall")
         self.assertAlmostEqual(n[-1, 1], 10.1, delta=0.3, msg="to the road's edge")

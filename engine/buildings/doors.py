@@ -156,7 +156,7 @@ def doors(items, lines, x0, y0, drives=None):
                 p1 = q + v / dl * (SHALF[kseg] + 0.1)
                 n = max(2, int(dl // 4.0) + 1)
                 pts = [p0 + (p1 - p0) * (j / (n - 1)) for j in range(n)]
-                drives.append({"m": DRIVEWAY["m"], "w": DRIVEWAY_W, "tl": DRIVEWAY["tl"], "p": DRIVEWAY["p"],
+                drives.append({**DRIVEWAY, "w": DRIVEWAY_W,
                                "n": [[round(float(pp[0]), 3), round(float(pp[1]), 3), 0.0] for pp in pts]})
         if spec.roof != "flat" and not narrow and _hash01(spec.seed, "fence") < FENCE_SHARE:
             rows.extend(_front_fence(spec, a, d, Le, f, A[kseg], D[kseg], L2[kseg], SHALF[kseg], gmin,
