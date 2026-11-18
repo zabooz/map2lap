@@ -92,14 +92,33 @@ test("an old asynchronous mask cannot reappear after Escape or a new selection",
   a.geometry.dispose(); a.material.dispose();
 });
 
-test("Smooth road can show orange masks independently of blue selection", async () => {
+test("Smooth road can show green masks independently of blue selection", async () => {
   const scene = new THREE.Scene(), ground = mesh("1ROAD_ground_0_0");
-  const overlay = new SurfaceOverlay(scene, () => {}, () => true, () => {}, async () => new THREE.Texture(), 0xf39c35, .4);
+  const overlay = new SurfaceOverlay(scene, () => {}, () => true, () => {}, async () => new THREE.Texture(), 0x46bb68, .4);
   await overlay.set(selection, [ground]);
   const material = (scene.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material;
-  expect(material.color.getHex()).toBe(0xf39c35);
+  expect(material.color.getHex()).toBe(0x46bb68);
   expect(material.opacity).toBe(.4);
   overlay.clear(); ground.geometry.dispose(); ground.material.dispose();
+});
+
+test("a signed road mask colours only selected deck faces at their world positions", async () => {
+  const scene = new THREE.Scene(), source = mesh("1ROAD_deck_asphalt_0_0"), texture = new THREE.Texture();
+  source.userData.info = {i: 7, vertices: 4};
+  const overlay = new SurfaceOverlay(scene, () => {}, () => true, () => {}, async () => texture, 0xf05b56, .8, 6);
+  await overlay.set({material: "road_difference", truncated: false, tiles: [], meshTiles: selection.tiles,
+    meshes: [{mesh: 7, faces: [0]}]}, [source]);
+  try {
+    expect(scene.children).toHaveLength(1);
+    const face = scene.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    expect(face.geometry.getIndex()!.count).toBe(3);
+    expect(face.material.alphaMap).toBe(texture);
+    expect(face.material.color.getHex()).toBe(0xf05b56);
+    expect(face.renderOrder).toBe(6);
+    const shader = {uniforms: {}, vertexShader: "#include <common>\n#include <uv_vertex>", fragmentShader: ""};
+    face.material.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toContain("vAlphaMapUv =");
+  } finally { overlay.clear(); source.geometry.dispose(); source.material.dispose(); }
 });
 
 test("a prepared mesh-material region highlights only its faces and follows live vertices without disposing the source", async () => {

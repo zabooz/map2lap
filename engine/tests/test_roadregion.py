@@ -234,7 +234,47 @@ class RasterTest(unittest.TestCase):
         except trackband.Refused as error:
             self.assertIn("already", str(error))
         else:
-            self.assertLessEqual(max(map(abs, op["mm"])), 1)
+            self.assertLessEqual(max(map(abs, op["mm"])), 5)  # 0.1% of a 3 m full correction is 3 mm.
+
+    def test_mid_strength_smooths_more_without_moving_the_fixed_ends(self):
+        net = roadregion.mapped(self.path, self.points)
+        selected = roadregion.selection(self.path, net)
+        full, _ = roadnet.change_of(self.path, self.scan, None, net, selected, 6, 1, "full")
+        half, _ = roadnet.change_of(self.path, self.scan, None, net, selected, 6, .5, "half")
+        full_field, half_field = trackheights.Field([full]), trackheights.Field([half])
+        self.assertGreater(abs(float(half_field.at(0, 0)[0])), .5 * abs(float(full_field.at(0, 0)[0])))
+        self.assertLess(abs(float(half_field.at(0, 0)[0])), abs(float(full_field.at(0, 0)[0])))
+        for point in self.points[1:]:
+            self.assertLess(abs(float(half_field.at(*point)[0])), .01)
+
+    def test_signed_preview_marks_a_road_below_its_target_blue_and_above_it_red(self):
+        op = {"x": 0, "z": 0, "nx": 4, "nz": 4, "mm": [0] * 16}
+        op["mm"][5] = 500
+        preview = roadnet.signed_preview(op)
+        self.assertTrue(preview["below"]["tiles"])
+        self.assertFalse(preview["above"]["tiles"])
+        op["mm"][5] = -500
+        preview = roadnet.signed_preview(op)
+        self.assertFalse(preview["below"]["tiles"])
+        self.assertTrue(preview["above"]["tiles"])
+
+    def test_the_editor_way_returns_an_ideal_difference_without_editing_the_draft(self):
+        import server
+        service = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=service.serve_forever, daemon=True).start()
+        self.addCleanup(service.server_close)
+        self.addCleanup(service.shutdown)
+        with mock.patch.object(server.settings, "ac_path", return_value=str(Path(self.path).parent)), \
+             mock.patch.object(server.trackview, "_scan_of", return_value=(self.path, self.scan)), \
+             mock.patch.object(server.trackedits, "moved_without", return_value=None), \
+             mock.patch.object(server.trackedits, "remember_meshes") as remembered:
+            body = json.dumps({"base": "source", "network": True, "points": self.points, "preview": True}).encode()
+            request = urllib.request.Request(f"http://127.0.0.1:{service.server_address[1]}/api/editor/y/band/way",
+                                             data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request) as response:
+                result = json.load(response)
+        self.assertTrue(result["difference"]["above"]["tiles"])
+        self.assertEqual([], remembered.call_args_list)
 
     def test_the_editor_api_returns_the_orange_area_and_one_y_height_change(self):
         import server

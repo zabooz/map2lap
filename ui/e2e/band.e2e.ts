@@ -24,7 +24,16 @@ async function escape(page: Page) { await scene(page).focus(); await page.keyboa
 test("marking starts at zero, shows the road mask and Escape leaves the ground unchanged", async ({page, backend}) => {
   const {a, b} = await onHill(page, backend);
   const before = await picture(page);
+  const differences: {above?: {tiles?: unknown[]}}[] = [];
+  page.on("response", response => {
+    if (response.url().endsWith("/band/way") && response.request().postDataJSON()?.preview === true)
+      void response.json().then(body => differences.push(body.difference ?? {})).catch(() => {});
+  });
   await mark(page, a, b);
+  await expect.poll(() => differences.some(difference => !!difference.above?.tiles?.length)).toBe(true);
+  await expect(page.locator("#edit-band")).toContainText("Green marks the selected road");
+  await expect(page.locator("#edit-band")).toContainText("Red is above");
+  await expect(page.locator("#edit-band")).toContainText("blue is below");
   await expect(strength(page)).toHaveValue("0");
   await expect(transition(page)).toHaveValue("6");
   expect(await heights(page)).toEqual([]);
@@ -250,7 +259,7 @@ for (const structure of ["bridge", "tunnel"]) test(`smoothing across a short ${s
 });
 
 
-test("the orange road region is visible on the asphalt skin above a bridge floor", async ({page, backend}) => {
+test("the road preview is visible on the asphalt skin above a bridge floor", async ({page, backend}) => {
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", hill: true, trees: false, structure: "bridge"});
   await openEditor(page);
   const c = await centre(scene(page));

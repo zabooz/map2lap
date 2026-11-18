@@ -892,7 +892,16 @@ class Handler(BaseHTTPRequestHandler):
                 region = roadregion.selection(path, net)
                 if what == "way":
                     lines = [[[x, 0., z] for x, z in line] for line in net["lines"]]
-                    return self._send(200, {"lines": lines, "region": region})
+                    answer = {"lines": lines, "region": region}
+                    if body.get("preview") is True:
+                        try:
+                            moved = trackedits.moved_without(ac, name, base, body.get("replace"))
+                            ideal, _ = roadnet.change_of(path, scan, moved, net, region, body.get("blend", 6), 1,
+                                                          "preview", preview=True)
+                            answer["difference"] = roadnet.signed_preview(ideal, region)
+                        except (ValueError, trackband.Refused) as error:
+                            answer["difference_error"] = str(error)
+                    return self._send(200, answer)
                 moved = trackedits.moved_without(ac, name, base, body.get("replace"))
                 op, influence = roadnet.change_of(path, scan, moved, net, region, body.get("blend", 6), body.get("strength"), secrets.token_hex(8))
                 trackedits.remember_meshes(ac, name, base, op, body.get("replace"))

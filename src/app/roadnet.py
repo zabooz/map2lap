@@ -2,6 +2,7 @@
 import math
 import base64
 import heapq
+import io
 import json
 import threading
 
@@ -329,6 +330,47 @@ def _influence(op, weight):
     return {"material": "road_transition", "truncated": False, "tiles": tiles}
 
 
+def signed_preview(op, selection=None):
+    """Blue where the current road is below its fully smoothed target, red where it is above. Pure.
+
+    The 2 m correction is projected into tile masks. Ground masks are clipped to the selected road paint; mesh masks
+    also cover selected deck faces, which have no ground paint. Alpha follows the relative size of the height difference.
+    """
+    from PIL import Image
+    delta = np.asarray(op["mm"], np.int64).reshape(op["nz"], op["nx"])
+    nonzero = np.abs(delta[delta != 0])
+    scale = max(100., float(np.percentile(nonzero, 95))) if len(nonzero) else 100.
+    road_tiles = {(t["tile"][0], t["tile"][1]): t["mask"] for t in selection["tiles"]} if selection else None
+    result = {}
+    image = Image.fromarray(delta.astype(np.float32))
+    for name, sign in (("below", 1), ("above", -1)):
+        ground, deck = [], []
+        for tx in range(math.floor(op["x"] / 256), math.floor((op["x"] + 2 * (op["nx"] - 1)) / 256) + 1):
+            for ty in range(math.floor(-(op["z"] + 2 * (op["nz"] - 1)) / 256), math.floor(-op["z"] / 256) + 1):
+                signed = image.transform((128, 128), Image.Transform.AFFINE,
+                                         (1, 0, (tx * 256 - op["x"]) / 2 + .5,
+                                          0, 1, (-(ty + 1) * 256 - op["z"]) / 2 + .5), Image.Resampling.BILINEAR)
+                part = Image.fromarray(np.rint(np.minimum(np.maximum(np.asarray(signed) * sign, 0) / scale, 1) * 200).astype(np.uint8))
+                if not part.getbbox():
+                    continue
+                tile = [tx, ty]
+                deck.append({"tile": tile, "mask": base64.b64encode(editorinfo._png(np.asarray(part))).decode("ascii")})
+                if road_tiles is not None:
+                    mask = road_tiles.get((tx, ty))
+                    if mask is None:
+                        continue
+                    with Image.open(io.BytesIO(base64.b64decode(mask))) as selected:
+                        clipped = np.rint(np.asarray(part, np.float64) * np.asarray(
+                            selected.convert("L").resize((128, 128), Image.Resampling.BILINEAR), np.float64) / 255).astype(np.uint8)
+                else:
+                    clipped = np.asarray(part)
+                if clipped.any():
+                    ground.append({"tile": tile, "mask": base64.b64encode(editorinfo._png(clipped)).decode("ascii")})
+        result[name] = {"material": "road_difference", "truncated": False, "tiles": ground,
+                        "meshTiles": deck, "meshes": selection.get("meshes", []) if selection else []}
+    return result
+
+
 def _check_grades(current, delta, active, built, own, selected):
     """Refuse a new road step steeper than the existing road limit; an already steep brush bump may improve. Steps on one road only: between two changed
     points of one arm's own road (own: per arm; a wall between two arms may grow), and between a changed point and one of the selected road (selected: the
@@ -351,8 +393,8 @@ def _check_grades(current, delta, active, built, own, selected):
             raise ValueError("These approaches require a steep road join; mark a larger region or reduce strength")
 
 
-def change_of(path, scan, moved, net, selection, blend, strength, id):
-    """One coupled selected-road correction and its faint transition mask, on the existing lattice."""
+def change_of(path, scan, moved, net, selection, blend, strength, id, preview=False):
+    """One coupled selected-road correction on the existing lattice; preview returns its unconstrained ideal field."""
     if type(strength) not in (int, float) or not 0 <= strength <= 1:
         raise ValueError("Invalid smoothing strength")
     if type(blend) not in (int, float) or not 2 <= blend <= 60:
@@ -361,7 +403,11 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
         raise trackband.Refused("It is smooth here already")
     roads = _roads(path, scan, net)
     arms = _arms(path, scan, moved, roads, net)
-    even = even_network(net, arms, strength)
+    # The spline's window grows cubically with its input. A gentler control curve makes the lower half useful while
+    # keeping the spline's short-wave-first smoothing and its cross-carriageway joins at intermediate strengths.
+    # Scaling the full correction linearly instead left a 1.1 m cross-lane step at Rechberg at 60%.
+    shape_strength = strength ** .65
+    even = even_network(net, arms, shape_strength)
     largest = max(float(np.abs(value - arm["heights"]).max()) for arm, value in zip(arms, even))
     fade = max(blend, trackband.SOFT_STEEPEST * largest / trackband.SIDE_SLOPE)
     width = max(edge["width"] for edge in net["segments"])
@@ -381,32 +427,35 @@ def change_of(path, scan, moved, net, selection, blend, strength, id):
         return _placed(mask, roads["i0"], roads["j0"], built.shape, i0, j0)
     own, held, mapped = [placed(mask) for mask in roads["own"]], placed(roads["held"]), placed(roads["mapped"])
     active &= np.logical_or.reduce(own) & np.isfinite(current)
-    target, original, correction, distance, joining = _targets(arms, even, built.shape, i0, j0, width, {_key(p) for p in net["terminals"]}, strength, own)
+    target, original, correction, distance, joining = _targets(arms, even, built.shape, i0, j0, width, {_key(p) for p in net["terminals"]}, shape_strength, own)
     source_height = np.nan_to_num(current)
     # Interpolated lane samples differ slightly from true vertices. Apply that correction continuously from zero too.
     target = source_height + (target - original) + correction * (original - source_height)
     active &= np.isfinite(distance)
     x, z = np.meshgrid((np.arange(built.shape[1]) + i0) * 2, (np.arange(built.shape[0]) + j0) * 2)
-    planes = junction_planes(net, arms, strength)
+    planes = junction_planes(net, arms, shape_strength)
     for point in net["junctions"]:
         p = np.asarray(point)
         plane = planes[_key(p)]
         radius = max(width / 2 + 2, 4)
         share = 1 - _blend((np.hypot(x - p[0], z - p[1]) - radius) / trackband.JOIN_M)
         wanted = plane[0] + plane[1] * (x - p[0]) + plane[2] * (z - p[1])
-        wanted = source_height + _junction_share(p, arms, strength) * (wanted - source_height)
+        wanted = source_height + _junction_share(p, arms, shape_strength) * (wanted - source_height)
         target = target * (1 - share) + wanted * share
     delta = np.where(active, (target - np.nan_to_num(current)) * joining, 0)
     for point in net["held_junctions"]:
         delta *= _blend((np.hypot(x - point[0], z - point[1]) - trackband.HOLD_M) / trackband.JOIN_M)
     field, transition = _spread(delta, active, np.isfinite(built) & ~active, fade)
-    _check_grades(current, field, active, built, own, selected & mapped & ~held)
+    if not preview:
+        _check_grades(current, field, active, built, own, selected & mapped & ~held)
     field[0] = field[-1] = 0
     field[:, 0] = field[:, -1] = 0
     mm = np.rint(field * 1000).astype(np.int64)
     if not mm.any():
         raise trackband.Refused("It is smooth here already")
     op = {"id": id, "x": i0 * 2, "z": j0 * 2, "nx": built.shape[1], "nz": built.shape[0], "mm": mm.ravel().tolist()}
+    if preview:
+        return op, None
     if any(edge.get("structure") for edge in net["segments"]):
         roadsurfaces.check_clearance(path, scan, moved, net, op, current, i0, j0)
         op = roadsurfaces.scope(path, scan, moved, net, op, current, i0, j0)

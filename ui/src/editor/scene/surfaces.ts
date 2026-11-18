@@ -6,6 +6,7 @@ export interface SurfaceSelection {
   truncated: boolean;
   tiles: {tile: [number, number]; mask: string}[];
   meshes?: {mesh: number; faces: number[]}[];
+  meshTiles?: {tile: [number, number]; mask: string}[]; // world-projected masks on selected bridge faces
   materials?: string[];
 }
 
@@ -40,6 +41,11 @@ export const surfaceName = (material: string) => /^gc_field\d*$/.test(material) 
 
 export function groundTile(name: string): string | null {
   const match = /^1(?:ROAD|GRASS|GRAVEL)_ground_(-?\d+)_(-?\d+)(?:_\d+)?$/.exec(name);
+  return match ? `${match[1]}_${match[2]}` : null;
+}
+
+function meshTile(name: string): string | null {
+  const match = /_(-?\d+)_(-?\d+)(?:_\d+)?$/.exec(name);
   return match ? `${match[1]}_${match[2]}` : null;
 }
 
@@ -88,6 +94,7 @@ function clampSelection(material: THREE.MeshBasicMaterial, tile: string) {
 export class SurfaceOverlay {
   private version = 0;
   private masks = new Map<string, string>();
+  private meshMasks = new Map<string, string>();
   private sources = new Set<THREE.Mesh>();
   private overlays = new Map<THREE.Mesh, THREE.Mesh>();
   private materials = new Map<string, {material: THREE.MeshBasicMaterial; bytes: number}>();
@@ -98,12 +105,13 @@ export class SurfaceOverlay {
 
   constructor(private scene: THREE.Scene, private changed: () => void, private reserve: (bytes: number) => boolean,
               private release: (bytes: number) => void, private decode: (mask: string) => Promise<THREE.Texture> = decodeMask,
-              private colour = 0x279fff, private opacity = .45) {}
+              private colour = 0x279fff, private opacity = .45, private order = 5) {}
 
   async set(selection: SurfaceSelection | null, meshes: THREE.Mesh[]) {
     this.clear();
     if (!selection) return;
     this.masks = new Map(selection.tiles.map(t => [`${t.tile[0]}_${t.tile[1]}`, t.mask]));
+    this.meshMasks = new Map((selection.meshTiles ?? []).map(t => [`${t.tile[0]}_${t.tile[1]}`, t.mask]));
     this.faces = new Map((selection.meshes ?? []).map(m => [m.mesh, m.faces]));
     const version = this.version;
     // Decode only tiles with loaded ground, sequentially: each full-resolution mask needs a decoded bitmap and GPU copy.
@@ -115,7 +123,13 @@ export class SurfaceOverlay {
 
   async add(source: THREE.Mesh) {
     const selectedFaces = this.faces.get(source.userData.info?.i);
-    if (selectedFaces) { this.attachFaces(source, selectedFaces); return; }
+    if (selectedFaces) {
+      const tile = meshTile(source.name), mask = tile && this.meshMasks.get(tile);
+      if (this.meshMasks.size) {
+        if (tile && mask) await this.addMaskedFaces(source, selectedFaces, tile, mask);
+      } else this.attachFaces(source, selectedFaces);
+      return;
+    }
     const key = groundTile(source.name);
     if (!key || !this.masks.has(key)) return;
     this.sources.add(source);
@@ -146,10 +160,44 @@ export class SurfaceOverlay {
     return promise;
   }
 
+  private async addMaskedFaces(source: THREE.Mesh, faces: number[], tile: string, mask: string) {
+    const key = `mesh:${tile}`, found = this.materials.get(key);
+    if (found) { this.attachFaces(source, faces, found.material, tile); return; }
+    const version = this.version, pending = this.pending.get(key);
+    if (pending) {
+      await pending;
+      if (version === this.version) await this.addMaskedFaces(source, faces, tile, mask);
+      return;
+    }
+    const bytes = maskBytes(mask);
+    if (!this.reserve(bytes)) throw new Error("Not enough preview memory to highlight this road. Increase the limit in Settings.");
+    const allocation = {bytes};
+    this.allocations.add(allocation);
+    const promise = (async () => {
+      let owned = false;
+      try {
+        const texture = await this.decode(mask);
+        if (version !== this.version) { disposeTexture(texture); return; }
+        const material = new THREE.MeshBasicMaterial({color: this.colour, alphaMap: texture, opacity: this.opacity,
+          transparent: true, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true,
+          polygonOffsetFactor: -2, polygonOffsetUnits: -2});
+        clampSelection(material, tile);
+        this.materials.set(key, {material, bytes});
+        owned = true;
+        this.attachFaces(source, faces, material, tile);
+      } finally {
+        if (!owned) this.free(allocation);
+        if (version === this.version) this.pending.delete(key);
+      }
+    })();
+    this.pending.set(key, promise);
+    await promise;
+  }
+
   private attach(source: THREE.Mesh, material: THREE.MeshBasicMaterial) {
     if (this.overlays.has(source)) return;
     const overlay = new THREE.Mesh(source.geometry, material);
-    overlay.renderOrder = 5;
+    overlay.renderOrder = this.order;
     overlay.visible = source.visible;
     this.overlays.set(source, overlay);
     this.scene.add(overlay);
@@ -180,11 +228,11 @@ export class SurfaceOverlay {
       }
       const material = item.overlay.material as THREE.MeshBasicMaterial;
       const original = source.material as THREE.MeshLambertMaterial;
-      if (material.map !== original.map) { material.map = original.map; material.needsUpdate = true; }
+      if (!material.alphaMap && material.map !== original.map) { material.map = original.map; material.needsUpdate = true; }
     }
   }
 
-  private attachFaces(source: THREE.Mesh, faces: number[]) {
+  private attachFaces(source: THREE.Mesh, faces: number[], masked?: THREE.MeshBasicMaterial, tile?: string) {
     if (this.faceOverlays.has(source)) return;
     const bytes = ((source.userData.info?.vertices ?? source.geometry.getAttribute("position").count) * 44 + faces.length * 6) * 2;
     if (!this.reserve(bytes)) throw new Error("Not enough preview memory to highlight this material. Increase the limit in Settings.");
@@ -194,10 +242,12 @@ export class SurfaceOverlay {
       const geometry = source.geometry.clone(), original = source.geometry.getIndex()!;
       geometry.setIndex(faces.flatMap(face => [0, 1, 2].map(c => original.getX(face * 3 + c))));
       const sourceMaterial = source.material as THREE.MeshLambertMaterial;
-      const material = new THREE.MeshBasicMaterial({color: this.colour, map: sourceMaterial.map, alphaTest: sourceMaterial.alphaTest,
-        opacity: 0.55, transparent: true, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
+      const material = masked ? masked.clone() : new THREE.MeshBasicMaterial({color: this.colour, map: sourceMaterial.map,
+        alphaTest: sourceMaterial.alphaTest, opacity: 0.55, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
+      if (masked && tile) clampSelection(material, tile);
       const overlay = new THREE.Mesh(geometry, material);
-      overlay.renderOrder = 5;
+      overlay.renderOrder = this.order;
       this.faceOverlays.set(source, {overlay, faces, stamp: -1, indexStamp: -1});
       this.scene.add(overlay);
       this.follow();
@@ -222,7 +272,7 @@ export class SurfaceOverlay {
       material.dispose();
     }
     for (const allocation of this.allocations) this.free(allocation);
-    this.overlays.clear(); this.materials.clear(); this.masks.clear(); this.sources.clear(); this.pending.clear();
+    this.overlays.clear(); this.materials.clear(); this.masks.clear(); this.meshMasks.clear(); this.sources.clear(); this.pending.clear();
     this.faces.clear(); this.faceOverlays.clear();
     this.changed();
   }

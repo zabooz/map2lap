@@ -113,7 +113,11 @@ the main driving route does not constrain it. Bridge and tunnel ends join their 
 changes there; interior crossings stay separate. Build facts retain the actual partial structure ranges of Overture roads;
 older facts with only whole-way tags need rebuilding for a structure that occupied just part of a road. Clicks retain their
 surface elevation to choose the built level ([Selecting a built road](#selecting-a-built-road)); the selected road's own
-deck faces replace the terrain wherever they cover a lattice cell. Orange marks selected road, faint orange the terrain transition.
+deck faces replace the terrain wherever they cover a lattice cell. Green marks the selected road, faint green the terrain
+transition. Once the points are marked, red shows where the current surface is above its fully smoothed profile (smoothing
+would lower it), blue where it is below (smoothing would raise it). The coloured masks come from a read-only 100% solve,
+clipped to the selected road ground and its own deck faces; they do not write a draft change. Their opacity follows the
+relative height difference within the marked region.
 
 Bridges and tunnel floors share the same smoothing solve as their approaches (`app/roadsurfaces.py`). Two points can span a
 short structure or just one transition on a longer one. Source collision triangles supply the floor height, including banking;
@@ -124,7 +128,10 @@ Save replay them against the same source indices. Ordinary terrain-brush operati
 Crossing floor gaps retain the generator's fine-elevation headroom plus ordinary slab/girder allowance; a tighter existing
 crossing may improve but must not lose more clearance. This guards sampled road floors, not every overhanging structure.
 
-Strength starts at zero. Changes to strength, transition or points replace one active height operation after debounce;
+Strength starts at zero. The road-region control uses a gentler input curve than the cubic smoothing window so small
+percentages have a visible effect; it still removes short waves before broad hills. Percentage is not a literal share of
+the height change: a linear share left a cross-carriageway step at intermediate strength on Rechberg. Changes to strength,
+transition or points replace one active height operation after debounce;
 returning to zero removes it. `trackedits.moved_without` excludes that operation while recomputing, so adjustments never
 compound it. Esc cancels pending work, Undo closes the active region, and late answers cannot re-enter the draft
 (`tools/smoothing.ts`). Mark road starts a new region.

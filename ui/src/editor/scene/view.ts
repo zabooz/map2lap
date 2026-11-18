@@ -107,6 +107,8 @@ export class TrackView {
   private surfaceOverlay: SurfaceOverlay | null = null;
   private roadRegionOverlay: SurfaceOverlay | null = null;
   private roadInfluenceOverlay: SurfaceOverlay | null = null;
+  private roadAboveOverlay: SurfaceOverlay | null = null;
+  private roadBelowOverlay: SurfaceOverlay | null = null;
   private lowerRoadOverlay: SurfaceOverlay | null = null;
   private surfaceFailed: (message: string) => void = () => {};
   private geometryPreview = new GeometryPreview(i => this.byNumber.get(i), () => { this.dirty = true; });
@@ -359,7 +361,7 @@ export class TrackView {
     await this.surfaceOverlay.set(selection, this.meshes);
   }
 
-  /** Smooth road uses the painted footprint in orange; its softer terrain transition is a separate small mask. */
+  /** Smooth road uses a green painted footprint; its softer terrain transition is a separate small mask. */
   async setRoadRegion(selection: SurfaceSelection | null) {
     if (!selection) { this.roadRegionOverlay?.clear(); return; }
     this.roadRegionOverlay ??= this.makeRoadOverlay();
@@ -372,6 +374,15 @@ export class TrackView {
     await this.roadInfluenceOverlay.set(selection, this.meshes);
   }
 
+  /** The fully smoothed profile: red lies above it, blue below it, on this road's ground and deck. */
+  async setRoadDifference(difference: {above: SurfaceSelection; below: SurfaceSelection} | null) {
+    if (!difference) { this.roadAboveOverlay?.clear(); this.roadBelowOverlay?.clear(); return; }
+    this.roadAboveOverlay ??= this.makeRoadOverlay(0xf05b56, .8, 6);
+    this.roadBelowOverlay ??= this.makeRoadOverlay(0x418cff, .8, 6);
+    await Promise.all([this.roadAboveOverlay.set(difference.above, this.meshes),
+      this.roadBelowOverlay.set(difference.below, this.meshes)]);
+  }
+
   /** Lower road of a separated crossing, cyan beside the upper road's orange. */
   async setLowerRoadRegion(selection: SurfaceSelection | null) {
     if (!selection) { this.lowerRoadOverlay?.clear(); return; }
@@ -382,11 +393,11 @@ export class TrackView {
     await this.lowerRoadOverlay.set(selection, this.meshes);
   }
 
-  private makeRoadOverlay() {
+  private makeRoadOverlay(colour = 0x46bb68, opacity = .42, order = 5) {
     return new SurfaceOverlay(this.scene, () => { this.dirty = true; }, bytes => {
       if (!fits(this.usedBytes, bytes, this.settings.memoryGb)) return false;
       this.usedBytes += bytes; return true;
-    }, bytes => { this.usedBytes -= bytes; }, undefined, 0xf39c35, .42);
+    }, bytes => { this.usedBytes -= bytes; }, undefined, colour, opacity, order);
   }
 
   /** onIndexed gets the state of the track file shown as soon as it is known, null when none is. */
@@ -1148,6 +1159,8 @@ export class TrackView {
       this.treeFx.follow(this.camera.position);
       this.roadRegionOverlay?.follow();
       this.roadInfluenceOverlay?.follow();
+      this.roadAboveOverlay?.follow();
+      this.roadBelowOverlay?.follow();
       this.lowerRoadOverlay?.follow();
       this.nightSky.follow(this.camera.position);
       this.modelDraw.setNight(this.nightGlow.on);
@@ -1188,6 +1201,8 @@ export class TrackView {
     this.surfaceOverlay?.clear();
     this.roadRegionOverlay?.clear();
     this.roadInfluenceOverlay?.clear();
+    this.roadAboveOverlay?.clear();
+    this.roadBelowOverlay?.clear();
     this.lowerRoadOverlay?.clear();
     this.ghost.setCopy(null, null);
     this.ghost.dropAll();
@@ -1251,6 +1266,8 @@ export class TrackView {
     void this.surfaceOverlay?.add(m).catch(e => this.surfaceFailed(String(e.message ?? e)));
     void this.roadRegionOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     void this.roadInfluenceOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
+    void this.roadAboveOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
+    void this.roadBelowOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     void this.lowerRoadOverlay?.add(m).catch(e => this.onViewFailed(String(e.message ?? e)));
     this.geometryPreview.apply(info.i);
     this.objects.hideIn(m);
