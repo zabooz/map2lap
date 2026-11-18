@@ -912,5 +912,20 @@
    "max_warp": 0.01,
    "max_warp_at_m": 97.0
   }
+ },
+ "perth_tonkin_morley_test": {
+  "title": "Perth Tonkin Morley Test",
+  "about": "Area around the Tonkin Highway and Morley Drive bridges and nearby houses: inspect both bridge decks and building geometry in the Editor",
+  "area": [
+   -31.8918,
+   115.9158,
+   -31.8864,
+   115.9222
+  ],
+  "width": 100.0,
+  "reference": {
+   "bridge_triangles": 3468,
+   "building_triangles": 95666
+  }
  }
 }

@@ -31,6 +31,12 @@ import surroundings  # noqa: E402
 import watch_build as wb  # noqa: E402
 
 
+class AreaMapSpotTest(unittest.TestCase):
+    def test_area_build_has_no_route_to_draw(self):
+        with unittest.mock.patch.object(map_spot.measure, '_route', side_effect=FileNotFoundError):
+            map_spot.draw_route(unittest.mock.Mock(), None, 'perth_tonkin_morley_test', (0, 0), 100)
+
+
 def row(t, s=100.0, kmh=50.0, vert=0.0, off=0.0, susp=(0.01, 0.01, 0.03, 0.03)):
     """One sample of a mark's csv."""
     return {"time_s": t, "route_m": s, "off_m": off, "x": s, "y": 0.0, "z": 0.0, "speed_kmh": kmh, "acc_vert_g": vert,

@@ -26,6 +26,7 @@ line here (`engine/tests/test_tools.py`).
 | Which surface is that bump: deck, junction pad or ground? At the lanes you ask for? | `measure.py <track> --profile --from <m> --to <m> [--across -8,-4,0,4,8]` |
 | Which bridge part is here: does it tilt or lie level and why, what meets at its ends, is a pad paved there and why? | `heights.py <track> --from <m> --to <m> --decks` |
 | A spot's G, steps, ground over a deck, against the reference | `measure.py <track> [--from <m> --to <m>]` |
+| Rebuild and compare route tests plus Perth's bridge/building area test | `measure.py --all --long --install --reference` |
 | Holes in the ground, in the whole built area | `measure.py <track> --holes`, `check_drive.py` |
 | Why does a wall between two roads stand there or not: each test per segment; does ground stand in front of its cut line? | `heights.py <track> --from <m> --to <m> --walls`, `measure.py <track> --walls` |
 | A road beside the route: its profile, the ground across it, what it lies on | `heights.py <track> --from <m> --to <m> --road <name or id>` |

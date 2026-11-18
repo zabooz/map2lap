@@ -151,6 +151,12 @@ def build_kn5(track):
     return ok
 
 
+def build_inputs(entry):
+    """Route points, corridor width and optional area of a test entry. Pure."""
+    return (entry.get("points", []), entry.get("width", 100.0),
+            {"area": entry["area"]} if "area" in entry else {})
+
+
 def build_child(track, ac):
     """Build test track `track` as "check_<track>" with AC at `ac` (a child process)."""
     sys.path.insert(0, os.path.join(HERE, "src"))
@@ -159,7 +165,8 @@ def build_child(track, ac):
     make_track_folder.AC = ac
     with open(os.path.join(HERE, "tools", "test_tracks.json"), encoding="utf-8") as f:
         t = json.load(f)[track]
-    generator.build(t["points"], t["width"], "check_" + track, t["title"])
+    points, width, options = build_inputs(t)
+    generator.build(points, width, "check_" + track, t["title"], **options)
 
 
 def main():

@@ -182,8 +182,11 @@ def draw_pads(draw, font, sp, centre, radius):
 
 
 def draw_route(draw, font, track, centre, radius):
-    """The route in red with its metres."""
-    route = measure._route(track)
+    """The route in red with its metres, if this is a route build."""
+    try:
+        route = measure._route(track)
+    except FileNotFoundError:
+        return                  # area builds have no driving line
     xy = np.c_[route[:, 0], -route[:, 1]]
     _draw_line(draw, xy, centre, radius, (220, 0, 0), 3)
     S = np.r_[0.0, np.cumsum(np.hypot(*np.diff(xy, axis=0).T))]

@@ -21,11 +21,12 @@ on the line and across at -2..+2 m (per lane the surface closest to the previous
 grade, and the line as ridden with its slope per metre. Above, "terrain 3.1 G" says only which surface was on top. --across
 sets its lanes, + right of the route (-8,-4,0,4,8: a wide road's edges).
 
-The test tracks (test_tracks.json, named "<Place> Test") are short routes, each around the spots worth driving after a
+Most test tracks (test_tracks.json, named "<Place> Test") are short routes around spots worth driving after a
 change to the driving surface (a junction, a bridge end, an underpass): their pins lie along the route, so OSRM routes
 it the same way again; "spots" names the route metres to look at (the Track Debug app's count). A few long ones
 ("long": true: a whole motorway stretch, a mountain road) are built only with --long, their builds take minutes. Each is
-shown with its track code (app/trackcode.py: the same inputs, for the generator page). --build builds them up to the OBJ
+shown with its track code (app/trackcode.py: the same inputs, for the generator page). An area test has no route: its
+reference counts visible bridge and building triangles across its retained OBJ tiles. --build builds tracks up to the OBJ
 parts only (out/tracks/<name>: no distant view, no kn5, nothing goes into AC); --install builds them into AC to drive
 them, and measures the same build's OBJ parts. The short ones are built BUILD_JOBS at a time, each with that share of
 the cores (one has a handful of tiles: alone it kept most cores idle); the long ones one after another, with all of
@@ -121,6 +122,27 @@ def unsplit(name):
 def physics(name):
     """An object's physics prefix: 1ROAD_ground_-22_15 -> 1ROAD. Pure."""
     return name.split("_", 1)[0]
+
+
+def area_part_counts(parts):
+    """Counts of visible bridge and building triangles in (mesh name, triangle count) pairs. Pure."""
+    counts = {"bridge_triangles": 0, "building_triangles": 0}
+    for name, triangles in parts:
+        if name.startswith(("1ROAD_deck", "1WALL_deck")):
+            counts["bridge_triangles"] += triangles
+        if name.startswith("nocol_bld"):
+            counts["building_triangles"] += triangles
+    return counts
+
+
+def area_reference(track):
+    """Visible bridge/building geometry of an area build's retained OBJ tiles."""
+    files = tile_files(track)
+    if not files:
+        raise FileNotFoundError(f"No retained OBJ tiles for area test {track}")
+    parts = ((name, len(faces)) for path in files
+             for name, (_material, _vertices, _uv, faces) in obj_to_kn5.read_obj(path).items())
+    return area_part_counts(parts)
 
 
 def _surfaces(track, box):
@@ -781,6 +803,8 @@ def report_holes(track):
 def code(entry, track=None):
     """Code of a test track, using its built options when track and its anchor exist. Pure except for file reads."""
     options = {}
+    if "area" in entry:
+        return "area " + ", ".join(f"{v:.6f}" for v in entry["area"])
     if track is not None:
         anchor = os.path.join(HERE, "out", "tracks", track, "tiles", "anchor.json")
         try:
@@ -805,10 +829,13 @@ def build_one(test, t, install, share):
     trace = os.path.join(HERE, "out", "trace", t)      # (why this build differed from another: tools/build_trace.py)
     shutil.rmtree(trace, ignore_errors=True)
     os.environ[buildtrace.ENV] = trace
+    entry = test[t]
     if install:
-        generator.build(test[t]["points"], test[t]["width"], t, test[t]["title"])
+        generator.build(entry.get("points", []), entry.get("width", 100.0), t, entry["title"],
+                        area=entry.get("area"))
     else:
-        generator.build(test[t]["points"], test[t]["width"], t, upto="obj")
+        generator.build(entry.get("points", []), entry.get("width", 100.0), t, upto="obj",
+                        area=entry.get("area"))
 
 
 def build_all(tracks, install, jobs):
@@ -897,7 +924,7 @@ def main():
         return
     part = a.start is not None or a.end is not None
     refs = {}
-    for t, r in measured(tracks, a.start, a.end):
+    for t, r in measured([t for t in tracks if "area" not in test.get(t, {})], a.start, a.end):
         if t in test:
             print(f"\n{test[t]['about']}\n  code {code(test[t], t)}", end="")
             for m, what in test[t].get("spots", ()):
@@ -905,6 +932,19 @@ def main():
         report(t, r, None if part else test.get(t, {}).get("reference"), everything=part)
         if a.reference and t in test and not part:
             refs[t] = {k: v for k, v in r.items() if not k.startswith("_")}
+    for t in tracks:
+        entry = test.get(t, {})
+        if "area" not in entry:
+            continue
+        r = area_reference(t)
+        print(f"\n{entry['about']}\n  {code(entry)}")
+        print(f"  bridge triangles {r['bridge_triangles']}, building triangles {r['building_triangles']}")
+        if r == entry.get("reference"):
+            print("  (same as reference)")
+        elif entry.get("reference"):
+            print(f"  (reference {entry['reference']})")
+        if a.reference:
+            refs[t] = r
     if refs:
         # (read again: a long track's build takes a while, and the list may have changed meanwhile; only the measured
         # tracks' references are written)
