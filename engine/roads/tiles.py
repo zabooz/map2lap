@@ -118,11 +118,16 @@ def tile_needs(frame, tx, ty, buildings=True, widths=True, water_ring=0):
 def lane_layout(spec):
     """(driving width m, lanes) of a road as its lane lines are painted (extras) and the AI drives it (navgraph): the
     carriageway less a town street's parking lanes or a rural road's edge strips (counted as lanes, every rural
-    Interstate had three), its lanes OpenStreetMap's count or as many LANE_M as fit (at least 1). Pure."""
+    Interstate had three), its lanes OpenStreetMap's count or as many LANE_M as fit. Pure."""
     w, cls = spec.width, spec.cls
     parked = spec.urban and cls in PARKING_CLASSES and not (not spec.oneway and cls in URBAN_ARTERIAL)
     drive = w - ((PARKING_M if spec.oneway else 2 * PARKING_M) if parked else 2 * edge_margin(spec))
     lanes = int(spec.lanes) if spec.lanes else int(drive // LANE_M)
+    # A motorway mainline is at least two lanes when the map omits the count. A2 Völkermarkt's
+    # measured 9.9 m carriageway leaves only 5.5 m after shoulders; width alone guessed one lane.
+    # An explicit one-lane count or a mapped link still describes the narrower road as built.
+    if spec.lanes is None and cls == "motorway" and spec.oneway and not spec.link:
+        lanes = max(2, lanes)
     return drive, max(1, lanes)
 
 

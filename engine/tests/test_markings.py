@@ -64,6 +64,18 @@ class LanePlanTest(unittest.TestCase):
 
 
 class AiLanesTest(unittest.TestCase):
+    def test_untagged_motorway_mainline_keeps_its_lane_divider(self):
+        line = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
+        main = roads.Spec(9.9, "paved", False, "motorway", True, lanes=None)
+        ramp = roads.Spec(6.0, "paved", False, "motorway", True, lanes=None, link=True)
+        one_lane = roads.Spec(9.9, "paved", False, "motorway", True, lanes=1)
+        three_lanes = roads.Spec(9.9, "paved", False, "motorway", True, lanes=3)
+        for road, count in ((main, 2), (ramp, 1), (one_lane, 1), (three_lanes, 3)):
+            self.assertEqual(roads.lane_layout(road)[1], count)
+            lines = [look for look, _width, _points in roads.extras(road, line, 14.5, country="AT")
+                     if look.get("kind") == "lane"]
+            self.assertEqual(bool(lines), count > 1)
+
     def test_the_ai_drives_the_painted_lanes(self):
         import navgraph
         for sp in (roads.Spec(12.8, "paved", True, "tertiary", False), roads.Spec(13.2, "paved", False, "primary", False),
