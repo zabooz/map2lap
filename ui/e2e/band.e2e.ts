@@ -43,6 +43,25 @@ test("marking starts at zero, shows the road mask and Escape leaves the ground u
   await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
 });
 
+test("the signed preview follows the road after smoothing without marking it again", async ({page, backend}) => {
+  const {a, b} = await onHill(page, backend);
+  const previews: {replace?: string; difference?: {above?: {tiles?: {mask: string}[]}}}[] = [];
+  page.on("response", response => {
+    if (response.url().endsWith("/band/way") && response.request().postDataJSON()?.preview === true)
+      void response.json().then(body => previews.push({...body, replace: response.request().postDataJSON()?.replace})).catch(() => {});
+  });
+  await mark(page, a, b);
+  await expect.poll(() => previews.length).toBe(1);
+  const before = previews[0].difference?.above?.tiles?.[0]?.mask;
+  expect(before).toBeTruthy();
+  await strength(page).fill("100");
+  await expect(page.locator("#edit-heights")).toHaveText("1 height change");
+  await saved(page);
+  await expect.poll(() => previews.length).toBeGreaterThan(1);
+  expect(previews.at(-1)?.replace).toBeUndefined();
+  expect(previews.at(-1)?.difference?.above?.tiles?.[0]?.mask).not.toBe(before);
+});
+
 test("strength applies automatically, zero restores this step, Escape keeps it and Undo restores the original", async ({page, backend}) => {
   const {a, b} = await onHill(page, backend);
   const before = await picture(page);

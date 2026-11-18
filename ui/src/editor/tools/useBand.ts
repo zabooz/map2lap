@@ -33,10 +33,10 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
   };
 
   useEffect(() => {
-    if (points.length < 2 || points === good) return;
+    if (points.length < 2) return;
     let over = false;
     void post<Way>(url("/way"), {base: edits.boundRevision(), network: true, points, preview: true,
-      blend, replace: smoothing.replacement()}).then(async result => {
+      blend}).then(async result => {
       if (over) return;
       if (result.error || !result.lines?.length || !result.region) {
         onNote(result.error ?? "No connected road area found");
@@ -54,8 +54,8 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
       }
     });
     return () => { over = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Points name the immutable source selection; good/onNote/url are recreated.
-  }, [points, edits, view, blend]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- The kept revision names the saved road height; good/onNote/url are recreated.
+  }, [points, edits, view, blend, revision]);
 
   useEffect(() => {
     if (points.length !== 1 || !enabled) { view.setMarking(null); return; }

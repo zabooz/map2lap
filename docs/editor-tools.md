@@ -118,6 +118,8 @@ transition. Once the points are marked, red shows where the current surface is a
 would lower it), blue where it is below (smoothing would raise it). The coloured masks come from a read-only 100% solve,
 clipped to the selected road ground and its own deck faces; they do not write a draft change. Their opacity follows the
 relative height difference within the marked region.
+After each saved height edit, the colours are recalculated from the current road surface; an already smoothed stretch
+returns to green where no further correction is needed.
 
 Bridges and tunnel floors share the same smoothing solve as their approaches (`app/roadsurfaces.py`). Two points can span a
 short structure or just one transition on a longer one. Source collision triangles supply the floor height, including banking;

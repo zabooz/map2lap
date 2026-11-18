@@ -17,8 +17,6 @@ export class SmoothSession {
 
   cancel() { this.epoch++; }
   reset() { this.cancel(); this.owned = null; this.joined = false; this.key = null; }
-  replacement() { return this.owned ?? undefined; }
-
   async update(points: Pin[], blend: number, strength: number): Promise<Result> {
     const state = this.edits.state();
     if (this.owned && !state.heights.some(h => h.id === this.owned)) {

@@ -53,7 +53,7 @@ that line, excluding neighbouring roads at other levels; the Road region tool re
 
 **Road region**:
 The mapped network selected by Smooth road’s terminal/branch points, clipped by actual road paint (`app/roadregion.py`).
-Orange shows selected road, faint orange the terrain transition; the driving route does not constrain it.
+Green shows selected road, faint green the terrain transition; the driving route does not constrain it.
 
 **Built road query**:
 The Editor's shared road selection and height reading (`app/builtroad.py`): map facts give connections and road IDs, the
