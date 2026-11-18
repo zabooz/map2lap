@@ -15,11 +15,11 @@ from .tags import _facts_load, _facts_store, _osm, _rule_value, raw_level_ranges
 # West Coast USA's plain streets 12.5 m for 8 m of driving: ~2.3 m of parking each side). A width
 # rule, where Overture has one, is the carriageway already.
 PARKING_M = 2.3
-# ... only on a street mapped at a town's speed: 50 km/h, or 35 mph where limits are in miles (56 km/h: a town street
-# with parking there; 40 mph and 60 km/h are through roads). Völkermarkt's Seenstraße, the old B82 at 100 km/h past a
-# car dealer's yard, got two parking lanes (10.8 m for its 6.2 m): such a road's cars stand in yards and lots. An
-# unknown limit keeps them. Fails where a faster town road has kerbside parking: it is drawn without.
-PARKING_MAX_KMH = 57.0
+# ... only on a street mapped at a town's speed: up to 60 km/h (the urban default in Russia and Belarus, and above
+# 35 mph / 56 km/h); 40 mph and 100 km/h remain through-road speeds. Völkermarkt's Seenstraße, the old B82 at
+# 100 km/h past a car dealer's yard, got two parking lanes (10.8 m for its 6.2 m): such a road's cars stand in yards
+# and lots. An unknown limit keeps them. Fails where a 60 km/h town road has no kerbside parking, or a faster one does.
+PARKING_MAX_KMH = 60.0
 
 
 def parking_speed(kmh):
