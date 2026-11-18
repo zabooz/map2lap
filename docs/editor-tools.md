@@ -156,6 +156,9 @@ flat, rounded or ribbed profile. To place a kerb on the opposite edge, mark a ne
 height. The selected kerb's actual meshes are tinted amber. Clicking
 any part of a kerb with Select highlights its full range; the Select bar's Racing kerb (B) action opens that range's
 settings. Selection > Options has width, height and profile for the picked range.
+Kerbs follow the mapped road's rounded spline independently of sidewalks, including sidewalks later removed in the
+Editor. Tight inside bends use round parallel edges with overlapping loops cut before meshing. Source heights are
+sampled at the inner edge.
 X, Delete or the Select bar's Delete action removes the picked range; Undo restores it. Shift/Ctrl/Alt with the wheel
 change width, height and profile in the Kerb tool. Undo/Redo, the draft and Save keep independent ranges.
 

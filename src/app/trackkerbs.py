@@ -233,14 +233,142 @@ def _continuous_heights(edge, heights):
     return heights
 
 
+def _cross(a, b):
+    """Signed two-dimensional cross product. Pure."""
+    return float(a[0] * b[1] - a[1] * b[0])
+
+
+def _first_loop(path):
+    """First non-adjacent crossing of a polyline, using 8 m cells. Pure."""
+    cells = {}
+    for j, (a, b) in enumerate(zip(path, path[1:])):
+        lo = np.floor(np.minimum(a, b) / 8).astype(int)
+        hi = np.floor(np.maximum(a, b) / 8).astype(int)
+        keys = [(x, z) for x in range(lo[0], hi[0] + 1) for z in range(lo[1], hi[1] + 1)]
+        for i in sorted({i for key in keys for i in cells.get(key, ())}):
+            if j - i < 2:
+                continue
+            c, d = path[i:i + 2]
+            u, v = d - c, b - a
+            den = _cross(u, v)
+            if abs(den) < 1e-9:
+                continue
+            t, s = _cross(a - c, v) / den, _cross(a - c, u) / den
+            if 1e-7 < t < 1 - 1e-7 and 1e-7 < s < 1 - 1e-7:
+                return i, j, c + t * u
+        for key in keys:
+            cells.setdefault(key, []).append(j)
+    return None
+
+
+def _without_loops(path):
+    """Cut the fold from an inside offset at a tight junction. Pure."""
+    path = np.asarray(path, np.float64)
+    for _ in range(len(path)):
+        crossing = _first_loop(path)
+        if crossing is None:
+            return path
+        i, j, point = crossing
+        path = np.concatenate((path[:i + 1], point[None], path[j + 1:]))
+    raise ValueError("Kerb edge folds repeatedly at this sharp junction")
+
+
+def _resample_path(path, count):
+    """Evenly spaced points along an offset edge, retaining both endpoints. Pure."""
+    distance = np.r_[0, np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
+    if distance[-1] < MIN_ROW_M:
+        raise ValueError("No space for a kerb around this sharp junction")
+    along = np.linspace(0, distance[-1], count)
+    return np.c_[np.interp(along, distance, path[:, 0]), np.interp(along, distance, path[:, 1])]
+
+
+def _matched_edge(inner, outer):
+    """Points on a simple outer edge nearest to ordered inner rows. Pure."""
+    segment = np.diff(outer, axis=0)
+    length = np.linalg.norm(segment, axis=1)
+    along = np.r_[0, np.cumsum(length)]
+    if along[-1] < MIN_ROW_M:
+        raise ValueError("No space for a kerb around this sharp junction")
+    positions = []
+    for first in range(0, len(inner), 128):
+        points = inner[first:first + 128]
+        fraction = np.clip(np.sum((points[:, None] - outer[None, :-1]) * segment[None], axis=2)
+                           / np.maximum(length[None] ** 2, 1e-12), 0, 1)
+        hits = outer[None, :-1] + fraction[:, :, None] * segment[None]
+        nearest = np.argmin(np.sum((hits - points[:, None]) ** 2, axis=2), axis=1)
+        positions.extend((along[nearest] + fraction[np.arange(len(points)), nearest] * length[nearest]).tolist())
+    positions = np.maximum.accumulate(positions)
+    positions[0], positions[-1] = 0, along[-1]
+    return np.c_[np.interp(positions, along, outer[:, 0]), np.interp(positions, along, outer[:, 1])]
+
+
+def _round_offset(path, distance, sign):
+    """Polyline offset with round outside joins and intersected inside joins. Pure."""
+    delta = np.diff(path, axis=0)
+    tangent = delta / np.maximum(np.linalg.norm(delta, axis=1)[:, None], 1e-9)
+    normal = sign * np.c_[-tangent[:, 1], tangent[:, 0]]
+    result = [path[0] + distance[0] * normal[0]]
+    for i in range(1, len(path) - 1):
+        prev = path[i] + distance[i] * normal[i - 1]
+        next_ = path[i] + distance[i] * normal[i]
+        turn = math.atan2(_cross(tangent[i - 1], tangent[i]), float(tangent[i - 1] @ tangent[i]))
+        if sign * turn < -1e-4:
+            # Outside joins are arcs, so the narrow side does not make a spike.
+            steps = max(1, math.ceil(abs(turn) * distance[i] / 0.25))
+            start = math.atan2(normal[i - 1, 1], normal[i - 1, 0])
+            result.extend(path[i] + distance[i] * np.array(
+                [math.cos(start + turn * j / steps), math.sin(start + turn * j / steps)])
+                for j in range(steps + 1))
+        elif abs(turn) > 1e-4:
+            before = path[i - 1] + distance[i - 1] * normal[i - 1]
+            after = path[i + 1] + distance[i + 1] * normal[i]
+            u, v = prev - before, after - next_
+            den = _cross(u, v)
+            point = prev + _cross(next_ - prev, v) / den * u if abs(den) > 1e-9 else (prev + next_) / 2
+            # A near U-turn has an unbounded miter. Its real offset is instead
+            # resolved by clipping the overlapping inside edges below.
+            result.append(point if np.linalg.norm(point - path[i]) < 10 * distance[i] else (prev + next_) / 2)
+        else:
+            result.append(prev)
+    result.append(path[-1] + distance[-1] * normal[-1])
+    return _without_loops(np.asarray(result))
+
+
+def _strip_xy(line, side, width):
+    """Inner and outer AC x/z edges; remove sharp-corner folds before meshing. Pure."""
+    centre = line[:, [0, 2]]
+    sign = 1 if side == "left" else -1
+    normal = _normals(centre)
+    # The kerb uses the rounded mapped road, including where a sidewalk is later
+    # removed in the Editor. Built sidewalk edges can jump across acute junctions.
+    outer = line[:, 3] / 2 - 0.15 + width
+    inner_xy = centre + sign * normal * (outer - width)[:, None]
+    outer_xy = centre + sign * normal * outer[:, None]
+    perimeter = np.concatenate((inner_xy, outer_xy[::-1], inner_xy[:1]))
+    winding = np.array([_cross(step, across) for step, across in
+                        zip(np.diff(inner_xy, axis=0), outer_xy[:-1] - inner_xy[:-1])])
+    if (_first_loop(perimeter) is not None or np.any(sign * winding <= 0)):
+        # At a tight inside turn, the normal samples can reverse even though the
+        # road's spline is smooth. Build round parallel edges and cut their loops.
+        inner_clean = _round_offset(centre, outer - width, sign)
+        outer_clean = _round_offset(centre, outer, sign)
+        inner_xy = _resample_path(inner_clean, len(line))
+        outer_xy = _matched_edge(inner_xy, outer_clean)
+        perimeter = np.concatenate((inner_xy, outer_xy[::-1], inner_xy[:1]))
+        winding = np.array([_cross(step, across) for step, across in
+                            zip(np.diff(inner_xy, axis=0), outer_xy[:-1] - inner_xy[:-1])])
+    if _first_loop(perimeter) is not None or np.any(sign * winding <= 0):
+        raise ValueError("This kerb crosses itself at a sharp junction; mark shorter ranges")
+    return inner_xy, outer_xy
+
+
 def prepare(path, scan, moved, net, side, width=0.45):
     """Mapped road range with sampled source height at the kerb's inner edge."""
     if side not in ("left", "right"):
         raise ValueError("Choose left or right")
     rows = _spaced_line(sampled(rounded(net, side, width)), [0, 1])
-    normal = _normals(rows[:, :2])
-    sign = 1 if side == "left" else -1
-    edge = rows[:, :2] + sign * normal * (rows[:, 2:3] / 2 - 0.15)
+    strip = np.c_[rows[:, 0], np.zeros(len(rows)), rows[:, 1], rows[:, 2]]
+    edge, _outer_edge = _strip_xy(strip, side, width)
     heights = []
     # Chunks keep a winding road's height grid bounded even if the selected path circles back.
     # The selected road's own deck faces decide where it is on its bridge (builtroad), so a skewed
@@ -275,10 +403,12 @@ def problems(edits):
                 or type(height) not in (int, float) or not math.isfinite(height) or not 0 <= height <= MAX_HEIGHT_M):
             return "Kerb width must be 0.2–2.0 m and height 0–0.30 m"
         line = edit.get("line")
-        if not isinstance(line, list) or not 2 <= len(line) <= 6000 or any(not isinstance(row, list) or len(row) != 4
+        if not isinstance(line, list) or not 2 <= len(line) <= 6000 or any(not isinstance(row, list) or len(row) not in (4, 5)
                 or any(type(value) not in (int, float) or not math.isfinite(value) for value in row)
-                or not 2 <= row[3] <= 60 for row in line):
+                or not 2 <= row[3] <= 60 or len(row) == 5 and not (-1 <= row[4] <= 60) for row in line):
             return "Invalid kerb road line"
+        if len({len(row) for row in line}) != 1:
+            return "Kerb road rows must have one format"
         distance = sum(math.hypot(a[0] - b[0], a[2] - b[2]) for a, b in zip(line, line[1:]))
         if distance < 1 or distance > MAX_LENGTH_M + SAMPLE_M:
             return "Kerb stretch must be between 1 m and 3 km"
@@ -299,10 +429,11 @@ def _rib_rows(line):
 def mesh(line, *, side, profile, width, height):
     """One visible and collidable AC mesh (vertices, triangles) along a road-side line. Pure."""
     line = _spaced_line(line, [0, 2])
+    inner_xy, outer_xy = _strip_xy(line, side, width)
     if profile == "ribbed":
-        line = _rib_rows(line)
-    normal = _normals(line[:, [0, 2]])
-    sign = 1 if side == "left" else -1
+        combined = _rib_rows(np.c_[line, inner_xy, outer_xy])
+        inner_xy, outer_xy = combined[:, -4:-2], combined[:, -2:]
+        line = combined[:, :-4]
     distance = np.r_[0, np.cumsum(np.linalg.norm(np.diff(line[:, [0, 2]], axis=0), axis=1))]
     across = np.linspace(0, 1, 5)
     v = np.zeros(len(line) * 5, kn5.VERTEX)
@@ -312,10 +443,10 @@ def mesh(line, *, side, profile, width, height):
             rise = np.array([0, 1, 1, 1, 0]) * height
         elif profile == "ribbed":
             rise[1:4] *= 0.78 + 0.22 * math.cos(2 * math.pi * distance[k] / 0.5)
-        offset = row[3] / 2 - 0.15 + width * across
-        v["pos"][5*k:5*k+5, 0] = row[0] + sign * normal[k, 0] * offset
+        xy = inner_xy[k] + (outer_xy[k] - inner_xy[k]) * across[:, None]
+        v["pos"][5*k:5*k+5, 0] = xy[:, 0]
         v["pos"][5*k:5*k+5, 1] = row[1] + rise + 0.003  # 3 mm prevents z-fighting against the existing road paint
-        v["pos"][5*k:5*k+5, 2] = row[2] + sign * normal[k, 1] * offset
+        v["pos"][5*k:5*k+5, 2] = xy[:, 1]
         v["uv"][5*k:5*k+5, 0] = distance[k] / 2
         v["uv"][5*k:5*k+5, 1] = across
     tri = []

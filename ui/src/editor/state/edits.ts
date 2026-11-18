@@ -22,7 +22,8 @@ export interface WallEdit {
 
 export interface KerbEdit {
   id: string;
-  line: [number, number, number, number][]; // source [x,y,z,road width]
+  line: ([number, number, number, number] | [number, number, number, number, number])[];
+  // New lines use [x,y,z,road width]; saved five-value lines are read without their obsolete edge offset.
   road_ids?: string[];                 // mapped roads whose bend this kerb follows
   side: "left" | "right";
   profile: "flat" | "rounded" | "ribbed";
