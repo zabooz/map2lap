@@ -334,10 +334,11 @@ export class TrackEdits {
     this.saveNow(true);
   }
 
-  /** The revision on the server once the list as it is lies there, null if it can't get there now. */
+  /** The revision on the server once this requested list lies there; null if it failed or was taken back. */
   async saved() {
+    const requested = this.edits();
     while (!this.isSaved() && !["stuck", "failed"].includes(this.now.save)) await new Promise(ok => setTimeout(ok, 50));
-    return this.isSaved() ? this.revision : null;
+    return this.isSaved() && sameEdits(this.edits(), requested) ? this.revision : null;
   }
 
   /** The list as it is goes to the server now, if it isn't there. leaving: the page closes: the request has to outlive it, and it

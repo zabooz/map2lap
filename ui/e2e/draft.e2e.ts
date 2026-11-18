@@ -26,19 +26,17 @@ test("built again, older changes stay but are not applied, and nothing is mixed 
   await expect(page.locator("#edit-click-deletes")).toBeEnabled();
 });
 
-test("built again under an open view: nothing is saved for a track not shown; reading again brings the new build", async ({page, backend}) => {
+test("built again under an open view: nothing is saved for a track not shown; the new build loads automatically", async ({page, backend}) => {
   await openEditor(page);
   const at = await findTree(page);
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test"});
+  const refused = page.waitForResponse(r => r.url().endsWith("/api/editor/alpha/edits") && r.request().method() === "PUT");
+  const asked = page.waitForRequest("**/api/editor/alpha/index");
   await page.mouse.click(at.x, at.y);
   await page.keyboard.press("Delete");
-  await expect(page.locator("#edit-stuck")).toContainText("changed elsewhere");
+  expect((await refused).status()).toBe(409);
   expect((await stored(page)).deleted).toEqual([]);
-  const asked = page.waitForRequest("**/api/editor/alpha/index");
-  await page.getByRole("tab", {name: "Details", exact: true}).click();
-  await page.getByRole("button", {name: "Read again"}).click();
   await asked;                                  // (the view loads the new build too)
-  await expect(page.locator("#edit-stuck")).toHaveCount(0);
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   const next = await findTree(page);
   await page.mouse.click(next.x, next.y);
@@ -47,7 +45,7 @@ test("built again under an open view: nothing is saved for a track not shown; re
   expect((await stored(page)).deleted.map(d => d.id)).toEqual([NEAR_TREE]);
 });
 
-test("two tabs: the second one's save is refused instead of overwriting the first's, reading again shows both", async ({page, context}) => {
+test("two tabs: the second one's save is refused instead of overwriting the first's, then reads the draft again", async ({page, context}) => {
   await openEditor(page);
   const other = await context.newPage();
   await openEditor(other);
@@ -55,13 +53,10 @@ test("two tabs: the second one's save is refused instead of overwriting the firs
   await deleteTree(page);
   await other.bringToFront();
   const at = await findTree(other);
+  const refused = other.waitForResponse(r => r.url().endsWith("/api/editor/alpha/edits") && r.request().method() === "PUT");
   await other.mouse.click(at.x, at.y);
   await other.keyboard.press("Delete");
-  await expect(other.locator("#edit-stuck")).toContainText("changed elsewhere");
-  await expect(other.locator("#edit-click-deletes")).toBeDisabled();
-  await other.getByRole("tab", {name: "Details", exact: true}).click();
-  await other.getByRole("button", {name: "Read again"}).click();
-  await expect(other.locator("#edit-stuck")).toHaveCount(0);
+  expect((await refused).status()).toBe(409);
   await expect(other.locator("#edit-count")).toHaveText("1 object deleted");
   expect((await stored(page)).deleted.map(d => d.id)).toEqual([NEAR_TREE]);
   await other.close();

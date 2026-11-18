@@ -173,7 +173,7 @@ test("refused placement drops the local group and leaves the draft unchanged", a
   await expect.poll(() => page.evaluate(() => (performance.getEntriesByName("map2lap.groups.resources").at(-1) as PerformanceMark)?.detail?.instances)).toBe(0);
 });
 
-for (const status of [400, 409]) test(`a failed draft write (${status}) after Esc removes the whole group and reports a persistent error`, async ({page}) => {
+for (const status of [400, 409]) test(`a failed draft write (${status}) after Esc removes the whole group`, async ({page}) => {
   await openEditor(page); const library = await prepare(page);
   await library.getByRole("button", {name: "Paint group", exact: true}).click();
   let reject!: () => void, reached!: () => void;
@@ -184,8 +184,12 @@ for (const status of [400, 409]) test(`a failed draft write (${status}) after Es
   });
   try {
     await scene(page).click({position: {x: 600, y: 400}}); await writing;
+    const refused = page.waitForResponse(r => r.url().endsWith("/api/editor/alpha/edits") && r.request().method() === "PUT");
+    const reread = status === 409 ? page.waitForResponse(r => r.url().endsWith("/api/editor/alpha/edits") && r.request().method() === "GET") : null;
     await page.keyboard.press("Escape"); reject();
-    await expect(page.locator("#edit-group-failed")).toContainText(status === 409 ? "This track was changed elsewhere" : "Group draft rejected");
+    expect((await refused).status()).toBe(status);
+    if (reread) await reread;
+    else await expect(page.getByRole("alert").filter({hasText: "Group draft rejected"})).toBeVisible();
     await expect.poll(() => page.evaluate(() => (performance.getEntriesByName("map2lap.groups.resources").at(-1) as PerformanceMark)?.detail?.instances)).toBe(0);
     expect((await draft(page)).models ?? []).toHaveLength(0);
   } finally { reject(); }

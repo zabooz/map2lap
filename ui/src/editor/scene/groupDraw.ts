@@ -54,5 +54,9 @@ export class GroupDraw {
       performance.mark("map2lap.groups.resources", {detail: this.draw.stats()});
     });
   }
-  dispose() { this.groups.clear(); this.feet.clear(); this.draw.dispose(); }
+  dispose() {
+    this.groups.clear(); this.feet.clear(); this.draw.dispose();
+    performance.clearMarks("map2lap.groups.resources");
+    performance.mark("map2lap.groups.resources", {detail: this.draw.stats()});
+  }
 }

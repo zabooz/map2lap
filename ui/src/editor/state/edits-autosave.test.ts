@@ -192,6 +192,18 @@ test("the revision of what is saved, none while it can't get there", async () =>
   expect(await edits.saved()).toBeNull();
 });
 
+test("a draft refusal cannot acknowledge the edit it rolled back", async () => {
+  const {s, edits} = await started();
+  edits.remove([tree(1)]);
+  edits.saveNow();
+  const saving = edits.saved();
+  await settle();
+  s.asked[0].answer(json({error: "no object to delete"}, 400));
+  expect(await saving).toBeNull();
+  expect(edits.state().save).toBe("saved");
+  expect(edits.state().removed).toEqual([]);
+});
+
 test("a change undone before it went out is saved: nothing to send", async () => {
   const {s, edits} = await started();
   edits.remove([tree(1)]);

@@ -357,10 +357,9 @@ test("read again from a tree deleted alone to only its whole sort: the tree stay
   await saved(page);
   const s = await stored(page);                 // (another tab: the tree back by its id, its sort gone whole)
   await page.request.put("/api/editor/alpha/edits", {data: {base: s.base, revision: s.revision, id: "other", deleted: [], object_sorts: [sort]}});
+  const refused = page.waitForResponse(r => r.url().endsWith("/api/editor/alpha/edits") && r.request().method() === "PUT");
   await page.keyboard.press("Control+y");       // (the tree out by its id here: refused, the other tab's list is newer)
-  await expect(page.locator("#edit-stuck")).toContainText("changed elsewhere");
-  await page.getByRole("tab", {name: "Details", exact: true}).click();
-  await page.getByRole("button", {name: "Read again"}).click();
+  expect((await refused).status()).toBe(409);
   await expect(page.locator("#edit-sorts")).toHaveText(`All deleted: ${sort}`);
   await expect(page.locator("#edit-count")).toHaveCount(0);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
@@ -397,7 +396,8 @@ test("the road can't be deleted: with click deletes it says so, Delete does noth
   await page.keyboard.press("Delete");
   await page.mouse.move(AWAY.x, AWAY.y);
   await expect(page.locator("#edit-count")).toHaveCount(0);
-  expect((await picture(page)).equals(before)).toBe(true);
+  await page.keyboard.press("Escape");          // (ends Delete and its road selection before comparing the view)
+  await expect.poll(async () => (await picture(page)).equals(before)).toBe(true);
   expect((await stored(page)).revision).toBe(0);
 });
 
