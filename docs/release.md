@@ -18,7 +18,7 @@ first and stop the generator server before replacing earthfast: it locks the `.p
 Push-Location ui
 bun install --frozen-lockfile
 bun run check
-bun run e2e:all                # builds src/web, then tests Chrome and Firefox
+bun run e2e                    # builds src/web, then tests Chrome
 Pop-Location
 ```
 

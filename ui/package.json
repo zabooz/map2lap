@@ -6,8 +6,7 @@
     "dev": "bun run dev.ts",
     "build": "bun run build.ts",
     "check": "tsc --noEmit && eslint src tools/ground && bun test",
-    "e2e": "bun run build && bun --bun x playwright test --project=chrome",
-    "e2e:all": "bun run build && bun --bun x playwright test",
+    "e2e": "bun run e2e/socket-check.ts && bun run build && bun --bun x playwright test --project=chrome",
     "e2e:probes": "bun --bun x playwright test --config=playwright.probes.config.ts --project=chrome"
   },
   "dependencies": {

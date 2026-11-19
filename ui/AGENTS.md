@@ -8,21 +8,20 @@ cd ui; bun install --frozen-lockfile  # once per clone, with the committed depen
 bun run dev                   # http://localhost:3000, changes show as files are saved; needs the server on 8800
 bun run check                 # types, React's hook rules and the page's tests
 bun run build                 # into src/web
-bun run e2e                   # builds, then the browser tests in Chrome (Playwright, ui/e2e), ~2 min; `playwright test` alone runs on the src/web as last built
-bun run e2e:all               # also in Firefox; once per machine: bunx playwright install
+bun run e2e                   # builds, then tests in Chrome only (Playwright, ui/e2e); once per machine: bunx playwright install chromium
 bun run e2e:probes            # standalone WebGL experiments in Chrome (ui/probes), separate from product regression tests
 ```
 
-Which browser tests when: while working the test file of the change in Chrome (`bun run build`, then `bun --bun x playwright test e2e/editor.e2e.ts --project=chrome`, `-g` for single tests; `--bun`, since the library
-fixtures compile with Bun's bundler and plain `bunx` runs Playwright on Node); before a commit `bun run e2e`; before a merge or a release `bun run e2e:all`, and before a commit that changes the camera, mouse or keys, where browsers differ. Only Chrome and Firefox are tested: Edge is
-Chromium like Chrome, and WebKit (Safari) has no users on Windows or Linux.
+Which browser tests when: while working, run the test file of the change in Chrome (`bun run build`, then `bun --bun x playwright test e2e/editor.e2e.ts --project=chrome`, `-g` for single tests; `--bun`, since the library
+fixtures compile with Bun's bundler and plain `bunx` runs Playwright on Node); before a commit, merge or release run `bun run e2e`. Chrome is the only browser-test target.
 
 The browser tests run against `ui/e2e/server.py`: the real server with an AC folder, settings and small tracks of its own, and
 stand-ins for builds, AC, updates, map data and the net. They test that things work, not where they sit; only the 3D view is
 tested down to the pixel (`render.e2e.ts`). `--update-snapshots` takes new reference images after a wanted change of its look.
 Set `MAP2LAP_TEST_WEB` to an absolute bundle directory to test a separate UI build without replacing the live `src/web`.
 The test server binds a random port on `127.0.0.1`. A sandbox that forbids local sockets makes that fail with
-`PermissionError: [Errno 1] Operation not permitted`, and no browser test can start. An agent in such a sandbox runs the
+`PermissionError: [Errno 1] Operation not permitted`, and no browser test can start. `bun run e2e` checks the local socket
+before building or starting Playwright and exits with an explanation when it is blocked. An agent in such a sandbox runs the
 browser-test command with its tool's permission for local sockets or network access from the start. If that is denied, it
 reports the browser check as blocked by the environment: rerunning it in the same sandbox cannot test the UI.
 
