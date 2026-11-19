@@ -139,6 +139,8 @@ test("a saved mixture paints locally before any placement request and commits on
 test("Escape cancels a live browser preview; deleting the group keeps already placed models", async ({page}) => {
   await openEditor(page); const library = await prepare(page);
   await library.getByRole("button", {name: "Paint group", exact: true}).click();
+  await expect(library).toBeHidden();
+  await expect(page.locator("#edit-group-set")).toBeVisible();
   const box = (await scene(page).boundingBox())!;
   await page.mouse.move(box.x + 590, box.y + 395); await page.mouse.move(box.x + 600, box.y + 400);
   await expect.poll(async () => (await preview(page))?.key).toBe("hover");
