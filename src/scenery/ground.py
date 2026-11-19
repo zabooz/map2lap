@@ -25,6 +25,7 @@ import acgrid
 import fast
 import grading as gradingmod
 import mapgeom
+import roadmesh
 import roads as roadsmod
 import surface as surfacemod
 
@@ -322,10 +323,179 @@ def _wear(rgb, x, y, amount):
     return rgb
 
 
+def kept_terrain_cells(holes):
+    """Cells that keep their ground, from cell hole flags (n, n: a flag cuts the cell it is the south-west corner of).
+    Pure.
+
+    The tunnel kernel already flags whole cells after testing their corners. A cell went as soon as any corner was
+    flagged: every cut a grid step wider to the west and south, the sky beside portals facing that way.
+    """
+    return ~holes[:-1, :-1]
+
+
+def tunnel_roof_profile(half, height):
+    """Positive lateral distances and heights of a tube's faceted vault. Pure."""
+    sec = roadmesh._tunnel_section(half, height, height < roadmesh.TUNNEL_H - 0.05)
+    vault = sec[2:-2]
+    right = vault[vault[:, 0] >= -1e-9]
+    order = np.argsort(right[:, 0])
+    return right[order, 0], right[order, 1]
+
+
+def tunnel_footprints(parts, heights=None, mouths=None):
+    """Tubes and their aprons (roads.PORTAL_APRON_M past each portal, mouths {fid: (start, end)} as
+    TunnelProfiles.mouths): lines, half widths, floors and vault heights. Pure."""
+    valid = [p for p in parts if len(p[2]) >= 2 and np.isfinite(np.asarray(p[3])).all()]
+    twins = roadsmod.twin_tunnels(valid)
+    twinned = {k for i, j, _mid, _width in twins for k in (i, j)}
+    footprints = []
+    for i, (fid, spec, xy, z, _lon) in enumerate(valid):
+        half = spec.width / 2 + (0.0 if i in twinned else roadmesh.TUNNEL_SHOULDER)
+        height = (heights or {}).get(fid, roadmesh.TUNNEL_H)
+        footprints.append((np.asarray(xy, np.float64)[:, :2], half,
+                           np.asarray(z, np.float64), height, tunnel_roof_profile(half, height)))
+    for i, _j, mid, width in twins:
+        if len(mid) >= 2:
+            half = width / 2 + roadmesh.TUNNEL_SHOULDER
+            height = (heights or {}).get(valid[i][0], roadmesh.TUNNEL_H)
+            footprints.append((np.asarray(mid[:, :2], np.float64), half,
+                               np.asarray(mid[:, 2], np.float64), height, tunnel_roof_profile(half, height)))
+    # The floor's apron past a portal, as roads._tunnel_chunks draws it: only where the part's end is a portal
+    # (Griffen's west portal had none; guarded anyway, its cut cells stayed open over 4.2 m of the road in front).
+    # Its width is the road slab's: an individual twin has no wall shoulder outside the shared tube.
+    for fid, spec, xy, z, _lon in valid:
+        xy = np.asarray(xy, np.float64)[:, :2]
+        z = np.asarray(z, np.float64)
+        for (at, nb), mouth in zip(((0, 1), (-1, -2)), (mouths or {}).get(fid, (True, True))):
+            if not mouth:
+                continue
+            d = xy[at] - xy[nb]
+            d /= max(float(np.hypot(*d)), 1e-9)
+            footprints.append((np.array([xy[at], xy[at] + d * roadsmod.PORTAL_APRON_M]),
+                               spec.width / 2,
+                               np.array([z[at], z[at]]),
+                               (heights or {}).get(fid, roadmesh.TUNNEL_H)))
+    return footprints
+
+
+def _footprint_segments(footprints):
+    """Segment, squared half width, bounds, floor, vault, whether it is its line's first and last segment, and the
+    line's index, of tube/apron footprints. Pure."""
+    segments = []
+    for k, footprint in enumerate(footprints):
+        line, half = footprint[:2]
+        floor = footprint[2] if len(footprint) >= 4 else None
+        th = float(footprint[3]) if floor is not None else float("inf")
+        roof = footprint[4] if len(footprint) >= 5 else None
+        valid = [j for j in range(len(line) - 1) if float((line[j + 1] - line[j]) @ (line[j + 1] - line[j])) > 1e-12]
+        for j in valid:
+            a, d = line[j], line[j + 1] - line[j]
+            lo, hi = np.minimum(a, line[j + 1]) - half, np.maximum(a, line[j + 1]) + half
+            z0 = float(floor[j]) if floor is not None else float("nan")
+            dz = float(floor[j + 1] - floor[j]) if floor is not None else 0.0
+            segments.append((a, d, float(d @ d), half * half, lo, hi, z0, dz, th, roof,
+                             (j == valid[0], j == valid[-1]), k))
+    return segments
+
+
+def _inside_footprint(q, segments, height=None):
+    """Whether q lies over a tube/apron at height, or in plan if height is None: per footprint line its nearest segment,
+    q past the line's ends outside. Pure. (Each segment for itself, the outside of a bend lay past one segment's end and
+    before the next one's start: outside both, terrain patches stood in Griffen's tubes up to their vaults.)"""
+    nearest = {}
+    for seg in segments:
+        a, d, length2 = seg[:3]
+        along = float((q - a) @ d) / length2
+        t = min(max(along, 0.0), 1.0)
+        side = q - a - t * d
+        dist2 = float(side @ side)
+        if seg[11] not in nearest or dist2 < nearest[seg[11]][0]:
+            nearest[seg[11]] = (dist2, along, t, seg)
+    for dist2, along, t, seg in nearest.values():
+        _a, _d, _l2, half2, _lo, _hi, z0, dz, th, roof, (first, last), _k = seg
+        if dist2 >= half2 or (along < 0 and first) or (along > 1 and last):     # (on the wall's line: outside)
+            continue
+        if height is None or not np.isfinite(z0):
+            return True
+        floor = z0 + t * dz
+        if roof is not None:
+            radius, vault = roof
+            if floor - 0.5 <= height <= floor + float(np.interp(np.sqrt(dist2), radius, vault)) + 0.05:
+                return True
+            continue
+        # A separate road over a low underpass keeps its terrain. The cut applies to the road at the tunnel floor,
+        # with half a metre for grade/lattice interpolation near the portal face.
+        if floor - 0.5 <= height <= floor + th + 0.5:
+            return True
+    return False
+
+
+def fill_tunnel_cut_edges(holes, u, x0, y0, square, footprints):
+    """(vertices, triangles, owner cells) of ground outside tube footprints in
+    omitted terrain cells; u is the cell-corner height grid. Pure.
+
+    The tunnel wall cuts through a terrain cell, while its hole drops that whole
+    cell. Quarter-metre patches close the outer sliver without bridging the tube.
+    A finer grid matters at a slanted portal; a coarser one leaves visible sky.
+    """
+    empty_p = np.zeros((0, 3), np.float64)
+    empty_t = np.zeros((0, 3), np.int64)
+    empty_o = np.zeros(0, np.int64)
+    if not footprints or not holes[:-1, :-1].any():
+        return empty_p, empty_t, empty_o
+    segments = _footprint_segments(footprints)
+    steps = max(1, int(np.ceil(square / 0.25)))
+    p, t, owner = [], [], []
+    cells_w = holes.shape[1] - 1
+    for iy, ix in np.argwhere(holes[:-1, :-1]):
+        x, y = x0 + ix * square, y0 + iy * square
+        cand = [seg for seg in segments if (seg[5] >= (x, y)).all() and
+                (seg[4] <= (x + square, y + square)).all()]
+        if not cand:
+            # The low-arch margin can flag a square outside every physical
+            # tube. It has no opening to protect, so its full terrain stays.
+            a = len(p)
+            p.extend(((x, y, u[iy, ix]), (x + square, y, u[iy, ix + 1]),
+                      (x, y + square, u[iy + 1, ix]),
+                      (x + square, y + square, u[iy + 1, ix + 1])))
+            t.extend(((a, a + 1, a + 3), (a, a + 3, a + 2)))
+            owner.extend((iy * cells_w + ix,) * 2)
+            continue
+        def inside(w, v):
+            q = np.array([x + w * square, y + v * square])
+            h = ((1 - v) * ((1 - w) * u[iy, ix] + w * u[iy, ix + 1]) +
+                 v * ((1 - w) * u[iy + 1, ix] + w * u[iy + 1, ix + 1]))
+            return _inside_footprint(q, cand, h)
+        # a patch with its centre or a corner in the opening stays out: by its centre alone, a patch just over the
+        # vault near the wall (which falls 1.6 m per metre there) put its corners through the tube's ceiling
+        corner = np.array([[inside(col / steps, row / steps) for col in range(steps + 1)] for row in range(steps + 1)])
+        accepted = [(row, col) for row in range(steps) for col in range(steps)
+                    if not (corner[row:row + 2, col:col + 2].any() or inside((col + 0.5) / steps, (row + 0.5) / steps))]
+        if not accepted:
+            continue
+        h00, h10 = u[iy, ix], u[iy, ix + 1]
+        h01, h11 = u[iy + 1, ix], u[iy + 1, ix + 1]
+        base = len(p)
+        for row in range(steps + 1):
+            v = row / steps
+            for col in range(steps + 1):
+                w = col / steps
+                z = (1 - v) * ((1 - w) * h00 + w * h10) + v * ((1 - w) * h01 + w * h11)
+                p.append((x + w * square, y + v * square, z))
+        for row, col in accepted:
+            a = base + row * (steps + 1) + col
+            b, c, d = a + 1, a + steps + 1, a + steps + 2
+            t.extend(((a, b, d), (a, d, c)))
+            owner.extend((iy * cells_w + ix,) * 2)
+    return (np.asarray(p, np.float64).reshape(-1, 3),
+            np.asarray(t, np.int64).reshape(-1, 3), np.asarray(owner, np.int64))
+
+
 def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex, log=print, walls=(), paint=None):
-    """Terrain of the tile (tx, ty): returns (P (n*n + m, 3) ENU: the lattice, then the vertices of the cells cut along walls,
-    UV likewise (n*n + m, 2), {AC prefix: triangles}, texture file). depth (n, n): lowering under water (water.water_tile) or
-    None; walls: the cut lines along the walls between two roads (wallcut.cut)."""
+    """Terrain of tile (tx, ty): (ENU vertices, UV, triangles by AC prefix,
+    texture file). Vertices start with the lattice, then wall cuts and tunnel
+    edge patches. depth (n, n) lowers water; walls are cut lines. Writes the
+    texture file and retained paint."""
     s = blockworker._s
     x0, y0, x1, y1 = roadsmod.tile_bbox(tx, ty)
     n = int(round((x1 - x0) / CELL)) + 1
@@ -378,9 +548,10 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     keep = {"lat": la.reshape(n, n), "lon": lo.reshape(n, n), "u": u.reshape(n, n)}
 
     holes = np.zeros((n, n), bool)
+    tunnel_parts = []
     if tun is not None:
         try:
-            h = roadsmod.block_tunnel_holes(tun, cell_fn, frame, keep, cx, cy, CELL)
+            h, tunnel_parts = roadsmod.block_tunnel_holes(tun, cell_fn, frame, keep, cx, cy, CELL, with_parts=True)
             if h is not None:
                 holes = np.asarray(h, bool)
         except Exception as e:
@@ -410,10 +581,8 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
     i, j = np.meshgrid(np.arange(n - 1), np.arange(n - 1))
     a = (j * n + i).ravel()
     b, c, d = a + 1, a + n, a + n + 1
-    # (a cell goes as soon as any of its corners is a hole: the SW corner alone left triangles of the slope above the
-    # portal hanging diagonally into the tube, a green block in the opening; the portal frame hides the edge,
-    # roadmesh.PORTAL_FRAME)
-    open_ = ~(holes[:-1, :-1] | holes[1:, :-1] | holes[:-1, 1:] | holes[1:, 1:]).ravel()
+    footprints = tunnel_footprints(tunnel_parts, getattr(tun, "heights", None), getattr(tun, "mouths", None))
+    open_ = kept_terrain_cells(holes).ravel()
     surf = np.array([SURF_AC.get(int(k), "1GRASS") for k in idx[:-1, :-1].ravel()], object)
     # (the cells along a wall between two roads apart: a step at its face, not the lattice's ramp in front of it)
     along = wallcut.cut(keep["u"], x0, y0, CELL, walls, open_)
@@ -424,7 +593,17 @@ def build(frame, aid, tx, ty, g, dem, zoom, depth, md, tex_src, gc_dir, out_tex,
         m = drawn & (surf == pre)
         groups[pre] = np.r_[np.c_[a[m], b[m], d[m]], np.c_[a[m], d[m], c[m]], along.T[surf[along.cells[along.owner]] == pre]]
     P = np.r_[np.c_[P[:, :2], along.u.ravel()], along.P]
-    UV = phased_uv(np.c_[(P[:, 0] - x0) / TILE, (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift]) / TILE], (tx, ty))
+    cut_cells = np.zeros_like(holes)
+    cut_cells[:-1, :-1] = ~open_.reshape(n - 1, n - 1)
+    edge_p, edge_t, edge_owner = fill_tunnel_cut_edges(cut_cells, keep["u"], x0, y0, CELL, footprints)
+    if len(edge_t):
+        edge_t += len(P)
+        P = np.r_[P, edge_p]
+        for pre in np.unique(surf[edge_owner]):
+            extra = edge_t[surf[edge_owner] == pre]
+            groups[pre] = np.r_[groups.get(pre, np.zeros((0, 3), np.int64)), extra]
+    UV = phased_uv(np.c_[(P[:, 0] - x0) / TILE,
+                          (P[:, 1] - y0 + np.r_[np.zeros(n * n), along.lift, np.zeros(len(edge_p))]) / TILE], (tx, ty))
 
     # looks: comic ground, the roads on top
     sp = TILE / TEX_PX

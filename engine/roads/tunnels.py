@@ -496,7 +496,7 @@ class TunnelProfiles(BridgeProfiles):
             g = g.copy()
             g[0], g[-1] = ge[0], ge[-1]
             floor, kinds, _ = approach_floor(s, g, *self._approaches(xy, pool[k][0], gfn))
-            kinds = portal_cover(kinds, g - floor, pool[k][0])
+            kinds = portal_cover(kinds, g - floor, pool[k][0], s)
             kinds = self._cover_roads(xy, s, kinds, ground)
             kinds = gallery_kinds(xy, kinds, self._gal.get(str(k[0]), ()))
             secs, i = [], 0
@@ -813,18 +813,19 @@ LOW_HOLE_STEP = 2.5         # ... the cut a terrain grid step further (the squar
 TUNNEL_HOLE_MARGIN = 0.5    # m around the tube a portal's terrain hole reaches (above, below and sideways)
 
 
-def tunnel_hole_mask(parts, u, cx, cy, square, heights=None, mouths=None):
-    """Where the terrain block (heights u [iy, ix]: sample (ix, iy) at (cx - half + ix * square, cy - half +
-    iy * square), half = n * square / 2) must be a hole for the tunnels `parts` ([(fid, spec, xy, z, lon)]: a
-    TunnelProfiles' parts): the samples over a tube's footprint whose ground lies between its floor and its
-    vault (+- TUNNEL_HOLE_MARGIN): the portals' openings into the hillside (the ground over the vault stays, as
-    does ground under a tube crossing a hollow). Pure."""
+def tunnel_hole_mask(parts, u, cx, cy, square, heights=None, mouths=None, split=False):
+    """Terrain cells to omit for tunnel parts (fid, spec, xy, floor, lon); u holds
+    their corner heights on a square-spaced lattice about (cx, cy). A full tube's
+    native kernel marks cells; a low arch's corner mask is converted to cells.
+    split returns the two masks before converting the low arch's samples.
+    The ground above a vault and below a tube crossing a hollow stays. Pure."""
     import fast
     import roadmesh
     n = u.shape[0]
     half = n * square / 2
     x0, y0 = cx - half, cy - half
     mask = np.zeros(u.shape, bool)
+    low_samples = np.zeros(u.shape, bool)
     # twin tunnels (twin_tunnels): their one tube round both reaches over the strip between them too, and its mouths are
     # cut whatever the height (the ground left between the carriageways sloped into the shared opening, its portal face
     # covering what is above)
@@ -849,14 +850,22 @@ def tunnel_hole_mask(parts, u, cx, cy, square, heights=None, mouths=None):
                                   np.ascontiguousarray(z), float(hw), float(th), True, bool(m0), bool(m1),
                                   float(TUNNEL_HOLE_MARGIN), float(LOW_HOLE_M + LOW_HOLE_STEP), 0.0, True)
             mask |= mouth_mask
-        # the Rust kernel: the samples over the part between its floor and vault (a low arch: its mouths only)
+        # Full tubes mark terrain cells directly. Low arches mark samples around
+        # their mouth transitions; convert those to cells here, once, so the
+        # ground writer does not widen every full-tube cut by another grid step.
         m0, m1 = (mouths or {}).get(_fid, (True, True))
-        # (a low arch: the squares from its flat mouth band, LOW_HOLE_M, up to the soil over its vault)
-        fast._ef.tunnel_holes(mask, u, float(x0), float(y0), float(square), np.ascontiguousarray(xy),
+        target = low_samples if low else mask
+        fast._ef.tunnel_holes(target, u, float(x0), float(y0), float(square), np.ascontiguousarray(xy),
                               np.ascontiguousarray(z), float(hw), float(th), bool(low), bool(m0), bool(m1),
                               float(TUNNEL_HOLE_MARGIN), float(LOW_HOLE_M if low else LOW_HOLE_M + LOW_HOLE_STEP),
                               float(ARCH_SIDE_M + 1.0), not low)
-    return spare_open_floors(mask, parts[:n_own], x0, y0, square)
+    mask = spare_open_floors(mask, parts[:n_own], x0, y0, square)
+    low_samples = spare_open_floors(low_samples, parts[:n_own], x0, y0, square)
+    if split:
+        return mask, low_samples
+    mask[:-1, :-1] |= (low_samples[:-1, :-1] | low_samples[1:, :-1] |
+                      low_samples[:-1, 1:] | low_samples[1:, 1:])
+    return mask
 
 
 def spare_open_floors(mask, parts, x0, y0, square):
@@ -1025,9 +1034,10 @@ def block_arch_raise(tunnels, cell_fn, frame, la, lo, z, box):
         return z
 
 
-def block_tunnel_holes(tunnels, cell_fn, frame, keep, cx, cy, square):
+def block_tunnel_holes(tunnels, cell_fn, frame, keep, cx, cy, square, with_parts=False):
     """tunnel_hole_mask for a terrain block being built (heightmap.generate's keep: lat, lon, u), its tunnels from
-    the map cells under it (cell_fn(key) -> roads Features) through the anchor's TunnelProfiles."""
+    the map cells under it (cell_fn(key) -> roads Features) through the anchor's TunnelProfiles; with_parts: (mask,
+    those parts)."""
     lat, lon, u = keep["lat"], keep["lon"], keep["u"]
     keys = mapcells.cells_for_points(lat, lon)
     cells = []
@@ -1042,14 +1052,17 @@ def block_tunnel_holes(tunnels, cell_fn, frame, keep, cx, cy, square):
         parts = tunnels.parts(cells, (cx - half, cy - half, cx + half, cy + half))
     except Exception as e:          # a chain's other cells not at hand (offline): no holes this time
         (log.debug if isinstance(e, OSError) else log.warning)("tunnel holes: %s: %s", type(e).__name__, e)
-        return None
+        return (None, []) if with_parts else None
     if not parts:
-        return None
-    mask = tunnel_hole_mask(parts, u, cx, cy, square, getattr(tunnels, "heights", None),
-                            getattr(tunnels, "mouths", None))
-    if mask is not None and mask.any():
-        mask = spare_carriageways(mask, parts, cells, frame, cx, cy, square)
-    return mask
+        return (None, []) if with_parts else None
+    full, low = tunnel_hole_mask(parts, u, cx, cy, square, getattr(tunnels, "heights", None),
+                                 getattr(tunnels, "mouths", None), split=True)
+    if full.any():
+        full = spare_carriageways(full, parts, cells, frame, cx, cy, square)
+    if low.any():
+        low = spare_carriageways(low, parts, cells, frame, cx, cy, square)
+    full[:-1, :-1] |= (low[:-1, :-1] | low[1:, :-1] | low[:-1, 1:] | low[1:, 1:])
+    return (full, parts) if with_parts else full
 
 
 HOLE_ROAD_MARGIN = 0.3      # m past another road's carriageway no tunnel hole is cut (spare_carriageways)

@@ -104,6 +104,24 @@ class RoadMeshTest(unittest.TestCase):
 
 
 class FollowTest(unittest.TestCase):
+    def test_an_upper_road_s_marks_keep_its_level_over_a_lowered_tunnel_mouth(self):
+        # The Weblinger Gürtel's underpass (Graz): the road over it, 6 m over the floor, crosses its last metres,
+        # where the ground is laid at the floor (roads.arch_raise's mouth). Its graded ground there is a mix of both
+        # plans (2.7 m here); draped, its line and gravel edge lay on the lower road's floor.
+        tube = chunk("road_asphalt_2lane", 8.6, [(0, 0, 0), (10, 0, 0)])
+        tube.update(tunnel=True, deck=True, fixed=True, tunnel_h=5.0)
+        line = chunk("line_white", 0.15, [(2, -1, 6), (8, 1, 6)])
+        edge = chunk("ECA_road_edge_dirt", 1.6, [(2, 0, 6), (8, 2, 6)])
+        mixed = lambda la, lo: np.full(np.shape(la), 2.7)
+        for floor, want in ((0.0, 6.0), (5.5, 5.5)):    # (a ground 0.5 m under it still carries it)
+            drawn = lambda la, lo, f=floor: np.full(np.shape(la), f)
+            p, t, _, mats, mt = roadmesh.build(FRAME, [tube, line, edge], mixed, (0., 0., 0.), follow=True, drawn=drawn)
+            for material in ("line_white", "ECA_road_edge_dirt"):
+                with self.subTest(floor=floor, material=material):
+                    z = p[t[mt == mats.index(material)], 2]
+                    self.assertGreater(z.min(), want - 0.01)
+                    self.assertLess(z.max(), want + 0.1)
+
     def test_the_same_steep_cutting_is_capped_on_one_and_two_metre_grids(self):
         for cell in (1., 2.):
             with self.subTest(cell=cell):

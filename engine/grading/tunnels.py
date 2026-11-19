@@ -130,7 +130,7 @@ class _Tunnels:
                     pack = PlanPack(list(road_plans)) if pack is None else pack
                     g[[0, -1]] = grade_points(xy[[0, -1], 0], xy[[0, -1], 1], g[[0, -1]], pack)
                 floor, kinds, _ = roadsmod.approach_floor(s, g, *self._approaches(xy, ts[i]))
-                kinds = roadsmod.portal_cover(kinds, g - floor, ts[i])
+                kinds = roadsmod.portal_cover(kinds, g - floor, ts[i], s)
                 if over is None:
                     over = self._roads_over_tunnels(feats, ts)
                     decks = self._decks_over_tunnels(feats, ts)

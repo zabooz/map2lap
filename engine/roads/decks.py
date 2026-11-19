@@ -1404,16 +1404,20 @@ def cover_decks(xy, s, kinds, lines, halves):
 PORTAL_SHALLOW_COVER_M = 1.5    # m: a major road's open end run with at least this much ground over its floor is covered
 
 
-def portal_cover(kinds, cover, spec):
-    """kinds with a major road's (CONCRETE_WALL_CLASSES) open run at either end of its tunnel covered (a low arch, in
-    concrete: roadmesh) where the median ground over its floor is PORTAL_SHALLOW_COVER_M or more: the map's portal is a
-    cut-and-cover box under shallow ground there (the Gotthard road tunnel's north portal under the meadow at
-    Goeschenen stood 90 m further in, an open cut before it). Park roads keep their open cuts (Central
-    Park's transverses). The meshes (TunnelProfiles) and the grading both."""
+def portal_cover(kinds, cover, spec, s):
+    """kinds (at arc lengths s) with a major road's (CONCRETE_WALL_CLASSES) open run at either end of its tunnel covered
+    (a low arch, in concrete: roadmesh) where the median ground over its floor is PORTAL_SHALLOW_COVER_M or more: the
+    map's portal is a cut-and-cover box under shallow ground there (the Gotthard road tunnel's north portal under the
+    meadow at Goeschenen stood 90 m further in, an open cut before it). Park roads keep their open cuts (Central
+    Park's transverses). A run shorter than SECTION_MIN_M to the covered section beside it is that section's own
+    portal: it takes its kind (the A2's Kollmanntunnel at Griffen: 1.5 m under 3.3 m of ground as a low arch of its own,
+    a box whose face the full tube behind it stood out over). The meshes (TunnelProfiles) and the grading both.
+    Pure."""
     kinds = np.array(kinds, np.int64)
     if spec is None or spec.cls not in CONCRETE_WALL_CLASSES or not (kinds > 0).any():
         return kinds
     cover = np.asarray(cover, np.float64)
+    s = np.asarray(s, np.float64)
     n = len(kinds)
     for rng in (range(n), range(n - 1, -1, -1)):
         run = []
@@ -1423,7 +1427,9 @@ def portal_cover(kinds, cover, spec):
             run.append(q)
         if run and len(run) < n and np.isfinite(cover[run]).any() and \
                 float(np.nanmedian(cover[run])) >= PORTAL_SHALLOW_COVER_M:
-            kinds[run] = 1
+            beside = run[-1] + (1 if run[0] == 0 else -1)
+            short = abs(float(s[beside] - s[run[0]])) < SECTION_MIN_M
+            kinds[run] = kinds[beside] if short else 1
     return kinds
 
 
@@ -1436,7 +1442,7 @@ def cover_roads(xy, s, kinds, lines, halves):
     if not lines or not (kinds > 0).any() or len(xy) < 2:
         return kinds
     import fast
-    fast.require(95, "tunnel_cover_roads")
+    fast.require(123, "tunnel_cover_roads")
     pts = np.ascontiguousarray(np.concatenate(lines))
     starts = np.concatenate([[0], np.cumsum([len(ln) for ln in lines])]).astype(np.int64)
     return np.asarray(fast._ef.tunnel_cover_roads(

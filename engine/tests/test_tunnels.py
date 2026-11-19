@@ -7,9 +7,11 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import grading  # noqa: E402
 import roadmesh  # noqa: E402
 import roads  # noqa: E402
+from scenery import ground  # noqa: E402
 
 Spec = roads.Spec
 
@@ -55,6 +57,108 @@ class Profile(unittest.TestCase):
 
 
 class Holes(unittest.TestCase):
+    def test_cut_road_before_a_portal_is_restored_unless_its_apron_is_drawn(self):
+        # Griffen's west portal had no apron (no mouth); the guard kept the cut cells over where it would lie open:
+        # 0 to 4.2 m out, the carriageway's width, sky between the road and the tube.
+        part = ("t#1", Spec(7.0, "paved", False, "primary", False), line(0, 20), np.full(6, 10.0), 0.0)
+        holes = np.zeros((3, 3), bool)
+        holes[0, 0] = True                              # the cell x -4..-2, y -2..0: in front of the portal
+        u = np.full((3, 3), 10.0)
+        for mouths, area in (({"t#1": (True, True)}, 0.0), ({"t#1": (False, True)}, 4.0)):
+            with self.subTest(mouths=mouths):
+                footprints = ground.tunnel_footprints([part], mouths=mouths)
+                p, t, _ = ground.fill_tunnel_cut_edges(holes, u, -4.0, -2.0, 2.0, footprints)
+                got = sum(abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2 for a, b, c in p[t])
+                self.assertAlmostEqual(got, area, delta=0.01)
+
+    def test_a_tube_bending_at_a_vertex_holds_the_point_outside_its_bend(self):
+        # Griffen's Kollmanntunnel: 2.2 m inside the east portal, 3.9 m off the axis, the point lay past the end of one
+        # segment (1.008) and before the next (-0.007): outside both, terrain patches in the tube up to its vault.
+        line = np.array([[0.0, 0.0], [4.0, 0.0], [8.0, 0.4]])
+        segments = ground._footprint_segments([(line, 7.0, np.zeros(3), 6.8, ground.tunnel_roof_profile(7.0, 6.8))])
+        q = np.array([4.05, -3.9])
+        self.assertTrue(ground._inside_footprint(q, segments, 2.0))
+        self.assertFalse(ground._inside_footprint(np.array([8.5, 0.4]), segments, 2.0), "past the tube's end")
+
+    def test_restored_ground_never_reaches_into_the_vault(self):
+        # Griffen's portals: a patch whose centre lay just over the vault near its wall had corners under it, triangles
+        # of ground through the tube's ceiling. Every point put back lies outside the opening.
+        holes = np.zeros((3, 3), bool)
+        holes[0, 0] = True                              # the cell x 2..4, 5.6..7.6 off the axis: across the vault's edge
+        u = np.full((3, 3), 5.1)                        # (a patch's centre 6.725 m out: vault 5.04 m; its inner corner
+        r, v = ground.tunnel_roof_profile(7.0, 6.8)     # 6.6 m out: vault 5.23 m)
+        tube = [(np.array([[0.0, 0.0], [10.0, 0.0]]), 7.0, np.zeros(2), 6.8, (r, v))]
+        p, t, _ = ground.fill_tunnel_cut_edges(holes, u, 2.0, 5.6, 2.0, tube)
+        self.assertGreater(len(t), 0)
+        pts = p[np.unique(t)]
+        inside = (np.abs(pts[:, 1]) < 7.0) & (pts[:, 2] < np.interp(np.abs(pts[:, 1]), r, v) - 1e-6)
+        self.assertFalse(inside.any(), pts[inside][:3])
+
+    def test_low_arch_sample_holes_are_distinct_from_full_tube_cells(self):
+        xy = np.array([[0.0, 0.0], [30.0, 0.0]])
+        part = ("low", Spec(7.0, "paved", False, "residential"),
+                xy, np.array([10.0, 10.0]), 0.0)
+        u = np.full((64, 64), 10.0)
+        full, low = roads.tunnel_hole_mask([part], u, 15.0, 0.0, 2.0,
+                                           {"low": 4.0}, split=True)
+        self.assertFalse(full.any())
+        self.assertTrue(low.any())
+        cells = low[:-1, :-1] | low[1:, :-1] | low[:-1, 1:] | low[1:, 1:]
+        self.assertTrue(cells.any())
+
+    def test_cut_cell_keeps_ground_outside_the_tunnel_wall(self):
+        # A wall at y=1.25 crosses a 2 m cell. Removing the whole cell leaves
+        # visible sky from the wall to its y=2 edge; its outer part is ground.
+        holes = np.zeros((3, 3), bool)
+        holes[0, 0] = True
+        u = np.full((3, 3), 10.0)
+        footprint = [(np.array([[0.0, 0.5], [2.0, 0.5]]), 0.75)]
+        p, t, owners = ground.fill_tunnel_cut_edges(holes, u, 0.0, 0.0, 2.0, footprint)
+        self.assertGreater(len(t), 0)
+        self.assertTrue((p[t, 1] >= 1.25 - 1e-9).all())
+        self.assertTrue((owners == 0).all())
+        self.assertAlmostEqual(sum(abs((b[0] - a[0]) * (c[1] - a[1]) -
+                                       (b[1] - a[1]) * (c[0] - a[0])) / 2
+                                   for a, b, c in p[t]), 1.5, delta=0.01)
+
+    def test_cut_ground_above_curved_vault_is_restored(self):
+        # At 6.2 m the vault has narrowed well inside its 5 m wall width.
+        # Keeping the whole 5 m footprint open leaves a sky wedge beside it.
+        holes = np.zeros((4, 2), bool)
+        holes[0, 0] = True
+        holes[2, 0] = True
+        u = np.full((4, 2), 6.2)
+        profile = ground.tunnel_roof_profile(5.0, 6.8)
+        tube = [(np.array([[0.0, 0.0], [2.0, 0.0]]), 5.0,
+                 np.array([0.0, 0.0]), 6.8, profile)]
+        p, t, owner = ground.fill_tunnel_cut_edges(holes, u, 0.0, 0.0, 2.0, tube)
+        self.assertTrue((owner == 2).any(), "terrain above the narrowing vault must close the side wedge")
+        self.assertFalse((owner == 0).any(), "terrain over the centre of the opening must stay cut")
+
+    def test_cut_cell_outside_every_tube_is_restored(self):
+        holes = np.zeros((3, 3), bool)
+        holes[0, 0] = True
+        u = np.full((3, 3), 10.0)
+        footprint = [(np.array([[10.0, 0.0], [20.0, 0.0]]), 1.0)]
+        p, t, owners = ground.fill_tunnel_cut_edges(holes, u, 0.0, 0.0, 2.0, footprint)
+        self.assertEqual(len(t), 2)
+        self.assertTrue((owners == 0).all())
+
+    def test_terrain_cell_beside_a_tube_stays_when_only_its_neighbour_is_cut(self):
+        # A 2 m cell beside the wall has no tunnel under it. The hole kernel already
+        # marks whole cells; expanding each mark to four neighbours exposes the sky.
+        n, sq = 64, 2.0
+        xs = -n * sq / 2 + np.arange(n) * sq
+        X, _ = np.meshgrid(xs, xs)
+        u = np.where(X < 0, 10.0, 10.0 + X / 2)
+        part = ("t", Spec(7.0, "paved", False, "primary", False),
+                line(0, 40), np.full(11, 10.0), 0.0)
+        holes = roads.tunnel_hole_mask([part], u, 0.0, 0.0, sq)
+        kept = ground.kept_terrain_cells(holes)
+        ix = int(np.flatnonzero(xs == 6.0)[0])
+        self.assertFalse(kept[int(np.flatnonzero(xs == -6.0)[0]), ix])
+        self.assertTrue(kept[int(np.flatnonzero(xs == -8.0)[0]), ix])
+
     def test_a_cut_into_a_cliff_opens(self):
         # (Malibu Canyon Road): the road at the cliff's foot, the next sample far over the vault: no sample
         # between floor and vault, yet the square from the road up the cliff stood across the opening. The squares
@@ -390,13 +494,23 @@ class PortalCover(unittest.TestCase):
         # the Gotthard road tunnel's north portal: a cut-and-cover box under ~3 m of meadow, then the mountain
         kinds = np.array([0, 0, 0, 0, 2, 2, 2, 2, 0])
         cover = np.array([3.0, 3.0, 2.5, 3.5, 50.0, 80.0, 60.0, 9.0, 0.2])
+        s = np.arange(len(kinds)) * 4.0
         trunk = Spec(9.0, "paved", False, "trunk")
-        got = roads.portal_cover(kinds, cover, trunk)
+        got = roads.portal_cover(kinds, cover, trunk, s)
         self.assertEqual(got[:4].tolist(), [1, 1, 1, 1])
         self.assertEqual(got[-1], 0, "no ground over it: an open approach stays open")
         park = Spec(7.0, "paved", False, "secondary")
-        self.assertEqual(roads.portal_cover(kinds, cover, park).tolist(), kinds.tolist())
-        self.assertEqual(roads.portal_cover(np.zeros(5, np.int64), np.full(5, 3.0), trunk).tolist(), [0] * 5)
+        self.assertEqual(roads.portal_cover(kinds, cover, park, s).tolist(), kinds.tolist())
+        self.assertEqual(roads.portal_cover(np.zeros(5, np.int64), np.full(5, 3.0), trunk, s[:5]).tolist(), [0] * 5)
+
+    def test_a_short_shallow_end_joins_the_tube_behind_it(self):
+        # The Kollmanntunnel's east portal (A2, Griffen): 1.5 m under 3.3 m of ground, then the hill. As a low arch
+        # of its own it was a 1.5 m box before the full tube, whose higher vault stood out over the box's face.
+        kinds = np.array([0, 0, 0, 2, 2, 2, 2, 2])
+        cover = np.array([0.1, 3.3, 3.5, 8.5, 12.0, 13.0, 15.0, 16.0])
+        s = np.array([0.0, 0.6, 1.5, 5.4, 9.3, 13.2, 17.0, 20.9])
+        got = roads.portal_cover(kinds, cover, Spec(11.6, "paved", False, "motorway"), s)
+        self.assertEqual(got.tolist(), [2] * 8)
 
 
 class ArchRaise(unittest.TestCase):
@@ -514,6 +628,12 @@ class TwinTunnels(unittest.TestCase):
         b = ("b", Spec(11.0, "paved", False, "trunk"), np.array([[length, gap], [0.0, gap]]),
              np.array([11.0 + dz, 10.0 + dz]), 0.0)
         return [a, b]
+
+    def test_ground_fill_protects_the_shared_tube_but_not_an_open_twin_shoulder(self):
+        footprints = ground.tunnel_footprints(self.parts())
+        self.assertAlmostEqual(footprints[0][1], 5.5)
+        self.assertAlmostEqual(footprints[1][1], 5.5)
+        self.assertGreater(footprints[2][1], 9.0, "the shared tube keeps its full physical width")
 
     def test_found_with_a_midline_and_a_width_round_both(self):
         tw = roads.twin_tunnels(self.parts())

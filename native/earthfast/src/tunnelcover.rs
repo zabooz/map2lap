@@ -33,7 +33,8 @@ fn hits(a: &[[f64; 2]], sa: &[f64], b: &[[f64; 2]]) -> Vec<(f64, f64)> {
 /// kinds (per sample of the tunnel line xy at arc lengths s: 0 open, 1 low arch, 2 full) with each covered run grown
 /// to cover every ground road (lines pts[starts[k]..starts[k + 1]], half widths halves[k]) crossing the tunnel within
 /// reach of the run: along the tunnel (half width + clear) / max(sin of the crossing angle, min_sin) either side of
-/// the crossing. Then open gaps shorter than min_gap between covered runs take the lower kind beside them. Pure.
+/// the crossing, with the kind of the run's end it grows from. Then open gaps shorter than min_gap between covered runs
+/// take the lower kind beside them. Pure.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 pub fn tunnel_cover_roads<'py>(
@@ -61,8 +62,8 @@ pub fn tunnel_cover_roads<'py>(
     if a.len() != n || s.len() != n || st.len() != hw.len() + 1 {
         return Err(pyo3::exceptions::PyValueError::new_err("tunnel_cover_roads: array sizes differ"));
     }
-    // covered runs (inclusive sample ranges) and their kinds
-    let mut runs: Vec<(usize, usize, i64)> = Vec::new();
+    // covered runs (inclusive sample ranges)
+    let mut runs: Vec<(usize, usize)> = Vec::new();
     let mut i = 0;
     while i < n {
         if k[i] == 0 {
@@ -73,8 +74,7 @@ pub fn tunnel_cover_roads<'py>(
         while j + 1 < n && k[j + 1] != 0 {
             j += 1;
         }
-        let kind = (i..=j).map(|q| k[q]).min().unwrap_or(1);
-        runs.push((i, j, kind));
+        runs.push((i, j));
         i = j + 1;
     }
     let mut crossings = Vec::new();
@@ -87,7 +87,11 @@ pub fn tunnel_cover_roads<'py>(
             crossings.push((sc, (hw[r] + clear) / sin.max(min_sin)));
         }
     }
-    for &(i0, i1, kind) in &runs {
+    for &(i0, i1) in &runs {
+        // (each side with its own end's kind: a full tube with a short low arch at its far end is one run, and with
+        // its lowest kind the road going on from the near portal put a one-sample low arch there, which took the full
+        // tube's portal: no face, no apron; the A2's Kollmanntunnel at Griffen)
+        let (kind0, kind1) = (k[i0], k[i1]);
         let (mut lo, mut hi) = (s[i0], s[i1]);
         for &(sc, ext) in &crossings {
             if sc >= s[i0] - reach && sc <= s[i1] + reach {
@@ -100,7 +104,7 @@ pub fn tunnel_cover_roads<'py>(
             let past_lo = s[q] >= lo || (q + 1 < n && s[q + 1] > lo);
             let before_hi = s[q] <= hi || (q > 0 && s[q - 1] < hi);
             if k[q] == 0 && past_lo && before_hi {
-                k[q] = kind;
+                k[q] = if q < i0 { kind0 } else { kind1 };
             }
         }
     }

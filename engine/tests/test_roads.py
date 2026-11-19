@@ -1322,6 +1322,24 @@ class TunnelCoverRoadsTest(unittest.TestCase):
                                                      np.array([0, 2], np.int64), np.array([6.5]), 2.0, 0.35, 15.0, 8.0))
         np.testing.assert_array_equal(far, kinds)          # a road far from the arch: as it was
 
+    def test_a_covered_run_grows_with_the_kind_of_its_own_end(self):
+        # A full tube with a short low arch at its far end is one run; the road going on from its near portal (the
+        # A2's Kollmanntunnel at Griffen) covered the open portal sample there as a low arch, the run's lowest kind:
+        # a one-sample section that took the full tube's portal.
+        import fast
+        fast.require(123, "tunnel_cover_roads by its own end's kind")
+        s = np.arange(0.0, 60.1, 4.0)
+        xy = np.c_[s, np.zeros_like(s)]
+        kinds = np.full(len(s), 2, np.int64)
+        kinds[0] = 0
+        kinds[-2:] = 1
+        approach = np.array([[-30.0, -2.0], [0.0, 0.0]])  # ending at the portal, a few degrees off the axis
+        out = np.asarray(fast._ef.tunnel_cover_roads(np.ascontiguousarray(xy), s, kinds, approach,
+                                                     np.array([0, 2], np.int64), np.array([5.8]), 2.0, 0.35, 15.0,
+                                                     8.0))
+        self.assertEqual(out[0], 2)
+        np.testing.assert_array_equal(out[1:], kinds[1:])
+
 
 class WorldConventionTest(unittest.TestCase):
     def test_a_roads_line_lies_where_the_ground_puts_it_whatever_its_height(self):

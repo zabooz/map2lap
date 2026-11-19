@@ -5087,7 +5087,7 @@ fn earthfast(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fartex::season_img, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::dds_levels, m)?)?;
     m.add_function(wrap_pyfunction!(fartex::jpeg_rgb, m)?)?;
-    m.add("VERSION", 122)?;            // (122: measure_clear)
+    m.add("VERSION", 123)?;            // (123: tunnel_cover_roads: runs grow with their own end's kind)
     m.add_function(wrap_pyfunction!(deckskin::deck_skin, m)?)?;
     m.add("ROAD_CURVES", true)?;
     m.add_function(wrap_pyfunction!(roadcurves::road_curve, m)?)?;

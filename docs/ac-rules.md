@@ -62,7 +62,22 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   markings, without changing source elevations or the legacy BeamNG heightmap; see [build options](architecture.md#terrain-and-scenery-build-options).
 - One mesh for looks **and** physics per tile. Object name per cell by BeamNG.Earth's surface: asphalt/cobbles →
   `1ROAD_ground_…`, gravel/dust/rock → `1GRAVEL_ground_…`, else `1GRASS_ground_…` (the sample in the SW corner).
-- A cell goes as soon as **one** of its corners is a tunnel hole.
+- The tunnel kernel tests a cell's corners and flags the whole cell; the ground writer drops exactly that cell. Low-arch
+  mouth flags are per sample and become the cells around them first. Dropping every cell with a flagged corner made each
+  full-tube cut a grid step wider to the west and south: sky beside portals facing that way. In a dropped cell, the
+  ground outside the tube (its faceted vault narrowing above the wall) and outside the floor's apron is put back in
+  quarter-metre patches at the cell's own heights. The apron counts only at a part's ends that are portals, as
+  `roads._tunnel_chunks` draws it there (guarded without one, 4.2 m of road before Griffen's west portal stayed open).
+- A tunnel part's sections (open, low arch, full tube) end at its portals as one structure: an open end shorter than
+  `SECTION_MIN_M` that `portal_cover` covers takes the kind of the section behind it, and a covered run grows along
+  roads over it with its own end's kind (`earthfast.tunnel_cover_roads`). As a low arch of 1.5 m, or of one sample, a
+  stub took the full tube's portal at the Kollmanntunnel (A2, Griffen): no face and no apron, or a box face the full tube
+  stood out over.
+- Draped markings and gravel edge decals follow the drawn ground, but over a tunnel's tube (its half width,
+  `TUNNEL_SHOULDER` and `LOW_PORTAL_SIDE`) a face of a road planned over the tube's vault keeps its planned height where
+  that ground lies more than `LEVEL_DROP_M` (1.8 m) under it (`roadmesh.off_level`). The heights come from the road's
+  own chunk, not the graded ground: at the Weblinger Gürtel's underpass (Graz) the grading there mixes the upper road
+  with the tunnel's plan, and `arch_raise` lays the mouth at the floor, 6 m under the road over it.
 - The soil cap of a low tunnel arch stays a `1WALL_` collision mesh but uses its tile's `ground_<tx>_<ty>` material.
   Its UVs follow world position, so the baked tile image and HD meadow, forest and rock masks continue across the arch;
   the source's 1 m repeating BeamNG grass UVs would sample the tile image at unrelated places.

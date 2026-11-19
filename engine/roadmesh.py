@@ -435,6 +435,75 @@ def _deck_skins(P, T, UV, M, TL, groups, lifts, chunks, context):
             np.concatenate([groups[~used]] + gg))
 
 
+# A draped face of a road over a tunnel's tube lies on another level's ground when it is more than this under its own
+# road's planned height: half the lowest tube (roads.TUNNEL_LOW_H, 3.6 m), the least the road over a tube and the tube's
+# floor lie apart. A verge decal on the cover's slope falls less within its width; it would fail where the cover over a
+# tube falls more than this within a decal's width (a cliff over a portal: the decal then lies flat at its road's level).
+LEVEL_DROP_M = 1.8
+
+
+def _plan_heights(line, xy):
+    """The heights of polyline line (k >= 2, 3) at its points nearest xy (m, 2): a draped ribbon's planned height.
+    Pure."""
+    line = np.asarray(line, np.float64)
+    xy = np.asarray(xy, np.float64)
+    a, ab = line[:-1], np.diff(line, axis=0)
+    l2 = np.maximum((ab[:, :2] ** 2).sum(1), 1e-12)
+    t = np.clip(((xy[:, None, :] - a[None, :, :2]) * ab[None, :, :2]).sum(2) / l2, 0.0, 1.0)
+    d = ((a[None, :, :2] + t[..., None] * ab[None, :, :2] - xy[:, None, :]) ** 2).sum(2)
+    j = np.argmin(d, axis=1)
+    return a[j, 2] + t[np.arange(len(xy)), j] * ab[j, 2]
+
+
+def _corner_plans(src, pts):
+    """The heights of the source triangles src (m, 3, 3) at the points pts (m, 3, 2) inside them (barycentric; a
+    degenerate source: its mean). Pure."""
+    a = src[:, 0, :2]
+    v0, v1 = src[:, 1, :2] - a, src[:, 2, :2] - a
+    den = v0[:, 0] * v1[:, 1] - v0[:, 1] * v1[:, 0]
+    den = np.where(np.abs(den) < 1e-12, np.nan, den)[:, None]
+    q = pts - a[:, None, :]
+    w1 = (q[..., 0] * v1[:, None, 1] - q[..., 1] * v1[:, None, 0]) / den
+    w2 = (v0[:, None, 0] * q[..., 1] - v0[:, None, 1] * q[..., 0]) / den
+    z = (1 - w1 - w2) * src[:, None, 0, 2] + w1 * src[:, None, 1, 2] + w2 * src[:, None, 2, 2]
+    return np.where(np.isfinite(z), z, src[:, :, 2].mean(1)[:, None])
+
+
+def off_level(draped, plans, tunnels):
+    """Which draped faces (m, 3, 3) lie on another level's ground over a tunnel's tube: more than LEVEL_DROP_M under
+    their own road's planned heights (plans (m, 3), lifts included) while that road runs over the tube's vault (the
+    tunnel chunks' floor plus tunnel_h, within the tube's half width, TUNNEL_SHOULDER and LOW_PORTAL_SIDE: as far as
+    arch_raise, the terrain holes and a low arch's top reach beside it). Pure.
+
+    The Weblinger Gürtel's underpass (Graz): the road over it crosses its last metres, where the ground lies at the
+    floor (roads.arch_raise's mouth), 6 m under the road; its edge line and gravel lay on the lower road's floor."""
+    held = np.zeros(len(draped), bool)
+    if not len(draped) or not tunnels:
+        return held
+    cand = np.flatnonzero(np.isfinite(plans).all(1) & ((draped[:, :, 2] - plans).min(1) < -LEVEL_DROP_M))
+    if not len(cand):
+        return held
+    q = draped[cand, :, :2].mean(1)
+    top = plans[cand].mean(1)
+    for c in tunnels:
+        if c.get("no_tube"):            # (a twin's floor: under its "tube_only" tube, roads._tunnel_chunks)
+            continue
+        line = np.asarray(c["n"], np.float64)
+        half = float(c["w"]) / 2 + TUNNEL_SHOULDER + LOW_PORTAL_SIDE
+        th = float(c.get("tunnel_h") or TUNNEL_H)
+        for a, b in zip(line[:-1], line[1:]):
+            d = b[:2] - a[:2]
+            l2 = float(d @ d)
+            if l2 <= 1e-12:
+                continue
+            along = ((q - a[:2]) @ d) / l2
+            side = q - a[:2] - along[:, None] * d
+            vault = a[2] + np.clip(along, 0.0, 1.0) * (b[2] - a[2]) + th
+            hit = (along >= 0) & (along <= 1) & ((side * side).sum(1) <= half * half) & (top > vault)
+            held[cand[hit]] = True
+    return held
+
+
 def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None, drawn=None, context=(),
           clip_poly=None, face_owners=None):
     """The road mesh of a tile (render only; on bridges it lies DECK_SKIN over deck()'s slab): (positions
@@ -450,6 +519,7 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
     5 cm over it and the tyres sank into it. clip_poly (k, 2): a convex polygon the mesh is cut
     to instead of the box (a geotile's quad in the anchor's world: earthfast.clip_tris_convex, the neighbours' cuts
     along the very same lines); clip then only says where the ribbons reach past the tile (_reach_past)."""
+    tunnels = [c for c in chunks if c.get("tunnel")]
     chunks = [c for c in chunks if not c.get("tube_only")]  # (twin tunnels' tube: no road surface, roads._tunnel_chunks)
     if clip is not None:
         chunks = [_reach_past(c, clip) for c in chunks]
@@ -483,6 +553,9 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
         tb = tilts[n_rb] if tilts else None
         if fz is None:
             z = u[k0:k0 + 2 * k] + LIFT[layer] + lift
+            if follow:                          # (follow_ground reads x, y alone: z carries the road's planned
+                pz = _plan_heights(rb_sources[n_rb]["n"], (left + right) / 2)       # height for off_level)
+                z = np.concatenate((pz, pz)) + LIFT[layer] + lift
             k0 += 2 * k
         elif tb is not None:                    # a tilted deck: its edges either side of its line (_row_off)
             hw = np.hypot(*(left - right).T) / 2
@@ -564,6 +637,15 @@ def build(frame, chunks, elev, origin, lift=0.0, clip=None, follow=False, q=None
                 for kk in range(3):
                     vl[fT[:, kk]] = lifts
                 fP[:, 2] += vl
+                # (a road over a tunnel's tube keeps its planned level where the drawn ground there is another
+                # level's: its own points, as their source triangle plans them)
+                plans = _corner_plans(P[T[dr][src]], fP[fT][:, :, :2])
+                held = off_level(fP[fT], plans, tunnels)
+                if held.any():
+                    m3 = 3 * int(held.sum())
+                    fUV = np.concatenate([fUV, fUV[fT[held]].reshape(-1, 2)])
+                    fP = np.concatenate([fP, np.c_[fP[fT[held]].reshape(-1, 3)[:, :2], plans[held].reshape(-1)]])
+                    fT[held] = len(fP) - m3 + np.arange(m3).reshape(-1, 3)
                 n0 = len(P)
                 P = np.concatenate([P, fP])
                 UV = np.concatenate([UV, fUV])
