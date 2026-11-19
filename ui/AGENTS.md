@@ -21,6 +21,10 @@ The browser tests run against `ui/e2e/server.py`: the real server with an AC fol
 stand-ins for builds, AC, updates, map data and the net. They test that things work, not where they sit; only the 3D view is
 tested down to the pixel (`render.e2e.ts`). `--update-snapshots` takes new reference images after a wanted change of its look.
 Set `MAP2LAP_TEST_WEB` to an absolute bundle directory to test a separate UI build without replacing the live `src/web`.
+The test server binds a random port on `127.0.0.1`. A sandbox that forbids local sockets makes that fail with
+`PermissionError: [Errno 1] Operation not permitted`, and no browser test can start. An agent in such a sandbox runs the
+browser-test command with its tool's permission for local sockets or network access from the start. If that is denied, it
+reports the browser check as blocked by the environment: rerunning it in the same sandbox cannot test the UI.
 
 Library-only import, preview and catalogue cases use `e2e/library-fixtures.ts`: the real library components, their CSS and the
 same test server, without loading an Editor track. The fixture rejects any `/api/editor/` request. Placement, painting and
