@@ -251,6 +251,9 @@ export class TrackObjects {
     if (out) array.fill(0, from * 3, end * 3);
     else array.set((mesh.userData.indices as Uint16Array).subarray(from * 3, end * 3), from * 3);
     index.needsUpdate = true;
+    // (a ground's ray tree refit while these were out, as a height change's mesh does, holds no room for them: the mouse would go
+    // through the road a Stitch's Undo brings back. Left out, a tree too large only costs a look)
+    if (!out) mesh.geometry.boundsTree?.refit();
   }
 
   /** The room each listed object of a sort (by its own triangles: a pole's frame not round its wires), or each tree of a model,

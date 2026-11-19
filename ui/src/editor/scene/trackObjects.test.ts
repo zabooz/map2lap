@@ -1,5 +1,6 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
+import {speedUpRays} from "./geometry";
 import {objectsOf} from "./view.fixture";
 
 const VERGE = "nocol_road_edge_dirt_0_0";
@@ -87,4 +88,22 @@ test("a TreeFX tree's room, its model's rooms and count come from the trees, lef
   expect(objects.shownObjectBounds("trees#3")).toBe(room);
   objects.setRemoved(["trees#3"]);
   expect(objects.shownObjectBounds("trees#3")).toBeNull();
+});
+
+test("ground triangles brought back are found by the mouse again, though its ray tree was refit while they were out", () => {
+  // (a Stitch hides the road's ground triangles; a Bend's mesh refits the ray tree without them; Undo brings them back)
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(Float32Array.of(0, 0, 0, 1, 0, 0, 0, 0, 1, 10, 0, 0, 11, 0, 0, 10, 0, 1), 3));
+  geometry.setIndex(new THREE.BufferAttribute(Uint16Array.of(0, 1, 2, 3, 4, 5), 1));
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({side: THREE.DoubleSide}));
+  mesh.userData = {info: {i: 7, name: "1ROAD_ground_0_0", base: null}};
+  speedUpRays(mesh);
+  const view = {byNumber: new Map([[7, mesh]]), usedBytes: 0, data: {meshes: [{i: 7, name: "1ROAD_ground_0_0"}]}};
+  const objects = objectsOf(view);
+  const hits = () => new THREE.Raycaster(new THREE.Vector3(10.2, 5, 0.2), new THREE.Vector3(0, -1, 0)).intersectObject(mesh).length;
+  objects.setWallHidden([[7, 1, 1]]);
+  expect(hits()).toBe(0);
+  geometry.boundsTree!.refit();
+  objects.setWallHidden([]);
+  expect(hits()).toBe(1);
 });
