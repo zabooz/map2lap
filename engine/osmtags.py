@@ -139,7 +139,16 @@ class OsmTags:
                 try:
                     with tmp as f:
                         f.write(f"{etag}\n{size}\n{time.time()}\n")
-                    os.replace(tmp.name, pin)
+                    for attempt in range(5):
+                        try:
+                            os.replace(tmp.name, pin)
+                            break
+                        except PermissionError:
+                            # Windows can briefly deny simultaneous replacements of the same pin.
+                            # Keep this worker's closed file for retry; persistent permission errors still fail.
+                            if attempt == 4:
+                                raise
+                            time.sleep(.01 * (attempt + 1))
                 finally:
                     try:
                         os.remove(tmp.name)

@@ -18,7 +18,7 @@ class VersionTest(unittest.TestCase):
         for sub in ('pois', 'osmtags', 'settlements'):
             with self.subTest(layer=sub), tempfile.TemporaryDirectory() as folder:
                 fetched, written = threading.Barrier(2), threading.Barrier(2)
-                replace = os.replace
+                replace, attempted = os.replace, set()
 
                 def get(*args, **kwargs):
                     # Both readers missed the pin before either download finishes.
@@ -27,7 +27,9 @@ class VersionTest(unittest.TestCase):
 
                 def publish(source, target):
                     # Reproduce the logged race: both files closed, neither renamed yet.
-                    written.wait(timeout=5)
+                    if source not in attempted:
+                        attempted.add(source)
+                        written.wait(timeout=5)
                     replace(source, target)
 
                 readers = [osmtags.OsmTags(folder, SimpleNamespace(get=get), sub=sub) for _ in range(2)]
@@ -41,6 +43,25 @@ class VersionTest(unittest.TestCase):
                 self.assertEqual(osmtags.OsmTags(folder, fetcher, sub=sub).version()[0], '"v1"')
                 fetcher.get.assert_not_called()
                 self.assertEqual(list(pin.parent.glob('*.tmp')), [])
+
+    def test_publication_retries_a_temporary_windows_rename_collision(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fetcher = Mock()
+            fetcher.get.return_value = SimpleNamespace(headers={'etag': '"v1"', 'content-range': 'bytes 0-15/1234'})
+            reader = osmtags.OsmTags(folder, fetcher, sub='pois')
+            replace = os.replace
+            attempts = []
+
+            def publish(source, target):
+                attempts.append(source)
+                if len(attempts) == 1:
+                    raise PermissionError('another publisher is replacing the pin')
+                replace(source, target)
+
+            with patch.object(osmtags.os, 'replace', side_effect=publish):
+                self.assertEqual(reader.version()[0], '"v1"')
+            self.assertEqual(len(attempts), 2)
+            self.assertEqual(list(Path(folder, 'pois').glob('*.tmp')), [])
 
     def test_failed_publication_keeps_the_old_pin_and_removes_its_temporary_file(self):
         with tempfile.TemporaryDirectory() as folder:

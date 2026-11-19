@@ -29,6 +29,7 @@ test('car density previews, undoes, saves and restores after reopening without c
   await page.getByRole('button', {name: /Redo$/}).click();
   await expect.poll(async () => (await density(page))?.percent).toBe(0);
   await saveTrack(page);
+  await expect(page.locator('#edit-saved')).toHaveText(/^Saved /);
   expect(await meshes(page)).not.toHaveProperty('1WALL_cars_0_0');
   expect((await meshes(page))['1ROAD_ground_0_0']).toBe(before['1ROAD_ground_0_0']);
   await openEditor(page);
@@ -36,6 +37,7 @@ test('car density previews, undoes, saves and restores after reopening without c
   await expect(page.getByRole('slider', {name: 'Parked car density', exact: true})).toHaveValue('0');
   await change(page, 100);
   await saveTrack(page, false);
+  await expect(page.locator('#edit-saved')).toHaveText(/^Saved /);
   expect((await meshes(page))['1WALL_cars_0_0']).toBe(before['1WALL_cars_0_0']);
 });
 
