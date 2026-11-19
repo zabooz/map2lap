@@ -42,15 +42,16 @@ test("the buttons stand in the sidebar, gone with its tab, back as they were; wh
   await expect(set.getByLabel("Radius")).toHaveValue("7");
 });
 
-test("Road has Smooth road, Bend road, Racing kerb and Stitch road, while Terrain has Elevation", async ({page}) => {
+test("Road has Smooth road, Bend road, Bank road, Racing kerb and Stitch road, while Terrain has Elevation", async ({page}) => {
   await openEditor(page);
   const bar = page.locator("#edit-bar");
   const road = bar.getByRole("heading", {name: "Road", exact: true}).locator("..");
   const terrain = bar.getByRole("heading", {name: "Terrain", exact: true}).locator("..");
-  await expect(road.locator("button")).toHaveCount(4);
+  await expect(road.locator("button")).toHaveCount(5);
   await expect(road.locator("button").first()).toHaveAttribute("id", "edit-smooth");
   await expect(road.locator("button").nth(1)).toHaveAttribute("id", "edit-separate");
-  await expect(road.locator("button").nth(2)).toHaveAttribute("id", "edit-kerb");
+  await expect(road.locator("button").nth(2)).toHaveAttribute("id", "edit-bank");
+  await expect(road.locator("button").nth(3)).toHaveAttribute("id", "edit-kerb");
   await expect(road.locator("button").last()).toHaveAttribute("id", "edit-stitch");
   await expect(terrain.locator("button")).toHaveCount(1);
   await expect(terrain.locator("button")).toHaveAttribute("id", "edit-elevation");

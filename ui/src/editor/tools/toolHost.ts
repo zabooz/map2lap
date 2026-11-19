@@ -24,6 +24,10 @@ export interface ToolController {
   activate?(from: {tool: Tool; picked: Picked | null}): void;
   /** Laid down or Esc: its marks, previews and requests on their way are dropped. */
   clear?(): void;
+  /** One of the tool's own edits is picked (editRanges): it counts as picked for the Editor's keys, so X deletes it. */
+  removable?: boolean;
+  /** X or Delete with one of its own edits picked: removes it; true: removed (else the shared selection's turn). */
+  remove?(): boolean;
   /** Its bar over the view (ToolOptions). */
   options?: ReactNode;
 }
@@ -44,6 +48,14 @@ export const pickRoute = (tool: Tool, editable: boolean, p: Pick<Picked, "left">
   selectionRule(tool, editable) === "none" && p?.left ? "drop" : "select";
 
 /** to taken up while from is on: from's clear(), then to's activate() with what was picked. The same tool again restarts it. */
+/** What an Editor key does: globalKey's answer, with the tool's own picked edit first for X and Delete ("removed": the tool
+    removed it). deletable: the shared selection has something to delete. Calls controller.remove. */
+export function editorKey(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey">, deletable: boolean,
+                          controller: ToolController | undefined): GlobalKey | "removed" | null {
+  const action = globalKey(e, {picked: deletable || !!controller?.removable});
+  return action === "delete" && controller?.removable && controller.remove?.() ? "removed" : action;
+}
+
 export function handOver(controllers: ToolControllers, from: Tool, to: Tool, picked: Picked | null) {
   controllers[from]?.clear?.();
   controllers[to]?.activate?.({tool: from, picked});
@@ -91,8 +103,8 @@ export function useToolHost({view, tool, setTool, editable, picked, deletable, c
     if (["Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key) && (e.target as HTMLElement).closest('[role="tablist"]')) return;
     if (e.key !== "Escape" && e.key !== "Enter" && isField(e.target)) return;      // Fields keep their typing and option keys.
     alt.down(e);
-    const action = globalKey(e, {picked: deletable});
-    if (action) onGlobal(action);
+    const action = editorKey(e, deletable, active);
+    if (action) { if (action !== "removed") onGlobal(action); }     // ("removed": the tool deleted its own picked edit)
     else if (!active?.key?.(e)) return;
     e.preventDefault();
   });

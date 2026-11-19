@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import * as THREE from "three";
-import {bandLines, RoadMarkers} from "./roadMarkers";
+import {bandLines, bankArrowLines, RANGE_COLOURS, rangeSegments, RoadMarkers} from "./roadMarkers";
 import type {Place} from "../types";
 
 test("updated ground moves nearby pins without replacing geometry or querying distant pins", () => {
@@ -51,4 +51,25 @@ test("a band has its two edges along the line, at its width, and its ends across
   expect(points.length).toBe(2 * 2 * 2 + 4);
   expect(points.every(p => Math.abs(p[2]) === 2)).toBe(true);        // (2 m to each side of a line along x)
   expect(points[0][1]).toBeCloseTo(10.3);                             // (a little over the road)
+});
+
+test("Bank road's arrows: a chevron along A->B, an up arrow on the high edge and a down arrow on the low one", () => {
+  const lines = bankArrowLines([[0, 0, 0], [40, 0, 0]], 4, 1);       // (+: left, -z, high)
+  const pairs: number[][][] = [];
+  for (let i = 0; i < lines.length; i += 6) pairs.push([lines.slice(i, i + 3), lines.slice(i + 3, i + 6)]);
+  const vertical = pairs.filter(([a, b]) => a[0] === b[0] && a[2] === b[2]);
+  const left = vertical.filter(([a]) => a[2] === -4), right = vertical.filter(([a]) => a[2] === 4);
+  expect(left.length).toBeGreaterThan(0);
+  expect(right.length).toBeGreaterThan(0);
+  expect(left.every(([a, b]) => b[1] > a[1])).toBe(true);           // (drawn from foot to tip: up on the high edge)
+  expect(right.every(([a, b]) => b[1] < a[1])).toBe(true);
+  expect(bankArrowLines([[0, 0, 0], [40, 0, 0]], 4, 0).some((v, i) => i % 3 === 1 && v > 1)).toBe(false);   // (level: no edge arrows)
+});
+
+test("a range's fully banked stretch is drawn in the tool's colour, its transitions purple, red where they do not fit", () => {
+  const parts = {before: [[0, 0, 0], [10, 0, 0]] as Place[], core: [[10, 0, 0], [30, 0, 0]] as Place[], after: [[30, 0, 0], [40, 0, 0]] as Place[]};
+  const colours = (picked: boolean, fits: boolean) => rangeSegments([{...parts, width: 8, picked, fits}]).map(s => s.colour);
+  expect(colours(false, true)).toEqual([RANGE_COLOURS.core, RANGE_COLOURS.transition, RANGE_COLOURS.transition]);
+  expect(colours(true, false)).toEqual([RANGE_COLOURS.picked, RANGE_COLOURS.misfit, RANGE_COLOURS.misfit]);
+  expect(rangeSegments([{...parts, width: 8, picked: false, fits: true}])[0].lines.length).toBeGreaterThan(0);
 });

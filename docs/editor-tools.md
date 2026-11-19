@@ -23,6 +23,11 @@ hook handles its own view marks but does not register another global click, pick
 - Selection: the definition's rule decides what a pick means (`tools/useSelection.ts`). Select: the pinned selection of objects,
   surfaces, sections and whole sorts. Camera and Transform: Ctrl adds objects. Delete: a left pick goes at once, a section with
   it. Road tools: left picks are dropped, so clicks are road points; a right click still picks for the menu.
+- A tool's own edits along a road (`tools/editRanges.ts`, Bank road's bankings): each range carries its mapped road IDs
+  and its height along its line, so `rangeAt` picks one only on its level and within its ends, and `overlapping` compares
+  ranges only on shared road IDs. `useEditRanges` draws them while the tool is on. A picked range counts as picked for
+  the Editor's keys: `editorKey` gives X and Delete to `controller.remove` first (`controller.removable`), else to the shared
+  selection, and X without anything picked still takes up Delete.
 - Late answers: `Latest` (`tools/latest.ts`) numbers a tool's requests, and `clear()` drops them. Check the token after
   each awaited step before changing the draft, selection or status; a kerb or stitch answered after Esc or a tool change
   therefore adds nothing.
@@ -127,6 +132,38 @@ only when its candidate IDs belong to the selected road side; a median may have 
 centreline alone cannot claim a guardrail because its direction differs. Ambiguous modules stop the correction rather
 than moving a barrier onto the wrong level. Modules planted in the retained railway ballast stay with the railway even
 when a parallel road's centreline is nearby. Older tracks derive this index from their retained rows and road features.
+
+Bank road (U) banks a marked stretch of a road (`app/roadbank.py`, `tools/useBank.tsx`). A and B, clicked as for Bend road,
+are the fully banked stretch; the transitions lie before A and after B, along the same mapped road (`roadbank.walk` on the
+map graph). Ctrl + wheel sets the banking, 0 to 20 % by 0.5 percentage points; Shift alone switches the high edge, left or
+right as A runs to B (in one clear curve the outside edge starts high, else the left); Alt + wheel sets how steeply an edge
+may ramp against the centreline along a transition, 0.2 to 3 % by 0.1, starting at 0.5 % (a conservative road-design value,
+not a worldwide limit). Purple strips show the transitions, estimated live in the page while the wheel turns, red where
+the road there is too short; the server's check on apply is the answer.
+The target cross slope is absolute: the server reads the road's cross slope now (five points across, fitted, smoothed
+along) and the change at lateral distance d is d × w(s) × (side × banking − now), w 1 from A to B and smoothstep to 0 over
+each transition. The centreline keeps its height, and a varying slope the build left (its own banked curves) becomes the
+banking everywhere from A to B. Example: 8 m wide, level, 8 % at 0.5 %: the edges move ±32 cm and each transition takes
+96 m. Each transition is the shortest whose resulting edges stay within the limit, except where the road already ramped
+steeper by itself. A transition goes on over a junction along the mapped piece turning least (under 45°); where it does
+not fit (the road's end, a junction with nothing going on straight, or a tunnel ahead) the answer says how much banking
+fits there. A road joining the banked stretch or its transitions (a driveway, a fork, a lay-by) is taken along: its
+mouth on the road banks with it, beside the road it fades out along it like the ground.
+Marking changes nothing yet: the banking starts at 0 % and only its first change applies. 0 % is a value, the stretch
+level across; X, Delete or Restore original delete a banking, the road as it was built. While the tool is on, every
+banking is highlighted; a click on one picks it without changing it, and then Ctrl, Shift, Alt and dragging its A or B
+change it, each as one Undo step. A new marking whose stretch or transitions meet another banking on the same mapped road
+is refused with a warning; another road or level never overlaps.
+The ground road's part is an ordinary height raster, so terrain, kerbs, guardrails, sidewalks and objects standing on it
+move with it; beside the road it holds the edge's height and fades out over max(6 m, 15 × edge lift), and stops at another
+mapped road on the same level and under the marked road's bridges. The road's own continuation beyond A and B is no
+other road: the transitions lie on it. Source vertex offsets add the marked deck, tilted whole, and take the raster back
+from pieces on another level: a piece whose lowest vertex in reach lies more than 0.5 m above the ground road (a bridge
+over it, with its parapets). Racing kerbs, Stitch surfaces and their cut remains on the marked road follow its field
+(`trackheights._kerb_bends`). Refused besides: a tunnel in A–B, a crossing inside A–B whose
+clearance would shrink below the requirement at the relevant edge (a marked bridge's low edge, a marked road's high edge
+under a bridge), and a lift over 5 cm where the marked edge lies within 1 m of another carriageway running beside it. Crossings under the
+transitions are not checked yet.
 
 Select on a railway bridge selects its complete connected mapped bridge span. Delete removes its visible rails, sleepers,
 ballast, concrete and corresponding collision triangles together; a parallel railway bridge remains independent. The

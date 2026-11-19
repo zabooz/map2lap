@@ -44,6 +44,9 @@ class BankRouteTest(unittest.TestCase):
                 (r.roadbank, "describe", mock.Mock(return_value=(NET, np.array([[0., 0.], [100., 0.]])))),
                 (r.roadbank, "current", mock.Mock(return_value=np.array([[0., 0.01], [50., 0.03], [100., 0.02]]))),
                 (r.roadbank, "blockers", mock.Mock(return_value=[])),
+                (r.roadbank, "_graph_of", mock.Mock(return_value="graph")),
+                (r.roadbank, "reach", mock.Mock(return_value=[(np.zeros((0, 2)), ("junction", 30.0), []),
+                                                              (np.array([[150.0, 0.0]]), None, [])])),
                 (r.roadbank, "change_of", mock.Mock(return_value={"id": "new", "bank": {"ramp": 48.0}}))]:
             patcher = mock.patch.object(target, name, value)
             patcher.start()
@@ -56,13 +59,21 @@ class BankRouteTest(unittest.TestCase):
         self.assertAlmostEqual(0.06, answer["target"])
         self.assertEqual({"min": 0.01, "mean": 0.02, "max": 0.03}, {k: round(v, 6) for k, v in answer["current"].items()})
         self.assertEqual(100.0, answer["length"])
+        self.assertEqual(([[0.0, 0.0], [100.0, 0.0]], 4.0), (answer["line"], answer["half"]))
+        self.assertEqual(["mine"], answer["road_ids"])
+        self.assertEqual(1, answer["side"])                                       # (a straight: left edge high)
+        self.assertEqual({"before": 30.0, "after": 1500.0}, answer["room"])
+        self.assertEqual(([], [[150.0, 0.0]]), (answer["ahead"], answer["beyond"]))      # (the road beyond A and B, outward)
+        self.assertEqual([0.01, 0.02], [round(v, 6) for v in answer["e0_ends"]])
         self.assertEqual([], answer["blockers"])
 
     def test_bank_applies_and_remembers_its_meshes(self):
-        code, answer = self.ask("/api/editor/alpha/bank", {"base": "b", "revision": 3, "points": POINTS, "target": 0.04, "replace": ["old"]})
+        code, answer = self.ask("/api/editor/alpha/bank", {"base": "b", "revision": 3, "points": POINTS, "banking": 0.04, "side": -1,
+                                                            "limit": 0.006, "replace": ["old"]})
         self.assertEqual((200, {"height": {"id": "new", "bank": {"ramp": 48.0}}}), (code, answer))
         args = server_roadtools.roadbank.change_of.call_args[0]
-        self.assertEqual((POINTS, 0.04), args[3:5])
+        self.assertEqual((POINTS, 0.04, -1, 0.006), args[3:7])
+        self.assertEqual([], args[9])                         # (the banking being replaced is no overlap of itself)
         server_roadtools.trackedits.moved_without.assert_called_with("ac", "alpha", "b", ["old"])
         server_roadtools.trackedits.remember_meshes.assert_called_once()
 

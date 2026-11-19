@@ -11,7 +11,7 @@ import {Navigation, VIEW_M, FLY_MAX_STEP_S} from "./navigation";
 import {FLOATS_PER_VERTEX, speedUpRays, meshBytes, meshUrl, fitSphere, makeGeometry} from "./geometry";
 import {screenPoint, LEFT_BUTTON, CLICK_PX} from "./pointer";
 import {Marquee, selectionVolume, type SelectionRectangle} from "./marquee";
-import {RoadMarkers} from "./roadMarkers";
+import {RoadMarkers, type RangeDrawing} from "./roadMarkers";
 import {KerbHighlight} from "./kerbHighlight";
 import {GeometryPreview} from "./geometryPreview";
 import * as THREE from "three";
@@ -1114,6 +1114,8 @@ export class TrackView {
   }
   drawCrossings(places: Place[]) { this.roadMarkers.drawCrossings(places); }
   drawBlockers(places: Place[]) { this.roadMarkers.drawBlockers(places); }
+  drawBankArrows(line: Place[] | null, half: number, high: number) { this.roadMarkers.drawBankArrows(line, half, high); }
+  drawRanges(ranges: RangeDrawing[]) { this.roadMarkers.drawRanges(ranges); }
   setPinned(moved: (pin: number, x: number, z: number) => void, taken: (pin: number) => void) { this.roadMarkers.setPinned(moved, taken); }
 
   takeBackPreview() { this.geometryPreview.takeBackPreview(); }

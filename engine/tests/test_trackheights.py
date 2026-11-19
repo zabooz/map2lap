@@ -81,10 +81,12 @@ class KerbBendTest(Base):
         self.assertNotIn(1, moved.vertices)
 
     def bank(self, ids):
-        """A Bank road operation of 10 % along x from 0 to 40 (left: -z), 10 m transitions, on the road ids. Pure."""
+        """A Bank road operation of 10 % along x from 0 to 40 (left: -z), fully banked from 10 to 30, on the road ids, all of it
+        a bridge (its raster stays out: the field moves the kerbs). Pure."""
         return {**raster(nx=23, nz=5, peak=0), "mesh_offsets": {},
-                "bank": {"points": [[0, 0], [40, 0]], "target": 0.1, "line": [[0, 0], [40, 0]], "road_ids": ids,
-                         "ramp": 10.0, "e0": [[0.0, 0.0], [40.0, 0.0]]}}
+                "bank": {"points": [[10, 0], [30, 0]], "target": 0.1, "line": [[0, 0], [40, 0]], "road_ids": ids,
+                         "a": 10.0, "b": 30.0, "before": 10.0, "after": 10.0, "e0": [[0.0, 0.0], [40.0, 0.0]],
+                         "decks": [[0.0, 40.0]]}}
 
     def test_racing_kerb_stitch_and_stitch_cut_follow_a_bank(self):
         edge = [(0, 0, -3), (20, 0, -3), (40, 0, -3)]

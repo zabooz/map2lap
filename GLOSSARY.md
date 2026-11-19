@@ -63,6 +63,14 @@ road's own deck faces or graded ground give its level and height; see [editor-to
 An Editor-added, red-white `1KERB_` collision mesh following one selected mapped road edge between two clicks.
 Its width, height and profile are retained in the draft and regenerated on Save; see [editor-tools.md](docs/editor-tools.md).
 
+**Bank road**:
+The Editor tool that banks the stretch between two marks on a built road to one absolute cross slope, tilted about its
+mapped centreline, with checked transitions beyond the marks (`app/roadbank.py`); see [editor-tools.md](docs/editor-tools.md).
+
+**Edit range**:
+A tool's own edit along a road between two marks, with its transitions, road IDs and height, which the tool highlights,
+picks and checks for overlap (`tools/editRanges.ts`); see [editor-tools.md](docs/editor-tools.md#tool-framework).
+
 **Object copy**:
 An independent source-object instance with frozen member poses and `copy_<id>#<member>` ids (`app/trackcopies.py`).
 Houses bring children/collision; copied poles have no wires.

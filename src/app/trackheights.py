@@ -348,7 +348,7 @@ def _kerb_bends(path, scan, ops, wanted):
     for op in ops:
         if isinstance(op.get("bank"), dict):
             if wanted.intersection(op["bank"].get("road_ids", [])):
-                profiles.append((set(op["bank"]["road_ids"]), roadbank.field_of(op["bank"])))
+                profiles.append((set(op["bank"]["road_ids"]), roadbank.kerb_field_of(op["bank"])))
             continue
         bend = op.get("bend")
         if not _road_op(op) or not wanted.intersection(bend.get("road_ids", [])):

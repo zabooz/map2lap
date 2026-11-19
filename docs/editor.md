@@ -21,6 +21,7 @@ the Editor first opens. Camera and mesh state stay outside React. Paths below ar
 |---|---|
 | `EditorScene.tsx`, `EditTools.tsx`, `types.ts` | Scene lifetime; tool controllers, Library and dialog wiring; shared contracts |
 | `tools/toolDefs.ts`, `tools/toolHost.ts`, `tools/useSelection.ts` | Tool definitions and keys; input routing and tool switching; the shared selection ([framework](editor-tools.md#tool-framework)) |
+| `tools/useBank.tsx`, `tools/bank.ts`, `tools/editRanges.ts` (server `app/roadbank.py`) | Bank road: marks, banking, its replaceable height operation; a tool's pickable edit ranges |
 | `scene/view.ts` | Scene coordination |
 | `scene/trackTextures.ts`, `scene/trackObjects.ts` | Texture/material lifetime and paints; object ownership and visibility |
 | `scene/selection.ts`, `scene/pointing.ts` | Pinned selection/highlights; live picking/hover |

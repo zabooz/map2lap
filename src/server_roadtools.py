@@ -201,9 +201,11 @@ class RoadToolHandlers:
             self._send(409, {"error": "The track file is being written or has changed: try again when the build is done"})
 
     def _bank(self, name, what):
-        """Bank road. what "way": the marked road's region, its cross slope now ({min, mean, max} m per m, left of A->B
-        up), its length, an earlier bank on it to resume and the railway or tunnel parts in reach; else one bank to the
-        body's target, replacing the body's earlier ones: {"height"}. 409: refused, for the reason it says."""
+        """Bank road. what "way": the marked road's region, its cross slope now ({min, mean, max} and at A and B, m per m,
+        left of A->B up), its line, length and half width, the side that starts high, the road there is for the
+        transitions beyond A and B, an earlier bank on it and the railway or tunnel parts in reach; else one bank of the
+        body's banking, side and edge-ramp limit, replacing the body's earlier ones: {"height"}. 409: refused, for the
+        reason it says."""
         if not self._own_page():
             return self._send(403, {"error": "Only the page itself can change a track"})
         if int(self.headers.get("Content-Length") or 0) > trackedits.MAX_BYTES:
@@ -224,13 +226,21 @@ class RoadToolHandlers:
                 matching = roadbank.matching(draft["heights"], net, points)
                 moved = trackedits.moved_without(ac, name, base, [op["id"] for op in matching])
                 slope = roadbank.current(path, scan, moved, net, line)[:, 1]
+                (ahead, stop_a, _p), (beyond, stop_b, _q) = roadbank.reach(roadbank._graph_of(path), net, line)
                 return self._send(200, {"region": roadregion.selection(path, net), "replace": [op["id"] for op in matching],
                                         "target": matching[-1]["bank"]["target"] if matching else None,
                                         "current": {"min": float(slope.min()), "mean": float(slope.mean()), "max": float(slope.max())},
-                                        "length": float(roadseparation._stations(line)[-1]),
+                                        "length": float(roadseparation._stations(line)[-1]), "line": np.asarray(line).tolist(),
+                                        "half": max(edge["width"] for edge in net["segments"]) / 2,
+                                        "road_ids": sorted(builtroad.road_ids(net)), "side": roadbank.start_side(line), "e0_ends": [float(slope[0]), float(slope[-1])],
+                                        "ahead": np.asarray(ahead).tolist(), "beyond": np.asarray(beyond).tolist(),
+                                        "room": {"before": stop_a[1] if stop_a else roadbank.MAX_RAMP_M,
+                                                 "after": stop_b[1] if stop_b else roadbank.MAX_RAMP_M},
                                         "blockers": roadbank.blockers(path, scan, moved, net, line, gone)})
             moved = trackedits.moved_without(ac, name, base, body.get("replace"))
-            op = roadbank.change_of(path, scan, moved, points, body.get("target"), secrets.token_hex(8), gone)
+            op = roadbank.change_of(path, scan, moved, points, body.get("banking"), body.get("side"),
+                                    body.get("limit", roadbank.EDGE_RAMP), secrets.token_hex(8), gone,
+                                    [h for h in draft["heights"] if h["id"] not in (body.get("replace") or [])])
             trackedits.remember_meshes(ac, name, base, op, body.get("replace"))
             self._send(200, {"height": op})
         except (ValueError, AttributeError, TypeError, trackband.Refused, trackheights.InTheWay) as error:

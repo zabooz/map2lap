@@ -1,5 +1,5 @@
 import {expect, test} from "bun:test";
-import {handOver, pickRoute, usable, type ToolController} from "./toolHost";
+import {editorKey, handOver, pickRoute, usable, type ToolController} from "./toolHost";
 import type {Tool} from "./toolDefs";
 import type {Picked} from "../types";
 
@@ -44,4 +44,39 @@ test("a road tool's left pick is dropped; its right pick goes to the menu; other
   expect(pickRoute("smooth", false, {left: true})).toBe("select");       // (not editable: the tool is off, a pick is a plain pick)
   expect(pickRoute("select", true, {left: true})).toBe("select");
   expect(pickRoute("delete", true, null)).toBe("select");
+});
+
+const key = (k: string) => ({key: k, ctrlKey: false, metaKey: false, shiftKey: false});
+
+/** A tool with one of its own ranges picked, which records its removals. */
+function ranged(picked: boolean) {
+  const removed: string[] = [];
+  const controller: ToolController = {removable: picked, remove: () => { if (!picked) return false; removed.push("range"); return true; }};
+  return {removed, controller};
+}
+
+test("Delete deletes a picked range of the tool", () => {
+  const {removed, controller} = ranged(true);
+  expect(editorKey(key("Delete"), false, controller)).toBe("removed");
+  expect(removed).toEqual(["range"]);
+});
+
+test("X deletes a picked range of the tool", () => {
+  const {removed, controller} = ranged(true);
+  expect(editorKey(key("x"), false, controller)).toBe("removed");
+  expect(removed).toEqual(["range"]);
+});
+
+test("without a picked range Delete goes to the shared selection", () => {
+  const {removed, controller} = ranged(false);
+  expect(editorKey(key("Delete"), true, controller)).toBe("delete");
+  expect(editorKey(key("Delete"), false, controller)).toBe("delete");
+  expect(removed).toEqual([]);
+});
+
+test("without a picked range or selection X takes up the Delete tool; with a selection it deletes it", () => {
+  const {controller} = ranged(false);
+  expect(editorKey(key("x"), false, controller)).toEqual({tool: "delete"});
+  expect(editorKey(key("x"), true, controller)).toBe("delete");
+  expect(editorKey(key("x"), false, undefined)).toEqual({tool: "delete"});
 });

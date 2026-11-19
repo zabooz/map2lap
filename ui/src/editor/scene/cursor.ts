@@ -38,6 +38,7 @@ export function cursorFor(state: CursorState, pointed: Pointed | null): string {
     case "delete": return pointed.deletable || pointed.object ? DELETE_CURSOR : "";
     case "smooth": return pointed.road ? "crosshair" : "";
     case "separate": return pointed.road || pointed.rail ? "crosshair" : "";
+    case "bank": return pointed.road ? "crosshair" : "";
     case "kerb": return pointed.road ? "crosshair" : "";
     case "stitch": return pointed.road ? "crosshair" : "";
     default: return "";

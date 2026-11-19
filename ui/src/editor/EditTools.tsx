@@ -24,6 +24,7 @@ import type {GlobalKey, Tool} from "./tools/toolDefs";
 import {useToolHost, type ToolControllers} from "./tools/toolHost";
 import {useBand} from "./tools/useBand";
 import {useSeparation} from "./tools/useSeparation";
+import {useBank} from "./tools/useBank";
 import {useSave} from "./state/useSave";
 import type {MenuAt, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
@@ -135,6 +136,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const elevation = useElevation({name, view, edits, enabled: working("elevation"), speed: elevationSpeed, onNote: setNote});
   const band = useBand({name, view, edits, enabled: working("smooth"), revision: state.keptRevision, onNote: setNote});
   const separation = useSeparation({name, view, edits, enabled: working("separate"), revision: state.keptRevision, onNote: setNote});
+  const banking = useBank({name, view, edits, enabled: working("bank"), revision: state.keptRevision, heights: state.heights, onNote: setNote});
   const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: working("kerb"),
     highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote, onDelete: () => remove()});
   const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: working("stitch"), onNote: setNote});
@@ -239,7 +241,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 
   const placing = {wheel: (keys: WheelKeys, by: number) => placingWheel.current(keys, by), takesWheel: true};
   const controllers: ToolControllers = {
-    select: select.controller, camera: camera.controller, smooth: band.controller, separate: separation.controller, kerb: kerbs.controller,
+    select: select.controller, camera: camera.controller, smooth: band.controller, separate: separation.controller, bank: banking.controller, kerb: kerbs.controller,
     stitch: stitch.controller, elevation: elevation.controller, move: move.controller, delete: remover.controller,
     copy: {...placing, options: <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setPlacingWheel} onFailed={setCopyFailed} />},
     // (Insert and Groups draw their bars themselves: they stay mounted with the Library)

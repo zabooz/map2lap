@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {globalKey, TOOL_DEFS, TOOLS, toolDef, toolOfKey, type Tool} from "./toolDefs";
 
-const ALL: Tool[] = ["select", "delete", "camera", "move", "copy", "elevation", "smooth", "separate", "kerb", "stitch", "model", "group"];
+const ALL: Tool[] = ["select", "delete", "camera", "move", "copy", "elevation", "smooth", "separate", "bank", "kerb", "stitch", "model", "group"];
 
 test("each tool has one definition with its name, help and selection rule; keys are unique", () => {
   expect(TOOL_DEFS.map(t => t.tool).sort()).toEqual([...ALL].sort());
@@ -18,7 +18,7 @@ test("the panel lists the keyed tools by group; Groups comes from the Library an
   expect(TOOLS.map(t => t.tool)).not.toContain("group");
   expect(toolDef("group").key).toBeNull();
   expect(toolDef("model").library).toBe(true);
-  expect(TOOLS.filter(t => t.group === "road").map(t => t.tool)).toEqual(["smooth", "separate", "kerb", "stitch"]);
+  expect(TOOLS.filter(t => t.group === "road").map(t => t.tool)).toEqual(["smooth", "separate", "bank", "kerb", "stitch"]);
 });
 
 test("Select and Road camera change nothing; Camera and Transform add with Ctrl; Delete deletes its pick; road tools take no left pick", () => {
@@ -26,7 +26,7 @@ test("Select and Road camera change nothing; Camera and Transform add with Ctrl;
   expect(TOOL_DEFS.filter(t => t.selection === "select").map(t => t.tool)).toEqual(["select"]);
   expect(TOOL_DEFS.filter(t => t.selection === "multi").map(t => t.tool).sort()).toEqual(["camera", "move"]);
   expect(TOOL_DEFS.filter(t => t.selection === "delete").map(t => t.tool)).toEqual(["delete"]);
-  expect(TOOL_DEFS.filter(t => t.selection === "none").map(t => t.tool).sort()).toEqual(["kerb", "separate", "smooth", "stitch"]);
+  expect(TOOL_DEFS.filter(t => t.selection === "none").map(t => t.tool).sort()).toEqual(["bank", "kerb", "separate", "smooth", "stitch"]);
 });
 
 test("a key names its tool without Ctrl; Groups is never keyed", () => {
@@ -34,6 +34,11 @@ test("a key names its tool without Ctrl; Groups is never keyed", () => {
   expect(toolOfKey("B")?.tool).toBe("kerb");
   expect(toolOfKey("library")).toBeUndefined();
   expect(toolOfKey("q")).toBeUndefined();
+});
+
+test("U takes up Bank road", () => {
+  expect(toolOfKey("u")?.tool).toBe("bank");
+  expect(toolDef("bank").label).toBe("Bank road");
 });
 
 const press = (key: string, more: Partial<KeyboardEvent> = {}) => ({key, ctrlKey: false, metaKey: false, shiftKey: false, ...more});

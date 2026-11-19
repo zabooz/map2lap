@@ -9,15 +9,73 @@ const MARK_M = 1.5;                 // (the cross at A, until there is a band)
 
 /** The band's lines as flat x, y, z pairs: its two edges along line, its ends across, a little over the road. Pure. */
 export function bandLines(line: Place[], width: number) {
-  const out: number[] = [], half = width / 2;
+  const out: number[] = [], {left, right} = bandEdges(line, width);
+  for (let k = 0; k + 1 < line.length; k++) out.push(...left(k), ...left(k + 1), ...right(k), ...right(k + 1));
+  out.push(...left(0), ...right(0), ...left(line.length - 1), ...right(line.length - 1));
+  return out;
+}
+
+const ARROW_STEP_M = 20;            // (Bank road's arrows along its line: one every this many m)
+const ARROW_M = 2;                  // (... their length, and how far an edge arrow stands up)
+
+/** Bank road's arrows as flat x, y, z pairs: a chevron along the line from A to B every ARROW_STEP_M, and at the same places an
+    arrow pointing up at the high edge and down at the low one, each drawn from its foot to its tip. half: half the road's width;
+    high: > 0 the left edge (as A runs to B) is high, < 0 the right, 0 no edge arrows. Pure. */
+export function bankArrowLines(line: Place[], half: number, high: number) {
+  const out: number[] = [];
+  const along = line.slice(1).map((p, k) => Math.hypot(p[0] - line[k][0], p[2] - line[k][2]));
+  const total = along.reduce((a, b) => a + b, 0);
+  for (let s = ARROW_STEP_M / 2; s < total; s += ARROW_STEP_M) {
+    let k = 0, rest = s;
+    while (k < along.length - 1 && rest > along[k]) rest -= along[k++];
+    const a = line[k], b = line[k + 1], l = along[k] || 1, t = rest / l;
+    const tx = (b[0] - a[0]) / l, tz = (b[2] - a[2]) / l, lx = tz, lz = -tx;     // (AC: left of (tx, tz) is (tz, -tx))
+    const x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t + BAND_UP_M, z = a[2] + (b[2] - a[2]) * t;
+    const back = ARROW_M / 2;
+    out.push(x - tx * back + lx * back, y, z - tz * back + lz * back, x, y, z, x - tx * back - lx * back, y, z - tz * back - lz * back, x, y, z);
+    if (!high) continue;
+    for (const side of [1, -1]) {
+      const ex = x + lx * half * side, ez = z + lz * half * side, up = side * high > 0;
+      const foot = up ? y : y + ARROW_M, tip = up ? y + ARROW_M : y, head = up ? tip - ARROW_M / 4 : tip + ARROW_M / 4;
+      out.push(ex, foot, ez, ex, tip, ez, ex + tx * ARROW_M / 4, head, ez + tz * ARROW_M / 4, ex, tip, ez,
+               ex - tx * ARROW_M / 4, head, ez - tz * ARROW_M / 4, ex, tip, ez);
+    }
+  }
+  return out;
+}
+
+/** An edit range's colours (editRanges): its fully banked stretch, the picked one's, its transitions, transitions that do
+    not fit. */
+export const RANGE_COLOURS = {core: "#ff9f43", picked: "#ffd166", transition: "#a855f7", misfit: "#e5484d"};
+
+export interface RangeDrawing {before: Place[]; core: Place[]; after: Place[]; width: number; picked: boolean; fits: boolean}
+
+/** Each range's three parts as band lines (bandLines) with their colour. Pure. */
+export function rangeSegments(ranges: RangeDrawing[]) {
+  return ranges.flatMap(r => [
+    {lines: r.core.length > 1 ? bandLines(r.core, r.width) : [], fill: [] as number[], colour: r.picked ? RANGE_COLOURS.picked : RANGE_COLOURS.core},
+    ...[r.before, r.after].map(part => ({lines: part.length > 1 ? bandLines(part, r.width) : [],
+                                         fill: part.length > 1 ? bandFill(part, r.width) : [],
+                                         colour: r.fits ? RANGE_COLOURS.transition : RANGE_COLOURS.misfit}))]);
+}
+
+/** A band's edge points along line, width in m, a little over the road: left(k) and right(k) as [x, y, z]. Pure. */
+function bandEdges(line: Place[], width: number) {
+  const half = width / 2;
   const side = (k: number) => {
     const a = line[Math.max(0, k - 1)], b = line[Math.min(line.length - 1, k + 1)], l = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1;
     return [(b[2] - a[2]) / l * half, (a[0] - b[0]) / l * half];
   };
-  const left = (k: number) => { const [dx, dz] = side(k); return [line[k][0] + dx, line[k][1] + BAND_UP_M, line[k][2] + dz]; };
-  const right = (k: number) => { const [dx, dz] = side(k); return [line[k][0] - dx, line[k][1] + BAND_UP_M, line[k][2] - dz]; };
-  for (let k = 0; k + 1 < line.length; k++) out.push(...left(k), ...left(k + 1), ...right(k), ...right(k + 1));
-  out.push(...left(0), ...right(0), ...left(line.length - 1), ...right(line.length - 1));
+  return {
+    left: (k: number) => { const [dx, dz] = side(k); return [line[k][0] + dx, line[k][1] + BAND_UP_M, line[k][2] + dz]; },
+    right: (k: number) => { const [dx, dz] = side(k); return [line[k][0] - dx, line[k][1] + BAND_UP_M, line[k][2] - dz]; },
+  };
+}
+
+/** The band's surface as triangles (flat x, y, z): two per step along line. Pure. */
+export function bandFill(line: Place[], width: number) {
+  const out: number[] = [], {left, right} = bandEdges(line, width);
+  for (let k = 0; k + 1 < line.length; k++) out.push(...left(k), ...right(k), ...left(k + 1), ...right(k), ...right(k + 1), ...left(k + 1));
   return out;
 }
 
@@ -39,6 +97,8 @@ export class RoadMarkers {
   private band: THREE.LineSegments | null = null;
   private crossings: THREE.LineSegments | null = null;
   private blockers: THREE.LineSegments | null = null;
+  private bankArrows: THREE.LineSegments | null = null;
+  private ranges: (THREE.LineSegments | THREE.Mesh)[] = [];
 
   constructor(private readonly scene: THREE.Scene, private readonly camera: THREE.PerspectiveCamera,
     private readonly groundAt: (x: number, z: number) => number | null, private readonly changed: () => void,
@@ -49,6 +109,8 @@ export class RoadMarkers {
     this.drawPins([]);
     this.drawCrossings([]);
     this.drawBlockers([]);
+    this.drawBankArrows(null, 0, 0);
+    this.drawRanges([]);
     this.pinTexture?.dispose();
     this.pinTexture = null;
   }
@@ -124,6 +186,48 @@ export class RoadMarkers {
     this.blockers.renderOrder = 13;
     this.blockers.frustumCulled = false;
     this.scene.add(this.blockers);
+    this.changed();
+  }
+
+  /** A tool's edit ranges (rangeSegments); none: []. */
+  drawRanges(ranges: RangeDrawing[]) {
+    for (const old of this.ranges) {
+      this.scene.remove(old);
+      old.geometry.dispose();
+      (old.material as THREE.Material).dispose();
+    }
+    // (the transitions as a see-through surface under their outline: where the road tilts toward the banking)
+    this.ranges = rangeSegments(ranges).filter(s => s.lines.length).flatMap(({lines, fill, colour}) => {
+      const outline = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(lines, 3)),
+                                             new THREE.LineBasicMaterial({color: colour, depthTest: false}));
+      const made: (THREE.LineSegments | THREE.Mesh)[] = [outline];
+      if (fill.length) made.push(new THREE.Mesh(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(fill, 3)),
+        new THREE.MeshBasicMaterial({color: colour, transparent: true, opacity: 0.35, depthTest: false, side: THREE.DoubleSide})));
+      for (const object of made) {
+        object.renderOrder = 9;
+        object.frustumCulled = false;
+        this.scene.add(object);
+      }
+      return made;
+    });
+    this.changed();
+  }
+
+  /** Bank road's direction and high/low edge arrows along line (bankArrowLines); null: none. */
+  drawBankArrows(line: Place[] | null, half: number, high: number) {
+    if (this.bankArrows) {
+      this.scene.remove(this.bankArrows);
+      this.bankArrows.geometry.dispose();
+      (this.bankArrows.material as THREE.Material).dispose();
+      this.bankArrows = null;
+    }
+    if (!line || line.length < 2) { this.changed(); return; }
+    this.bankArrows = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position",
+      new THREE.Float32BufferAttribute(bankArrowLines(line, half, high), 3)),
+    new THREE.LineBasicMaterial({color: "#ff9f43", depthTest: false}));
+    this.bankArrows.renderOrder = 12;
+    this.bankArrows.frustumCulled = false;
+    this.scene.add(this.bankArrows);
     this.changed();
   }
 

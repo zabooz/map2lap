@@ -1,7 +1,7 @@
 // The Editor's tools defined once: id, name, sidebar group, key, tooltip, help, and how each takes a left pick. ToolPanel, Help, the
 // keyboard and the tool host (useToolHost) read only this. What a tool does stays in its own hook. Pure.
 
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "kerb" | "stitch" | "model" | "group";
+export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "bank" | "kerb" | "stitch" | "model" | "group";
 export type ToolGroup = "general" | "road" | "terrain" | "objects";
 
 /** What a click's pick means while the tool is on (useSelection). select: the pinned selection of objects, ground surfaces and
@@ -46,6 +46,11 @@ export const TOOL_DEFS: ToolDef[] = [
     help: [["Click twice", "A and B on the same road; both ends stay fixed"], ["Shift + wheel", "raise or lower the road's middle by 0.1 m"],
       ["Ctrl + wheel", "change maximum ramp slope by 0.5 percentage points"], ["Height", "positive raises, negative lowers; crossings keep their clearance"],
       ["Ctrl+Z", "undo the road bend"]]},
+  {tool: "bank", group: "road", id: "edit-bank", label: "Bank road", key: "U", selection: "none",
+    hint: "Click A and B on one road: A to B is banked fully, transitions are added beyond; click a highlighted banking to change it (U)",
+    help: [["Click twice", "A and B on the same road: the fully banked stretch"], ["Ctrl + wheel", "banking by 0.5 percentage points"],
+      ["Shift", "switch the high edge, left or right as A runs to B"], ["Alt + wheel", "how steep the transitions may be, by 0.1 percentage points"],
+      ["Click a banking", "pick it to change it or drag its A and B"], ["X or Delete", "delete the picked banking"], ["Ctrl+Z", "undo the banking"]]},
   {tool: "kerb", group: "road", id: "edit-kerb", label: "Racing kerb", key: "B", selection: "none",
     hint: "Click the desired road edge, then mark the end; adjust width, physical height and profile (B)",
     help: [["B", "turn Racing kerb on or off"], ["Shift", "switch between Road and Free"],
