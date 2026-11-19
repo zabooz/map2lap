@@ -630,13 +630,16 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         if size < 0:
             self.close_connection = True
             return self._send(400, {"error": "No list of changes"})
-        if size > trackedits.MAX_BYTES:
+        if size > trackedits.MAX_PUT_BYTES:
             self.close_connection = True    # (its body stays unread)
             return self._send(413, {"error": "Too many changes"})
         try:
             body = json.loads(self.rfile.read(size))
         except ValueError:
             return self._send(400, {"error": "No list of changes"})
+        # (the draft has its own limit; the Undo steps beside it theirs, trackhistory.MAX_BYTES)
+        if size > trackedits.MAX_BYTES and isinstance(body, dict) and len(json.dumps({k: v for k, v in body.items() if k != "history"})) > trackedits.MAX_BYTES:
+            return self._send(413, {"error": "Too many changes"})
         self._edits_answer(lambda: trackedits.save_telling(settings.ac_path(), edits[1], body))
 
     def do_GET(self):
@@ -700,7 +703,7 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         elif (copies := COPIES_PATH.fullmatch(self.path)):
             self._edits_answer(lambda: trackview.copy_index(settings.ac_path(), generator.slug(copies[1])))
         elif edits:
-            self._edits_answer(lambda: trackedits.load(settings.ac_path(), edits[1]))
+            self._edits_answer(lambda: trackedits.load_with_history(settings.ac_path(), edits[1]))
         elif (saved_edits := re.fullmatch(r"/api/editor/([^/]+)/edits/saved", self.path)):
             self._edits_answer(lambda: trackedits.saved_edits(settings.ac_path(), generator.slug(saved_edits[1])))
         elif self.path == "/api/status":

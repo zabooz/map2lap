@@ -443,3 +443,117 @@ test("a TreeFX tree Copy placed is one Undo step, goes to the server at once, an
   expect(edits.state().trees).toEqual([]);
   expect(edits.changed()).toBe(false);
 });
+
+type Sent = {history: {past: string[]; future: string[]; entries: Record<string, Record<string, unknown>>; items: Record<string, unknown>}};
+const historyOf = (s: ReturnType<typeof server>, k: number) => (s.asked[k].body as unknown as Sent).history;
+
+/** A reopened track whose server hands back these steps with the draft. */
+async function reopened(deleted: ReturnType<typeof tree>[], history: Sent["history"]) {
+  const s = server(deleted);
+  const send = (url: string, options?: RequestInit) => options ? s.send(url, options) : Promise.resolve(json({base: "b", revision: 4, deleted, outdated: 0, history: {revision: 4, ...history}}));
+  const edits = new TrackEdits("t", send);
+  edits.bind("b");
+  await edits.start();
+  return {s, edits};
+}
+
+test("each save carries the steps the server does not hold, and a reload hands Undo and Redo back", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(1)]);
+  edits.remove([tree(2)]);
+  edits.undo();
+  edits.saveNow(); await settle();
+  const sent = historyOf(s, 0);
+  expect([sent.past.length, sent.future.length]).toEqual([1, 1]);
+  expect(Object.values(sent.items)).toEqual(expect.arrayContaining([tree(1), tree(2)]));
+  s.asked[0].answer(json({revision: 4, meshes: [], history: {past: 1, future: 1, missing: false}})); await settle();
+  const again = await reopened([tree(1)], sent);
+  expect([again.edits.state().canUndo, again.edits.state().canRedo]).toEqual([true, true]);
+  again.edits.redo();
+  expect(again.edits.state().removed).toEqual([tree(1), tree(2)]);
+  again.edits.undo(); again.edits.undo();
+  expect(again.edits.state().removed).toEqual([]);
+  again.edits.saveNow(); await settle();
+  const after = historyOf(again.s, 0);
+  expect(after.items).toEqual({});                              // (all of it the server holds already)
+  expect([after.past.length, after.future.length]).toEqual([0, 2]);
+  edits.stop(); again.edits.stop();
+});
+
+test("after a reload a new step cuts off what Redo had", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(1)]);
+  edits.undo();
+  edits.saveNow(); await settle();
+  const again = await reopened([], historyOf(s, 0));
+  expect(again.edits.state().canRedo).toBe(true);
+  again.edits.remove([tree(3)]);
+  again.edits.saveNow(); await settle();
+  expect(historyOf(again.s, 0).future).toEqual([]);
+  expect(historyOf(again.s, 0).past).toHaveLength(1);
+  edits.stop(); again.edits.stop();
+});
+
+test("an Undo alone goes to the server: the step to redo, its items once", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(1)]);
+  edits.saveNow(); await settle();
+  s.asked[0].answer(json({revision: 4, meshes: []})); await settle();
+  edits.undo();
+  edits.saveNow(); await settle();
+  const undone = historyOf(s, 1);
+  expect([undone.past.length, undone.future.length, Object.values(undone.items)]).toEqual([0, 1, [tree(1)]]);    // (in the draft only till now)
+  s.asked[1].answer(json({revision: 5, meshes: []})); await settle();
+  edits.redo(); edits.undo();
+  edits.saveNow(); await settle();
+  expect(historyOf(s, 2).items).toEqual({});
+  edits.stop();
+});
+
+test("the steps the server drops for room go from Undo too; a server that lost them is sent all again", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(1)]);
+  edits.remove([tree(2)]);
+  edits.saveNow(); await settle();
+  s.asked[0].answer(json({revision: 4, meshes: [], history: {past: 1, future: 0, missing: false}})); await settle();
+  edits.undo();
+  expect(edits.state().canUndo).toBe(false);                    // (the oldest step went)
+  edits.saveNow(); await settle();
+  s.asked[1].answer(json({revision: 5, meshes: [], history: {past: 0, future: 1, missing: true}})); await settle();
+  await settle();
+  const resent = historyOf(s, 2);
+  expect(Object.keys(resent.entries)).toHaveLength(1);          // (the Redo step again, with its items)
+  expect(Object.values(resent.items)).toEqual(expect.arrayContaining([tree(1), tree(2)]));
+  edits.stop();
+});
+
+test("a hundred steps are kept, as on the server", async () => {
+  const {edits} = await started();
+  for (let k = 0; k < 105; k++) edits.remove([tree(k)]);
+  let undone = 0;
+  while (edits.state().canUndo) { edits.undo(); undone++; }
+  expect(undone).toBe(100);
+  edits.stop();
+});
+
+test("saved as a copy: the steps taken over go to the copy's server by themselves", async () => {
+  const {edits} = await started();
+  edits.remove([tree(1)]);
+  edits.handOver("t_2");
+  const copy = server([tree(1)]), second = new TrackEdits("t_2", copy.send);
+  second.bind("b");
+  await second.start();
+  await new Promise(ok => setTimeout(ok, 450));                 // (edits.ts SAVE_AFTER_MS)
+  expect(copy.asked).toHaveLength(1);
+  expect(historyOf(copy, 0).past).toHaveLength(1);
+  edits.stop(); second.stop();
+});
+
+test("steps handed back for another draft revision than the one read are not taken", async () => {
+  const {edits, s} = await started();
+  edits.remove([tree(1)]);
+  edits.saveNow(); await settle();
+  const again = await reopened([tree(1)], {...historyOf(s, 0), revision: 5} as Sent["history"]);     // (reopened reads revision 4)
+  expect(again.edits.state().canUndo).toBe(false);
+  edits.stop(); again.edits.stop();
+});

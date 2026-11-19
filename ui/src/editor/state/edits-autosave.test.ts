@@ -204,13 +204,16 @@ test("a draft refusal cannot acknowledge the edit it rolled back", async () => {
   expect(edits.state().removed).toEqual([]);
 });
 
-test("a change undone before it went out is saved: nothing to send", async () => {
+test("a change undone before it went out sends only its Redo step: the draft is as the server has it", async () => {
   const {s, edits} = await started();
   edits.remove([tree(1)]);
   edits.undo();
   expect(edits.state().save).toBe("waiting");
   edits.saveNow();
   await settle();
-  expect(s.asked).toHaveLength(0);
+  expect(s.asked).toHaveLength(1);
+  const body = s.asked[0].body as unknown as {deleted: unknown[]; history: {past: string[]; future: string[]}};
+  expect([body.deleted, body.history.past, body.history.future.length]).toEqual([[], [], 1]);
+  s.asked[0].answer(json({revision: 4, meshes: []})); await settle();
   expect(edits.state().save).toBe("saved");
 });

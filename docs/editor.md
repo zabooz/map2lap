@@ -60,13 +60,16 @@ resource arrivals share at most ten redraws per second; camera/tool changes draw
 |---|---|
 | `data/map2lap_objects.json` | Object triangle ownership/parents and the separate TreeFX section |
 | `out/edits/<track>.json` | Whole draft bound to one served source revision (`app/trackedits.py`) |
+| `out/edits/<track>.history.json` | Its Undo/Redo steps, bound to that draft revision and source (`app/trackhistory.py`) |
 | `out/sources/<name>_<state>` | Retained pre-Save KN5/object list (`app/tracksource.py`), shared by saved copies |
 | `data/map2lap.json`, `edits` | Recipe identifying source, applied operations and written KN5 |
 | `data/map2lap_editor`, `data/map2lap_paints`, `data/map2lap_models` | Portable build facts and applied asset inputs |
 
 Changes autosave the draft; writes are refused if another tab/build changed its base. Preview deletion shrinks triangles
-without renumbering others. Undo/Redo belongs to this visit. Reopening restores the draft, or a valid saved recipe when
-no draft exists. Build facts, source data and asset snapshots are distinct from disposable caches.
+without renumbering others. Undo/Redo (100 steps, at most 10 MB, the oldest go first) is kept beside the draft: each save
+sends the steps' order and only steps and objects the server lacks, written just before the draft, so a cut between the
+two files leaves the steps unread, never the draft wrong. Reopening restores the draft with its steps, or a valid saved
+recipe when no draft exists; a new build, Give up and deleting the track drop them, Save as copy hands them to the copy. Build facts, source data and asset snapshots are distinct from disposable caches.
 
 `app/trackcopy.py` stages a complete track in a hidden folder, applies the draft to the retained source, writes/validates
 the replacement KN5, object list and recipe, then swaps it into place. Placement precedes height changes. Repeated Saves

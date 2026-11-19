@@ -85,7 +85,7 @@ test("the brush: Save retains the stroke after reload and Discard removes only a
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect(page.locator("#edit-saved")).toHaveText(/^Saved \d/);
   await expect.poll(async () => (await picture(page)).equals(raised)).toBe(true);
-  await expect(page.getByRole("button", {name: /Undo/})).toBeDisabled();
+  await expect(page.getByRole("button", {name: /Undo/})).toBeEnabled();      // (the stroke's step outlives the reload and the Save)
   await page.locator("#edit-elevation").click();
   await page.locator("#edit-elevation-set").getByLabel("Radius").fill("40");
   await page.locator("#edit-elevation-set").getByLabel("Height").fill("300");

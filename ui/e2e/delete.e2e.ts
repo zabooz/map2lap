@@ -79,7 +79,7 @@ test("all trees deleted, the view is the same track built without trees, to the 
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
 });
 
-test("a parked car on a track built with the list: picked whole, all of it gone, only it, saved as a car", async ({page, backend}) => {
+test("a parked car on a track built with the list: picked whole, all of it gone, only it, saved as a car; Undo outlives a reload", async ({page, backend}) => {
   await openEditor(page);
   const without = await picture(page);
   await backend.post("/__test/rebuild", {name: "alpha", title: "Alpha Test", car: "listed"});
@@ -103,8 +103,17 @@ test("a parked car on a track built with the list: picked whole, all of it gone,
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect.poll(async () => (await picture(page)).equals(without)).toBe(true);
   await scene(page).focus();
-  await page.keyboard.press("Control+z");       // Undo history belongs to this visit.
+  await page.keyboard.press("Control+z");       // (the steps are kept beside the draft: app/trackhistory.py)
+  await expect.poll(async () => (await picture(page)).equals(withCar)).toBe(true);
+  await saved(page);
+  expect((await stored(page)).deleted).toEqual([]);
+  await page.reload();
+  await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
+  await scene(page).focus();
+  await page.keyboard.press("Control+y");
   await expect.poll(async () => (await picture(page)).equals(without)).toBe(true);
+  await saved(page);
+  expect((await stored(page)).deleted.map(d => d.id)).toEqual(["t_0_0#0"]);
 });
 
 test("a house and its sign: one by one, or the sign along with the house; undo in any order", async ({page, backend}) => {
@@ -252,7 +261,8 @@ test("all of a sort: marked, then deleted, the same picture as a track without t
   await page.reload();
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await expect.poll(async () => (await picture(page)).equals(empty)).toBe(true);
-  await expect(page.getByRole("button", {name: /Undo/})).toBeDisabled();
+  await page.getByRole("button", {name: /Undo/}).click();       // (kept over the reload too)
+  await expect.poll(async () => (await picture(page)).equals(whole)).toBe(true);
 });
 
 test("the right-click menu offers tree replacement; Mark all frames and deletes nothing, Esc ends it; a right drag opens none", async ({page}) => {

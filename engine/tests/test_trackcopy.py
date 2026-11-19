@@ -365,6 +365,14 @@ class SaveTest(Base):
         self.assertEqual({10.0, 11.0, 12.0}, self.cars("t_2"))
         self.assertEqual(1, len(os.listdir(tracksource.root())))
 
+    def test_a_copy_takes_the_undo_steps_along_before_the_track_s_own_go(self):
+        now = trackedits.load(self.ac, "t")
+        trackedits.save(self.ac, "t", {"base": now["base"], "revision": now["revision"], "id": "x", "deleted": [{"id": "t_0_0#0", "position": [0, 0, 0]}],
+                                       "history": {"past": ["e1"], "future": [], "entries": {"e1": {"removed": []}}, "items": {}}})
+        trackcopy.save(self.ac, "t", copy_to="t_2")
+        self.assertEqual(["e1"], trackedits.history(self.ac, "t_2")["past"])
+        self.assertIsNone(trackedits.history(self.ac, "t"))
+
     def test_the_draft_lost_is_the_recipe_a_saved_empty_one_stays_empty(self):
         self.edits(["t_0_0#1"])
         trackcopy.save(self.ac, "t")

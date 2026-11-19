@@ -243,7 +243,7 @@ test("Play starts Assetto Corsa at the hour the Editor's clock shows", async ({p
   await page.locator("#edit-play").click();
   await startDriving(page);
   expect((await started).postDataJSON()).toMatchObject({name: "alpha", clock: 18.5,
-    weather: {kind: "dry", intensity: "light", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer", airTemperature: 20, roadTemperature: 26}});
+    weather: {kind: "dry", intensity: "light", windDirection: 0, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer", airTemperature: 20, roadTemperature: 26}});
 });
 
 test("while the track is written nothing changes: Saved means what was written, and undo works afterwards", async ({page}) => {

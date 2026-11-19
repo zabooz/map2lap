@@ -16,12 +16,15 @@ import threading
 
 import numpy as np
 
-from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackkerbs, trackmodels, tracknative, trackpaint, trackplace, trackstitch, tracksurfaces,
+from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackheights, trackhistory, trackkerbs, trackmodels, tracknative, trackpaint, trackplace, trackstitch, tracksurfaces,
                  tracktrees, trackview, trackwalls, treespacing)
 from track import groundmaterial, objectlist
 
 SCHEMA = 2
 MAX_BYTES = 16 * 1024 * 1024        # about 150,000 objects: far more than anyone clicks away, far less than fills the memory
+# A save: its draft, and its Undo steps' change beside it (trackhistory), at most all of them once, sent again when the server lost
+# them, and one step as large as a draft over that (the newest stays however large).
+MAX_PUT_BYTES = 2 * MAX_BYTES + trackhistory.MAX_BYTES
 NAME = re.compile(r"[a-z0-9_]+")    # (generator.slug's names; another name is refused, not turned into one of them)
 ID = re.compile(r"([\w-]+)#(\d+)")
 MAX_ID, MAX_UNANSWERED = 64, 64
@@ -62,6 +65,7 @@ def clear(name, revision=None):
         return
     with _saving:
         if os.path.exists(path_of(name)) and revision in (None, _stored(path_of(name))["revision"]):
+            trackhistory.remove(name)
             os.remove(path_of(name))
 
 
@@ -210,6 +214,34 @@ def load(ac, name):
                 "stitches": saved.get("stitches", []) if not s.get("broken") else [],
                 'tree_spacing': saved.get('tree_spacing') if not s.get('broken') else None,
                 'car_density': saved.get('car_density') if not s.get('broken') else None}}
+
+
+def history(ac, name):
+    """The Undo and Redo steps of the track's draft as the page reads them (trackhistory.page_form), None when there are none for the
+    draft and the build there are now."""
+    path = _file(ac, name)
+    revision = trackview.deletable(ac, name)[0]
+    s = _stored(path, trackview.recipe(ac, name))
+    return trackhistory.read(name, revision, s["revision"]) if s["base"] == revision and not s.get("broken") else None
+
+
+def load_with_history(ac, name):
+    """load, and the Undo steps of that very draft revision as "history" (trackhistory.read), read together: a save between the two would
+    hand back an older draft with newer steps."""
+    with _saving:
+        d = load(ac, name)
+        return {**d, "history": trackhistory.read(name, d["base"], d["revision"])}
+
+
+def hand_history(ac, name, copy_to, base, revision):
+    """The Undo steps of the track name's draft in that revision for that build go to the track copy_to, saved as a copy of it, for its
+    draft as it is now: a reload of the copy right after keeps them, though this track's go with its draft (trackcopy.save)."""
+    _file(ac, name)
+    with _saving:
+        steps = trackhistory.stored(name, base, revision)
+        if steps is not None:
+            now = load(ac, copy_to)
+            trackhistory.write(copy_to, steps, now["base"], now["revision"], _write)
 
 
 def saved_edits(ac, name):
@@ -719,6 +751,9 @@ def save_telling(ac, name, body):
             trackpaint.validate(ac, name, revision, [p for p in paints if p not in previous_ids])
         except ValueError as error:
             raise Invalid(str(error)) from error
+        change = body.get("history")
+        if change is not None and (wrong := trackhistory.problem(change)):
+            raise Invalid(wrong)
         if not known or ((deleted or object_sorts or heights or placed or copies or paints or models or surfaces or added or walls or kerbs or stitches or spacing or density) and _old(s, revision)):
             raise Conflict(name)
         new = s["revision"] + 1
@@ -727,6 +762,13 @@ def save_telling(ac, name, body):
             textures = trackpaint.changed(ac, name, revision, previous_paints, paints)
         except ValueError as error:
             raise Invalid(str(error)) from error
+        # The Undo steps first, for the draft written next: cut off between the two, they belong to no draft and are not read.
+        kept = None
+        if change is None:
+            trackhistory.remove(name)
+        else:
+            history, kept = trackhistory.merged(trackhistory.stored(name, revision, s["revision"]) if s["base"] == revision else None, change)
+            trackhistory.write(name, history, revision, new, _write)
         _write(path, {"schema": SCHEMA, "base": revision, "revision": new, "last": request, "deleted": deleted,
                       "object_sorts": object_sorts, "heights": heights, "placed": placed, "copies": copies, "paints": paints, "models": models,
                       "surfaces": surfaces, "trees": added, "trees_next": trees_next, "walls": walls, "kerbs": kerbs, "stitches": stitches,
@@ -746,7 +788,7 @@ def save_telling(ac, name, body):
         with _context_lock:
             _context_cache.update(key=_context_key(ac, name, source, revision), value=(source, scan, objects))
     return {"revision": new, "meshes": _meshes_between(source, scan, objects, before, {"heights": heights, "placed": placed, "copies": copies, "models": models, "walls": walls, "kerbs": kerbs, "stitches": stitches}),
-            "textures": textures, "treefx": moved_trees}
+            "textures": textures, "treefx": moved_trees, "history": kept}
 
 
 def car_density(ac, name, body):

@@ -4,6 +4,7 @@ import {isUnplaced, type Placement} from "../tools/placing";
 import {copyKeys, type ObjectCopy} from "../tools/copying";
 import {joinedCuts, type SurfaceCut} from "../scene/surfaceCuts";
 import type {AddedTree, TreeFxChange} from "../types";
+import {HistoryKeys, type HistoryChange, type Sent} from "./history";
 
 export interface ModelInstance {
   id: string;
@@ -125,7 +126,7 @@ export interface EditState {
 
 const SAVE_AFTER_MS = 400;      // the changes of a quick series go in one save, a reload right after loses next to nothing
 const RETRY_MS = 5000;
-const HISTORY = 200;            // undo steps kept
+const HISTORY = 100;            // undo steps kept, as many as the server keeps beside the draft (src/app/trackhistory.py MAX_STEPS)
 const KEEPALIVE_BYTES = 60000;  // (what a browser still sends while a page closes)
 const MAX_UNANSWERED = 64;      // (trackedits.MAX_UNANSWERED)
 const JOIN_MS = 1000;           // notches of the wheel on the same thing this near each other are one step to undo: a turn by 90 degrees isn't 18
@@ -187,6 +188,7 @@ export class TrackEdits {
   private turns: Promise<unknown> = Promise.resolve();
   private past: Edits[] = [];
   private future: Edits[] = [];
+  private history = new HistoryKeys();     // what the server holds of past and future, so a reload keeps them
   private savedEdits: Edits | null = null;
   private base: string | null = null;       // the state of the file the server's list is of
   private bound: string | null = null;      // the state of the file the view shows
@@ -294,6 +296,8 @@ export class TrackEdits {
     if (this.viewBehind()) this.set({save: "stuck", error: TRACK_CHANGED});
     else if (this.now.error === TRACK_CHANGED) this.set({save: "saved", error: null});
     else this.set({});
+    // (steps the server doesn't hold, as those a copy took over: they go without waiting for a change)
+    if (this.canEdit() && !this.isSaved() && !this.sending) { clearTimeout(this.timer); this.timer = setTimeout(() => void this.flush(), SAVE_AFTER_MS); }
   }
 
   async start() {
@@ -314,8 +318,13 @@ export class TrackEdits {
                      kerbs: (d.kerbs ?? []) as KerbEdit[], stitches: (d.stitches ?? []) as StitchEdit[], treeSpacing: (d.tree_spacing ?? null) as TreeSpacing | null, carDensity: (d.car_density ?? null) as CarDensity | null};
       const taken = handed?.name === this.name && sameEdits(handed.edits, edits) ? handed : null;
       handed = null;
-      this.past = taken?.past ?? [];
-      this.future = taken?.future ?? [];
+      this.history = new HistoryKeys();
+      // (steps of another draft revision than this one are not its steps)
+      const kept = !taken && d.history?.revision === d.revision ? this.history.restore<Edits>(d.history as HistoryChange, edits) : null;
+      if (kept) Object.assign(edits, kept.current);
+      else if (!taken) this.history.none();
+      this.past = taken?.past ?? kept?.past ?? [];
+      this.future = taken?.future ?? kept?.future ?? [];
       this.onServer = edits;
       this.unanswered = [];
       const s = d.saved;
@@ -597,7 +606,22 @@ export class TrackEdits {
     return this.now.removed === this.onServer?.removed
       && this.now.objectSorts === this.onServer?.objectSorts && this.now.heights === this.onServer?.heights && this.now.placed === this.onServer?.placed && this.now.copies === this.onServer?.copies && this.now.paints === this.onServer?.paints && this.now.models === this.onServer?.models
       && this.now.surfaces === this.onServer?.surfaces && this.now.trees === this.onServer?.trees && this.now.walls === this.onServer?.walls && this.now.kerbs === this.onServer?.kerbs && this.now.stitches === this.onServer?.stitches
-      && this.now.treeSpacing === this.onServer?.treeSpacing && this.now.carDensity === this.onServer?.carDensity;
+      && this.now.treeSpacing === this.onServer?.treeSpacing && this.now.carDensity === this.onServer?.carDensity
+      && this.history.saved(this.past, this.future);
+  }
+
+  /** The server kept the steps sent (from past and future as they were then), of them answer's newest; the older ones go here too.
+      missing: it lost some it was thought to hold, it is sent all again. No answer (an older server): all of them. */
+  private kept(sent: Sent, past: Edits[], future: Edits[], answer?: {past: number; future: number; missing: boolean} | null) {
+    if (answer?.missing) return this.history.forget();
+    const keptPast = answer?.past ?? sent.change.past.length, keptFuture = answer?.future ?? sent.change.future.length;
+    const gone = new Set<Edits>([...past.slice(0, past.length - keptPast), ...future.slice(0, future.length - keptFuture)]);
+    if (gone.size) {
+      this.past = this.past.filter(e => !gone.has(e));
+      this.future = this.future.filter(e => !gone.has(e));
+      this.set({canUndo: this.past.length > 0, canRedo: this.future.length > 0});
+    }
+    this.history.confirm(sent, keptPast, keptFuture);
   }
 
   /** The changes after the last one the server kept are taken back, as by Undo, with the reason as `refused`. */
@@ -610,6 +634,7 @@ export class TrackEdits {
     clearTimeout(this.timer);
     this.set({...back, canUndo: this.past.length > 0, canRedo: false, save: "saved", error: null,
               refused: {message, n: (this.now.refused?.n ?? 0) + 1}});
+    if (!this.isSaved()) this.timer = setTimeout(() => void this.flush(), SAVE_AFTER_MS);     // (its steps are fewer now)
   }
 
   private async flush(leaving = false) {
@@ -620,8 +645,9 @@ export class TrackEdits {
     }
     if ((this.sending && !leaving) || this.now.save === "stuck" || this.isSaved() || this.bound === null) return;
     const edits = this.edits(), number = ++this.sent, id = `${Date.now()}-${number}-${Math.random().toString(36).slice(2, 10)}`;
+    const steps = this.history.change(this.past, this.future), past = [...this.past], future = [...this.future];
     const body = JSON.stringify({base: this.bound, revision: this.revision, deleted: edits.removed,
-                                 object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, copies: edits.copies, paints: edits.paints, models: edits.models, surfaces: edits.surfaces, trees: edits.trees, walls: edits.walls, kerbs: edits.kerbs, stitches: edits.stitches, tree_spacing: edits.treeSpacing ?? null, car_density: edits.carDensity ?? null, id, unanswered: this.unanswered.map(u => u.id)});
+                                 object_sorts: edits.objectSorts, heights: edits.heights, placed: edits.placed, copies: edits.copies, paints: edits.paints, models: edits.models, surfaces: edits.surfaces, trees: edits.trees, walls: edits.walls, kerbs: edits.kerbs, stitches: edits.stitches, tree_spacing: edits.treeSpacing ?? null, car_density: edits.carDensity ?? null, id, unanswered: this.unanswered.map(u => u.id), history: steps.change});
     this.unanswered = [...this.unanswered, {id, number}].slice(-MAX_UNANSWERED);
     this.sending = true;
     this.set({save: "saving"});
@@ -646,6 +672,7 @@ export class TrackEdits {
       this.answered = number;
       this.revision = d.revision;
       this.onServer = edits;
+      this.kept(steps, past, future, d.history);
       this.unanswered = this.unanswered.filter(u => u.number > number);
       this.onMeshes(d.meshes ?? [], d.revision, !this.isSaved(), d.treefx ?? null);
       this.onTextures(d.textures ?? [], edits.paints);

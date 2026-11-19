@@ -17,7 +17,7 @@ ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(ENGINE, "..", "src")))
 
 import server  # noqa: E402
-from app import mytracks, trackedits, trackview  # noqa: E402
+from app import mytracks, trackedits, trackhistory, trackview  # noqa: E402
 from track import kn5, objectlist  # noqa: E402
 
 IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
@@ -384,8 +384,24 @@ class RequestsTest(Base):
 
     def test_too_much_is_not_even_read(self):
         code, _ = self.request("PUT", "/api/editor/t/edits", None, {"Content-Type": "application/json",
-                                                                    "Content-Length": str(trackedits.MAX_BYTES + 1)})
+                                                                    "Content-Length": str(trackedits.MAX_PUT_BYTES + 1)})
         self.assertEqual(413, code)
+
+    def test_a_draft_over_its_limit_is_refused_though_the_steps_beside_it_have_room(self):
+        now = self.load()
+        with mock.patch.object(trackedits, "MAX_BYTES", 2000):
+            ok = {"base": now["base"], "revision": 0, "deleted": [], "id": "y",
+                  "history": {"past": ["e1"], "future": [], "entries": {"e1": {}}, "items": {"h": {"mm": [1] * 2000}}}}
+            self.assertEqual(200, self.put(ok)[0])
+            self.assertEqual(413, self.put({**ok, "revision": 1, "id": "z", "object_sorts": ["x" * 3000], "history": None})[0])
+
+    def test_the_steps_saved_come_back_with_the_draft(self):
+        now = self.load()
+        step = {"past": ["e1"], "future": [], "entries": {"e1": {"removed": ["k"]}}, "items": {"k": item(0)}}
+        code, body = self.put({"base": now["base"], "revision": 0, "deleted": [item(1)], "id": "y", "history": step})
+        self.assertEqual({"past": 1, "future": 0, "missing": False}, json.loads(body)["history"])
+        answer = json.loads(self.request("GET", "/api/editor/t/edits")[1])
+        self.assertEqual((["e1"], {"k": item(0)}, answer["revision"]), (answer["history"]["past"], answer["history"]["items"], answer["history"]["revision"]))
 
     def test_only_the_page_itself_can_write(self):
         now = self.load()
@@ -394,6 +410,52 @@ class RequestsTest(Base):
         self.assertEqual(403, self.put(body, headers={"Content-Type": "application/json", "Host": "evil.example"})[0])
         self.assertNotEqual(200, self.request("OPTIONS", "/api/editor/t/edits")[0])     # (no other site gets a yes to PUT)
         self.assertEqual(0, self.load()["revision"])
+
+
+class HistoryTest(Base):
+    """Undo and Redo steps go with each save and come back with the draft they belong to (app/trackhistory.py)."""
+    STEP = {"past": ["e1"], "future": [], "entries": {"e1": {"removed": []}}, "items": {}}
+
+    def save(self, deleted, **changed):
+        now = self.load()
+        return trackedits.save_telling(self.ac, self.name, {"base": now["base"], "revision": now["revision"], "deleted": deleted, "id": "x", **changed})
+
+    def test_a_save_keeps_its_steps_and_the_draft_hands_them_back(self):
+        answer = self.save([item(0)], history=self.STEP)
+        self.assertEqual({"past": 1, "future": 0, "missing": False}, answer["history"])
+        self.assertEqual(["e1"], trackedits.history(self.ac, self.name)["past"])
+
+    def test_a_save_without_steps_leaves_none(self):
+        self.save([item(0)], history=self.STEP)
+        self.save([item(0), item(1)])
+        self.assertIsNone(trackedits.history(self.ac, self.name))
+
+    def test_cut_off_between_its_steps_and_the_draft_the_steps_are_not_handed_back(self):
+        self.save([item(0)], history=self.STEP)
+        real = trackedits._write
+        def draft_fails(path, content):
+            if path == self.file:
+                raise OSError("disk full")
+            real(path, content)
+        with mock.patch.object(trackedits, "_write", side_effect=draft_fails), self.assertRaises(OSError):
+            self.save([item(0), item(1)], history={**self.STEP, "past": ["e1", "e2"], "entries": {"e2": {"removed": []}}})
+        self.assertIsNone(trackedits.history(self.ac, self.name))
+        self.assertEqual(1, len(self.load()["deleted"]))
+
+    def test_built_again_the_steps_are_not_handed_back(self):
+        self.save([item(0)], history=self.STEP)
+        self.rebuild()
+        self.assertIsNone(trackedits.history(self.ac, self.name))
+
+    def test_cleared_with_the_draft(self):
+        self.save([item(0)], history=self.STEP)
+        trackedits.clear(self.name)
+        self.assertFalse(os.path.exists(trackhistory.path_of(self.name)))
+
+    def test_malformed_steps_are_refused_and_nothing_is_written(self):
+        with self.assertRaises(trackedits.Invalid):
+            self.save([item(0)], history={"past": "e1"})
+        self.assertEqual([], self.load()["deleted"])
 
 
 if __name__ == "__main__":

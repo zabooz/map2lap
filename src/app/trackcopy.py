@@ -346,10 +346,11 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
-    if copy_to:                     # (the copy's list is its recipe; this track's goes back to its own, or none)
-        for draft, of in ((copy_to, None), (name, edits["revision"])):
+    if copy_to:                     # (the copy's list is its recipe, with this track's Undo steps; this track's goes back to its own, or none)
+        for step in (lambda: trackedits.clear(copy_to), lambda: trackedits.hand_history(ac, name, copy_to, edits["base"], edits["revision"]),
+                     lambda: trackedits.clear(name, edits["revision"])):
             try:
-                trackedits.clear(draft, of)
+                step()
             except OSError:         # (the copy is whole, so it is saved: a draft left only shows as changes not saved)
                 pass
     return {"name": new, "title": title, "left_out": _counted(seen, objects)}
