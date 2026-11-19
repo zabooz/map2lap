@@ -339,11 +339,29 @@ def clearance_refusal(path, scan, moved, net, line, height, half):
     return None
 
 
+def current(path, scan, moved, net, line):
+    """[[station, cross slope], ...] of the marked road as the draft has it (current_of on its own surface)."""
+    half = max(edge["width"] for edge in net["segments"]) / 2
+    return current_of(lambda at: builtroad.heights(path, scan, moved, net, at)[0], line, half)
+
+
+def blockers(path, scan, moved, net, line, gone=None):
+    """Railway and tunnel parts a nominal 5 % bank between the marks would reach, for red crosses before a target is set."""
+    half = max(edge["width"] for edge in net["segments"]) / 2
+    length = float(roadseparation._stations(line)[-1])
+    bank = {"line": np.asarray(line).tolist(), "target": 0.05, "ramp": length / 4, "half": half, "e0": [[0.0, 0.0], [length, 0.0]]}
+    height = field_of(bank)
+    other, dummy = roadbend._dummy(line, net, _lift(bank))
+    fields = roadseparation.Fields(up=held_at_edge(height, line, half), down=None, deck=height, ground=None)
+    return roadseparation._offsets(path, scan, moved, line, dummy, net, other, [(length / 2, _lift(bank))], [], gone,
+                                   blockers=[], solo="upper", fields=fields)
+
+
 def change_of(path, scan, moved, points, target, id_, gone=None):
     """One source-bound Bank road operation between the marks: {id, x, z, nx, nz, mm, mesh_offsets, bank}."""
     net, line = describe(path, scan, points)
     half = max(edge["width"] for edge in net["segments"]) / 2
-    samples = current_of(lambda at: builtroad.heights(path, scan, moved, net, at)[0], line, half)
+    samples = current(path, scan, moved, net, line)
     e0 = lambda s: np.interp(s, samples[:, 0], samples[:, 1])
     length = float(roadseparation._stations(line)[-1])
     wrong = refusal(length, target, e0, half)

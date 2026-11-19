@@ -67,6 +67,7 @@ TREEFX_PATH = re.compile(r"/api/editor/([^/]+)/treefx(?:/([a-z0-9_]+)(?:/([A-Za-
 BAND_PATH = re.compile(r"/api/editor/([^/]+)/band(?:/(way|preview))?")
 SEPARATE_PATH = re.compile(r"/api/editor/([^/]+)/separate(?:/(way))?")
 BEND_PATH = re.compile(r"/api/editor/([^/]+)/bend(?:/(way))?")
+BANK_PATH = re.compile(r"/api/editor/([^/]+)/bank(?:/(way))?")
 RAILBRIDGE_PATH = re.compile(r"/api/editor/([^/]+)/railbridge")
 SIDEWALK_PATH = re.compile(r"/api/editor/([^/]+)/(?:sidewalk|guardrail)")
 KERB_PATH = re.compile(r"/api/editor/([^/]+)/kerb/way")
@@ -835,6 +836,9 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         bend = BEND_PATH.fullmatch(self.path)
         if bend:
             return self._bend(bend[1], bend[2])
+        bank = BANK_PATH.fullmatch(self.path)
+        if bank:
+            return self._bank(bank[1], bank[2])
         separate = SEPARATE_PATH.fullmatch(self.path)
         if separate:
             return self._separate(separate[1], separate[2])
