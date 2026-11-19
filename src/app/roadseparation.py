@@ -1,5 +1,6 @@
 """Editor correction for a mapped bridge crossing a ground road, on the retained KN5 source."""
 import math
+import typing
 
 import numpy as np
 
@@ -429,9 +430,26 @@ def _own_road_part(xy, line, net):
     return float(np.mean(own)) < float(np.mean(others))
 
 
-def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower_targets, gone=None, blockers=None, solo=None):
-    """Source vertex corrections; blockers collects obstructions alone for the marked-road preview."""
+class Fields(typing.NamedTuple):
+    """Height changes at AC [x, z] points (n, 2) -> (n,) for _offsets: the upper road, the lower road (None: none), the
+    upper road's deck across its whole width, and the ground (None: ground meshes are left to the height raster)."""
+    up: typing.Callable
+    down: typing.Callable | None
+    deck: typing.Callable
+    ground: typing.Callable | None
+
+
+def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower_targets, gone=None, blockers=None, solo=None,
+             fields=None):
+    """Source vertex corrections; blockers collects obstructions alone for the marked-road preview. fields: other road
+    fields than Bend's longitudinal ones from the targets (Bank road); the targets then only size the reach."""
     result = {}
+    if fields is None:
+        fields = Fields(lambda xy: _field(xy, above, upper, upper_targets), lambda xy: _field(xy, below, lower, lower_targets),
+                        lambda xy: _deck_field(xy, above, upper_targets),
+                        lambda xy: _ground_change(xy, above, below, upper, lower, upper_targets, lower_targets))
+    up_at, deck_at = fields.up, fields.deck
+    down_at = fields.down or (lambda xy: np.zeros(len(xy)))
     reach = max(max(edge['width'] for edge in upper['segments']), max(edge['width'] for edge in lower['segments']))
     reach += max(6., 15. * max(abs(value) for _at, value in [*upper_targets, *lower_targets]))
     lower_points = np.vstack([below, *lower.get('other_lines', [])])
@@ -472,7 +490,7 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
             # Deleted railway pieces no longer block a road, even though their source vertices remain in the KN5.
             positions = vertices['pos'][np.unique(faces)].astype(np.float64)
             xy = positions[:, [0, 2]]
-            top, bottom = _field(xy, above, upper, upper_targets), _field(xy, below, lower, lower_targets)
+            top, bottom = up_at(xy), down_at(xy)
             upper_core = (_project(xy, above)[1] < upper_half) & (np.abs(top) > .01)
             lower_core = (_project(xy, below)[1] < lower_half) & (np.abs(bottom) > .01)
             blocked = np.flatnonzero(upper_core | lower_core)
@@ -499,18 +517,18 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
             return blockers
         fixed = np.unique(np.round(np.asarray(fixed, np.float64).reshape(-1, 2), 1), axis=0)
         def terrain(place):
-            value = _ground_change(place, above, below, upper, lower, upper_targets, lower_targets)
+            value = fields.ground(place)
             if not len(fixed):
                 return value
-            top = (_project(place, above)[1] <= upper_half + 1) & (np.abs(_field(place, above, upper, upper_targets)) > .01)
-            bottom = (_project(place, below)[1] <= lower_half + 1) & (np.abs(_field(place, below, lower, lower_targets)) > .01)
+            top = (_project(place, above)[1] <= upper_half + 1) & (np.abs(up_at(place)) > .01)
+            bottom = (_project(place, below)[1] <= lower_half + 1) & (np.abs(down_at(place)) > .01)
             return value * np.where(top | bottom, 1., _fixed_weight(place, fixed))
 
         for i, mesh in enumerate(scan['meshes']):
             kind = objectlist.kind_of(mesh['name'])
             if kind in {'rail', 'railcol', 'tunnel'}:
                 continue
-            if kind == 'deck' and not upper_targets:
+            if kind == 'deck' and not upper_targets or kind == 'ground' and fields.ground is None:
                 continue
             if kind not in {'ground', 'deck', 'road', 'walk', 'walkcol', 'guardrail', 'guardrailcol', 'racing'}:
                 continue
@@ -524,7 +542,7 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                 vertices = moved.vertices[i]
             points = vertices['pos'].astype(np.float64)
             xy = points[:, [0, 2]]
-            up, down = _field(xy, above, upper, upper_targets), _field(xy, below, lower, lower_targets)
+            up, down = up_at(xy), down_at(xy)
             owner, weight = np.zeros(len(points), np.uint8), np.ones(len(points))
             if kind == 'ground':
                 # Under a bridge, the ground belongs to the lower road. Its bridge approach is ground only outside the deck.
@@ -548,7 +566,7 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                     if np.intersect1d(upper_vertices, lower_vertices).size:
                         raise ValueError(f'Two road levels share source vertices: {mesh["name"]}')
                     if len(upper_vertices):
-                        change[upper_vertices] = (_deck_field(xy[upper_vertices], above, upper_targets)
+                        change[upper_vertices] = (deck_at(xy[upper_vertices])
                                                   if kind == 'deck' else up[upper_vertices])
                         owner[upper_vertices] = 4 if kind == 'deck' else 1
                     if len(lower_vertices):
@@ -604,7 +622,7 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
                         if choose == 'lower' and not _own_road_part(xy[component], below, lower):
                             choose = None
                         if choose == 'upper':
-                            change[component] = _deck_field(xy[component], above, upper_targets) if kind == 'deck' else up[component]
+                            change[component] = deck_at(xy[component]) if kind == 'deck' else up[component]
                             owner[component] = 4 if kind == 'deck' else 1
                         elif choose == 'lower':
                             change[component] = down[component]
@@ -613,12 +631,12 @@ def _offsets(path, scan, moved, above, below, upper, lower, upper_targets, lower
             if len(touched):
                 def sampled(dx, dz):
                     place = xy[touched] + [dx, dz]
-                    top = _field(place, above, upper, upper_targets)
-                    bottom = _field(place, below, lower, lower_targets)
+                    top = up_at(place)
+                    bottom = down_at(place)
                     values = np.where(owner[touched] == 1, top, np.where(owner[touched] == 2, bottom, 0.))
                     deck = owner[touched] == 4
                     if deck.any():
-                        values[deck] = _deck_field(place[deck], above, upper_targets)
+                        values[deck] = deck_at(place[deck])
                     ground = owner[touched] == 3
                     if ground.any():
                         values[ground] = terrain(place[ground])
