@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import {alongStroke} from "./deleteBrush";
-import {takesWheel} from "../EditTools";
+import {wheelTaken} from "./toolHost";
 
 const at = (id: string, x: number, z: number) => ({id, position: [x, 7, z] as [number, number, number]});
 
@@ -15,7 +15,9 @@ test("a click is a circle; nothing beside it goes, and each object once", () => 
   expect(alongStroke(objects, [], 5)).toEqual([]);
 });
 
-test("Delete takes Ctrl with the wheel for its brush radius", () => {
-  expect(takesWheel("delete", true, false)).toBe(true);
-  expect(takesWheel("delete", false, false)).toBe(false);
+test("a tool that takes the wheel (Delete: Ctrl for its brush radius) gets it only while the track can be edited", () => {
+  const controllers = {delete: {takesWheel: true}};
+  expect(wheelTaken("delete", true, controllers)).toBe(true);
+  expect(wheelTaken("delete", false, controllers)).toBe(false);
+  expect(wheelTaken("select", true, controllers)).toBe(false);
 });

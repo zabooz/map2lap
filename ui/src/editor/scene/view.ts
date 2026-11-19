@@ -18,7 +18,7 @@ import * as THREE from "three";
 import {makeTexture} from "./texture";
 import {oneByOne} from "./taskQueue";
 import {DEFAULT_CONTROLS, type Controls} from "./controls";
-import type {Tool} from "../tools/ToolPanel";
+import type {Tool} from "../tools/toolDefs";
 import {cursorFor, type Pointed} from "./cursor";
 import {GRID_POINTS, gridHeight} from "../tools/groundGrid";
 import {groundTile, SurfaceOverlay, type SurfacePoint, type SurfaceSelection} from "./surfaces";

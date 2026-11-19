@@ -1,7 +1,9 @@
 import {expect, test} from "bun:test";
-import {takesWheel} from "../EditTools";
+import {wheelTaken} from "./toolHost";
 import type {WheelKeys} from "../types";
 import {TrackView} from "../scene/view";
+
+const controllers = {model: {takesWheel: true}, kerb: {takesWheel: true}};
 
 test("Insert takes Shift, Ctrl and Alt wheel input; leaving placement restores camera input", () => {
   const view = Object.create(TrackView.prototype) as Pick<TrackView, "setToolWheel" | "setWheelTaken"> & {zoomWheel: (el: HTMLElement) => void};
@@ -16,17 +18,17 @@ test("Insert takes Shift, Ctrl and Alt wheel input; leaving placement restores c
     target.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   };
-  view.setWheelTaken(takesWheel("model", true, false));
+  view.setWheelTaken(wheelTaken("model", true, controllers));
   wheel("shift"); wheel("ctrl"); wheel("alt");
   wheel("shift", 0, 100); // Some browsers report Shift + wheel on the horizontal axis.
   expect(received).toEqual([["shift", 1], ["ctrl", 1], ["alt", 1], ["shift", -1]]);
   expect(cameraInputs).toBe(0);
   wheel("");
   expect(cameraInputs).toBe(1);
-  view.setWheelTaken(takesWheel("select", true, false));
+  view.setWheelTaken(wheelTaken("select", true, controllers));
   wheel("shift"); wheel("ctrl"); wheel("alt");
   expect(received).toHaveLength(4);
   expect(cameraInputs).toBe(4);
-  expect(takesWheel("kerb", true, false)).toBe(true);
-  expect(takesWheel("kerb", false, false)).toBe(false);
+  expect(wheelTaken("kerb", true, controllers)).toBe(true);
+  expect(wheelTaken("kerb", false, controllers)).toBe(false);
 });

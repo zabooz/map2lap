@@ -1,5 +1,5 @@
 // The mouse pointer over the view says what a click of the tool on would do to what is under it.
-import type {Tool} from "../tools/ToolPanel";
+import type {Tool} from "../tools/toolDefs";
 
 /** What is under the mouse, as far as the pointer goes by it. object: a single object (it has an id); deletable includes
     unlisted surface sections; movable: Move and Copy can take it; road: Smooth road can mark it. */

@@ -5,8 +5,11 @@ import type {TrackEdits} from "../state/edits";
 import {INITIAL_SMOOTH_STRENGTH, SmoothSession} from "./smoothing";
 import {MAX_PINS, type Pin} from "./pins";
 import type {SurfaceSelection} from "../scene/surfaces";
-import type {Place, WheelKeys} from "../types";
+import type {Picked, Place, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
+import {BandOptions} from "./BandOptions";
+import {smoothStart} from "./selectActions";
+import type {ToolController} from "./toolHost";
 
 // (a wheel's notches come closer than APPLY_AFTER_MS: one request; a digit typed after another may start one, the session then asks only the newest)
 const APPLY_AFTER_MS = 80, PREVIEW_AFTER_MS = 120;
@@ -15,9 +18,10 @@ interface Difference {above: SurfaceSelection; below: SurfaceSelection}
 interface Way {lines?: Place[][]; region?: SurfaceSelection; difference?: Difference; difference_error?: string; width?: number}
 const MIN_STRIP = 2, MAX_STRIP = 40;
 
+interface BandArgs {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; revision: number; onNote: (text: string | null) => void}
+
 /** A road network and one replaceable smoothing operation. All geometry remains on the existing 2 m lattice. */
-export function useBand({name, view, edits, enabled, revision, onNote}: {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; revision: number;
-  onNote: (text: string | null) => void}) {
+function useBandTool({name, view, edits, enabled, revision, onNote}: BandArgs) {
   const [points, setPoints] = useState<Pin[]>([]);
   const [good, setGood] = useState<Pin[]>([]);
   const [lines, setLines] = useState<Place[][]>([]);
@@ -127,29 +131,15 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Range/settings and saved revision determine the operation; clear/onNote are recreated.
   }, [enabled, lines, points, good, blend, strength, revision, smoothing, view, strip]);
 
-  // Shift pressed and let go alone switches Road (the mapped roads' own ground) and Free (a width around the marked road),
-  // as Delete switches One and Brush (a wheel or click in between: not).
-  const toggleFree = useEffectEvent(() => {
+  // Road (the mapped roads' own ground) and Free (a width around the marked road); Shift pressed and let go alone (toolHost).
+  const toggleFree = () => {
     smoothing.cancel(); onNote(null);
     setStripValue(previous => previous === null ? stripWidth(mappedWidth ?? 8) : null);
-  });
-  useEffect(() => {
-    if (!enabled) return;
-    let alone = false;
-    const down = (e: KeyboardEvent) => { alone = e.key === "Shift" && (alone || !e.repeat) && !(e.target instanceof HTMLInputElement); };
-    const up = (e: KeyboardEvent) => { if (e.key === "Shift" && alone) toggleFree(); alone = false; };
-    const other = () => { alone = false; };
-    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
-    window.addEventListener("wheel", other, {capture: true}); window.addEventListener("pointerdown", other, {capture: true});
-    return () => {
-      window.removeEventListener("keydown", down); window.removeEventListener("keyup", up);
-      window.removeEventListener("wheel", other, {capture: true}); window.removeEventListener("pointerdown", other, {capture: true});
-    };
-  }, [enabled]);
+  };
 
   useEffect(() => () => { smoothing.reset(); void view.setRoadRegion(null); void view.setRoadInfluence(null); void view.setRoadDifference(null); }, [smoothing, view]);
   return {
-    points, line: lines[0] ?? null, blend, strength, clear, strip, mappedWidth,
+    points, line: lines[0] ?? null, blend, strength, clear, strip, mappedWidth, toggleFree,
     /** Strip mode on (at the mapped width, else 8 m) or off; a number sets its width. */
     setStrip: (value: number | boolean) => {
       smoothing.cancel(); onNote(null);
@@ -171,4 +161,25 @@ export function useBand({name, view, edits, enabled, revision, onNote}: {name: s
       else if (keys === "ctrlAlt") setBlendValue(value => Math.min(MAX_BLEND, Math.max(MIN_BLEND, value + by)));
     },
   };
+}
+
+export type BandTool = ReturnType<typeof useBandTool>;
+
+/** Smooth road (R) as a tool: road points by clicks (grass or sky clears the range), Road/Free by Shift, the wheel once a road
+    is marked; taken up from Select with a road picked it starts there. */
+export function useBand(args: BandArgs) {
+  const band = useBandTool(args);
+  const controller: ToolController = {
+    click: (p: Picked | null) => {
+      if (p?.road) band.click(p.road[0], p.road[1], p.position[1]);
+      else if (!p?.id) band.clear();
+    },
+    wheel: band.wheel, takesWheel: band.line !== null, toggleMode: band.toggleFree, clear: band.clear,
+    activate: ({tool: from, picked}) => {
+      const road = smoothStart(from, "smooth", picked);
+      if (road) band.start(road[0], road[1], picked?.position[1]);
+    },
+    options: <BandOptions band={band} view={args.view} />,
+  };
+  return {...band, controller};
 }

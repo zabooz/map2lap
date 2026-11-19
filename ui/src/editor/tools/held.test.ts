@@ -1,5 +1,5 @@
 import {expect, test} from "bun:test";
-import {AltAlone, heldOf} from "./held";
+import {AltAlone, heldOf, ShiftAlone} from "./held";
 
 const keys = (shiftKey: boolean, ctrlKey: boolean, altKey: boolean) => heldOf({shiftKey, ctrlKey, altKey});
 
@@ -31,4 +31,20 @@ test("Alt with another key, a click, the wheel, AltGr or a window switch does no
   alt.down(key("Alt", {ctrlKey: true})); expect(alt.up(key("Alt"))).toBe(false);      // (AltGr arrives as Ctrl and Alt)
   alt.down(key("Alt")); alt.down(key("Alt", {repeat: true})); expect(alt.up(key("Alt"))).toBe(true);
   alt.down(key("Alt")); expect(alt.up(key("Shift"))).toBe(false); expect(alt.up(key("Alt"))).toBe(true);
+});
+
+test("Shift pressed and let go by itself switches a tool's mode once", () => {
+  const shift = new ShiftAlone();
+  shift.down(key("Shift"));
+  expect(shift.up(key("Shift"))).toBe(true);
+  expect(shift.up(key("Shift"))).toBe(false);
+  shift.down(key("Shift")); shift.down(key("Shift", {repeat: true}));
+  expect(shift.up(key("Shift"))).toBe(true);
+});
+
+test("Shift with another key (Ctrl+Shift+Z), a click, the wheel or typed in a field does not switch", () => {
+  const shift = new ShiftAlone();
+  shift.down(key("Shift")); shift.down(key("Z", {ctrlKey: true, shiftKey: true})); expect(shift.up(key("Shift"))).toBe(false);
+  shift.down(key("Shift")); shift.other(); expect(shift.up(key("Shift"))).toBe(false);
+  shift.down({...key("Shift"), inField: true}); expect(shift.up(key("Shift"))).toBe(false);
 });

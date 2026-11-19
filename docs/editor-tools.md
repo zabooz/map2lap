@@ -1,8 +1,37 @@
 # Editor tools
 
 Start with [Editor data flow and Save](editor.md). Source owners below are relative to `src/` or `ui/src/editor/`.
-The authoritative tool names and keys are `tools/ToolPanel.tsx`; help and modifiers are in `tools/Help.tsx`.
-Road tools are in the sidebar's Road group; Elevation is under Terrain.
+The authoritative tool names, keys, sidebar groups, tooltips, help and selection rules are `tools/toolDefs.ts`; ToolPanel
+and Help only show them. Road tools are in the sidebar's Road group; Elevation is under Terrain.
+
+## Tool framework
+
+Each tool hook returns a `ToolController` (`tools/toolHost.ts`): `click`, `wheel` with `takesWheel`, `key`, `toggleMode`
+(Shift pressed and released alone), `altAction` (Alt alone), `activate`, `clear` and its `options` bar. The hook keeps its
+state, requests and view marks; `useToolHost` is the only place that registers the view's click, pick and wheel callbacks
+and the keyboard. A new tool needs its definition, its hook called in `EditTools.tsx` and its controller in `controllers`;
+a tool that changes the draft also needs its server endpoint, calculation and draft data. Give it a case in
+`scene/cursor.ts` when its pointer should differ from the default. Route every tool switch through `switchTool`; a tool
+hook handles its own view marks but does not register another global click, pick, wheel or keyboard handler.
+
+- Keys: `toolDefs.globalKey` comes first (Esc, Undo/Redo, Save, Delete/X, Home, tool keys); `controller.key` only gets the
+  rest, such as the free kerb's Backspace. Fields keep their typing; a dialog keeps every key except Ctrl+S.
+- Switching: `switchTool` runs only in events, never during a render. It calls the old tool's `clear()`, then the new
+  tool's `activate({tool, picked})`. Taking up the tool that is on again restarts it. Every tool change, including menu and
+  Library actions, goes through it, so a tool's state never outlives its use. View marks belong in effects keyed on the
+  hook's `enabled`.
+- Selection: the definition's rule decides what a pick means (`tools/useSelection.ts`). Select: the pinned selection of objects,
+  surfaces, sections and whole sorts. Camera and Transform: Ctrl adds objects. Delete: a left pick goes at once, a section with
+  it. Road tools: left picks are dropped, so clicks are road points; a right click still picks for the menu.
+- Late answers: `Latest` (`tools/latest.ts`) numbers a tool's requests, and `clear()` drops them. Check the token after
+  each awaited step before changing the draft, selection or status; a kerb or stitch answered after Esc or a tool change
+  therefore adds nothing.
+- Draft changes: `state/serverEdit.ts` keeps the changes before, asks the server against the kept draft, puts the answer and
+  keeps it, all in one `TrackEdits` turn. `unkept` means the change was put, but saving it failed, so the draft may still
+  hold it. Walls, tree spacing and car density use it. So does `tools/heightOperation.ts`, the replaceable height operation of
+  Smooth road and Bend road: each adjustment replaces it in the same Undo step, and after a removal the next height starts a
+  new step. Copy, Insert and Groups keep their own flows for ghosts and rejections. Texture paint waits for its textures
+  inside the turn.
 
 ## Selection and Inspector
 
@@ -108,7 +137,7 @@ whose feet stand on its slab (street furniture, signs, poles and trees). Delete 
 Guardrail sections can be selected and deleted with their matching collision faces in the same way.
 
 Smooth road (R) marks a road region with two terminal points and optional branches (`app/roadregion.py`, `app/roadnet.py`,
-`tools/useBand.ts`). Retained map topology and actual road paint determine the region, including levels and hairpins;
+`tools/useBand.tsx`). Retained map topology and actual road paint determine the region, including levels and hairpins;
 the main driving route does not constrain it. Bridge and tunnel ends join their mapped approaches even when structure/layer
 changes there; interior crossings stay separate. Build facts retain the actual partial structure ranges of Overture roads;
 older facts with only whole-way tags need rebuilding for a structure that occupied just part of a road. Clicks retain their
@@ -125,7 +154,7 @@ Smooth road has Road and Free modes (Shift switches). Road follows each selected
 2–40 m wide strip around the marked road lines, including ground assigned to another mapped road inside that strip; beyond
 the strip, the other road keeps its ground. Free starts at the mapped width, or 8 m when none is available. Alt + wheel
 changes its width by 0.5 m. Both modes keep the same pins, strength, terrain transition and replaceable draft height edit
-(`app/roadnet.py`, `app/roadregion.py`, `tools/useBand.ts`).
+(`app/roadnet.py`, `app/roadregion.py`, `tools/useBand.tsx`).
 
 Bridges and tunnel floors share the same smoothing solve as their approaches (`app/roadsurfaces.py`). Two points can span a
 short structure or just one transition on a longer one. Source collision triangles supply the floor height, including banking;
@@ -154,7 +183,7 @@ Routing/masks cache independently of draft revisions. `app/trackband.py` retains
 ## Stitch road
 
 Stitch road (N) rebuilds one unbranched mapped carriageway between clicks A and B on ground, a bridge deck or a tunnel
-floor (`app/trackstitch.py`, `tools/useStitch.ts`). The preview shows its proposed width, height change, deck rows and
+floor (`app/trackstitch.py`, `tools/useStitch.tsx`). The preview shows its proposed width, height change, deck rows and
 continued road markings. Auto width uses the ground road's mapped width at A and B where available; Shift + wheel or Width
 sets a constant 2–40 m width. Apply adds one draft operation; Ctrl+Z undoes it. A range is 2 m to 1 km long. If it meets an
 existing stitch on the same road, the proposal grows to their outer ends and Apply replaces the old stitch.
@@ -180,7 +209,7 @@ settings. Selection > Options has width, height and profile for the picked range
 Shift switches the Kerb tool between Road and Free. Free clicks draw a kerb centred on the clicked line anywhere a driving
 surface can be sampled; it appears after the second point and each further click extends the same draft kerb. Backspace
 removes the last point. The source surface nearest each click's height supplies its level, so a clicked deck can be chosen
-over the road below. A free kerb needs 2–200 points and a length of 1 m to 3 km (`app/trackkerbs.py`, `tools/useKerbs.ts`).
+over the road below. A free kerb needs 2–200 points and a length of 1 m to 3 km (`app/trackkerbs.py`, `tools/useKerbs.tsx`).
 Its width, height, profile, deletion, Undo and Save use the same kerb edit as Road mode.
 
 Road-mode kerbs follow the mapped road's rounded spline independently of sidewalks, including sidewalks later removed in the

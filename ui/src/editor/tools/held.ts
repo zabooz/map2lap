@@ -41,6 +41,26 @@ export function useHeld() {
 
 type KeyOfEvent = Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "repeat">;
 
+/** Shift pressed and let go by itself: a tool's mode switch (Delete One/Brush, Smooth and Kerb Road/Free). Another key
+    (Ctrl+Shift+Z), a click or the wheel in between make it a modifier: other() says so. inField: typed in an input, where
+    Shift selects text. */
+export class ShiftAlone {
+  private armed = false;
+
+  down(e: KeyOfEvent & {inField?: boolean}) {
+    this.armed = e.key === "Shift" && (this.armed || !e.repeat) && !e.inField;
+  }
+
+  other() { this.armed = false; }
+
+  /** Whether this key's release is Shift let go by itself. */
+  up(e: Pick<KeyboardEvent, "key">) {
+    const alone = this.armed && e.key === "Shift";
+    this.armed = false;
+    return alone;
+  }
+}
+
 /** Alt pressed and let go by itself, as a key of its own (Select's Alt place). Another key, a click or the wheel while it is held make it
     a modifier: other() says so; AltGr (Ctrl and Alt) and a window switch (Alt+Tab) never count. */
 export class AltAlone {

@@ -1,10 +1,10 @@
 import {ToolAction, ToolChoice, ToolNumber, ToolOptions, thenView} from "./ToolOptions";
-import type {useKerbs} from "./useKerbs";
+import type {KerbTool} from "./useKerbs";
 import type {TrackView} from "../scene/view";
 import {KERB_MAX_HEIGHT, KERB_MAX_WIDTH, KERB_MIN_WIDTH} from "../state/edits";
 
 /** Road-side kerb placement and editing of the selected range. */
-export function KerbOptions({kerb, view, onDelete}: {kerb: ReturnType<typeof useKerbs>; view: TrackView; onDelete: () => void}) {
+export function KerbOptions({kerb, view, onDelete}: {kerb: KerbTool; view: TrackView; onDelete: () => void}) {
   return <ToolOptions id="edit-kerb-options" title="Racing kerb (B)"
     note={kerb.busy ? "Reading the selected road…"
       : kerb.mode === "free" ? (kerb.freePoints.length

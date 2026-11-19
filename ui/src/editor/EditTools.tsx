@@ -1,20 +1,15 @@
 import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from "react";
 import {createPortal} from "react-dom";
-import {post} from "../api";
-import {BandOptions} from "./tools/BandOptions";
-import {SeparationOptions} from "./tools/SeparationOptions";
-import {KerbOptions} from "./tools/KerbOptions";
 import {useKerbs} from "./tools/useKerbs";
 import {useStitch} from "./tools/useStitch";
-import {StitchOptions} from "./tools/StitchOptions";
 import {ToolToasts} from "./tools/ToolToasts";
-import {CameraOptions, useCamera} from "./tools/Camera";
+import {useCamera} from "./tools/Camera";
 import {CopyTool} from "./tools/Copy";
-import {TrackEdits, type EditState, type Removed} from "./state/edits";
+import {TrackEdits, type EditState} from "./state/edits";
 import {EditNotes} from "./inspector/EditNotes";
-import {ElevationOptions, useElevation} from "./tools/Elevation";
-import {DeleteOptions, useDelete} from "./tools/Delete";
-import {MoveOptions, useMove} from "./tools/Move";
+import {useElevation} from "./tools/Elevation";
+import {useDelete} from "./tools/Delete";
+import {useMove} from "./tools/Move";
 import {Models} from "./tools/Models";
 import {Groups} from "./tools/Groups";
 import {GroupLibrary} from "./library/GroupLibrary";
@@ -24,11 +19,13 @@ import {AssetLibrary, type LibraryTab} from "./library/AssetLibrary";
 import {MaterialLibrary} from "./library/MaterialLibrary";
 import {NOT_ALL, sortName} from "./scene/inspect";
 import {SaveDialog} from "./state/SaveDialog";
-import {FileButtons, TOOLS, ToolPanel, type Tool} from "./tools/ToolPanel";
+import {FileButtons, ToolPanel} from "./tools/ToolPanel";
+import type {GlobalKey, Tool} from "./tools/toolDefs";
+import {useToolHost, type ToolControllers} from "./tools/toolHost";
 import {useBand} from "./tools/useBand";
 import {useSeparation} from "./tools/useSeparation";
 import {useSave} from "./state/useSave";
-import type {Marked, MenuAt, Picked, WheelKeys} from "./types";
+import type {MenuAt, WheelKeys} from "./types";
 import type {TrackView} from "./scene/view";
 import {ViewMenu} from "./tools/ViewMenu";
 import {Inspector} from "./inspector/Inspector";
@@ -37,28 +34,20 @@ import {TransformFields} from "./inspector/TransformFields";
 import {KerbFields} from "./inspector/KerbFields";
 import {WallFields} from "./inspector/WallFields";
 import {useWalls} from "./tools/useWalls";
-import {pickedSurfaces, surfaceName, type SurfacePoint, type SurfaceSelection} from "./scene/surfaces";
-import type {SurfaceCut} from "./scene/surfaceCuts";
+import {pickedSurfaces, surfaceName} from "./scene/surfaces";
 import {usePaint} from "./tools/usePaint";
 import type {TextureLook} from "./library/textureLook";
-import {ToolAction, ToolChoice, ToolOptions, thenView} from "./tools/ToolOptions";
-import {ACTIONS, altAction, selectActions, smoothStart, type SelectAction} from "./tools/selectActions";
-import {AltAlone} from "./tools/held";
+import {thenView} from "./tools/ToolOptions";
+import type {SelectAction} from "./tools/selectActions";
+import {useSelection} from "./tools/useSelection";
+import {useSelect} from "./tools/useSelect";
 import {useToasts} from "../components/toastStore";
 import {editorToasts} from "./editorToasts";
 
-const VERGE_DELETED = "Road verge deleted. Undo brings it back.";
-const RAIL_BRIDGE = /^(?:nocol_rail_|1(?:GRAVEL|WALL)_railcol_)/;
-const SIDEWALK = /^nocol_(?:walk_|guardrail_)/;
-
-/** Whether tool and its editable selection take modified wheel input from the camera. Pure. */
-export function takesWheel(tool: Tool, editable: boolean, marked: boolean) {
-  return (tool === "smooth" && editable && marked) || (tool === "separate" && editable) || (tool === "delete" && editable) || (tool === "kerb" && editable) || (tool === "stitch" && editable) || tool === "camera" || tool === "copy" || tool === "model" || tool === "group" || (tool === "move" && editable);
-}
-
-/** The track name's editing: which tool is on, what is picked or marked, the keys. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
-    to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view what the tool on can be set to (ToolOptions) and the right-click menu. Its keys count while the focus is in scene or in
-    those hosts: V, X, K, M, H, T, Home, Delete, Esc, Ctrl+Z, Ctrl+Shift+Z (also Ctrl+Y), Ctrl+S. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
+/** The track name's editing: which tool is on, what is picked or marked, the Library and dialogs. Its buttons go into the sidebar (Save and Play in fileHost, ToolPanel in toolsHost), what is
+    to be said below them (EditNotes in notesHost), while the state stays here by the view; over the view the bar of the tool on (its controller's options) and the right-click menu.
+    Each tool hook hands its controller to useToolHost, which routes the view's input and the keys (toolDefs.globalKey; they count while the focus is in scene or in
+    those hosts). A new tool: its definition (toolDefs), its hook called here and its controller in `controllers`. Mounted anew per track and build (a key in EditorScene). title: the track's; taken: the other
     tracks' titles. elevationSpeed: Elevation's while held, cm a second. onSaved: the track is saved as name (a copy: another one). onDelete: Delete was pressed. */
 export function EditTools({name, title, visible, taken, view, scene, fileHost, savedHost, toolsHost, notesHost, inspectorHost,
   inspectorWidth, onInspectorWidth, inspectorCollapsed, onInspectorCollapsed, elevationSpeed, reopen, onSaved, onDelete}: {
@@ -84,17 +73,7 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
 }) {
   const [edits] = useState(() => new TrackEdits(name));
   const state = useSyncExternalStore(edits.subscribe, edits.state);
-  const [picked, setPicked] = useState<Picked | null>(null);
   const [menu, setMenu] = useState<MenuAt | null>(null);
-  const [marked, setMarked] = useState<Marked[]>([]);
-  const [surfacePicks, setSurfacePicks] = useState<SurfacePoint[]>([]);
-  const [surfaceInfo, setSurfaceInfo] = useState<{points: SurfacePoint[]; selection: SurfaceSelection | null} | null>(null);
-  const [railBridge, setRailBridge] = useState<{cuts: SurfaceCut[]; selection: SurfaceSelection} | null>(null);
-  const [sidewalk, setSidewalk] = useState<{cuts: SurfaceCut[]; objects: Removed[]; selection: SurfaceSelection} | null>(null);
-  const railPick = useRef(0);
-  const onSurface = useCallback((selection: SurfaceSelection | null) => setSurfaceInfo({points: surfacePicks, selection}), [surfacePicks]);
-  const [selectWhole, setSelectWhole] = useState(false);
-  const [selectAdd, setSelectAdd] = useState(false);
   const [tool, setTool] = useState<Tool>("select");
   const [copyTake, setCopyTake] = useState(0);
   const [note, setNoteState] = useState<string | null>(null);
@@ -112,6 +91,11 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   const [group, setGroup] = useState<ObjectGroup | null>(null), [groupModels, setGroupModels] = useState<LibraryModel[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
   const [replaceTargets, setReplaceTargets] = useState<string[]>([]);
+  const editable = edits.canEdit();
+  /** Whether t is the tool on and the track can be changed now. */
+  const working = (t: Tool) => tool === t && editable;
+  const selection = useSelection({name, view, edits, editable, kerbs: state.kerbs, onKerbRemoved: () => kerbs.setSelected(null), onNote: setNote});
+  const {picked, marked, surfacePicks} = selection;
   const replaceable = useMemo(() => (menu || tool === "select") && picked?.id ? view.selection.replacementTargets(marked) : null, [view, menu, tool, picked, marked]);
   // (the right-click menu belongs to the click that opened it: a tool or the library taken up closes it, so the next click in the view acts)
   const openModels = () => { setMenu(null); setReplaceTargets(view.selection.replacementTargets(marked) ?? []); setLibraryTab("objects"); };
@@ -122,193 +106,44 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   if (libraryTab && libraryTab !== lastTab) setLastTab(libraryTab);
   const openLibrary = () => { if (lastTab === "objects" && !surfacePicks.length && editable) openModels(); else { setMenu(null); setLibraryTab(surfacePicks.length ? "textures" : lastTab); } };
   const setMaterialOpen = useCallback((open: boolean) => setLibraryTab(open ? "textures" : null), []);
-  const copyWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
-  const setCopyWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { copyWheel.current = wheel; }, []);
-  const editable = edits.canEdit();
-  const elevating = tool === "elevation" && editable;
-  const deleting = tool === "delete" && editable;
-  const marking = tool === "smooth" && editable;
-  const separating = tool === "separate" && editable;
-  const kerbing = tool === "kerb" && editable;
-  const stitching = tool === "stitch" && editable;
-  const moving = tool === "move" && editable;
+  // (Copy, Insert and Groups register their wheel from their own components, which stay mounted with the Library)
+  const placingWheel = useRef<(keys: WheelKeys, by: number) => void>(() => {});
+  const setPlacingWheel = useCallback((wheel: (keys: WheelKeys, by: number) => void) => { placingWheel.current = wheel; }, []);
   const saving = useSave({name, edits, state, view, onSaved});
   const painting = usePaint(name, edits, view);
   const walls = useWalls(name, edits);
   const wallIds = (tool === "select" || tool === "move") && editable ? view.objects.wallIds((picked?.all ?? []).map(p => p.id)) : [];
   const wallSettings = state.walls.find(w => w.id === (picked?.id ?? wallIds[0]));
-  const selection = surfaceInfo?.points === surfacePicks ? surfaceInfo.selection : null;
-  const materials = selection?.materials ?? (selection ? [selection.material] : []);
+  const surface = selection.surface;
+  const materials = surface?.materials ?? (surface ? [surface.material] : []);
   const materialTarget = wallIds.length ? `${wallIds.length === 1 ? picked?.kind : `${wallIds.length} walls`} (whole wall)`
-    : tool === "select" && editable && selection?.tiles.length && !selection.meshes?.length
+    : tool === "select" && editable && surface?.tiles.length && !surface.meshes?.length
     && materials.length
     ? materials.map(surfaceName).join(", ") : null;
-  const limitedTiles = selection?.truncated && surfacePicks.some(point => point.whole)
-    ? new Set(selection.tiles.map(t => t.tile.join(","))).size : undefined;
+  const limitedTiles = surface?.truncated && surfacePicks.some(point => point.whole)
+    ? new Set(surface.tiles.map(t => t.tile.join(","))).size : undefined;
   const materialReason = !editable ? "This track cannot be edited right now."
-    : wallIds.length ? null : surfacePicks.length && !selection ? "Preparing the selected surface…"
-    : selection?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
+    : wallIds.length ? null : surfacePicks.length && !surface ? "Preparing the selected surface…"
+    : surface?.meshes?.length ? "This surface uses a separate mesh. Its material cannot be changed yet."
     : !materialTarget ? "Select a painted ground surface to apply a material." : null;
   const paintSurface = painting.apply;
   const applyMaterial = (id: string, variation?: boolean, look?: TextureLook) => wallIds.length ? walls.change(wallIds, {material: id})
     : materialTarget && !materialReason
     // (the tiles shown go with it: ground loaded since does not change what Apply changes)
-    ? paintSurface(id, surfacePicks, variation, selection?.tiles.map(t => t.tile), look) : Promise.resolve(false);
-  const elevation = useElevation({name, view, edits, enabled: elevating, speed: elevationSpeed, onNote: setNote});
-  const band = useBand({name, view, edits, enabled: marking, revision: state.keptRevision, onNote: setNote});
-  const separation = useSeparation({name, view, edits, enabled: separating, revision: state.keptRevision, onNote: setNote});
-  const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: kerbing,
-    highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote});
-  const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: stitching, onNote: setNote});
+    ? paintSurface(id, surfacePicks, variation, surface?.tiles.map(t => t.tile), look) : Promise.resolve(false);
+
+  const elevation = useElevation({name, view, edits, enabled: working("elevation"), speed: elevationSpeed, onNote: setNote});
+  const band = useBand({name, view, edits, enabled: working("smooth"), revision: state.keptRevision, onNote: setNote});
+  const separation = useSeparation({name, view, edits, enabled: working("separate"), revision: state.keptRevision, onNote: setNote});
+  const kerbs = useKerbs({name, view, edits, kerbs: state.kerbs, enabled: working("kerb"),
+    highlightId: tool === "select" ? picked?.kerbId ?? null : null, onNote: setNote, onDelete: () => remove()});
+  const stitch = useStitch({name, view, edits, stitches: state.stitches, enabled: working("stitch"), onNote: setNote});
   const inspectorKerb = state.kerbs.find(k => k.id === (tool === "kerb" ? kerbs.selected : picked?.kerbId)) ?? null;
   const camera = useCamera({view, enabled: tool === "camera", onNote: setNote});
-  const move = useMove({name, view, edits, state, enabled: moving, picked, onNote: setNote});
-  const remover = useDelete({view, edits, enabled: deleting, onNote: setNote});
-
-  /** The connected stretch of road verge at a picked point, as cuts of the draft; null if it is no verge or no longer loaded. */
-  const vergeAt = (point: SurfacePoint) => {
-    try { return view.objects.surfaceCuts(view.materialSelection(point).meshes ?? []); } catch { return null; }
-  };
-
-  /** A picked kerb is a draft range, not an object in the selection index. */
-  const removePickedKerb = (id: string) => {
-    if (!editable || !state.kerbs.some(kerb => kerb.id === id)) return;
-    edits.removeKerb(id);
-    kerbs.setSelected(null);
-    setNote("Kerb deleted. Undo brings it back.");
-    view.selection.unpick();
-  };
-
-  /** What a click picked; Delete removes it, while Smooth road takes left clicks for its range. */
-  const onPicked = useEffectEvent((p: Picked | null) => {
-    if ((marking || separating || kerbing || stitching) && p?.left) return view.selection.unpick();
-    setPicked(p);
-    const rail = p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object);
-    const walk = p?.inspection?.hovered.object && SIDEWALK.test(p.inspection.hovered.object);
-    if ((tool === "select" || deleting) && walk && p) {
-      const token = ++railPick.current;
-      setSurfacePicks([]); setRailBridge(null); setSidewalk(null); void view.setSurface(null);
-      const guardrail = p.inspection!.hovered.object!.startsWith("nocol_guardrail_");
-      const label = guardrail ? "Guardrail" : "Sidewalk";
-      setNote(`Selecting ${label.toLowerCase()}…`);
-      const deletingClick = deleting && p.left;
-      const request = () => post<{selection?: SurfaceSelection; cuts?: SurfaceCut[]; objects?: Removed[]; error?: string}>(`/api/editor/${encodeURIComponent(name)}/${guardrail ? "guardrail" : "sidewalk"}`,
-        {base: edits.boundRevision(), point: [p.position[0], p.position[1], p.position[2]], mesh: p.inspection!.hovered.object});
-      const received = async (answer: Awaited<ReturnType<typeof request>>) => {
-        if (!deletingClick && token !== railPick.current) return;
-        if (answer.error || !answer.selection || !answer.cuts?.length) {
-          setNote(answer.error ?? `No ${label.toLowerCase()} section found here`); return;
-        }
-        if (deletingClick) {
-          const changed = edits.removeSurfaceSection(answer.cuts, answer.objects ?? []);
-          setNote(changed ? `${label} section deleted. Ctrl+Z restores it.` : `${label} section was already deleted.`);
-        } else {
-          setSidewalk({selection: answer.selection, cuts: answer.cuts, objects: answer.objects ?? []});
-          await view.setSurface(answer.selection).catch(error => setNote(String(error)));
-          setNote(`${label} section selected. Delete removes its visible and collision parts${guardrail ? "" : " and objects"}; Ctrl+Z restores them.`);
-        }
-      };
-      if (deletingClick) void edits.inTurn(async () => received(await request()));
-      else void request().then(received);
-      return;
-    }
-    if ((tool === "select" || deleting) && rail && p) {
-      const token = ++railPick.current;
-      setSurfacePicks([]); setRailBridge(null); setSidewalk(null); void view.setSurface(null);
-      setNote("Selecting railway section…");
-      const deletingClick = deleting && p.left;
-      const request = () => post<{selection?: SurfaceSelection; cuts?: SurfaceCut[]; error?: string}>(`/api/editor/${encodeURIComponent(name)}/railbridge`,
-        {base: edits.boundRevision(), point: [p.position[0], p.position[2], p.position[1]]});
-      const received = async (answer: Awaited<ReturnType<typeof request>>) => {
-        if (!deletingClick && token !== railPick.current) return;
-        if (answer.error || !answer.selection || !answer.cuts?.length) {
-          setNote(answer.error ?? "No railway section found here"); return;
-        }
-        if (deletingClick) {
-          const changed = edits.removeSurfaces(answer.cuts);
-          setNote(changed ? "Railway section deleted. Ctrl+Z restores it." : "Railway section was already deleted.");
-        } else {
-          setRailBridge({selection: answer.selection, cuts: answer.cuts});
-          await view.setSurface(answer.selection).catch(error => setNote(String(error)));
-          setNote("Railway section selected. Delete removes its rails, bed and collision; Ctrl+Z restores it.");
-        }
-      };
-      if (deletingClick) void edits.inTurn(async () => received(await request()));
-      else void request().then(received);
-      return;
-    }
-    railPick.current++;
-    if (railBridge || sidewalk) { setRailBridge(null); setSidewalk(null); void view.setSurface(null); }
-    if (!p?.adding && !p?.keeping) setMarked([]);
-    if (tool === "select") setSurfacePicks(previous => pickedSurfaces(previous, p));
-    else if (!p?.adding) setSurfacePicks([]);
-    if (tool === "select" && p?.whole && p.id) {
-      const group = p.sort && !NOT_ALL.has(p.sort) ? {sort: p.sort} : null;
-      if (group) setMarked(previous => [...(p.adding ? previous : []).filter(g => g.sort !== group.sort), group]);
-    }
-    if (deleting && p?.kerbId && p.left) {
-      removePickedKerb(p.kerbId);
-    } else if (deleting && p?.id && p.left) {
-      edits.remove([{id: p.id, position: p.position}]);
-      view.selection.unpick();
-    } else if (deleting && p?.left && p.surface?.face !== undefined) {
-      // (the road verge is no object: a click takes the connected stretch of it, by its triangles)
-      const cuts = vergeAt(p.surface);
-      if (cuts) { edits.removeSurfaces(cuts); setNote(VERGE_DELETED); }
-      view.selection.unpick();
-    } else if (deleting && p?.left) {
-      setNote("Nothing editable at this point.");
-    }
-  });
-
-  /** Smooth road marks A, B and intermediate pins; grass or sky clears the active range. */
-  const onClicked = useEffectEvent((p: Picked | null) => {
-    if (marking) {
-      if (p?.road) band.click(p.road[0], p.road[1], p.position[1]);
-      else if (!p?.id) band.clear();
-    } else if (separating && p?.road) {
-      separation.click(p.road[0], p.road[1], p.position[1]);
-    } else if (separating && p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object)) {
-      separation.click(p.position[0], p.position[2], p.position[1], "rail");
-    } else if (stitching && p?.road) {
-      stitch.click(p.position[0], p.position[2], p.position[1]);
-    } else if (kerbing && kerbs.mode === "free" && p) {
-      // (before picking a kerb: the free kerb being drawn lies under the next click along its line)
-      void kerbs.click(p.position[0], p.position[2], p.position[1]);
-    } else if (kerbing && p?.kerbId && !kerbs.start && state.kerbs.some(kerb => kerb.id === p.kerbId)) {
-      kerbs.setSelected(p.kerbId);
-      setNote(null);
-    } else if (kerbing && (p?.road || p?.inspection?.hovered.object.startsWith("1KERB_")
-      || p?.inspection?.hovered.object.startsWith("nocol_road_edge_"))) {
-      void kerbs.click(p!.position[0], p!.position[2], p!.position[1]);
-    }
-  });
-
-  useEffect(() => {
-    view.setClicked(p => onClicked(p));
-    return () => view.setClicked(() => {});
-  }, [view]);
-
-  useEffect(() => { view.setWheelTaken(takesWheel(tool, editable, band.line !== null)); }, [view, band.line, editable, tool]);
-
-  useEffect(() => { view.setCursorTool(editable ? tool : "select"); }, [view, tool, editable]);
-  useEffect(() => { view.selection.setAdding((tool === "select" || tool === "camera" || tool === "move") && editable); }, [view, tool, editable]);
-  useEffect(() => {
-    view.selection.setSelectMode(tool === "select", selectWhole, selectAdd);
-    return () => view.selection.setSelectMode(false);
-  }, [view, tool, selectWhole, selectAdd]);
-
-  useEffect(() => {
-    if (tool !== "smooth") band.clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- (a tool that doesn't work on it ends the marking; band is new each time)
-  }, [tool]);
-
-  useEffect(() => {
-    if (tool !== "separate") separation.clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Changing tools ends the current marking.
-  }, [tool]);
-
-  useEffect(() => { railPick.current++; }, [tool]);
+  const move = useMove({name, view, edits, state, enabled: working("move"), picked, onNote: setNote, walls: wallIds.length > 0});
+  const remover = useDelete({view, edits, enabled: working("delete"), onNote: setNote});
+  /** X, Delete or a Delete button: what is picked or marked, the kerb shown, or the road verge (cuts). */
+  const remove = (cuts = selection.vergeCuts) => selection.remove(inspectorKerb, cuts);
 
   useEffect(() => {
     void edits.start();
@@ -321,11 +156,9 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   }, [edits]);
 
   useEffect(() => {
-    view.selection.setPick(p => onPicked(p));
     view.setMenu(setMenu);
     view.setIndexed(revision => edits.bind(revision));
     return () => {
-      view.selection.setPick(() => {});
       view.setMenu(() => {});
       view.setIndexed(() => {});
     };
@@ -334,11 +167,6 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   useEffect(() => { view.objects.setRemoved([...state.removed.map(r => r.id), ...(state.treeSpacing?.hidden ?? []), ...(state.carDensity?.hidden ?? [])], state.objectSorts); },
             [view, state.removed, state.objectSorts, state.treeSpacing, state.carDensity]);
   useEffect(() => { view.objects.setRemovedSurfaces(state.surfaces); }, [view, state.surfaces]);
-
-  useEffect(() => {
-    view.selection.setMarked(marked);
-    return () => view.selection.setMarked(null);
-  }, [view, marked]);
 
   useEffect(() => {
     edits.setOnMeshes((meshes, _revision, more, trees) => view.refreshMeshes(meshes, more, trees));
@@ -354,23 +182,6 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   }, [view, edits]);
 
   useEffect(() => { if (state.save === "saved" && edits.canEdit()) void view.textures.syncPaints(state.paints); }, [view, edits, state]);
-
-  const toolWheel = useEffectEvent((keys: Parameters<typeof elevation.wheel>[0], by: number) => {
-    if (tool === "camera") camera.wheel(keys, by);
-    else if (tool === "move") move.wheel(keys, by);
-    else if (tool === "copy" || tool === "model" || tool === "group") copyWheel.current(keys, by);
-    else if (tool === "smooth") band.wheel(keys, by);
-    else if (tool === "separate") separation.wheel(keys, by);
-    else if (tool === "kerb") kerbs.wheel(keys, by);
-    else if (tool === "stitch") stitch.wheel(keys, by);
-    else if (tool === "delete") remover.wheel(keys, by);
-    else elevation.wheel(keys, by);
-  });
-
-  useEffect(() => {
-    view.setToolWheel((keys, by) => toolWheel(keys, by));
-    return () => view.setToolWheel(() => {});
-  }, [view]);
 
   /** The list read again, and if it is of another build than the view shows, the track too. */
   const readAgain = async () => {
@@ -388,52 +199,27 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
     if (state.save === "stuck" && Date.now() - lastRead.current > 5000) readAgainEvent();
   }, [state.save]);
 
-  const removable = picked?.all ?? [];
-  // (a selected stretch of road verge, or all of it loaded with Shift: Delete takes those triangles)
-  const vergeCuts = selection?.meshes?.length && !selection.tiles.length ? view.objects.surfaceCuts(selection.meshes) : null;
+  const removable = selection.removable;
   const ids = [...state.removed.map(r => r.id), ...(state.treeSpacing?.hidden ?? []), ...(state.carDensity?.hidden ?? [])];
   const sort = picked?.id && picked.sort && !NOT_ALL.has(picked.sort) ? picked.sort : null;
   const markLabel = !menu ? null : sort ? `Mark all ${sortName(sort)} (${view.objects.countOfListed(sort, ids, state.objectSorts)})` : null;
 
-  const remove = (cuts = vergeCuts) => {
-    if (!editable) return;
-    if (railBridge) {
-      edits.removeSurfaces(railBridge.cuts);
-      setRailBridge(null); void view.setSurface(null); setNote("Railway section deleted. Ctrl+Z restores it.");
-      view.selection.unpick();
-    } else if (sidewalk) {
-      edits.removeSurfaceSection(sidewalk.cuts, sidewalk.objects);
-      setSidewalk(null); void view.setSurface(null); setNote("Selected section deleted. Ctrl+Z restores it.");
-      view.selection.unpick();
-    } else if (inspectorKerb) {
-      removePickedKerb(inspectorKerb.id);
-    } else if (cuts) {
-      edits.removeSurfaces(cuts);
-      setSurfacePicks([]);
-      setNote(VERGE_DELETED);
-      view.selection.unpick();
-    } else if (marked.length || removable.length) {
-      edits.removeSelected(view.selection.selectedOutside(marked), marked);
-      setMarked([]);
-      view.selection.unpick();
-    }
-  };
-  /** A tool taken up, the one on laid down: Select. A picked kerb or road becomes the new tool's selected range or start. */
+  /** Take up next (useToolHost.switchTool): the selection's requests on their way are dropped, the tool on is cleared. */
+  const switchTo = (next: Tool) => { selection.dropRequests(); switchTool(next); };
+  /** A tool's button or key: taken up, or laid down for Select when it is on. A picked kerb or road becomes its selected range or start. */
   const takeUp = (t: Tool) => {
-    const next = tool === t ? "select" : t, road = editable ? smoothStart(tool, next, picked) : null;
+    const next = tool === t ? "select" : t;
     if (next === "move" && wallIds.length) onInspectorCollapsed(false);
-    if (tool === "select" && next === "kerb" && picked?.kerbId) kerbs.setSelected(picked.kerbId);
-    setRailBridge(null); setSidewalk(null); void view.setSurface(null);
-    setMenu(null); band.clear(); separation.clear(); stitch.clear(); if (next !== "kerb") kerbs.clear(); setSelectWhole(false); setSelectAdd(false); setSurfacePicks([]); setTool(next);
-    if (road) band.start(road[0], road[1], picked?.position[1]);
+    setMenu(null); selection.release();
+    switchTo(next);
   };
   const closeMenu = useCallback(() => setMenu(null), []);
-  const startSmooth = (road: [number, number]) => { setMenu(null); setTool("smooth"); band.start(road[0], road[1], picked?.position[1]); setNote(null); view.focus(); };
+  const startSmooth = (road: [number, number]) => { setMenu(null); switchTo("smooth"); band.start(road[0], road[1], picked?.position[1]); setNote(null); view.focus(); };
   /** Edit… of the menu: Select on, the picked ground selected, its textures open, the inspector shown. */
   const editPicked = () => {
-    setTool("select");
+    if (tool !== "select") switchTo("select");
     if (picked?.surface) {
-      setSurfacePicks(previous => pickedSurfaces(tool === "select" ? previous : [], {surface: picked.surface, left: false}));
+      selection.setSurfacePicks(previous => pickedSurfaces(tool === "select" ? previous : [], {surface: picked.surface, left: false}));
       if (picked.surface.face === undefined) setMaterialOpen(true);
     }
     onInspectorCollapsed(false); view.focus();
@@ -442,85 +228,41 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
   /** What can be done with what is picked, for the right-click menu and the Select bar: null where it can't now. */
   const run: Record<SelectAction, (() => void) | null> = {
     texture: picked?.surface ? editPicked : null,
-    move: movable || wallIds.length ? () => { setTool("move"); setNote(null); onInspectorCollapsed(false); view.focus(); } : null,
-    copy: movable ? () => { setCopyTake(n => n + 1); setTool("copy"); setNote(null); view.focus(); } : null,
+    move: movable || wallIds.length ? () => { switchTo("move"); setNote(null); onInspectorCollapsed(false); view.focus(); } : null,
+    copy: movable ? () => { setCopyTake(n => n + 1); switchTo("copy"); setNote(null); view.focus(); } : null,
     replace: editable && replaceable?.length ? openModels : null,
-    delete: editable && (removable.length > 0 || !!vergeCuts || !!railBridge || !!sidewalk || (tool === "select" && !!inspectorKerb)) ? () => { remove(); view.focus(); } : null,
+    delete: editable && (removable.length > 0 || !!selection.vergeCuts || !!selection.section || (tool === "select" && !!inspectorKerb)) ? () => { remove(); view.focus(); } : null,
     kerb: editable && picked?.kerbId && state.kerbs.some(k => k.id === picked.kerbId)
       ? () => { takeUp("kerb"); setNote(null); view.focus(); } : null,
   };
+  const select = useSelect({view, on: tool === "select", selection, sort, run});
 
-  const offered = tool === "select" ? railBridge || sidewalk ? ["delete" as const] : selectActions(picked) : [], altOffered = altAction(offered);
-  /** The Select bar's button of action, with the key of the tool it takes up. */
-  const actionButton = (action: SelectAction) => {
-    const {label, tool: keyed, hint} = ACTIONS[action], perform = run[action];
-    return <ToolAction key={action} id={`edit-select-${action}`} label={label} shortcut={TOOLS.find(t => t.tool === keyed)?.key} hint={hint}
-                       disabled={!perform} onClick={() => perform?.()} />;
+  const placing = {wheel: (keys: WheelKeys, by: number) => placingWheel.current(keys, by), takesWheel: true};
+  const controllers: ToolControllers = {
+    select: select.controller, camera: camera.controller, smooth: band.controller, separate: separation.controller, kerb: kerbs.controller,
+    stitch: stitch.controller, elevation: elevation.controller, move: move.controller, delete: remover.controller,
+    copy: {...placing, options: <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setPlacingWheel} onFailed={setCopyFailed} />},
+    // (Insert and Groups draw their bars themselves: they stay mounted with the Library)
+    model: placing, group: placing,
   };
-  const [altAlone] = useState(() => new AltAlone());
-  /** Alt let go by itself under Select: the bar's Alt place, the picked ground's texture or the picked objects' replacement. */
-  const altKey = useEffectEvent((e: KeyboardEvent) => {
-    if (!altAlone.up(e)) return;
-    e.preventDefault();      // (Firefox would open its menu bar)
-    if (altOffered) run[altOffered]?.();
-  });
-
-  // (an effect event: Delete pressed right after a click reaches what that click picked, not the list of keys before it)
-  const keys = useEffectEvent((e: KeyboardEvent) => {
-    const control = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
-    if (saving.asking) {        // (the dialog's name field keeps its own keys; Ctrl+S isn't the browser's)
-      if (control && key === "s") e.preventDefault();
-      return;
-    }
-    if (["Home", "End", "ArrowLeft", "ArrowRight"].includes(e.key) && (e.target as HTMLElement).closest('[role="tablist"]')) return;
-    if (e.key !== "Escape" && e.key !== "Enter" && ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName)) return; // Fields keep their typing and option keys.
-    altAlone.down(e);
-    const keyed = control ? undefined : TOOLS.find(t => t.key.toLowerCase() === key);
-    if (kerbing && kerbs.mode === "free" && kerbs.freePoints.length && e.key === "Backspace") {
-      e.preventDefault();
-      kerbs.dropPoint();
-    }
-    else if (e.key === "Delete") remove();
-    else if (e.key === "Escape") {
-      setMenu(null);
-      setMarked([]);
-      setSelectWhole(false);
-      setSelectAdd(false);
-      setSurfacePicks([]);
+  /** An Editor shortcut (toolDefs.globalKey), before any tool's own keys. */
+  const onGlobal = (action: GlobalKey) => {
+    if (action === "escape") {
+      setMenu(null); selection.setMarked([]); selection.setSurfacePicks([]);
       view.brush.cancelStroke();
-      band.clear();
-      separation.clear();
-      kerbs.clear();
-      stitch.clear();
       view.selection.unpick();
-      setTool("select");        // (with it go a marking and a ride)
+      switchTo("select");        // (with it go a marking and a ride)
       view.focus();
-    }
-    else if ((marked.length || removable.length || vergeCuts || inspectorKerb || railBridge || sidewalk) && !control && key === "x") remove();      // (what is picked or marked is what X is there to delete; nothing: its tool)
-    else if (keyed?.tool === "model") { if (editable) openModels(); }
-    else if (keyed) takeUp(keyed.tool);
-    else if (e.key === "Home") view.home();
-    else if (control && key === "z") {
-      void edits.inTurn(() => (e.shiftKey ? edits.redo() : edits.undo()));
-    } else if (control && key === "y") void edits.inTurn(() => edits.redo());
-    else if (control && key === "s") void saving.save();
-    else return;
-    e.preventDefault();
-  });
-
-  useEffect(() => {
-    const on = [scene.current!, fileHost, toolsHost, notesHost, inspectorHost], listen = (e: KeyboardEvent) => keys(e), up = (e: KeyboardEvent) => altKey(e);
-    const modifier = () => altAlone.other();       // (Alt with a click or the wheel, or the window left: Alt+Tab)
-    for (const el of on) { el?.addEventListener("keydown", listen); el?.addEventListener("keyup", up); }
-    for (const type of ["pointerdown", "wheel"]) window.addEventListener(type, modifier, true);
-    window.addEventListener("blur", modifier);
-    return () => {
-      for (const el of on) { el?.removeEventListener("keydown", listen); el?.removeEventListener("keyup", up); }
-      for (const type of ["pointerdown", "wheel"]) window.removeEventListener(type, modifier, true);
-      window.removeEventListener("blur", modifier);
-    };
-  }, [scene, fileHost, toolsHost, notesHost, inspectorHost, altAlone]);
-
+    } else if (action === "delete") remove();
+    else if (action === "library") { if (editable) openModels(); }
+    else if (action === "home") view.home();
+    else if (action === "undo") void edits.inTurn(() => edits.undo());
+    else if (action === "redo") void edits.inTurn(() => edits.redo());
+    else if (action === "save") void saving.save();
+    else takeUp(action.tool);
+  };
+  const {switchTool, options} = useToolHost({view, tool, setTool, editable, picked, deletable: selection.deletable(inspectorKerb), controllers,
+    onPick: selection.take, onGlobal, keyHosts: [scene, fileHost, toolsHost, notesHost, inspectorHost], paused: saving.asking});
 
   // (what goes wrong outside any window, and Saving: a toast at the top centre while the Editor's tab is open, with its way out;
   // ×'d, it stays away until its text changes)
@@ -538,16 +280,16 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
       {fileHost && createPortal(<FileButtons edits={edits} view={view} saving={saving} onLibrary={openLibrary} />, fileHost)}
       {savedHost && createPortal(saving.savedText, savedHost)}
       {toolsHost && createPortal(<ToolPanel state={state} edits={edits} view={view} tool={tool} onTool={t => { takeUp(t); setNote(null); }} onModels={openModels} />, toolsHost)}
-      <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={tool === "model" && editable}
-        onWheel={setCopyWheel}
-        choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => setTool("model")}
+      <Models name={name} view={view} edits={edits} replace={replaceTargets} enabled={working("model")}
+        onWheel={setPlacingWheel}
+        choosing={libraryTab === "objects"} onClose={closeMaterial} onPlace={() => switchTo("model")}
         renderLibrary={(objects, busy) => <AssetLibrary tab={libraryTab} onTab={tab => { if (tab === "objects") openModels(); else setLibraryTab(tab); }} onClose={closeMaterial} busy={busy || painting.busy || walls.busy || groupBusy} objects={objects}
           groups={<GroupLibrary open={libraryTab === "groups"} onBusy={setGroupBusy} onClose={closeMaterial} onChoose={(chosen, models) => {
-            setGroup(chosen); setGroupModels(models); setTool("group"); closeMaterial(); view.focus();
+            setGroup(chosen); setGroupModels(models); switchTo("group"); closeMaterial(); view.focus();
           }} />}
           textures={<MaterialLibrary embedded open={libraryTab === "textures"} target={materialTarget} reason={materialReason} limitedTiles={wallIds.length ? undefined : limitedTiles} colourOnly={!!wallIds.length}
             busy={painting.busy || walls.busy} progress={wallIds.length ? null : painting.progress} error={wallIds.length ? walls.error : painting.error} onApply={applyMaterial} onClose={closeMaterial} />} />} />
-      <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={tool === "group" && editable && !libraryTab} onWheel={setCopyWheel} onFailed={setGroupFailed} />
+      <Groups name={name} view={view} edits={edits} group={group} models={groupModels} enabled={working("group") && !libraryTab} onWheel={setPlacingWheel} onFailed={setGroupFailed} />
       {inspectorHost && createPortal(<Inspector name={name} picked={tool === "kerb" && inspectorKerb && picked?.kerbId !== inspectorKerb.id ? null : picked}
         surfaces={tool === "select" ? surfacePicks : []} activeTool={tool}
         standaloneAppearance={inspectorKerb ? view.kerbAppearance(inspectorKerb.id) : null}
@@ -559,44 +301,25 @@ export function EditTools({name, title, visible, taken, view, scene, fileHost, s
             selection={() => view.selection.carDensityTargets(marked, state.carDensity?.hidden)} />
         </>}
         notes={<EditNotes state={state} note={note}
-          picked={(marking && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
+          picked={(working("smooth") && !picked?.id) || (tool === "select" && picked?.surface) ? null : picked} sort={sort}
           markedName={marked.length ? marked.map(g => sortName(g.sort)).join(", ") : null}
         />}
         marked={marked} view={view} state={state} width={inspectorWidth} onWidth={onInspectorWidth}
-        collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={onSurface}
+        collapsed={inspectorCollapsed} onCollapsed={onInspectorCollapsed} onSurface={selection.onSurface}
         onMaterialOpen={() => setMaterialOpen(true)} restyling={editable ? painting : null} textureRevision={textureRevision}
         transform={editable && (wallIds.length ? <WallFields rise={wallSettings?.rise ?? 0} textured={!!wallSettings?.material} busy={walls.busy} error={walls.error}
           onHeight={rise => walls.change(wallIds, {rise})} onTexture={() => { setMenu(null); setLibraryTab("textures"); }}
           onOriginal={() => walls.change(wallIds, {material: null})} onReset={() => walls.change(wallIds, {reset: true})} /> : <TransformFields move={move} />)} />, inspectorHost)}
-      {tool === "select" && <ToolOptions id="edit-select-set" title="Select" note={railBridge ? "Railway section selected with rails, bed and collision faces." : sidewalk ? sidewalk.selection.material === "guardrail" ? "Guardrail section selected with its collision faces." : "Sidewalk section selected with curb, collision and objects standing on it." : "Click to pick; left drag selects objects in a rectangle. Add or Ctrl adds to the selection."}
-        options={[
-          <ToolChoice label="Select all" on={selectWhole} hint="Select every matching ground surface, including separate areas, or every object of this sort (Shift + click)" onClick={thenView(view, () => {
-            setSelectWhole(!selectWhole);
-            if (picked?.surface) setSurfacePicks(previous => previous.map(s => ({...s, whole: !selectWhole})));
-            else if (sort) setMarked(selectWhole ? [] : [{sort}]);
-          })} />,
-          <ToolChoice label="Add" on={selectAdd} hint="Add to the selection; click a picked object again to remove it (Ctrl + click)" onClick={thenView(view, () => setSelectAdd(!selectAdd))} />,
-          ...(altOffered ? [actionButton(altOffered)] : []),
-        ]} actions={offered.filter(action => action !== altOffered).map(actionButton)} />}
-      {elevating && <ElevationOptions elevation={elevation} view={view} />}
-      {deleting && <DeleteOptions remove={remover} view={view} />}
-      {marking && <BandOptions band={band} view={view} />}
-      {separating && <SeparationOptions separation={separation} view={view} />}
+      {options}
       <ToolToasts note={toolToast} />
-      {stitching && <StitchOptions stitch={stitch} view={view} />}
-      {kerbing && <KerbOptions kerb={kerbs} view={view} onDelete={() => remove()} />}
-      {tool === "camera" && <CameraOptions camera={camera} view={view} />}
-      {moving && (wallIds.length ? <ToolOptions id="edit-move-set" title="Transform"
-        note="Change the wall top in Options; both feet stay fixed." /> : <MoveOptions move={move} view={view} />)}
-      {tool === "copy" && editable && <CopyTool key={copyTake} name={name} edits={edits} view={view} picked={picked} onWheel={setCopyWheel} onFailed={setCopyFailed} />}
       {menu && (
         <ViewMenu at={menu} object={!!picked?.id} mark={editable ? markLabel : null} canDelete={removable.length > 0 && editable} onClose={closeMenu}
                   onReplace={run.replace} onEdit={editPicked} onMove={run.move} onDuplicate={run.copy}
                   onSmooth={editable && picked?.road ? () => startSmooth(picked.road!) : null}
-                  onMark={() => { if (sort) setMarked([{sort}]); view.focus(); }}
+                  onMark={() => { if (sort) selection.setMarked([{sort}]); view.focus(); }}
                   onDelete={() => { remove(); view.focus(); }}
                   onDeleteSurface={editable && !picked?.id && picked?.surface?.face !== undefined
-                    ? () => { remove(vergeCuts ?? vergeAt(picked.surface!)); view.focus(); } : null} />
+                    ? () => { remove(selection.vergeCuts ?? selection.vergeAt(picked.surface!)); view.focus(); } : null} />
       )}
       {saving.asking && <SaveDialog title={title} taken={taken} canOverwrite={saving.canSave} onOverwrite={() => void saving.chosen(null)}
                                     onSaveNew={t => void saving.chosen(t)} onCancel={saving.cancel} onDelete={onDelete} />}

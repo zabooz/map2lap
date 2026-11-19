@@ -1,9 +1,9 @@
 import {ToolAction, ToolNumber, ToolOptions, thenView} from "./ToolOptions";
 import type {TrackView} from "../scene/view";
-import type {useSeparation} from "./useSeparation";
+import type {SeparationTool} from "./useSeparation";
 
 /** Two fixed road ends and a signed middle height change. */
-export function SeparationOptions({separation, view}: {separation: ReturnType<typeof useSeparation>; view: TrackView}) {
+export function SeparationOptions({separation, view}: {separation: SeparationTool; view: TrackView}) {
   const stage = separation.points.length;
   const subject = separation.kind === "rail" ? "railway line" : "road";
   const note = ["Click A on the road to bend, or on a railway bridge.", `Click B on the same ${subject}; both ends stay fixed.`,

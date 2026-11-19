@@ -1,87 +1,26 @@
-import {useCallback, useEffect, useRef, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {post} from "../../api";
-import type {TrackEdits, HeightChange} from "../state/edits";
+import type {TrackEdits} from "../state/edits";
 import type {TrackView} from "../scene/view";
 import type {SurfaceSelection} from "../scene/surfaces";
-import type {WheelKeys} from "../types";
+import type {Picked, WheelKeys} from "../types";
 import type {Pin} from "./pins";
+import {SeparationSession, type BridgeKind} from "./separation";
+import {Latest} from "./latest";
+import {SeparationOptions} from "./SeparationOptions";
+import type {ToolController} from "./toolHost";
+import {RAIL_BRIDGE} from "./sections";
 
 interface Crossing {x: number; z: number; upper_y: number; gap: number}
 interface Blocker {mesh: string; kind: string; x: number; y: number; z: number}
-interface Answer {height?: HeightChange; crossings?: Crossing[]; error?: string}
-type BridgeKind = "road" | "rail";
 const HEIGHT_WHEEL_M = 0.1;
 const MIN_GRADE = 0.5, MAX_GRADE = 50, GRADE_WHEEL = 0.5;
 
-/** One replaceable crossing correction; adjustments use the draft without this operation. */
-class SeparationSession {
-  private epoch = 0;
-  private owned: string[] = [];
-  private joined = false;
-  private key = "";
-  constructor(private edits: TrackEdits, private name: string) {}
-  cancel() { this.epoch++; }
-  clear() { this.cancel(); this.owned = []; this.joined = false; this.key = ""; }
-  adopt(ids: string[]) { this.cancel(); this.owned = [...ids]; this.joined = false; this.key = ""; }
-  private requestKey(points: Pin[], gap: number, kind: BridgeKind, grade: number) {
-    const owned = new Set(this.owned);
-    return JSON.stringify([points, gap, kind, grade, this.edits.state().heights.filter(h => !owned.has(h.id)).map(h => h.id)]);
-  }
-  isCurrent(points: Pin[], gap: number, kind: BridgeKind, grade: number) { return this.requestKey(points, gap, kind, grade) === this.key; }
-
-  async apply(points: Pin[], gap: number, kind: BridgeKind, grade: number, minimum: number): Promise<"applied" | "reset" | "undone" | "cancelled" | string> {
-    if (this.owned.some(id => !this.edits.state().heights.some(h => h.id === id))) {
-      this.clear(); return "undone";
-    }
-    const key = this.requestKey(points, gap, kind, grade);
-    if (key === this.key) return "cancelled";
-    const epoch = ++this.epoch;
-    let result: "applied" | "reset" | "undone" | "cancelled" | string = "cancelled";
-    await this.edits.inTurn(async () => {
-      try {
-        this.edits.saveNow();
-        const revision = await this.edits.saved(), base = this.edits.boundRevision();
-        if (epoch !== this.epoch) return;
-        if (revision === null || !base || !this.edits.canEdit()) throw new Error("The current changes could not be kept");
-        if (this.owned.some(id => !this.edits.state().heights.some(h => h.id === id))) {
-          this.clear(); result = "undone"; return;
-        }
-        if (kind === "road" ? Math.abs(gap) < .0005 : gap <= minimum + .001) {
-          if (this.owned.length && !this.edits.replaceHeight(this.owned, null, this.joined))
-            throw new Error("The height edit changed; mark A and B again");
-          this.owned = [];
-          this.joined = true;
-          this.key = this.requestKey(points, gap, kind, grade);
-          this.edits.saveNow();
-          if (await this.edits.saved() === null) throw new Error("The height edit could not be kept");
-          result = "reset"; return;
-        }
-        const answer = kind === "road"
-          ? await post<Answer>(`/api/editor/${encodeURIComponent(this.name)}/bend`,
-            {base, revision, points, delta: gap, max_grade_percent: grade, replace: this.owned})
-          : await post<Answer>(`/api/editor/${encodeURIComponent(this.name)}/separate`,
-            {base, revision, points, gap, kind, max_grade_percent: grade, upper_percent: 100, replace: this.owned});
-        if (epoch !== this.epoch) return;
-        if (answer.error || !answer.height) throw new Error(answer.error ?? "The road height could not be changed");
-        if (!this.edits.replaceHeight(this.owned, answer.height, this.joined)) throw new Error("The crossing edit changed; mark it again");
-        this.owned = [answer.height.id];
-        this.joined = true;
-        this.key = this.requestKey(points, gap, kind, grade);
-        this.edits.saveNow();
-        if (await this.edits.saved() === null) throw new Error("The crossing edit could not be kept");
-        result = "applied";
-      } catch (error) {
-        if (epoch === this.epoch) result = error instanceof Error ? error.message : "Could not change the road height";
-      }
-    });
-    return result;
-  }
-}
+interface SeparationArgs {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; revision: number; onNote: (note: string | null) => void}
 
 /** Two bridge clicks and one target gap; the server owns all geometry and safety checks. */
-export function useSeparation({name, view, edits, enabled, revision, onNote}: {name: string; view: TrackView; edits: TrackEdits;
-  enabled: boolean; revision: number; onNote: (note: string | null) => void}) {
-  const [session] = useState(() => new SeparationSession(edits, name));
+function useSeparationTool({name, view, edits, enabled, revision, onNote}: SeparationArgs) {
+  const [session] = useState(() => new SeparationSession(edits, (path, body) => post(`/api/editor/${encodeURIComponent(name)}/${path}`, body)));
   const [points, setPoints] = useState<Pin[]>([]);
   const [kind, setKind] = useState<BridgeKind | null>(null);
   const [selectedSide, setSelectedSide] = useState<"upper" | "lower">("upper");
@@ -96,9 +35,9 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
   const [ready, setReady] = useState(false);
   const [armed, setArmed] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const generation = useRef(0);
+  const [requests] = useState(() => new Latest());     // (a road marked or measured after Mark again, a pin moved or Esc is dropped)
   const clear = () => {
-    generation.current++;
+    requests.drop();
     session.clear(); setPoints([]); setKind(null); setSelectedSide("upper"); setCrossings([]); setBlockers([]); setReady(false);
     setGapValue(0); setMinGap(0); setArmed(false);
     setStatus(null);
@@ -109,7 +48,7 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
       const answer = await post<{region?: SurfaceSelection; blockers?: Blocker[]; delta?: number; replace?: string[];
         max_grade_percent?: number | null; error?: string}>(`/api/editor/${encodeURIComponent(name)}/bend/way`,
         {base: edits.boundRevision(), revision, points: pins});
-      if (token !== generation.current) return;
+      if (!requests.current(token)) return;
       if (answer.error || !answer.region) {
         const reason = answer.error ?? "This road could not be marked";
         setStatus(reason); onNote(reason); setReady(false); return;
@@ -117,9 +56,9 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
       try {
         await Promise.all([view.setRoadRegion(answer.region), view.setLowerRoadRegion(null)]);
       } catch (error) {
-        if (token === generation.current) onNote(error instanceof Error ? error.message : "Could not highlight this road");
+        if (requests.current(token)) onNote(error instanceof Error ? error.message : "Could not highlight this road");
       }
-      if (token !== generation.current) return;
+      if (!requests.current(token)) return;
       session.adopt(answer.replace ?? []);
       setSelectedSide("upper"); setCrossings([]); setBlockers(answer.blockers ?? []);
       setMinGap(0); setGapValue(answer.delta ?? 0); setArmed(false);
@@ -134,7 +73,7 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
       selected_side?: "upper" | "lower";
       upper_region?: SurfaceSelection; lower_region?: SurfaceSelection; error?: string}>(`/api/editor/${encodeURIComponent(name)}/separate/way`,
       {base: edits.boundRevision(), revision, points: pins, kind: selected});
-    if (token !== generation.current) return;
+    if (!requests.current(token)) return;
     if (answer.error || !answer.crossings?.length) {
       const reason = answer.error ?? "No crossing found";
       setStatus(reason); onNote(reason); setReady(false); return;
@@ -142,9 +81,9 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
     try {
       await Promise.all([view.setRoadRegion(answer.upper_region ?? null), view.setLowerRoadRegion(answer.lower_region ?? null)]);
     } catch (error) {
-      if (token === generation.current) onNote(error instanceof Error ? error.message : "Could not highlight these roads");
+      if (requests.current(token)) onNote(error instanceof Error ? error.message : "Could not highlight these roads");
     }
-    if (token !== generation.current) return;
+    if (!requests.current(token)) return;
     session.adopt(answer.replace ?? []);
     setSelectedSide(answer.selected_side ?? "upper");
     setCrossings(answer.crossings);
@@ -158,7 +97,7 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
     const warning = answer.blockers?.length ? ` In the way: ${answer.blockers.length >= 16 ? "at least " : ""}${answer.blockers.length} rail/tunnel part${answer.blockers.length === 1 ? "" : "s"}, marked red. First: ${answer.blockers[0].mesh} at x=${answer.blockers[0].x}, z=${answer.blockers[0].z}.` : "";
     const measured = `${answer.crossings.length} crossing${answer.crossings.length === 1 ? "" : "s"}: rail bed gap ${answer.crossings.map(c => `${c.gap.toFixed(2)} m`).join(", ")}; original ${answer.min_gap?.toFixed(2) ?? "?"} m. ${action}${warning} Shift + wheel changes Gap; Ctrl + wheel changes maximum slope.`;
     setStatus(measured); onNote(measured);
-  }, [name, edits, revision, session, onNote, view]);
+  }, [name, edits, revision, session, requests, onNote, view]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -182,13 +121,13 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
     if (!enabled) return;
     view.setPinned((k, x, z) => {
       session.cancel();
-      const token = ++generation.current;
+      const token = requests.next();
       const next = points.map((p, i): Pin => i === k ? [x, z, view.heightOfGround(x, z)] : p);
       setPoints(next); setReady(false); setCrossings([]); setBlockers([]); setStatus(next.length === 2 ? "Marking the road…" : null);
       if (next.length === 2) void measure(next, token, kind ?? "road");
-    }, k => { generation.current++; session.cancel(); setPoints(points.filter((_p, i) => i !== k)); setReady(false); setCrossings([]); setBlockers([]); setStatus(null); });
+    }, k => { requests.drop(); session.cancel(); setPoints(points.filter((_p, i) => i !== k)); setReady(false); setCrossings([]); setBlockers([]); setStatus(null); });
     return () => view.setPinned(() => {}, () => {});
-  }, [enabled, points, kind, view, session, measure]);
+  }, [enabled, points, kind, view, session, requests, measure]);
 
   useEffect(() => {
     if (!enabled || !ready || !armed || points.length !== 2 || !kind || session.isCurrent(points, gap, kind, grade)) return;
@@ -213,7 +152,7 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
       if (points.length === 2) { onNote("A and B are set. Use Mark again to start another road stretch."); return; }
       if (kind && kind !== selected) { setStatus("Mark A and B on the same road or railway line"); return; }
       const next: Pin[] = [...points, [x, z, y]];
-      const token = ++generation.current;
+      const token = requests.next();
       session.cancel(); setKind(selected); setPoints(next); setReady(false); setCrossings([]); setBlockers([]); setStatus(null);
       if (next.length === 2) { const note = selected === "rail" ? "Measuring the crossing…" : "Marking the road…"; setStatus(note); onNote(note); void measure(next, token, selected); }
     },
@@ -233,4 +172,20 @@ export function useSeparation({name, view, edits, enabled, revision, onNote}: {n
       }
       else if (keys === "ctrl") setGradeValue(value => Math.min(MAX_GRADE, Math.max(MIN_GRADE, Math.round((value + by * GRADE_WHEEL) * 10) / 10)));
     }};
+}
+
+export type SeparationTool = ReturnType<typeof useSeparationTool>;
+
+/** Bend road (J) as a tool: A and B on a road or a railway bridge, the height or gap by Shift + wheel, the slope by Ctrl + wheel. */
+export function useSeparation(args: SeparationArgs) {
+  const separation = useSeparationTool(args);
+  const controller: ToolController = {
+    click: (p: Picked | null) => {
+      if (p?.road) separation.click(p.road[0], p.road[1], p.position[1]);
+      else if (p?.inspection?.hovered.object && RAIL_BRIDGE.test(p.inspection.hovered.object)) separation.click(p.position[0], p.position[2], p.position[1], "rail");
+    },
+    wheel: separation.wheel, takesWheel: true, clear: separation.clear,
+    options: <SeparationOptions separation={separation} view={args.view} />,
+  };
+  return {...separation, controller};
 }

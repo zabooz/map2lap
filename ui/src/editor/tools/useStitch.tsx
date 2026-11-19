@@ -3,27 +3,34 @@ import {useEffect, useState} from "react";
 import {post} from "../../api";
 import type {StitchEdit, TrackEdits} from "../state/edits";
 import type {TrackView} from "../scene/view";
-import type {Place, WheelKeys} from "../types";
+import type {Picked, Place, WheelKeys} from "../types";
+import {Latest} from "./latest";
+import {StitchOptions} from "./StitchOptions";
+import type {ToolController} from "./toolHost";
 
 type Proposal = {stitch: Omit<StitchEdit, "id">; line: Place[]; auto: [number, number]; reason: string; marks: string;
   deck_rows: number; rows: number; change: number; overlap: {left: number; right: number}; replaces: string[]};
 const decimetres = (value: number) => Math.round(value * 10) / 10;
 
+interface StitchArgs {name: string; view: TrackView; edits: TrackEdits; stitches: StitchEdit[]; enabled: boolean; onNote: (text: string | null) => void}
+
 /** Two road clicks propose a rebuilt stretch; Apply adds it to the draft as one Undo step. */
-export function useStitch({name, view, edits, stitches, enabled, onNote}: {name: string; view: TrackView; edits: TrackEdits;
-  stitches: StitchEdit[]; enabled: boolean; onNote: (text: string | null) => void}) {
+function useStitchTool({name, view, edits, stitches, enabled, onNote}: StitchArgs) {
   const [points, setPoints] = useState<Place[]>([]);           // [x, z, y] clicks
   const [width, setWidthState] = useState<number | null>(null);  // null: automatic
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requests] = useState(() => new Latest());      // (a proposal answered after Esc or Mark again is not offered)
 
-  const clear = () => { setPoints([]); setProposal(null); setError(null); onNote(null); };
+  const clear = () => { requests.drop(); setBusy(false); setPoints([]); setProposal(null); setError(null); onNote(null); };
 
   const ask = async (pins: Place[], chosen: number | null) => {
+    const mine = requests.next();
     setBusy(true); setError(null);
     const result = await post<Proposal>(`/api/editor/${encodeURIComponent(name)}/stitch/way`,
       {base: edits.boundRevision(), points: pins, width: chosen, existing: stitches});
+    if (!requests.current(mine)) return;
     setBusy(false);
     if (result.error || !result.stitch) { setProposal(null); setError(result.error ?? "No road stretch found"); return; }
     setProposal(result as Proposal);
@@ -65,4 +72,17 @@ export function useStitch({name, view, edits, stitches, enabled, onNote}: {name:
       if (keys === "shift") setWidth(decimetres((shown ?? 8) + by * 0.1));
     },
   };
+}
+
+export type StitchTool = ReturnType<typeof useStitchTool>;
+
+/** Stitch road (N) as a tool: A and B by clicks on a road, the width by Shift + wheel. */
+export function useStitch(args: StitchArgs) {
+  const stitch = useStitchTool(args);
+  const controller: ToolController = {
+    click: (p: Picked | null) => { if (p?.road) stitch.click(p.position[0], p.position[2], p.position[1]); },
+    wheel: stitch.wheel, takesWheel: true, clear: stitch.clear,
+    options: <StitchOptions stitch={stitch} view={args.view} />,
+  };
+  return {...stitch, controller};
 }

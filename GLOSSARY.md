@@ -75,6 +75,10 @@ tool determines what the stroke changes.
 The active tool’s overlay controls (`tools/ToolOptions.tsx`), with Shift/Ctrl/Alt/Ctrl+Alt modifiers. Select uses Shift
 for all matching and Ctrl to add/remove.
 
+**Tool controller**:
+What an Editor tool hook hands the tool host: its clicks, wheel, keys, Shift mode switch, activation, cleanup and options bar
+(`tools/toolHost.ts`); see [editor-tools.md](docs/editor-tools.md#tool-framework).
+
 **Toast**:
 A notice in the page’s top-centre stack, including Editor progress/errors (`components/toastStore.ts`). Dialogs and
 build status own their errors separately.

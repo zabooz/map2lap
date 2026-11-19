@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {post} from "../../api";
+import {serverEdit} from "../state/serverEdit";
 import {useToasts, type Posted} from "../../components/toastStore";
 import type {CarDensity, EditState, TrackEdits, TreeSpacing} from "../state/edits";
 import type {TrackObjects} from "../scene/trackObjects";
@@ -39,35 +40,31 @@ export function SceneryControls({kind, name, edits, state, objects, selection, v
     pending.current = true; setBusy(true);
     setNotice({id: toastId, tone: "info", title: `Adjusting ${kind}…`, dismissible: false,
       progress: {value: null, label: `Adjusting ${kind}`}});
-    void edits.inTurn(async () => {
-      try {
-        edits.saveNow();
-        const revision = await edits.saved(), base = edits.boundRevision();
-        if (!alive.current) return;
-        if (revision === null || !base || !edits.canEdit()) throw new Error("The current changes could not be kept.");
-        const answer = await post<{tree_spacing?: TreeSpacing; car_density?: CarDensity}>(
-          `/api/editor/${encodeURIComponent(name)}/${trees ? "tree-spacing" : "car-density"}`,
-          {base, revision, targets, ...(trees ? {distance: next} : {percent: next})});
-        if (!alive.current) return;
+    void serverEdit(edits, {
+      ask: (base, revision) => post<{tree_spacing?: TreeSpacing; car_density?: CarDensity}>(
+        `/api/editor/${encodeURIComponent(name)}/${trees ? "tree-spacing" : "car-density"}`,
+        {base, revision, targets, ...(trees ? {distance: next} : {percent: next})}),
+      put: (answer, revision) => {
         const result = trees ? answer.tree_spacing : answer.car_density;
-        if (answer.error || !result) throw new Error(answer.error ?? `Could not change ${operation}`);
-        if (edits.state().save !== "saved" || edits.state().keptRevision !== revision) throw new Error(`The ${kind} changed. Try again.`);
+        if (!result) return `Could not change ${operation}`;
+        if (edits.state().save !== "saved" || edits.state().keptRevision !== revision) return `The ${kind} changed. Try again.`;
         if (trees) edits.setTreeSpacing(answer.tree_spacing!); else edits.setCarDensity(answer.car_density!);
-        edits.saveNow();
-        if (await edits.saved() === null) throw new Error("The change could not be kept.");
-        if (alive.current) setNotice({id: toastId, tone: "success", title: trees ? "Tree spacing updated" : "Car density updated",
-          message: `${result.hidden.length} ${trees ? result.hidden.length === 1 ? "tree" : "trees" : result.hidden.length === 1 ? "car" : "cars"} thinned`});
-      } catch (failure) {
-        if (alive.current) {
-          setNotice({id: toastId, tone: "error", title: `Could not change ${operation}`,
-            message: failure instanceof Error ? failure.message : "Try again."});
+        return true;
+      },
+      wanted: () => alive.current, failure: `Could not change ${operation}`, unkept: "The change could not be kept."})
+      .then(outcome => {
+        pending.current = false;
+        if (!alive.current) return;
+        setBusy(false);
+        if (outcome.state === "applied") {
+          const hidden = (trees ? outcome.answer.tree_spacing : outcome.answer.car_density)!.hidden.length;
+          setNotice({id: toastId, tone: "success", title: trees ? "Tree spacing updated" : "Car density updated",
+            message: `${hidden} ${trees ? hidden === 1 ? "tree" : "trees" : hidden === 1 ? "car" : "cars"} thinned`});
+        } else if (outcome.state !== "cancelled") {
+          setNotice({id: toastId, tone: "error", title: `Could not change ${operation}`, message: outcome.message});
           setDraft(value);
         }
-      } finally {
-        pending.current = false;
-        if (alive.current) setBusy(false);
-      }
-    });
+      });
   };
   return <section className={styles.controls} aria-label={trees ? "Tree spacing" : "Car density"}>
     <h4 className={styles.title}>{title}: {count.toLocaleString()}{targets ? " (selected)" : ""}</h4>

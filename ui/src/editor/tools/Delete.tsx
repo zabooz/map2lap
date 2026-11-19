@@ -1,5 +1,6 @@
 // Delete (X): a click deletes what is under it; its brush deletes all a stroke passes over, as one change and one Undo.
 import {useEffect, useEffectEvent, useState} from "react";
+import type {ToolController} from "./toolHost";
 import type {TrackEdits} from "../state/edits";
 import type {TrackView} from "../scene/view";
 import type {WheelKeys} from "../types";
@@ -11,25 +12,13 @@ const FIRST_RADIUS = 5;       // (m)
 
 const deletedText = (n: number) => `${n} ${n === 1 ? "object" : "objects"} deleted. Undo brings ${n === 1 ? "it" : "them"} back.`;
 
-/** Delete on the view. enabled: the tool is on. onNote: what to say, null for nothing. brush: the choice, Shift pressed and let go
-    alone switches it (Ctrl+Shift+Z or Shift with the wheel in between: not). The click of One stays EditTools' (onPicked). */
-export function useDelete({view, edits, enabled, onNote}: {view: TrackView; edits: TrackEdits; enabled: boolean; onNote: (text: string | null) => void}) {
+interface DeleteArgs {view: TrackView; edits: TrackEdits; enabled: boolean; onNote: (text: string | null) => void}
+
+/** Delete on the view. enabled: the tool is on. onNote: what to say, null for nothing. brush: the choice. One's click is the
+    shared selection's (useSelection, rule "delete"). */
+function useDeleteTool({view, edits, enabled, onNote}: DeleteArgs) {
   const [brush, setBrush] = useState(false), [radius, setRadius] = useState(FIRST_RADIUS);
   const painting = enabled && brush;
-
-  useEffect(() => {
-    if (!enabled) return;
-    let alone = false;
-    const down = (e: KeyboardEvent) => { alone = e.key === "Shift" && (alone || !e.repeat) && !(e.target instanceof HTMLInputElement); };
-    const up = (e: KeyboardEvent) => { if (e.key === "Shift" && alone) setBrush(b => !b); alone = false; };
-    const other = () => { alone = false; };
-    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
-    window.addEventListener("wheel", other, {capture: true}); window.addEventListener("pointerdown", other, {capture: true});
-    return () => {
-      window.removeEventListener("keydown", down); window.removeEventListener("keyup", up);
-      window.removeEventListener("wheel", other, {capture: true}); window.removeEventListener("pointerdown", other, {capture: true});
-    };
-  }, [enabled]);
 
   const stroked = useEffectEvent((items: ReturnType<TrackView["brush"]["objectsAlong"]>) => {
     if (!items.length) { view.brush.showGone(null); return onNote("Nothing to delete there."); }
@@ -53,8 +42,21 @@ export function useDelete({view, edits, enabled, onNote}: {view: TrackView; edit
   };
 }
 
+type DeleteTool = ReturnType<typeof useDeleteTool>;
+
+/** Delete (X) as a tool: One or Brush, Shift pressed and let go alone switches (Ctrl+Shift+Z or Shift with the wheel in between:
+    not); Ctrl + wheel the radius. */
+export function useDelete(args: DeleteArgs) {
+  const remover = useDeleteTool(args);
+  const controller: ToolController = {
+    wheel: remover.wheel, takesWheel: true, toggleMode: () => remover.setBrush(b => !b),
+    options: <DeleteOptions remove={remover} view={args.view} />,
+  };
+  return {...remover, controller};
+}
+
 /** Its bar: One or Brush (Shift switches), and the brush's radius. */
-export function DeleteOptions({remove: d, view}: {remove: ReturnType<typeof useDelete>; view: TrackView}) {
+function DeleteOptions({remove: d, view}: {remove: DeleteTool; view: TrackView}) {
   return (
     <ToolOptions id="edit-delete-set" title="Delete"
       note={d.painting ? "Click or drag: everything framed red under the ring goes. Shift: one at a time." : "Click an object, sidewalk, guardrail, railway section, racing kerb or road verge to delete it. Shift: the brush."}

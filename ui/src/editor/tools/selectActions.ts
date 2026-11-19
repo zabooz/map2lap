@@ -1,6 +1,6 @@
 // What the Select bar offers for what is picked, the right-click menu's actions in sight.
 import type {Picked} from "../types";
-import type {Tool} from "./ToolPanel";
+import type {Tool} from "./toolDefs";
 
 /** Ground has its texture changed; an object is replaced, moved, copied or deleted. Smooth road and Elevation are not offered: they
     work on the ground around too, and beside a picked surface they would look as if they changed just that. */

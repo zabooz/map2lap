@@ -11,7 +11,7 @@ import {WeatherControls} from "../scene/WeatherControls";
 import {TrackStatistics} from "./TrackStatistics";
 import {TextureLookFields} from "../library/TextureSettings";
 import {LOOK, lookSummary, type TextureLook, type TextureMaps} from "../library/textureLook";
-import type {Tool} from "../tools/ToolPanel";
+import type {Tool} from "../tools/toolDefs";
 
 function Row({label, children}: {label: string; children: ReactNode}) {
   return <><dt>{label}</dt><dd>{children}</dd></>;

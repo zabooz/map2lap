@@ -7,14 +7,17 @@ import {between, nudged, unplaced, type Nudge, type Placement} from "./placing";
 import {thenView, ToolAction, ToolNumber, ToolOptions} from "./ToolOptions";
 import type {Picked, WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
+import type {ToolController} from "./toolHost";
 
 export const TURN_STEP = 5, HEIGHT_STEP = 0.1, SIZE_STEP = 1.05;      // a notch of the wheel: degrees, m, a factor (5 %): fine enough to set a bench straight
 export const CM = 100, PERCENT = 100;
 
 /** Move on view. enabled: the tool is on: the view drags, the wheel turns, raises and sizes. picked: what is picked now; its numbers can be set
     with any tool (the inspector's fields). onNote: what to say, null for nothing. */
-export function useMove({name, view, edits, state, enabled, picked, onNote}: {name: string; view: TrackView; edits: TrackEdits; state: EditState; enabled: boolean; picked: Picked | null;
-                                                                         onNote: (text: string | null) => void}) {
+interface MoveArgs {name: string; view: TrackView; edits: TrackEdits; state: EditState; enabled: boolean; picked: Picked | null;
+  onNote: (text: string | null) => void}
+
+function useMoveTool({name, view, edits, state, enabled, picked, onNote}: MoveArgs) {
   const targets = (picked?.all ?? []).map(p => p.id).filter(id => view.mover.canMove(id)), ids = enabled ? targets : [];
   const now = (id: string) => edits.placementOf(id) ?? unplaced(id);
   const shown = targets.length ? now(picked?.id && targets.includes(picked.id) ? picked.id : targets[0]) : unplaced("");
@@ -80,8 +83,22 @@ export function useMove({name, view, edits, state, enabled, picked, onNote}: {na
   };
 }
 
+export type MoveTool = ReturnType<typeof useMoveTool>;
+
+/** Transform (T) as a tool: the view drags what is picked, Shift, Ctrl and Alt with the wheel turn, raise and size it. walls: picked
+    walls, which change only their top (Options). */
+export function useMove({walls, ...args}: MoveArgs & {walls: boolean}) {
+  const move = useMoveTool(args);
+  const controller: ToolController = {
+    wheel: move.wheel, takesWheel: true,
+    options: walls ? <ToolOptions id="edit-move-set" title="Transform" note="Change the wall top in Options; both feet stay fixed." />
+      : <MoveOptions move={move} view={args.view} />,
+  };
+  return {...move, controller};
+}
+
 /** What it can be set to, of what is picked. */
-export function MoveOptions({move: m, view}: {move: ReturnType<typeof useMove>; view: TrackView}) {
+function MoveOptions({move: m, view}: {move: MoveTool; view: TrackView}) {
   const none = !m.ids.length;
   return (
     <ToolOptions id="edit-move-set" title="Transform" note={none ? "Click an object to pick it, drag it to move it; Ctrl + click adds more." : undefined}

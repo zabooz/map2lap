@@ -5,22 +5,7 @@ import {thenView} from "./ToolOptions";
 import type {useSave} from "../state/useSave";
 import type {TrackView} from "../scene/view";
 import {Help} from "./Help";
-
-export type Tool = "select" | "delete" | "camera" | "move" | "copy" | "elevation" | "smooth" | "separate" | "kerb" | "stitch" | "model" | "group";
-type Group = "general" | "road" | "terrain" | "objects";
-export const TOOLS: {tool: Tool; group: Group; id: string; label: string; key: string; hint: string}[] = [
-  {tool: "select", group: "general", id: "edit-select", label: "Select", key: "V", hint: "Click to pick a surface or object; left drag selects objects in a rectangle. Add or Ctrl adds more, Shift + click selects all matching; Alt changes the ground's texture or replaces trees; X or Delete takes them out (V)"},
-  {tool: "camera", group: "general", id: "edit-camera", label: "Road camera", key: "K", hint: "Go along the track by the wheel or riding by itself, back to the first view (K; Esc ends it)"},
-  {tool: "smooth", group: "road", id: "edit-smooth", label: "Smooth road", key: "R", hint: "With a road picked it starts there. Mark road points, add branches if needed, then increase strength from 0%. Changes apply automatically; Esc ends it, Ctrl+Z undoes it (R)"},
-  {tool: "separate", group: "road", id: "edit-separate", label: "Bend road", key: "J", hint: "Click A and B on any road; raise or lower its middle while both ends stay fixed (J)"},
-  {tool: "kerb", group: "road", id: "edit-kerb", label: "Racing kerb", key: "B", hint: "Click the desired road edge, then mark the end; adjust width, physical height and profile (B)"},
-  {tool: "stitch", group: "road", id: "edit-stitch", label: "Stitch road", key: "N", hint: "Click A and B on one road, also on a bridge deck or tunnel floor; Apply rebuilds the driving surface between them over its whole width (N)"},
-  {tool: "elevation", group: "terrain", id: "edit-elevation", label: "Elevation", key: "H", hint: "Raise or lower the ground: click, or hold and move (H; Esc ends it)"},
-  {tool: "move", group: "objects", id: "edit-move", label: "Transform", key: "T", hint: "Drag an object to move it; Shift, Ctrl, Alt with the wheel turn, raise and size what is picked (T; Esc ends it)"},
-  {tool: "copy", group: "objects", id: "edit-copy", label: "Copy", key: "C", hint: "Pick an object, then click to place copies repeatedly (C; Esc ends it)"},
-  {tool: "delete", group: "objects", id: "edit-click-deletes", label: "Delete", key: "X", hint: "Each click deletes what is under it, Ctrl+Z brings it back (X, with nothing picked; Esc ends it)"},
-  {tool: "model", group: "objects", id: "edit-insert", label: "Insert", key: "E", hint: "Open the object library to import or place a model (E)"},
-];
+import {TOOLS, type Tool, type ToolGroup} from "./toolDefs";
 
 /** One titled group of the sidebar's tools. */
 function Section({title, children}: {title: string; children: ReactNode}) {
@@ -58,13 +43,12 @@ export function FileButtons({edits, view, saving, onLibrary}: {edits: TrackEdits
 export function ToolPanel({state, edits, view, tool, onTool, onModels}: {state: EditState; edits: TrackEdits; view: TrackView; tool: Tool; onTool: (tool: Tool) => void; onModels?: () => void}) {
   const editable = edits.canEdit();
   const then = (action: () => void) => thenView(view, action);
-  const free = (t: Tool) => t === "select" || t === "camera";      // (these change nothing: also on a track that can't be edited now)
-  const shownTool = editable || free(tool) ? tool : "select";
-  const buttons = (group: Group) => (
+  const shownTool = editable || TOOLS.some(t => t.tool === tool && t.free) ? tool : "select";
+  const buttons = (group: ToolGroup) => (
     <div className={styles.picker}>
       {TOOLS.filter(t => t.group === group).map(t => (
-        <button type="button" key={t.tool} id={t.id} className={shownTool === t.tool ? styles.on : ""} aria-pressed={shownTool === t.tool}
-                disabled={!editable && !free(t.tool)} title={t.hint} onClick={then(() => t.tool === "model" ? onModels?.() : onTool(t.tool))}>
+        <button type="button" key={t.tool} id={t.id ?? undefined} className={shownTool === t.tool ? styles.on : ""} aria-pressed={shownTool === t.tool}
+                disabled={!editable && !t.free} title={t.hint} onClick={then(() => t.library ? onModels?.() : onTool(t.tool))}>
           {t.label}<span className={styles.key} aria-hidden="true">{t.key}</span>
         </button>
       ))}

@@ -4,6 +4,7 @@ import {thenView, ToolAction, ToolNumber, ToolOptions, ToolValue} from "./ToolOp
 import {stepped} from "./useBrush";
 import type {WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
+import type {ToolController} from "./toolHost";
 
 const FIRST_SPEED = 50, MIN_SPEED = 10, MAX_SPEED = 300, SPEED_STEP = 10;       // (km/h: from a close look to a fast look over a long track)
 const FIRST_HEIGHT = 3, MIN_HEIGHT = 1.5, MAX_HEIGHT = 100, HEIGHT_STEP = 0.5;  // (m above the ground: from a driver's eye, view.ts's nearest, to over the trees)
@@ -11,8 +12,10 @@ const NOTCH_M = 20;                 // a notch of the wheel along the route: a c
 const KMH_TO_M_S = 1 / 3.6;
 const NO_ROUTE = "This track has no route to go along";
 
+interface CameraArgs {view: TrackView; enabled: boolean; onNote: (text: string | null) => void}
+
 /** Camera on view. enabled: the tool is on. onNote: what to say, null for nothing. */
-export function useCamera({view, enabled, onNote}: {view: TrackView; enabled: boolean; onNote: (text: string | null) => void}) {
+function useCameraTool({view, enabled, onNote}: CameraArgs) {
   const [moving, setMoving] = useState(false);
   const [metre, setMetre] = useState<number | null>(null);
   const [speed, setSpeed] = useState(FIRST_SPEED);
@@ -45,8 +48,15 @@ export function useCamera({view, enabled, onNote}: {view: TrackView; enabled: bo
   };
 }
 
+/** Road camera (K) as a tool: pure navigation, it changes nothing; the wheel with Shift, Ctrl or Alt is its own. */
+export function useCamera(args: CameraArgs) {
+  const camera = useCameraTool(args);
+  const controller: ToolController = {wheel: camera.wheel, takesWheel: true, options: <CameraOptions camera={camera} view={args.view} />};
+  return {...camera, controller};
+}
+
 /** What it can be set to. */
-export function CameraOptions({camera, view}: {camera: ReturnType<typeof useCamera>; view: TrackView}) {
+function CameraOptions({camera, view}: {camera: ReturnType<typeof useCameraTool>; view: TrackView}) {
   return (
     <ToolOptions id="edit-camera-set" title="Road camera" note="Shift + wheel goes along the track from the place nearest the camera. W A S D or the mouse leave it, Esc ends it."
                  options={[

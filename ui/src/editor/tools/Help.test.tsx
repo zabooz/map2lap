@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {renderToStaticMarkup} from "react-dom/server";
 import {Help} from "./Help";
-import {TOOLS} from "./ToolPanel";
+import {TOOLS} from "./toolDefs";
 
 test("Transform, Smooth road and Insert use T, R and E consistently without duplicate tool keys", () => {
   for (const [tool, key] of [["move", "T"], ["smooth", "R"], ["model", "E"]]) {

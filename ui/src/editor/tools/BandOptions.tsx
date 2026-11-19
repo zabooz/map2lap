@@ -1,11 +1,11 @@
 import {ToolAction, ToolChoice, ToolNumber, ToolOptions, thenView} from "./ToolOptions";
 import type {TrackView} from "../scene/view";
-import type {useBand} from "./useBand";
+import type {BandTool} from "./useBand";
 
 const MIN_BLEND = 2, MAX_BLEND = 60;       // The existing terrain lattice bounds the smallest transition.
 
 /** Smooth road's marking stage and automatically applied settings; a new range starts at zero. */
-export function BandOptions({band, view}: {band: ReturnType<typeof useBand>; view: TrackView}) {
+export function BandOptions({band, view}: {band: BandTool; view: TrackView}) {
   const marked = band.points.length;
   return (
     <ToolOptions id={marked ? "edit-band" : "edit-road-hint"} title="Smooth road"

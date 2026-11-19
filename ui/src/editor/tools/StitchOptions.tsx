@@ -1,9 +1,9 @@
 import {ToolAction, ToolChoice, ToolNumber, ToolOptions, thenView} from "./ToolOptions";
 import type {TrackView} from "../scene/view";
-import type {useStitch} from "./useStitch";
+import type {StitchTool} from "./useStitch";
 
 /** A and B on one road, the proposed width and what Apply replaces. */
-export function StitchOptions({stitch, view}: {stitch: ReturnType<typeof useStitch>; view: TrackView}) {
+export function StitchOptions({stitch, view}: {stitch: StitchTool; view: TrackView}) {
   const p = stitch.proposal;
   const sides = p ? (["left", "right"] as const).filter(side => p.overlap[side] > 0.05) : [];
   const overlap = sides.length ? ` Another road's deck reaches ${sides.map(side => `${p!.overlap[side].toFixed(2)} m into the ${side} edge`).join(" and ")}: cut back to the stitch's edge; a narrower width leaves it whole.` : "";
@@ -14,7 +14,7 @@ export function StitchOptions({stitch, view}: {stitch: ReturnType<typeof useStit
         : " Apply replaces the road surface between A and B.")
     : stitch.points.length === 1 ? "Click B on the same road (deck, tunnel floor or ground)."
     : "Click A on a road: on the ground, a bridge deck or a tunnel floor.");
-  return <ToolOptions id="edit-stitch" title="Stitch road" note={note}
+  return <ToolOptions id="edit-stitch-set" title="Stitch road" note={note}
     options={{
       shift: <ToolNumber label="Width" unit="m" hint="Road width of the rebuilt surface (Shift + wheel by 0.1 m); Auto takes the ground road's"
         min={2} max={40} step={0.1} value={stitch.shown ?? 0} onChange={value => stitch.setWidth(value || null)} />,

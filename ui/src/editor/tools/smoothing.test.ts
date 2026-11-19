@@ -1,7 +1,7 @@
 import {expect, test} from "bun:test";
 import {TrackEdits, type HeightChange} from "../state/edits";
 import {SmoothSession} from "./smoothing";
-import {TOOLS} from "./ToolPanel";
+import {TOOLS} from "./toolDefs";
 
 const height = (id: string): HeightChange => ({id, x: 0, z: 0, nx: 2, nz: 2, mm: [0, 10, 10, 0]});
 const points: [number, number][] = [[0, 0], [100, 0]];

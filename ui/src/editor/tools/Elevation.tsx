@@ -6,6 +6,7 @@ import {thenView, ToolChoice, ToolNumber, ToolOptions} from "./ToolOptions";
 import {MAX_RADIUS, MAX_SOFT, MIN_RADIUS, MIN_SOFT, RADIUS_STEP, stepped, useBrush} from "./useBrush";
 import type {WheelKeys} from "../types";
 import type {TrackView} from "../scene/view";
+import type {ToolController} from "./toolHost";
 
 const CM_TO_MM = 10;
 const FIRST_HEIGHT = 5;             // (cm)
@@ -14,8 +15,9 @@ const RAISE_COLOUR = "#ff8a1f", LOWER_COLOUR = "#2f8bff";
 const WHEEL_SOFT_STEP = 5;
 
 /** Elevation on the track name. enabled: the tool is on. speed: in cm a second, how fast it goes on while held (Settings). onNote: what to say, null for nothing. */
-export function useElevation({name, view, edits, enabled, speed, onNote}: {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; speed: number;
-                                                                           onNote: (text: string | null) => void}) {
+interface ElevationArgs {name: string; view: TrackView; edits: TrackEdits; enabled: boolean; speed: number; onNote: (text: string | null) => void}
+
+function useElevationTool({name, view, edits, enabled, speed, onNote}: ElevationArgs) {
   const [height, setHeight] = useState(FIRST_HEIGHT);
   const [lower, setLower] = useState(false);
   const brush = useBrush({view, edits, url: `/api/editor/${encodeURIComponent(name)}/brush`, enabled, onNote,
@@ -32,8 +34,15 @@ export function useElevation({name, view, edits, enabled, speed, onNote}: {name:
   };
 }
 
+/** Elevation (H) as a tool: its brush takes the wheel while its ring is set (the view gives it), Shift turns a stroke the other way. */
+export function useElevation(args: ElevationArgs) {
+  const elevation = useElevationTool(args);
+  const controller: ToolController = {wheel: elevation.wheel, options: <ElevationOptions elevation={elevation} view={args.view} />};
+  return {...elevation, controller};
+}
+
 /** What it can be set to. The choice follows Shift, as the ring and the strokes do. */
-export function ElevationOptions({elevation: e, view}: {elevation: ReturnType<typeof useElevation>; view: TrackView}) {
+function ElevationOptions({elevation: e, view}: {elevation: ReturnType<typeof useElevationTool>; view: TrackView}) {
   const {shift} = useHeld();
   return (
     <ToolOptions id="edit-elevation-set" title="Elevation" options={[
