@@ -334,35 +334,43 @@ def _kerb_owners(path, scan):
     return owners
 
 
+def _road_op(op):
+    """Whether a height change moves one mapped road by a field of its own (Bend road, Bank road). Pure."""
+    bend = op.get("bend")
+    return isinstance(op.get("bank"), dict) or isinstance(bend, dict) and bend.get("kind") == "road"
+
+
 def _kerb_bends(path, scan, ops, wanted):
-    """Mapped road profiles that move editor kerbs along with Bend road. Pure."""
-    from app import builtroad, roadseparation
+    """[(mapped road IDs, height of [x, z] points)] of the road operations that move editor kerbs and stitches with them
+    (Bend road, Bank road). Pure."""
+    from app import builtroad, roadbank, roadseparation
     profiles = []
     for op in ops:
+        if isinstance(op.get("bank"), dict):
+            if wanted.intersection(op["bank"].get("road_ids", [])):
+                profiles.append((set(op["bank"]["road_ids"]), roadbank.field_of(op["bank"])))
+            continue
         bend = op.get("bend")
-        if not isinstance(bend, dict) or bend.get("kind") != "road" or not wanted.intersection(bend.get("road_ids", [])):
+        if not _road_op(op) or not wanted.intersection(bend.get("road_ids", [])):
             continue
         line = bend.get("line")
         if line is None:
             # A draft bend made before the route was retained still names its mapped road and pins.
             line = roadseparation._route(builtroad.pick(path, scan, bend["points"], join_near=True))
         line = np.asarray(line, np.float64)
-        profiles.append((set(bend.get("road_ids", [])), line,
-                         [(float(roadseparation._stations(line)[-1] / 2), float(bend["delta"]))]))
+        targets = [(float(roadseparation._stations(line)[-1] / 2), float(bend["delta"]))]
+        profiles.append((set(bend.get("road_ids", [])), lambda at, line=line, targets=targets: roadseparation._deck_field(at, line, targets)))
     return profiles
 
 
 def _kerb_bend(positions, road_ids, profiles):
-    """Signed bend and local slope at a kerb's vertices, only for its mapped road. Pure."""
-    from app import roadseparation
+    """Signed road-operation height and local slope at a kerb's vertices, only for its mapped road. Pure."""
     points = positions[:, [0, 2]].astype(np.float64)
     d = np.zeros(len(points))
     ax, az = np.zeros(len(points)), np.zeros(len(points))
-    for ids, line, targets in profiles:
+    for ids, height in profiles:
         if not ids.intersection(road_ids):
             continue
-        def height(at):
-            return roadseparation._deck_field(at, line, targets)
         d += height(points)
         # The generated strip is only metres wide; local derivatives preserve its lighting as it bends.
         ax += (height(points + [0.05, 0]) - height(points - [0.05, 0])) / 0.1
@@ -383,7 +391,7 @@ def moved(path, scan, objects, ops, under=None):
             if number >= len(scan["meshes"]) or any(row[0] >= scan["meshes"][number]["vertices"] for row in rows):
                 raise InTheWay("The road surface changed: mark the road again")
             offsets.setdefault(number, []).extend(rows)
-    kerb_owners = _kerb_owners(path, scan) if any(isinstance(op.get("bend"), dict) and op["bend"].get("kind") == "road" for op in ops) else {}
+    kerb_owners = _kerb_owners(path, scan) if any(_road_op(op) for op in ops) else {}
     kerb_profiles = _kerb_bends(path, scan, ops, set().union(*kerb_owners.values())) if kerb_owners else []
     vertices, grow = {}, {}
     meshes = {}
@@ -407,7 +415,7 @@ def moved(path, scan, objects, ops, under=None):
         wires, lifts = _wire_changes(mesh, scan, objects, field, reach), _line_lifts(mesh, scan, field)
         for i, m in enumerate(scan["meshes"]):
             kind = objectlist.kind_of(m["name"])
-            kerb_bends = kind in ROAD_FOLLOWERS and any(ids.intersection(kerb_owners.get(i, ())) for ids, _line, _targets in kerb_profiles)
+            kerb_bends = kind in ROAD_FOLLOWERS and any(ids.intersection(kerb_owners.get(i, ())) for ids, _height in kerb_profiles)
             if i not in offsets and i not in wires and i not in lifts and not kerb_bends and not field.reaches(m["center"], reach(i)):
                 continue
             if kind in IN_THE_WAY:

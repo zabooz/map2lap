@@ -92,3 +92,36 @@ def refusal(length, target, e0, half):
     far = f"{needed:.0f} m needed" if needed else f"more than {MAX_LENGTH_M:.0f} m needed"
     return (f"The edges would ramp at {steep * 100:.2f}% (maximum {EDGE_RAMP * 100:g}%): "
             f"{length:.0f} m available, {far}; mark A and B farther apart")
+
+
+def lateral(points, line):
+    """(station, signed lateral distance) of AC [x, z] points from the mapped line, left of its way positive. AC's z
+    points south, so the left of a way (tx, tz) is (tz, -tx): going north (-z), left is west (-x). Pure."""
+    points, line = np.asarray(points, np.float64).reshape(-1, 2), np.asarray(line, np.float64)
+    along = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))]
+    station, side, best = np.zeros(len(points)), np.zeros(len(points)), np.full(len(points), np.inf)
+    for k, (a, b) in enumerate(zip(line, line[1:])):
+        v = b - a
+        length = math.sqrt(v @ v)
+        t = np.clip((points - a) @ v / (v @ v), 0, 1)
+        offset = points - (a + t[:, None] * v)
+        d = np.linalg.norm(offset, axis=1)
+        on = d < best
+        left = np.array([v[1], -v[0]]) / length
+        station[on], side[on], best[on] = along[k] + t[on] * length, (offset @ left)[on], d[on]
+    return station, side
+
+
+def field_of(bank):
+    """The height change of a Bank road operation's bank {line, target, ramp, e0: [[station, slope], ...]} at AC [x, z]
+    points, along its whole line and at any lateral distance. Pure."""
+    line = np.asarray(bank["line"], np.float64)
+    length = float(np.linalg.norm(np.diff(line, axis=0), axis=1).sum())
+    samples = np.asarray(bank["e0"], np.float64).reshape(-1, 2)
+    e0 = lambda s: np.interp(s, samples[:, 0], samples[:, 1])
+    target, ramp = float(bank["target"]), float(bank["ramp"])
+
+    def height(points):
+        station, d = lateral(points, line)
+        return change(d, station, length, ramp, target, e0)
+    return height

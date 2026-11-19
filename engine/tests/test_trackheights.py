@@ -80,6 +80,30 @@ class KerbBendTest(Base):
         self.assertAlmostEqual(float(moved.vertices[0]["pos"][0, 1]), 0, places=3)
         self.assertNotIn(1, moved.vertices)
 
+    def bank(self, ids):
+        """A Bank road operation of 10 % along x from 0 to 40 (left: -z), 10 m transitions, on the road ids. Pure."""
+        return {**raster(nx=23, nz=5, peak=0), "mesh_offsets": {},
+                "bank": {"points": [[0, 0], [40, 0]], "target": 0.1, "line": [[0, 0], [40, 0]], "road_ids": ids,
+                         "ramp": 10.0, "e0": [[0.0, 0.0], [40.0, 0.0]]}}
+
+    def test_racing_kerb_stitch_and_stitch_cut_follow_a_bank(self):
+        edge = [(0, 0, -3), (20, 0, -3), (40, 0, -3)]
+        self.write(mesh("1KERB_racing_0", 0, edge), mesh("1ROAD_stitch_0", 0, edge), mesh("1ROAD_stitchcut_1", 0, edge))
+        scan = kn5.scan(self.path)
+        for m in scan["meshes"]:
+            m["road_ids"] = ["road-a"]
+        moved = trackheights.moved(self.path, scan, {}, [self.bank(["road-a"])])
+        for i in range(3):
+            self.assertAlmostEqual(float(moved.vertices[i]["pos"][1, 1]), 0.3, places=3)    # (3 m left of the line at 10 %)
+            self.assertAlmostEqual(float(moved.vertices[i]["pos"][0, 1]), 0, places=3)
+            self.assertAlmostEqual(float(moved.vertices[i]["pos"][2, 1]), 0, places=3)
+
+    def test_a_kerb_on_another_road_stays_in_a_bank(self):
+        self.write(mesh("1KERB_racing_0", 0, [(0, 0, -3), (20, 0, -3), (40, 0, -3)]))
+        scan = kn5.scan(self.path)
+        scan["meshes"][0]["road_ids"] = ["road-b"]
+        self.assertNotIn(0, trackheights.moved(self.path, scan, {}, [self.bank(["road-a"])]).vertices)
+
 
 class RasterTest(unittest.TestCase):
     def test_a_good_one_has_no_problem(self):
