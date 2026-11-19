@@ -58,12 +58,12 @@ Glass clearing requires an active native wiper mode and changing wiper phase. Th
 wiper is parked as the car moves; this must not push snow into persistent streaks. The final return stroke after
 switching off still clears the glass because CSP retains the running mode until the blade parks.
 Wind direction is a compass bearing (where it comes from), with Random before 0 degrees; 360 is also north. Wind speed is
-0–100 km/h, with Random before 0. Random is resolved once for each Play. Air temperature (-30–50 °C) and road temperature
+0–100 km/h, with Random before 0. Both start at 0 (calm); Random is resolved once for each Play. Air temperature (-30–50 °C) and road temperature
 (-30–80 °C) are independent sliders, initially 20 °C and 26 °C. Play writes both to the session. The Map2Lap controller
 reads these temperatures and wind speed directly, without changing CSP's global experimental limits.
 
-These controls are session-only like the clock: no draft change, Save or Undo entry. A track opens with dry, clear weather,
-random wind direction and speed. `weatherPreview.ts` gives a small GPU particle field, approximate lighting and distance fog;
+These controls are session-only like the clock: no draft change, Save or Undo entry. A track opens with dry, clear weather
+and no wind. `weatherPreview.ts` gives a small GPU particle field, approximate lighting and distance fog;
 AC uses CSP's actual sky, clouds, light and wind. Every Play button opens a session dialog for car, time and conditions;
 the Editor fills it from its preview controls and starts saving any track edits when Play is first pressed. Start driving
 waits for that Save to finish. The other Play buttons start with dry, clear conditions and the previous AC session time.

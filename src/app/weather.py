@@ -10,10 +10,10 @@ from app import seasons
 ASSETS = Path(ROOT) / 'assets' / 'weather'
 SCRIPT = ASSETS / 'weather.lua'
 CONTROLLER = ASSETS / 'controller.lua'
-MAX_WIND = 100  # km/h; -1 chooses one random speed per Play, like the wind direction.
+MAX_WIND = 100  # km/h; -1 chooses one random speed per Play, like the wind direction. Both start calm (0): wind is the driver's choice.
 # Winter air and sun-heated tarmac need separate ranges, wider than CSP's normal input limits.
 TEMPERATURE_LIMITS = {'airTemperature': (-30, 50), 'roadTemperature': (-30, 80)}
-DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': -1, 'windSpeed': -1, 'fog': False, 'windscreenSnow': True, 'season': 'summer',
+DEFAULT = {'kind': 'dry', 'intensity': 'light', 'windDirection': 0, 'windSpeed': 0, 'fog': False, 'windscreenSnow': True, 'season': 'summer',
            'airTemperature': 20, 'roadTemperature': 26}
 TYPES = {'dry': (15, 17, 19), 'rain': (6, 7, 2), 'snow': (9, 10, 11)}
 LEVELS = ('light', 'medium', 'heavy')

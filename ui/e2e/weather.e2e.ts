@@ -176,12 +176,12 @@ test("Play carries the selected weather, wind, additional fog and clock into the
     weather: {kind: "rain", intensity: "heavy", windDirection: 270, windSpeed: 25, fog: true, windscreenSnow: true, season: "summer", airTemperature: -5, roadTemperature: 2}});
 });
 
-test("random precedes north and changing tracks resets the preview weather", async ({page}) => {
+test("calm is the default, random precedes north and changing tracks resets the preview weather", async ({page}) => {
   await openEditor(page);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
   const weather = page.getByRole("region", {name: "Weather settings"});
-  await expect(weather).toContainText("Wind direction: Random");
-  await expect(weather).toContainText("Wind speed: Random");
+  await expect(weather).toContainText("Wind direction: 0°");
+  await expect(weather).toContainText("Wind speed: 0 km/h");
   await expect(weather.getByRole("slider", {name: "Air temperature"})).toHaveValue("20");
   await expect(weather.getByRole("slider", {name: "Road temperature"})).toHaveValue("26");
   await weather.getByRole("slider", {name: "Air temperature"}).fill("50");
@@ -197,14 +197,15 @@ test("random precedes north and changing tracks resets the preview weather", asy
   await weather.getByRole("slider", {name: "Wind direction"}).fill("0");
   await expect(weather).toContainText("Wind direction: 0°");
   await weather.getByRole("slider", {name: "Wind direction"}).fill("-1");
+  await expect(weather).toContainText("Wind direction: Random");
   await weather.getByRole("combobox", {name: "Weather", exact: true}).selectOption("snow");
   await page.locator("#edit-track").selectOption("beta");
   await expect(page.locator("#edit-status")).toHaveText(/\d+ parts loaded/);
   await page.getByRole("tab", {name: "Properties", exact: true}).click();
   await expect(weather.getByRole("combobox", {name: "Weather", exact: true})).toHaveValue("dry");
   await expect(weather.getByRole("combobox", {name: "Cloud cover"})).toHaveValue("light");
-  await expect(weather.getByRole("slider", {name: "Wind direction"})).toHaveValue("-1");
-  await expect(weather.getByRole("slider", {name: "Wind speed"})).toHaveValue("-1");
+  await expect(weather.getByRole("slider", {name: "Wind direction"})).toHaveValue("0");
+  await expect(weather.getByRole("slider", {name: "Wind speed"})).toHaveValue("0");
   await expect(weather.getByRole("slider", {name: "Air temperature"})).toHaveValue("20");
   await expect(weather.getByRole("slider", {name: "Road temperature"})).toHaveValue("26");
 });
@@ -238,5 +239,5 @@ test("Play saves current edits and keeps the chosen weather and clock", async ({
   await startDriving(page);
   await expect(page.locator("#save-dialog")).toBeHidden();
   expect((await started).postDataJSON()).toMatchObject({name: "alpha", clock: 18.5,
-    weather: {kind: "snow", intensity: "heavy", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer", airTemperature: -12, roadTemperature: -6}});
+    weather: {kind: "snow", intensity: "heavy", windDirection: 0, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer", airTemperature: -12, roadTemperature: -6}});
 });

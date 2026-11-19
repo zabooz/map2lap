@@ -3,7 +3,7 @@ export type Season = "spring" | "summer" | "autumn" | "winter";
 export type WeatherOptions = {kind: "dry" | "rain" | "snow"; intensity: "light" | "medium" | "heavy";
   windDirection: number; windSpeed: number; fog: boolean; windscreenSnow: boolean; season: Season;
   airTemperature: number; roadTemperature: number};
-export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: -1, windSpeed: -1, fog: false, windscreenSnow: true, season: "summer",
+export const DEFAULT_WEATHER: WeatherOptions = {kind: "dry", intensity: "light", windDirection: 0, windSpeed: 0, fog: false, windscreenSnow: true, season: "summer",
   airTemperature: 20, roadTemperature: 26};
 export const MAX_WIND_KMH = 100;
 
