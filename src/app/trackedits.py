@@ -411,6 +411,17 @@ def moved_without(ac, name, revision, omit):
     return _changed(path, scan, objects, [h for h in heights if h["id"] not in omitted], placed)
 
 
+def banked(ac, name, revision):
+    """What the draft's bankings (Bank road's height changes) alone move, None without one: the slant across a road is meant to have, which
+    Smooth road keeps (roadnet.change_of) while it smooths away a hill's tilt made afterwards."""
+    heights, placed, _moved = _heights_and_moved(ac, name, revision)
+    bankings = [h for h in heights if "bank" in h]
+    if not bankings:
+        return None
+    path, scan, objects = context(ac, name, revision)
+    return _changed(path, scan, objects, bankings, placed)
+
+
 def _replace_ids(heights, replace):
     """Ids of height operations still present in heights, accepting one id or a list. Pure."""
     ids = [] if replace is None else [replace] if isinstance(replace, str) else replace

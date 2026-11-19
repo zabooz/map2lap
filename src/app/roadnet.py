@@ -233,10 +233,12 @@ def _placed(mask, i0, j0, shape, at_i0, at_j0):
     return out
 
 
-def _arms(path, scan, moved, roads, net):
-    """Each arm of the network (roads: _roads) with its lanes' heights now (moved: the draft's other changes) and as built, and its slopes beyond its ends."""
+def _arms(path, scan, moved, roads, net, slant=None):
+    """Each arm of the network (roads: _roads) with its lanes' heights now (moved: the draft's other changes) and as meant across, and its slopes beyond
+    its ends. As meant across: as built, with what slant moves (a kn5.Moved of the draft's bankings), whose slant the smoothing keeps."""
     lines, width, bounds, built, i0, j0 = (roads[k] for k in ("lines", "width", "bounds", "built", "i0", "j0"))
     current = built if moved is None else roadsurfaces.ground(path, scan, moved, bounds, net)[0]
+    meant = built if slant is None else roadsurfaces.ground(path, scan, slant, bounds, net)[0]
     arms = []
     for line, own in zip(lines, roads["own"]):
         lanes = trackband._across(width / 2)
@@ -250,7 +252,7 @@ def _arms(path, scan, moved, roads, net):
             if any(s[group[-1]] - s[group[0]] > trackband.SNAP_M for group in groups):
                 raise ValueError("Part of this road has no editable ground surface; mark a shorter region around the missing surface")
         h, b = _over_steps(built, i0, j0, line, width / 2, lanes, trackband._lanes(np.where(own, current, np.nan), i0, j0, rows),
-                           trackband._lanes(np.where(own, built, np.nan), i0, j0, rows))
+                           trackband._lanes(np.where(own, meant, np.nan), i0, j0, rows))
         before, after = trackband._onward(line[::-1]), trackband._onward(line)
         first = trackband._rise_onward(current, i0, j0, line[0], before)
         last = trackband._rise_onward(current, i0, j0, line[-1], after)
@@ -307,8 +309,66 @@ def _targets(arms, even, shape, i0, j0, width, terminals, strength, own):
     return target, original, correction, distance, joining
 
 
-def _spread(delta, active, barrier, fade):
-    """Extend edge deltas through adjoining terrain, stopping at unselected roads. One field means no overlap addition."""
+def _held(net):
+    """The held junctions (a mapped road not selected joins there) that a bridge or tunnel joins: they stay held, a deck moving by its own vertices,
+    not by the ground's raster. Pure."""
+    at = {}
+    for e in net["unselected"]:
+        for p in (e["a"], e["b"]):
+            at.setdefault(_key(p), []).append(e)
+    return [junction for junction in net["held_junctions"] if any(e.get("structure") for e in at.get(_key(junction), []))]
+
+
+def _through(net):
+    """net with its lines run on through each junction a road not selected joins, where two of them meet and none of _held(): roadregion splits the
+    lines there and each arm's ends keep their heights, which held the junction. Their width the wider. Pure."""
+    held = {_key(p) for p in _held(net)}
+    lines, widths = [list(line) for line in net["lines"]], list(net.get("widths") or [None] * len(net["lines"]))
+    for point in (_key(p) for p in net["held_junctions"]):
+        ends = [(k, end) for k, line in enumerate(lines) for end in (0, -1) if _key(line[end]) == point]
+        if point in held or len(ends) != 2 or ends[0][0] == ends[1][0]:
+            continue
+        (first, a), (second, b) = ends
+        merged = (lines[first] if a == -1 else lines[first][::-1]) + (lines[second] if b == 0 else lines[second][::-1])[1:]
+        width = None if widths[first] is None else max(widths[first], widths[second])
+        lines = [line for k, line in enumerate(lines) if k not in (first, second)] + [merged]
+        widths = [w for k, w in enumerate(widths) if k not in (first, second)] + [width]
+    return {**net, "lines": lines, **({"widths": widths} if net.get("widths") is not None else {})}
+
+
+def joined_roads(net, reach):
+    """(the unselected roads' segments that join the network at a held junction, each followed from there to its next junction, its end, a bridge or
+    tunnel, or reach metres; the held junctions that stay held). A road joining is taken along as Bank road takes one: its mouth goes with the
+    junction and the change fades out along it, the way it fades into the terrain, where holding the junction left it unsmoothed (7 m round it).
+    A bridge or tunnel joining keeps its junction held: a deck moves by its own vertices, not by the ground's raster. Pure."""
+    key = lambda p: (round(float(p[0]), 3), round(float(p[1]), 3))
+    ends, at = {}, {}
+    for e in net["segments"] + net["unselected"]:
+        for p in (e["a"], e["b"]):
+            ends[key(p)] = ends.get(key(p), 0) + 1
+    for e in net["unselected"]:
+        for p in (e["a"], e["b"]):
+            at.setdefault(key(p), []).append(e)
+    joined, held, taken = [], _held(net), set()
+    for junction in net["held_junctions"]:
+        for e in at.get(key(junction), []):
+            node, gone = key(junction), 0.0
+            while e is not None and not e.get("structure") and id(e) not in taken and gone < reach:
+                taken.add(id(e))
+                joined.append(e)
+                gone += float(np.hypot(e["b"][0] - e["a"][0], e["b"][1] - e["a"][1]))
+                node = key(e["b"]) if key(e["a"]) == node else key(e["a"])
+                onward = [other for other in at.get(node, []) if other is not e]
+                e = onward[0] if ends.get(node) == 2 and len(onward) == 1 else None
+    return joined, held
+
+
+def _spread(delta, active, barrier, fade, joined=None, heights=None, mouth=None):
+    """Extend edge deltas through adjoining terrain, stopping at the barrier: the roads not selected but those joining (joined: their points, on
+    joined_roads()). A road joining takes the change at its mouth (mouth: the points round the junctions it joins at) and from there along itself,
+    over no step steeper than a road is across (heights: the road surface now): at Rechberg's fork the lower road runs beside the upper one, which
+    holds points of the lower level within its width and lifts them to its own; taken from there, the lower road rose 2.7 m 12 m past the fork.
+    One field means no overlap addition."""
     distance = np.full(delta.shape, np.inf)
     nearest = np.zeros(delta.shape, np.int32)
     points = np.flatnonzero(active)
@@ -326,6 +386,9 @@ def _spread(delta, active, barrier, fade):
         for dz, dx, length in offsets:
             nx, nz, next_value = x + dx, z + dz, value + length
             if 0 <= nx < cols and 0 <= nz < rows and next_value < fade and not barrier[nz, nx] and next_value < distance[nz, nx]:
+                if joined is not None and joined[nz, nx] and not ((joined[z, x] or active[z, x] and mouth[nz, nx])
+                                                                   and abs(heights[nz, nx] - heights[z, x]) <= trackband.CROSS_GRADE * length):
+                    continue
                 distance[nz, nx] = next_value
                 nearest[nz, nx] = nearest.flat[at]
                 heapq.heappush(queue, (next_value, nz * cols + nx))
@@ -392,7 +455,8 @@ def _check_grades(current, delta, active, built, own, selected):
     """Refuse a new road step steeper than the existing road limit; an already steep brush bump may improve. Steps on one road only: between two changed
     points of one arm's own road (own: per arm; a wall between two arms may grow), and between a changed point and one of the selected road (selected: the
     painted region on the lattice within an arm's mapped width, no other road's) left as it was, where the surface as built goes on between them (built: its heights; points left out of the road between
-    changed ones made a ridge of 1.07 m in 2 m, Rechberg). An unselected road keeps its edge: the transition stops there."""
+    changed ones made a ridge of 1.07 m in 2 m, Rechberg). An unselected road keeps its edge: the transition stops there, but on a road joining
+    (joined_roads()), which it fades along."""
     after = current + delta
     for dz, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
         first = (slice(0, -dz or None), slice(0, -dx or None)) if dx >= 0 else (slice(0, -dz), slice(1, None))
@@ -410,16 +474,18 @@ def _check_grades(current, delta, active, built, own, selected):
             raise ValueError("These approaches require a steep road join; mark a larger region or reduce strength")
 
 
-def change_of(path, scan, moved, net, selection, blend, strength, id, preview=False):
-    """One coupled selected-road correction on the existing lattice; preview returns its unconstrained ideal field."""
+def change_of(path, scan, moved, net, selection, blend, strength, id, preview=False, slant=None):
+    """One coupled selected-road correction on the existing lattice; preview returns its unconstrained ideal field. slant: what the draft's bankings
+    move (trackedits.banked), the slant across the road is meant to have: a hill's tilt made afterwards is smoothed away, a banking stays."""
     if type(strength) not in (int, float) or not 0 <= strength <= 1:
         raise ValueError("Invalid smoothing strength")
     if type(blend) not in (int, float) or not 2 <= blend <= 60:
         raise ValueError("Transition must be between 2 and 60 metres")
     if strength == 0:
         raise trackband.Refused("It is smooth here already")
+    net = _through(net)
     roads = _roads(path, scan, net)
-    arms = _arms(path, scan, moved, roads, net)
+    arms = _arms(path, scan, moved, roads, net, slant)
     # The spline's window grows cubically with its input. A gentler control curve makes the lower half useful while
     # keeping the spline's short-wave-first smoothing and its cross-carriageway joins at intermediate strengths.
     # Scaling the full correction linearly instead left a 1.1 m cross-lane step at Rechberg at 60%.
@@ -460,9 +526,20 @@ def change_of(path, scan, moved, net, selection, blend, strength, id, preview=Fa
         wanted = source_height + _junction_share(p, arms, shape_strength) * (wanted - source_height)
         target = target * (1 - share) + wanted * share
     delta = np.where(active, (target - np.nan_to_num(current)) * joining, 0)
-    for point in net["held_junctions"]:
+    joined, held_junctions = joined_roads(net, fade + width / 2)
+    for point in held_junctions:
         delta *= _blend((np.hypot(x - point[0], z - point[1]) - trackband.HOLD_M) / trackband.JOIN_M)
-    field, transition = _spread(delta, active, np.isfinite(built) & ~active, fade)
+    along = np.zeros(built.shape, bool)
+    for e in joined:
+        along |= trackband._own_road(built, i0, j0, _segment(e["a"], e["b"]), e["width"] / 2)
+    along &= ~active
+    # (a mouth: the side road's points beside the junction, as far as the marked road's half width and its own reach across from it, and a lattice step)
+    mouth = np.zeros(built.shape, bool)
+    for e in joined:
+        for p in (e["a"], e["b"]):
+            if any(_key(p) == _key(j) for j in net["held_junctions"]):
+                mouth |= np.hypot(x - p[0], z - p[1]) <= math.hypot(width / 2, e["width"] / 2) + trackheights.STEP
+    field, transition = _spread(delta, active, np.isfinite(built) & ~active & ~along, fade, along, current, mouth)
     if not preview:
         _check_grades(current, field, active, built, own, selected & mapped & ~held)
     field[0] = field[-1] = 0

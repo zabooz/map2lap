@@ -186,6 +186,8 @@ clipped to the selected road ground and its own deck faces; they do not write a 
 relative height difference within the marked region.
 After each saved height edit, the colours are recalculated from the current road surface; an already smoothed stretch
 returns to green where no further correction is needed.
+Across the road, smoothing keeps the slant the road was built with plus the draft's bankings (Bank road,
+`trackedits.banked`); a tilt left by a brush or another height edit is smoothed away.
 
 Smooth road has Road and Free modes (Shift switches). Road follows each selected mapped road's own ground. Free takes a
 2–40 m wide strip around the marked road lines, including ground assigned to another mapped road inside that strip; beyond
@@ -212,7 +214,11 @@ compound it. Esc cancels pending work, Undo closes the active region, and late a
 
 In Road mode, each arm follows its own road surface (`trackband._own_road`, `roadnet.owns`); neighbouring roads on other levels stay
 separate. Shared junction planes join selected branches, terminal points stay fixed, and all arms contribute to one raster.
-The transition stops at unselected roads and widens for large height changes under the side-slope rule. The solver rejects
+The transition stops at unselected roads and widens for large height changes under the side-slope rule. A road joining the
+marked one is taken along, as in Bank road (`roadnet.joined_roads`): the marked road runs on through the junction instead of
+holding it, the side road takes the change at its mouth and fades out along its own surface, up to its next junction, and
+never over a step steeper than a road is across (at Rechberg's fork the lower road stays clear of the upper road beside it).
+A bridge or tunnel joining keeps its junction held. This holds in Road and Free mode. The solver rejects
 new joins exceeding its grade limit unless improving an already steeper bump, forks requiring an internal wall, and long
 gaps without an editable road surface. Limits: 20 points, 3 km of road, 64 painted tiles and the height-raster point limit.
 Routing/masks cache independently of draft revisions. `app/trackband.py` retains the legacy linear solver/API and its tests.

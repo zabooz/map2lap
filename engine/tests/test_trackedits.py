@@ -85,6 +85,17 @@ class Base(unittest.TestCase):
             with self.assertRaises(ValueError):
                 trackedits.moved_without(self.ac, self.name, "base", "undone")
 
+    def test_the_bankings_alone_are_what_a_smoothing_keeps_across(self):
+        bank, brush = {"id": "bank", "bank": {}}, {"id": "brush"}
+        placed = []
+        with mock.patch.object(trackedits, "_heights_and_moved", return_value=([brush, bank], placed, object())), \
+             mock.patch.object(trackedits, "context", return_value=("source", {}, {})), \
+             mock.patch.object(trackedits.trackplace, "changed", return_value="banked") as changed:
+            self.assertEqual("banked", trackedits.banked(self.ac, self.name, "base"))
+            self.assertEqual([bank], changed.call_args.args[3])
+        with mock.patch.object(trackedits, "_heights_and_moved", return_value=([brush], placed, object())):
+            self.assertIsNone(trackedits.banked(self.ac, self.name, "base"))
+
     def test_the_draft_without_a_smoothing_is_reckoned_once_while_its_strength_moves(self):
         """Each new strength replaces the smoothing's change by one of a new id: the draft without it stays the same (40 to 55 ms on a track with edits)."""
         brush = {"id": "brush"}

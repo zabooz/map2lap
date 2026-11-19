@@ -280,7 +280,7 @@ def _network(data, points, hints=None, join_near=False):
                 other = {"a": positions[a].tolist(), "b": positions[b].tolist(), "width": edge["width"]}
                 crossings.append({**other, "road": edge["road"], "structure": edge["structure"]})
                 if edge["level"] in levels:
-                    excluded.append(other)
+                    excluded.append({**other, "structure": edge["structure"]})
     return {"lines": lines, "widths": widths, "segments": segments, "unselected": excluded, "crossings": crossings, "length": length,
             "terminals": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) == 1],
             "junctions": [positions[n].tolist() for n in sorted(neighbours) if len(neighbours[n]) > 2],

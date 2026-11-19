@@ -132,13 +132,14 @@ class RoadToolHandlers:
                         try:
                             moved = trackedits.moved_without(ac, name, base, body.get("replace"))
                             ideal, _ = roadnet.change_of(path, scan, moved, net, region, body.get("blend", 6), 1,
-                                                          "preview", preview=True)
+                                                          "preview", preview=True, slant=trackedits.banked(ac, name, base))
                             answer["difference"] = roadnet.signed_preview(ideal, region)
                         except (ValueError, trackband.Refused) as error:
                             answer["difference_error"] = str(error)
                     return self._send(200, answer)
                 moved = trackedits.moved_without(ac, name, base, body.get("replace"))
-                op, influence = roadnet.change_of(path, scan, moved, net, region, body.get("blend", 6), body.get("strength"), secrets.token_hex(8))
+                op, influence = roadnet.change_of(path, scan, moved, net, region, body.get("blend", 6), body.get("strength"), secrets.token_hex(8),
+                                                  slant=trackedits.banked(ac, name, base))
                 trackedits.remember_meshes(ac, name, base, op, body.get("replace"))
                 return self._send(200, {"height": op, "influence": influence,
                                        "standing": trackheights.standing(path, scan, trackview.list_of(path), op)})

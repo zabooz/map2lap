@@ -230,13 +230,17 @@ class RasterTest(unittest.TestCase):
             after = before + field.at(xy[:, 0], xy[:, 1])[0]
             self.assertLess(np.max(np.abs(np.diff(after, 2))), .6 * np.max(np.abs(np.diff(before, 2))))
 
-    def test_an_unselected_arm_keeps_its_join_and_road_heights(self):
+    def test_an_unselected_arm_follows_its_join_and_fades_out_along_itself(self):
+        """The hill at the junction goes; the arm not marked takes it at its mouth and fades back to its own heights, as into the terrain."""
         net = roadregion.mapped(self.path, [[0, -80], [80, 56]])
         selected = roadregion.selection(self.path, net)
         op, _ = roadnet.change_of(self.path, self.scan, None, net, selected, 6, 1, "two")
         field = trackheights.Field([op])
-        self.assertLess(abs(float(field.at(0, 0)[0])), .001)
-        self.assertLess(abs(float(field.at(40, -28)[0])), .001)
+        down = [float(field.at(100 * s, -70 * s)[0]) for s in (0, .05, .2, .5)]
+        self.assertLess(down[0], -2.5)
+        self.assertLess(abs(down[0] - down[1]), .6)                     # (its mouth goes with the junction)
+        self.assertLess(abs(down[2]), abs(down[1]))
+        self.assertEqual(0.0, down[3])
 
     def test_strength_approaches_zero_at_the_junction_too(self):
         net = roadregion.mapped(self.path, self.points)
@@ -279,6 +283,7 @@ class RasterTest(unittest.TestCase):
         with mock.patch.object(server.settings, "ac_path", return_value=str(Path(self.path).parent)), \
              mock.patch.object(server.trackview, "_scan_of", return_value=(self.path, self.scan)), \
              mock.patch.object(server.trackedits, "moved_without", return_value=None), \
+             mock.patch.object(server.trackedits, "banked", return_value=None), \
              mock.patch.object(server.trackedits, "remember_meshes") as remembered:
             body = json.dumps({"base": "source", "network": True, "points": self.points, "preview": True}).encode()
             request = urllib.request.Request(f"http://127.0.0.1:{service.server_address[1]}/api/editor/y/band/way",
@@ -297,6 +302,7 @@ class RasterTest(unittest.TestCase):
         with mock.patch.object(server.settings, "ac_path", return_value=str(Path(self.path).parent)), \
              mock.patch.object(server.trackview, "_scan_of", return_value=(self.path, self.scan)), \
              mock.patch.object(server.trackedits, "moved_without", return_value=None), \
+             mock.patch.object(server.trackedits, "banked", return_value=None), \
              mock.patch.object(server.trackedits, "remember_meshes"):
             body = json.dumps({"base": "source", "network": True, "points": self.points, "blend": 6, "strength": 1}).encode()
             def request(suffix):
@@ -348,10 +354,14 @@ class LevelsTest(unittest.TestCase):
 
     def test_the_lower_road_keeps_what_lies_within_its_mapped_width(self):
         """x 4 at 12 and 14 m lies 3 m off the upper road's line, within its reach, and 2.7 and 3.6 m off the lower's, within its 4 m: it stays the lower
-        road's, at its height."""
+        road's. The lower road joins at the fork and follows it from its mouth, fading out along itself; it takes nothing from the upper road beside
+        it, whose width holds x 2 on the lower level and lifts it 2.6 m (taken from there, x 4 rose 2.7 m)."""
         field = self.change([[1, -50], [1, 80]])
-        z = np.array([12.0, 14.0])
-        self.assertLess(float(np.abs(field.at(np.full(z.shape, 4.0), z)[0]).max()), .01)
+        at = lambda x, z: float(field.at(x, z)[0])
+        for z in (12.0, 14.0):
+            self.assertLess(at(4, z), at(3.25, 4.5))                    # (less than at its mouth: fading out from there)
+            self.assertLess(at(4, z), at(2, 12) - 1)
+        self.assertEqual(0.0, at(23.5, 45))
 
     def test_a_y_over_two_levels_leaves_the_lower_road_on_its_own(self):
         """Each point took the nearest arm's height: the lower road's beside the upper's line would have risen to the upper road, and the Y was refused."""
@@ -413,3 +423,98 @@ class GradeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BankedSmoothTest(unittest.TestCase):
+    """Smooth road keeps the slant a road was built with, not a hill's tilt made afterwards; a banking (Bank road) is the slant it is meant to have."""
+    def setUp(self):
+        self.path, self.scan = lattice_track(self, [road("r", [[0, 0], [200, 0]], 8)], lambda x, z: 100 + 0 * x, (-20, 222), (-30, 32))
+        self.net = roadregion.mapped(self.path, [[20, 0], [180, 0]])
+        self.selected = roadregion.selection(self.path, self.net)
+        # 8 % across the road from x 40 to 160, fading out beside it: what a banking puts into the ground
+        x, z = np.meshgrid(np.arange(-20, 222, 2), np.arange(-30, 32, 2))
+        tilt = 0.08 * np.clip(z, -4, 4) * np.clip(np.minimum(x - 30, 170 - x) / 10, 0, 1) * np.clip((12 - np.abs(z)) / 8, 0, 1)
+        self.bank = {"id": "bank", "x": -20, "z": -30, "nx": x.shape[1], "nz": x.shape[0], "mm": np.rint(tilt * 1000).astype(int).ravel().tolist()}
+        self.moved = trackheights.moved(self.path, self.scan, {}, [self.bank])
+
+    def across(self, op):
+        field = trackheights.Field([op, self.bank])
+        return float(field.at(100, 3)[0] - field.at(100, -3)[0])
+
+    def test_a_banking_stays_when_the_road_is_smoothed(self):
+        op, _ = roadnet.change_of(self.path, self.scan, self.moved, self.net, self.selected, 6, 1, "s", slant=self.moved)
+        self.assertAlmostEqual(0.48, self.across(op), delta=0.03)
+
+    def test_without_it_a_tilt_made_afterwards_goes(self):
+        op, _ = roadnet.change_of(self.path, self.scan, self.moved, self.net, self.selected, 6, 1, "s")
+        self.assertAlmostEqual(0.0, self.across(op), delta=0.03)
+
+
+def edge(a, b, width=6, structure=""):
+    return {"a": a, "b": b, "width": width, "structure": structure}
+
+
+class JoiningTest(unittest.TestCase):
+    """Smooth road takes a road joining the marked one along, as Bank road does: its mouth follows and the change fades out along it."""
+    def test_a_side_road_is_followed_from_its_junction_as_far_as_the_fade_reaches(self):
+        net = {"held_junctions": [[100, 0]], "segments": [edge([0, 0], [100, 0]), edge([100, 0], [200, 0])],
+               "unselected": [edge([100, 0], [100, 30]), edge([100, 30], [100, 60]), edge([100, 60], [100, 90]), edge([0, 50], [200, 50])]}
+        joined, held = roadnet.joined_roads(net, 40)
+        self.assertEqual([[[100, 0], [100, 30]], [[100, 30], [100, 60]]], [[e["a"], e["b"]] for e in joined])
+        self.assertEqual([], held)
+
+    def test_it_stops_at_the_side_roads_next_junction(self):
+        net = {"held_junctions": [[100, 0]], "segments": [edge([0, 0], [100, 0]), edge([100, 0], [200, 0])],
+               "unselected": [edge([100, 0], [100, 30]), edge([100, 30], [100, 60]), edge([100, 30], [130, 30])]}
+        joined, _ = roadnet.joined_roads(net, 100)
+        self.assertEqual([[[100, 0], [100, 30]]], [[e["a"], e["b"]] for e in joined])
+
+    def test_a_bridge_or_tunnel_at_a_junction_keeps_it_held(self):
+        net = {"held_junctions": [[100, 0]], "segments": [edge([0, 0], [100, 0]), edge([100, 0], [200, 0])],
+               "unselected": [edge([100, 0], [100, 30]), edge([100, 0], [100, -30], structure="bridge")]}
+        joined, held = roadnet.joined_roads(net, 40)
+        self.assertEqual([[[100, 0], [100, 30]]], [[e["a"], e["b"]] for e in joined])
+        self.assertEqual([[100, 0]], held)
+
+
+class ThroughTest(unittest.TestCase):
+    """The marked road's arms, split at every mapped junction, run on through one taken along: each arm's ends keep their heights, so the split
+    held the junction."""
+    def net(self, structure=""):
+        return {"lines": [[[0, 0], [50, 0], [100, 0]], [[100, 0], [200, 0]]], "widths": [8, 6], "held_junctions": [[100, 0]],
+                "segments": [edge([0, 0], [50, 0]), edge([50, 0], [100, 0]), edge([100, 0], [200, 0])],
+                "unselected": [edge([100, 0], [100, 30], structure=structure)]}
+
+    def test_the_arms_meeting_at_a_junction_taken_along_are_one(self):
+        net = roadnet._through(self.net())
+        self.assertEqual([[[0, 0], [50, 0], [100, 0], [200, 0]]], net["lines"])
+        self.assertEqual([8], net["widths"])
+
+    def test_at_a_held_junction_they_stay_apart(self):
+        self.assertEqual(2, len(roadnet._through(self.net("tunnel"))["lines"]))
+
+
+class JoinedSmoothTest(unittest.TestCase):
+    """A hill at a side road's junction: smoothing the main road takes the junction and the side road's mouth along, fading out along it."""
+    def setUp(self):
+        self.roads = [road("main", [[0, 0], [100, 0], [200, 0]], 8), road("side", [[100, 0], [100, 100]], 6)]
+        self.path, self.scan = lattice_track(self, self.roads, lambda x, z: 100 + 2 * np.exp(-((x - 100) ** 2 + z ** 2) / 800), (-20, 222), (-30, 122))
+
+    def field(self, strip=None):
+        net = roadregion.mapped(self.path, [[20, 0], [180, 0]])
+        self.assertTrue(net["held_junctions"])
+        if strip:
+            net = {**net, "strip": strip}
+        selected = roadregion.strip_selection(self.path, net) if strip else roadregion.selection(self.path, net)
+        op, _ = roadnet.change_of(self.path, self.scan, None, net, selected, 6, 1, "j")
+        return trackheights.Field([op])
+
+    def test_the_junction_is_smoothed_and_the_side_road_follows_fading_out(self):
+        for strip in (None, 8):
+            with self.subTest(strip=strip):
+                field = self.field(strip)
+                at = lambda z: float(field.at(100, z)[0])
+                self.assertLess(at(0), -1.0)                                  # (the hill at the junction goes)
+                self.assertLess(abs(at(6) - at(2)), 0.3)                       # (the mouth goes with it: no step at the road's edge)
+                self.assertLess(at(6), at(20))                                 # (and fades out along the side road)
+                self.assertEqual(0.0, at(90))
