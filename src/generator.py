@@ -503,7 +503,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     gate = gates.build(tiles_dir, obj_dir, log=log)     # (start and finish made visible; decides where the lines are: anchor.json)
     far = farview.build(tiles_dir, obj_dir, log=log, progress=progress)    # (only into the kn5: not into the minimap)
 
-    log("Writing track folder ...")
+    if not circuit:
+        log("Writing track folder ...")
     boxes = np.array([roadsmod.tile_bbox(tx, ty) for tx, ty in tiles])        # ENU (x0, y0, x1, y1)
     bounds = (boxes[:, 0].min(), -boxes[:, 3].max(), boxes[:, 2].max(), -boxes[:, 1].min())   # AC: z = -north
     label = "Circuit, lap" if circuit else "Route"
@@ -513,29 +514,41 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     trees = objectlist.collect_treefx(parts)
     if trees:
         log(f"TreeFX trees: {len(trees['trees']):,}")
-    root = make_track_folder.make(name, title, obj=os.path.join(obj_dir, "track.obj"), preview=None, city=town,
-                                  country=country, geotags=(lat0, lon0), extra_description=desc,
-                                  route=None if area else xy.tolist(), log=log, parts=parts, bounds=bounds,
-                                  point_to_point=not circuit and timing is not None, trees=trees)
-    # For the debug app (debugapp): the route in AC coordinates (x east, z = -north) and the anchor; an area has
-    # none (the app says so), and no old one from an earlier build under the same name either
-    route_txt = os.path.join(root, "data", "map2lap_route.txt")
-    for old in (route_txt, os.path.join(root, "data", "ac_export_route.txt")):     # (the second: older builds)
-        if os.path.exists(old):
+    obj_path = os.path.join(obj_dir, "track.obj")
+
+    def prepare_output():
+        if circuit:
+            log("Writing track folder ...")
+        root = make_track_folder.make(name, title, obj=obj_path, preview=None, city=town, country=country,
+                                      geotags=(lat0, lon0), extra_description=desc, route=None if area else xy.tolist(),
+                                      log=log, parts=parts, bounds=bounds, point_to_point=not circuit and timing is not None,
+                                      trees=trees)
+        # For the debug app: the route in AC coordinates (x east, z = -north). Areas remove the previous route, if any.
+        route_txt = os.path.join(root, "data", "map2lap_route.txt")
+        for old in (route_txt, os.path.join(root, "data", "ac_export_route.txt")):     # (the second: older builds)
+            if os.path.exists(old):
+                os.remove(old)
+        if not area:
+            with open(route_txt, "w", encoding="utf-8") as f:
+                f.write(f"anchor {lat0:.8f} {lon0:.8f}\n" + "".join(f"{e_:.2f} {-n_:.2f}\n" for e_, n_ in xy))
+        if settings.load()["debug_app"]:        # (Settings; again on every build: the app of this release)
+            debugapp.sync(make_track_folder.AC, True)
+        for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
-    if not area:
-        with open(route_txt, "w", encoding="utf-8") as f:
-            f.write(f"anchor {lat0:.8f} {lon0:.8f}\n" + "".join(f"{e_:.2f} {-n_:.2f}\n" for e_, n_ in xy))
-    if settings.load()["debug_app"]:        # (Settings; again on every build: the app of this release)
-        debugapp.sync(make_track_folder.AC, True)
-    for old in glob.glob(os.path.join(root, "*.kn5")):
-        os.remove(old)
-    progress("kn5", 0, 0)
-    log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
+        if not circuit:
+            progress("kn5", 0, 0)
+        log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
+        return os.path.join(root, name + ".kn5")
+
     anchor_path = os.path.join(tiles_dir, "anchor.json")
-    kn5_path = obj_to_kn5.convert(os.path.join(obj_dir, "track.obj"), os.path.join(root, name + ".kn5"),
-                                  anchor_path, log=log,
-                                  parts=parts + [p for p in (gate, far) if p])
+    kn5_parts = parts + [p for p in (gate, far) if p]
+    if circuit:
+        # A refused placement must leave the installed track intact, including during a Rebuild.
+        progress("kn5", 0, 0)
+        kn5_path = obj_to_kn5.convert(obj_path, None, anchor_path, log=log, parts=kn5_parts, prepare_output=prepare_output)
+    else:
+        kn5_path = obj_to_kn5.convert(obj_path, prepare_output(), anchor_path, log=log, parts=kn5_parts)
+    root = os.path.dirname(kn5_path)
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
     info = {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title,
             "points": [list(p) for p in points], "width": None if area else width,

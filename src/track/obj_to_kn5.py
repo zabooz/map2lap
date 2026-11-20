@@ -281,10 +281,8 @@ def empty(name, pos, forward):
     return kn5.Node(1, name, 1, matrix=tuple(m.ravel().tolist()))
 
 
-def road_height(objs, x, z, prefixes=("1ROAD_", "1GRAVEL_")):
-    """Height of the road (1ROAD_*: terrain under asphalt/cobbles, bridges; 1GRAVEL_*: gravel) at the point (x, z), or
-    None; with other prefixes the height of those objects (gates.py: grass too, for the posts)."""
-    best = None
+def _surface_heights(objs, x, z, prefixes):
+    """Arrays of triangle heights at AC coordinates (x, z) from objects with the given prefixes. Pure."""
     for name, (_, P, _, T) in objs.items():
         if not name.startswith(prefixes):
             continue
@@ -297,9 +295,30 @@ def road_height(objs, x, z, prefixes=("1ROAD_", "1GRAVEL_")):
         w3 = 1 - w1 - w2
         hit = ok & (w1 >= -1e-6) & (w2 >= -1e-6) & (w3 >= -1e-6)
         if hit.any():
-            y = (w1 * a[:, 1] + w2 * b[:, 1] + w3 * c[:, 1])[hit].max()
-            best = y if best is None else max(best, y)
-    return best
+            yield (w1 * a[:, 1] + w2 * b[:, 1] + w3 * c[:, 1])[hit]
+
+
+def road_height(objs, x, z, prefixes=("1ROAD_", "1GRAVEL_")):
+    """Highest road at AC coordinates (x, z), or None; other prefixes select other objects for gates.py. Pure."""
+    return max((y.max() for y in _surface_heights(objs, x, z, prefixes)), default=None)
+
+
+# Road decks normally have at least about 4.5 m of clearance. Overlapping surfaces at a junction
+# differ by centimetres. A deck less than 2.5 m above another surface would be grouped with it.
+LEVEL_GAP_M = 2.5
+
+
+def road_levels(objs, x, z, gap=LEVEL_GAP_M):
+    """Distinct driving-surface heights at AC coordinates (x, z), merging levels within gap. Pure."""
+    heights = sorted(float(v) for y in _surface_heights(objs, x, z, ("1ROAD_", "1GRAVEL_")) for v in y)
+    levels = []
+    for height in heights:
+        if not levels or height - bottom >= gap:
+            levels.append(height)
+            bottom = height
+        else:
+            levels[-1] = height
+    return levels
 
 
 def route_slots(objs, route, n, gap, log=print, front_m=None):
@@ -342,6 +361,139 @@ def _along(xy, s, d):
     (x, y), (x0, y0), (x1, y1) = at(d), at(d - 5), at(d + 5)
     h = math.atan2(y1 - y0, x1 - x0)
     return x, y, np.array([math.cos(h), 0.0, -math.sin(h)])
+
+
+def _lap_vertices(route_xy):
+    """Vertices of an ENU lap, preserving pin 1 and dropping consecutive duplicates and the closing copy. Pure."""
+    xy = np.asarray(route_xy, float)
+    if len(xy) < 2:
+        return xy
+    xy = xy[np.r_[True, (xy[1:] != xy[:-1]).any(axis=1)]]
+    return xy[:-1] if len(xy) > 1 and np.array_equal(xy[0], xy[-1]) else xy
+
+
+def _lap_crossings(xy, a, b):
+    """Crossing vertex and edge indices on the ENU lap without its closing copy. Pure."""
+    line = np.subtract(b, a)
+    span = line @ line
+    if len(xy) < 3 or span == 0:
+        return (), ()
+    rel = xy - a
+    side = rel[:, 0] * line[1] - rel[:, 1] * line[0]
+    along = rel @ line
+    next_side, next_along = np.roll(side, -1), np.roll(along, -1)
+    collinear = (side == 0) & (next_side == 0)
+    if np.any(collinear & (np.maximum(along, next_along) >= 0) & (np.minimum(along, next_along) <= span)):
+        return (), ()
+    # Count each visit at a vertex once. A touch that comes back to the same side cannot be a timing crossing.
+    vertices = (side == 0) & (along >= 0) & (along <= span)
+    if np.any(vertices & (np.roll(side, 1) * next_side >= 0)):
+        return (), ()
+    through = side * next_side < 0
+    t = side[through] / (side[through] - next_side[through])
+    crossing = along[through] + t * (next_along[through] - along[through])
+    return np.flatnonzero(vertices), np.flatnonzero(through)[(crossing >= 0) & (crossing <= span)]
+
+
+def crosses_once(route_xy, a, b):
+    """Whether ENU segment a–b crosses the closed ENU lap exactly once. Pure."""
+    vertices, edges = _lap_crossings(_lap_vertices(route_xy), a, b)
+    return len(vertices) + len(edges) == 1
+
+
+def _line_crosses_at(xy, s, metre, centre, half_line):
+    """Whether the ENU timing segment crosses only the intended metre's part of the closed lap. Pure."""
+    n = len(xy) - 1
+    incident = (np.searchsorted(s, metre, side="left") - 1) % n, np.searchsorted(s, metre, side="right") - 1
+    normal = np.array([-half_line[1], half_line[0]])
+    approach, departure = (xy[np.array(incident) + 1] - xy[list(incident)]) @ normal
+    # Test at the intended lap metre using local edges, where rounding of the endpoints cannot hide a touch.
+    if approach * departure <= 0:
+        return False
+    # Check the whole timing segment at the precision of the matrices written by kn5.node_bytes.
+    a, b = np.array([centre + half_line, centre - half_line], dtype=np.float32).astype(float)
+    vertices, edges = _lap_crossings(xy[:-1], a, b)
+    if len(vertices) + len(edges) != 1:
+        return False
+    if len(edges):
+        return edges[0] in incident
+    vertex = vertices[0]
+    return (vertex - 1) % n in incident or vertex in incident
+
+
+# Start/finish can move the length of a village main street. A longer move would put it away from pin 1.
+CIRCUIT_SEARCH_M = 300.0
+# Sample the driving surface at terrain-cell intervals. Shorter gaps between samples can go undetected.
+CIRCUIT_STEP_M = 2.0
+# Leave road ahead of the line and behind the grid window, matching the direction lookahead in route_slots.
+CIRCUIT_MARGIN_M = 5.0
+
+
+def _overlaps_twice(twice, first, span, length):
+    """Whether the cyclic window [first, first + span] covers any distance in the twice-driven spans. Pure."""
+    lo = first % length
+    hi = lo + span
+    return any(max(lo, a + shift) < min(hi, b + shift) for a, b in twice for shift in (0, length))
+
+
+def circuit_empties(objs, anchor, log=print):
+    """Start/finish, grid and hotlap from road objects and the closed ENU lap in the Circuit anchor."""
+    vertices = _lap_vertices(anchor["route"])
+    xy = np.concatenate((vertices, vertices[:1]))
+    timing = anchor["timing"]
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+    length = s[-1]
+    behind = SLOTS * SLOT_GAP + STAGE_START_GAP_M + CIRCUIT_MARGIN_M
+    span = behind + CIRCUIT_MARGIN_M
+    error = (f"No place for start/finish within {CIRCUIT_SEARCH_M:g} m after pin 1: "
+             "move pin 1 onto a stretch driven once, away from bridges")
+    if length < span:
+        raise RuntimeError(error)
+
+    # The middle copy provides approach and runout across the seam for direction and grid placement.
+    loop_xy = np.concatenate((xy, xy[1:], xy[1:]))
+    loop_s = np.r_[s, length + s[1:], 2 * length + s[1:]]
+    sample_at = np.r_[np.arange(-behind, CIRCUIT_MARGIN_M, CIRCUIT_STEP_M), CIRCUIT_MARGIN_M,
+                      -STAGE_START_GAP_M - SLOT_GAP * np.arange(SLOTS)]
+    sample_cache = {}
+
+    def levels_at(d):
+        metre = d % length
+        if metre not in sample_cache:
+            x, y = np.interp(metre, s, xy[:, 0]), np.interp(metre, s, xy[:, 1])
+            sample_cache[metre] = road_levels(objs, x, -y)
+        return sample_cache[metre]
+
+    given = timing.get("line_m")
+    start_m = timing["start_m"]
+    candidates = (given,) if given is not None else (
+        start_m + k * CIRCUIT_STEP_M for k in range(int(CIRCUIT_SEARCH_M // CIRCUIT_STEP_M) + 1))
+    for d in candidates:
+        if _overlaps_twice(timing["twice"], d - behind, span, length):
+            continue
+        metre = d % length
+        x, y, fwd = _along(loop_xy, loop_s, length + metre)
+        left = np.cross([0.0, 1.0, 0.0], fwd) * AB_HALF_M
+        side = left[[0, 2]] * [1, -1]  # AC -> ENU
+        if not _line_crosses_at(xy, s, metre, np.array([x, y]), side):
+            continue
+        if not all(len(levels_at(sample)) == 1 for sample in d + sample_at):
+            continue
+        slots = route_slots(objs, loop_xy, SLOTS, SLOT_GAP, log, front_m=length + metre - STAGE_START_GAP_M)
+        if any(p is None for p, _ in slots):
+            continue
+        if given is None and d > start_m:
+            log(f"Start/finish moved {d - start_m:g} m forward from pin 1")
+        nodes = []
+        for k, (p, direction) in enumerate(slots):
+            pos = p + [0.0, START_LIFT, 0.0]
+            nodes.extend((empty(f"AC_START_{k}", pos, direction), empty(f"AC_PIT_{k}", pos, direction)))
+        base = slots[0][0] + [0.0, START_LIFT, 0.0]
+        centre = np.array([x, levels_at(d)[0] + START_LIFT, -y])
+        nodes.extend((empty("AC_HOTLAP_START_0", base, slots[0][1]), empty("AC_TIME_0_L", centre + left, fwd),
+                      empty("AC_TIME_0_R", centre - left, fwd)))
+        return nodes, base, float(metre if given is None else given)
+    raise RuntimeError(error)
 
 
 def timing_points(route, timing):
@@ -404,6 +556,8 @@ def _start_distance(route, gates, near_m):
 def start_empties(objs, anchor, log=print):
     """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
     use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
+    if (anchor or {}).get("kind") == "circuit":
+        return circuit_empties(objs, anchor, log)[:2]
     route = (anchor or {}).get("route")
     if route and len(route) > 1:
         timing = anchor.get("timing")
@@ -497,10 +651,11 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
     return n_nodes, n_verts, roads, objects, {v[0] for k, v in objs.items() if k.startswith("1ROAD_")}
 
 
-def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
+def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare_output=None):
     """parts: make_obj's tile part files; else obj_path alone. The worker processes write their meshes as finished kn5
     bytes into intermediate files, the main process writes the header and the start points and appends them.
-    Materials: all of the .mtl (fixed numbers for all processes; unused ones only cost their texture, < 35 MB)."""
+    Materials: all of the .mtl (fixed numbers for all processes; unused ones only cost their texture, < 35 MB).
+    prepare_output(): prepare the installed folder and return its kn5 path once placement has been checked."""
     anchor = None
     if anchor_path and os.path.exists(anchor_path):
         with open(anchor_path, encoding="utf-8") as f:
@@ -511,9 +666,16 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
     mat_index = {m: i for i, m in enumerate(used)}
     route = (anchor or {}).get("route")
     start = (anchor or {}).get("start")
+    circuit = (anchor or {}).get("kind") == "circuit"
     start_xz = ((route[0][0], -route[0][1]) if route else (start["x"], -start["y"]) if start else None)
     near_xz = None if start_xz is None else [start_xz]
-    if route and (anchor or {}).get("timing"):
+    if circuit and anchor["timing"].get("line_m") is not None:
+        xy = np.asarray(route, float)
+        s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+        if s[-1] > 0:
+            x, y, _ = _along(xy, s, anchor["timing"]["line_m"] % s[-1])
+            near_xz.append((x, -y))
+    elif not circuit and route and (anchor or {}).get("timing"):
         near_xz += timing_points(route, anchor["timing"])
     chunk_dir = os.path.join(os.path.dirname(os.path.abspath(obj_path)), "kn5_parts")
     os.makedirs(chunk_dir, exist_ok=True)
@@ -564,9 +726,14 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
     if any(m.shader == groundmaterial.NM4 for m in materials):
         textures.extend(groundmaterial.textures())
     root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
-    empties, base = start_empties(objs, anchor, log)
-    root.children += empties
     try:
+        if circuit:
+            empties, base, line_m = circuit_empties(objs, anchor, log)
+        else:
+            empties, base = start_empties(objs, anchor, log)
+        root.children += empties
+        if prepare_output is not None:
+            kn5_path = prepare_output()
         kn5.write_streamed(kn5_path, textures, materials, root, chunks, n_nodes)
     finally:
         shutil.rmtree(chunk_dir, ignore_errors=True)
@@ -577,6 +744,10 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None):
         groundquality.write(kn5_path, parts, log)
     objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]), objectlist.collect_treefx(parts))
     editorinfo.install(kn5_path, parts)
+    if circuit:
+        anchor["timing"]["line_m"] = line_m
+        with open(anchor_path, "w", encoding="utf-8") as f:
+            json.dump(anchor, f)
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "
         f"start at {base[0]:.1f} {base[1]:.1f} {base[2]:.1f})")
     return kn5_path

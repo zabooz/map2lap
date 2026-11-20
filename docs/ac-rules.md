@@ -170,7 +170,11 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Point-to-point grid, pit and hotlap spawns use the actual start gate: the first car's centre is 3 m before its
   timing plane, with the other slots 8 m apart behind it along the route, including at bends. The clock remains AC's
   line-crossing timer. If the whole grid cannot stand on road before the gate, the build reports that instead of
-  placing cars beyond the start. Circuits and areas retain their original spawn placement.
+  placing cars beyond the start.
+- Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
+  a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
+  must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an
+  existing installation intact.
 - BeamNG/Torque winds triangles clockwise → flip them (`shape_parts`), else houses turn black.
 - `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
 - Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).

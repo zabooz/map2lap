@@ -90,8 +90,10 @@ class CircuitBuildTest(unittest.TestCase):
         self.anchor.write_text(json.dumps(anchor), encoding="utf-8")
         (self.installed / "data").mkdir(parents=True)
 
-        def convert(_obj, kn5, anchor_path, **kwargs):
+        def convert(_obj, kn5, anchor_path, prepare_output=None, **kwargs):
             """Write a stand-in KN5 and the converter's placed line metre."""
+            if prepare_output is not None:
+                kn5 = prepare_output()
             path = Path(anchor_path)
             saved = json.loads(path.read_text(encoding="utf-8"))
             saved["timing"]["line_m"] = SAVED_TIMING["line_m"]
@@ -114,6 +116,33 @@ class CircuitBuildTest(unittest.TestCase):
         self.assertEqual(info["timing"], SAVED_TIMING)
         self.assertEqual(trackcode.decode(info["code"])["kind"], "circuit")
         self.assertEqual(info["route_end"], len(COORDS) - 1)
+
+    def test_refused_start_finish_keeps_the_installed_track(self):
+        anchor = {"kind": "circuit", "route": [[0., 0.], [0., 100.], [50., 50.], [0., 0.]], "lat": 46.65, "lon": 14.62,
+                  "tiles": [[0, 0]], "points": PINS, "width": 120, "length_m": 242.0,
+                  "timing": {"start_m": 0.0, "twice": [[0., 242.]]}}
+        self.anchor.parent.mkdir(parents=True)
+        self.anchor.write_text(json.dumps(anchor), encoding="utf-8")
+        obj_dir = self.work / "obj"
+        obj_dir.mkdir()
+        (obj_dir / "track.obj").touch()
+        (obj_dir / "track.mtl").touch()
+        (self.installed / "data").mkdir(parents=True)
+        previous_kn5 = self.installed / "test.kn5"
+        previous_kn5.write_bytes(b"installed track")
+        previous_route = self.installed / "data/map2lap_route.txt"
+        previous_route.write_bytes(b"installed route")
+
+        with (mock.patch.object(generator.farview, "build", return_value=None),
+              mock.patch.object(generator, "where", return_value=("", "")),
+              mock.patch.object(generator.settings, "load", return_value={"debug_app": False}),
+              mock.patch.object(generator.make_track_folder, "make", return_value=str(self.installed))):
+            with self.assertRaisesRegex(RuntimeError, "No place for start/finish"):
+                generator._finish("test", "Test", self.work, anchor, np.asarray(anchor["route"]), COORDS, [], (0, 0, 0),
+                                  0, lambda msg: None, lambda *progress: None, False, None)
+        self.assertTrue(previous_kn5.exists(), "Placement refusal removed the installed KN5")
+        self.assertEqual(previous_kn5.read_bytes(), b"installed track")
+        self.assertEqual(previous_route.read_bytes(), b"installed route")
 
     def post_build(self, path, body):
         """Send a build POST to the handler and capture the worker arguments without starting it."""
