@@ -19,7 +19,7 @@ from concurrent.futures import as_completed
 import numpy as np
 
 from track import build_tiles     # (first: sets the asphalt mesh switches and the server path)
-from app import buildoptions, debugapp, mapcache, mytracks, settings, system, trackcode, version
+from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import farview, gates
 from track import make_obj, make_track_folder, obj_to_kn5, objectlist, parallel
@@ -70,17 +70,29 @@ def wrap_lon(lon):
     return (float(lon) + 180.0) % 360.0 - 180.0
 
 
-def route(points):
-    """OSRM route through points [(lat, lon), ...]: (coordinates [(lat, lon)], length m)."""
+def _osrm_route(points, extra_query=""):
+    """Fetch the OSRM answer for (lat, lon) points with optional additional query parameters."""
     coords = ";".join(f"{wrap_lon(lon):.6f},{lat:.6f}" for lat, lon in points)
-    req = urllib.request.Request(OSRM + coords + "?overview=full&geometries=geojson",
+    req = urllib.request.Request(OSRM + coords + "?overview=full&geometries=geojson" + extra_query,
                                  headers={"User-Agent": version.USER_AGENT})
     with urllib.request.urlopen(req, timeout=30) as r:
         data = json.load(r)
     if data.get("code") != "Ok" or not data.get("routes"):
         raise RuntimeError(f"OSRM: {data.get('code')} {data.get('message', '')}")
-    rt = data["routes"][0]
+    return data
+
+
+def route(points):
+    """OSRM route through points [(lat, lon), ...]: (coordinates [(lat, lon)], length m)."""
+    rt = _osrm_route(points)["routes"][0]
     return [(lat, lon) for lon, lat in rt["geometry"]["coordinates"]], float(rt["distance"])
+
+
+def circuit_route(points: list[tuple[float, float]]) -> circuitlap.Lap:
+    """Fetch and check the OSRM lap through (lat, lon) pins and back to pin 1."""
+    if len(points) < 2:
+        raise circuitlap.NoLap("Set at least two pins")
+    return circuitlap.lap(_osrm_route([*points, points[0]], "&continue_straight=true&annotations=nodes,distance"))
 
 
 def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M):

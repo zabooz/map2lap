@@ -1,11 +1,17 @@
 """The closed lap and its twice-driven stretches from OSRM annotations."""
 
+import io
+import json
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
+from urllib.parse import parse_qsl, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import app.circuitlap as circuitlap
+from app.version import USER_AGENT
+import generator
 
 
 A, B, C, D = (14.60, 46.60), (14.61, 46.60), (14.61, 46.61), (14.60, 46.61)
@@ -58,6 +64,44 @@ def dumbbell(start_on_stem=False):
         ]
         coords = [start, short_b, outer, middle, inner, long_a, long_b, long_c, inner, middle, outer, start]
     return answer(legs, [start, long_a, start], coords)
+
+
+class CircuitRequestTest(unittest.TestCase):
+    def test_circuit_request_closes_on_pin_1_and_keeps_straight(self):
+        points = [(1, 2), (3, 4)]
+        coords = [(2, 1), (4, 3), (2, 3), (2, 1)]
+        response = answer([([1, 2], [300]), ([2, 3, 1], [150, 150])], [coords[0], coords[1], coords[-1]], coords)
+        response["code"] = "Ok"
+        with mock.patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps(response))) as open_url:
+            lap = generator.circuit_route(points)
+
+        open_url.assert_called_once()
+        request, = open_url.call_args.args
+        self.assertEqual(open_url.call_args.kwargs, {"timeout": 30})
+        self.assertEqual(request.get_header("User-agent"), USER_AGENT)
+        url = urlsplit(request.full_url)
+        self.assertEqual(url.path, "/route/v1/driving/2.000000,1.000000;4.000000,3.000000;2.000000,1.000000")
+        self.assertCountEqual(parse_qsl(url.query), [
+            ("overview", "full"), ("geometries", "geojson"),
+            ("continue_straight", "true"), ("annotations", "nodes,distance"),
+        ])
+        self.assertEqual(lap, circuitlap.Lap([(lat, lon) for lon, lat in coords], 600.0, [], [0.0, 300.0]))
+        self.assertEqual(points, [(1, 2), (3, 4)])
+
+    def test_circuit_needs_two_pins_before_requesting_osrm(self):
+        with mock.patch("urllib.request.urlopen") as open_url:
+            for points in ([], [(1, 2)]):
+                with self.subTest(points=points), self.assertRaisesRegex(circuitlap.NoLap, "^Set at least two pins$"):
+                    generator.circuit_route(points)
+            open_url.assert_not_called()
+
+    def test_circuit_keeps_osrm_error(self):
+        for code, message in (("NoRoute", "Impossible route between points"), ("Ok", "Missing routes")):
+            response = {"code": code, "message": message, "routes": []}
+            with self.subTest(code=code), \
+                 mock.patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps(response))), \
+                 self.assertRaisesRegex(RuntimeError, f"^OSRM: {code} {message}$"):
+                generator.circuit_route([(1, 2), (3, 4)])
 
 
 class CircuitLapTest(unittest.TestCase):

@@ -28,7 +28,7 @@ import generator  # noqa: E402
 import furniture  # noqa: E402
 import roadmesh  # noqa: E402
 import server  # noqa: E402
-from app import mapcache, materiallibrary, objectlibrary, mytracks, settings, system, trackcode, updater, version  # noqa: E402
+from app import circuitlap, mapcache, materiallibrary, objectlibrary, mytracks, settings, system, trackcode, updater, version  # noqa: E402
 from scenery import cars, treefx  # noqa: E402
 from track import buildscenery, editorinfo, kn5, make_track_folder, objectlist, obj_to_kn5, surfaceindex  # noqa: E402
 from track.textures import dds_mipmaps  # noqa: E402
@@ -381,7 +381,15 @@ def stand_ins():
             calls.append([name, *[a for a in args if isinstance(a, (str, int, float))]])
             return value
         return stand_in
+
+    def circuit_route(points):
+        """A closed lap over the (lat, lon) pins with 1000 m per leg. Pure."""
+        if len(points) < 2:
+            raise circuitlap.NoLap("Set at least two pins")
+        return circuitlap.Lap([*points, points[0]], 1000.0 * len(points), [], [1000.0 * i for i in range(len(points))])
+
     generator.route = lambda points: ([list(p) for p in points], 1000.0 * (len(points) - 1))
+    generator.circuit_route = circuit_route
     generator.place = lambda lat, lon: ("Testtown", f"Part {round(lat * 100) % 7}")
     generator.auto_title = lambda points=None, area=None: "Testtown Area" if area else "Testtown Route"
     generator.search = lambda q: {"springfield": [{"name": "Springfield, Illinois, United States", "lat": 39.8, "lon": -89.6},

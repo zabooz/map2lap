@@ -26,7 +26,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from app import buildoptions, named
+from app import buildoptions, circuitlap, named
 
 if __name__ == "__main__":      # (before the engine loads: the python.exe left waiting stays small)
     named.restart_as("server")
@@ -860,7 +860,15 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         try:
             body = self._body()
             if self.path == "/api/route":
-                pts, length = generator.route([tuple(p) for p in body["points"]])
+                points = [tuple(p) for p in body["points"]]
+                if body.get("kind") == "circuit":
+                    try:
+                        lap = generator.circuit_route(points)
+                    except circuitlap.NoLap as e:
+                        return self._send(400, {"error": str(e)})
+                    pts, length = lap.coords, lap.length_m
+                else:
+                    pts, length = generator.route(points)
                 self._send(200, {"coords": pts, "length_m": length})
             elif self.path == "/api/name":            # suggestion for the track name (generator.auto_title)
                 self._send(200, {"title": generator.auto_title([tuple(p) for p in body.get("points") or []],
