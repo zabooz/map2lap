@@ -913,6 +913,31 @@
    "max_warp_at_m": 97.0
   }
  },
+ "klagenfurt_pischeldorfer_circuit_test": {
+  "kind": "circuit",
+  "title": "Klagenfurt – Pischeldorfer Runde",
+  "about": "Klagenfurt, Carinthia. A simple closed ring with the seam at pin 1 on Pischeldorfer Straße.",
+  "points": [
+   [
+    46.636602,
+    14.350721
+   ],
+   [
+    46.634326,
+    14.350362
+   ],
+   [
+    46.636015,
+    14.349023
+   ],
+   [
+    46.635811,
+    14.347586
+   ]
+  ],
+  "width": 120.0,
+  "spots": []
+ },
  "perth_tonkin_morley_test": {
   "title": "Perth Tonkin Morley Test",
   "about": "Area around the Tonkin Highway and Morley Drive bridges and nearby houses: inspect both bridge decks and building geometry in the Editor",
