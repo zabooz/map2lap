@@ -6,6 +6,7 @@ import {useEffect, useEffectEvent, useMemo, useRef, useState} from "react";
 import {MapContainer, Marker, Polyline, Rectangle, TileLayer, Tooltip, useMap, useMapEvents} from "react-leaflet";
 import type {MapMove, NewTrack, Point} from "../hooks/useNewTrack";
 import type {Box, LatLon, Tab, Track} from "../types";
+import {arrowsAlong} from "./lapArrows";
 import styles from "./TrackMap.module.css";
 
 const VIEW_KEY = "map2lap.view";
@@ -15,8 +16,8 @@ const PIN_ZOOM = 13;
 const EARTH_M = 40075016;
 const BOX_STYLE = {color: ROUTE_COLOR, weight: 2, fillOpacity: 0.1};
 
-const pin = L.icon({iconUrl, iconRetinaUrl, shadowUrl, iconSize: [25, 41], iconAnchor: [12, 41], tooltipAnchor: [16, -28],
-                    shadowSize: [41, 41]});
+const pinGeometry = {iconSize: [25, 41], iconAnchor: [12, 41], tooltipAnchor: [16, -28]} satisfies L.BaseIconOptions;
+const pin = L.icon({iconUrl, iconRetinaUrl, shadowUrl, ...pinGeometry, shadowSize: [41, 41]});
 const handle = L.divIcon({className: styles.handle, iconSize: [14, 14]});
 
 function savedView() {
@@ -68,8 +69,13 @@ function Corridor({coords, width}: {coords: LatLon[]; width: number}) {
 /** One pin. Its position stays the same object between renders: a new one puts a pin being dragged back at once. */
 function PointMarker({track, point: p, label}: {track: NewTrack; point: Point; label: string}) {
   const position = useMemo<LatLon>(() => [p.lat, p.lon], [p.lat, p.lon]);
+  const circuit = track.mode === "circuit";
+  const icon = useMemo(() => circuit ? L.divIcon({
+    ...pinGeometry, className: styles.circuitPin,
+    html: `<img src="${iconRetinaUrl}" width="25" height="41" alt=""><span>${label}</span>`,
+  }) : pin, [circuit, label]);
   return (
-    <Marker position={position} icon={pin} draggable eventHandlers={{
+    <Marker position={position} icon={icon} draggable eventHandlers={{
       dragend: e => { const at = (e.target as L.Marker).getLatLng(); track.dragPoint(p.id, at.lat, at.lng); },
       contextmenu: () => track.removePoint(p.id),
     }}>
@@ -78,16 +84,32 @@ function PointMarker({track, point: p, label}: {track: NewTrack; point: Point; l
   );
 }
 
-/** The route's pins: click adds, drag moves, right-click removes. The last point is the finish. */
+/** Small direction markers above the line and below the draggable pins. */
+function LapArrows({coords, lengthM}: {coords: LatLon[]; lengthM: number}) {
+  // Leave 250 m between arrows on short laps, and spread them across longer laps.
+  const arrows = useMemo(() => arrowsAlong(coords, Math.max(250, lengthM / 12), 12).map(({at, deg}) => ({
+    at, icon: L.divIcon({className: styles.lapArrow, iconSize: [12, 12],
+                       html: `<span data-testid="lap-arrow" aria-hidden="true" style="--bearing: ${deg}deg"></span>`}),
+  })), [coords, lengthM]);
+  return arrows.map(({at, icon}, i) => (
+    <Marker key={i} position={at} icon={icon} pane="shadowPane" interactive={false} keyboard={false} />
+  ));
+}
+
+/** The route or circuit: click adds a pin, drag moves it, right-click removes it. */
 function Route({track}: {track: NewTrack}) {
   useMapEvents({click: e => track.addPoint(e.latlng.lat, e.latlng.lng)});
   const n = track.points.length;
+  const circuit = track.mode === "circuit";
+  const {routeCoords, routeKm} = track;
   return (
     <>
-      {track.routeCoords && <Corridor coords={track.routeCoords} width={track.width} />}
-      {track.routeCoords && <Polyline positions={track.routeCoords} pathOptions={{color: ROUTE_COLOR, weight: 4}} />}
+      {routeCoords && <Corridor coords={routeCoords} width={track.width} />}
+      {routeCoords && <Polyline positions={routeCoords} pathOptions={{color: ROUTE_COLOR, weight: 4}} />}
+      {circuit && routeCoords && routeKm !== undefined && <LapArrows coords={routeCoords} lengthM={routeKm * 1000} />}
       {track.points.map((p, i) => (
-        <PointMarker key={p.id} track={track} point={p} label={i === 0 ? "Start" : i === n - 1 ? "Finish" : String(i)} />
+        <PointMarker key={p.id} track={track} point={p}
+                     label={circuit ? (i === 0 ? "S" : String(i + 1)) : i === 0 ? "Start" : i === n - 1 ? "Finish" : String(i)} />
       ))}
     </>
   );
@@ -170,7 +192,7 @@ export function TrackMap({tab, track, picked, move}: {tab: Tab; track: NewTrack;
       <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19}
                  attribution="&copy; OpenStreetMap contributors" />
       <View move={move} />
-      {tab === "new" && track.mode === "route" && <Route track={track} />}
+      {tab === "new" && track.mode !== "area" && <Route track={track} />}
       {tab === "new" && track.mode === "area" && <Area track={track} />}
       {tab === "mine" && picked && <Picked track={picked} />}
     </MapContainer>

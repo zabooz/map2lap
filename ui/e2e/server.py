@@ -174,14 +174,15 @@ def make_track(*args, **kwargs):
         return _make_track(*args, **kwargs)
 
 
-def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd"):
+def _make_track(name, title, files=True, built=None, track_version=None, north=42.902, with_trees=True, car=None, house=False, pole=False, hill=False, verge=False, grass=False, ground_material=None, ground_split=False, ground_materials=0, ground_brightness=None, tree_height=30.0, ground_specular=None, walls=False, tree_model='spruce', terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, tree_positions=None, corridor_width=100, structure=None, roof_material=None, ground_quality="sd", circuit=None):
     """A track of two ground tiles, a road along x = 128, trees on it and distant terrain behind, as a build leaves it.
     ground_specular: (ksSpecular, ksSpecularEXP) of its ground tiles, which then shine (else they have none).
     north: where its route ends (two tracks with the same route count as copies of one track: mytracks.listing). car: a parked
     car on it, "listed" in the track's list of objects or "older" without one. house: a house with a sign on it, listed. pole: a
     power pole with a span of wires, listed ("two": a pole at each end of the span, which they share). hill: the road tile on the
     2 m lattice of a real build, with a hill across it. with_trees: two CSP TreeFX trees as builds make them, in its list, its
-    trees.txt and their models: trees#0 a spruce far off, trees#1 one tree_height m high on the road ahead of the start."""
+    trees.txt and their models: trees#0 a spruce far off, trees#1 one tree_height m high on the road ahead of the start.
+    circuit: the installed track settings for a circuit build."""
     root = os.path.join(AC, "content", "tracks", name)
     os.makedirs(os.path.join(root, "data"), exist_ok=True)
     textures = [("ground_0_0.dds", dds(*ROAD_FIELDS)), ("ground_-1_0.dds", dds(((60, 130, 50),))), ("ground_far.dds", dds(((80, 120, 90),)))]
@@ -327,7 +328,8 @@ def _make_track(name, title, files=True, built=None, track_version=None, north=4
     mytracks.save(root, {"version": current, "track_version": current, "title": title, "points": [[42.9, 9.36], [north, 9.36]],
                          "width": corridor_width, "area": None, "length_m": 250.0, "area_m": None, "tiles": 2,
                          "built": built or time.time(), "line": [[42.9, 9.36], [north, 9.36]], "terrain_cell_m": terrain_cell_m,
-                         "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m, "ground_quality": ground_quality})
+                         "parked_cars": parked_cars, "tree_spacing_m": tree_spacing_m, "ground_quality": ground_quality,
+                         **(circuit or {})})
     if files:
         os.makedirs(os.path.join(TMP, "out", "tracks", name, "tiles"), exist_ok=True)
         with open(os.path.join(TMP, "out", "tracks", name, "tiles", "x.bin"), "wb") as f:
@@ -409,7 +411,8 @@ def stand_ins():
     assert settings.FILE.startswith(TMP) and server.ROOT == TMP and mytracks.ROOT == TMP and materiallibrary.ROOT == TMP
 
 
-def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd"):
+def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd",
+                *, kind="route"):
     """As server.start_build, but the build is a few steps of waiting: its progress, its log, the track at the end."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
@@ -427,11 +430,12 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
     stopped.clear()
     server.running["proc"] = SimpleNamespace(pid=0)
     server.job.update(state="running", log=[f"Terrain grid: {terrain_cell_m} m"], result=None, error=None, progress=None, started=time.time(), ended=None)
-    threading.Thread(target=_build, args=(name, title, terrain_cell_m, parked_cars, tree_spacing_m, width, ground_quality), daemon=True).start()
+    threading.Thread(target=_build, args=(name, title, terrain_cell_m, parked_cars, tree_spacing_m, width, ground_quality),
+                     kwargs={"kind": kind, "points": points}, daemon=True).start()
     return 200, {"ok": True}
 
 
-def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, width=100, ground_quality="sd"):
+def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, width=100, ground_quality="sd", *, kind, points):
     for k, phase in enumerate(("route", "tiles", "scenery", "kn5")):
         server.job["progress"] = {"phase": phase, "done": k, "total": 4}
         server.job["log"].append(f"step {k}")
@@ -442,9 +446,14 @@ def _build(name, title, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, wi
     if "fail" in name:
         server.job.update(state="error", error="the generator ended with exit code 1 (see the log)", ended=time.time())
     else:
-        make_track(name, title, terrain_cell_m=terrain_cell_m, parked_cars=parked_cars, tree_spacing_m=tree_spacing_m, corridor_width=width, ground_quality=ground_quality)
+        circuit = {}
+        if kind == "circuit":
+            lap = generator.circuit_route(points)
+            circuit = {"kind": kind, "points": points, "line": lap.coords, "length_m": lap.length_m}
+        make_track(name, title, terrain_cell_m=terrain_cell_m, parked_cars=parked_cars, tree_spacing_m=tree_spacing_m,
+                   corridor_width=width, ground_quality=ground_quality, circuit=circuit)
         server.job.update(state="done", ended=time.time(), result={
-            "name": name, "kn5_bytes": 1500000, "seconds": 1.2, "tiles": 2, "area_m": None, "length_m": 250.0})
+            "name": name, "kn5_bytes": 1500000, "seconds": 1.2, "tiles": 2, "area_m": None, "length_m": circuit.get("length_m", 250.0)})
     server.running["proc"] = None
 
 

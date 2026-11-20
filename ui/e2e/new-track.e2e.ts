@@ -1,4 +1,4 @@
-// New track: pins, route, stops, search, track codes, area.
+// New track: pins, route, stops, search, track codes, area, circuit.
 import {button, card, centre, clickMap, dragMouse, expect, handles, mapPoint, pins, test} from "./fixtures";
 
 test("two pins make a route, its name and its code", async ({page}) => {
@@ -160,4 +160,86 @@ test("an area: drawn, resized by a corner, cleared; while there is none the map 
   await button(page, "Clear area").click();
   await expect(card(page)).toContainText("Draw an area");
   await expect(handles(page)).toHaveCount(0);
+});
+
+test("Circuit closes a lap through its numbered pins and builds it", async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem("map2lap.view", JSON.stringify({c: [48.5, 11], z: 16})));
+  await page.goto("/");
+  await button(page, "Circuit").click();
+  await page.getByLabel("Track name").fill("Testtown Circuit");
+  await expect(page.getByPlaceholder("Next pin: search or click the map")).toBeVisible();
+  const width = page.getByLabel("Corridor each side");
+  await expect(width).toBeVisible();
+  await width.fill("180");
+  await expect(page.getByText("Click to set pins in driving order · drag to move · right-click to remove")).toBeVisible();
+  await clickMap(page, .3, .3);
+  await expect(card(page)).toContainText("Now click the next pin.");
+  await clickMap(page, .62, .33);
+  await clickMap(page, .46, .65);
+  await expect(pins(page).locator("span")).toHaveText(["S", "2", "3"]);
+  await expect(page.getByLabel("Finish", {exact: true})).toBeHidden();
+  await expect(page.getByText("Back to S · Lap 3.0 km", {exact: true})).toBeVisible();
+  const line = page.locator(".leaflet-overlay-pane path").last();
+  await expect(line).toBeVisible();
+  const [start, ...legs] = (await line.getAttribute("d"))!.split("L");
+  expect(legs).toHaveLength(3);
+  expect(legs.at(-1)).toBe(start.slice(1));
+  const arrows = page.getByTestId("lap-arrow");
+  await expect(arrows.first()).toBeVisible();
+  expect(await arrows.count()).toBeLessThanOrEqual(12);
+
+  const code = page.getByRole("textbox", {name: "Track code"});
+  await expect(code).toHaveValue(/^M2L2-/);
+  const decoded = await (await page.request.post("/api/code", {data: {code: await code.inputValue()}})).json();
+  expect(decoded).toMatchObject({kind: "circuit", width: 180});
+  expect(decoded.points).toHaveLength(3);
+  const [build] = await Promise.all([page.waitForResponse("**/api/build"), button(page, "Build track").click()]);
+  expect(build.request().postDataJSON()).toMatchObject({kind: "circuit", width: 180});
+  expect(build.ok()).toBe(true);
+  await expect(card(page)).toContainText("Installed in Assetto Corsa.");
+  await page.locator("#t-mine").click();
+  await expect(page.getByRole("button", {name: /Testtown Circuit.*Circuit 3\.00 km/s})).toBeVisible();
+
+  await page.locator("#t-new").click();
+  await button(page, "Route").click();
+  await expect(pins(page)).toHaveCount(0);
+  await expect(arrows).toHaveCount(0);
+  await clickMap(page, .3, .3);
+  const [route] = await Promise.all([page.waitForRequest("**/api/route"), clickMap(page, .6, .6)]);
+  expect(route.postDataJSON()).not.toHaveProperty("kind");
+  await expect(card(page)).toContainText("1.00 km");
+});
+
+test("a Circuit track code restores the lap in Circuit mode", async ({page}) => {
+  await page.goto("/");
+  const make = {kind: "circuit", title: "Saved lap", points: [[48.5, 11], [48.51, 11], [48.51, 11.02]], width: 100};
+  const {code} = await (await page.request.post("/api/code", {data: {make}})).json();
+  const field = page.getByRole("textbox", {name: "Track code"});
+  await field.fill(code);
+  await field.press("Enter");
+  await expect(page.getByLabel("Track name")).toHaveValue(make.title);
+  await expect(pins(page).locator("span")).toHaveText(["S", "2", "3"]);
+  await expect(page.getByText("Back to S · Lap 3.0 km", {exact: true})).toBeVisible();
+});
+
+test("Circuit shows a lap refusal in the status card", async ({page}) => {
+  await page.goto("/");
+  const error = "At pin 2 the car would have to turn around: put it on the through road.";
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/route", async route => {
+    await ready;
+    await route.fulfill({status: 400, json: {error}});
+  });
+  await button(page, "Circuit").click();
+  await clickMap(page, .3, .3);
+  await clickMap(page, .6, .6);
+  try {
+    await expect(page.getByText("Back to S", {exact: true})).toBeVisible();
+    await expect(button(page, "Build track")).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(card(page)).toContainText(`Circuit: ${error}`);
+  await expect(button(page, "Build track")).toBeDisabled();
 });

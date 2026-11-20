@@ -4,14 +4,15 @@
 .pane > * { flex: none; }
 .off { visibility: hidden; }     /* (keeps its height: nothing below moves) */
 
-/* Route and area versions on top of each other: the taller one sets the height, so switching doesn't jump */
+/* Pin and area forms share a grid cell. */
 .stack { display: grid; }
 .stack > * { grid-area: 1 / 1; }
 .stack > [hidden] { display: flex !important; visibility: hidden; }
 .block { display: flex; flex-direction: column; gap: 14px; }
 
-/* The route's points: the first is the start, the last the finish; from three on the list scrolls */
-.stops { max-height: 126px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+/* The lap's return row stays visible within the space allotted to the pins. */
+.stopList { max-height: 126px; display: flex; flex-direction: column; gap: 6px; }
+.stops { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .stop { flex: none; display: flex; gap: 6px; }
 .stop input { flex: 1; min-width: 0; }
 .stop .tag { flex: none; align-self: center; width: 22px; height: 22px; border-radius: 50%; display: grid;
@@ -19,6 +20,7 @@
 .stop .tag.start { background: #26a654; color: #fff; }       /* (the colours of the START / FINISH banners) */
 .stop .tag.finish { background: #e0243a; color: #fff; }
 .stop .tag svg { display: block; }
+.lap { align-items: center; min-height: 22px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .stop .x { flex: none; width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 9px;
            background: var(--raised); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
 .stop .x:hover { color: var(--accent); border-color: var(--accent); }

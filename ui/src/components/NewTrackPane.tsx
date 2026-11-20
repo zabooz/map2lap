@@ -8,32 +8,36 @@ import styles from "./NewTrackPane.module.css";
 import {SearchField} from "./SearchField";
 import {Seg} from "./Seg";
 
-const MODES: readonly (readonly [Mode, string])[] = [["route", "Route"], ["area", "Area"]];
+const MODES: readonly (readonly [Mode, string])[] = [["route", "Route"], ["area", "Area"], ["circuit", "Circuit"]];
 
-/** One field of the route: start, a stop or the finish. */
-function StopRow({index, last, point, onPick, onRemove, label}: {
+/** One pin field of a route or circuit. */
+function StopRow({index, last, point, onPick, onRemove, label, circuit}: {
   index: number;
   last: number;
   point: Point | null;
   onPick: (p: Place) => void;
   onRemove?: () => void;
   label?: string;
+  circuit: boolean;
 }) {
-  const kind = index === 0 ? "Start" : index === last ? "Finish" : null;
-  const what = label ?? kind ?? `Stop ${index}`;
+  const kind = index === 0 ? "Start" : !circuit && index === last ? "Finish" : null;
+  const what = label ?? kind ?? (circuit ? `Pin ${index + 1}` : `Stop ${index}`);
+  const tag = label ? "+" : kind ? kind[0] : circuit ? index + 1 : index;
+  const style = label ? "" : kind === "Start" ? styles.start : kind === "Finish" ? styles.finish : "";
   return (
     <div className={styles.stop}>
-      <span className={`${styles.tag} ${index === 0 ? styles.start : index === last ? styles.finish : ""}`} title={what}>{label ? "+" : kind ? kind[0] : index}</span>
+      <span className={`${styles.tag} ${style}`} title={what}>{tag}</span>
       <SearchField value={point ? point.label || fmtLatLon(point.lat, point.lon) : ""} ariaLabel={what}
-                   placeholder={`${what}: search a place or click the map`} onPick={onPick} />
+                   placeholder={circuit && label ? "Next pin: search or click the map" : `${what}: search a place or click the map`} onPick={onPick} />
       {onRemove && <button className={styles.x} title="Remove" onClick={onRemove}>×</button>}
     </div>
   );
 }
 
-/** The route's fields; from three on the list scrolls, a new point shows at the end. */
+/** The pin fields; from three on the list scrolls, a new point shows at the end. */
 function Stops({track, disabled}: {track: NewTrack; disabled: boolean}) {
   const {points} = track;
+  const circuit = track.mode === "circuit";
   const last = Math.max(1, points.length - 1);
   const box = useRef<HTMLDivElement>(null);
   const shown = useRef(0);
@@ -45,18 +49,24 @@ function Stops({track, disabled}: {track: NewTrack; disabled: boolean}) {
 
   return (
     <div className="field">
-      <div className="label-row"><span>Route</span></div>
+      <div className="label-row"><span>{circuit ? "Circuit" : "Route"}</span></div>
       <div className={styles.stop}>
         <span className={styles.tag} title="Track code"><CodeIcon /></span>
         <CodeField code={track.code} onPaste={track.pasteCode} />
       </div>
-      <div className={styles.stops} ref={box}>
-        {points.map((p, i) => (
-          <StopRow key={p.id} index={i} last={last} point={p} onPick={place => track.movePlace(p.id, place)}
-                   onRemove={() => track.removePoint(p.id)} />
-        ))}
-        <StopRow key={`new-${points.length}`} index={points.length} last={last} point={null} onPick={track.addPlace}
-                 label={points.length >= 2 ? "Next stop" : undefined} />
+      <div className={styles.stopList}>
+        <div className={styles.stops} ref={box}>
+          {points.map((p, i) => (
+            <StopRow key={p.id} index={i} last={last} point={p} circuit={circuit} onPick={place => track.movePlace(p.id, place)}
+                     onRemove={() => track.removePoint(p.id)} />
+          ))}
+          <StopRow key={`new-${points.length}`} index={points.length} last={last} point={null} circuit={circuit} onPick={track.addPlace}
+                   label={circuit ? "Next pin" : points.length >= 2 ? "Next stop" : undefined} />
+        </div>
+        {circuit && points.length >= 2 && <div className={`${styles.stop} ${styles.lap}`}>
+          <span className={styles.tag} aria-hidden="true">↻</span>
+          <span>Back to S{track.routeKm !== undefined && ` · Lap ${track.routeKm.toFixed(1)} km`}</span>
+        </div>}
       </div>
       <button className="add-stop clear" disabled={disabled} onClick={track.clear}>Clear all</button>
     </div>
@@ -74,7 +84,7 @@ function FindPlace({onMove}: {onMove: (move: MapMove) => void}) {
   );
 }
 
-/** "New track": what is built. Route and area lie on top of each other, the taller sets the height: switching doesn't jump. */
+/** "New track": the pin and area forms share the same space above the status card. */
 export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: boolean; busy: boolean;
                                                          onMove: (move: MapMove) => void}) {
   const {mode} = track;
@@ -88,7 +98,7 @@ export function NewTrackPane({track, off, busy, onMove}: {track: NewTrack; off: 
                onChange={e => track.setTitle(e.target.value)} />
       </div>
       <div className={styles.stack}>
-        <div className={styles.block} hidden={mode !== "route"}>
+        <div className={styles.block} hidden={mode === "area"}>
           <Stops track={track} disabled={nothing} />
         </div>
         <div className={styles.block} hidden={mode !== "area"}>

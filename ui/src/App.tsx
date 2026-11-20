@@ -27,7 +27,7 @@ import {useRelease} from "./hooks/useRelease";
 import {useSettings} from "./hooks/useSettings";
 import {useStored} from "./hooks/useStored";
 import {useTracks} from "./hooks/useTracks";
-import type {BuildOptions, EditorLoadStatus, Tab, Track, TrackGroup} from "./types";
+import type {BuildOptions, EditorLoadStatus, Mode, Tab, Track, TrackGroup} from "./types";
 
 const EditorScene = lazy(() => import("./editor/EditorScene"));
 
@@ -35,9 +35,10 @@ const TABS: readonly Tab[] = ["new", "mine", "edit"];
 const GROUPS: readonly TrackGroup[] = ["built", "edited"];
 
 const NO_AC = "Assetto Corsa not found: choose its folder under Settings";
-const HINTS: Record<string, string> = {
+const HINTS: Record<Mode | Exclude<Tab, "new">, string> = {
   route: "Click to set start, finish and waypoints · drag to move · right-click to remove",
   area: "Press and drag to draw the area · drag a corner to resize · \"Clear\" removes it",
+  circuit: "Click to set pins in driving order · drag to move · right-click to remove",
   mine: "Pick one of your tracks to see it on the map",
   edit: "",
 };
@@ -217,7 +218,7 @@ export function App() {
           )} />
 
           {(!mine || (group === "built" && picked)) && <BuildPanel tab={buildTab} onTab={setBuildTab} options={options} onOptions={setOptions}
-                      corridor={(mine ? picked && !picked.area : track.mode === "route") ? {width, onWidth: setWidth} : undefined}
+                      corridor={(mine ? picked && !picked.area : track.mode !== "area") ? {width, onWidth: setWidth} : undefined}
                       compact={mine} disabled={busy || (mine && !picked)} busy={busy} text={build.log} started={status.started} focusLog={focusLog} />}
 
           <div id="actions" className={`${styles.actions}${mine ? ` ${group === "edited" ? styles.edited : styles.mine}` : ""}`}>

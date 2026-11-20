@@ -57,7 +57,7 @@ export {expect};
 
 export const card = (page: Page) => page.getByTestId("status-card");
 export const button = (page: Page, name: string | RegExp) => page.getByRole("button", {name, exact: typeof name === "string"});
-export const pins = (page: Page) => page.locator(".leaflet-marker-icon:not([class*=handle_])");
+export const pins = (page: Page) => page.locator(".leaflet-marker-pane .leaflet-marker-icon:not([class*=handle_])");
 export const handles = (page: Page) => page.locator("[class*=handle_]");
 export const scene = (page: Page) => page.locator("#scene canvas");
 

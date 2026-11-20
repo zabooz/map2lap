@@ -23,7 +23,7 @@ export function MyTracksPane({tracks, group, pick, onGroup, onPick}: {tracks: Tr
             <b>{t.title}</b>
             <span className={styles.when}>{fmtDate(t.saved ?? t.built)}</span>
             <small>
-              {t.area ? "Area" : "Route"} {fmtSize(t)} · {t.outdated
+              {t.area ? "Area" : t.kind === "circuit" ? "Circuit" : "Route"} {fmtSize(t)} · {t.outdated
                 ? <span className={styles.old}>{versionTag(t)} – old</span> : versionTag(t)}
             </small>
           </button>

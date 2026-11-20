@@ -70,6 +70,8 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
 function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: Mode; group: TrackGroup; picked: Track | undefined;
                      selection: Selection | null; width: number; options: BuildOptions; hasTracks: boolean; version: string; playButton: (name: string) => ReactNode}): Shown {
   const {status: s, picked: t, selection: sel} = a;
+  const circuit = a.mode === "circuit";
+  const pinMode = circuit ? "Circuit" : "Route";
   if (s.state === "running" || s.state === "stopping") {
     return {badge: [s.state === "stopping" ? "Stopping" : "Building", "run"], time: fmtTime(s.elapsed), body: <Progress status={s} />};
   }
@@ -96,7 +98,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
   }
   if (t) {
     const badge: Shown["badge"] = !t.kn5_bytes ? ["No track file", "bad"] : t.edited ? ["Edited", "ok"]
-      : t.outdated ? ["Old version", "warn"] : [t.area ? "Area" : "Route", "ok"];
+      : t.outdated ? ["Old version", "warn"] : [t.area ? "Area" : t.kind === "circuit" ? "Circuit" : "Route", "ok"];
     return {badge, time: fmtDate(t.saved ?? t.built), body: <PickedTrack track={t} version={a.version} />};
   }
   if (a.tab === "mine") {
@@ -105,18 +107,20 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
       : big("No tracks yet", "Tracks you build show up here.")};
   }
   if (sel?.kind === "route") {
-    return {badge: sel.ok ? ["Route", "ok"] : ["Too long", "bad"], body: <>{big(`${sel.km.toFixed(2)} km`,
-      sel.ok ? `Corridor ±${a.width} m on each side of the route` : `At most ${MAX_KM} km per track`)}<OptionsSummary options={a.options} /></>};
+    return {badge: sel.ok ? [pinMode, "ok"] : ["Too long", "bad"], body: <>{big(`${sel.km.toFixed(2)} km`,
+      sel.ok ? `Corridor ±${a.width} m on each side of the ${circuit ? "lap" : "route"}` : `At most ${MAX_KM} km per track`)}<OptionsSummary options={a.options} /></>};
   }
   if (sel?.kind === "area") {
     return {badge: ["Area", "ok"], body: <>{big(`${(sel.w / 1000).toFixed(2)} × ${(sel.h / 1000).toFixed(2)} km`,
       `${(sel.w * sel.h / 1e6).toFixed(1)} km² · ${sel.tiles} tiles`)}<OptionsSummary options={a.options} /></>};
   }
   if (sel?.kind === "msg") {
-    return {badge: sel.bad ? ["Error", "bad"] : ["Route", ""], body: <p className={sel.bad ? styles.err : "muted"}>{sel.text}</p>};
+    return {badge: sel.bad ? ["Error", "bad"] : [pinMode, ""], body: <p className={sel.bad ? styles.err : "muted"}>{sel.text}</p>};
   }
-  return {badge: ["Ready", ""], body: a.mode === "area" ? big("Draw an area", "Press and drag on the map.")
-                                                        : big("Set a route", "Click the map for the start, then the finish.")};
+  const ready = a.mode === "area" ? big("Draw an area", "Press and drag on the map.")
+    : circuit ? big("Set a circuit", "Click the map for the start, then add pins in driving order.")
+    : big("Set a route", "Click the map for the start, then the finish.");
+  return {badge: ["Ready", ""], body: ready};
 }
 
 /** Play, in the card. */

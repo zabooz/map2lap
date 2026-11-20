@@ -3,7 +3,7 @@ export type LatLon = [number, number];
 /** [south, west, north, east] */
 export type Box = [number, number, number, number];
 export type Tab = "new" | "mine" | "edit";
-export type Mode = "route" | "area";
+export type Mode = "route" | "area" | "circuit";
 export type TrackGroup = "built" | "edited";
 export type TerrainCell = 1 | 2;
 export interface BuildOptions {terrain_cell_m: TerrainCell; parked_cars: boolean; tree_spacing_m: number; ground_quality: "sd" | "hd";}
@@ -11,6 +11,7 @@ export interface BuildOptions {terrain_cell_m: TerrainCell; parked_cars: boolean
 export interface Track extends Partial<BuildOptions> {
   name: string;
   title: string;
+  kind?: Mode;
   version?: string;
   kn5_bytes: number | null;
   build_files: boolean;
@@ -83,6 +84,7 @@ export interface Place {
 
 export interface CodeContent extends Partial<BuildOptions> {
   title?: string;
+  kind?: Mode;
   area?: Box;
   width?: number;
   points?: LatLon[];

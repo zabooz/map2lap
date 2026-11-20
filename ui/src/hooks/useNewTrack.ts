@@ -53,7 +53,7 @@ function moveTo(points: {lat: number; lon: number}[]): MapMove | null {
   return points.length ? {kind: "pin", at: [points[0].lat, points[0].lon]} : null;
 }
 
-/** The track being set up on "New track": its route or area, name, corridor and track code. The route, the track code
+/** The track being set up on "New track": its route, circuit or area, name, corridor and track code. The line, the track code
     and the place names are asked from the server as these change. onTouch: the selection changed. onShowNew: a track code
     was applied. onMove: the map should move. */
 export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: (move: MapMove) => void) {
@@ -81,10 +81,12 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     if (k === nameAsk.current && titleAuto.current && r.title) setTitleState(r.title);
   }
 
-  // --- the route through the points ---
+  // --- the route or lap through the points ---
+  const circuit = mode === "circuit";
   const positions: LatLon[] = points.map(p => [p.lat, p.lon]);
-  const routeKey = JSON.stringify(positions);
-  const route = mode === "route" && answer?.key === routeKey ? answer : null;
+  const pinBody = {points: positions, ...(circuit ? {kind: mode} : {})};
+  const routeKey = JSON.stringify(pinBody);
+  const route = mode !== "area" && answer?.key === routeKey ? answer : null;
 
   const routeCame = useEffectEvent((key: string, asked: LatLon[], r: WithError<Partial<{coords: LatLon[]; length_m: number}>>) => {
     onTouch();
@@ -97,11 +99,11 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   });
 
   useEffect(() => {
-    const asked: LatLon[] = JSON.parse(routeKey);
-    if (mode !== "route" || asked.length < 2) return;
+    const asked: {points: LatLon[]; kind?: "circuit"} = JSON.parse(routeKey);
+    if (mode === "area" || asked.points.length < 2) return;
     let alive = true;
-    post<{coords: LatLon[]; length_m: number}>("/api/route", {points: asked}).then(r => {
-      if (alive) routeCame(routeKey, asked, r);
+    post<{coords: LatLon[]; length_m: number}>("/api/route", asked).then(r => {
+      if (alive) routeCame(routeKey, asked.points, r);
     });
     return () => { alive = false; };
   }, [mode, routeKey]);
@@ -122,7 +124,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
 
   // --- its track code (made by the server: trackcode.py) ---
   const makes = mode === "area" ? area && {title: title.trim(), area, ...options}
-    : route?.coords && positions.length >= 2 ? {title: title.trim(), width, points: positions, ...options} : null;
+    : route?.coords && positions.length >= 2 ? {title: title.trim(), width, ...pinBody, ...options} : null;
   const makesKey = makes ? JSON.stringify(makes) : "";
   const code = madeCode?.key === makesKey ? madeCode.code : "";
 
@@ -143,11 +145,11 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   if (message) selection = {kind: "msg", text: message, bad: true, ok: false};
   else if (mode === "area") {
     if (shownBox) selection = {kind: "area", ...boxSize(shownBox), ok: !draft && Boolean(area)};
-  } else if (points.length === 1) selection = {kind: "msg", text: "Now click the finish.", ok: false};
+  } else if (points.length === 1) selection = {kind: "msg", text: circuit ? "Now click the next pin." : "Now click the finish.", ok: false};
   else if (points.length > 1) {
-    if (route?.error) selection = {kind: "msg", text: `Route: ${route.error}`, bad: true, ok: false};
+    if (route?.error) selection = {kind: "msg", text: `${circuit ? "Circuit" : "Route"}: ${route.error}`, bad: true, ok: false};
     else if (route?.km !== undefined) selection = {kind: "route", km: route.km, ok: route.km <= MAX_KM};
-    else selection = {kind: "msg", text: "Calculating route …", ok: false};
+    else selection = {kind: "msg", text: circuit ? "Calculating lap …" : "Calculating route …", ok: false};
   }
 
   // --- changes ---
@@ -158,7 +160,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
 
   const addPoint = (lat: number, lon: number) => {
     touch();
-    setPoints(ps => [...ps, newPoint(lat, lon, null)]);       // (the last point is the finish)
+    setPoints(ps => [...ps, newPoint(lat, lon, null)]);
   };
 
   const addPlace = (p: Place) => {
@@ -207,7 +209,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     setTitleState(value);
     if (titleAuto.current) {
       if (mode === "area" && area) void askName({area});
-      else if (mode === "route" && positions.length >= 2) void askName({points: positions});
+      else if (mode !== "area" && positions.length >= 2) void askName({points: positions});
     }
   };
 
@@ -242,7 +244,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const applyCode = (c: CodeContent) => {
     onShowNew();
     clear();
-    setModeState(c.area ? "area" : "route");
+    setModeState(c.area ? "area" : c.kind === "circuit" ? "circuit" : "route");
     setOptionsState({terrain_cell_m: c.terrain_cell_m ?? 2, parked_cars: c.parked_cars ?? true, tree_spacing_m: c.tree_spacing_m ?? 0, ground_quality: c.ground_quality ?? "sd"});
     if (c.title) {
       setTitleState(c.title);
@@ -276,12 +278,12 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
 
   /** The request that builds it. */
   const buildBody = () => {
-    const name = title.trim() || "Route";
+    const name = title.trim() || (circuit ? "Circuit" : "Route");
     return {name: slug(name), title: name, ...options,
-            ...(mode === "area" ? {area} : {points: positions, width})};
+            ...(mode === "area" ? {area} : {...pinBody, width})};
   };
 
-  return {mode, title, width, options, setOptions, points, area, shownBox, routeCoords: route?.coords ?? null, selection,
+  return {mode, title, width, options, setOptions, points, area, shownBox, routeCoords: route?.coords ?? null, routeKm: route?.km, selection,
           code: makes ? code : "", setMode, setTitle, setWidth, addPoint, addPlace, movePlace, dragPoint, removePoint,
           clear, showBox, pasteCode, buildBody};
 }
