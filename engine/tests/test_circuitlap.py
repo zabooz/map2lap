@@ -189,9 +189,26 @@ class CircuitLapTest(unittest.TestCase):
         with self.assertRaisesRegex(circuitlap.NoLap, "At pin 3 the car would have to turn around"):
             circuitlap.lap(answer(legs, [A, B, D, A]))
 
-    def test_u_turn_inside_closing_leg_names_both_pins(self):
-        legs = [([1, 2], [300]), ([2, 3], [300]), ([3, 4, 5, 4, 1], [75, 75, 75, 75])]
-        with self.assertRaisesRegex(circuitlap.NoLap, "Between pin 3 and pin 1 the car would have to turn around"):
+    def test_u_turn_inside_a_leg_names_the_nearer_end_pin(self):
+        # The turn is at 627 m, with pins 2 and 3 at 330 m and 696 m.
+        legs = [([1, 2], [330]), ([2, 3, 4, 3], [228, 69, 69]), ([3, 1], [200])]
+        with self.assertRaisesRegex(
+            circuitlap.NoLap, "^Near pin 3 the car would have to turn around: put it on the through road$"
+        ):
+            circuitlap.lap(answer(legs, [A, B, C, A]))
+
+    def test_u_turn_inside_a_leg_names_the_nearer_start_pin(self):
+        legs = [([1, 2], [330]), ([2, 4, 2, 3], [25, 25, 250]), ([3, 1], [200])]
+        with self.assertRaisesRegex(
+            circuitlap.NoLap, "^Near pin 2 the car would have to turn around: put it on the through road$"
+        ):
+            circuitlap.lap(answer(legs, [A, B, C, A]))
+
+    def test_u_turn_inside_closing_leg_can_name_pin_1(self):
+        legs = [([1, 2], [300]), ([2, 3], [300]), ([3, 4, 5, 4, 1], [140, 50, 50, 60])]
+        with self.assertRaisesRegex(
+            circuitlap.NoLap, "^Near pin 1 the car would have to turn around: put it on the through road$"
+        ):
             circuitlap.lap(answer(legs, [A, B, C, A]))
 
     def test_u_turn_at_the_seam_names_pin_1(self):

@@ -57,7 +57,10 @@ def _twice_driven(legs, pin_count, same_snap):
                     at_pin = pin if leg_index else 1
                     raise NoLap(f"At pin {at_pin} the car would have to turn around: put it on the through road")
                 next_pin = pin + 1 if pin < pin_count else 1
-                raise NoLap(f"Between pin {pin} and pin {next_pin} the car would have to turn around: move a pin")
+                from_start = start - edges[0][1]
+                to_end = edges[-1][2] - start
+                near_pin = pin if from_start <= to_end else next_pin
+                raise NoLap(f"Near pin {near_pin} the car would have to turn around: put it on the through road")
             if leg_index == i == 0:
                 # Equal snaps can join within one directed edge or at a node shared by both edges.
                 if not same_snap or (previous != edge and previous[1] != edge[0]):
