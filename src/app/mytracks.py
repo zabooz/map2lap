@@ -7,9 +7,10 @@ have the file: while their work folder is still there (out/tracks/<name>/tiles/a
     {"version" (the app, version.VERSION), "track_version" (version.TRACK_VERSION; before 0.3.3 only "version", which
      was the same; both missing on filled-in ones), "title", "points": [[lat, lon], ...] (route; area: []),
      "width": m or None, "area": [S, W, N, E] or None, "length_m", "area_m": [east, north] or None, "tiles",
-     "built": Unix time, "line": [[lat, lon], ...] or None, "route_end": the end pin's index in the route
+     "built": Unix time, "line": [[lat, lon], ...] or None, "route_end": the end of the route or lap
      (data/map2lap_route.txt) or None, "data": {"overture": release, "osm": the tags file's ETag} (generator.
-     data_versions), "code": its track code (trackcode; listing fills it in for builds without one), "edits": what the Editor's
+     data_versions), "kind": "circuit" for explicitly built circuits, "timing": {"line_m", "twice"} for circuit timing
+     measured on the built lap, "code": its track code (trackcode; listing fills it in for builds without one), "edits": what the Editor's
      last Save of it was made of (trackcopy.save), none on a build}
 """
 import json
@@ -37,6 +38,11 @@ def thin(latlon, n=LINE_MAX):
 def save(root, info):
     with open(os.path.join(root, FILE), "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False)
+
+
+def circuit_timing(timing):
+    """The placed start/finish metre and twice-driven spans from a circuit anchor's timing. Pure."""
+    return {key: timing[key] for key in ("line_m", "twice") if timing and key in timing}
 
 
 def load(track_dir):
@@ -79,10 +85,12 @@ def _from_work(track_dir):
         la, lo, _ = frame.enu_to_geodetic(xy[:, 0], xy[:, 1], np.zeros(len(xy)))
         line = thin(zip(np.asarray(la).tolist(), np.asarray(lo).tolist()))
     kn5 = os.path.join(track_dir, name + ".kn5")
-    return {"title": ui.get("name") or name, "points": anc["points"] or [], "width": None if area else anc.get("width"),
+    info = {"title": ui.get("name") or name, "points": anc["points"] or [], "width": None if area else anc.get("width"),
             "area": area, "length_m": anc.get("length_m", 0.0), "area_m": area_m, "tiles": len(anc["tiles"]),
-            "built": os.path.getmtime(kn5) if os.path.exists(kn5) else None, "line": line,
-            **buildoptions.checked(anc)}
+            "built": os.path.getmtime(kn5) if os.path.exists(kn5) else None, "line": line, **buildoptions.checked(anc)}
+    if _kind(anc) == "circuit":
+        info.update(kind="circuit", route_end=len(anc["route"]) - 1, timing=circuit_timing(anc.get("timing")))
+    return info
 
 
 def saved_in_editor(ac_path, name):
@@ -109,17 +117,25 @@ def free_name(ac_path, name):
     return new
 
 
-def _same(info):
-    """Key for "the same track" (route with width, or area; copies and originals share it)."""
-    options = tuple(buildoptions.checked(info).values())
+def _kind(info):
+    """The kind of a track's settings, with area or route inferred for legacy data. Pure."""
     if info.get("area"):
+        return "area"
+    return "circuit" if info.get("kind") == "circuit" else "route"
+
+
+def _same(info):
+    """Key for "the same track" (kind plus build settings; copies and originals share it). Pure."""
+    options = tuple(buildoptions.checked(info).values())
+    kind = _kind(info)
+    if kind == "area":
         return ("area", *options) + tuple(round(float(v), 5) for v in info["area"])
-    return ("route", *options, round(float(info.get("width") or 0), 1)) + tuple(
+    return (kind, *options, round(float(info.get("width") or 0), 1)) + tuple(
         (round(a, 5), round(b, 5)) for a, b in info["points"])
 
 
 def listing(ac_path):
-    """The tracks with settings, most recently built or saved in the Editor first: each {name, kn5_bytes, outdated, current_copy, edited,
+    """The tracks with settings, most recently built or saved in the Editor first: each {name, kind, kn5_bytes, outdated, current_copy, edited,
     saved (the Editor's last Save, None for a build), ...the settings but the Editor's recipe}. outdated: older track version than this release's and no copy of the same track is current
     (an old build next to a new copy no longer counts as old, it only shows its version); current_copy: that copy's title; edited:
     saved in the Editor: its own work from then on, so never old, no build can take its place and it is no current copy of a build."""
@@ -138,7 +154,7 @@ def listing(ac_path):
         kn5 = os.path.join(d, name + ".kn5")
         recipe = info.pop("edits", None)
         edited = bool(isinstance(recipe, dict) and recipe.get("source"))
-        out.append({**info, "name": name, "kn5_bytes": os.path.getsize(kn5) if os.path.exists(kn5) else None,
+        out.append({**info, "name": name, "kind": _kind(info), "kn5_bytes": os.path.getsize(kn5) if os.path.exists(kn5) else None,
                     "edited": edited, "saved": recipe.get("saved") if edited else None})
     current = {}
     for t in out:

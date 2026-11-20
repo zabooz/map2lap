@@ -314,11 +314,12 @@ def _refuse_saved(name):
 
 
 def build(points, width, name, title=None, log=print, clean=False, area=None, progress=None, cache_gb=None, upto=None,
-          line=None):
+          line=None, kind="route", circuit_timing=None):
     """The whole chain up to the track folder; returns a dict with paths and figures.
     progress(phase, done, total): progress for the generator page (phases: PHASES).
     line: (route [(lat, lon), ...], index of the end pin in it) instead of OSRM's: an earlier build's route as it was,
     the run-off behind the end pin included (tools/from_debug.py).
+    kind="circuit": route a closed lap. With line, circuit_timing holds the saved start/finish metre and twice-driven spans.
     clean: delete the temporary data afterwards (clean_up); the page does that while "Keep build files" is off.
     cache_gb: trim the map data cache to this limit afterwards (mapcache.trim; 0: none, None: don't tidy).
     area: (south, west, north, east) instead of route and corridor: all tiles in it, start on the road nearest the
@@ -328,10 +329,10 @@ def build(points, width, name, title=None, log=print, clean=False, area=None, pr
     if not upto:
         _refuse_saved(slug(name))
     with plancache.one_run(os.path.join(ROOT, "cache")):
-        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line)
+        return _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind, circuit_timing)
 
 
-def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line):
+def _build(points, width, name, title, log, clean, area, progress, cache_gb, upto, line, kind="route", circuit_timing=None):
     """build, its processes sharing their plans."""
     progress = progress or (lambda phase, done, total: None)
     t_start = time.perf_counter()
@@ -341,6 +342,8 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
     log(f"Parked cars: {'on' if options['parked_cars'] else 'off'}")
     log(f"Tree minimum spacing: {options['tree_spacing_m']:g} m")
     points = [(lat, wrap_lon(lon)) for lat, lon in points or ()]
+    kind = "area" if area else kind
+    circuit = kind == "circuit"
     if area:                # (both sides by the same whole turns: an area keeps its width)
         turns = wrap_lon(area[1]) - float(area[1])
         area = (area[0], float(area[1]) + turns, area[2], float(area[3]) + turns)
@@ -364,20 +367,28 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
         log(f"Area {size[0] / 1000:.2f} × {size[1] / 1000:.2f} km: {len(tiles)} tiles")
     else:
         progress("route", 0, 0)
+        lap = None
         if line is None:
-            log("Calculating route (OSRM) ...")
-            pts, length = route(points)
+            if circuit:
+                log("Calculating circuit (OSRM) ...")
+                lap = circuit_route(points)
+                pts, length = lap.coords, lap.length_m
+            else:
+                log("Calculating route (OSRM) ...")
+                pts, length = route(points)
         else:
-            log("Route as given (no OSRM)")
+            log("Circuit as given (no OSRM)" if circuit else "Route as given (no OSRM)")
             pts, given = [list(p) for p in line[0][:line[1] + 1]], [list(p) for p in line[0][line[1] + 1:]]
             ll = np.asarray(pts, float)
             length = float(np.sum(np.hypot(np.diff(ll[:, 0]) * 111320.0,
                                            np.diff(ll[:, 1]) * 111320.0 * np.cos(np.radians(ll[:-1, 0])))))
         if length > MAX_ROUTE_M:
             raise RuntimeError(f"Route is {length / 1000:.1f} km long, at most {MAX_ROUTE_M / 1000:.0f} km possible")
-        loop = math.hypot((pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0])),
-                          (pts[-1][0] - pts[0][0]) * 111320.0) < LOOP_M
-        if line is not None:
+        loop = circuit or math.hypot((pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0])),
+                                     (pts[-1][0] - pts[0][0]) * 111320.0) < LOOP_M
+        if circuit:
+            ext = []
+        elif line is not None:
             ext = given
         else:
             ext = [] if loop else extend(pts)       # (finish line and run-off behind the end pin)
@@ -388,9 +399,18 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
         e, n, _ = frame.geodetic_to_enu(lats, lons, np.zeros_like(lats))
         xy = np.c_[np.asarray(e, float), np.asarray(n, float)]
         tiles = corridor_tiles(xy, width)
-        log(f"Route {length / 1000:.2f} km, corridor ±{width:.0f} m: {len(tiles)} tiles")
+        label = "Circuit, lap" if circuit else "Route"
+        log(f"{label} {length / 1000:.2f} km, corridor ±{width:.0f} m: {len(tiles)} tiles")
         timing = None
-        if not loop:            # start and finish line (m along xy; obj_to_kn5.ab_gates)
+        if circuit:
+            timing = {"start_m": 0.0, "twice": []}
+            if lap is not None and lap.twice:
+                # Use the length of the line that the converter reads back from the anchor.
+                scale = float(np.linalg.norm(np.diff(xy.round(2), axis=0), axis=1).sum()) / length
+                timing["twice"] = [[lo * scale, hi * scale] for lo, hi in lap.twice]
+            if circuit_timing is not None and line is not None:
+                timing.update(mytracks.circuit_timing(circuit_timing))
+        elif not loop:          # start and finish line (m along xy; obj_to_kn5.ab_gates)
             s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
             end, more = float(s[len(pts) - 1]), float(s[-1] - s[len(pts) - 1])
             finish = end + FINISH_AFTER_M if more >= FINISH_AFTER_M + 20.0 else end
@@ -425,7 +445,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             if i == len(tiles) or i % max(1, len(tiles) // 50) == 0 or len(tiles) <= 50:
                 log(f"Tile {i}/{len(tiles)} ({tx},{ty}): {dt:.1f} s")
     log(f"Tiles done in {time.perf_counter() - t0:.0f} s")
-    anc = {"lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
+    anc = {"kind": kind, "lat": lat0, "lon": lon0, "aid": build_tiles.AID, "dem_zoom": build_tiles.DEM_ZOOM,
            "tiles": [list(t) for t in tiles], "width": width, "length_m": length, "points": points,
            "rules": rules, "title": title, "code_key": revisit.code_key()}
     anc.update(options)
@@ -474,6 +494,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     tiles = [tuple(t) for t in anc["tiles"]]
     lat0, lon0, width, length, points = anc["lat"], anc["lon"], anc["width"], anc["length_m"], anc["points"]
     area, timing = anc.get("area"), anc.get("timing")
+    circuit = anc.get("kind") == "circuit"
     n_obj, n_verts, tris = figures
     size = None
     if area:
@@ -485,8 +506,9 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     log("Writing track folder ...")
     boxes = np.array([roadsmod.tile_bbox(tx, ty) for tx, ty in tiles])        # ENU (x0, y0, x1, y1)
     bounds = (boxes[:, 0].min(), -boxes[:, 3].max(), boxes[:, 2].max(), -boxes[:, 1].min())   # AC: z = -north
+    label = "Circuit, lap" if circuit else "Route"
     desc = (f"Area {size[0] / 1000:.1f} × {size[1] / 1000:.1f} km." if area else
-            f"Route {length / 1000:.1f} km, corridor ±{width:.0f} m.")
+            f"{label} {length / 1000:.1f} km, corridor ±{width:.0f} m.")
     town, country = where(lat0, lon0)
     trees = objectlist.collect_treefx(parts)
     if trees:
@@ -494,7 +516,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     root = make_track_folder.make(name, title, obj=os.path.join(obj_dir, "track.obj"), preview=None, city=town,
                                   country=country, geotags=(lat0, lon0), extra_description=desc,
                                   route=None if area else xy.tolist(), log=log, parts=parts, bounds=bounds,
-                                  point_to_point=timing is not None, trees=trees)
+                                  point_to_point=not circuit and timing is not None, trees=trees)
     # For the debug app (debugapp): the route in AC coordinates (x east, z = -north) and the anchor; an area has
     # none (the app says so), and no old one from an earlier build under the same name either
     route_txt = os.path.join(root, "data", "map2lap_route.txt")
@@ -510,8 +532,9 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         os.remove(old)
     progress("kn5", 0, 0)
     log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
+    anchor_path = os.path.join(tiles_dir, "anchor.json")
     kn5_path = obj_to_kn5.convert(os.path.join(obj_dir, "track.obj"), os.path.join(root, name + ".kn5"),
-                                  os.path.join(tiles_dir, "anchor.json"), log=log,
+                                  anchor_path, log=log,
                                   parts=parts + [p for p in (gate, far) if p])
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
     info = {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title,
@@ -520,6 +543,9 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
             "area_m": list(size) if area else None, "tiles": len(tiles), "built": time.time(),
             "line": None if area else mytracks.thin(pts),
             "route_end": None if area else len(pts) - 1, "data": data_versions()}
+    if circuit:
+        with open(anchor_path, encoding="utf-8") as f:
+            info.update(kind="circuit", timing=mytracks.circuit_timing(json.load(f).get("timing")))
     info.update(buildoptions.checked(anc))
     mytracks.save(root, {**info, "code": trackcode.encode(info)})
     progress("clean", 0, 0)
@@ -539,7 +565,9 @@ def main():
     ap.add_argument("--name", required=True)
     ap.add_argument("--title")
     ap.add_argument("--width", type=float, default=100.0, help="m left and right of the route")
-    ap.add_argument("--area", type=float, nargs=4, metavar=("S", "W", "N", "E"), help="area instead of a route")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--area", type=float, nargs=4, metavar=("S", "W", "N", "E"), help="area instead of a route")
+    mode.add_argument("--circuit", action="store_true", help="close the lap from the last pin back to the first")
     ap.add_argument("--clean", action="store_true", help="delete the temporary data afterwards")
     ap.add_argument("--result", action="store_true", help="a line RESULT <json> at the end (for server.py)")
     ap.add_argument("--cores", type=float, default=100.0, help="%% of the logical cores (at most all but one)")
@@ -554,7 +582,8 @@ def main():
         def progress(phase, done, total):
             print("PROGRESS " + json.dumps({"phase": phase, "done": done, "total": total}), flush=True)
     res = build(pts, a.width, a.name, a.title, clean=a.clean, area=a.area, progress=progress,
-                cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb)
+                cache_gb=settings.load()["cache_gb"] if a.cache_gb is None else a.cache_gb,
+                kind="circuit" if a.circuit else "route")
     if a.result:
         print("RESULT " + json.dumps({k: v for k, v in res.items() if k != "tris"}, default=float), flush=True)
 

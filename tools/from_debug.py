@@ -83,14 +83,15 @@ def main():
     if info.get("area"):
         res = generator.build([], None, name, title, area=info["area"], upto=a.upto)
     else:
+        kind = info.get("kind", "route")
         route = os.path.join(a.folder, "map2lap_route.txt")
         if info.get("route_end") is None or not os.path.exists(route):
             print("  no route as built in the folder: routed again from the pins (OSRM, today's map)")
-            res = generator.build(info["points"], info["width"], name, title, upto=a.upto)
+            res = generator.build(info["points"], info["width"], name, title, upto=a.upto, kind=kind)
         else:
             _anchor, line = route_latlon(route)
             res = generator.build(info["points"], info["width"], name, title, upto=a.upto,
-                                  line=(line, int(info["route_end"])))
+                                  line=(line, int(info["route_end"])), kind=kind, circuit_timing=info.get("timing"))
     print(f"done: {res.get('track') or res.get('work')}")
 
 

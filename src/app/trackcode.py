@@ -4,6 +4,7 @@ A build is a function of its inputs (the pins and corridor width, or the area), 
 (nothing in it is random: positions are hashed), so the code holds the inputs and the track version they were built
 with: {"v": track version, "t": title, "p": [[lat, lon], ...], "w": corridor m} or {"v", "t", "a": [S, W, N, E]},
 compact JSON, deflated, base64url; optional g/c/s/q hold terrain spacing, parked cars, minimum tree spacing and ground quality.
+On a points code, "k": "circuit" closes the lap back to pin 1. A points code without k is a Route.
 The route itself is not in it: OSRM routes the pins again (on today's map).
 """
 import base64
@@ -25,7 +26,7 @@ class BadCode(ValueError):
 
 
 def encode(info):
-    """The code of a track's settings (mytracks: "points", "width", "area", "title", "track_version")."""
+    """The code of a track's settings (mytracks: points, width, area, kind, title, track_version). Pure."""
     d = {"v": info.get("track_version") or info.get("version"), "t": info.get("title") or ""}
     options = buildoptions.checked(info)
     grid = options["terrain_cell_m"]
@@ -42,14 +43,15 @@ def encode(info):
     else:
         d["p"] = [[round(float(a), DIGITS), round(float(b), DIGITS)] for a, b in info["points"]]
         d["w"] = round(float(info.get("width") or 0), 1)
+        if info.get("kind") == "circuit":
+            d["k"] = "circuit"
     raw = json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     prefix = HD_PREFIX if options["ground_quality"] == "hd" else GRID_PREFIX if options != buildoptions.DEFAULTS else PREFIX
     return prefix + base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode("ascii").rstrip("=")
 
 
 def decode(code):
-    """{"track_version", "title", "points", "width"} or {"track_version", "title", "area"} of a code; BadCode if it is
-    none."""
+    """The track version, title and build settings of a code, with kind for points codes. BadCode if invalid. Pure."""
     code = "".join(str(code or "").split())        # (pasted with line breaks or spaces)
     prefix = next((p for p in (PREFIX, GRID_PREFIX, HD_PREFIX) if code.startswith(p)), None)
     if prefix is None or len(code) > MAX_CHARS:
@@ -57,6 +59,8 @@ def decode(code):
     body = code[len(prefix):]
     try:
         d = json.loads(zlib.decompress(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))).decode("utf-8"))
+        if "k" in d and (d["k"] != "circuit" or "a" in d):
+            raise ValueError("kind")
         out = {"track_version": d.get("v"), "title": str(d.get("t") or ""),
                **buildoptions.checked({"terrain_cell_m": d.get("g", 2), "parked_cars": d.get("c", True),
                                        "tree_spacing_m": d.get("s", 0), "ground_quality": d.get("q", "sd")})}
@@ -70,6 +74,7 @@ def decode(code):
             if len(pts) < 2 or not all(-90 <= a <= 90 and -180 <= b <= 180 for a, b in pts):
                 raise ValueError("points")
             out["points"], out["width"] = pts, float(d["w"])
+            out["kind"] = d.get("k", "route")
         return out
     except (ValueError, TypeError, KeyError, zlib.error) as e:
         raise BadCode("the track code is damaged") from e

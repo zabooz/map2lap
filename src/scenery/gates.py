@@ -238,12 +238,12 @@ def _gate(kind, objs, ground, c, fwd, obj, tex_dir, tex):
 
 def build(tiles_dir, obj_dir, log=print):
     """Start and finish to obj_dir/parts/gates.obj (materials into track.mtl, textures to textures/) and their position
-    to anchor.json timing["gates"]; returns the path, None without timing (area, circuit)."""
+    to anchor.json timing["gates"]; returns the path, None for a circuit or without timing."""
     anc_path = os.path.join(tiles_dir, "anchor.json")
     with open(anc_path, encoding="utf-8") as f:
         anc = json.load(f)
     timing, route = anc.get("timing"), anc.get("route")
-    if not timing or not route:
+    if anc.get("kind") == "circuit" or not timing or not route:
         return None
     xy = np.asarray(route, float)
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]

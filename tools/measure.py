@@ -815,7 +815,7 @@ def code(entry, track=None):
         except (OSError, ValueError):
             pass
     return trackcode.encode({"points": entry["points"], "width": entry["width"], "title": entry["title"],
-                             "track_version": version.TRACK_VERSION, **options})
+                             "kind": entry.get("kind"), "track_version": version.TRACK_VERSION, **options})
 
 
 def build_one(test, t, install, share):
@@ -830,12 +830,13 @@ def build_one(test, t, install, share):
     shutil.rmtree(trace, ignore_errors=True)
     os.environ[buildtrace.ENV] = trace
     entry = test[t]
+    kind = entry.get("kind", "route")
     if install:
         generator.build(entry.get("points", []), entry.get("width", 100.0), t, entry["title"],
-                        area=entry.get("area"))
+                        area=entry.get("area"), kind=kind)
     else:
         generator.build(entry.get("points", []), entry.get("width", 100.0), t, upto="obj",
-                        area=entry.get("area"))
+                        area=entry.get("area"), kind=kind)
 
 
 def build_all(tracks, install, jobs):

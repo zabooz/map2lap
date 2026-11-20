@@ -223,7 +223,8 @@ def saved_in_editor(name):
     return 409, {"error": f"A track saved in the Editor is called “{title}”: a build can't replace it, choose another name"}
 
 
-def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd"):
+def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=True, tree_spacing_m=0, ground_quality="sd",
+                kind="route"):
     """Start a build (new and rebuild); returns (HTTP code, response)."""
     if not settings.is_ac(settings.ac_path()):
         return 400, {"error": "Assetto Corsa folder not found: set it in Settings"}
@@ -240,6 +241,8 @@ def start_build(name, title, points, width, area, terrain_cell_m=2, parked_cars=
     if area:
         args += ["--area", *(str(float(v)) for v in area)]
     else:                           # ("--": a point like -33.9,151.2 is not an option)
+        if kind == "circuit":
+            args.append("--circuit")
         args += ["--width", str(float(width or 100)), "--", *(f"{la},{lo}" for la, lo in points)]
     if clean:
         args.insert(0, "--clean")
@@ -929,9 +932,11 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                     self._send(409, {"error": str(e)})
             elif self.path == "/api/build":
                 name = generator.slug(body.get("name") or "route")
+                mode = {"kind": "circuit"} if body.get("kind") == "circuit" else {}
                 self._send(*start_build(name, body.get("title") or name, [tuple(p) for p in body.get("points") or []],
                                         body.get("width", 100), body.get("area"), body.get("terrain_cell_m", 2),
-                                        body.get("parked_cars", True), body.get("tree_spacing_m", 0), body.get("ground_quality", "sd")))
+                                        body.get("parked_cars", True), body.get("tree_spacing_m", 0),
+                                        body.get("ground_quality", "sd"), **mode))
             elif self.path == "/api/rebuild":           # a track from "My tracks" with its settings,
                 name = generator.slug(body.get("name") or "")      # replaced or (copy) as a new one next to it
                 info = mytracks.load(os.path.join(settings.ac_path(), "content", "tracks", name))
@@ -940,11 +945,12 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 title = info["title"]
                 if body.get("copy"):
                     name, title = mytracks.copy_name(settings.ac_path(), name, title)
+                mode = {"kind": "circuit"} if info.get("kind") == "circuit" else {}
                 self._send(*start_build(name, title, [tuple(p) for p in info["points"]], body.get("width", info.get("width")),
                                         info.get("area"), body.get("terrain_cell_m", info.get("terrain_cell_m", 2)),
                                         body.get("parked_cars", info.get("parked_cars", True)),
                                         body.get("tree_spacing_m", info.get("tree_spacing_m", 0)),
-                                        body.get("ground_quality", info.get("ground_quality", "sd"))))
+                                        body.get("ground_quality", info.get("ground_quality", "sd")), **mode))
             elif self.path == "/api/play":
                 self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"), body.get("car")))
             elif self.path == "/api/delete":
