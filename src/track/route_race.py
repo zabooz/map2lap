@@ -53,28 +53,40 @@ def _shared_model(source, target, offsets):
     os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
 
 
+def layout_configs(model):
+    """Return the configs for a Route model, rejecting existing configs belonging to another layout."""
+    model = Path(model)
+    configs = {DEFAULT: _models(model.name, PRACTICE_MODEL), RACE: _models(model.name, RACE_MODEL)}
+    for name, config in configs.items():
+        path = model.parent / name
+        if path.exists() and path.read_text(encoding="utf-8") != config:
+            raise ValueError(f"{name} already belongs to a different Assetto Corsa layout")
+    return configs
+
+
 def prepare(model):
     """Prepare both native layouts for an installed Route while AC is closed. Repeated calls reuse the shared KN5."""
     model = Path(model)
     folder = model.parent
-    configs = {DEFAULT: _models(model.name, PRACTICE_MODEL), RACE: _models(model.name, RACE_MODEL)}
-    for name, config in configs.items():
-        path = folder / name
-        if path.exists() and path.read_text(encoding="utf-8") != config:
-            raise ValueError(f"{name} already belongs to a different Assetto Corsa layout")
+    configs = layout_configs(model)
     scan = kn5.scan(model, point_offsets=True)
     points = scan["points"]
     embedded = all(name in points for name in GATES)
     if not has_gates(points):
         raise ValueError("This Route is missing its start or finish timing markers")
+    if embedded:
+        size = model.stat().st_size
+        if shutil.disk_usage(folder).free < size:
+            raise OSError(f"Not enough free space for the temporary KN5 ({size:,} bytes required)")
     with tempfile.TemporaryDirectory(prefix=".route_timing_", dir=folder) as directory:
         prepared = Path(directory)
+        assets = []
         for source in LAYOUT_DATA:
             if (folder / source).is_file():
                 target = folder / LAYOUT / source
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(folder / source, prepared / source.name)
-                os.replace(prepared / source.name, target)
+                staged = prepared / source.name
+                shutil.copyfile(folder / source, staged)
+                assets.append((staged, target))
         gates = {name: points[name if embedded else ALIASES[name]] for name in GATES}
         _timing_model(prepared / PRACTICE_MODEL, gates)
         # AC starts a Race at the lights. The layout supplies the finish; the shared model supplies any splits.
@@ -88,8 +100,10 @@ def prepare(model):
             info = json.loads(ui.read_text(encoding="utf-8-sig"))
             info.update(name=f"{info.get('name', model.stem)} (Race)", run="free")
             (prepared / "ui_track.json").write_text(json.dumps(info), encoding="utf-8")
-            (folder / UI).mkdir(parents=True, exist_ok=True)
-            os.replace(prepared / "ui_track.json", folder / UI / "ui_track.json")
+            assets.append((prepared / "ui_track.json", folder / UI / "ui_track.json"))
+        for source, target in assets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, target)
         # Install Practice's replacement gates before removing the embedded ones.
         for name in (PRACTICE_MODEL, RACE_MODEL, DEFAULT, RACE):
             os.replace(prepared / name, folder / name)

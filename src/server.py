@@ -24,6 +24,7 @@ import threading
 import time
 import traceback
 import webbrowser
+from contextlib import nullcontext
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -48,7 +49,7 @@ PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
        "progress": None, "started": None, "ended": None}              # progress: generator.PHASES {phase, done, total}
 running = {"proc": None, "clearing": False}     # clearing: the map data cache is being cleared (no build)
-lock, dialog_lock = threading.Lock(), threading.Lock()
+lock, dialog_lock, play_lock = threading.Lock(), threading.Lock(), threading.Lock()
 # The running build {name, clean, started, pid}: if the file is still there when the server starts, the server ended
 # in the middle of a build (console window closed), and tidy_interrupted tidies up
 MARK = os.path.join(ROOT, "out", "build_running.json")
@@ -427,6 +428,56 @@ def _resume_best():
     _previous_best(ac, race_file, ini, resume=True)
 
 
+def _play_blocker():
+    """Why AC cannot start right now, while the server lock is held."""
+    if job["state"] in ("running", "stopping"):
+        return "Not while a build is running"
+    if csp.busy():
+        return "CSP is being installed: wait for it, then play"
+    if system.running("acs.exe"):
+        return "Assetto Corsa is already running"
+    return None
+
+
+def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, timed):
+    """Prepare the track and launch one AC session while status requests remain independent."""
+    name = ini.get("RACE", "TRACK")
+    layout = ini.get("RACE", "CONFIG_TRACK")
+    if not play_lock.acquire(blocking=False):
+        return 409, {"error": "A drive is already being prepared"}
+    try:
+        # Use the same reservation as Editor Save and Delete. Build and CSP install check it too.
+        with trackcopy.alone() if layout else nullcontext():
+            with lock:
+                if error := _play_blocker():
+                    return 409, {"error": error}
+            if layout:
+                try:
+                    route_race.prepare(track_file)
+                except (OSError, ValueError, struct.error, AssertionError) as error:
+                    return 409, {"error": f"Route Race could not be prepared: {error}"}
+            try:
+                track_dir = os.path.dirname(track_file)
+                weather.install_track(track_dir, weather.scenery_options(ini, selected_weather), effects=effects)
+                if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
+                    weather.install_controller(ac)
+            except OSError as error:
+                return 409, {"error": f"Weather could not be prepared: {error}"}
+            with lock:
+                if error := _play_blocker():
+                    return 409, {"error": error}
+                with open(race_file, "w", encoding="utf-8") as f:
+                    ini.write(f, space_around_delimiters=False)
+                system.start_ac(ac, weather_effects=effects)
+                if timed:
+                    _watch_best(race_file, f"{name}-{layout}" if layout else name, ini.get("RACE", "MODEL"))
+    except trackcopy.Busy:
+        return 409, {"error": "Wait for the Editor save or track deletion before starting Race"}
+    finally:
+        play_lock.release()
+    return 200, {"ok": True}
+
+
 def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=False):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
     settings (car, skin, weather, assists) but this track, no opponents and offline; then acs.exe (system.start_ac;
@@ -461,12 +512,8 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=
         if not circuit and not (timed_route and laps == 1):
             return 400, {"error": "Race requires a Circuit or one run on a Route with start and finish timing"}
     with lock:
-        if job["state"] in ("running", "stopping"):
-            return 409, {"error": "Not while a build is running"}
-        if csp.busy():
-            return 409, {"error": "CSP is being installed: wait for it, then play"}
-    if system.running("acs.exe"):
-        return 409, {"error": "Assetto Corsa is already running"}
+        if error := _play_blocker():
+            return 409, {"error": error}
     if not system.ensure_steam():
         return 409, {"error": "Steam did not start (or is not signed in): start it and try again"}
     ini = configparser.ConfigParser(interpolation=None, strict=False)
@@ -524,32 +571,7 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=
     if not ini.has_section('LIGHTING'):
         ini.add_section('LIGHTING')
     ini['LIGHTING']['__MAP2LAP_WEATHER_EFFECTS'] = str(int(effects))
-    try:
-        weather.install_track(track_dir, weather.scenery_options(ini, selected_weather), effects=effects)
-        if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
-            weather.install_controller(ac)
-    except OSError as error:
-        return 409, {"error": f"Weather could not be prepared: {error}"}
-    with lock:
-        # Steam sign-in can take a while; a requested CSP install may have started since the first check.
-        if csp.busy():
-            return 409, {"error": "CSP is being installed: wait for it, then play"}
-        if system.running("acs.exe"):
-            return 409, {"error": "Assetto Corsa is already running"}
-        if route_layout:
-            if job["state"] in ("running", "stopping") or trackcopy.busy():
-                return 409, {"error": "Wait for the build or Editor save before starting Race"}
-            try:
-                route_race.prepare(track_file)
-            except (OSError, ValueError, struct.error, AssertionError) as error:
-                return 409, {"error": f"Route Race could not be prepared: {error}"}
-        with open(race_file, "w", encoding="utf-8") as f:
-            ini.write(f, space_around_delimiters=False)
-        system.start_ac(ac, weather_effects=effects)
-        if circuit or timed_route:
-            result_track = f"{name}-{route_layout}" if route_layout else name
-            _watch_best(race_file, result_track, ini.get("RACE", "MODEL"))
-    return 200, {"ok": True}
+    return _launch_play(ac, track_file, race_file, ini, selected_weather, effects, timed=circuit or timed_route)
 
 
 def has_build_files(name):

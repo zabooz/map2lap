@@ -227,6 +227,30 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual((200, True), self.started())
         self.assertEqual("", self.ini().get("RACE", "CONFIG_TRACK"))
 
+    def test_route_race_copy_keeps_status_responsive_and_reserves_track_writes(self):
+        self.install_timed_route()
+        prepare = route_race.prepare
+
+        def copy(model):
+            self.assertTrue(server.lock.acquire(blocking=False))
+            server.lock.release()
+            self.assertTrue(server.trackcopy.busy())
+            self.assertEqual(409, server.play("one")[0])
+            self.assertEqual(RACE, self.race.read_text())
+            prepare(model)
+
+        with mock.patch.object(route_race, "prepare", side_effect=copy):
+            self.assertEqual((200, True), self.started(laps=1))
+        self.assertFalse(server.trackcopy.busy())
+
+    def test_failed_route_race_preparation_leaves_the_session_and_can_retry(self):
+        self.install_timed_route()
+        with mock.patch.object(route_race, "prepare", side_effect=OSError("copy failed")):
+            self.assertEqual((409, False), self.started(laps=1))
+        self.assertEqual(RACE, self.race.read_text())
+        self.assertFalse(server.trackcopy.busy())
+        self.assertEqual((200, True), self.started(laps=1))
+
     def test_route_practice_watches_the_time(self):
         self.install_timed_route()
         self.assertEqual((200, True), self.started())

@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from track import kn5, objectlist, route_race  # noqa: E402
@@ -64,6 +65,18 @@ class RouteRaceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             route_race.prepare(self.model)
         self.assertIn("custom.kn5", default.read_text())
+        self.assertEqual(before, self.model.read_bytes())
+
+    def test_legacy_route_checks_disk_space_before_making_layout_changes(self):
+        before = self.model.read_bytes()
+        usage = mock.Mock(free=len(before) - 1)
+        with mock.patch.object(route_race.shutil, "disk_usage", return_value=usage), \
+             mock.patch.object(route_race, "_shared_model") as copy:
+            with self.assertRaisesRegex(OSError, "Not enough free space"):
+                route_race.prepare(self.model)
+        copy.assert_not_called()
+        self.assertFalse((self.root / route_race.LAYOUT).exists())
+        self.assertFalse((self.root / route_race.DEFAULT).exists())
         self.assertEqual(before, self.model.read_bytes())
 
     def test_cleanup_removes_empty_layout_folders_and_keeps_other_files(self):

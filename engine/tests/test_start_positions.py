@@ -13,7 +13,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 import generator  # noqa: E402,F401  (sets the engine's import path)
-from track import kn5, obj_to_kn5  # noqa: E402
+from track import kn5, obj_to_kn5, route_race  # noqa: E402
 
 
 def road(depth=400):
@@ -28,6 +28,55 @@ def positions(nodes):
 
 
 class StartPositionsTest(unittest.TestCase):
+    def convert_timed_route(self, default_models=None):
+        path = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        obj = path / "track.obj"
+        writer = generator.make_obj.Obj(obj, header=False)
+        for name, (material, p, uv, faces) in road().items():
+            writer.add(name, material, p[:, [0, 2, 1]] * [1, -1, 1], uv, faces)
+        writer.close()
+        (path / "track.mtl").write_text("newmtl road\nmap_Kd road.png\n", encoding="utf-8")
+        Image.new("RGB", (1, 1), (80, 80, 80)).save(path / "road.png")
+        (path / "ui").mkdir()
+        (path / "ui/ui_track.json").write_text('{"name": "Timed Route", "run": "point-to-point"}', encoding="utf-8")
+        if default_models is not None:
+            (path / route_race.DEFAULT).write_text(default_models, encoding="utf-8")
+        anchor = path / "anchor.json"
+        timing = {"start_m": 0.0, "finish_m": 300.0, "approach": [[0, 30]]}
+        anchor.write_text(json.dumps({"kind": "route", "route": [[50, 30], [400, 30]], "timing": timing}), encoding="utf-8")
+        model = path / "track.kn5"
+        obj_to_kn5.convert(str(obj), str(model), str(anchor), log=lambda _: None)
+        return model
+
+    def test_timed_route_build_installs_both_layouts_and_shared_markers(self):
+        model = self.convert_timed_route()
+        points = kn5.scan(model)["points"]
+        self.assertTrue(set(route_race.ALIASES.values()) <= points.keys())
+        self.assertFalse(set(route_race.GATES) & points.keys())
+        self.assertTrue({f"AC_TIME_{i}_{side}" for i in (1, 2) for side in "LR"} <= points.keys())
+        for config, timing in ((route_race.DEFAULT, route_race.PRACTICE_MODEL), (route_race.RACE, route_race.RACE_MODEL)):
+            content = (model.parent / config).read_text(encoding="utf-8")
+            self.assertIn(f"FILE={model.name}\n", content)
+            self.assertIn(f"FILE={timing}\n", content)
+        self.assertEqual(set(route_race.GATES), set(kn5.scan(model.parent / route_race.PRACTICE_MODEL)["points"]))
+        self.assertEqual({"AC_TIME_0_L", "AC_TIME_0_R"}, set(kn5.scan(model.parent / route_race.RACE_MODEL)["points"]))
+        self.assertTrue((model.parent / route_race.UI / "ui_track.json").is_file())
+
+    def test_build_and_prepare_leave_a_new_timed_route_model_in_place(self):
+        with mock.patch.object(route_race, "_shared_model", side_effect=AssertionError("Copied the new main KN5")):
+            model = self.convert_timed_route()
+            before = model.stat()
+            route_race.prepare(model)
+        after = model.stat()
+        self.assertEqual((after.st_ino, after.st_size, after.st_mtime_ns), (before.st_ino, before.st_size, before.st_mtime_ns))
+
+    def test_rebuild_keeps_foreign_model_configuration_and_native_ab_gates(self):
+        custom = "[MODEL_0]\nFILE=track.kn5\n"
+        model = self.convert_timed_route(default_models=custom)
+        self.assertEqual(custom, (model.parent / route_race.DEFAULT).read_text(encoding="utf-8"))
+        self.assertFalse((model.parent / route_race.RACE).exists())
+        self.assertTrue(set(route_race.GATES) <= kn5.scan(model)["points"].keys())
+
     def test_route_sector_lines_divide_the_checked_start_to_finish_distance(self):
         route = [[0, 0], [400, 0]]
         timing = {"start_m": 100, "finish_m": 350, "gates": {

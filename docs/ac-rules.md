@@ -173,8 +173,10 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
 - Play offers Practice and a one-run Race with start lights for timed Routes. Native A–B Practice reports the total
   gate-to-gate time. Race also reports the sector times from the shared road model.
-  Race measures one continuous run from the lights going out to the finish gate. On first Race, Map2Lap gives AC separate
-  timing models which share the installed track's road model. AC's `personalbest.ini` keeps the times by car and layout.
+  Race measures one continuous run from the lights going out to the finish gate. A new build writes both timing models
+  with a shared road model. An older Route gets the same layouts when first started in Race. The migration checks
+  space for a temporary KN5 and holds the track-write reservation while the page can still read build status.
+  AC's `personalbest.ini` keeps the times by car and layout.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
   must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an
