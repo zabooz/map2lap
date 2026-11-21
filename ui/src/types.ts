@@ -33,7 +33,7 @@ export interface Track extends Partial<BuildOptions> {
   code?: string;
   best_lap?: BestLap;
   best_race?: BestLap;
-  hotlap?: boolean;
+  ab_timing?: boolean;
 }
 
 export interface Progress {
@@ -46,7 +46,7 @@ export interface BuildResult {
   name: string;
   title?: string;
   kind?: Mode;
-  hotlap?: boolean;
+  ab_timing?: boolean;
   kn5_bytes: number;
   seconds: number;
   tiles: number;

@@ -146,7 +146,7 @@ def run_build(args, name, clean, started, terrain_cell_m=2, parked_cars=True, tr
             job["state"] = "stopped"
     elif code == 0 and result:
         if result.get("kn5") and result.get("kind") != "circuit" and not result.get("area_m"):
-            result["hotlap"] = _has_ab_timing(result["kn5"])
+            result["ab_timing"] = _has_ab_timing(result["kn5"])
         with lock:
             job.update(state="done", result=result)
     else:
@@ -357,6 +357,7 @@ def valid_clock(clock):
 
 
 def _is_circuit(track_dir):
+    """Read the track directory's metadata to identify an installed Circuit."""
     info = mytracks.load(track_dir)
     return isinstance(info, dict) and info.get("kind") == "circuit" and not info.get("area")
 
@@ -478,13 +479,12 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
     return 200, {"ok": True}
 
 
-def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=False):
+def play(name, clock=None, weather_options=None, car=None, *, laps=None):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
     settings (car, skin, weather, assists) but this track, no opponents and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
     car: an installed car folder for this session, empty for last driven, None for the saved setting.
     laps: the lap count for a Circuit's solo Race or 1 for a timed Route, None for unlimited Practice.
-    hotlap: a timed start-to-finish drive on a Route with both timing lines.
     Returns (HTTP code, response)."""
     import configparser
     if clock is not None and not valid_clock(clock):
@@ -503,8 +503,6 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=
     circuit = _is_circuit(track_dir)
     timed_route = not circuit and _has_ab_timing(track_file)
     route_layout = route_race.LAYOUT if timed_route and laps is not None else ""
-    if type(hotlap) is not bool or (hotlap and (laps is not None or not timed_route)):
-        return 400, {"error": "Hotlap is only available on a Route with start and finish timing"}
     if laps is not None:
         # AC represents the session's lap count as a signed 32-bit integer.
         if type(laps) is not int or not 1 <= laps < 2**31:
@@ -551,10 +549,7 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=
         if ini.has_section(sec):
             ini.set(sec, "ACTIVE", "0")
     session = {"NAME": "Practice", "TYPE": "1", "DURATION_MINUTES": "0", "SPAWN_SET": "START"}
-    if hotlap:
-        # AC can start A-to-B Hotlap from the grid position behind the timing gate.
-        ini["SESSION_0"] = {**session, "NAME": "Hotlap", "TYPE": "4"}
-    elif laps is None:
+    if laps is None:
         if not ini.has_section("SESSION_0"):
             ini.add_section("SESSION_0")
         ini["SESSION_0"].update(session)
@@ -865,7 +860,7 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                 for track in tracks:
                     if track["kind"] == "route" and not track.get("area_m") and track["kn5_bytes"]:
                         name = track["name"]
-                        track["hotlap"] = _has_ab_timing(os.path.join(ac, "content", "tracks", name, name + ".kn5"))
+                        track["ab_timing"] = _has_ab_timing(os.path.join(ac, "content", "tracks", name, name + ".kn5"))
                         if (race := times.get(f"{name.casefold()}-{route_race.LAYOUT}")) is not None:
                             model, elapsed = race
                             track["best_race"] = {"car": car_name(model), "time_ms": elapsed}
@@ -1108,8 +1103,11 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                                         body.get("tree_spacing_m", info.get("tree_spacing_m", 0)),
                                         body.get("ground_quality", info.get("ground_quality", "sd")), **mode))
             elif self.path == "/api/play":
-                self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"), body.get("car"),
-                                 laps=body.get("laps"), hotlap=body.get("hotlap", False)))
+                if body.get("hotlap", False) is not False:
+                    self._send(400, {"error": "Choose Practice or Race"})
+                else:
+                    self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"),
+                                     body.get("car"), laps=body.get("laps")))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":

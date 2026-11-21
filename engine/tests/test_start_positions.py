@@ -28,7 +28,7 @@ def positions(nodes):
 
 
 class StartPositionsTest(unittest.TestCase):
-    def convert_timed_route(self, default_models=None):
+    def timed_route_files(self, default_models=None, *, legacy=False):
         path = Path(self.enterContext(tempfile.TemporaryDirectory()))
         obj = path / "track.obj"
         writer = generator.make_obj.Obj(obj, header=False)
@@ -43,10 +43,33 @@ class StartPositionsTest(unittest.TestCase):
             (path / route_race.DEFAULT).write_text(default_models, encoding="utf-8")
         anchor = path / "anchor.json"
         timing = {"start_m": 0.0, "finish_m": 300.0, "approach": [[0, 30]]}
+        if legacy:
+            timing = {"start_m": 40.0, "finish_m": 300.0}
         anchor.write_text(json.dumps({"kind": "route", "route": [[50, 30], [400, 30]], "timing": timing}), encoding="utf-8")
+        return path
+
+    def convert_timed_route(self, default_models=None):
+        path = self.timed_route_files(default_models)
         model = path / "track.kn5"
-        obj_to_kn5.convert(str(obj), str(model), str(anchor), log=lambda _: None)
+        obj_to_kn5.convert(str(path / "track.obj"), str(model), str(path / "anchor.json"), log=lambda _: None)
         return model
+
+    def test_legacy_route_with_native_gates_reports_point_to_point(self):
+        folder = self.timed_route_files(legacy=True)
+        target = folder / "legacy.kn5"
+        prepare = mock.Mock(return_value=str(target))
+        obj_to_kn5.convert(str(folder / "track.obj"), None, str(folder / "anchor.json"), log=lambda _: None,
+                          prepare_output=prepare)
+        prepare.assert_called_once_with(True)
+        self.assertTrue(route_race.has_gates(kn5.scan(target)["points"]))
+
+    def test_missing_texture_cleans_up_the_mesh_chunks(self):
+        folder = self.timed_route_files()
+        (folder / "road.png").unlink()
+        with self.assertRaises(FileNotFoundError):
+            obj_to_kn5.convert(str(folder / "track.obj"), str(folder / "track.kn5"),
+                              str(folder / "anchor.json"), log=lambda _: None)
+        self.assertFalse((folder / "kn5_parts").exists())
 
     def test_timed_route_build_installs_both_layouts_and_shared_markers(self):
         model = self.convert_timed_route()
@@ -201,15 +224,22 @@ def long_circuit(depth=325, **timing):
 
 
 class CircuitStartTest(unittest.TestCase):
+    def circuit_part(self, anchor):
+        """Place the timing lines and write the gantry using the Circuit build path."""
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        nodes, base, _, _, _ = obj_to_kn5._circuit_part(circuit_roads(anchor), anchor, [], folder,
+                                                       os.path.join(folder, "gate.obj"), lambda _: None)
+        return nodes, base
+
     def test_line_is_across_the_road_at_pin_1(self):
-        nodes, _ = obj_to_kn5.start_empties(circuit_roads(), circuit())
+        nodes, _ = self.circuit_part(circuit())
         p = positions(nodes)
         left, right = p["AC_TIME_0_L"], p["AC_TIME_0_R"]
         np.testing.assert_allclose((left + right) / 2, [150, 17.5 + obj_to_kn5.START_LIFT, -50], atol=0.1)
         np.testing.assert_allclose(np.abs(left - right), [0, 0, 24], atol=1e-10)
 
     def test_grid_stands_before_the_line_across_the_seam(self):
-        nodes, base = obj_to_kn5.start_empties(circuit_roads(), circuit())
+        nodes, base = self.circuit_part(circuit())
         p = positions(nodes)
         for k in range(4):
             x = 150 - 3 - 8 * k
@@ -265,7 +295,7 @@ class CircuitStartTest(unittest.TestCase):
     def test_no_place_within_search_stops_the_build(self):
         with self.assertRaisesRegex(RuntimeError, r"^No place for start/finish within 300 m after pin 1: "
                                     r"move pin 1 onto a stretch driven once, away from bridges$"):
-            obj_to_kn5.start_empties(circuit_roads(), circuit(twice=[[0, 400]]))
+            self.circuit_part(circuit(twice=[[0, 400]]))
 
     def test_given_line_m_is_kept(self):
         nodes, _, line = obj_to_kn5.circuit_empties(circuit_roads(), circuit(line_m=120.0))
@@ -276,13 +306,19 @@ class CircuitStartTest(unittest.TestCase):
 
     def test_given_line_m_cannot_move_away_from_a_bad_span(self):
         with self.assertRaisesRegex(RuntimeError, "No place for start/finish"):
-            obj_to_kn5.start_empties(circuit_roads(), circuit(line_m=30.0, twice=[[0, 40]]))
+            self.circuit_part(circuit(line_m=30.0, twice=[[0, 40]]))
 
-    def test_convert_records_the_placed_line_in_the_anchor_and_kn5(self):
+    def test_convert_records_the_start_and_junction_adjusted_sectors_in_the_anchor_and_kn5(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)
             obj = path / "track.obj"
             layout = long_circuit(twice=[[0, 40]])
+            # The second ideal split would land in this T-junction on the west side of the lap.
+            z = 80 + 2 * 1250 / 3 - 1150
+            features = [{"spec": {"width": 10}, "geometry": [line]}
+                        for line in ([[0, -200], [0, z], [0, -275]], [[0, z], [-30, z]])]
+            with ZipFile(obj.with_suffix(".editor.zip"), "w") as archive:
+                archive.writestr("tile.json", json.dumps({"features": features}))
             writer = generator.make_obj.Obj(obj, header=False)
             for name, (material, p, uv, faces) in circuit_roads(layout, width=28.0).items():
                 writer.add(name, material, p[:, [0, 2, 1]] * [1, -1, 1], uv, faces)
@@ -296,7 +332,9 @@ class CircuitStartTest(unittest.TestCase):
             obj_to_kn5.convert(str(obj), str(out), str(anchor), log=lambda _: None)
             timing = json.loads(anchor.read_text(encoding="utf-8"))["timing"]
             self.assertEqual(timing["line_m"], 80.0)
-            np.testing.assert_allclose(timing["sector_m"], 80 + np.arange(1, 3) * 1250 / 3)
+            first, second = timing["sector_m"]
+            self.assertAlmostEqual(first, 80 + 1250 / 3)
+            self.assertAlmostEqual(abs(second - (80 + 2 * 1250 / 3)), 6.0)
             children = kn5.read(out)["root"].children
             p = positions(n for n in children if n.cls == 1)
             np.testing.assert_allclose((p["AC_TIME_0_L"] + p["AC_TIME_0_R"]) / 2,

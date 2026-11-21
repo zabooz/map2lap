@@ -35,8 +35,8 @@ const TABS: readonly Tab[] = ["new", "mine", "edit"];
 const GROUPS: readonly TrackGroup[] = ["built", "edited"];
 
 const NO_AC = "Assetto Corsa not found: choose its folder under Settings";
-const timedMode = (kind?: Mode, hotlap?: boolean): TimedMode | undefined =>
-  kind === "circuit" ? "circuit" : hotlap ? "route" : undefined;
+const timedMode = (kind?: Mode, abTiming?: boolean): TimedMode | undefined =>
+  kind === "circuit" ? "circuit" : abTiming ? "route" : undefined;
 const HINTS: Record<Mode | Exclude<Tab, "new">, string> = {
   route: "Click to set start, finish and waypoints · drag to move · right-click to remove",
   area: "Press and drag to draw the area · drag a corner to resize · \"Clear\" removes it",
@@ -170,12 +170,12 @@ export function App() {
   const goText = busy ? (status.state === "stopping" ? "Stopping …" : "Stop build") : !mine ? "Build track" : group === "edited" ? "Edit" : "Rebuild";
   const goTitle = busy ? undefined : !acOk ? NO_AC : !mine ? undefined : group === "edited" ? "Open it in the Editor" : "Build it again with this version and replace it";
 
-  const startPlay = async (name: string, kind?: Mode, hotlap?: boolean) => {
-    const session = await choose(timedMode(kind, hotlap));
+  const startPlay = async (name: string, kind?: Mode, abTiming?: boolean) => {
+    const session = await choose(timedMode(kind, abTiming));
     if (session) void play(name, session);
   };
-  const playButton = (name: string, kind?: Mode, hotlap?: boolean) => (
-    <PlayButton title={playTitle(kind)} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name, kind, hotlap)} />
+  const playButton = (name: string, kind?: Mode, abTiming?: boolean) => (
+    <PlayButton title={playTitle(kind)} disabled={!acOk || starting} starting={starting} onClick={() => void startPlay(name, kind, abTiming)} />
   );
 
   const tabButton = (t: Tab, text: string, extra?: ReactNode) => (
@@ -236,7 +236,7 @@ export function App() {
             )}
             <button id="go" className={busy ? styles.danger : styles.primary} title={goTitle} disabled={goDisabled} onClick={onGo}>{goText}</button>
             {mine && (
-              <button className={styles.playAct} title={playTitle(picked?.kind)} onClick={() => { if (picked) void startPlay(picked.name, picked.kind, picked.hotlap); }}
+              <button className={styles.playAct} title={playTitle(picked?.kind)} onClick={() => { if (picked) void startPlay(picked.name, picked.kind, picked.ab_timing); }}
                       disabled={busy || !picked?.kn5_bytes || starting || !acOk}>{starting ? "Starting …" : "▶ Play"}</button>
             )}
           </div>
@@ -262,7 +262,7 @@ export function App() {
         {editorSeen && (
           <ErrorBoundary message="The 3D view could not start">
             <Suspense fallback={null}>
-              <EditorScene name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.hotlap)}
+              <EditorScene name={shownEditTrack} title={editing?.title ?? ""} timedMode={timedMode(editing?.kind, editing?.ab_timing)}
                            taken={tracks.filter(t => t !== editing).map(t => t.title)}
                            built={editing?.built ?? null} visible={tab === "edit"} controls={controls} fileHost={fileHost} savedHost={savedHost} toolsHost={toolsHost} notesHost={notesHost}
                            onStatus={reportEditLoad} onSaved={onSaved} onDelete={() => { if (editing) void deleteTrack(editing); }} />

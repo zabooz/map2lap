@@ -777,7 +777,7 @@ def _stage_grid(route, timing):
 
 
 def stage_start(objs, route, timing, log=print):
-    """First checked location for a Route start after pin 1, with its whole grid on one road level. Pure."""
+    """Find a Route's first start after pin 1 whose grid fits on one road level in the supplied objects."""
     xy, s, origin = _stage_grid(route, timing)
     first = max(origin, STAGE_GRID_M)
     # Keep the existing gantry search resolution and range (2 m steps across at most 50 m).
@@ -885,10 +885,6 @@ def route_splits(objs, anchor, gates, junctions=None):
 def start_empties(objs, anchor, log=print, junctions=None):
     """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
     use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
-    if (anchor or {}).get("kind") == "circuit":
-        nodes, base, line = circuit_empties(objs, anchor, log)
-        splits, _ = circuit_splits(objs, anchor, line)
-        return nodes + splits, base
     route = (anchor or {}).get("route")
     if route and len(route) > 1:
         timing = anchor.get("timing")
@@ -1022,7 +1018,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     """parts: make_obj's tile part files; else obj_path alone. The worker processes write their meshes as finished kn5
     bytes into intermediate files, the main process writes the header and the start points and appends them.
     Materials: all of the .mtl (fixed numbers for all processes; unused ones only cost their texture, < 35 MB).
-    prepare_output(): prepare the installed folder and return its kn5 path once placement has been checked."""
+    prepare_output(point_to_point): prepare the installed folder and return its kn5 path once the timing nodes
+    have been placed. The flag indicates whether the model contains both A–B gates."""
     anchor = None
     if anchor_path and os.path.exists(anchor_path):
         with open(anchor_path, encoding="utf-8") as f:
@@ -1042,22 +1039,22 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
         near_xz += timing_points(route, anchor["timing"])
     chunk_dir = os.path.join(os.path.dirname(os.path.abspath(obj_path)), "kn5_parts")
     os.makedirs(chunk_dir, exist_ok=True)
-    chunks = [os.path.join(chunk_dir, f"{k}.bin") for k in range(len(parts))]
-    jobs = list(zip(parts, chunks, [mat_index] * len(parts), [near_xz] * len(parts)))
-    if len(parts) == 1:
-        results = [_part_chunk(*jobs[0])]
-    else:
-        n = parallel.workers(len(parts))
-        log(f"Meshes with {n} processes ...")
-        with parallel.pool(n) as ex:
-            results = list(ex.map(_part_chunk, *zip(*jobs), chunksize=max(1, len(parts) // (4 * n))))
-    n_nodes = sum(r[0] for r in results)
-    n_verts = sum(r[1] for r in results)
-    objs = {}
-    for _, _, roads, _, _ in results:
-        objs.update(roads)
-    if circuit:
-        try:
+    try:
+        chunks = [os.path.join(chunk_dir, f"{k}.bin") for k in range(len(parts))]
+        jobs = list(zip(parts, chunks, [mat_index] * len(parts), [near_xz] * len(parts)))
+        if len(parts) == 1:
+            results = [_part_chunk(*jobs[0])]
+        else:
+            n = parallel.workers(len(parts))
+            log(f"Meshes with {n} processes ...")
+            with parallel.pool(n) as ex:
+                results = list(ex.map(_part_chunk, *zip(*jobs), chunksize=max(1, len(parts) // (4 * n))))
+        n_nodes = sum(r[0] for r in results)
+        n_verts = sum(r[1] for r in results)
+        objs = {}
+        for _, _, roads, _, _ in results:
+            objs.update(roads)
+        if circuit:
             gate_obj = os.path.join(chunk_dir, "circuit_gate.obj")
             empties, base, line_m, sector_m, materials = _circuit_part(
                 objs, anchor, parts, os.path.dirname(os.path.abspath(obj_path)), gate_obj, log)
@@ -1070,50 +1067,46 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
             results.append(gate)
             n_nodes += gate[0]
             n_verts += gate[1]
-        except Exception:
-            shutil.rmtree(chunk_dir, ignore_errors=True)
-            raise
-    # JPG as DDS (dds_texture); PNG (alpha: trees, furniture, water) stays
-    jpgs = sorted({mtl[m] for m in used if mtl[m].lower().endswith(".jpg")})
-    bc7 = bc7_images(mtl, set().union(*(r[4] for r in results)))
-    flags = [p in bc7 for p in jpgs]
-    if len(jpgs) > 1:
-        n = parallel.workers(len(jpgs))
-        log(f"DDS textures with {n} processes ...")
-        with parallel.pool(n) as ex:
-            dds = dict(zip(jpgs, ex.map(dds_texture, jpgs, flags, chunksize=max(1, len(jpgs) // (4 * n)))))
-    else:
-        dds = {p: dds_texture(p, f) for p, f in zip(jpgs, flags)}
-    tex = {m: dds.get(mtl[m]) or mtl[m] for m in used}
-    textures, seen = [], set()      # (once per file: the 3 brightness levels of a facade colour share one texture)
-    for m in used:
-        if os.path.basename(tex[m]) not in seen:
-            seen.add(os.path.basename(tex[m]))
-            with open(tex[m], "rb") as f:
-                textures.append((os.path.basename(tex[m]), f.read()))
-    materials = []
-    for m in used:
-        val = light_values(m)
-        props = [(k, val[k], (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
-                 for k in ("ksAmbient", "ksDiffuse", "ksSpecular", "ksSpecularEXP")]
-        props += [("ksEmissive", 0.0, (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)),
-                  ("ksAlphaRef", ALPHA_REF.get(m, 0.0), (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))]
-        if groundmaterial.is_ground(m):     # (its UVs: world tiles on a phased tile texture, scenery/ground.phased)
-            props.extend(groundmaterial.uv_props())
-        shader, alpha_tested = SHADERS.get(m, ("ksPerPixel", 0))
-        material = kn5.Material(m, shader, 0, alpha_tested, 0, props,
-                               [("txDiffuse", 0, os.path.basename(tex[m]))])
-        materials.append(groundmaterial.ground(material) if groundmaterial.is_ground(m) else material)
-    if any(m.shader == groundmaterial.NM4 for m in materials):
-        textures.extend(groundmaterial.textures())
-    root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
-    try:
+        # JPG as DDS (dds_texture); PNG (alpha: trees, furniture, water) stays
+        jpgs = sorted({mtl[m] for m in used if mtl[m].lower().endswith(".jpg")})
+        bc7 = bc7_images(mtl, set().union(*(r[4] for r in results)))
+        flags = [p in bc7 for p in jpgs]
+        if len(jpgs) > 1:
+            n = parallel.workers(len(jpgs))
+            log(f"DDS textures with {n} processes ...")
+            with parallel.pool(n) as ex:
+                dds = dict(zip(jpgs, ex.map(dds_texture, jpgs, flags, chunksize=max(1, len(jpgs) // (4 * n)))))
+        else:
+            dds = {p: dds_texture(p, f) for p, f in zip(jpgs, flags)}
+        tex = {m: dds.get(mtl[m]) or mtl[m] for m in used}
+        textures, seen = [], set()      # (once per file: the 3 brightness levels of a facade colour share one texture)
+        for m in used:
+            if os.path.basename(tex[m]) not in seen:
+                seen.add(os.path.basename(tex[m]))
+                with open(tex[m], "rb") as f:
+                    textures.append((os.path.basename(tex[m]), f.read()))
+        materials = []
+        for m in used:
+            val = light_values(m)
+            props = [(k, val[k], (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
+                     for k in ("ksAmbient", "ksDiffuse", "ksSpecular", "ksSpecularEXP")]
+            props += [("ksEmissive", 0.0, (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)),
+                      ("ksAlphaRef", ALPHA_REF.get(m, 0.0), (0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))]
+            if groundmaterial.is_ground(m):     # (its UVs: world tiles on a phased tile texture, scenery/ground.phased)
+                props.extend(groundmaterial.uv_props())
+            shader, alpha_tested = SHADERS.get(m, ("ksPerPixel", 0))
+            material = kn5.Material(m, shader, 0, alpha_tested, 0, props,
+                                   [("txDiffuse", 0, os.path.basename(tex[m]))])
+            materials.append(groundmaterial.ground(material) if groundmaterial.is_ground(m) else material)
+        if any(m.shader == groundmaterial.NM4 for m in materials):
+            textures.extend(groundmaterial.textures())
+        root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
         if not circuit:
             junctions = _mapped_junctions(parts, log) if route and (anchor or {}).get("timing") else None
             empties, base = start_empties(objs, anchor, log, junctions)
+        timed_route = route_race.has_gates({node.name for node in empties})
         if prepare_output is not None:
-            kn5_path = prepare_output()
-        timed_route = not circuit and route_race.has_gates({node.name for node in empties})
+            kn5_path = prepare_output(timed_route)
         if timed_route:
             try:
                 route_race.layout_configs(kn5_path)

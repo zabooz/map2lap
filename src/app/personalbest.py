@@ -17,6 +17,7 @@ _value = re.compile(r"^[ \t]*(TIME|DATE)[ \t]*=[ \t]*(.*?)[ \t]*(?:\r?\n|$)", re
 
 
 def _result_path(documents):
+    """Path to the latest race result in AC's documents directory. Pure."""
     return documents / "out" / "race_out.json"
 
 

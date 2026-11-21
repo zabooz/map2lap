@@ -548,7 +548,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     tiles_dir, obj_dir = (os.path.join(work, d) for d in ("tiles", "obj"))
     tiles = [tuple(t) for t in anc["tiles"]]
     lat0, lon0, width, length, points = anc["lat"], anc["lon"], anc["width"], anc["length_m"], anc["points"]
-    area, timing = anc.get("area"), anc.get("timing")
+    area = anc.get("area")
     circuit = anc.get("kind") == "circuit"
     n_obj, n_verts, tris = figures
     size = None
@@ -558,8 +558,6 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     gate = gates.build(tiles_dir, obj_dir, log=log)     # (start and finish made visible; decides where the lines are: anchor.json)
     far = farview.build(tiles_dir, obj_dir, log=log, progress=progress)    # (only into the kn5: not into the minimap)
 
-    if not circuit:
-        log("Writing track folder ...")
     boxes = np.array([roadsmod.tile_bbox(tx, ty) for tx, ty in tiles])        # ENU (x0, y0, x1, y1)
     bounds = (boxes[:, 0].min(), -boxes[:, 3].max(), boxes[:, 2].max(), -boxes[:, 1].min())   # AC: z = -north
     label = "Circuit, lap" if circuit else "Route"
@@ -571,13 +569,13 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         log(f"TreeFX trees: {len(trees['trees']):,}")
     obj_path = os.path.join(obj_dir, "track.obj")
 
-    def prepare_output():
-        if circuit:
-            log("Writing track folder ...")
+    def prepare_output(point_to_point):
+        """Prepare the installed folder using the timing markers checked by the converter."""
+        log("Writing track folder ...")
         root = make_track_folder.make(name, title, obj=obj_path, preview=None, city=town, country=country,
                                       geotags=(lat0, lon0), extra_description=desc, route=None if area else xy.tolist(),
                                       log=log, parts=parts, bounds=bounds,
-                                      point_to_point=not circuit and (gate is not None or timing is not None and "approach" not in timing),
+                                      point_to_point=point_to_point,
                                       trees=trees)
         # For the debug app: the route in AC coordinates (x east, z = -north). Areas remove the previous route, if any.
         route_txt = os.path.join(root, "data", "map2lap_route.txt")
@@ -593,19 +591,14 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         route_race.remove_generated_files(model)
         for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
-        if not circuit:
-            progress("kn5", 0, 0)
         log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
         return model
 
     anchor_path = os.path.join(tiles_dir, "anchor.json")
     kn5_parts = parts + [p for p in (gate, far) if p]
-    if circuit:
-        # A refused placement must leave the installed track intact, including during a Rebuild.
-        progress("kn5", 0, 0)
-        kn5_path = obj_to_kn5.convert(obj_path, None, anchor_path, log=log, parts=kn5_parts, prepare_output=prepare_output)
-    else:
-        kn5_path = obj_to_kn5.convert(obj_path, prepare_output(), anchor_path, log=log, parts=kn5_parts)
+    # A refused placement must leave the installed track intact, including during a Rebuild.
+    progress("kn5", 0, 0)
+    kn5_path = obj_to_kn5.convert(obj_path, None, anchor_path, log=log, parts=kn5_parts, prepare_output=prepare_output)
     root = os.path.dirname(kn5_path)
     # the settings into the track folder: "My tracks" on the generator page rebuilds with them (mytracks)
     info = {"version": version.VERSION, "track_version": version.TRACK_VERSION, "title": title,

@@ -125,7 +125,7 @@ class CircuitBuildTest(unittest.TestCase):
         def convert(_obj, kn5, anchor_path, prepare_output=None, **kwargs):
             """Write a stand-in KN5 and the converter's placed timing metres."""
             if prepare_output is not None:
-                kn5 = prepare_output()
+                kn5 = prepare_output(False)
             path = Path(anchor_path)
             saved = json.loads(path.read_text(encoding="utf-8"))
             saved["timing"].update(line_m=SAVED_TIMING["line_m"], sector_m=[241.0])

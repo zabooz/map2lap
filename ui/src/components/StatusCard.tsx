@@ -81,7 +81,7 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
         {!!t.kn5_bytes && <Stat label="Track file" value={fmtBytes(t.kn5_bytes)} />}
       </dl>
       <p className="small muted">{built}</p>
-      <TrackTimes stage={t.hotlap} circuit={t.kind === "circuit"} best={t.best_lap} race={t.best_race} />
+      <TrackTimes stage={t.ab_timing} circuit={t.kind === "circuit"} best={t.best_lap} race={t.best_race} />
     </>
   );
 }
@@ -90,7 +90,7 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
 function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: Mode; group: TrackGroup; picked: Track | undefined;
                      title: string; installed: Track | undefined; selection: Selection | null; width: number;
                      options: BuildOptions; hasTracks: boolean; version: string;
-                     playButton: (name: string, kind?: Mode, hotlap?: boolean) => ReactNode}): Shown {
+                     playButton: (name: string, kind?: Mode, abTiming?: boolean) => ReactNode}): Shown {
   const {status: s, picked: t, selection: sel} = a;
   const circuit = a.mode === "circuit";
   const pinMode = circuit ? "Circuit" : "Route";
@@ -99,7 +99,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
   }
   if (a.showResult && s.state === "done" && s.result) {
     const r = s.result;
-    const hotlap = a.installed?.hotlap ?? r.hotlap;
+    const abTiming = a.installed?.ab_timing ?? r.ab_timing;
     return {badge: ["Done", "ok"], time: fmtTime(r.seconds), body: (
       <>
         <h2 className={styles.title}>{a.installed?.title ?? r.title ?? r.name}</h2>
@@ -109,8 +109,8 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
           <Stat label="Tiles" value={r.tiles} />
           <Stat label="Track file" value={fmtBytes(r.kn5_bytes)} />
         </dl>
-        <TrackTimes stage={hotlap} circuit={r.kind === "circuit"} best={a.installed?.best_lap} race={a.installed?.best_race} />
-        <div className={styles.foot}><p className="small muted">Installed in Assetto Corsa.</p>{a.playButton(r.name, r.kind, hotlap)}</div>
+        <TrackTimes stage={abTiming} circuit={r.kind === "circuit"} best={a.installed?.best_lap} race={a.installed?.best_race} />
+        <div className={styles.foot}><p className="small muted">Installed in Assetto Corsa.</p>{a.playButton(r.name, r.kind, abTiming)}</div>
       </>)};
   }
   if (a.showResult && s.state === "error") {

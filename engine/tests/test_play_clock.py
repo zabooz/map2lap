@@ -261,7 +261,7 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.install_timed_route()
         ini = self.ini()
         ini["RACE"].update({"TRACK": "one", "CARS": "1"})
-        for session in ({"TYPE": "1"}, {"TYPE": "3", "LAPS": "1"}):
+        for session in ({"TYPE": "1"}, {"TYPE": "4"}, {"TYPE": "3", "LAPS": "1"}):
             ini["SESSION_0"] = session
             with mock.patch.object(server.personalbest, "import_result") as collect:
                 server._previous_best(str(self.ac), str(self.race), ini)
@@ -272,32 +272,27 @@ class PlayAtAnHourTest(unittest.TestCase):
         collect.assert_called_once_with(str(self.race.parent.parent), f"one-{route_race.LAYOUT}", "car",
                                         self.race.stat().st_mtime_ns)
 
-    def test_route_hotlap_uses_native_start_and_watches_the_time(self):
-        self.install_timed_route()
-        self.race.write_text(RACE + "\n[SESSION_0]\nTYPE=3\nLAPS=8\nWAIT_TIME=0\n")
-        self.assertEqual((200, True), self.started(hotlap=True))
-        ini = self.ini()
-        self.assertEqual("Hotlap", ini.get("SESSION_0", "NAME"))
-        self.assertEqual("START", ini.get("SESSION_0", "SPAWN_SET"))
-        self.assertEqual(4, ini.getint("SESSION_0", "TYPE"))
-        self.assertFalse(ini.has_option("SESSION_0", "LAPS"))
-        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
-
-    def test_route_without_timing_cannot_start_hotlap(self):
-        mytracks.save(self.track, {"kind": "route"})
-        self.assertEqual((400, False), self.started(hotlap=True))
-        self.assertEqual(RACE, self.race.read_text())
-
-    def test_play_request_passes_laps_to_the_session(self):
-        request = b'{"name":"one","laps":2}'
+    def play_request(self, request):
+        """Create a POST handler with an in-memory request and response."""
         handler = object.__new__(server.Handler)
         handler.command, handler.path = "POST", "/api/play"
         handler.headers = {"Content-Length": str(len(request))}
         handler.rfile, handler.wfile = BytesIO(request), BytesIO()
         handler.send_response, handler.send_header, handler.end_headers = mock.Mock(), mock.Mock(), mock.Mock()
+        return handler
+
+    def test_play_request_rejects_the_retired_hotlap_mode(self):
+        handler = self.play_request(b'{"name":"one","hotlap":true}')
         with mock.patch.object(server, "play", return_value=(200, {"ok": True})) as launch:
             handler.do_POST()
-        launch.assert_called_once_with("one", None, None, None, laps=2, hotlap=False)
+        launch.assert_not_called()
+        handler.send_response.assert_called_once_with(400)
+
+    def test_play_request_passes_laps_to_the_session(self):
+        handler = self.play_request(b'{"name":"one","laps":2}')
+        with mock.patch.object(server, "play", return_value=(200, {"ok": True})) as launch:
+            handler.do_POST()
+        launch.assert_called_once_with("one", None, None, None, laps=2)
         handler.send_response.assert_called_once_with(200)
 
 
