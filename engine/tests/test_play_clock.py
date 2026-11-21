@@ -221,35 +221,24 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual("START", ini.get("SESSION_0", "SPAWN_SET"))
         for key, expected in (("TYPE", 3), ("LAPS", 1), ("WAIT_TIME", 0)):
             self.assertEqual(expected, ini.getint("SESSION_0", key))
-        self.assertEqual(route_race.LAYOUT, ini.get("RACE", "CONFIG_TRACK"))
-        self.assertEqual((str(self.race), f"one-{route_race.LAYOUT}", "car"), self.watch_args.args)
-        self.assertTrue((self.track / route_race.RACE).is_file())
+        self.assertEqual("", ini.get("RACE", "CONFIG_TRACK"))
+        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
+        self.assertFalse((self.track / route_race.RACE).exists())
         self.assertEqual((200, True), self.started())
         self.assertEqual("", self.ini().get("RACE", "CONFIG_TRACK"))
 
-    def test_route_race_copy_keeps_status_responsive_and_reserves_track_writes(self):
+    def test_route_race_uses_the_default_timing_of_a_prepared_track(self):
         self.install_timed_route()
-        prepare = route_race.prepare
-
-        def copy(model):
-            self.assertTrue(server.lock.acquire(blocking=False))
-            server.lock.release()
-            self.assertTrue(server.trackcopy.busy())
-            self.assertEqual(409, server.play("one")[0])
-            self.assertEqual(RACE, self.race.read_text())
-            prepare(model)
-
-        with mock.patch.object(route_race, "prepare", side_effect=copy):
-            self.assertEqual((200, True), self.started(laps=1))
-        self.assertFalse(server.trackcopy.busy())
-
-    def test_failed_route_race_preparation_leaves_the_session_and_can_retry(self):
-        self.install_timed_route()
-        with mock.patch.object(route_race, "prepare", side_effect=OSError("copy failed")):
-            self.assertEqual((409, False), self.started(laps=1))
-        self.assertEqual(RACE, self.race.read_text())
-        self.assertFalse(server.trackcopy.busy())
+        model = self.track / "one.kn5"
+        model.write_bytes(model.read_bytes().replace(b"AC_AB_", b"M2_AB_"))
+        (self.track / route_race.DEFAULT).write_text(
+            "[MODEL_0]\nFILE=one.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n\n"
+            "[MODEL_1]\nFILE=map2lap_practice_timing.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n")
+        (self.track / route_race.PRACTICE_MODEL).touch()
         self.assertEqual((200, True), self.started(laps=1))
+        self.assertEqual("", self.ini().get("RACE", "CONFIG_TRACK"))
+        self.assertFalse((self.track / route_race.RACE).exists())
+        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
 
     def test_route_practice_watches_the_time(self):
         self.install_timed_route()
@@ -269,8 +258,7 @@ class PlayAtAnHourTest(unittest.TestCase):
         ini["RACE"]["CONFIG_TRACK"] = route_race.LAYOUT
         with mock.patch.object(server.personalbest, "import_result") as collect:
             server._previous_best(str(self.ac), str(self.race), ini)
-        collect.assert_called_once_with(str(self.race.parent.parent), f"one-{route_race.LAYOUT}", "car",
-                                        self.race.stat().st_mtime_ns)
+        collect.assert_not_called()
 
     def play_request(self, request):
         """Create a POST handler with an in-memory request and response."""

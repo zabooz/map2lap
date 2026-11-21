@@ -1,102 +1,83 @@
-"""A Route can use AC's standing-start Race and retain its A-to-B Practice."""
+"""Retiring Map2Lap's standalone Race layout preserves the default A–B timing."""
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from track import kn5, objectlist, route_race  # noqa: E402
-from track.obj_to_kn5 import empty  # noqa: E402
+from track import route_race  # noqa: E402
+
+
+def models(mesh, timing):
+    return "\n".join(f"[MODEL_{i}]\nFILE={name}\nPOSITION=0,0,0\nROTATION=0,0,0\n"
+                     for i, name in enumerate((mesh, timing)))
 
 
 class RouteRaceTest(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.model = self.root / "one.kn5"
-        root = empty("root", (0, 0, 0), (0, 0, 1))
-        for gate, metre in (("START", 0), ("FINISH", 300)):
-            for edge, x in (("L", -3), ("R", 3)):
-                root.children.append(empty(f"AC_AB_{gate}_{edge}", (x, 0, metre), (0, 0, 1)))
-        root.children.append(empty("AC_START_0", (0, 0, -3), (0, 0, 1)))
-        kn5.write(self.model, [], [], root)
-        (self.root / "data").mkdir()
-        (self.root / "data/surfaces.ini").write_text("[SURFACE_0]\nKEY=ROAD\n")
+        self.model.write_bytes(b"shared track")
+        self.files = {
+            route_race.DEFAULT: models(self.model.name, route_race.PRACTICE_MODEL),
+            route_race.RACE: models(self.model.name, route_race.RACE_MODEL),
+            route_race.PRACTICE_MODEL: "A–B gates",
+            route_race.RACE_MODEL: "old race gate",
+            route_race.UI / "ui_track.json": '{"name": "Route (Race)"}',
+            Path(route_race.LAYOUT, "data/surfaces.ini"): "[SURFACE_0]\nKEY=ROAD\n",
+            Path(route_race.LAYOUT, "ai/fast_lane.ai"): "AI",
+        }
+        for relative, value in self.files.items():
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(value, encoding="utf-8")
 
-    def test_routes_share_the_model_with_separate_native_timing(self):
-        state = objectlist.state_of(self.model)
-        original = kn5.scan(self.model)["points"]
-        route_race.prepare(self.model)
-        track = kn5.scan(self.model)["points"]
-        practice = kn5.scan(self.root / route_race.PRACTICE_MODEL)["points"]
-        race = kn5.scan(self.root / route_race.RACE_MODEL)["points"]
-        for edge in ("L", "R"):
-            self.assertNotIn(f"AC_AB_START_{edge}", track)
-            self.assertEqual(original[f"AC_AB_START_{edge}"], practice[f"AC_AB_START_{edge}"])
-            self.assertEqual(original[f"AC_AB_FINISH_{edge}"], practice[f"AC_AB_FINISH_{edge}"])
-            self.assertNotIn(f"AC_TIME_1_{edge}", race)
-            self.assertEqual(original[f"AC_AB_FINISH_{edge}"], race[f"AC_TIME_0_{edge}"])
-        self.assertEqual(track["AC_START_0"], original["AC_START_0"])
-        self.assertEqual(objectlist.state_of(self.model), state)
-        self.assertTrue(route_race.has_gates(track))
-        self.assertEqual((self.root / "data/surfaces.ini").read_bytes(),
-                         (self.root / route_race.LAYOUT / "data/surfaces.ini").read_bytes())
-        for config, timing in ((route_race.DEFAULT, route_race.PRACTICE_MODEL), (route_race.RACE, route_race.RACE_MODEL)):
-            self.assertEqual(["FILE=one.kn5", f"FILE={timing}"],
-                             [line for line in (self.root / config).read_text().splitlines() if line.startswith("FILE=")])
+    def test_retirement_preserves_default_models_and_moves_the_only_ai_line(self):
+        self.assertTrue(route_race.remove_race_layout(self.model))
+        self.assertFalse(route_race.remove_race_layout(self.model))
+        for name in (route_race.DEFAULT, route_race.PRACTICE_MODEL):
+            self.assertEqual(self.files[name], (self.root / name).read_text(encoding="utf-8"))
+        for name in (route_race.RACE, route_race.RACE_MODEL, route_race.LAYOUT, route_race.UI):
+            self.assertFalse((self.root / name).exists())
+        self.assertEqual("AI", (self.root / "ai/fast_lane.ai").read_text())
+        self.assertEqual(b"shared track", self.model.read_bytes())
 
-    def test_replaces_an_existing_race_timing_model_without_rewriting_the_road(self):
-        route_race.prepare(self.model)
-        ino = self.model.stat().st_ino
-        path = self.root / route_race.RACE_MODEL
-        old = empty("timing", (0, 0, 0), (0, 0, 1))
-        old.children.append(empty("AC_TIME_1_L", (0, 0, 0), (0, 0, 1)))
-        kn5.write(path, [], [], old)
-        route_race.prepare(self.model)
-        self.assertEqual(ino, self.model.stat().st_ino)
-        self.assertNotIn("AC_TIME_1_L", kn5.scan(path)["points"])
+    def test_retirement_keeps_a_different_ai_line_and_user_files(self):
+        ai = self.root / "ai/fast_lane.ai"
+        ai.parent.mkdir()
+        ai.write_text("default AI")
+        custom = self.root / route_race.LAYOUT / "custom.ini"
+        custom.write_text("custom")
+        self.assertTrue(route_race.remove_race_layout(self.model))
+        self.assertEqual("custom", custom.read_text())
+        self.assertEqual("default AI", ai.read_text())
+        self.assertEqual("AI", (custom.parent / "ai/fast_lane.ai").read_text())
+        self.assertFalse((self.root / route_race.RACE).exists())
+        self.assertFalse((self.root / route_race.UI / "ui_track.json").exists())
 
-    def test_existing_custom_model_layout_is_preserved(self):
-        default = self.root / route_race.DEFAULT
-        default.write_text("[MODEL_0]\nFILE=custom.kn5\n")
-        before = self.model.read_bytes()
-        with self.assertRaises(ValueError):
-            route_race.prepare(self.model)
-        self.assertIn("custom.kn5", default.read_text())
-        self.assertEqual(before, self.model.read_bytes())
+    def test_foreign_layout_is_preserved(self):
+        custom = self.root / route_race.RACE
+        custom.write_text("[MODEL_0]\nFILE=custom.kn5\n")
+        self.assertFalse(route_race.remove_race_layout(self.model))
+        self.assertTrue((self.root / route_race.UI / "ui_track.json").exists())
+        self.assertIn("custom.kn5", custom.read_text())
 
-    def test_legacy_route_checks_disk_space_before_making_layout_changes(self):
-        before = self.model.read_bytes()
-        usage = mock.Mock(free=len(before) - 1)
-        with mock.patch.object(route_race.shutil, "disk_usage", return_value=usage), \
-             mock.patch.object(route_race, "_shared_model") as copy:
-            with self.assertRaisesRegex(OSError, "Not enough free space"):
-                route_race.prepare(self.model)
-        copy.assert_not_called()
-        self.assertFalse((self.root / route_race.LAYOUT).exists())
+    def test_rebuild_removes_legacy_models_ini_and_timing_models(self):
+        route_race.remove_generated_files(self.model)
+        for name in (route_race.DEFAULT, route_race.PRACTICE_MODEL, route_race.RACE, route_race.RACE_MODEL):
+            self.assertFalse((self.root / name).exists())
+
+    def test_editor_copy_retains_default_timing_for_aliased_gates(self):
+        copy = self.root / "copy.kn5"
+        route_race.update_copy(self.model, copy, route_race.ALIASES.values())
+        self.assertEqual(models(copy.name, route_race.PRACTICE_MODEL), (self.root / route_race.DEFAULT).read_text())
+        self.assertTrue((self.root / route_race.PRACTICE_MODEL).is_file())
+        self.assertFalse((self.root / route_race.RACE).exists())
+
+    def test_editor_copy_with_native_gates_uses_its_main_model(self):
+        route_race.update_copy(self.model, self.root / "copy.kn5", route_race.GATES)
         self.assertFalse((self.root / route_race.DEFAULT).exists())
-        self.assertEqual(before, self.model.read_bytes())
-
-    def test_cleanup_removes_empty_layout_folders_and_keeps_other_files(self):
-        ui = self.root / "ui/ui_track.json"
-        ui.parent.mkdir()
-        ui.write_text('{"name": "Track"}', encoding="utf-8")
-        root = self.root / route_race.LAYOUT
-        for keep_custom_file in (False, True):
-            with self.subTest(keep_custom_file=keep_custom_file):
-                route_race.prepare(self.model)
-                custom = root / "custom.ini"
-                if keep_custom_file:
-                    custom.write_text("custom", encoding="utf-8")
-                route_race.remove_generated_files(self.model)
-                self.assertFalse((self.root / route_race.UI).exists())
-                self.assertFalse((root / "data").exists())
-                self.assertEqual(root.exists(), keep_custom_file)
-                self.assertEqual(custom.exists(), keep_custom_file)
-                self.assertTrue(ui.is_file())
-                self.assertTrue(self.model.is_file())
+        self.assertFalse((self.root / route_race.PRACTICE_MODEL).exists())
 
 
 if __name__ == "__main__":

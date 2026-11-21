@@ -24,9 +24,9 @@ import threading
 import time
 import traceback
 import webbrowser
-from contextlib import nullcontext
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from app import buildoptions, circuitlap, drivername, named, personalbest
@@ -389,21 +389,16 @@ def _previous_best(ac, race_file, ini, resume=False):
     track = ini.get("RACE", "TRACK", fallback="")
     car = ini.get("RACE", "MODEL", fallback="")
     session = ini.get("SESSION_0", "TYPE", fallback="")
-    layout = ini.get("RACE", "CONFIG_TRACK", fallback="")
     if (not track or generator.slug(track) != track or not car or
-            ini.get("RACE", "CARS", fallback="") != "1" or layout not in ("", route_race.LAYOUT) or
+            ini.get("RACE", "CARS", fallback="") != "1" or ini.get("RACE", "CONFIG_TRACK", fallback="") or
             ini.get("REMOTE", "ACTIVE", fallback="0") != "0" or session not in ("1", "3", "4")):
         return
     directory = os.path.join(ac, "content", "tracks", track)
-    if layout or session == "4" or not _is_circuit(directory):
-        if layout and session != "3":
-            return
+    if session == "4" or not _is_circuit(directory):
         if session == "3" and ini.get("SESSION_0", "LAPS", fallback="") != "1":
             return
         if not _has_ab_timing(os.path.join(directory, track + ".kn5")):
             return
-    if layout:
-        track = f"{track}-{layout}"
     try:
         if resume and system.running("acs.exe"):
             _watch_best(race_file, track, car)
@@ -429,6 +424,21 @@ def _resume_best():
     _previous_best(ac, race_file, ini, resume=True)
 
 
+def _retire_route_layouts(ac):
+    """On server startup, remove Map2Lap's old green-to-finish layouts while AC is closed."""
+    if not ac or route_race.ac_running():
+        return
+    for config in (Path(ac) / "content/tracks").glob(f"*/{route_race.RACE}"):
+        folder = config.parent
+        if not (folder / mytracks.FILE).is_file() or not (folder / route_race.PRACTICE_MODEL).is_file():
+            continue
+        try:
+            if route_race.remove_race_layout(folder / f"{folder.name}.kn5"):
+                print(f"Removed old Route Race layout from {folder}", flush=True)
+        except (OSError, UnicodeError) as error:
+            print(f"Could not remove old Route Race layout from {folder}: {error}", flush=True)
+
+
 def _play_blocker():
     """Why AC cannot start right now, while the server lock is held."""
     if job["state"] in ("running", "stopping"):
@@ -443,37 +453,27 @@ def _play_blocker():
 def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, timed):
     """Prepare the track and launch one AC session while status requests remain independent."""
     name = ini.get("RACE", "TRACK")
-    layout = ini.get("RACE", "CONFIG_TRACK")
     if not play_lock.acquire(blocking=False):
         return 409, {"error": "A drive is already being prepared"}
     try:
-        # Use the same reservation as Editor Save and Delete. Build and CSP install check it too.
-        with trackcopy.alone() if layout else nullcontext():
-            with lock:
-                if error := _play_blocker():
-                    return 409, {"error": error}
-            if layout:
-                try:
-                    route_race.prepare(track_file)
-                except (OSError, ValueError, struct.error, AssertionError) as error:
-                    return 409, {"error": f"Route Race could not be prepared: {error}"}
-            try:
-                track_dir = os.path.dirname(track_file)
-                weather.install_track(track_dir, weather.scenery_options(ini, selected_weather), effects=effects)
-                if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
-                    weather.install_controller(ac)
-            except OSError as error:
-                return 409, {"error": f"Weather could not be prepared: {error}"}
-            with lock:
-                if error := _play_blocker():
-                    return 409, {"error": error}
-                with open(race_file, "w", encoding="utf-8") as f:
-                    ini.write(f, space_around_delimiters=False)
-                system.start_ac(ac, weather_effects=effects)
-                if timed:
-                    _watch_best(race_file, f"{name}-{layout}" if layout else name, ini.get("RACE", "MODEL"))
-    except trackcopy.Busy:
-        return 409, {"error": "Wait for the Editor save or track deletion before starting Race"}
+        with lock:
+            if error := _play_blocker():
+                return 409, {"error": error}
+        try:
+            track_dir = os.path.dirname(track_file)
+            weather.install_track(track_dir, weather.scenery_options(ini, selected_weather), effects=effects)
+            if ini.get('LIGHTING', '__CM_WEATHER_CONTROLLER', fallback='') == 'map2lap':
+                weather.install_controller(ac)
+        except OSError as error:
+            return 409, {"error": f"Weather could not be prepared: {error}"}
+        with lock:
+            if error := _play_blocker():
+                return 409, {"error": error}
+            with open(race_file, "w", encoding="utf-8") as f:
+                ini.write(f, space_around_delimiters=False)
+            system.start_ac(ac, weather_effects=effects)
+            if timed:
+                _watch_best(race_file, name, ini.get("RACE", "MODEL"))
     finally:
         play_lock.release()
     return 200, {"ok": True}
@@ -502,7 +502,6 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None):
         return 404, {"error": "This track has no track file (build it again)"}
     circuit = _is_circuit(track_dir)
     timed_route = not circuit and _has_ab_timing(track_file)
-    route_layout = route_race.LAYOUT if timed_route and laps is not None else ""
     if laps is not None:
         # AC represents the session's lap count as a signed 32-bit integer.
         if type(laps) is not int or not 1 <= laps < 2**31:
@@ -540,7 +539,7 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None):
     if not any(ini[player][key].strip() for key in driver_keys):
         ini[player][driver_keys[-1] if driver_keys else "DRIVER_NAME"] = drivername.get(os.path.dirname(os.path.dirname(race_file)))
     ini.set("RACE", "TRACK", name)
-    ini.set("RACE", "CONFIG_TRACK", route_layout)
+    ini.set("RACE", "CONFIG_TRACK", "")
     ini.set("RACE", "CARS", "1")
     for sec in ini.sections():
         if (sec.startswith("CAR_") and sec != "CAR_0") or (sec.startswith("SESSION_") and sec != "SESSION_0"):
@@ -861,9 +860,6 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                     if track["kind"] == "route" and not track.get("area_m") and track["kn5_bytes"]:
                         name = track["name"]
                         track["ab_timing"] = _has_ab_timing(os.path.join(ac, "content", "tracks", name, name + ".kn5"))
-                        if (race := times.get(f"{name.casefold()}-{route_race.LAYOUT}")) is not None:
-                            model, elapsed = race
-                            track["best_race"] = {"car": car_name(model), "time_ms": elapsed}
                     if (best := times.get(track["name"].casefold())) is not None:
                         model, elapsed = best
                         track["best_lap"] = {"car": car_name(model), "time_ms": elapsed}
@@ -1137,6 +1133,7 @@ if __name__ == "__main__":
     system.trust_windows_certificates()
     srv = Server(("127.0.0.1", PORT), Handler)
     tidy_interrupted()
+    _retire_route_layouts(settings.ac_path())
     _resume_best()
     try:
         trackcopy.tidy(settings.ac_path() or "")

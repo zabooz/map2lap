@@ -1104,19 +1104,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
         if not circuit:
             junctions = _mapped_junctions(parts, log) if route and (anchor or {}).get("timing") else None
             empties, base = start_empties(objs, anchor, log, junctions)
-        timed_route = route_race.has_gates({node.name for node in empties})
         if prepare_output is not None:
-            kn5_path = prepare_output(timed_route)
-        if timed_route:
-            try:
-                route_race.layout_configs(kn5_path)
-            except (OSError, ValueError) as error:
-                log(f"Keeping Route timing in the main KN5: {error}")
-                timed_route = False
-            else:
-                # AC reads the active gates from the layout's timing model. Write the shared KN5 once.
-                for node in empties:
-                    node.name = route_race.ALIASES.get(node.name, node.name)
+            kn5_path = prepare_output(route_race.has_gates({node.name for node in empties}))
         root.children += empties
         kn5.write_streamed(kn5_path, textures, materials, root, chunks, n_nodes)
     finally:
@@ -1128,8 +1117,6 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
         groundquality.write(kn5_path, parts, log)
     objectlist.write(kn5_path, objectlist.merged([r[3] for r in results], [r[0] for r in results]), objectlist.collect_treefx(parts))
     editorinfo.install(kn5_path, parts)
-    if timed_route:
-        route_race.prepare(kn5_path)
     if circuit:
         anchor["timing"]["line_m"] = line_m
         anchor["timing"]["sector_m"] = sector_m

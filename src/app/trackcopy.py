@@ -278,8 +278,7 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             if source_scan["meshes"][i]["name"].startswith("nocol_"):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
-        timing_files = route_race.generated_files(own)
-        _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE), *timing_files})
+        _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)})
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
         if scan.get("wall_images"):
@@ -333,8 +332,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             recipe["model_source"] = inherited
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)
-        if timing_files or all(gate in source_scan["points"] for gate in route_race.ALIASES.values()):
-            route_race.prepare(new_kn5)
+        staged_old = os.path.join(temporary, name + ".kn5")
+        route_race.update_copy(staged_old, new_kn5, source_scan["points"])
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")
@@ -342,6 +341,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             trackpaint.validate(ac, name, edits["base"], edits["paints"])
         except (ValueError, OSError) as error:
             raise Refused(str(error)) from error
+        if not copy_to and os.path.isfile(os.path.join(folder, route_race.RACE)) and route_race.ac_running():
+            raise Refused("Close Assetto Corsa before replacing this Route's timing files")
         if copy_to:
             os.rename(temporary, target)
         else:

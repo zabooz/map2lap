@@ -1,12 +1,9 @@
-"""Native A-to-B Practice and standing-start Race on a single Route model."""
+"""Compatibility with installed Routes whose A–B timing is in a separate model."""
 from contextlib import suppress
-import json
-import os
+import filecmp
 from pathlib import Path
-import shutil
-import tempfile
 
-from . import kn5
+from app import system
 
 LAYOUT = "map2lap_race"
 PRACTICE_MODEL = "map2lap_practice_timing.kn5"
@@ -25,114 +22,80 @@ def has_gates(points):
 
 
 def _models(mesh, timing):
-    """AC's model list for the shared mesh and the layout's timing-only model. Pure."""
+    """AC's model list for the main mesh and its timing model. Pure."""
     return "\n".join(f"[MODEL_{i}]\nFILE={name}\nPOSITION=0,0,0\nROTATION=0,0,0\n"
                      for i, name in enumerate((mesh, timing)))
 
 
-def _timing_model(path, points):
-    """Write a KN5 with the layout's native timing markers."""
-    identity = (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-    root = kn5.Node(1, "timing", 1, matrix=identity)
-    for name, matrix in points.items():
-        root.children.append(kn5.Node(1, name, 1, matrix=matrix))
-    kn5.write(path, [], [], root)
+def _owns_config(model, name, timing):
+    """Check that this model configuration was written by Map2Lap."""
+    path = model.parent / name
+    return not path.is_symlink() and path.is_file() and path.read_text(encoding="utf-8") == _models(model.name, timing)
 
 
-def _shared_model(source, target, offsets):
-    """Stream a KN5 with its embedded gate names hidden from AC, keeping all byte offsets and the Editor revision."""
-    stat = source.stat()
-    with source.open("rb") as original, target.open("wb") as shared:
-        for offset, gate in sorted((offsets[gate], gate) for gate in GATES):
-            kn5._copy_bytes(original, shared, offset - original.tell())
-            if original.read(len(gate)) != gate.encode("ascii"):
-                raise ValueError("Route timing markers changed while preparing Race")
-            shared.write(ALIASES[gate].encode("ascii"))
-        shutil.copyfileobj(original, shared, 16 << 20)
-    shutil.copymode(source, target)
-    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+def _carry_ai(folder, race):
+    """Keep existing default AI and move the old layout's AI when it has no default counterpart."""
+    target = folder / "ai"
+    source = race / "ai"
+    if source.is_symlink() or target.is_symlink():
+        return
+    for name in ("fast_lane.ai", "pit_lane.ai"):
+        old, new = source / name, target / name
+        if old.is_symlink() or not old.is_file() or new.is_symlink():
+            continue
+        if not new.exists():
+            target.mkdir(exist_ok=True)
+            old.rename(new)
+        elif new.is_file() and filecmp.cmp(old, new, shallow=False):
+            old.unlink()
 
 
-def layout_configs(model):
-    """Return the configs for a Route model, rejecting existing configs belonging to another layout."""
-    model = Path(model)
-    configs = {DEFAULT: _models(model.name, PRACTICE_MODEL), RACE: _models(model.name, RACE_MODEL)}
-    for name, config in configs.items():
-        path = model.parent / name
-        if path.exists() and path.read_text(encoding="utf-8") != config:
-            raise ValueError(f"{name} already belongs to a different Assetto Corsa layout")
-    return configs
-
-
-def prepare(model):
-    """Prepare both native layouts for an installed Route while AC is closed. Repeated calls reuse the shared KN5."""
+def remove_race_layout(model):
+    """Retire Map2Lap's old Race layout in a closed or staged track folder. Keep the default timing and user files."""
     model = Path(model)
     folder = model.parent
-    configs = layout_configs(model)
-    scan = kn5.scan(model, point_offsets=True)
-    points = scan["points"]
-    embedded = all(name in points for name in GATES)
-    if not has_gates(points):
-        raise ValueError("This Route is missing its start or finish timing markers")
-    if embedded:
-        size = model.stat().st_size
-        if shutil.disk_usage(folder).free < size:
-            raise OSError(f"Not enough free space for the temporary KN5 ({size:,} bytes required)")
-    with tempfile.TemporaryDirectory(prefix=".route_timing_", dir=folder) as directory:
-        prepared = Path(directory)
-        assets = []
-        for source in LAYOUT_DATA:
-            if (folder / source).is_file():
-                target = folder / LAYOUT / source
-                staged = prepared / source.name
-                shutil.copyfile(folder / source, staged)
-                assets.append((staged, target))
-        gates = {name: points[name if embedded else ALIASES[name]] for name in GATES}
-        _timing_model(prepared / PRACTICE_MODEL, gates)
-        # AC starts a Race at the lights. The layout supplies the finish; the shared model supplies any splits.
-        finish = {f"AC_TIME_0_{edge}": gates[f"AC_AB_FINISH_{edge}"] for edge in ("L", "R")}
-        _timing_model(prepared / RACE_MODEL, finish)
-        for name, config in configs.items():
-            (prepared / name).write_text(config, encoding="utf-8")
-        if embedded:
-            _shared_model(model, prepared / model.name, scan["point_offsets"])
-        if (ui := folder / "ui/ui_track.json").is_file():
-            info = json.loads(ui.read_text(encoding="utf-8-sig"))
-            info.update(name=f"{info.get('name', model.stem)} (Race)", run="free")
-            (prepared / "ui_track.json").write_text(json.dumps(info), encoding="utf-8")
-            assets.append((prepared / "ui_track.json", folder / UI / "ui_track.json"))
-        for source, target in assets:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(source, target)
-        # Install Practice's replacement gates before removing the embedded ones.
-        for name in (PRACTICE_MODEL, RACE_MODEL, DEFAULT, RACE):
-            os.replace(prepared / name, folder / name)
-        if embedded:
-            os.replace(prepared / model.name, model)
+    race, ui = folder / LAYOUT, folder / UI
+    if any(path.is_symlink() for path in (race, race / "data", folder / "ui", ui)):
+        return False
+    if not _owns_config(model, RACE, RACE_MODEL):
+        return False
+    _carry_ai(folder, race)
+    for path in (ui / "ui_track.json", folder / RACE_MODEL, *(race / data for data in LAYOUT_DATA)):
+        path.unlink(missing_ok=True)
+    for path in (ui, race / "ai", race / "data", race):
+        with suppress(OSError):
+            path.rmdir()
+    (folder / RACE).unlink()
+    return True
 
 
-def generated_files(model):
-    """The files belonging to Map2Lap's timing layouts, relative to the installed model."""
-    model = Path(model)
-    configs = [name for name, timing in ((DEFAULT, PRACTICE_MODEL), (RACE, RACE_MODEL))
-               if (path := model.parent / name).is_file() and path.read_text(encoding="utf-8") == _models(model.name, timing)]
-    if not configs:
-        return ()
-    return (*configs, PRACTICE_MODEL, RACE_MODEL, str(UI / "ui_track.json"),
-            *(str(Path(LAYOUT) / source) for source in LAYOUT_DATA))
+def ac_running():
+    """Whether AC is open in a process that may be using a track."""
+    return any(system.running(exe) for exe in ("acs.exe", "acs_x86.exe", "acsr.exe"))
 
 
 def remove_generated_files(model):
-    """Remove Map2Lap's layout files before a rebuild, pruning only its empty directories."""
-    files = generated_files(model)
-    if not files:
-        return
-    folder = Path(model).parent
-    for relative in files:
-        path = folder / relative
-        if path.is_file():
-            path.unlink(missing_ok=True)
-    layout = folder / LAYOUT
-    for directory in (folder / UI, layout / "data", layout):
-        with suppress(OSError):
-            directory.rmdir()
+    """Before rebuilding a track with embedded gates, remove its old generated layout files."""
+    model = Path(model)
+    race = _owns_config(model, RACE, RACE_MODEL)
+    default = _owns_config(model, DEFAULT, PRACTICE_MODEL)
+    if (race or default) and ac_running():
+        raise RuntimeError("Close Assetto Corsa before replacing this Route's timing files")
+    if race:
+        remove_race_layout(model)
+    if default:
+        (model.parent / DEFAULT).unlink()
+        (model.parent / PRACTICE_MODEL).unlink(missing_ok=True)
+
+
+def update_copy(old_model, new_model, points):
+    """In an Editor's staged copy, retire Race and retain the default model list only when it still supplies the gates."""
+    old_model, new_model = Path(old_model), Path(new_model)
+    remove_race_layout(old_model)
+    if _owns_config(old_model, DEFAULT, PRACTICE_MODEL):
+        default = new_model.parent / DEFAULT
+        if all(name in points for name in ALIASES.values()):
+            default.write_text(_models(new_model.name, PRACTICE_MODEL), encoding="utf-8")
+        else:
+            default.unlink()
+            (new_model.parent / PRACTICE_MODEL).unlink(missing_ok=True)

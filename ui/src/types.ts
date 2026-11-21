@@ -32,7 +32,6 @@ export interface Track extends Partial<BuildOptions> {
   points: LatLon[];
   code?: string;
   best_lap?: BestLap;
-  best_race?: BestLap;
   ab_timing?: boolean;
 }
 

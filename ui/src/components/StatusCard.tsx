@@ -58,11 +58,8 @@ function BestLapSummary({best, label}: {best?: BestLap; label: string}) {
   </div>;
 }
 
-function TrackTimes({stage, circuit, best, race}: {stage?: boolean; circuit: boolean; best?: BestLap; race?: BestLap}) {
-  if (stage) return <>
-    <BestLapSummary best={race} label="Best race time" />
-    {best && <BestLapSummary best={best} label="Best gate-to-gate time" />}
-  </>;
+function TrackTimes({stage, circuit, best}: {stage?: boolean; circuit: boolean; best?: BestLap}) {
+  if (stage) return <BestLapSummary best={best} label="Best gate-to-gate time" />;
   return (circuit || best) && <BestLapSummary best={best} label="Best lap" />;
 }
 
@@ -81,7 +78,7 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
         {!!t.kn5_bytes && <Stat label="Track file" value={fmtBytes(t.kn5_bytes)} />}
       </dl>
       <p className="small muted">{built}</p>
-      <TrackTimes stage={t.ab_timing} circuit={t.kind === "circuit"} best={t.best_lap} race={t.best_race} />
+      <TrackTimes stage={t.ab_timing} circuit={t.kind === "circuit"} best={t.best_lap} />
     </>
   );
 }
@@ -109,7 +106,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
           <Stat label="Tiles" value={r.tiles} />
           <Stat label="Track file" value={fmtBytes(r.kn5_bytes)} />
         </dl>
-        <TrackTimes stage={abTiming} circuit={r.kind === "circuit"} best={a.installed?.best_lap} race={a.installed?.best_race} />
+        <TrackTimes stage={abTiming} circuit={r.kind === "circuit"} best={a.installed?.best_lap} />
         <div className={styles.foot}><p className="small muted">Installed in Assetto Corsa.</p>{a.playButton(r.name, r.kind, abTiming)}</div>
       </>)};
   }
