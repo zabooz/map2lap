@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import unittest
 from unittest import mock
+from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -102,6 +103,16 @@ class CircuitRequestTest(unittest.TestCase):
                  mock.patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps(response))), \
                  self.assertRaisesRegex(RuntimeError, f"^OSRM: {code} {message}$"):
                 generator.circuit_route([(1, 2), (3, 4)])
+
+    def test_circuit_keeps_other_http_errors_and_their_cause(self):
+        for status, body in ((400, b'{"code":"InvalidQuery"}'), (400, b'<html>Bad Request</html>'),
+                             (400, b'[]'), (503, b'{"code":"NoRoute"}')):
+            with self.subTest(status=status, body=body):
+                error = HTTPError(generator.OSRM, status, "Routing error", {}, io.BytesIO(body))
+                with mock.patch("urllib.request.urlopen", side_effect=error), \
+                     self.assertRaisesRegex(RuntimeError, f"OSRM: HTTP Error {status}: Routing error") as raised:
+                    generator.circuit_route([(1, 2), (3, 4)])
+                self.assertIs(raised.exception.__cause__, error)
 
 
 class CircuitLapTest(unittest.TestCase):

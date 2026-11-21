@@ -2,8 +2,9 @@ import L from "leaflet";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
-import {useEffect, useEffectEvent, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {MapContainer, Marker, Polyline, Rectangle, TileLayer, Tooltip, useMap, useMapEvents} from "react-leaflet";
+import {circuitLine, longitudeNear} from "../circuitLongitude";
 import type {MapMove, NewTrack, Point} from "../hooks/useNewTrack";
 import type {Box, LatLon, Tab, Track} from "../types";
 import {arrowsAlong} from "./lapArrows";
@@ -42,11 +43,25 @@ function View({move}: {move: MapMove | null}) {
 
   useEffect(() => {
     if (move?.kind === "fit") map.fitBounds(move.bounds, {padding: [move.padding, move.padding], maxZoom: move.maxZoom});
-    else if (move?.kind === "pin") map.setView(move.at, Math.max(map.getZoom(), PIN_ZOOM));
+    else if (move?.kind === "fitCircuit") {
+      const coords = circuitLine(move.coords, map.getCenter().lng);
+      const pins = move.pins?.map(([lat, lon]): LatLon => [lat, longitudeNear(lon, coords[0][1])]) ?? [];
+      map.fitBounds([...coords, ...pins], {padding: [move.padding, move.padding], maxZoom: move.maxZoom});
+    } else if (move?.kind === "pin") map.setView(move.at, Math.max(map.getZoom(), PIN_ZOOM));
     else if (move?.kind === "view") map.setView(move.at, move.zoom);
   }, [map, move]);
 
   return null;
+}
+
+/** The first lap longitude in the visible world copy, updated when Leaflet jumps between copies. */
+function useDisplayedLongitude(lon: number | undefined) {
+  const map = useMap();
+  const subscribe = useCallback((changed: () => void) => {
+    map.on("move", changed);
+    return () => { map.off("move", changed); };
+  }, [map]);
+  return useSyncExternalStore(subscribe, () => lon === undefined ? undefined : longitudeNear(lon, map.getCenter().lng));
 }
 
 /** The corridor, as a wide line: its pixel width from metres at the map's zoom. */
@@ -67,8 +82,8 @@ function Corridor({coords, width}: {coords: LatLon[]; width: number}) {
 }
 
 /** One pin. Its position stays the same object between renders: a new one puts a pin being dragged back at once. */
-function PointMarker({track, point: p, label}: {track: NewTrack; point: Point; label: string}) {
-  const position = useMemo<LatLon>(() => [p.lat, p.lon], [p.lat, p.lon]);
+function PointMarker({track, point: p, label, lon}: {track: NewTrack; point: Point; label: string; lon: number}) {
+  const position = useMemo<LatLon>(() => [p.lat, lon], [p.lat, lon]);
   const circuit = track.mode === "circuit";
   const icon = useMemo(() => circuit ? L.divIcon({
     ...pinGeometry, className: styles.circuitPin,
@@ -102,13 +117,15 @@ function Route({track}: {track: NewTrack}) {
   const n = track.points.length;
   const circuit = track.mode === "circuit";
   const {routeCoords, routeKm} = track;
+  const ref = useDisplayedLongitude(circuit ? routeCoords?.[0]?.[1] ?? track.points[0]?.lon : undefined);
+  const coords = useMemo(() => routeCoords && ref !== undefined ? circuitLine(routeCoords, ref) : routeCoords, [routeCoords, ref]);
   return (
     <>
-      {routeCoords && <Corridor coords={routeCoords} width={track.width} />}
-      {routeCoords && <Polyline positions={routeCoords} pathOptions={{color: ROUTE_COLOR, weight: 4}} />}
-      {circuit && routeCoords && routeKm !== undefined && <LapArrows coords={routeCoords} lengthM={routeKm * 1000} />}
+      {coords && <Corridor coords={coords} width={track.width} />}
+      {coords && <Polyline positions={coords} pathOptions={{color: ROUTE_COLOR, weight: 4}} />}
+      {circuit && coords && routeKm !== undefined && <LapArrows coords={coords} lengthM={routeKm * 1000} />}
       {track.points.map((p, i) => (
-        <PointMarker key={p.id} track={track} point={p}
+        <PointMarker key={p.id} track={track} point={p} lon={ref === undefined ? p.lon : longitudeNear(p.lon, ref)}
                      label={circuit ? (i === 0 ? "S" : String(i + 1)) : i === 0 ? "Start" : i === n - 1 ? "Finish" : String(i)} />
       ))}
     </>
@@ -173,14 +190,17 @@ function Area({track}: {track: NewTrack}) {
 /** The picked track on the map. */
 function Picked({track: t}: {track: Track}) {
   const map = useMap();
+  const line = t.line ?? t.points;
+  const ref = useDisplayedLongitude(!t.area && t.kind === "circuit" ? line[0]?.[1] : undefined);
+  const coords = useMemo(() => ref === undefined ? line : circuitLine(line, ref), [line, ref]);
   const fit = useEffectEvent(() => {
-    const bounds = t.area ? boxBounds(t.area) : t.line ?? t.points;
+    const bounds = t.area ? boxBounds(t.area) : coords;
     if (bounds.length) map.fitBounds(bounds, {padding: [40, 40], maxZoom: 16});
   });
   // Selection changes fit once; metadata refreshes must not undo a user's pan or zoom.
   useEffect(() => { fit(); }, [t.name]);
   if (t.area) return <Rectangle bounds={boxBounds(t.area)} interactive={false} pathOptions={BOX_STYLE} />;
-  return <Polyline positions={t.line ?? t.points} interactive={false} pathOptions={{color: ROUTE_COLOR, weight: 4}} />;
+  return <Polyline positions={coords} interactive={false} pathOptions={{color: ROUTE_COLOR, weight: 4}} />;
 }
 
 /** The map (worldCopyJump: dragged around the earth it stays on the real one, its clicks' longitudes within -180 .. 180). */

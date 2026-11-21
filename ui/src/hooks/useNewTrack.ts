@@ -24,6 +24,7 @@ export type Selection =
 /** How the map should move once. */
 export type MapMove =
   | {kind: "fit"; bounds: L.LatLngBoundsExpression; maxZoom?: number; padding: number}
+  | {kind: "fitCircuit"; coords: LatLon[]; pins?: LatLon[]; padding: number; maxZoom?: number}
   | {kind: "pin"; at: LatLon}
   | {kind: "view"; at: LatLon; zoom: number};
 
@@ -48,8 +49,11 @@ export function boxSize([s, w, n, e]: Box) {
 }
 
 /** A move showing the points (none: no move). Pure. */
-function moveTo(points: {lat: number; lon: number}[]): MapMove | null {
-  if (points.length > 1) return {kind: "fit", bounds: points.map(p => [p.lat, p.lon] as LatLon), padding: 60};
+function moveTo(points: Point[], circuit: boolean): MapMove | null {
+  if (points.length > 1) {
+    const coords: LatLon[] = points.map(p => [p.lat, p.lon]);
+    return circuit ? {kind: "fitCircuit", coords, padding: 60} : {kind: "fit", bounds: coords, padding: 60};
+  }
   return points.length ? {kind: "pin", at: [points[0].lat, points[0].lon]} : null;
 }
 
@@ -71,8 +75,9 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
   const titleAuto = useRef(true);       // the name comes from the places until a name is typed; emptied it does again
   const nameAsk = useRef(0);
   const askedPlace = useRef(new Set<string>());
+  const pastedLap = useRef<string | null>(null);
 
-  const touch = () => { setMessage(null); onTouch(); };
+  const touch = () => { pastedLap.current = null; setMessage(null); onTouch(); };
 
   async function askName(body: {points?: LatLon[]; area?: Box}) {
     if (!titleAuto.current) return;
@@ -90,6 +95,10 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
 
   const routeCame = useEffectEvent((key: string, asked: LatLon[], r: WithError<Partial<{coords: LatLon[]; length_m: number}>>) => {
     onTouch();
+    if (pastedLap.current === key) {
+      pastedLap.current = null;
+      if (r.coords?.length) onMove({kind: "fitCircuit", coords: r.coords, pins: asked, padding: 60});
+    }
     if (r.error) {
       setAnswer({key, error: r.error});
       return;
@@ -167,7 +176,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     touch();
     const next = [...points, newPoint(p.lat, p.lon, shortName(p.name))];
     setPoints(next);
-    const move = moveTo(next);
+    const move = moveTo(next, circuit);
     if (move) onMove(move);
   };
 
@@ -175,7 +184,7 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     touch();
     const next = points.map(q => (q.id === id ? {...q, lat: p.lat, lon: p.lon, label: shortName(p.name)} : q));
     setPoints(next);
-    const move = moveTo(next);
+    const move = moveTo(next, circuit);
     if (move) onMove(move);
   };
 
@@ -260,7 +269,17 @@ export function useNewTrack(onTouch: () => void, onShowNew: () => void, onMove: 
     setWidthState(Math.min(high, Math.max(low, Math.round((c.width ?? 100) / step) * step)));
     const next = (c.points ?? []).map(([lat, lon]) => newPoint(lat, lon, null));
     setPoints(next);
-    const move = moveTo(next);
+    const isCircuit = c.kind === "circuit";
+    if (isCircuit && next.length > 1) {
+      const pins = next.map((p): LatLon => [p.lat, p.lon]);
+      const key = JSON.stringify({points: pins, kind: c.kind});
+      if (answer?.key === key && answer.coords?.length) {
+        onMove({kind: "fitCircuit", coords: answer.coords, pins, padding: 60});
+        return;
+      }
+      pastedLap.current = key;
+    }
+    const move = moveTo(next, isCircuit);
     if (move) onMove(move);
   };
 

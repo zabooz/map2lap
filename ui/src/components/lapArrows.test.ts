@@ -27,3 +27,10 @@ test("spacing carries through corners and duplicate coordinates", () => {
   expect(arrows[1].at[1]).toBeCloseTo(corner[1], 9);
   expect(arrows[1].deg).toBeCloseTo(0);
 });
+
+test("a midpoint arrow across the antimeridian stays on the eastbound line", () => {
+  const [arrow] = arrowsAlong([[0, 180 - 500 * degPerMetre], [0, -180 + 500 * degPerMetre]], 500, 1);
+  expect(arrow.at[0]).toBeCloseTo(0);
+  expect(arrow.at[1]).toBeCloseTo(180, 9);
+  expect(arrow.deg).toBeCloseTo(90);
+});

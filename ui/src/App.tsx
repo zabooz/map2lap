@@ -114,6 +114,11 @@ export function App() {
   const pickTrack = (t: Track) => {
     setPicks(old => ({...old, [groupOf(t)]: t.name}));
     setShowResult(false);
+    if (!t.area && t.kind === "circuit") {
+      const coords = t.line ?? t.points;
+      if (coords.length) setMove({kind: "fitCircuit", coords, padding: 40, maxZoom: 16});
+      return;
+    }
     const bounds = t.area ? [[t.area[0], t.area[1]], [t.area[2], t.area[3]]] as [number, number][] : t.line ?? t.points;
     setMove({kind: "fit", bounds, padding: 40, maxZoom: 16});
   };

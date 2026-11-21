@@ -24,6 +24,7 @@ from app import circuitlap, mytracks, trackcode
 
 PINS = [(46.65, 14.62), (46.66, 14.63)]
 COORDS = [PINS[0], PINS[1], (46.651, 14.631), PINS[0]]
+DATELINE_LAP = [(-16.8, 179.998), (-16.8, -179.998), (-16.799, -179.998), (-16.799, 179.998), (-16.8, 179.998)]
 SAVED_TIMING = {"line_m": 120.0, "twice": [[10.0, 50.0]]}
 
 
@@ -75,6 +76,22 @@ class CircuitBuildTest(unittest.TestCase):
         self.assertEqual(anchor["kind"], "circuit")
         self.assertEqual(anchor["route"][0], anchor["route"][-1])
         self.assertEqual(anchor["timing"], {"start_m": 0.0, **SAVED_TIMING})
+
+    def test_live_circuit_across_the_antimeridian_has_a_local_anchor(self):
+        lap = circuitlap.Lap(DATELINE_LAP, 1075.0, [], [0.0, 430.0])
+        with mock.patch.object(generator, "circuit_route", return_value=lap):
+            anchor, _ = self.build_anchor()
+        self.assertEqual(anchor["line"], [list(p) for p in DATELINE_LAP])
+        self.assert_local_dateline_anchor(anchor)
+
+    def assert_local_dateline_anchor(self, anchor):
+        self.assertAlmostEqual(abs(anchor["lon"]), 180.0, places=5)
+        self.assertTrue(-180.0 <= anchor["lon"] < 180.0)
+        self.assertAlmostEqual(anchor["lat"], -16.7995, places=5)
+        self.assertEqual(anchor["route"][0], anchor["route"][-1])
+        route = np.asarray(anchor["route"])
+        self.assertLess(np.abs(route).max(), 250.0)
+        self.assertGreater(route[1, 0], route[0, 0])
 
     def test_route_and_area_anchors_record_their_kind(self):
         route, _ = self.build_anchor(kind="route", line=(COORDS, len(COORDS) - 1))
@@ -220,6 +237,31 @@ class CircuitBuildTest(unittest.TestCase):
         coords, end = kwargs["line"]
         self.assertEqual(coords[0], coords[-1])
         self.assertEqual(end, 3)
+
+    def test_from_debug_can_build_a_saved_lap_across_the_antimeridian(self):
+        info = {"title": "Test", "points": DATELINE_LAP[:2], "width": 120, "kind": "circuit", "timing": SAVED_TIMING,
+                "route_end": len(DATELINE_LAP) - 1}
+        (self.root / "map2lap.json").write_text(json.dumps(info), encoding="utf-8")
+        lat, lon = np.asarray(DATELINE_LAP).T
+        east, north, _ = generator.geodesy.EnuFrame(-16.7995, -180.0).geodetic_to_enu(lat, lon)
+        detail = "anchor -16.7995 -180\n" + "".join(f"{x:.2f} {-y:.2f}\n" for x, y in zip(east, north))
+        (self.root / "map2lap_route.txt").write_text(detail, encoding="utf-8")
+
+        def build(_points, _width, _name, _title, *, upto, **settings):
+            self.assertEqual(upto, "obj")
+            self.build_anchor(**settings)
+            return {"work": str(self.work)}
+
+        with (mock.patch.object(sys, "argv", ["from_debug.py", str(self.root), "--upto", "obj"]),
+              mock.patch.object(from_debug, "differences", return_value=[]),
+              mock.patch.object(generator, "build", side_effect=build),
+              mock.patch.object(generator, "circuit_route", side_effect=AssertionError("Circuit re-routed a saved lap")),
+              redirect_stdout(io.StringIO())):
+            from_debug.main()
+        anchor = json.loads(self.anchor.read_text(encoding="utf-8"))
+        self.assert_local_dateline_anchor(anchor)
+        self.assertAlmostEqual(anchor["length_m"], 1075.0, delta=5.0)
+        self.assertEqual(anchor["timing"], {"start_m": 0.0, **SAVED_TIMING})
 
     def test_measure_preserves_test_track_kind(self):
         entry = {"title": "Test", "points": PINS, "width": 120, "kind": "circuit"}

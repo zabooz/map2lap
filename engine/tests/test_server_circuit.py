@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import unittest
 from unittest import mock
+from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from app import circuitlap
@@ -41,6 +42,19 @@ class RoutePreviewTest(unittest.TestCase):
              mock.patch.object(server.generator, "route", side_effect=AssertionError("Circuit used Route")):
             status, answer = self.post_route(kind="circuit")
         self.assertEqual((status, answer), (400, {"error": message}))
+
+    def test_only_circuit_explains_osrm_http_refusals(self):
+        for code, advice in (
+            ("NoRoute", "No drivable lap through these pins: move them onto through roads"),
+            ("NoSegment", "A pin could not snap to a road: move the pins onto through roads"),
+        ):
+            for fields, expected in (({"kind": "circuit"}, (400, advice)), ({}, (500, "HTTP Error 400: Bad Request"))):
+                with self.subTest(code=code, fields=fields):
+                    body = io.BytesIO(json.dumps({"code": code}).encode())
+                    error = HTTPError(server.generator.OSRM, 400, "Bad Request", {}, body)
+                    with mock.patch("urllib.request.urlopen", side_effect=error):
+                        status, answer = self.post_route(**fields)
+                    self.assertEqual((status, answer["error"]), expected)
 
     def test_route_endpoint_without_kind_uses_route(self):
         with mock.patch.object(server.generator, "route", return_value=([(1, 2), (3, 4)], 1000.0)) as route, \

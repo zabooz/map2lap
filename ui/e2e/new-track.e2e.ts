@@ -162,6 +162,22 @@ test("an area: drawn, resized by a corner, cleared; while there is none the map 
   await expect(handles(page)).toHaveCount(0);
 });
 
+test("the track modes share one row in Route, Circuit, Area order", async ({page}) => {
+  await page.goto("/");
+  const modes = page.getByRole("button", {name: /^(Route|Circuit|Area)$/});
+  await expect(modes).toHaveText(["Route", "Circuit", "Area"]);
+  for (const width of [1500, 375]) {
+    await page.setViewportSize({width, height: 900});
+    const boxes = await modes.evaluateAll(buttons => buttons.map(button => {
+      const {x, y} = button.getBoundingClientRect();
+      return {x, y};
+    }));
+    expect(boxes.map(box => box.y)).toEqual([boxes[0].y, boxes[0].y, boxes[0].y]);
+    expect(boxes[0].x).toBeLessThan(boxes[1].x);
+    expect(boxes[1].x).toBeLessThan(boxes[2].x);
+  }
+});
+
 test("Circuit closes a lap through its numbered pins and builds it", async ({page}) => {
   await page.addInitScript(() => localStorage.setItem("map2lap.view", JSON.stringify({c: [48.5, 11], z: 16})));
   await page.goto("/");
@@ -220,6 +236,63 @@ test("a Circuit track code restores the lap in Circuit mode", async ({page}) => 
   await expect(page.getByLabel("Track name")).toHaveValue(make.title);
   await expect(pins(page).locator("span")).toHaveText(["S", "2", "3"]);
   await expect(page.getByText("Back to S · Lap 3.0 km", {exact: true})).toBeVisible();
+});
+
+test("Circuit fits a pasted lap and a saved lap across the antimeridian", async ({page}) => {
+  const points = [[-16.8, 179.9975], [-16.8, -179.999]];
+  const coords = [points[0], points[1], [-16.799, -179.994], [-16.799, 179.996], points[0]];
+  const title = "Antimeridian Circuit";
+  await page.addInitScript(() => localStorage.setItem("map2lap.view", JSON.stringify({c: [-16.8, -179], z: 7})));
+  await page.route("**/api/route", route => route.fulfill({json: {coords, length_m: 2400}}));
+  await page.route("**/api/tracks", async route => {
+    const response = await route.fetch();
+    const listing = await response.json();
+    Object.assign(listing.tracks.find((track: {name: string}) => track.name === "alpha"),
+                  {kind: "circuit", title, points, line: coords, length_m: 2400});
+    await route.fulfill({response, json: listing});
+  });
+  await page.goto("/");
+  const {code} = await (await page.request.post("/api/code", {data: {make: {kind: "circuit", title, points, width: 100}}})).json();
+  const field = page.getByRole("textbox", {name: "Track code"});
+  await field.fill(code);
+  const routed = page.waitForRequest("**/api/route");
+  await field.press("Enter");
+  const sent = (await routed).postDataJSON();
+  expect(sent.kind).toBe("circuit");
+  expect(sent.points.map((point: number[]) => point.map(value => Number(value.toFixed(6))))).toEqual(points);
+  await expect(page.getByText("Back to S · Lap 2.4 km", {exact: true})).toBeVisible();
+
+  const map = (await page.locator(".leaflet-container").boundingBox())!;
+  const paths = page.locator(".leaflet-overlay-pane path");
+  const view = () => page.evaluate(() => JSON.parse(localStorage.getItem("map2lap.view")!) as {c: {lng: number}; z: number});
+  await expect.poll(async () => (await view()).z).toBeGreaterThan(13);
+  expect((await view()).c.lng).toBeLessThan(-179);
+  await expect(pins(page)).toHaveCount(2);
+  await expect(paths).toHaveCount(2);
+  const a = await centre(pins(page).first()), b = await centre(pins(page).last());
+  expect(a.x).toBeGreaterThan(map.x);
+  expect(b.x).toBeGreaterThan(a.x);
+  expect(b.x).toBeLessThan(map.x + map.width);
+
+  const contained = async () => {
+    const boxes = await paths.evaluateAll(paths => paths.map(path => {
+      const {left, right} = path.getBoundingClientRect();
+      return {left, right};
+    }));
+    return boxes.length > 0 && boxes.every(box => box.left > map.x && box.right < map.x + map.width);
+  };
+  await expect.poll(contained).toBe(true);
+  const arrow = await centre(page.getByTestId("lap-arrow").first());
+  expect(arrow.x).toBeGreaterThan(a.x);
+  expect(arrow.x).toBeLessThan(b.x);
+
+  await page.reload();
+  await page.locator("#t-mine").click();
+  await page.getByRole("button", {name: /Antimeridian Circuit.*Circuit 2\.40 km/s}).click();
+  await expect.poll(async () => (await view()).z).toBeGreaterThan(13);
+  expect((await view()).c.lng).toBeLessThan(-179);
+  await expect(paths).toHaveCount(1);
+  await expect.poll(contained).toBe(true);
 });
 
 test("Circuit shows a lap refusal in the status card", async ({page}) => {

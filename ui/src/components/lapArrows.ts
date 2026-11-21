@@ -1,3 +1,4 @@
+import {longitudeNear} from "../circuitLongitude";
 import type {LatLon} from "../types";
 
 const RAD = Math.PI / 180;
@@ -9,9 +10,11 @@ export function arrowsAlong(coords: LatLon[], everyM: number, max: number): {at:
   if (!(everyM > 0)) return arrows;
   let startM = 0;
   let nextM = everyM;
+  let lon = coords[0]?.[1] ?? 0;
   for (let i = 1; i < coords.length && arrows.length < max; i++) {
-    const [lat, lon] = coords[i - 1];
-    const [toLat, toLon] = coords[i];
+    const [lat] = coords[i - 1];
+    const [toLat, nextLon] = coords[i];
+    const toLon = longitudeNear(nextLon, lon);
     const dLat = (toLat - lat) * RAD, dLon = (toLon - lon) * RAD;
     const from = lat * RAD, to = toLat * RAD;
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(from) * Math.cos(to) * Math.sin(dLon / 2) ** 2;
@@ -28,6 +31,7 @@ export function arrowsAlong(coords: LatLon[], everyM: number, max: number): {at:
       }
     }
     startM = endM;
+    lon = toLon;
   }
   return arrows;
 }

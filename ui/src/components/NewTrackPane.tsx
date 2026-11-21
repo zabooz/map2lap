@@ -8,7 +8,7 @@ import styles from "./NewTrackPane.module.css";
 import {SearchField} from "./SearchField";
 import {Seg} from "./Seg";
 
-const MODES: readonly (readonly [Mode, string])[] = [["route", "Route"], ["area", "Area"], ["circuit", "Circuit"]];
+const MODES: readonly (readonly [Mode, string])[] = [["route", "Route"], ["circuit", "Circuit"], ["area", "Area"]];
 
 /** One pin field of a route or circuit. */
 function StopRow({index, last, point, onPick, onRemove, label, circuit}: {

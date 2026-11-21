@@ -12,6 +12,7 @@ import re
 import shutil
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import as_completed
@@ -88,11 +89,36 @@ def route(points):
     return [(lat, lon) for lon, lat in rt["geometry"]["coordinates"]], float(rt["distance"])
 
 
+def _circuit_refusal(error):
+    """Pin advice from an OSRM HTTP error response, if OSRM refused to snap or route the pins."""
+    if error.code != 400:
+        return None
+    try:
+        answer = json.load(error)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(answer, dict):
+        return None
+    if answer.get("code") == "NoRoute":
+        return "No drivable lap through these pins: move them onto through roads"
+    if answer.get("code") == "NoSegment":
+        return "A pin could not snap to a road: move the pins onto through roads"
+    return None
+
+
 def circuit_route(points: list[tuple[float, float]]) -> circuitlap.Lap:
     """Fetch and check the OSRM lap through (lat, lon) pins and back to pin 1."""
     if len(points) < 2:
         raise circuitlap.NoLap("Set at least two pins")
-    return circuitlap.lap(_osrm_route([*points, points[0]], "&continue_straight=true&annotations=nodes,distance"))
+    try:
+        data = _osrm_route([*points, points[0]], "&continue_straight=true&annotations=nodes,distance")
+    except urllib.error.HTTPError as error:
+        with error:
+            advice = _circuit_refusal(error)
+        if advice:
+            raise circuitlap.NoLap(advice) from error
+        raise RuntimeError(f"OSRM: {error}") from error
+    return circuitlap.lap(data)
 
 
 def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M):
@@ -380,8 +406,9 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             log("Circuit as given (no OSRM)" if circuit else "Route as given (no OSRM)")
             pts, given = [list(p) for p in line[0][:line[1] + 1]], [list(p) for p in line[0][line[1] + 1:]]
             ll = np.asarray(pts, float)
+            lons = np.unwrap(ll[:, 1], period=360.0) if circuit else ll[:, 1]
             length = float(np.sum(np.hypot(np.diff(ll[:, 0]) * 111320.0,
-                                           np.diff(ll[:, 1]) * 111320.0 * np.cos(np.radians(ll[:-1, 0])))))
+                                           np.diff(lons) * 111320.0 * np.cos(np.radians(ll[:-1, 0])))))
         if length > MAX_ROUTE_M:
             raise RuntimeError(f"Route is {length / 1000:.1f} km long, at most {MAX_ROUTE_M / 1000:.0f} km possible")
         loop = circuit or math.hypot((pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0])),
@@ -394,7 +421,11 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             ext = [] if loop else extend(pts)       # (finish line and run-off behind the end pin)
         allp = pts + ext
         lats, lons = np.array([p[0] for p in allp]), np.array([p[1] for p in allp])
-        lat0, lon0 = (lats.min() + lats.max()) / 2, (lons.min() + lons.max()) / 2     # anchor: centre of the route
+        # A lap can cross the antimeridian on a single road. Its centre follows the continuous line.
+        centre_lons = np.unwrap(lons, period=360.0) if circuit else lons
+        lat0, lon0 = (lats.min() + lats.max()) / 2, (centre_lons.min() + centre_lons.max()) / 2
+        if circuit and not -180.0 <= lon0 < 180.0:
+            lon0 = wrap_lon(lon0)
         frame = geodesy.EnuFrame(lat0, lon0)
         e, n, _ = frame.geodetic_to_enu(lats, lons, np.zeros_like(lats))
         xy = np.c_[np.asarray(e, float), np.asarray(n, float)]
