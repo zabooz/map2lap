@@ -489,7 +489,8 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None, hotlap=
             ini.set(sec, "ACTIVE", "0")
     session = {"NAME": "Practice", "TYPE": "1", "DURATION_MINUTES": "0", "SPAWN_SET": "START"}
     if hotlap:
-        ini["SESSION_0"] = {**session, "NAME": "Hotlap", "TYPE": "4", "SPAWN_SET": "HOTLAP"}
+        # AC can start A-to-B Hotlap from the grid position behind the timing gate.
+        ini["SESSION_0"] = {**session, "NAME": "Hotlap", "TYPE": "4"}
     elif laps is None:
         if not ini.has_section("SESSION_0"):
             ini.add_section("SESSION_0")

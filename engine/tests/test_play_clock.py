@@ -172,7 +172,7 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertEqual((200, True), self.started(hotlap=True))
         ini = self.ini()
         self.assertEqual("Hotlap", ini.get("SESSION_0", "NAME"))
-        self.assertEqual("HOTLAP", ini.get("SESSION_0", "SPAWN_SET"))
+        self.assertEqual("START", ini.get("SESSION_0", "SPAWN_SET"))
         self.assertEqual(4, ini.getint("SESSION_0", "TYPE"))
         self.assertFalse(ini.has_option("SESSION_0", "LAPS"))
         self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
