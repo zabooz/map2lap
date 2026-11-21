@@ -43,6 +43,8 @@ MAX_ROUTE_M = 500000.0      # beyond ~50 km from the anchor float32 gets coarse 
 WARN_TILES = 150
 # The finish goes beyond the end pin when the same road continues, with run-off built behind it.
 FINISH_AFTER_M, RUNOUT_M = 50.0, 100.0
+# Routes that return to the start still use lap timing, so an A–B finish cannot land on the start's runout.
+LOOP_M = 100.0
 # Progress phases (build(progress=...), shown by the generator page): route, road tiles, terrain/trees/houses
 # (make_obj), distant view (farview), kn5, tidying up (map data cache, temporary data)
 PHASES = ("route", "tiles", "scenery", "distant", "kn5", "clean")
@@ -432,7 +434,9 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
                                            np.diff(lons) * 111320.0 * np.cos(np.radians(ll[:-1, 0])))))
         if length > MAX_ROUTE_M:
             raise RuntimeError(f"Route is {length / 1000:.1f} km long, at most {MAX_ROUTE_M / 1000:.0f} km possible")
-        loop = circuit or tuple(pts[-1]) == tuple(pts[0])
+        lat_gap = (pts[-1][0] - pts[0][0]) * 111320.0
+        lon_gap = (pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0]))
+        loop = circuit or math.hypot(lat_gap, lon_gap) < LOOP_M
         approach = []
         if circuit:
             ext = []
@@ -586,10 +590,7 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
         if settings.load()["debug_app"]:        # (Settings; again on every build: the app of this release)
             debugapp.sync(make_track_folder.AC, True)
         model = os.path.join(root, name + ".kn5")
-        for relative in route_race.generated_files(model):
-            old = os.path.join(root, relative)
-            if os.path.isfile(old):
-                os.remove(old)
+        route_race.remove_generated_files(model)
         for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
         if not circuit:

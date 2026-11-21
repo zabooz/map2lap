@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 import sys
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 
 import numpy as np
 
@@ -645,9 +645,12 @@ def _checked_splits(objs, xy, s, start, length, *, closed, twice=(), junctions=N
         if twice and _overlaps_twice(twice, metre - CIRCUIT_MARGIN_M, 2 * CIRCUIT_MARGIN_M, total):
             return None
         x, y, forward = _along(sample_xy, sample_s, total + metre if closed else metre)
-        if np.any(np.sum((areas[:, :2] - (x, -y)) ** 2, axis=1) < areas[:, 2]):
+        local_roads = nearby_roads(x, -y, 0)
+        if not local_roads:
             return None
-        levels = road_levels(nearby_roads(x, -y, 0), x, -y)
+        if len(areas) and np.any(np.sum((areas[:, :2] - (x, -y)) ** 2, axis=1) < areas[:, 2]):
+            return None
+        levels = road_levels(local_roads, x, -y)
         if len(levels) != 1:
             return None
         centre = np.array([x, levels[0] + START_LIFT, -y])
@@ -684,29 +687,44 @@ def circuit_splits(objs, anchor, line_m, junctions=None):
     return placed
 
 
-def _mapped_junctions(parts):
-    """Junction centres and connected branch polylines in AC x/z from the built tile facts."""
+def _mapped_junctions(parts, log=print):
+    """Read junction centres and branch polylines from available tile facts in AC x/z coordinates."""
     from junctions import NODE_TOL
 
     arms, widths = {}, {}
     for part in parts:
+        path = editorinfo.side_file(part)
         try:
-            with ZipFile(editorinfo.side_file(part)) as archive:
+            with ZipFile(path) as archive:
                 features = json.loads(archive.read("tile.json"))["features"]
+            if not isinstance(features, list):
+                raise ValueError("features must be a list")
         except FileNotFoundError:
             continue    # Older retained OBJ parts have no map facts.
-        for feature in features:
-            spec = feature.get("spec")
-            if not spec:
+        except (BadZipFile, OSError, KeyError, TypeError, ValueError) as error:
+            log(f"Skipping junction data in {os.path.basename(path)}: {error}")
+            continue
+        for index, feature in enumerate(features, 1):
+            try:
+                spec = feature.get("spec")
+                if not spec:
+                    continue
+                width = float(spec["width"])
+                geometries = [np.asarray(line, dtype=float) for line in feature["geometry"]]
+                if not math.isfinite(width) or any(line.size and (line.ndim != 2 or line.shape[1] != 2
+                                                                  or not np.isfinite(line).all()) for line in geometries):
+                    raise ValueError("invalid road width or coordinates")
+            except (AttributeError, KeyError, OverflowError, TypeError, ValueError) as error:
+                log(f"Skipping junction feature {index} in {os.path.basename(path)}: {error}")
                 continue
-            for geometry in feature["geometry"]:
-                nodes = np.rint(np.asarray(geometry) / NODE_TOL).astype(int)
+            for geometry in geometries:
+                nodes = np.rint(geometry / NODE_TOL).astype(int)
                 for first, second in zip(map(tuple, nodes), map(tuple, nodes[1:])):
                     if first == second:
                         continue
                     for node, arm in ((first, second), (second, first)):
                         arms.setdefault(node, set()).add(arm)
-                        widths[node] = max(widths.get(node, 0.0), spec["width"])
+                        widths[node] = max(widths.get(node, 0.0), width)
     junctions = [node for node, connected in arms.items() if len(connected) >= 3]
     areas, branches = [], []
     for index, centre in enumerate(junctions):
@@ -990,7 +1008,7 @@ def _circuit_part(objs, anchor, parts, obj_dir, gate_path, log):
             x, y, _ = _along(xy, s, anchor["timing"]["line_m"] % s[-1])
             start_roads.update(nearby_roads(x, -y, START_NEAR_M))
     nodes, base, line_m = circuit_empties(start_roads, anchor, log)
-    splits, sector_m = circuit_splits(objs, anchor, line_m, _mapped_junctions(parts))
+    splits, sector_m = circuit_splits(objs, anchor, line_m, _mapped_junctions(parts, log))
     start = nodes[-2:]
     left, right = np.asarray([node.matrix[12:15] for node in start])
     centre = (left + right) / 2
@@ -1091,7 +1109,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
     try:
         if not circuit:
-            junctions = _mapped_junctions(parts) if route and (anchor or {}).get("timing") else None
+            junctions = _mapped_junctions(parts, log) if route and (anchor or {}).get("timing") else None
             empties, base = start_empties(objs, anchor, log, junctions)
         root.children += empties
         if prepare_output is not None:

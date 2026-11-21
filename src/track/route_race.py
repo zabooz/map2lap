@@ -1,4 +1,5 @@
 """Native A-to-B Practice and standing-start Race on a single Route model."""
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
@@ -105,3 +106,19 @@ def generated_files(model):
         return ()
     return (*configs, PRACTICE_MODEL, RACE_MODEL, str(UI / "ui_track.json"),
             *(str(Path(LAYOUT) / source) for source in LAYOUT_DATA))
+
+
+def remove_generated_files(model):
+    """Remove Map2Lap's layout files before a rebuild, pruning only its empty directories."""
+    files = generated_files(model)
+    if not files:
+        return
+    folder = Path(model).parent
+    for relative in files:
+        path = folder / relative
+        if path.is_file():
+            path.unlink(missing_ok=True)
+    layout = folder / LAYOUT
+    for directory in (folder / UI, layout / "data", layout):
+        with suppress(OSError):
+            directory.rmdir()

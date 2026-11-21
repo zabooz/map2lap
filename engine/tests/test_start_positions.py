@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from zipfile import ZipFile
 
 import numpy as np
@@ -286,6 +287,42 @@ def mapped_junctions(roads):
 
 
 class CircuitSectorsTest(unittest.TestCase):
+    def test_roadless_split_candidates_skip_the_junction_scan(self):
+        xy, lengths = obj_to_kn5._closed_lap(circuit()["route"])
+        junctions = (np.zeros((1, 3)), np.empty((0, 6)))
+        with mock.patch.object(obj_to_kn5.np, "sum", side_effect=AssertionError("Scanned junctions without a road")):
+            self.assertIsNone(obj_to_kn5._checked_splits({}, xy, lengths, 0.0, lengths[-1],
+                                                        closed=True, junctions=junctions))
+
+    def test_bad_junction_archives_are_skipped_and_reported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parts = [Path(folder) / f"t_{i}_0.obj" for i in range(3)]
+            parts[0].with_suffix(".editor.zip").write_bytes(b"broken zip")
+            with ZipFile(parts[1].with_suffix(".editor.zip"), "w") as archive:
+                archive.writestr("different.json", "{}")
+            with ZipFile(parts[2].with_suffix(".editor.zip"), "w") as archive:
+                archive.writestr("tile.json", '{"features":')
+            log = []
+            areas, branches = obj_to_kn5._mapped_junctions(parts, log.append)
+            self.assertEqual((len(areas), len(branches)), (0, 0))
+            self.assertEqual(len(log), len(parts))
+            self.assertTrue(all(part.with_suffix(".editor.zip").name in message for part, message in zip(parts, log)))
+
+    def test_bad_road_feature_does_not_hide_valid_junctions_in_the_same_tile(self):
+        roads = [[[0, 0], [30, 0]], [[0, 0], [0, 30]], [[-30, 0], [0, 0]]]
+        features = [{"spec": {"width": 10}, "geometry": [line]} for line in roads]
+        features.insert(1, {"spec": {"class": "residential"}, "geometry": [[[0, 0], [0, -30]]]})
+        with tempfile.TemporaryDirectory() as folder:
+            part = Path(folder) / "t_0_0.obj"
+            with ZipFile(part.with_suffix(".editor.zip"), "w") as archive:
+                archive.writestr("tile.json", json.dumps({"features": features}))
+            log = []
+            areas, branches = obj_to_kn5._mapped_junctions([part], log.append)
+            np.testing.assert_array_equal(areas, [[0, 0, 25]])
+            self.assertEqual(len(branches), 3)
+            self.assertEqual(len(log), 1)
+            self.assertIn("width", log[0])
+
     def test_short_lap_gets_three_sectors(self):
         split_nodes, metres = obj_to_kn5.circuit_splits(circuit_roads(), circuit(), 0.0)
         self.assertEqual(metres, [400.0, 800.0])

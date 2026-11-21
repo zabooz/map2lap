@@ -66,6 +66,25 @@ class RouteRaceTest(unittest.TestCase):
         self.assertIn("custom.kn5", default.read_text())
         self.assertEqual(before, self.model.read_bytes())
 
+    def test_cleanup_removes_empty_layout_folders_and_keeps_other_files(self):
+        ui = self.root / "ui/ui_track.json"
+        ui.parent.mkdir()
+        ui.write_text('{"name": "Track"}', encoding="utf-8")
+        root = self.root / route_race.LAYOUT
+        for keep_custom_file in (False, True):
+            with self.subTest(keep_custom_file=keep_custom_file):
+                route_race.prepare(self.model)
+                custom = root / "custom.ini"
+                if keep_custom_file:
+                    custom.write_text("custom", encoding="utf-8")
+                route_race.remove_generated_files(self.model)
+                self.assertFalse((self.root / route_race.UI).exists())
+                self.assertFalse((root / "data").exists())
+                self.assertEqual(root.exists(), keep_custom_file)
+                self.assertEqual(custom.exists(), keep_custom_file)
+                self.assertTrue(ui.is_file())
+                self.assertTrue(self.model.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

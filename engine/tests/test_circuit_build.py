@@ -36,7 +36,7 @@ class CircuitBuildTest(unittest.TestCase):
         self.anchor = self.work / "tiles/anchor.json"
         self.installed = self.root / "content/tracks/test"
 
-    def build_anchor(self, *, kind="circuit", area=None, line=None, **settings):
+    def build_anchor(self, *, kind="circuit", area=None, line=None, route_result=None, **settings):
         """Run the generator through its anchor write with the tile work isolated."""
         tile = Future()
         tile.set_result((0, 0, 0.0))
@@ -49,8 +49,9 @@ class CircuitBuildTest(unittest.TestCase):
               mock.patch.object(generator, "area_tiles", return_value=[(0, 0)]),
               mock.patch.object(generator.parallel, "pool", return_value=pool),
               mock.patch.object(generator.make_obj, "main", return_value=(0, 0, 0, [])),
-              mock.patch.object(generator, "route", side_effect=AssertionError("Circuit used Route")),
-              mock.patch.object(generator, "extend", side_effect=AssertionError("Circuit used the Route run-off"))):
+              mock.patch.object(generator, "route", return_value=route_result,
+                                side_effect=AssertionError("Unexpected open routing") if route_result is None else None),
+              mock.patch.object(generator, "extend", side_effect=AssertionError("Unexpected Route run-off or approach"))):
             generator._build(PINS, 120.0, "test", "Test", log.append, False, area, None, None, "obj", line,
                              kind=kind, **settings)
         return json.loads(self.anchor.read_text(encoding="utf-8")), log
@@ -98,6 +99,20 @@ class CircuitBuildTest(unittest.TestCase):
         area, _ = self.build_anchor(kind="route", area=[46.6, 14.6, 46.7, 14.7])
         self.assertEqual(route["kind"], "route")
         self.assertEqual(area["kind"], "area")
+
+    def test_route_within_loop_gap_keeps_lap_timing_and_has_no_runoff(self):
+        points = [*COORDS[:-1], (PINS[0][0] - 0.00027, PINS[0][1])]
+        for line in (None, (points, len(points) - 1)):
+            with self.subTest(saved=line is not None):
+                anchor, _ = self.build_anchor(kind="route", line=line, route_result=(points, 3000.0))
+                self.assertEqual("route", anchor["kind"])
+                self.assertIsNone(anchor["timing"])
+                self.assertEqual(len(points), len(anchor["route"]))
+
+    def test_saved_route_outside_loop_gap_keeps_ab_timing(self):
+        points = [*COORDS[:-1], (PINS[0][0] - 0.001, PINS[0][1])]
+        anchor, _ = self.build_anchor(kind="route", line=(points, len(points) - 1))
+        self.assertGreater(anchor["timing"]["finish_m"], anchor["timing"]["start_m"])
 
     def test_circuit_is_not_point_to_point(self):
         anchor = {"kind": "circuit", "route": [[0., 0.], [0., 100.], [50., 50.], [0., 0.]], "lat": 46.65, "lon": 14.62,
