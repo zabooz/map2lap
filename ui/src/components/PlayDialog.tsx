@@ -41,10 +41,9 @@ export function PlayDialog({timedMode, initialClock, initialWeather, saving, sav
 
   const update = <K extends keyof WeatherOptions>(key: K, value: WeatherOptions[K]) =>
     setWeather(old => ({...old, [key]: value}));
-  const race = timedMode === "race" && sessionMode === "race";
-  const hotlap = timedMode === "hotlap" && sessionMode === "hotlap";
+  const race = timedMode !== undefined && sessionMode === "race";
   const start = () => onStart({car, ...(minutes === null ? {} : {clock: minutes / 60}), weather,
-    ...(race ? {laps} : {}), ...(hotlap ? {hotlap: true} : {})});
+    ...(race ? {laps: timedMode === "route" ? 1 : laps} : {})});
   const dry = weather.kind === "dry";
   const time = minutes === null ? "Last session time" : `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
@@ -53,7 +52,7 @@ export function PlayDialog({timedMode, initialClock, initialWeather, saving, sav
             onCancel={e => { e.preventDefault(); onCancel(); }}>
       <form onSubmit={e => { e.preventDefault(); start(); }}>
         <header className={styles.header}>
-          <div><span className={styles.eyebrow}>Assetto Corsa · {race ? "Race" : hotlap ? "Hotlap" : "Practice"}</span><h2 id="play-title">Play</h2></div>
+          <div><span className={styles.eyebrow}>Assetto Corsa · {race ? "Race" : "Practice"}</span><h2 id="play-title">Play</h2></div>
           <button type="button" className={styles.close} aria-label="Close Play" onClick={onCancel}>×</button>
         </header>
         <div className={styles.body}>
@@ -62,11 +61,10 @@ export function PlayDialog({timedMode, initialClock, initialWeather, saving, sav
             {timedMode && <label className={styles.field}>Session
               <select aria-label="Session" value={sessionMode} onChange={e => setSessionMode(e.target.value)}>
                 <option value="practice">Practice</option>
-                <option value={timedMode}>{timedMode === "race" ? "Race" : "Hotlap"}</option>
+                <option value="race">Race</option>
               </select>
             </label>}
-            {hotlap && <p className="small muted">Timed from start to finish</p>}
-            {race && <label className={styles.field}>Laps
+            {race && timedMode === "circuit" && <label className={styles.field}>Laps
               <select aria-label="Laps" value={laps} onChange={e => setLaps(Number(e.target.value))}>
                 {LAP_OPTIONS.map(count => <option key={count} value={count}>{count}</option>)}
               </select>

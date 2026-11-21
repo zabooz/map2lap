@@ -101,12 +101,13 @@ def _materials(r):
     return materials
 
 
-def scan(path):
+def scan(path, *, point_offsets=False):
     """Where everything lies in the kn5 at path, without loading its textures and meshes (a long track's kn5: 9.9 GB):
     {"textures": [(name, offset, size)], "materials": [Material], "meshes": [{name, material, offset, vertices, indices,
     lod_in, lod_out, center, radius, renderable}], "points": {name: matrix}}. A mesh's offset is its vertices', its
-    index count (int32) and indices follow them. Points: the nodes with a matrix and no children (AC_START_0, ...)."""
-    textures, meshes, points = [], [], {}
+    index count (int32) and indices follow them. Points: the nodes with a matrix and no children (AC_START_0, ...).
+    With point_offsets, also return the byte offsets of point names, after their length fields."""
+    textures, meshes, points, offsets = [], [], {}, {}
     with open(path, "rb") as f:
         r = FileReader(f)
         assert f.read(6) == b"sc6969", "not a kn5"
@@ -120,13 +121,17 @@ def scan(path):
         materials = _materials(r)
 
         def node():
-            cls, name = r.take("<i"), r.string()
+            cls = r.take("<i")
+            name_at = f.tell() + 4 if cls == 1 and point_offsets else None
+            name = r.string()
             nchildren = r.take("<i")
             active = r.take("<B")
             if cls == 1:
                 matrix = r.take("<16f")
                 if not nchildren:
                     points[name] = matrix
+                    if name_at is not None:
+                        offsets[name] = name_at
             elif cls == 2:
                 cast_shadows, visible, transparent = r.take("<BBB")
                 nv = r.take("<i")
@@ -147,7 +152,10 @@ def scan(path):
             for _ in range(nchildren):
                 node()
         node()
-    return {"textures": textures, "materials": materials, "meshes": meshes, "points": points}
+    result = {"textures": textures, "materials": materials, "meshes": meshes, "points": points}
+    if point_offsets:
+        result["point_offsets"] = offsets
+    return result
 
 
 def _copy_bytes(source, target, n):

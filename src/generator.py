@@ -24,7 +24,7 @@ from track import build_tiles     # (first: sets the asphalt mesh switches and t
 from app import buildoptions, circuitlap, debugapp, mapcache, mytracks, settings, system, trackcode, version
 from app.paths import ROOT
 from scenery import farview, gates
-from track import make_obj, make_track_folder, obj_to_kn5, objectlist, parallel
+from track import make_obj, make_track_folder, obj_to_kn5, objectlist, parallel, route_race
 
 blockworker = build_tiles.blockworker
 roadsmod = build_tiles.roadsmod
@@ -585,12 +585,17 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
                 f.write(f"anchor {lat0:.8f} {lon0:.8f}\n" + "".join(f"{e_:.2f} {-n_:.2f}\n" for e_, n_ in xy))
         if settings.load()["debug_app"]:        # (Settings; again on every build: the app of this release)
             debugapp.sync(make_track_folder.AC, True)
+        model = os.path.join(root, name + ".kn5")
+        for relative in route_race.generated_files(model):
+            old = os.path.join(root, relative)
+            if os.path.isfile(old):
+                os.remove(old)
         for old in glob.glob(os.path.join(root, "*.kn5")):
             os.remove(old)
         if not circuit:
             progress("kn5", 0, 0)
         log("Writing kn5 ...")              # (our own writer instead of Blender + ksEditor, see obj_to_kn5.py)
-        return os.path.join(root, name + ".kn5")
+        return model
 
     anchor_path = os.path.join(tiles_dir, "anchor.json")
     kn5_parts = parts + [p for p in (gate, far) if p]

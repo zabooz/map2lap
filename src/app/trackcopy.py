@@ -16,7 +16,7 @@ import numpy as np
 
 from app import (cardensity, mytracks, placement, trackcopies, trackdetail, trackedits, trackheights, trackkerbs, trackpaint, trackstitch, trackplace, tracksource, tracksurfaces,
                  tracktrees, trackvariation, trackview, trackwalls, weather, treespacing)
-from track import editorinfo, groundmaterial, kn5, objectlist
+from track import editorinfo, groundmaterial, kn5, objectlist, route_race
 
 TEMPORARY, OLD = ".map2lap_new_", ".map2lap_old_"     # (folders AC doesn't show: a new track until it is whole, an old one until replaced)
 ROOM_FACTOR = 1.1               # the disk must hold the kn5 once more, and a little: the rest of a track's folder is small
@@ -278,7 +278,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             if source_scan["meshes"][i]["name"].startswith("nocol_"):
                 going[i] = going.get(i, np.zeros_like(mask)) | mask
     try:
-        _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE)})
+        timing_files = route_race.generated_files(own)
+        _copy_folder(folder, temporary, {name + ".kn5", name + '.uv2', objectlist.FILE, str(trackpaint.BUNDLE), *timing_files})
         new_kn5 = os.path.join(temporary, new + ".kn5")
         materials, images, change, added, native_config, drop_textures, native_files = trackdetail.saved(ac, name, edits["base"], textures.values(), scan, change, path, added)
         if scan.get("wall_images"):
@@ -332,6 +333,8 @@ def _written(ac, name, edits, own, source, objects, trees, copy_to, title):
             recipe["model_source"] = inherited
         mytracks.save(temporary, {**{k: v for k, v in info.items() if k not in OLD_KEYS}, "title": title, "edits": recipe})
         _ui_title(temporary, title)
+        if timing_files or all(gate in source_scan["points"] for gate in route_race.ALIASES.values()):
+            route_race.prepare(new_kn5)
         # (a build started or a tab saved meanwhile: the triangles counted are no more the ones to go)
         if objectlist.state_of(path) != edits["base"] or trackedits.load(ac, name)["revision"] != edits["revision"]:
             raise Refused("The track or its changes changed meanwhile: nothing was saved")

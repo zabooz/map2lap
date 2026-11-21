@@ -6,9 +6,9 @@ import type {WeatherOptions} from "../editor/scene/weather";
 import type {TimedMode} from "../types";
 
 const STARTING_MS = 5000;       // how long Play stays "Starting …": AC's window takes a while, the server answers at once
-export type PlaySession = {car: string; clock?: number; weather: WeatherOptions; laps?: number; hotlap?: true};
+export type PlaySession = {car: string; clock?: number; weather: WeatherOptions; laps?: number};
 
-/** Start AC with the chosen car and conditions in Practice, Race or Hotlap. */
+/** Start AC with the chosen car and conditions in Practice or Race. */
 export function usePlay() {
   const [starting, setStarting] = useState(false);
   const [asking, setAsking] = useState<{timedMode?: TimedMode; clock?: number; weather: WeatherOptions; saving: boolean; saveFailed: boolean;

@@ -36,7 +36,7 @@ const GROUPS: readonly TrackGroup[] = ["built", "edited"];
 
 const NO_AC = "Assetto Corsa not found: choose its folder under Settings";
 const timedMode = (kind?: Mode, hotlap?: boolean): TimedMode | undefined =>
-  kind === "circuit" ? "race" : hotlap ? "hotlap" : undefined;
+  kind === "circuit" ? "circuit" : hotlap ? "route" : undefined;
 const HINTS: Record<Mode | Exclude<Tab, "new">, string> = {
   route: "Click to set start, finish and waypoints · drag to move · right-click to remove",
   area: "Press and drag to draw the area · drag a corner to resize · \"Clear\" removes it",

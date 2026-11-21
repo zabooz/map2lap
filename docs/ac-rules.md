@@ -171,8 +171,9 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
   timing plane, with the other slots 8 m apart behind it along the route, including at bends. New builds place
   the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
   drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
-- Play offers AC's native Hotlap for Routes with both timing planes. AC measures the start-to-finish drive and
-  Map2Lap saves valid best times in AC's `personalbest.ini`, keyed by car and track.
+- Play offers Practice and a one-run Race with start lights for timed Routes. Practice measures between the gates.
+  Race starts timing when the lights go out and ends at the finish gate. On first Race, Map2Lap gives AC separate
+  timing models which share the installed track's road model. AC's `personalbest.ini` keeps the times by car and layout.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
   must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an

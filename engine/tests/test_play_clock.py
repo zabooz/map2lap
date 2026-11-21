@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import generator  # noqa: E402,F401
 import server  # noqa: E402
 from app import csp, mytracks, system  # noqa: E402
-from track import kn5, obj_to_kn5  # noqa: E402
+from track import kn5, obj_to_kn5, route_race  # noqa: E402
 
 RACE = "[RACE]\nMODEL=car\n\n[LIGHTING]\nSUN_ANGLE=-48.00\nTIME_MULT=1.0\n\n[TEMPERATURE]\nAMBIENT=13\nROAD=18\n"
 
@@ -147,11 +147,11 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.assertFalse(ini.has_option("SESSION_0", "LAPS"))
         self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
 
-    def test_laps_are_only_allowed_on_an_installed_circuit(self):
+    def test_race_requires_a_circuit_or_a_timed_route(self):
         self.assertEqual((400, False), self.started(laps=2))
         for options in ({"kind": "route"}, {"area": [0, 1, 2, 3]}):
             mytracks.save(self.track, options)
-            self.assertEqual((400, False), self.started(laps=2))
+            self.assertEqual((400, False), self.started(laps=1))
         self.assertEqual(RACE, self.race.read_text())
 
     def test_invalid_lap_counts_do_not_start_or_rewrite_the_session(self):
@@ -161,13 +161,52 @@ class PlayAtAnHourTest(unittest.TestCase):
                 self.assertEqual((400, False), self.started(laps=laps))
         self.assertEqual(RACE, self.race.read_text())
 
-    def test_route_hotlap_uses_native_start_and_watches_the_time(self):
+    def install_timed_route(self):
         mytracks.save(self.track, {"kind": "route"})
         root = obj_to_kn5.empty("track", (0, 0, 0), (0, 0, 1))
         for gate in ("START", "FINISH"):
             for edge in ("L", "R"):
                 root.children.append(obj_to_kn5.empty(f"AC_AB_{gate}_{edge}", (0, 0, 0), (0, 0, 1)))
         kn5.write(self.track / "one.kn5", [], [], root)
+
+    def test_route_race_starts_one_timed_run_and_watches_the_time(self):
+        self.install_timed_route()
+        self.assertEqual((400, False), self.started(laps=2))
+        self.assertEqual((200, True), self.started(laps=1))
+        ini = self.ini()
+        self.assertEqual("Race", ini.get("SESSION_0", "NAME"))
+        self.assertEqual("START", ini.get("SESSION_0", "SPAWN_SET"))
+        for key, expected in (("TYPE", 3), ("LAPS", 1), ("WAIT_TIME", 0)):
+            self.assertEqual(expected, ini.getint("SESSION_0", key))
+        self.assertEqual(route_race.LAYOUT, ini.get("RACE", "CONFIG_TRACK"))
+        self.assertEqual((str(self.race), f"one-{route_race.LAYOUT}", "car"), self.watch_args.args)
+        self.assertTrue((self.track / route_race.RACE).is_file())
+        self.assertEqual((200, True), self.started())
+        self.assertEqual("", self.ini().get("RACE", "CONFIG_TRACK"))
+
+    def test_route_practice_watches_the_time(self):
+        self.install_timed_route()
+        self.assertEqual((200, True), self.started())
+        self.assertEqual("Practice", self.ini().get("SESSION_0", "NAME"))
+        self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
+
+    def test_previous_timed_route_result_is_recovered(self):
+        self.install_timed_route()
+        ini = self.ini()
+        ini["RACE"].update({"TRACK": "one", "CARS": "1"})
+        for session in ({"TYPE": "1"}, {"TYPE": "3", "LAPS": "1"}):
+            ini["SESSION_0"] = session
+            with mock.patch.object(server.personalbest, "import_result") as collect:
+                server._previous_best(str(self.ac), str(self.race), ini)
+            collect.assert_called_once_with(str(self.race.parent.parent), "one", "car", self.race.stat().st_mtime_ns)
+        ini["RACE"]["CONFIG_TRACK"] = route_race.LAYOUT
+        with mock.patch.object(server.personalbest, "import_result") as collect:
+            server._previous_best(str(self.ac), str(self.race), ini)
+        collect.assert_called_once_with(str(self.race.parent.parent), f"one-{route_race.LAYOUT}", "car",
+                                        self.race.stat().st_mtime_ns)
+
+    def test_route_hotlap_uses_native_start_and_watches_the_time(self):
+        self.install_timed_route()
         self.race.write_text(RACE + "\n[SESSION_0]\nTYPE=3\nLAPS=8\nWAIT_TIME=0\n")
         self.assertEqual((200, True), self.started(hotlap=True))
         ini = self.ini()

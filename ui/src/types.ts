@@ -4,7 +4,7 @@ export type LatLon = [number, number];
 export type Box = [number, number, number, number];
 export type Tab = "new" | "mine" | "edit";
 export type Mode = "route" | "area" | "circuit";
-export type TimedMode = "race" | "hotlap";
+export type TimedMode = "circuit" | "route";
 export type TrackGroup = "built" | "edited";
 export type TerrainCell = 1 | 2;
 export interface BuildOptions {terrain_cell_m: TerrainCell; parked_cars: boolean; tree_spacing_m: number; ground_quality: "sd" | "hd";}
@@ -32,6 +32,7 @@ export interface Track extends Partial<BuildOptions> {
   points: LatLon[];
   code?: string;
   best_lap?: BestLap;
+  best_race?: BestLap;
   hotlap?: boolean;
 }
 

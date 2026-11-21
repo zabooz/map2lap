@@ -51,11 +51,19 @@ function OptionsSummary({options}: {options: BuildOptions}) {
   </dl>;
 }
 
-function BestLapSummary({best, stage}: {best?: BestLap; stage?: boolean}) {
+function BestLapSummary({best, label}: {best?: BestLap; label: string}) {
   return <div className={styles.best}>
-    <div><span>{stage ? "Best time" : "Best lap"}</span><strong>{best ? fmtLap(best.time_ms) : "—"}</strong></div>
+    <div><span>{label}</span><strong>{best ? fmtLap(best.time_ms) : "—"}</strong></div>
     {best && <p>{best.car}</p>}
   </div>;
+}
+
+function TrackTimes({stage, circuit, best, race}: {stage?: boolean; circuit: boolean; best?: BestLap; race?: BestLap}) {
+  if (stage) return <>
+    <BestLapSummary best={race} label="Best race time" />
+    {best && <BestLapSummary best={best} label="Best gate-to-gate time" />}
+  </>;
+  return (circuit || best) && <BestLapSummary best={best} label="Best lap" />;
 }
 
 /** A picked track's lines. */
@@ -73,7 +81,7 @@ function PickedTrack({track: t, version}: {track: Track; version: string}) {
         {!!t.kn5_bytes && <Stat label="Track file" value={fmtBytes(t.kn5_bytes)} />}
       </dl>
       <p className="small muted">{built}</p>
-      {(t.best_lap || t.kind === "circuit" || t.hotlap) && <BestLapSummary best={t.best_lap} stage={t.hotlap} />}
+      <TrackTimes stage={t.hotlap} circuit={t.kind === "circuit"} best={t.best_lap} race={t.best_race} />
     </>
   );
 }
@@ -101,7 +109,7 @@ function shownOf(a: {status: BuildStatus; showResult: boolean; tab: Tab; mode: M
           <Stat label="Tiles" value={r.tiles} />
           <Stat label="Track file" value={fmtBytes(r.kn5_bytes)} />
         </dl>
-        {(a.installed?.best_lap || r.kind === "circuit" || hotlap) && <BestLapSummary best={a.installed?.best_lap} stage={hotlap} />}
+        <TrackTimes stage={hotlap} circuit={r.kind === "circuit"} best={a.installed?.best_lap} race={a.installed?.best_race} />
         <div className={styles.foot}><p className="small muted">Installed in Assetto Corsa.</p>{a.playButton(r.name, r.kind, hotlap)}</div>
       </>)};
   }
