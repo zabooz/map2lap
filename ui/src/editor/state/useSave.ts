@@ -97,7 +97,7 @@ export function useSave({name, timedMode, edits, state, view, onSaved}: {
         const now = edits.state();
         return isCurrent(now) || isAsBuilt(now) ? name : write();
       })() : undefined;
-      const session = await choose(timedMode, view.clockHours(), view.weatherOptions(), prepared);
+      const session = await choose(name, timedMode, view.clockHours(), view.weatherOptions(), prepared);
       if (!session) return;
       if (!prepared || await prepared) void play(name, session);
     },

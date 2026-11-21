@@ -171,7 +171,7 @@ export function App() {
   const goTitle = busy ? undefined : !acOk ? NO_AC : !mine ? undefined : group === "edited" ? "Open it in the Editor" : "Build it again with this version and replace it";
 
   const startPlay = async (name: string, kind?: Mode, abTiming?: boolean) => {
-    const session = await choose(timedMode(kind, abTiming));
+    const session = await choose(name, timedMode(kind, abTiming));
     if (session) void play(name, session);
   };
   const playButton = (name: string, kind?: Mode, abTiming?: boolean) => (

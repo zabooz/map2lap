@@ -54,7 +54,7 @@ FACADE_LEVELS = (0.82, 1.0, 1.15)       # brightness levels of the facades (make
 # by eye on a town and a country test track; the sum stays about the same, so their brightness does)
 BUILDING_AMBIENT, BUILDING_DIFFUSE = 0.75, 1.3
 MAX_VERTS = 65535
-SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
+SLOTS, SLOT_GAP, START_LIFT = 6, 8.0, 0.15
 # Metres from the first car's centre to the timing plane: a normal road car's nose stays behind the line.
 # Very long vehicles can need more clearance; all following slots stay farther back along the road.
 STAGE_START_GAP_M = 3.0

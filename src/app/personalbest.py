@@ -45,7 +45,9 @@ def _best_time(result, track, car):
     if result["track"] != track or result["players"][0]["car"] != car:
         return None
     # AC can retain this extra even when its results screen has no lap rows.
-    times = [extra["time"] for extra in result.get("extras", []) if extra.get("name") == "bestlap"]
+    sole_car = len(result["players"]) == 1
+    times = [extra["time"] for extra in result.get("extras", [])
+             if extra.get("name") == "bestlap" and (extra.get("car", 0 if sole_car else None) == 0)]
     for session in result["sessions"]:
         times.extend(lap["time"] for lap in session.get("bestLaps", []) if lap.get("car") == 0)
     return min((value for value in times if type(value) is int and value > 0), default=None)

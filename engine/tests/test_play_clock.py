@@ -250,8 +250,9 @@ class PlayAtAnHourTest(unittest.TestCase):
         self.install_timed_route()
         ini = self.ini()
         ini["RACE"].update({"TRACK": "one", "CARS": "1"})
-        for session in ({"TYPE": "1"}, {"TYPE": "4"}, {"TYPE": "3", "LAPS": "1"}):
+        for session, count in (({"TYPE": "1"}, "1"), ({"TYPE": "4"}, "1"), ({"TYPE": "3", "LAPS": "1"}, "4")):
             ini["SESSION_0"] = session
+            ini["RACE"]["CARS"] = count
             with mock.patch.object(server.personalbest, "import_result") as collect:
                 server._previous_best(str(self.ac), str(self.race), ini)
             collect.assert_called_once_with(str(self.race.parent.parent), "one", "car", self.race.stat().st_mtime_ns)
@@ -269,18 +270,77 @@ class PlayAtAnHourTest(unittest.TestCase):
         handler.send_response, handler.send_header, handler.end_headers = mock.Mock(), mock.Mock(), mock.Mock()
         return handler
 
-    def test_play_request_rejects_the_retired_hotlap_mode(self):
-        handler = self.play_request(b'{"name":"one","hotlap":true}')
-        with mock.patch.object(server, "play", return_value=(200, {"ok": True})) as launch:
-            handler.do_POST()
-        launch.assert_not_called()
-        handler.send_response.assert_called_once_with(400)
+    def test_hotlap_is_native_and_solo_on_routes_and_circuits(self):
+        self.assertEqual((400, False), self.started(session="hotlap"))
+        for install in (lambda: mytracks.save(self.track, {"kind": "circuit"}), self.install_timed_route):
+            install()
+            self.assertEqual((200, True), self.started(session="hotlap"))
+            ini = self.ini()
+            self.assertEqual("Hotlap", ini["SESSION_0"]["NAME"])
+            self.assertEqual(4, ini.getint("SESSION_0", "TYPE"))
+            self.assertEqual(1, ini.getint("RACE", "CARS"))
+            self.assertEqual("", ini["RACE"]["CONFIG_TRACK"])
+            self.assertEqual((str(self.race), "one", "car"), self.watch_args.args)
 
-    def test_play_request_passes_laps_to_the_session(self):
-        handler = self.play_request(b'{"name":"one","laps":2}')
+    def install_ai(self, pits=4):
+        (self.track / "ui").mkdir()
+        (self.track / "ui/ui_track.json").write_text(f'{{"pitboxes": "{pits}"}}')
+        (self.track / "ai").mkdir()
+        (self.track / "ai/fast_lane.ai").write_bytes(b"ai")
+        for skin in ("one", "two", "three", "four"):
+            (self.ac / "content/cars/car/skins" / skin).mkdir(parents=True)
+
+    def test_race_sets_the_grid_and_practice_clears_it(self):
+        self.install_timed_route()
+        self.install_ai()
+        self.race.write_text(RACE + "\n[CAR_0]\nDRIVER_NAME=Player\nSKIN=one\n")
+        self.assertEqual((200, True), self.started(session="race", ai={"opponents": 3, "strength": 92, "aggression": 24}))
+        ini = self.ini()
+        self.assertEqual(4, ini.getint("RACE", "CARS"))
+        self.assertEqual(1, ini.getint("RACE", "RACE_LAPS"))
+        self.assertEqual(4, ini.getint("SESSION_0", "STARTING_POSITION"))
+        self.assertEqual("Player", ini["CAR_0"]["DRIVER_NAME"])
+        skins = set()
+        for i in range(1, 4):
+            bot = ini[f"CAR_{i}"]
+            self.assertEqual((f"AI {i}", "car", 92, 24),
+                             (bot["DRIVER_NAME"], bot["MODEL"], bot.getint("AI_LEVEL"), bot.getint("AI_AGGRESSION")))
+            skins.add(bot["SKIN"])
+        self.assertEqual({"two", "three", "four"}, skins)
+        self.assertEqual((200, True), self.started(session="practice"))
+        self.assertEqual(1, self.ini().getint("RACE", "CARS"))
+        self.assertFalse(self.ini().has_section("CAR_1"))
+        self.assertFalse(self.ini().has_option("SESSION_0", "STARTING_POSITION"))
+
+    def test_ai_options_are_checked_before_starting(self):
+        self.install_timed_route()
+        self.install_ai()
+        for ai in ({"opponents": 4}, {"opponents": True}, {"strength": 69}, {"aggression": 101}, {"car": "missing"}):
+            with self.subTest(ai=ai):
+                self.assertEqual((400, False), self.started(session="race", ai=ai))
+                self.assertEqual(RACE, self.race.read_text())
+        self.assertEqual((400, False), self.started(session="practice", ai={"opponents": 1}))
+        (self.track / "ai/fast_lane.ai").unlink()
+        self.assertEqual((400, False), self.started(session="race", ai={"opponents": 1}))
+
+    def test_circuit_race_uses_five_opponents_with_six_installed_slots(self):
+        mytracks.save(self.track, {"kind": "circuit"})
+        self.install_ai(pits=6)
+        for i in range(5):
+            (self.ac / "content/cars/opponent/skins" / f"skin{i}").mkdir(parents=True)
+        self.assertEqual((200, True), self.started(session="race", laps=2, ai={"opponents": 5, "car": "opponent"}))
+        ini = self.ini()
+        self.assertEqual(6, ini.getint("RACE", "CARS"))
+        self.assertEqual(6, ini.getint("SESSION_0", "STARTING_POSITION"))
+        self.assertEqual(2, ini.getint("SESSION_0", "LAPS"))
+        self.assertEqual("opponent", ini.get("CAR_5", "MODEL"))
+        self.assertEqual("skin4", ini.get("CAR_5", "SKIN"))
+
+    def test_play_request_passes_session_and_grid_options(self):
+        handler = self.play_request(b'{"name":"one","session":"race","laps":2,"ai":{"opponents":1}}')
         with mock.patch.object(server, "play", return_value=(200, {"ok": True})) as launch:
             handler.do_POST()
-        launch.assert_called_once_with("one", None, None, None, laps=2)
+        launch.assert_called_once_with("one", None, None, None, session="race", laps=2, ai={"opponents": 1})
         handler.send_response.assert_called_once_with(200)
 
 

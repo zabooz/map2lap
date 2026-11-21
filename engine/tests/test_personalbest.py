@@ -34,6 +34,12 @@ class PersonalBestTest(unittest.TestCase):
                                    {"bestLaps": [{"car": 0, "time": -1}]}])
         self.assertEqual(47000, personalbest.import_result(self.documents, "one", "car", 0))
 
+    def test_ai_race_uses_only_player_times_even_when_the_ai_drives_the_same_car(self):
+        self.save_result(players=[{"car": "car"}, {"car": "car"}],
+                         sessions=[{"bestLaps": [{"car": 1, "time": 30000}, {"car": 0, "time": 47000}]}],
+                         extras=[{"name": "bestlap", "time": 31000, "car": 1}])
+        self.assertEqual(47000, personalbest.import_result(self.documents, "one", "car", 0))
+
     def test_updates_only_the_matching_combination_if_it_is_faster(self):
         self.save_result()
         old = "[unrelated@layout]\n; keep existing content\nTIME=99999\n\n[CAR@ONE]\ntime=49000\ndate=123\n"

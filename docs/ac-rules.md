@@ -168,12 +168,14 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
 - Point-to-point grid, pit and hotlap spawns use the actual start gate: the first car's centre is 3 m before its
-  timing plane, with the other slots 8 m apart behind it along the route, including at bends. New builds place
+  timing plane, with five more slots 8 m apart behind it along the route, including at bends. New builds place
   the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
   drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
-- Play offers Practice and a one-run Race with start lights for timed Routes. Both use the default layout and the
-  native A–B gates, so the clock measures from crossing the start gate to crossing the finish gate in either mode.
-  AC's `personalbest.ini` keeps one gate-to-gate best per car and track across timed sessions.
+- Play offers Practice, Hotlap and Race for timed Routes and Circuits. A–B sessions use the default layout and
+  measure from the start gate to the finish gate. Race has start lights and one run on a Route, or a lap count on
+  a Circuit. A Race can use the installed AI line with up to one fewer opponent than the track has pitboxes.
+  New builds have six slots. The player starts behind the selected opponents and only their own best time is
+  imported into AC's `personalbest.ini`.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
   must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an

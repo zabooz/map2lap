@@ -43,7 +43,7 @@ from app.paths import ROOT, SRC  # noqa: E402
 from server_editor import EditorHandlers, IMAGE_TYPES  # noqa: E402
 from server_library import LibraryHandlers, MATERIAL_UPLOADS  # noqa: E402
 from server_roadtools import RoadToolHandlers  # noqa: E402
-from track import kn5, route_race  # noqa: E402
+from track import kn5, obj_to_kn5, route_race  # noqa: E402
 
 PORT = 8800
 job = {"state": "idle", "log": [], "result": None, "error": None,     # state: idle running stopping stopped done error
@@ -377,6 +377,72 @@ def _has_ab_timing(path):
         return False
 
 
+def _opponent_limit(track_dir):
+    """Available AI grid slots from the installed default layout."""
+    root = Path(track_dir)
+    if not (root / "ai/fast_lane.ai").is_file():
+        return 0
+    try:
+        data = json.loads((root / "ui/ui_track.json").read_text(encoding="utf-8-sig"))
+        pits = data.get("pitboxes")
+        if type(pits) is not int and not (isinstance(pits, str) and pits.isdecimal()):
+            return 0
+        return max(0, min(int(pits), obj_to_kn5.SLOTS) - 1)
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+def _race_ai(ai, track_dir, installed):
+    """Validate a Race's opponent count, common strength, aggression and optional car."""
+    if ai is None:
+        return 0, 95, 0, ""
+    if not isinstance(ai, dict):
+        raise ValueError("Invalid AI settings")
+    opponents, strength, aggression, car = (ai.get(key, default) for key, default in
+                                            (("opponents", 0), ("strength", 95), ("aggression", 0), ("car", "")))
+    limit = _opponent_limit(track_dir)
+    if type(opponents) is not int or not 0 <= opponents <= limit:
+        raise ValueError(f"Choose up to {limit} AI opponents" if limit else "This track has no AI grid and line")
+    # Content Manager's standard Quick Drive ranges. Per-car aggression is written as a percentage.
+    if type(strength) is not int or not 70 <= strength <= 100:
+        raise ValueError("AI strength must be 70–100%")
+    if type(aggression) is not int or not 0 <= aggression <= 100:
+        raise ValueError("AI aggression must be 0–100%")
+    if not isinstance(car, str) or (car and car not in installed):
+        raise ValueError("That opponent car is not installed")
+    return opponents, strength, aggression, car
+
+
+def _car_skins(ac, model):
+    """Installed livery directories for a validated car, in a stable order."""
+    return sorted(path.name for path in (Path(ac) / "content/cars" / model / "skins").iterdir() if path.is_dir())
+
+
+def _write_race_grid(ini, player, ai, ac, installed):
+    """Write AI entries into race.ini; the local player starts behind the opponents."""
+    opponents, strength, aggression, opponent_car = ai
+    if not opponents:
+        return
+    model = ini["RACE"]["MODEL"]
+    opponent_car = opponent_car or model
+    if opponent_car not in installed:
+        raise ValueError("That opponent car is not installed")
+    skins = _car_skins(ac, opponent_car)
+    if not skins:
+        raise ValueError("The opponent car has no installed skins")
+    if opponent_car == model and (skin := ini[player].get("SKIN", ini["RACE"].get("SKIN"))) in skins:
+        skins.remove(skin)
+        skins.append(skin)
+    ini["RACE"].update({"CARS": str(opponents + 1), "AI_LEVEL": "100"})
+    ini["SESSION_0"]["STARTING_POSITION"] = str(opponents + 1)
+    for i in range(opponents):
+        ini[f"CAR_{i + 1}"] = {
+            "MODEL": opponent_car, "SKIN": skins[i % len(skins)], "SETUP": "", "MODEL_CONFIG": "",
+            "AI_LEVEL": str(strength), "AI_AGGRESSION": str(aggression), "DRIVER_NAME": f"AI {i + 1}",
+            "BALLAST": "0", "RESTRICTOR": "0", "NATION_CODE": "", "NATIONALITY": "",
+        }
+
+
 def _watch_best(race_file, track, car):
     """Watch a timed session's result independently of the Play request."""
     started_ns = os.stat(race_file).st_mtime_ns
@@ -390,11 +456,12 @@ def _previous_best(ac, race_file, ini, resume=False):
     car = ini.get("RACE", "MODEL", fallback="")
     session = ini.get("SESSION_0", "TYPE", fallback="")
     if (not track or generator.slug(track) != track or not car or
-            ini.get("RACE", "CARS", fallback="") != "1" or ini.get("RACE", "CONFIG_TRACK", fallback="") or
+            (session != "3" and ini.get("RACE", "CARS", fallback="") != "1") or
+            ini.get("RACE", "CONFIG_TRACK", fallback="") or
             ini.get("REMOTE", "ACTIVE", fallback="0") != "0" or session not in ("1", "3", "4")):
         return
     directory = os.path.join(ac, "content", "tracks", track)
-    if session == "4" or not _is_circuit(directory):
+    if not _is_circuit(directory):
         if session == "3" and ini.get("SESSION_0", "LAPS", fallback="") != "1":
             return
         if not _has_ab_timing(os.path.join(directory, track + ".kn5")):
@@ -479,17 +546,18 @@ def _launch_play(ac, track_file, race_file, ini, selected_weather, effects, *, t
     return 200, {"ok": True}
 
 
-def play(name, clock=None, weather_options=None, car=None, *, laps=None):
+def play(name, clock=None, weather_options=None, car=None, *, session=None, laps=None, ai=None):
     """Drive the track in AC (My tracks and the Editor, "Play"): race.ini the way Content Manager writes it, with the last
-    settings (car, skin, weather, assists) but this track, no opponents and offline; then acs.exe (system.start_ac;
+    settings (car, skin, weather, assists) but this track and offline; then acs.exe (system.start_ac;
     system.ensure_steam starts Steam if needed). clock: the local hour to start at (the Editor's), else the last one stays.
     car: an installed car folder for this session, empty for last driven, None for the saved setting.
-    laps: the lap count for a Circuit's solo Race or 1 for a timed Route, None for unlimited Practice.
+    session: Practice, Hotlap or Race; laps and ai are Race options. Without a session, laps selects Race.
     Returns (HTTP code, response)."""
     import configparser
     if clock is not None and not valid_clock(clock):
         return 400, {"error": "The time of day is not an hour of the day"}
-    if car is not None and (not isinstance(car, str) or (car and car not in {c["id"] for c in cars()})):
+    installed = {c["id"] for c in cars()} if car or ai is not None else set()
+    if car is not None and (not isinstance(car, str) or (car and car not in installed)):
         return 400, {"error": "That car is not installed"}
     try:
         selected_weather = weather.parse(weather_options) if weather_options is not None else None
@@ -502,12 +570,26 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None):
         return 404, {"error": "This track has no track file (build it again)"}
     circuit = _is_circuit(track_dir)
     timed_route = not circuit and _has_ab_timing(track_file)
-    if laps is not None:
+    if session is None:
+        session = "practice" if laps is None else "race"
+    if session not in ("practice", "hotlap", "race"):
+        return 400, {"error": "Choose Practice, Hotlap or Race"}
+    if session != "race" and (laps is not None or ai is not None):
+        return 400, {"error": "Laps and AI opponents are Race options"}
+    if session == "hotlap" and not (circuit or timed_route):
+        return 400, {"error": "Hotlap requires a Circuit or a Route with start and finish timing"}
+    if session == "race":
+        if laps is None and timed_route:
+            laps = 1
         # AC represents the session's lap count as a signed 32-bit integer.
         if type(laps) is not int or not 1 <= laps < 2**31:
             return 400, {"error": "Enter a whole number of laps from 1 to 2147483647"}
         if not circuit and not (timed_route and laps == 1):
             return 400, {"error": "Race requires a Circuit or one run on a Route with start and finish timing"}
+        try:
+            ai = _race_ai(ai, track_dir, installed)
+        except ValueError as error:
+            return 400, {"error": str(error)}
     with lock:
         if error := _play_blocker():
             return 409, {"error": error}
@@ -526,8 +608,7 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None):
     player = next((section for section in ini.sections() if section.upper() == "CAR_0"), "CAR_0")
     model = play_car()[0] if car is None else (last_car() if car == "" else car)
     if model and model != ini.get("RACE", "MODEL"):        # (the car set, its first skin)
-        skins = os.path.join(ac, "content", "cars", model, "skins")
-        skin = next(iter(sorted(d for d in os.listdir(skins) if os.path.isdir(os.path.join(skins, d)))), "")
+        skin = next(iter(_car_skins(ac, model)), "")
         for k, v in (("MODEL", model), ("MODEL_CONFIG", ""), ("SKIN", skin)):
             ini.set("RACE", k, v)
         if ini.has_section(player):
@@ -542,19 +623,29 @@ def play(name, clock=None, weather_options=None, car=None, *, laps=None):
     ini.set("RACE", "CONFIG_TRACK", "")
     ini.set("RACE", "CARS", "1")
     for sec in ini.sections():
-        if (sec.startswith("CAR_") and sec != "CAR_0") or (sec.startswith("SESSION_") and sec != "SESSION_0"):
+        if (sec.upper().startswith("CAR_") and sec != player) or (sec.startswith("SESSION_") and sec != "SESSION_0"):
             ini.remove_section(sec)
     for sec in ("REMOTE", "REPLAY", "BENCHMARK", "RESTART", "__PREVIEW_GENERATION"):
         if ini.has_section(sec):
             ini.set(sec, "ACTIVE", "0")
-    session = {"NAME": "Practice", "TYPE": "1", "DURATION_MINUTES": "0", "SPAWN_SET": "START"}
-    if laps is None:
+    start = {"NAME": "Practice", "TYPE": "1", "DURATION_MINUTES": "0", "SPAWN_SET": "START"}
+    if session == "practice":
         if not ini.has_section("SESSION_0"):
             ini.add_section("SESSION_0")
-        ini["SESSION_0"].update(session)
-        ini.remove_option("SESSION_0", "LAPS")
+        ini["SESSION_0"].update(start)
+        for option in ("LAPS", "STARTING_POSITION", "WAIT_TIME"):
+            ini.remove_option("SESSION_0", option)
+        ini.remove_option("RACE", "RACE_LAPS")
+    elif session == "hotlap":
+        ini["SESSION_0"] = {**start, "NAME": "Hotlap", "TYPE": "4"}
+        ini.remove_option("RACE", "RACE_LAPS")
     else:
-        ini["SESSION_0"] = {**session, "NAME": "Race", "TYPE": "3", "LAPS": str(laps), "WAIT_TIME": "0"}
+        ini["SESSION_0"] = {**start, "NAME": "Race", "TYPE": "3", "LAPS": str(laps), "WAIT_TIME": "0"}
+        ini["RACE"]["RACE_LAPS"] = str(laps)
+        try:
+            _write_race_grid(ini, player, ai, ac, installed)
+        except (OSError, ValueError) as error:
+            return 400, {"error": str(error)}
     if clock is not None:
         if not ini.has_section("LIGHTING"):
             ini.add_section("LIGHTING")
@@ -867,6 +958,10 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
         elif self.path == "/api/cars":
             last = last_car()
             self._send(200, {"cars": cars(), "last": car_name(last) if last else None})
+        elif urlsplit(self.path).path == "/api/play/options":
+            name = generator.slug(parse_qs(urlsplit(self.path).query).get("name", [""])[0])
+            track = os.path.join(settings.ac_path(), "content", "tracks", name)
+            self._send(200, {"max_opponents": _opponent_limit(track)})
         elif self.path in ("/api/update", "/api/update?fresh=1"):   # (a newer Map2Lap on GitHub: the page links it)
             rel = version.latest(fresh=self.path.endswith("fresh=1"))
             newer = bool(rel) and version.key(rel["version"]) > version.key(version.VERSION)
@@ -1100,10 +1195,10 @@ class Handler(EditorHandlers, LibraryHandlers, RoadToolHandlers, BaseHTTPRequest
                                         body.get("ground_quality", info.get("ground_quality", "sd")), **mode))
             elif self.path == "/api/play":
                 if body.get("hotlap", False) is not False:
-                    self._send(400, {"error": "Choose Practice or Race"})
+                    self._send(400, {"error": "Choose the session with the session field"})
                 else:
                     self._send(*play(generator.slug(body.get("name") or ""), body.get("clock"), body.get("weather"),
-                                     body.get("car"), laps=body.get("laps")))
+                                     body.get("car"), session=body.get("session"), laps=body.get("laps"), ai=body.get("ai")))
             elif self.path == "/api/delete":
                 self._send(*delete_track(generator.slug(body.get("name") or "")))
             elif self.path == "/api/cache/clear":

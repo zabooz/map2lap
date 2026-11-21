@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 from app import settings, version, weather
 from app.paths import ROOT
 from scenery import facades, lamps, treefx
-from track import parallel
+from track import obj_to_kn5, parallel
 
 AC = settings.ac_path()         # (generator page: Settings; else found through Steam)
 OBJ = os.path.join(ROOT, "out", "obj", "track.obj")
@@ -264,7 +264,7 @@ def make(name, title, obj=OBJ, preview=os.path.join(ROOT, "out", "check_top.png"
           "© ESA WorldCover project 2021; tree heights: Meta and WRI."),
           "tags": ["map2lap", "point to point" if point_to_point else "freeroam"],
           "geotags": [f"{geotags[0]:.5f}", f"{geotags[1]:.5f}"] if geotags else [], "country": country, "city": city,
-          "length": "0", "width": "", "pitboxes": "4", "run": "point-to-point" if point_to_point else "free",
+          "length": "0", "width": "", "pitboxes": str(obj_to_kn5.SLOTS), "run": "point-to-point" if point_to_point else "free",
           "author": "Map2Lap",
           "version": version.VERSION}         # (Content Manager shows it)
     with open(os.path.join(root, "ui", "ui_track.json"), "w", encoding="utf-8") as f:
