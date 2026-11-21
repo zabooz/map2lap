@@ -9,7 +9,7 @@ have the file: while their work folder is still there (out/tracks/<name>/tiles/a
      "width": m or None, "area": [S, W, N, E] or None, "length_m", "area_m": [east, north] or None, "tiles",
      "built": Unix time, "line": [[lat, lon], ...] or None, "route_end": the end of the route or lap
      (data/map2lap_route.txt) or None, "data": {"overture": release, "osm": the tags file's ETag} (generator.
-     data_versions), "kind": "circuit" for explicitly built circuits, "timing": {"line_m", "twice"} for circuit timing
+     data_versions), "kind": "circuit" for explicitly built circuits, "timing": {"line_m", "sector_m", "twice"} for circuit timing
      measured on the built lap, "code": its track code (trackcode; listing fills it in for builds without one), "edits": what the Editor's
      last Save of it was made of (trackcopy.save), none on a build}
 """
@@ -41,8 +41,8 @@ def save(root, info):
 
 
 def circuit_timing(timing):
-    """The placed start/finish metre and twice-driven spans from a circuit anchor's timing. Pure."""
-    return {key: timing[key] for key in ("line_m", "twice") if timing and key in timing}
+    """The placed start/finish and sector metres and twice-driven spans from a circuit anchor's timing. Pure."""
+    return {key: timing[key] for key in ("line_m", "sector_m", "twice") if timing and key in timing}
 
 
 def load(track_dir):

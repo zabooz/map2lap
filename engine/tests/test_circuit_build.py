@@ -108,29 +108,29 @@ class CircuitBuildTest(unittest.TestCase):
         (self.installed / "data").mkdir(parents=True)
 
         def convert(_obj, kn5, anchor_path, prepare_output=None, **kwargs):
-            """Write a stand-in KN5 and the converter's placed line metre."""
+            """Write a stand-in KN5 and the converter's placed timing metres."""
             if prepare_output is not None:
                 kn5 = prepare_output()
             path = Path(anchor_path)
             saved = json.loads(path.read_text(encoding="utf-8"))
-            saved["timing"]["line_m"] = SAVED_TIMING["line_m"]
+            saved["timing"].update(line_m=SAVED_TIMING["line_m"], sector_m=[241.0])
             path.write_text(json.dumps(saved), encoding="utf-8")
             Path(kn5).write_bytes(b"kn5")
             return kn5
 
         with (mock.patch.object(generator.farview, "build", return_value=None),
-              mock.patch.object(generator.gates, "make_textures", side_effect=AssertionError("Circuit built gates")),
               mock.patch.object(generator, "where", return_value=("", "")),
               mock.patch.object(generator.settings, "load", return_value={"debug_app": False}),
               mock.patch.object(generator.make_track_folder, "make", return_value=str(self.installed)) as make,
               mock.patch.object(generator.obj_to_kn5, "convert", side_effect=convert)):
-            generator._finish("test", "Test", self.work, anchor, np.asarray(anchor["route"]), COORDS, [], (0, 0, 0),
-                              0, lambda msg: None, lambda *progress: None, False, None)
+            result = generator._finish("test", "Test", self.work, anchor, np.asarray(anchor["route"]), COORDS, [], (0, 0, 0),
+                                       0, lambda msg: None, lambda *progress: None, False, None)
+        self.assertEqual("circuit", result["kind"])
         self.assertFalse(make.call_args.kwargs["point_to_point"])
         self.assertTrue(make.call_args.kwargs["extra_description"].startswith("Circuit, lap "))
         info = mytracks.load(self.installed)
         self.assertEqual(info["kind"], "circuit")
-        self.assertEqual(info["timing"], SAVED_TIMING)
+        self.assertEqual(info["timing"], {**SAVED_TIMING, "sector_m": [241.0]})
         self.assertEqual(trackcode.decode(info["code"])["kind"], "circuit")
         self.assertEqual(info["route_end"], len(COORDS) - 1)
 

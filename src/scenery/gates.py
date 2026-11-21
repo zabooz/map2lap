@@ -1,10 +1,10 @@
-"""Start and finish of a point-to-point track made visible, in comic style: a checkered band across the whole road
-and a gantry over it, two posts beside the road (with collision) and a banner reading "START" or "FINISH". The road
-width at the line is sampled in the terrain texture (the painted road, _Tex).
+"""Visible timing lines: a checkered band across the road, two posts beside it and a banner over it.
+The road width at the line is sampled in the terrain texture (the painted road, _Tex).
 
 Also decides exactly where the lines are (anchor.json timing["gates"]): obj_to_kn5.ab_gates puts AC_AB_START/FINISH on
 the same points, so the clock starts and stops exactly at the band. As there: without road at timing["start_m"] the
-start moves up to 50 m forward, the finish up to 50 m back.
+start moves up to 50 m forward, the finish up to 50 m back. On a circuit the visible "START · FINISH" follows
+the converter's checked AC_TIME_0 line.
 
 Textures with thick black borders per face (the edges look drawn); the banner has its gantry's aspect ratio, so the
 lettering is never stretched.
@@ -27,8 +27,8 @@ POST_GAP, POST_W, POST_TOP = 1.2, 0.45, 6.6          # posts: distance from the 
 BANNER_LOW, BANNER_HIGH, BANNER_T = 5.0, 6.4, 0.3    # banner: bottom, top above the road, thickness
 BANNER_PX = 256                 # banner texture height
 INK = (22, 22, 26)              # outlines
-COLORS = {"start": (38, 166, 84), "finish": (224, 36, 58)}      # banner colour
-WORDS = {"start": "START", "finish": "FINISH"}
+COLORS = {"start": (38, 166, 84), "finish": (224, 36, 58), "circuit": (38, 166, 84)}
+WORDS = {"start": "START", "finish": "FINISH", "circuit": "START · FINISH"}
 # Windows' own first; elsewhere (Linux) Archivo Black from assets/fonts, a free font of Arial Black's weight
 FONTS = ("ariblk.ttf", "impact.ttf", "arialbd.ttf", os.path.join(paths.FONTS, "ArchivoBlack-Regular.ttf"))
 MATERIALS = ("gate_band", "gate_post", "gate_start", "gate_finish")
@@ -69,13 +69,13 @@ def _height(objs, x, y, prefixes=("1ROAD_", "1GRAVEL_")):
 
 
 def _place(objs, xy, s, d0, step):
-    """(centre ENU, driving direction ENU) of the line at d0 m along the route; without road there up to 25 steps on."""
+    """Centre, direction (ENU), and metre at d0 along the route; without road there up to 25 steps on."""
     for d in d0 + step * np.arange(26):
         x, y, fwd_ac = obj_to_kn5._along(xy, s, d)
         h = _height(objs, x, y)
         if h is not None:
-            return np.array([x, y, h]), np.array([fwd_ac[0], -fwd_ac[2], 0.0])
-    return None, None
+            return np.array([x, y, h]), np.array([fwd_ac[0], -fwd_ac[2], 0.0]), float(np.clip(d, 0, s[-1]))
+    return None, None, None
 
 
 class _Tex:
@@ -169,6 +169,11 @@ def _banner(path, kind, aspect):
     font = _font(int(h * 0.58))
     word = WORDS[kind]
     box = d.textbbox((0, 0), word, font=font, stroke_width=12)
+    if kind == "circuit":
+        available = w - 2 * (border + 2 * sq)
+        if box[2] - box[0] > available:
+            font = _font(int(h * 0.58 * available / (box[2] - box[0])))
+            box = d.textbbox((0, 0), word, font=font, stroke_width=12)
     tx, ty = (w - (box[2] - box[0])) / 2 - box[0], (h - (box[3] - box[1])) / 2 - box[1]
     d.text((tx + 9, ty + 9), word, font=font, fill=INK, stroke_width=12, stroke_fill=INK)      # (shadow)
     d.text((tx, ty), word, font=font, fill=(250, 250, 245), stroke_width=12, stroke_fill=INK)
@@ -186,11 +191,11 @@ def make_textures(tex_dir):
     img.save(os.path.join(tex_dir, "gate_post.png"))
 
 
-def _gate(kind, objs, ground, c, fwd, obj, tex_dir, tex):
+def _gate(kind, objs, ground, c, fwd, obj, tex_dir, tex=None, span=None):
     """Band, posts and banner of one line into obj; returns (left, right) up to the posts (m)."""
     up = np.array([0.0, 0.0, 1.0])
     left = np.cross(up, fwd)
-    lw, rw = _tex_span(tex, c, left) or _span(objs, c, left)
+    lw, rw = span if span is not None else (_tex_span(tex, c, left) or _span(objs, c, left))
     # band: a grid across the road (vertices at the road height, else the centre's)
     across = np.r_[np.arange(-rw, lw, SQUARE_M), lw]
     along = np.array([-SQUARE_M, 0.0, SQUARE_M])
@@ -198,7 +203,11 @@ def _gate(kind, objs, ground, c, fwd, obj, tex_dir, tex):
     for w in along:
         for a in across:
             p = c + left * a + fwd * w
-            h = _height(objs, p[0], p[1])
+            if kind == "circuit":
+                levels = obj_to_kn5.road_levels(objs, p[0], -p[1])
+                h = min(levels, key=lambda height: abs(height - c[2]), default=None)
+            else:
+                h = _height(objs, p[0], p[1])
             P.append([p[0], p[1], (c[2] if h is None else h) + BAND_LIFT])
             UV.append([(a + rw) / (2 * SQUARE_M), (w + SQUARE_M) / (2 * SQUARE_M)])
     n = len(across)
@@ -236,6 +245,34 @@ def _gate(kind, objs, ground, c, fwd, obj, tex_dir, tex):
     return lh, rh
 
 
+def circuit_gate(path, obj_dir, parts, roads, start):
+    """Write one gantry OBJ and its textures at the checked start/finish; return its material-to-image paths."""
+    ends = np.asarray([node.matrix[12:15] for node in start])
+    x, h, z = ends.mean(axis=0)
+    half_width = float(np.linalg.norm(ends[0] - ends[1])) / 2
+    fx, _, fz = start[0].matrix[8:11]
+    c, fwd = np.array([x, -z, h - obj_to_kn5.START_LIFT]), np.array([fx, -fz, 0.0])
+    tex_dir = os.path.join(obj_dir, "textures")
+    os.makedirs(tex_dir, exist_ok=True)
+    make_textures(tex_dir)
+    # Poles may stand past the asphalt on sloping terrain; include the grass there from the original tile OBJ.
+    ground = dict(roads)
+    reach = half_width + POST_GAP + POST_W
+    for part in parts:
+        name = os.path.splitext(os.path.basename(part))[0].split("_")
+        if len(name) != 3 or name[0] != "t":
+            continue
+        tx, ty = map(int, name[1:])
+        if roadsmod.box_gap(*roadsmod.tile_bbox(tx, ty), x, -z) <= reach:
+            ground.update({key: value for key, value in obj_to_kn5.read_obj(part).items() if key.startswith("1GRASS_")})
+    obj = make_obj.Obj(path, header=False)
+    try:
+        _gate("circuit", roads, ground, c, fwd, obj, tex_dir, span=(half_width, half_width))
+    finally:
+        obj.close()
+    return {mat: os.path.join(tex_dir, f"{mat}.png") for mat in ("gate_band", "gate_post", "gate_circuit")}
+
+
 def build(tiles_dir, obj_dir, log=print):
     """Start and finish to obj_dir/parts/gates.obj (materials into track.mtl, textures to textures/) and their position
     to anchor.json timing["gates"]; returns the path, None for a circuit or without timing."""
@@ -252,6 +289,8 @@ def build(tiles_dir, obj_dir, log=print):
     path = os.path.join(obj_dir, "parts", "gates.obj")
     obj = make_obj.Obj(path, header=False)
     placed, tex = {}, _Tex(tex_dir)
+    pin_start = "approach" in timing
+    actual_start = timing["start_m"]
     for kind, d0, step in (("start", timing["start_m"], 2.0), ("finish", timing["finish_m"], -2.0)):
         x, y, _ = obj_to_kn5._along(xy, s, d0)
         near = [os.path.join(obj_dir, "parts", f"t_{tx}_{ty}.obj") for tx, ty in anc["tiles"]
@@ -261,16 +300,39 @@ def build(tiles_dir, obj_dir, log=print):
             if os.path.exists(p):
                 ground.update({k: v for k, v in obj_to_kn5.read_obj(p).items()
                                if k.startswith(("1ROAD_", "1GRAVEL_", "1GRASS_"))})
-        c, fwd = _place(ground, xy, s, d0, step)
-        if c is None:
-            log(f"No road at the {kind} line: no start and finish")
+        if pin_start and kind == "start":
+            start = obj_to_kn5.stage_start(ground, route, timing, log)
+            if start is None:
+                c, fwd, metre = None, None, None
+            else:
+                actual_start, (x, h, z), (fx, _, fz), _ = start
+                c, fwd, metre = np.array([x, -z, h]), np.array([fx, -fz, 0.0]), actual_start
+        else:
+            c, fwd, metre = _place(ground, xy, s, d0, step)
+        if c is None or (pin_start and kind == "finish" and metre <= actual_start):
+            if pin_start and kind == "start":
+                log("No road for the grid before a start near pin 1: no start-to-finish timing")
+            elif c is not None:
+                log("The finish would be before or at the start: no start-to-finish timing")
+            else:
+                log(f"No road at the {kind} line: no start and finish")
             obj.close()
             os.remove(path)
+            if pin_start:
+                anc["timing"] = None
+                with open(anc_path, "w", encoding="utf-8") as f:
+                    json.dump(anc, f)
             return None
         lh, rh = _gate(kind, ground, ground, c, fwd, obj, tex_dir, tex)
         placed[kind] = {"pos": [float(c[0]), float(c[2]), float(-c[1])], "fwd": [float(fwd[0]), 0.0, float(-fwd[1])],
                         "left": lh, "right": rh}       # (AC: x east, y up, z = -north)
     obj.close()
+    if pin_start:
+        timing["start_m"] = actual_start
+        if round(actual_start, 1) > 0:
+            log(f"Start moved {actual_start:.1f} m forward from pin 1 to fit the grid")
+        else:
+            log("Start at pin 1")
     timing["gates"] = placed
     with open(anc_path, "w", encoding="utf-8") as f:
         json.dump(anc, f)

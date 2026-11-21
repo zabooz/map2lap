@@ -61,10 +61,11 @@ def _twice_driven(legs, pin_count, same_snap):
                 to_end = edges[-1][2] - start
                 near_pin = pin if from_start <= to_end else next_pin
                 raise NoLap(f"Near pin {near_pin} the car would have to turn around: put it on the through road")
-            if leg_index == i == 0:
-                # Equal snaps can join within one directed edge or at a node shared by both edges.
-                if not same_snap or (previous != edge and previous[1] != edge[0]):
-                    raise NoLap("At pin 1 the lap does not join up: move pin 1 along its road")
+            if i == 0:
+                # A join is within one directed edge or at a node shared by both edges.
+                if (not leg_index and not same_snap) or (previous != edge and previous[1] != edge[0]):
+                    at_pin = pin if leg_index else 1
+                    raise NoLap(f"At pin {at_pin} the lap does not join up: move pin {at_pin} along its road")
             key = frozenset(edge)
             # Count a pin-split traversal once, including a split at the seam. Keep both fragments on the metre line.
             if i > 0 or edge != previous:
@@ -107,3 +108,18 @@ def lap(answer: dict) -> Lap:
     lon, lat = snapped_start
     coords[0] = coords[-1] = (lat, lon)
     return Lap(coords, length_m, twice, metres[:-1])
+
+
+def close(outward: dict, returning: dict) -> Lap:
+    """Join the open OSRM answer and the answer for the last pin back to the first. Pure."""
+    pins = outward["waypoints"]
+    end, start = returning["waypoints"]
+    if pins[-1]["location"] != end["location"]:
+        raise NoLap(f"At pin {len(pins)} the lap does not join up: move pin {len(pins)} along its road")
+    first, last = outward["routes"][0], returning["routes"][0]
+    coords = first["geometry"]["coordinates"] + last["geometry"]["coordinates"][1:]
+    return lap({"waypoints": [*pins, start], "routes": [{
+        "legs": first["legs"] + last["legs"],
+        "distance": first["distance"] + last["distance"],
+        "geometry": {"coordinates": coords},
+    }]})

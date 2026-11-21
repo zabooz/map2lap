@@ -168,13 +168,18 @@ For AC (`ground.py`, `make_obj.collision_prefix`):
 - Point-to-point routes get `AC_AB_START_L/R` and `AC_AB_FINISH_L/R` (acs.exe knows them; CSP's rally mode reads them) and
   `"run": "point-to-point"` in `ui_track.json`; circuits and areas keep the lap line `AC_TIME_0_L/R`.
 - Point-to-point grid, pit and hotlap spawns use the actual start gate: the first car's centre is 3 m before its
-  timing plane, with the other slots 8 m apart behind it along the route, including at bends. The clock remains AC's
-  line-crossing timer. If the whole grid cannot stand on road before the gate, the build reports that instead of
-  placing cars beyond the start.
+  timing plane, with the other slots 8 m apart behind it along the route, including at bends. New builds place
+  the gate at pin 1 if the road approaching that pin holds the grid. Otherwise they search forward for the first
+  drivable position with room for the grid. If the builder cannot place both gates, the build log explains why.
+- Play offers AC's native Hotlap for Routes with both timing planes. AC measures the start-to-finish drive and
+  Map2Lap saves valid best times in AC's `personalbest.ini`, keyed by car and track.
 - Circuit starts with the same grid spacing before its `AC_TIME_0_L/R` line. The converter checks the grid and line on
   a single road level over a once-driven stretch, including the approach from the end of the lap. The timing segment
   must cross the lap exactly once. The search runs up to 300 m forward from pin 1, and a placement refusal leaves an
   existing installation intact.
+- The Circuit start/finish band and gantry use that checked line. Invisible `AC_TIME_n_L/R` split lines start from
+  equal offsets along the lap and move to safe, ordered crossings on one road level. Even a short lap gets a split:
+  AC can register the drive from the grid to start/finish as the first lap when it has only one timing gate.
 - BeamNG/Torque winds triangles clockwise → flip them (`shape_parts`), else houses turn black.
 - `.cdae`: read only the **finest level of detail** per object (buildings have two; both on top of each other flicker).
 - Set material values yourself (ksEditor's defaults ksSpecular 1 / ksAmbient 0: white ground, black shadows).

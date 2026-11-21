@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import sys
+from zipfile import ZipFile
 
 import numpy as np
 
@@ -57,6 +58,7 @@ SLOTS, SLOT_GAP, START_LIFT = 4, 8.0, 0.15
 # Metres from the first car's centre to the timing plane: a normal road car's nose stays behind the line.
 # Very long vehicles can need more clearance; all following slots stay farther back along the road.
 STAGE_START_GAP_M = 3.0
+STAGE_GRID_M = STAGE_START_GAP_M + (SLOTS - 1) * SLOT_GAP
 # View distance (m) and shadows per kind of object, first matching name prefix. Without a limit AC draws every tile up
 # to the horizon, kerbs and markings too (a 2400-tile track: 22 fps; a 25-tile one: 90+).
 # No shadows for flat and thin things (invisible, but every shadow cascade pays for them). AC measures from the mesh
@@ -372,6 +374,13 @@ def _lap_vertices(route_xy):
     return xy[:-1] if len(xy) > 1 and np.array_equal(xy[0], xy[-1]) else xy
 
 
+def _closed_lap(route_xy):
+    """ENU lap with its closing vertex and cumulative lengths. Pure."""
+    vertices = _lap_vertices(route_xy)
+    xy = np.concatenate((vertices, vertices[:1]))
+    return xy, np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+
+
 def _lap_crossings(xy, a, b):
     """Crossing vertex and edge indices on the ENU lap without its closing copy. Pure."""
     line = np.subtract(b, a)
@@ -401,17 +410,17 @@ def crosses_once(route_xy, a, b):
     return len(vertices) + len(edges) == 1
 
 
-def _line_crosses_at(xy, s, metre, centre, half_line):
+def _line_crosses_at(xy, s, metre, centre, left, right):
     """Whether the ENU timing segment crosses only the intended metre's part of the closed lap. Pure."""
     n = len(xy) - 1
     incident = (np.searchsorted(s, metre, side="left") - 1) % n, np.searchsorted(s, metre, side="right") - 1
-    normal = np.array([-half_line[1], half_line[0]])
+    normal = np.array([-(left[1] + right[1]), left[0] + right[0]])
     approach, departure = (xy[np.array(incident) + 1] - xy[list(incident)]) @ normal
     # Test at the intended lap metre using local edges, where rounding of the endpoints cannot hide a touch.
     if approach * departure <= 0:
         return False
     # Check the whole timing segment at the precision of the matrices written by kn5.node_bytes.
-    a, b = np.array([centre + half_line, centre - half_line], dtype=np.float32).astype(float)
+    a, b = np.array([centre + left, centre - right], dtype=np.float32).astype(float)
     vertices, edges = _lap_crossings(xy[:-1], a, b)
     if len(vertices) + len(edges) != 1:
         return False
@@ -427,6 +436,7 @@ CIRCUIT_SEARCH_M = 300.0
 CIRCUIT_STEP_M = 2.0
 # Leave road ahead of the line and behind the grid window, matching the direction lookahead in route_slots.
 CIRCUIT_MARGIN_M = 5.0
+SECTOR_LENGTH_M = 1250.0
 
 
 def _overlaps_twice(twice, first, span, length):
@@ -438,10 +448,8 @@ def _overlaps_twice(twice, first, span, length):
 
 def circuit_empties(objs, anchor, log=print):
     """Start/finish, grid and hotlap from road objects and the closed ENU lap in the Circuit anchor."""
-    vertices = _lap_vertices(anchor["route"])
-    xy = np.concatenate((vertices, vertices[:1]))
+    xy, s = _closed_lap(anchor["route"])
     timing = anchor["timing"]
-    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
     length = s[-1]
     behind = SLOTS * SLOT_GAP + STAGE_START_GAP_M + CIRCUIT_MARGIN_M
     span = behind + CIRCUIT_MARGIN_M
@@ -456,6 +464,7 @@ def circuit_empties(objs, anchor, log=print):
     sample_at = np.r_[np.arange(-behind, CIRCUIT_MARGIN_M, CIRCUIT_STEP_M), CIRCUIT_MARGIN_M,
                       -STAGE_START_GAP_M - SLOT_GAP * np.arange(SLOTS)]
     sample_cache = {}
+    nearby_roads = _road_near(objs)
 
     def levels_at(d):
         metre = d % length
@@ -473,11 +482,11 @@ def circuit_empties(objs, anchor, log=print):
             continue
         metre = d % length
         x, y, fwd = _along(loop_xy, loop_s, length + metre)
-        left = np.cross([0.0, 1.0, 0.0], fwd) * AB_HALF_M
-        side = left[[0, 2]] * [1, -1]  # AC -> ENU
-        if not _line_crosses_at(xy, s, metre, np.array([x, y]), side):
-            continue
         if not all(len(levels_at(sample)) == 1 for sample in d + sample_at):
+            continue
+        centre = np.array([x, levels_at(d)[0] + START_LIFT, -y])
+        line = _circuit_line(nearby_roads, xy, s, metre, centre, fwd, gantry=True)
+        if line is None:
             continue
         slots = route_slots(objs, loop_xy, SLOTS, SLOT_GAP, log, front_m=length + metre - STAGE_START_GAP_M)
         if any(p is None for p, _ in slots):
@@ -489,11 +498,231 @@ def circuit_empties(objs, anchor, log=print):
             pos = p + [0.0, START_LIFT, 0.0]
             nodes.extend((empty(f"AC_START_{k}", pos, direction), empty(f"AC_PIT_{k}", pos, direction)))
         base = slots[0][0] + [0.0, START_LIFT, 0.0]
-        centre = np.array([x, levels_at(d)[0] + START_LIFT, -y])
-        nodes.extend((empty("AC_HOTLAP_START_0", base, slots[0][1]), empty("AC_TIME_0_L", centre + left, fwd),
-                      empty("AC_TIME_0_R", centre - left, fwd)))
+        left, right = line
+        nodes.extend((empty("AC_HOTLAP_START_0", base, slots[0][1]), empty("AC_TIME_0_L", left, fwd),
+                      empty("AC_TIME_0_R", right, fwd)))
         return nodes, base, float(metre if given is None else given)
     raise RuntimeError(error)
+
+
+def _road_near(objs):
+    """Return a lookup for road objects whose horizontal bounds meet the area around an AC point. Pure."""
+    keys = list(objs)
+    lows = np.array([objs[k][1][:, [0, 2]].min(axis=0) for k in keys]).reshape(-1, 2)
+    highs = np.array([objs[k][1][:, [0, 2]].max(axis=0) for k in keys]).reshape(-1, 2)
+
+    def near(x, z, reach):
+        point = np.array([x, z])
+        ids = np.flatnonzero(((lows <= point + reach) & (highs >= point - reach)).all(axis=1))
+        return {keys[i]: objs[keys[i]] for i in ids}
+
+    return near
+
+
+def _road_intervals(objs, centre, side, half_depth=0.0, own_level=False):
+    """Across-road intervals of triangles inside the strip at centre, in AC horizontal coordinates. Pure."""
+    forward = np.array([-side[1], side[0]])
+    for _, positions, _, triangles in objs.values():
+        relative = positions[:, [0, 2]] - centre[[0, 2]]
+        across, along = relative @ side, relative @ forward
+        distances = along[triangles]
+        hit = (distances.min(axis=1) <= half_depth) & (distances.max(axis=1) >= -half_depth)
+        faces = triangles[hit]
+        v, u = distances[hit], across[faces]
+        if not len(v):
+            continue
+        # Clipping a triangle to the slab gives inside vertices plus intersections with the slab's edges.
+        projected = np.stack([u, positions[faces, 1] - centre[1]], axis=2)
+        points = [np.where((np.abs(v) <= half_depth)[:, :, None], projected, np.nan)]
+        next_v, next_points = np.roll(v, -1, axis=1), np.roll(projected, -1, axis=1)
+        for edge in (-half_depth, half_depth) if half_depth else (0.0,):
+            cut = (v < edge) != (next_v < edge)
+            fraction = (edge - v) / np.where(cut, next_v - v, 1.0)
+            points.append(np.where(cut[:, :, None], projected + fraction[:, :, None] * (next_points - projected), np.nan))
+        samples = np.concatenate(points, axis=1)
+        lows, highs = np.nanmin(samples, axis=1), np.nanmax(samples, axis=1)
+        if own_level:
+            at_level = (lows[:, 1] < LEVEL_GAP_M) & (highs[:, 1] > -LEVEL_GAP_M)
+            lows, highs = lows[at_level], highs[at_level]
+        yield from zip(lows[:, 0], highs[:, 0])
+
+
+def _containing_span(intervals):
+    """Unbroken road interval containing across-distance zero. Pure."""
+    merged = []
+    for lo, hi in sorted(intervals):
+        # The OBJ shares edge vertices to millimetres. Ignore only numerical rounding in intersection math.
+        if merged and lo <= merged[-1][1] + 1e-9:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return next(((lo, hi) for lo, hi in merged if lo <= 0 <= hi and lo < hi), None)
+
+
+def _circuit_line(nearby_roads, xy, s, metre, centre, forward, gantry=False):
+    """A road-wide timing segment with a single lap crossing and, at start/finish, room for its posts. Pure."""
+    from scenery import gates
+
+    across = np.cross([0.0, 1.0, 0.0], forward)
+    ac_side = across[[0, 2]]
+    enu_side = ac_side * [1, -1]
+    half_post = gates.POST_W / 2 if gantry else 0.0
+    post_reach = gates.POST_GAP + half_post if gantry else 0.0
+    reach = gates.SPAN_MAX + post_reach
+    while True:
+        roads = nearby_roads(centre[0], centre[2], reach)
+        span = _containing_span(_road_intervals(roads, centre, ac_side, own_level=True))
+        if span is None:
+            return None
+        lo, hi = span
+        if not _line_crosses_at(xy, s, metre, centre[[0, 2]] * [1, -1], hi * enu_side, -lo * enu_side):
+            return None
+        needed = math.hypot(max(-lo, hi) + post_reach, half_post)
+        if needed <= reach:
+            break
+        reach = needed
+    if gantry:
+        posts = lo - gates.POST_GAP, hi + gates.POST_GAP
+        for a, b in _road_intervals(roads, centre, ac_side, half_depth=half_post):
+            if any(max(a, post - half_post) < min(b, post + half_post) for post in posts):
+                return None
+    return centre + hi * across, centre + lo * across
+
+
+def _sector_candidates(target, low, high):
+    """Lap offsets in [low, high], nearest to target first, on the existing placement sample grid. Pure."""
+    steps = math.ceil(max(abs(low - target), abs(high - target)) / CIRCUIT_STEP_M)
+    for step in range(steps + 1):
+        shift = step * CIRCUIT_STEP_M
+        for offset in (target + shift, target - shift) if step else (target,):
+            if low <= offset <= high:
+                yield offset
+
+
+def _sector_sites(length, count, check):
+    """Ordered timing offsets and their checked line geometry, including room for the remaining lines. Pure."""
+    # Leave room for the two lines' approach/runout windows. The first/last windows meet at start/finish.
+    spacing = 2 * CIRCUIT_MARGIN_M
+    blocked_from = {}
+
+    def search(index, low):
+        if index == count:
+            return []
+        if low >= blocked_from.get(index, math.inf):
+            return None
+        high = length - (count - index) * spacing
+        for offset in _sector_candidates(length * index / count, low, high):
+            line = check(offset)
+            if line is None:
+                continue
+            remaining = search(index + 1, offset + spacing)
+            if remaining is not None:
+                return [(offset, line), *remaining]
+        blocked_from[index] = low
+        return None
+
+    return search(1, spacing)
+
+
+def circuit_splits(objs, anchor, line_m, junctions=None):
+    """Additional AC_TIME nodes and their metres from pin 1, ordered from the actual start/finish. Pure."""
+    xy, s = _closed_lap(anchor["route"])
+    length = s[-1]
+    # With only AC_TIME_0, AC can record the drive from the grid to the first crossing as a lap.
+    count = max(2, int(length // SECTOR_LENGTH_M) + 1)
+    twice = anchor["timing"]["twice"]
+    loop_xy = np.concatenate((xy, xy[1:], xy[1:]))
+    loop_s = np.r_[s, length + s[1:], 2 * length + s[1:]]
+    nearby_roads = _road_near(objs)
+    areas, branches = junctions or (np.empty((0, 3)), np.empty((0, 6)))
+    memo = {}
+
+    def build_line(metre):
+        if _overlaps_twice(twice, metre - CIRCUIT_MARGIN_M, 2 * CIRCUIT_MARGIN_M, length):
+            return None
+        x, y, forward = _along(loop_xy, loop_s, length + metre)
+        if np.any(np.sum((areas[:, :2] - (x, -y)) ** 2, axis=1) < areas[:, 2]):
+            return None
+        levels = road_levels(nearby_roads(x, -y, 0), x, -y)
+        if len(levels) != 1:
+            return None
+        centre = np.array([x, levels[0] + START_LIFT, -y])
+        line = _circuit_line(nearby_roads, xy, s, metre, centre, forward)
+        if line is None or _crosses_junction_arms(branches, *line):
+            return None
+        return *line, forward
+
+    def check(offset):
+        if offset not in memo:
+            memo[offset] = build_line((line_m + offset) % length)
+        return memo[offset]
+
+    placed = _sector_sites(length, count, check)
+    if placed is None:
+        raise RuntimeError("No place for the circuit's sector lines: use stretches driven once, away from junctions and bridges")
+    nodes, metres = [], []
+    for k, (offset, (left, right, forward)) in enumerate(placed, 1):
+        metres.append(float((line_m + offset) % length))
+        nodes.extend((empty(f"AC_TIME_{k}_L", left, forward), empty(f"AC_TIME_{k}_R", right, forward)))
+    return nodes, metres
+
+
+def _mapped_junctions(parts):
+    """Junction centres and connected branch polylines in AC x/z from the built tile facts."""
+    from junctions import NODE_TOL
+
+    arms, widths = {}, {}
+    for part in parts:
+        try:
+            with ZipFile(editorinfo.side_file(part)) as archive:
+                features = json.loads(archive.read("tile.json"))["features"]
+        except FileNotFoundError:
+            continue    # Older retained OBJ parts have no map facts.
+        for feature in features:
+            spec = feature.get("spec")
+            if not spec:
+                continue
+            for geometry in feature["geometry"]:
+                nodes = np.rint(np.asarray(geometry) / NODE_TOL).astype(int)
+                for first, second in zip(map(tuple, nodes), map(tuple, nodes[1:])):
+                    if first == second:
+                        continue
+                    for node, arm in ((first, second), (second, first)):
+                        arms.setdefault(node, set()).add(arm)
+                        widths[node] = max(widths.get(node, 0.0), spec["width"])
+    junctions = [node for node, connected in arms.items() if len(connected) >= 3]
+    areas, branches = [], []
+    for index, centre in enumerate(junctions):
+        x, z = np.asarray(centre) * NODE_TOL
+        areas.append((x, z, (widths[centre] / 2) ** 2))
+        for branch, arm in enumerate(sorted(arms[centre])):
+            previous, node = centre, arm
+            while True:
+                coords = np.asarray([*previous, *node]) * NODE_TOL
+                branches.append((*coords, index, branch))
+                if len(arms[node]) != 2:
+                    break
+                previous, node = node, next(iter(arms[node] - {previous}))
+    return np.asarray(areas).reshape(-1, 3), np.asarray(branches).reshape(-1, 6)
+
+
+def _crosses_junction_arms(branches, left, right):
+    """Whether a timing segment meets two different mapped arms of a junction. Pure."""
+    if not len(branches):
+        return False
+    origin = left[[0, 2]]
+    axis = right[[0, 2]] - origin
+    normal = np.array([-axis[1], axis[0]])
+    first, second = branches[:, :2] - origin, branches[:, 2:4] - origin
+    a, b = first @ normal, second @ normal
+    crosses = (a * b <= 0) & (a != b)
+    t = a[crosses] / (a[crosses] - b[crosses])
+    cut = first[crosses] + t[:, None] * (second[crosses] - first[crosses])
+    along = cut @ axis
+    groups = branches[crosses, 4:][(0 <= along) & (along <= axis @ axis)]
+    # A shallow fork's axes can both be inside its single paved cross-section past the junction centre.
+    distinct = np.unique(groups, axis=0)
+    return len(np.unique(distinct[:, 0])) < len(distinct)
 
 
 def timing_points(route, timing):
@@ -501,6 +730,33 @@ def timing_points(route, timing):
     xy = np.asarray(route, float)
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
     return [(x, -y) for x, y, _ in (_along(xy, s, timing[k]) for k in ("start_m", "finish_m"))]
+
+
+def _stage_grid(route, timing):
+    """Grid path including the approach and its distance to pin 1, in ENU metres. Pure."""
+    lead = np.asarray(timing["approach"], float).reshape(-1, 2)
+    xy = np.concatenate((lead, np.asarray(route, float)))
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
+    return xy, s, s[len(lead)]
+
+
+def stage_start(objs, route, timing, log=print):
+    """First checked location for a Route start after pin 1, with its whole grid on one road level. Pure."""
+    xy, s, origin = _stage_grid(route, timing)
+    first = max(origin, STAGE_GRID_M)
+    # Keep the existing gantry search resolution and range (2 m steps across at most 50 m).
+    for d in first + 2.0 * np.arange(26):
+        if d >= min(s[-1], origin + timing["finish_m"]):
+            break
+        x, y, fwd = _along(xy, s, d)
+        levels = road_levels(objs, x, -y)
+        if len(levels) != 1:
+            continue
+        front = d - STAGE_START_GAP_M
+        slots = route_slots(objs, xy, SLOTS, SLOT_GAP, log, front_m=front)
+        if all(p is not None and len(road_levels(objs, p[0], p[2])) == 1 for p, _ in slots):
+            return float(d - origin), np.array([x, levels[0], -y]), fwd, slots
+    return None
 
 
 def ab_gates(objs, route, timing, log=print):
@@ -521,8 +777,22 @@ def ab_gates(objs, route, timing, log=print):
     xy = np.asarray(route, float)
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
     nodes = []
-    for prefix, d0, step in (("AC_AB_START", timing["start_m"], 2.0), ("AC_AB_FINISH", timing["finish_m"], -2.0)):
+    start = timing["start_m"]
+    if "approach" in timing:
+        placed = stage_start(objs, route, timing, log)
+        if placed is None:
+            return []
+        start, pos, fwd, _ = placed
+        side = np.cross([0.0, 1.0, 0.0], fwd) * AB_HALF_M
+        pos = pos + [0.0, START_LIFT, 0.0]
+        nodes.extend((empty("AC_AB_START_L", pos + side, fwd), empty("AC_AB_START_R", pos - side, fwd)))
+    targets = [("AC_AB_FINISH", timing["finish_m"], -2.0)]
+    if not nodes:
+        targets.insert(0, ("AC_AB_START", start, 2.0))
+    for prefix, d0, step in targets:
         for d in d0 + step * np.arange(26):
+            if "approach" in timing and d <= start:
+                return []
             x, y, fwd = _along(xy, s, d)
             h = road_height(objs, x, -y)
             if h is not None:
@@ -557,13 +827,23 @@ def start_empties(objs, anchor, log=print):
     """Grid, pits and hotlap just before a route's native timing start, else at its first road. Without a route,
     use the asphalt nearest the anchor. Point-to-point routes keep AC_AB_START/FINISH, others AC_TIME_0."""
     if (anchor or {}).get("kind") == "circuit":
-        return circuit_empties(objs, anchor, log)[:2]
+        nodes, base, line = circuit_empties(objs, anchor, log)
+        splits, _ = circuit_splits(objs, anchor, line)
+        return nodes + splits, base
     route = (anchor or {}).get("route")
     if route and len(route) > 1:
         timing = anchor.get("timing")
         gates = ab_gates(objs, route, timing, log) if timing else []
-        front_m = _start_distance(route, gates, timing["start_m"]) - STAGE_START_GAP_M if gates else None
-        slots = route_slots(objs, route, SLOTS, SLOT_GAP, log, front_m=front_m)
+        if gates and "approach" in timing:
+            grid, _, origin = _stage_grid(route, timing)
+            if timing.get("gates"):
+                front_m = max(STAGE_GRID_M, origin + timing["start_m"]) - STAGE_START_GAP_M
+                slots = route_slots(objs, grid, SLOTS, SLOT_GAP, log, front_m=front_m)
+            else:
+                slots = stage_start(objs, route, timing, log)[3]
+        else:
+            front_m = _start_distance(route, gates, timing["start_m"]) - STAGE_START_GAP_M if gates else None
+            slots = route_slots(objs, route, SLOTS, SLOT_GAP, log, front_m=front_m)
         if gates and any(p is None for p, _ in slots):
             raise RuntimeError("No road for all grid slots before the start line")
         if all(p is not None for p, _ in slots):
@@ -651,6 +931,29 @@ def _part_chunk(path, chunk_path, mat_index, near_xz):
     return n_nodes, n_verts, roads, objects, {v[0] for k, v in objs.items() if k.startswith("1ROAD_")}
 
 
+def _circuit_part(objs, anchor, parts, obj_dir, gate_path, log):
+    """Checked timing nodes and the corresponding visible start/finish OBJ. Does not install the track."""
+    from scenery import gates
+
+    nearby_roads = _road_near(objs)
+    x, y = anchor["route"][0]
+    start_roads = nearby_roads(x, -y, START_NEAR_M)
+    if anchor["timing"].get("line_m") is not None:
+        xy, s = _closed_lap(anchor["route"])
+        if s[-1] > 0:
+            x, y, _ = _along(xy, s, anchor["timing"]["line_m"] % s[-1])
+            start_roads.update(nearby_roads(x, -y, START_NEAR_M))
+    nodes, base, line_m = circuit_empties(start_roads, anchor, log)
+    splits, sector_m = circuit_splits(objs, anchor, line_m, _mapped_junctions(parts))
+    start = nodes[-2:]
+    left, right = np.asarray([node.matrix[12:15] for node in start])
+    centre = (left + right) / 2
+    reach = float(np.linalg.norm(left - right)) / 2 + gates.POST_GAP + gates.POST_W
+    gate_roads = nearby_roads(centre[0], centre[2], reach)
+    materials = gates.circuit_gate(gate_path, obj_dir, parts, gate_roads, start)
+    return nodes + splits, base, line_m, sector_m, materials
+
+
 def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare_output=None):
     """parts: make_obj's tile part files; else obj_path alone. The worker processes write their meshes as finished kn5
     bytes into intermediate files, the main process writes the header and the start points and appends them.
@@ -669,13 +972,9 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     circuit = (anchor or {}).get("kind") == "circuit"
     start_xz = ((route[0][0], -route[0][1]) if route else (start["x"], -start["y"]) if start else None)
     near_xz = None if start_xz is None else [start_xz]
-    if circuit and anchor["timing"].get("line_m") is not None:
-        xy = np.asarray(route, float)
-        s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
-        if s[-1] > 0:
-            x, y, _ = _along(xy, s, anchor["timing"]["line_m"] % s[-1])
-            near_xz.append((x, -y))
-    elif not circuit and route and (anchor or {}).get("timing"):
+    if circuit:
+        near_xz = None      # split lines can be anywhere on the lap
+    elif route and (anchor or {}).get("timing"):
         near_xz += timing_points(route, anchor["timing"])
     chunk_dir = os.path.join(os.path.dirname(os.path.abspath(obj_path)), "kn5_parts")
     os.makedirs(chunk_dir, exist_ok=True)
@@ -693,6 +992,23 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     objs = {}
     for _, _, roads, _, _ in results:
         objs.update(roads)
+    if circuit:
+        try:
+            gate_obj = os.path.join(chunk_dir, "circuit_gate.obj")
+            empties, base, line_m, sector_m, materials = _circuit_part(
+                objs, anchor, parts, os.path.dirname(os.path.abspath(obj_path)), gate_obj, log)
+            mat_index.update({m: len(used) + i for i, m in enumerate(materials)})
+            mtl.update(materials)
+            used.extend(materials)
+            gate_chunk = os.path.join(chunk_dir, "circuit_gate.bin")
+            gate = _part_chunk(gate_obj, gate_chunk, mat_index, None)
+            chunks.append(gate_chunk)
+            results.append(gate)
+            n_nodes += gate[0]
+            n_verts += gate[1]
+        except Exception:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            raise
     # JPG as DDS (dds_texture); PNG (alpha: trees, furniture, water) stays
     jpgs = sorted({mtl[m] for m in used if mtl[m].lower().endswith(".jpg")})
     bc7 = bc7_images(mtl, set().union(*(r[4] for r in results)))
@@ -709,7 +1025,8 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     for m in used:
         if os.path.basename(tex[m]) not in seen:
             seen.add(os.path.basename(tex[m]))
-            textures.append((os.path.basename(tex[m]), open(tex[m], "rb").read()))
+            with open(tex[m], "rb") as f:
+                textures.append((os.path.basename(tex[m]), f.read()))
     materials = []
     for m in used:
         val = light_values(m)
@@ -727,9 +1044,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
         textures.extend(groundmaterial.textures())
     root = kn5.Node(1, "map2lap", 1, matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
     try:
-        if circuit:
-            empties, base, line_m = circuit_empties(objs, anchor, log)
-        else:
+        if not circuit:
             empties, base = start_empties(objs, anchor, log)
         root.children += empties
         if prepare_output is not None:
@@ -746,6 +1061,7 @@ def convert(obj_path, kn5_path, anchor_path=None, log=print, parts=None, prepare
     editorinfo.install(kn5_path, parts)
     if circuit:
         anchor["timing"]["line_m"] = line_m
+        anchor["timing"]["sector_m"] = sector_m
         with open(anchor_path, "w", encoding="utf-8") as f:
             json.dump(anchor, f)
     log(f"kn5: {kn5_path} ({n_nodes} meshes, {n_verts:,} vertices, "

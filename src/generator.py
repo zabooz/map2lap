@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import as_completed
+from functools import lru_cache
 
 import numpy as np
 
@@ -40,10 +41,8 @@ NOMINATIM = "https://nominatim.openstreetmap.org/"
 SAMPLE_M = 20.0             # m: spacing of the route points for choosing the tiles
 MAX_ROUTE_M = 500000.0      # beyond ~50 km from the anchor float32 gets coarse in AC (cm)
 WARN_TILES = 150
-# Point-to-point timing (obj_to_kn5.ab_gates): the start line this far after the start pin, with grid slots just
-# before it. The finish line is this far after the end pin on the same road, with run-off behind it (built too).
-# When start and finish are closer than LOOP_M it is a circuit: the lap line stays there.
-START_LINE_M, FINISH_AFTER_M, RUNOUT_M, LOOP_M = 100.0, 50.0, 100.0, 100.0
+# The finish goes beyond the end pin when the same road continues, with run-off built behind it.
+FINISH_AFTER_M, RUNOUT_M = 50.0, 100.0
 # Progress phases (build(progress=...), shown by the generator page): route, road tiles, terrain/trees/houses
 # (make_obj), distant view (farview), kn5, tidying up (map data cache, temporary data)
 PHASES = ("route", "tiles", "scenery", "distant", "kn5", "clean")
@@ -106,25 +105,44 @@ def _circuit_refusal(error):
     return None
 
 
-def circuit_route(points: list[tuple[float, float]]) -> circuitlap.Lap:
-    """Fetch and check the OSRM lap through (lat, lon) pins and back to pin 1."""
-    if len(points) < 2:
-        raise circuitlap.NoLap("Set at least two pins")
+def _circuit_answer(points):
+    """The ordinary OSRM route through (lat, lon) points, with edges for Circuit validation."""
     try:
-        data = _osrm_route([*points, points[0]], "&continue_straight=true&annotations=nodes,distance")
+        return _osrm_route(points, "&annotations=nodes,distance")
     except urllib.error.HTTPError as error:
         with error:
             advice = _circuit_refusal(error)
         if advice:
             raise circuitlap.NoLap(advice) from error
         raise RuntimeError(f"OSRM: {error}") from error
-    return circuitlap.lap(data)
 
 
-def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M):
+# Keep recent open routes so Close circuit can reuse the displayed route while pin edits keep memory bounded.
+_circuit_outward = lru_cache(maxsize=16)(_circuit_answer)
+
+
+def circuit_draft(points):
+    """Coordinates and length of the open Circuit preview through (lat, lon) points."""
+    rt = _circuit_outward(tuple(points))["routes"][0]
+    return [(lat, lon) for lon, lat in rt["geometry"]["coordinates"]], float(rt["distance"])
+
+
+def circuit_route(points: list[tuple[float, float]]) -> circuitlap.Lap:
+    """Keep the open route through the pins and append one OSRM return from the last pin to the first."""
+    if len(points) < 2:
+        raise circuitlap.NoLap("Set at least two pins")
+    outward = _circuit_outward(tuple(points))
+    waypoints = outward["waypoints"]
+    if waypoints[0]["location"] == waypoints[-1]["location"]:
+        return circuitlap.lap(outward)
+    return circuitlap.close(outward, _circuit_answer((points[-1], points[0])))
+
+
+def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M, *, incoming=False):
     """The route beyond the end pin on the same road: OSRM from the end to a point ahead m straight on (direction of the
     last ~30 m). Only if that stays short and doesn't turn back (else the road turns off or ends); returns the points
-    beyond [(lat, lon)], [] if not."""
+    beyond [(lat, lon)], [] if not. incoming: route toward the endpoint when extending before the start, so one-way roads
+    are followed in driving direction."""
     la1, lo1 = pts[-1]
     m_lat, m_lon = 111320.0, 111320.0 * math.cos(math.radians(la1))
     for la0, lo0 in reversed(pts[:-1]):
@@ -136,7 +154,10 @@ def extend(pts, ahead=FINISH_AFTER_M + RUNOUT_M):
         return []
     ux, uy = dx / n, dy / n
     try:
-        ext, dist = route([(la1, lo1), (la1 + uy * ahead / m_lat, lo1 + ux * ahead / m_lon)])
+        ends = [(la1, lo1), (la1 + uy * ahead / m_lat, lo1 + ux * ahead / m_lon)]
+        ext, dist = route(ends[::-1] if incoming else ends)
+        if incoming:
+            ext = ext[::-1]
     except Exception:
         return []
     if dist > 1.4 * ahead or len(ext) < 2:
@@ -411,15 +432,18 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
                                            np.diff(lons) * 111320.0 * np.cos(np.radians(ll[:-1, 0])))))
         if length > MAX_ROUTE_M:
             raise RuntimeError(f"Route is {length / 1000:.1f} km long, at most {MAX_ROUTE_M / 1000:.0f} km possible")
-        loop = circuit or math.hypot((pts[-1][1] - pts[0][1]) * 111320.0 * math.cos(math.radians(pts[0][0])),
-                                     (pts[-1][0] - pts[0][0]) * 111320.0) < LOOP_M
+        loop = circuit or tuple(pts[-1]) == tuple(pts[0])
+        approach = []
         if circuit:
             ext = []
         elif line is not None:
             ext = given
+        elif loop:
+            ext = []
         else:
-            ext = [] if loop else extend(pts)       # (finish line and run-off behind the end pin)
-        allp = pts + ext
+            ext = extend(pts)
+            approach = extend(pts[::-1], obj_to_kn5.STAGE_GRID_M, incoming=True)[::-1]
+        allp = pts + ext + approach
         lats, lons = np.array([p[0] for p in allp]), np.array([p[1] for p in allp])
         # A lap can cross the antimeridian on a single road. Its centre follows the continuous line.
         centre_lons = np.unwrap(lons, period=360.0) if circuit else lons
@@ -429,7 +453,9 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
         frame = geodesy.EnuFrame(lat0, lon0)
         e, n, _ = frame.geodetic_to_enu(lats, lons, np.zeros_like(lats))
         xy = np.c_[np.asarray(e, float), np.asarray(n, float)]
-        tiles = corridor_tiles(xy, width)
+        lead = xy[len(pts) + len(ext):]
+        xy = xy[:len(pts) + len(ext)]
+        tiles = corridor_tiles(np.concatenate((lead, xy)), width)
         label = "Circuit, lap" if circuit else "Route"
         log(f"{label} {length / 1000:.2f} km, corridor ±{width:.0f} m: {len(tiles)} tiles")
         timing = None
@@ -445,13 +471,7 @@ def _build(points, width, name, title, log, clean, area, progress, cache_gb, upt
             s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))]
             end, more = float(s[len(pts) - 1]), float(s[-1] - s[len(pts) - 1])
             finish = end + FINISH_AFTER_M if more >= FINISH_AFTER_M + 20.0 else end
-            if finish - START_LINE_M >= 100.0:
-                timing = {"start_m": START_LINE_M, "finish_m": finish}
-                log(f"Timing: start line {START_LINE_M:.0f} m along the route from the map start pin; the clock starts at this line. Finish " +
-                    (f"{FINISH_AFTER_M:.0f} m after the end pin" if finish > end else
-                     "at the end pin (the road does not go on straight after it)"))
-            else:
-                log("No timing: the route is too short for a start and a finish line")
+            timing = {"start_m": 0.0, "finish_m": float(finish), "approach": lead.round(2).tolist()}
 
         head = resample(xy, 5.0)
         k = min(len(head) - 1, 6)
@@ -552,7 +572,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
             log("Writing track folder ...")
         root = make_track_folder.make(name, title, obj=obj_path, preview=None, city=town, country=country,
                                       geotags=(lat0, lon0), extra_description=desc, route=None if area else xy.tolist(),
-                                      log=log, parts=parts, bounds=bounds, point_to_point=not circuit and timing is not None,
+                                      log=log, parts=parts, bounds=bounds,
+                                      point_to_point=not circuit and (gate is not None or timing is not None and "approach" not in timing),
                                       trees=trees)
         # For the debug app: the route in AC coordinates (x east, z = -north). Areas remove the previous route, if any.
         route_txt = os.path.join(root, "data", "map2lap_route.txt")
@@ -601,7 +622,8 @@ def _finish(name, title, work, anc, xy, pts, parts, figures, t_start, log, progr
     log(f"Done in {took / 60:.1f} min – track \"{title}\" is installed in AC.")
     return {"name": name, "title": title, "kn5": kn5_path, "track": root, "tiles": len(tiles), "length_m": length,
             "area_m": list(size) if area else None, "kn5_bytes": os.path.getsize(kn5_path),
-            "objects": n_obj, "verts": n_verts, "tris": tris, "seconds": took}
+            "objects": n_obj, "verts": n_verts, "tris": tris, "seconds": took,
+            **({"kind": "circuit"} if circuit else {})}
 
 
 def main():

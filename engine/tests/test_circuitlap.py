@@ -68,24 +68,34 @@ def dumbbell(start_on_stem=False):
 
 
 class CircuitRequestTest(unittest.TestCase):
-    def test_circuit_request_closes_on_pin_1_and_keeps_straight(self):
+    def setUp(self):
+        generator._circuit_outward.cache_clear()
+        self.addCleanup(generator._circuit_outward.cache_clear)
+
+    def test_closing_a_preview_only_requests_the_return_to_pin_1(self):
         points = [(1, 2), (3, 4)]
         coords = [(2, 1), (4, 3), (2, 3), (2, 1)]
-        response = answer([([1, 2], [300]), ([2, 3, 1], [150, 150])], [coords[0], coords[1], coords[-1]], coords)
-        response["code"] = "Ok"
-        with mock.patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps(response))) as open_url:
+        outward = answer([([1, 2], [300])], coords[:2])
+        returning = answer([([2, 3, 1], [150, 150])], [coords[1], coords[0]], coords[1:])
+        responses = [io.StringIO(json.dumps({**item, "code": "Ok"})) for item in (outward, returning)]
+        with mock.patch("urllib.request.urlopen", side_effect=responses) as open_url:
+            self.assertEqual(generator.circuit_draft(points), (points, 300.0))
+            open_url.assert_called_once()
             lap = generator.circuit_route(points)
 
-        open_url.assert_called_once()
-        request, = open_url.call_args.args
-        self.assertEqual(open_url.call_args.kwargs, {"timeout": 30})
-        self.assertEqual(request.get_header("User-agent"), USER_AGENT)
-        url = urlsplit(request.full_url)
-        self.assertEqual(url.path, "/route/v1/driving/2.000000,1.000000;4.000000,3.000000;2.000000,1.000000")
-        self.assertCountEqual(parse_qsl(url.query), [
-            ("overview", "full"), ("geometries", "geojson"),
-            ("continue_straight", "true"), ("annotations", "nodes,distance"),
-        ])
+        self.assertEqual(open_url.call_count, 2)
+        paths = []
+        for call in open_url.call_args_list:
+            request, = call.args
+            self.assertEqual(call.kwargs, {"timeout": 30})
+            self.assertEqual(request.get_header("User-agent"), USER_AGENT)
+            url = urlsplit(request.full_url)
+            paths.append(url.path)
+            self.assertCountEqual(parse_qsl(url.query), [
+                ("overview", "full"), ("geometries", "geojson"), ("annotations", "nodes,distance"),
+            ])
+        self.assertEqual(paths, ["/route/v1/driving/2.000000,1.000000;4.000000,3.000000",
+                                 "/route/v1/driving/4.000000,3.000000;2.000000,1.000000"])
         self.assertEqual(lap, circuitlap.Lap([(lat, lon) for lon, lat in coords], 600.0, [], [0.0, 300.0]))
         self.assertEqual(points, [(1, 2), (3, 4)])
 

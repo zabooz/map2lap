@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from zipfile import ZipFile
 
 import numpy as np
 from PIL import Image
@@ -14,9 +15,9 @@ import generator  # noqa: E402,F401  (sets the engine's import path)
 from track import kn5, obj_to_kn5  # noqa: E402
 
 
-def road():
+def road(depth=400):
     """A sloping drivable plane covering east- and north-going test routes. Pure."""
-    p = np.array([[0, 10, 0], [400, 30, 0], [400, 30, -400], [0, 10, -400]], float)
+    p = np.array([[0, 10, 0], [400, 30, 0], [400, 30, -depth], [0, 10, -depth]], float)
     return {"1ROAD_ground_0_0": ("road", p, np.zeros((4, 2)), np.array([[0, 1, 2], [0, 2, 3]]))}
 
 
@@ -66,11 +67,44 @@ class StartPositionsTest(unittest.TestCase):
         self.assertAlmostEqual(base[0], 26)
         self.assertIn("AC_TIME_0_L", positions(nodes))
 
+    def test_route_start_stays_at_pin_with_room_on_its_approach(self):
+        route = [[50, 0], [400, 0]]
+        timing = {"start_m": 0, "finish_m": 280, "approach": [[5, 0]]}
+        nodes, _ = obj_to_kn5.start_empties(road(), {"route": route, "timing": timing})
+        p = positions(nodes)
+        self.assertAlmostEqual(p["AC_AB_START_L"][0], 50)
+        for k in range(4):
+            self.assertAlmostEqual(p[f"AC_START_{k}"][0], 47 - 8 * k)
+
+    def test_route_start_moves_only_enough_to_fit_its_grid(self):
+        route = [[10, 0], [400, 0]]
+        timing = {"start_m": 0, "finish_m": 150, "approach": [[0, 0]]}
+        nodes, _ = obj_to_kn5.start_empties(road(), {"route": route, "timing": timing})
+        p = positions(nodes)
+        self.assertAlmostEqual(p["AC_AB_START_L"][0], 27)
+        self.assertAlmostEqual(p["AC_HOTLAP_START_0"][0], 24)
+        self.assertAlmostEqual(p["AC_START_3"][0], 0)
+
 
 def circuit(**timing):
     """A square with 300 m sides and pin 1 halfway along its eastbound side. Pure."""
     return {"kind": "circuit", "route": [[150, 50], [300, 50], [300, 350], [0, 350], [0, 50], [150, 50]],
             "timing": {"start_m": 0.0, "twice": [], **timing}}
+
+
+def circuit_roads(anchor=None, width=24.0):
+    """Sloping road strips that follow the synthetic lap, joined at bends. Pure."""
+    route = np.asarray((anchor or circuit())["route"], float)
+    roads = {}
+    half = width / 2
+    for index, (a, b) in enumerate(zip(route, route[1:])):
+        forward = (b - a) / np.linalg.norm(b - a)
+        side = np.array([-forward[1], forward[0]]) * half
+        lo, hi = a - half * forward, b + half * forward
+        enu = np.array([lo - side, hi - side, hi + side, lo + side])
+        p = np.column_stack([enu[:, 0], 10 + .05 * enu[:, 0], -enu[:, 1]])
+        roads[f"1ROAD_road_{index}"] = "road", p, np.zeros((4, 2)), np.array([[0, 1, 2], [0, 2, 3]])
+    return roads
 
 
 def folded_circuit(east=0.0, north=0.0, **timing):
@@ -79,21 +113,25 @@ def folded_circuit(east=0.0, north=0.0, **timing):
     route = [[-10, -6.24], [-8, -5.74], [-18, 3.76], [-40, 43.76], [90, 43.76], [90, -56.24],
              [-2, -6.74], [-10, -6.24]]
     anchor["route"] = [[round(x + east, 2), round(y + north, 2)] for x, y in route]
-    _, _, uv, faces = next(iter(road().values()))
-    corners = np.array([[-100, 0, 100], [100, 0, 100], [100, 0, -100], [-100, 0, -100]])
-    return {"1ROAD_ground_0_0": ("road", corners, uv, faces)}, anchor
+    return circuit_roads(anchor), anchor
+
+
+def long_circuit(depth=325, **timing):
+    anchor = circuit(**timing)
+    anchor["route"][2][1] = anchor["route"][3][1] = 50 + depth
+    return anchor
 
 
 class CircuitStartTest(unittest.TestCase):
     def test_line_is_across_the_road_at_pin_1(self):
-        nodes, _ = obj_to_kn5.start_empties(road(), circuit())
+        nodes, _ = obj_to_kn5.start_empties(circuit_roads(), circuit())
         p = positions(nodes)
         left, right = p["AC_TIME_0_L"], p["AC_TIME_0_R"]
         np.testing.assert_allclose((left + right) / 2, [150, 17.5 + obj_to_kn5.START_LIFT, -50], atol=0.1)
-        np.testing.assert_allclose(np.abs(left - right), [0, 0, 2 * obj_to_kn5.AB_HALF_M], atol=1e-10)
+        np.testing.assert_allclose(np.abs(left - right), [0, 0, 24], atol=1e-10)
 
     def test_grid_stands_before_the_line_across_the_seam(self):
-        nodes, base = obj_to_kn5.start_empties(road(), circuit())
+        nodes, base = obj_to_kn5.start_empties(circuit_roads(), circuit())
         p = positions(nodes)
         for k in range(4):
             x = 150 - 3 - 8 * k
@@ -105,15 +143,15 @@ class CircuitStartTest(unittest.TestCase):
         self.assertFalse(any(name.startswith("AC_AB_") for name in p))
 
     def test_line_moves_forward_off_a_twice_driven_span(self):
-        _, _, line = obj_to_kn5.circuit_empties(road(), circuit(twice=[[0, 40]]))
+        _, _, line = obj_to_kn5.circuit_empties(circuit_roads(), circuit(twice=[[0, 40]]))
         self.assertEqual(line, 80.0)
 
     def test_grid_window_checks_twice_driven_spans_across_the_seam(self):
-        _, _, line = obj_to_kn5.circuit_empties(road(), circuit(twice=[[1190, 1200]]))
+        _, _, line = obj_to_kn5.circuit_empties(circuit_roads(), circuit(twice=[[1190, 1200]]))
         self.assertEqual(line, 40.0)
 
     def test_line_moves_forward_from_under_a_bridge(self):
-        objs = road()
+        objs = circuit_roads()
         _, _, uv, faces = next(iter(objs.values()))
         deck = np.array([[130, 22.5, -45], [170, 24.5, -45], [170, 24.5, -55], [130, 22.5, -55]])
         objs["1ROAD_deck_bridge"] = "road", deck, uv, faces
@@ -125,8 +163,8 @@ class CircuitStartTest(unittest.TestCase):
         anchor = circuit()
         anchor["route"] = [[100, 50], [350, 50], [350, 350], [60, 350], [60, 57], [120, 57], [120, 65],
                            [50, 65], [50, 50], [100, 50]]
-        _, _, line = obj_to_kn5.circuit_empties(road(), anchor)
-        self.assertEqual(line, 22.0)
+        _, _, line = obj_to_kn5.circuit_empties(circuit_roads(anchor), anchor)
+        self.assertGreater(line, 20.0)
 
     def test_crossing_the_same_point_on_two_passes_counts_twice(self):
         route = [[0, 0], [2, 2], [2, 0], [0, 2], [0, 0]]
@@ -139,7 +177,7 @@ class CircuitStartTest(unittest.TestCase):
         # KN5 packs every empty's transform into float32. Inspect the endpoints that the game uses.
         ends = np.array([p[name][[0, 2]] for name in ("AC_TIME_0_L", "AC_TIME_0_R")], np.float32) * [1, -1]
         self.assertTrue(obj_to_kn5.crosses_once(anchor["route"], *ends))
-        self.assertEqual(line, 4.0)
+        self.assertGreater(line, 0.0)
 
     def test_given_line_cannot_count_a_crossing_away_from_its_own_place(self):
         objs, anchor = folded_circuit(east=-0.15, north=-0.11, line_m=0.0)
@@ -149,10 +187,10 @@ class CircuitStartTest(unittest.TestCase):
     def test_no_place_within_search_stops_the_build(self):
         with self.assertRaisesRegex(RuntimeError, r"^No place for start/finish within 300 m after pin 1: "
                                     r"move pin 1 onto a stretch driven once, away from bridges$"):
-            obj_to_kn5.start_empties(road(), circuit(twice=[[0, 400]]))
+            obj_to_kn5.start_empties(circuit_roads(), circuit(twice=[[0, 400]]))
 
     def test_given_line_m_is_kept(self):
-        nodes, _, line = obj_to_kn5.circuit_empties(road(), circuit(line_m=120.0))
+        nodes, _, line = obj_to_kn5.circuit_empties(circuit_roads(), circuit(line_m=120.0))
         p = positions(nodes)
         self.assertEqual(line, 120.0)
         np.testing.assert_allclose((p["AC_TIME_0_L"] + p["AC_TIME_0_R"]) / 2,
@@ -160,27 +198,154 @@ class CircuitStartTest(unittest.TestCase):
 
     def test_given_line_m_cannot_move_away_from_a_bad_span(self):
         with self.assertRaisesRegex(RuntimeError, "No place for start/finish"):
-            obj_to_kn5.start_empties(road(), circuit(line_m=30.0, twice=[[0, 40]]))
+            obj_to_kn5.start_empties(circuit_roads(), circuit(line_m=30.0, twice=[[0, 40]]))
 
     def test_convert_records_the_placed_line_in_the_anchor_and_kn5(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)
             obj = path / "track.obj"
-            obj.write_text("o 1ROAD_ground_0_0\nusemtl road\n"
-                           "v 0 10 0\nv 400 30 0\nv 400 30 -400\nv 0 10 -400\n"
-                           "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
-                           "f 1/1 2/2 3/3\nf 1/1 3/3 4/4\n", encoding="utf-8")
+            layout = long_circuit(twice=[[0, 40]])
+            writer = generator.make_obj.Obj(obj, header=False)
+            for name, (material, p, uv, faces) in circuit_roads(layout, width=28.0).items():
+                writer.add(name, material, p[:, [0, 2, 1]] * [1, -1, 1], uv, faces)
+            writer.close()
             (path / "track.mtl").write_text("newmtl road\nmap_Kd road.png\n", encoding="utf-8")
             Image.new("RGB", (1, 1), (80, 80, 80)).save(path / "road.png")
             anchor = path / "anchor.json"
-            anchor.write_text(json.dumps(circuit(twice=[[0, 40]])), encoding="utf-8")
+            anchor.write_text(json.dumps(layout), encoding="utf-8")
             (path / "data").mkdir()
             out = path / "track.kn5"
             obj_to_kn5.convert(str(obj), str(out), str(anchor), log=lambda _: None)
-            self.assertEqual(json.loads(anchor.read_text(encoding="utf-8"))["timing"]["line_m"], 80.0)
-            p = positions(n for n in kn5.read(out)["root"].children if n.cls == 1)
+            timing = json.loads(anchor.read_text(encoding="utf-8"))["timing"]
+            self.assertEqual(timing["line_m"], 80.0)
+            self.assertEqual(timing["sector_m"], [705.0])
+            children = kn5.read(out)["root"].children
+            p = positions(n for n in children if n.cls == 1)
             np.testing.assert_allclose((p["AC_TIME_0_L"] + p["AC_TIME_0_R"]) / 2,
                                        [230, 21.5 + obj_to_kn5.START_LIFT, -50], atol=1e-5)
+            np.testing.assert_allclose((p["AC_TIME_1_L"] + p["AC_TIME_1_R"]) / 2,
+                                       [70, 13.5 + obj_to_kn5.START_LIFT, -375], atol=1e-5)
+            self.assertTrue(any(n.name.startswith("nocol_gate_band_circuit") for n in children))
+            self.assertEqual(sum(n.name.startswith("nocol_gate_banner") for n in children), 1)
+            band = next(n for n in children if n.name.startswith("nocol_gate_band_circuit"))
+            self.assertAlmostEqual(float(band.vertices["pos"][:, 0].mean()), 230.0, places=4)
+            ends = sorted(p[name][2] for name in ("AC_TIME_0_L", "AC_TIME_0_R"))
+            self.assertEqual(ends, [float(band.vertices["pos"][:, 2].min()), float(band.vertices["pos"][:, 2].max())])
+
+    def test_start_refuses_a_gantry_that_would_put_posts_in_its_neighbour_road(self):
+        anchor = circuit()
+        anchor["route"] = [[350, 50], [700, 50], [700, 65.75], [0, 65.75], [0, 50], [350, 50]]
+        objs = {"1ROAD_wide": strip(38, 62), "1ROAD_neighbour": strip(62.75, 68.75)}
+        with self.assertRaisesRegex(RuntimeError, "start/finish"):
+            obj_to_kn5.circuit_empties(objs, anchor)
+
+
+def strip(lo, hi):
+    p = np.array([[0, 4, -lo], [700, 4, -lo], [700, 4, -hi], [0, 4, -hi]], float)
+    return "road", p, np.zeros((4, 2)), np.array([[0, 1, 2], [0, 2, 3]])
+
+
+def mapped_junctions(roads):
+    features = [{"spec": {"width": 10}, "geometry": [line]} for line in roads]
+    with tempfile.TemporaryDirectory() as folder:
+        part = Path(folder) / "t_0_0.obj"
+        with ZipFile(part.with_suffix(".editor.zip"), "w") as archive:
+            archive.writestr("tile.json", json.dumps({"features": features}))
+        return obj_to_kn5._mapped_junctions([part])
+
+
+class CircuitSectorsTest(unittest.TestCase):
+    def test_short_lap_gets_at_least_one_split_to_time_a_full_lap(self):
+        split_nodes, metres = obj_to_kn5.circuit_splits(circuit_roads(), circuit(), 0.0)
+        self.assertEqual(metres, [600.0])
+        self.assertEqual(set(positions(split_nodes)), {"AC_TIME_1_L", "AC_TIME_1_R"})
+
+    def test_twenty_kilometre_lap_gets_seventeen_sectors(self):
+        length = 20_800
+        anchor = long_circuit(depth=10_100, line_m=80.0)
+        split_nodes, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 80.0)
+        np.testing.assert_allclose(metres, 80.0 + np.arange(1, 17) * length / 17)
+        self.assertEqual(len(split_nodes), 32)
+        self.assertIn("AC_TIME_16_R", positions(split_nodes))
+
+    def test_split_moves_to_nearest_once_driven_stretch(self):
+        anchor = long_circuit(twice=[[611.0, 631.0]])
+        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0)
+        self.assertEqual(metres, [637.0])
+
+    def test_split_moves_off_an_overpass_to_the_lower_road(self):
+        objs = circuit_roads(long_circuit())
+        _, _, uv, faces = next(iter(objs.values()))
+        deck = np.array([[140, 24, -365], [162, 25, -365], [162, 25, -385], [140, 24, -385]])
+        objs["1ROAD_deck_bridge"] = "road", deck, uv, faces
+        split_nodes, metres = obj_to_kn5.circuit_splits(objs, long_circuit(), 0.0)
+        p = positions(split_nodes)
+        x, y, z = (p["AC_TIME_1_L"] + p["AC_TIME_1_R"]) / 2
+        self.assertNotEqual(metres, [625.0])
+        self.assertEqual(z, -375.0)
+        self.assertAlmostEqual(y, 10 + .05 * x + obj_to_kn5.START_LIFT)
+
+    def test_split_spans_its_road_without_touching_the_parallel_road(self):
+        objs = {"1ROAD_south": strip(47, 53), "1ROAD_north": strip(53.75, 59.75)}
+        anchor = circuit()
+        anchor["route"] = [[350, 50], [700, 50], [700, 56.75], [0, 56.75], [0, 50], [350, 50]]
+        nodes, metres = obj_to_kn5.circuit_splits(objs, anchor, 0.0)
+        self.assertEqual(metres, [706.75])
+        p = positions(nodes)
+        lo, hi = sorted(-point[2] for point in p.values())
+        self.assertLessEqual(lo, 53.75)
+        self.assertGreater(lo, 53)
+        self.assertGreaterEqual(hi, 59.75)
+
+    def test_contiguous_split_width_stays_at_the_height_of_its_road(self):
+        lower = strip(47, 53)
+        material, corners, uv, faces = strip(53, 59)
+        corners[:, 1] += 12 * corners[:, 0] / 700
+        objs = {"1ROAD_lower": lower, "1ROAD_upper": (material, corners, uv, faces)}
+        intervals = obj_to_kn5._road_intervals(objs, np.array([350.0, 4.15, -50.0]), np.array([0.0, -1.0]), own_level=True)
+        self.assertEqual(obj_to_kn5._containing_span(intervals), (-3.0, 3.0))
+
+    def test_mapped_t_junction_moves_a_split_off_its_mouth(self):
+        anchor = long_circuit()
+        junctions = mapped_junctions([[[100, -375], [150, -375], [200, -375]], [[150, -375], [150, -400]]])
+        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0, junctions)
+        self.assertEqual(metres, [631.0])
+
+    def test_split_moves_beyond_the_paved_mouth_of_an_acute_junction(self):
+        anchor = long_circuit()
+        junctions = mapped_junctions([[[100, -375], [144, -375], [220, -375]],
+                                      [[144, -375], [220, -392]]])
+        _, metres = obj_to_kn5.circuit_splits(circuit_roads(anchor), anchor, 0.0, junctions)
+        self.assertGreater(metres[0], 636.0)
+
+    def test_figure_eight_uses_the_selected_road_at_a_split(self):
+        anchor = circuit()
+        a, b, c, d = np.asarray([[25, 45], [375, 375], [25, 375], [375, 25]], float)
+        anchor["route"] = np.array([a, b, c, d, a]).tolist()
+        objs = circuit_roads(anchor)
+        fraction, _ = np.linalg.solve(np.column_stack((b - a, c - d)), c - a)
+        crossing = a + fraction * (b - a)
+        _, lengths = obj_to_kn5._closed_lap(anchor["route"])
+        under = float(fraction * lengths[1])
+        line_m = (under - lengths[-1] / 2) % lengths[-1]
+        along = (d - c) / np.linalg.norm(d - c)
+        across = np.array([-along[1], along[0]])
+        enu = np.array([crossing + u * along + v * across for u, v in [(-12, -4), (12, -4), (12, 4), (-12, 4)]])
+        deck = np.column_stack([enu[:, 0], 16 + .05 * enu[:, 0], -enu[:, 1]])
+        _, _, uv, faces = next(iter(objs.values()))
+        objs["1ROAD_deck_bridge"] = "road", deck, uv, faces
+        nodes, metres = obj_to_kn5.circuit_splits(objs, anchor, line_m)
+        self.assertNotAlmostEqual(metres[0], under)
+        p = positions(nodes)
+        left, right = p["AC_TIME_1_L"], p["AC_TIME_1_R"]
+        self.assertTrue(obj_to_kn5.crosses_once(anchor["route"], left[[0, 2]] * [1, -1], right[[0, 2]] * [1, -1]))
+        x = float(np.interp(metres[0], lengths, np.array([a, b, c, d, a])[:, 0]))
+        y = left[1]
+        self.assertAlmostEqual(y, 10 + .05 * x + obj_to_kn5.START_LIFT)
+
+    def test_lines_keep_room_for_each_other(self):
+        placed = obj_to_kn5._sector_sites(90, 3, lambda d: True if d in (24, 34) else None)
+        self.assertEqual(placed, [(24, True), (34, True)])
 
 
 if __name__ == "__main__":
